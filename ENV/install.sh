@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# --- 自动提权 ---
-if [[ $EUID -ne 0 ]]; then
-  exec sudo -E bash "$0" "$@"
-fi
-
+# ========== 基础工具 & 日志 ==========
+if [[ $EUID -ne 0 ]]; then exec sudo -E bash "$0" "$@"; fi
 log(){ printf "\n\033[1;34m[STEP]\033[0m %s\n" "$*"; }
+ok(){  printf "\033[1;32m[ OK ]\033[0m %s\n" "$*"; }
+warn(){printf "\033[1;33m[WARN]\033[0m %s\n" "$*"; }
+err(){ printf "\033[1;31m[ERR ]\033[0m %s\n" "$*"; }
+run_quiet(){ "$@" >/dev/null 2>&1 || true; }
 
-# 版本固定（稳定）
-SB_VER="1.12.2"
+# 固定稳定版本
+SB_VER="1.12.2"  # sing-box 最后稳定可用版本
 
+# ========== 依赖 ==========
 log "安装基础依赖"
 apt-get update -y >/dev/null
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
@@ -18,16 +20,16 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
 
 mkdir -p /etc/sing-box /usr/local/etc/xray /var/lib/sb-sub /var/www/html/sub /etc/ssl/edgebox
 
-# ===== 交互 =====
+# ========== 交互 ==========
 echo
 read -r -p "域名（留空=自签证书；填入=自动 ACME）： " DOMAIN || true
 echo
 
-yn() { # $1 varname $2 prompt $3 default(y|n)
-  local v="$1" p="$2" d="$3" ans
-  read -r -p "${p} [y/n]（默认：${d}）： " ans || true
-  [[ -z "${ans:-}" ]] && ans="$d"
-  printf -v "$v" "%s" "$ans"
+yn(){  # $1 varname  $2 提示  $3 默认 y|n
+  local _v="$1" _p="$2" _d="$3" a
+  read -r -p "${_p} [y/n]（默认：${_d}）： " a || true
+  [[ -z "${a:-}" ]] && a="$_d"
+  printf -v "$_v" "%s" "$a"
 }
 
 yn EN_GRPC "启用 VLESS-gRPC（走 443，经 Nginx）：" y
@@ -40,7 +42,7 @@ yn EN_TUIC "启用 TUIC（udp 2053；若 HY2 关闭可改为 443）：" n
 echo
 echo "分流策略："
 echo "  1) 全部直出（direct）"
-echo "  2) 绝大多数走住宅HTTP代理，仅 googlevideo/ytimg/ggpht 直出"
+echo "  2) 绝大多数走住宅HTTP代理，仅 googlevideo / ytimg / ggpht 直出"
 read -r -p "选择（1/2，默认：1）： " ROUTE_MODE || true
 [[ -z "${ROUTE_MODE:-}" ]] && ROUTE_MODE="1"
 
@@ -51,12 +53,12 @@ if [[ "$ROUTE_MODE" == "2" ]]; then
   read -r -p "住宅HTTP代理 用户名（可空）： "  HOME_USER || true
   read -r -p "住宅HTTP代理 密码（可空）： "    HOME_PASS || true
   if [[ -z "$HOME_HOST" || -z "$HOME_PORT" ]]; then
-    echo "[WARN] 代理信息不完整，回退为直出"
+    warn "代理信息不完整，回退为直出"
     ROUTE_MODE="1"
   fi
 fi
 
-# ===== 安装 Xray（承载 gRPC/WS/VMess，均回环监听）=====
+# ========== 安装 Xray（承载 gRPC/WS/VMess，均回环监听）==========
 log "安装 Xray"
 bash <(curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh) >/dev/null
 systemctl enable --now xray >/dev/null 2>&1 || true
@@ -73,8 +75,8 @@ HY2_PWD="$(openssl rand -hex 12)"
 TUIC_UUID="$(cat /proc/sys/kernel/random/uuid)"
 TUIC_PWD="$(openssl rand -hex 12)"
 
-# ----- Xray 配置到 127.0.0.1:118xx -----
-log "生成 Xray 配置（回环监听，供 443/stream 分流到 Nginx→Xray）"
+# 生成 Xray 配置到 127.0.0.1:118xx
+log "写入 Xray 配置（回环监听，供 443/stream 分流到 Nginx→Xray）"
 XRAY_CFG="/usr/local/etc/xray/config.json"
 {
   echo '{ "inbounds": ['
@@ -126,9 +128,25 @@ JSON
   fi
   echo '], "outbounds": [{ "protocol": "freedom" }] }'
 } >"$XRAY_CFG"
-systemctl restart xray
+systemctl restart xray || true
 
-# ===== 证书（ACME→自签兜底）=====
+# ========== 安装 sing-box（固定 v1.12.2） ==========
+log "安装 sing-box v${SB_VER}"
+ARCH="$(uname -m)"
+case "$ARCH" in
+  x86_64|amd64) SB_ASSET="linux-amd64" ;;
+  aarch64|arm64) SB_ASSET="linux-arm64" ;;
+  *) err "不支持的架构：$ARCH"; exit 1 ;;
+esac
+TMPD="$(mktemp -d)"
+SB_URL="https://github.com/SagerNet/sing-box/releases/download/v${SB_VER}/sing-box-${SB_VER}-${SB_ASSET}.tar.gz"
+curl -fsSL "$SB_URL" -o "$TMPD/sb.tgz"
+tar -xzf "$TMPD/sb.tgz" -C "$TMPD"
+install -m 0755 "$TMPD/sing-box-${SB_VER}-${SB_ASSET}/sing-box" /usr/local/bin/sing-box
+ok "sing-box 版本：$(/usr/local/bin/sing-box version | sed -n '1p')"
+rm -rf "$TMPD"
+
+# ========== 证书（ACME→自签兜底） ==========
 CRT="/etc/ssl/edgebox/fullchain.crt"
 KEY="/etc/ssl/edgebox/private.key"
 issue_self(){
@@ -138,6 +156,7 @@ issue_self(){
 
 if [[ -n "${DOMAIN:-}" ]]; then
   log "申请 ACME 证书：$DOMAIN（失败将回退自签）"
+  run_quiet systemctl stop nginx
   if ! ~/.acme.sh/acme.sh -v >/dev/null 2>&1; then
     curl -fsSL https://get.acme.sh | sh -s email=admin@${DOMAIN} >/dev/null 2>&1 || true
   fi
@@ -146,28 +165,29 @@ if [[ -n "${DOMAIN:-}" ]]; then
     ~/.acme.sh/acme.sh --install-cert -d "$DOMAIN" --ecc \
       --fullchain-file "$CRT" --key-file "$KEY" >/dev/null 2>&1 || issue_self
   else
-    echo "[WARN] ACME 失败，使用自签"
+    warn "ACME 失败，回退自签证书"
     issue_self
   fi
+  run_quiet systemctl start nginx
 else
   log "未填域名，生成自签证书"
   issue_self
 fi
 
-# ===== Reality 密钥双路兜底 =====
+# ========== Reality 密钥双路兜底 ==========
 log "生成 Reality 密钥对（sing-box→xray 双路兜底）"
+PRIV=""; PBK=""
 read PRIV PBK < <( (sing-box generate reality-keypair 2>/dev/null || true) | awk -F': *' '/Private/{p=$2}/Public/{print p,$2}')
 if [[ -z "${PRIV:-}" || -z "${PBK:-}" ]]; then
   read PRIV PBK < <( (xray x25519 2>/dev/null || true) | awk -F': *' '/Private/{p=$2}/Public/{print p,$2}')
 fi
-if [[ -z "${PRIV:-}" || -z "${PBK:-}" ]]; then
-  echo "[FATAL] Reality 密钥生成失败"; exit 1
-fi
-echo "[OK] Reality PBK: $PBK"
+if [[ -z "${PRIV:-}" || -z "${PBK:-}" ]]; then err "Reality 密钥生成失败"; exit 1; fi
+ok "Reality PBK: $PBK"
 
-# ===== Nginx：HTTP层(回环8443) + STREAM层(对外443) =====
-log "写入 Nginx (HTTP 8443/loopback) 与 STREAM(443) 配置"
-# 8443 只在本机监听，TLS 终止 → 反代 11800/11801/11802
+# ========== Nginx：HTTP(回环8443) + STREAM(对外443) ==========
+log "写入 Nginx 配置（http:8443→Xray；stream:443→SNI 分流）"
+
+# http server：回环8443 TLS 终止 → 反代 11800/11801/11802
 cat >/etc/nginx/conf.d/edgebox-https.conf <<NG1
 server {
   listen 127.0.0.1:8443 ssl http2;
@@ -176,7 +196,7 @@ server {
   ssl_certificate     ${CRT};
   ssl_certificate_key ${KEY};
 
-  # gRPC
+  # gRPC（/@grpc）
   location /${GRPC_SVC} {
     grpc_set_header X-Real-IP \$remote_addr;
     grpc_pass grpc://127.0.0.1:11800;
@@ -202,12 +222,12 @@ server {
 }
 NG1
 
-# STREAM：443 SNI 分流 → 8443 或 14443
-cat >/etc/nginx/stream.conf <<NG2
+# stream 443：SNI 区分 → 8443（gRPC/WS/VMess）或 14443（Reality）
+cat >/etc/nginx/stream.conf <<'NG2'
+# 由脚本维护：443 SNI 分流
 stream {
-  map \$ssl_preread_server_name \$edgebox_up {
-    ${DOMAIN:-_}  grpcws;
-    default       reality;
+  map $ssl_preread_server_name $edgebox_up {
+    # 由脚本插入具体域名映射
   }
   upstream grpcws { server 127.0.0.1:8443; }
   upstream reality{ server 127.0.0.1:14443; }
@@ -217,18 +237,30 @@ stream {
     proxy_connect_timeout 3s;
     proxy_timeout 1h;
     ssl_preread on;
-    proxy_pass \$edgebox_up;
+    proxy_pass $edgebox_up;
   }
 }
 NG2
+# 注入域名映射到 stream.conf 的 map 中
+if [[ -n "${DOMAIN:-}" ]]; then
+  sed -i "s/# 由脚本插入具体域名映射/    ${DOMAIN}  grpcws;\n    default       reality;/" /etc/nginx/stream.conf
+else
+  sed -i "s/# 由脚本插入具体域名映射/    default       reality;/" /etc/nginx/stream.conf
+fi
+
+# 确保 nginx.conf 在顶层 include stream.conf
+if ! grep -q 'stream.conf' /etc/nginx/nginx.conf; then
+  awk '1;/^include \/etc\/nginx\/modules-enabled\/\*\.conf;/{print "include /etc/nginx/stream.conf;"}' \
+    /etc/nginx/nginx.conf >/etc/nginx/nginx.conf.new && mv /etc/nginx/nginx.conf.new /etc/nginx/nginx.conf
+fi
 
 nginx -t && systemctl reload nginx
 
-# ===== sing-box：Reality on 127.0.0.1:14443；HY2 udp/443；TUIC 逻辑 =====
+# ========== sing-box：Reality on 127.0.0.1:14443；HY2 udp/443；TUIC 逻辑 ==========
 log "生成 sing-box 配置"
 SB_CFG="/etc/sing-box/config.json"
 
-# 路由/出站
+# 出站与分流
 ROUTE_JSON='"final":"direct"'
 HOME_OB=""
 if [[ "$ROUTE_MODE" == "2" ]]; then
@@ -244,7 +276,7 @@ fi
 
 IN=()
 
-# Reality via stream fallback → 本机 14443
+# Reality：由 Nginx stream SNI fallback → 本机 14443
 if [[ "$EN_REAL" == "y" ]]; then
 IN+=("{
   \"type\":\"vless\",\"tag\":\"vless-reality\",\"listen\":\"127.0.0.1\",\"listen_port\":14443,
@@ -262,7 +294,7 @@ IN+=("{
 }")
 fi
 
-# HY2 优先占用 udp/443
+# HY2：优先占用 udp/443
 if [[ "$EN_HY2" == "y" ]]; then
 IN+=("{
   \"type\":\"hysteria2\",\"tag\":\"hy2\",\"listen\":\"::\",\"listen_port\":443,
@@ -275,7 +307,7 @@ fi
 TUIC_PORT=443
 if [[ "$EN_HY2" == "y" && "$EN_TUIC" == "y" ]]; then
   TUIC_PORT=2053
-  echo "[WARN] HY2 已占用 UDP/443，TUIC 自动改用 UDP/2053"
+  warn "HY2 已占用 UDP/443，TUIC 自动改用 UDP/2053"
 elif [[ "$EN_TUIC" == "y" && "$EN_HY2" != "y" ]]; then
   TUIC_PORT=443
 fi
@@ -315,24 +347,24 @@ WantedBy=multi-user.target
 UNIT
 
 systemctl daemon-reload
-systemctl enable --now sing-box
+systemctl enable --now sing-box || true
 
-# ===== UFW 端口放行（仅 443/tcp 必开；udp 视协议）=====
-log "放行 UFW 端口（若未安装/未启用将自动忽略）"
+# ========== UFW 端口放行（仅 443/tcp 必开；udp 视协议）==========
+log "放行 UFW 端口（若未启用将忽略）"
 run_quiet ufw allow 443/tcp
 [[ "$EN_HY2" == "y" ]] && run_quiet ufw allow 443/udp
-if [[ "$EN_TUIC" == "y" ]]; then
-  run_quiet ufw allow ${TUIC_PORT}/udp
-fi
+if [[ "$EN_TUIC" == "y" ]]; then run_quiet ufw allow ${TUIC_PORT}/udp; fi
 run_quiet ufw reload
 
-# ===== 生成聚合订阅（全部对外 443）=====
+# ========== 订阅聚合：一条链接全协议 ==========
 HOST="${DOMAIN:-$(curl -fsS https://api.ipify.org || hostname -I | awk '{print $1}')}"
 SUB="/var/lib/sb-sub/urls.txt"
 : >"$SUB"
 [[ "$EN_GRPC" == "y" ]] && printf "vless://%s@%s:443?encryption=none&security=tls&type=grpc&serviceName=%s&fp=chrome#VLESS-gRPC@%s\n" "$UUID_ALL" "$HOST" "$GRPC_SVC" "$HOST" >>"$SUB"
 [[ "$EN_WS"   == "y" ]] && printf "vless://%s@%s:443?encryption=none&security=tls&type=ws&path=%s&host=%s&fp=chrome#VLESS-WS@%s\n" "$UUID_ALL" "$HOST" "$WS_PATH" "$HOST" "$HOST" >>"$SUB"
-[[ "$EN_VMESS"== "y" ]] && printf "vmess://%s\n" "$(jq -nc --arg v '2' --arg add 'none' --arg host "$HOST" --arg path "$VMESS_PATH" --arg id "$UUID_VMESS" --arg tls 'tls' --arg type 'ws' --arg sni "$HOST" --arg ps "VMess-WS@$HOST" '{v:$v,ps:$ps,add:$host,port:"443",id:$id,aid:"0",scy:$add,net:$type,type:"",host:$host,path:$path,tls:$tls,sni:$sni,alpn:""}' | base64 -w0)" >>"$SUB"
+if [[ "$EN_VMESS"== "y" ]]; then
+  printf "vmess://%s\n" "$(jq -nc --arg v '2' --arg add 'none' --arg host "$HOST" --arg path "$VMESS_PATH" --arg id "$UUID_VMESS" --arg tls 'tls' --arg type 'ws' --arg sni "$HOST" --arg ps "VMess-WS@$HOST" '{v:$v,ps:$ps,add:$host,port:"443",id:$id,aid:"0",scy:$add,net:$type,type:"",host:$host,path:$path,tls:$tls,sni:$sni,alpn:""}' | base64 -w0)" >>"$SUB"
+fi
 [[ "$EN_REAL" == "y" ]] && printf "vless://%s@%s:443?encryption=none&flow=xtls-rprx-vision&fp=chrome&security=reality&sni=%s&pbk=%s&sid=%s&type=tcp#VLESS-Reality@%s\n" "$UUID_ALL" "$HOST" "$SNI_CF" "$PBK" "$SID" "$HOST" >>"$SUB"
 [[ "$EN_HY2"  == "y" ]] && printf "hysteria2://%s@%s:443?alpn=h3#HY2@%s\n" "$HY2_PWD" "$HOST" "$HOST" >>"$SUB"
 if [[ "$EN_TUIC" == "y" ]]; then
@@ -340,15 +372,17 @@ if [[ "$EN_TUIC" == "y" ]]; then
 fi
 ln -sf "$SUB" /var/www/html/sub/urls.txt
 
-log "完成。订阅链接： http://$HOST/sub/urls.txt"
-echo "若用自签证书，请在客户端勾选“跳过证书验证/allowInsecure”。"
+log "安装完成"
+echo "订阅链接： http://$HOST/sub/urls.txt"
+[[ -z "${DOMAIN:-}" ]] && echo "提示：使用自签证书，客户端需启用“跳过证书验证/allowInsecure”。"
+
 echo
 echo "[端口快照]"
 ss -lnptu | egrep ':443|:2053' || true
 echo
 echo "[服务概要]"
-systemctl --no-pager -l status nginx | sed -n '1,18p'
+systemctl --no-pager -l status nginx    | sed -n '1,18p'
 echo "---"
-systemctl --no-pager -l status xray | sed -n '1,18p'
+systemctl --no-pager -l status xray     | sed -n '1,18p'
 echo "---"
 systemctl --no-pager -l status sing-box | sed -n '1,18p'
