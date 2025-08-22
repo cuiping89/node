@@ -16,7 +16,7 @@ SB_VER="1.12.2"  # sing-box 最后稳定可用版本
 log "安装基础依赖"
 apt-get update -y >/dev/null
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-  ca-certificates curl wget openssl jq unzip socat ufw nginx >/dev/null
+ ca-certificates curl wget openssl jq unzip socat ufw nginx >/dev/null
 
 mkdir -p /etc/sing-box /usr/local/etc/xray /var/lib/sb-sub /var/www/html/sub /etc/ssl/edgebox
 
