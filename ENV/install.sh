@@ -4,7 +4,7 @@ set -Eeuo pipefail
 # ========== 基础工具 & 日志 ==========
 if [[ $EUID -ne 0 ]]; then exec sudo -E bash "$0" "$@"; fi
 log(){ printf "\n\033[1;34m[STEP]\033[0m %s\n" "$*"; }
-ok(){ printf "\033[1;32m[ OK ]\033[0m %s\n" "$*"; }
+ok(){ printf "\033[1;32m[OK]\033[0m %s\n" "$*"; }
 warn(){printf "\033[1;33m[WARN]\033[0m %s\n" "$*"; }
 err(){ printf "\033[1;31m[ERR ]\033[0m %s\n" "$*"; }
 run_quiet(){ "$@" >/dev/null 2>&1 || true; }
