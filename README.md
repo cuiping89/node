@@ -46,6 +46,35 @@ o	家宽/固网：VLESS‑gRPC(443/tcp)（HTTP/2，抗 QoS、体验稳）
 o	移动/热点：HY2(udp/443|8443)（基于 QUIC，弱网恢复好）
 •	兜底：VLESS‑WS(+TLS)（可上橙云/Argo 隐源）
 •	应急：VLESS‑Reality(443/tcp)（被动探测/强封控环境）
+________________________________________
+5)常用验证与排障
+端口：ss -lntup | egrep ':443|:8443|:2053' || true
+服务日志：
+journalctl -u sing-box -b --no-pager -n 120
+journalctl -u xray     -b --no-pager -n 120
+Nginx：
+nginx -t && systemctl reload nginx
+订阅再生：/root/make_sub.sh <你的域名>
+________________________________________
+6) 变更记录 / 与早期方案的差异
+
+固定版本：sing-box 统一到 v1.12.2，避免语法漂移；Xray 固定 25.8.3。
+
+彻底防 EOF：所有 JSON 用完整 here‑doc 生成，不再通过零碎 sed/jq 修改（只用于校验）。
+
+Reality 密钥安全：同一命令一次抓取私/公钥，杜绝抓错对/变量为空。
+
+订阅生成稳定：落地为脚本 /root/make_sub.sh，避免 WebSSH 粘贴截断。
+
+冲突处理：启用 Reality → Nginx 自动切换 8443，避免 443/tcp 冲突。
+
+附：使用建议
+
+客户端里建议设置优先级（主用 gRPC/HY2，备用 WS/Reality/TUIC），服务器无法强制客户端优先级。
+
+若要用正式证书，可将 mk_self_cert 改为 ACME（比如 acme.sh），并把 Nginx/HY2/TUIC 的证书路径指向真实证书。
+
+若所在区域 UDP 不通，关闭 HY2/TUIC，仅留 gRPC/WS/Reality。
 •	可选备份：TUIC(udp/2053)（遇到 HY2 QoS/探测时切）
 •	常见坑同步：
 o	橙云下 HY2 不能走 CF（需灰云直连）。
