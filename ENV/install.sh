@@ -1,353 +1,294 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-trap 'echo; echo "[ERROR] 第 $LINENO 行命令失败：${BASH_COMMAND}"; exit 1' ERR
 
-# ---------- 基础工具 ----------
-export DEBIAN_FRONTEND=noninteractive
-apt-get update -y
-apt-get install -y curl wget unzip jq openssl ufw nginx socat
+# =========================
+# EdgeBox 五协议一体安装脚本（稳定版）
+# 组件：
+# - Nginx(8443/tcp)：TLS 终止 + 反代 VLESS-gRPC / VLESS-WS
+# - Xray         ：承载 gRPC/WS (回环 127.0.0.1)
+# - sing-box 1.12.2：承载 VLESS-Reality(443/tcp) + HY2(udp 443/8443) + TUIC(udp 2053)
+# - 订阅输出：/var/lib/sb-sub/urls.txt （映射到 http://<域名或IP>/sub/urls.txt）
+#
+# 兼容性/健壮性：
+# - Reality 密钥生成双路兜底：优先 sing-box generate，失败自动 xray x25519
+# - ACME 失败自动回落自签证书（客户端需允许不安全证书）
+# - UFW 端口按启用协议自动放行（不存在 UFW 不报错）
+# - 所有 Nginx heredoc 已转义变量（\$xxx），避免 shell 抢先展开
+#
+# 作者提示：
+# - 你可以多次重复执行本脚本；配置会覆盖更新，服务会平滑重启
+# - 若需要卸载，使用我们配套的“无交互通用卸载脚本”即可
+# =========================
 
-# ---------- 变量/函数 ----------
-WORK=/root/edgebox
-SB_DIR=/etc/sing-box
-XR_DIR=/usr/local/etc/xray
-SUB_DIR=/var/lib/sb-sub
-WEB_ROOT=/var/www/html
-CERT_DIR=/etc/ssl/edgebox
-mkdir -p "$WORK" "$SB_DIR" "$XR_DIR" "$SUB_DIR" "$WEB_ROOT/sub" "$CERT_DIR"
+# --------- 基础准备 ---------
+need_cmd() { command -v "$1" >/dev/null 2>&1; }
+run_quiet() { "$@" >/dev/null 2>&1 || true; }
 
-_color() { printf "\033[%sm%s\033[0m" "$1" "$2"; }
-ok() { _color "32;1" "[OK] $1"; echo; }
-warn() { _color "33;1" "[WARN] $1"; echo; }
-info() { _color "36;1" "[INFO] $1"; echo; }
+if [[ $EUID -ne 0 ]]; then
+  echo "请使用 root 运行。可先执行：sudo -i"
+  exit 1
+fi
 
-# 读入：有默认值时回车取默认
-ask() {
-  # $1: 变量名  $2: 提示  $3: 默认
-  local __var="$1" __tip="$2" __def="${3-}"
-  if [[ -n "$__def" ]]; then
-    read -r -p "$__tip（默认：$__def）： " __ans || true
-    printf -v "$__var" "%s" "${__ans:-$__def}"
-  else
-    read -r -p "$__tip： " __ans || true
-    printf -v "$__var" "%s" "$__ans"
-  fi
-}
+echo "➤ 安装依赖..."
+apt-get update -y >/dev/null
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+  ca-certificates curl wget openssl jq unzip socat ufw nginx >/dev/null
 
-# yes/no（y/n），默认 y
-ask_yn() {
-  local __var="$1" __tip="$2" __def="${3-y}"
-  read -r -p "$__tip [y/n]（默认：$__def）： " __ans || true
-  __ans="${__ans:-$__def}"
-  case "${__ans,,}" in y|yes) printf -v "$__var" "y";; *) printf -v "$__var" "n";; esac
-}
+mkdir -p /etc/sing-box /usr/local/etc/xray /var/lib/sb-sub /var/www/html/sub /etc/ssl/edgebox
 
-# 生成随机量
-uuid()  { cat /proc/sys/kernel/random/uuid; }
-hex8()  { openssl rand -hex 4; }             # 8位短ID
-rand12(){ openssl rand -hex 12; }
-randpath(){ echo "/$(openssl rand -hex 3)"; }
-
-# 公网IP（订阅回退用）
-PUB_IP="$(curl -fsS --max-time 5 https://api.ipify.org || true)"
-[[ -z "$PUB_IP" ]] && PUB_IP="$(curl -fsS --max-time 5 http://ipv4.icanhazip.com || true)"
-[[ -z "$PUB_IP" ]] && PUB_IP="$(hostname -I | awk '{print $1}')"
-
-# ---------- 交互 ----------
+# --------- 交互：协议/证书/分流 ---------
 echo
-info "协议/证书/分流 交互配置"
+read -r -p "输入访问域名（留空＝自签证书，可用公网 IP 访问订阅）： " DOMAIN || true
+echo
 
-ask DOMAIN "输入域名（留空=使用自签证书，可用 IP 访问订阅）" ""
-ask_yn EN_GRPC "启用 VLESS-gRPC(8443/tcp，经 Nginx)？" y
-ask_yn EN_WS   "启用 VLESS-WS(8443/tcp，经 Nginx)？" y
-ask_yn EN_VR   "启用 VLESS-Reality(443/tcp)？" y
-ask_yn EN_HY2  "启用 Hysteria2(udp 443 或 8443)？" y
-ask_yn EN_TUIC "启用 TUIC(udp 2053)？" n
+yn_default() {  # $1 varname  $2 prompt  $3 default[y|n]
+  local _v _p _d ; _v="$1"; _p="$2"; _d="$3"
+  local defc="y" ; [[ "$_d" == "n" ]] && defc="n"
+  read -r -p "${_p} [y/n]（默认：${defc}）： " ans || true
+  if [[ -z "${ans:-}" ]]; then ans="$defc"; fi
+  printf -v "$_v" "%s" "$ans"
+}
 
-HY2_PORT=443
+yn_default EN_GRPC   "启用 VLESS-gRPC（8443/tcp，经 Nginx）：" y
+yn_default EN_WS     "启用 VLESS-WS（8443/tcp，经 Nginx）："     y
+yn_default EN_REAL   "启用 VLESS-Reality（443/tcp）："            y
+yn_default EN_HY2    "启用 Hysteria2（udp 443 或 8443）："        y
+yn_default EN_TUIC   "启用 TUIC（udp 2053）："                    n
+
+HY2_PORT="443"
 if [[ "$EN_HY2" == "y" ]]; then
-  read -r -p "HY2 端口（443/8443，默认：443）： " _p || true
-  [[ -n "${_p:-}" ]] && HY2_PORT="${_p}"
+  read -r -p "HY2 端口（443/8443，默认：443）： " HY2_PORT || true
+  [[ -z "${HY2_PORT:-}" ]] && HY2_PORT="443"
+  [[ "${HY2_PORT}" != "443" && "${HY2_PORT}" != "8443" ]] && HY2_PORT="443"
 fi
 
 echo
 echo "分流策略："
-echo "1) 全部直出（direct）"
-echo "2) 绝大多数走住宅HTTP代理，仅 googlevideo/ytimg/ggpht 直出"
-ask MODE "选择（1/2）" "1"
+echo "  1) 全部直出（direct）"
+echo "  2) 绝大多数走住宅 HTTP 代理，仅 googlevideo/ytimg/ggpht 直出"
+read -r -p "选择（1/2，默认：1）： " ROUTE_MODE || true
+[[ -z "${ROUTE_MODE:-}" ]] && ROUTE_MODE="1"
+
 HOME_HOST=""; HOME_PORT=""; HOME_USER=""; HOME_PASS=""
-if [[ "$MODE" == "2" ]]; then
-  ask HOME_HOST "住宅HTTP代理 host/IP" ""
-  ask HOME_PORT "住宅HTTP代理 port" ""
-  ask HOME_USER "住宅HTTP代理 用户名（可空）" ""
-  ask HOME_PASS "住宅HTTP代理 密码（可空）" ""
-  # 如未填完整 host/port，则回退为直出
+if [[ "$ROUTE_MODE" == "2" ]]; then
+  read -r -p "住宅 HTTP 代理 host/IP（必填）： " HOME_HOST
+  read -r -p "住宅 HTTP 代理 port（必填）： "    HOME_PORT
+  read -r -p "住宅 HTTP 代理 用户名（可空）： "  HOME_USER || true
+  read -r -p "住宅 HTTP 代理 密码（可空）： "    HOME_PASS || true
   if [[ -z "$HOME_HOST" || -z "$HOME_PORT" ]]; then
-    warn "未提供完整 HTTP 代理信息，自动回退为【全部直出】"
-    MODE="1"
+    echo "[WARN] 住宅代理信息不完整，回退为：全部直出"
+    ROUTE_MODE="1"
   fi
 fi
 
-# ---------- 安装内核优化 & 2GB swap ----------
-if ! sysctl net.ipv4.tcp_congestion_control | grep -q bbr; then
-  cat >/etc/sysctl.d/99-bbr-fq.conf <<'SYS'
-net.core.default_qdisc = fq
-net.ipv4.tcp_congestion_control = bbr
-SYS
-  sysctl --system >/dev/null 2>&1 || true
-  ok "已应用 BBR + fq"
-fi
-
-if ! swapon --show | grep -q ^; then
-  fallocate -l 2G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=2048
-  chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
-  grep -q "/swapfile" /etc/fstab || echo "/swapfile none swap sw 0 0" >>/etc/fstab
-  ok "已创建 2GB swap"
-fi
-
-# ---------- 安装 Xray ----------
-info "安装 Xray..."
+# --------- 安装 Xray（仅做 gRPC/WS） ---------
+echo "➤ 安装 Xray..."
 bash <(curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh) >/dev/null
-systemctl enable --now xray
+systemctl enable --now xray >/dev/null 2>&1 || true
 
-# ---------- 安装 sing-box v1.12.2 ----------
-info "安装 sing-box v1.12.2..."
-SB_VER=v1.12.2
-ARCH=amd64
-URL="https://github.com/SagerNet/sing-box/releases/download/${SB_VER}/sing-box-$(echo ${SB_VER} | tr -d v)-linux-${ARCH}.tar.gz"
-TMP=$(mktemp -d)
-curl -fsSL "$URL" | tar -xz -C "$TMP"
-install -m 0755 "$TMP"/sing-box*/sing-box /usr/local/bin/sing-box
-rm -rf "$TMP"
-ok "$(sing-box version || true)"
+# --------- 安装 sing-box v1.12.2 （固定稳定版）---------
+echo "➤ 安装 sing-box v1.12.2..."
+SB_VER="1.12.2"
+SB_FILE="sing-box-${SB_VER}-linux-amd64.tar.gz"
+SB_URL="https://github.com/SagerNet/sing-box/releases/download/v${SB_VER}/${SB_FILE}"
+TMPD="$(mktemp -d)"
+curl -fL "$SB_URL" -o "${TMPD}/${SB_FILE}"
+tar -xzf "${TMPD}/${SB_FILE}" -C "${TMPD}"
+install -m 0755 "${TMPD}/sing-box-${SB_VER}-linux-amd64/sing-box" /usr/local/bin/sing-box
+rm -rf "$TMPD"
+echo "[OK] sing-box 版本：$(sing-box version | head -n1)"
 
-# ---------- 生成密钥/ID ----------
-UUID_ALL="$(uuid)"                 # 给 WS/gRPC/VLESS/Reality 共用
-SID="$(hex8)"                      # Reality 短ID
-SNI="www.cloudflare.com"           # Reality 伪装域名
-WS_PATH="$(randpath)"
-HY2_PWD="$(rand12)"
-TUIC_UUID="$(uuid)"
-TUIC_PWD="$(rand12)"
+# --------- 统一生成随机参数 ----------
+UUID_ALL="$(cat /proc/sys/kernel/random/uuid)"
+SID="$(openssl rand -hex 4)"                 # Reality 短 ID
+WS_PATH="/$(openssl rand -hex 3)"
+GRPC_SVC="@grpc"                              # gRPC serviceName
+HY2_PWD="$(openssl rand -hex 12)"
+TUIC_UUID="$(cat /proc/sys/kernel/random/uuid)"
+TUIC_PWD="$(openssl rand -hex 12)"
+SNI="www.cloudflare.com"                      # Reality 伪装域名
 
-# Reality 密钥对
-PRIV="$(sing-box generate reality-keypair | awk '/Private key/ {print $3}')"
-PBK="$( sing-box generate reality-keypair | awk '/Public key/  {print $3}')"  # 生成两次避免并发读
-# 若第二次没取到，则再取一次完整对
-if [[ -z "$PRIV" || -z "$PBK" ]]; then
-  read -r PRIV PBK < <(sing-box generate reality-keypair | awk '/Private/{p=$3}/Public/{print p,$3}')
-fi
-[[ -z "$PRIV" || -z "$PBK" ]] && { echo "[ERROR] Reality 密钥生成失败"; exit 1; }
+# --------- 证书准备（ACME→自签兜底）---------
+CRT="/etc/ssl/edgebox/fullchain.crt"
+KEY="/etc/ssl/edgebox/private.key"
 
-# ---------- 准备证书 ----------
-install -d "$CERT_DIR"
+issue_self_signed() {
+  openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
+    -keyout "$KEY" -out "$CRT" -subj "/CN=${DOMAIN:-edgebox.local}" >/dev/null 2>&1
+}
+
 if [[ -n "${DOMAIN:-}" ]]; then
-  info "尝试为 ${DOMAIN} 申请 ACME 证书（失败将回退自签）..."
-  curl -fsSL https://get.acme.sh | sh -s email=admin@$DOMAIN >/dev/null 2>&1 || true
+  echo "➤ 申请 ACME 证书（${DOMAIN}）..."
+  # 临时开放 80 端口（如有 UFW）
+  run_quiet ufw allow 80/tcp
+  # 安装/更新 acme.sh
+  if ! need_cmd ~/.acme.sh/acme.sh; then
+    curl -fsSL https://get.acme.sh | sh -s email=admin@${DOMAIN} >/dev/null 2>&1 || true
+  fi
   ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt >/dev/null 2>&1 || true
-  if ~/.acme.sh/acme.sh --issue --nginx -d "$DOMAIN" --keylength ec-256 >/dev/null 2>&1; then
-    ~/.acme.sh/acme.sh --install-cert -d "$DOMAIN" --ecc \
-      --key-file       "$CERT_DIR/private.key" \
-      --fullchain-file "$CERT_DIR/fullchain.crt" \
-      --reloadcmd      "systemctl reload nginx" >/dev/null 2>&1 || true
-    ok "ACME 成功"
+  if ~/.acme.sh/acme.sh --issue --standalone -d "$DOMAIN" --keylength ec-256 >/dev/null 2>&1; then
+    ~/.acme.sh/acme.sh --install-cert -d "$DOMAIN" \
+      --ecc --fullchain-file "$CRT" --key-file "$KEY" >/dev/null 2>&1 || issue_self_signed
   else
-    warn "ACME 失败，使用自签证书（客户端需 Skip Verify）"
-    openssl req -x509 -newkey rsa:2048 -sha256 -days 3650 -nodes \
-      -keyout "$CERT_DIR/private.key" -out "$CERT_DIR/fullchain.crt" \
-      -subj "/CN=$DOMAIN" >/dev/null 2>&1
+    echo "[WARN] ACME 失败，回退自签证书"
+    issue_self_signed
   fi
 else
-  warn "未提供域名，使用自签证书（客户端需 Skip Verify）"
-  openssl req -x509 -newkey rsa:2048 -sha256 -days 3650 -nodes \
-    -keyout "$CERT_DIR/private.key" -out "$CERT_DIR/fullchain.crt" \
-    -subj "/CN=$PUB_IP" >/dev/null 2>&1
+  echo "➤ 生成自签证书（未填写域名）..."
+  issue_self_signed
 fi
 
-# ---------- Nginx 反代（仅 gRPC/WS 需要） ----------
-if [[ "$EN_GRPC" == "y" || "$EN_WS" == "y" ]]; then
-  cat >/etc/nginx/conf.d/edgebox.conf <<'NG'
-# generated by edgebox
-server {
-    listen 8443 ssl http2;
-    server_name _;
+# --------- Reality 密钥对（双路兜底）---------
+have_sb_reality() { sing-box version 2>/dev/null | grep -qi 'with_reality'; }
+gen_sb_keys() { have_sb_reality && sing-box generate reality-keypair 2>/dev/null || true; }
 
-    ssl_certificate     /etc/ssl/edgebox/fullchain.crt;
-    ssl_certificate_key /etc/ssl/edgebox/private.key;
-
-    # gRPC 转发到本机 10085
-    # （按需启用：安装脚本会替换开关）
-}
-NG
-
-  # 动态追加 location（用单引号 heredoc 防止 $http_upgrade 被 shell 展开）
-  if [[ "$EN_GRPC" == "y" ]]; then
-    cat >>/etc/nginx/conf.d/edgebox.conf <<'NG'
-    location /@grpc {
-        grpc_pass grpc://127.0.0.1:10085;
-        client_max_body_size 0;
-        grpc_read_timeout 7d;
-        grpc_send_timeout 7d;
-    }
-NG
-  fi
-
-  if [[ "$EN_WS" == "y" ]]; then
-    cat >>/etc/nginx/conf.d/edgebox.conf <<NG
-    location ${WS_PATH} {
-        proxy_redirect off;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host \$host;
-        proxy_pass http://127.0.0.1:10086;
-    }
-NG
-  fi
-
-  echo "}" >>/etc/nginx/conf.d/edgebox.conf
-
-  nginx -t
-  systemctl reload nginx || systemctl restart nginx
+# 一次解析私钥+公钥
+read PRIV PBK < <(gen_sb_keys | awk -F': *' '/Private/{priv=$2}/Public/{print priv,$2}')
+if [[ -z "${PRIV:-}" || -z "${PBK:-}" ]]; then
+  read PRIV PBK < <(xray x25519 2>/dev/null | awk -F': *' '/Private/{priv=$2}/Public/{print priv,$2}')
 fi
-
-# ---------- Xray 配置（gRPC/WS） ----------
-XR_INS=()
-if [[ "$EN_GRPC" == "y" ]]; then
-  XR_INS+=("{
-    \"listen\": \"127.0.0.1\",
-    \"port\": 10085,
-    \"protocol\": \"vless\",
-    \"settings\": {\"clients\":[{\"id\":\"$UUID_ALL\",\"level\":0}]},
-    \"streamSettings\": {\"network\":\"grpc\",\"grpcSettings\":{\"serviceName\":\"@grpc\"}},
-    \"tag\":\"vless-grpc-in\"
-  }")
+if [[ -z "${PRIV:-}" || -z "${PBK:-}" ]]; then
+  echo "[FATAL] Reality 密钥生成失败（sing-box 与 xray 均不可用）"; exit 1
 fi
-if [[ "$EN_WS" == "y" ]]; then
-  XR_INS+=("{
-    \"listen\": \"127.0.0.1\",
-    \"port\": 10086,
-    \"protocol\": \"vless\",
-    \"settings\": {\"clients\":[{\"id\":\"$UUID_ALL\",\"level\":0}]},
-    \"streamSettings\": {\"network\":\"ws\",\"wsSettings\":{\"path\":\"$WS_PATH\",\"headers\":{\"Host\":\"${DOMAIN:-$PUB_IP}\"}}},
-    \"tag\":\"vless-ws-in\"
-  }")
-fi
-XR_JSON_IN="$(IFS=,; echo "${XR_INS[*]-}")"
+echo "[OK] Reality 公钥：$PBK"
 
-cat >"$XR_DIR/config.json" <<XR
+# --------- Xray 配置（仅 gRPC/WS on loopback）---------
+XRAY_CFG="/usr/local/etc/xray/config.json"
+cat >"$XRAY_CFG" <<JSON
 {
-  "log": {"loglevel": "warning"},
-  "inbounds": [ $XR_JSON_IN ],
-  "outbounds": [
-    {"protocol":"freedom","tag":"direct"},
-    {"protocol":"blackhole","tag":"block"}
-  ]
+  "inbounds": [
+    ${
+      [[ "$EN_GRPC" == "y" ]] && cat <<'G' | sed "s/@UUID@/${UUID_ALL}/g"
+      {
+        "listen": "127.0.0.1",
+        "port": 11800,
+        "protocol": "vless",
+        "settings": { "clients": [{ "id": "@UUID@" }], "decryption": "none" },
+        "streamSettings": { "network": "grpc", "grpcSettings": { "serviceName": "@grpc" } }
+      }G
+    }
+    ${
+      [[ "$EN_GRPC" == "y" && "$EN_WS" == "y" ]] && echo ','
+    }
+    ${
+      [[ "$EN_WS" == "y" ]] && cat <<'W' | sed -e "s/@UUID@/${UUID_ALL}/g" -e "s#@PATH@#${WS_PATH}#g" -e "s/@HOST@/${DOMAIN:-localhost}/g"
+      {
+        "listen": "127.0.0.1",
+        "port": 11801,
+        "protocol": "vless",
+        "settings": { "clients": [{ "id": "@UUID@" }], "decryption": "none" },
+        "streamSettings": {
+          "network": "ws",
+          "wsSettings": { "path": "@PATH@", "headers": { "Host": "@HOST@" } }
+        }
+      }W
+    }
+  ],
+  "outbounds": [{ "protocol": "freedom" }]
 }
-XR
+JSON
 
-jq . "$XR_DIR/config.json" >/dev/null
-systemctl enable --now xray
+systemctl restart xray
 
-# ---------- sing-box 配置（Reality/HY2/TUIC + 分流） ----------
-SB_INS=()
+# --------- Nginx 8443 反代（gRPC + WS）---------
+NGX="/etc/nginx/conf.d/edgebox.conf"
+cat >"$NGX" <<NGINX
+server {
+  listen 8443 ssl http2;
+  server_name ${DOMAIN:-_};
 
-if [[ "$EN_VR" == "y" ]]; then
-  SB_INS+=("{
-    \"type\": \"vless\",
-    \"listen\": \"::\",
-    \"listen_port\": 443,
-    \"users\": [{\"uuid\": \"$UUID_ALL\", \"flow\": \"xtls-rprx-vision\"}],
-    \"tls\": {
-      \"enabled\": true,
-      \"server_name\": \"$SNI\",
-      \"reality\": {
-        \"enabled\": true,
-        \"private_key\": \"$PRIV\",
-        \"short_id\": [\"$SID\"],
-        \"handshake\": {\"server\":\"$SNI\",\"server_port\":443}
+  ssl_certificate     ${CRT};
+  ssl_certificate_key ${KEY};
+
+  # gRPC
+  location /${GRPC_SVC} {
+    grpc_set_header X-Real-IP \$remote_addr;
+    grpc_pass grpc://127.0.0.1:11800;
+  }
+
+  # WebSocket
+  location ${WS_PATH} {
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade \$http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host \$host;
+    proxy_pass http://127.0.0.1:11801;
+  }
+}
+NGINX
+
+nginx -t
+systemctl reload nginx
+
+# --------- sing-box 配置（Reality / HY2 / TUIC + 路由）---------
+SB_CFG="/etc/sing-box/config.json"
+
+# 路由与出站
+ROUTE_JSON='"final":"direct"'
+HOME_OB=""
+
+if [[ "$ROUTE_MODE" == "2" ]]; then
+  HOME_OB=$(jq -n --arg h "$HOME_HOST" --argjson p "$HOME_PORT" \
+               --arg u "$HOME_USER" --arg pw "$HOME_PASS" '{
+      "type":"http","tag":"home_http",
+      "server":$h,"server_port":($p|tonumber),
+      "username": ( ($u|length)>0 ? $u : null ),
+      "password": ( ($pw|length)>0 ? $pw : null )
+    }')
+  ROUTE_JSON='"rules":[{"domain_suffix":["googlevideo.com","ytimg.com","ggpht.com"],"outbound":"direct"}],"final":"home_http"'
+fi
+
+# inbounds 组装
+IN_ARR=()
+
+if [[ "$EN_REAL" == "y" ]]; then
+  IN_ARR+=("{
+    \"type\":\"vless\",\"tag\":\"vless-reality\",\"listen\":\"::\",\"listen_port\":443,
+    \"users\":[{\"uuid\":\"${UUID_ALL}\",\"flow\":\"xtls-rprx-vision\"}],
+    \"tls\":{
+      \"enabled\":true,
+      \"server_name\":\"${SNI}\",
+      \"reality\":{
+        \"enabled\":true,
+        \"private_key\":\"${PRIV}\",
+        \"short_id\":[\"${SID}\"],
+        \"handshake\":{\"server\":\"${SNI}\",\"server_port\":443}
       }
-    },
-    \"tag\": \"vless-reality-in\"
+    }
   }")
 fi
 
 if [[ "$EN_HY2" == "y" ]]; then
-  SB_INS+=("{
-    \"type\": \"hysteria2\",
-    \"listen\": \"::\",
-    \"listen_port\": $HY2_PORT,
-    \"users\": [{\"password\": \"$HY2_PWD\"}],
-    \"tls\": {
-      \"enabled\": true,
-      \"alpn\": [\"h3\"],
-      \"certificate_path\": \"$CERT_DIR/fullchain.crt\",
-      \"key_path\": \"$CERT_DIR/private.key\"
-    },
-    \"tag\": \"hy2-in\"
+  IN_ARR+=("{
+    \"type\":\"hysteria2\",\"tag\":\"hy2\",\"listen\":\"::\",\"listen_port\":${HY2_PORT},
+    \"users\":[{\"password\":\"${HY2_PWD}\"}],
+    \"tls\":{\"enabled\":true,\"alpn\":[\"h3\"],\"certificate_path\":\"${CRT}\",\"key_path\":\"${KEY}\"}
   }")
 fi
 
 if [[ "$EN_TUIC" == "y" ]]; then
-  SB_INS+=("{
-    \"type\": \"tuic\",
-    \"listen\": \"::\",
-    \"listen_port\": 2053,
-    \"users\": [{\"uuid\":\"$TUIC_UUID\",\"password\":\"$TUIC_PWD\"}],
-    \"congestion_control\": \"bbr\",
-    \"tls\": {
-      \"enabled\": true,
-      \"alpn\": [\"h3\"],
-      \"certificate_path\": \"$CERT_DIR/fullchain.crt\",
-      \"key_path\": \"$CERT_DIR/private.key\"
-    },
-    \"tag\": \"tuic-in\"
+  IN_ARR+=("{
+    \"type\":\"tuic\",\"tag\":\"tuic\",\"listen\":\"::\",\"listen_port\":2053,
+    \"users\":[{\"uuid\":\"${TUIC_UUID}\",\"password\":\"${TUIC_PWD}\"}],
+    \"congestion_control\":\"bbr\",
+    \"tls\":{\"enabled\":true,\"alpn\":[\"h3\"],\"certificate_path\":\"${CRT}\",\"key_path\":\"${KEY}\"}
   }")
 fi
 
-SB_JSON_IN="$(IFS=,; echo "${SB_INS[*]-}")"
+# outbounds 组装
+OB_ARR=()
+OB_ARR+=('{"type":"direct","tag":"direct"}')
+if [[ -n "$HOME_OB" ]]; then OB_ARR+=("$HOME_OB"); fi
+OB_ARR+=('{"type":"block","tag":"block"}')
 
-# 出口与分流
-SB_OUTS=(
-  "{\"type\":\"direct\",\"tag\":\"direct\"}"
-  "{\"type\":\"block\",\"tag\":\"block\"}"
-)
+# 写入 sing-box 配置
+jq -n --argjson in "[$(IFS=,; echo "${IN_ARR[*]-[]}")]" \
+      --argjson ob "[$(IFS=,; echo "${OB_ARR[*]}")]" \
+      --argjson route "{${ROUTE_JSON}}" \
+      '{log: {level:"info"}, inbounds:$in, outbounds:$ob, route:$route}' | \
+  tee "$SB_CFG" >/dev/null
 
-FINAL_TAG="direct"
-if [[ "$MODE" == "2" ]]; then
-  # 可选用户名/密码项：仅在非空时写入
-  EXTRA=""
-  [[ -n "$HOME_USER" ]] && EXTRA="$EXTRA, \"username\":\"$HOME_USER\""
-  [[ -n "$HOME_PASS" ]] && EXTRA="$EXTRA, \"password\":\"$HOME_PASS\""
-  SB_OUTS+=("{\"type\":\"http\",\"tag\":\"home_http\",\"server\":\"$HOME_HOST\",\"server_port\":$HOME_PORT$EXTRA}")
-  FINAL_TAG="home_http"
-fi
-SB_JSON_OUT="$(IFS=,; echo "${SB_OUTS[*]}")"
-
-# 分流规则：googlevideo/ytimg/ggpht 直出
-SB_ROUTE=$(cat <<ROUTE
-{
-  "rules": [
-    {"domain_suffix":["googlevideo.com","ytimg.com","ggpht.com"], "outbound":"direct"}
-  ],
-  "final": "$FINAL_TAG",
-  "auto_detect_interface": true
-}
-ROUTE
-)
-
-cat >"$SB_DIR/config.json" <<SB
-{
-  "log": {"level":"info"},
-  "inbounds": [ $SB_JSON_IN ],
-  "outbounds": [ $SB_JSON_OUT ],
-  "route": $SB_ROUTE
-}
-SB
-
-jq . "$SB_DIR/config.json" >/dev/null
-
-# systemd for sing-box
+# systemd 单元
 cat >/etc/systemd/system/sing-box.service <<'UNIT'
 [Unit]
 Description=sing-box unified service
@@ -367,48 +308,59 @@ UNIT
 systemctl daemon-reload
 systemctl enable --now sing-box
 
-# ---------- 订阅生成 ----------
-SUB_FILE="$SUB_DIR/urls.txt"
-SUB_HOST="${DOMAIN:-$PUB_IP}"
-: >"$SUB_FILE"
+# --------- UFW 端口放行（静默，不存在即跳过）---------
+run_quiet ufw allow 8443/tcp
+[[ "$EN_REAL" == "y" ]] && run_quiet ufw allow 443/tcp
+[[ "$EN_HY2"  == "y" ]] && run_quiet ufw allow "${HY2_PORT}"/udp
+[[ "$EN_TUIC" == "y" ]] && run_quiet ufw allow 2053/udp
+run_quiet ufw reload
 
+# --------- 生成聚合订阅 ---------
+HOST="${DOMAIN:-$(curl -fsS https://api.ipify.org || hostname -I | awk '{print $1}')}"
+SUB="/var/lib/sb-sub/urls.txt"
+: >"$SUB"
+
+# gRPC
 if [[ "$EN_GRPC" == "y" ]]; then
-  printf "vless://%s@%s:8443?encryption=none&security=tls&type=grpc&serviceName=@grpc&fp=chrome#VLESS-gRPC@%s\n" \
-    "$UUID_ALL" "$SUB_HOST" "$SUB_HOST" >>"$SUB_FILE"
+  printf "vless://%s@%s:8443?encryption=none&security=tls&type=grpc&serviceName=%s&fp=chrome#VLESS-gRPC@%s\n" \
+    "$UUID_ALL" "$HOST" "$GRPC_SVC" "$HOST" >>"$SUB"
 fi
+# WS
 if [[ "$EN_WS" == "y" ]]; then
   printf "vless://%s@%s:8443?encryption=none&security=tls&type=ws&path=%s&host=%s&fp=chrome#VLESS-WS@%s\n" \
-    "$UUID_ALL" "$SUB_HOST" "$WS_PATH" "$SUB_HOST" "$SUB_HOST" >>"$SUB_FILE"
+    "$UUID_ALL" "$HOST" "$WS_PATH" "$HOST" "$HOST" >>"$SUB"
 fi
-if [[ "$EN_VR" == "y" ]]; then
+# Reality
+if [[ "$EN_REAL" == "y" ]]; then
   printf "vless://%s@%s:443?encryption=none&flow=xtls-rprx-vision&fp=chrome&security=reality&sni=%s&pbk=%s&sid=%s&type=tcp#VLESS-Reality@%s\n" \
-    "$UUID_ALL" "$SUB_HOST" "$SNI" "$PBK" "$SID" "$SUB_HOST" >>"$SUB_FILE"
+    "$UUID_ALL" "$HOST" "$SNI" "$PBK" "$SID" "$HOST" >>"$SUB"
 fi
+# HY2
 if [[ "$EN_HY2" == "y" ]]; then
   printf "hysteria2://%s@%s:%s?alpn=h3#HY2@%s\n" \
-    "$HY2_PWD" "$SUB_HOST" "$HY2_PORT" "$SUB_HOST" >>"$SUB_FILE"
+    "$HY2_PWD" "$HOST" "$HY2_PORT" "$HOST" >>"$SUB"
 fi
+# TUIC
 if [[ "$EN_TUIC" == "y" ]]; then
   printf "tuic://%s:%s@%s:%s?congestion=bbr&alpn=h3#TUIC@%s\n" \
-    "$TUIC_UUID" "$TUIC_PWD" "$SUB_HOST" "2053" "$SUB_HOST" >>"$SUB_FILE"
+    "$TUIC_UUID" "$TUIC_PWD" "$HOST" "2053" "$HOST" >>"$SUB"
 fi
 
-ln -sf "$SUB_FILE" "$WEB_ROOT/sub/urls.txt"
+ln -sf "$SUB" /var/www/html/sub/urls.txt
 
-# ---------- UFW （本机） ----------
-ufw allow 8443/tcp >/dev/null 2>&1 || true
-[[ "$EN_VR" == "y" ]]  && ufw allow 443/tcp  >/dev/null 2>&1 || true
-[[ "$EN_HY2" == "y" ]] && ufw allow ${HY2_PORT}/udp >/dev/null 2>&1 || true
-[[ "$EN_TUIC" == "y" ]] && ufw allow 2053/udp >/dev/null 2>&1 || true
-ufw --force enable >/dev/null 2>&1 || true
-ufw reload >/dev/null 2>&1 || true
-
+# --------- 汇总输出 ---------
 echo
-ok "安装完成"
-echo "订阅链接：$(_color 36;1)http${DOMAIN:+s}://${SUB_HOST}/sub/urls.txt$(_color 0 "")"
+echo "================ 安装完成 ================"
+echo "订阅链接（可导入 v2rayN / Clash 等）： http://${HOST}/sub/urls.txt"
+echo "注意：若使用自签证书，客户端需开启“跳过证书验证/allowInsecure”。"
 echo
-echo "当前监听端口（示例）："
-ss -lntup | egrep ':443|:8443|:2053' || true
-
+echo "正在查看端口："
+ss -lnptu | egrep ':443|:8443|:2053' || true
 echo
-warn "请同时确认云厂商（GCP/阿里云等）的安全组也已放行相应端口。"
+echo "[服务状态（节选）]"
+systemctl status nginx --no-pager -l | sed -n '1,20p'
+echo "----"
+systemctl status xray  --no-pager -l | sed -n '1,20p'
+echo "----"
+systemctl status sing-box --no-pager -l | sed -n '1,20p'
+echo "=========================================="
