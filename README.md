@@ -2,7 +2,30 @@
 统一安装/管理 VLESS‑gRPC(443/tcp)、VLESS‑WS(+TLS)、VLESS‑Reality(443/tcp)、Hysteria2(udp/443|8443)、TUIC(udp/2053)。
 可按需启用/禁用协议，支持“住宅HTTP代理直连/分流”，并输出聚合订阅。
 ________________________________________
-1) 当前 VM 环境快照（体检要点）
+1) 兼容 Debian 11/12、Ubuntu 20.04/22.04/24.04（apt 系列）
+
+五协议一体（可交互开/关）：VLESS-gRPC、VLESS-WS(+TLS via Nginx)、VLESS-Reality、Hysteria2、TUIC
+
+自动：依赖安装、BBR+fq、可选创建 2GB swap、UFW 放行、Nginx 反代(8443/tcp)
+
+出⼝分流（可选）：googlevideo/ytimg/ggpht 走你提供的住宅 HTTP 代理，其它直出
+
+聚合订阅：生成 /var/www/html/sub/urls.txt（也软链到 /var/lib/sb-sub/urls.txt），包含你启用的每个协议链接
+
+幂等：多次运行不炸；错误会 exit 1，日志清晰
+
+卸载干净：保留一份 tar 备份，选项化清理 Nginx 站点/订阅页、UFW、swap、依赖等（不强制卸 Nginx 包，防误伤）
+
+版本策略
+
+Xray：装最新版（官方安装脚本）。
+
+sing-box：默认装 v1.12.2（你说过这版可用）；若下载失败，自动退回官方安装脚本装最新版。
+
+我写的 sing-box 配置不使用已弃用的 transport 字段，避免 “unknown transport type: tcp” 这类坑。
+
+
+当前 VM 环境快照（体检要点）
 •	系统：Ubuntu 24.04 LTS x86_64（GCP）。内核示例：6.14.0-1014-gcp。
 •	已装组件（曾多次复现）：
 o	nginx 1.24.x（TLS 反代 gRPC/WS）
