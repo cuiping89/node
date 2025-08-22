@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # =====================================================================================
-# EdgeBox / node 项目 通用卸载脚本（幂等、可软卸载/硬卸载）
+# EdgeBox/node项目 通用卸载脚本（幂等、可软卸载/硬卸载）：兼容大多数 VPS/VM（Ubuntu/Debian 系适配最好）
 #
-# 此卸载脚本是幂等的，按“存在即删 / 不存在忽略”的方式处理；默认会做这些事：
+# 此卸载脚本是幂等的，按 “存在即删，不存在忽略” 的方式处理，默认会做这些事：
+#
 # 1) 停用并删除：sing-box.service（必有）、xray.service（有就停、没有就跳过）
 # 2) 删除文件夹/文件：
 #    - /etc/sing-box
@@ -23,16 +24,8 @@
 #   --purge-packages  卸掉安装时拉的工具（jq / unzip / socat / qrencode 等，若存在）
 #   --all             等价于 --purge-nginx --purge-net --purge-packages
 #
-# 操作顺序：
-#   1) 备份当前配置：
-#      tar -czf /root/pre-uninstall-$(date +%F-%H%M).tgz \
-#        /etc/sing-box /usr/local/etc/xray /etc/nginx/conf.d \
-#        /etc/ssl/edgebox /var/lib/sb-sub /var/www/html/sub 2>/dev/null || true
-#   2) 运行本卸载脚本
-#   3) 自检：
-#      ss -lntup | egrep ':443|:8443|:2053' || true
-#      systemctl status sing-box xray nginx --no-pager -l
-#      nginx -t  #（若已安装 nginx）
+# 脚本操作顺序：
+#   1) 备份当前配置；2) 运行本卸载脚本；3) 自检；
 #
 # 说明：
 # - ACME 账户与其它系统级组件（如 ~/.acme.sh）不会强制清除，便于后续复用。
