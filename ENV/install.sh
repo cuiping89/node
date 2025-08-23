@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
 # EdgeBox 五协议一体安装器（443 端口复用：gRPC/WS/VMess 走 Nginx；Reality/HY2/TUIC 走 sing-box）
-# 设计目标：任意环境一把梭；管道/无TTY/切root都不阻塞；失败有兜底；全铺 + edgeboxctl 管理启/禁
 set -Eeuo pipefail
 
-# ---------- 提权：兼容管道/无TTY ----------
+# ---------- 提权（兼容管道/无TTY） ----------
 if [[ $EUID -ne 0 ]]; then
   if [[ ! -t 0 ]]; then
-    tmp="$(mktemp -t edgebox-install.XXXXXX)"
-    cat >"$tmp"
+    tmp="$(mktemp -t edgebox-install.XXXXXX)"; cat >"$tmp"
     exec sudo -E bash "$tmp" "$@"
   else
     exec sudo -E bash "$0" "$@"
@@ -19,38 +17,29 @@ ok(){   printf "\033[1;32m[OK]\033[0m   %s\n" "$*"; }
 warn(){ printf "\033[1;33m[WARN]\033[0m %s\n" "$*"; }
 err(){  printf "\033[1;31m[ERR]\033[0m  %s\n" "$*"; }
 
-# ---------- 交互读取：stdin -> /dev/tty -> 默认 ----------
-get_input(){ # get_input "提示: " var default
-  local _p="$1" _var="$2" _def="${3-}" _ans=""
-  if [ -t 0 ]; then
-    read -r -p "$_p" _ans || true
-  elif [ -r /dev/tty ]; then
-    read -r -p "$_p" _ans </dev/tty || true
-  else
-    # 无输入设备：直接用默认
-    _ans="$_def"
-  fi
-  [[ -z "${_ans:-}" ]] && _ans="$_def"
-  printf -v "$_var" "%s" "$_ans"
+# ---------- 读取输入：stdin -> /dev/tty -> 默认 ----------
+get_input(){ local p="$1" var="$2" def="${3-}" ans=""
+  if [ -t 0 ]; then read -r -p "$p" ans || true
+  elif [ -r /dev/tty ]; then read -r -p "$p" ans </dev/tty || true
+  else ans="$def"; fi
+  [[ -z "${ans:-}" ]] && ans="$def"; printf -v "$var" "%s" "$ans"
 }
 
 echo -e "\n[INFO] 端口放行要求：tcp/443, udp/443(HY2), udp/2053(TUIC)；可选 udp/8443（备用）。"
 echo -e   "[INFO] 云防火墙/安全组 + 本机(UFW/iptables) 都需放行。\n"
 
-SB_VER="1.12.2"          # sing-box 稳定版
-PORT_REAL=14443          # Reality 回环端口（Nginx stream -> 这里）
-PORT_HY2=443             # HY2 对外 UDP 443
-PORT_TUIC=2053           # TUIC 对外 UDP 2053
+SB_VER="1.12.2"      # sing-box 稳定版
+PORT_REAL=14443      # Reality 回环，Nginx stream 分流到此
+PORT_HY2=443         # HY2 对外 UDP 443
+PORT_TUIC=2053       # TUIC 对外 UDP 2053
 
-# ---------- 交互参数（均可回车） ----------
 DOMAIN=""; HOME_LINE=""
-get_input "域名（留空=用自签证书；填入=自动 ACME）：" DOMAIN ""
+get_input "域名（留空=自签；填入=ACME）：" DOMAIN ""
 get_input "住宅代理（HOST:PORT[:USER[:PASS]]，留空=不用）：" HOME_LINE ""
 
-# 解析住宅代理
 HOME_HOST=""; HOME_PORT=""; HOME_USER=""; HOME_PASS=""
 if [[ -n "${HOME_LINE:-}" ]]; then
-  IFS=':' read -r HOME_HOST HOME_PORT HOME_USER HOME_PASS <<<"$HOME_LINE"
+  IFS=':' read -r HOME_HOST HOME_PORT HOME_USER HOME_PASS <<<"$HOME_LINE" || true
   if [[ -z "${HOME_HOST:-}" || -z "${HOME_PORT:-}" ]]; then
     warn "住宅代理信息不完整，回退直出"; HOME_LINE=""
   fi
@@ -60,7 +49,7 @@ fi
 info "安装依赖（jq/openssl/socat/nginx/ufw 等）"
 apt-get update -y >/dev/null
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-  ca-certificates curl wget openssl jq unzip socat ufw nginx >/dev/null
+  ca-certificates curl wget openssl jq unzip tar socat ufw nginx >/dev/null
 
 mkdir -p /etc/sing-box /usr/local/etc/xray /var/lib/sb-sub /var/www/html/sub /etc/ssl/edgebox
 echo -n "${DOMAIN:-}" >/etc/edgebox-domain
@@ -77,7 +66,7 @@ HY2_PWD="$(openssl rand -hex 12)"
 TUIC_UUID="$(cat /proc/sys/kernel/random/uuid)"
 TUIC_PWD="$(openssl rand -hex 12)"
 
-# ---------- 安装 & 配置 Xray（先停→写配置→启） ----------
+# ---------- Xray：先停→写配置→启 ----------
 info "安装 Xray"
 bash <(curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh) >/dev/null
 systemctl stop xray || true
@@ -108,14 +97,12 @@ JSON
 systemctl enable --now xray >/dev/null 2>&1 || true
 sleep 1
 
-# ---------- 证书：ACME → 自签兜底 ----------
-CRT="/etc/ssl/edgebox/fullchain.crt"
-KEY="/etc/ssl/edgebox/private.key"
+# ---------- 证书 ACME→自签兜底 ----------
+CRT="/etc/ssl/edgebox/fullchain.crt"; KEY="/etc/ssl/edgebox/private.key"
 issue_self(){ openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
-    -keyout "$KEY" -out "$CRT" -subj "/CN=${DOMAIN:-edgebox.local}" >/dev/null 2>&1; }
-
+  -keyout "$KEY" -out "$CRT" -subj "/CN=${DOMAIN:-edgebox.local}" >/dev/null 2>&1; }
 if [[ -n "${DOMAIN:-}" ]]; then
-  info "申请 ACME 证书：$DOMAIN（失败会回退自签）"
+  info "申请 ACME 证书：$DOMAIN（失败回退自签）"
   if ! ~/.acme.sh/acme.sh -v >/dev/null 2>&1; then
     curl -fsSL https://get.acme.sh | sh -s email=admin@"${DOMAIN}" >/dev/null 2>&1 || true
   fi
@@ -124,28 +111,22 @@ if [[ -n "${DOMAIN:-}" ]]; then
     ~/.acme.sh/acme.sh --install-cert -d "$DOMAIN" --ecc \
       --fullchain-file "$CRT" --key-file "$KEY" >/dev/null 2>&1 || issue_self
     ok "ACME 成功"
-  else
-    warn "ACME 失败，改用自签"; issue_self
-  fi
-else
-  info "未填域名，生成自签证书（客户端需允许不安全证书/skip verify）"; issue_self
-fi
+  else warn "ACME 失败，改用自签"; issue_self; fi
+else info "未填域名，生成自签证书（客户端需允许不安全证书/skip verify）"; issue_self; fi
 
-# ---------- Nginx：HTTP(回环8443) + STREAM(443) ----------
-info "写入 Nginx（http:127.0.0.1:8443 反代 WS/GRPC；stream:443 SNI 分流到 8443/14443）"
+# ---------- Nginx：HTTP(127.0.0.1:8443) + STREAM(443) ----------
+info "写入 Nginx（http 反代 WS/GRPC；stream:443 SNI→8443/14443）"
 cat >/etc/nginx/conf.d/edgebox-https.conf <<NG1
 server {
   listen 127.0.0.1:8443 ssl http2;
   server_name ${DOMAIN:-_};
   ssl_certificate     ${CRT};
   ssl_certificate_key ${KEY};
-
   location /${GRPC_SVC} { grpc_set_header X-Real-IP \$remote_addr; grpc_pass grpc://127.0.0.1:11800; }
   location ${WS_PATH}  { proxy_http_version 1.1; proxy_set_header Upgrade \$http_upgrade; proxy_set_header Connection "upgrade"; proxy_set_header Host \$host; proxy_pass http://127.0.0.1:11801; }
   location ${VMESS_PATH} { proxy_http_version 1.1; proxy_set_header Upgrade \$http_upgrade; proxy_set_header Connection "upgrade"; proxy_set_header Host \$host; proxy_pass http://127.0.0.1:11802; }
 }
 NG1
-
 cat >/etc/nginx/stream.conf <<'NG2'
 stream {
   map $ssl_preread_server_name $edgebox_up {
@@ -163,12 +144,10 @@ stream {
   }
 }
 NG2
-
 nginx -t >/dev/null && systemctl reload nginx || { err "Nginx 配置有误"; exit 1; }
 
-# ---------- Reality 密钥（双兜底） ----------
-gen_reality(){
-  local out priv pbk
+# ---------- Reality 密钥双兜底 ----------
+gen_reality(){ local out priv pbk
   out="$(sing-box generate reality-keypair 2>/dev/null || true)"
   if [[ "$out" == *"Private"* && "$out" == *"Public"* ]]; then
     read -r priv pbk <<<"$(awk -F': *' '/Private/{p=$2}/Public/{print p,$2}' <<<"$out")"
@@ -182,11 +161,33 @@ info "生成 Reality 密钥对"
 read -r PRIV PBK <<<"$(gen_reality)" || { err "Reality 密钥生成失败"; exit 1; }
 ok "Reality PBK: $PBK"
 
-# ---------- 安装 & 配置 sing-box ----------
+# ---------- sing-box 安装（多候选 URL + 自动识别压缩格式） ----------
+install_singbox() {
+  local urls=(
+    "https://github.com/SagerNet/sing-box/releases/download/v${SB_VER}/sing-box-${SB_VER}-linux-amd64.tar.gz"
+    "https://github.com/SagerNet/sing-box/releases/download/v${SB_VER}/sing-box_${SB_VER}_linux_amd64.tar.gz"
+    "https://github.com/SagerNet/sing-box/releases/download/v${SB_VER}/sing-box-${SB_VER}-linux-amd64.zip"
+    "https://github.com/SagerNet/sing-box/releases/download/v${SB_VER}/sing-box_${SB_VER}_linux_amd64.zip"
+    "https://github.com/SagerNet/sing-box/releases/download/v${SB_VER}/sing-box-linux-amd64-v${SB_VER}.tar.gz"
+  )
+  local got=""
+  for u in "${urls[@]}"; do
+    if curl -fSL -o /tmp/sb.pkg "$u" >/dev/null 2>&1; then got="$u"; break; fi
+  done
+  [[ -n "$got" ]] || { err "下载 sing-box v${SB_VER} 失败（多源均不可用）"; return 1; }
+  rm -rf /tmp/sb-ex && mkdir -p /tmp/sb-ex
+  if file /tmp/sb.pkg | grep -qi 'gzip'; then tar -xzf /tmp/sb.pkg -C /tmp/sb-ex >/dev/null
+  elif file /tmp/sb.pkg | grep -qi 'zip'; then unzip -qo /tmp/sb.pkg -d /tmp/sb-ex >/dev/null
+  else err "未知压缩格式"; return 1; fi
+  local bin; bin="$(find /tmp/sb-ex -type f -name sing-box | head -n1)"
+  [[ -x "$bin" ]] || { err "未找到 sing-box 可执行文件"; return 1; }
+  install -m0755 "$bin" /usr/local/bin/sing-box
+  ok "sing-box $(/usr/local/bin/sing-box version | awk '{print $3}') 安装完成"
+}
 info "安装 sing-box v${SB_VER}"
-curl -fsSL -o /tmp/sb.zip "https://github.com/SagerNet/sing-box/releases/download/v${SB_VER}/sing-box-${SB_VER}-linux-amd64.zip"
-unzip -qo /tmp/sb.zip -d /tmp/sb && install -m0755 /tmp/sb/sing-box /usr/local/bin/sing-box
+install_singbox
 
+# ---------- sing-box 配置 ----------
 SB_CFG="/etc/sing-box/config.json"
 info "写入 sing-box 配置（Reality@${PORT_REAL} / HY2@udp:${PORT_HY2} / TUIC@udp:${PORT_TUIC}）"
 cat >"$SB_CFG" <<JSON
@@ -243,7 +244,6 @@ LimitNOFILE=1048576
 [Install]
 WantedBy=multi-user.target
 UNIT
-
 systemctl daemon-reload
 systemctl enable --now sing-box
 
@@ -255,7 +255,7 @@ if command -v ufw >/dev/null 2>&1; then
   ufw reload >/dev/null 2>&1 || true
 fi
 
-# ---------- 订阅 & ENV & 管理脚本 ----------
+# ---------- 订阅 & ENV & 管理脚本（edgeboxctl） ----------
 HOST="${DOMAIN:-$(curl -fsS https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')}"
 SUB="/var/lib/sb-sub/urls.txt"; : >"$SUB"
 printf "vless://%s@%s:443?encryption=none&security=tls&type=grpc&serviceName=%s&fp=chrome#VLESS-gRPC@%s\n" "$UUID_ALL" "$HOST" "$GRPC_SVC" "$HOST" >>"$SUB"
@@ -343,8 +343,7 @@ JSON
 JSON
     fi
     echo '], "outbounds":[{"protocol":"freedom"}]}'
-  } >"$XR"
-  systemctl restart xray
+  } >"$XR"; systemctl restart xray
 
   IN=()
   if [[ "${EN_REAL:-0}" -eq 1 ]]; then IN+=("{
@@ -367,7 +366,8 @@ JSON
   OB=('{"type":"direct","tag":"direct"}'); ROUTE='"final":"direct"'
   if [[ -n "${HOME_LINE:-}" ]]; then
     OB=($(jq -nc --arg h "$HOME_HOST" --argjson p "$HOME_PORT" --arg u "${HOME_USER:-}" --arg pw "${HOME_PASS:-}" \
-        '{"type":"http","tag":"home_http","server":$h,"server_port":($p|tonumber),"username":( ($u|length)>0 ? $u : null ),"password":( ($pw|length)>0 ? $pw : null ) }'))
+        '{"type":"http","tag":"home_http","server":$h,"server_port":($p|tonumber),
+          "username":( ($u|length)>0 ? $u : null ),"password":( ($pw|length)>0 ? $pw : null ) }'))
     ROUTE='"rules":[{"domain_suffix":["googlevideo.com","ytimg.com","ggpht.com"],"outbound":"direct"}],"final":"home_http"'
   fi
   jq -n --argjson in "[$(IFS=,; echo "${IN[*]-[]}")]" \
@@ -387,7 +387,6 @@ esac
 CTL
 chmod +x /usr/local/bin/edgeboxctl
 
-# ---------- 完成 ----------
 echo
 ok "安装完成"
 echo "订阅链接： http://$HOST/sub/urls.txt"
