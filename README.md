@@ -2,34 +2,65 @@
 统一安装/管理 VLESS‑gRPC(443/tcp)、VLESS‑WS(+TLS)、VLESS‑Reality(443/tcp)、Hysteria2(udp/443|8443)、TUIC(udp/2053)。
 可按需启用/禁用协议，支持“住宅HTTP代理直连/分流”，并输出聚合订阅。
 ________________________________________
-1) 兼容 Debian 11/12、Ubuntu 20.04/22.04/24.04（apt 系列）
-
-五协议一体（可交互开/关）：VLESS-gRPC、VLESS-WS(+TLS via Nginx)、VLESS-Reality、Hysteria2、TUIC
-
+1) 兼容 Debian 11/12、Ubuntu 20.04/22.04/24.04（apt 系列）；目标：在“任何 VPS/VM”上一键落地、稳定复现、方便维护。
+五协议一体：VLESS-gRPC、VLESS-WS(+TLS via Nginx)、VLESS-Reality、Hysteria2、TUIC
 自动：依赖安装、BBR+fq、可选创建 2GB swap、UFW 放行、Nginx 反代(8443/tcp)
-
 出⼝分流（可选）：googlevideo/ytimg/ggpht 走你提供的住宅 HTTP 代理，其它直出
-
 聚合订阅：生成 /var/www/html/sub/urls.txt（也软链到 /var/lib/sb-sub/urls.txt），包含你启用的每个协议链接
-
 幂等：多次运行不炸；错误会 exit 1，日志清晰
-
 卸载干净：保留一份 tar 备份，选项化清理 Nginx 站点/订阅页、UFW、swap、依赖等（不强制卸 Nginx 包，防误伤）
 
-版本策略
-Xray：装最新版（官方安装脚本）。
-sing-box：默认装 v1.12.2（你说过这版可用）；若下载失败，自动退回官方安装脚本装最新版。
-我写的 sing-box 配置不使用已弃用的 transport 字段，避免 “unknown transport type: tcp” 这类坑。
+# EdgeBox · 五协议一体节点（VLESS-gRPC/WS + VLESS-Reality + HY2 + TUIC）
 
-•	端口规划：
-TCP 443（Reality）/ 或 Nginx（若无 Reality）
-TCP 8443（Nginx：gRPC/WS；当 443 被 Reality 占用时）
-UDP 443 或 8443（HY2）
-UDP 2053（TUIC）
+> 特点：**端口最简**（443/TCP + 8443/UDP + 2053/UDP）、**幂等重装**（保 UUID 与密钥）、**聚合订阅**、**可切换分流策略**、**可管理启停协议。
+
+## 最终方案（与本项目实现一一对齐）
+
+### 协议与端口
+- **VLESS-gRPC**：TCP/443（Nginx HTTPS → 回环 8443 → Xray 11800）
+- **VLESS-WS**：TCP/443（Nginx HTTPS → 回环 8443 → Xray 11801）
+- **VLESS-Reality**：TCP/443（Nginx `stream` SNI 分流 → sing-box 127.0.0.1:14443）
+- **Hysteria2**：UDP/8443（主）+ UDP/443（备）
+- **TUIC**：UDP/2053（DoT常用端口，穿透性好；备用 8443）
+
+> 这样做的理由：  
+> - **最像正常站点流量**：所有 TCP 走 443。  
+> - **UDP 分离**：HY2 主 8443，保留 443 为兼容/隐蔽；TUIC 用 2053（常见 DoT 端口）。  
+> - **不抢端口**：HY2 与 TUIC 各占一档，互不影响；Reality 与 gRPC/WS 共用 443 由 Nginx SNI 分流。
+
+### 分流策略（出站）
+- **默认**：全部直出（`direct`）。
+- **可选**：仅 `googlevideo` / `ytimg` / `ggpht` 直出，其余走**住宅 HTTP 代理**（`HOST:PORT[:USER[:PASS]]`）。
+- 可随时**切回直出**（用 `edgeboxctl route` 子命令）。
+
+### 架构与组件
+- **Nginx**
+  - `http(s)`：本机 `127.0.0.1:8443` 终止 TLS → 反代 gRPC/WS（Xray 回环）
+  - `stream`：对外 `443`，按 SNI 映射到 `8443`（站点域名）或 `127.0.0.1:14443`（Reality）
+- **Xray**：只做 VLESS-gRPC 与 VLESS-WS 回环服务
+- **sing-box**：承载 Reality（回环 14443）+ HY2（UDP/8443、UDP/443）+ TUIC（UDP/2053）
+- **证书**：优先 ACME 真证，失败自动自签（HY2/TUIC 使用证书时，客户端需允许 **skip verify**）
+- **聚合订阅**：`http://<域名或IP>/sub/urls.txt`
+--
+## 端口 / 防火墙
+
+必须放行（**云防火墙/安全组 + 本机 UFW**）：
+- TCP：`443`
+- UDP：`8443`（HY2 主）、`2053`（TUIC）； `443`（HY2 备）
+
+> 脚本会自动为 UFW 添加规则（不会强制 `ufw enable`）。云侧（如 GCP VPC 防火墙/安全组）请手工放行。
+
+---
+### 安装
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/<你的GitHub>/node/refs/heads/main/ENV/install.sh)
+
+版本策略
+Xray：装最新兼容版（官方安装脚本）。
+sing-box：装最新兼容版。
 
 •	常见坑：
 sing-box 新旧配置差异：旧版里 "transport":"tcp" 会让新版本报错：unknown transport type: tcp；同时用 sed/jq 误操作易造成 EOF（JSON 被截断）。
-Reality 与 Nginx TCP/443 冲突：两者只能二选一；本方案在开 Reality 时自动把 Nginx 迁到 8443。
 HY2/TUIC 需要 TLS 证书。脚本默认 自签证书（客户端需 allowInsecure/insecure），也留了 ACME 扩展位。
 ________________________________________
 2) sb.sh 脚本回顾与问题定位
