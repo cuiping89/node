@@ -1,18 +1,13 @@
 #!/usr/bin/env bash
-# EdgeBox 五协议一体安装器（443 端口复用，SNI/HTTP分流）
-# 协议：VLESS-gRPC / VLESS-WS / VMess-WS / VLESS-Reality / HY2(udp/443) / TUIC(udp/2053)
-# 特性：自动提权(含管道)、ACME→自签兜底、Reality 密钥双路兜底、全铺 + edgeboxctl
+# EdgeBox 五协议一体安装器（443 端口复用：gRPC/WS/VMess 走 Nginx；Reality/HY2/TUIC 走 sing-box）
+# 设计目标：任意环境一把梭；管道/无TTY/切root都不阻塞；失败有兜底；全铺 + edgeboxctl 管理启/禁
 set -Eeuo pipefail
 
-########################
-# 自动提权（支持管道执行）
-########################
+# ---------- 提权：兼容管道/无TTY ----------
 if [[ $EUID -ne 0 ]]; then
-  # 如果是“脚本内容经管道喂给 bash”，$0 通常是 "bash"，无法就地 sudo 重跑
-  # 这里读取本脚本余下内容到临时文件，再 sudo 执行
   if [[ ! -t 0 ]]; then
     tmp="$(mktemp -t edgebox-install.XXXXXX)"
-    cat >"$tmp"        # 把后续脚本内容读完写到临时文件
+    cat >"$tmp"
     exec sudo -E bash "$tmp" "$@"
   else
     exec sudo -E bash "$0" "$@"
@@ -24,25 +19,33 @@ ok(){   printf "\033[1;32m[OK]\033[0m   %s\n" "$*"; }
 warn(){ printf "\033[1;33m[WARN]\033[0m %s\n" "$*"; }
 err(){  printf "\033[1;31m[ERR]\033[0m  %s\n" "$*"; }
 
-ask(){ # ask "提示: " var [default]
+# ---------- 交互读取：stdin -> /dev/tty -> 默认 ----------
+get_input(){ # get_input "提示: " var default
   local _p="$1" _var="$2" _def="${3-}" _ans=""
-  # 无论脚本从哪里读，交互都固定从 TTY 读取，保证管道/重定向场景可用
-  if read -r -p "$_p" _ans </dev/tty 2>/dev/null; then :; else _ans="$_def"; fi
+  if [ -t 0 ]; then
+    read -r -p "$_p" _ans || true
+  elif [ -r /dev/tty ]; then
+    read -r -p "$_p" _ans </dev/tty || true
+  else
+    # 无输入设备：直接用默认
+    _ans="$_def"
+  fi
   [[ -z "${_ans:-}" ]] && _ans="$_def"
   printf -v "$_var" "%s" "$_ans"
 }
 
 echo -e "\n[INFO] 端口放行要求：tcp/443, udp/443(HY2), udp/2053(TUIC)；可选 udp/8443（备用）。"
-echo -e     "[INFO] 云防火墙/安全组 + 本机(UFW/iptables) 都需放行。\n"
+echo -e   "[INFO] 云防火墙/安全组 + 本机(UFW/iptables) 都需放行。\n"
 
-SB_VER="1.12.2"  # sing-box 稳定版本
+SB_VER="1.12.2"          # sing-box 稳定版
+PORT_REAL=14443          # Reality 回环端口（Nginx stream -> 这里）
+PORT_HY2=443             # HY2 对外 UDP 443
+PORT_TUIC=2053           # TUIC 对外 UDP 2053
 
-########################
-# 交互（固定从 /dev/tty 读）
-########################
+# ---------- 交互参数（均可回车） ----------
 DOMAIN=""; HOME_LINE=""
-ask "域名（留空=用自签证书；填入=自动 ACME）：" DOMAIN
-ask "住宅代理（HOST:PORT[:USER[:PASS]]，留空=不用）：" HOME_LINE
+get_input "域名（留空=用自签证书；填入=自动 ACME）：" DOMAIN ""
+get_input "住宅代理（HOST:PORT[:USER[:PASS]]，留空=不用）：" HOME_LINE ""
 
 # 解析住宅代理
 HOME_HOST=""; HOME_PORT=""; HOME_USER=""; HOME_PASS=""
@@ -53,9 +56,7 @@ if [[ -n "${HOME_LINE:-}" ]]; then
   fi
 fi
 
-########################
-# 依赖
-########################
+# ---------- 依赖 ----------
 info "安装依赖（jq/openssl/socat/nginx/ufw 等）"
 apt-get update -y >/dev/null
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
@@ -64,9 +65,7 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
 mkdir -p /etc/sing-box /usr/local/etc/xray /var/lib/sb-sub /var/www/html/sub /etc/ssl/edgebox
 echo -n "${DOMAIN:-}" >/etc/edgebox-domain
 
-########################
-# 随机材料
-########################
+# ---------- 随机材料 ----------
 UUID_ALL="$(cat /proc/sys/kernel/random/uuid)"
 UUID_VMESS="$(cat /proc/sys/kernel/random/uuid)"
 WS_PATH="/$(openssl rand -hex 3)"
@@ -77,17 +76,11 @@ SID="$(openssl rand -hex 4)"
 HY2_PWD="$(openssl rand -hex 12)"
 TUIC_UUID="$(cat /proc/sys/kernel/random/uuid)"
 TUIC_PWD="$(openssl rand -hex 12)"
-PORT_REAL=14443
-PORT_HY2=443
-PORT_TUIC=2053
 
-########################
-# 安装 Xray（先停后写配置再启，避免“无配置先启动”的报错刷屏）
-########################
+# ---------- 安装 & 配置 Xray（先停→写配置→启） ----------
 info "安装 Xray"
 bash <(curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh) >/dev/null
 systemctl stop xray || true
-
 XRAY_CFG="/usr/local/etc/xray/config.json"
 info "写入 Xray 配置（回环监听 11800/11801/11802）"
 cat >"$XRAY_CFG" <<JSON
@@ -115,9 +108,7 @@ JSON
 systemctl enable --now xray >/dev/null 2>&1 || true
 sleep 1
 
-########################
-# 证书：ACME → 自签兜底
-########################
+# ---------- 证书：ACME → 自签兜底 ----------
 CRT="/etc/ssl/edgebox/fullchain.crt"
 KEY="/etc/ssl/edgebox/private.key"
 issue_self(){ openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
@@ -140,9 +131,7 @@ else
   info "未填域名，生成自签证书（客户端需允许不安全证书/skip verify）"; issue_self
 fi
 
-########################
-# Nginx：HTTP(回环8443) + STREAM(443) 分流
-########################
+# ---------- Nginx：HTTP(回环8443) + STREAM(443) ----------
 info "写入 Nginx（http:127.0.0.1:8443 反代 WS/GRPC；stream:443 SNI 分流到 8443/14443）"
 cat >/etc/nginx/conf.d/edgebox-https.conf <<NG1
 server {
@@ -151,36 +140,17 @@ server {
   ssl_certificate     ${CRT};
   ssl_certificate_key ${KEY};
 
-  # gRPC
-  location /${GRPC_SVC} {
-    grpc_set_header X-Real-IP \$remote_addr;
-    grpc_pass grpc://127.0.0.1:11800;
-  }
-  # VLESS-WS
-  location ${WS_PATH} {
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade \$http_upgrade;
-    proxy_set_header Connection "upgrade";
-    proxy_set_header Host \$host;
-    proxy_pass http://127.0.0.1:11801;
-  }
-  # VMess-WS
-  location ${VMESS_PATH} {
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade \$http_upgrade;
-    proxy_set_header Connection "upgrade";
-    proxy_set_header Host \$host;
-    proxy_pass http://127.0.0.1:11802;
-  }
+  location /${GRPC_SVC} { grpc_set_header X-Real-IP \$remote_addr; grpc_pass grpc://127.0.0.1:11800; }
+  location ${WS_PATH}  { proxy_http_version 1.1; proxy_set_header Upgrade \$http_upgrade; proxy_set_header Connection "upgrade"; proxy_set_header Host \$host; proxy_pass http://127.0.0.1:11801; }
+  location ${VMESS_PATH} { proxy_http_version 1.1; proxy_set_header Upgrade \$http_upgrade; proxy_set_header Connection "upgrade"; proxy_set_header Host \$host; proxy_pass http://127.0.0.1:11802; }
 }
 NG1
 
 cat >/etc/nginx/stream.conf <<'NG2'
-# 由 install.sh 生成。不要手改；使用 edgeboxctl regen。
 stream {
   map $ssl_preread_server_name $edgebox_up {
-    default       reality;  # 非目标域名 → Reality
-    ~.*           grpcws;   # 任何域名 → gRPC/WS (初始策略，后续按需调整)
+    default       reality;
+    ~.*           grpcws;
   }
   upstream grpcws { server 127.0.0.1:8443; }
   upstream reality{ server 127.0.0.1:14443; }
@@ -196,9 +166,7 @@ NG2
 
 nginx -t >/dev/null && systemctl reload nginx || { err "Nginx 配置有误"; exit 1; }
 
-########################
-# Reality 密钥双路兜底
-########################
+# ---------- Reality 密钥（双兜底） ----------
 gen_reality(){
   local out priv pbk
   out="$(sing-box generate reality-keypair 2>/dev/null || true)"
@@ -214,30 +182,21 @@ info "生成 Reality 密钥对"
 read -r PRIV PBK <<<"$(gen_reality)" || { err "Reality 密钥生成失败"; exit 1; }
 ok "Reality PBK: $PBK"
 
-########################
-# 安装 sing-box & 配置
-########################
+# ---------- 安装 & 配置 sing-box ----------
 info "安装 sing-box v${SB_VER}"
 curl -fsSL -o /tmp/sb.zip "https://github.com/SagerNet/sing-box/releases/download/v${SB_VER}/sing-box-${SB_VER}-linux-amd64.zip"
 unzip -qo /tmp/sb.zip -d /tmp/sb && install -m0755 /tmp/sb/sing-box /usr/local/bin/sing-box
 
 SB_CFG="/etc/sing-box/config.json"
-info "写入 sing-box 配置（Reality@127.0.0.1:${PORT_REAL} / HY2@udp/443 / TUIC@udp/${PORT_TUIC}）"
+info "写入 sing-box 配置（Reality@${PORT_REAL} / HY2@udp:${PORT_HY2} / TUIC@udp:${PORT_TUIC}）"
 cat >"$SB_CFG" <<JSON
 {
   "log": { "level": "info" },
   "inbounds": [
     {
-      "type":"vless","tag":"vless-reality",
-      "listen":"127.0.0.1","listen_port": ${PORT_REAL},
+      "type":"vless","tag":"vless-reality","listen":"127.0.0.1","listen_port": ${PORT_REAL},
       "users":[{"uuid":"${UUID_ALL}","flow":"xtls-rprx-vision"}],
-      "tls":{
-        "enabled":true,"server_name":"${SNI_CF}",
-        "reality":{
-          "enabled":true,"private_key":"${PRIV}","short_id":["${SID}"],
-          "handshake":{"server":"${SNI_CF}","server_port":443}
-        }
-      }
+      "tls":{"enabled":true,"server_name":"${SNI_CF}","reality":{"enabled":true,"private_key":"${PRIV}","short_id":["${SID}"],"handshake":{"server":"${SNI_CF}","server_port":443}}}
     },
     {
       "type":"hysteria2","tag":"hy2","listen":"::","listen_port": ${PORT_HY2},
@@ -288,19 +247,15 @@ UNIT
 systemctl daemon-reload
 systemctl enable --now sing-box
 
-########################
-# UFW 端口放行（静默）
-########################
+# ---------- UFW 放行 ----------
 if command -v ufw >/dev/null 2>&1; then
-  ufw allow 443/tcp >/dev/null 2>&1 || true
-  ufw allow 443/udp >/dev/null 2>&1 || true
+  ufw allow 443/tcp  >/dev/null 2>&1 || true
+  ufw allow 443/udp  >/dev/null 2>&1 || true
   ufw allow ${PORT_TUIC}/udp >/dev/null 2>&1 || true
   ufw reload >/dev/null 2>&1 || true
 fi
 
-########################
-# 订阅聚合 & ENV 保存 & 管理脚本
-########################
+# ---------- 订阅 & ENV & 管理脚本 ----------
 HOST="${DOMAIN:-$(curl -fsS https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')}"
 SUB="/var/lib/sb-sub/urls.txt"; : >"$SUB"
 printf "vless://%s@%s:443?encryption=none&security=tls&type=grpc&serviceName=%s&fp=chrome#VLESS-gRPC@%s\n" "$UUID_ALL" "$HOST" "$GRPC_SVC" "$HOST" >>"$SUB"
@@ -432,9 +387,7 @@ esac
 CTL
 chmod +x /usr/local/bin/edgeboxctl
 
-########################
-# 完成信息
-########################
+# ---------- 完成 ----------
 echo
 ok "安装完成"
 echo "订阅链接： http://$HOST/sub/urls.txt"
