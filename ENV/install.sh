@@ -5,40 +5,40 @@ set -Eeuo pipefail
 # 0) 无感提权（支持 curl | bash / 进程替换）
 ########################################
 if [[ $EUID -ne 0 ]]; then
-  # 如果是从管道进来的脚本，把自身复制到临时文件再 sudo 执行
   if [[ -r "/proc/$$/fd/0" ]]; then
     _tmp="$(mktemp -t edgebox-install.XXXXXX.sh)"
     cat "/proc/$$/fd/0" >"$_tmp"
     exec sudo -E bash "$_tmp" "$@"
   else
-    # 普通文件/进程替换场景
     exec sudo -E bash "$0" "$@"
   fi
 fi
 
 ########################################
-# 1) 辅助函数
+# 1) 打印函数
 ########################################
-c_ok(){   printf "\033[32m[OK]\033[0m   %s\n" "$*"; }
-c_step(){ printf "\n\033[1;34m[STEP]\033[0m %s\n" "$*"; }
-c_warn(){ printf "\033[33m[WARN]\033[0m %s\n" "$*"; }
-c_err(){  printf "\033[31m[ERR]\033[0m  %s\n" "$*"; }
+ok(){   printf "\033[32m[OK]\033[0m   %s\n" "$*"; }
+step(){ printf "\n\033[1;34m[STEP]\033[0m %s\n" "$*"; }
+warn(){ printf "\033[33m[WARN]\033[0m %s\n" "$*"; }
+err(){  printf "\033[31m[ERR]\033[0m  %s\n" "$*"; }
 q(){ "$@" >/dev/null 2>&1 || true; }
 
-# 重要路径
+########################################
+# 2) 路径与常量
+########################################
 XR_CFG="/usr/local/etc/xray/config.json"
 SB_CFG="/etc/sing-box/config.json"
 SSL_DIR="/etc/ssl/edgebox"
 SUB_DIR="/var/lib/sb-sub"
 SUB_FILE="$SUB_DIR/urls.txt"
 
-# 常量
-SB_VER="1.12.2"               # 固定稳定版
-PORT_HTTP_TLS_LOOP=8443       # 本机 8443 供 gRPC/WS/VMess
-PORT_REALITY_LOOP=14443       # 本机 14443 供 Reality
-PORT_SNI_OUT=443              # 对外 443，SNI 分流
-PORT_HY2_UDP=443              # HY2 UDP 443
-PORT_TUIC_UDP=2053            # TUIC UDP 2053（避免与 HY2 冲突）
+SB_VER="1.12.2"              # 固定稳定版
+PORT_HTTP_TLS_LOOP=8443      # Nginx 本机 8443 反代 gRPC/WS/VMess
+PORT_REALITY_LOOP=14443      # sing-box 本机 14443 收 Reality
+PORT_SNI_OUT=443             # 对外 443：SNI 分流到 8443 / 14443
+PORT_HY2_UDP=443             # HY2 走 udp/443
+PORT_TUIC_UDP=2053           # TUIC 走 udp/2053（与 HY2 错开）
+SNI_CF="www.cloudflare.com"  # Reality 的握手域
 
 # 随机量
 UUID_ALL="$(cat /proc/sys/kernel/random/uuid)"
@@ -50,20 +50,19 @@ SID="$(openssl rand -hex 4)"
 HY2_PWD="$(openssl rand -hex 12)"
 TUIC_UUID="$(cat /proc/sys/kernel/random/uuid)"
 TUIC_PWD="$(openssl rand -hex 12)"
-SNI_CF="www.cloudflare.com"
 
 ########################################
-# 2) 端口与放行提示
+# 3) 端口/放行提示
 ########################################
 cat <<'BANNER'
 [INFO] 端口放行要求：tcp/443, udp/443(HY2), udp/2053(TUIC)；可选 udp/8443（备用）。
-[INFO] 云防火墙/安全组  + 本机(UFW/iptables) 都需放行。
+[INFO] 云防火墙/安全组 + 本机(UFW/iptables) 都需放行。
 BANNER
 
 ########################################
-# 3) 依赖
+# 4) 依赖
 ########################################
-c_step "安装依赖（jq/openssl/socat/nginx/ufw/tar/unzip/file 等）"
+step "安装依赖（jq/openssl/socat/nginx/ufw/tar/unzip/file 等）"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y >/dev/null
 apt-get install -y --no-install-recommends \
@@ -72,29 +71,29 @@ apt-get install -y --no-install-recommends \
 mkdir -p "$(dirname "$XR_CFG")" "$(dirname "$SB_CFG")" "$SUB_DIR" /var/www/html/sub "$SSL_DIR"
 
 ########################################
-# 4) 交互：域名 & 住宅代理
+# 5) 交互：域名 & 住宅代理（单行：HOST:PORT[:USER[:PASS]]）
 ########################################
-read -rp "域名（留空=用自签证书；填入=自动 ACME）： " DOMAIN
-read -rp "住宅代理（HOST:PORT[:USER[:PASS]]，留空=不用）： " HOME_LINE || true
+read -rp "域名（留空=用自签证书；填入=自动 ACME）: " DOMAIN
+read -rp "住宅代理（HOST:PORT[:USER[:PASS]]，留空=不用）: " HOME_LINE || true
 
 HOME_HOST=""; HOME_PORT=""; HOME_USER=""; HOME_PASS=""
 if [[ -n "${HOME_LINE:-}" ]]; then
   IFS=':' read -r HOME_HOST HOME_PORT HOME_USER HOME_PASS <<<"$HOME_LINE"
   if [[ -z "${HOME_HOST:-}" || -z "${HOME_PORT:-}" ]]; then
-    c_warn "住宅代理信息不完整，回退为直出"
+    warn "住宅代理信息不完整，回退为直出"
     HOME_LINE=""
   fi
 fi
 
 ########################################
-# 5) 安装 Xray（先写配置再启服务）
+# 6) 安装 Xray（先写配置再启服务）
 ########################################
-c_step "安装 Xray"
+step "安装 Xray"
 if ! command -v xray >/dev/null 2>&1; then
   bash <(curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh) >/dev/null || true
 fi
-# 写 Xray 配置（全部回环监听）
-c_step "写入 Xray 配置（回环监听 11800/11801/11802）"
+
+step "写入 Xray 配置（回环监听 11800/11801/11802）"
 cat >"$XR_CFG" <<JSON
 {
   "inbounds": [
@@ -127,7 +126,7 @@ systemctl enable xray >/dev/null 2>&1 || true
 systemctl restart xray || true
 
 ########################################
-# 6) 证书（ACME → 自签兜底）
+# 7) 证书（ACME → 自签兜底）
 ########################################
 CRT="$SSL_DIR/fullchain.crt"
 KEY="$SSL_DIR/private.key"
@@ -136,9 +135,8 @@ issue_self(){
   openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
     -keyout "$KEY" -out "$CRT" -subj "/CN=${DOMAIN:-edgebox.local}" >/dev/null 2>&1
 }
-
 if [[ -n "${DOMAIN:-}" ]]; then
-  c_step "申请 ACME 证书：$DOMAIN（失败会回退自签）"
+  step "申请 ACME 证书：$DOMAIN（失败会回退自签）"
   q systemctl stop nginx
   if ! ~/.acme.sh/acme.sh -v >/dev/null 2>&1; then
     curl -fsSL https://get.acme.sh | sh -s email=admin@"${DOMAIN}" >/dev/null 2>&1 || true
@@ -148,18 +146,18 @@ if [[ -n "${DOMAIN:-}" ]]; then
     ~/.acme.sh/acme.sh --install-cert -d "$DOMAIN" --ecc \
       --fullchain-file "$CRT" --key-file "$KEY" >/dev/null 2>&1 || issue_self
   else
-    c_warn "ACME 失败，改用自签"
+    warn "ACME 失败，改用自签"
     issue_self
   fi
 else
-  c_step "未填域名，生成自签证书"
+  step "未填域名，生成自签证书"
   issue_self
 fi
 
 ########################################
-# 7) Nginx：HTTP(8443/loopback) + STREAM(443/SNI)
+# 8) Nginx：HTTP(8443) + STREAM(443/SNI)
 ########################################
-c_step "写入 Nginx (127.0.0.1:8443 反代 WS/GRPC; stream:443 SNI 分流到 8443/14443)"
+step "写入 Nginx (127.0.0.1:8443 反代 WS/GRPC；stream:443 SNI → 8443/14443)"
 cat >/etc/nginx/conf.d/edgebox-https.conf <<NG1
 server {
   listen 127.0.0.1:${PORT_HTTP_TLS_LOOP} ssl http2;
@@ -168,12 +166,10 @@ server {
   ssl_certificate     ${CRT};
   ssl_certificate_key ${KEY};
 
-  # gRPC
   location /${GRPC_SVC} {
     grpc_set_header X-Real-IP \$remote_addr;
     grpc_pass grpc://127.0.0.1:11800;
   }
-  # VLESS-WS
   location ${WS_PATH} {
     proxy_http_version 1.1;
     proxy_set_header Upgrade \$http_upgrade;
@@ -181,7 +177,6 @@ server {
     proxy_set_header Host \$host;
     proxy_pass http://127.0.0.1:11801;
   }
-  # VMess-WS
   location ${VMESS_PATH} {
     proxy_http_version 1.1;
     proxy_set_header Upgrade \$http_upgrade;
@@ -214,73 +209,65 @@ NG2
 nginx -t >/dev/null && systemctl reload nginx
 
 ########################################
-# 8) Reality 密钥（双路兜底）
+# 9) Reality 密钥（双路兜底）
 ########################################
-c_step "生成 Reality 密钥对"
+step "生成 Reality 密钥对"
 PRIV=""; PBK=""
 read PRIV PBK < <( (sing-box generate reality-keypair 2>/dev/null || true) | awk -F': *' '/Private/{p=$2}/Public/{print p,$2}')
 if [[ -z "${PRIV:-}" || -z "${PBK:-}" ]]; then
   read PRIV PBK < <( (xray x25519 2>/dev/null || true) | awk -F': *' '/Private/{p=$2}/Public/{print p,$2}')
 fi
 if [[ -z "${PRIV:-}" || -z "${PBK:-}" ]]; then
-  c_err "Reality 密钥生成失败"; exit 1
+  err "Reality 密钥生成失败"; exit 1
 fi
-c_ok "Reality PBK: $PBK"
+ok "Reality PBK: $PBK"
 
 ########################################
-# 9) 安装 sing-box（自检解包，不依赖 file）
+# 10) 安装 sing-box（自检解包）
 ########################################
-c_step "安装 sing-box v${SB_VER}"
+step "安装 sing-box v${SB_VER}"
 SB_TGZ_URL="https://github.com/SagerNet/sing-box/releases/download/v${SB_VER}/sing-box-${SB_VER}-linux-amd64.tar.gz"
 SB_ZIP_URL="https://github.com/SagerNet/sing-box/releases/download/v${SB_VER}/sing-box-${SB_VER}-linux-amd64.zip"
-dl="/tmp/sb.pkg"
-q rm -f "$dl"
+dl="/tmp/sb.pkg"; q rm -f "$dl"
 
 if curl -fsSL "$SB_TGZ_URL" -o "$dl"; then
   if tar -tzf "$dl" >/dev/null 2>&1; then
     tar -xzf "$dl" -C /tmp
     cp -f /tmp/sing-box-${SB_VER}-linux-amd64/sing-box /usr/local/bin/
     chmod +x /usr/local/bin/sing-box
-    c_ok "sing-box 已安装：$(sing-box version | head -n1)"
+    ok "sing-box: $(sing-box version | head -n1)"
   else
-    c_warn "tgz 检测失败，尝试 zip 包"
+    warn "tgz 检测失败，尝试 zip 包"
     curl -fsSL "$SB_ZIP_URL" -o "$dl"
-    if unzip -t "$dl" >/dev/null 2>&1; then
-      unzip -qo "$dl" -d /tmp
-      cp -f /tmp/sing-box-${SB_VER}-linux-amd64/sing-box /usr/local/bin/
-      chmod +x /usr/local/bin/sing-box
-      c_ok "sing-box 已安装：$(sing-box version | head -n1)"
-    else
-      c_err "未知压缩格式"; exit 1
-    fi
+    unzip -qo "$dl" -d /tmp
+    cp -f /tmp/sing-box-${SB_VER}-linux-amd64/sing-box /usr/local/bin/
+    chmod +x /usr/local/bin/sing-box
+    ok "sing-box: $(sing-box version | head -n1)"
   fi
 else
-  c_err "下载 sing-box 失败"; exit 1
+  err "下载 sing-box 失败"; exit 1
 fi
 
 ########################################
-# 10) 生成 sing-box 配置（Reality+HY2+TUIC）
+# 11) 写入 sing-box 配置（Reality+HY2+TUIC）
 ########################################
-c_step "写入 sing-box 配置"
+step "写入 sing-box 配置（Reality@14443 / HY2@udp:443 / TUIC@udp:2053）"
 
-# 出站/路由
-ROUTE_JSON='"final":"direct"'
+# 1) 住宅 HTTP 出站对象：改为“有就加、没就不写”，避免 jq BINDING 报错
 HOME_OB=""
 if [[ -n "${HOME_LINE:-}" ]]; then
-  # 住宅 HTTP 出站
-  HOME_OB=$(jq -n --arg h "$HOME_HOST" --argjson p "$HOME_PORT" \
-               --arg u "${HOME_USER:-}" --arg pw "${HOME_PASS:-}" '{
-      "type":"http","tag":"home_http",
-      "server":$h,"server_port":($p|tonumber),
-      "username":( ($u|length)>0 ? $u : null ),
-      "password":( ($pw|length)>0 ? $pw : null )
-    }')
-  ROUTE_JSON='"rules":[{"domain_suffix":["googlevideo.com","ytimg.com","ggpht.com"],"outbound":"direct"}],"final":"home_http"'
+  HOME_OB=$(jq -n --arg h "$HOME_HOST" --arg p "$HOME_PORT" \
+             '{type:"http",tag:"home_http",server:$h,server_port:($p|tonumber)}')
+  if [[ -n "${HOME_USER:-}" ]]; then
+    HOME_OB=$(jq --arg u "$HOME_USER" '.username=$u' <<<"$HOME_OB")
+  fi
+  if [[ -n "${HOME_PASS:-}" ]]; then
+    HOME_OB=$(jq --arg pw "$HOME_PASS" '.password=$pw' <<<"$HOME_OB")
+  fi
 fi
 
+# 2) inbounds
 IN=()
-
-# Reality（被 Nginx STREAM 默认分到 14443）
 IN+=("{
   \"type\":\"vless\",\"tag\":\"vless-reality\",\"listen\":\"127.0.0.1\",\"listen_port\":${PORT_REALITY_LOOP},
   \"users\":[{\"uuid\":\"${UUID_ALL}\",\"flow\":\"xtls-rprx-vision\"}],
@@ -295,15 +282,11 @@ IN+=("{
     }
   }
 }")
-
-# HY2（udp/443）
 IN+=("{
   \"type\":\"hysteria2\",\"tag\":\"hy2\",\"listen\":\"::\",\"listen_port\":${PORT_HY2_UDP},
   \"users\":[{\"password\":\"${HY2_PWD}\"}],
   \"tls\":{\"enabled\":true,\"alpn\":[\"h3\"],\"certificate_path\":\"${CRT}\",\"key_path\":\"${KEY}\"}
 }")
-
-# TUIC（udp/2053）
 IN+=("{
   \"type\":\"tuic\",\"tag\":\"tuic\",\"listen\":\"::\",\"listen_port\":${PORT_TUIC_UDP},
   \"users\":[{\"uuid\":\"${TUIC_UUID}\",\"password\":\"${TUIC_PWD}\"}],
@@ -311,9 +294,15 @@ IN+=("{
   \"tls\":{\"enabled\":true,\"alpn\":[\"h3\"],\"certificate_path\":\"${CRT}\",\"key_path\":\"${KEY}\"}
 }")
 
+# 3) outbounds + route
 OB=('{"type":"direct","tag":"direct"}')
 [[ -n "$HOME_OB" ]] && OB+=("$HOME_OB")
 OB+=('{"type":"block","tag":"block"}')
+
+ROUTE_JSON='"final":"direct"'
+if [[ -n "$HOME_OB" ]]; then
+  ROUTE_JSON='"rules":[{"domain_suffix":["googlevideo.com","ytimg.com","ggpht.com"],"outbound":"direct"}],"final":"home_http"'
+fi
 
 jq -n --argjson in "[$(IFS=,; echo "${IN[*]}")]" \
       --argjson ob "[$(IFS=,; echo "${OB[*]}")]" \
@@ -321,7 +310,7 @@ jq -n --argjson in "[$(IFS=,; echo "${IN[*]}")]" \
       '{log:{level:"info"},inbounds:$in,outbounds:$ob,route:$route}' \
   >"$SB_CFG"
 
-# systemd 单元
+# 4) systemd 单元
 cat >/etc/systemd/system/sing-box.service <<'UNIT'
 [Unit]
 Description=sing-box unified service
@@ -342,16 +331,16 @@ systemctl daemon-reload
 systemctl enable --now sing-box
 
 ########################################
-# 11) UFW 放行（存在才操作）
+# 12) UFW 放行
 ########################################
-c_step "UFW 放行（若未安装/未启用会自动忽略）"
+step "UFW 放行（若未安装/未启用会自动忽略）"
 q ufw allow ${PORT_SNI_OUT}/tcp
 q ufw allow ${PORT_HY2_UDP}/udp
 q ufw allow ${PORT_TUIC_UDP}/udp
 q ufw reload
 
 ########################################
-# 12) 生成聚合订阅
+# 13) 生成聚合订阅
 ########################################
 HOST="${DOMAIN:-$(curl -fsS https://api.ipify.org || hostname -I | awk '{print $1}')}"
 ln -sf "$SUB_FILE" /var/www/html/sub/urls.txt
@@ -362,8 +351,8 @@ printf "vless://%s@%s:443?encryption=none&security=tls&type=ws&path=%s&host=%s&f
   "$UUID_ALL" "$HOST" "$WS_PATH" "$HOST" "$HOST" >>"$SUB_FILE"
 printf "vmess://%s\n" \
   "$(jq -nc --arg v '2' --arg add "$HOST" --arg path "$VMESS_PATH" --arg id "$UUID_VMESS" \
-          --arg ps "VMess-WS@$HOST" \
-          '{v:$v,ps:$ps,add:$add,port:"443",id:$id,aid:"0",scy:"none",net:"ws",type:"",host:$add,path:$path,tls:"tls",sni:$add,alpn:""}' | base64 -w0)" >>"$SUB_FILE"
+         --arg ps "VMess-WS@$HOST" \
+         '{v:$v,ps:$ps,add:$add,port:"443",id:$id,aid:"0",scy:"none",net:"ws",type:"",host:$add,path:$path,tls:"tls",sni:$add,alpn:""}' | base64 -w0)" >>"$SUB_FILE"
 printf "vless://%s@%s:443?encryption=none&flow=xtls-rprx-vision&fp=chrome&security=reality&sni=%s&pbk=%s&sid=%s&type=tcp#VLESS-Reality@%s\n" \
   "$UUID_ALL" "$HOST" "$SNI_CF" "$PBK" "$SID" "$HOST" >>"$SUB_FILE"
 printf "hysteria2://%s@%s:%s?alpn=h3#HY2@%s\n" \
@@ -372,7 +361,7 @@ printf "tuic://%s:%s@%s:%s?congestion=bbr&alpn=h3#TUIC@%s\n" \
   "$TUIC_UUID" "$TUIC_PWD" "$HOST" "${PORT_TUIC_UDP}" "$HOST" >>"$SUB_FILE"
 
 ########################################
-# 13) 生成 edgeboxctl（简版）
+# 14) edgeboxctl（管理脚本）
 ########################################
 cat >/usr/local/bin/edgeboxctl <<"CTL"
 #!/usr/bin/env bash
@@ -398,10 +387,10 @@ CTL
 chmod +x /usr/local/bin/edgeboxctl
 
 ########################################
-# 14) 总结
+# 15) 总结
 ########################################
 echo
-c_ok "安装完成"
+ok "安装完成"
 echo "订阅链接： http://${HOST}/sub/urls.txt"
 [[ -z "${DOMAIN:-}" ]] && echo "注意：使用自签证书，客户端需勾选“跳过证书验证/allowInsecure”。"
 echo
