@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# ---------- 提权（兼容 curl|bash / 进程替换） ----------
+# ===== 提权（兼容 curl|bash / 进程替换）=====
 if [[ $EUID -ne 0 ]]; then
   if [[ -r "/proc/$$/fd/0" ]]; then
-    _tmp="$(mktemp -t edgebox-install.XXXXXX.sh)"
-    cat "/proc/$$/fd/0" >"$_tmp"
-    exec sudo -E bash "$_tmp" "$@"
+    T="$(mktemp -t edgebox-install.XXXXXX.sh)"; cat "/proc/$$/fd/0" >"$T"
+    exec sudo -E bash "$T" "$@"
   else
     exec sudo -E bash "$0" "$@"
   fi
@@ -18,7 +17,7 @@ warn(){ printf "\033[33m[WARN]\033[0m %s\n" "$*"; }
 err(){  printf "\033[31m[ERR]\033[0m  %s\n" "$*"; }
 q(){ "$@" >/dev/null 2>&1 || true; }
 
-# ---------- 常量 ----------
+# ===== 常量 =====
 XR_CFG="/usr/local/etc/xray/config.json"
 SB_CFG="/etc/sing-box/config.json"
 SSL_DIR="/etc/ssl/edgebox"
@@ -33,6 +32,7 @@ PORT_HY2_UDP=443
 PORT_TUIC_UDP=2053
 SNI_CF="www.cloudflare.com"
 
+# 随机量
 UUID_ALL="$(cat /proc/sys/kernel/random/uuid)"
 UUID_VMESS="$(cat /proc/sys/kernel/random/uuid)"
 WS_PATH="/$(openssl rand -hex 3)"
@@ -44,21 +44,20 @@ TUIC_UUID="$(cat /proc/sys/kernel/random/uuid)"
 TUIC_PWD="$(openssl rand -hex 12)"
 
 cat <<'BANNER'
-[INFO] 端口放行要求：tcp/443, udp/443(HY2), udp/2053(TUIC)；可选 udp/8443（备用）。
-[INFO] 云防火墙/安全组 + 本机(UFW/iptables) 都需放行。
+[INFO] 端口放行：tcp/443、udp/443(HY2)、udp/2053(TUIC)；可选 udp/8443（备用）。
+[INFO] 请在云防火墙/安全组 + 本机(UFW/iptables) 同时放行。
 BANNER
 
-# ---------- 依赖 ----------
+# ===== 依赖 =====
 step "安装依赖（jq/openssl/socat/nginx/ufw/tar/unzip/file 等）"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y >/dev/null
 apt-get install -y --no-install-recommends \
   ca-certificates curl wget openssl jq unzip tar gzip socat ufw nginx coreutils file >/dev/null
 
-mkdir -p "$(dirname "$XR_CFG")" "$(dirname "$SB_CFG")" "$SUB_DIR" /var/www/html/sub "$SSL_DIR"
-systemctl enable --now nginx >/dev/null 2>&1 || true  # 先确保 nginx 处于可用状态
+mkdir -p "$(dirname "$XR_CFG")" "$(dirname "$SB_CFG")" "$SUB_DIR" /var/www/html/sub "$SSL_DIR" /etc/nginx/stream.d
 
-# ---------- 交互 ----------
+# ===== 交互 =====
 read -rp "域名（留空=用自签证书；填入=自动 ACME）: " DOMAIN
 read -rp "住宅代理（HOST:PORT[:USER[:PASS]]，留空=不用）: " HOME_LINE || true
 
@@ -70,13 +69,12 @@ if [[ -n "${HOME_LINE:-}" ]]; then
   fi
 fi
 
-# ---------- Xray ----------
-step "安装 Xray"
+# ===== 安装 Xray 并写配置 =====
+step "安装 Xray（若已装则跳过）"
 if ! command -v xray >/dev/null 2>&1; then
   bash <(curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh) >/dev/null || true
 fi
-
-step "写入 Xray 配置（回环监听 11800/11801/11802）"
+step "写入 Xray 配置（回环 11800/11801/11802）"
 cat >"$XR_CFG" <<JSON
 {
   "inbounds": [
@@ -96,16 +94,15 @@ JSON
 systemctl enable xray >/dev/null 2>&1 || true
 systemctl restart xray || true
 
-# ---------- 证书 ----------
+# ===== 证书 =====
 CRT="$SSL_DIR/fullchain.crt"
 KEY="$SSL_DIR/private.key"
 issue_self(){
-  mkdir -p "$SSL_DIR"
   openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
     -keyout "$KEY" -out "$CRT" -subj "/CN=${DOMAIN:-edgebox.local}" >/dev/null 2>&1
 }
 if [[ -n "${DOMAIN:-}" ]]; then
-  step "申请 ACME 证书：$DOMAIN（失败会回退自签）"
+  step "申请 ACME 证书：$DOMAIN（失败将回退自签）"
   q systemctl stop nginx
   if ! ~/.acme.sh/acme.sh -v >/dev/null 2>&1; then
     curl -fsSL https://get.acme.sh | sh -s email=admin@"${DOMAIN}" >/dev/null 2>&1 || true
@@ -115,24 +112,35 @@ if [[ -n "${DOMAIN:-}" ]]; then
     ~/.acme.sh/acme.sh --install-cert -d "$DOMAIN" --ecc \
       --fullchain-file "$CRT" --key-file "$KEY" >/dev/null 2>&1 || issue_self
   else
-    warn "ACME 失败，改用自签"; issue_self
+    warn "ACME 失败，使用自签"; issue_self
   fi
-  systemctl start nginx || true
 else
   step "未填域名，生成自签证书"; issue_self
 fi
 
-# ---------- Nginx：确保 stream include + 写入配置 ----------
-step "写入 Nginx (127.0.0.1:${PORT_HTTP_TLS_LOOP} 反代 WS/GRPC；stream:443 SNI → ${PORT_HTTP_TLS_LOOP}/${PORT_REALITY_LOOP})"
+# ===== Nginx：彻底修复 stream 作用域 =====
+step "清理历史 stream 残留并正确装配 stream 包装"
+# 1) 删除任何历史 stream.d 配置，避免被错误位置 include
+rm -f /etc/nginx/stream.d/*.conf || true
 
-# 1) 顶层 include stream.d（加一次即可）
-if ! grep -q 'stream.d/\*\.conf' /etc/nginx/nginx.conf; then
+# 2) 从所有 nginx 配置中移除任何旧的 include /etc/nginx/stream.d/*.conf;
+grep -RIl --exclude-dir=modules-enabled --exclude-dir=sites-enabled 'include.*/etc/nginx/stream\.d/.*\.conf;' /etc/nginx \
+  | while read -r F; do sed -i '/include[[:space:]]\+\/etc\/nginx\/stream\.d\/.*\.conf;[[:space:]]*$/d' "$F"; done
+
+# 3) 写入顶层包装文件，并确保在 nginx.conf 顶层 include 它
+cat >/etc/nginx/edgebox_stream.conf <<'WRAP'
+stream {
+  # 仅从这里统一包含 stream 规则
+  include /etc/nginx/stream.d/*.conf;
+}
+WRAP
+if ! grep -q 'include /etc/nginx/edgebox_stream.conf;' /etc/nginx/nginx.conf; then
   cp /etc/nginx/nginx.conf "/etc/nginx/nginx.conf.bak.$(date +%s)"
-  sed -i '1a include /etc/nginx/stream.d/*.conf;' /etc/nginx/nginx.conf
+  # 放到第一行，保证顶层作用域
+  sed -i '1i include /etc/nginx/edgebox_stream.conf;' /etc/nginx/nginx.conf
 fi
-mkdir -p /etc/nginx/stream.d
 
-# 2) http(8443)
+# 4) 写入 http 反代（仅本机 8443）
 cat >/etc/nginx/conf.d/edgebox-https.conf <<NG1
 server {
   listen 127.0.0.1:${PORT_HTTP_TLS_LOOP} ssl http2;
@@ -161,8 +169,8 @@ server {
 }
 NG1
 
-# 3) stream(443)
-cat >/etc/nginx/stream.d/edgebox-stream.conf <<NG2
+# 5) 写入真正的 stream SNI 分流
+cat >/etc/nginx/stream.d/edgebox-sni.conf <<NG2
 map \$ssl_preread_server_name \$edgebox_up {
   ${DOMAIN:-_}  grpcws;
   default       reality;
@@ -179,19 +187,13 @@ server {
 }
 NG2
 
-if nginx -t >/dev/null; then
-  # 运行中则 reload，否则 restart；并确保 enable
-  if systemctl is-active --quiet nginx; then
-    systemctl reload nginx || systemctl restart nginx
-  else
-    systemctl restart nginx
-  fi
-  systemctl enable nginx >/dev/null 2>&1 || true
-else
-  err "nginx 配置测试失败"; exit 1
-fi
+# 6) 校验 & 启动/重载
+nginx -t >/dev/null || { err "nginx 配置测试失败"; exit 1; }
+systemctl restart nginx
+systemctl enable nginx >/dev/null 2>&1 || true
+ok "nginx stream 装配完成"
 
-# ---------- Reality 密钥 ----------
+# ===== Reality 密钥（双兜底）=====
 step "生成 Reality 密钥对"
 PRIV=""; PBK=""
 read PRIV PBK < <( (sing-box generate reality-keypair 2>/dev/null || true) | awk -F': *' '/Private/{p=$2}/Public/{print p,$2}')
@@ -201,21 +203,21 @@ fi
 [[ -z "${PRIV:-}" || -z "${PBK:-}" ]] && { err "Reality 密钥生成失败"; exit 1; }
 ok "Reality PBK: $PBK"
 
-# ---------- 安装 sing-box ----------
+# ===== 安装 sing-box（tgz→zip 兜底）=====
 step "安装 sing-box v${SB_VER}"
 SB_TGZ_URL="https://github.com/SagerNet/sing-box/releases/download/v${SB_VER}/sing-box-${SB_VER}-linux-amd64.tar.gz"
 SB_ZIP_URL="https://github.com/SagerNet/sing-box/releases/download/v${SB_VER}/sing-box-${SB_VER}-linux-amd64.zip"
-dl="/tmp/sb.pkg"; q rm -f "$dl"
+DL="/tmp/sb.pkg"; q rm -f "$DL"
 
-if curl -fsSL "$SB_TGZ_URL" -o "$dl"; then
-  if tar -tzf "$dl" >/dev/null 2>&1; then
-    tar -xzf "$dl" -C /tmp
+if curl -fsSL "$SB_TGZ_URL" -o "$DL"; then
+  if tar -tzf "$DL" >/dev/null 2>&1; then
+    tar -xzf "$DL" -C /tmp
     cp -f /tmp/sing-box-${SB_VER}-linux-amd64/sing-box /usr/local/bin/
     chmod +x /usr/local/bin/sing-box
   else
-    warn "tgz 检测失败，尝试 zip 包"
-    curl -fsSL "$SB_ZIP_URL" -o "$dl"
-    unzip -qo "$dl" -d /tmp
+    warn "tgz 校验失败，尝试 zip 包"
+    curl -fsSL "$SB_ZIP_URL" -o "$DL"
+    unzip -qo "$DL" -d /tmp
     cp -f /tmp/sing-box-${SB_VER}-linux-amd64/sing-box /usr/local/bin/
     chmod +x /usr/local/bin/sing-box
   fi
@@ -224,9 +226,8 @@ else
 fi
 ok "sing-box: $(sing-box version | head -n1)"
 
-# ---------- 写入 sing-box 配置 ----------
-step "写入 sing-box 配置（Reality@${PORT_REALITY_LOOP} / HY2@udp:${PORT_HY2_UDP} / TUIC@udp:${PORT_TUIC_UDP}）"
-
+# ===== 写入 sing-box 配置 =====
+step "写入 sing-box（Reality@${PORT_REALITY_LOOP} / HY2@udp:${PORT_HY2_UDP} / TUIC@udp:${PORT_TUIC_UDP}）"
 HOME_OB=""
 if [[ -n "${HOME_LINE:-}" ]]; then
   HOME_OB=$(jq -n --arg h "$HOME_HOST" --arg p "$HOME_PORT" \
@@ -279,14 +280,12 @@ cat >/etc/systemd/system/sing-box.service <<'UNIT'
 [Unit]
 Description=sing-box unified service
 After=network.target
-
 [Service]
 Type=simple
 ExecStart=/usr/local/bin/sing-box run -c /etc/sing-box/config.json
 Restart=always
 RestartSec=2
 LimitNOFILE=1048576
-
 [Install]
 WantedBy=multi-user.target
 UNIT
@@ -294,14 +293,14 @@ UNIT
 systemctl daemon-reload
 systemctl enable --now sing-box
 
-# ---------- UFW ----------
-step "UFW 放行（若未安装/未启用会自动忽略）"
+# ===== UFW 放行 =====
+step "UFW 放行"
 q ufw allow ${PORT_SNI_OUT}/tcp
 q ufw allow ${PORT_HY2_UDP}/udp
 q ufw allow ${PORT_TUIC_UDP}/udp
 q ufw reload
 
-# ---------- 订阅 ----------
+# ===== 聚合订阅 & 管理器 =====
 HOST="${DOMAIN:-$(curl -fsS https://api.ipify.org || hostname -I | awk '{print $1}')}"
 ln -sf "$SUB_FILE" /var/www/html/sub/urls.txt
 : >"$SUB_FILE"
@@ -320,7 +319,6 @@ printf "hysteria2://%s@%s:%s?alpn=h3#HY2@%s\n" \
 printf "tuic://%s:%s@%s:%s?congestion=bbr&alpn=h3#TUIC@%s\n" \
   "$TUIC_UUID" "$TUIC_PWD" "$HOST" "${PORT_TUIC_UDP}" "$HOST" >>"$SUB_FILE"
 
-# ---------- edgeboxctl ----------
 cat >/usr/local/bin/edgeboxctl <<"CTL"
 #!/usr/bin/env bash
 set -Eeuo pipefail
@@ -344,7 +342,6 @@ esac
 CTL
 chmod +x /usr/local/bin/edgeboxctl
 
-# ---------- 总结 ----------
 ok "安装完成"
 echo "订阅链接： http://${HOST}/sub/urls.txt"
 [[ -z "${DOMAIN:-}" ]] && echo "注意：使用自签证书，客户端需勾选“跳过证书验证/allowInsecure”。"
