@@ -5,7 +5,7 @@ ________________________________________
 1) 兼容 Debian 11/12、Ubuntu 20.04/22.04/24.04（apt 系列）；目标：在“任何 VPS/VM”上一键落地、稳定复现、方便维护。
 五协议一体：VLESS-gRPC、VLESS-WS(+TLS via Nginx)、VLESS-Reality、Hysteria2、TUIC
 自动：依赖安装、BBR+fq、可选创建 2GB swap、UFW 放行、Nginx 反代(8443/tcp)
-出⼝分流（可选）：googlevideo/ytimg/ggpht 走你提供的住宅 HTTP 代理，其它直出
+出⼝分流（可选）：googlevideo/ytimg/ggpht 直出，其它走住宅 HTTP 代理；
 聚合订阅：生成 /var/www/html/sub/urls.txt（也软链到 /var/lib/sb-sub/urls.txt），包含你启用的每个协议链接
 幂等：多次运行不炸；错误会 exit 1，日志清晰
 卸载干净：保留一份 tar 备份，选项化清理 Nginx 站点/订阅页、UFW、swap、依赖等（不强制卸 Nginx 包，防误伤）
@@ -44,7 +44,7 @@ ________________________________________
 --
 ## 端口 / 防火墙
 
-必须放行（**云防火墙/安全组 + 本机 UFW**）：
+**云防火墙/安全组 + 本机 UFW**必须放行：
 - TCP：`443`
 - UDP：`8443`（HY2 主）、`2053`（TUIC）； `443`（HY2 备）
 
@@ -62,25 +62,6 @@ sing-box：装最新兼容版。
 •	常见坑：
 sing-box 新旧配置差异：旧版里 "transport":"tcp" 会让新版本报错：unknown transport type: tcp；同时用 sed/jq 误操作易造成 EOF（JSON 被截断）。
 HY2/TUIC 需要 TLS 证书。脚本默认 自签证书（客户端需 allowInsecure/insecure），也留了 ACME 扩展位。
-________________________________________
-2) sb.sh 脚本回顾与问题定位
-•	版本固定：脚本固定下载 sing-box v1.12.2（稳定，兼容 Reality/hy2/tuic 语法）。
-•	报错复盘：
-1.	unknown transport type: tcp → 来自旧式字段写法；已在最终版脚本彻底移除错误字段。
-2.	decode config: EOF → 由不完整 here‑doc / jq 写回失败引起；最终版严格使用 完整 here‑doc + jq -e 预检。
-3.	invalid private key → Reality 私钥抓取不一致/被多次生成覆盖；最终版一次生成成对密钥，并 校验非空，sing-box check 预检。
-•	订阅生成：之前手工贴多段命令容易被 SSH‑Web 页面截断；最终版提供 /root/make_sub.sh 一次到位生成，并在安装结尾自动执行。
-________________________________________
-3) 最终整体方案与端口拓扑
-•	gRPC/WS：Xray 作为应用层，Nginx(TLS/HTTP2) 反代到本地 127.0.0.1:10085(gRPC) / 10086(WS)。
-o	若启用 Reality：Nginx 监听 8443；未启用 Reality 时可监听 443。
-•	Reality：sing-box 直绑 tcp/443（默认 SNI www.cloudflare.com，可改）。
-•	HY2：sing-box 监听 udp/443（可改 8443），自签证书 + alpn=h3。
-•	TUIC：sing-box 监听 udp/2053，复用同一证书。
-•	出站分流（可选）：
-o	默认“全量直出（direct）”。
-o	可选“住宅 HTTP 代理（host/port/user/pass）”：除 googlevideo/ytimg/ggpht 外全部经住宅代理直出；这里对 Xray 与 sing-box 各自配置相同策略。
-•	订阅：聚合到 http://<你的域名>/sub/urls.txt。
 ________________________________________
 
 4) 协议使用场景与组合策略（结论）
@@ -113,7 +94,6 @@ Rolling window：24h
 Notification channel：Email
 日度：Daily Egress > 7GiB (24h rolling)
 Severity：日度阈值 → Warning
-
 
 附：使用建议
 客户端里建议设置优先级（主用 gRPC/HY2，备用 WS/Reality/TUIC），服务器无法强制客户端优先级。
