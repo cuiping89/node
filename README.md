@@ -10,9 +10,12 @@ EdgeBox 是一个用于自动化部署和管理多种主流代理协议的脚本
 
 **最低硬件要求**
 - CPU: 1 核
-- 内存: 512MB
+- 内存: 512MB（自动创建 swap 虚拟内存补足）
 - 存储: 10GB 可用空间
 - 网络: 稳定的公网 IP
+
+**依赖软件**
+安装脚本会自动检测并安装：curl, wget, unzip, tar, nginx, certbot, vnstat, iftop
 
 ## 核心理念与策略
 
@@ -104,9 +107,10 @@ EdgeBox 采用以下技术组合，实现了多协议的完美共存：
 安装前脚本会自动检查：
 - 操作系统版本兼容性
 - 网络连通性（DNS 解析、外网访问）
-- 防火墙状态
-- 必要端口占用情况
+- 防火墙状态和端口占用
 - 系统资源（内存、磁盘空间）
+- **内存不足处理**：自动创建 2GB swap 虚拟内存
+- **依赖软件安装**：自动安装 curl、wget、nginx、certbot、vnstat 等必需组件
 
 ### 一键安装
 
@@ -131,11 +135,10 @@ bash <(curl -fsSL https://raw.githubusercontent.com/<你的GitHub>/EdgeBox/main/
 
 **视频流分流优化**
 - 默认配置路由规则，将以下域名设置为**直连**：
-  - `googlevideo.com` (YouTube 视频)
-  - `ytimg.com` (YouTube 图片)
+  - `googlevideo.com` (YouTube 视频流，CDN 流量)
+  - `ytimg.com` (YouTube 图片)  
   - `ggpht.com` (Google 图片)
-  - `netflix.com` 系列域名
-  - 其他主流视频平台域名
+  - ⚠️ **注意**：`netflix.com` 等风险较高的流媒体域名**不建议直连**，会暴露真实 IP 给平台，影响账号安全
 - 节省代理流量并提升观看体验
 
 ### 安装完成验证
@@ -222,17 +225,82 @@ edgeboxctl user list
 edgeboxctl user reset <username>
 ```
 
-**监控功能**
+**流量统计**
 ```bash
-# 查看实时连接状态
-edgeboxctl monitor connections
+# 查看当月流量统计
+edgeboxctl traffic monthly
 
-# 查看流量统计
-edgeboxctl monitor traffic
+# 查看近12个月历史流量
+edgeboxctl traffic history --months 12
 
-# 查看系统资源使用
-edgeboxctl monitor system
+# 分协议流量统计
+edgeboxctl traffic breakdown
+
+# 设置月度流量预警（如 200GB）
+edgeboxctl traffic alert 200GB
+
+# 查看实时流量
+edgeboxctl traffic realtime
 ```
+
+**流媒体解锁检测**
+```bash
+# 检测流媒体解锁状态
+edgeboxctl check netflix
+edgeboxctl check youtube  
+edgeboxctl check chatgpt
+edgeboxctl check disney
+
+# 一键检测所有平台
+edgeboxctl check all
+```
+
+**网络优化**
+```bash
+# 启用 BBR 拥塞控制算法
+edgeboxctl optimize bbr
+
+# 优化 TCP 参数
+edgeboxctl optimize tcp
+
+# 网络速度测试
+edgeboxctl speedtest
+
+# 一键优化所有网络参数
+edgeboxctl optimize all
+```
+
+**安全增强**
+```bash
+# 扫描异常连接
+edgeboxctl security scan
+
+# 封禁可疑 IP
+edgeboxctl security block <ip>
+
+# 查看安全报告
+edgeboxctl security report
+
+# 设置自动防护模式
+edgeboxctl security autoprotect on
+```
+
+### 订阅链接获取与分享
+
+**获取订阅链接**
+```bash
+# SSH 方式：显示所有订阅链接
+edgeboxctl config show-sub
+
+# 浏览器方式：访问 http://your-domain:8080/sub
+# （可选开启简单 Web 面板）
+```
+
+**分享策略建议**
+- **技术小白朋友**：单个稳定协议（VLESS-Reality）
+- **技术用户**：聚合订阅链接（包含所有协议，自动切换）
+- **家人使用**：VLESS-WebSocket（最稳定，兼容性最好）
+- **移动设备**：TUIC 协议（对不稳定网络友好）
 
 ### 自动化备份
 
@@ -249,6 +317,18 @@ edgeboxctl backup list
 
 # 恢复指定日期备份
 edgeboxctl backup restore <YYYY-MM-DD>
+```
+
+## 一键卸载
+
+如需完全移除 EdgeBox，执行以下命令：
+
+```bash
+# 下载并执行卸载脚本
+bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/EdgeBox/main/uninstall.sh)
+
+# 或使用管理工具卸载
+edgeboxctl uninstall --purge
 ```
 
 ## 性能优化建议
@@ -324,7 +404,7 @@ A: 确认伪装域名可正常访问，检查 SNI 配置是否正确。
 A: 网络审查严格时优先 Reality > gRPC > WS；需要高速时选择 Hysteria2；移动网络推荐 TUIC。
 
 **Q: GCP 会因为使用 gRPC 协议切换到高级网络吗？**
-A: 不会。GCP 的网络层级是在 VM 实例级别设置的，与使用的代理协议无关。
+A: **绝对不会**！GCP 的网络层级是在 VM 实例创建时设置的，与运行的应用协议完全无关。gRPC 本质是 HTTP/2，使用标准 TCP/443 端口，只要您的 VM 设置为"标准网络层级"，200GB 内的出站流量都是标准计费，不会因为协议类型改变。
 
 ## 客户端配置示例
 
@@ -373,10 +453,33 @@ proxies:
 - 监控异常连接和流量
 - 适时轮换用户 UUID
 
+### 与现有项目对比
+
+**vs mack-a/v2ray-agent**
+- ✅ 更精简实用：去除过时的 VMess、重复的 Trojan
+- ✅ 端口策略更合理：统一标准端口，伪装效果更好  
+- ✅ 管理更现代化：专业命令行工具 + 自动备份
+- ❌ 社区成熟度：新项目，用户基数较小
+
+**vs sing-box 四协议脚本**
+- ✅ 架构更清晰：Nginx + Xray + sing-box 分工明确
+- ✅ 功能更全面：流量统计、安全防护、性能优化
+- ✅ 专为 GCP 优化：针对标准网络计费优化设计
+- ❌ 复杂度稍高：功能丰富但学习成本增加
+
+## 社区建设规划
+
+**差异化定位**
+- 🎯 **GCP 用户专属**：针对 GCP 网络计费和性能特性优化
+- 🛡️ **企业级安全**：内置防扫描、异常检测、自动防护
+- 📊 **智能运维**：流量统计、性能监控、故障自愈
+- 👥 **用户友好**：详细文档、视频教程、社区支持
+
 **网络安全**
 - 不要在敏感网络环境下测试
-- 避免大流量下载引起注意
+- 避免大流量下载引起注意  
 - 保持低调，不要分享过多细节
+- 定期检查 VPS IP 是否被墙
 
 ## 特别提示
 
