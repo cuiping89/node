@@ -129,8 +129,16 @@ interactive_config() {
     echo "=== EdgeBox 配置向导 ==="
     echo
     
-    # 域名配置
-    read -rp "请输入您的域名（选填，留空使用自签证书）: " DOMAIN
+    # 检查是否在管道中运行
+    if [ -t 0 ]; then
+        # 交互模式
+        read -rp "请输入您的域名（选填，留空使用自签证书）: " DOMAIN
+    else
+        # 非交互模式，使用默认值
+        echo "检测到非交互模式，使用默认配置"
+        DOMAIN=""
+    fi
+    
     if [[ -n "$DOMAIN" ]]; then
         if [[ ! "$DOMAIN" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]+[a-zA-Z0-9]$ ]]; then
             echo "域名格式不正确，将使用自签证书"
@@ -149,10 +157,17 @@ interactive_config() {
     
     # 代理配置
     echo
-    echo "住宅 HTTP 代理配置（选填）:"
-    echo "格式：HOST:PORT:USER:PASS 或 HOST:PORT（无认证）"
-    echo "示例：proxy.example.com:8080:username:password"
-    read -rp "请输入代理配置（回车跳过，默认全直出）: " proxy_input
+    if [ -t 0 ]; then
+        # 交互模式
+        echo "住宅 HTTP 代理配置（选填）:"
+        echo "格式：HOST:PORT:USER:PASS 或 HOST:PORT（无认证）"
+        echo "示例：proxy.example.com:8080:username:password"
+        read -rp "请输入代理配置（回车跳过，默认全直出）: " proxy_input
+    else
+        # 非交互模式
+        echo "✓ 使用默认配置（全直出模式）"
+        proxy_input=""
+    fi
     
     if [[ -n "$proxy_input" ]]; then
         IFS=':' read -r PROXY_HOST PROXY_PORT PROXY_USER PROXY_PASS <<< "$proxy_input"
