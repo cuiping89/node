@@ -72,8 +72,10 @@
 - 不走Argo、不让任何代理回源、不在服务器启用WARP/Zero Trust网关，否则会连接CF边缘导致公网出站，触发GCP计费。
 
 ## 核心组件
--**Nginx**: 作为前置代理，将所有 443 端口的 TCP 流量分发到后端服务。通过 HTTP(S) 反向代理 VLESS-gRPC 和 VLESS-WS，并通过 `stream` 模块实现基于 SNI 的 VLESS-Reality 流量分流。
--**Xray & sing-box**: 脚本将通过官方安装脚本，安装 **Xray 和 sing-box 的最新相互兼容版本**。Xray 负责 VLESS-gRPC 和 VLESS-WS，而 sing-box 则承载 Reality、Hysteria2 和 TUIC。
+### Nginx:
+作为前置代理，将所有 443 端口的 TCP 流量分发到后端服务。通过 HTTP(S) 反向代理 VLESS-gRPC 和 VLESS-WS，并通过 `stream` 模块实现基于 SNI 的 VLESS-Reality 流量分流。
+### Xray & sing-box: 
+脚本将通过官方安装脚本，安装 **Xray 和 sing-box 的最新相互兼容版本**。Xray 负责 VLESS-gRPC 和 VLESS-WS，而 sing-box 则承载 Reality、Hysteria2 和 TUIC。
 
 ## 证书管理
 **自动化证书处理**：
