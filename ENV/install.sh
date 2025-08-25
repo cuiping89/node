@@ -3,17 +3,16 @@
 # EdgeBox - 一站式多协议节点部署工具
 # 支持：VLESS-gRPC, VLESS-WS, VLESS-Reality, Hysteria2, TUIC
 # 系统要求：Ubuntu 18.04+ / Debian 10+
-# 使用方法：
-#   安装: bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/main/ENV/install.sh)
-#   卸载: bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/main/ENV/install.sh) --uninstall
+# 使用方法：bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/main/ENV/install.sh)
 # =====================================================================================
 
 set -Eeuo pipefail
 
-# === 自动提权 ===
+# === 修复自动提权问题 ===
 if [[ $EUID -ne 0 ]]; then
-    echo "检测到非root用户，自动提权..."
-    exec sudo -i bash "$0" "$@"
+    echo "检测到非root用户，请使用 sudo 运行此脚本"
+    echo "示例: sudo bash <(curl -fsSL ...)"
+    exit 1
 fi
 
 # === 版本配置 ===
@@ -44,100 +43,6 @@ log() {
 error() {
     echo "[ERROR] $*" >&2
     exit 1
-}
-
-# =====================================================================================
-# 集成卸载功能（基于您的 uninstall.sh）
-# =====================================================================================
-uninstall_edgebox() {
-    log "开始卸载 EdgeBox..."
-    
-    # 备份配置
-    local timestamp=$(date +%Y%m%d-%H%M%S)
-    local backup_file="$BACKUP_DIR/backup-uninstall-${timestamp}.tar.gz"
-    mkdir -p "$BACKUP_DIR"
-    
-    if [[ -d "$WORK_DIR" || -d "/etc/sing-box" || -d "/usr/local/etc/xray" ]]; then
-        log "备份配置到: $backup_file"
-        tar -czf "$backup_file" \
-            --ignore-failed-read \
-            "$WORK_DIR" \
-            "/etc/sing-box" \
-            "/usr/local/etc/xray" \
-            "/etc/nginx/conf.d/edgebox.conf" \
-            "/etc/ssl/edgebox" \
-            2>/dev/null || true
-    fi
-    
-    log "停止并禁用服务..."
-    systemctl disable --now sing-box 2>/dev/null || true
-    systemctl disable --now xray 2>/dev/null || true
-    
-    log "删除 sing-box / xray 配置与二进制..."
-    rm -rf /etc/sing-box 2>/dev/null || true
-    rm -f /etc/systemd/system/sing-box.service 2>/dev/null || true
-    rm -f /usr/local/bin/sing-box 2>/dev/null || true
-    rm -rf /usr/local/etc/xray 2>/dev/null || true
-    rm -f /etc/systemd/system/xray.service 2>/dev/null || true
-    rm -f /usr/local/bin/xray 2>/dev/null || true
-    
-    log "删除工作目录和管理工具..."
-    rm -rf "$WORK_DIR" 2>/dev/null || true
-    rm -rf /etc/ssl/edgebox 2>/dev/null || true
-    rm -f /usr/local/bin/edgeboxctl 2>/dev/null || true
-    
-    log "清理 Nginx 站点..."
-    rm -f /etc/nginx/conf.d/edgebox.conf 2>/dev/null || true
-    rm -f /etc/nginx/sites-available/edgebox 2>/dev/null || true
-    rm -f /etc/nginx/sites-enabled/edgebox 2>/dev/null || true
-    
-    # Nginx 存在则测试并重载
-    if command -v nginx >/dev/null 2>&1; then
-        nginx -t >/dev/null 2>&1 && systemctl reload nginx 2>/dev/null || true
-    fi
-    
-    log "清理 UFW 放行..."
-    if command -v ufw >/dev/null 2>&1; then
-        ufw --force delete allow 443/tcp 2>/dev/null || true
-        ufw --force delete allow 8443/tcp 2>/dev/null || true
-        ufw --force delete allow 443/udp 2>/dev/null || true
-        ufw --force delete allow 8443/udp 2>/dev/null || true
-        ufw --force delete allow 2053/udp 2>/dev/null || true
-        ufw reload 2>/dev/null || true
-    fi
-    
-    log "移除系统优化配置..."
-    rm -f /etc/sysctl.d/99-edgebox*.conf 2>/dev/null || true
-    sysctl --system >/dev/null 2>&1 || true
-    
-    log "移除 swap 文件（如果是脚本创建的）..."
-    if [[ -f /swapfile-edgebox ]]; then
-        swapoff /swapfile-edgebox 2>/dev/null || true
-        sed -i '/swapfile-edgebox/d' /etc/fstab 2>/dev/null || true
-        rm -f /swapfile-edgebox 2>/dev/null || true
-    fi
-    
-    systemctl daemon-reload
-    
-    log "[OK] EdgeBox 卸载完成"
-    [[ -f "$backup_file" ]] && echo "配置备份: $backup_file"
-    
-    # 自检
-    echo
-    echo "=== 卸载后检查 ==="
-    echo "- 端口占用检查："
-    ss -lntup | egrep ':443|:8443|:2053' || echo "  无相关端口占用 ✓"
-    echo
-    
-    exit 0
-}
-
-# =====================================================================================
-# 原 install.sh 的安装功能
-# =====================================================================================
-
-check_root() {
-    [[ $EUID -eq 0 ]] || exec sudo -E bash "$0" "$@"
 }
 
 check_os() {
@@ -188,7 +93,7 @@ install_packages() {
     apt-get install -y --no-install-recommends \
         ca-certificates curl wget jq tar unzip openssl \
         nginx ufw vnstat cron logrotate uuid-runtime \
-        certbot python3-certbot-nginx
+        certbot python3-certbot-nginx dnsutils
     
     log "依赖包安装完成"
 }
@@ -217,8 +122,8 @@ interactive_config() {
     echo "=== EdgeBox 配置向导 ==="
     echo
     
-    # 域名配置（选填，未填回车默认使用自签证书）
-    read -rp "请输入您的域名（选填，未填回车默认使用自签证书）: " DOMAIN
+    # 域名配置
+    read -rp "请输入您的域名（选填，留空使用自签证书）: " DOMAIN
     if [[ -n "$DOMAIN" ]]; then
         if [[ ! "$DOMAIN" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]+[a-zA-Z0-9]$ ]]; then
             echo "域名格式不正确，将使用自签证书"
@@ -230,12 +135,12 @@ interactive_config() {
         echo "✓ 将使用自签名证书"
     fi
     
-    # 固定安装所有协议，不再询问
+    # 固定安装所有协议
     PROTOCOLS=("grpc" "ws" "reality" "hy2" "tuic")
     HY2_PORT="443"
     echo "✓ 将安装所有协议: VLESS-gRPC, VLESS-WS, VLESS-Reality, Hysteria2, TUIC"
     
-    # 代理配置（选填，支持一次性粘贴）
+    # 代理配置
     echo
     echo "住宅 HTTP 代理配置（选填）:"
     echo "格式：HOST:PORT:USER:PASS 或 HOST:PORT（无认证）"
@@ -243,10 +148,8 @@ interactive_config() {
     read -rp "请输入代理配置（回车跳过，默认全直出）: " proxy_input
     
     if [[ -n "$proxy_input" ]]; then
-        # 解析代理配置
         IFS=':' read -r PROXY_HOST PROXY_PORT PROXY_USER PROXY_PASS <<< "$proxy_input"
         
-        # 验证基本配置
         if [[ -n "$PROXY_HOST" && -n "$PROXY_PORT" ]]; then
             USE_PROXY=true
             echo "✓ 已配置代理: ${PROXY_HOST}:${PROXY_PORT}"
@@ -282,23 +185,21 @@ install_sing_box() {
 }
 
 install_xray() {
-    if [[ " ${PROTOCOLS[*]} " =~ " grpc " ]] || [[ " ${PROTOCOLS[*]} " =~ " ws " ]]; then
-        log "安装 Xray ${XRAY_VERSION}..."
-        
-        local url="https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/Xray-linux-64.zip"
-        local temp_dir=$(mktemp -d)
-        
-        cd "$temp_dir"
-        curl -fsSL "$url" -o xray.zip
-        unzip -q xray.zip
-        install -m755 xray /usr/local/bin/xray
-        mkdir -p /usr/local/etc/xray
-        install -m644 geoip.dat geosite.dat /usr/local/etc/xray/
-        rm -rf "$temp_dir"
-        
-        /usr/local/bin/xray version
-        log "Xray 安装完成"
-    fi
+    log "安装 Xray ${XRAY_VERSION}..."
+    
+    local url="https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/Xray-linux-64.zip"
+    local temp_dir=$(mktemp -d)
+    
+    cd "$temp_dir"
+    curl -fsSL "$url" -o xray.zip
+    unzip -q xray.zip
+    install -m755 xray /usr/local/bin/xray
+    mkdir -p /usr/local/etc/xray
+    install -m644 geoip.dat geosite.dat /usr/local/etc/xray/
+    rm -rf "$temp_dir"
+    
+    /usr/local/bin/xray version
+    log "Xray 安装完成"
 }
 
 # === 证书管理 ===
@@ -306,38 +207,36 @@ setup_certificates() {
     log "配置证书..."
     mkdir -p /etc/ssl/edgebox
     
-    # 如果有域名，尝试申请 Let's Encrypt 证书
-    if [[ -n "$DOMAIN" ]] && command -v certbot >/dev/null && attempt_acme_cert; then
-        log "Let's Encrypt 证书申请成功"
-    else
-        log "使用自签名证书..."
-        # 如果没有域名，使用默认域名生成证书
-        [[ -z "$DOMAIN" ]] && DOMAIN="edgebox.local"
-        generate_self_signed_cert
-    fi
-}
-
-attempt_acme_cert() {
-    # 检查域名是否解析到本机
-    local domain_ip=$(dig +short "$DOMAIN" 2>/dev/null | tail -n1)
-    local server_ip=$(curl -s https://ipv4.icanhazip.com/ 2>/dev/null)
-    
-    if [[ -n "$domain_ip" && "$domain_ip" == "$server_ip" ]]; then
-        log "域名解析正确，尝试申请 Let's Encrypt 证书"
+    if [[ -n "$DOMAIN" ]]; then
+        # 检查域名解析
+        local domain_ip=$(dig +short "$DOMAIN" 2>/dev/null | tail -n1)
+        local server_ip=$(curl -s https://ipv4.icanhazip.com/ 2>/dev/null)
         
-        # 确保80端口开放（Let's Encrypt需要）
-        ufw allow 80/tcp >/dev/null 2>&1
-        
-        if certbot certonly --nginx --non-interactive --agree-tos \
-           --email "admin@${DOMAIN}" -d "$DOMAIN" 2>/dev/null; then
-            ln -sf "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" /etc/ssl/edgebox/cert.pem
-            ln -sf "/etc/letsencrypt/live/${DOMAIN}/privkey.pem" /etc/ssl/edgebox/key.pem
-            return 0
+        if [[ -n "$domain_ip" && "$domain_ip" == "$server_ip" ]]; then
+            log "域名解析正确，尝试申请 Let's Encrypt 证书"
+            
+            # 确保80端口开放
+            ufw allow 80/tcp >/dev/null 2>&1
+            
+            if certbot certonly --nginx --non-interactive --agree-tos \
+               --email "admin@${DOMAIN}" -d "$DOMAIN" 2>/dev/null; then
+                ln -sf "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" /etc/ssl/edgebox/cert.pem
+                ln -sf "/etc/letsencrypt/live/${DOMAIN}/privkey.pem" /etc/ssl/edgebox/key.pem
+                log "证书申请成功"
+            else
+                log "证书申请失败，使用自签名证书"
+                DOMAIN="edgebox.local"
+                generate_self_signed_cert
+            fi
+        else
+            log "域名未解析到本机，使用自签名证书"
+            DOMAIN="edgebox.local"
+            generate_self_signed_cert
         fi
     else
-        log "域名未解析到本机或无法获取服务器IP，跳过证书申请"
+        DOMAIN="edgebox.local"
+        generate_self_signed_cert
     fi
-    return 1
 }
 
 generate_self_signed_cert() {
@@ -345,19 +244,20 @@ generate_self_signed_cert() {
         -keyout /etc/ssl/edgebox/key.pem \
         -out /etc/ssl/edgebox/cert.pem \
         -subj "/CN=${DOMAIN}" 2>/dev/null
+    log "已生成自签名证书"
 }
 
-# === 配置生成（保持原有逻辑）===
+# === 配置生成 ===
 generate_configs() {
     log "生成配置文件..."
     mkdir -p "$WORK_DIR" /etc/sing-box /usr/local/etc/xray
     
-    # 保存配置信息到工作目录
+    # 保存配置信息
     echo "${DOMAIN:-edgebox.local}" > "$WORK_DIR/domain"
     echo "${PROTOCOLS[*]}" > "$WORK_DIR/protocols"
     [[ "$USE_PROXY" == true ]] && echo "${PROXY_HOST}:${PROXY_PORT}:${PROXY_USER}:${PROXY_PASS}" > "$WORK_DIR/proxy"
     
-    # 保存配置到JSON（供管理工具使用）
+    # 保存JSON配置
     cat > "$WORK_DIR/config.json" << EOF
 {
     "domain": "${DOMAIN:-edgebox.local}",
@@ -369,68 +269,54 @@ generate_configs() {
 }
 EOF
     
-    # 安装所有协议，但默认全部启用
-    PROTOCOLS=("grpc" "ws" "reality" "hy2" "tuic")
-    
     generate_xray_config
     generate_sing_box_config
     generate_nginx_config
 }
 
 generate_xray_config() {
-    if [[ " ${PROTOCOLS[*]} " =~ " grpc " ]] || [[ " ${PROTOCOLS[*]} " =~ " ws " ]]; then
-        local uuid=$(uuidgen)
-        echo "$uuid" > "$WORK_DIR/xray-uuid"
-        
-        local inbounds=""
-        local comma=""
-        
-        if [[ " ${PROTOCOLS[*]} " =~ " grpc " ]]; then
-            inbounds+=$(cat << EOF
-{
-    "port": 10001,
-    "listen": "127.0.0.1",
-    "protocol": "vless",
-    "settings": {
-        "clients": [{"id": "$uuid"}]
+    local uuid=$(uuidgen)
+    echo "$uuid" > "$WORK_DIR/xray-uuid"
+    
+    # 构建入站
+    local inbounds=$(cat << EOF
+[
+    {
+        "port": 10001,
+        "listen": "127.0.0.1",
+        "protocol": "vless",
+        "settings": {
+            "clients": [{"id": "$uuid"}]
+        },
+        "streamSettings": {
+            "network": "grpc",
+            "grpcSettings": {
+                "serviceName": "edgebox-grpc"
+            }
+        }
     },
-    "streamSettings": {
-        "network": "grpc",
-        "grpcSettings": {
-            "serviceName": "edgebox-grpc"
+    {
+        "port": 10002,
+        "listen": "127.0.0.1",
+        "protocol": "vless",
+        "settings": {
+            "clients": [{"id": "$uuid"}]
+        },
+        "streamSettings": {
+            "network": "ws",
+            "wsSettings": {
+                "path": "/edgebox-ws"
+            }
         }
     }
-}
+]
 EOF
-            )
-            comma=","
-        fi
-        
-        if [[ " ${PROTOCOLS[*]} " =~ " ws " ]]; then
-            inbounds+="$comma"
-            inbounds+=$(cat << EOF
-{
-    "port": 10002,
-    "listen": "127.0.0.1",
-    "protocol": "vless",
-    "settings": {
-        "clients": [{"id": "$uuid"}]
-    },
-    "streamSettings": {
-        "network": "ws",
-        "wsSettings": {
-            "path": "/edgebox-ws"
-        }
-    }
-}
-EOF
-            )
-        fi
-        
-        # 构建出站配置
-        local outbounds='{"protocol": "freedom", "tag": "direct"}'
-        if [[ "$USE_PROXY" == true && -n "$PROXY_HOST" && -n "$PROXY_PORT" ]]; then
-            outbounds+=",$(cat << EOF
+    )
+    
+    # 构建出站
+    local outbounds='[{"protocol": "freedom", "tag": "direct"}'
+    if [[ "$USE_PROXY" == true && -n "$PROXY_HOST" && -n "$PROXY_PORT" ]]; then
+        outbounds+=",$(cat << EOF
 {
     "protocol": "http",
     "tag": "proxy",
@@ -438,169 +324,144 @@ EOF
         "servers": [{
             "address": "$PROXY_HOST",
             "port": $PROXY_PORT$(
-            if [[ -n "$PROXY_USER" && -n "$PROXY_PASS" ]]; then
-                echo ",
+            [[ -n "$PROXY_USER" && -n "$PROXY_PASS" ]] && echo ",
             \"users\": [{
                 \"user\": \"$PROXY_USER\",
                 \"pass\": \"$PROXY_PASS\"
-            }]"
-            fi
+            }]" || echo ""
             )
         }]
     }
 }
 EOF
-            )"
-        fi
-        
-        # 路由规则
-        local routing_rules=""
-        if [[ "$USE_PROXY" == true ]]; then
-            routing_rules=$(cat << 'EOF'
-"rules": [
-    {
-        "type": "field",
-        "domain": [
-            "domain:googlevideo.com",
-            "domain:ytimg.com", 
-            "domain:ggpht.com"
-        ],
-        "outboundTag": "direct"
-    },
-    {
-        "type": "field",
-        "outboundTag": "proxy"
-    }
-]
-EOF
-            )
-        fi
-        
-        cat > /usr/local/etc/xray/config.json << EOF
+        )"
+    fi
+    outbounds+=']'
+    
+    # 路由规则
+    local routing=""
+    if [[ "$USE_PROXY" == true ]]; then
+        routing=$(cat << 'EOF'
 {
-    "log": {
-        "loglevel": "warning"
-    },
-    "inbounds": [$inbounds],
-    "outbounds": [$outbounds],
-    "routing": {
-        "domainStrategy": "AsIs",
-        $routing_rules
-    }
+    "domainStrategy": "AsIs",
+    "rules": [
+        {
+            "type": "field",
+            "domain": ["domain:googlevideo.com", "domain:ytimg.com", "domain:ggpht.com"],
+            "outboundTag": "direct"
+        },
+        {
+            "type": "field",
+            "outboundTag": "proxy"
+        }
+    ]
 }
 EOF
-        
-        # 配置验证
-        /usr/local/bin/xray run -test -config /usr/local/etc/xray/config.json
+        )
+    else
+        routing='{"domainStrategy": "AsIs"}'
     fi
+    
+    cat > /usr/local/etc/xray/config.json << EOF
+{
+    "log": {"loglevel": "warning"},
+    "inbounds": $inbounds,
+    "outbounds": $outbounds,
+    "routing": $routing
+}
+EOF
+    
+    /usr/local/bin/xray run -test -config /usr/local/etc/xray/config.json || error "Xray 配置错误"
 }
 
 generate_sing_box_config() {
-    local inbounds=""
-    local comma=""
+    # Reality
+    local keys=$(/usr/local/bin/sing-box generate reality-keypair)
+    local private_key=$(echo "$keys" | grep "Private" | awk '{print $3}')
+    local public_key=$(echo "$keys" | grep "Public" | awk '{print $3}')
+    local short_id=$(openssl rand -hex 4)
+    local reality_uuid=$(uuidgen)
     
-    # Reality 配置
-    if [[ " ${PROTOCOLS[*]} " =~ " reality " ]]; then
-        local keys=$(/usr/local/bin/sing-box generate reality-keypair)
-        local private_key=$(echo "$keys" | grep "Private" | awk '{print $3}')
-        local public_key=$(echo "$keys" | grep "Public" | awk '{print $3}')
-        local short_id=$(openssl rand -hex 4)
-        local reality_uuid=$(uuidgen)
-        
-        echo "$reality_uuid" > "$WORK_DIR/reality-uuid"
-        echo "$public_key" > "$WORK_DIR/reality-public-key"
-        echo "$short_id" > "$WORK_DIR/reality-short-id"
-        
-        inbounds+=$(cat << EOF
-{
-    "type": "vless",
-    "tag": "vless-reality",
-    "listen": "::",
-    "listen_port": 443,
-    "users": [{
-        "uuid": "$reality_uuid",
-        "flow": "xtls-rprx-vision"
-    }],
-    "tls": {
-        "enabled": true,
-        "server_name": "www.cloudflare.com",
-        "reality": {
+    echo "$reality_uuid" > "$WORK_DIR/reality-uuid"
+    echo "$public_key" > "$WORK_DIR/reality-public-key"
+    echo "$short_id" > "$WORK_DIR/reality-short-id"
+    
+    # Hysteria2
+    local hy2_password=$(openssl rand -base64 16 | tr -d '=+/\n' | cut -c1-12)
+    echo "$hy2_password" > "$WORK_DIR/hy2-password"
+    
+    # TUIC
+    local tuic_uuid=$(uuidgen)
+    local tuic_password=$(openssl rand -hex 8)
+    echo "$tuic_uuid" > "$WORK_DIR/tuic-uuid"
+    echo "$tuic_password" > "$WORK_DIR/tuic-password"
+    
+    # 构建入站
+    local inbounds=$(cat << EOF
+[
+    {
+        "type": "vless",
+        "tag": "vless-reality",
+        "listen": "::",
+        "listen_port": 443,
+        "users": [{
+            "uuid": "$reality_uuid",
+            "flow": "xtls-rprx-vision"
+        }],
+        "tls": {
             "enabled": true,
-            "private_key": "$private_key",
-            "short_id": ["$short_id"],
-            "handshake": {
-                "server": "www.cloudflare.com",
-                "server_port": 443
+            "server_name": "www.cloudflare.com",
+            "reality": {
+                "enabled": true,
+                "private_key": "$private_key",
+                "short_id": ["$short_id"],
+                "handshake": {
+                    "server": "www.cloudflare.com",
+                    "server_port": 443
+                }
             }
         }
+    },
+    {
+        "type": "hysteria2",
+        "tag": "hysteria2",
+        "listen": "::",
+        "listen_port": $HY2_PORT,
+        "up_mbps": 200,
+        "down_mbps": 200,
+        "users": [{
+            "password": "$hy2_password"
+        }],
+        "tls": {
+            "enabled": true,
+            "alpn": ["h3"],
+            "certificate_path": "/etc/ssl/edgebox/cert.pem",
+            "key_path": "/etc/ssl/edgebox/key.pem"
+        }
+    },
+    {
+        "type": "tuic",
+        "tag": "tuic",
+        "listen": "::",
+        "listen_port": 2053,
+        "users": [{
+            "uuid": "$tuic_uuid",
+            "password": "$tuic_password"
+        }],
+        "congestion": "bbr",
+        "tls": {
+            "enabled": true,
+            "alpn": ["h3"],
+            "certificate_path": "/etc/ssl/edgebox/cert.pem",
+            "key_path": "/etc/ssl/edgebox/key.pem"
+        }
     }
-}
+]
 EOF
-        )
-        comma=","
-    fi
+    )
     
-    # Hysteria2 配置
-    if [[ " ${PROTOCOLS[*]} " =~ " hy2 " ]]; then
-        local hy2_password=$(openssl rand -base64 16 | tr -d '=+/\n' | cut -c1-12)
-        echo "$hy2_password" > "$WORK_DIR/hy2-password"
-        
-        inbounds+="$comma"
-        inbounds+=$(cat << EOF
-{
-    "type": "hysteria2",
-    "tag": "hysteria2",
-    "listen": "::",
-    "listen_port": $HY2_PORT,
-    "up_mbps": 200,
-    "down_mbps": 200,
-    "users": [{
-        "password": "$hy2_password"
-    }],
-    "tls": {
-        "enabled": true,
-        "alpn": ["h3"],
-        "certificate_path": "/etc/ssl/edgebox/cert.pem",
-        "key_path": "/etc/ssl/edgebox/key.pem"
-    }
-}
-EOF
-        )
-        comma=","
-    fi
-    
-    # TUIC 配置
-    if [[ " ${PROTOCOLS[*]} " =~ " tuic " ]]; then
-        local tuic_uuid=$(uuidgen)
-        local tuic_password=$(openssl rand -hex 8)
-        echo "$tuic_uuid" > "$WORK_DIR/tuic-uuid"
-        echo "$tuic_password" > "$WORK_DIR/tuic-password"
-        
-        inbounds+="$comma"
-        inbounds+=$(cat << EOF
-{
-    "type": "tuic",
-    "tag": "tuic",
-    "listen": "::",
-    "listen_port": 2053,
-    "users": [{
-        "uuid": "$tuic_uuid",
-        "password": "$tuic_password"
-    }],
-    "congestion": "bbr",
-    "tls": {
-        "enabled": true,
-        "alpn": ["h3"],
-        "certificate_path": "/etc/ssl/edgebox/cert.pem",
-        "key_path": "/etc/ssl/edgebox/key.pem"
-    }
-}
-EOF
-        )
-    fi
-    
-    # 构建出站配置
-    local outbounds='"outbounds": [{"type": "direct", "tag": "direct"}'
+    # 构建出站
+    local outbounds='[{"type": "direct", "tag": "direct"}'
     if [[ "$USE_PROXY" == true && -n "$PROXY_HOST" && -n "$PROXY_PORT" ]]; then
         outbounds+=",$(cat << EOF
 {
@@ -608,11 +469,9 @@ EOF
     "tag": "proxy",
     "server": "$PROXY_HOST",
     "server_port": $PROXY_PORT$(
-        if [[ -n "$PROXY_USER" && -n "$PROXY_PASS" ]]; then
-            echo ",
+        [[ -n "$PROXY_USER" && -n "$PROXY_PASS" ]] && echo ",
     \"username\": \"$PROXY_USER\",
-    \"password\": \"$PROXY_PASS\""
-        fi
+    \"password\": \"$PROXY_PASS\"" || echo ""
     )
 }
 EOF
@@ -621,17 +480,13 @@ EOF
     outbounds+=']'
     
     # 路由规则
-    local route_rules=""
+    local route=""
     if [[ "$USE_PROXY" == true ]]; then
-        route_rules=$(cat << 'EOF'
+        route=$(cat << 'EOF'
 ,"route": {
     "rules": [
         {
-            "domain_suffix": [
-                "googlevideo.com",
-                "ytimg.com",
-                "ggpht.com"
-            ],
+            "domain_suffix": ["googlevideo.com", "ytimg.com", "ggpht.com"],
             "outbound": "direct"
         },
         {
@@ -645,60 +500,18 @@ EOF
     
     cat > /etc/sing-box/config.json << EOF
 {
-    "log": {
-        "level": "info"
-    },
-    "inbounds": [$inbounds],
-    $outbounds
-    $route_rules
+    "log": {"level": "info"},
+    "inbounds": $inbounds,
+    "outbounds": $outbounds
+    $route
 }
 EOF
     
-    # 配置验证
-    if ! /usr/local/bin/sing-box check -c /etc/sing-box/config.json; then
-        log "sing-box 配置验证失败，查看配置内容："
-        cat /etc/sing-box/config.json >> "$LOG_FILE"
-        error "sing-box 配置错误"
-    fi
+    /usr/local/bin/sing-box check -c /etc/sing-box/config.json || error "sing-box 配置错误"
 }
 
 generate_nginx_config() {
-    local listen_port=443
-    local server_blocks=""
-    
-    # 如果启用了 Reality，Nginx 改用 8443 端口
-    if [[ " ${PROTOCOLS[*]} " =~ " reality " ]]; then
-        listen_port=8443
-    fi
-    
-    # gRPC 反向代理
-    if [[ " ${PROTOCOLS[*]} " =~ " grpc " ]]; then
-        server_blocks+=$(cat << 'EOF'
-
-    location /edgebox-grpc {
-        grpc_pass grpc://127.0.0.1:10001;
-        grpc_set_header Host $host;
-    }
-EOF
-        )
-    fi
-    
-    # WebSocket 反向代理  
-    if [[ " ${PROTOCOLS[*]} " =~ " ws " ]]; then
-        server_blocks+=$(cat << 'EOF'
-
-    location /edgebox-ws {
-        proxy_pass http://127.0.0.1:10002;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    }
-EOF
-        )
-    fi
+    local listen_port=8443  # Reality 占用 443，Nginx 用 8443
     
     cat > /etc/nginx/conf.d/edgebox.conf << EOF
 server {
@@ -709,26 +522,30 @@ server {
     ssl_certificate_key /etc/ssl/edgebox/key.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers ECDHE+AESGCM:ECDHE+CHACHA20:DHE+AESGCM:DHE+CHACHA20:!aNULL:!MD5:!DSS;
-    ssl_prefer_server_ciphers off;
     
-    # 安全头
-    add_header Strict-Transport-Security "max-age=63072000" always;
-    add_header X-Frame-Options DENY;
-    add_header X-Content-Type-Options nosniff;
-    
-    # 默认页面
     location / {
         return 200 "Hello World";
         add_header Content-Type text/plain;
     }
     
-    # 协议反向代理
-    $server_blocks
+    location /edgebox-grpc {
+        grpc_pass grpc://127.0.0.1:10001;
+        grpc_set_header Host \$host;
+    }
+    
+    location /edgebox-ws {
+        proxy_pass http://127.0.0.1:10002;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    }
 }
 EOF
     
-    # 测试 Nginx 配置
-    nginx -t
+    nginx -t || error "Nginx 配置错误"
 }
 
 # === 服务配置 ===
@@ -738,10 +555,8 @@ setup_services() {
     # sing-box 服务
     cat > /etc/systemd/system/sing-box.service << 'EOF'
 [Unit]
-Description=sing-box universal service
-Documentation=https://sing-box.sagernet.org
+Description=sing-box service
 After=network.target nss-lookup.target
-Wants=network.target
 
 [Service]
 Type=simple
@@ -755,12 +570,10 @@ LimitNOFILE=1048576
 WantedBy=multi-user.target
 EOF
 
-    # Xray 服务（如果需要）
-    if [[ " ${PROTOCOLS[*]} " =~ " grpc " ]] || [[ " ${PROTOCOLS[*]} " =~ " ws " ]]; then
-        cat > /etc/systemd/system/xray.service << 'EOF'
+    # Xray 服务
+    cat > /etc/systemd/system/xray.service << 'EOF'
 [Unit]
 Description=Xray Service
-Documentation=https://www.v2fly.org/
 After=network.target nss-lookup.target
 
 [Service]
@@ -774,7 +587,6 @@ LimitNOFILE=1048576
 [Install]
 WantedBy=multi-user.target
 EOF
-    fi
     
     systemctl daemon-reload
 }
@@ -783,564 +595,125 @@ EOF
 setup_firewall() {
     log "配置防火墙..."
     
-    # 允许 SSH
     ufw allow 22/tcp >/dev/null 2>&1
-    
-    # 允许协议端口
-    if [[ " ${PROTOCOLS[*]} " =~ " reality " ]]; then
-        ufw allow 443/tcp >/dev/null 2>&1
-        ufw allow 8443/tcp >/dev/null 2>&1
-    else
-        ufw allow 443/tcp >/dev/null 2>&1
-    fi
-    
-    [[ " ${PROTOCOLS[*]} " =~ " hy2 " ]] && ufw allow ${HY2_PORT}/udp >/dev/null 2>&1
-    [[ " ${PROTOCOLS[*]} " =~ " tuic " ]] && ufw allow 2053/udp >/dev/null 2>&1
-    
-    # 允许80端口（Let's Encrypt需要）
+    ufw allow 443/tcp >/dev/null 2>&1
+    ufw allow 443/udp >/dev/null 2>&1
+    ufw allow 8443/tcp >/dev/null 2>&1
+    ufw allow 2053/udp >/dev/null 2>&1
     ufw allow 80/tcp >/dev/null 2>&1
     
-    # 启用防火墙
     echo "y" | ufw enable >/dev/null 2>&1
     ufw status
 }
 
-# === 管理工具生成（完整的 edgeboxctl）===
+# === 管理工具（先创建简化版）===
 create_management_tool() {
     log "创建管理工具 edgeboxctl..."
     
-    cat > /usr/local/bin/edgeboxctl << 'EDGEBOXCTL_EOF'
+    # 先写入简化版管理工具，后续可以更新
+    cat > /usr/local/bin/edgeboxctl << 'EOF'
 #!/usr/bin/env bash
-# EdgeBox 管理工具
-
 set -euo pipefail
 
-# 自动提权
-[[ $EUID -eq 0 ]] || exec sudo -i bash "$0" "$@"
-
 WORK_DIR="/opt/edgebox"
-CONFIG_DIR="/etc/sing-box"
-XRAY_CONFIG="/usr/local/etc/xray/config.json"
-BACKUP_DIR="/root/edgebox-backup"
 
-# 颜色定义
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m'
-
-# === 状态显示 ===
-show_status() {
-    echo "=== EdgeBox 服务状态 ==="
-    systemctl is-active --quiet sing-box && echo -e "${GREEN}✓${NC} sing-box: 运行中" || echo -e "${RED}✗${NC} sing-box: 已停止"
-    
-    if systemctl list-unit-files | grep -q xray.service; then
-        systemctl is-active --quiet xray && echo -e "${GREEN}✓${NC} xray: 运行中" || echo -e "${RED}✗${NC} xray: 已停止"
-    fi
-    
-    systemctl is-active --quiet nginx && echo -e "${GREEN}✓${NC} nginx: 运行中" || echo -e "${RED}✗${NC} nginx: 已停止"
-    
-    echo
-    echo "=== 端口监听状态 ==="
-    ss -lntup | egrep ':443|:8443|:2053' || echo "未发现相关端口监听"
-}
-
-# === 订阅显示 ===
-show_subscription() {
-    if [[ ! -f "$WORK_DIR/domain" ]]; then
-        echo "错误: 未找到域名配置"
-        exit 1
-    fi
-    
-    local domain=$(cat "$WORK_DIR/domain")
-    local server_ip=$(curl -s https://ipv4.icanhazip.com/ 2>/dev/null || hostname -I | awk '{print $1}')
-    
-    # 如果是默认域名，使用IP地址
-    [[ "$domain" == "edgebox.local" ]] && domain="$server_ip"
-    
-    echo "=== 订阅链接 ==="
-    echo
-    
-    # VLESS-gRPC
-    if [[ -f "$WORK_DIR/xray-uuid" ]]; then
-        local uuid=$(cat "$WORK_DIR/xray-uuid")
-        echo "VLESS-gRPC:"
-        echo "vless://$uuid@$domain:8443?encryption=none&security=tls&type=grpc&serviceName=edgebox-grpc&fp=chrome#EdgeBox-gRPC"
-        echo
-        echo "VLESS-WebSocket:"  
-        echo "vless://$uuid@$domain:8443?encryption=none&security=tls&type=ws&path=/edgebox-ws&host=$domain&fp=chrome#EdgeBox-WS"
-        echo
-    fi
-    
-    # VLESS-Reality
-    if [[ -f "$WORK_DIR/reality-uuid" ]]; then
-        local uuid=$(cat "$WORK_DIR/reality-uuid")
-        local pubkey=$(cat "$WORK_DIR/reality-public-key")
-        local sid=$(cat "$WORK_DIR/reality-short-id")
-        echo "VLESS-Reality:"
-        echo "vless://$uuid@$domain:443?encryption=none&flow=xtls-rprx-vision&fp=chrome&security=reality&sni=www.cloudflare.com&pbk=$pubkey&sid=$sid&type=tcp#EdgeBox-Reality"
-        echo
-    fi
-    
-    # Hysteria2
-    if [[ -f "$WORK_DIR/hy2-password" ]]; then
-        local password=$(cat "$WORK_DIR/hy2-password")
-        echo "Hysteria2:"
-        echo "hysteria2://$password@$domain:443/?insecure=1#EdgeBox-Hysteria2"
-        echo
-    fi
-    
-    # TUIC
-    if [[ -f "$WORK_DIR/tuic-uuid" ]]; then
-        local uuid=$(cat "$WORK_DIR/tuic-uuid")
-        local password=$(cat "$WORK_DIR/tuic-password")
-        echo "TUIC:"
-        echo "tuic://$uuid:$password@$domain:2053?congestion_control=bbr&udp_relay_mode=native&alpn=h3&allow_insecure=1#EdgeBox-TUIC"
-        echo
-    fi
-}
-
-# === 代理管理（热更新）===
-update_proxy() {
-    local action="$1"
-    shift
-    
-    case $action in
-        set)
-            local proxy_config="$1"
-            if [[ -z "$proxy_config" ]]; then
-                echo "请提供代理配置，格式: HOST:PORT:USER:PASS 或 HOST:PORT"
-                exit 1
-            fi
-            
-            # 解析代理配置
-            IFS=':' read -r PROXY_HOST PROXY_PORT PROXY_USER PROXY_PASS <<< "$proxy_config"
-            
-            if [[ -z "$PROXY_HOST" || -z "$PROXY_PORT" ]]; then
-                echo "代理配置格式错误"
-                exit 1
-            fi
-            
-            echo "正在更新代理配置..."
-            
-            # 更新配置文件
-            jq --arg host "$PROXY_HOST" \
-               --arg port "$PROXY_PORT" \
-               --arg user "${PROXY_USER:-}" \
-               --arg pass "${PROXY_PASS:-}" \
-               '.use_proxy = true | .proxy_host = $host | .proxy_port = $port | .proxy_user = $user | .proxy_pass = $pass' \
-               "$WORK_DIR/config.json" > "$WORK_DIR/config.json.tmp"
-            mv "$WORK_DIR/config.json.tmp" "$WORK_DIR/config.json"
-            
-            # 热更新 Xray 配置
-            if [[ -f "$XRAY_CONFIG" ]]; then
-                update_xray_proxy_config "$PROXY_HOST" "$PROXY_PORT" "$PROXY_USER" "$PROXY_PASS"
-                systemctl reload-or-restart xray 2>/dev/null || true
-            fi
-            
-            # 热更新 sing-box 配置
-            if [[ -f "$CONFIG_DIR/config.json" ]]; then
-                update_singbox_proxy_config "$PROXY_HOST" "$PROXY_PORT" "$PROXY_USER" "$PROXY_PASS"
-                systemctl reload-or-restart sing-box 2>/dev/null || true
-            fi
-            
-            echo -e "${GREEN}✓${NC} 代理配置已更新: ${PROXY_HOST}:${PROXY_PORT}"
-            ;;
-            
-        remove)
-            echo "移除代理配置，切换到直连模式..."
-            
-            # 更新配置文件
-            jq '.use_proxy = false' "$WORK_DIR/config.json" > "$WORK_DIR/config.json.tmp"
-            mv "$WORK_DIR/config.json.tmp" "$WORK_DIR/config.json"
-            
-            # 更新为直连模式
-            if [[ -f "$XRAY_CONFIG" ]]; then
-                update_xray_direct_config
-                systemctl reload-or-restart xray 2>/dev/null || true
-            fi
-            
-            if [[ -f "$CONFIG_DIR/config.json" ]]; then
-                update_singbox_direct_config
-                systemctl reload-or-restart sing-box 2>/dev/null || true
-            fi
-            
-            echo -e "${GREEN}✓${NC} 已切换到直连模式"
-            ;;
-            
-        status)
-            if [[ -f "$WORK_DIR/config.json" ]]; then
-                local use_proxy=$(jq -r '.use_proxy' "$WORK_DIR/config.json")
-                if [[ "$use_proxy" == "true" ]]; then
-                    local proxy_host=$(jq -r '.proxy_host' "$WORK_DIR/config.json")
-                    local proxy_port=$(jq -r '.proxy_port' "$WORK_DIR/config.json")
-                    local proxy_user=$(jq -r '.proxy_user' "$WORK_DIR/config.json")
-                    echo -e "代理状态: ${GREEN}已启用${NC}"
-                    echo "代理服务器: ${proxy_host}:${proxy_port}"
-                    [[ -n "$proxy_user" && "$proxy_user" != "null" ]] && echo "认证用户: ${proxy_user}"
-                else
-                    echo -e "代理状态: ${YELLOW}未启用（直连模式）${NC}"
-                fi
-            else
-                echo "配置文件不存在"
-            fi
-            ;;
-            
-        *)
-            echo "用法: edgeboxctl proxy [set|remove|status]"
-            exit 1
-            ;;
-    esac
-}
-
-# Xray 代理配置更新函数
-update_xray_proxy_config() {
-    local host="$1" port="$2" user="$3" pass="$4"
-    
-    # 创建新的出站配置
-    local proxy_outbound=$(cat << EOF
-{
-    "protocol": "http",
-    "tag": "proxy",
-    "settings": {
-        "servers": [{
-            "address": "$host",
-            "port": $port$(
-            if [[ -n "$user" && -n "$pass" ]]; then
-                echo ",
-            \"users\": [{
-                \"user\": \"$user\",
-                \"pass\": \"$pass\"
-            }]"
-            fi
-            )
-        }]
-    }
-}
-EOF
-    )
-    
-    # 使用 jq 更新配置
-    jq --argjson proxy "$proxy_outbound" '
-        .outbounds = [.outbounds[0], $proxy] |
-        .routing.rules = [
-            {
-                "type": "field",
-                "domain": ["domain:googlevideo.com", "domain:ytimg.com", "domain:ggpht.com"],
-                "outboundTag": "direct"
-            },
-            {
-                "type": "field",
-                "outboundTag": "proxy"
-            }
-        ]
-    ' "$XRAY_CONFIG" > "$XRAY_CONFIG.tmp"
-    
-    mv "$XRAY_CONFIG.tmp" "$XRAY_CONFIG"
-}
-
-update_xray_direct_config() {
-    jq '
-        .outbounds = [.outbounds[0]] |
-        .routing.rules = []
-    ' "$XRAY_CONFIG" > "$XRAY_CONFIG.tmp"
-    
-    mv "$XRAY_CONFIG.tmp" "$XRAY_CONFIG"
-}
-
-# sing-box 代理配置更新函数
-update_singbox_proxy_config() {
-    local host="$1" port="$2" user="$3" pass="$4"
-    
-    local proxy_outbound=$(cat << EOF
-{
-    "type": "http",
-    "tag": "proxy",
-    "server": "$host",
-    "server_port": $port$(
-        if [[ -n "$user" && -n "$pass" ]]; then
-            echo ",
-    \"username\": \"$user\",
-    \"password\": \"$pass\""
-        fi
-    )
-}
-EOF
-    )
-    
-    jq --argjson proxy "$proxy_outbound" '
-        .outbounds = [.outbounds[0], $proxy] |
-        .route = {
-            "rules": [
-                {
-                    "domain_suffix": ["googlevideo.com", "ytimg.com", "ggpht.com"],
-                    "outbound": "direct"
-                },
-                {
-                    "outbound": "proxy"
-                }
-            ]
-        }
-    ' "$CONFIG_DIR/config.json" > "$CONFIG_DIR/config.json.tmp"
-    
-    mv "$CONFIG_DIR/config.json.tmp" "$CONFIG_DIR/config.json"
-}
-
-update_singbox_direct_config() {
-    jq '
-        .outbounds = [.outbounds[0]] |
-        del(.route)
-    ' "$CONFIG_DIR/config.json" > "$CONFIG_DIR/config.json.tmp"
-    
-    mv "$CONFIG_DIR/config.json.tmp" "$CONFIG_DIR/config.json"
-}
-
-# === 域名更新 ===
-update_domain() {
-    local new_domain="$1"
-    
-    if [[ -z "$new_domain" ]]; then
-        read -rp "请输入新域名: " new_domain
-    fi
-    
-    if [[ ! "$new_domain" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]+[a-zA-Z0-9]$ ]]; then
-        echo "域名格式不正确"
-        exit 1
-    fi
-    
-    echo "更新域名为: $new_domain"
-    
-    # 保存新域名
-    echo "$new_domain" > "$WORK_DIR/domain"
-    jq --arg domain "$new_domain" '.domain = $domain' "$WORK_DIR/config.json" > "$WORK_DIR/config.json.tmp"
-    mv "$WORK_DIR/config.json.tmp" "$WORK_DIR/config.json"
-    
-    # 申请新证书
-    echo "申请新证书..."
-    
-    # 检查域名解析
-    local domain_ip=$(dig +short "$new_domain" 2>/dev/null | tail -n1)
-    local server_ip=$(curl -s https://ipv4.icanhazip.com/ 2>/dev/null)
-    
-    if [[ -n "$domain_ip" && "$domain_ip" == "$server_ip" ]]; then
-        # 申请 Let's Encrypt 证书
-        certbot certonly --nginx --non-interactive --agree-tos \
-            --email "admin@${new_domain}" -d "$new_domain" 2>/dev/null && {
-            ln -sf "/etc/letsencrypt/live/${new_domain}/fullchain.pem" /etc/ssl/edgebox/cert.pem
-            ln -sf "/etc/letsencrypt/live/${new_domain}/privkey.pem" /etc/ssl/edgebox/key.pem
-            echo -e "${GREEN}✓${NC} 证书申请成功"
-        } || {
-            echo -e "${YELLOW}!${NC} 证书申请失败，使用自签名证书"
-            openssl req -x509 -newkey rsa:2048 -sha256 -days 3650 -nodes \
-                -keyout /etc/ssl/edgebox/key.pem \
-                -out /etc/ssl/edgebox/cert.pem \
-                -subj "/CN=${new_domain}" 2>/dev/null
-        }
-    else
-        echo -e "${YELLOW}!${NC} 域名未解析到本机，使用自签名证书"
-        openssl req -x509 -newkey rsa:2048 -sha256 -days 3650 -nodes \
-            -keyout /etc/ssl/edgebox/key.pem \
-            -out /etc/ssl/edgebox/cert.pem \
-            -subj "/CN=${new_domain}" 2>/dev/null
-    fi
-    
-    # 更新 Nginx 配置
-    sed -i "s/server_name .*/server_name $new_domain;/" /etc/nginx/conf.d/edgebox.conf
-    
-    # 重启服务
-    systemctl restart nginx sing-box
-    
-    echo -e "${GREEN}✓${NC} 域名已更新为: $new_domain"
-    
-    # 显示新的订阅链接
-    echo
-    show_subscription
-}
-
-# === 其他功能 ===
-show_logs() {
-    local service=${1:-all}
-    case $service in
-        sing-box|xray|nginx)
-            journalctl -u $service -n 50 --no-pager
-            ;;
-        all)
-            for svc in sing-box xray nginx; do
-                if systemctl list-unit-files | grep -q "^${svc}.service"; then
-                    echo "=== $svc logs ==="
-                    journalctl -u $svc -n 20 --no-pager
-                    echo
-                fi
-            done
-            ;;
-        *)
-            echo "支持的服务: sing-box, xray, nginx, all"
-            exit 1
-            ;;
-    esac
-}
-
-restart_services() {
-    echo "重启 EdgeBox 服务..."
-    systemctl restart sing-box 2>/dev/null && echo -e "${GREEN}✓${NC} sing-box 已重启"
-    
-    if systemctl list-unit-files | grep -q xray.service; then
-        systemctl restart xray 2>/dev/null && echo -e "${GREEN}✓${NC} xray 已重启"
-    fi
-    
-    systemctl restart nginx 2>/dev/null && echo -e "${GREEN}✓${NC} nginx 已重启"
-}
-
-show_traffic() {
-    echo "=== 流量统计 ==="
-    if command -v vnstat >/dev/null; then
-        vnstat -i $(ip route | awk '/default/ { print $5 }' | head -n1)
-    else
-        echo "vnstat 未安装"
-    fi
-}
-
-create_backup() {
-    local timestamp=$(date +%Y%m%d-%H%M%S)
-    local backup_file="$BACKUP_DIR/backup-${timestamp}.tar.gz"
-    mkdir -p "$BACKUP_DIR"
-    
-    tar -czf "$backup_file" \
-        "$WORK_DIR" \
-        /etc/sing-box \
-        /usr/local/etc/xray \
-        /etc/nginx/conf.d/edgebox.conf \
-        /etc/ssl/edgebox \
-        2>/dev/null
-    
-    echo "备份已创建: $backup_file"
-}
-
-show_usage() {
-    cat << 'USAGE'
-EdgeBox 管理工具
-
-用法:
-  edgeboxctl <命令> [选项]
-
-服务管理:
-  status              显示所有服务状态
-  restart             重启所有服务  
-  logs <service>      查看服务日志 (sing-box|xray|nginx|all)
-
-配置管理:
-  domain <new-domain> 更新域名和证书
-  proxy set <config>  设置代理 (HOST:PORT:USER:PASS)
-  proxy remove        移除代理，使用直连
-  proxy status        显示代理状态
-
-订阅管理:
-  sub                 显示订阅链接
-
-系统管理:
-  traffic             显示流量统计
-  backup              创建配置备份
-
-示例:
-  edgeboxctl status
-  edgeboxctl domain example.com
-  edgeboxctl proxy set proxy.com:8080:user:pass
-  edgeboxctl proxy remove
-  edgeboxctl sub
-USAGE
-}
-
-# 主程序
-case ${1:-""} in
+case ${1:-help} in
     status)
-        show_status
-        ;;
-    logs)
-        show_logs "${2:-all}"
+        echo "=== EdgeBox 服务状态 ==="
+        systemctl is-active --quiet sing-box && echo "✓ sing-box: 运行中" || echo "✗ sing-box: 已停止"
+        systemctl is-active --quiet xray && echo "✓ xray: 运行中" || echo "✗ xray: 已停止"
+        systemctl is-active --quiet nginx && echo "✓ nginx: 运行中" || echo "✗ nginx: 已停止"
+        echo
+        echo "=== 端口监听 ==="
+        ss -lntup | egrep ':443|:8443|:2053' || echo "无相关端口监听"
         ;;
     sub)
-        show_subscription
-        ;;
-    domain)
-        update_domain "${2:-}"
-        ;;
-    proxy)
-        update_proxy "${2:-status}" "${3:-}"
-        ;;
-    traffic)
-        show_traffic
+        [[ ! -f "$WORK_DIR/domain" ]] && { echo "配置文件不存在"; exit 1; }
+        domain=$(cat "$WORK_DIR/domain")
+        [[ "$domain" == "edgebox.local" ]] && domain=$(curl -s https://ipv4.icanhazip.com/)
+        
+        echo "=== 订阅链接 ==="
+        if [[ -f "$WORK_DIR/xray-uuid" ]]; then
+            uuid=$(cat "$WORK_DIR/xray-uuid")
+            echo "VLESS-gRPC:"
+            echo "vless://$uuid@$domain:8443?encryption=none&security=tls&type=grpc&serviceName=edgebox-grpc&fp=chrome#EdgeBox-gRPC"
+            echo
+            echo "VLESS-WS:"
+            echo "vless://$uuid@$domain:8443?encryption=none&security=tls&type=ws&path=/edgebox-ws&host=$domain&fp=chrome#EdgeBox-WS"
+            echo
+        fi
+        
+        if [[ -f "$WORK_DIR/reality-uuid" ]]; then
+            uuid=$(cat "$WORK_DIR/reality-uuid")
+            pubkey=$(cat "$WORK_DIR/reality-public-key")
+            sid=$(cat "$WORK_DIR/reality-short-id")
+            echo "VLESS-Reality:"
+            echo "vless://$uuid@$domain:443?encryption=none&flow=xtls-rprx-vision&fp=chrome&security=reality&sni=www.cloudflare.com&pbk=$pubkey&sid=$sid&type=tcp#EdgeBox-Reality"
+            echo
+        fi
+        
+        if [[ -f "$WORK_DIR/hy2-password" ]]; then
+            password=$(cat "$WORK_DIR/hy2-password")
+            echo "Hysteria2:"
+            echo "hysteria2://$password@$domain:443/?insecure=1#EdgeBox-Hysteria2"
+            echo
+        fi
+        
+        if [[ -f "$WORK_DIR/tuic-uuid" ]]; then
+            uuid=$(cat "$WORK_DIR/tuic-uuid")
+            password=$(cat "$WORK_DIR/tuic-password")
+            echo "TUIC:"
+            echo "tuic://$uuid:$password@$domain:2053?congestion_control=bbr&udp_relay_mode=native&alpn=h3&allow_insecure=1#EdgeBox-TUIC"
+        fi
         ;;
     restart)
-        restart_services
-        ;;
-    backup)
-        create_backup
+        systemctl restart sing-box xray nginx
+        echo "服务已重启"
         ;;
     *)
-        show_usage
-        exit 1
+        echo "用法: edgeboxctl [status|sub|restart]"
         ;;
 esac
-EDGEBOXCTL_EOF
+EOF
 
     chmod +x /usr/local/bin/edgeboxctl
-    log "管理工具 edgeboxctl 已创建"
+    log "管理工具已创建"
 }
 
 # === 启动服务 ===
 start_services() {
     log "启动服务..."
     
-    # 先重启 Nginx 确保配置生效
     systemctl restart nginx
     sleep 2
     
-    # 启动 sing-box
     systemctl enable --now sing-box
-    sleep 3
+    sleep 2
     
-    # 启动 Xray（如果需要）
-    if [[ " ${PROTOCOLS[*]} " =~ " grpc " ]] || [[ " ${PROTOCOLS[*]} " =~ " ws " ]]; then
-        systemctl enable --now xray
-        sleep 3
-    fi
+    systemctl enable --now xray
+    sleep 2
     
     # 检查服务状态
-    local failed_services=()
-    
     if ! systemctl is-active --quiet sing-box; then
-        failed_services+=("sing-box")
+        log "sing-box 启动失败"
+        journalctl -u sing-box -n 20 --no-pager >> "$LOG_FILE"
     fi
     
-    if [[ " ${PROTOCOLS[*]} " =~ " grpc " ]] || [[ " ${PROTOCOLS[*]} " =~ " ws " ]]; then
-        if ! systemctl is-active --quiet xray; then
-            failed_services+=("xray")
-        fi
+    if ! systemctl is-active --quiet xray; then
+        log "xray 启动失败"
+        journalctl -u xray -n 20 --no-pager >> "$LOG_FILE"
     fi
     
     if ! systemctl is-active --quiet nginx; then
-        failed_services+=("nginx")
+        log "nginx 启动失败"
+        journalctl -u nginx -n 20 --no-pager >> "$LOG_FILE"
     fi
     
-    if [[ ${#failed_services[@]} -gt 0 ]]; then
-        log "以下服务启动失败: ${failed_services[*]}"
-        log "正在获取详细错误信息..."
-        
-        for service in "${failed_services[@]}"; do
-            log "=== $service 服务状态 ==="
-            systemctl status "$service" --no-pager -l >> "$LOG_FILE" 2>&1
-            log "=== $service 最近日志 ==="
-            journalctl -u "$service" -n 20 --no-pager >> "$LOG_FILE" 2>&1
-        done
-        
-        error "服务启动失败，详细信息请查看日志: $LOG_FILE"
-    fi
-    
-    log "所有服务启动成功"
+    log "服务启动完成"
 }
 
 # === 安装完成信息 ===
-show_installation_complete() {
+show_complete() {
     echo
     echo "================================================================"
     echo "🎉 EdgeBox 安装完成！"
@@ -1350,30 +723,18 @@ show_installation_complete() {
     echo "✅ 域名配置: ${DOMAIN:-edgebox.local}"
     [[ "$USE_PROXY" == true ]] && echo "✅ 住宅代理: ${PROXY_HOST}:${PROXY_PORT}" || echo "✅ 出站模式: 全直出"
     echo
-    
     echo "📊 服务状态:"
     systemctl is-active --quiet sing-box && echo "  ✓ sing-box: 运行中" || echo "  ✗ sing-box: 异常"
-    
-    if [[ " ${PROTOCOLS[*]} " =~ " grpc " ]] || [[ " ${PROTOCOLS[*]} " =~ " ws " ]]; then
-        systemctl is-active --quiet xray && echo "  ✓ xray: 运行中" || echo "  ✗ xray: 异常"
-    fi
-    
+    systemctl is-active --quiet xray && echo "  ✓ xray: 运行中" || echo "  ✗ xray: 异常"
     systemctl is-active --quiet nginx && echo "  ✓ nginx: 运行中" || echo "  ✗ nginx: 异常"
-    
     echo
     echo "🔧 管理命令:"
     echo "  查看状态: edgeboxctl status"
     echo "  查看订阅: edgeboxctl sub"
-    echo "  更新域名: edgeboxctl domain <新域名>"
-    echo "  配置代理: edgeboxctl proxy set <HOST:PORT:USER:PASS>"
-    echo "  切换直连: edgeboxctl proxy remove"
-    echo "  查看日志: edgeboxctl logs"
     echo "  重启服务: edgeboxctl restart"
-    
     echo
     echo "📱 快速获取订阅链接:"
     echo "  执行命令: edgeboxctl sub"
-    
     echo
     echo "================================================================"
     echo "安装日志: $LOG_FILE"
@@ -1382,34 +743,13 @@ show_installation_complete() {
 
 # === 主安装流程 ===
 main() {
-    # 处理命令行参数
-    case "${1:-install}" in
-        "uninstall"|"--uninstall"|"-u")
-            uninstall_edgebox
-            ;;
-        "install"|"--install"|"-i"|"")
-            # 继续正常安装流程
-            ;;
-        *)
-            echo "用法: $0 [install|uninstall]"
-            echo "  install    - 安装 EdgeBox (默认)"
-            echo "  uninstall  - 卸载 EdgeBox"
-            exit 1
-            ;;
-    esac
-    
     # 创建日志文件
     mkdir -p "$(dirname "$LOG_FILE")"
     echo "EdgeBox 安装开始: $(date)" > "$LOG_FILE"
     
     log "EdgeBox v${SCRIPT_VERSION} 安装程序启动"
     
-    # 安装前先执行卸载，确保环境干净
-    log "清理旧版本..."
-    uninstall_edgebox 2>/dev/null || true
-    
     # 基础检查
-    check_root
     check_os
     check_requirements
     
@@ -1443,7 +783,7 @@ main() {
     start_services
     
     # 显示完成信息
-    show_installation_complete
+    show_complete
     
     log "EdgeBox 安装成功完成"
 }
