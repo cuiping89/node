@@ -1055,13 +1055,63 @@ cleanup_on_exit() {
         rm -f /etc/nginx/conf.d/edgebox.conf
         
         systemctl daemon-reload
+        systemctl restart nginx 2>/dev/null || true
         
         echo "错误详情请查看日志: $LOG_FILE"
+        echo "如需重新安装，可直接运行脚本，无需手动卸载"
     fi
+}
+
+# === 简单卸载函数 ===
+quick_uninstall() {
+    echo "正在卸载 EdgeBox..."
+    
+    # 停止并删除服务
+    systemctl stop sing-box xray nginx 2>/dev/null || true
+    systemctl disable sing-box xray 2>/dev/null || true
+    
+    # 删除服务文件
+    rm -f /etc/systemd/system/sing-box.service
+    rm -f /etc/systemd/system/xray.service
+    
+    # 删除配置文件
+    rm -f /etc/nginx/conf.d/edgebox.conf
+    rm -rf /opt/edgebox
+    rm -rf /etc/sing-box
+    rm -rf /usr/local/etc/xray
+    rm -rf /etc/ssl/edgebox
+    
+    # 删除二进制文件
+    rm -f /usr/local/bin/sing-box
+    rm -f /usr/local/bin/xray
+    rm -f /usr/local/bin/edgeboxctl
+    
+    systemctl daemon-reload
+    systemctl restart nginx 2>/dev/null || true
+    
+    echo "EdgeBox 已卸载完成"
 }
 
 # === 主安装流程 ===
 main() {
+    # 处理命令行参数
+    case "${1:-install}" in
+        "uninstall"|"--uninstall"|"-u")
+            check_root
+            quick_uninstall
+            exit 0
+            ;;
+        "install"|"--install"|"-i"|"")
+            # 继续正常安装流程
+            ;;
+        *)
+            echo "用法: $0 [install|uninstall]"
+            echo "  install    - 安装 EdgeBox (默认)"
+            echo "  uninstall  - 卸载 EdgeBox"
+            exit 1
+            ;;
+    esac
+    
     # 设置错误清理
     trap cleanup_on_exit EXIT
     
