@@ -34,7 +34,7 @@
 - **Hysteria2**: 伪装成 HTTP/3 流量，利用 QUIC 协议的特性
 - **TUIC**: 基于 QUIC 的轻量级协议，具有较好的抗检测能力
 
-**推荐伪装目标网站**：
+**伪装目标网站**：
 - www.cloudflare.com（默认，全球可用）
 - www.microsoft.com（Windows 更新流量）
 - www.apple.com（iOS 更新流量）
