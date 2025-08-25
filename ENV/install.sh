@@ -103,16 +103,57 @@ install_packages() {
     rm -f /etc/nginx/sites-available/edgebox* 2>/dev/null || true
     rm -f /etc/nginx/sites-enabled/edgebox* 2>/dev/null || true
     
-    # 如果 nginx 已安装但有问题，先修复它
-    if command -v nginx >/dev/null 2>&1; then
-        nginx -t 2>/dev/null || {
-            log "修复 nginx 配置..."
-            # 移除所有可能有问题的配置
-            find /etc/nginx -name "*edgebox*" -delete 2>/dev/null || true
-            find /etc/nginx -name "*stream*" -delete 2>/dev/null || true
-            systemctl stop nginx 2>/dev/null || true
-        }
+    # 修复 nginx.conf 中的错误引用
+    if [[ -f /etc/nginx/nginx.conf ]]; then
+        # 移除对 edgebox_stream.conf 的引用
+        sed -i '/edgebox_stream\.conf/d' /etc/nginx/nginx.conf 2>/dev/null || true
+        sed -i '/include.*edgebox/d' /etc/nginx/nginx.conf 2>/dev/null || true
+        
+        # 如果 nginx.conf 被破坏，恢复默认配置
+        if ! nginx -t 2>/dev/null; then
+            log "恢复 nginx 默认配置..."
+            if [[ -f /etc/nginx/nginx.conf.dpkg-dist ]]; then
+                cp /etc/nginx/nginx.conf.dpkg-dist /etc/nginx/nginx.conf
+            else
+                # 创建最小可用配置
+                cat > /etc/nginx/nginx.conf << 'EOF'
+user www-data;
+worker_processes auto;
+pid /run/nginx.pid;
+error_log /var/log/nginx/error.log;
+
+events {
+    worker_connections 768;
+}
+
+http {
+    sendfile on;
+    tcp_nopush on;
+    types_hash_max_size 2048;
+    
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+    
+    ssl_protocols TLSv1 TLSv1.1 TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers on;
+    
+    access_log /var/log/nginx/access.log;
+    
+    gzip on;
+    
+    include /etc/nginx/conf.d/*.conf;
+    include /etc/nginx/sites-enabled/*;
+}
+EOF
+            fi
+        fi
     fi
+    
+    # 确保 nginx 服务停止
+    systemctl stop nginx 2>/dev/null || true
+    
+    # 修复 dpkg 状态
+    dpkg --configure -a 2>/dev/null || true
     
     apt-get update -qq
     apt-get install -y --no-install-recommends \
@@ -121,11 +162,10 @@ install_packages() {
         certbot python3-certbot-nginx dnsutils
     
     # 确保 nginx 能正常启动
-    systemctl restart nginx 2>/dev/null || {
+    nginx -t && systemctl restart nginx || {
         log "nginx 启动失败，尝试修复..."
-        # 使用默认配置
-        cp /usr/share/nginx/html/index.html /var/www/html/ 2>/dev/null || true
-        nginx -t && systemctl start nginx || true
+        systemctl status nginx --no-pager >> "$LOG_FILE" 2>&1
+        journalctl -xeu nginx -n 20 --no-pager >> "$LOG_FILE" 2>&1
     }
     
     log "依赖包安装完成"
