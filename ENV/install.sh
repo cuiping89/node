@@ -96,11 +96,37 @@ install_packages() {
     log "安装依赖包..."
     export DEBIAN_FRONTEND=noninteractive
     
+    # 先清理可能存在的旧配置
+    log "清理旧的 nginx 配置..."
+    rm -f /etc/nginx/edgebox*.conf 2>/dev/null || true
+    rm -f /etc/nginx/conf.d/edgebox*.conf 2>/dev/null || true
+    rm -f /etc/nginx/sites-available/edgebox* 2>/dev/null || true
+    rm -f /etc/nginx/sites-enabled/edgebox* 2>/dev/null || true
+    
+    # 如果 nginx 已安装但有问题，先修复它
+    if command -v nginx >/dev/null 2>&1; then
+        nginx -t 2>/dev/null || {
+            log "修复 nginx 配置..."
+            # 移除所有可能有问题的配置
+            find /etc/nginx -name "*edgebox*" -delete 2>/dev/null || true
+            find /etc/nginx -name "*stream*" -delete 2>/dev/null || true
+            systemctl stop nginx 2>/dev/null || true
+        }
+    fi
+    
     apt-get update -qq
     apt-get install -y --no-install-recommends \
         ca-certificates curl wget jq tar unzip openssl \
         nginx ufw vnstat cron logrotate uuid-runtime \
         certbot python3-certbot-nginx dnsutils
+    
+    # 确保 nginx 能正常启动
+    systemctl restart nginx 2>/dev/null || {
+        log "nginx 启动失败，尝试修复..."
+        # 使用默认配置
+        cp /usr/share/nginx/html/index.html /var/www/html/ 2>/dev/null || true
+        nginx -t && systemctl start nginx || true
+    }
     
     log "依赖包安装完成"
 }
@@ -734,6 +760,14 @@ main() {
     echo "EdgeBox 安装开始: $(date)" > "$LOG_FILE"
     
     log "EdgeBox v${SCRIPT_VERSION} 安装程序启动"
+    
+    # 先清理旧环境
+    log "清理旧环境..."
+    rm -f /etc/nginx/edgebox*.conf 2>/dev/null || true
+    rm -f /etc/nginx/conf.d/edgebox*.conf 2>/dev/null || true
+    rm -f /etc/nginx/sites-*/edgebox* 2>/dev/null || true
+    systemctl stop sing-box 2>/dev/null || true
+    systemctl stop xray 2>/dev/null || true
     
     # 基础检查
     check_os
