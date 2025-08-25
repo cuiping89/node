@@ -2,6 +2,7 @@
 
 - EdgeBox 是一个多协议一键部署脚本，旨在提供一个**健壮灵活、一键部署、失败重装**的科学上网解决方案。
 - 支持**一键重装（完全卸载+无损重装+出口分流+流量统计+聚合订阅+自动备份）**。
+
 - 🚀 **一键安装**：自动化部署，支持交互式配置
 - 🗑️ **完全卸载**：一键清理所有组件，为安装失败后重装准备环境，简洁、高效、幂等、非交互式，适合自动化和故障排除。
 - 🔄 **出口分流**：googlevideo.com直出；其它从住宅HTTP出
@@ -19,10 +20,25 @@
 - 存储: 10GB 可用空间
 - 网络: 稳定的公网 IP
 
+## 核心组件
+- **Nginx**: 前置代理，TLS终止，SNI分流
+- **Xray**: VLESS-gRPC + VLESS-WS
+- **sing-box**: Reality + Hysteria2 + TUIC
+  
+## 证书管理
+```bash
+# 自动化流程
+域名配置 → DNS解析检查 → Let's Encrypt申请 → 自动续期
+    ↓
+未配置域名 → 自签名证书 → 基础功能可用
+```
+- **自动续期**: ACME 证书配置 cron 任务自动续期
+-   在尝试申请 Let's Encrypt 证书之前，增加对 80 端口的防火墙放行检查。certbot 的 certonly --nginx 模式需要通过 80 端口验证域名所有权。如果 80 端口被 UFW 阻止，申请就会失败。对 certbot 的输出进行更详细的捕获和解析，而不仅仅是 2>/dev/null。这样在安装失败时，日志中能给出更明确的失败原因。在证书申请失败后，增加一个明确的警告或提示，告知用户证书申请失败的原因，例如“域名解析未生效”、“防火墙端口未开放”等。
+ 
 ## 核心策略
  **多协议组合、深度伪装、灵活路由** 来应对复杂多变的网络环境。
 
-**协议矩阵**
+### 协议矩阵
 - 默认安装：VLESS-gRPC、VLESS-WS、VLESS-Reality、Hysteria2、TUIC。
 - 通过多层次的伪装来模拟正常的互联网流量，有效对抗审查和探测，适用不同场景，客户端可以无缝切换协议，确保连接的高可用性。
   
@@ -34,210 +50,59 @@
 | **Hysteria2** | QUIC/UDP 快速传输 | 良好，HTTP/3 伪装 | 需要高速传输的场景 |
 | **TUIC** | 轻量 QUIC 协议 | 中等，UDP 流量特征 | 移动网络和不稳定连接 |
 
-**行为伪装**：
+### 行为伪装
 - **VLESS-Reality**: 通过伪装 TLS 指纹，让流量看起来像是在访问真实热门网站
 - **Hysteria2**: 伪装成 HTTP/3 流量，利用 QUIC 协议的特性
 - **TUIC**: 基于 QUIC 的轻量级协议，具有较好的抗检测能力
 
-**端口伪装**：
+### 端口伪装
 - **TCP 协议（443/8443）**: 使用 HTTPS 标准端口，使流量看起来像在正常浏览网页
 - **UDP 协议（443/8443/2053）**: 分散在常用端口，降低识别风险
-- **端口分配策略**：
-### TCP 协议（443/8443）
-- **gRPC/WebSocket**: Nginx 反向代理 → Xray 后端
+
+### 端口分配策略
+  #### TCP 协议（443/8443）
+  - **gRPC/WebSocket**: Nginx 反向代理 → Xray 后端
   - gRPC: `127.0.0.1:10085`
   - WebSocket: `127.0.0.1:10086`
   - 启用 Reality：Nginx 监听 `8443`
   - 未启用 Reality：Nginx 监听 `443`
-### Reality 直连（TCP/443）
-- sing-box 直接绑定 `tcp/443`
-- 默认 SNI: `www.cloudflare.com`
-- 支持自定义伪装域名
-### UDP 协议
-- **Hysteria2**: `udp/443`（可改为8443）
-- **TUIC**: `udp/2053`
-- 
+  #### Reality 直连（TCP/443）
+  - sing-box 直接绑定 `tcp/443`
+  - 默认 SNI: `www.cloudflare.com`
+  - 支持自定义伪装域名
+  #### UDP 协议
+  - **Hysteria2**: `udp/443`（可改为8443）
+  - **TUIC**: `udp/2053`
+ 
 **伪装目标**：
 - www.cloudflare.com（默认，全球可用）
 - www.microsoft.com（Windows 更新流量）
 - www.apple.com（iOS 更新流量）
 
 ## 灵活路由
+
 ### 分流策略：节省住宅IP代理流量并提升观看体验。
   - **直连白名单**：
   - `googlevideo.com`（YouTube 视频流）
   - `ytimg.com`（YouTube 图片）
   - `ggpht.com`（Google 图片）
   - **代理出站**：其它流量通过住宅代理IP
-### CF灰云、路由不回源：否则会连接CF边缘导致公网出站，触发GCP计费。
+### GCP网络优化：否则会连接CF边缘导致公网出站，触发GCP计费。确保 200GB 内标准计费
   - CF灰云、
   - 不走Argo、
   - 不让任何代理回源、
   - 不在服务器启用WARP/Zero Trust网关
 
-## 核心组件
-### Nginx:
-作为前置代理，将所有 443 端口的 TCP 流量分发到后端服务。通过 HTTP(S) 反向代理 VLESS-gRPC 和 VLESS-WS，并通过 `stream` 模块实现基于 SNI 的 VLESS-Reality 流量分流。
-### Xray & sing-box: 
-脚本将通过官方安装脚本，安装 **Xray 和 sing-box 的最新相互兼容版本**。Xray 负责 VLESS-gRPC 和 VLESS-WS，而 sing-box 则承载 Reality、Hysteria2 和 TUIC。
+## 流量统计
 
-## 证书管理
-**自动化证书处理**：
-- **优先方案**: 填写域名时自动通过 ACME（Let's Encrypt）申请真实证书
-- **兜底方案**: 未填写域名时自动生成自签名证书
-- **自定义上传**: 支持用户后期上传自定义证书
-- **自动续期**: ACME 证书配置 cron 任务自动续期
--   在尝试申请 Let's Encrypt 证书之前，增加对 80 端口的防火墙放行检查。certbot 的 certonly --nginx 模式需要通过 80 端口验证域名所有权。如果 80 端口被 UFW 阻止，申请就会失败。对 certbot 的输出进行更详细的捕获和解析，而不仅仅是 2>/dev/null。这样在安装失败时，日志中能给出更明确的失败原因。在证书申请失败后，增加一个明确的警告或提示，告知用户证书申请失败的原因，例如“域名解析未生效”、“防火墙端口未开放”等。
-  
-## 流量统计：
-show-traffic：展示 vnStat + 各服务端口 iptables/nftables 计数
+- 实时流量监控：edgeboxctl traffic show
+- 显示内容：
+- vnStat 系统流量
+- 各协议端口流量
+- iptables/nftables 计数
+- 实时连接状态
 
-## 网络优化
-
-## 安全增强
-**每日自动备份**：
-- 备份配置文件、证书、用户数据
-- 保留最近 15 天的备份
-- 备份路径：`/root/edgebox-backup/`
-- 支持手动触发：`edgeboxctl backup create`
-**备份恢复**：
-```bash
-# 列出可用备份：edgeboxctl backup list
-# 恢复指定日期备份：edgeboxctl backup restore <YYYY-MM-DD>
-```
-
-## 交互式引导：
-
-**系统预检查** 
-安装前脚本会自动检查：
-- 操作系统版本兼容性
-- 网络连通性（DNS 解析、外网访问）
-- 防火墙状态和端口占用
-- 系统资源（内存、磁盘空间）
-**域名与证书配置**
-- 询问是否配置域名
-- 域名验证和 DNS 解析检查
-- 自动申请 Let's Encrypt 证书
-- 证书安装和配置验证
-**出站分流策略**
-- 询问是否设置住宅 HTTP 代理，输入格式：`HOST:PORT:USER:PASS`
-- 回车默认策略：**全直出**（跳过代理配置时）
-
-
-## 一键安装（包含卸载：简洁、高效、幂等、非交互式，自动化和故障排除，安装失败后的清理）
-服务器上执行以下命令即可开始：
-```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/<你的GitHub>/EdgeBox/main/install.sh)
-```
-### 管理命令
-```bash
-# 显示所有订阅链接
-edgeboxctl config show-sub
-
-# 查看流量统计
-edgeboxctl traffic show
-
-# 创建备份
-edgeboxctl backup create
-
-# 恢复备份
-edgeboxctl backup restore <YYYY-MM-DD>
-
-# 重新安装
-edgeboxctl reinstall
-
-# 完全卸载
-edgeboxctl uninstall
-```
-
-## 分享建议：
-- **技术小白朋友**：单个稳定协议（VLESS-Reality）
-- **技术用户**：聚合订阅链接（包含所有协议，自动切换）
-- **家人使用**：VLESS-WebSocket（最稳定，兼容性最好）
-- **移动设备**：TUIC 协议（对不稳定网络友好）
-
-**获取订阅链接**
-- SSH 方式：显示所有订阅链接：edgeboxctl config show-sub
-- 浏览器方式：访问 http://your-domain:8080/sub
-
-## 客户端配置示例
-- V2rayN (Windows)
-
-## 安全建议
-
-**客户端配置**
-- 启用"绕过大陆"分流规则
-- 配合 VPS 白名单直出策略
-- 定期更换伪装域名
-
-**服务端维护**
-- 定期更新系统和软件包
-- 监控异常连接和流量
-- 适时轮换用户 UUID
-
-## 常见问题解答
-
-**Q: 连接失败，显示 -1ms？**
-A: 检查端口是否正确开放，确认防火墙规则，验证证书配置。
-
-**Q: Reality 协议无法连接？**
-A: 确认伪装域名可正常访问，检查 SNI 配置是否正确。
-
-**Q: 如何选择最适合的协议？**
-A: 网络审查严格时优先 Reality > gRPC > WS；需要高速时选择 Hysteria2；移动网络推荐 TUIC。
-
-**Q: GCP 会因为使用 gRPC 协议切换到高级网络吗？**
-A: **绝对不会**！GCP 的网络层级是在 VM 实例创建时设置的，与运行的应用协议完全无关。gRPC 本质是 HTTP/2，使用标准 TCP/443 端口，只要您的 VM 设置为"标准网络层级"，200GB 内的出站流量都是标准计费，不会因为协议类型改变。
-
-## 特别提示
-
-**系统兼容性**: 脚本主要兼容 Debian 和 Ubuntu，它们占据了绝大多数服务器市场份额。兼容其他 Linux 发行版技术上可行，但会显著增加复杂性，因此目前并非首要目标。
-
-**订阅链接分享**: 如需分享给朋友，**优先推荐聚合订阅链接**，它包含所有协议，提供最佳的便利性和高可用性。
-
-**隐私保护**: 建议配置"绕过大陆"规则，结合 VPS 白名单直出策略，最大程度保障隐私和 VPS IP 安全。
-
-## 社区定位
-- 👥 **安装友好**：详细文档、一键安装、内置卸载
-
-# EdgeBox：一站式多协议代理节点部署工具
-
-
-### GCP 网络优化
-- ❌ 不走 Argo Tunnel
-- ❌ 不回源 CDN
-- ❌ 不启用 WARP/Zero Trust
-- ✅ 确保 200GB 内标准计费
-
-## 🏗️ 核心架构
-
-### 组件分工
-- **Nginx**: 前置代理，TLS终止，SNI分流
-- **Xray**: VLESS-gRPC + VLESS-WS
-- **sing-box**: Reality + Hysteria2 + TUIC
-
-### 证书管理
-```bash
-# 自动化流程
-域名配置 → DNS解析检查 → Let's Encrypt申请 → 自动续期
-    ↓
-未配置域名 → 自签名证书 → 基础功能可用
-```
-
-## 📊 流量统计
-
-```bash
-# 实时流量监控
-edgeboxctl traffic show
-
-# 显示内容：
-# - vnStat 系统流量
-# - 各协议端口流量
-# - iptables/nftables 计数
-# - 实时连接状态
-```
-
-## 💾 备份恢复
+## 备份恢复
 
 ### 自动备份
 - **备份内容**：配置文件、证书、用户数据
@@ -249,12 +114,16 @@ edgeboxctl traffic show
 ```bash
 # 列出备份
 edgeboxctl backup list
-
 # 创建备份
 edgeboxctl backup create
-
 # 恢复备份
 edgeboxctl backup restore 2024-01-15
+```
+
+## 一键安装（完全卸载+无损重装+出口分流+流量统计+聚合订阅+自动备份）
+服务器上执行以下命令即可开始：
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/<你的GitHub>/EdgeBox/main/install.sh)
 ```
 
 ## 🔧 安装流程
@@ -267,7 +136,7 @@ edgeboxctl backup restore 2024-01-15
 - ✅ DNS解析测试
 
 ### 2. 交互式配置
-```bash
+
 [1/4] 域名配置
 - 是否配置域名？[y/N]
 - 域名: your-domain.com
@@ -287,7 +156,6 @@ edgeboxctl backup restore 2024-01-15
 - 协议: VLESS-gRPC, VLESS-WS, Reality, Hysteria2, TUIC
 - 端口: 443, 8443, 2053
 - 开始安装...
-```
 
 ### 3. 安装后验证
 - 🔍 服务状态检查
@@ -305,14 +173,6 @@ edgeboxctl config show-sub
 # 浏览器方式
 http://your-domain:8080/sub
 ```
-
-### 分享建议
-| 用户类型 | 推荐协议 | 说明 |
-|---------|---------|------|
-| 技术小白 | VLESS-Reality | 单一稳定协议 |
-| 技术用户 | 聚合订阅 | 包含所有协议，自动切换 |
-| 家人使用 | VLESS-WebSocket | 最稳定，兼容性最好 |
-| 移动设备 | TUIC | 对不稳定网络友好 |
 
 ## 🛠️ 管理操作
 
@@ -343,6 +203,57 @@ edgeboxctl update               # 更新EdgeBox
 edgeboxctl reinstall            # 重新安装
 edgeboxctl uninstall            # 完全卸载
 ```
+
+### 分享建议
+| 用户类型 | 推荐协议 | 说明 |
+|---------|---------|------|
+| 技术小白 | VLESS-Reality | 单一稳定协议 |
+| 技术用户 | 聚合订阅 | 包含所有协议，自动切换 |
+| 家人使用 | VLESS-WebSocket | 最稳定，兼容性最好 |
+| 移动设备 | TUIC | 对不稳定网络友好 |
+
+## 🔒 安全建议
+
+### 客户端配置
+- ✅ 启用"绕过大陆"分流规则
+- ✅ 配合VPS白名单直出策略
+- ✅ 定期更换伪装域名
+
+### 服务端维护
+- 🔄 定期系统更新：`apt update && apt upgrade`
+- 📊 监控异常流量：`edgeboxctl traffic show`
+- 🔑 适时轮换UUID：`edgeboxctl config regenerate-uuid`
+
+## 常见问题解答
+
+**Q: 连接失败，显示 -1ms？**
+A: 检查端口是否正确开放，确认防火墙规则，验证证书配置。
+
+**Q: Reality 协议无法连接？**
+A: 确认伪装域名可正常访问，检查 SNI 配置是否正确。
+
+**Q: 如何选择最适合的协议？**
+A: 网络审查严格时优先 Reality > gRPC > WS；需要高速时选择 Hysteria2；移动网络推荐 TUIC。
+
+**Q: GCP 会因为使用 gRPC 协议切换到高级网络吗？**
+A: **绝对不会**！GCP 的网络层级是在 VM 实例创建时设置的，与运行的应用协议完全无关。gRPC 本质是 HTTP/2，使用标准 TCP/443 端口，只要您的 VM 设置为"标准网络层级"，200GB 内的出站流量都是标准计费，不会因为协议类型改变。
+
+## 特别提示
+
+**系统兼容性**: 脚本主要兼容 Debian 和 Ubuntu，它们占据了绝大多数服务器市场份额。兼容其他 Linux 发行版技术上可行，但会显著增加复杂性，因此目前并非首要目标。
+
+**订阅链接分享**: 如需分享给朋友，**优先推荐聚合订阅链接**，它包含所有协议，提供最佳的便利性和高可用性。
+
+**隐私保护**: 建议配置"绕过大陆"规则，结合 VPS 白名单直出策略，最大程度保障隐私和 VPS IP 安全。
+
+## 社区定位
+- 👥 **安装友好**：详细文档、一键安装、内置卸载
+
+
+
+
+# EdgeBox：一站式多协议代理节点部署工具
+
 
 ## ❓ 常见问题
 
@@ -375,17 +286,6 @@ edgeboxctl uninstall            # 完全卸载
 - 协议类型不影响网络层级计费
 </details>
 
-## 🔒 安全建议
-
-### 客户端配置
-- ✅ 启用"绕过大陆"分流规则
-- ✅ 配合VPS白名单直出策略
-- ✅ 定期更换伪装域名
-
-### 服务端维护
-- 🔄 定期系统更新：`apt update && apt upgrade`
-- 📊 监控异常流量：`edgeboxctl traffic show`
-- 🔑 适时轮换UUID：`edgeboxctl config regenerate-uuid`
 
 ## 📈 社区特色
 
