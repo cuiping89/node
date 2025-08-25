@@ -83,17 +83,32 @@
 - **自定义上传**: 支持用户后期上传自定义证书
 - **自动续期**: ACME 证书配置 cron 任务自动续期
    在尝试申请 Let's Encrypt 证书之前，增加对 80 端口的防火墙放行检查。certbot 的 certonly --nginx 模式需要通过 80 端口验证域名所有权。如果 80 端口被 UFW 阻止，申请就会失败。对 certbot 的输出进行更详细的捕获和解析，而不仅仅是 2>/dev/null。这样在安装失败时，日志中能给出更明确的失败原因。在证书申请失败后，增加一个明确的警告或提示，告知用户证书申请失败的原因，例如“域名解析未生效”、“防火墙端口未开放”等。
+  
+## 流量统计：
 
+## 网络优化
 
+## 安全增强
 
-## 系统预检查
+**每日自动备份**：
+- 备份配置文件、证书、用户数据
+- 保留最近 15 天的备份
+- 备份路径：`/root/edgebox-backup/`
+- 支持手动触发：`edgeboxctl backup create`
+**备份恢复**：
+```bash
+# 列出可用备份：edgeboxctl backup list
+# 恢复指定日期备份：edgeboxctl backup restore <YYYY-MM-DD>
+```
+
+## 交互式引导：
+
+**系统预检查** 
 安装前脚本会自动检查：
 - 操作系统版本兼容性
 - 网络连通性（DNS 解析、外网访问）
 - 防火墙状态和端口占用
 - 系统资源（内存、磁盘空间）
-
-脚本将进行**交互式引导**，完成所有配置：
 
 **域名与证书配置**
 - 询问是否配置域名
@@ -111,82 +126,7 @@
 - 支持一键回滚到安装前状态
 - 清理临时文件和配置
 
-**用户管理**
-```bash
-# 添加用户
-edgeboxctl user add <username>
 
-# 删除用户
-edgeboxctl user del <username>
-
-# 列出所有用户
-edgeboxctl user list
-
-# 重置用户流量
-edgeboxctl user reset <username>
-```
-
-**流量统计**
-```bash
-# 查看当月流量统计
-edgeboxctl traffic monthly
-
-# 查看近12个月历史流量
-edgeboxctl traffic history --months 12
-
-# 分协议流量统计
-edgeboxctl traffic breakdown
-
-# 设置月度流量预警（如 200GB）
-edgeboxctl traffic alert 200GB
-
-# 查看实时流量
-edgeboxctl traffic realtime
-```
-
-**网络优化**
-```bash
-# 启用 BBR 拥塞控制算法
-edgeboxctl optimize bbr
-
-# 优化 TCP 参数
-edgeboxctl optimize tcp
-
-# 网络速度测试
-edgeboxctl speedtest
-
-# 一键优化所有网络参数
-edgeboxctl optimize all
-```
-
-**安全增强**
-```bash
-# 扫描异常连接
-edgeboxctl security scan
-
-# 封禁可疑 IP
-edgeboxctl security block <ip>
-
-# 查看安全报告
-edgeboxctl security report
-
-# 设置自动防护模式
-edgeboxctl security autoprotect on
-```
-
-## 自动化备份
-
-**每日自动备份**：
-- 备份配置文件、证书、用户数据
-- 保留最近 15 天的备份
-- 备份路径：`/root/edgebox-backup/`
-- 支持手动触发：`edgeboxctl backup create`
-
-**备份恢复**：
-```bash
-# 列出可用备份：edgeboxctl backup list
-# 恢复指定日期备份：edgeboxctl backup restore <YYYY-MM-DD>
-```
 ## 一键安装
 服务器上执行以下命令即可开始：
 ```bash
@@ -237,15 +177,6 @@ A: 网络审查严格时优先 Reality > gRPC > WS；需要高速时选择 Hyste
 **Q: GCP 会因为使用 gRPC 协议切换到高级网络吗？**
 A: **绝对不会**！GCP 的网络层级是在 VM 实例创建时设置的，与运行的应用协议完全无关。gRPC 本质是 HTTP/2，使用标准 TCP/443 端口，只要您的 VM 设置为"标准网络层级"，200GB 内的出站流量都是标准计费，不会因为协议类型改变。
 
-## 社区建设规划
-
-**差异化定位**
-- 🎯 **GCP 用户专属**：针对 GCP 网络计费和性能特性优化
-- 🛡️ **企业级安全**：内置防扫描、异常检测、自动防护
-- 📊 **智能运维**：流量统计、性能监控、故障自愈
-- 👥 **用户友好**：详细文档、视频教程、社区支持
-
-
 ## 特别提示
 
 **系统兼容性**: 脚本主要兼容 Debian 和 Ubuntu，它们占据了绝大多数服务器市场份额。兼容其他 Linux 发行版技术上可行，但会显著增加复杂性，因此目前并非首要目标。
@@ -254,3 +185,10 @@ A: **绝对不会**！GCP 的网络层级是在 VM 实例创建时设置的，�
 
 **隐私保护**: 建议配置"绕过大陆"规则，结合 VPS 白名单直出策略，最大程度保障隐私和 VPS IP 安全。
 
+## 社区定位
+- 👥 **安装友好**：详细文档、一键安装、内置卸载
+- 🛡️ **健壮灵活**：内置防扫描、异常检测、自动防护
+- 🎯 **GCP用户专属**：针对GCP网络计费、性能特性优化
+- 📊 **智能运维**：流量统计、故障自愈
+
+- 
