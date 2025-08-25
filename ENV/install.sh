@@ -3,7 +3,7 @@
 # EdgeBox - 一站式多协议节点部署工具
 # 支持：VLESS-gRPC, VLESS-WS, VLESS-Reality, Hysteria2, TUIC
 # 系统要求：Ubuntu 18.04+ / Debian 10+
-# 使用方法：bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/EdgeBox/main/install.sh)
+# 使用方法：bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/main/ENV/install.sh)
 # =====================================================================================
 
 set -Eeuo pipefail
@@ -89,7 +89,7 @@ install_packages() {
     apt-get update -qq
     apt-get install -y --no-install-recommends \
         ca-certificates curl wget jq tar unzip openssl \
-        nginx ufw vnstat cron logrotate
+        nginx ufw vnstat cron logrotate uuid-runtime
     
     log "依赖包安装完成"
 }
@@ -261,6 +261,9 @@ generate_self_signed_cert() {
 generate_configs() {
     log "生成配置文件..."
     mkdir -p "$WORK_DIR" /etc/sing-box /usr/local/etc/xray
+    
+    # 保存域名到工作目录
+    echo "$DOMAIN" > "$WORK_DIR/domain"
     
     generate_xray_config
     generate_sing_box_config
@@ -684,7 +687,8 @@ setup_firewall() {
 create_management_tool() {
     log "创建管理工具 edgeboxctl..."
     
-    cat > /usr/local/bin/edgeboxctl << 'EDGEBOXCTL_SCRIPT'
+    # 直接生成管理工具文件，避免使用here-document
+    cat > /usr/local/bin/edgeboxctl << 'EOF'
 #!/usr/bin/env bash
 # EdgeBox 管理工具
 
@@ -695,7 +699,7 @@ CONFIG_DIR="/etc/sing-box"
 XRAY_CONFIG="/usr/local/etc/xray/config.json"
 
 show_usage() {
-    cat << 'EOF'
+    cat << 'USAGE_EOF'
 EdgeBox 管理工具
 
 用法:
@@ -718,7 +722,7 @@ EdgeBox 管理工具
   edgeboxctl logs sing-box
   edgeboxctl sub
   edgeboxctl traffic
-EOF
+USAGE_EOF
 }
 
 show_status() {
@@ -783,4 +787,243 @@ generate_subscription() {
     if [[ -f "$WORK_DIR/hy2-password" ]]; then
         local password=$(cat "$WORK_DIR/hy2-password")
         echo "Hysteria2:"
-        echo "hysteria2://$password@$domain:443
+        echo "hysteria2://$password@$domain:443/?insecure=1#EdgeBox-Hysteria2"
+        echo
+    fi
+    
+    if [[ -f "$WORK_DIR/tuic-uuid" ]]; then
+        local uuid=$(cat "$WORK_DIR/tuic-uuid")
+        local password=$(cat "$WORK_DIR/tuic-password")
+        echo "TUIC:"
+        echo "tuic://$uuid:$password@$domain:2053?congestion_control=bbr&udp_relay_mode=native&alpn=h3&allow_insecure=1#EdgeBox-TUIC"
+        echo
+    fi
+}
+
+show_traffic() {
+    echo "=== 流量统计 ==="
+    if command -v vnstat >/dev/null; then
+        vnstat -i $(ip route | awk '/default/ { print $5 }' | head -n1)
+    else
+        echo "vnstat 未安装"
+    fi
+}
+
+restart_services() {
+    echo "重启 EdgeBox 服务..."
+    systemctl restart sing-box 2>/dev/null && echo "✓ sing-box 已重启" || echo "✗ sing-box 重启失败"
+    
+    if systemctl list-unit-files | grep -q xray.service; then
+        systemctl restart xray 2>/dev/null && echo "✓ xray 已重启" || echo "✗ xray 重启失败"
+    fi
+    
+    systemctl restart nginx 2>/dev/null && echo "✓ nginx 已重启" || echo "✗ nginx 重启失败"
+}
+
+create_backup() {
+    local backup_file="/root/edgebox-backup/backup-$(date +%Y%m%d-%H%M%S).tar.gz"
+    mkdir -p "$(dirname "$backup_file")"
+    
+    tar -czf "$backup_file" \
+        "$WORK_DIR" \
+        /etc/sing-box \
+        /usr/local/etc/xray \
+        /etc/nginx/conf.d/edgebox.conf \
+        /etc/ssl/edgebox \
+        2>/dev/null
+    
+    echo "备份已创建: $backup_file"
+}
+
+show_version() {
+    echo "EdgeBox 管理工具 v1.0.0"
+    echo
+    echo "组件版本:"
+    /usr/local/bin/sing-box version 2>/dev/null || echo "sing-box: 未安装"
+    /usr/local/bin/xray version 2>/dev/null || echo "xray: 未安装"
+    nginx -v 2>&1 | head -1 || echo "nginx: 未安装"
+}
+
+# 主程序
+case ${1:-""} in
+    status)
+        show_status
+        ;;
+    logs)
+        show_logs "$2"
+        ;;
+    sub)
+        generate_subscription
+        ;;
+    traffic)
+        show_traffic
+        ;;
+    restart)
+        restart_services
+        ;;
+    backup)
+        create_backup
+        ;;
+    version)
+        show_version
+        ;;
+    *)
+        show_usage
+        exit 1
+        ;;
+esac
+EOF
+
+    chmod +x /usr/local/bin/edgeboxctl
+    log "管理工具 edgeboxctl 已创建"
+}
+
+# === 启动服务 ===
+start_services() {
+    log "启动服务..."
+    
+    # 启动 sing-box
+    systemctl enable --now sing-box
+    
+    # 启动 Xray（如果需要）
+    if [[ " ${PROTOCOLS[*]} " =~ " grpc " ]] || [[ " ${PROTOCOLS[*]} " =~ " ws " ]]; then
+        systemctl enable --now xray
+    fi
+    
+    # 重启 Nginx
+    systemctl restart nginx
+    
+    # 等待服务启动
+    sleep 3
+    
+    # 检查服务状态
+    systemctl is-active --quiet sing-box || error "sing-box 启动失败"
+    
+    if [[ " ${PROTOCOLS[*]} " =~ " grpc " ]] || [[ " ${PROTOCOLS[*]} " =~ " ws " ]]; then
+        systemctl is-active --quiet xray || error "xray 启动失败"
+    fi
+    
+    systemctl is-active --quiet nginx || error "nginx 启动失败"
+    
+    log "所有服务启动成功"
+}
+
+# === 安装完成信息 ===
+show_installation_complete() {
+    echo
+    echo "================================================================"
+    echo "🎉 EdgeBox 安装完成！"
+    echo "================================================================"
+    echo
+    echo "✅ 已启用协议: ${PROTOCOLS[*]}"
+    echo "✅ 域名配置: $DOMAIN"
+    [[ "$USE_PROXY" == true ]] && echo "✅ 住宅代理: ${PROXY_HOST}:${PROXY_PORT}"
+    echo
+    
+    echo "📊 服务状态检查:"
+    systemctl is-active --quiet sing-box && echo "  ✓ sing-box: 运行中" || echo "  ✗ sing-box: 异常"
+    
+    if [[ " ${PROTOCOLS[*]} " =~ " grpc " ]] || [[ " ${PROTOCOLS[*]} " =~ " ws " ]]; then
+        systemctl is-active --quiet xray && echo "  ✓ xray: 运行中" || echo "  ✗ xray: 异常"
+    fi
+    
+    systemctl is-active --quiet nginx && echo "  ✓ nginx: 运行中" || echo "  ✗ nginx: 异常"
+    
+    echo
+    echo "🔧 管理命令:"
+    echo "  查看状态: edgeboxctl status"
+    echo "  查看订阅: edgeboxctl sub"
+    echo "  查看日志: edgeboxctl logs sing-box"
+    echo "  重启服务: edgeboxctl restart"
+    
+    echo
+    echo "📱 快速获取订阅链接:"
+    echo "  执行命令: edgeboxctl sub"
+    
+    echo
+    echo "🔍 故障排除:"
+    echo "  日志文件: $LOG_FILE"
+    echo "  配置目录: $WORK_DIR"
+    echo "  检查端口: ss -lntup | egrep ':443|:8443|:2053'"
+    
+    echo
+    echo "================================================================"
+    echo "安装日志已保存到: $LOG_FILE"
+    echo "================================================================"
+}
+
+# === 清理函数 ===
+cleanup_on_exit() {
+    local exit_code=$?
+    if [[ $exit_code -ne 0 ]]; then
+        echo
+        echo "❌ 安装过程中发生错误，正在清理..."
+        
+        # 停止服务
+        systemctl stop sing-box xray nginx 2>/dev/null || true
+        systemctl disable sing-box xray 2>/dev/null || true
+        
+        # 删除配置文件
+        rm -f /etc/systemd/system/sing-box.service
+        rm -f /etc/systemd/system/xray.service
+        rm -f /etc/nginx/conf.d/edgebox.conf
+        
+        systemctl daemon-reload
+        
+        echo "错误详情请查看日志: $LOG_FILE"
+    fi
+}
+
+# === 主安装流程 ===
+main() {
+    # 设置错误清理
+    trap cleanup_on_exit EXIT
+    
+    # 创建日志文件
+    mkdir -p "$(dirname "$LOG_FILE")"
+    echo "EdgeBox 安装开始: $(date)" > "$LOG_FILE"
+    
+    log "EdgeBox v${SCRIPT_VERSION} 安装程序启动"
+    
+    # 基础检查
+    check_root
+    check_os
+    check_requirements
+    
+    # 交互配置
+    interactive_config
+    
+    # 系统准备
+    install_packages
+    optimize_system
+    
+    # 软件安装
+    install_sing_box
+    install_xray
+    
+    # 证书配置
+    setup_certificates
+    
+    # 配置生成
+    generate_configs
+    
+    # 服务配置
+    setup_services
+    
+    # 防火墙配置
+    setup_firewall
+    
+    # 管理工具
+    create_management_tool
+    
+    # 启动服务
+    start_services
+    
+    # 显示完成信息
+    show_installation_complete
+    
+    log "EdgeBox 安装成功完成"
+}
+
+# === 执行主函数 ===
+main "$@"
