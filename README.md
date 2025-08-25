@@ -65,12 +65,11 @@
 - 复用 Hysteria2 的证书配置
 
 ## 灵活路由
-节点能够根据需求，智能地分配流量，以平衡安全性、速度和成本。
-### **CF灰云、路由不回源**：
-- 不走Argo、不让任何代理回源、不在服务器启用WARP/Zero Trust网关，否则会连接CF边缘导致公网出站，触发GCP计费。
-### **分流策略**：
+**分流策略**：
 - 直连 `googlevideo.com` (YouTube 视频流，CDN 流量)、`ytimg.com` (YouTube 图片) 、`ggpht.com` (Google 图片)，节省住宅IP代理流量并提升观看体验。
-- 住宅代理IP出站：
+- 其它全从住宅代理IP出站
+**CF灰云、路由不回源**：
+- 不走Argo、不让任何代理回源、不在服务器启用WARP/Zero Trust网关，否则会连接CF边缘导致公网出站，触发GCP计费。
 
 ## 核心组件
 -**Nginx**: 作为前置代理，将所有 443 端口的 TCP 流量分发到后端服务。通过 HTTP(S) 反向代理 VLESS-gRPC 和 VLESS-WS，并通过 `stream` 模块实现基于 SNI 的 VLESS-Reality 流量分流。
