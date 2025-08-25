@@ -63,18 +63,17 @@
 - www.apple.com（iOS 更新流量）
 
 ## 灵活路由
-**###分流策略**：节省住宅IP代理流量并提升观看体验。
+### 分流策略：节省住宅IP代理流量并提升观看体验。
   - **直连白名单**：
   - `googlevideo.com`（YouTube 视频流）
   - `ytimg.com`（YouTube 图片）
   - `ggpht.com`（Google 图片）
   - **代理出站**：其它流量通过住宅代理IP
-
-**###CF灰云、路由不回源**：否则会连接CF边缘导致公网出站，触发GCP计费。
-- CF灰云、
-- 不走Argo、
-- 不让任何代理回源、
-- 不在服务器启用WARP/Zero Trust网关
+### CF灰云、路由不回源：否则会连接CF边缘导致公网出站，触发GCP计费。
+  - CF灰云、
+  - 不走Argo、
+  - 不让任何代理回源、
+  - 不在服务器启用WARP/Zero Trust网关
 
 ## 核心组件
 ### Nginx:
