@@ -34,12 +34,6 @@
 - **Hysteria2**: 伪装成 HTTP/3 流量，利用 QUIC 协议的特性
 - **TUIC**: 基于 QUIC 的轻量级协议，具有较好的抗检测能力
 
-**伪装目标网站**：
-- www.cloudflare.com（默认，全球可用）
-- www.microsoft.com（Windows 更新流量）
-- www.apple.com（iOS 更新流量）
-- www.ubuntu.com（软件包更新）
-
 **端口伪装**：
 - **TCP 协议（443/8443）**: 使用 HTTPS 标准端口，使流量看起来像在正常浏览网页
 - **UDP 协议（443/8443/2053）**: 分散在常用端口，降低识别风险
@@ -64,6 +58,12 @@
 - sing-box 监听 **udp/2053** 端口
 - 复用 Hysteria2 的证书配置
 
+**伪装目标**：
+- www.cloudflare.com（默认，全球可用）
+- www.microsoft.com（Windows 更新流量）
+- www.apple.com（iOS 更新流量）
+- www.ubuntu.com（软件包更新）
+
 ## 灵活路由
 ### 分流策略：
 - 直连 `googlevideo.com` (YouTube 视频流，CDN 流量)、`ytimg.com` (YouTube 图片) 、`ggpht.com` (Google 图片)，节省住宅IP代理流量并提升观看体验。
@@ -86,12 +86,11 @@
 -   在尝试申请 Let's Encrypt 证书之前，增加对 80 端口的防火墙放行检查。certbot 的 certonly --nginx 模式需要通过 80 端口验证域名所有权。如果 80 端口被 UFW 阻止，申请就会失败。对 certbot 的输出进行更详细的捕获和解析，而不仅仅是 2>/dev/null。这样在安装失败时，日志中能给出更明确的失败原因。在证书申请失败后，增加一个明确的警告或提示，告知用户证书申请失败的原因，例如“域名解析未生效”、“防火墙端口未开放”等。
   
 ## 流量统计：
-增加流量统计器。
+show-traffic：展示 vnStat + 各服务端口 iptables/nftables 计数
 
 ## 网络优化
 
 ## 安全增强
-
 **每日自动备份**：
 - 备份配置文件、证书、用户数据
 - 保留最近 15 天的备份
