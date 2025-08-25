@@ -118,16 +118,18 @@ interactive_config() {
     echo "=== EdgeBox 配置向导 ==="
     echo
     
-    # 域名配置
-    while [[ -z "$DOMAIN" ]]; do
-        read -rp "请输入您的域名（必填）: " DOMAIN
-        if [[ -n "$DOMAIN" ]]; then
-            if [[ ! "$DOMAIN" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]+[a-zA-Z0-9]$ ]]; then
-                echo "域名格式不正确，请重新输入"
-                DOMAIN=""
-            fi
+    # 域名配置（选填）
+    read -rp "请输入您的域名（选填，回车跳过使用自签证书）: " DOMAIN
+    if [[ -n "$DOMAIN" ]]; then
+        if [[ ! "$DOMAIN" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]+[a-zA-Z0-9]$ ]]; then
+            echo "域名格式不正确，将使用自签证书"
+            DOMAIN=""
+        else
+            echo "✓ 将为域名 $DOMAIN 申请 Let's Encrypt 证书"
         fi
-    done
+    else
+        echo "✓ 将使用自签名证书"
+    fi
     
     echo
     echo "选择要启用的协议（支持多选）:"
@@ -138,46 +140,64 @@ interactive_config() {
     echo "5. TUIC          (移动网络友好)"
     echo
     
-    read -rp "请选择协议编号（用空格分隔，如：1 3 4）: " protocol_input
-    for num in $protocol_input; do
-        case $num in
-            1) PROTOCOLS+=("grpc") ;;
-            2) PROTOCOLS+=("ws") ;;
-            3) PROTOCOLS+=("reality") ;;
-            4) PROTOCOLS+=("hy2") ;;
-            5) PROTOCOLS+=("tuic") ;;
-        esac
-    done
+    read -rp "请选择协议编号（用空格分隔，如：1 2 3 4 5）: " protocol_input
     
-    [[ ${#PROTOCOLS[@]} -eq 0 ]] && error "必须至少选择一个协议"
-    
-    # Hysteria2 端口配置
-    if [[ " ${PROTOCOLS[*]} " =~ " hy2 " ]]; then
-        read -rp "Hysteria2 端口 [443]: " HY2_PORT
-        HY2_PORT=${HY2_PORT:-443}
+    # 如果用户没有输入，默认安装所有协议
+    if [[ -z "$protocol_input" ]]; then
+        echo "未选择协议，将安装所有协议以提供最佳兼容性"
+        PROTOCOLS=("grpc" "ws" "reality" "hy2" "tuic")
+    else
+        for num in $protocol_input; do
+            case $num in
+                1) PROTOCOLS+=("grpc") ;;
+                2) PROTOCOLS+=("ws") ;;
+                3) PROTOCOLS+=("reality") ;;
+                4) PROTOCOLS+=("hy2") ;;
+                5) PROTOCOLS+=("tuic") ;;
+                *) echo "忽略无效选项: $num" ;;
+            esac
+        done
+        
+        [[ ${#PROTOCOLS[@]} -eq 0 ]] && {
+            echo "未选择有效协议，将安装所有协议"
+            PROTOCOLS=("grpc" "ws" "reality" "hy2" "tuic")
+        }
     fi
     
-    # 代理配置
+    # Hysteria2 端口配置（固定为443）
+    HY2_PORT="443"
+    
+    # 代理配置（选填，支持一次性粘贴）
     echo
-    read -rp "是否配置住宅 HTTP 代理分流？[y/N]: " use_proxy_input
-    if [[ ${use_proxy_input,,} == y* ]]; then
-        USE_PROXY=true
-        read -rp "代理主机地址: " PROXY_HOST
-        read -rp "代理端口: " PROXY_PORT
-        read -rp "代理用户名: " PROXY_USER
-        read -rp "代理密码: " PROXY_PASS
+    echo "住宅 HTTP 代理配置（选填）:"
+    echo "格式：HOST:PORT:USER:PASS 或 HOST:PORT（无认证）"
+    echo "示例：proxy.example.com:8080:username:password"
+    read -rp "请输入代理配置（回车跳过，默认全直出）: " proxy_input
+    
+    if [[ -n "$proxy_input" ]]; then
+        # 解析代理配置
+        IFS=':' read -r PROXY_HOST PROXY_PORT PROXY_USER PROXY_PASS <<< "$proxy_input"
         
-        # 验证代理配置
-        [[ -z "$PROXY_HOST" || -z "$PROXY_PORT" ]] && error "代理配置不完整"
+        # 验证基本配置
+        if [[ -n "$PROXY_HOST" && -n "$PROXY_PORT" ]]; then
+            USE_PROXY=true
+            echo "✓ 已配置代理: ${PROXY_HOST}:${PROXY_PORT}"
+            [[ -n "$PROXY_USER" ]] && echo "  认证用户: $PROXY_USER"
+        else
+            echo "[ERROR] 代理配置不完整，将使用全直出模式"
+            USE_PROXY=false
+        fi
+    else
+        echo "✓ 将使用全直出模式（所有流量直连）"
+        USE_PROXY=false
     fi
     
     # 配置确认
     echo
     echo "=== 配置确认 ==="
-    echo "域名: $DOMAIN"
+    [[ -n "$DOMAIN" ]] && echo "域名: $DOMAIN" || echo "域名: 使用自签证书"
     echo "协议: ${PROTOCOLS[*]}"
-    [[ " ${PROTOCOLS[*]} " =~ " hy2 " ]] && echo "Hysteria2 端口: $HY2_PORT"
-    [[ "$USE_PROXY" == true ]] && echo "住宅代理: ${PROXY_HOST}:${PROXY_PORT}"
+    [[ "$USE_PROXY" == true ]] && echo "住宅代理: ${PROXY_HOST}:${PROXY_PORT}" || echo "出站模式: 全直出"
     echo
     read -rp "确认配置并开始安装？[Y/n]: " confirm
     [[ ${confirm,,} == n* ]] && error "安装已取消"
@@ -225,11 +245,13 @@ setup_certificates() {
     log "配置证书..."
     mkdir -p /etc/ssl/edgebox
     
-    # 尝试申请 Let's Encrypt 证书
-    if command -v certbot >/dev/null && attempt_acme_cert; then
+    # 如果有域名，尝试申请 Let's Encrypt 证书
+    if [[ -n "$DOMAIN" ]] && command -v certbot >/dev/null && attempt_acme_cert; then
         log "Let's Encrypt 证书申请成功"
     else
         log "使用自签名证书..."
+        # 如果没有域名，使用默认域名生成证书
+        [[ -z "$DOMAIN" ]] && DOMAIN="edgebox.local"
         generate_self_signed_cert
     fi
 }
@@ -262,8 +284,13 @@ generate_configs() {
     log "生成配置文件..."
     mkdir -p "$WORK_DIR" /etc/sing-box /usr/local/etc/xray
     
-    # 保存域名到工作目录
-    echo "$DOMAIN" > "$WORK_DIR/domain"
+    # 保存配置信息到工作目录
+    echo "${DOMAIN:-edgebox.local}" > "$WORK_DIR/domain"
+    echo "${PROTOCOLS[*]}" > "$WORK_DIR/protocols"
+    [[ "$USE_PROXY" == true ]] && echo "${PROXY_HOST}:${PROXY_PORT}:${PROXY_USER}:${PROXY_PASS}" > "$WORK_DIR/proxy"
+    
+    # 安装所有协议，但默认全部启用
+    PROTOCOLS=("grpc" "ws" "reality" "hy2" "tuic")
     
     generate_xray_config
     generate_sing_box_config
@@ -322,7 +349,7 @@ EOF
         
         # 构建出站配置
         local outbounds='{"protocol": "freedom", "tag": "direct"}'
-        if [[ "$USE_PROXY" == true ]]; then
+        if [[ "$USE_PROXY" == true && -n "$PROXY_HOST" && -n "$PROXY_PORT" ]]; then
             outbounds+=",$(cat << EOF
 {
     "protocol": "http",
@@ -330,11 +357,15 @@ EOF
     "settings": {
         "servers": [{
             "address": "$PROXY_HOST",
-            "port": $PROXY_PORT,
-            "users": [{
-                "user": "$PROXY_USER",
-                "pass": "$PROXY_PASS"
-            }]
+            "port": $PROXY_PORT$(
+            if [[ -n "$PROXY_USER" && -n "$PROXY_PASS" ]]; then
+                echo ",
+            \"users\": [{
+                \"user\": \"$PROXY_USER\",
+                \"pass\": \"$PROXY_PASS\"
+            }]"
+            fi
+            )
         }]
     }
 }
@@ -490,15 +521,19 @@ EOF
     
     # 构建出站配置
     local outbounds='"outbounds": [{"type": "direct", "tag": "direct"}'
-    if [[ "$USE_PROXY" == true ]]; then
+    if [[ "$USE_PROXY" == true && -n "$PROXY_HOST" && -n "$PROXY_PORT" ]]; then
         outbounds+=",$(cat << EOF
 {
     "type": "http",
     "tag": "proxy",
     "server": "$PROXY_HOST",
-    "server_port": $PROXY_PORT,
-    "username": "$PROXY_USER",
-    "password": "$PROXY_PASS"
+    "server_port": $PROXY_PORT$(
+        if [[ -n "$PROXY_USER" && -n "$PROXY_PASS" ]]; then
+            echo ",
+    \"username\": \"$PROXY_USER\",
+    \"password\": \"$PROXY_PASS\""
+        fi
+    )
 }
 EOF
         )"
@@ -705,23 +740,38 @@ EdgeBox 管理工具
 用法:
   edgeboxctl <命令> [选项]
 
-命令:
+服务管理:
   status              显示所有服务状态
   restart             重启所有服务  
   logs <service>      查看服务日志 (sing-box|xray|nginx)
-  sub                 显示订阅链接
-  traffic             显示流量统计
-  enable <protocol>   启用协议
+
+协议管理:
+  enable <protocol>   启用协议 (grpc|ws|reality|hy2|tuic)
   disable <protocol>  禁用协议
+  list-protocols      列出所有协议状态
+
+订阅管理:
+  sub                 显示订阅链接
+  sub-regen           重新生成所有 UUID 和密码
+
+代理管理:
+  proxy set <config>  设置代理 (格式: HOST:PORT:USER:PASS)
+  proxy remove        移除代理配置
+  proxy status        显示代理状态
+  route direct        切换到全直出模式
+  route proxy         切换到代理模式
+
+系统管理:
+  traffic             显示流量统计
   backup              创建配置备份
   restore <file>      恢复配置
   version             显示版本信息
 
 示例:
   edgeboxctl status
-  edgeboxctl logs sing-box
-  edgeboxctl sub
-  edgeboxctl traffic
+  edgeboxctl enable hy2
+  edgeboxctl proxy set proxy.example.com:8080:user:pass
+  edgeboxctl route direct
 USAGE_EOF
 }
 
@@ -850,10 +900,51 @@ case ${1:-""} in
         show_status
         ;;
     logs)
-        show_logs "$2"
+        show_logs "${2:-sing-box}"
         ;;
     sub)
         generate_subscription
+        ;;
+    sub-regen)
+        echo "重新生成 UUID 和密码功能暂未实现"
+        ;;
+    enable)
+        echo "启用协议 ${2} 功能暂未实现"
+        ;;
+    disable)
+        echo "禁用协议 ${2} 功能暂未实现"
+        ;;
+    list-protocols)
+        echo "协议状态列表功能暂未实现"
+        ;;
+    proxy)
+        case ${2:-""} in
+            set)
+                echo "设置代理 ${3} 功能暂未实现"
+                ;;
+            remove)
+                echo "移除代理功能暂未实现"
+                ;;
+            status)
+                echo "代理状态功能暂未实现"
+                ;;
+            *)
+                echo "代理管理: proxy set|remove|status"
+                ;;
+        esac
+        ;;
+    route)
+        case ${2:-""} in
+            direct)
+                echo "切换到全直出模式功能暂未实现"
+                ;;
+            proxy)
+                echo "切换到代理模式功能暂未实现"
+                ;;
+            *)
+                echo "路由管理: route direct|proxy"
+                ;;
+        esac
         ;;
     traffic)
         show_traffic
@@ -863,6 +954,9 @@ case ${1:-""} in
         ;;
     backup)
         create_backup
+        ;;
+    restore)
+        echo "恢复配置 ${2} 功能暂未实现"
         ;;
     version)
         show_version
@@ -915,9 +1009,9 @@ show_installation_complete() {
     echo "🎉 EdgeBox 安装完成！"
     echo "================================================================"
     echo
-    echo "✅ 已启用协议: ${PROTOCOLS[*]}"
-    echo "✅ 域名配置: $DOMAIN"
-    [[ "$USE_PROXY" == true ]] && echo "✅ 住宅代理: ${PROXY_HOST}:${PROXY_PORT}"
+    echo "✅ 已安装所有协议: gRPC, WebSocket, Reality, Hysteria2, TUIC"
+    echo "✅ 域名配置: ${DOMAIN:-edgebox.local}"
+    [[ "$USE_PROXY" == true ]] && echo "✅ 住宅代理: ${PROXY_HOST}:${PROXY_PORT}" || echo "✅ 出站模式: 全直出"
     echo
     
     echo "📊 服务状态检查:"
