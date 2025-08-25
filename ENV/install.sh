@@ -3,17 +3,24 @@
 # EdgeBox - 一站式多协议节点部署工具
 # 支持：VLESS-gRPC, VLESS-WS, VLESS-Reality, Hysteria2, TUIC
 # 系统要求：Ubuntu 18.04+ / Debian 10+
-# 使用方法：bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/main/ENV/install.sh)
+# 使用方法：
+#   方法1: curl -fsSL https://raw.githubusercontent.com/cuiping89/node/main/ENV/install.sh | sudo bash
+#   方法2: wget -qO- https://raw.githubusercontent.com/cuiping89/node/main/ENV/install.sh | sudo bash
 # =====================================================================================
 
 set -Eeuo pipefail
 
-# === 修复自动提权问题 ===
-if [[ $EUID -ne 0 ]]; then
-    echo "检测到非root用户，请使用 sudo 运行此脚本"
-    echo "示例: sudo bash <(curl -fsSL ...)"
-    exit 1
-fi
+# === 检查 root 权限 ===
+check_root() {
+    if [[ $EUID -ne 0 ]]; then
+        echo "此脚本需要 root 权限运行"
+        echo "请使用以下命令："
+        echo "  sudo su -c 'bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/main/ENV/install.sh)'"
+        echo "或者："
+        echo "  wget -O install.sh https://raw.githubusercontent.com/cuiping89/node/main/ENV/install.sh && sudo bash install.sh"
+        exit 1
+    fi
+}
 
 # === 版本配置 ===
 readonly SING_BOX_VERSION="v1.11.7"
@@ -743,6 +750,9 @@ show_complete() {
 
 # === 主安装流程 ===
 main() {
+    # 检查 root 权限
+    check_root
+    
     # 创建日志文件
     mkdir -p "$(dirname "$LOG_FILE")"
     echo "EdgeBox 安装开始: $(date)" > "$LOG_FILE"
