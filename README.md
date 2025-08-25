@@ -14,7 +14,8 @@
 - 网络: 稳定的公网 IP
 
 ## 核心理念与策略
- **“多协议组合、深度伪装、灵活路由”** 来应对复杂多变的网络环境。
+ **多协议组合、深度伪装、灵活路由** 来应对复杂多变的网络环境。
+
 
 **协议矩阵**
 - 默认安装：VLESS-gRPC、VLESS-WS、VLESS-Reality、Hysteria2、TUIC。
@@ -33,11 +34,16 @@
 - **Hysteria2**: 伪装成 HTTP/3 流量，利用 QUIC 协议的特性
 - **TUIC**: 基于 QUIC 的轻量级协议，具有较好的抗检测能力
 
+**推荐伪装目标网站**：
+- www.cloudflare.com（默认，全球可用）
+- www.microsoft.com（Windows 更新流量）
+- www.apple.com（iOS 更新流量）
+- www.ubuntu.com（软件包更新）
+
 **端口伪装**：
 - **TCP 协议（443/8443）**: 使用 HTTPS 标准端口，使流量看起来像在正常浏览网页
 - **UDP 协议（443/8443/2053）**: 分散在常用端口，降低识别风险
 - **端口分配策略**：
-
 **gRPC/WebSocket (TCP)**
 - Xray 作为应用层服务
 - Nginx 提供 TLS/HTTP2 反向代理
@@ -46,49 +52,41 @@
 - 外部端口策略：
   - 启用 Reality 时：Nginx 监听 **8443** 端口
   - 未启用 Reality 时：Nginx 监听 **443** 端口
-
 **Reality (TCP)**
 - sing-box 直接绑定 **tcp/443** 端口
 - 默认 SNI: www.cloudflare.com（推荐伪装目标）
 - 可自定义伪装域名
-
 **Hysteria2 (UDP)**
 - sing-box 监听 **udp/443** 端口（可改为 8443）
 - 使用自签证书 + alpn=h3
 - 伪装成 HTTP/3 流量
-
 **TUIC (UDP)**
 - sing-box 监听 **udp/2053** 端口
 - 复用 Hysteria2 的证书配置
 
 ## 灵活路由
-- 节点能够根据需求，智能地分配流量，以平衡安全性、速度和成本。
-- **CF灰云、路由不回源**：不走Argo、不让任何代理回源、不在服务器启用WARP/Zero Trust网关，否则会连接CF边缘导致公网出站，触发GCP计费。
-- **分流策略**：
+节点能够根据需求，智能地分配流量，以平衡安全性、速度和成本。
+### **CF灰云、路由不回源**：
+- 不走Argo、不让任何代理回源、不在服务器启用WARP/Zero Trust网关，否则会连接CF边缘导致公网出站，触发GCP计费。
+### **分流策略**：
 - 直连 `googlevideo.com` (YouTube 视频流，CDN 流量)、`ytimg.com` (YouTube 图片) 、`ggpht.com` (Google 图片)，节省住宅IP代理流量并提升观看体验。
 - 住宅代理IP出站：
 
 ## 核心组件
-
 -**Nginx**: 作为前置代理，将所有 443 端口的 TCP 流量分发到后端服务。通过 HTTP(S) 反向代理 VLESS-gRPC 和 VLESS-WS，并通过 `stream` 模块实现基于 SNI 的 VLESS-Reality 流量分流。
 -**Xray & sing-box**: 脚本将通过官方安装脚本，安装 **Xray 和 sing-box 的最新相互兼容版本**。Xray 负责 VLESS-gRPC 和 VLESS-WS，而 sing-box 则承载 Reality、Hysteria2 和 TUIC。
 
 ## 证书管理
-
 **自动化证书处理**：
 - **优先方案**: 填写域名时自动通过 ACME（Let's Encrypt）申请真实证书
 - **兜底方案**: 未填写域名时自动生成自签名证书
 - **自定义上传**: 支持用户后期上传自定义证书
 - **自动续期**: ACME 证书配置 cron 任务自动续期
+   在尝试申请 Let's Encrypt 证书之前，增加对 80 端口的防火墙放行检查。certbot 的 certonly --nginx 模式需要通过 80 端口验证域名所有权。如果 80 端口被 UFW 阻止，申请就会失败。对 certbot 的输出进行更详细的捕获和解析，而不仅仅是 2>/dev/null。这样在安装失败时，日志中能给出更明确的失败原因。在证书申请失败后，增加一个明确的警告或提示，告知用户证书申请失败的原因，例如“域名解析未生效”、“防火墙端口未开放”等。
 
-**推荐伪装目标网站**：
-- www.cloudflare.com（默认，全球可用）
-- www.microsoft.com（Windows 更新流量）
-- www.apple.com（iOS 更新流量）
-- www.ubuntu.com（软件包更新）
+
 
 ## 系统预检查
-
 安装前脚本会自动检查：
 - 操作系统版本兼容性
 - 网络连通性（DNS 解析、外网访问）
@@ -176,23 +174,6 @@ edgeboxctl security report
 edgeboxctl security autoprotect on
 ```
 
-### 订阅链接获取与分享
-
-**获取订阅链接**
-```bash
-# SSH 方式：显示所有订阅链接
-edgeboxctl config show-sub
-
-# 浏览器方式：访问 http://your-domain:8080/sub
-# （可选开启简单 Web 面板）
-```
-
-**分享策略建议**
-- **技术小白朋友**：单个稳定协议（VLESS-Reality）
-- **技术用户**：聚合订阅链接（包含所有协议，自动切换）
-- **家人使用**：VLESS-WebSocket（最稳定，兼容性最好）
-- **移动设备**：TUIC 协议（对不稳定网络友好）
-
 ## 自动化备份
 
 **每日自动备份**：
@@ -203,44 +184,32 @@ edgeboxctl config show-sub
 
 **备份恢复**：
 ```bash
-# 列出可用备份
-edgeboxctl backup list
-
-# 恢复指定日期备份
-edgeboxctl backup restore <YYYY-MM-DD>
+# 列出可用备份：edgeboxctl backup list
+# 恢复指定日期备份：edgeboxctl backup restore <YYYY-MM-DD>
 ```
-### 一键安装
-
+## 一键安装
 服务器上执行以下命令即可开始：
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/<你的GitHub>/EdgeBox/main/install.sh)
 ```
 ## 一键卸载
-
 简洁、高效、幂等、非交互式，适合自动化和故障排除，安装失败后的清理工具。
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/EdgeBox/main/uninstall.sh)
+```
+## 分享建议：
+- **技术小白朋友**：单个稳定协议（VLESS-Reality）
+- **技术用户**：聚合订阅链接（包含所有协议，自动切换）
+- **家人使用**：VLESS-WebSocket（最稳定，兼容性最好）
+- **移动设备**：TUIC 协议（对不稳定网络友好）
 
-
-### 常见问题解答
-
-**Q: 连接失败，显示 -1ms？**
-A: 检查端口是否正确开放，确认防火墙规则，验证证书配置。
-
-**Q: Reality 协议无法连接？**
-A: 确认伪装域名可正常访问，检查 SNI 配置是否正确。
-
-**Q: 如何选择最适合的协议？**
-A: 网络审查严格时优先 Reality > gRPC > WS；需要高速时选择 Hysteria2；移动网络推荐 TUIC。
-
-**Q: GCP 会因为使用 gRPC 协议切换到高级网络吗？**
-A: **绝对不会**！GCP 的网络层级是在 VM 实例创建时设置的，与运行的应用协议完全无关。gRPC 本质是 HTTP/2，使用标准 TCP/443 端口，只要您的 VM 设置为"标准网络层级"，200GB 内的出站流量都是标准计费，不会因为协议类型改变。
+**获取订阅链接**
+- SSH 方式：显示所有订阅链接：edgeboxctl config show-sub
+- 浏览器方式：访问 http://your-domain:8080/sub
 
 ## 客户端配置示例
-
 - V2rayN (Windows)
-- Clash Meta
 
 ## 安全建议
 
@@ -253,6 +222,20 @@ A: **绝对不会**！GCP 的网络层级是在 VM 实例创建时设置的，�
 - 定期更新系统和软件包
 - 监控异常连接和流量
 - 适时轮换用户 UUID
+
+## 常见问题解答
+
+**Q: 连接失败，显示 -1ms？**
+A: 检查端口是否正确开放，确认防火墙规则，验证证书配置。
+
+**Q: Reality 协议无法连接？**
+A: 确认伪装域名可正常访问，检查 SNI 配置是否正确。
+
+**Q: 如何选择最适合的协议？**
+A: 网络审查严格时优先 Reality > gRPC > WS；需要高速时选择 Hysteria2；移动网络推荐 TUIC。
+
+**Q: GCP 会因为使用 gRPC 协议切换到高级网络吗？**
+A: **绝对不会**！GCP 的网络层级是在 VM 实例创建时设置的，与运行的应用协议完全无关。gRPC 本质是 HTTP/2，使用标准 TCP/443 端口，只要您的 VM 设置为"标准网络层级"，200GB 内的出站流量都是标准计费，不会因为协议类型改变。
 
 ## 社区建设规划
 
