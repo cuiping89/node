@@ -65,10 +65,10 @@
 - 复用 Hysteria2 的证书配置
 
 ## 灵活路由
-- **分流策略**：
+**分流策略**：
 - 直连 `googlevideo.com` (YouTube 视频流，CDN 流量)、`ytimg.com` (YouTube 图片) 、`ggpht.com` (Google 图片)，节省住宅IP代理流量并提升观看体验。
-- 其它全从住宅代理IP出站
-- **CF灰云、路由不回源**：
+- 其它全从住宅代理IP出站。
+**CF灰云、路由不回源**：
 - 不走Argo、不让任何代理回源、不在服务器启用WARP/Zero Trust网关，否则会连接CF边缘导致公网出站，触发GCP计费。
 
 ## 核心组件
