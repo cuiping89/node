@@ -9,8 +9,8 @@
 set -Eeuo pipefail
 
 # === 版本配置 ===
-readonly SING_BOX_VERSION="v1.12.2"
-readonly XRAY_VERSION="v25.8.3"
+readonly SING_BOX_VERSION="v1.11.7"
+readonly XRAY_VERSION="v1.8.24"
 readonly SCRIPT_VERSION="1.0.0"
 
 # === 路径常量 ===
@@ -89,7 +89,8 @@ install_packages() {
     apt-get update -qq
     apt-get install -y --no-install-recommends \
         ca-certificates curl wget jq tar unzip openssl \
-        nginx ufw vnstat cron logrotate uuid-runtime
+        nginx ufw vnstat cron logrotate uuid-runtime \
+        certbot python3-certbot-nginx
     
     log "依赖包安装完成"
 }
@@ -118,8 +119,8 @@ interactive_config() {
     echo "=== EdgeBox 配置向导 ==="
     echo
     
-    # 域名配置（选填）
-    read -rp "请输入您的域名（选填，回车跳过使用自签证书）: " DOMAIN
+    # 域名配置（选填，未填回车默认使用自签证书）
+    read -rp "请输入您的域名（选填，未填回车默认使用自签证书）: " DOMAIN
     if [[ -n "$DOMAIN" ]]; then
         if [[ ! "$DOMAIN" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]+[a-zA-Z0-9]$ ]]; then
             echo "域名格式不正确，将使用自签证书"
@@ -131,41 +132,10 @@ interactive_config() {
         echo "✓ 将使用自签名证书"
     fi
     
-    echo
-    echo "选择要启用的协议（支持多选）:"
-    echo "1. VLESS-gRPC    (推荐，伪装效果好)"
-    echo "2. VLESS-WS      (兼容性好)"
-    echo "3. VLESS-Reality (最佳隐蔽性)"
-    echo "4. Hysteria2     (高速传输)"
-    echo "5. TUIC          (移动网络友好)"
-    echo
-    
-    read -rp "请选择协议编号（用空格分隔，如：1 2 3 4 5）: " protocol_input
-    
-    # 如果用户没有输入，默认安装所有协议
-    if [[ -z "$protocol_input" ]]; then
-        echo "未选择协议，将安装所有协议以提供最佳兼容性"
-        PROTOCOLS=("grpc" "ws" "reality" "hy2" "tuic")
-    else
-        for num in $protocol_input; do
-            case $num in
-                1) PROTOCOLS+=("grpc") ;;
-                2) PROTOCOLS+=("ws") ;;
-                3) PROTOCOLS+=("reality") ;;
-                4) PROTOCOLS+=("hy2") ;;
-                5) PROTOCOLS+=("tuic") ;;
-                *) echo "忽略无效选项: $num" ;;
-            esac
-        done
-        
-        [[ ${#PROTOCOLS[@]} -eq 0 ]] && {
-            echo "未选择有效协议，将安装所有协议"
-            PROTOCOLS=("grpc" "ws" "reality" "hy2" "tuic")
-        }
-    fi
-    
-    # Hysteria2 端口配置（固定为443）
+    # 固定安装所有协议，不再询问
+    PROTOCOLS=("grpc" "ws" "reality" "hy2" "tuic")
     HY2_PORT="443"
+    echo "✓ 将安装所有协议: VLESS-gRPC, VLESS-WS, VLESS-Reality, Hysteria2, TUIC"
     
     # 代理配置（选填，支持一次性粘贴）
     echo
@@ -192,15 +162,8 @@ interactive_config() {
         USE_PROXY=false
     fi
     
-    # 配置确认
     echo
-    echo "=== 配置确认 ==="
-    [[ -n "$DOMAIN" ]] && echo "域名: $DOMAIN" || echo "域名: 使用自签证书"
-    echo "协议: ${PROTOCOLS[*]}"
-    [[ "$USE_PROXY" == true ]] && echo "住宅代理: ${PROXY_HOST}:${PROXY_PORT}" || echo "出站模式: 全直出"
-    echo
-    read -rp "确认配置并开始安装？[Y/n]: " confirm
-    [[ ${confirm,,} == n* ]] && error "安装已取消"
+    echo "开始安装..."
 }
 
 # === 软件安装 ===
@@ -261,13 +224,16 @@ attempt_acme_cert() {
     local domain_ip=$(dig +short "$DOMAIN" 2>/dev/null | tail -n1)
     local server_ip=$(curl -s https://ipv4.icanhazip.com/ 2>/dev/null)
     
-    if [[ "$domain_ip" == "$server_ip" ]]; then
+    if [[ -n "$domain_ip" && "$domain_ip" == "$server_ip" ]]; then
+        log "域名解析正确，尝试申请 Let's Encrypt 证书"
         if certbot certonly --nginx --non-interactive --agree-tos \
            --email "admin@${DOMAIN}" -d "$DOMAIN" 2>/dev/null; then
             ln -sf "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" /etc/ssl/edgebox/cert.pem
             ln -sf "/etc/letsencrypt/live/${DOMAIN}/privkey.pem" /etc/ssl/edgebox/key.pem
             return 0
         fi
+    else
+        log "域名未解析到本机或无法获取服务器IP，跳过证书申请"
     fi
     return 1
 }
@@ -575,7 +541,11 @@ EOF
 EOF
     
     # 配置验证
-    /usr/local/bin/sing-box check -c /etc/sing-box/config.json
+    if ! /usr/local/bin/sing-box check -c /etc/sing-box/config.json; then
+        log "sing-box 配置验证失败，查看配置内容："
+        cat /etc/sing-box/config.json >> "$LOG_FILE"
+        error "sing-box 配置错误"
+    fi
 }
 
 generate_nginx_config() {
@@ -976,28 +946,50 @@ EOF
 start_services() {
     log "启动服务..."
     
+    # 先重启 Nginx 确保配置生效
+    systemctl restart nginx
+    sleep 2
+    
     # 启动 sing-box
     systemctl enable --now sing-box
+    sleep 3
     
     # 启动 Xray（如果需要）
     if [[ " ${PROTOCOLS[*]} " =~ " grpc " ]] || [[ " ${PROTOCOLS[*]} " =~ " ws " ]]; then
         systemctl enable --now xray
+        sleep 3
     fi
-    
-    # 重启 Nginx
-    systemctl restart nginx
-    
-    # 等待服务启动
-    sleep 3
     
     # 检查服务状态
-    systemctl is-active --quiet sing-box || error "sing-box 启动失败"
+    local failed_services=()
     
-    if [[ " ${PROTOCOLS[*]} " =~ " grpc " ]] || [[ " ${PROTOCOLS[*]} " =~ " ws " ]]; then
-        systemctl is-active --quiet xray || error "xray 启动失败"
+    if ! systemctl is-active --quiet sing-box; then
+        failed_services+=("sing-box")
     fi
     
-    systemctl is-active --quiet nginx || error "nginx 启动失败"
+    if [[ " ${PROTOCOLS[*]} " =~ " grpc " ]] || [[ " ${PROTOCOLS[*]} " =~ " ws " ]]; then
+        if ! systemctl is-active --quiet xray; then
+            failed_services+=("xray")
+        fi
+    fi
+    
+    if ! systemctl is-active --quiet nginx; then
+        failed_services+=("nginx")
+    fi
+    
+    if [[ ${#failed_services[@]} -gt 0 ]]; then
+        log "以下服务启动失败: ${failed_services[*]}"
+        log "正在获取详细错误信息..."
+        
+        for service in "${failed_services[@]}"; do
+            log "=== $service 服务状态 ==="
+            systemctl status "$service" --no-pager -l >> "$LOG_FILE" 2>&1
+            log "=== $service 最近日志 ==="
+            journalctl -u "$service" -n 20 --no-pager >> "$LOG_FILE" 2>&1
+        done
+        
+        error "服务启动失败，详细信息请查看日志: $LOG_FILE"
+    fi
     
     log "所有服务启动成功"
 }
