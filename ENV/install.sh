@@ -4,20 +4,20 @@
 # 支持：VLESS-gRPC, VLESS-WS, VLESS-Reality, Hysteria2, TUIC
 # 系统要求：Ubuntu 18.04+ / Debian 10+
 # 使用方法：
-#   方法1: curl -fsSL https://raw.githubusercontent.com/cuiping89/node/main/ENV/install.sh | sudo bash
-#   方法2: wget -qO- https://raw.githubusercontent.com/cuiping89/node/main/ENV/install.sh | sudo bash
+#   切换到 root: sudo su -
+#   运行脚本: bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/main/ENV/install.sh)
 # =====================================================================================
 
-set -Eeuo pipefail
+set -euo pipefail
 
 # === 检查 root 权限 ===
 check_root() {
     if [[ $EUID -ne 0 ]]; then
         echo "此脚本需要 root 权限运行"
-        echo "请使用以下命令："
-        echo "  sudo su -c 'bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/main/ENV/install.sh)'"
-        echo "或者："
-        echo "  wget -O install.sh https://raw.githubusercontent.com/cuiping89/node/main/ENV/install.sh && sudo bash install.sh"
+        echo "请先切换到 root 用户："
+        echo "  sudo su -"
+        echo "然后运行："
+        echo "  bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/main/ENV/install.sh)"
         exit 1
     fi
 }
@@ -129,64 +129,25 @@ interactive_config() {
     echo "=== EdgeBox 配置向导 ==="
     echo
     
-    # 检查是否在管道中运行
-    if [ -t 0 ]; then
-        # 交互模式
-        read -rp "请输入您的域名（选填，留空使用自签证书）: " DOMAIN
-    else
-        # 非交互模式，使用默认值
-        echo "检测到非交互模式，使用默认配置"
-        DOMAIN=""
-    fi
-    
-    if [[ -n "$DOMAIN" ]]; then
-        if [[ ! "$DOMAIN" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]+[a-zA-Z0-9]$ ]]; then
-            echo "域名格式不正确，将使用自签证书"
-            DOMAIN=""
-        else
-            echo "✓ 将为域名 $DOMAIN 申请 Let's Encrypt 证书"
-        fi
-    else
-        echo "✓ 将使用自签名证书"
-    fi
+    # 使用默认配置，避免交互问题
+    echo "使用默认配置进行安装..."
+    DOMAIN=""
+    echo "✓ 将使用自签名证书"
     
     # 固定安装所有协议
     PROTOCOLS=("grpc" "ws" "reality" "hy2" "tuic")
     HY2_PORT="443"
     echo "✓ 将安装所有协议: VLESS-gRPC, VLESS-WS, VLESS-Reality, Hysteria2, TUIC"
     
-    # 代理配置
+    # 默认直出模式
+    USE_PROXY=false
+    echo "✓ 将使用全直出模式（所有流量直连）"
+    
     echo
-    if [ -t 0 ]; then
-        # 交互模式
-        echo "住宅 HTTP 代理配置（选填）:"
-        echo "格式：HOST:PORT:USER:PASS 或 HOST:PORT（无认证）"
-        echo "示例：proxy.example.com:8080:username:password"
-        read -rp "请输入代理配置（回车跳过，默认全直出）: " proxy_input
-    else
-        # 非交互模式
-        echo "✓ 使用默认配置（全直出模式）"
-        proxy_input=""
-    fi
-    
-    if [[ -n "$proxy_input" ]]; then
-        IFS=':' read -r PROXY_HOST PROXY_PORT PROXY_USER PROXY_PASS <<< "$proxy_input"
-        
-        if [[ -n "$PROXY_HOST" && -n "$PROXY_PORT" ]]; then
-            USE_PROXY=true
-            echo "✓ 已配置代理: ${PROXY_HOST}:${PROXY_PORT}"
-            [[ -n "$PROXY_USER" ]] && echo "  认证用户: $PROXY_USER"
-        else
-            echo "[ERROR] 代理配置不完整，将使用全直出模式"
-            USE_PROXY=false
-        fi
-    else
-        echo "✓ 将使用全直出模式（所有流量直连）"
-        USE_PROXY=false
-    fi
-    
+    echo "提示：安装完成后可使用 edgeboxctl 管理工具配置域名和代理"
     echo
     echo "开始安装..."
+    sleep 2
 }
 
 # === 软件安装 ===
