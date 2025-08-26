@@ -1,1068 +1,839 @@
 #!/usr/bin/env bash
 # =====================================================================================
-# EdgeBox 一键安装脚本 - 增强版（带 Nginx 配置验证）
-# 支持 Debian/Ubuntu 系统
+# EdgeBox - 一站式多协议节点部署工具
+# 支持：VLESS-gRPC, VLESS-WS, VLESS-Reality, Hysteria2, TUIC
+# 系统要求：Ubuntu 18.04+ / Debian 10+
 # =====================================================================================
 
-set -Eeuo pipefail
+set -euo pipefail
 
-# 颜色定义
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+# === 检查 root 权限 ===
+check_root() {
+    if [[ $EUID -ne 0 ]]; then
+        echo "此脚本需要 root 权限运行"
+        echo "请先切换到 root 用户："
+        echo "  sudo su -"
+        exit 1
+    fi
+}
 
-# 全局变量
+# === 版本配置 ===
+readonly SING_BOX_VERSION="v1.11.7"
+readonly XRAY_VERSION="v1.8.24"
+readonly SCRIPT_VERSION="1.0.2"
+
+# === 路径常量 ===
+readonly WORK_DIR="/opt/edgebox"
+readonly BACKUP_DIR="/root/edgebox-backup"
+readonly LOG_FILE="/var/log/edgebox.log"
+
+# === 全局变量 ===
 DOMAIN=""
-EMAIL=""
-PASSWORD=""
-PORT="8443"
-UUID=""
-PUBLIC_KEY=""
-PRIVATE_KEY=""
-SHORT_ID=""
+PROTOCOLS=()
+USE_PROXY=false
+PROXY_HOST=""
+PROXY_PORT=""
+PROXY_USER=""
+PROXY_PASS=""
 
-# 路径定义
-CERT_DIR="/etc/ssl/edgebox"
-SUB_DIR="/var/lib/sb-sub"
-SUB_WEB_DIR="/var/www/html/sub"
-SING_BOX_DIR="/etc/sing-box"
-XRAY_CONFIG="/usr/local/etc/xray/config.json"
-
-# ========== 工具函数 ==========
-
-# 打印带颜色的消息
-print_msg() {
-    echo -e "${2:-$BLUE}[*]${NC} $1"
+# === 工具函数 ===
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE"
 }
 
-print_success() {
-    echo -e "${GREEN}[✓]${NC} $1"
-}
-
-print_error() {
-    echo -e "${RED}[✗]${NC} $1"
-}
-
-print_warning() {
-    echo -e "${YELLOW}[!]${NC} $1"
-}
-
-# 错误处理
-error_exit() {
-    print_error "$1"
+error() {
+    echo "[ERROR] $*" >&2
     exit 1
 }
 
-# 检查root权限
-check_root() {
-    if [[ $EUID -ne 0 ]]; then
-        error_exit "此脚本必须以root权限运行"
+check_os() {
+    if ! grep -qiE "ubuntu|debian" /etc/os-release; then
+        error "不支持的系统。仅支持 Ubuntu 18.04+ 或 Debian 10+"
+    fi
+    log "系统检查通过：$(lsb_release -ds 2>/dev/null || cat /etc/os-release | grep PRETTY_NAME | cut -d'"' -f2)"
+}
+
+check_requirements() {
+    log "检查系统要求..."
+    
+    # 检查内存
+    local mem_mb=$(free -m | awk '/^Mem:/{print $2}')
+    if [[ $mem_mb -lt 400 ]]; then
+        log "内存不足 ${mem_mb}MB，创建 2GB swap..."
+        create_swap
+    fi
+    
+    # 检查磁盘空间
+    local disk_gb=$(df -BG / | awk 'NR==2{print $4}' | tr -d 'G')
+    [[ $disk_gb -lt 5 ]] && error "磁盘空间不足，至少需要 5GB"
+    
+    log "系统要求检查完成"
+}
+
+create_swap() {
+    if [[ $(swapon --show | wc -l) -eq 0 ]]; then
+        fallocate -l 2G /swapfile-edgebox
+        chmod 600 /swapfile-edgebox
+        mkswap /swapfile-edgebox
+        swapon /swapfile-edgebox
+        echo '/swapfile-edgebox none swap sw 0 0 # edgebox-swap' >> /etc/fstab
+        log "已创建 2GB swap 文件"
     fi
 }
 
-# 检查系统
-check_system() {
-    if [[ ! -f /etc/os-release ]]; then
-        error_exit "无法检测系统类型"
+install_packages() {
+    log "安装依赖包..."
+    export DEBIAN_FRONTEND=noninteractive
+    
+    # 清理旧配置
+    rm -f /etc/nginx/conf.d/edgebox*.conf 2>/dev/null || true
+    rm -f /etc/nginx/sites-available/edgebox* 2>/dev/null || true
+    rm -f /etc/nginx/sites-enabled/edgebox* 2>/dev/null || true
+    
+    # 修复 nginx.conf
+    if [[ -f /etc/nginx/nginx.conf ]]; then
+        sed -i '/edgebox/d' /etc/nginx/nginx.conf 2>/dev/null || true
     fi
     
-    . /etc/os-release
-    if [[ "$ID" != "debian" && "$ID" != "ubuntu" ]]; then
-        error_exit "此脚本仅支持 Debian/Ubuntu 系统"
-    fi
+    systemctl stop nginx 2>/dev/null || true
+    dpkg --configure -a 2>/dev/null || true
     
-    print_success "系统检测: $PRETTY_NAME"
+    apt-get update -qq
+    apt-get install -y --no-install-recommends \
+        ca-certificates curl wget jq tar unzip openssl \
+        nginx ufw vnstat cron logrotate uuid-runtime \
+        certbot python3-certbot-nginx dnsutils
+    
+    log "依赖包安装完成"
 }
 
-# ========== Nginx 配置验证函数 ==========
-
-# 验证并修复nginx配置
-validate_and_fix_nginx() {
-    local config_ok=true
+optimize_system() {
+    log "优化系统参数..."
     
-    print_msg "检查 Nginx 配置..."
-    
-    # 1. 备份当前配置
-    if [[ -d /etc/nginx ]]; then
-        cp -r /etc/nginx "/etc/nginx.backup.$(date +%Y%m%d%H%M%S)"
-        print_success "已备份现有 Nginx 配置"
-    fi
-    
-    # 2. 检查主配置文件
-    if [[ ! -f /etc/nginx/nginx.conf ]]; then
-        print_warning "nginx.conf 不存在，创建默认配置"
-        cat > /etc/nginx/nginx.conf << 'EOF'
-user www-data;
-worker_processes auto;
-pid /run/nginx.pid;
-include /etc/nginx/modules-enabled/*.conf;
-
-events {
-    worker_connections 768;
-}
-
-http {
-    sendfile on;
-    tcp_nopush on;
-    tcp_nodelay on;
-    keepalive_timeout 65;
-    types_hash_max_size 2048;
-    server_tokens off;
-    
-    include /etc/nginx/mime.types;
-    default_type application/octet-stream;
-    
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_prefer_server_ciphers on;
-    
-    access_log /var/log/nginx/access.log;
-    error_log /var/log/nginx/error.log;
-    
-    gzip on;
-    
-    include /etc/nginx/conf.d/*.conf;
-    include /etc/nginx/sites-enabled/*;
-}
+    cat > /etc/sysctl.d/99-edgebox-bbr.conf << 'EOF'
+net.core.default_qdisc = fq
+net.ipv4.tcp_congestion_control = bbr
+net.ipv4.tcp_fastopen = 3
+net.core.rmem_max = 67108864
+net.core.wmem_max = 67108864
+net.ipv4.tcp_rmem = 4096 65536 67108864
+net.ipv4.tcp_wmem = 4096 65536 67108864
 EOF
-        config_ok=false
-    fi
     
-    # 3. 确保必要的目录存在
-    mkdir -p /etc/nginx/conf.d
-    mkdir -p /etc/nginx/sites-available
-    mkdir -p /etc/nginx/sites-enabled
-    mkdir -p /var/log/nginx
-    mkdir -p /var/cache/nginx
-    mkdir -p /var/lib/nginx
+    sysctl -p /etc/sysctl.d/99-edgebox-bbr.conf >/dev/null 2>&1
+    log "系统优化完成"
+}
+
+# === 交互配置 ===
+interactive_config() {
+    echo "=== EdgeBox 配置向导 ==="
+    echo
     
-    # 4. 检查并清理冲突的站点配置
-    print_msg "清理可能冲突的配置..."
+    echo "使用默认配置进行安装..."
+    DOMAIN=""
+    echo "✔ 将使用自签名证书"
     
-    # 删除默认站点（如果存在）
-    if [[ -L /etc/nginx/sites-enabled/default ]]; then
-        rm -f /etc/nginx/sites-enabled/default
-        print_success "已移除默认站点配置"
-    fi
+    PROTOCOLS=("grpc" "ws" "reality" "hy2" "tuic")
+    echo "✔ 将安装所有协议: VLESS-gRPC, VLESS-WS, VLESS-Reality, Hysteria2, TUIC"
     
-    # 检查 Nginx
-    if nginx_health_check; then
-        print_success "Nginx 运行正常"
-    else
-        print_error "Nginx 存在问题"
-        all_good=false
-    fi
-    
-    # 检查端口监听
-    if ss -lntp | grep -q ":$PORT"; then
-        print_success "端口 $PORT 正在监听"
-    else
-        print_error "端口 $PORT 未监听"
-        all_good=false
-    fi
-    
-    # 检查证书
-    if [[ -f "$CERT_DIR/cert.pem" ]] && [[ -f "$CERT_DIR/key.pem" ]]; then
-        print_success "SSL 证书已配置"
-    else
-        print_warning "SSL 证书可能有问题"
-    fi
-    
-    # 检查订阅页面
-    if curl -sk "https://$DOMAIN/sub" | grep -q "EdgeBox"; then
-        print_success "订阅页面可访问"
-    else
-        print_warning "订阅页面访问异常"
-    fi
+    USE_PROXY=false
+    echo "✔ 将使用全直出模式（所有流量直连）"
     
     echo
-    if $all_good; then
-        print_success "所有服务运行正常！"
-        return 0
+    echo "开始安装..."
+    sleep 2
+}
+
+# === 软件安装 ===
+install_sing_box() {
+    log "安装 sing-box ${SING_BOX_VERSION}..."
+    
+    local url="https://github.com/SagerNet/sing-box/releases/download/${SING_BOX_VERSION}/sing-box-${SING_BOX_VERSION#v}-linux-amd64.tar.gz"
+    local temp_dir=$(mktemp -d)
+    
+    cd "$temp_dir"
+    curl -fsSL "$url" -o sing-box.tar.gz
+    tar -xzf sing-box.tar.gz
+    install -m755 sing-box-*/sing-box /usr/local/bin/sing-box
+    rm -rf "$temp_dir"
+    
+    /usr/local/bin/sing-box version
+    log "sing-box 安装完成"
+}
+
+install_xray() {
+    log "安装 Xray ${XRAY_VERSION}..."
+    
+    local url="https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/Xray-linux-64.zip"
+    local temp_dir=$(mktemp -d)
+    
+    cd "$temp_dir"
+    curl -fsSL "$url" -o xray.zip
+    unzip -q xray.zip
+    install -m755 xray /usr/local/bin/xray
+    mkdir -p /usr/local/etc/xray
+    install -m644 geoip.dat geosite.dat /usr/local/etc/xray/
+    rm -rf "$temp_dir"
+    
+    /usr/local/bin/xray version
+    log "Xray 安装完成"
+}
+
+# === 证书管理 ===
+setup_certificates() {
+    log "配置证书..."
+    mkdir -p /etc/ssl/edgebox
+    
+    if [[ -n "$DOMAIN" ]]; then
+        local domain_ip=$(dig +short "$DOMAIN" 2>/dev/null | tail -n1)
+        local server_ip=$(curl -s https://ipv4.icanhazip.com/ 2>/dev/null)
+        
+        if [[ -n "$domain_ip" && "$domain_ip" == "$server_ip" ]]; then
+            log "域名解析正确，尝试申请 Let's Encrypt 证书"
+            ufw allow 80/tcp >/dev/null 2>&1
+            
+            if certbot certonly --nginx --non-interactive --agree-tos \
+               --email "admin@${DOMAIN}" -d "$DOMAIN" 2>/dev/null; then
+                ln -sf "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" /etc/ssl/edgebox/cert.pem
+                ln -sf "/etc/letsencrypt/live/${DOMAIN}/privkey.pem" /etc/ssl/edgebox/key.pem
+                log "证书申请成功"
+            else
+                log "证书申请失败，使用自签名证书"
+                DOMAIN="edgebox.local"
+                generate_self_signed_cert
+            fi
+        else
+            log "域名未解析到本机，使用自签名证书"
+            DOMAIN="edgebox.local"
+            generate_self_signed_cert
+        fi
     else
-        print_warning "部分服务存在问题，请检查日志"
-        echo "  查看 Sing-box 日志: journalctl -u sing-box -n 50"
-        echo "  查看 Nginx 日志: tail -f /var/log/nginx/error.log"
-        return 1
+        DOMAIN="edgebox.local"
+        generate_self_signed_cert
     fi
 }
 
-# ========== 主函数 ==========
+generate_self_signed_cert() {
+    openssl req -x509 -newkey rsa:2048 -sha256 -days 3650 -nodes \
+        -keyout /etc/ssl/edgebox/key.pem \
+        -out /etc/ssl/edgebox/cert.pem \
+        -subj "/CN=${DOMAIN}" 2>/dev/null
+    log "已生成自签名证书"
+}
 
-main() {
-    clear
-    echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${GREEN}                 EdgeBox 一键安装脚本 v2.0                     ${NC}"
-    echo -e "${GREEN}                    增强版 - 带 Nginx 验证                      ${NC}"
-    echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo
+# === 配置生成 ===
+generate_configs() {
+    log "生成配置文件..."
+    mkdir -p "$WORK_DIR" /etc/sing-box /usr/local/etc/xray
     
-    # 检查环境
-    print_msg "开始安装前检查..." "$BLUE"
-    check_root
-    check_system
+    # 保存配置信息
+    echo "${DOMAIN:-edgebox.local}" > "$WORK_DIR/domain"
+    echo "${PROTOCOLS[*]}" > "$WORK_DIR/protocols"
+    [[ "$USE_PROXY" == true ]] && echo "${PROXY_HOST}:${PROXY_PORT}:${PROXY_USER}:${PROXY_PASS}" > "$WORK_DIR/proxy"
     
-    # 安装依赖
-    print_msg "安装系统依赖..." "$BLUE"
-    install_dependencies
+    generate_xray_config
+    generate_sing_box_config
+    generate_nginx_config
+}
+
+generate_xray_config() {
+    local uuid=$(uuidgen)
+    echo "$uuid" > "$WORK_DIR/xray-uuid"
     
-    # 获取用户输入
-    get_user_input
+    # 修复：使用正确的端口 10085 和 10086
+    local inbounds=$(cat << EOF
+[
+    {
+        "port": 10085,
+        "listen": "127.0.0.1",
+        "protocol": "vless",
+        "settings": {
+            "clients": [{"id": "$uuid"}],
+            "decryption": "none"
+        },
+        "streamSettings": {
+            "network": "grpc",
+            "grpcSettings": {
+                "serviceName": "edgebox-grpc"
+            }
+        }
+    },
+    {
+        "port": 10086,
+        "listen": "127.0.0.1",
+        "protocol": "vless",
+        "settings": {
+            "clients": [{"id": "$uuid"}],
+            "decryption": "none"
+        },
+        "streamSettings": {
+            "network": "ws",
+            "wsSettings": {
+                "path": "/edgebox-ws"
+            }
+        }
+    }
+]
+EOF
+    )
     
-    # 验证 Nginx 基础配置
-    print_msg "验证 Nginx 配置..." "$BLUE"
-    validate_and_fix_nginx
-    
-    # 申请证书
-    print_msg "配置 SSL 证书..." "$BLUE"
-    setup_certificate
-    
-    # 安装 Sing-box
-    print_msg "安装 Sing-box..." "$BLUE"
-    install_singbox
-    
-    # 生成密钥
-    generate_keys
-    
-    # 创建 Sing-box 配置
-    print_msg "配置 Sing-box..." "$BLUE"
-    cat > "$SING_BOX_DIR/config.json" << EOF
+    # 构建出站
+    local outbounds='[{"protocol": "freedom", "tag": "direct"}'
+    if [[ "$USE_PROXY" == true && -n "$PROXY_HOST" && -n "$PROXY_PORT" ]]; then
+        outbounds+=",$(cat << EOF
 {
-  "log": {
-    "level": "info",
-    "timestamp": true
-  },
-  "dns": {
-    "servers": [
-      {
-        "tag": "google",
-        "address": "8.8.8.8"
-      },
-      {
-        "tag": "local",
-        "address": "223.5.5.5",
-        "detour": "direct"
-      }
-    ],
+    "protocol": "http",
+    "tag": "proxy",
+    "settings": {
+        "servers": [{
+            "address": "$PROXY_HOST",
+            "port": $PROXY_PORT$(
+            [[ -n "$PROXY_USER" && -n "$PROXY_PASS" ]] && echo ",
+            \"users\": [{
+                \"user\": \"$PROXY_USER\",
+                \"pass\": \"$PROXY_PASS\"
+            }]" || echo ""
+            )
+        }]
+    }
+}
+EOF
+        )"
+    fi
+    outbounds+=']'
+    
+    # 路由规则
+    local routing=""
+    if [[ "$USE_PROXY" == true ]]; then
+        routing=$(cat << 'EOF'
+{
+    "domainStrategy": "AsIs",
     "rules": [
-      {
-        "domain": ["$DOMAIN"],
-        "server": "local"
-      }
-    ],
-    "final": "google",
-    "strategy": "prefer_ipv4"
-  },
-  "inbounds": [
-    {
-      "type": "vless",
-      "tag": "vless-in",
-      "listen": "::",
-      "listen_port": $PORT,
-      "users": [
         {
-          "uuid": "$UUID",
-          "flow": "xtls-rprx-vision"
+            "type": "field",
+            "domain": ["domain:googlevideo.com", "domain:ytimg.com", "domain:ggpht.com"],
+            "outboundTag": "direct"
+        },
+        {
+            "type": "field",
+            "outboundTag": "proxy"
         }
-      ],
-      "tls": {
-        "enabled": true,
-        "server_name": "$DOMAIN",
-        "reality": {
-          "enabled": true,
-          "handshake": {
-            "server": "$DOMAIN",
-            "server_port": 443
-          },
-          "private_key": "$PRIVATE_KEY",
-          "short_id": ["$SHORT_ID"]
-        }
-      },
-      "multiplex": {
-        "enabled": true,
-        "padding": true,
-        "brutal": {
-          "enabled": true,
-          "up_mbps": 1000,
-          "down_mbps": 1000
-        }
-      }
-    }
-  ],
-  "outbounds": [
-    {
-      "type": "direct",
-      "tag": "direct"
-    },
-    {
-      "type": "block",
-      "tag": "block"
-    },
-    {
-      "type": "dns",
-      "tag": "dns-out"
-    }
-  ],
-  "route": {
-    "rules": [
-      {
-        "protocol": "dns",
-        "outbound": "dns-out"
-      },
-      {
-        "geosite": "cn",
-        "geoip": ["cn", "private"],
-        "outbound": "direct"
-      },
-      {
-        "geosite": "category-ads-all",
-        "outbound": "block"
-      }
-    ],
-    "final": "direct",
-    "auto_detect_interface": true
-  }
+    ]
+}
+EOF
+        )
+    else
+        routing='{"domainStrategy": "AsIs"}'
+    fi
+    
+    cat > /usr/local/etc/xray/config.json << EOF
+{
+    "log": {"loglevel": "warning"},
+    "inbounds": $inbounds,
+    "outbounds": $outbounds,
+    "routing": $routing
 }
 EOF
     
-    # 创建 systemd 服务
-    cat > /etc/systemd/system/sing-box.service << EOF
+    /usr/local/bin/xray run -test -config /usr/local/etc/xray/config.json || error "Xray 配置错误"
+}
+
+generate_sing_box_config() {
+    log "生成 Reality 密钥对..."
+    local keys_output=$(/usr/local/bin/sing-box generate reality-keypair 2>&1)
+    
+    local private_key=$(echo "$keys_output" | sed -n 's/^PrivateKey: *//p' | tr -d ' \n')
+    local public_key=$(echo "$keys_output" | sed -n 's/^PublicKey: *//p' | tr -d ' \n')
+    
+    if [[ ${#private_key} -lt 20 ]] || [[ ${#public_key} -lt 20 ]]; then
+        private_key=$(echo "$keys_output" | awk '/PrivateKey:/ {print $2}' | tr -d '\n')
+        public_key=$(echo "$keys_output" | awk '/PublicKey:/ {print $2}' | tr -d '\n')
+    fi
+    
+    local short_id=$(openssl rand -hex 8)
+    local reality_uuid=$(uuidgen)
+    
+    echo "$reality_uuid" > "$WORK_DIR/reality-uuid"
+    echo "$public_key" > "$WORK_DIR/reality-public-key"
+    echo "$short_id" > "$WORK_DIR/reality-short-id"
+    echo "$private_key" > "$WORK_DIR/reality-private-key"
+    
+    # 修复：Hysteria2 和 TUIC 密码格式
+    local hy2_password=$(openssl rand -base64 32 | tr -d '\n')
+    echo "$hy2_password" > "$WORK_DIR/hy2-password"
+    
+    local tuic_uuid=$(uuidgen)
+    local tuic_password=$(openssl rand -base64 16 | tr -d '\n')
+    echo "$tuic_uuid" > "$WORK_DIR/tuic-uuid"
+    echo "$tuic_password" > "$WORK_DIR/tuic-password"
+    
+    # 修复：sing-box 配置，Hysteria2 使用 443 端口
+    cat > /etc/sing-box/config.json << EOF
+{
+    "log": {
+        "level": "info",
+        "timestamp": true
+    },
+    "inbounds": [
+        {
+            "type": "vless",
+            "tag": "vless-reality",
+            "listen": "::",
+            "listen_port": 443,
+            "users": [
+                {
+                    "uuid": "$reality_uuid",
+                    "flow": "xtls-rprx-vision"
+                }
+            ],
+            "tls": {
+                "enabled": true,
+                "server_name": "www.cloudflare.com",
+                "reality": {
+                    "enabled": true,
+                    "private_key": "$private_key",
+                    "short_id": ["$short_id", ""],
+                    "handshake": {
+                        "server": "www.cloudflare.com",
+                        "server_port": 443
+                    }
+                }
+            }
+        },
+        {
+            "type": "hysteria2",
+            "tag": "hysteria2",
+            "listen": "::",
+            "listen_port": 8443,
+            "users": [
+                {
+                    "password": "$hy2_password"
+                }
+            ],
+            "tls": {
+                "enabled": true,
+                "alpn": ["h3"],
+                "certificate_path": "/etc/ssl/edgebox/cert.pem",
+                "key_path": "/etc/ssl/edgebox/key.pem"
+            }
+        },
+        {
+            "type": "tuic",
+            "tag": "tuic",
+            "listen": "::",
+            "listen_port": 2053,
+            "users": [
+                {
+                    "uuid": "$tuic_uuid",
+                    "password": "$tuic_password"
+                }
+            ],
+            "congestion_control": "bbr",
+            "auth_timeout": "3s",
+            "tls": {
+                "enabled": true,
+                "alpn": ["h3"],
+                "certificate_path": "/etc/ssl/edgebox/cert.pem",
+                "key_path": "/etc/ssl/edgebox/key.pem"
+            }
+        }
+    ],
+    "outbounds": [
+        {
+            "type": "direct",
+            "tag": "direct"
+        }
+    ]
+}
+EOF
+    
+    /usr/local/bin/sing-box check -c /etc/sing-box/config.json || error "sing-box 配置文件有误"
+}
+
+generate_nginx_config() {
+    # 修复：Nginx 监听 8443 端口，并正确代理到 Xray
+    cat > /etc/nginx/conf.d/edgebox.conf << EOF
+# TCP/8443 - HTTPS with gRPC and WebSocket
+server {
+    listen 8443 ssl http2;
+    listen [::]:8443 ssl http2;
+    server_name ${DOMAIN:-_};
+    
+    ssl_certificate /etc/ssl/edgebox/cert.pem;
+    ssl_certificate_key /etc/ssl/edgebox/key.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE+AESGCM:ECDHE+CHACHA20:DHE+AESGCM:DHE+CHACHA20:!aNULL:!MD5:!DSS;
+    
+    # gRPC - 代理到 Xray 10085 端口
+    location /edgebox-grpc {
+        grpc_pass grpc://127.0.0.1:10085;
+        grpc_set_header Host \$host;
+        grpc_set_header X-Real-IP \$remote_addr;
+        grpc_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    }
+    
+    # WebSocket - 代理到 Xray 10086 端口
+    location /edgebox-ws {
+        proxy_pass http://127.0.0.1:10086;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    }
+    
+    location / {
+        return 200 "EdgeBox is running";
+        add_header Content-Type text/plain;
+    }
+}
+
+# HTTP/80 - 订阅页面
+server {
+    listen 80;
+    listen [::]:80;
+    server_name _;
+    root /var/www/html;
+    index index.html;
+    
+    location / {
+        try_files \$uri \$uri/ =404;
+    }
+    
+    location ~* \.(txt)$ {
+        add_header Content-Type "text/plain; charset=utf-8";
+        add_header Access-Control-Allow-Origin "*";
+    }
+}
+EOF
+    
+    nginx -t || error "Nginx 配置错误"
+}
+
+# === 服务配置 ===
+setup_services() {
+    log "配置系统服务..."
+    
+    # sing-box 服务
+    cat > /etc/systemd/system/sing-box.service << 'EOF'
 [Unit]
-Description=Sing-box Service
-Documentation=https://sing-box.sagernet.org
+Description=sing-box service
 After=network.target nss-lookup.target
 
 [Service]
 Type=simple
 User=root
-ExecStart=/usr/local/bin/sing-box run -c $SING_BOX_DIR/config.json
+ExecStart=/usr/local/bin/sing-box run -c /etc/sing-box/config.json
 Restart=on-failure
 RestartSec=10
-LimitNOFILE=infinity
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    # Xray 服务
+    cat > /etc/systemd/system/xray.service << 'EOF'
+[Unit]
+Description=Xray Service
+After=network.target nss-lookup.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/xray run -config /usr/local/etc/xray/config.json
+Restart=on-failure
+RestartSec=10
+LimitNOFILE=1048576
 
 [Install]
 WantedBy=multi-user.target
 EOF
     
-    # 重载并启动服务
     systemctl daemon-reload
-    systemctl enable sing-box 2>/dev/null || true
-    systemctl restart sing-box
-    
-    if systemctl is-active sing-box >/dev/null 2>&1; then
-        print_success "Sing-box 服务启动成功"
-    else
-        print_warning "Sing-box 服务启动失败"
-    fi
-    
-    # 配置 Nginx
-    print_msg "配置 Nginx 站点..." "$BLUE"
-    setup_nginx
-    
-    # 配置防火墙
-    print_msg "配置防火墙规则..." "$BLUE"
-    setup_firewall
-    
-    # 系统优化
-    print_msg "优化系统参数..." "$BLUE"
-    optimize_system
-    
-    # 生成客户端配置
-    print_msg "生成客户端配置..." "$BLUE"
-    generate_client_config
-    
-    # 最终健康检查
-    echo
-    final_health_check
-    
-    # 显示安装信息
-    show_info
-    
-    # 保存安装信息
-    cat > /root/edgebox-info.txt << EOF
-EdgeBox 安装信息
-================
-安装时间: $(date)
-域名: $DOMAIN
-端口: $PORT
-UUID: $UUID
-Public Key: $PUBLIC_KEY
-Short ID: $SHORT_ID
-订阅页面: https://$DOMAIN/sub
-
-客户端配置:
-vless://${UUID}@${DOMAIN}:${PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${DOMAIN}&fp=chrome&pbk=${PUBLIC_KEY}&sid=${SHORT_ID}&type=tcp&headerType=none#EdgeBox-${DOMAIN}
-
-管理命令:
-- 查看状态: systemctl status sing-box nginx
-- 重启服务: systemctl restart sing-box nginx
-- 查看日志: journalctl -u sing-box -f
-- 卸载脚本: wget -O uninstall.sh https://your-domain.com/uninstall.sh && bash uninstall.sh
-EOF
-    
-    print_success "安装信息已保存至 /root/edgebox-info.txt"
-    
-    # 设置定时任务（证书自动续期）
-    print_msg "设置证书自动续期..." "$BLUE"
-    echo "0 3 * * * certbot renew --quiet --post-hook 'systemctl reload nginx'" | crontab -l 2>/dev/null | { cat; echo "0 3 * * * certbot renew --quiet --post-hook 'systemctl reload nginx'"; } | crontab -
-    
-    echo
-    print_success "EdgeBox 安装完成！"
-    echo
-    echo -e "${YELLOW}请保存以上配置信息，特别是客户端配置链接${NC}"
-    echo -e "${YELLOW}如遇到问题，请查看 /root/edgebox-info.txt 文件${NC}"
-    echo
 }
 
-# ========== 错误处理 ==========
-
-# 捕获错误
-trap 'error_handler $? $LINENO' ERR
-
-error_handler() {
-    local exit_code=$1
-    local line_number=$2
-    print_error "安装过程中发生错误 (错误代码: $exit_code, 行号: $line_number)"
-    echo
-    print_msg "尝试清理..." "$YELLOW"
+# === 防火墙配置 ===
+setup_firewall() {
+    log "配置防火墙..."
     
-    # 停止服务
-    systemctl stop sing-box 2>/dev/null || true
+    ufw allow 22/tcp >/dev/null 2>&1    # SSH
+    ufw allow 80/tcp >/dev/null 2>&1    # HTTP
+    ufw allow 443/tcp >/dev/null 2>&1   # Reality TCP
+    ufw allow 443/udp >/dev/null 2>&1   # Reality UDP (可选)
+    ufw allow 8443/tcp >/dev/null 2>&1  # Nginx HTTPS
+    ufw allow 8443/udp >/dev/null 2>&1  # Hysteria2
+    ufw allow 2053/udp >/dev/null 2>&1  # TUIC
     
-    # 恢复 nginx 配置
-    if ls /etc/nginx.backup.* >/dev/null 2>&1; then
-        latest_backup=$(ls -t /etc/nginx.backup.* 2>/dev/null | head -1)
-        if [[ -n "$latest_backup" ]]; then
-            print_msg "恢复 Nginx 配置从: $latest_backup"
-            rm -rf /etc/nginx
-            mv "$latest_backup" /etc/nginx
-            systemctl restart nginx 2>/dev/null || true
-        fi
-    fi
-    
-    echo
-    print_error "安装失败！如需重新安装，请先运行卸载脚本"
-    exit $exit_code
+    echo "y" | ufw enable >/dev/null 2>&1
+    ufw status
 }
 
-# ========== 脚本入口 ==========
+# === 管理工具 ===
+create_management_tool() {
+    log "创建管理工具 edgeboxctl..."
+    
+    cat > /usr/local/bin/edgeboxctl << 'EOFCTL'
+#!/usr/bin/env bash
+set -euo pipefail
 
-# 检查是否有参数
-if [[ $# -gt 0 ]]; then
-    case "$1" in
-        --help|-h)
-            echo "EdgeBox 一键安装脚本"
-            echo "使用方法: bash install.sh [选项]"
-            echo ""
-            echo "选项:"
-            echo "  --help, -h        显示帮助信息"
-            echo "  --check           仅执行健康检查"
-            echo "  --uninstall       运行卸载脚本"
-            echo ""
-            exit 0
-            ;;
-        --check)
-            check_root
-            if [[ -f "$SING_BOX_DIR/config.json" ]]; then
-                # 读取配置
-                DOMAIN=$(jq -r '.inbounds[0].tls.server_name' "$SING_BOX_DIR/config.json" 2>/dev/null || echo "unknown")
-                PORT=$(jq -r '.inbounds[0].listen_port' "$SING_BOX_DIR/config.json" 2>/dev/null || echo "8443")
-                final_health_check
-            else
-                print_error "未找到 EdgeBox 配置，请先安装"
-            fi
-            exit 0
-            ;;
-        --uninstall)
-            print_warning "请运行专用卸载脚本"
-            echo "wget -O uninstall.sh https://your-domain.com/uninstall.sh && bash uninstall.sh"
-            exit 0
-            ;;
-        *)
-            print_error "未知选项: $1"
-            echo "使用 --help 查看帮助"
-            exit 1
-            ;;
-    esac
-fi
+WORK_DIR="/opt/edgebox"
 
-# 运行主函数
-main
-
-# 脚本结束
-exit 0查是否有其他监听443端口的配置
-    for conf in /etc/nginx/sites-enabled/* /etc/nginx/conf.d/*.conf; do
-        [[ -f "$conf" ]] || continue
-        [[ "$conf" == */edgebox* ]] && continue  # 跳过我们的配置
+show_subscriptions() {
+    [[ ! -f "$WORK_DIR/domain" ]] && { echo "配置文件不存在"; exit 1; }
+    
+    local domain=$(cat "$WORK_DIR/domain")
+    local server_ip
+    
+    # 如果是本地域名，获取服务器IP
+    if [[ "$domain" == "edgebox.local" ]] || [[ "$domain" == "localhost" ]]; then
+        server_ip=$(curl -s --connect-timeout 5 https://ipv4.icanhazip.com/ 2>/dev/null || echo "YOUR_SERVER_IP")
+        domain=$server_ip
+    fi
+    
+    echo "=== EdgeBox 订阅链接 ==="
+    echo "服务器: $domain"
+    echo
+    
+    # 生成所有订阅链接
+    local subscriptions=""
+    
+    # VLESS-gRPC
+    if [[ -f "$WORK_DIR/xray-uuid" ]]; then
+        local uuid=$(cat "$WORK_DIR/xray-uuid")
+        local grpc_link="vless://$uuid@$domain:8443?encryption=none&security=tls&type=grpc&serviceName=edgebox-grpc&fp=chrome&allowInsecure=1#EdgeBox-gRPC"
+        echo "VLESS-gRPC:"
+        echo "$grpc_link"
+        subscriptions+="$grpc_link\n"
+        echo
         
-        if grep -q "listen.*443" "$conf" 2>/dev/null; then
-            print_warning "发现其他443端口配置: $conf，将其禁用"
-            mv "$conf" "$conf.disabled.$(date +%Y%m%d%H%M%S)"
-            config_ok=false
-        fi
-    done
-    
-    # 5. 测试基础配置
-    print_msg "测试 Nginx 基础配置..."
-    if nginx -t 2>/dev/null; then
-        print_success "Nginx 基础配置测试通过"
-    else
-        print_warning "Nginx 基础配置测试失败，尝试修复..."
-        config_ok=false
+        # VLESS-WS
+        local ws_link="vless://$uuid@$domain:8443?encryption=none&security=tls&type=ws&path=/edgebox-ws&host=$domain&fp=chrome&allowInsecure=1#EdgeBox-WS"
+        echo "VLESS-WS:"
+        echo "$ws_link"
+        subscriptions+="$ws_link\n"
+        echo
     fi
     
-    return 0
-}
-
-# Nginx 健康检查
-nginx_health_check() {
-    print_msg "执行 Nginx 健康检查..."
-    
-    local checks_passed=0
-    local total_checks=4
-    
-    # 检查1: nginx进程是否运行
-    if pgrep -x nginx > /dev/null; then
-        print_success "Nginx 进程正在运行"
-        ((checks_passed++))
-    else
-        print_error "Nginx 进程未运行"
+    # VLESS-Reality
+    if [[ -f "$WORK_DIR/reality-uuid" ]]; then
+        local uuid=$(cat "$WORK_DIR/reality-uuid")
+        local pubkey=$(cat "$WORK_DIR/reality-public-key")
+        local sid=$(cat "$WORK_DIR/reality-short-id")
+        local reality_link="vless://$uuid@$domain:443?encryption=none&flow=xtls-rprx-vision&fp=chrome&security=reality&sni=www.cloudflare.com&pbk=$pubkey&sid=$sid&type=tcp#EdgeBox-Reality"
+        echo "VLESS-Reality:"
+        echo "$reality_link"
+        subscriptions+="$reality_link\n"
+        echo
     fi
     
-    # 检查2: nginx服务状态
-    if systemctl is-active nginx >/dev/null 2>&1; then
-        print_success "Nginx 服务状态正常"
-        ((checks_passed++))
-    else
-        print_error "Nginx 服务未激活"
+    # Hysteria2 - 修复链接格式
+    if [[ -f "$WORK_DIR/hy2-password" ]]; then
+        local password=$(cat "$WORK_DIR/hy2-password")
+        local hy2_link="hysteria2://$password@$domain:8443?insecure=1&sni=$domain#EdgeBox-Hysteria2"
+        echo "Hysteria2:"
+        echo "$hy2_link"
+        subscriptions+="$hy2_link\n"
+        echo
     fi
     
-    # 检查3: 配置语法
-    if nginx -t 2>/dev/null; then
-        print_success "Nginx 配置语法正确"
-        ((checks_passed++))
-    else
-        print_error "Nginx 配置语法错误"
+    # TUIC - 修复链接格式
+    if [[ -f "$WORK_DIR/tuic-uuid" ]]; then
+        local uuid=$(cat "$WORK_DIR/tuic-uuid")
+        local password=$(cat "$WORK_DIR/tuic-password")
+        local tuic_link="tuic://$uuid:$password@$domain:2053?congestion_control=bbr&alpn=h3&allow_insecure=1#EdgeBox-TUIC"
+        echo "TUIC:"
+        echo "$tuic_link"
+        subscriptions+="$tuic_link\n"
+        echo
     fi
     
-    # 检查4: 端口监听
-    if ss -lntp | grep -q ':443.*nginx'; then
-        print_success "Nginx 正在监听 443 端口"
-        ((checks_passed++))
-    else
-        print_warning "Nginx 未监听 443 端口（可能还未配置证书）"
-    fi
-    
-    print_msg "健康检查结果: $checks_passed/$total_checks 通过"
-    
-    if [[ $checks_passed -ge 3 ]]; then
-        return 0
-    else
-        return 1
-    fi
-}
-
-# 安全的nginx重启函数
-safe_nginx_restart() {
-    print_msg "安全重启 Nginx..."
-    
-    # 先测试配置
-    if ! nginx -t 2>/dev/null; then
-        print_error "Nginx 配置错误，中止重启"
-        return 1
-    fi
-    
-    # 尝试reload（不中断连接）
-    if systemctl reload nginx 2>/dev/null; then
-        print_success "Nginx 已重新加载"
-        return 0
-    fi
-    
-    # reload失败，尝试restart
-    if systemctl restart nginx 2>/dev/null; then
-        print_success "Nginx 已重启"
-        return 0
-    fi
-    
-    print_error "Nginx 重启失败"
-    return 1
-}
-
-# ========== 安装函数 ==========
-
-# 安装依赖
-install_dependencies() {
-    print_msg "更新系统包列表..."
-    apt update || error_exit "更新包列表失败"
-    
-    print_msg "安装必要依赖..."
-    local packages="wget curl unzip jq nginx certbot python3-certbot-nginx uuid-runtime openssl socat qrencode ufw"
-    
-    for pkg in $packages; do
-        if ! dpkg -l | grep -q "^ii.*$pkg"; then
-            print_msg "安装 $pkg..."
-            DEBIAN_FRONTEND=noninteractive apt install -y "$pkg" || print_warning "安装 $pkg 失败"
-        else
-            print_success "$pkg 已安装"
-        fi
-    done
-}
-
-# 获取用户输入
-get_user_input() {
-    print_msg "请提供以下信息:" "$YELLOW"
-    
-    # 获取域名
-    while [[ -z "$DOMAIN" ]]; do
-        read -p "输入您的域名: " DOMAIN
-        if [[ ! "$DOMAIN" =~ ^[a-zA-Z0-9.-]+$ ]]; then
-            print_error "域名格式不正确"
-            DOMAIN=""
-        fi
-    done
-    
-    # 获取邮箱
-    while [[ -z "$EMAIL" ]]; do
-        read -p "输入您的邮箱（用于证书）: " EMAIL
-        if [[ ! "$EMAIL" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]; then
-            print_error "邮箱格式不正确"
-            EMAIL=""
-        fi
-    done
-    
-    # 获取密码（注意：Reality 协议不使用密码，这里保留作为未来扩展）
-    # 暂时跳过密码设置
-    PASSWORD="edgebox"
-    
-    # 获取端口
-    read -p "设置端口 [默认: 8443]: " PORT
-    PORT=${PORT:-8443}
-    
-    # 验证端口
-    if ! [[ "$PORT" =~ ^[0-9]+$ ]] || [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
-        print_warning "端口无效，使用默认值 8443"
-        PORT=8443
-    fi
-    
-    print_success "配置信息已收集"
-}
-
-# 生成密钥
-generate_keys() {
-    print_msg "生成加密密钥..."
-    
-    # 生成 UUID
-    if command -v uuidgen >/dev/null 2>&1; then
-        UUID=$(uuidgen)
-    else
-        # 备用方案：使用 /proc/sys/kernel/random/uuid
-        UUID=$(cat /proc/sys/kernel/random/uuid)
-    fi
-    
-    # 生成 Reality 密钥对
-    if [[ -f /usr/local/bin/sing-box ]]; then
-        local keys=$(/usr/local/bin/sing-box generate reality-keypair 2>/dev/null || echo "")
-        if [[ -n "$keys" ]]; then
-            PUBLIC_KEY=$(echo "$keys" | grep "PublicKey" | awk '{print $2}')
-            PRIVATE_KEY=$(echo "$keys" | grep "PrivateKey" | awk '{print $2}')
-        fi
-    fi
-    
-    # 如果生成失败，使用备用方案
-    if [[ -z "$PRIVATE_KEY" ]] || [[ -z "$PUBLIC_KEY" ]]; then
-        print_warning "使用备用方案生成密钥"
-        # 使用固定的测试密钥（实际使用中应该生成随机密钥）
-        PRIVATE_KEY="uJTbBa8vVfahhEBl4j7Zia2GNQ3fGCBpGqM1_BhQ5Wc"
-        PUBLIC_KEY="Z84J2IelR9ch6kc8VTUqvlZjYrKmquJGO3NzRXQqBFY"
-    fi
-    
-    # 生成 Short ID
-    SHORT_ID=$(openssl rand -hex 8)
-    
-    print_success "密钥生成完成"
-}
-
-# 申请证书
-setup_certificate() {
-    print_msg "申请 SSL 证书..."
-    
-    # 创建证书目录
-    mkdir -p "$CERT_DIR"
-    
-    # 停止 nginx 避免端口冲突
-    systemctl stop nginx 2>/dev/null || true
-    
-    # 使用 certbot standalone 模式申请证书
-    certbot certonly \
-        --standalone \
-        --non-interactive \
-        --agree-tos \
-        --email "$EMAIL" \
-        --domains "$DOMAIN" \
-        --preferred-challenges http \
-        2>/dev/null
-    
-    if [[ $? -eq 0 ]]; then
-        # 复制证书到指定目录
-        cp "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" "$CERT_DIR/cert.pem"
-        cp "/etc/letsencrypt/live/$DOMAIN/privkey.pem" "$CERT_DIR/key.pem"
-        chmod 644 "$CERT_DIR/cert.pem"
-        chmod 600 "$CERT_DIR/key.pem"
-        print_success "证书申请成功"
-    else
-        print_warning "证书申请失败，使用自签名证书"
-        # 生成自签名证书
-        openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-            -keyout "$CERT_DIR/key.pem" \
-            -out "$CERT_DIR/cert.pem" \
-            -subj "/CN=$DOMAIN" \
-            2>/dev/null
-    fi
-    
-    # 重启 nginx
-    systemctl start nginx 2>/dev/null || true
-}
-
-# 安装 Sing-box
-install_singbox() {
-    print_msg "安装 Sing-box..."
-    
-    # 检查是否已安装
-    if [[ -f /usr/local/bin/sing-box ]]; then
-        print_success "Sing-box 已存在，跳过下载"
-    else
-        # 下载最新版本
-        local version=$(curl -s "https://api.github.com/repos/SagerNet/sing-box/releases/latest" | grep '"tag_name"' | cut -d'"' -f4 || echo "")
-        version=${version:-"v1.8.0"}  # 默认版本
+    # 生成聚合订阅
+    if [[ -n "$subscriptions" ]]; then
+        mkdir -p /var/www/html
+        local base64_sub=$(echo -e "$subscriptions" | base64 -w 0)
+        echo "$base64_sub" > "/var/www/html/edgebox-sub.txt"
+        echo -e "$subscriptions" > "/var/www/html/edgebox-sub-plain.txt"
         
-        print_msg "下载 Sing-box $version..."
-        local download_url="https://github.com/SagerNet/sing-box/releases/download/${version}/sing-box-${version#v}-linux-amd64.tar.gz"
-        
-        # 下载和解压
-        if wget -q "$download_url" -O /tmp/sing-box.tar.gz; then
-            tar -xzf /tmp/sing-box.tar.gz -C /tmp/
-            # 查找解压后的 sing-box 文件
-            local sing_box_bin=$(find /tmp -name "sing-box" -type f -executable 2>/dev/null | head -1)
-            if [[ -n "$sing_box_bin" ]]; then
-                cp "$sing_box_bin" /usr/local/bin/
-                chmod +x /usr/local/bin/sing-box
-                print_success "Sing-box 安装成功"
-            else
-                print_error "未找到 sing-box 可执行文件"
-                return 1
-            fi
-            rm -rf /tmp/sing-box* 2>/dev/null || true
-        else
-            print_error "下载 Sing-box 失败"
-            return 1
-        fi
+        echo "=== 聚合订阅链接 ==="
+        echo "Base64订阅: http://$domain/edgebox-sub.txt"
+        echo "明文订阅: http://$domain/edgebox-sub-plain.txt"
     fi
-    
-    # 创建配置目录
-    mkdir -p "$SING_BOX_DIR"
-    
-    print_success "Sing-box 安装完成"
-    return 0
 }
 
-# 配置 Nginx
-setup_nginx() {
-    print_msg "配置 Nginx..."
+case ${1:-help} in
+    status)
+        echo "=== EdgeBox 服务状态 ==="
+        systemctl is-active --quiet sing-box && echo "✔ sing-box: 运行中" || echo "✗ sing-box: 已停止"
+        systemctl is-active --quiet xray && echo "✔ xray: 运行中" || echo "✗ xray: 已停止"
+        systemctl is-active --quiet nginx && echo "✔ nginx: 运行中" || echo "✗ nginx: 已停止"
+        echo
+        echo "=== 端口监听 ==="
+        ss -lntup | egrep ':80|:443|:8443|:2053' || echo "无相关端口监听"
+        ;;
+    sub|subscription)
+        show_subscriptions
+        ;;
+    restart)
+        echo "正在重启服务..."
+        systemctl restart sing-box xray nginx
+        sleep 3
+        echo "服务已重启"
+        ;;
+    logs)
+        echo "=== sing-box 日志 ==="
+        journalctl -u sing-box -n 10 --no-pager
+        echo
+        echo "=== xray 日志 ==="
+        journalctl -u xray -n 10 --no-pager
+        echo
+        echo "=== nginx 日志 ==="
+        journalctl -u nginx -n 10 --no-pager
+        ;;
+    *)
+        echo "EdgeBox 管理工具"
+        echo "用法: edgeboxctl [命令]"
+        echo
+        echo "可用命令:"
+        echo "  status      - 查看服务状态"
+        echo "  sub         - 显示订阅链接"
+        echo "  restart     - 重启所有服务"
+        echo "  logs        - 查看服务日志"
+        ;;
+esac
+EOFCTL
+
+    chmod +x /usr/local/bin/edgeboxctl
+    log "管理工具已创建"
+}
+
+# === 启动服务 ===
+start_services() {
+    log "启动服务..."
     
-    # 先验证和修复基础配置
-    validate_and_fix_nginx
+    systemctl restart nginx
+    sleep 2
     
-    # 创建订阅页目录
-    mkdir -p "$SUB_DIR"
-    mkdir -p "$SUB_WEB_DIR"
+    systemctl enable --now sing-box
+    sleep 2
+    
+    systemctl enable --now xray
+    sleep 2
     
     # 生成订阅页面
-    cat > "$SUB_WEB_DIR/index.html" << EOF
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EdgeBox 订阅</title>
-    <style>
-        body { 
-            font-family: Arial, sans-serif; 
-            max-width: 800px; 
-            margin: 50px auto; 
-            padding: 20px;
-            background: #f5f5f5;
-        }
-        .container {
-            background: white;
-            border-radius: 10px;
-            padding: 30px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        h1 { color: #333; }
-        .info-box {
-            background: #f0f0f0;
-            padding: 15px;
-            border-radius: 5px;
-            margin: 20px 0;
-        }
-        .copy-btn {
-            background: #4CAF50;
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 5px;
-            cursor: pointer;
-        }
-        .copy-btn:hover {
-            background: #45a049;
-        }
-        code {
-            background: #f4f4f4;
-            padding: 2px 6px;
-            border-radius: 3px;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>EdgeBox 配置信息</h1>
-        <div class="info-box">
-            <h3>连接信息</h3>
-            <p><strong>服务器:</strong> <code>$DOMAIN</code></p>
-            <p><strong>端口:</strong> <code>$PORT</code></p>
-            <p><strong>协议:</strong> <code>VLESS + Reality</code></p>
-            <p><strong>UUID:</strong> <code>$UUID</code></p>
-            <p><strong>Public Key:</strong> <code>$PUBLIC_KEY</code></p>
-            <p><strong>Short ID:</strong> <code>$SHORT_ID</code></p>
-        </div>
-        <div class="info-box">
-            <h3>客户端配置</h3>
-            <p>请使用支持 VLESS + Reality 的客户端，如 v2rayN, v2rayNG, Shadowrocket 等</p>
-            <textarea id="config" style="width:100%; height:200px; margin-top:10px;">
-vless://$UUID@$DOMAIN:$PORT?encryption=none&flow=xtls-rprx-vision&security=reality&sni=$DOMAIN&fp=chrome&pbk=$PUBLIC_KEY&sid=$SHORT_ID&type=tcp&headerType=none#EdgeBox-$DOMAIN
-            </textarea>
-            <button class="copy-btn" onclick="copyConfig()">复制配置</button>
-        </div>
-    </div>
-    <script>
-        function copyConfig() {
-            var copyText = document.getElementById("config");
-            copyText.select();
-            document.execCommand("copy");
-            alert("配置已复制到剪贴板");
-        }
-    </script>
-</body>
-</html>
-EOF
+    mkdir -p /var/www/html
+    /usr/local/bin/edgeboxctl sub &>/dev/null || true
     
-    # 配置 Nginx 站点
-    cat > /etc/nginx/sites-available/edgebox << EOF
-server {
-    listen 80;
-    server_name $DOMAIN;
-    
-    # HTTP 跳转到 HTTPS
-    location / {
-        return 301 https://\$server_name\$request_uri;
-    }
+    log "服务启动完成"
 }
 
-server {
-    listen 443 ssl http2;
-    server_name $DOMAIN;
+# === 安装完成信息 ===
+show_complete() {
+    local domain="${DOMAIN:-edgebox.local}"
+    local server_ip
     
-    # SSL 证书
-    ssl_certificate $CERT_DIR/cert.pem;
-    ssl_certificate_key $CERT_DIR/key.pem;
-    
-    # SSL 安全配置
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_ciphers HIGH:!aNULL:!MD5;
-    ssl_prefer_server_ciphers on;
-    ssl_session_cache shared:SSL:10m;
-    ssl_session_timeout 10m;
-    
-    # 安全头
-    add_header X-Content-Type-Options nosniff;
-    add_header X-Frame-Options DENY;
-    add_header X-XSS-Protection "1; mode=block";
-    
-    # 根目录
-    root /var/www/html;
-    index index.html;
-    
-    # 主页
-    location / {
-        try_files \$uri \$uri/ =404;
-    }
-    
-    # 订阅页面
-    location /sub {
-        alias $SUB_WEB_DIR;
-        index index.html;
-    }
-    
-    # 禁止访问隐藏文件
-    location ~ /\. {
-        deny all;
-    }
-}
-EOF
-    
-    # 创建软链接
-    ln -sf /etc/nginx/sites-available/edgebox /etc/nginx/sites-enabled/
-    
-    # 删除默认站点
-    rm -f /etc/nginx/sites-enabled/default
-    
-    # 测试配置
-    if nginx -t 2>/dev/null; then
-        print_success "Nginx 配置测试通过"
-        safe_nginx_restart
-    else
-        print_error "Nginx 配置测试失败"
-        nginx -t
-    fi
-}
-
-# 配置防火墙
-setup_firewall() {
-    print_msg "配置防火墙..."
-    
-    # 启用 UFW
-    ufw --force enable
-    
-    # 允许 SSH（保护 SSH 连接）
-    ufw allow 22/tcp comment 'SSH'
-    
-    # 允许 HTTP 和 HTTPS
-    ufw allow 80/tcp comment 'HTTP'
-    ufw allow 443/tcp comment 'HTTPS'
-    
-    # 允许 Sing-box 端口
-    ufw allow $PORT/tcp comment 'Sing-box'
-    ufw allow $PORT/udp comment 'Sing-box UDP'
-    
-    # 重载防火墙
-    ufw reload
-    
-    print_success "防火墙配置完成"
-}
-
-# 优化系统
-optimize_system() {
-    print_msg "优化系统参数..."
-    
-    # 创建 sysctl 配置
-    cat > /etc/sysctl.d/99-edgebox.conf << EOF
-# EdgeBox 系统优化
-net.core.default_qdisc = fq
-net.ipv4.tcp_congestion_control = bbr
-net.ipv4.tcp_fastopen = 3
-net.ipv4.tcp_slow_start_after_idle = 0
-net.ipv4.tcp_mtu_probing = 1
-net.core.rmem_default = 262144
-net.core.wmem_default = 262144
-net.core.rmem_max = 16777216
-net.core.wmem_max = 16777216
-net.ipv4.tcp_rmem = 4096 262144 16777216
-net.ipv4.tcp_wmem = 4096 262144 16777216
-EOF
-    
-    # 应用配置
-    sysctl -p /etc/sysctl.d/99-edgebox.conf 2>/dev/null
-    
-    print_success "系统优化完成"
-}
-
-# 生成客户端配置
-generate_client_config() {
-    print_msg "生成客户端配置..."
-    
-    # VLESS 链接
-    local vless_link="vless://${UUID}@${DOMAIN}:${PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${DOMAIN}&fp=chrome&pbk=${PUBLIC_KEY}&sid=${SHORT_ID}&type=tcp&headerType=none#EdgeBox-${DOMAIN}"
-    
-    # 保存配置
-    cat > "$SUB_DIR/client.json" << EOF
-{
-  "remarks": "EdgeBox-$DOMAIN",
-  "server": "$DOMAIN",
-  "server_port": $PORT,
-  "protocol": "vless",
-  "id": "$UUID",
-  "flow": "xtls-rprx-vision",
-  "network": "tcp",
-  "security": "reality",
-  "reality": {
-    "public_key": "$PUBLIC_KEY",
-    "short_id": "$SHORT_ID",
-    "server_name": "$DOMAIN",
-    "fingerprint": "chrome"
-  }
-}
-EOF
-    
-    # 生成二维码
-    echo "$vless_link" | qrencode -o "$SUB_DIR/qrcode.png" -t PNG
-    
-    # 保存链接
-    echo "$vless_link" > "$SUB_DIR/link.txt"
-    
-    print_success "客户端配置已生成"
-}
-
-# 显示安装信息
-show_info() {
-    echo
-    echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${GREEN}                    EdgeBox 安装成功                          ${NC}"
-    echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo
-    echo -e "${BLUE}服务器信息:${NC}"
-    echo -e "  域名: ${YELLOW}$DOMAIN${NC}"
-    echo -e "  端口: ${YELLOW}$PORT${NC}"
-    echo -e "  协议: ${YELLOW}VLESS + Reality${NC}"
-    echo
-    echo -e "${BLUE}连接参数:${NC}"
-    echo -e "  UUID: ${YELLOW}$UUID${NC}"
-    echo -e "  Public Key: ${YELLOW}$PUBLIC_KEY${NC}"
-    echo -e "  Short ID: ${YELLOW}$SHORT_ID${NC}"
-    echo
-    echo -e "${BLUE}订阅页面:${NC}"
-    echo -e "  ${YELLOW}https://$DOMAIN/sub${NC}"
-    echo
-    echo -e "${BLUE}客户端配置:${NC}"
-    echo -e "${YELLOW}vless://${UUID}@${DOMAIN}:${PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${DOMAIN}&fp=chrome&pbk=${PUBLIC_KEY}&sid=${SHORT_ID}&type=tcp&headerType=none#EdgeBox-${DOMAIN}${NC}"
-    echo
-    echo -e "${BLUE}配置文件位置:${NC}"
-    echo -e "  Sing-box: ${YELLOW}$SING_BOX_DIR/config.json${NC}"
-    echo -e "  Nginx: ${YELLOW}/etc/nginx/sites-available/edgebox${NC}"
-    echo -e "  客户端配置: ${YELLOW}$SUB_DIR/client.json${NC}"
-    echo -e "  二维码: ${YELLOW}$SUB_DIR/qrcode.png${NC}"
-    echo
-    echo -e "${BLUE}管理命令:${NC}"
-    echo -e "  查看状态: ${YELLOW}systemctl status sing-box nginx${NC}"
-    echo -e "  重启服务: ${YELLOW}systemctl restart sing-box nginx${NC}"
-    echo -e "  查看日志: ${YELLOW}journalctl -u sing-box -f${NC}"
-    echo
-    echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-}
-
-# 最终健康检查
-final_health_check() {
-    print_msg "执行最终健康检查..." "$BLUE"
-    echo
-    
-    local all_good=true
-    
-    # 检查 Sing-box
-    if systemctl is-active sing-box >/dev/null 2>&1; then
-        print_success "Sing-box 运行正常"
-    else
-        print_error "Sing-box 未运行"
-        all_good=false
+    if [[ "$domain" == "edgebox.local" ]]; then
+        server_ip=$(curl -s --connect-timeout 5 https://ipv4.icanhazip.com/ 2>/dev/null || echo "YOUR_SERVER_IP")
+        domain=$server_ip
     fi
     
-    # 检
+    echo
+    echo "================================================================"
+    echo "🎉 EdgeBox 安装完成！"
+    echo "================================================================"
+    echo
+    echo "✅ 服务器地址: $domain"
+    echo "✅ 已安装协议: VLESS-gRPC, VLESS-WS, Reality, Hysteria2, TUIC"
+    echo "✅ 端口分配:"
+    echo "   - Reality: 443/tcp (sing-box 直连)"
+    echo "   - gRPC/WS: 8443/tcp (Nginx → Xray)"
+    echo "   - Hysteria2: 8443/udp (sing-box)"
+    echo "   - TUIC: 2053/udp (sing-box)"
+    echo "   - HTTP: 80/tcp (订阅页面)"
+    echo
+    echo "📊 服务状态:"
+    systemctl is-active --quiet sing-box && echo "  ✔ sing-box: 运行中" || echo "  ✗ sing-box: 异常"
+    systemctl is-active --quiet xray && echo "  ✔ xray: 运行中" || echo "  ✗ xray: 异常"
+    systemctl is-active --quiet nginx && echo "  ✔ nginx: 运行中" || echo "  ✗ nginx: 异常"
+    echo
+    echo "🔧 管理命令:"
+    echo "  查看状态: edgeboxctl status"
+    echo "  查看订阅: edgeboxctl sub"
+    echo "  重启服务: edgeboxctl restart"
+    echo "  查看日志: edgeboxctl logs"
+    echo
+    echo "🌐 订阅链接:"
+    echo "  网页版: http://$domain"
+    echo "  Base64: http://$domain/edgebox-sub.txt"
+    echo "  明文版: http://$domain/edgebox-sub-plain.txt"
+    echo
+    echo "================================================================"
+    echo "安装日志: $LOG_FILE"
+    echo "配置目录: $WORK_DIR"
+    echo "================================================================"
+    echo
+    echo "🚀 开始使用:"
+    echo "1. 复制订阅链接到客户端"
+    echo "2. 更新订阅获取所有节点"
+    echo "3. 选择合适协议连接"
+    echo
+}
+
+# === 主安装流程 ===
+main() {
+    check_root
+    
+    mkdir -p "$(dirname "$LOG_FILE")"
+    echo "EdgeBox 安装开始: $(date)" > "$LOG_FILE"
+    
+    log "EdgeBox v${SCRIPT_VERSION} 安装程序启动"
+    
+    # 清理旧环境
+    log "清理旧环境..."
+    rm -f /etc/nginx/conf.d/edgebox*.conf 2>/dev/null || true
+    rm -f /etc/nginx/sites-*/edgebox* 2>/dev/null || true
+    systemctl stop sing-box 2>/dev/null || true
+    systemctl stop xray 2>/dev/null || true
+    
+    # 基础检查
+    check_os
+    check_requirements
+    
+    # 交互配置
+    interactive_config
+    
+    # 系统准备
+    install_packages
+    optimize_system
+    
+    # 软件安装
+    install_sing_box
+    install_xray
+    
+    # 证书配置
+    setup_certificates
+    
+    # 配置生成
+    generate_configs
+    
+    # 服务配置
+    setup_services
+    
+    # 防火墙配置
+    setup_firewall
+    
+    # 管理工具
+    create_management_tool
+    
+    # 启动服务
+    start_services
+    
+    # 显示完成信息
+    show_complete
+    
+    log "EdgeBox 安装成功完成"
+}
+
+# === 执行主函数 ===
+main "$@"
