@@ -432,27 +432,34 @@ generate_sing_box_config() {
     # 修复：Reality 密钥生成和解析
     log "生成 Reality 密钥对..."
     local keys_output
-    keys_output=$(/usr/local/bin/sing-box generate reality-keypair 2>&1) || {
-        log "无法生成 Reality 密钥对，使用备用方案"
-        # 备用方案：使用随机密钥
-        local private_key=$(openssl rand -base64 32 | tr -d '\n')
-        local public_key=$(openssl rand -base64 32 | tr -d '\n')
-    }
+    keys_output=$(/usr/local/bin/sing-box generate reality-keypair 2>&1)
     
-    # 如果正常生成，则解析密钥
+    local private_key=""
+    local public_key=""
+    
+    # 改进的密钥解析方法
     if [[ -n "$keys_output" ]]; then
-        local private_key=$(echo "$keys_output" | awk '/PrivateKey:/ {for(i=2; i<=NF; i++) printf "%s%s", $i, (i==NF?"\n":" ")}' | tr -d ' \n')
-        local public_key=$(echo "$keys_output" | awk '/PublicKey:/ {for(i=2; i<=NF; i++) printf "%s%s", $i, (i==NF?"\n":" ")}' | tr -d ' \n')
+        # 方法1：使用sed提取
+        private_key=$(echo "$keys_output" | sed -n 's/^PrivateKey: *//p' | tr -d ' \n')
+        public_key=$(echo "$keys_output" | sed -n 's/^PublicKey: *//p' | tr -d ' \n')
         
-        # 验证密钥是否正确提取
+        # 方法2：如果方法1失败，尝试awk
         if [[ -z "$private_key" ]] || [[ -z "$public_key" ]]; then
-            log "密钥解析失败，使用备用密钥"
-            private_key=$(openssl rand -base64 32 | tr -d '\n')
-            public_key=$(openssl rand -base64 32 | tr -d '\n')
+            private_key=$(echo "$keys_output" | awk '/PrivateKey:/ {print $2}' | tr -d '\n')
+            public_key=$(echo "$keys_output" | awk '/PublicKey:/ {print $2}' | tr -d '\n')
         fi
     fi
     
-    local short_id=$(openssl rand -hex 4)
+    # 验证密钥长度（Reality密钥通常是44字符）
+    if [[ ${#private_key} -lt 20 ]] || [[ ${#public_key} -lt 20 ]]; then
+        log "密钥无效，重新生成..."
+        # 使用sing-box内置命令再次尝试
+        keys_output=$(/usr/local/bin/sing-box generate reality-keypair)
+        private_key=$(echo "$keys_output" | grep PrivateKey | cut -d' ' -f2-)
+        public_key=$(echo "$keys_output" | grep PublicKey | cut -d' ' -f2-)
+    fi
+    
+    local short_id=$(openssl rand -hex 8)  # 修复：Reality短ID改为8位
     local reality_uuid=$(uuidgen)
     
     echo "$reality_uuid" > "$WORK_DIR/reality-uuid"
@@ -461,18 +468,18 @@ generate_sing_box_config() {
     echo "$private_key" > "$WORK_DIR/reality-private-key"
     
     # Hysteria2
-    local hy2_password=$(openssl rand -base64 16 | tr -d '=+/\n' | cut -c1-12)
+    local hy2_password=$(openssl rand -base64 16 | tr -d '=+/\n' | cut -c1-16)
     echo "$hy2_password" > "$WORK_DIR/hy2-password"
     
     # TUIC
     local tuic_uuid=$(uuidgen)
-    local tuic_password=$(openssl rand -hex 8)
+    local tuic_password=$(openssl rand -hex 16)  # 修复：TUIC密码长度
     echo "$tuic_uuid" > "$WORK_DIR/tuic-uuid"
     echo "$tuic_password" > "$WORK_DIR/tuic-password"
     
-    log "密钥生成完成"
+    log "Reality密钥: private_key=${private_key:0:10}..., public_key=${public_key:0:10}..."
     
-    # 修复：sing-box 配置文件（注意EOF不能有缩进）
+    # 修复：sing-box 配置文件，增加更多Reality配置选项
     cat > /etc/sing-box/config.json << EOF
 {
     "log": {
@@ -493,16 +500,20 @@ generate_sing_box_config() {
             ],
             "tls": {
                 "enabled": true,
-                "server_name": "www.cloudflare.com",
+                "server_name": "www.microsoft.com",
                 "reality": {
                     "enabled": true,
                     "private_key": "$private_key",
-                    "short_id": ["$short_id"],
+                    "short_id": ["$short_id", ""],
                     "handshake": {
-                        "server": "www.cloudflare.com",
+                        "server": "www.microsoft.com",
                         "server_port": 443
-                    }
+                    },
+                    "max_time_difference": "1m"
                 }
+            },
+            "multiplex": {
+                "enabled": false
             }
         },
         {
@@ -510,8 +521,8 @@ generate_sing_box_config() {
             "tag": "hysteria2",
             "listen": "::",
             "listen_port": $HY2_PORT,
-            "up_mbps": 200,
-            "down_mbps": 200,
+            "up_mbps": 100,
+            "down_mbps": 100,
             "users": [
                 {
                     "password": "$hy2_password"
@@ -522,7 +533,8 @@ generate_sing_box_config() {
                 "alpn": ["h3"],
                 "certificate_path": "/etc/ssl/edgebox/cert.pem",
                 "key_path": "/etc/ssl/edgebox/key.pem"
-            }
+            },
+            "ignore_client_bandwidth": false
         },
         {
             "type": "tuic",
@@ -535,8 +547,8 @@ generate_sing_box_config() {
                     "password": "$tuic_password"
                 }
             ],
-            "congestion_control": "bbr",
-            "auth_timeout": "3s",
+            "congestion_control": "cubic",
+            "auth_timeout": "5s",
             "zero_rtt_handshake": false,
             "heartbeat": "10s",
             "tls": {
@@ -728,7 +740,7 @@ show_subscriptions() {
         local uuid=$(cat "$WORK_DIR/reality-uuid")
         local pubkey=$(cat "$WORK_DIR/reality-public-key")
         local sid=$(cat "$WORK_DIR/reality-short-id")
-        local reality_link="vless://$uuid@$domain:443?encryption=none&flow=xtls-rprx-vision&fp=chrome&security=reality&sni=www.cloudflare.com&pbk=$pubkey&sid=$sid&type=tcp#EdgeBox-Reality"
+        local reality_link="vless://$uuid@$domain:443?encryption=none&flow=xtls-rprx-vision&fp=chrome&security=reality&sni=www.microsoft.com&pbk=$pubkey&sid=$sid&type=tcp#EdgeBox-Reality"
         echo "VLESS-Reality:"
         echo "$reality_link"
         subscriptions+="$reality_link\n"
@@ -738,7 +750,7 @@ show_subscriptions() {
     # Hysteria2
     if [[ -f "$WORK_DIR/hy2-password" ]]; then
         local password=$(cat "$WORK_DIR/hy2-password")
-        local hy2_link="hysteria2://$password@$domain:$hy2_port/?insecure=1#EdgeBox-Hysteria2"
+        local hy2_link="hysteria2://$password@$domain:$hy2_port/?insecure=1&sni=$domain#EdgeBox-Hysteria2"
         echo "Hysteria2:"
         echo "$hy2_link"
         subscriptions+="$hy2_link\n"
@@ -749,7 +761,7 @@ show_subscriptions() {
     if [[ -f "$WORK_DIR/tuic-uuid" ]]; then
         local uuid=$(cat "$WORK_DIR/tuic-uuid")
         local password=$(cat "$WORK_DIR/tuic-password")
-        local tuic_link="tuic://$uuid:$password@$domain:2053?congestion_control=bbr&udp_relay_mode=native&alpn=h3&allow_insecure=1#EdgeBox-TUIC"
+        local tuic_link="tuic://$uuid:$password@$domain:2053?congestion_control=cubic&udp_relay_mode=native&alpn=h3&allow_insecure=1&sni=$domain#EdgeBox-TUIC"
         echo "TUIC:"
         echo "$tuic_link"
         subscriptions+="$tuic_link\n"
@@ -759,12 +771,16 @@ show_subscriptions() {
     # 生成聚合订阅
     if [[ -n "$subscriptions" ]]; then
         mkdir -p /var/www/html
-        echo -e "$subscriptions" | base64 -w 0 > "/var/www/html/edgebox-sub.txt"
+        local base64_sub=$(echo -e "$subscriptions" | base64 -w 0)
+        echo "$base64_sub" > "/var/www/html/edgebox-sub.txt"
         echo -e "$subscriptions" > "/var/www/html/edgebox-sub-plain.txt"
         
         echo "=== 聚合订阅链接 ==="
         echo "Base64订阅: http://$domain/edgebox-sub.txt"
         echo "明文订阅: http://$domain/edgebox-sub-plain.txt"
+        echo
+        echo "=== Base64订阅内容 ==="
+        echo "$base64_sub"
         echo
         echo "提示: 将订阅链接添加到客户端即可使用所有协议"
     fi
@@ -782,17 +798,21 @@ generate_subscription_page() {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>EdgeBox 节点订阅</title>
     <style>
-        body { font-family: Arial, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; background: #f5f5f5; }
+        body { font-family: Arial, sans-serif; max-width: 1000px; margin: 50px auto; padding: 20px; background: #f5f5f5; }
         .container { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
         h1 { color: #333; text-align: center; margin-bottom: 30px; }
         .info { background: #e3f2fd; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
         .subscription { background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 10px 0; }
-        .link { word-break: break-all; font-family: monospace; background: #fff; padding: 10px; border: 1px solid #ddd; border-radius: 3px; margin: 5px 0; }
+        .link { word-break: break-all; font-family: monospace; background: #fff; padding: 10px; border: 1px solid #ddd; border-radius: 3px; margin: 5px 0; font-size: 12px; }
         .btn { display: inline-block; padding: 10px 20px; background: #007bff; color: white; text-decoration: none; border-radius: 5px; margin: 5px; }
         .btn:hover { background: #0056b3; }
-        .status { margin: 20px 0; }
-        .online { color: #28a745; }
-        .offline { color: #dc3545; }
+        .tabs { display: flex; margin-bottom: 20px; }
+        .tab { padding: 10px 20px; cursor: pointer; background: #e9ecef; border: none; margin-right: 5px; border-radius: 5px 5px 0 0; }
+        .tab.active { background: #007bff; color: white; }
+        .tab-content { display: none; padding: 20px; border: 1px solid #ddd; border-radius: 0 5px 5px 5px; }
+        .tab-content.active { display: block; }
+        textarea { width: 100%; height: 200px; font-family: monospace; font-size: 12px; }
+        .copy-btn { background: #28a745; padding: 5px 10px; font-size: 12px; }
     </style>
 </head>
 <body>
@@ -807,10 +827,33 @@ generate_subscription_page() {
         </div>
 
         <div class="subscription">
-            <h3>🔗 快速订阅 (推荐)</h3>
-            <p>点击下方按钮一键导入所有协议：</p>
-            <a href="/edgebox-sub.txt" class="btn" target="_blank">📥 Base64订阅</a>
-            <a href="/edgebox-sub-plain.txt" class="btn" target="_blank">📄 明文订阅</a>
+            <h3>🔗 订阅链接</h3>
+            <div class="tabs">
+                <button class="tab active" onclick="showTab('quick')">快速订阅</button>
+                <button class="tab" onclick="showTab('base64')">Base64订阅</button>
+                <button class="tab" onclick="showTab('plain')">明文订阅</button>
+            </div>
+            
+            <div id="quick" class="tab-content active">
+                <p>点击下方按钮一键导入所有协议：</p>
+                <a href="/edgebox-sub.txt" class="btn" target="_blank">📥 Base64订阅</a>
+                <a href="/edgebox-sub-plain.txt" class="btn" target="_blank">📄 明文订阅</a>
+                <br><br>
+                <p><strong>订阅地址：</strong></p>
+                <div class="link">http://DOMAIN_PLACEHOLDER/edgebox-sub.txt</div>
+            </div>
+            
+            <div id="base64" class="tab-content">
+                <p>Base64编码的订阅内容：</p>
+                <textarea id="base64Content" readonly></textarea>
+                <button class="btn copy-btn" onclick="copyContent('base64Content')">复制</button>
+            </div>
+            
+            <div id="plain" class="tab-content">
+                <p>明文订阅内容：</p>
+                <textarea id="plainContent" readonly></textarea>
+                <button class="btn copy-btn" onclick="copyContent('plainContent')">复制</button>
+            </div>
         </div>
 
         <div class="subscription">
@@ -832,15 +875,60 @@ generate_subscription_page() {
                 <li>选择适合的协议连接</li>
             </ol>
         </div>
-
-        <div class="status">
-            <h3>📊 服务状态</h3>
-            <p>如需查看详细状态，请SSH登录服务器执行: <code>edgeboxctl status</code></p>
-        </div>
     </div>
 
     <script>
-        console.log('EdgeBox subscription page loaded');
+        function showTab(tabName) {
+            // 隐藏所有标签页
+            const contents = document.querySelectorAll('.tab-content');
+            const tabs = document.querySelectorAll('.tab');
+            
+            contents.forEach(content => content.classList.remove('active'));
+            tabs.forEach(tab => tab.classList.remove('active'));
+            
+            // 显示选中的标签页
+            document.getElementById(tabName).classList.add('active');
+            event.target.classList.add('active');
+            
+            // 加载内容
+            if (tabName === 'base64' && !document.getElementById('base64Content').value) {
+                loadSubscriptionContent();
+            }
+        }
+        
+        function loadSubscriptionContent() {
+            // 加载Base64内容
+            fetch('/edgebox-sub.txt')
+                .then(response => response.text())
+                .then(data => {
+                    document.getElementById('base64Content').value = data;
+                });
+                
+            // 加载明文内容
+            fetch('/edgebox-sub-plain.txt')
+                .then(response => response.text())
+                .then(data => {
+                    document.getElementById('plainContent').value = data;
+                });
+        }
+        
+        function copyContent(elementId) {
+            const element = document.getElementById(elementId);
+            element.select();
+            document.execCommand('copy');
+            
+            const btn = event.target;
+            const originalText = btn.textContent;
+            btn.textContent = '已复制!';
+            setTimeout(() => {
+                btn.textContent = originalText;
+            }, 2000);
+        }
+        
+        // 页面加载时预加载内容
+        window.onload = function() {
+            loadSubscriptionContent();
+        };
     </script>
 </body>
 </html>
