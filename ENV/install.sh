@@ -447,114 +447,75 @@ generate_sing_box_config() {
     echo "$tuic_uuid" > "$WORK_DIR/tuic-uuid"
     echo "$tuic_password" > "$WORK_DIR/tuic-password"
     
-    # 构建入站
-    local inbounds=$(cat << EOF
-[
-    {
-        "type": "vless",
-        "tag": "vless-reality",
-        "listen": "::",
-        "listen_port": 443,
-        "users": [{
-            "uuid": "$reality_uuid",
-            "flow": "xtls-rprx-vision"
-        }],
-        "tls": {
-            "enabled": true,
-            "server_name": "www.cloudflare.com",
-            "reality": {
-                "enabled": true,
-                "private_key": "$private_key",
-                "short_id": ["$short_id"],
-                "handshake": {
-                    "server": "www.cloudflare.com",
-                    "server_port": 443
-                }
-            }
-        }
-    },
-    {
-        "type": "hysteria2",
-        "tag": "hysteria2",
-        "listen": "::",
-        "listen_port": $HY2_PORT,
-        "up_mbps": 200,
-        "down_mbps": 200,
-        "users": [{
-            "password": "$hy2_password"
-        }],
-        "tls": {
-            "enabled": true,
-            "alpn": ["h3"],
-            "certificate_path": "/etc/ssl/edgebox/cert.pem",
-            "key_path": "/etc/ssl/edgebox/key.pem"
-        }
-    },
-    {
-        "type": "tuic",
-        "tag": "tuic",
-        "listen": "::",
-        "listen_port": 2053,
-        "users": [{
-            "uuid": "$tuic_uuid",
-            "password": "$tuic_password"
-        }],
-        "congestion_control": "bbr",
-        "tls": {
-            "enabled": true,
-            "alpn": ["h3"],
-            "certificate_path": "/etc/ssl/edgebox/cert.pem",
-            "key_path": "/etc/ssl/edgebox/key.pem"
-        }
-    }
-]
-EOF
-    )
-    
-    # 构建出站
-    local outbounds='[{"type": "direct", "tag": "direct"}'
-    if [[ "$USE_PROXY" == true && -n "$PROXY_HOST" && -n "$PROXY_PORT" ]]; then
-        outbounds+=",$(cat << EOF
-{
-    "type": "http",
-    "tag": "proxy",
-    "server": "$PROXY_HOST",
-    "server_port": $PROXY_PORT$(
-        [[ -n "$PROXY_USER" && -n "$PROXY_PASS" ]] && echo ",
-    \"username\": \"$PROXY_USER\",
-    \"password\": \"$PROXY_PASS\"" || echo ""
-    )
-}
-EOF
-        )"
-    fi
-    outbounds+=']'
-    
-    # 路由规则
-    local route=""
-    if [[ "$USE_PROXY" == true ]]; then
-        route=$(cat << 'EOF'
-,"route": {
-    "rules": [
-        {
-            "domain_suffix": ["googlevideo.com", "ytimg.com", "ggpht.com"],
-            "outbound": "direct"
-        },
-        {
-            "outbound": "proxy"
-        }
-    ]
-}
-EOF
-        )
-    fi
-    
+    # 生成配置文件 - 注意 TUIC 使用 congestion_control 而不是 congestion
     cat > /etc/sing-box/config.json << EOF
 {
     "log": {"level": "info"},
-    "inbounds": $inbounds,
-    "outbounds": $outbounds
-    $route
+    "inbounds": [
+        {
+            "type": "vless",
+            "tag": "vless-reality",
+            "listen": "::",
+            "listen_port": 443,
+            "users": [{
+                "uuid": "$reality_uuid",
+                "flow": "xtls-rprx-vision"
+            }],
+            "tls": {
+                "enabled": true,
+                "server_name": "www.cloudflare.com",
+                "reality": {
+                    "enabled": true,
+                    "private_key": "$private_key",
+                    "short_id": ["$short_id"],
+                    "handshake": {
+                        "server": "www.cloudflare.com",
+                        "server_port": 443
+                    }
+                }
+            }
+        },
+        {
+            "type": "hysteria2",
+            "tag": "hysteria2",
+            "listen": "::",
+            "listen_port": $HY2_PORT,
+            "up_mbps": 200,
+            "down_mbps": 200,
+            "users": [{
+                "password": "$hy2_password"
+            }],
+            "tls": {
+                "enabled": true,
+                "alpn": ["h3"],
+                "certificate_path": "/etc/ssl/edgebox/cert.pem",
+                "key_path": "/etc/ssl/edgebox/key.pem"
+            }
+        },
+        {
+            "type": "tuic",
+            "tag": "tuic",
+            "listen": "::",
+            "listen_port": 2053,
+            "users": [{
+                "uuid": "$tuic_uuid",
+                "password": "$tuic_password"
+            }],
+            "congestion_control": "bbr",
+            "tls": {
+                "enabled": true,
+                "alpn": ["h3"],
+                "certificate_path": "/etc/ssl/edgebox/cert.pem",
+                "key_path": "/etc/ssl/edgebox/key.pem"
+            }
+        }
+    ],
+    "outbounds": [
+        {
+            "type": "direct",
+            "tag": "direct"
+        }
+    ]
 }
 EOF
     
