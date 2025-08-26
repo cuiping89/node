@@ -96,18 +96,22 @@ install_packages() {
     log "安装依赖包..."
     export DEBIAN_FRONTEND=noninteractive
     
-    # 先清理可能存在的旧配置
-    log "清理旧的 nginx 配置..."
+    # 先彻底清理可能存在的旧配置
+    log "清理旧的 EdgeBox 配置..."
     rm -f /etc/nginx/edgebox*.conf 2>/dev/null || true
     rm -f /etc/nginx/conf.d/edgebox*.conf 2>/dev/null || true
     rm -f /etc/nginx/sites-available/edgebox* 2>/dev/null || true
     rm -f /etc/nginx/sites-enabled/edgebox* 2>/dev/null || true
     
+    # 清理默认站点可能的冲突
+    if [[ -f /etc/nginx/sites-enabled/default ]]; then
+        rm -f /etc/nginx/sites-enabled/default
+    fi
+    
     # 修复 nginx.conf 中的错误引用
     if [[ -f /etc/nginx/nginx.conf ]]; then
-        # 移除对 edgebox_stream.conf 的引用
-        sed -i '/edgebox_stream\.conf/d' /etc/nginx/nginx.conf 2>/dev/null || true
-        sed -i '/include.*edgebox/d' /etc/nginx/nginx.conf 2>/dev/null || true
+        # 移除对 edgebox 相关的引用
+        sed -i '/edgebox/d' /etc/nginx/nginx.conf 2>/dev/null || true
         
         # 如果 nginx.conf 被破坏，恢复默认配置
         if ! nginx -t 2>/dev/null; then
