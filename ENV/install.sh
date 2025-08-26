@@ -499,7 +499,7 @@ generate_sing_box_config() {
             "uuid": "$tuic_uuid",
             "password": "$tuic_password"
         }],
-        "congestion": "bbr",
+        "congestion_control": "bbr",
         "tls": {
             "enabled": true,
             "alpn": ["h3"],
