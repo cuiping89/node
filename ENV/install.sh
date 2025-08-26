@@ -467,13 +467,13 @@ generate_sing_box_config() {
     echo "$short_id" > "$WORK_DIR/reality-short-id"
     echo "$private_key" > "$WORK_DIR/reality-private-key"
     
-    # Hysteria2
-    local hy2_password=$(openssl rand -base64 16 | tr -d '=+/\n' | cut -c1-16)
+    # Hysteria2 - 修复协议格式和参数
+    local hy2_password=$(openssl rand -hex 32)  # 改为hex格式
     echo "$hy2_password" > "$WORK_DIR/hy2-password"
     
-    # TUIC
+    # TUIC - 简化密码生成
     local tuic_uuid=$(uuidgen)
-    local tuic_password=$(openssl rand -hex 16)  # 修复：TUIC密码长度
+    local tuic_password=$(openssl rand -hex 32)
     echo "$tuic_uuid" > "$WORK_DIR/tuic-uuid"
     echo "$tuic_password" > "$WORK_DIR/tuic-password"
     
@@ -521,8 +521,6 @@ generate_sing_box_config() {
             "tag": "hysteria2",
             "listen": "::",
             "listen_port": $HY2_PORT,
-            "up_mbps": 100,
-            "down_mbps": 100,
             "users": [
                 {
                     "password": "$hy2_password"
@@ -533,9 +531,7 @@ generate_sing_box_config() {
                 "alpn": ["h3"],
                 "certificate_path": "/etc/ssl/edgebox/cert.pem",
                 "key_path": "/etc/ssl/edgebox/key.pem"
-            },
-            "ignore_client_bandwidth": true,
-            "masquerade": "https://www.bing.com"
+            }
         },
         {
             "type": "tuic",
@@ -548,10 +544,8 @@ generate_sing_box_config() {
                     "password": "$tuic_password"
                 }
             ],
-            "congestion_control": "cubic",
+            "congestion_control": "bbr",
             "auth_timeout": "3s",
-            "zero_rtt_handshake": false,
-            "heartbeat": "10s",
             "tls": {
                 "enabled": true,
                 "alpn": ["h3"],
@@ -748,21 +742,21 @@ show_subscriptions() {
         echo
     fi
     
-    # Hysteria2
+    # Hysteria2 - 修复链接格式
     if [[ -f "$WORK_DIR/hy2-password" ]]; then
         local password=$(cat "$WORK_DIR/hy2-password")
-        local hy2_link="hy2://$password@$domain:$hy2_port/?insecure=1&sni=www.bing.com#EdgeBox-Hysteria2"
+        local hy2_link="hysteria2://$password@$domain:$hy2_port?insecure=1#EdgeBox-Hysteria2"
         echo "Hysteria2:"
         echo "$hy2_link"
         subscriptions+="$hy2_link\n"
         echo
     fi
     
-    # TUIC
+    # TUIC - 修复链接格式
     if [[ -f "$WORK_DIR/tuic-uuid" ]]; then
         local uuid=$(cat "$WORK_DIR/tuic-uuid")
         local password=$(cat "$WORK_DIR/tuic-password")
-        local tuic_link="tuic://$uuid:$password@$domain:2053?congestion_control=cubic&alpn=h3&allow_insecure=1#EdgeBox-TUIC"
+        local tuic_link="tuic://$uuid:$password@$domain:2053?congestion_control=bbr&alpn=h3&allow_insecure=1#EdgeBox-TUIC"
         echo "TUIC:"
         echo "$tuic_link"
         subscriptions+="$tuic_link\n"
@@ -823,24 +817,31 @@ generate_subscription_page() {
         </div>
 
         <div class="subscription">
-            <h3>🔗 订阅内容</h3>
+            <h3>🔗 聚合订阅链接</h3>
             <div style="margin-bottom: 15px;">
-                <strong>订阅地址：</strong>
+                <p><strong>一键订阅所有协议：</strong></p>
                 <div class="link">http://DOMAIN_PLACEHOLDER/edgebox-sub.txt</div>
-                <a href="/edgebox-sub.txt" class="btn" target="_blank">📥 下载Base64订阅</a>
-                <a href="/edgebox-sub-plain.txt" class="btn" target="_blank">📄 下载明文订阅</a>
+                <a href="/edgebox-sub.txt" class="btn" target="_blank">📥 Base64订阅</a>
+                <a href="/edgebox-sub-plain.txt" class="btn" target="_blank">📄 明文订阅</a>
             </div>
             
             <div style="margin-bottom: 20px;">
                 <h4>📋 Base64订阅内容：</h4>
-                <textarea id="base64Content" readonly style="width: 100%; height: 120px; font-family: monospace; font-size: 12px; margin-bottom: 10px;"></textarea>
+                <textarea id="base64Content" readonly style="width: 100%; height: 80px; font-family: monospace; font-size: 12px; margin-bottom: 10px;"></textarea>
                 <button class="btn copy-btn" onclick="copyContent('base64Content')">复制Base64</button>
             </div>
             
             <div>
                 <h4>📝 明文订阅内容：</h4>
-                <textarea id="plainContent" readonly style="width: 100%; height: 200px; font-family: monospace; font-size: 12px; margin-bottom: 10px;"></textarea>
+                <textarea id="plainContent" readonly style="width: 100%; height: 150px; font-family: monospace; font-size: 12px; margin-bottom: 10px;"></textarea>
                 <button class="btn copy-btn" onclick="copyContent('plainContent')">复制明文</button>
+            </div>
+        </div>
+
+        <div class="subscription">
+            <h3>🎯 单个协议链接</h3>
+            <div id="singleLinks" style="font-family: monospace; font-size: 12px; line-height: 1.8;">
+                <p>加载中...</p>
             </div>
         </div>
 
@@ -879,7 +880,20 @@ generate_subscription_page() {
             }, 2000);
         }
         
-        // 页面加载时加载订阅内容
+        function copySingleLink(link) {
+            navigator.clipboard.writeText(link).then(() => {
+                // 临时显示复制成功
+                const tempSpan = document.createElement('span');
+                tempSpan.textContent = ' ✅已复制';
+                tempSpan.style.color = '#28a745';
+                event.target.parentNode.appendChild(tempSpan);
+                setTimeout(() => {
+                    tempSpan.remove();
+                }, 2000);
+            });
+        }
+        
+        // 页面加载时加载所有订阅内容
         window.onload = function() {
             // 加载Base64内容
             fetch('/edgebox-sub.txt')
@@ -891,14 +905,42 @@ generate_subscription_page() {
                     document.getElementById('base64Content').value = '加载失败，请刷新页面重试';
                 });
                 
-            // 加载明文内容
+            // 加载明文内容并解析单个链接
             fetch('/edgebox-sub-plain.txt')
                 .then(response => response.text())
                 .then(data => {
                     document.getElementById('plainContent').value = data;
+                    
+                    // 解析并显示单个协议链接
+                    const links = data.trim().split('\n').filter(line => line.trim());
+                    const singleLinksDiv = document.getElementById('singleLinks');
+                    
+                    if (links.length > 0) {
+                        let html = '';
+                        links.forEach(link => {
+                            const protocolMatch = link.match(/^(\w+):\/\//);
+                            const nameMatch = link.match(/#(.+)$/);
+                            const protocol = protocolMatch ? protocolMatch[1].toUpperCase() : '未知';
+                            const name = nameMatch ? nameMatch[1] : protocol;
+                            
+                            html += `
+                                <div style="margin-bottom: 15px; padding: 10px; background: #fff; border: 1px solid #ddd; border-radius: 5px;">
+                                    <div style="margin-bottom: 5px;">
+                                        <strong>${name}</strong>
+                                        <button onclick="copySingleLink('${link}')" style="float: right; padding: 2px 8px; font-size: 11px; background: #17a2b8; color: white; border: none; border-radius: 3px; cursor: pointer;">复制</button>
+                                    </div>
+                                    <div style="word-break: break-all; color: #666; font-size: 11px;">${link}</div>
+                                </div>
+                            `;
+                        });
+                        singleLinksDiv.innerHTML = html;
+                    } else {
+                        singleLinksDiv.innerHTML = '<p>没有找到协议链接</p>';
+                    }
                 })
                 .catch(err => {
                     document.getElementById('plainContent').value = '加载失败，请刷新页面重试';
+                    document.getElementById('singleLinks').innerHTML = '<p>加载失败</p>';
                 });
         };
     </script>
