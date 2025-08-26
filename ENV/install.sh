@@ -597,22 +597,9 @@ install_dependencies() {
     apt update || error_exit "更新包列表失败"
     
     print_msg "安装必要依赖..."
-    local packages=(
-        wget
-        curl
-        unzip
-        jq
-        nginx
-        certbot
-        python3-certbot-nginx
-        uuid-runtime
-        openssl
-        socat
-        qrencode
-        ufw
-    )
+    local packages="wget curl unzip jq nginx certbot python3-certbot-nginx uuid-runtime openssl socat qrencode ufw"
     
-    for pkg in "${packages[@]}"; do
+    for pkg in $packages; do
         if ! dpkg -l | grep -q "^ii.*$pkg"; then
             print_msg "安装 $pkg..."
             DEBIAN_FRONTEND=noninteractive apt install -y "$pkg" || print_warning "安装 $pkg 失败"
