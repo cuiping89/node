@@ -426,19 +426,16 @@ EOF
 }
 
 generate_sing_box_config() {
-    # Reality 密钥生成 - 修复：正确提取包含连字符的密钥
+    # Reality 密钥生成
     local keys=$(/usr/local/bin/sing-box generate reality-keypair)
-    # 输出格式是：
-    # PrivateKey: xxx
-    # PublicKey: xxx
-    # 使用 awk 提取冒号后面的内容（去掉前后空格）
-    local private_key=$(echo "$keys" | awk '/^PrivateKey:/ {sub(/^PrivateKey: */, ""); print}')
-    local public_key=$(echo "$keys" | awk '/^PublicKey:/ {sub(/^PublicKey: */, ""); print}')
+    # 正确提取密钥（冒号后的所有内容）
+    local private_key=$(echo "$keys" | grep "^PrivateKey:" | sed 's/^PrivateKey: *//')
+    local public_key=$(echo "$keys" | grep "^PublicKey:" | sed 's/^PublicKey: *//')
     
-    # 如果还是失败，用 cut 方法
+    # 如果密钥为空，尝试其他方法
     if [[ -z "$private_key" ]] || [[ -z "$public_key" ]]; then
-        private_key=$(echo "$keys" | grep "^PrivateKey:" | cut -d' ' -f2)
-        public_key=$(echo "$keys" | grep "^PublicKey:" | cut -d' ' -f2)
+        private_key=$(echo "$keys" | awk '/^PrivateKey:/ {print substr($0, index($0,$2))}')
+        public_key=$(echo "$keys" | awk '/^PublicKey:/ {print substr($0, index($0,$2))}')
     fi
     
     local short_id=$(openssl rand -hex 4)
