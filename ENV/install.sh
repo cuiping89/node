@@ -629,11 +629,14 @@ show_subscriptions() {
         local reality_link="vless://$uuid@$domain:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&pbk=$pubkey&sid=$sid&type=tcp&headerType=none&fp=chrome#EdgeBox-Reality"
         echo "VLESS-Reality:"
         echo "$reality_link"
+        echo "  UUID: $uuid"
+        echo "  PublicKey: $pubkey"
+        echo "  ShortID: $sid"
         subscriptions+="$reality_link\n"
         echo
     fi
     
-    # Hysteria2 - 修复链接格式
+    # Hysteria2
     if [[ -f "$WORK_DIR/hy2-password" ]]; then
         local password=$(cat "$WORK_DIR/hy2-password")
         local hy2_link="hy2://$password@$domain:8443?insecure=1&sni=$domain#EdgeBox-Hysteria2"
@@ -643,7 +646,7 @@ show_subscriptions() {
         echo
     fi
     
-    # TUIC v5 - 修复链接格式
+    # TUIC v5
     if [[ -f "$WORK_DIR/tuic-uuid" ]]; then
         local uuid=$(cat "$WORK_DIR/tuic-uuid")
         local password=$(cat "$WORK_DIR/tuic-password")
@@ -654,17 +657,178 @@ show_subscriptions() {
         echo
     fi
     
-    # 生成聚合订阅
+    # 生成聚合订阅文件（需要root权限）
     if [[ -n "$subscriptions" ]]; then
-        mkdir -p /var/www/html
+        # 确保目录存在且有正确权限
+        sudo mkdir -p /var/www/html
+        sudo chown -R www-data:www-data /var/www/html
+        
         local base64_sub=$(echo -e "$subscriptions" | base64 -w 0)
-        echo "$base64_sub" > "/var/www/html/edgebox-sub.txt"
-        echo -e "$subscriptions" > "/var/www/html/edgebox-sub-plain.txt"
+        echo "$base64_sub" | sudo tee "/var/www/html/edgebox-sub.txt" > /dev/null
+        echo -e "$subscriptions" | sudo tee "/var/www/html/edgebox-sub-plain.txt" > /dev/null
+        
+        # 生成HTML页面
+        generate_subscription_page "$domain" "$subscriptions"
         
         echo "=== 聚合订阅链接 ==="
+        echo "网页版: http://$domain"
         echo "Base64订阅: http://$domain/edgebox-sub.txt"
         echo "明文订阅: http://$domain/edgebox-sub-plain.txt"
     fi
+}
+
+generate_subscription_page() {
+    local domain="$1"
+    local links="$2"
+    
+    sudo cat > /var/www/html/index.html << HTMLEOF
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EdgeBox 节点订阅</title>
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; }
+        .container { background: white; padding: 30px; border-radius: 15px; box-shadow: 0 10px 40px rgba(0,0,0,0.1); }
+        h1 { color: #333; text-align: center; margin-bottom: 30px; font-size: 2em; }
+        .section { background: #f8f9fa; padding: 20px; border-radius: 10px; margin: 20px 0; }
+        .section h2 { color: #667eea; margin-top: 0; }
+        .link-box { background: white; padding: 15px; border-radius: 8px; margin: 10px 0; border: 1px solid #e0e0e0; word-break: break-all; font-family: monospace; font-size: 12px; }
+        .copy-btn { background: #667eea; color: white; border: none; padding: 8px 16px; border-radius: 5px; cursor: pointer; font-size: 12px; margin-left: 10px; }
+        .copy-btn:hover { background: #5a67d8; }
+        .success { color: #48bb78; font-weight: bold; }
+        .sub-links { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 15px; margin-top: 20px; }
+        .sub-card { background: white; padding: 15px; border-radius: 8px; border: 1px solid #e0e0e0; }
+        .sub-card h3 { margin-top: 0; color: #667eea; }
+        .protocol-badge { display: inline-block; padding: 3px 8px; border-radius: 3px; font-size: 11px; font-weight: bold; margin-right: 5px; }
+        .badge-grpc { background: #4caf50; color: white; }
+        .badge-ws { background: #2196f3; color: white; }
+        .badge-reality { background: #ff9800; color: white; }
+        .badge-hy2 { background: #9c27b0; color: white; }
+        .badge-tuic { background: #f44336; color: white; }
+        textarea { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-family: monospace; font-size: 12px; resize: vertical; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 EdgeBox 多协议节点</h1>
+        
+        <div class="section">
+            <h2>📋 服务器信息</h2>
+            <p><strong>地址:</strong> $domain</p>
+            <p><strong>支持协议:</strong> 
+                <span class="protocol-badge badge-grpc">gRPC</span>
+                <span class="protocol-badge badge-ws">WebSocket</span>
+                <span class="protocol-badge badge-reality">Reality</span>
+                <span class="protocol-badge badge-hy2">Hysteria2</span>
+                <span class="protocol-badge badge-tuic">TUIC</span>
+            </p>
+        </div>
+
+        <div class="section">
+            <h2>🔗 聚合订阅（推荐）</h2>
+            <p>一键导入所有节点，客户端自动选择最优线路：</p>
+            <div class="sub-links">
+                <div class="sub-card">
+                    <h3>Base64 订阅</h3>
+                    <input type="text" id="base64-url" value="http://$domain/edgebox-sub.txt" readonly style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                    <button class="copy-btn" onclick="copyText('base64-url')">复制</button>
+                </div>
+                <div class="sub-card">
+                    <h3>明文订阅</h3>
+                    <input type="text" id="plain-url" value="http://$domain/edgebox-sub-plain.txt" readonly style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                    <button class="copy-btn" onclick="copyText('plain-url')">复制</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>📝 订阅内容</h2>
+            <h3>Base64 编码:</h3>
+            <textarea id="base64-content" rows="4" readonly></textarea>
+            <button class="copy-btn" onclick="copyText('base64-content')">复制</button>
+            
+            <h3 style="margin-top: 20px;">明文链接:</h3>
+            <textarea id="plain-content" rows="8" readonly></textarea>
+            <button class="copy-btn" onclick="copyText('plain-content')">复制</button>
+        </div>
+
+        <div class="section">
+            <h2>🎯 单个协议链接</h2>
+            <div id="single-links"></div>
+        </div>
+
+        <div class="section">
+            <h2>📱 支持的客户端</h2>
+            <ul>
+                <li><strong>Windows/Mac:</strong> v2rayN, Clash Meta, sing-box</li>
+                <li><strong>Android:</strong> v2rayNG, Clash Meta, sing-box</li>
+                <li><strong>iOS:</strong> Shadowrocket, Quantumult X, Surge</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        function copyText(elementId) {
+            const element = document.getElementById(elementId);
+            if (element.tagName === 'TEXTAREA' || element.tagName === 'INPUT') {
+                element.select();
+                document.execCommand('copy');
+            } else {
+                const text = element.innerText;
+                navigator.clipboard.writeText(text);
+            }
+            
+            // 显示复制成功提示
+            const btn = event.target;
+            const originalText = btn.innerText;
+            btn.innerText = '✓ 已复制';
+            btn.style.background = '#48bb78';
+            setTimeout(() => {
+                btn.innerText = originalText;
+                btn.style.background = '';
+            }, 2000);
+        }
+
+        // 加载订阅内容
+        fetch('/edgebox-sub.txt')
+            .then(r => r.text())
+            .then(data => document.getElementById('base64-content').value = data)
+            .catch(err => document.getElementById('base64-content').value = '加载失败');
+
+        fetch('/edgebox-sub-plain.txt')
+            .then(r => r.text())
+            .then(data => {
+                document.getElementById('plain-content').value = data;
+                
+                // 解析单个链接
+                const links = data.trim().split('\\n').filter(line => line);
+                const linksDiv = document.getElementById('single-links');
+                
+                links.forEach(link => {
+                    const match = link.match(/^(\w+):\/\/.+#(.+)$/);
+                    if (match) {
+                        const protocol = match[1];
+                        const name = match[2];
+                        const div = document.createElement('div');
+                        div.className = 'link-box';
+                        div.innerHTML = \`
+                            <strong>\${name}</strong>
+                            <button class="copy-btn" onclick="navigator.clipboard.writeText('\${link}'); this.innerText='✓ 已复制'; setTimeout(()=>this.innerText='复制',2000)">复制</button>
+                            <div style="margin-top: 10px; color: #666;">\${link}</div>
+                        \`;
+                        linksDiv.appendChild(div);
+                    }
+                });
+            })
+            .catch(err => document.getElementById('plain-content').value = '加载失败');
+    </script>
+</body>
+</html>
+HTMLEOF
+    
+    sudo chown www-data:www-data /var/www/html/index.html
 }
 
 debug_reality() {
@@ -672,14 +836,14 @@ debug_reality() {
     if [[ -f "$WORK_DIR/reality-uuid" ]]; then
         echo "UUID: $(cat $WORK_DIR/reality-uuid)"
         echo "PublicKey: $(cat $WORK_DIR/reality-public-key)"
-        echo "PrivateKey: $(cat $WORK_DIR/reality-private-key | head -c 10)..."
+        echo "PrivateKey: $(cat $WORK_DIR/reality-private-key | head -c 20)..."
         echo "ShortID: $(cat $WORK_DIR/reality-short-id)"
     else
         echo "Reality 配置文件不存在"
     fi
     echo
-    echo "=== Reality 配置检查 ==="
-    /usr/local/bin/sing-box check -c /etc/sing-box/config.json 2>&1 | grep -i reality || echo "配置检查通过"
+    echo "=== 检查 sing-box Reality 配置 ==="
+    sudo grep -A 20 "vless-reality" /etc/sing-box/config.json 2>/dev/null || echo "配置文件读取失败"
 }
 
 case ${1:-help} in
@@ -691,29 +855,29 @@ case ${1:-help} in
         echo
         echo "=== 端口监听 ==="
         echo "TCP 端口:"
-        ss -lntp | egrep ':80|:443|:8443|:10085|:10086' || echo "无TCP端口监听"
+        ss -lntp 2>/dev/null | grep -E ':80|:443|:8443|:10085|:10086' || echo "需要root权限查看"
         echo
         echo "UDP 端口:"
-        ss -lnup | egrep ':443|:8443|:2053' || echo "无UDP端口监听"
+        ss -lnup 2>/dev/null | grep -E ':443|:8443|:2053' || echo "需要root权限查看"
         ;;
     sub|subscription)
         show_subscriptions
         ;;
     restart)
         echo "正在重启服务..."
-        systemctl restart sing-box xray nginx
+        sudo systemctl restart sing-box xray nginx
         sleep 3
         echo "服务已重启"
         ;;
     logs)
         echo "=== sing-box 日志 ==="
-        journalctl -u sing-box -n 10 --no-pager
+        sudo journalctl -u sing-box -n 10 --no-pager
         echo
         echo "=== xray 日志 ==="
-        journalctl -u xray -n 10 --no-pager
+        sudo journalctl -u xray -n 10 --no-pager
         echo
         echo "=== nginx 日志 ==="
-        journalctl -u nginx -n 10 --no-pager
+        sudo journalctl -u nginx -n 10 --no-pager
         ;;
     debug)
         case ${2:-all} in
@@ -723,10 +887,10 @@ case ${1:-help} in
             *)
                 debug_reality
                 echo "=== 证书信息 ==="
-                openssl x509 -in /etc/ssl/edgebox/cert.pem -noout -subject -dates 2>/dev/null || echo "证书读取失败"
+                sudo openssl x509 -in /etc/ssl/edgebox/cert.pem -noout -subject -dates 2>/dev/null || echo "证书读取失败"
                 echo
                 echo "=== 配置文件 ==="
-                ls -la $WORK_DIR/
+                ls -la $WORK_DIR/ 2>/dev/null || echo "需要权限"
                 ;;
         esac
         ;;
@@ -762,9 +926,15 @@ start_services() {
     systemctl enable --now xray
     sleep 2
     
-    # 生成订阅页面
-    mkdir -p /var/www/html
-    /usr/local/bin/edgeboxctl sub &>/dev/null || true
+    # 生成订阅页面（使用root权限）
+    local domain="${DOMAIN:-edgebox.local}"
+    if [[ "$domain" == "edgebox.local" ]]; then
+        local server_ip=$(curl -s --connect-timeout 5 https://ipv4.icanhazip.com/ 2>/dev/null || echo "YOUR_SERVER_IP")
+        domain=$server_ip
+    fi
+    
+    # 调用 edgeboxctl 生成订阅
+    /usr/local/bin/edgeboxctl sub >/dev/null 2>&1 || true
     
     log "服务启动完成"
 }
