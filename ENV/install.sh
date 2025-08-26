@@ -330,11 +330,11 @@ generate_xray_config() {
     local uuid=$(uuidgen)
     echo "$uuid" > "$WORK_DIR/xray-uuid"
     
-    # 构建入站
+    # 构建入站 - 修复端口分配
     local inbounds=$(cat << EOF
 [
     {
-        "port": 10001,
+        "port": 10085,
         "listen": "127.0.0.1",
         "protocol": "vless",
         "settings": {
@@ -349,7 +349,7 @@ generate_xray_config() {
         }
     },
     {
-        "port": 10002,
+        "port": 10086,
         "listen": "127.0.0.1",
         "protocol": "vless",
         "settings": {
@@ -520,7 +520,7 @@ generate_sing_box_config() {
             "type": "hysteria2",
             "tag": "hysteria2",
             "listen": "::",
-            "listen_port": $HY2_PORT,
+            "listen_port": 443,
             "users": [
                 {
                     "password": "$hy2_password"
@@ -586,12 +586,12 @@ server {
     }
     
     location /edgebox-grpc {
-        grpc_pass grpc://127.0.0.1:10001;
+        grpc_pass grpc://127.0.0.1:10085;
         grpc_set_header Host \$host;
     }
     
     location /edgebox-ws {
-        proxy_pass http://127.0.0.1:10002;
+        proxy_pass http://127.0.0.1:10086;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -602,7 +602,7 @@ server {
 }
 
 server {
-    listen 80;
+    listen 80 default_server;
     server_name _;
     root /var/www/html;
     index index.html;
@@ -742,10 +742,10 @@ show_subscriptions() {
         echo
     fi
     
-    # Hysteria2 - 修复链接格式
+    # Hysteria2 - 修复回443端口
     if [[ -f "$WORK_DIR/hy2-password" ]]; then
         local password=$(cat "$WORK_DIR/hy2-password")
-        local hy2_link="hysteria2://$password@$domain:$hy2_port?insecure=1#EdgeBox-Hysteria2"
+        local hy2_link="hysteria2://$password@$domain:443?insecure=1#EdgeBox-Hysteria2"
         echo "Hysteria2:"
         echo "$hy2_link"
         subscriptions+="$hy2_link\n"
@@ -1018,16 +1018,24 @@ start_services() {
     systemctl enable --now xray
     sleep 2
     
-    # 生成订阅页面
+    # 生成订阅页面和文件
     local domain="${DOMAIN:-edgebox.local}"
     if [[ "$domain" == "edgebox.local" ]]; then
         local server_ip=$(curl -s --connect-timeout 5 https://ipv4.icanhazip.com/ 2>/dev/null || echo "YOUR_SERVER_IP")
         domain=$server_ip
     fi
     
-    # 创建订阅页面
+    # 确保目录存在
     mkdir -p /var/www/html
-    /usr/local/bin/edgeboxctl show_subscriptions &>/dev/null || true
+    
+    # 生成订阅页面
+    generate_subscription_page "$domain"
+    
+    # 生成订阅文件
+    /usr/local/bin/edgeboxctl show_subscriptions &>/dev/null || {
+        log "初始订阅生成失败，手动生成..."
+        show_subscriptions &>/dev/null || true
+    }
     
     # 检查服务状态
     if ! systemctl is-active --quiet sing-box; then
