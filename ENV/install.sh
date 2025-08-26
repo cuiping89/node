@@ -534,11 +534,12 @@ generate_sing_box_config() {
                 "certificate_path": "/etc/ssl/edgebox/cert.pem",
                 "key_path": "/etc/ssl/edgebox/key.pem"
             },
-            "ignore_client_bandwidth": false
+            "ignore_client_bandwidth": true,
+            "masquerade": "https://www.bing.com"
         },
         {
             "type": "tuic",
-            "tag": "tuic",
+            "tag": "tuic", 
             "listen": "::",
             "listen_port": 2053,
             "users": [
@@ -548,7 +549,7 @@ generate_sing_box_config() {
                 }
             ],
             "congestion_control": "cubic",
-            "auth_timeout": "5s",
+            "auth_timeout": "3s",
             "zero_rtt_handshake": false,
             "heartbeat": "10s",
             "tls": {
@@ -750,7 +751,7 @@ show_subscriptions() {
     # Hysteria2
     if [[ -f "$WORK_DIR/hy2-password" ]]; then
         local password=$(cat "$WORK_DIR/hy2-password")
-        local hy2_link="hysteria2://$password@$domain:$hy2_port/?insecure=1&sni=$domain#EdgeBox-Hysteria2"
+        local hy2_link="hy2://$password@$domain:$hy2_port/?insecure=1&sni=www.bing.com#EdgeBox-Hysteria2"
         echo "Hysteria2:"
         echo "$hy2_link"
         subscriptions+="$hy2_link\n"
@@ -761,7 +762,7 @@ show_subscriptions() {
     if [[ -f "$WORK_DIR/tuic-uuid" ]]; then
         local uuid=$(cat "$WORK_DIR/tuic-uuid")
         local password=$(cat "$WORK_DIR/tuic-password")
-        local tuic_link="tuic://$uuid:$password@$domain:2053?congestion_control=cubic&udp_relay_mode=native&alpn=h3&allow_insecure=1&sni=$domain#EdgeBox-TUIC"
+        local tuic_link="tuic://$uuid:$password@$domain:2053?congestion_control=cubic&alpn=h3&allow_insecure=1#EdgeBox-TUIC"
         echo "TUIC:"
         echo "$tuic_link"
         subscriptions+="$tuic_link\n"
@@ -806,13 +807,8 @@ generate_subscription_page() {
         .link { word-break: break-all; font-family: monospace; background: #fff; padding: 10px; border: 1px solid #ddd; border-radius: 3px; margin: 5px 0; font-size: 12px; }
         .btn { display: inline-block; padding: 10px 20px; background: #007bff; color: white; text-decoration: none; border-radius: 5px; margin: 5px; }
         .btn:hover { background: #0056b3; }
-        .tabs { display: flex; margin-bottom: 20px; }
-        .tab { padding: 10px 20px; cursor: pointer; background: #e9ecef; border: none; margin-right: 5px; border-radius: 5px 5px 0 0; }
-        .tab.active { background: #007bff; color: white; }
-        .tab-content { display: none; padding: 20px; border: 1px solid #ddd; border-radius: 0 5px 5px 5px; }
-        .tab-content.active { display: block; }
-        textarea { width: 100%; height: 200px; font-family: monospace; font-size: 12px; }
         .copy-btn { background: #28a745; padding: 5px 10px; font-size: 12px; }
+        textarea { font-family: monospace; resize: vertical; }
     </style>
 </head>
 <body>
@@ -827,32 +823,24 @@ generate_subscription_page() {
         </div>
 
         <div class="subscription">
-            <h3>🔗 订阅链接</h3>
-            <div class="tabs">
-                <button class="tab active" onclick="showTab('quick')">快速订阅</button>
-                <button class="tab" onclick="showTab('base64')">Base64订阅</button>
-                <button class="tab" onclick="showTab('plain')">明文订阅</button>
-            </div>
-            
-            <div id="quick" class="tab-content active">
-                <p>点击下方按钮一键导入所有协议：</p>
-                <a href="/edgebox-sub.txt" class="btn" target="_blank">📥 Base64订阅</a>
-                <a href="/edgebox-sub-plain.txt" class="btn" target="_blank">📄 明文订阅</a>
-                <br><br>
-                <p><strong>订阅地址：</strong></p>
+            <h3>🔗 订阅内容</h3>
+            <div style="margin-bottom: 15px;">
+                <strong>订阅地址：</strong>
                 <div class="link">http://DOMAIN_PLACEHOLDER/edgebox-sub.txt</div>
+                <a href="/edgebox-sub.txt" class="btn" target="_blank">📥 下载Base64订阅</a>
+                <a href="/edgebox-sub-plain.txt" class="btn" target="_blank">📄 下载明文订阅</a>
             </div>
             
-            <div id="base64" class="tab-content">
-                <p>Base64编码的订阅内容：</p>
-                <textarea id="base64Content" readonly></textarea>
-                <button class="btn copy-btn" onclick="copyContent('base64Content')">复制</button>
+            <div style="margin-bottom: 20px;">
+                <h4>📋 Base64订阅内容：</h4>
+                <textarea id="base64Content" readonly style="width: 100%; height: 120px; font-family: monospace; font-size: 12px; margin-bottom: 10px;"></textarea>
+                <button class="btn copy-btn" onclick="copyContent('base64Content')">复制Base64</button>
             </div>
             
-            <div id="plain" class="tab-content">
-                <p>明文订阅内容：</p>
-                <textarea id="plainContent" readonly></textarea>
-                <button class="btn copy-btn" onclick="copyContent('plainContent')">复制</button>
+            <div>
+                <h4>📝 明文订阅内容：</h4>
+                <textarea id="plainContent" readonly style="width: 100%; height: 200px; font-family: monospace; font-size: 12px; margin-bottom: 10px;"></textarea>
+                <button class="btn copy-btn" onclick="copyContent('plainContent')">复制明文</button>
             </div>
         </div>
 
@@ -878,40 +866,6 @@ generate_subscription_page() {
     </div>
 
     <script>
-        function showTab(tabName) {
-            // 隐藏所有标签页
-            const contents = document.querySelectorAll('.tab-content');
-            const tabs = document.querySelectorAll('.tab');
-            
-            contents.forEach(content => content.classList.remove('active'));
-            tabs.forEach(tab => tab.classList.remove('active'));
-            
-            // 显示选中的标签页
-            document.getElementById(tabName).classList.add('active');
-            event.target.classList.add('active');
-            
-            // 加载内容
-            if (tabName === 'base64' && !document.getElementById('base64Content').value) {
-                loadSubscriptionContent();
-            }
-        }
-        
-        function loadSubscriptionContent() {
-            // 加载Base64内容
-            fetch('/edgebox-sub.txt')
-                .then(response => response.text())
-                .then(data => {
-                    document.getElementById('base64Content').value = data;
-                });
-                
-            // 加载明文内容
-            fetch('/edgebox-sub-plain.txt')
-                .then(response => response.text())
-                .then(data => {
-                    document.getElementById('plainContent').value = data;
-                });
-        }
-        
         function copyContent(elementId) {
             const element = document.getElementById(elementId);
             element.select();
@@ -925,9 +879,27 @@ generate_subscription_page() {
             }, 2000);
         }
         
-        // 页面加载时预加载内容
+        // 页面加载时加载订阅内容
         window.onload = function() {
-            loadSubscriptionContent();
+            // 加载Base64内容
+            fetch('/edgebox-sub.txt')
+                .then(response => response.text())
+                .then(data => {
+                    document.getElementById('base64Content').value = data;
+                })
+                .catch(err => {
+                    document.getElementById('base64Content').value = '加载失败，请刷新页面重试';
+                });
+                
+            // 加载明文内容
+            fetch('/edgebox-sub-plain.txt')
+                .then(response => response.text())
+                .then(data => {
+                    document.getElementById('plainContent').value = data;
+                })
+                .catch(err => {
+                    document.getElementById('plainContent').value = '加载失败，请刷新页面重试';
+                });
         };
     </script>
 </body>
