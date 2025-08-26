@@ -426,29 +426,19 @@ EOF
 }
 
 generate_sing_box_config() {
-    # Reality 密钥生成 - 修复密钥提取方式
-    local keys=$(/usr/local/bin/sing-box generate reality-keypair 2>&1)
-    # sing-box 输出格式可能是：
+    # Reality 密钥生成 - 修复：正确提取包含连字符的密钥
+    local keys=$(/usr/local/bin/sing-box generate reality-keypair)
+    # 输出格式是：
     # PrivateKey: xxx
     # PublicKey: xxx
-    # 或者其他格式，我们需要更可靠的提取方式
-    local private_key=$(echo "$keys" | grep -i "private" | sed 's/.*[: ]\([a-zA-Z0-9+/=]*\)$/\1/' | tail -n1)
-    local public_key=$(echo "$keys" | grep -i "public" | sed 's/.*[: ]\([a-zA-Z0-9+/=]*\)$/\1/' | tail -n1)
+    # 使用 awk 提取冒号后面的内容（去掉前后空格）
+    local private_key=$(echo "$keys" | awk '/^PrivateKey:/ {sub(/^PrivateKey: */, ""); print}')
+    local public_key=$(echo "$keys" | awk '/^PublicKey:/ {sub(/^PublicKey: */, ""); print}')
     
-    # 如果提取失败，使用备用方法
+    # 如果还是失败，用 cut 方法
     if [[ -z "$private_key" ]] || [[ -z "$public_key" ]]; then
-        # 尝试使用 awk 提取最后一个字段
-        private_key=$(echo "$keys" | grep -i "private" | awk '{print $NF}')
-        public_key=$(echo "$keys" | grep -i "public" | awk '{print $NF}')
-    fi
-    
-    # 验证密钥格式
-    if [[ ${#private_key} -lt 20 ]] || [[ ${#public_key} -lt 20 ]]; then
-        log "Reality 密钥生成失败，尝试重新生成..."
-        # 再试一次
-        keys=$(/usr/local/bin/sing-box generate reality-keypair)
-        private_key=$(echo "$keys" | awk '/PrivateKey/ {print $2}')
-        public_key=$(echo "$keys" | awk '/PublicKey/ {print $2}')
+        private_key=$(echo "$keys" | grep "^PrivateKey:" | cut -d' ' -f2)
+        public_key=$(echo "$keys" | grep "^PublicKey:" | cut -d' ' -f2)
     fi
     
     local short_id=$(openssl rand -hex 4)
@@ -470,8 +460,8 @@ generate_sing_box_config() {
     echo "$tuic_password" > "$WORK_DIR/tuic-password"
     
     # 调试输出
-    log "Reality private key length: ${#private_key}"
-    log "Reality public key length: ${#public_key}"
+    log "Reality private key: $private_key"
+    log "Reality public key: $public_key"
     
     # 生成配置文件
     cat > /etc/sing-box/config.json << EOF
