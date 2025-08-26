@@ -426,16 +426,38 @@ EOF
 }
 
 generate_sing_box_config() {
-    # Reality
-    local keys=$(/usr/local/bin/sing-box generate reality-keypair)
-    local private_key=$(echo "$keys" | grep "Private" | awk '{print $3}')
-    local public_key=$(echo "$keys" | grep "Public" | awk '{print $3}')
+    # Reality 密钥生成 - 修复密钥提取方式
+    local keys=$(/usr/local/bin/sing-box generate reality-keypair 2>&1)
+    # sing-box 输出格式可能是：
+    # PrivateKey: xxx
+    # PublicKey: xxx
+    # 或者其他格式，我们需要更可靠的提取方式
+    local private_key=$(echo "$keys" | grep -i "private" | sed 's/.*[: ]\([a-zA-Z0-9+/=]*\)$/\1/' | tail -n1)
+    local public_key=$(echo "$keys" | grep -i "public" | sed 's/.*[: ]\([a-zA-Z0-9+/=]*\)$/\1/' | tail -n1)
+    
+    # 如果提取失败，使用备用方法
+    if [[ -z "$private_key" ]] || [[ -z "$public_key" ]]; then
+        # 尝试使用 awk 提取最后一个字段
+        private_key=$(echo "$keys" | grep -i "private" | awk '{print $NF}')
+        public_key=$(echo "$keys" | grep -i "public" | awk '{print $NF}')
+    fi
+    
+    # 验证密钥格式
+    if [[ ${#private_key} -lt 20 ]] || [[ ${#public_key} -lt 20 ]]; then
+        log "Reality 密钥生成失败，尝试重新生成..."
+        # 再试一次
+        keys=$(/usr/local/bin/sing-box generate reality-keypair)
+        private_key=$(echo "$keys" | awk '/PrivateKey/ {print $2}')
+        public_key=$(echo "$keys" | awk '/PublicKey/ {print $2}')
+    fi
+    
     local short_id=$(openssl rand -hex 4)
     local reality_uuid=$(uuidgen)
     
     echo "$reality_uuid" > "$WORK_DIR/reality-uuid"
     echo "$public_key" > "$WORK_DIR/reality-public-key"
     echo "$short_id" > "$WORK_DIR/reality-short-id"
+    echo "$private_key" > "$WORK_DIR/reality-private-key"
     
     # Hysteria2
     local hy2_password=$(openssl rand -base64 16 | tr -d '=+/\n' | cut -c1-12)
@@ -447,7 +469,11 @@ generate_sing_box_config() {
     echo "$tuic_uuid" > "$WORK_DIR/tuic-uuid"
     echo "$tuic_password" > "$WORK_DIR/tuic-password"
     
-    # 生成配置文件 - 注意 TUIC 使用 congestion_control 而不是 congestion
+    # 调试输出
+    log "Reality private key length: ${#private_key}"
+    log "Reality public key length: ${#public_key}"
+    
+    # 生成配置文件
     cat > /etc/sing-box/config.json << EOF
 {
     "log": {"level": "info"},
