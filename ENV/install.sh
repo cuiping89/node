@@ -335,7 +335,8 @@ generate_xray_config() {
         "listen": "127.0.0.1",
         "protocol": "vless",
         "settings": {
-            "clients": [{"id": "$uuid"}]
+            "clients": [{"id": "$uuid"}],
+            "decryption": "none"
         },
         "streamSettings": {
             "network": "grpc",
@@ -349,7 +350,8 @@ generate_xray_config() {
         "listen": "127.0.0.1",
         "protocol": "vless",
         "settings": {
-            "clients": [{"id": "$uuid"}]
+            "clients": [{"id": "$uuid"}],
+            "decryption": "none"
         },
         "streamSettings": {
             "network": "ws",
