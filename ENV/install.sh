@@ -792,6 +792,9 @@ show_complete() {
     echo "   - TUIC: 2053/udp (sing-box)"
     echo "   - HTTP: 80/tcp (订阅页面)"
     echo
+    echo "安装日志: $LOG_FILE"
+    echo "配置目录: $WORK_DIR"
+    echo
     echo "📊 服务状态:"
     systemctl is-active --quiet sing-box && echo "  ✔ sing-box: 运行中" || echo "  ✗ sing-box: 异常"
     systemctl is-active --quiet xray && echo "  ✔ xray: 运行中" || echo "  ✗ xray: 异常"
@@ -800,21 +803,11 @@ show_complete() {
     echo "🌐 订阅链接:"
     echo "  网页版: http://$domain"
     echo
-    if [[ -n "$reality_info" ]]; then
-        echo "🔐 Reality 专用链接（推荐使用）:"
-        echo "  $reality_info"
-        echo
-    fi
     echo "🔧 管理命令:"
     echo "  查看状态: edgeboxctl status"
     echo "  查看订阅: edgeboxctl sub"
     echo "  重启服务: edgeboxctl restart"
     echo "  查看日志: edgeboxctl logs"
-    echo "  Reality调试: edgeboxctl debug"
-    echo
-    echo "安装日志: $LOG_FILE"
-    echo "配置目录: $WORK_DIR"
-    echo
 }
 
 # === 主安装流程 ===
