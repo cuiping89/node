@@ -60,19 +60,17 @@
 - **UDP 协议（443/8443/2053）**: 分散在常用端口，降低识别风险
 
   #### 端口分配策略
-    #### TCP 协议（443/8443）
-  - **gRPC/WebSocket**: Nginx 反向代理 → Xray 后端
+    #### gRPC/WS**: Nginx 反向代理 → Xray 后端
   - gRPC: `127.0.0.1:10085`
   - WebSocket: `127.0.0.1:10086`
-  - 启用 Reality：Nginx 监听 `8443`
-  - 未启用 Reality：Nginx 监听 `443`
-  #### Reality直连（TCP/443）
+  - 启用 Reality：Nginx 监听 `tcp/8443`
+  - 未启用 Reality：Nginx 监听 `tcp/443`
+   #### Reality直连（TCP/443）
   - sing-box 直接绑定 `tcp/443`
   - 默认 SNI: `www.cloudflare.com`
   - 支持自定义伪装域名
-  #### UDP协议
-  - **Hysteria2**: `udp/443`（可改为8443）
-  - **TUIC**: `udp/2053`
+   #### Hysteria2**: `udp/443`（可改为8443）
+   #### TUIC: `udp/2053`
  
   #### 伪装目标：
   - www.cloudflare.com（默认，全球可用）
