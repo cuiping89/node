@@ -620,27 +620,28 @@ show_subscriptions() {
     
     # VLESS-Reality
     if [[ -f "$WORK_DIR/reality-uuid" ]]; then
-local uuid=$(jq -r '.inbounds[] | select(.type=="vless" and .listen_port==443) | .users[0].uuid' /etc/sing-box/config.json)
-local pubkey=$(cat /etc/s-box/public.key)
-local sid=$(jq -r '.inbounds[] | select(.type=="vless" and .listen_port==443) | .tls.reality.short_id[0]' /etc/sing-box/config.json)
-local sni=$(jq -r '.inbounds[] | select(.type=="vless" and .listen_port==443) | .tls.server_name' /etc/sing-box/config.json)
-local reality_link="vless://$uuid@$domain:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=$sni&pbk=$pubkey&sid=$sid&type=tcp&fp=chrome#EdgeBox-Reality"
-subscriptions+="$reality_link\n"
+        # 从 sing-box 实际在用的配置里读取值，并做去空白处理，避免换行/空格污染链接
+        local uuid=$(jq -r '.inbounds[] | select(.type=="vless" and .listen_port==443) | .users[0].uuid' /etc/sing-box/config.json)
+        local pubkey=$(tr -d '\r\n ' </etc/s-box/public.key)
+        local sid=$(jq -r '.inbounds[] | select(.type=="vless" and .listen_port==443) | .tls.reality.short_id[0]' /etc/sing-box/config.json | tr -d '\r\n ')
+        local sni=$(jq -r '.inbounds[] | select(.type=="vless" and .listen_port==443) | .tls.server_name' /etc/sing-box/config.json)
 
+        local reality_link="vless://$uuid@$domain:443?security=reality&encryption=none&flow=xtls-rprx-vision&sni=$sni&fp=chrome&pbk=$pubkey&sid=$sid&type=tcp#EdgeBox-Reality"
+        subscriptions+="$reality_link\n"
     fi
-    
-    # Hysteria2
+
+    # Hysteria2（协议名应为 hysteria2://）
     if [[ -f "$WORK_DIR/hy2-password" ]]; then
         local password=$(cat "$WORK_DIR/hy2-password")
-        local hy2_link="hy2://$password@$domain:8443?insecure=1&sni=$domain#EdgeBox-Hysteria2"
+        local hy2_link="hysteria2://$password@$domain:8443?alpn=h3&insecure=1&sni=$domain#EdgeBox-Hysteria2"
         subscriptions+="$hy2_link\n"
     fi
-    
-    # TUIC v5 - 修复链接格式
+
+    # TUIC v5（修正：只保留一条 tuic://，参数都在 # 之前；备注只保留一次）
     if [[ -f "$WORK_DIR/tuic-uuid" ]]; then
         local uuid=$(cat "$WORK_DIR/tuic-uuid")
         local password=$(cat "$WORK_DIR/tuic-password")
-        local tuic_link="tuic://$uuid:$password@$domain:2053?congestion_control=bbr&alpn=h3&udp_relay_mode=native&tuic://fa0b309a-bc1b-447e-af93-011986ff041a:e5f9af65ed1b02d8f3b11f46c80368f7@35.212.192.41:2053?congestion_control=bbr&alpn=h3&udp_relay_mode=native&allowInsecure=1&sni=35.212.192.41#EdgeBox-TUIC&sni=$domain#EdgeBox-TUIC"
+        local tuic_link="tuic://$uuid:$password@$domain:2053?congestion_control=bbr&udp_relay_mode=native&alpn=h3&sni=$domain&allow_insecure=1#EdgeBox-TUIC"
         subscriptions+="$tuic_link\n"
     fi
     
