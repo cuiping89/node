@@ -359,6 +359,9 @@ generate_sing_box_config() {
     
     echo "$reality_uuid" > "$WORK_DIR/reality-uuid"
     echo "$public_key" > "$WORK_DIR/reality-public-key"
+    mkdir -p /etc/s-box
+    echo "$public_key" > /etc/s-box/public.key
+    chmod 644 /etc/s-box/public.key
     echo "$short_id" > "$WORK_DIR/reality-short-id"
     echo "$private_key" > "$WORK_DIR/reality-private-key"
     
@@ -397,7 +400,7 @@ generate_sing_box_config() {
                 "reality": {
                     "enabled": true,
                     "private_key": "$private_key",
-                    "short_id": ["$short_id", ""],
+                    "short_id": ["$short_id"],
                     "handshake": {
                         "server": "www.cloudflare.com",
                         "server_port": 443
