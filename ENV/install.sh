@@ -617,11 +617,13 @@ show_subscriptions() {
     
     # VLESS-Reality
     if [[ -f "$WORK_DIR/reality-uuid" ]]; then
-        local uuid=$(cat "$WORK_DIR/reality-uuid")
-        local pubkey=$(cat "$WORK_DIR/reality-public-key")
-        local sid=$(cat "$WORK_DIR/reality-short-id")
-        local reality_link="vless://$uuid@$domain:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&pbk=$pubkey&sid=$sid&type=tcp&headerType=none&fp=chrome#EdgeBox-Reality"
-        subscriptions+="$reality_link\n"
+local uuid=$(jq -r '.inbounds[] | select(.type=="vless" and .listen_port==443) | .users[0].uuid' /etc/sing-box/config.json)
+local pubkey=$(cat /etc/s-box/public.key)
+local sid=$(jq -r '.inbounds[] | select(.type=="vless" and .listen_port==443) | .tls.reality.short_id[0]' /etc/sing-box/config.json)
+local sni=$(jq -r '.inbounds[] | select(.type=="vless" and .listen_port==443) | .tls.server_name' /etc/sing-box/config.json)
+local reality_link="vless://$uuid@$domain:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=$sni&pbk=$pubkey&sid=$sid&type=tcp&fp=chrome#EdgeBox-Reality"
+subscriptions+="$reality_link\n"
+
     fi
     
     # Hysteria2
