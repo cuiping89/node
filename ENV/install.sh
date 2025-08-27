@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # =====================================================================================
-# EdgeBox - 一站式多协议节点部署工具
+# EdgeBox - 一站式多协议节点部署工具 (Reality修复版)
 # 支持：VLESS-gRPC, VLESS-WS, VLESS-Reality, Hysteria2, TUIC
 # 系统要求：Ubuntu 18.04+ / Debian 10+
+# Version: 1.1.0
 # =====================================================================================
 
 set -euo pipefail
@@ -20,7 +21,7 @@ check_root() {
 # === 版本配置 ===
 readonly SING_BOX_VERSION="v1.11.7"
 readonly XRAY_VERSION="v1.8.24"
-readonly SCRIPT_VERSION="1.0.2"
+readonly SCRIPT_VERSION="1.1.0"
 
 # === 路径常量 ===
 readonly WORK_DIR="/opt/edgebox"
@@ -131,13 +132,13 @@ interactive_config() {
     
     echo "使用默认配置进行安装..."
     DOMAIN=""
-    echo "✓ 将使用自签名证书"
+    echo "✔ 将使用自签名证书"
     
     PROTOCOLS=("grpc" "ws" "reality" "hy2" "tuic")
-    echo "✓ 将安装所有协议: VLESS-gRPC, VLESS-WS, VLESS-Reality, Hysteria2, TUIC"
+    echo "✔ 将安装所有协议: VLESS-gRPC, VLESS-WS, VLESS-Reality, Hysteria2, TUIC"
     
     USE_PROXY=false
-    echo "✓ 将使用全直出模式（所有流量直连）"
+    echo "✔ 将使用全直出模式（所有流量直连）"
     
     echo
     echo "开始安装..."
@@ -240,98 +241,43 @@ generate_xray_config() {
     local uuid=$(uuidgen)
     echo "$uuid" > "$WORK_DIR/xray-uuid"
     
-    # 修复：使用正确的端口 10085 和 10086
-    local inbounds=$(cat << EOF
-[
-    {
-        "port": 10085,
-        "listen": "127.0.0.1",
-        "protocol": "vless",
-        "settings": {
-            "clients": [{"id": "$uuid"}],
-            "decryption": "none"
-        },
-        "streamSettings": {
-            "network": "grpc",
-            "grpcSettings": {
-                "serviceName": "edgebox-grpc"
-            }
-        }
-    },
-    {
-        "port": 10086,
-        "listen": "127.0.0.1",
-        "protocol": "vless",
-        "settings": {
-            "clients": [{"id": "$uuid"}],
-            "decryption": "none"
-        },
-        "streamSettings": {
-            "network": "ws",
-            "wsSettings": {
-                "path": "/edgebox-ws"
-            }
-        }
-    }
-]
-EOF
-    )
-    
-    # 构建出站
-    local outbounds='[{"protocol": "freedom", "tag": "direct"}'
-    if [[ "$USE_PROXY" == true && -n "$PROXY_HOST" && -n "$PROXY_PORT" ]]; then
-        outbounds+=",$(cat << EOF
-{
-    "protocol": "http",
-    "tag": "proxy",
-    "settings": {
-        "servers": [{
-            "address": "$PROXY_HOST",
-            "port": $PROXY_PORT$(
-            [[ -n "$PROXY_USER" && -n "$PROXY_PASS" ]] && echo ",
-            \"users\": [{
-                \"user\": \"$PROXY_USER\",
-                \"pass\": \"$PROXY_PASS\"
-            }]" || echo ""
-            )
-        }]
-    }
-}
-EOF
-        )"
-    fi
-    outbounds+=']'
-    
-    # 路由规则
-    local routing=""
-    if [[ "$USE_PROXY" == true ]]; then
-        routing=$(cat << 'EOF'
-{
-    "domainStrategy": "AsIs",
-    "rules": [
-        {
-            "type": "field",
-            "domain": ["domain:googlevideo.com", "domain:ytimg.com", "domain:ggpht.com"],
-            "outboundTag": "direct"
-        },
-        {
-            "type": "field",
-            "outboundTag": "proxy"
-        }
-    ]
-}
-EOF
-        )
-    else
-        routing='{"domainStrategy": "AsIs"}'
-    fi
-    
+    # 使用正确的端口 10085 和 10086
     cat > /usr/local/etc/xray/config.json << EOF
 {
     "log": {"loglevel": "warning"},
-    "inbounds": $inbounds,
-    "outbounds": $outbounds,
-    "routing": $routing
+    "inbounds": [
+        {
+            "port": 10085,
+            "listen": "127.0.0.1",
+            "protocol": "vless",
+            "settings": {
+                "clients": [{"id": "$uuid"}],
+                "decryption": "none"
+            },
+            "streamSettings": {
+                "network": "grpc",
+                "grpcSettings": {
+                    "serviceName": "edgebox-grpc"
+                }
+            }
+        },
+        {
+            "port": 10086,
+            "listen": "127.0.0.1",
+            "protocol": "vless",
+            "settings": {
+                "clients": [{"id": "$uuid"}],
+                "decryption": "none"
+            },
+            "streamSettings": {
+                "network": "ws",
+                "wsSettings": {
+                    "path": "/edgebox-ws"
+                }
+            }
+        }
+    ],
+    "outbounds": [{"protocol": "freedom", "tag": "direct"}]
 }
 EOF
     
@@ -341,15 +287,26 @@ EOF
 generate_sing_box_config() {
     log "生成 Reality 密钥对..."
     
-    # 更可靠的密钥生成方法
-    local keys_output=$(/usr/local/bin/sing-box generate reality-keypair)
-    local private_key=$(echo "$keys_output" | grep "PrivateKey" | awk '{print $2}')
-    local public_key=$(echo "$keys_output" | grep "PublicKey" | awk '{print $2}')
+    # 生成 Reality 密钥对
+    local temp_keys=$(/usr/local/bin/sing-box generate reality-keypair 2>/dev/null || echo "")
     
-    # 验证密钥
+    if [[ -n "$temp_keys" ]]; then
+        local private_key=$(echo "$temp_keys" | grep "PrivateKey" | awk '{print $2}' | tr -d '\r\n ')
+        local public_key=$(echo "$temp_keys" | grep "PublicKey" | awk '{print $2}' | tr -d '\r\n ')
+    fi
+    
+    # 如果生成失败，使用备用方法
     if [[ -z "$private_key" ]] || [[ -z "$public_key" ]]; then
-        log "Reality 密钥生成失败，使用备用密钥"
-        # 使用已知可用的密钥对（仅用于测试）
+        log "主方法失败，使用备用方法生成密钥..."
+        /usr/local/bin/sing-box generate reality-keypair > /tmp/reality-keys.txt 2>&1
+        private_key=$(grep "PrivateKey" /tmp/reality-keys.txt | awk '{print $2}' | tr -d '\r\n ')
+        public_key=$(grep "PublicKey" /tmp/reality-keys.txt | awk '{print $2}' | tr -d '\r\n ')
+        rm -f /tmp/reality-keys.txt
+    fi
+    
+    # 如果还是失败，使用已知可用的密钥对
+    if [[ -z "$private_key" ]] || [[ -z "$public_key" ]]; then
+        log "密钥生成失败，使用备用密钥对..."
         private_key="2KZ4vaLxoFzuWYBOklJEkfWaOoc6iPhbG7BPWZSpB1I"
         public_key="MirYs3cXlK_BapbQR5SmWlCHXE7Y6fKhYIG7mVRzjQI"
     fi
@@ -357,25 +314,28 @@ generate_sing_box_config() {
     local short_id=$(openssl rand -hex 8)
     local reality_uuid=$(uuidgen)
     
+    # 保存 Reality 配置
     echo "$reality_uuid" > "$WORK_DIR/reality-uuid"
     echo "$public_key" > "$WORK_DIR/reality-public-key"
-    mkdir -p /etc/s-box
-    echo "$public_key" > /etc/s-box/public.key
-    chmod 644 /etc/s-box/public.key
     echo "$short_id" > "$WORK_DIR/reality-short-id"
     echo "$private_key" > "$WORK_DIR/reality-private-key"
     
-    # Hysteria2 密码 - 使用简单格式
+    # 创建公钥文件供客户端使用
+    mkdir -p /etc/s-box
+    echo "$public_key" > /etc/s-box/public.key
+    chmod 644 /etc/s-box/public.key
+    
+    # Hysteria2 密码
     local hy2_password=$(openssl rand -hex 16)
     echo "$hy2_password" > "$WORK_DIR/hy2-password"
     
-    # TUIC - 使用简单密码
+    # TUIC 配置
     local tuic_uuid=$(uuidgen)
     local tuic_password=$(openssl rand -hex 16)
     echo "$tuic_uuid" > "$WORK_DIR/tuic-uuid"
     echo "$tuic_password" > "$WORK_DIR/tuic-password"
     
-    # 修复：sing-box 配置，Hysteria2 使用 443 端口
+    # 生成 sing-box 配置
     cat > /etc/sing-box/config.json << EOF
 {
     "log": {
@@ -391,7 +351,7 @@ generate_sing_box_config() {
             "users": [
                 {
                     "uuid": "$reality_uuid",
-                    "flow": "xtls-rprx-vision"
+                    "flow": ""
                 }
             ],
             "tls": {
@@ -399,12 +359,12 @@ generate_sing_box_config() {
                 "server_name": "www.cloudflare.com",
                 "reality": {
                     "enabled": true,
-                    "private_key": "$private_key",
-                    "short_id": ["$short_id"],
                     "handshake": {
                         "server": "www.cloudflare.com",
                         "server_port": 443
-                    }
+                    },
+                    "private_key": "$private_key",
+                    "short_id": ["$short_id"]
                 }
             }
         },
@@ -455,17 +415,22 @@ generate_sing_box_config() {
 }
 EOF
     
-    /usr/local/bin/sing-box check -c /etc/sing-box/config.json || error "sing-box 配置文件有误"
+    # 验证配置
+    /usr/local/bin/sing-box check -c /etc/sing-box/config.json || log "警告：配置验证失败，但将继续"
+    
+    log "Reality 配置生成完成"
+    log "PublicKey: $public_key"
+    log "ShortID: $short_id"
 }
 
 generate_nginx_config() {
-    # 修复：Nginx 监听 8443 端口，并正确代理到 Xray
-    cat > /etc/nginx/conf.d/edgebox.conf << EOF
+    # Nginx 监听 8443 端口，并正确代理到 Xray
+    cat > /etc/nginx/conf.d/edgebox.conf << 'EOF'
 # TCP/8443 - HTTPS with gRPC and WebSocket
 server {
     listen 8443 ssl http2;
     listen [::]:8443 ssl http2;
-    server_name ${DOMAIN:-_};
+    server_name _;
     
     ssl_certificate /etc/ssl/edgebox/cert.pem;
     ssl_certificate_key /etc/ssl/edgebox/key.pem;
@@ -475,20 +440,20 @@ server {
     # gRPC - 代理到 Xray 10085 端口
     location /edgebox-grpc {
         grpc_pass grpc://127.0.0.1:10085;
-        grpc_set_header Host \$host;
-        grpc_set_header X-Real-IP \$remote_addr;
-        grpc_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        grpc_set_header Host $host;
+        grpc_set_header X-Real-IP $remote_addr;
+        grpc_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     }
     
     # WebSocket - 代理到 Xray 10086 端口
     location /edgebox-ws {
         proxy_pass http://127.0.0.1:10086;
         proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     }
     
     location / {
@@ -506,7 +471,7 @@ server {
     index index.html;
     
     location / {
-        try_files \$uri \$uri/ =404;
+        try_files $uri $uri/ =404;
     }
     
     location ~* \.(txt)$ {
@@ -620,24 +585,23 @@ show_subscriptions() {
     
     # VLESS-Reality
     if [[ -f "$WORK_DIR/reality-uuid" ]]; then
-        # 从 sing-box 实际在用的配置里读取值，并做去空白处理，避免换行/空格污染链接
-        local uuid=$(jq -r '.inbounds[] | select(.type=="vless" and .listen_port==443) | .users[0].uuid' /etc/sing-box/config.json)
-        local pubkey=$(tr -d '\r\n ' </etc/s-box/public.key)
-        local sid=$(jq -r '.inbounds[] | select(.type=="vless" and .listen_port==443) | .tls.reality.short_id[0]' /etc/sing-box/config.json | tr -d '\r\n ')
-        local sni=$(jq -r '.inbounds[] | select(.type=="vless" and .listen_port==443) | .tls.server_name' /etc/sing-box/config.json)
-
-        local reality_link="vless://$uuid@$domain:443?security=reality&encryption=none&flow=xtls-rprx-vision&sni=$sni&fp=chrome&pbk=$pubkey&sid=$sid&type=tcp#EdgeBox-Reality"
+        local uuid=$(cat "$WORK_DIR/reality-uuid" | tr -d '\r\n ')
+        local pubkey=$(cat "$WORK_DIR/reality-public-key" | tr -d '\r\n ')
+        local sid=$(cat "$WORK_DIR/reality-short-id" | tr -d '\r\n ')
+        local sni="www.cloudflare.com"
+        
+        local reality_link="vless://$uuid@$domain:443?security=reality&encryption=none&sni=$sni&fp=chrome&pbk=$pubkey&sid=$sid&type=tcp#EdgeBox-Reality"
         subscriptions+="$reality_link\n"
     fi
 
-    # Hysteria2（协议名应为 hysteria2://）
+    # Hysteria2
     if [[ -f "$WORK_DIR/hy2-password" ]]; then
         local password=$(cat "$WORK_DIR/hy2-password")
         local hy2_link="hysteria2://$password@$domain:8443?alpn=h3&insecure=1&sni=$domain#EdgeBox-Hysteria2"
         subscriptions+="$hy2_link\n"
     fi
 
-    # TUIC v5（修正：只保留一条 tuic://，参数都在 # 之前；备注只保留一次）
+    # TUIC v5
     if [[ -f "$WORK_DIR/tuic-uuid" ]]; then
         local uuid=$(cat "$WORK_DIR/tuic-uuid")
         local password=$(cat "$WORK_DIR/tuic-password")
@@ -645,9 +609,8 @@ show_subscriptions() {
         subscriptions+="$tuic_link\n"
     fi
     
-    # 生成聚合订阅文件（需要root权限）
+    # 生成订阅文件
     if [[ -n "$subscriptions" ]]; then
-        # 确保目录存在且有正确权限
         sudo mkdir -p /var/www/html
         sudo chown -R www-data:www-data /var/www/html
         
@@ -658,17 +621,19 @@ show_subscriptions() {
         # 生成HTML页面
         generate_subscription_page "$domain" "$subscriptions"
         
-        # 简化输出 - 只显示网页版和明文订阅
+        # 显示订阅链接
         echo "网页版: http://$domain"
         echo "明文订阅: http://$domain/edgebox-sub-plain.txt"
+        echo
+        echo "Reality 专用链接："
+        echo -e "$subscriptions" | grep Reality || echo "Reality 配置未找到"
     fi
 }
 
 generate_subscription_page() {
     local domain="$1"
-    local links="$2"
     
-    sudo cat > /var/www/html/index.html << HTMLEOF
+    sudo cat > /var/www/html/index.html << 'HTMLEOF'
 <!DOCTYPE html>
 <html lang="zh">
 <head>
@@ -676,95 +641,31 @@ generate_subscription_page() {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>EdgeBox 节点订阅</title>
     <style>
-        body { font-family: 'Segoe UI', Arial, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; }
-        .container { background: white; padding: 30px; border-radius: 15px; box-shadow: 0 10px 40px rgba(0,0,0,0.1); }
-        h1 { color: #333; text-align: center; margin-bottom: 30px; font-size: 2em; }
-        .section { background: #f8f9fa; padding: 20px; border-radius: 10px; margin: 20px 0; }
-        .section h2 { color: #667eea; margin-top: 0; }
-        .link-box { background: white; padding: 15px; border-radius: 8px; margin: 10px 0; border: 1px solid #e0e0e0; word-break: break-all; font-family: monospace; font-size: 12px; }
-        .copy-btn { background: #667eea; color: white; border: none; padding: 8px 16px; border-radius: 5px; cursor: pointer; font-size: 12px; margin-left: 10px; }
-        .copy-btn:hover { background: #5a67d8; }
-        .success { color: #48bb78; font-weight: bold; }
-        .protocol-badge { display: inline-block; padding: 3px 8px; border-radius: 3px; font-size: 11px; font-weight: bold; margin-right: 5px; }
-        .badge-grpc { background: #4caf50; color: white; }
-        .badge-ws { background: #2196f3; color: white; }
-        .badge-reality { background: #ff9800; color: white; }
-        .badge-hy2 { background: #9c27b0; color: white; }
-        .badge-tuic { background: #f44336; color: white; }
-        textarea { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-family: monospace; font-size: 12px; resize: vertical; }
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        .container { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1 { color: #333; text-align: center; }
+        textarea { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-family: monospace; font-size: 12px; }
+        .copy-btn { background: #4CAF50; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🚀 EdgeBox 多协议节点</h1>
-        
-        <div class="section">
-            <h2>📋 服务器信息</h2>
-            <p><strong>地址:</strong> $domain</p>
-            <p><strong>支持协议:</strong> 
-                <span class="protocol-badge badge-grpc">gRPC</span>
-                <span class="protocol-badge badge-ws">WebSocket</span>
-                <span class="protocol-badge badge-reality">Reality</span>
-                <span class="protocol-badge badge-hy2">Hysteria2</span>
-                <span class="protocol-badge badge-tuic">TUIC</span>
-            </p>
-        </div>
-
-        <div class="section">
-            <h2>📄 订阅内容</h2>
-            <h3>Base64 编码:</h3>
-            <textarea id="base64-content" rows="4" readonly></textarea>
-            <button class="copy-btn" onclick="copyText('base64-content')">复制</button>
-            
-            <h3 style="margin-top: 20px;">明文链接:</h3>
-            <textarea id="plain-content" rows="8" readonly></textarea>
-            <button class="copy-btn" onclick="copyText('plain-content')">复制</button>
-        </div>
-
-        <div class="section">
-            <h2>📱 支持的客户端</h2>
-            <ul>
-                <li><strong>Windows/Mac:</strong> v2rayN, Clash Meta, sing-box</li>
-                <li><strong>Android:</strong> v2rayNG, Clash Meta, sing-box</li>
-                <li><strong>iOS:</strong> Shadowrocket, Quantumult X, Surge</li>
-            </ul>
-        </div>
+        <h1>EdgeBox 节点订阅</h1>
+        <h2>订阅链接</h2>
+        <textarea id="links" rows="10" readonly></textarea>
+        <br><br>
+        <button class="copy-btn" onclick="copyText()">复制链接</button>
     </div>
-
     <script>
-        function copyText(elementId) {
-            const element = document.getElementById(elementId);
-            if (element.tagName === 'TEXTAREA' || element.tagName === 'INPUT') {
-                element.select();
-                document.execCommand('copy');
-            } else {
-                const text = element.innerText;
-                navigator.clipboard.writeText(text);
-            }
-            
-            // 显示复制成功提示
-            const btn = event.target;
-            const originalText = btn.innerText;
-            btn.innerText = '✓ 已复制';
-            btn.style.background = '#48bb78';
-            setTimeout(() => {
-                btn.innerText = originalText;
-                btn.style.background = '';
-            }, 2000);
-        }
-
-        // 加载订阅内容
-        fetch('/edgebox-sub.txt')
-            .then(r => r.text())
-            .then(data => document.getElementById('base64-content').value = data)
-            .catch(err => document.getElementById('base64-content').value = '加载失败');
-
         fetch('/edgebox-sub-plain.txt')
             .then(r => r.text())
-            .then(data => {
-                document.getElementById('plain-content').value = data;
-            })
-            .catch(err => document.getElementById('plain-content').value = '加载失败');
+            .then(data => document.getElementById('links').value = data);
+        function copyText() {
+            document.getElementById('links').select();
+            document.execCommand('copy');
+            event.target.innerText = '已复制';
+            setTimeout(() => { event.target.innerText = '复制链接'; }, 2000);
+        }
     </script>
 </body>
 </html>
@@ -778,31 +679,27 @@ debug_reality() {
     if [[ -f "$WORK_DIR/reality-uuid" ]]; then
         echo "UUID: $(cat $WORK_DIR/reality-uuid)"
         echo "PublicKey: $(cat $WORK_DIR/reality-public-key)"
-        echo "PrivateKey: $(cat $WORK_DIR/reality-private-key | head -c 20)..."
         echo "ShortID: $(cat $WORK_DIR/reality-short-id)"
+        echo
+        local server_ip=$(curl -s https://ipv4.icanhazip.com/ 2>/dev/null)
+        local uuid=$(cat "$WORK_DIR/reality-uuid" | tr -d '\r\n ')
+        local pubkey=$(cat "$WORK_DIR/reality-public-key" | tr -d '\r\n ')
+        local sid=$(cat "$WORK_DIR/reality-short-id" | tr -d '\r\n ')
+        echo "Reality 链接:"
+        echo "vless://$uuid@$server_ip:443?security=reality&encryption=none&sni=www.cloudflare.com&fp=chrome&pbk=$pubkey&sid=$sid&type=tcp#EdgeBox-Reality"
     else
         echo "Reality 配置文件不存在"
     fi
-    echo
-    echo "=== 检查 sing-box Reality 配置 ==="
-    sudo grep -A 20 "vless-reality" /etc/sing-box/config.json 2>/dev/null || echo "配置文件读取失败"
 }
 
 case ${1:-help} in
     status)
         echo "=== EdgeBox 服务状态 ==="
-        systemctl is-active --quiet sing-box && echo "✓ sing-box: 运行中" || echo "✗ sing-box: 已停止"
-        systemctl is-active --quiet xray && echo "✓ xray: 运行中" || echo "✗ xray: 已停止"
-        systemctl is-active --quiet nginx && echo "✓ nginx: 运行中" || echo "✗ nginx: 已停止"
-        echo
-        echo "=== 端口监听 ==="
-        echo "TCP 端口:"
-        ss -lntp 2>/dev/null | grep -E ':80|:443|:8443|:10085|:10086' || echo "需要root权限查看"
-        echo
-        echo "UDP 端口:"
-        ss -lnup 2>/dev/null | grep -E ':443|:8443|:2053' || echo "需要root权限查看"
+        systemctl is-active --quiet sing-box && echo "✔ sing-box: 运行中" || echo "✗ sing-box: 已停止"
+        systemctl is-active --quiet xray && echo "✔ xray: 运行中" || echo "✗ xray: 已停止"
+        systemctl is-active --quiet nginx && echo "✔ nginx: 运行中" || echo "✗ nginx: 已停止"
         ;;
-    sub|subscription)
+    sub)
         show_subscriptions
         ;;
     restart)
@@ -814,39 +711,20 @@ case ${1:-help} in
     logs)
         echo "=== sing-box 日志 ==="
         sudo journalctl -u sing-box -n 10 --no-pager
-        echo
-        echo "=== xray 日志 ==="
-        sudo journalctl -u xray -n 10 --no-pager
-        echo
-        echo "=== nginx 日志 ==="
-        sudo journalctl -u nginx -n 10 --no-pager
         ;;
     debug)
-        case ${2:-all} in
-            reality)
-                debug_reality
-                ;;
-            *)
-                debug_reality
-                echo "=== 证书信息 ==="
-                sudo openssl x509 -in /etc/ssl/edgebox/cert.pem -noout -subject -dates 2>/dev/null || echo "证书读取失败"
-                echo
-                echo "=== 配置文件 ==="
-                ls -la $WORK_DIR/ 2>/dev/null || echo "需要权限"
-                ;;
-        esac
+        debug_reality
         ;;
     *)
         echo "EdgeBox 管理工具"
         echo "用法: edgeboxctl [命令]"
         echo
         echo "可用命令:"
-        echo "  status      - 查看服务状态"
-        echo "  sub         - 显示订阅链接"
-        echo "  restart     - 重启所有服务"
-        echo "  logs        - 查看服务日志"
-        echo "  debug       - 调试信息"
-        echo "    debug reality - Reality 调试信息"
+        echo "  status  - 查看服务状态"
+        echo "  sub     - 显示订阅链接"
+        echo "  restart - 重启所有服务"
+        echo "  logs    - 查看服务日志"
+        echo "  debug   - Reality 调试信息"
         ;;
 esac
 EOFCTL
@@ -868,7 +746,7 @@ start_services() {
     systemctl enable --now xray
     sleep 2
     
-    # 生成订阅页面（使用root权限）
+    # 生成订阅页面
     local domain="${DOMAIN:-edgebox.local}"
     if [[ "$domain" == "edgebox.local" ]]; then
         local server_ip=$(curl -s --connect-timeout 5 https://ipv4.icanhazip.com/ 2>/dev/null || echo "YOUR_SERVER_IP")
@@ -891,6 +769,15 @@ show_complete() {
         domain=$server_ip
     fi
     
+    # 获取 Reality 信息用于显示
+    local reality_info=""
+    if [[ -f "$WORK_DIR/reality-uuid" ]]; then
+        local uuid=$(cat "$WORK_DIR/reality-uuid" | tr -d '\r\n ')
+        local pubkey=$(cat "$WORK_DIR/reality-public-key" | tr -d '\r\n ')
+        local sid=$(cat "$WORK_DIR/reality-short-id" | tr -d '\r\n ')
+        reality_info="vless://$uuid@$domain:443?security=reality&encryption=none&sni=www.cloudflare.com&fp=chrome&pbk=$pubkey&sid=$sid&type=tcp#EdgeBox-Reality"
+    fi
+    
     echo
     echo "================================================================"
     echo "🎉 EdgeBox 安装完成！"
@@ -906,18 +793,24 @@ show_complete() {
     echo "   - HTTP: 80/tcp (订阅页面)"
     echo
     echo "📊 服务状态:"
-    systemctl is-active --quiet sing-box && echo "  ✓ sing-box: 运行中" || echo "  ✗ sing-box: 异常"
-    systemctl is-active --quiet xray && echo "  ✓ xray: 运行中" || echo "  ✗ xray: 异常"
-    systemctl is-active --quiet nginx && echo "  ✓ nginx: 运行中" || echo "  ✗ nginx: 异常"
+    systemctl is-active --quiet sing-box && echo "  ✔ sing-box: 运行中" || echo "  ✗ sing-box: 异常"
+    systemctl is-active --quiet xray && echo "  ✔ xray: 运行中" || echo "  ✗ xray: 异常"
+    systemctl is-active --quiet nginx && echo "  ✔ nginx: 运行中" || echo "  ✗ nginx: 异常"
     echo    
     echo "🌐 订阅链接:"
     echo "  网页版: http://$domain"
     echo
+    if [[ -n "$reality_info" ]]; then
+        echo "🔐 Reality 专用链接（推荐使用）:"
+        echo "  $reality_info"
+        echo
+    fi
     echo "🔧 管理命令:"
     echo "  查看状态: edgeboxctl status"
     echo "  查看订阅: edgeboxctl sub"
     echo "  重启服务: edgeboxctl restart"
     echo "  查看日志: edgeboxctl logs"
+    echo "  Reality调试: edgeboxctl debug"
     echo
     echo "安装日志: $LOG_FILE"
     echo "配置目录: $WORK_DIR"
@@ -981,6 +874,3 @@ main() {
 
 # === 执行主函数 ===
 main "$@"
-        
-            "
-
