@@ -1,9 +1,9 @@
 # EdgeBox：一站式多协议节点部署工具
 
-- EdgeBox 是一个多协议一键部署脚本，旨在提供一个**健壮灵活、一键部署、失败重装**的科学上网解决方案。
-- 支持**一键重装（完全卸载+无损重装+出口分流+流量统计+聚合订阅+自动备份）**。
+- EdgeBox 是一个多协议一键部署脚本，旨在提供一个**健壮灵活、一键部署、幂等卸载**的科学上网解决方案。
+- 功能齐全：**协议矩阵+出口分流+流量统计+聚合订阅+自动备份**。
 
-- 🚀 **一键安装**：自动化部署，支持交互式配置
+- 🚀 **一键安装**：自动化部署
 - 🗑️ **完全卸载**：一键清理所有组件，为安装失败后重装准备环境，简洁、高效、幂等、非交互式，适合自动化和故障排除。
 - 🔄 **出口分流**：googlevideo.com直出；其它从住宅HTTP出
 - 📊 **流量统计**：内置 vnStat + iptables 流量监控
@@ -79,20 +79,20 @@
 
 ## 灵活路由
 
-### 分流策略：节省住宅IP代理流量并提升观看体验。
-  - **直连白名单**：
+### 分流策略
+  - **直连白名单**：节省住宅IP代理流量并提升观看体验。
   - `googlevideo.com`（YouTube 视频流）
   - `ytimg.com`（YouTube 图片）
   - `ggpht.com`（Google 图片）
-  - **代理出站**：其它流量通过住宅代理IP
-### GCP网络优化：否则会连接CF边缘导致公网出站，触发GCP计费。确保 200GB 内标准计费
+  - **代理出站**：其它流量通过住宅代理IP，稳定账号画像。
+### GCP网络优化：
   - CF灰云、
   - 不走Argo、
   - 不让任何代理回源、
   - 不在服务器启用WARP/Zero Trust网关
+  - **否则会连接CF边缘导致公网出站，触发GCP计费。确保200GB内标准计费**
 
 ## 流量统计
-
 - 实时流量监控：edgeboxctl traffic show
 - 显示内容：
 - vnStat 系统流量
@@ -104,24 +104,19 @@
 
 ### 自动备份
 - **备份内容**：配置文件、证书、用户数据
-- **保留策略**：最近15天
 - **备份路径**：`/root/edgebox-backup/`
+- **保留策略**：最近15天
 - **执行时间**：每日凌晨3点
-
 ### 手动操作
 ```bash
-# 列出备份
-edgeboxctl backup list
-# 创建备份
-edgeboxctl backup create
-# 恢复备份
-edgeboxctl backup restore 2024-01-15
+# 列出备份：edgeboxctl backup list
+# 创建备份：edgeboxctl backup create
+# 恢复备份：edgeboxctl backup restore 2024-01-15
 ```
 
 ## 一键安装（完全卸载+无损重装+出口分流+流量统计+聚合订阅+自动备份）
 服务器上执行以下命令即可开始：
-```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/<你的GitHub>/EdgeBox/main/install.sh)
+```bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/refs/heads/main/ENV/install.sh)
 ```
 
 ## 🔧 安装流程
@@ -132,30 +127,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/<你的GitHub>/EdgeBox/main/
 - ✅ 防火墙端口检查
 - ✅ 系统资源验证
 - ✅ DNS解析测试
-
-### 2. 交互式配置
-
-[1/4] 域名配置
-- 是否配置域名？[y/N]
-- 域名: your-domain.com
-- DNS解析检查...✅
-
-[2/4] 证书申请
-- Let's Encrypt 证书申请中...
-- 端口80防火墙检查...✅
-- 证书安装完成...✅
-
-[3/4] 出站策略
-- 住宅HTTP代理 [可选]
-- 格式: HOST:PORT:USER:PASS
-- 默认: 全直出
-
-[4/4] 安装确认
-- 协议: VLESS-gRPC, VLESS-WS, Reality, Hysteria2, TUIC
-- 端口: 443, 8443, 2053
-- 开始安装...
-
-### 3. 安装后验证
+### 2. 安装后验证
 - 🔍 服务状态检查
 - 🔍 端口监听验证
 - 🔍 证书有效性检查
@@ -163,14 +135,10 @@ bash <(curl -fsSL https://raw.githubusercontent.com/<你的GitHub>/EdgeBox/main/
 
 ## 📱 订阅链接
 
-### 获取方式
+```# 浏览器方式：http://your-domain:8080/sub
 ```bash
-# SSH方式
-edgeboxctl config show-sub
-
-# 浏览器方式
-http://your-domain:8080/sub
-```
+```# SSH方式：edgeboxctl config show-sub
+```bash
 
 ## 🛠️ 管理操作
 
@@ -201,15 +169,6 @@ edgeboxctl update               # 更新EdgeBox
 edgeboxctl reinstall            # 重新安装
 edgeboxctl uninstall            # 完全卸载
 ```
-
-### 分享建议
-| 用户类型 | 推荐协议 | 说明 |
-|---------|---------|------|
-| 技术小白 | VLESS-Reality | 单一稳定协议 |
-| 技术用户 | 聚合订阅 | 包含所有协议，自动切换 |
-| 家人使用 | VLESS-WebSocket | 最稳定，兼容性最好 |
-| 移动设备 | TUIC | 对不稳定网络友好 |
-
 ## 🔒 安全建议
 
 ### 客户端配置
