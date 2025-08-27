@@ -66,11 +66,11 @@
   - WebSocket: `127.0.0.1:10086`
   - 启用 Reality：Nginx 监听 `8443`
   - 未启用 Reality：Nginx 监听 `443`
-    #### Reality 直连（TCP/443）
+  #### Reality直连（TCP/443）
   - sing-box 直接绑定 `tcp/443`
   - 默认 SNI: `www.cloudflare.com`
   - 支持自定义伪装域名
-    #### UDP 协议
+  #### UDP协议
   - **Hysteria2**: `udp/443`（可改为8443）
   - **TUIC**: `udp/2053`
  
