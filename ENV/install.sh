@@ -635,7 +635,7 @@ show_subscriptions() {
     if [[ -f "$WORK_DIR/tuic-uuid" ]]; then
         local uuid=$(cat "$WORK_DIR/tuic-uuid")
         local password=$(cat "$WORK_DIR/tuic-password")
-        local tuic_link="tuic://$uuid:$password@$domain:2053?congestion_control=bbr&alpn=h3&udp_relay_mode=native&allow_insecure=true&sni=$domain#EdgeBox-TUIC"
+        local tuic_link="tuic://$uuid:$password@$domain:2053?congestion_control=bbr&alpn=h3&udp_relay_mode=native&tuic://fa0b309a-bc1b-447e-af93-011986ff041a:e5f9af65ed1b02d8f3b11f46c80368f7@35.212.192.41:2053?congestion_control=bbr&alpn=h3&udp_relay_mode=native&allowInsecure=1&sni=35.212.192.41#EdgeBox-TUIC&sni=$domain#EdgeBox-TUIC"
         subscriptions+="$tuic_link\n"
     fi
     
