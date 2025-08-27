@@ -808,6 +808,7 @@ show_complete() {
     echo "  查看订阅: edgeboxctl sub"
     echo "  重启服务: edgeboxctl restart"
     echo "  查看日志: edgeboxctl logs"
+    echo
 }
 
 # === 主安装流程 ===
