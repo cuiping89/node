@@ -903,6 +903,9 @@ show_complete() {
     systemctl is-active --quiet sing-box && echo "  ✓ sing-box: 运行中" || echo "  ✗ sing-box: 异常"
     systemctl is-active --quiet xray && echo "  ✓ xray: 运行中" || echo "  ✗ xray: 异常"
     systemctl is-active --quiet nginx && echo "  ✓ nginx: 运行中" || echo "  ✗ nginx: 异常"
+    echo    
+    echo "🌐 订阅链接:"
+    echo "  网页版: http://$domain"
     echo
     echo "🔧 管理命令:"
     echo "  查看状态: edgeboxctl status"
@@ -910,19 +913,8 @@ show_complete() {
     echo "  重启服务: edgeboxctl restart"
     echo "  查看日志: edgeboxctl logs"
     echo
-    echo "🌐 订阅链接:"
-    echo "  网页版: http://$domain"
-    echo "  明文版: http://$domain/edgebox-sub-plain.txt"
-    echo
-    echo "================================================================"
     echo "安装日志: $LOG_FILE"
     echo "配置目录: $WORK_DIR"
-    echo "================================================================"
-    echo
-    echo "🚀 开始使用:"
-    echo "1. 复制订阅链接到客户端"
-    echo "2. 更新订阅获取所有节点"
-    echo "3. 选择合适协议连接"
     echo
 }
 
