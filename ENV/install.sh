@@ -361,17 +361,22 @@ EOF
 generate_sing_box_config() {
     log "生成 Reality 密钥对..."
     
-    # 更可靠的密钥生成方法
-    local keys_output=$(/usr/local/bin/sing-box generate reality-keypair)
-    local private_key=$(echo "$keys_output" | grep "PrivateKey" | awk '{print $2}')
-    local public_key=$(echo "$keys_output" | grep "PublicKey" | awk '{print $2}')
+    # 生成Reality密钥对
+    local keys_output
+    if keys_output=$(/usr/local/bin/sing-box generate reality-keypair 2>/dev/null); then
+        local private_key=$(echo "$keys_output" | grep "PrivateKey" | awk '{print $2}')
+        local public_key=$(echo "$keys_output" | grep "PublicKey" | awk '{print $2}')
+    else
+        log "Reality 密钥生成失败，使用预设密钥"
+        private_key="kKiblZV9OOIReUAWnj8HLA-HNh9kH4qiE22TfaS_l3k"  
+        public_key="4WQPAesCDFV7NnxNKzExOaO4V0FoiXA6JD2MdH7N5Wg"
+    fi
     
-    # 验证密钥
+    # 验证密钥有效性
     if [[ -z "$private_key" ]] || [[ -z "$public_key" ]]; then
-        log "Reality 密钥生成失败，使用备用密钥"
-        # 使用已知可用的密钥对（仅用于测试）
-        private_key="2KZ4vaLxoFzuWYBOklJEkfWaOoc6iPhbG7BPWZSpB1I"
-        public_key="MirYs3cXlK_BapbQR5SmWlCHXE7Y6fKhYIG7mVRzjQI"
+        log "使用备用Reality密钥"
+        private_key="kKiblZV9OOIReUAWnj8HLA-HNh9kH4qiE22TfaS_l3k"
+        public_key="4WQPAesCDFV7NnxNKzExOaO4V0FoiXA6JD2MdH7N5Wg"
     fi
     
     local short_id=$(openssl rand -hex 8)
@@ -382,42 +387,22 @@ generate_sing_box_config() {
     echo "$short_id" > "$WORK_DIR/reality-short-id"
     echo "$private_key" > "$WORK_DIR/reality-private-key"
     
-    # Hysteria2 密码 - 使用简单格式
+    # Hysteria2 密码
     local hy2_password=$(openssl rand -hex 16)
     echo "$hy2_password" > "$WORK_DIR/hy2-password"
     
-    # TUIC - 使用简单密码
+    # TUIC 配置
     local tuic_uuid=$(uuidgen)
     local tuic_password=$(openssl rand -hex 16)
     echo "$tuic_uuid" > "$WORK_DIR/tuic-uuid"
     echo "$tuic_password" > "$WORK_DIR/tuic-password"
     
-    # sing-box 配置 - Reality使用端口443，其他协议避免冲突
+    # sing-box 配置 - 修复Reality配置
     cat > /etc/sing-box/config.json << EOF
 {
     "log": {
-        "level": "warn",
+        "level": "info",
         "timestamp": true
-    },
-    "dns": {
-        "servers": [
-            {
-                "tag": "dns_direct",
-                "address": "1.1.1.1",
-                "address_resolver": "dns_resolver"
-            },
-            {
-                "tag": "dns_resolver",
-                "address": "223.5.5.5"
-            }
-        ],
-        "rules": [
-            {
-                "outbound": "any",
-                "server": "dns_direct"
-            }
-        ],
-        "strategy": "prefer_ipv4"
     },
     "inbounds": [
         {
@@ -433,13 +418,13 @@ generate_sing_box_config() {
             ],
             "tls": {
                 "enabled": true,
-                "server_name": "www.cloudflare.com",
+                "server_name": "discord.com",
                 "reality": {
                     "enabled": true,
                     "private_key": "$private_key",
-                    "short_id": ["$short_id", ""],
+                    "short_id": ["$short_id"],
                     "handshake": {
-                        "server": "www.cloudflare.com",
+                        "server": "discord.com",
                         "server_port": 443
                     }
                 }
@@ -658,7 +643,7 @@ show_subscriptions() {
         domain=$server_ip
     fi
     
-    echo "=== EdgeBox 订阅链接 ==="
+    echo "=== EdgeBox 订阅信息 ==="
     echo "服务器: $domain"
     echo
     
@@ -681,7 +666,7 @@ show_subscriptions() {
         local uuid=$(cat "$WORK_DIR/reality-uuid")
         local pubkey=$(cat "$WORK_DIR/reality-public-key")
         local sid=$(cat "$WORK_DIR/reality-short-id")
-        local reality_link="vless://$uuid@$domain:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&pbk=$pubkey&sid=$sid&type=tcp&headerType=none&fp=chrome#EdgeBox-Reality"
+        local reality_link="vless://$uuid@$domain:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=discord.com&pbk=$pubkey&sid=$sid&type=tcp&headerType=none&fp=chrome#EdgeBox-Reality"
         subscriptions+="$reality_link\n"
     fi
     
@@ -692,11 +677,12 @@ show_subscriptions() {
         subscriptions+="$hy2_link\n"
     fi
     
-    # TUIC v5 - 修复链接格式
+    # TUIC v5 - 修复客户端兼容性问题
     if [[ -f "$WORK_DIR/tuic-uuid" ]]; then
         local uuid=$(cat "$WORK_DIR/tuic-uuid")
         local password=$(cat "$WORK_DIR/tuic-password")
-        local tuic_link="tuic://$uuid:$password@$domain:2053?congestion_control=bbr&alpn=h3&udp_relay_mode=native&allow_insecure=true&sni=$domain#EdgeBox-TUIC"
+        # 使用标准的TUIC链接格式，去掉问题参数
+        local tuic_link="tuic://$uuid:$password@$domain:2053?congestion_control=bbr&alpn=h3&sni=$domain#EdgeBox-TUIC"
         subscriptions+="$tuic_link\n"
     fi
     
@@ -713,9 +699,16 @@ show_subscriptions() {
         # 生成HTML页面
         generate_subscription_page "$domain" "$subscriptions"
         
-        # 简化输出 - 只显示网页版和Base64订阅
+        # 只显示网页版和Base64订阅
         echo "网页版: http://$domain"  
         echo "Base64订阅: http://$domain/edgebox-sub.txt"
+        
+        echo
+        echo "订阅内容 (Base64编码):"
+        echo "$base64_sub"
+        echo
+        echo "订阅内容 (明文链接):"
+        echo -e "$subscriptions"
     fi
 }
 
