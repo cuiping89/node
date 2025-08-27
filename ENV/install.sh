@@ -240,7 +240,7 @@ generate_xray_config() {
     local uuid=$(uuidgen)
     echo "$uuid" > "$WORK_DIR/xray-uuid"
     
-    # 修复：使用正确的端口 10085 和 10086
+    # Xray配置 - 使用10085和10086端口
     local inbounds=$(cat << EOF
 [
     {
@@ -277,8 +277,8 @@ generate_xray_config() {
 EOF
     )
     
-    # 构建出站
-    local outbounds='[{"protocol": "freedom", "tag": "direct"}'
+    # 构建出站 - 修复DNS问题
+    local outbounds='[{"protocol": "freedom", "tag": "direct", "settings": {"domainStrategy": "UseIP"}}'
     if [[ "$USE_PROXY" == true && -n "$PROXY_HOST" && -n "$PROXY_PORT" ]]; then
         outbounds+=",$(cat << EOF
 {
@@ -302,12 +302,30 @@ EOF
     fi
     outbounds+=']'
     
-    # 路由规则
-    local routing=""
+    # 路由和DNS配置
+    local dns_config=''
+    local routing=''
+    
     if [[ "$USE_PROXY" == true ]]; then
+        dns_config=$(cat << 'EOF'
+"dns": {
+    "servers": [
+        {
+            "address": "1.1.1.1",
+            "domains": ["domain:googlevideo.com", "domain:ytimg.com", "domain:ggpht.com"],
+            "port": 53
+        },
+        {
+            "address": "8.8.8.8",
+            "port": 53
+        }
+    ]
+},
+EOF
+        )
         routing=$(cat << 'EOF'
 {
-    "domainStrategy": "AsIs",
+    "domainStrategy": "IPIfNonMatch",
     "rules": [
         {
             "type": "field",
@@ -323,12 +341,14 @@ EOF
 EOF
         )
     else
-        routing='{"domainStrategy": "AsIs"}'
+        dns_config='"dns": {"servers": ["1.1.1.1", "8.8.8.8"]},'
+        routing='{"domainStrategy": "IPIfNonMatch"}'
     fi
     
     cat > /usr/local/etc/xray/config.json << EOF
 {
     "log": {"loglevel": "warning"},
+    $dns_config
     "inbounds": $inbounds,
     "outbounds": $outbounds,
     "routing": $routing
@@ -372,12 +392,32 @@ generate_sing_box_config() {
     echo "$tuic_uuid" > "$WORK_DIR/tuic-uuid"
     echo "$tuic_password" > "$WORK_DIR/tuic-password"
     
-    # 修复：sing-box 配置，Hysteria2 使用 443 端口
+    # sing-box 配置 - Reality使用端口443，其他协议避免冲突
     cat > /etc/sing-box/config.json << EOF
 {
     "log": {
-        "level": "info",
+        "level": "warn",
         "timestamp": true
+    },
+    "dns": {
+        "servers": [
+            {
+                "tag": "dns_direct",
+                "address": "1.1.1.1",
+                "address_resolver": "dns_resolver"
+            },
+            {
+                "tag": "dns_resolver",
+                "address": "223.5.5.5"
+            }
+        ],
+        "rules": [
+            {
+                "outbound": "any",
+                "server": "dns_direct"
+            }
+        ],
+        "strategy": "prefer_ipv4"
     },
     "inbounds": [
         {
@@ -409,7 +449,7 @@ generate_sing_box_config() {
             "type": "hysteria2",
             "tag": "hysteria2",
             "listen": "::",
-            "listen_port": 8443,
+            "listen_port": 8444,
             "users": [
                 {
                     "password": "$hy2_password"
@@ -433,6 +473,27 @@ generate_sing_box_config() {
                     "password": "$tuic_password"
                 }
             ],
+            "congestion_control": "bbr",
+            "auth_timeout": "3s",
+            "tls": {
+                "enabled": true,
+                "alpn": ["h3"],
+                "certificate_path": "/etc/ssl/edgebox/cert.pem",
+                "key_path": "/etc/ssl/edgebox/key.pem"
+            }
+        }
+    ],
+    "outbounds": [
+        {
+            "type": "direct",
+            "tag": "direct"
+        }
+    ]
+}
+EOF
+    
+    /usr/local/bin/sing-box check -c /etc/sing-box/config.json || error "sing-box 配置文件有误"
+}
             "congestion_control": "bbr",
             "auth_timeout": "3s",
             "tls": {
@@ -568,7 +629,7 @@ setup_firewall() {
     ufw allow 443/tcp >/dev/null 2>&1   # Reality TCP
     ufw allow 443/udp >/dev/null 2>&1   # Reality UDP (可选)
     ufw allow 8443/tcp >/dev/null 2>&1  # Nginx HTTPS
-    ufw allow 8443/udp >/dev/null 2>&1  # Hysteria2
+    ufw allow 8444/udp >/dev/null 2>&1  # Hysteria2 (修改端口)
     ufw allow 2053/udp >/dev/null 2>&1  # TUIC
     
     echo "y" | ufw enable >/dev/null 2>&1
@@ -627,7 +688,7 @@ show_subscriptions() {
     # Hysteria2
     if [[ -f "$WORK_DIR/hy2-password" ]]; then
         local password=$(cat "$WORK_DIR/hy2-password")
-        local hy2_link="hy2://$password@$domain:8443?insecure=1&sni=$domain#EdgeBox-Hysteria2"
+        local hy2_link="hy2://$password@$domain:8444?insecure=1&sni=$domain#EdgeBox-Hysteria2"
         subscriptions+="$hy2_link\n"
     fi
     
@@ -635,7 +696,7 @@ show_subscriptions() {
     if [[ -f "$WORK_DIR/tuic-uuid" ]]; then
         local uuid=$(cat "$WORK_DIR/tuic-uuid")
         local password=$(cat "$WORK_DIR/tuic-password")
-        local tuic_link="tuic://$uuid:$password@$domain:2053?congestion_control=bbr&alpn=h3&udp_relay_mode=native&allow_insecure=1&sni=$domain#EdgeBox-TUIC"
+        local tuic_link="tuic://$uuid:$password@$domain:2053?congestion_control=bbr&alpn=h3&udp_relay_mode=native&allow_insecure=true&sni=$domain#EdgeBox-TUIC"
         subscriptions+="$tuic_link\n"
     fi
     
@@ -652,9 +713,9 @@ show_subscriptions() {
         # 生成HTML页面
         generate_subscription_page "$domain" "$subscriptions"
         
-        # 简化输出 - 只显示网页版和明文订阅
-        echo "网页版: http://$domain"
-        echo "明文订阅: http://$domain/edgebox-sub-plain.txt"
+        # 简化输出 - 只显示网页版和Base64订阅
+        echo "网页版: http://$domain"  
+        echo "Base64订阅: http://$domain/edgebox-sub.txt"
     fi
 }
 
@@ -794,7 +855,7 @@ case ${1:-help} in
         ss -lntp 2>/dev/null | grep -E ':80|:443|:8443|:10085|:10086' || echo "需要root权限查看"
         echo
         echo "UDP 端口:"
-        ss -lnup 2>/dev/null | grep -E ':443|:8443|:2053' || echo "需要root权限查看"
+        ss -lnup 2>/dev/null | grep -E ':443|:8444|:2053' || echo "需要root权限查看"
         ;;
     sub|subscription)
         show_subscriptions
@@ -895,7 +956,7 @@ show_complete() {
     echo "✅ 端口分配:"
     echo "   - Reality: 443/tcp (sing-box 直连)"
     echo "   - gRPC/WS: 8443/tcp (Nginx → Xray)"
-    echo "   - Hysteria2: 8443/udp (sing-box)"
+    echo "   - Hysteria2: 8444/udp (sing-box)"
     echo "   - TUIC: 2053/udp (sing-box)"
     echo "   - HTTP: 80/tcp (订阅页面)"
     echo
