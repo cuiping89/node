@@ -218,13 +218,10 @@ Bash
 - edgeboxctl uninstall            # 完全卸载
 
 
-## 一键安装（完全卸载+无损重装+出口分流+流量统计+聚合订阅+自动备份）
+## 一键安装
 服务器上执行以下命令即可开始：
 ```bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/refs/heads/main/ENV/install.sh)
 ```
-
-## 🔧 一键脚本安装过程
-
 ### 1. 系统预检查
 - ✅ 操作系统兼容性
 - ✅ 网络连通性测试
