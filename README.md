@@ -1,8 +1,8 @@
 # EdgeBox：一站式多协议节点部署方案
 
-- EdgeBox 是一个多协议一键部署脚本，旨在提供一个**健壮灵活、一键部署、幂等卸载**的科学上网解决方案。
-- 核心策略：**协议组合+端口分配+出站分流**，健壮灵活、深度伪装、灵活路由，能应对复杂多变的网络环境。
-- 运维功能：**模式切换+流量统计+备份恢复**
+- EdgeBox 是一个多协议一键部署脚本，旨在提供一个**健壮灵活、一键部署、幂等卸载**的科学上网解决方案，
+- 核心策略：**协议组合+端口分配+出站分流**，健壮灵活、深度伪装、灵活路由，能应对复杂多变的网络环境，
+- 运维功能：**模式切换+流量统计+备份恢复**。配置灵活、流量预警、安全备份，满足运维需求。
 
 - 🚀 **一键安装**：非交互式默认“IP模式”安装
 - 🗑️ **幂等卸载**：一键清理所有组件，简洁、高效、幂等、非交互，为安装失败后重装准备环境，适合自动化和故障排除
@@ -29,13 +29,31 @@
 - **sing-box**: Reality + Hysteria2 + TUIC
   
 ## 证书管理
-```bash
-# 自动化流程
-域名配置 → DNS解析检查 → Let's Encrypt申请 → 自动续期
-    ↓
-未配置域名 → 自签名证书 → 基础功能可用
-```
-- **自动续期**: ACME 证书配置 cron 任务自动续期
+EdgeBox 的证书管理模块旨在实现全自动化，根据用户是否提供域名来智能选择证书类型，并确保证书的生命周期得到妥善管理。
+### 1. 证书类型与生成流程
+- EdgeBox 支持两种证书类型，它们在安装和运行的不同阶段自动生成或配置。
+#### 自签名证书（IP模式）
+- 生成时机：在非交互式安装或无域名配置时自动生成。
+- 用途：用于初始阶段，确保 VLESS-gRPC、VLESS-WS、Hysteria2 和 TUIC 协议能够立即启用并工作。这些协议在客户端连接时需要开启“跳过证书验证”或“允许不安全”选项。
+- 文件路径：
+- 私钥：/etc/edgebox/cert/self-signed.key
+- 公钥：/etc/edgebox/cert/self-signed.pem
+#### Let's Encrypt 证书（域名模式）
+- 生成时机：用户使用 edgeboxctl change-to-domain 命令并提供有效域名后，脚本会自动调用 certbot 申请。
+- 用途：提供受信任的、安全的TLS加密，使所有协议在客户端无需任何额外设置即可安全连接。
+- 文件路径：
+- 私钥：/etc/letsencrypt/live/<your_domain>/privkey.pem
+- 公钥：/etc/letsencrypt/live/<your_domain>/fullchain.pem
+- 自动续期：脚本将配置一个 cron 任务，自动执行 certbot renew 命令，确保证书在到期前自动续期。
+### 2. 证书在配置文件中的引用
+为了确保证书切换的幂等性，配置文件将使用变量或软链接来动态指向正确的证书文件。
+#### Nginx 配置 (/etc/nginx/nginx.conf 或相关文件)
+- ssl_certificate：动态指向 /etc/edgebox/cert/current.pem
+- ssl_certificate_key：动态指向 /etc/edgebox/cert/current.key
+#### Xray 和 sing-box 配置
+- tls.certificates[0].certificate_file：指向 /etc/edgebox/cert/current.pem
+- tls.certificates[0].key_file：指向 /etc/edgebox/cert/current.key
+- edgeboxctl 工具在切换模式时，将更新 /etc/edgebox/cert/current.pem 和 /etc/edgebox/cert/current.key 这两个软链接，使其分别指向自签名证书或 Let's Encrypt 证书的实际文件。
 
 ## 协议组合策略
 
@@ -209,9 +227,9 @@ Bash
 - edgeboxctl traffic show         # 显示流量统计
 - edgeboxctl traffic reset        # 重置流量计数
 ### 证书管理
-- edgeboxctl cert status          # 证书状态
-- edgeboxctl cert renew           # 手动续期
-- edgeboxctl cert upload          # 上传自定义证书
+- edgeboxctl cert status	# 查看状态：显示当前使用的证书类型、到期时间，及自动续期任务状态。
+- edgeboxctl cert renew	  # 手动续期：强制执行 certbot 续期操作。通常用于测试或自动续期失败时。
+- edgeboxctl cert upload <fullchain_path> <key_path>	# 上传自定义证书：允许用户使用自己的证书。脚本将把提供的证书文件软链接到 current.pem/key。
 ### 系统管理
 - edgeboxctl update               # 更新EdgeBox
 - edgeboxctl reinstall            # 重新安装
