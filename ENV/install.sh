@@ -87,7 +87,7 @@ check_root() {
 check_system() {
     log_info "检查系统兼容性..."
     
-    if [[ -f /etc/os-release ]]; then
+    if [ -f /etc/os-release ]; then
         . /etc/os-release
         OS=$ID
         VERSION=$VERSION_ID
@@ -99,20 +99,26 @@ check_system() {
     # 支持的系统版本
     SUPPORTED=false
     
-    if [[ "$OS" = "ubuntu" ]]; then
-        # 提取主版本号
-        MAJOR_VERSION=$(echo $VERSION | cut -d. -f1)
-        if [[ $MAJOR_VERSION -ge 18 ]]; then
-            SUPPORTED=true
-        fi
-    elif [[ "$OS" = "debian" ]]; then
-        # Debian版本通常是整数
-        if [[ $VERSION -ge 10 ]]; then
-            SUPPORTED=true
-        fi
-    fi
+    case "$OS" in
+        ubuntu)
+            # 提取主版本号
+            MAJOR_VERSION=$(echo "$VERSION" | cut -d. -f1)
+            if [ "$MAJOR_VERSION" -ge 18 ] 2>/dev/null; then
+                SUPPORTED=true
+            fi
+            ;;
+        debian)
+            # Debian版本通常是整数
+            if [ "$VERSION" -ge 10 ] 2>/dev/null; then
+                SUPPORTED=true
+            fi
+            ;;
+        *)
+            SUPPORTED=false
+            ;;
+    esac
     
-    if [[ "$SUPPORTED" = true ]]; then
+    if [ "$SUPPORTED" = "true" ]; then
         log_success "系统检查通过: $OS $VERSION"
     else
         log_error "不支持的系统: $OS $VERSION"
