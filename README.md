@@ -1,14 +1,15 @@
-# EdgeBox：一站式多协议节点部署方案文档
+# EdgeBox：一站式多协议节点部署方案
 
 - EdgeBox 是一个多协议一键部署脚本，旨在提供一个**健壮灵活、一键部署、幂等卸载**的科学上网解决方案。
-- 功能齐全：**协议矩阵+出站分流+流量统计+聚合订阅+自动备份**。
+- 功能齐全：**矩阵协议+出站分流+模式切换+流量统计+备份恢复**。
 
-- 🚀 **一键安装**：自动化部署
-- 🗑️ **完全卸载**：一键清理所有组件，为安装失败后重装准备环境，简洁、高效、幂等、非交互式，适合自动化和故障排除。
-- 🔄 **出口分流**：googlevideo.com直出；其它从住宅HTTP出
+- 🚀 **一键安装**：非交互式默认“IP模式”安装
+- 🗑️ **幂等卸载**：一键清理所有组件，简洁、高效、幂等、非交互，为安装失败后重装准备环境，适合自动化和故障排除
+- 🗑️ **矩阵协议**：VLESS-gRPC、VLESS-WS、VLESS-Reality、Hysteria2、TUIC
+- 🔄 **出口分流**：直连白名单 + 住宅IP出站
+- 🔗 **模式切换**：提供管理工具edgeboxctl 实现“IP模式”和“域名模式”之间的双向无缝切换
 - 📊 **流量统计**：内置 vnStat + iptables 流量监控
-- 🔗 **聚合订阅**：自动生成多协议订阅链接
-- 💾 **自动备份**：每日备份配置，支持一键恢复
+- 💾 **备份恢复**：每日自动备份，支持一键恢复
 
 ## 软件要求：
 - 系统软件：Ubuntu 18.04+； Debian 10+
@@ -37,7 +38,7 @@
 ## 核心策略
  **多协议组合、深度伪装、灵活路由** 来应对复杂多变的网络环境。
 
-### 协议矩阵
+### 矩阵协议
 - 默认安装：VLESS-gRPC、VLESS-WS、VLESS-Reality、Hysteria2、TUIC。
 - 通过多层次的伪装来模拟正常的互联网流量，有效对抗审查和探测，适用不同场景，客户端可以无缝切换协议，确保连接的高可用性。
   
@@ -133,7 +134,7 @@ Hysteria2/TUIC：移除 insecure=true 或 skip-cert-verify=true 参数。
 1. 策略目标
 本分流模块的核心目标是实现按需出站，其设计基于以下原则：
 直连白名单：将指定域名（例如 googlevideo.com 等）的流量直接通过 VPS 出口访问。这能显著节省住宅代理IP流量，并提供最佳的流媒体观看体验。
-住宅IP代理出站：将所有不属于白名单的流量通过配置的静态住宅代理IP出站。这有助于稳定账号的地域画像，避免频繁变更IP地址导致的异常行为。
+住宅IP出站：将所有不属于白名单的流量通过配置的静态住宅代理IP出站。这有助于稳定账号的地域画像，避免频繁变更IP地址导致的异常行为。
 
 2. 模式与状态
 本分流模块是一个独立的、支持双向切换的功能，其状态由 SHUNT_MODE 变量控制，与域名模式/IP 模式完全解耦。
@@ -180,28 +181,54 @@ ytimg.com
 ggpht.com
 健康探活：在切换到代理出站模式前，应添加简单的探活逻辑，以验证代理的可用性。如果代理不可用，应自动回退到直连模式并给出提示。
 
+运维与管理
+1. 流量统计
+命令：edgeboxctl traffic show
 
-## 流量统计
-- 实时流量监控：edgeboxctl traffic show
-- 显示内容：
-- vnStat 系统流量
-- 各协议端口流量
-- iptables/nftables 计数
-- 实时连接状态
+显示内容：vnStat 系统流量、各协议端口流量、iptables/nftables 计数。
 
-## 备份恢复
+2. 备份与恢复
+自动备份：每日凌晨3点自动备份配置、证书和用户数据到 /root/edgebox-backup/，保留最近15天的备份。
 
-### 自动备份
-- **备份内容**：配置文件、证书、用户数据
-- **备份路径**：`/root/edgebox-backup/`
-- **保留策略**：最近15天
-- **执行时间**：每日凌晨3点
-### 手动操作
-```bash
-# 列出备份：edgeboxctl backup list
-# 创建备份：edgeboxctl backup create
-# 恢复备份：edgeboxctl backup restore 2024-01-15
-```
+手动操作：
+
+edgeboxctl backup list：列出所有备份。
+
+edgeboxctl backup create：手动创建备份。
+
+edgeboxctl backup restore <日期>：恢复指定日期的备份。
+
+3. edgeboxctl 命令集
+Bash
+
+# 配置管理
+edgeboxctl config show          # 显示当前配置
+edgeboxctl config show-sub      # 显示订阅链接
+edgeboxctl config regenerate-uuid # 重新生成 UUID
+
+# 服务管理
+edgeboxctl service status       # 服务状态
+edgeboxctl service restart      # 重启服务
+edgeboxctl service logs         # 查看日志
+
+# 出站分流
+edgeboxctl shunt apply          # 启用住宅代理分流
+edgeboxctl shunt clear          # 切换回VPS直连
+
+# 流量统计
+edgeboxctl traffic show         # 显示流量统计
+edgeboxctl traffic reset        # 重置流量计数
+
+# 证书管理
+edgeboxctl cert status          # 证书状态
+edgeboxctl cert renew           # 手动续期
+edgeboxctl cert upload          # 上传自定义证书
+
+# 系统管理
+edgeboxctl update               # 更新EdgeBox
+edgeboxctl reinstall            # 重新安装
+edgeboxctl uninstall            # 完全卸载
+
 
 ## 一键安装（完全卸载+无损重装+出口分流+流量统计+聚合订阅+自动备份）
 服务器上执行以下命令即可开始：
