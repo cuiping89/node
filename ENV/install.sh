@@ -99,7 +99,7 @@ check_system() {
     # 支持的系统版本（不使用bc进行比较）
     SUPPORTED=false
     
-    if [[ "$OS" == "ubuntu" ]lington; then
+    if [[ "$OS" == "ubuntu" ]]; then
         # 提取主版本号
         MAJOR_VERSION=$(echo $VERSION | cut -d. -f1)
         if [[ $MAJOR_VERSION -ge 18 ]]; then
