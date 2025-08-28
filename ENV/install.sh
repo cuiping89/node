@@ -96,23 +96,23 @@ check_system() {
         exit 1
     fi
     
-    # 支持的系统版本（不使用bc进行比较）
+    # 支持的系统版本
     SUPPORTED=false
     
-    if [[ "$OS" == "ubuntu" ]]; then
+    if [[ "$OS" = "ubuntu" ]]; then
         # 提取主版本号
         MAJOR_VERSION=$(echo $VERSION | cut -d. -f1)
         if [[ $MAJOR_VERSION -ge 18 ]]; then
             SUPPORTED=true
         fi
-    elif [[ "$OS" == "debian" ]]; then
+    elif [[ "$OS" = "debian" ]]; then
         # Debian版本通常是整数
         if [[ $VERSION -ge 10 ]]; then
             SUPPORTED=true
         fi
     fi
     
-    if [[ "$SUPPORTED" == true ]]; then
+    if [[ "$SUPPORTED" = true ]]; then
         log_success "系统检查通过: $OS $VERSION"
     else
         log_error "不支持的系统: $OS $VERSION"
