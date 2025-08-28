@@ -1,0 +1,170 @@
+
+
+### **EdgeBox：一站式多协议节点部署方案文档**
+
+  - EdgeBox 是一个多协议一键部署脚本，旨在提供一个**健壮灵活、一键部署、幂等卸载**的科学上网解决方案。
+  - 功能齐全：**协议矩阵+出站分流+流量统计+聚合订阅+自动备份**。
+
+| 功能 | 描述 |
+|---|---|
+| 🚀 **一键安装** | 自动化部署，支持非交互式安装，开箱即用。 |
+| 🗑️ **完全卸载** | 一键清理所有组件，为故障排除和重装准备环境。 |
+| 🔄 **出口分流** | `googlevideo.com` 等白名单直出，其余流量走住宅IP。 |
+| 📊 **流量统计** | 内置 `vnStat` 和 `iptables` 监控，支持实时查看。 |
+| 🔗 **聚合订阅** | 自动生成多协议订阅链接，支持一键导入。 |
+| 💾 **自动备份** | 每日备份配置，支持一键恢复。 |
+
+-----
+
+### **核心组件**
+
+| 组件 | 功能 |
+|---|---|
+| **Nginx** | 前置代理，处理 TLS 终止和 SNI 分流。 |
+| **Xray** | 承载 **VLESS-gRPC** 和 **VLESS-WS** 协议。 |
+| **sing-box** | 承载 **Reality**、**Hysteria2** 和 **TUIC** 协议。 |
+
+### **系统与硬件要求**
+
+  * **系统**：Ubuntu 18.04+ 或 Debian 10+。
+  * **软件依赖**：脚本将自动安装 `curl`, `wget`, `unzip`, `tar`, `nginx`, `certbot`, `vnstat`, `iftop` 等。
+  * **硬件**：CPU 1 核，内存 512MB（内存不足将自动创建 2GB Swap 补足），存储 10GB 可用空间。
+  * **网络**：稳定的公网 IP。
+
+-----
+
+### **核心策略**
+
+EdgeBox 采用**多协议组合、深度伪装、灵活路由**来应对复杂多变的网络环境。
+
+#### **1. 协议矩阵**
+
+默认安装包含所有五种协议，通过多层次的伪装来模拟正常的互联网流量，有效对抗审查和探测，确保连接的高可用性。
+
+| 协议 | 传输特征 | 伪装效果 | 适用场景 |
+|---|---|---|---|
+| **VLESS-Reality** | 真实 TLS 握手 | **极佳**，几乎无法识别 | 最严格的网络环境 |
+| **VLESS-gRPC** | HTTP/2 多路复用 | **极佳**，类似正常网页请求 | 网络审查严格的环境 |
+| **VLESS-WS** | WebSocket 长连接 | **良好**，模拟实时通信 | 一般网络环境，稳定性佳 |
+| **Hysteria2** | QUIC/UDP 快速传输 | **良好**，HTTP/3 伪装 | 需要高速传输的场景 |
+| **TUIC** | 轻量 QUIC 协议 | **中等**，UDP 流量特征 | 移动网络和不稳定连接 |
+
+#### **2. 端口伪装**
+
+本方案通过**单端口复用**和**内部回环**技术，将流量聚合到少量常用端口，最大化伪装效果。
+
+  * **对外开放端口（GCP 防火墙配置）**
+      * **TCP/443**：所有基于 TCP 的加密协议的**单口汇聚**，模拟 HTTPS 流量。
+      * **UDP/443**：专用于 **Hysteria2** 协议。
+      * **UDP/2053**：专用于 **TUIC** 协议。
+      * **重要提示：** GCP 防火墙规则中仅保留开放以上端口，并关闭所有其他未列出的端口。
+  * **不对外开放端口（仅本机回环）**
+      * **TCP/8443, 10085, 10086, 10443**：这些端口仅用于内部组件通信，绝不暴露给公网。
+
+#### **3. 内部链路与流量分发**
+
+所有流量进入服务器后，将由各组件在内部进行精密处理与分发。
+
+  * **流量入口**：所有 TCP/443 流量首先由 **Xray Reality** 协议处理。不匹配 Reality 特征的流量，将通过\*\*精准回落（Fallbacks）\*\*规则，回落到内部的 Nginx Stream。
+  * **Nginx Stream (监听 `127.0.0.1:10443`)**：只进行 **TLS 预读**，根据客户端的 ALPN 值进行分流：
+      * `ALPN = h2`：转发到 `127.0.0.1:10085` (VLESS-gRPC)。
+      * `ALPN = http/1.1`：转发到 `127.0.0.1:10086` (VLESS-WS)。
+  * **后端服务**：
+      * **Xray**：在内部端口 `10085/10086` 运行 VLESS-gRPC 和 VLESS-WS。
+      * **sing-box**：在 `udp/443` 和 `udp/2053` 运行 Hysteria2 和 TUIC。
+  * **行为伪装**：通过伪装 TLS 指纹和利用 QUIC 协议特性，让流量看起来像访问真实热门网站或 HTTP/3 流量。
+
+-----
+
+### **部署与模式切换**
+
+本方案的关键在于 `edgeboxctl` 管理工具，它能实现两种模式之间的无缝切换。
+
+#### **A. 初始安装（无域名/IP 模式）**
+
+安装脚本默认为非交互模式，专为无域名、无住宅 IP 的环境设计。安装后所有协议立即可用，但部分协议使用自签名证书。
+
+  * **Reality**：启用，**`server_name` 伪装为 `www.cloudflare.com`**，按常规生成密钥。
+  * **VLESS-gRPC / VLESS-WS**：Xray 后端使用**自签名证书**。Reality 入站配置中设置**回落规则**：当流量的 SNI 命中占位符（`grpc.edgebox.local` 或 `www.edgebox.local`）且 ALPN 命中 `h2` 或 `http/1.1` 时，流量会被回落至 `127.0.0.1:10443`。
+  * **Hysteria2 / TUIC**：同样使用**自签名证书**启动。
+
+#### **B. 模式双向切换（`edgeboxctl` 命令）**
+
+  * **切换至域名模式**：
+      * **命令**：`edgeboxctl change-to-domain <your_domain>`
+      * **逻辑**：检查域名解析，自动申请 Let's Encrypt 证书，并用新证书替换所有协议的自签名证书。
+  * **回退至 IP 模式**：
+      * **命令**：`edgeboxctl change-to-ip`
+      * **逻辑**：当域名或住宅 IP 失效时，此命令将禁用 Let's Encrypt 证书，重新启用自签名证书，将所有配置回退到初始 IP 模式。
+
+#### **C. 动态生成订阅链接**
+
+`edgeboxctl sub` 命令会根据当前模式动态生成一键导入的聚合链接：
+
+  * **IP 模式**：所有链接的 `address` 字段使用服务器公网 IP，`VLESS/Hysteria/TUIC` 链接自动添加 `insecure=1` 或 `skip-cert-verify=true` 等不安全参数。
+  * **域名模式**：所有链接的 `address` 字段使用您的真实域名，并**移除**不安全参数。
+
+-----
+
+### **出站分流策略**
+
+本模块是一个独立的、可双向切换的功能，与域名/IP 切换功能**完全解耦**。
+
+  * **默认模式：VPS 直出（`SHUNT_MODE=direct`）**
+      * 所有流量都通过您的 VPS 服务器 IP 地址直接出站。这是非交互式安装后的默认状态，满足“先用后配”的要求。
+  * **可选模式：住宅代理出站（`SHUNT_MODE=resi`）**
+      * **行为**：将白名单流量**直连**，其余所有流量通过指定的静态住宅代理IP出站。
+      * **默认直连白名单**：`googlevideo.com`, `ytimg.com`, `ggpht.com`（可编辑）。
+  * **管理工具实现（`edgeboxctl shunt`）**
+      * **启用代理**：`edgeboxctl shunt apply <代理地址>`。代理地址支持带认证格式：`<IP>:<端口>:<用户名>:<密码>`。
+      * **切换直连**：`edgeboxctl shunt clear`。
+      * **幂等性**：`edgeboxctl shunt` 命令只修改出站与路由片段，不影响入站、证书等核心配置，确保模块边界清晰。
+
+-----
+
+### **运维与管理**
+
+#### **1. 流量统计**
+
+  * **命令**：`edgeboxctl traffic show`
+  * **显示内容**：`vnStat` 系统流量、各协议端口流量、`iptables/nftables` 计数。
+
+#### **2. 备份与恢复**
+
+  * **自动备份**：每日凌晨3点自动备份配置、证书和用户数据到 `/root/edgebox-backup/`，保留最近15天的备份。
+  * **手动操作**：
+      * `edgeboxctl backup list`：列出所有备份。
+      * `edgeboxctl backup create`：手动创建备份。
+      * `edgeboxctl backup restore <日期>`：恢复指定日期的备份。
+
+#### **3. `edgeboxctl` 命令集**
+
+```bash
+# 配置管理
+edgeboxctl config show          # 显示当前配置
+edgeboxctl config show-sub      # 显示订阅链接
+edgeboxctl config regenerate-uuid # 重新生成 UUID
+
+# 服务管理
+edgeboxctl service status       # 服务状态
+edgeboxctl service restart      # 重启服务
+edgeboxctl service logs         # 查看日志
+
+# 出站分流
+edgeboxctl shunt apply          # 启用住宅代理分流
+edgeboxctl shunt clear          # 切换回VPS直连
+
+# 流量统计
+edgeboxctl traffic show         # 显示流量统计
+edgeboxctl traffic reset        # 重置流量计数
+
+# 证书管理
+edgeboxctl cert status          # 证书状态
+edgeboxctl cert renew           # 手动续期
+edgeboxctl cert upload          # 上传自定义证书
+
+# 系统管理
+edgeboxctl update               # 更新EdgeBox
+edgeboxctl reinstall            # 重新安装
+edgeboxctl uninstall            # 完全卸载
+```
