@@ -56,26 +56,34 @@
 - **TUIC**: 基于 QUIC 的轻量级协议，具有较好的抗检测能力
 
 ### 端口伪装
-- **TCP 协议（443/8443）**: 使用 HTTPS 标准端口，使流量看起来像在正常浏览网页
-- **UDP 协议（443/8443/2053）**: 分散在常用端口，降低识别风险
+- TCP 协议443: 使用 HTTPS 标准端口，使流量看起来像在正常浏览网页；UDP 协议443/2053: 分散在常用端口，降低识别风险。
+- GCP 防火墙建议：保留开放tcp/443、udp/443、udp/2053；建议关闭tcp/8443（当前方案用不到），以及其它所有未列出的端口。
 
-  #### 端口分配策略
-    #### gRPC/WS**: Nginx 反向代理 → Xray 后端
-  - gRPC: `127.0.0.1:10085`
-  - WebSocket: `127.0.0.1:10086`
-  - 启用 Reality：Nginx 监听 `tcp/8443`
-  - 未启用 Reality：Nginx 监听 `tcp/443`
-   #### Reality直连（TCP/443）
-  - sing-box 直接绑定 `tcp/443`
-  - 默认 SNI: `www.cloudflare.com`
-  - 支持自定义伪装域名
-   #### Hysteria2**: `udp/443`（可改为8443）
-   #### TUIC: `udp/2053`
+  #### 端口分配策略（对外固定不变）
+- TCP/443：单口汇聚
+- Xray VLESS + Reality (XTLS/Vision) 直连入口
+- 精准回落（仅当匹配到指定 SNI+ALPN 时）→ 127.0.0.1:10443（Nginx stream）
+- UDP/443：Hysteria2
+- UDP/2053：TUIC
+- 其它公网端口（例如 8443 / 10085 / 10086 / 10443）不对外开放，仅本机回环。
+
+- 内部链路（固定不变）
+- Nginx stream： 127.0.0.1:10443（只做 ssl_preread）
+- ALPN=h2 → 127.0.0.1:10085（VLESS-gRPC/TLS）
+- 其余（含 http/1.1） → 127.0.0.1:10086（VLESS-WS/TLS）
+
+- Xray 后端：
+- 127.0.0.1:10085 → VLESS-gRPC（开启 TLS）
+- 127.0.0.1:10086 → VLESS-WS（开启 TLS）
+
+- sing-box：
+- udp/443 → Hy2
+- udp/2053 → TUIC
  
   #### 伪装目标：
   - www.cloudflare.com（默认，全球可用）
-  - www.microsoft.com（Windows 更新流量）
-  - www.apple.com（iOS 更新流量）
+  - www.microsoft.com（Windows更新流量）
+  - www.apple.com（iOS更新流量）
 
 ## 灵活路由
 
@@ -169,13 +177,13 @@ edgeboxctl update               # 更新EdgeBox
 edgeboxctl reinstall            # 重新安装
 edgeboxctl uninstall            # 完全卸载
 ```
+
 ## 🔒 安全建议
 
 ### 客户端配置
 - ✅ 启用"绕过大陆"分流规则
 - ✅ 配合VPS白名单直出策略
 - ✅ 定期更换伪装域名
-
 ### 服务端维护
 - 🔄 定期系统更新：`apt update && apt upgrade`
 - 📊 监控异常流量：`edgeboxctl traffic show`
