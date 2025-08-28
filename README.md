@@ -1,13 +1,15 @@
 # EdgeBox：一站式多协议节点部署方案
 
 - EdgeBox 是一个多协议一键部署脚本，旨在提供一个**健壮灵活、一键部署、幂等卸载**的科学上网解决方案。
-- 功能齐全：**矩阵协议+出站分流+模式切换+流量统计+备份恢复**。
+- 核心策略：**协议组合+端口分配+出站分流**，多协议组合、深度伪装、灵活路由来应对复杂多变的网络环境。
+- 运维功能：**模式切换+流量统计+备份恢复**
 
 - 🚀 **一键安装**：非交互式默认“IP模式”安装
 - 🗑️ **幂等卸载**：一键清理所有组件，简洁、高效、幂等、非交互，为安装失败后重装准备环境，适合自动化和故障排除
-- 🗑️ **矩阵协议**：VLESS-gRPC、VLESS-WS、VLESS-Reality、Hysteria2、TUIC
-- 🔄 **出口分流**：直连白名单 + 住宅IP出站
-- 🔗 **模式切换**：提供管理工具edgeboxctl 实现“IP模式”和“域名模式”之间的双向无缝切换
+- 🗑️ **协议组合**：VLESS-gRPC、VLESS-WS、VLESS-Reality、Hysteria2、TUIC
+- 🔄 **端口分配**：单端口复用 + 内部回环
+- 🔄 **出站分流**：直连白名单 与 住宅IP出站
+- 🔗 **模式切换**：提供管理工具edgeboxctl，实现模式双向切换：IP模式 与 域名模式；VPS直出模式 与 住宅代理分流出站模式
 - 📊 **流量统计**：内置 vnStat + iptables 流量监控
 - 💾 **备份恢复**：每日自动备份，支持一键恢复
 
@@ -34,13 +36,10 @@
 未配置域名 → 自签名证书 → 基础功能可用
 ```
 - **自动续期**: ACME 证书配置 cron 任务自动续期
- 
-## 核心策略
- **多协议组合、深度伪装、灵活路由** 来应对复杂多变的网络环境。
 
-### 矩阵协议
+## 协议组合策略
 
-| 协议 | 传输特征 | 行为伪装效果 | 适用场景 |
+| 矩阵协议 | 传输特征 | 行为伪装效果 | 适用场景 |
 |------|----------|----------|----------|
 | **VLESS-gRPC** | HTTP/2 多路复用 | 极佳，类似正常网页请求 | 网络审查严格的环境 |
 | **VLESS-WS** | WebSocket 长连接 | 良好，模拟实时通信 | 一般网络环境，稳定性佳 |
@@ -49,12 +48,12 @@
 | **TUIC** | 轻量 QUIC 协议 | 中等，UDP 流量特征 | 移动网络和不稳定连接 |
 
 - 默认安装：VLESS-gRPC、VLESS-WS、VLESS-Reality、Hysteria2、TUIC。
-- 通过多层次的伪装来模拟正常的互联网流量，有效对抗审查和探测，适用不同场景，客户端可以无缝切换协议，确保连接的高可用性。
+- 反探测，适用不同场景，通过多层次的伪装来模拟正常的互联网流量，高可用性，客户端可以无缝切换协议。
 - **VLESS-Reality**: 通过伪装 TLS 指纹，让流量看起来像是在访问真实热门网站
 - **Hysteria2**: 伪装成 HTTP/3 流量，利用 QUIC 协议的特性
 - **TUIC**: 基于 QUIC 的轻量级协议，具有较好的抗检测能力
 
-### 端口伪装
+## 端口分配策略
 
 1. 概述
 本方案旨在实现一个功能强大、灵活且高度伪装的多协议代理节点。核心思想是通过 单端口复用 和 内部回环 技术，在保证性能的同时，最大限度地提高流量的伪装性。方案支持在无域名/IP 的“IP 模式”下即时可用，并提供管理工具 edgeboxctl 实现与有域名/IP 的“域名模式”之间的双向无缝切换。
@@ -160,7 +159,7 @@ Hysteria2/TUIC：移除 insecure=true 或 skip-cert-verify=true 参数。
 执行健康探活，确保代理可用。
 重启 sing-box 和 Xray 服务以应用更改。
 
-切换回 VPS 直出模式：
+切换回 VPS直出模式：
 命令：edgeboxctl shunt clear
 实现逻辑：
 删除或清空保存代理IP和端口的配置文件。
@@ -180,49 +179,39 @@ ytimg.com
 ggpht.com
 健康探活：在切换到代理出站模式前，应添加简单的探活逻辑，以验证代理的可用性。如果代理不可用，应自动回退到直连模式并给出提示。
 
-运维与管理
+## 运维与管理
+
 1. 流量统计
 命令：edgeboxctl traffic show
-
 显示内容：vnStat 系统流量、各协议端口流量、iptables/nftables 计数。
 
 2. 备份与恢复
 自动备份：每日凌晨3点自动备份配置、证书和用户数据到 /root/edgebox-backup/，保留最近15天的备份。
-
 手动操作：
-
 edgeboxctl backup list：列出所有备份。
-
 edgeboxctl backup create：手动创建备份。
-
 edgeboxctl backup restore <日期>：恢复指定日期的备份。
 
 3. edgeboxctl 命令集
 Bash
-
 # 配置管理
 edgeboxctl config show          # 显示当前配置
 edgeboxctl config show-sub      # 显示订阅链接
 edgeboxctl config regenerate-uuid # 重新生成 UUID
-
 # 服务管理
 edgeboxctl service status       # 服务状态
 edgeboxctl service restart      # 重启服务
 edgeboxctl service logs         # 查看日志
-
 # 出站分流
 edgeboxctl shunt apply          # 启用住宅代理分流
 edgeboxctl shunt clear          # 切换回VPS直连
-
 # 流量统计
 edgeboxctl traffic show         # 显示流量统计
 edgeboxctl traffic reset        # 重置流量计数
-
 # 证书管理
 edgeboxctl cert status          # 证书状态
 edgeboxctl cert renew           # 手动续期
 edgeboxctl cert upload          # 上传自定义证书
-
 # 系统管理
 edgeboxctl update               # 更新EdgeBox
 edgeboxctl reinstall            # 重新安装
@@ -234,7 +223,7 @@ edgeboxctl uninstall            # 完全卸载
 ```bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/refs/heads/main/ENV/install.sh)
 ```
 
-## 🔧 安装流程
+## 🔧 一键脚本安装过程
 
 ### 1. 系统预检查
 - ✅ 操作系统兼容性
@@ -247,44 +236,12 @@ edgeboxctl uninstall            # 完全卸载
 - 🔍 端口监听验证
 - 🔍 证书有效性检查
 - 🔍 配置文件语法验证
-
 ## 📱 订阅链接
-
-```# 浏览器方式：http://your-domain:8080/sub
+```# 浏览器方式：http://your-domain
 ```bash
-```# SSH方式：edgeboxctl config show-sub
+```# SSH方式：edgeboxctl sub
 ```bash
-
-## 🛠️ 管理操作
-
-### edgeboxctl 命令集
-```bash
-# 配置管理
-edgeboxctl config show          # 显示当前配置
-edgeboxctl config show-sub      # 显示订阅链接
-edgeboxctl config backup        # 备份配置
-edgeboxctl config restore       # 恢复配置
-
-# 服务管理
-edgeboxctl service status       # 服务状态
-edgeboxctl service restart      # 重启服务
-edgeboxctl service logs         # 查看日志
-
-# 流量统计
-edgeboxctl traffic show         # 显示流量统计
-edgeboxctl traffic reset        # 重置流量计数
-
-# 证书管理
-edgeboxctl cert status          # 证书状态
-edgeboxctl cert renew           # 手动续期
-edgeboxctl cert upload          # 上传自定义证书
-
-# 系统管理
-edgeboxctl update               # 更新EdgeBox
-edgeboxctl reinstall            # 重新安装
-edgeboxctl uninstall            # 完全卸载
 ```
-
 ## 🔒 安全建议
 
 ### 客户端配置
@@ -327,12 +284,11 @@ edgeboxctl uninstall            # 完全卸载
 - 协议类型不影响网络层级计费
 </details>
 
-
 ## 📈 社区特色
 
-- 👥 **安装友好**：详细文档、一键安装、内置卸载
+- 👥 **安装友好**：详细文档、一键安装、幂等卸载
 - 🛡️ **健壮灵活**：内置防扫描、异常检测、自动防护
-- 🎯 **GCP优化**：针对GCP网络计费、性能特性优化
+- 🎯 **GCP优化**：针对GCP网络计费、网络优化
 - 📊 **智能运维**：流量统计、故障自愈、自动备份
 
 ---
