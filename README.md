@@ -194,28 +194,28 @@ edgeboxctl backup restore <日期>：恢复指定日期的备份。
 
 3. edgeboxctl 命令集
 Bash
-# 配置管理
-edgeboxctl config show          # 显示当前配置
-edgeboxctl config show-sub      # 显示订阅链接
-edgeboxctl config regenerate-uuid # 重新生成 UUID
-# 服务管理
-edgeboxctl service status       # 服务状态
-edgeboxctl service restart      # 重启服务
-edgeboxctl service logs         # 查看日志
-# 出站分流
-edgeboxctl shunt apply          # 启用住宅代理分流
-edgeboxctl shunt clear          # 切换回VPS直连
-# 流量统计
-edgeboxctl traffic show         # 显示流量统计
-edgeboxctl traffic reset        # 重置流量计数
-# 证书管理
-edgeboxctl cert status          # 证书状态
-edgeboxctl cert renew           # 手动续期
-edgeboxctl cert upload          # 上传自定义证书
-# 系统管理
-edgeboxctl update               # 更新EdgeBox
-edgeboxctl reinstall            # 重新安装
-edgeboxctl uninstall            # 完全卸载
+### 配置管理
+- edgeboxctl config show          # 显示当前配置
+- edgeboxctl config show-sub      # 显示订阅链接
+- edgeboxctl config regenerate-uuid # 重新生成 UUID
+### 服务管理
+- edgeboxctl service status       # 服务状态
+- edgeboxctl service restart      # 重启服务
+- edgeboxctl service logs         # 查看日志
+### 出站分流
+- edgeboxctl shunt apply          # 启用住宅代理分流
+- edgeboxctl shunt clear          # 切换回VPS直连
+### 流量统计
+- edgeboxctl traffic show         # 显示流量统计
+- edgeboxctl traffic reset        # 重置流量计数
+### 证书管理
+- edgeboxctl cert status          # 证书状态
+- edgeboxctl cert renew           # 手动续期
+- edgeboxctl cert upload          # 上传自定义证书
+### 系统管理
+- edgeboxctl update               # 更新EdgeBox
+- edgeboxctl reinstall            # 重新安装
+- edgeboxctl uninstall            # 完全卸载
 
 
 ## 一键安装（完全卸载+无损重装+出口分流+流量统计+聚合订阅+自动备份）
