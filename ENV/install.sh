@@ -1126,7 +1126,7 @@ main() {
     generate_reality_keys
     install_xray
     install_sing_box
-    configure_nginx
+    install_and_configure_nginx
     configure_xray
     configure_sing_box
     save_config_info
