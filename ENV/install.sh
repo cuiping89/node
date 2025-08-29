@@ -577,7 +577,7 @@ configure_xray() {
         "decryption": "none",
         "fallbacks": [
           {
-            "dest": "127.0.0.1:10443",
+            "dest": "www.cloudflare.com:443",
             "xver": 0
           }
         ]
