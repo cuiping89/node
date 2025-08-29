@@ -348,7 +348,8 @@ write_singbox_config() {
       "listen": "::",
       "listen_port": ${TUIC_PORT},
       "users": [ { "uuid": "${tuic_uuid}", "password": "${tuic_pwd}" } ],
-      "congestion": "bbr",
+      "congestion_control": "bbr",
+      "udp_relay_mode": "native",
       "tls": { "enabled": true, "alpn": ["h3"], "certificate_path": "${CERT_DIR}/current.pem", "key_path": "${CERT_DIR}/current.key" }
     }
   ],
