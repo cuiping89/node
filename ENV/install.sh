@@ -489,9 +489,6 @@ worker_processes auto;
 pid /run/nginx.pid;
 error_log /var/log/nginx/error.log warn;
 
-# 加载 stream 模块
-load_module /usr/lib/nginx/modules/ngx_stream_module.so;
-
 events {
     worker_connections 1024;
 }
