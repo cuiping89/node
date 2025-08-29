@@ -448,17 +448,42 @@ configure_nginx() {
     log_info "配置Nginx..."
     
     # 停止nginx以便修改配置
-    sudo systemctl stop nginx >/dev/null 2>&1
+    systemctl stop nginx >/dev/null 2>&1
     
-    # 彻底清除所有旧的Nginx配置文件，防止冲突
-    sudo rm -f /etc/nginx/sites-enabled/*
-    sudo rm -f /etc/nginx/conf.d/*
+    # 备份原始配置
+    if [[ ! -f /etc/nginx/nginx.conf.bak ]]; then
+        cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak
+    fi
     
-    # 创建最精简、最可靠的nginx.conf
-    # 这个配置不依赖任何外部文件，解决了所有已知的 include 问题
-    sudo cat > /etc/nginx/nginx.conf << 'EOF'
-load_module /usr/lib/nginx/modules/ngx_stream_module.so;
+    # 创建stream配置目录
+    mkdir -p /etc/nginx/stream.d
+    
+    # 创建stream配置
+    cat > /etc/nginx/stream.d/edgebox.conf << 'EOF'
+# EdgeBox Stream Configuration
+upstream grpc_backend {
+    server 127.0.0.1:10085;
+}
 
+upstream ws_backend {
+    server 127.0.0.1:10086;
+}
+
+map $ssl_preread_alpn_protocols $upstream {
+    ~\bh2\b         grpc_backend;
+    default         ws_backend;
+}
+
+server {
+    listen 127.0.0.1:10443;
+    ssl_preread on;
+    proxy_pass $upstream;
+    proxy_protocol off;
+}
+EOF
+    
+    # 创建新的nginx.conf
+    cat > /etc/nginx/nginx.conf << 'EOF'
 user www-data;
 worker_processes auto;
 pid /run/nginx.pid;
@@ -468,6 +493,7 @@ events {
     worker_connections 1024;
 }
 
+# HTTP配置
 http {
     include /etc/nginx/mime.types;
     default_type application/octet-stream;
@@ -479,25 +505,19 @@ http {
     types_hash_max_size 2048;
     
     access_log /var/log/nginx/access.log;
+    
+    include /etc/nginx/conf.d/*.conf;
+    include /etc/nginx/sites-enabled/*;
 }
 
+# Stream配置
 stream {
-    map \$ssl_preread_alpn_protocols \$xray_backend {
-        "h2"        127.0.0.1:10085;
-        "http/1.1"  127.0.0.1:10086;
-        default     127.0.0.1:10086;
-    }
-
-    server {
-        listen 127.0.0.1:10443;
-        ssl_preread on;
-        proxy_pass \$xray_backend;
-    }
+    include /etc/nginx/stream.d/*.conf;
 }
 EOF
     
     # 测试配置
-    sudo nginx -t >/dev/null 2>&1 || {
+    nginx -t >/dev/null 2>&1 || {
         log_error "Nginx配置测试失败"
         exit 1
     }
@@ -670,7 +690,7 @@ configure_sing_box() {
       "type": "hysteria2",
       "tag": "hysteria2-in",
       "listen": "::",
-      "listen_port": 444,
+      "listen_port": 443,
       "users": [
         {
           "name": "user",
