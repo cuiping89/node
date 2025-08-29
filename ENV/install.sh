@@ -504,59 +504,6 @@ EOF
     
     log_success "Nginx配置完成"
 }
-    
-# 创建新的nginx.conf
-    cat > /etc/nginx/nginx.conf << 'EOF'
-load_module /usr/lib/nginx/modules/ngx_stream_module.so;
-
-user www-data;
-worker_processes auto;
-pid /run/nginx.pid;
-error_log /var/log/nginx/error.log warn;
-
-events {
-    worker_connections 1024;
-}
-
-http {
-    include /etc/nginx/mime.types;
-    default_type application/octet-stream;
-    
-    sendfile on;
-    tcp_nopush on;
-    tcp_nodelay on;
-    keepalive_timeout 65;
-    types_hash_max_size 2048;
-    
-    access_log /var/log/nginx/access.log;
-    
-    include /etc/nginx/conf.d/*.conf;
-    include /etc/nginx/sites-enabled/*;
-}
-
-stream {
-    map \$ssl_preread_alpn_protocols \$xray_backend {
-        "h2"        127.0.0.1:10085;
-        "http/1.1"  127.0.0.1:10086;
-        default     127.0.0.1:10086;
-    }
-
-    server {
-        listen 127.0.0.1:10443;
-        ssl_preread on;
-        proxy_pass \$xray_backend;
-    }
-}
-EOF   
-
-    # 测试配置
-    nginx -t >/dev/null 2>&1 || {
-        log_error "Nginx配置测试失败"
-        exit 1
-    }
-    
-    log_success "Nginx配置完成"
-}
 
 # 配置Xray
 configure_xray() {
