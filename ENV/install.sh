@@ -381,7 +381,32 @@ install_xray() {
     
     # 停止默认服务
     systemctl stop xray >/dev/null 2>&1
-    
+
+# 清理/禁用旧的 template 单元与默认单元，防止读到旧路径
+systemctl disable --now xray@.service 2>/dev/null || true
+systemctl disable --now xray.service  2>/dev/null || true
+rm -f /etc/systemd/system/xray@.service  /etc/systemd/system/xray.service 2>/dev/null || true
+
+# 写入我们自己的 xray.service（ExecStart 指向 ${CONFIG_DIR}/xray.json）
+cat > /etc/systemd/system/xray.service <<EOF
+[Unit]
+Description=Xray Service
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/xray run -c ${CONFIG_DIR}/xray.json
+Restart=on-failure
+RestartSec=10
+LimitNOFILE=infinity
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
     log_success "Xray安装完成"
 }
 
@@ -547,12 +572,10 @@ configure_xray() {
           }
         ],
         "decryption": "none",
-        "fallbacks": [
-          {
-            "dest": "127.0.0.1:10443",
-            "xver": 0
-          }
-        ]
+"fallbacks": [
+  { "name": "grpc.edgebox.local", "alpn": "h2",         "dest": "127.0.0.1:10443", "xver": 0 },
+  { "name": "www.edgebox.local",  "alpn": "http/1.1",   "dest": "127.0.0.1:10443", "xver": 0 }
+]
       },
       "streamSettings": {
         "network": "tcp",
@@ -771,6 +794,14 @@ EOF
 
 # 启动服务
 start_services() {
+# --- 启动前自检（放在 start_services 开头）---
+xray -test -config ${CONFIG_DIR}/xray.json || {
+  echo "[ERROR] xray config invalid"; journalctl -u xray -n 50 --no-pager || true; exit 1;
+}
+sing-box check -c ${CONFIG_DIR}/sing-box.json || {
+  echo "[ERROR] sing-box config invalid"; journalctl -u sing-box -n 50 --no-pager || true; exit 1;
+}
+# --------------------------------------------    
     log_info "启动所有服务..."
     
     # 重启Nginx
@@ -1141,4 +1172,4 @@ main() {
 }
 
 # 执行主函数
-main "$@"}
+main "$@"
