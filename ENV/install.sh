@@ -489,6 +489,9 @@ worker_processes auto;
 pid /run/nginx.pid;
 error_log /var/log/nginx/error.log warn;
 
+# 确保加载所有已启用的模块，包括 stream 模块
+include /etc/nginx/modules-enabled/*.conf;
+
 events {
     worker_connections 1024;
 }
@@ -514,7 +517,7 @@ http {
 stream {
     # 核心：启用TLS预读
     ssl_preread on;
-
+    
     # 根据ALPN来决定后端服务
     map \$ssl_preread_alpn_protocols \$xray_backend {
         "h2"        127.0.0.1:10085;
