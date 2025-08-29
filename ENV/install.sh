@@ -482,7 +482,7 @@ server {
 }
 EOF
     
-    # 创建新的nginx.conf
+# 创建新的nginx.conf
     cat > /etc/nginx/nginx.conf << 'EOF'
 user www-data;
 worker_processes auto;
@@ -512,7 +512,22 @@ http {
 
 # Stream配置
 stream {
-    include /etc/nginx/stream.d/*.conf;
+    # 核心：启用TLS预读
+    ssl_preread on;
+
+    # 根据ALPN来决定后端服务
+    map \$ssl_preread_alpn_protocols \$xray_backend {
+        "h2"        127.0.0.1:10085;
+        "http/1.1"  127.0.0.1:10086;
+        default     127.0.0.1:10086;
+    }
+
+    # 这是接收Reality回落流量的内部监听器
+    # 注意：只监听本机回环地址和内部端口
+    server {
+        listen 127.0.0.1:10443;
+        proxy_pass \$xray_backend;
+    }
 }
 EOF
     
