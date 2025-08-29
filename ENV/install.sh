@@ -816,33 +816,45 @@ start_services() {
     fi
 }
 
-# 生成订阅链接
 # 生成订阅链接（统一兼容 v2rayN / ShadowRocket / Clash Meta）
 generate_subscription() {
   log_info "生成订阅链接..."
 
+  # --- 小工具：URL 编码 ---
+  urlenc() {
+    # 用 Python 做标准 URL 编码，避免 bash 转义坑
+    python3 - <<'PY' "$1"
+import sys, urllib.parse
+print(urllib.parse.quote(sys.argv[1], safe=''))
+PY
+  }
+
   # 通用变量
   local ip="${SERVER_IP}"
-  local uuid="${VLESS_UUID}"
+  local uuid="${UUID_VLESS}"              # 注意：这里用 UUID_VLESS（脚本里就叫这个）
   local grpc_host="grpc.edgebox.local"
   local ws_host="www.edgebox.local"
   local ws_path="/ws"
 
-  # 当前模式判断：有 LE 证书则域名模式，否则 IP 模式
+  # 对可能含有 + / = 的密码进行 URL 编码
+  local hy2_pwd_enc tuic_pwd_enc
+  hy2_pwd_enc="$(urlenc "${PASSWORD_HYSTERIA2}")"
+  tuic_pwd_enc="$(urlenc "${PASSWORD_TUIC}")"
+
+  # 判断是否域名模式（虽然当前是 IP 模式，也兼容以后扩展）
   local domain=""
   if [[ -n "${EDGEBOX_DOMAIN:-}" && -f "/etc/letsencrypt/live/${EDGEBOX_DOMAIN}/fullchain.pem" && -f "/etc/letsencrypt/live/${EDGEBOX_DOMAIN}/privkey.pem" ]]; then
     domain="${EDGEBOX_DOMAIN}"
   fi
 
-  # ===== 1) VLESS Reality（直连）======
-  # 注意：Reality 不需要 allowInsecure
+  # ========== 1) VLESS Reality（直连 443/TCP，xray）==========
+  # Reality 不需要 allowInsecure
   local r_addr r_sni
   r_addr="${domain:-$ip}"
   r_sni="www.cloudflare.com"
   local reality_link="vless://${uuid}@${r_addr}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${r_sni}&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&spx=%2F#EdgeBox-REALITY"
 
-  # ===== 2) VLESS gRPC (TLS，经 Nginx stream 回落) =====
-  # 域名模式：安全；IP 模式：必须 allowInsecure=1
+  # ========== 2) VLESS gRPC (TLS，经 Nginx stream 回落到 127.0.0.1:10085) ==========
   local grpc_addr="${domain:-$ip}"
   local grpc_tail
   if [[ -n "$domain" ]]; then
@@ -852,7 +864,7 @@ generate_subscription() {
   fi
   local grpc_link="vless://${uuid}@${grpc_addr}:443?encryption=none&security=tls&sni=${grpc_host}${grpc_tail}#EdgeBox-gRPC"
 
-  # ===== 3) VLESS WS (TLS，经 Nginx stream 回落) =====
+  # ========== 3) VLESS WS (TLS，经 Nginx stream 回落到 127.0.0.1:10086) ==========
   local ws_addr="${domain:-$ip}"
   local ws_tail
   if [[ -n "$domain" ]]; then
@@ -862,70 +874,68 @@ generate_subscription() {
   fi
   local ws_link="vless://${uuid}@${ws_addr}:443?encryption=none&security=tls&sni=${ws_host}${ws_tail}#EdgeBox-WS"
 
-  # ===== 4) Hysteria2 (UDP/443，sing-box) =====
-  # v2rayN/Clash Meta 兼容：IP 模式必须 insecure=1；域名模式移除
+  # ========== 4) Hysteria2 (UDP/443，sing-box) ==========
+  # IP 模式：客户端需要 ?insecure=1&sni=<你的IP>；域名模式可省略
   local hy2_addr="${domain:-$ip}"
   local hy2_tail
   if [[ -n "$domain" ]]; then
-    hy2_tail=""
+    hy2_tail=""               # 有域名有正规证书可不加
   else
     hy2_tail="?insecure=1&sni=${ip}"
   fi
-  # 注意：HY2 的 URI 带明文或 base64 密码两种都行，这里用明文以便调试
-  local hy2_link="hysteria2://${PASSWORD_HYSTERIA2}@${hy2_addr}:443${hy2_tail}#EdgeBox-HYSTERIA2"
+  local hy2_link="hysteria2://${hy2_pwd_enc}@${hy2_addr}:443${hy2_tail}#EdgeBox-HYSTERIA2"
 
-  # ===== 5) TUIC v5 (UDP/2053，sing-box) =====
-  # 关键点：很多客户端对 TUIC 使用的是 allowInsecure=1（不是 insecure=1）
+  # ========== 5) TUIC v5 (UDP/2053，sing-box) ==========
+  # 关键点：大量客户端识别的是 allowInsecure=1（不是 insecure=1）
   local tuic_addr="${domain:-$ip}"
   local tuic_tail
   if [[ -n "$domain" ]]; then
     tuic_tail="?congestion_control=bbr&alpn=h3"
   else
-    # IP 模式：去掉 sni，使用 allowInsecure=1，避免部分客户端把 insecure 当成 Hysteria 的字段
     tuic_tail="?congestion_control=bbr&alpn=h3&allowInsecure=1"
   fi
-  local tuic_link="tuic://${UUID_TUIC}:${PASSWORD_TUIC}@${tuic_addr}:2053${tuic_tail}#EdgeBox-TUIC"
+  local tuic_link="tuic://${UUID_TUIC}:${tuic_pwd_enc}@${tuic_addr}:2053${tuic_tail}#EdgeBox-TUIC"
 
-  # ===== 写出纯文本订阅（每行一个节点）=====
+  # ========== 写出纯文本订阅（每行一个节点）==========
   local plain="${reality_link}\n${grpc_link}\n${ws_link}\n${hy2_link}\n${tuic_link}\n"
+  mkdir -p "${CONFIG_DIR}" /var/www/html
   echo -e "${plain}" > "${CONFIG_DIR}/subscription.txt"
 
-  # ===== 同步到 http 订阅（base64）=====
-  mkdir -p /var/www/html
+  # ========== 同步到 http 订阅（base64）==========
   printf '%s' "$(echo -e "${plain}" | base64 -w0)" > /var/www/html/sub
 
-  log_success "订阅已生成："
+  # ========== Nginx 站点：用静态文件方式提供 /sub ==========
+  cat > /etc/nginx/sites-available/edgebox-sub << 'NGX'
+server {
+    listen 80;
+    server_name _;
+    default_type text/plain;
+
+    # 直接把 /var/www/html/sub 这个文件作为 /sub 返回
+    location = /sub {
+        types { }
+        default_type text/plain;
+        alias /var/www/html/sub;
+        add_header Content-Type "text/plain; charset=utf-8";
+    }
+
+    # 其它路径给个简单说明（可选）
+    location / {
+        return 200 "EdgeBox subscription available at /sub\n";
+    }
+}
+NGX
+  ln -sf /etc/nginx/sites-available/edgebox-sub /etc/nginx/sites-enabled/edgebox-sub
+  # 移除默认站点，避免冲突
+  rm -f /etc/nginx/sites-enabled/default
+  systemctl reload nginx >/dev/null 2>&1 || systemctl restart nginx >/dev/null 2>&1
+
+  log_success "订阅已生成并发布： http://${SERVER_IP}/sub"
   echo "${reality_link}"
   echo "${grpc_link}"
   echo "${ws_link}"
   echo "${hy2_link}"
   echo "${tuic_link}"
-    
-    # 创建简单的HTTP服务配置
-    cat > /etc/nginx/sites-available/edgebox-sub << EOF
-server {
-    listen 80;
-    server_name _;
-    
-    location / {
-        default_type text/plain;
-        add_header Content-Type "text/plain; charset=utf-8";
-        return 200 '${sub_base64}';
-    }
-    
-    location /sub {
-        default_type text/plain;
-        add_header Content-Type "text/plain; charset=utf-8";
-        return 200 '${sub_base64}';
-    }
-}
-EOF
-    
-    ln -sf /etc/nginx/sites-available/edgebox-sub /etc/nginx/sites-enabled/
-    rm -f /etc/nginx/sites-enabled/default
-    systemctl reload nginx >/dev/null 2>&1
-    
-    log_success "订阅链接生成完成"
 }
 
 # 创建edgeboxctl基础框架
