@@ -524,9 +524,8 @@ stream {
         proxy_pass \$xray_backend;
     }
 }
-EOF
-EOF
-    
+EOF   
+
     # 测试配置
     nginx -t >/dev/null 2>&1 || {
         log_error "Nginx配置测试失败"
