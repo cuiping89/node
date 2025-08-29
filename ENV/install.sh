@@ -568,7 +568,7 @@ configure_xray() {
         "security": "reality",
         "realitySettings": {
           "show": false,
-          "dest": "www.cloudflare.com:443",
+          "dest": "127.0.0.1:10443",
           "xver": 0,
           "serverNames": [
             "www.cloudflare.com",
