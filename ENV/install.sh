@@ -493,22 +493,7 @@ events {
     worker_connections 1024;
 }
 
-http {
-    include /etc/nginx/mime.types;
-    default_type application/octet-stream;
-    
-    sendfile on;
-    tcp_nopush on;
-    tcp_nodelay on;
-    keepalive_timeout 65;
-    types_hash_max_size 2048;
-    
-    access_log /var/log/nginx/access.log;
-    
-    include /etc/nginx/conf.d/*.conf;
-    include /etc/nginx/sites-enabled/*;
-}
-
+# 核心：只使用 stream 模块进行端口转发
 stream {
     map \$ssl_preread_alpn_protocols \$xray_backend {
         "h2"        127.0.0.1:10085;
