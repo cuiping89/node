@@ -322,8 +322,11 @@ generate_self_signed_cert() {
         -subj "/C=US/ST=California/L=San Francisco/O=EdgeBox/CN=${SERVER_IP}" >/dev/null 2>&1
     
     # 创建软链接
-    ln -sf ${CERT_DIR}/self-signed.key ${CERT_DIR}/current.key
-    ln -sf ${CERT_DIR}/self-signed.pem ${CERT_DIR}/current.pem
+rm -f ${CERT_DIR}/current.key ${CERT_DIR}/current.pem
+ln -s ${CERT_DIR}/self-signed.key ${CERT_DIR}/current.key
+ln -s ${CERT_DIR}/self-signed.pem ${CERT_DIR}/current.pem
+chmod 600 ${CERT_DIR}/self-signed.key ${CERT_DIR}/current.key
+chmod 644 ${CERT_DIR}/self-signed.pem ${CERT_DIR}/current.pem
     
     # 设置权限
     chmod 600 ${CERT_DIR}/*.key
@@ -724,6 +727,7 @@ configure_sing_box() {
         "enabled": true,
         "certificate_path": "${CERT_DIR}/current.pem",
         "key_path": "${CERT_DIR}/current.key"
+        "alpn": ["h3"]
       }
     },
     {
@@ -743,6 +747,7 @@ configure_sing_box() {
         "enabled": true,
         "certificate_path": "${CERT_DIR}/current.pem",
         "key_path": "${CERT_DIR}/current.key"
+        "alpn": ["h3"]
       }
     }
   ],
