@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+trap 'err "第 ${BASH_LINENO[0]} 行命令失败：$BASH_COMMAND"' ERR
 
 VERSION="2.1.0"
 
@@ -137,9 +138,18 @@ gen_credentials() {
   TUIC_UUID="$(uuidgen)"
   TUIC_PASS="$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 16)"
 
-  # Reality 密钥对
-  local pk pub sid
-  read -r _ _ pk _ pub < <($XRAY_BIN x25519 | tr -d '\r')
+  # —— 稳健获取 Reality 密钥对（不用 read+process substitution）
+  local k pk pub
+  if k="$("$XRAY_BIN" x25519 2>/dev/null || true)"; then
+    pk="$(printf '%s\n' "$k" | awk -F': *' '/Private/{print $2}')"
+    pub="$(printf '%s\n' "$k" | awk -F': *' '/Public/{print $2}')"
+  fi
+  if [[ -z "${pk:-}" || -z "${pub:-}" ]]; then
+    err "生成 Reality 密钥失败（xray x25519 无输出），请检查 $XRAY_BIN 是否可执行。"
+    exit 1
+  fi
+
+  local sid
   sid="$(tr -dc 'a-f0-9' </dev/urandom | head -c 8)"
 
   cat >"$META_DIR/config.env" <<EOF
