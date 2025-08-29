@@ -512,9 +512,6 @@ http {
 
 # Stream配置
 stream {
-    # 核心：启用TLS预读
-    ssl_preread on;
-    
     # 根据ALPN来决定后端服务
     map \$ssl_preread_alpn_protocols \$xray_backend {
         "h2"        127.0.0.1:10085;
@@ -526,6 +523,7 @@ stream {
     # 注意：只监听本机回环地址和内部端口
     server {
         listen 127.0.0.1:10443;
+        ssl_preread on; # <-- 把它放到这里
         proxy_pass \$xray_backend;
     }
 }
