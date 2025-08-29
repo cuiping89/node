@@ -489,8 +489,8 @@ worker_processes auto;
 pid /run/nginx.pid;
 error_log /var/log/nginx/error.log warn;
 
-# 确保加载所有已启用的模块，包括 stream 模块
-include /etc/nginx/modules-enabled/*.conf;
+# 加载 stream 模块
+load_module /usr/lib/nginx/modules/ngx_stream_module.so;
 
 events {
     worker_connections 1024;
