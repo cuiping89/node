@@ -446,20 +446,18 @@ EOF
 # 配置Nginx
 configure_nginx() {
     log_info "配置Nginx..."
-    
-    # 停止nginx以便修改配置
+
     systemctl stop nginx >/dev/null 2>&1
-    
+
     # 备份原始配置
     if [[ ! -f /etc/nginx/nginx.conf.bak ]]; then
         cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak
     fi
-    
-    # 创建stream配置目录
+
     mkdir -p /etc/nginx/stream.d
-    
-    # 创建stream配置
-    cat > /etc/nginx/stream.d/edgebox.conf << 'EOF'
+
+    # 1) stream 分流文件
+    cat > /etc/nginx/stream.d/edgebox.conf <<'EOF'
 # EdgeBox Stream Configuration
 upstream grpc_backend {
     server 127.0.0.1:10085;
@@ -469,34 +467,33 @@ upstream ws_backend {
     server 127.0.0.1:10086;
 }
 
-map $ssl_preread_alpn_protocols $upstream {
-    ~\bh2\b         grpc_backend;
-    default         ws_backend;
+# 按 ALPN 分流：h2 -> gRPC，其它 -> WS
+map $ssl_preread_alpn_protocols $stream_backend {
+    ~\bh2\b  grpc_backend;
+    default  ws_backend;
 }
 
 server {
     listen 127.0.0.1:10443;
     ssl_preread on;
-    proxy_pass $upstream;
-    proxy_protocol off;
+    proxy_pass $stream_backend;
 }
 EOF
-    
-    # 创建新的nginx.conf
-cat > /etc/nginx/nginx.conf << 'EOF'
+
+    # 2) 主 nginx.conf（确保加载动态模块，并把 stream.d 纳入）
+    cat > /etc/nginx/nginx.conf <<'EOF'
 user www-data;
 worker_processes auto;
 pid /run/nginx.pid;
 error_log /var/log/nginx/error.log warn;
 
-# ★ 关键：加载动态模块（含 stream / ssl_preread）
+# 加载所有动态模块（包含 stream / ssl_preread）
 include /etc/nginx/modules-enabled/*.conf;
 
 events {
     worker_connections 1024;
 }
 
-# HTTP 配置（用于订阅等）
 http {
     include /etc/nginx/mime.types;
     default_type application/octet-stream;
@@ -513,17 +510,15 @@ http {
     include /etc/nginx/sites-enabled/*;
 }
 
-# Stream 配置（gRPC/WS 分流）
 stream {
+    # 引入我们刚写的分流文件
     include /etc/nginx/stream.d/*.conf;
 }
-EOF    
-    # 测试配置
-   nginx -t || {
-        log_error "Nginx配置测试失败"
-        exit 1
-    }
-    
+EOF
+
+    # 配置校验
+    nginx -t || { log_error "Nginx配置测试失败"; exit 1; }
+
     log_success "Nginx配置完成"
 }
 
