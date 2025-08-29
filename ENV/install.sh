@@ -483,41 +483,43 @@ server {
 EOF
     
     # 创建新的nginx.conf
-    cat > /etc/nginx/nginx.conf << 'EOF'
+cat > /etc/nginx/nginx.conf << 'EOF'
 user www-data;
 worker_processes auto;
 pid /run/nginx.pid;
 error_log /var/log/nginx/error.log warn;
 
+# ★ 关键：加载动态模块（含 stream / ssl_preread）
+include /etc/nginx/modules-enabled/*.conf;
+
 events {
     worker_connections 1024;
 }
 
-# HTTP配置
+# HTTP 配置（用于订阅等）
 http {
     include /etc/nginx/mime.types;
     default_type application/octet-stream;
-    
+
     sendfile on;
     tcp_nopush on;
     tcp_nodelay on;
     keepalive_timeout 65;
     types_hash_max_size 2048;
-    
+
     access_log /var/log/nginx/access.log;
-    
+
     include /etc/nginx/conf.d/*.conf;
     include /etc/nginx/sites-enabled/*;
 }
 
-# Stream配置
+# Stream 配置（gRPC/WS 分流）
 stream {
     include /etc/nginx/stream.d/*.conf;
 }
-EOF
-    
+EOF    
     # 测试配置
-    nginx -t >/dev/null 2>&1 || {
+   nginx -t || {
         log_error "Nginx配置测试失败"
         exit 1
     }
