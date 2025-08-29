@@ -328,7 +328,26 @@ generate_self_signed_cert() {
     # 设置权限
     chmod 600 ${CERT_DIR}/*.key
     chmod 644 ${CERT_DIR}/*.pem
-    
+
+  # —— 追加的配对校验 —— #
+  # 比对证书与私钥的公钥指纹，不一致则重新生成一对并覆盖 current.*
+  local cert_pub tmp_pub
+  cert_pub="$(openssl x509 -in ${CERT_DIR}/current.pem -pubkey -noout 2>/dev/null | openssl sha256 2>/dev/null)"
+  tmp_pub="$(openssl pkey -in ${CERT_DIR}/current.key -pubout 2>/dev/null | openssl sha256 2>/dev/null || true)"
+  if [[ -z "$cert_pub" || -z "$tmp_pub" || "$cert_pub" != "$tmp_pub" ]]; then
+      log_warn "检测到 current.pem 与 current.key 不匹配，重新生成自签名证书..."
+      openssl req -x509 -nodes -newkey ec:<(openssl ecparam -name secp384r1) \
+        -keyout ${CERT_DIR}/self-signed.key \
+        -out ${CERT_DIR}/self-signed.pem \
+        -days 3650 \
+        -subj "/C=US/ST=California/L=San Francisco/O=EdgeBox/CN=${SERVER_IP}" >/dev/null 2>&1
+      ln -sf ${CERT_DIR}/self-signed.key ${CERT_DIR}/current.key
+      ln -sf ${CERT_DIR}/self-signed.pem ${CERT_DIR}/current.pem
+      chmod 600 ${CERT_DIR}/*.key
+      chmod 644 ${CERT_DIR}/*.pem
+      log_success "已重新配对自签名证书与私钥"
+  fi
+
     log_success "自签名证书生成完成"
 }
 
@@ -820,41 +839,27 @@ start_services() {
 generate_subscription() {
   log_info "生成订阅链接..."
 
-  # --- 小工具：URL 编码 ---
-  urlenc() {
-    # 用 Python 做标准 URL 编码，避免 bash 转义坑
-    python3 - <<'PY' "$1"
-import sys, urllib.parse
-print(urllib.parse.quote(sys.argv[1], safe=''))
-PY
-  }
-
   # 通用变量
   local ip="${SERVER_IP}"
-  local uuid="${UUID_VLESS}"              # 注意：这里用 UUID_VLESS（脚本里就叫这个）
+  local uuid="${UUID_VLESS}"                 # ← 关键：用 UUID_VLESS
   local grpc_host="grpc.edgebox.local"
   local ws_host="www.edgebox.local"
   local ws_path="/ws"
 
-  # 对可能含有 + / = 的密码进行 URL 编码
-  local hy2_pwd_enc tuic_pwd_enc
-  hy2_pwd_enc="$(urlenc "${PASSWORD_HYSTERIA2}")"
-  tuic_pwd_enc="$(urlenc "${PASSWORD_TUIC}")"
-
-  # 判断是否域名模式（虽然当前是 IP 模式，也兼容以后扩展）
+  # 当前模式：有 LE 证书则域名模式，否则 IP 模式
   local domain=""
   if [[ -n "${EDGEBOX_DOMAIN:-}" && -f "/etc/letsencrypt/live/${EDGEBOX_DOMAIN}/fullchain.pem" && -f "/etc/letsencrypt/live/${EDGEBOX_DOMAIN}/privkey.pem" ]]; then
     domain="${EDGEBOX_DOMAIN}"
   fi
 
-  # ========== 1) VLESS Reality（直连 443/TCP，xray）==========
-  # Reality 不需要 allowInsecure
+  # ===== 1) VLESS Reality（直连，不需要 allowInsecure）======
   local r_addr r_sni
   r_addr="${domain:-$ip}"
   r_sni="www.cloudflare.com"
   local reality_link="vless://${uuid}@${r_addr}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${r_sni}&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&spx=%2F#EdgeBox-REALITY"
 
-  # ========== 2) VLESS gRPC (TLS，经 Nginx stream 回落到 127.0.0.1:10085) ==========
+  # ===== 2) VLESS gRPC (TLS，经 Nginx stream 回落) =====
+  # 域名模式：安全；IP 模式：必须 allowInsecure=1
   local grpc_addr="${domain:-$ip}"
   local grpc_tail
   if [[ -n "$domain" ]]; then
@@ -864,7 +869,7 @@ PY
   fi
   local grpc_link="vless://${uuid}@${grpc_addr}:443?encryption=none&security=tls&sni=${grpc_host}${grpc_tail}#EdgeBox-gRPC"
 
-  # ========== 3) VLESS WS (TLS，经 Nginx stream 回落到 127.0.0.1:10086) ==========
+  # ===== 3) VLESS WS (TLS，经 Nginx stream 回落) =====
   local ws_addr="${domain:-$ip}"
   local ws_tail
   if [[ -n "$domain" ]]; then
@@ -874,19 +879,19 @@ PY
   fi
   local ws_link="vless://${uuid}@${ws_addr}:443?encryption=none&security=tls&sni=${ws_host}${ws_tail}#EdgeBox-WS"
 
-  # ========== 4) Hysteria2 (UDP/443，sing-box) ==========
-  # IP 模式：客户端需要 ?insecure=1&sni=<你的IP>；域名模式可省略
+  # ===== 4) Hysteria2 (UDP/443，sing-box) =====
+  # IP 模式要带 insecure=1（v2rayN/Clash Meta 这样能正确识别）
   local hy2_addr="${domain:-$ip}"
   local hy2_tail
   if [[ -n "$domain" ]]; then
-    hy2_tail=""               # 有域名有正规证书可不加
+    hy2_tail=""
   else
     hy2_tail="?insecure=1&sni=${ip}"
   fi
-  local hy2_link="hysteria2://${hy2_pwd_enc}@${hy2_addr}:443${hy2_tail}#EdgeBox-HYSTERIA2"
+  local hy2_link="hysteria2://${PASSWORD_HYSTERIA2}@${hy2_addr}:443${hy2_tail}#EdgeBox-HYSTERIA2"
 
-  # ========== 5) TUIC v5 (UDP/2053，sing-box) ==========
-  # 关键点：大量客户端识别的是 allowInsecure=1（不是 insecure=1）
+  # ===== 5) TUIC v5 (UDP/2053，sing-box) =====
+  # 关键点：很多客户端 TUIC 用的是 allowInsecure=1（不是 insecure=1）
   local tuic_addr="${domain:-$ip}"
   local tuic_tail
   if [[ -n "$domain" ]]; then
@@ -894,43 +899,31 @@ PY
   else
     tuic_tail="?congestion_control=bbr&alpn=h3&allowInsecure=1"
   fi
-  local tuic_link="tuic://${UUID_TUIC}:${tuic_pwd_enc}@${tuic_addr}:2053${tuic_tail}#EdgeBox-TUIC"
+  local tuic_link="tuic://${UUID_TUIC}:${PASSWORD_TUIC}@${tuic_addr}:2053${tuic_tail}#EdgeBox-TUIC"
 
-  # ========== 写出纯文本订阅（每行一个节点）==========
+  # ===== 写出纯文本订阅（每行一个节点）=====
   local plain="${reality_link}\n${grpc_link}\n${ws_link}\n${hy2_link}\n${tuic_link}\n"
-  mkdir -p "${CONFIG_DIR}" /var/www/html
   echo -e "${plain}" > "${CONFIG_DIR}/subscription.txt"
 
-  # ========== 同步到 http 订阅（base64）==========
+  # ===== 写出 HTTP 订阅文件（静态）=====
+  mkdir -p /var/www/html
   printf '%s' "$(echo -e "${plain}" | base64 -w0)" > /var/www/html/sub
 
-  # ========== Nginx 站点：用静态文件方式提供 /sub ==========
-  cat > /etc/nginx/sites-available/edgebox-sub << 'NGX'
+  # 用一个极简的站点把 /sub 暴露出来（不再使用未定义的 sub_base64 变量）
+  cat >/etc/nginx/sites-available/edgebox-sub <<'EOF'
 server {
-    listen 80;
-    server_name _;
-    default_type text/plain;
-
-    # 直接把 /var/www/html/sub 这个文件作为 /sub 返回
-    location = /sub {
-        types { }
-        default_type text/plain;
-        alias /var/www/html/sub;
-        add_header Content-Type "text/plain; charset=utf-8";
-    }
-
-    # 其它路径给个简单说明（可选）
-    location / {
-        return 200 "EdgeBox subscription available at /sub\n";
-    }
+  listen 80;
+  server_name _;
+  root /var/www/html;
+  default_type text/plain;
+  location = /sub { try_files /sub =404; }
 }
-NGX
+EOF
   ln -sf /etc/nginx/sites-available/edgebox-sub /etc/nginx/sites-enabled/edgebox-sub
-  # 移除默认站点，避免冲突
-  rm -f /etc/nginx/sites-enabled/default
-  systemctl reload nginx >/dev/null 2>&1 || systemctl restart nginx >/dev/null 2>&1
+  # 保留其他站点亦可，这里不强制删 default，按你环境即可
+  systemctl reload nginx >/dev/null 2>&1
 
-  log_success "订阅已生成并发布： http://${SERVER_IP}/sub"
+  log_success "订阅已生成："
   echo "${reality_link}"
   echo "${grpc_link}"
   echo "${ws_link}"
