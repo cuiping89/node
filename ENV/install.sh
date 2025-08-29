@@ -131,29 +131,28 @@ EOF
 
 gen_credentials() {
   log "生成通行凭据..."
-  local UUID HY2_USER HY2_PASS TUIC_UUID TUIC_PASS
-  UUID="$(uuidgen)"
-  HY2_USER="$(tr -dc 'a-z0-9' </dev/urandom | head -c 8)"
-  HY2_PASS="$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 14)"
-  TUIC_UUID="$(uuidgen)"
-  TUIC_PASS="$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 16)"
+  local UUID HY2_USER HY2_PASS TUIC_UUID TUIC_PASS pk pub sid
 
-  # —— 稳健获取 Reality 密钥对（不用 read+process substitution）
-  local k pk pub
-  if k="$("$XRAY_BIN" x25519 2>/dev/null || true)"; then
-    pk="$(printf '%s\n' "$k" | awk -F': *' '/Private/{print $2}')"
-    pub="$(printf '%s\n' "$k" | awk -F': *' '/Public/{print $2}')"
-  fi
+  UUID="$(uuidgen)"
+  HY2_USER="$(openssl rand -hex 4)"     # 8
+  HY2_PASS="$(openssl rand -hex 7)"     # 14
+  TUIC_UUID="$(uuidgen)"
+  TUIC_PASS="$(openssl rand -hex 8)"    # 16
+
+  # —— 稳健获取 Reality 密钥对
+  local k
+  k="$("$XRAY_BIN" x25519 2>/dev/null || true)"
+  pk="$(printf '%s\n' "$k" | awk -F': *' '/Private/{print $2}')"
+  pub="$(printf '%s\n' "$k" | awk -F': *' '/Public/{print $2}')"
   if [[ -z "${pk:-}" || -z "${pub:-}" ]]; then
-    err "生成 Reality 密钥失败（xray x25519 无输出），请检查 $XRAY_BIN 是否可执行。"
+    err "生成 Reality 密钥失败（xray x25519 无输出）"
     exit 1
   fi
 
-  local sid
-  sid="$(tr -dc 'a-f0-9' </dev/urandom | head -c 8)"
+  sid="$(openssl rand -hex 4)"          # 8
 
   cat >"$META_DIR/config.env" <<EOF
-# === EdgeBox 元数据（勿手动修改） ===
+# === EdgeBox 元数据（勿手改） ===
 EB_UUID="$UUID"
 
 REALITY_PRIVATE="$pk"
@@ -169,7 +168,6 @@ TUIC_PASS="$TUIC_PASS"
 WS_PATH="$WS_PATH"
 GRPC_SVC="$GRPC_SVC"
 EOF
-
   chmod 600 "$META_DIR/config.env"
   ok "凭据已写入 $META_DIR/config.env"
 }
