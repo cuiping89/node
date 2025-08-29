@@ -724,7 +724,6 @@ configure_sing_box() {
         "enabled": true,
         "certificate_path": "${CERT_DIR}/current.pem",
         "key_path": "${CERT_DIR}/current.key"
-        "alpn": ["h3"] 
       }
     },
     {
