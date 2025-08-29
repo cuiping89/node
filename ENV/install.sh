@@ -422,9 +422,13 @@ install_sing_box() {
     
     # 清理
     rm -rf sing-box-*
-    
-    # 创建systemd服务文件
-    cat > /etc/systemd/system/sing-box.service << EOF
+
+# 禁用掉官方安装的 xray 服务，避免和我们自定义的冲突
+systemctl disable --now xray.service >/dev/null 2>&1 || true
+systemctl disable --now 'xray@*'    >/dev/null 2>&1 || true
+
+# 创建 systemd 服务文件
+cat > /etc/systemd/system/sing-box.service << EOF
 [Unit]
 Description=sing-box service
 After=network.target
@@ -491,10 +495,9 @@ user www-data;
 worker_processes auto;
 pid /run/nginx.pid;
 error_log /var/log/nginx/error.log warn;
+include /etc/nginx/modules-enabled/*.conf;  # << 新增这一行
 
-events {
-    worker_connections 1024;
-}
+events { worker_connections 1024; }
 
 # HTTP配置
 http {
@@ -573,10 +576,7 @@ configure_xray() {
             "www.apple.com"
           ],
           "privateKey": "${REALITY_PRIVATE_KEY}",
-          "shortIds": [
-            "",
-            "6ba85179e30d4fc2"
-          ]
+"shortIds": ["${REALITY_SHORT_ID}"]
         }
       }
     },
@@ -822,9 +822,12 @@ generate_subscription() {
     
     local sub_content=""
     
-    # VLESS-Reality
-    local reality_link="vless://${UUID_VLESS}@${SERVER_IP}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&pbk=${REALITY_PUBLIC_KEY}&fp=chrome&type=tcp&headerType=none#EdgeBox-Reality"
-    sub_content="${sub_content}${reality_link}\n"
+# 1) VLESS-Reality
+reality_link="vless://${VLESS_UUID}@${SERVER_IP}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&spx=%2F#EB-REALITY"
+echo "1) VLESS-Reality"
+echo "${reality_link}"
+echo
+
     
     # VLESS-gRPC
     local grpc_link="vless://${UUID_VLESS}@${SERVER_IP}:443?encryption=none&security=tls&sni=grpc.edgebox.local&alpn=h2&type=grpc&serviceName=grpc&allowInsecure=1#EdgeBox-gRPC"
