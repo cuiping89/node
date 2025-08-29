@@ -343,15 +343,20 @@ write_singbox_config() {
       "tls": { "enabled": true, "alpn": ["h3"], "certificate_path": "${CERT_DIR}/current.pem", "key_path": "${CERT_DIR}/current.key" },
       "masquerade": "https://${REALITY_SNIS[0]}/"
     },
-    {
-      "type": "tuic",
-      "listen": "::",
-      "listen_port": ${TUIC_PORT},
-      "users": [ { "uuid": "${tuic_uuid}", "password": "${tuic_pwd}" } ],
-      "congestion_control": "bbr",
-      "udp_relay_mode": "native",
-      "tls": { "enabled": true, "alpn": ["h3"], "certificate_path": "${CERT_DIR}/current.pem", "key_path": "${CERT_DIR}/current.key" }
-    }
+# 片段：write_singbox_config() 内 TUIC inbound
+{
+  "type": "tuic",
+  "listen": "::",
+  "listen_port": ${TUIC_PORT},
+  "users": [ { "uuid": "${tuic_uuid}", "password": "${tuic_pwd}" } ],
+  "congestion_control": "bbr",
+  "tls": {
+    "enabled": true,
+    "alpn": ["h3"],
+    "certificate_path": "${CERT_DIR}/current.pem",
+    "key_path": "${CERT_DIR}/current.key"
+  }
+}
   ],
   "outbounds": [ { "type": "direct", "tag": "direct" } ]
 }
