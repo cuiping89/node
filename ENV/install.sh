@@ -819,34 +819,33 @@ start_services() {
 # 生成订阅链接
 generate_subscription() {
     log_info "生成订阅链接..."
-    
     local sub_content=""
-    
-# 1) VLESS-Reality
-reality_link="vless://${VLESS_UUID}@${SERVER_IP}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&spx=%2F#EB-REALITY"
-echo "1) VLESS-Reality"
-echo "${reality_link}"
-echo
 
-    
-    # VLESS-gRPC
-    local grpc_link="vless://${UUID_VLESS}@${SERVER_IP}:443?encryption=none&security=tls&sni=grpc.edgebox.local&alpn=h2&type=grpc&serviceName=grpc&allowInsecure=1#EdgeBox-gRPC"
+    # 1) VLESS-Reality
+    local reality_link="vless://${UUID_VLESS}@${SERVER_IP}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&spx=%2F#EB-REALITY"
+    sub_content="${sub_content}${reality_link}\n"
+
+    # 2) VLESS-gRPC
+    local grpc_link="vless://${UUID_VLESS}@${SERVER_IP}:443?encryption=none&security=tls&sni=grpc.edgebox.local&alpn=h2&type=grpc&serviceName=grpc&allowInsecure=1#EB-gRPC"
     sub_content="${sub_content}${grpc_link}\n"
-    
-    # VLESS-WS
-    local ws_link="vless://${UUID_VLESS}@${SERVER_IP}:443?encryption=none&security=tls&sni=www.edgebox.local&type=ws&host=www.edgebox.local&path=/ws&allowInsecure=1#EdgeBox-WS"
+
+    # 3) VLESS-WS
+    local ws_link="vless://${UUID_VLESS}@${SERVER_IP}:443?encryption=none&security=tls&sni=www.edgebox.local&type=ws&host=www.edgebox.local&path=/ws&alpn=http/1.1&allowInsecure=1#EB-WS"
     sub_content="${sub_content}${ws_link}\n"
-    
-    # Hysteria2
-    local hysteria2_link="hysteria2://${PASSWORD_HYSTERIA2}@${SERVER_IP}:443?insecure=1&sni=${SERVER_IP}#EdgeBox-Hysteria2"
+
+    # 4) Hysteria2
+    local hysteria2_link="hysteria2://${PASSWORD_HYSTERIA2}@${SERVER_IP}:443?insecure=1&sni=${SERVER_IP}#EB-HYSTERIA2"
     sub_content="${sub_content}${hysteria2_link}\n"
-    
-    # TUIC v5
-    local tuic_link="tuic://${UUID_TUIC}:${PASSWORD_TUIC}@${SERVER_IP}:2053?congestion_control=bbr&alpn=h3&sni=${SERVER_IP}&insecure=1#EdgeBox-TUIC"
+
+    # 5) TUIC v5
+    local tuic_link="tuic://${UUID_TUIC}:${PASSWORD_TUIC}@${SERVER_IP}:2053?congestion_control=bbr&alpn=h3&sni=${SERVER_IP}&allowInsecure=1#EB-TUIC"
     sub_content="${sub_content}${tuic_link}\n"
-    
-    # 保存订阅内容
+
+    # 保存到文件
     echo -e "$sub_content" > ${CONFIG_DIR}/subscription.txt
+
+    # 输出 HTTP 订阅地址
+    echo "订阅链接：http://${SERVER_IP}/sub"
     
     # Base64编码
     local sub_base64=$(echo -e "$sub_content" | base64 -w 0)
