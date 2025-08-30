@@ -75,6 +75,10 @@ log_success() {
 print_separator() {
     echo -e "${BLUE}========================================${NC}"
 }
+# 兼容别名（避免示例块里的 log/log_ok/error 报错）
+log()      { log_info "$@"; }
+log_ok()   { log_success "$@"; }
+error()    { log_error "$@"; }
 
 # 检查root权限
 check_root() {
