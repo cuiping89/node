@@ -599,9 +599,10 @@ configure_xray() {
         ],
         "decryption": "none",
         "fallbacks": [
-          { "sni": "grpc.edgebox.local", "alpn": "h2",        "dest": "127.0.0.1:${PORT_NGINX_STREAM}", "xver": 0 },
-          { "sni": "www.edgebox.local",  "alpn": "http/1.1",  "dest": "127.0.0.1:${PORT_NGINX_STREAM}", "xver": 0 },
-          { "dest": "127.0.0.1:${PORT_NGINX_STREAM}", "xver": 0 }
+  {
+    "dest": "127.0.0.1:10443",
+    "xver": 0
+  }
         ]
       },
       "streamSettings": {
