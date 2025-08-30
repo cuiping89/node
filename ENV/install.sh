@@ -38,6 +38,7 @@ UUID_TUIC=""
 # Reality密钥
 REALITY_PRIVATE_KEY=""
 REALITY_PUBLIC_KEY=""
+REALITY_SHORT_ID=""
 
 # 密码生成
 PASSWORD_HYSTERIA2=""
@@ -200,6 +201,9 @@ generate_credentials() {
     UUID_HYSTERIA2=$(uuidgen)
     UUID_TUIC=$(uuidgen)
     
+    # Reality shortId（握手匹配用，长度 8~16 的十六进制；这里生成 16 个 hex）
+    REALITY_SHORT_ID="$(openssl rand -hex 8)"
+
     # 生成密码
     PASSWORD_HYSTERIA2=$(openssl rand -base64 16)
     PASSWORD_TUIC=$(openssl rand -base64 16)
@@ -423,50 +427,38 @@ install_xray() {
 
 # 安装sing-box
 install_sing_box() {
-    log_info "安装sing-box..."
-    
-    # 检查是否已安装
-    if [[ -f /usr/local/bin/sing-box ]]; then
-        log_info "sing-box已安装，跳过"
-        return
-    fi
-    
-    # 获取最新版本
-    local latest_version=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases/latest | grep tag_name | cut -d '"' -f4 | sed 's/v//')
-    
-    if [[ -z "$latest_version" ]]; then
-        log_error "无法获取sing-box版本信息"
-        exit 1
-    fi
-    
-    log_info "下载sing-box ${latest_version}..."
-    
-    # 下载二进制文件
-    wget -q --show-progress "https://github.com/SagerNet/sing-box/releases/download/v${latest_version}/sing-box-${latest_version}-linux-amd64.tar.gz" || {
-        log_error "下载sing-box失败"
-        exit 1
-    }
-    
-    tar -xzf "sing-box-${latest_version}-linux-amd64.tar.gz"
-    
-    # 安装二进制文件
-    cp "sing-box-${latest_version}-linux-amd64/sing-box" /usr/local/bin/
-    chmod +x /usr/local/bin/sing-box
-    
-    # 清理
-    rm -rf sing-box-*
+  log_info "安装sing-box..."
 
-# 禁用掉官方安装的 xray 服务，避免和我们自定义的冲突
-systemctl disable --now xray.service >/dev/null 2>&1 || true
-systemctl disable --now 'xray@*'    >/dev/null 2>&1 || true
+  if [[ -f /usr/local/bin/sing-box ]]; then
+    log_info "sing-box已安装，跳过"
+  else
+    # 跟随 /releases/latest 的 302 拿真实 tag；失败兜底固定版本
+    local tag latest ver ok=""
+    latest="$(curl -sIL -o /dev/null -w '%{url_effective}' https://github.com/SagerNet/sing-box/releases/latest | awk -F/ '{print $NF}')"
+    ver="$(echo "$latest" | sed 's/^v//')"
+    [[ -z "$ver" ]] && ver="1.12.4"
 
-# 创建 systemd 服务文件
-cat > /etc/systemd/system/sing-box.service << EOF
+    for base in \
+      "https://github.com/SagerNet/sing-box/releases/download" \
+      "https://ghproxy.com/https://github.com/SagerNet/sing-box/releases/download"
+    do
+      url="${base}/v${ver}/sing-box-${ver}-linux-amd64.tar.gz"
+      log_info "下载 ${url}"
+      if wget -q --tries=3 --timeout=25 "$url" -O "/tmp/sing-box-${ver}.tar.gz"; then ok=1; break; fi
+    done
+    [[ -z "$ok" ]] && { log_error "下载sing-box失败"; exit 1; }
+
+    tar -xzf "/tmp/sing-box-${ver}.tar.gz" -C /tmp
+    install -m 0755 "/tmp/sing-box-${ver}-linux-amd64/sing-box" /usr/local/bin/sing-box
+    rm -rf "/tmp/sing-box-${ver}.tar.gz" "/tmp/sing-box-${ver}-linux-amd64"
+  fi
+
+  # 创建 systemd
+  cat > /etc/systemd/system/sing-box.service << EOF
 [Unit]
 Description=sing-box service
 After=network.target
 StartLimitIntervalSec=0
-
 [Service]
 Type=simple
 User=root
@@ -474,13 +466,11 @@ ExecStart=/usr/local/bin/sing-box run -c ${CONFIG_DIR}/sing-box.json
 Restart=on-failure
 RestartSec=10
 LimitNOFILE=infinity
-
 [Install]
 WantedBy=multi-user.target
 EOF
-    
-    systemctl daemon-reload
-    log_success "sing-box安装完成"
+  systemctl daemon-reload
+  log_success "sing-box安装完成"
 }
 
 # 配置Nginx
@@ -720,62 +710,72 @@ EOF
 configure_sing_box() {
     log_info "配置sing-box..."
     
-    cat > ${CONFIG_DIR}/sing-box.json << EOF
+cat > ${CONFIG_DIR}/xray.json << EOF
 {
-  "log": {
-    "level": "warn",
-    "timestamp": true
-  },
+  "log": { "loglevel": "warning",
+           "access": "/var/log/xray/access.log",
+           "error": "/var/log/xray/error.log" },
   "inbounds": [
     {
-      "type": "hysteria2",
-      "tag": "hysteria2-in",
-      "listen": "::",
-      "listen_port": 443,
-      "users": [
-        {
-          "name": "user",
-          "password": "${PASSWORD_HYSTERIA2}"
+      "tag": "VLESS-Reality",
+      "port": 443,
+      "protocol": "vless",
+      "settings": {
+        "clients": [{ "id": "${UUID_VLESS}", "flow": "xtls-rprx-vision", "email": "reality@edgebox" }],
+        "decryption": "none",
+        "fallbacks": [
+          { "dest": "127.0.0.1:10443", "xver": 0 }   // 非 Reality 统统丢给 Nginx stream
+        ]
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "dest": "www.cloudflare.com:443",         // ← 伪装站（握手用）
+          "xver": 0,
+          "serverNames": ["www.cloudflare.com","www.microsoft.com","www.apple.com"],
+          "privateKey": "${REALITY_PRIVATE_KEY}",
+          "shortIds": ["${REALITY_SHORT_ID}"]
         }
-      ],
-      "masquerade": "https://www.cloudflare.com",
-      "tls": {
-        "enabled": true,
-        "certificate_path": "${CERT_DIR}/current.pem",
-        "key_path": "${CERT_DIR}/current.key",
-        "alpn": ["h3"]
+      }
+    },
+
+    // 下面两个仍然监听 127.0.0.1，由 Nginx stream 按 ALPN 转发过来
+    {
+      "tag": "VLESS-gRPC",
+      "port": 10085, "listen": "127.0.0.1",
+      "protocol": "vless",
+      "settings": { "clients": [{ "id": "${UUID_VLESS}", "email": "grpc@edgebox" }],
+                    "decryption": "none" },
+      "streamSettings": {
+        "network": "grpc",
+        "security": "tls",
+        "tlsSettings": { "certificates": [{ "certificateFile": "${CERT_DIR}/current.pem",
+                                            "keyFile": "${CERT_DIR}/current.key" }] },
+        "grpcSettings": { "serviceName": "grpc" }
       }
     },
     {
-      "type": "tuic",
-      "tag": "tuic-in",
-      "listen": "::",
-      "listen_port": 2053,
-      "users": [
-        {
-          "name": "user",
-          "uuid": "${UUID_TUIC}",
-          "password": "${PASSWORD_TUIC}"
-        }
-      ],
-      "congestion_control": "bbr",
-      "tls": {
-        "enabled": true,
-        "certificate_path": "${CERT_DIR}/current.pem",
-        "key_path": "${CERT_DIR}/current.key",
-        "alpn": ["h3"]
+      "tag": "VLESS-WS",
+      "port": 10086, "listen": "127.0.0.1",
+      "protocol": "vless",
+      "settings": { "clients": [{ "id": "${UUID_VLESS}", "email": "ws@edgebox" }],
+                    "decryption": "none" },
+      "streamSettings": {
+        "network": "ws",
+        "security": "tls",
+        "tlsSettings": { "certificates": [{ "certificateFile": "${CERT_DIR}/current.pem",
+                                            "keyFile": "${CERT_DIR}/current.key" }] },
+        "wsSettings": { "path": "/ws", "headers": {} }
       }
     }
   ],
-  "outbounds": [
-    {
-      "type": "direct",
-      "tag": "direct"
-    }
-  ]
+  "outbounds": [{ "protocol": "freedom", "settings": {} }],
+  "routing": { "rules": [] }
 }
 EOF
-    
+
     log_success "sing-box配置完成"
 }
 
@@ -1194,26 +1194,26 @@ main() {
     trap cleanup EXIT
     
     # 执行安装步骤
-    check_root
-    check_system
-    get_server_ip
-    install_dependencies
-    generate_credentials
-    create_directories
-    check_ports
-    configure_firewall
-    optimize_system
-    generate_self_signed_cert
-    generate_reality_keys
-    install_xray
-    install_sing_box
-    configure_nginx
-    configure_xray
-    configure_sing_box
-    save_config_info
-    start_services
-    generate_subscription
-    create_edgeboxctl
+check_root
+check_system
+get_server_ip
+install_dependencies
+generate_credentials
+create_directories
+check_ports
+configure_firewall
+optimize_system
+generate_self_signed_cert
+install_sing_box          # ← 提前
+generate_reality_keys     # ← 现在可以稳定用 sing-box 直接出 key
+install_xray
+configure_nginx
+configure_xray
+configure_sing_box
+save_config_info
+start_services
+generate_subscription
+create_edgeboxctl
     
     # 显示安装信息
     show_installation_info
@@ -1225,4 +1225,4 @@ main() {
 }
 
 # 执行主函数
-main "$@"}
+main "$@"
