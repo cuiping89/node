@@ -475,7 +475,7 @@ EOF
   log_success "sing-box安装完成"
 }
 
-# 配置Nginx（stream + ssl_preread，自适应 ALPN→SNI）
+
 # 配置Nginx（stream + ssl_preread；auto=ALPN优先，否则SNI兜底）
 configure_nginx() {
   log "配置 Nginx (stream + ssl_preread, 模式=auto)"
@@ -578,18 +578,30 @@ configure_xray() {
 
   cat > ${CONFIG_DIR}/xray.json <<EOF
 {
-  "log": { "loglevel": "warning",
-           "access": "/var/log/xray/access.log",
-           "error":  "/var/log/xray/error.log" },
+  "log": {
+    "loglevel": "warning",
+    "access": "/var/log/xray/access.log",
+    "error":  "/var/log/xray/error.log"
+  },
   "inbounds": [
     {
       "tag": "VLESS-Reality",
       "port": 443,
       "protocol": "vless",
+      "sniffing": {                     /* ← 关键：保证非 REALITY 握手会被回落 */
+        "enabled": true,
+        "destOverride": ["tls"]
+      },
       "settings": {
-        "clients": [ { "id": "${UUID_VLESS}", "flow": "xtls-rprx-vision", "email": "reality@edgebox" } ],
+        "clients": [
+          { "id": "${UUID_VLESS}", "flow": "xtls-rprx-vision", "email": "reality@edgebox" }
+        ],
         "decryption": "none",
-        "fallbacks": [ { "dest": "127.0.0.1:10443", "xver": 0 } ]
+        "fallbacks": [
+          { "sni": "grpc.edgebox.local", "alpn": "h2",        "dest": "127.0.0.1:${PORT_NGINX_STREAM}", "xver": 0 },
+          { "sni": "www.edgebox.local",  "alpn": "http/1.1",  "dest": "127.0.0.1:${PORT_NGINX_STREAM}", "xver": 0 },
+          { "dest": "127.0.0.1:${PORT_NGINX_STREAM}", "xver": 0 }
+        ]
       },
       "streamSettings": {
         "network": "tcp",
@@ -607,14 +619,17 @@ configure_xray() {
     {
       "tag": "VLESS-gRPC",
       "listen": "127.0.0.1",
-      "port": 10085,
+      "port": ${PORT_GRPC},
       "protocol": "vless",
-      "settings": { "clients": [ { "id": "${UUID_VLESS}", "email": "grpc@edgebox" } ], "decryption": "none" },
+      "settings": {
+        "clients": [ { "id": "${UUID_VLESS}", "email": "grpc@edgebox" } ],
+        "decryption": "none"
+      },
       "streamSettings": {
         "network": "grpc",
         "security": "tls",
         "tlsSettings": {
-          "alpn": ["h2"],                                   // ★ 关键：gRPC 必须 h2
+          "alpn": ["h2"],
           "certificates": [ { "certificateFile": "${CERT_DIR}/current.pem", "keyFile": "${CERT_DIR}/current.key" } ]
         },
         "grpcSettings": { "serviceName": "grpc" }
@@ -623,17 +638,20 @@ configure_xray() {
     {
       "tag": "VLESS-WS",
       "listen": "127.0.0.1",
-      "port": 10086,
+      "port": ${PORT_WS},
       "protocol": "vless",
-      "settings": { "clients": [ { "id": "${UUID_VLESS}", "email": "ws@edgebox" } ], "decryption": "none" },
+      "settings": {
+        "clients": [ { "id": "${UUID_VLESS}", "email": "ws@edgebox" } ],
+        "decryption": "none"
+      },
       "streamSettings": {
         "network": "ws",
         "security": "tls",
         "tlsSettings": {
-          "alpn": ["http/1.1"],                             // ★ 建议：WS 显式 http/1.1
+          "alpn": ["http/1.1"],
           "certificates": [ { "certificateFile": "${CERT_DIR}/current.pem", "keyFile": "${CERT_DIR}/current.key" } ]
         },
-        "wsSettings": { "path": "/ws", "headers": {} }
+        "wsSettings": { "path": "/ws" }
       }
     }
   ],
@@ -647,7 +665,6 @@ EOF
 Description=Xray Service (EdgeBox)
 After=network.target
 StartLimitIntervalSec=0
-
 [Service]
 Type=simple
 User=root
@@ -655,7 +672,6 @@ ExecStart=/usr/local/bin/xray run -c /etc/edgebox/config/xray.json
 Restart=on-failure
 RestartSec=5
 LimitNOFILE=infinity
-
 [Install]
 WantedBy=multi-user.target
 EOF
