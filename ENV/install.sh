@@ -479,7 +479,7 @@ configure_nginx() {
   mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled /etc/nginx/stream.d /etc/nginx/conf.d
   find -L /etc/nginx/sites-enabled -type l -delete 2>/dev/null || true
 
-  # 主配置：开启 stream，并包含 stream.d
+  # 主配置：启用 stream，包含 stream.d
   cat > /etc/nginx/nginx.conf <<'NGINX'
 user www-data;
 worker_processes auto;
@@ -489,45 +489,61 @@ include /etc/nginx/modules-enabled/*.conf;
 
 events { worker_connections 1024; }
 
-stream {
-    include /etc/nginx/stream.d/*.conf;
-}
+stream { include /etc/nginx/stream.d/*.conf; }
 
 http {
-    sendfile on;
-    tcp_nopush on;
-    tcp_nodelay on;
-    keepalive_timeout 65;
-    types_hash_max_size 2048;
-
-    include /etc/nginx/mime.types;
-    default_type application/octet-stream;
-
-    server_tokens off;
-    access_log /var/log/nginx/access.log;
-    error_log  /var/log/nginx/error.log;
-
-    include /etc/nginx/conf.d/*.conf;
-    include /etc/nginx/sites-enabled/*;
+  sendfile on;
+  tcp_nopush on;
+  tcp_nodelay on;
+  keepalive_timeout 65;
+  types_hash_max_size 2048;
+  include /etc/nginx/mime.types;
+  default_type application/octet-stream;
+  server_tokens off;
+  access_log /var/log/nginx/access.log;
+  error_log  /var/log/nginx/error.log;
+  include /etc/nginx/conf.d/*.conf;
+  include /etc/nginx/sites-enabled/*;
 }
 NGINX
 
-  # stream：把 Xray 的回落口 127.0.0.1:10443 再按 ALPN 分到 gRPC/WS 后端
-  cat > /etc/nginx/stream.d/edgebox.conf <<'EOF'
+  # 先写一份“按 ALPN 分流”的配置
+  cat > /etc/nginx/stream.d/edgebox.conf <<'ALPN'
 map $ssl_preread_alpn $edgebox_backend {
-    "h2"        127.0.0.1:10085;   # gRPC
-    "http/1.1"  127.0.0.1:10086;   # WS
-    default     127.0.0.1:10086;
+  h2         127.0.0.1:10085;   # gRPC
+  "http/1.1" 127.0.0.1:10086;   # WS
+  default    127.0.0.1:10086;
 }
 server {
-    listen 127.0.0.1:10443 reuseport;
-    ssl_preread on;
-    proxy_pass $edgebox_backend;
+  listen 127.0.0.1:10443 reuseport;
+  ssl_preread on;               # 只预读，不终止 TLS
+  proxy_pass $edgebox_backend;
 }
-EOF
+ALPN
 
-  # 语法检查并重启
-  nginx -t >/dev/null 2>&1 || { nginx -t; log_error "Nginx配置测试失败"; exit 1; }
+  # 试跑一次；如果报 unknown "ssl_preread_alpn"，自动回退到 SNI 分流
+  if ! nginx -t >/tmp/nginx-test.log 2>&1; then
+    if grep -q 'unknown "ssl_preread_alpn" variable' /tmp/nginx-test.log; then
+      log_info "检测到当前 Nginx 不支持 \$ssl_preread_alpn，自动切换为 SNI 分流"
+      cat > /etc/nginx/stream.d/edgebox.conf <<'SNI'
+# 按 SNI 分流到 gRPC / WS 后端（与订阅保持一致）
+map $ssl_preread_server_name $edgebox_backend {
+  grpc.edgebox.local 127.0.0.1:10085;  # gRPC
+  www.edgebox.local  127.0.0.1:10086;  # WS
+  default            127.0.0.1:10086;
+}
+server {
+  listen 127.0.0.1:10443 reuseport;
+  ssl_preread on;
+  proxy_pass $edgebox_backend;
+}
+SNI
+      nginx -t >/dev/null 2>&1 || { nginx -t; log_error "Nginx配置测试失败"; exit 1; }
+    else
+      nginx -t; log_error "Nginx配置测试失败"; exit 1;
+    fi
+  fi
+
   systemctl enable nginx >/dev/null 2>&1 || true
   systemctl restart nginx >/dev/null 2>&1
   log_success "Nginx配置完成"
