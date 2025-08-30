@@ -291,8 +291,73 @@ EdgeBox 的证书管理模块旨在实现全自动化，根据用户是否提供
 - edgeboxctl update               # 更新EdgeBox
 - edgeboxctl reinstall            # 重新安装
 - edgeboxctl uninstall            # 完全卸载
-
 ---
+
+## 分模块开发
+### 模块 1 - 核心基础安装（内核契约）
+目标：交付一个功能完整、稳定可靠的基础安装包。该模块负责所有核心服务的部署，并定义后续模块将依赖的**“内核契约”**。
+**关键任务与交付物：**
+- 安装/卸载脚本框架 (install.sh, uninstall.sh)
+- 脚本骨架： 定义全局变量、颜色、日志函数、错误处理 (set -e)。
+- 核心功能函数： install_dependencies()、configure_xray()、configure_sing_box()、configure_nginx()、start_services() 等。
+- 幂等卸载： uninstall.sh 脚本必须能完全清除所有文件、服务和配置，确保多次运行不会出错，为重新安装提供干净环境。
+#### 协议配置与契约定义
+##### 端口契约：
+- 在 install.sh 中明确定义所有协议的内部端口。
+- VLESS-Reality：内部回环 127.0.0.1:443
+- Hysteria2：内部回环 127.0.0.1:443（避免端口冲突）
+- Nginx：内部回环 127.0.0.1:10443
+##### 回落机制：
+- Nginx 监听 127.0.0.1:10443，并根据 ALPN 流量分发到不同的后端，这是核心路由逻辑。
+##### 证书软链接：
+- 确保所有服务都从 CERT_DIR/current.pem 和 CERT_DIR/current.key 获取证书。这是模块 2 动态证书管理的基础。
+##### 基础订阅：
+- 确保 install.sh 在安装完成后能生成一个基础的、硬编码的订阅链接。订阅链接的格式、字段是模块 2 动态生成订阅的契约。
+#### 测试与验证
+##### 功能测试： 在一台干净的虚拟机上运行 install.sh。
+- 验证所有服务是否正常运行：systemctl status nginx sing-box xray。
+- 验证所有监听端口是否正常：netstat -tulnp。
+- 验证客户端能成功连接所有 5 个协议。
+##### 卸载测试：
+- 运行 uninstall.sh 并验证所有文件和服务是否被完全清除。
+
+### 模块 2 - edgeboxctl 管理工具
+前置条件：模块 1 已完成并冻结“内核契约”。模块 2 的开发必须基于这些已定义的端口、文件路径和订阅格式。
+目标：开发一个命令行工具，作为用户与核心服务进行交互的管理层，实现动态配置和模式切换。
+**关键任务与交付物：**
+#### 命令行工具 (edgeboxctl)
+- 使用 Shell 脚本（或 Python/Go）开发 edgeboxctl。
+##### 模式切换： 实现 edgeboxctl config switch-mode。
+**IP 模式 ⟶ 域名模式：**
+- 获取 Let's Encrypt 证书。
+- 更新 Nginx 和 Reality/Hysteria2 的配置，将 IP 监听改为域名监听，并将自签名证书软链到新证书。
+**域名模式 ⟶ IP 模式：**
+- 重新生成自签名证书。
+- 更新配置，将域名监听改回 IP 监听，并将软链指回自签名证书。
+##### 证书管理：
+- edgeboxctl cert renew：手动触发 Certbot 证书续期。
+- edgeboxctl cert upload：接受用户上传自定义证书，并将其软链到 CERT_DIR/current.pem 和 CERT_DIR/current.key。
+##### 配置管理：
+- edgeboxctl config regenerate-uuid：重置所有 UUID，并更新所有配置文件。
+- edgeboxctl config show：显示所有关键配置信息（UUID、密码、端口等）。
+#### 动态订阅生成
+订阅 API： edgeboxctl sub 命令应根据当前模式（IP/域名）和配置，动态生成并显示订阅链接。这需要工具能够读取 xray.json 和 sing-box.json 配置。
+
+### 模块 3 - 高级运维功能（可选）
+前置条件：模块 1 和 2 已完成，并已建立稳定的内核和管理层。
+目标：在现有框架之上，添加运维和高级功能，不影响核心服务的稳定性。
+**关键任务与交付物：**
+### 出站分流：
+- 流量路由： 增加 sing-box 的出站规则，将特定流量（如 googlevideo.com）直接路由，其余流量通过住宅代理出站。
+- 配置管理： 在 edgeboxctl 中添加 edgeboxctl config switch-outbound 命令，用于切换分流模式。
+### 流量统计：
+- 数据收集： 使用 iptables 或 vnStat 收集流量数据。
+- 命令行接口： 在 edgeboxctl 中添加 edgeboxctl traffic show 和 edgeboxctl traffic reset 命令，用于显示和重置流量计数。
+### 自动备份/恢复：
+- 备份脚本： 创建一个脚本，自动备份 /etc/edgebox/ 目录到 /root/edgebox-backup/。
+- 定时任务： 配置 cron 任务，实现每日自动备份。
+- 恢复命令： 在 edgeboxctl 中添加 edgeboxctl backup restore 命令，用于恢复备份。
+
 
 ## 一键安装
 
