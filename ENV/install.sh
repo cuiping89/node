@@ -625,25 +625,26 @@ configure_xray() {
 }
 EOF
 
-  cat > /etc/systemd/system/xray.service <<EOF
+cat >/etc/systemd/system/xray.service <<'EOF'
 [Unit]
-Description=Xray Service
+Description=Xray Service (EdgeBox)
 After=network.target
 StartLimitIntervalSec=0
 
 [Service]
 Type=simple
 User=root
-ExecStart=/usr/local/bin/xray run -c ${CONFIG_DIR}/xray.json
+ExecStart=/usr/local/bin/xray run -c /etc/edgebox/config/xray.json
 Restart=on-failure
-RestartSec=10
+RestartSec=5
 LimitNOFILE=infinity
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-  systemctl daemon-reload
+systemctl daemon-reload
+systemctl enable --now xray
   log_ok "Xray 配置完成"
 }
 
