@@ -476,20 +476,20 @@ EOF
 }
 
 # 配置Nginx（stream + ssl_preread，自适应 ALPN→SNI）
+# 配置Nginx（stream + ssl_preread；auto=ALPN优先，否则SNI兜底）
 configure_nginx() {
-  log "配置 Nginx (stream + ssl_preread)..."
+  log "配置 Nginx (stream + ssl_preread, 模式=auto)"
 
-  # 目录 & 清理
   systemctl stop nginx >/dev/null 2>&1 || true
   mkdir -p /etc/nginx/stream.d /etc/nginx/modules-enabled /etc/nginx/sites-enabled /etc/nginx/conf.d
   find -L /etc/nginx/sites-enabled -type l -delete 2>/dev/null || true
 
-  # 1) 加载 stream 动态模块（Ubuntu/Debian 官方包只需这一行；不要再写 ssl_preread 的 .so）
+  # 1) 动态模块（Ubuntu/Debian 官方包只需这一行）
   cat >/etc/nginx/modules-enabled/50-mod-stream.conf <<'EOF'
 load_module modules/ngx_stream_module.so;
 EOF
 
-  # 2) 主配置：顶层 include 模块目录；http 只给静态订阅用；stream 做分流
+  # 2) 主配置
   cat >/etc/nginx/nginx.conf <<'NGINX'
 user www-data;
 worker_processes auto;
@@ -513,15 +513,27 @@ stream {
 }
 NGINX
 
-  # 3) 先写 ALPN 分流（Ubuntu 24.04 常用变量：$ssl_preread_alpn_protocols）
+  # 3) AUTO：ALPN 优先 + SNI 兜底（同时兼容 grpc.edgebox.local 与 grpc.${domain}）
   cat >/etc/nginx/stream.d/edgebox.conf <<'EOF'
-# EdgeBox stream 分流（ALPN 优先：h2->gRPC，其它->WS）
 upstream grpc_backend { server 127.0.0.1:10085; }
 upstream ws_backend   { server 127.0.0.1:10086; }
 
-map $ssl_preread_alpn_protocols $edgebox_upstream {
+# ① ALPN：h2 -> gRPC；否则置空（用以和 SNI 组合）
+map $ssl_preread_alpn_protocols $edgebox_by_alpn {
     ~\bh2\b  grpc_backend;
-    default  ws_backend;
+    default  "";
+}
+
+# ② SNI：以 grpc. 开头 -> gRPC；其它 -> WS
+map $ssl_preread_server_name $edgebox_by_sni {
+    ~^grpc\.  grpc_backend;
+    default   ws_backend;
+}
+
+# ③ 合并：优先 ALPN，未命中再看 SNI
+map "$edgebox_by_alpn$edgebox_by_sni" $edgebox_upstream {
+    "~^grpc_backend" grpc_backend;
+    default          ws_backend;
 }
 
 server {
@@ -533,10 +545,9 @@ server {
 }
 EOF
 
-  # 4) 若当前构建不支持该变量，则自动回退到 SNI 分流（grpc.* -> gRPC / 其它 -> WS）
+  # 4) 若当前 Nginx 不支持 ALPN 变量，则回退为纯 SNI 分流
   if ! nginx -t >/dev/null 2>&1; then
     cat >/etc/nginx/stream.d/edgebox.conf <<'EOF'
-# EdgeBox stream 分流（SNI 兜底：grpc.* -> gRPC；其它 -> WS）
 upstream grpc_backend { server 127.0.0.1:10085; }
 upstream ws_backend   { server 127.0.0.1:10086; }
 
@@ -553,12 +564,12 @@ server {
     proxy_timeout 60s;
 }
 EOF
-    nginx -t >/dev/null 2>&1 || { nginx -t; error "Nginx配置测试失败"; return 1; }
   fi
 
+  nginx -t || { nginx -t; error "Nginx配置测试失败"; return 1; }
   systemctl enable nginx >/dev/null 2>&1 || true
   systemctl restart nginx
-  log_ok "Nginx 配置完成"
+  log_ok "Nginx 配置完成（模式：auto）"
 }
 
 # 配置Xray
@@ -602,7 +613,10 @@ configure_xray() {
       "streamSettings": {
         "network": "grpc",
         "security": "tls",
-        "tlsSettings": { "certificates": [ { "certificateFile": "${CERT_DIR}/current.pem", "keyFile": "${CERT_DIR}/current.key" } ] },
+        "tlsSettings": {
+          "alpn": ["h2"],                                   // ★ 关键：gRPC 必须 h2
+          "certificates": [ { "certificateFile": "${CERT_DIR}/current.pem", "keyFile": "${CERT_DIR}/current.key" } ]
+        },
         "grpcSettings": { "serviceName": "grpc" }
       }
     },
@@ -615,7 +629,10 @@ configure_xray() {
       "streamSettings": {
         "network": "ws",
         "security": "tls",
-        "tlsSettings": { "certificates": [ { "certificateFile": "${CERT_DIR}/current.pem", "keyFile": "${CERT_DIR}/current.key" } ] },
+        "tlsSettings": {
+          "alpn": ["http/1.1"],                             // ★ 建议：WS 显式 http/1.1
+          "certificates": [ { "certificateFile": "${CERT_DIR}/current.pem", "keyFile": "${CERT_DIR}/current.key" } ]
+        },
         "wsSettings": { "path": "/ws", "headers": {} }
       }
     }
@@ -625,7 +642,7 @@ configure_xray() {
 }
 EOF
 
-cat >/etc/systemd/system/xray.service <<'EOF'
+  cat >/etc/systemd/system/xray.service <<'EOF'
 [Unit]
 Description=Xray Service (EdgeBox)
 After=network.target
@@ -643,8 +660,8 @@ LimitNOFILE=infinity
 WantedBy=multi-user.target
 EOF
 
-systemctl daemon-reload
-systemctl enable --now xray
+  systemctl daemon-reload
+  systemctl enable --now xray
   log_ok "Xray 配置完成"
 }
 
