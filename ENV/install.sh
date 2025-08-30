@@ -356,35 +356,46 @@ chmod 644 ${CERT_DIR}/self-signed.pem ${CERT_DIR}/current.pem
 
 # 生成Reality密钥对
 generate_reality_keys() {
-    log_info "生成Reality密钥对..."
-    
-    # 下载最新的xray来生成密钥
-    local temp_dir=$(mktemp -d)
-    cd $temp_dir
-    
-    # 获取最新版本
-    local latest_version=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases/latest | grep tag_name | cut -d '"' -f4)
-    
-    wget -q --show-progress "https://github.com/XTLS/Xray-core/releases/download/${latest_version}/Xray-linux-64.zip" || {
-        log_error "下载Xray失败"
-        rm -rf $temp_dir
-        exit 1
-    }
-    
-    unzip -q Xray-linux-64.zip
-    
-    # 生成密钥对
-    local keys=$(./xray x25519)
-    REALITY_PRIVATE_KEY=$(echo "$keys" | grep "Private key:" | cut -d' ' -f3)
-    REALITY_PUBLIC_KEY=$(echo "$keys" | grep "Public key:" | cut -d' ' -f3)
-    
-    # 生成短ID
-    REALITY_SHORT_ID=$(openssl rand -hex 8)
-    
-    cd - > /dev/null
-    rm -rf $temp_dir
-    
-    log_success "Reality密钥对生成完成"
+  log_info "生成Reality密钥对..."
+
+  # 1) 优先用 sing-box 生成（新版有 reality-keypair，旧版是 reality-key）
+  if command -v sing-box >/dev/null 2>&1; then
+    local out
+    out="$(sing-box generate reality-keypair 2>/dev/null || sing-box generate reality-key 2>/dev/null || true)"
+    REALITY_PRIVATE_KEY="$(echo "$out" | awk -F': ' '/Private/{print $2}')"
+    REALITY_PUBLIC_KEY="$(echo "$out"  | awk -F': ' '/Public/{print  $2}')"
+    if [[ -n "$REALITY_PRIVATE_KEY" && -n "$REALITY_PUBLIC_KEY" ]]; then
+      log_success "Reality密钥对生成完成（sing-box）"
+      return 0
+    fi
+  fi
+
+  # 2) 回退：下载 Xray 再生成（不再用 GitHub API）
+  local tmp dir tag url ok=""
+  dir="$(mktemp -d)"; pushd "$dir" >/dev/null
+
+  # 不走 API，直接跟随 /releases/latest 的 302 拿真实 tag；再兜底一个固定版本
+  tag="$(curl -sIL -o /dev/null -w '%{url_effective}' https://github.com/XTLS/Xray-core/releases/latest | awk -F/ '{print $NF}')"
+  [[ -z "$tag" ]] && tag="v1.8.11"
+
+  for base in \
+    "https://github.com/XTLS/Xray-core/releases/download" \
+    "https://ghproxy.com/https://github.com/XTLS/Xray-core/releases/download"
+  do
+    url="${base}/${tag}/Xray-linux-64.zip"
+    if wget -q --tries=3 --timeout=20 "$url" -O Xray-linux-64.zip; then ok=1; break; fi
+  done
+  if [[ -z "$ok" ]]; then
+    log_error "下载Xray失败"; popd >/dev/null; rm -rf "$dir"; return 1
+  fi
+
+  unzip -q Xray-linux-64.zip
+  local keys; keys="$(./xray x25519)"
+  REALITY_PRIVATE_KEY="$(echo "$keys" | awk '/Private key/{print $3}')"
+  REALITY_PUBLIC_KEY="$(echo  "$keys" | awk '/Public key/{print  $3}')"
+
+  popd >/dev/null; rm -rf "$dir"
+  [[ -n "$REALITY_PRIVATE_KEY" && -n "$REALITY_PUBLIC_KEY" ]] && log_success "Reality密钥对生成完成" || { log_error "生成Reality密钥失败"; return 1; }
 }
 
 # 安装Xray
