@@ -473,85 +473,60 @@ EOF
 
 # 配置Nginx
 configure_nginx() {
-  log_info "配置Nginx..."
+  log "配置 Nginx (stream + ssl_preread)..."
 
-  # 目录与清理
-  mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled /etc/nginx/stream.d /etc/nginx/conf.d
-  find -L /etc/nginx/sites-enabled -type l -delete 2>/dev/null || true
+  systemctl stop nginx >/dev/null 2>&1 || true
+  mkdir -p /etc/nginx/stream.d
+  # 清掉遗留站点软链，避免 -t 失败
+  find -L /etc/nginx/sites-enabled -type l -delete
 
-  # 主配置：启用 stream，包含 stream.d
   cat > /etc/nginx/nginx.conf <<'NGINX'
 user www-data;
 worker_processes auto;
 pid /run/nginx.pid;
-
-include /etc/nginx/modules-enabled/*.conf;
+error_log /var/log/nginx/error.log warn;
 
 events { worker_connections 1024; }
 
-stream { include /etc/nginx/stream.d/*.conf; }
-
 http {
-  sendfile on;
-  tcp_nopush on;
-  tcp_nodelay on;
-  keepalive_timeout 65;
-  types_hash_max_size 2048;
-  include /etc/nginx/mime.types;
-  default_type application/octet-stream;
-  server_tokens off;
-  access_log /var/log/nginx/access.log;
-  error_log  /var/log/nginx/error.log;
-  include /etc/nginx/conf.d/*.conf;
-  include /etc/nginx/sites-enabled/*;
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+    access_log /var/log/nginx/access.log;
+    include /etc/nginx/conf.d/*.conf;
+    include /etc/nginx/sites-enabled/*;
+}
+
+stream {
+    include /etc/nginx/stream.d/*.conf;
 }
 NGINX
 
-  # 先写一份“按 ALPN 分流”的配置
-  cat > /etc/nginx/stream.d/edgebox.conf <<'ALPN'
-map $ssl_preread_alpn $edgebox_backend {
-  h2         127.0.0.1:10085;   # gRPC
-  "http/1.1" 127.0.0.1:10086;   # WS
-  default    127.0.0.1:10086;
-}
-server {
-  listen 127.0.0.1:10443 reuseport;
-  ssl_preread on;               # 只预读，不终止 TLS
-  proxy_pass $edgebox_backend;
-}
-ALPN
+  cat > /etc/nginx/stream.d/edgebox.conf <<'EOF'
+# EdgeBox: ssl_preread -> ALPN split
+upstream grpc_backend { server 127.0.0.1:10085; }   # gRPC
+upstream ws_backend   { server 127.0.0.1:10086; }   # WS
 
-  # 试跑一次；如果报 unknown "ssl_preread_alpn"，自动回退到 SNI 分流
-  if ! nginx -t >/tmp/nginx-test.log 2>&1; then
-    if grep -q 'unknown "ssl_preread_alpn" variable' /tmp/nginx-test.log; then
-      log_info "检测到当前 Nginx 不支持 \$ssl_preread_alpn，自动切换为 SNI 分流"
-      cat > /etc/nginx/stream.d/edgebox.conf <<'SNI'
-# 按 SNI 分流到 gRPC / WS 后端（与订阅保持一致）
-map $ssl_preread_server_name $edgebox_backend {
-  grpc.edgebox.local 127.0.0.1:10085;  # gRPC
-  www.edgebox.local  127.0.0.1:10086;  # WS
-  default            127.0.0.1:10086;
+map $ssl_preread_alpn_protocols $upstream {
+    ~\bh2\b  grpc_backend;   # ALPN=h2 -> gRPC
+    default  ws_backend;     # 其余 -> WS
 }
-server {
-  listen 127.0.0.1:10443 reuseport;
-  ssl_preread on;
-  proxy_pass $edgebox_backend;
-}
-SNI
-      nginx -t >/dev/null 2>&1 || { nginx -t; log_error "Nginx配置测试失败"; exit 1; }
-    else
-      nginx -t; log_error "Nginx配置测试失败"; exit 1;
-    fi
-  fi
 
+server {
+    listen 127.0.0.1:10443 reuseport;
+    ssl_preread on;
+    proxy_pass $upstream;
+}
+EOF
+
+  nginx -t >/dev/null 2>&1 || { nginx -t; error "Nginx配置测试失败"; }
   systemctl enable nginx >/dev/null 2>&1 || true
-  systemctl restart nginx >/dev/null 2>&1
-  log_success "Nginx配置完成"
+  systemctl restart nginx
+  log_ok "Nginx 配置完成"
 }
 
 # 配置Xray
 configure_xray() {
-  log_info "配置Xray..."
+  log "配置 Xray..."
 
   cat > ${CONFIG_DIR}/xray.json <<EOF
 {
@@ -586,13 +561,11 @@ configure_xray() {
       "listen": "127.0.0.1",
       "port": 10085,
       "protocol": "vless",
-      "settings": { "clients": [ { "id": "${UUID_VLESS}", "email": "grpc@edgebox" } ],
-                    "decryption": "none" },
+      "settings": { "clients": [ { "id": "${UUID_VLESS}", "email": "grpc@edgebox" } ], "decryption": "none" },
       "streamSettings": {
         "network": "grpc",
         "security": "tls",
-        "tlsSettings": { "certificates": [ { "certificateFile": "${CERT_DIR}/current.pem",
-                                             "keyFile":         "${CERT_DIR}/current.key" } ] },
+        "tlsSettings": { "certificates": [ { "certificateFile": "${CERT_DIR}/current.pem", "keyFile": "${CERT_DIR}/current.key" } ] },
         "grpcSettings": { "serviceName": "grpc" }
       }
     },
@@ -601,25 +574,23 @@ configure_xray() {
       "listen": "127.0.0.1",
       "port": 10086,
       "protocol": "vless",
-      "settings": { "clients": [ { "id": "${UUID_VLESS}", "email": "ws@edgebox" } ],
-                    "decryption": "none" },
+      "settings": { "clients": [ { "id": "${UUID_VLESS}", "email": "ws@edgebox" } ], "decryption": "none" },
       "streamSettings": {
         "network": "ws",
         "security": "tls",
-        "tlsSettings": { "certificates": [ { "certificateFile": "${CERT_DIR}/current.pem",
-                                             "keyFile":         "${CERT_DIR}/current.key" } ] },
+        "tlsSettings": { "certificates": [ { "certificateFile": "${CERT_DIR}/current.pem", "keyFile": "${CERT_DIR}/current.key" } ] },
         "wsSettings": { "path": "/ws", "headers": {} }
       }
     }
   ],
-  "outbounds": [ { "protocol": "freedom" } ]
+  "outbounds": [ { "protocol": "freedom", "settings": {} } ],
+  "routing": { "rules": [] }
 }
 EOF
 
-  # 自定义 unit：确保读取我们写的 xray.json
   cat > /etc/systemd/system/xray.service <<EOF
 [Unit]
-Description=Xray Service (EdgeBox)
+Description=Xray Service
 After=network.target
 StartLimitIntervalSec=0
 
@@ -628,7 +599,7 @@ Type=simple
 User=root
 ExecStart=/usr/local/bin/xray run -c ${CONFIG_DIR}/xray.json
 Restart=on-failure
-RestartSec=5
+RestartSec=10
 LimitNOFILE=infinity
 
 [Install]
@@ -636,46 +607,38 @@ WantedBy=multi-user.target
 EOF
 
   systemctl daemon-reload
-  log_success "Xray配置完成"
+  log_ok "Xray 配置完成"
 }
 
 # 配置sing-box
 configure_sing_box() {
-  log_info "配置sing-box..."
+  log "配置 sing-box..."
 
   cat > ${CONFIG_DIR}/sing-box.json <<EOF
 {
-  "log": { "level": "warn" },
+  "log": { "level": "warn", "timestamp": true },
   "inbounds": [
     {
-      "type": "hysteria2",
-      "tag": "hy2-in",
-      "listen": "::",
-      "listen_port": 443,
-      "users": [ { "name": "edgebox", "password": "${PASSWORD_HYSTERIA2}" } ],
-      "tls": { "enabled": true,
-               "certificate_path": "${CERT_DIR}/current.pem",
-               "key_path":         "${CERT_DIR}/current.key" },
-      "masquerade": "https://www.cloudflare.com/"
+      "type": "hysteria2", "tag": "hysteria2-in",
+      "listen": "::", "listen_port": 443,
+      "users": [ { "name": "user", "password": "${PASSWORD_HYSTERIA2}" } ],
+      "masquerade": "https://www.cloudflare.com",
+      "tls": { "enabled": true, "certificate_path": "${CERT_DIR}/current.pem", "key_path": "${CERT_DIR}/current.key" }
     },
     {
-      "type": "tuic",
-      "tag": "tuic-in",
-      "listen": "::",
-      "listen_port": 2053,
+      "type": "tuic", "tag": "tuic-in",
+      "listen": "::", "listen_port": 2053,
       "users": [ { "uuid": "${UUID_TUIC}", "password": "${PASSWORD_TUIC}" } ],
       "congestion_control": "bbr",
-      "tls": { "enabled": true,
-               "certificate_path": "${CERT_DIR}/current.pem",
-               "key_path":         "${CERT_DIR}/current.key",
-               "alpn": ["h3"] }
+      "tls": { "enabled": true, "alpn": ["h3"], "certificate_path": "${CERT_DIR}/current.pem", "key_path": "${CERT_DIR}/current.key" }
     }
   ],
   "outbounds": [ { "type": "direct" } ]
 }
 EOF
 
-  log_success "sing-box配置完成"
+  systemctl daemon-reload
+  log_ok "sing-box 配置完成"
 }
 
 # 保存配置信息
@@ -746,15 +709,25 @@ generate_subscription() {
 
   # 通用变量
   local ip="${SERVER_IP}"
-  local uuid="${UUID_VLESS}"                 # ← 关键：用 UUID_VLESS
-  local grpc_host="grpc.edgebox.local"
-  local ws_host="www.edgebox.local"
+  local uuid="${UUID_VLESS}"
   local ws_path="/ws"
 
   # 当前模式：有 LE 证书则域名模式，否则 IP 模式
   local domain=""
   if [[ -n "${EDGEBOX_DOMAIN:-}" && -f "/etc/letsencrypt/live/${EDGEBOX_DOMAIN}/fullchain.pem" && -f "/etc/letsencrypt/live/${EDGEBOX_DOMAIN}/privkey.pem" ]]; then
     domain="${EDGEBOX_DOMAIN}"
+  fi
+
+  # 按模式确定分流所需的 SNI 主机名（与 Nginx 的 SNI 回退规则一致）
+  local grpc_host ws_host quic_sni
+  if [[ -n "$domain" ]]; then
+    grpc_host="grpc.${domain}"
+    ws_host="www.${domain}"
+    quic_sni="${domain}"
+  else
+    grpc_host="grpc.edgebox.local"
+    ws_host="www.edgebox.local"
+    quic_sni="www.edgebox.local"
   fi
 
   # ===== 1) VLESS Reality（直连，不需要 allowInsecure）======
@@ -764,13 +737,15 @@ generate_subscription() {
   local reality_link="vless://${uuid}@${r_addr}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${r_sni}&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&spx=%2F#EdgeBox-REALITY"
 
   # ===== 2) VLESS gRPC (TLS，经 Nginx stream 回落) =====
-  # 域名模式：安全；IP 模式：必须 allowInsecure=1
+  # 默认不强制 alpn=h2；如需强制，运行脚本前 export GRPC_FORCE_ALPN=1
   local grpc_addr="${domain:-$ip}"
+  local grpc_alpn=""
+  [[ "${GRPC_FORCE_ALPN:-0}" == "1" ]] && grpc_alpn="&alpn=h2"
   local grpc_tail
   if [[ -n "$domain" ]]; then
-    grpc_tail="&alpn=h2&type=grpc&serviceName=grpc"
+    grpc_tail="${grpc_alpn}&type=grpc&serviceName=grpc"
   else
-    grpc_tail="&alpn=h2&type=grpc&serviceName=grpc&allowInsecure=1"
+    grpc_tail="${grpc_alpn}&type=grpc&serviceName=grpc&allowInsecure=1"
   fi
   local grpc_link="vless://${uuid}@${grpc_addr}:443?encryption=none&security=tls&sni=${grpc_host}${grpc_tail}#EdgeBox-gRPC"
 
@@ -785,24 +760,23 @@ generate_subscription() {
   local ws_link="vless://${uuid}@${ws_addr}:443?encryption=none&security=tls&sni=${ws_host}${ws_tail}#EdgeBox-WS"
 
   # ===== 4) Hysteria2 (UDP/443，sing-box) =====
-  # IP 模式要带 insecure=1（v2rayN/Clash Meta 这样能正确识别）
+  # SNI 使用域名（占位或真实），IP 模式需 insecure=1；都带 alpn=h3
   local hy2_addr="${domain:-$ip}"
   local hy2_tail
   if [[ -n "$domain" ]]; then
-    hy2_tail=""
+    hy2_tail="?sni=${quic_sni}&alpn=h3"
   else
-    hy2_tail="?insecure=1&sni=${ip}"
+    hy2_tail="?sni=${quic_sni}&insecure=1&alpn=h3"
   fi
   local hy2_link="hysteria2://${PASSWORD_HYSTERIA2}@${hy2_addr}:443${hy2_tail}#EdgeBox-HYSTERIA2"
 
   # ===== 5) TUIC v5 (UDP/2053，sing-box) =====
-  # 关键点：很多客户端 TUIC 用的是 allowInsecure=1（不是 insecure=1）
   local tuic_addr="${domain:-$ip}"
   local tuic_tail
   if [[ -n "$domain" ]]; then
-    tuic_tail="?congestion_control=bbr&alpn=h3"
+    tuic_tail="?congestion_control=bbr&alpn=h3&sni=${quic_sni}"
   else
-    tuic_tail="?congestion_control=bbr&alpn=h3&allowInsecure=1"
+    tuic_tail="?congestion_control=bbr&alpn=h3&sni=${quic_sni}&allowInsecure=1"
   fi
   local tuic_link="tuic://${UUID_TUIC}:${PASSWORD_TUIC}@${tuic_addr}:2053${tuic_tail}#EdgeBox-TUIC"
 
@@ -814,7 +788,7 @@ generate_subscription() {
   mkdir -p /var/www/html
   printf '%s' "$(echo -e "${plain}" | base64 -w0)" > /var/www/html/sub
 
-  # 用一个极简的站点把 /sub 暴露出来（不再使用未定义的 sub_base64 变量）
+  # 极简站点把 /sub 暴露出来
   cat >/etc/nginx/sites-available/edgebox-sub <<'EOF'
 server {
   listen 80;
@@ -825,15 +799,9 @@ server {
 }
 EOF
   ln -sf /etc/nginx/sites-available/edgebox-sub /etc/nginx/sites-enabled/edgebox-sub
-  # 保留其他站点亦可，这里不强制删 default，按你环境即可
   systemctl reload nginx >/dev/null 2>&1
 
-  log_success "订阅已生成："
-  echo "${reality_link}"
-  echo "${grpc_link}"
-  echo "${ws_link}"
-  echo "${hy2_link}"
-  echo "${tuic_link}"
+  log_success "订阅已生成：${CONFIG_DIR}/subscription.txt 以及 http://${ip}/sub"
 }
 
 # 创建edgeboxctl基础框架
