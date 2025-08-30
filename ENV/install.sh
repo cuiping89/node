@@ -476,33 +476,25 @@ EOF
 }
 
 
-# 配置Nginx（stream + ssl_preread；auto=ALPN优先，否则SNI兜底）
+# 配置Nginx（仅处理HTTP订阅服务）
 configure_nginx() {
-  log "配置 Nginx (stream + ssl_preread, 模式=auto)"
+  log "配置 Nginx (仅HTTP服务，无需stream分流)"
 
   systemctl stop nginx >/dev/null 2>&1 || true
   
-# ★ 关键：彻底清掉可能监听 443 的历史站点（默认站、LE 自动生成站等）
+  # 清理旧配置
   rm -f /etc/nginx/sites-enabled/* 2>/dev/null || true
   rm -f /etc/nginx/conf.d/*       2>/dev/null || true
   rm -f /etc/nginx/stream.d/* 2>/dev/null || true
   
-  mkdir -p /etc/nginx/stream.d /etc/nginx/modules-enabled /etc/nginx/sites-enabled /etc/nginx/conf.d
-  find -L /etc/nginx/sites-enabled -type l -delete 2>/dev/null || true
+  mkdir -p /etc/nginx/sites-enabled /etc/nginx/conf.d
 
-  # 1) 动态模块（Ubuntu/Debian 官方包只需这一行）
-  cat >/etc/nginx/modules-enabled/50-mod-stream.conf <<'EOF'
-load_module modules/ngx_stream_module.so;
-EOF
-
-  # 2) 主配置
+  # 简化的 Nginx 配置（只处理 HTTP）
   cat >/etc/nginx/nginx.conf <<'NGINX'
 user www-data;
 worker_processes auto;
 pid /run/nginx.pid;
 error_log /var/log/nginx/error.log warn;
-
-include /etc/nginx/modules-enabled/*.conf;
 
 events { worker_connections 1024; }
 
@@ -513,101 +505,17 @@ http {
   include /etc/nginx/conf.d/*.conf;
   include /etc/nginx/sites-enabled/*;
 }
-
-stream {
-  include /etc/nginx/stream.d/*.conf;
-}
 NGINX
 
-  # 3) 修复后的精确分流配置
-  cat >/etc/nginx/stream.d/edgebox.conf <<'EOF'
-upstream grpc_backend { server 127.0.0.1:10085; }
-upstream ws_backend   { server 127.0.0.1:10086; }
-
-# 第一层：基于 ALPN 协议识别（h2 通常是 gRPC）
-map $ssl_preread_alpn_protocols $backend_by_alpn {
-    ~\bh2\b     grpc_backend;
-    default     "";
-}
-
-# 第二层：基于 SNI 域名识别（grpc.开头的域名）
-map $ssl_preread_server_name $backend_by_sni {
-    ~^grpc\.edgebox\.local$     grpc_backend;
-    ~^grpc\.                    grpc_backend;
-    default                     ws_backend;
-}
-
-# 第三层：组合分流逻辑（ALPN 优先，SNI 兜底）
-# 格式："{ALPN_RESULT}:{SNI_RESULT}" -> 最终后端
-map "${backend_by_alpn}:${backend_by_sni}" $edgebox_upstream {
-    # ALPN 明确指示 gRPC 的情况
-    "grpc_backend:grpc_backend"     grpc_backend;
-    "grpc_backend:ws_backend"       grpc_backend;
-    
-    # ALPN 未识别，依赖 SNI 的情况  
-    ":grpc_backend"                 grpc_backend;
-    ":ws_backend"                   ws_backend;
-    
-    # 默认兜底（两者都未明确识别时走 WS）
-    default                         ws_backend;
-}
-
-server {
-    listen 127.0.0.1:10443 reuseport;
-    ssl_preread on;
-    proxy_pass $edgebox_upstream;
-    proxy_connect_timeout 5s;
-    proxy_timeout 300s;
-    
-    # 添加调试日志便于排查问题
-    access_log /var/log/nginx/edgebox_stream_access.log;
-    error_log /var/log/nginx/edgebox_stream_error.log warn;
-}
-EOF
-
-  # 4) 若当前 Nginx 不支持 ALPN 变量，则回退为纯 SNI 分流
-  if ! nginx -t >/dev/null 2>&1; then
-    log_warn "当前 Nginx 版本不支持 ALPN 分流，回退为 SNI 分流模式"
-    cat >/etc/nginx/stream.d/edgebox.conf <<'EOF'
-upstream grpc_backend { server 127.0.0.1:10085; }
-upstream ws_backend   { server 127.0.0.1:10086; }
-
-# 纯 SNI 分流（兼容老版本 Nginx）
-map $ssl_preread_server_name $edgebox_upstream {
-    # 精确匹配 gRPC 域名
-    ~^grpc\.edgebox\.local$     grpc_backend;
-    ~^grpc\.                    grpc_backend;
-    
-    # 默认走 WS
-    default                     ws_backend;
-}
-
-server {
-    listen 127.0.0.1:10443 reuseport;
-    ssl_preread on;
-    proxy_pass $edgebox_upstream;
-    proxy_connect_timeout 5s;
-    proxy_timeout 300s;
-    
-    # 调试日志
-    access_log /var/log/nginx/edgebox_stream_access.log;
-    error_log /var/log/nginx/edgebox_stream_error.log warn;
-}
-EOF
-  fi
-
-  # 5) 最终配置测试
   nginx -t || { 
     log_error "Nginx配置测试失败"
-    nginx -t  # 再次显示详细错误
     return 1
   }
   
   systemctl enable nginx >/dev/null 2>&1 || true
   systemctl restart nginx
   
-  # 验证分流配置是否生效
-  sleep 2
+  sleep 1
   if systemctl is-active --quiet nginx; then
     log_ok "Nginx 重启成功"
   else
@@ -616,12 +524,12 @@ EOF
     return 1
   fi
   
-  log_ok "Nginx 配置完成（模式：ALPN优先 + SNI兜底）"
+  log_ok "Nginx 配置完成（仅HTTP服务）"
 }
 
-# 配置Xray
+# 配置Xray（单端口复用架构）
 configure_xray() {
-  log "配置 Xray..."
+  log "配置 Xray（单端口复用架构）..."
 
   cat > ${CONFIG_DIR}/xray.json <<EOF
 {
@@ -632,23 +540,41 @@ configure_xray() {
   },
   "inbounds": [
     {
-      "tag": "VLESS-Reality",
+      "tag": "VLESS-MultiProtocol",
       "listen": "0.0.0.0",
       "port": 443,
       "protocol": "vless",
-      "sniffing": {                     /* ← 关键：保证非 REALITY 握手会被回落 */
-        "enabled": true,
-        "destOverride": ["tls"]
-      },
       "settings": {
         "clients": [
-          { "id": "${UUID_VLESS}", "flow": "xtls-rprx-vision", "email": "reality@edgebox" }
+          { "id": "${UUID_VLESS}", "flow": "xtls-rprx-vision", "email": "reality@edgebox" },
+          { "id": "${UUID_VLESS}", "email": "grpc@edgebox" },
+          { "id": "${UUID_VLESS}", "email": "ws@edgebox" }
         ],
         "decryption": "none",
         "fallbacks": [
-          { "sni": "grpc.edgebox.local", "alpn": "h2",        "dest": "127.0.0.1:${PORT_NGINX_STREAM}", "xver": 0 },
-          { "sni": "www.edgebox.local",  "alpn": "http/1.1",  "dest": "127.0.0.1:${PORT_NGINX_STREAM}", "xver": 0 },
-          { "dest": "127.0.0.1:${PORT_NGINX_STREAM}", "xver": 0 }
+          {
+            "name": "grpc.edgebox.local",
+            "alpn": "h2",
+            "path": "/grpc",
+            "dest": 10085,
+            "xver": 1
+          },
+          {
+            "name": "www.edgebox.local", 
+            "alpn": "http/1.1",
+            "path": "/ws",
+            "dest": 10086,
+            "xver": 1
+          },
+          {
+            "alpn": "h2",
+            "dest": 10085,
+            "xver": 1
+          },
+          {
+            "dest": 10086,
+            "xver": 1
+          }
         ]
       },
       "streamSettings": {
@@ -665,40 +591,32 @@ configure_xray() {
       }
     },
     {
-      "tag": "VLESS-gRPC",
+      "tag": "VLESS-gRPC-Internal",
       "listen": "127.0.0.1",
-      "port": ${PORT_GRPC},
+      "port": 10085,
       "protocol": "vless",
       "settings": {
-        "clients": [ { "id": "${UUID_VLESS}", "email": "grpc@edgebox" } ],
+        "clients": [ { "id": "${UUID_VLESS}", "email": "grpc-internal@edgebox" } ],
         "decryption": "none"
       },
       "streamSettings": {
         "network": "grpc",
-        "security": "tls",
-        "tlsSettings": {
-          "alpn": ["h2"],
-          "certificates": [ { "certificateFile": "${CERT_DIR}/current.pem", "keyFile": "${CERT_DIR}/current.key" } ]
-        },
+        "security": "none",
         "grpcSettings": { "serviceName": "grpc" }
       }
     },
     {
-      "tag": "VLESS-WS",
+      "tag": "VLESS-WS-Internal", 
       "listen": "127.0.0.1",
-      "port": ${PORT_WS},
+      "port": 10086,
       "protocol": "vless",
       "settings": {
-        "clients": [ { "id": "${UUID_VLESS}", "email": "ws@edgebox" } ],
+        "clients": [ { "id": "${UUID_VLESS}", "email": "ws-internal@edgebox" } ],
         "decryption": "none"
       },
       "streamSettings": {
         "network": "ws",
-        "security": "tls",
-        "tlsSettings": {
-          "alpn": ["http/1.1"],
-          "certificates": [ { "certificateFile": "${CERT_DIR}/current.pem", "keyFile": "${CERT_DIR}/current.key" } ]
-        },
+        "security": "none",
         "wsSettings": { "path": "/ws" }
       }
     }
@@ -726,7 +644,7 @@ EOF
 
   systemctl daemon-reload
   systemctl enable --now xray
-  log_ok "Xray 配置完成"
+  log_ok "Xray 配置完成（单端口复用架构）"
 }
 
 # 配置sing-box
@@ -949,7 +867,7 @@ show_help() {
     echo "  show-config     显示当前配置"
     echo "  logs [service]  查看服务日志"
     echo "  test            测试连接"
-    echo "  debug-stream    调试 Nginx 分流"
+            echo "  debug-stream    调试单端口复用"
     echo "  fix-permissions 修复证书权限"
     echo "  help            显示帮助信息"
 }
@@ -984,27 +902,21 @@ show_status() {
     
     echo ""
     echo -e "${CYAN}端口监听：${NC}"
-    ss -tlnp 2>/dev/null | grep -E ":(443|10085|10086|10443|80)" | awk '{print "  TCP: "$4" ("$7")"}'
+    ss -tlnp 2>/dev/null | grep -E ":(443|80)" | awk '{print "  TCP: "$4" ("$7")"}'
     ss -ulnp 2>/dev/null | grep -E ":(443|2053)" | awk '{print "  UDP: "$4" ("$7")"}'
     
     echo ""
-    echo -e "${CYAN}内部分流状态：${NC}"
-    if netstat -tln 2>/dev/null | grep -q "127.0.0.1:10443"; then
-        echo -e "  Nginx 分流: ${GREEN}正常${NC}"
-    else
-        echo -e "  Nginx 分流: ${RED}异常${NC}"
-    fi
-    
+    echo -e "${CYAN}内部服务状态：${NC}"
     if netstat -tln 2>/dev/null | grep -q "127.0.0.1:10085"; then
-        echo -e "  gRPC 后端: ${GREEN}正常${NC}"
+        echo -e "  gRPC 内部端口: ${GREEN}正常${NC}"
     else
-        echo -e "  gRPC 后端: ${RED}异常${NC}"
+        echo -e "  gRPC 内部端口: ${RED}异常${NC}"
     fi
     
     if netstat -tln 2>/dev/null | grep -q "127.0.0.1:10086"; then
-        echo -e "  WS 后端: ${GREEN}正常${NC}"
+        echo -e "  WS 内部端口: ${GREEN}正常${NC}"
     else
-        echo -e "  WS 后端: ${RED}异常${NC}"
+        echo -e "  WS 内部端口: ${RED}异常${NC}"
     fi
 }
 
@@ -1052,7 +964,7 @@ show_logs() {
         echo "  - nginx: systemd 日志"
         echo "  - xray: systemd + /var/log/xray/"
         echo "  - sing-box: systemd 日志"
-        echo "  - stream: /var/log/nginx/edgebox_stream_*.log"
+        echo "  - stream: Xray 单端口复用日志"
         return
     fi
     
@@ -1099,51 +1011,47 @@ show_logs() {
 }
 
 debug_nginx_stream() {
-    echo -e "${CYAN}Nginx 分流调试信息：${NC}"
+    echo -e "${CYAN}单端口复用架构状态：${NC}"
     
-    # 检查配置文件
-    echo -e "\n${YELLOW}1. 检查 Nginx 分流配置：${NC}"
-    if [[ -f /etc/nginx/stream.d/edgebox.conf ]]; then
-        echo "配置文件存在: /etc/nginx/stream.d/edgebox.conf"
+    # 检查 Xray 配置
+    echo -e "\n${YELLOW}1. 检查 Xray 单端口配置：${NC}"
+    if [[ -f /etc/edgebox/config/xray.json ]]; then
+        echo "Xray 配置文件存在"
         
         # 显示关键配置段
-        echo -e "\n${YELLOW}上游配置：${NC}"
-        grep -A 1 "upstream.*backend" /etc/nginx/stream.d/edgebox.conf
+        echo -e "\n${YELLOW}主入站端口：${NC}"
+        grep -A 5 '"port": 443' /etc/edgebox/config/xray.json
         
-        echo -e "\n${YELLOW}分流映射：${NC}"
-        grep -A 10 "map.*edgebox_upstream" /etc/nginx/stream.d/edgebox.conf
+        echo -e "\n${YELLOW}Fallbacks 配置：${NC}"
+        grep -A 15 '"fallbacks"' /etc/edgebox/config/xray.json
     else
-        echo -e "${RED}配置文件不存在！${NC}"
+        echo -e "${RED}Xray配置文件不存在！${NC}"
         return 1
     fi
     
-    # 测试配置语法
-    echo -e "\n${YELLOW}2. 测试 Nginx 配置语法：${NC}"
-    nginx -t
-    
     # 检查端口监听
-    echo -e "\n${YELLOW}3. 检查端口监听状态：${NC}"
-    echo "分流端口 (10443):"
-    ss -tln | grep ":10443" || echo "未监听"
-    echo "gRPC 后端 (10085):"
+    echo -e "\n${YELLOW}2. 检查端口监听状态：${NC}"
+    echo "公网端口 (443):"
+    ss -tln | grep ":443" || echo "未监听"
+    echo "gRPC 内部端口 (10085):"
     ss -tln | grep ":10085" || echo "未监听"
-    echo "WS 后端 (10086):"
+    echo "WS 内部端口 (10086):"
     ss -tln | grep ":10086" || echo "未监听"
     
-    # 检查分流日志
-    echo -e "\n${YELLOW}4. 最近的分流日志：${NC}"
-    if [[ -f /var/log/nginx/edgebox_stream_access.log ]]; then
+    # 检查 Xray 日志
+    echo -e "\n${YELLOW}3. 最近的 Xray 日志：${NC}"
+    if [[ -f /var/log/xray/access.log ]]; then
         echo "访问日志（最近5条）："
-        tail -n 5 /var/log/nginx/edgebox_stream_access.log | while read line; do
+        tail -n 5 /var/log/xray/access.log | while read line; do
             echo "  $line"
         done
     else
         echo "无访问日志"
     fi
     
-    if [[ -f /var/log/nginx/edgebox_stream_error.log ]]; then
+    if [[ -f /var/log/xray/error.log ]]; then
         echo "错误日志："
-        tail -n 10 /var/log/nginx/edgebox_stream_error.log | while read line; do
+        tail -n 10 /var/log/xray/error.log | while read line; do
             echo "  $line"
         done
     else
@@ -1164,20 +1072,45 @@ test_connection() {
         echo -e "${RED}异常${NC}"
     fi
     
-    # 测试TCP 443
-    echo -n "  TCP 443端口: "
+    # 测试TCP 443（单端口复用）
+    echo -n "  TCP 443端口（单端口复用）: "
     if timeout 3 bash -c "echo >/dev/tcp/${server_ip}/443" 2>/dev/null; then
         echo -e "${GREEN}开放${NC}"
     else
         echo -e "${RED}关闭${NC}"
     fi
     
-    # 测试UDP 2053
-    echo -n "  UDP 2053端口: "
+    # 测试UDP端口
+    echo -n "  UDP 443端口（Hysteria2）: "
+    if timeout 2 nc -u -z ${server_ip} 443 2>/dev/null; then
+        echo -e "${GREEN}开放${NC}"
+    else
+        echo -e "${YELLOW}未知（UDP难以准确测试）${NC}"
+    fi
+    
+    echo -n "  UDP 2053端口（TUIC）: "
     if timeout 2 nc -u -z ${server_ip} 2053 2>/dev/null; then
         echo -e "${GREEN}开放${NC}"
     else
         echo -e "${YELLOW}未知（UDP难以准确测试）${NC}"
+    fi
+    
+    # 测试内部服务（单端口复用架构的内部处理）
+    echo -e "\n${CYAN}内部服务测试（单端口复用架构）：${NC}"
+    echo -n "  gRPC 内部处理 (10085): "
+    if timeout 2 bash -c "echo >/dev/tcp/127.0.0.1/10085" 2>/dev/null; then
+        echo -e "${GREEN}正常${NC}"
+    else
+        echo -e "${RED}无法连接${NC}"
+    fi
+    
+    echo -n "  WS 内部处理 (10086): "
+    if timeout 2 bash -c "echo >/dev/tcp/127.0.0.1/10086" 2>/dev/null; then
+        echo -e "${GREEN}正常${NC}"
+    else
+        echo -e "${RED}无法连接${NC}"
+    fi
+}e "${YELLOW}未知（UDP难以准确测试）${NC}"
     fi
     
     # 测试内部端口连通性
@@ -1297,7 +1230,7 @@ show_installation_info() {
     echo -e "  ${YELLOW}edgeboxctl status${NC}     # 查看服务状态"
     echo -e "  ${YELLOW}edgeboxctl restart${NC}    # 重启所有服务"
     echo -e "  ${YELLOW}edgeboxctl test${NC}       # 测试连接"
-    echo -e "  ${YELLOW}edgeboxctl debug-stream${NC} # 调试分流"
+    echo -e "  ${YELLOW}edgeboxctl debug-stream${NC} # 调试单端口复用"
     echo -e "  ${YELLOW}edgeboxctl logs xray${NC}  # 查看日志"
     
     echo -e "\n${YELLOW}⚠️  注意事项：${NC}"
@@ -1305,7 +1238,7 @@ show_installation_info() {
     echo -e "  2. 客户端需要开启'跳过证书验证'选项"
     echo -e "  3. Reality协议不需要跳过证书验证"
     echo -e "  4. 防火墙已配置，请确保云服务商防火墙也开放相应端口"
-    echo -e "  5. 如连接异常，可使用 ${YELLOW}edgeboxctl debug-stream${NC} 调试分流"
+    echo -e "  5. 如连接异常，可使用 ${YELLOW}edgeboxctl debug-stream${NC} 调试单端口复用"
     
     print_separator
 }
