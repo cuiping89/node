@@ -296,7 +296,7 @@ EdgeBox 的证书管理模块旨在实现全自动化，根据用户是否提供
 ## 分模块开发
 ### 模块 1 - 核心基础安装（内核契约）
 - 目标：交付一个功能完整、稳定可靠的基础安装包。该模块负责所有核心服务的部署，并定义后续模块将依赖的**“内核契约”**。
-**关键任务与交付物：**
+#### 关键任务与交付物：
 - 安装/卸载脚本框架 (install.sh, uninstall.sh)
 - 脚本骨架： 定义全局变量、颜色、日志函数、错误处理 (set -e)。
 - 核心功能函数： install_dependencies()、configure_xray()、configure_sing_box()、configure_nginx()、start_services() 等。
@@ -324,7 +324,7 @@ EdgeBox 的证书管理模块旨在实现全自动化，根据用户是否提供
 ### 模块 2 - edgeboxctl 管理工具
 - 前置条件：模块 1 已完成并冻结“内核契约”。模块 2 的开发必须基于这些已定义的端口、文件路径和订阅格式。
 - 目标：开发一个命令行工具，作为用户与核心服务进行交互的管理层，实现动态配置和模式切换。
-**关键任务与交付物：**
+#### 关键任务与交付物：
 #### 命令行工具 (edgeboxctl)
 - 使用 Shell 脚本（或 Python/Go）开发 edgeboxctl。
 ##### 模式切换： 实现 edgeboxctl config switch-mode。
@@ -341,12 +341,12 @@ EdgeBox 的证书管理模块旨在实现全自动化，根据用户是否提供
 - edgeboxctl config regenerate-uuid：重置所有 UUID，并更新所有配置文件。
 - edgeboxctl config show：显示所有关键配置信息（UUID、密码、端口等）。
 #### 动态订阅生成
-订阅 API： edgeboxctl sub 命令应根据当前模式（IP/域名）和配置，动态生成并显示订阅链接。这需要工具能够读取 xray.json 和 sing-box.json 配置。
+- 订阅 API： edgeboxctl sub 命令应根据当前模式（IP/域名）和配置，动态生成并显示订阅链接。这需要工具能够读取 xray.json 和 sing-box.json 配置。
 
 ### 模块 3 - 高级运维功能（可选）
 - 前置条件：模块 1 和 2 已完成，并已建立稳定的内核和管理层。
 - 目标：在现有框架之上，添加运维和高级功能，不影响核心服务的稳定性。
-**关键任务与交付物：**
+#### 关键任务与交付物：
 ### 出站分流：
 - 流量路由： 增加 sing-box 的出站规则，将特定流量（如 googlevideo.com）直接路由，其余流量通过住宅代理出站。
 - 配置管理： 在 edgeboxctl 中添加 edgeboxctl config switch-outbound 命令，用于切换分流模式。
