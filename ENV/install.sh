@@ -483,7 +483,12 @@ configure_nginx() {
     if [[ ! -f /etc/nginx/nginx.conf.bak ]]; then
         cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak
     fi
-    
+    # 在 configure_nginx() 里，写 nginx.conf 之前/之后都可以，加上：
+mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled /etc/nginx/stream.d
+
+# 清理悬空软链，避免历史残留导致 -t 失败
+find -L /etc/nginx/sites-enabled -type l -delete
+
     # 创建stream配置目录
     mkdir -p /etc/nginx/stream.d
     
