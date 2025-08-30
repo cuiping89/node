@@ -773,7 +773,7 @@ generate_subscription() {
     domain="${EDGEBOX_DOMAIN}"
   fi
 
-  # 按模式确定分流所需的 SNI 主机名（与 Nginx 的 SNI 回退规则一致）
+  # 分流所需的主机名（与 Nginx 自适应/SNI 规则一致）
   local grpc_host ws_host quic_sni
   if [[ -n "$domain" ]]; then
     grpc_host="grpc.${domain}"
@@ -785,37 +785,24 @@ generate_subscription() {
     quic_sni="www.edgebox.local"
   fi
 
-  # ===== 1) VLESS Reality（直连，不需要 allowInsecure）======
-  local r_addr r_sni
-  r_addr="${domain:-$ip}"
-  r_sni="www.cloudflare.com"
+  # 1) VLESS Reality
+  local r_addr="${domain:-$ip}"
+  local r_sni="www.cloudflare.com"
   local reality_link="vless://${uuid}@${r_addr}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${r_sni}&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&spx=%2F#EdgeBox-REALITY"
 
-  # ===== 2) VLESS gRPC (TLS，经 Nginx stream 回落) =====
-  # 默认不强制 alpn=h2；如需强制，运行脚本前 export GRPC_FORCE_ALPN=1
+  # 2) VLESS gRPC —— ★ 一律强制 h2（IP 模式再加 allowInsecure=1）
   local grpc_addr="${domain:-$ip}"
-  local grpc_alpn=""
-  [[ "${GRPC_FORCE_ALPN:-0}" == "1" ]] && grpc_alpn="&alpn=h2"
-  local grpc_tail
-  if [[ -n "$domain" ]]; then
-    grpc_tail="${grpc_alpn}&type=grpc&serviceName=grpc"
-  else
-    grpc_tail="${grpc_alpn}&type=grpc&serviceName=grpc&allowInsecure=1"
-  fi
+  local grpc_tail="&alpn=h2&type=grpc&serviceName=grpc"
+  [[ -z "$domain" ]] && grpc_tail="${grpc_tail}&allowInsecure=1"
   local grpc_link="vless://${uuid}@${grpc_addr}:443?encryption=none&security=tls&sni=${grpc_host}${grpc_tail}#EdgeBox-gRPC"
 
-  # ===== 3) VLESS WS (TLS，经 Nginx stream 回落) =====
+  # 3) VLESS WS —— 显式 http/1.1（IP 模式加 allowInsecure=1）
   local ws_addr="${domain:-$ip}"
-  local ws_tail
-  if [[ -n "$domain" ]]; then
-    ws_tail="&type=ws&host=${ws_host}&path=${ws_path}"
-  else
-    ws_tail="&type=ws&host=${ws_host}&path=${ws_path}&allowInsecure=1"
-  fi
+  local ws_tail="&alpn=http/1.1&type=ws&host=${ws_host}&path=${ws_path}"
+  [[ -z "$domain" ]] && ws_tail="${ws_tail}&allowInsecure=1"
   local ws_link="vless://${uuid}@${ws_addr}:443?encryption=none&security=tls&sni=${ws_host}${ws_tail}#EdgeBox-WS"
 
-  # ===== 4) Hysteria2 (UDP/443，sing-box) =====
-  # SNI 使用域名（占位或真实），IP 模式需 insecure=1；都带 alpn=h3
+  # 4) Hysteria2 —— alpn=h3；IP 模式 insecure=1
   local hy2_addr="${domain:-$ip}"
   local hy2_tail
   if [[ -n "$domain" ]]; then
@@ -825,7 +812,7 @@ generate_subscription() {
   fi
   local hy2_link="hysteria2://${PASSWORD_HYSTERIA2}@${hy2_addr}:443${hy2_tail}#EdgeBox-HYSTERIA2"
 
-  # ===== 5) TUIC v5 (UDP/2053，sing-box) =====
+  # 5) TUIC v5 —— alpn=h3；IP 模式 allowInsecure=1
   local tuic_addr="${domain:-$ip}"
   local tuic_tail
   if [[ -n "$domain" ]]; then
@@ -835,15 +822,14 @@ generate_subscription() {
   fi
   local tuic_link="tuic://${UUID_TUIC}:${PASSWORD_TUIC}@${tuic_addr}:2053${tuic_tail}#EdgeBox-TUIC"
 
-  # ===== 写出纯文本订阅（每行一个节点）=====
+  # 输出订阅
   local plain="${reality_link}\n${grpc_link}\n${ws_link}\n${hy2_link}\n${tuic_link}\n"
   echo -e "${plain}" > "${CONFIG_DIR}/subscription.txt"
 
-  # ===== 写出 HTTP 订阅文件（静态）=====
   mkdir -p /var/www/html
   printf '%s' "$(echo -e "${plain}" | base64 -w0)" > /var/www/html/sub
 
-  # 极简站点把 /sub 暴露出来
+  # 极简站点暴露 /sub
   cat >/etc/nginx/sites-available/edgebox-sub <<'EOF'
 server {
   listen 80;
