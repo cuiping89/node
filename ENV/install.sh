@@ -581,16 +581,17 @@ configure_xray() {
   "log": {
     "loglevel": "warning",
     "access": "/var/log/xray/access.log",
-    "error": "/var/log/xray/error.log"
+    "error":  "/var/log/xray/error.log"
   },
   "inbounds": [
     {
       "tag": "VLESS-Reality",
+      "listen": "0.0.0.0",
       "port": 443,
       "protocol": "vless",
-      "sniffing": {
+      "sniffing": {                     /* ← 关键：保证非 REALITY 握手会被回落 */
         "enabled": true,
-        "destOverride": ["http","tls"]
+        "destOverride": ["tls"]
       },
       "settings": {
         "clients": [
@@ -598,8 +599,8 @@ configure_xray() {
         ],
         "decryption": "none",
         "fallbacks": [
-          { "sni": "grpc.edgebox.local", "alpn": ["h2"],        "dest": "127.0.0.1:${PORT_NGINX_STREAM}", "xver": 0 },
-          { "sni": "www.edgebox.local",  "alpn": ["http/1.1"],  "dest": "127.0.0.1:${PORT_NGINX_STREAM}", "xver": 0 },
+          { "sni": "grpc.edgebox.local", "alpn": "h2",        "dest": "127.0.0.1:${PORT_NGINX_STREAM}", "xver": 0 },
+          { "sni": "www.edgebox.local",  "alpn": "http/1.1",  "dest": "127.0.0.1:${PORT_NGINX_STREAM}", "xver": 0 },
           { "dest": "127.0.0.1:${PORT_NGINX_STREAM}", "xver": 0 }
         ]
       },
@@ -845,10 +846,11 @@ generate_subscription() {
   mkdir -p /var/www/html
   printf '%s' "$(echo -e "${plain}" | base64 -w0)" > /var/www/html/sub
 
-  # 极简站点暴露 /sub
+  # 极简站点暴露 /sub（仅 80 端口）
   cat >/etc/nginx/sites-available/edgebox-sub <<'EOF'
 server {
   listen 80;
+  listen [::]:80;
   server_name _;
   root /var/www/html;
   default_type text/plain;
@@ -1135,4 +1137,5 @@ create_edgeboxctl
 
 # 执行主函数
 main "$@"
+
 
