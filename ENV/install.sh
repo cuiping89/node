@@ -404,25 +404,23 @@ generate_reality_keys() {
 
 # 安装Xray
 install_xray() {
-    log_info "安装Xray..."
-    
-    # 检查是否已安装
-    if command -v xray &> /dev/null; then
-        log_info "Xray已安装，跳过"
-        systemctl stop xray >/dev/null 2>&1
-        return
-    fi
-    
-    # 下载并安装Xray
-    bash <(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh) >/dev/null 2>&1 || {
-        log_error "Xray安装失败"
-        exit 1
-    }
-    
-    # 停止默认服务
-    systemctl stop xray >/dev/null 2>&1
-    
-    log_success "Xray安装完成"
+  log_info "安装Xray..."
+
+  if command -v xray &>/dev/null; then
+    log_info "Xray已安装，跳过"
+  else
+    # 官方安装（仅用于放二进制），不让它留下“活跃”的 unit
+    bash <(curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh) >/dev/null 2>&1 \
+      || { log_error "Xray安装失败"; exit 1; }
+  fi
+
+  # 彻底停用并清掉官方的 unit / drop-in，防止它抢占 ExecStart
+  systemctl disable --now xray >/dev/null 2>&1 || true
+  rm -rf /etc/systemd/system/xray.service.d 2>/dev/null || true
+  # 有些版本会把 unit 写成不可变，统一覆盖掉
+  : > /etc/systemd/system/xray.service
+
+  log_success "Xray安装完成"
 }
 
 # 安装sing-box
@@ -474,89 +472,93 @@ EOF
 }
 
 # 配置Nginx
-configure_nginx() {
-    log_info "配置Nginx..."
-    
-    # 停止nginx以便修改配置
-    systemctl stop nginx >/dev/null 2>&1
-    
-    # 备份原始配置
-    if [[ ! -f /etc/nginx/nginx.conf.bak ]]; then
-        cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak
-    fi
-    # 在 configure_nginx() 里，写 nginx.conf 之前/之后都可以，加上：
-mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled /etc/nginx/stream.d
+configure_xray() {
+  log_info "配置Xray..."
 
-# 清理悬空软链，避免历史残留导致 -t 失败
-find -L /etc/nginx/sites-enabled -type l -delete
-
-    # 创建stream配置目录
-    mkdir -p /etc/nginx/stream.d
-    
-    # 创建stream配置
-    cat > /etc/nginx/stream.d/edgebox.conf << 'EOF'
-# EdgeBox Stream Configuration
-upstream grpc_backend {
-    server 127.0.0.1:10085;
-}
-
-upstream ws_backend {
-    server 127.0.0.1:10086;
-}
-
-map $ssl_preread_alpn_protocols $upstream {
-    ~\bh2\b         grpc_backend;
-    default         ws_backend;
-}
-
-server {
-    listen 127.0.0.1:10443;
-    ssl_preread on;
-    proxy_pass $upstream;
-    proxy_protocol off;
-}
-EOF
-    
-    # 创建新的nginx.conf
-    cat > /etc/nginx/nginx.conf << 'EOF'
-user www-data;
-worker_processes auto;
-pid /run/nginx.pid;
-error_log /var/log/nginx/error.log warn;
-include /etc/nginx/modules-enabled/*.conf;  # << 新增这一行
-
-events { worker_connections 1024; }
-
-# HTTP配置
-http {
-    include /etc/nginx/mime.types;
-    default_type application/octet-stream;
-    
-    sendfile on;
-    tcp_nopush on;
-    tcp_nodelay on;
-    keepalive_timeout 65;
-    types_hash_max_size 2048;
-    
-    access_log /var/log/nginx/access.log;
-    
-    include /etc/nginx/conf.d/*.conf;
-    include /etc/nginx/sites-enabled/*;
-}
-
-# Stream配置
-stream {
-    include /etc/nginx/stream.d/*.conf;
-}
-EOF
-    
-    # 测试配置
-    nginx -t >/dev/null 2>&1 || {
-        log_error "Nginx配置测试失败"
-        exit 1
+  cat > ${CONFIG_DIR}/xray.json <<EOF
+{
+  "log": { "loglevel": "warning",
+           "access": "/var/log/xray/access.log",
+           "error":  "/var/log/xray/error.log" },
+  "inbounds": [
+    {
+      "tag": "VLESS-Reality",
+      "port": 443,
+      "protocol": "vless",
+      "settings": {
+        "clients": [ { "id": "${UUID_VLESS}", "flow": "xtls-rprx-vision", "email": "reality@edgebox" } ],
+        "decryption": "none",
+        "fallbacks": [ { "dest": "127.0.0.1:10443", "xver": 0 } ]
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "dest": "www.cloudflare.com:443",
+          "xver": 0,
+          "serverNames": ["www.cloudflare.com","www.microsoft.com","www.apple.com"],
+          "privateKey": "${REALITY_PRIVATE_KEY}",
+          "shortIds": ["${REALITY_SHORT_ID}"]
+        }
+      }
+    },
+    {
+      "tag": "VLESS-gRPC",
+      "listen": "127.0.0.1",
+      "port": 10085,
+      "protocol": "vless",
+      "settings": { "clients": [ { "id": "${UUID_VLESS}", "email": "grpc@edgebox" } ],
+                    "decryption": "none" },
+      "streamSettings": {
+        "network": "grpc",
+        "security": "tls",
+        "tlsSettings": { "certificates": [ { "certificateFile": "${CERT_DIR}/current.pem",
+                                             "keyFile":         "${CERT_DIR}/current.key" } ] },
+        "grpcSettings": { "serviceName": "grpc" }
+      }
+    },
+    {
+      "tag": "VLESS-WS",
+      "listen": "127.0.0.1",
+      "port": 10086,
+      "protocol": "vless",
+      "settings": { "clients": [ { "id": "${UUID_VLESS}", "email": "ws@edgebox" } ],
+                    "decryption": "none" },
+      "streamSettings": {
+        "network": "ws",
+        "security": "tls",
+        "tlsSettings": { "certificates": [ { "certificateFile": "${CERT_DIR}/current.pem",
+                                             "keyFile":         "${CERT_DIR}/current.key" } ] },
+        "wsSettings": { "path": "/ws", "headers": {} }
+      }
     }
-    
-    log_success "Nginx配置完成"
+  ],
+  "outbounds": [ { "protocol": "freedom" } ]
+}
+EOF
+
+  # 自定义 unit，确保读取我们写的 xray.json
+  cat > /etc/systemd/system/xray.service <<EOF
+[Unit]
+Description=Xray Service (EdgeBox)
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/xray run -c ${CONFIG_DIR}/xray.json
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=infinity
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  systemctl daemon-reload
+  log_success "Xray配置完成"
 }
 
 # 配置Xray
@@ -708,75 +710,41 @@ EOF
 
 # 配置sing-box
 configure_sing_box() {
-    log_info "配置sing-box..."
-    
-cat > ${CONFIG_DIR}/xray.json << EOF
+  log_info "配置sing-box..."
+
+  cat > ${CONFIG_DIR}/sing-box.json <<EOF
 {
-  "log": { "loglevel": "warning",
-           "access": "/var/log/xray/access.log",
-           "error": "/var/log/xray/error.log" },
+  "log": { "level": "warn" },
   "inbounds": [
     {
-      "tag": "VLESS-Reality",
-      "port": 443,
-      "protocol": "vless",
-      "settings": {
-        "clients": [{ "id": "${UUID_VLESS}", "flow": "xtls-rprx-vision", "email": "reality@edgebox" }],
-        "decryption": "none",
-        "fallbacks": [
-          { "dest": "127.0.0.1:10443", "xver": 0 }   // 非 Reality 统统丢给 Nginx stream
-        ]
-      },
-      "streamSettings": {
-        "network": "tcp",
-        "security": "reality",
-        "realitySettings": {
-          "show": false,
-          "dest": "www.cloudflare.com:443",         // ← 伪装站（握手用）
-          "xver": 0,
-          "serverNames": ["www.cloudflare.com","www.microsoft.com","www.apple.com"],
-          "privateKey": "${REALITY_PRIVATE_KEY}",
-          "shortIds": ["${REALITY_SHORT_ID}"]
-        }
-      }
-    },
-
-    // 下面两个仍然监听 127.0.0.1，由 Nginx stream 按 ALPN 转发过来
-    {
-      "tag": "VLESS-gRPC",
-      "port": 10085, "listen": "127.0.0.1",
-      "protocol": "vless",
-      "settings": { "clients": [{ "id": "${UUID_VLESS}", "email": "grpc@edgebox" }],
-                    "decryption": "none" },
-      "streamSettings": {
-        "network": "grpc",
-        "security": "tls",
-        "tlsSettings": { "certificates": [{ "certificateFile": "${CERT_DIR}/current.pem",
-                                            "keyFile": "${CERT_DIR}/current.key" }] },
-        "grpcSettings": { "serviceName": "grpc" }
-      }
+      "type": "hysteria2",
+      "tag": "hy2-in",
+      "listen": "::",
+      "listen_port": 443,
+      "users": [ { "name": "edgebox", "password": "${PASSWORD_HYSTERIA2}" } ],
+      "tls": { "enabled": true,
+               "certificate_path": "${CERT_DIR}/current.pem",
+               "key_path":         "${CERT_DIR}/current.key" },
+      "masquerade": "https://www.cloudflare.com/"
     },
     {
-      "tag": "VLESS-WS",
-      "port": 10086, "listen": "127.0.0.1",
-      "protocol": "vless",
-      "settings": { "clients": [{ "id": "${UUID_VLESS}", "email": "ws@edgebox" }],
-                    "decryption": "none" },
-      "streamSettings": {
-        "network": "ws",
-        "security": "tls",
-        "tlsSettings": { "certificates": [{ "certificateFile": "${CERT_DIR}/current.pem",
-                                            "keyFile": "${CERT_DIR}/current.key" }] },
-        "wsSettings": { "path": "/ws", "headers": {} }
-      }
+      "type": "tuic",
+      "tag": "tuic-in",
+      "listen": "::",
+      "listen_port": 2053,
+      "users": [ { "uuid": "${UUID_TUIC}", "password": "${PASSWORD_TUIC}" } ],
+      "congestion_control": "bbr",
+      "tls": { "enabled": true,
+               "certificate_path": "${CERT_DIR}/current.pem",
+               "key_path":         "${CERT_DIR}/current.key",
+               "alpn": ["h3"] }
     }
   ],
-  "outbounds": [{ "protocol": "freedom", "settings": {} }],
-  "routing": { "rules": [] }
+  "outbounds": [ { "type": "direct" } ]
 }
 EOF
 
-    log_success "sing-box配置完成"
+  log_success "sing-box配置完成"
 }
 
 # 保存配置信息
@@ -819,41 +787,26 @@ EOF
 
 # 启动服务
 start_services() {
-    log_info "启动所有服务..."
-    
-    # 重启Nginx
-    systemctl restart nginx >/dev/null 2>&1
-    systemctl enable nginx >/dev/null 2>&1
-    
-    # 启动Xray
-    systemctl restart xray >/dev/null 2>&1
-    systemctl enable xray >/dev/null 2>&1
-    
-    # 启动sing-box
-    systemctl restart sing-box >/dev/null 2>&1
-    systemctl enable sing-box >/dev/null 2>&1
-    
-    # 等待服务启动
-    sleep 3
-    
-    # 检查服务状态
-    local all_running=true
-    
-    for service in nginx xray sing-box; do
-        if systemctl is-active --quiet $service; then
-            log_success "$service 运行正常"
-        else
-            log_error "$service 启动失败"
-            journalctl -u $service -n 20 --no-pager >> ${LOG_FILE}
-            all_running=false
-        fi
-    done
-    
-    if [[ "$all_running" == true ]]; then
-        log_success "所有服务启动成功"
+  log_info "启动所有服务..."
+
+  systemctl daemon-reload
+
+  systemctl enable nginx xray sing-box >/dev/null 2>&1 || true
+
+  systemctl restart nginx  >/dev/null 2>&1
+  systemctl restart xray   >/dev/null 2>&1
+  systemctl restart sing-box >/dev/null 2>&1
+
+  sleep 2
+
+  for s in nginx xray sing-box; do
+    if systemctl is-active --quiet "$s"; then
+      log_success "$s 运行正常"
     else
-        log_warn "部分服务启动失败，请检查日志: ${LOG_FILE}"
+      log_error "$s 启动失败（详见 ${LOG_FILE}）"
+      journalctl -u "$s" -n 50 --no-pager >> ${LOG_FILE}
     fi
+  done
 }
 
 # 生成订阅链接（统一兼容 v2rayN / ShadowRocket / Clash Meta）
