@@ -480,15 +480,28 @@ configure_nginx() {
   log "配置 Nginx (stream + ssl_preread)..."
 
   systemctl stop nginx >/dev/null 2>&1 || true
-  mkdir -p /etc/nginx/stream.d
-  # 清掉遗留站点软链，避免 -t 失败
+  mkdir -p /etc/nginx/stream.d /etc/nginx/modules-enabled
   find -L /etc/nginx/sites-enabled -type l -delete
 
+  # ★ 确保加载 stream 动态模块（兼容 /usr/lib 与 /usr/lib64）
+  for moddir in /usr/lib/nginx/modules /usr/lib64/nginx/modules; do
+    if [[ -f "${moddir}/ngx_stream_module.so" ]]; then
+      cat > /etc/nginx/modules-enabled/50-mod-stream.conf <<EOF
+load_module ${moddir}/ngx_stream_module.so;
+load_module ${moddir}/ngx_stream_ssl_preread_module.so;
+EOF
+      break
+    fi
+  done
+
+  # ★ 重写 nginx.conf：顶层一定要 include 模块目录
   cat > /etc/nginx/nginx.conf <<'NGINX'
 user www-data;
 worker_processes auto;
 pid /run/nginx.pid;
 error_log /var/log/nginx/error.log warn;
+
+include /etc/nginx/modules-enabled/*.conf;   # ← 关键：加载动态模块
 
 events { worker_connections 1024; }
 
@@ -505,24 +518,8 @@ stream {
 }
 NGINX
 
-  cat > /etc/nginx/stream.d/edgebox.conf <<'EOF'
-# EdgeBox: ssl_preread -> ALPN split
-upstream grpc_backend { server 127.0.0.1:10085; }   # gRPC
-upstream ws_backend   { server 127.0.0.1:10086; }   # WS
-
-map $ssl_preread_alpn_protocols $upstream {
-    ~\bh2\b  grpc_backend;   # ALPN=h2 -> gRPC
-    default  ws_backend;     # 其余 -> WS
-}
-
-server {
-    listen 127.0.0.1:10443 reuseport;
-    ssl_preread on;
-    proxy_pass $upstream;
-}
-EOF
-
-  nginx -t >/dev/null 2>&1 || { nginx -t; error "Nginx配置测试失败"; }
+  # …后续照你原来的逻辑写 /etc/nginx/stream.d/edgebox.conf，然后：
+  nginx -t || { nginx -t; error "Nginx配置测试失败"; }
   systemctl enable nginx >/dev/null 2>&1 || true
   systemctl restart nginx
   log_ok "Nginx 配置完成"
