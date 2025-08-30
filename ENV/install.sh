@@ -481,6 +481,12 @@ configure_nginx() {
   log "配置 Nginx (stream + ssl_preread, 模式=auto)"
 
   systemctl stop nginx >/dev/null 2>&1 || true
+  
+# ★ 关键：彻底清掉可能监听 443 的历史站点（默认站、LE 自动生成站等）
+  rm -f /etc/nginx/sites-enabled/* 2>/dev/null || true
+  rm -f /etc/nginx/conf.d/*       2>/dev/null || true
+  rm -f /etc/nginx/stream.d/* 2>/dev/null || true
+  
   mkdir -p /etc/nginx/stream.d /etc/nginx/modules-enabled /etc/nginx/sites-enabled /etc/nginx/conf.d
   find -L /etc/nginx/sites-enabled -type l -delete 2>/dev/null || true
 
@@ -784,6 +790,11 @@ generate_subscription() {
   local uuid="${UUID_VLESS}"
   local ws_path="/ws"
 
+  # ★ 对可能含有 +/= 等保留字符的密码做 URL 编码，保证客户端能正确解析
+  local HY2_PW_ENC TUIC_PW_ENC
+  HY2_PW_ENC=$(jq -rn --arg v "$PASSWORD_HYSTERIA2" '$v|@uri')
+  TUIC_PW_ENC=$(jq -rn --arg v "$PASSWORD_TUIC"     '$v|@uri')
+
   # 当前模式：有 LE 证书则域名模式，否则 IP 模式
   local domain=""
   if [[ -n "${EDGEBOX_DOMAIN:-}" && -f "/etc/letsencrypt/live/${EDGEBOX_DOMAIN}/fullchain.pem" && -f "/etc/letsencrypt/live/${EDGEBOX_DOMAIN}/privkey.pem" ]]; then
@@ -807,7 +818,7 @@ generate_subscription() {
   local r_sni="www.cloudflare.com"
   local reality_link="vless://${uuid}@${r_addr}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${r_sni}&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&spx=%2F#EdgeBox-REALITY"
 
-  # 2) VLESS gRPC —— ★ 一律强制 h2（IP 模式再加 allowInsecure=1）
+  # 2) VLESS gRPC —— 强制 h2（IP 模式再加 allowInsecure=1）
   local grpc_addr="${domain:-$ip}"
   local grpc_tail="&alpn=h2&type=grpc&serviceName=grpc"
   [[ -z "$domain" ]] && grpc_tail="${grpc_tail}&allowInsecure=1"
@@ -819,7 +830,7 @@ generate_subscription() {
   [[ -z "$domain" ]] && ws_tail="${ws_tail}&allowInsecure=1"
   local ws_link="vless://${uuid}@${ws_addr}:443?encryption=none&security=tls&sni=${ws_host}${ws_tail}#EdgeBox-WS"
 
-  # 4) Hysteria2 —— alpn=h3；IP 模式 insecure=1
+  # 4) Hysteria2 —— alpn=h3；IP 模式 insecure=1（密码已 URL 编码）
   local hy2_addr="${domain:-$ip}"
   local hy2_tail
   if [[ -n "$domain" ]]; then
@@ -827,9 +838,9 @@ generate_subscription() {
   else
     hy2_tail="?sni=${quic_sni}&insecure=1&alpn=h3"
   fi
-  local hy2_link="hysteria2://${PASSWORD_HYSTERIA2}@${hy2_addr}:443${hy2_tail}#EdgeBox-HYSTERIA2"
+  local hy2_link="hysteria2://${HY2_PW_ENC}@${hy2_addr}:443${hy2_tail}#EdgeBox-HYSTERIA2"
 
-  # 5) TUIC v5 —— alpn=h3；IP 模式 allowInsecure=1
+  # 5) TUIC v5 —— alpn=h3；IP 模式 allowInsecure=1（密码已 URL 编码）
   local tuic_addr="${domain:-$ip}"
   local tuic_tail
   if [[ -n "$domain" ]]; then
@@ -837,7 +848,7 @@ generate_subscription() {
   else
     tuic_tail="?congestion_control=bbr&alpn=h3&sni=${quic_sni}&allowInsecure=1"
   fi
-  local tuic_link="tuic://${UUID_TUIC}:${PASSWORD_TUIC}@${tuic_addr}:2053${tuic_tail}#EdgeBox-TUIC"
+  local tuic_link="tuic://${UUID_TUIC}:${TUIC_PW_ENC}@${tuic_addr}:2053${tuic_tail}#EdgeBox-TUIC"
 
   # 输出订阅
   local plain="${reality_link}\n${grpc_link}\n${ws_link}\n${hy2_link}\n${tuic_link}\n"
@@ -857,6 +868,7 @@ server {
   location = /sub { try_files /sub =404; }
 }
 EOF
+
   ln -sf /etc/nginx/sites-available/edgebox-sub /etc/nginx/sites-enabled/edgebox-sub
   systemctl reload nginx >/dev/null 2>&1
 
