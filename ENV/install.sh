@@ -472,6 +472,68 @@ EOF
 }
 
 # 配置Nginx
+configure_nginx() {
+  log_info "配置Nginx..."
+
+  # 目录与清理
+  mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled /etc/nginx/stream.d /etc/nginx/conf.d
+  find -L /etc/nginx/sites-enabled -type l -delete 2>/dev/null || true
+
+  # 主配置：开启 stream，并包含 stream.d
+  cat > /etc/nginx/nginx.conf <<'NGINX'
+user www-data;
+worker_processes auto;
+pid /run/nginx.pid;
+
+include /etc/nginx/modules-enabled/*.conf;
+
+events { worker_connections 1024; }
+
+stream {
+    include /etc/nginx/stream.d/*.conf;
+}
+
+http {
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+    keepalive_timeout 65;
+    types_hash_max_size 2048;
+
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+
+    server_tokens off;
+    access_log /var/log/nginx/access.log;
+    error_log  /var/log/nginx/error.log;
+
+    include /etc/nginx/conf.d/*.conf;
+    include /etc/nginx/sites-enabled/*;
+}
+NGINX
+
+  # stream：把 Xray 的回落口 127.0.0.1:10443 再按 ALPN 分到 gRPC/WS 后端
+  cat > /etc/nginx/stream.d/edgebox.conf <<'EOF'
+map $ssl_preread_alpn $edgebox_backend {
+    "h2"        127.0.0.1:10085;   # gRPC
+    "http/1.1"  127.0.0.1:10086;   # WS
+    default     127.0.0.1:10086;
+}
+server {
+    listen 127.0.0.1:10443 reuseport;
+    ssl_preread on;
+    proxy_pass $edgebox_backend;
+}
+EOF
+
+  # 语法检查并重启
+  nginx -t >/dev/null 2>&1 || { nginx -t; log_error "Nginx配置测试失败"; exit 1; }
+  systemctl enable nginx >/dev/null 2>&1 || true
+  systemctl restart nginx >/dev/null 2>&1
+  log_success "Nginx配置完成"
+}
+
+# 配置Xray
 configure_xray() {
   log_info "配置Xray..."
 
@@ -538,7 +600,7 @@ configure_xray() {
 }
 EOF
 
-  # 自定义 unit，确保读取我们写的 xray.json
+  # 自定义 unit：确保读取我们写的 xray.json
   cat > /etc/systemd/system/xray.service <<EOF
 [Unit]
 Description=Xray Service (EdgeBox)
@@ -559,153 +621,6 @@ EOF
 
   systemctl daemon-reload
   log_success "Xray配置完成"
-}
-
-# 配置Xray
-configure_xray() {
-    log_info "配置Xray..."
-    
-    cat > ${CONFIG_DIR}/xray.json << EOF
-{
-  "log": {
-    "loglevel": "warning",
-    "access": "/var/log/xray/access.log",
-    "error": "/var/log/xray/error.log"
-  },
-  "inbounds": [
-    {
-      "tag": "VLESS-Reality",
-      "port": 443,
-      "protocol": "vless",
-      "settings": {
-        "clients": [
-          {
-            "id": "${UUID_VLESS}",
-            "flow": "xtls-rprx-vision",
-            "email": "reality@edgebox"
-          }
-        ],
-        "decryption": "none",
-        "fallbacks": [
-          {
-            "dest": "www.cloudflare.com:443",
-            "xver": 0
-          }
-        ]
-      },
-      "streamSettings": {
-        "network": "tcp",
-        "security": "reality",
-        "realitySettings": {
-          "show": false,
-          "dest": "127.0.0.1:10443",
-          "xver": 0,
-          "serverNames": [
-            "www.cloudflare.com",
-            "www.microsoft.com",
-            "www.apple.com"
-          ],
-          "privateKey": "${REALITY_PRIVATE_KEY}",
-"shortIds": ["${REALITY_SHORT_ID}"]
-        }
-      }
-    },
-    {
-      "tag": "VLESS-gRPC",
-      "port": 10085,
-      "listen": "127.0.0.1",
-      "protocol": "vless",
-      "settings": {
-        "clients": [
-          {
-            "id": "${UUID_VLESS}",
-            "email": "grpc@edgebox"
-          }
-        ],
-        "decryption": "none"
-      },
-      "streamSettings": {
-        "network": "grpc",
-        "security": "tls",
-        "tlsSettings": {
-          "certificates": [
-            {
-              "certificateFile": "${CERT_DIR}/current.pem",
-              "keyFile": "${CERT_DIR}/current.key"
-            }
-          ]
-        },
-        "grpcSettings": {
-          "serviceName": "grpc"
-        }
-      }
-    },
-    {
-      "tag": "VLESS-WS",
-      "port": 10086,
-      "listen": "127.0.0.1",
-      "protocol": "vless",
-      "settings": {
-        "clients": [
-          {
-            "id": "${UUID_VLESS}",
-            "email": "ws@edgebox"
-          }
-        ],
-        "decryption": "none"
-      },
-      "streamSettings": {
-        "network": "ws",
-        "security": "tls",
-        "tlsSettings": {
-          "certificates": [
-            {
-              "certificateFile": "${CERT_DIR}/current.pem",
-              "keyFile": "${CERT_DIR}/current.key"
-            }
-          ]
-        },
-        "wsSettings": {
-          "path": "/ws",
-          "headers": {}
-        }
-      }
-    }
-  ],
-  "outbounds": [
-    {
-      "protocol": "freedom",
-      "settings": {}
-    }
-  ],
-  "routing": {
-    "rules": []
-  }
-}
-EOF
-    
-    # 创建Xray systemd配置
-    cat > /etc/systemd/system/xray.service << EOF
-[Unit]
-Description=Xray Service
-After=network.target
-StartLimitIntervalSec=0
-
-[Service]
-Type=simple
-User=root
-ExecStart=/usr/local/bin/xray run -c ${CONFIG_DIR}/xray.json
-Restart=on-failure
-RestartSec=10
-LimitNOFILE=infinity
-
-[Install]
-WantedBy=multi-user.target
-EOF
-    
-    systemctl daemon-reload
-    
-    log_success "Xray配置完成"
 }
 
 # 配置sing-box
