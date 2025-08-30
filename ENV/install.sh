@@ -482,10 +482,12 @@ configure_nginx() {
 
   systemctl stop nginx >/dev/null 2>&1 || true
   
-# ★ 关键：彻底清掉可能监听 443 的历史站点（默认站、LE 自动生成站等）
-  rm -f /etc/nginx/sites-enabled/* 2>/dev/null || true
-  rm -f /etc/nginx/conf.d/*       2>/dev/null || true
-  rm -f /etc/nginx/stream.d/* 2>/dev/null || true
+  # ★ 强制清掉一切可能占用 443 的历史文件（默认站、LE 自动生成、旧 conf 等）
+  rm -f /etc/nginx/sites-enabled/*            2>/dev/null || true
+  rm -f /etc/nginx/sites-available/default    2>/dev/null || true
+  rm -f /etc/nginx/conf.d/*                   2>/dev/null || true
+  rm -f /etc/nginx/stream.d/*                 2>/dev/null || true
+  rm -f /etc/nginx/snippets/*ssl*.conf        2>/dev/null || true
   
   mkdir -p /etc/nginx/stream.d /etc/nginx/modules-enabled /etc/nginx/sites-enabled /etc/nginx/conf.d
   find -L /etc/nginx/sites-enabled -type l -delete 2>/dev/null || true
@@ -597,7 +599,7 @@ configure_xray() {
       "protocol": "vless",
       "sniffing": {                     /* ← 关键：保证非 REALITY 握手会被回落 */
         "enabled": true,
-        "destOverride": ["tls"]
+        "destOverride": ["http","tls"]
       },
       "settings": {
         "clients": [
@@ -605,9 +607,9 @@ configure_xray() {
         ],
         "decryption": "none",
         "fallbacks": [
-          { "sni": "grpc.edgebox.local", "alpn": "h2",        "dest": "127.0.0.1:${PORT_NGINX_STREAM}", "xver": 0 },
-          { "sni": "www.edgebox.local",  "alpn": "http/1.1",  "dest": "127.0.0.1:${PORT_NGINX_STREAM}", "xver": 0 },
-          { "dest": "127.0.0.1:${PORT_NGINX_STREAM}", "xver": 0 }
+    { "sni": "grpc.edgebox.local", "alpn": ["h2"],        "dest": "127.0.0.1:${PORT_NGINX_STREAM}", "xver": 0 },
+      { "sni": "www.edgebox.local",  "alpn": ["http/1.1"],  "dest": "127.0.0.1:${PORT_NGINX_STREAM}", "xver": 0 },
+      { "dest": "127.0.0.1:${PORT_NGINX_STREAM}", "xver": 0 }
         ]
       },
       "streamSettings": {
