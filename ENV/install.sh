@@ -586,6 +586,7 @@ configure_xray() {
   "inbounds": [
     {
       "tag": "VLESS-Reality",
+      "listen": "0.0.0.0",
       "port": 443,
       "protocol": "vless",
       "sniffing": {                     /* ← 关键：保证非 REALITY 握手会被回落 */
