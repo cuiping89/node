@@ -485,6 +485,7 @@ configure_nginx() {
 # ★ 关键：彻底清掉可能监听 443 的历史站点（默认站、LE 自动生成站等）
   rm -f /etc/nginx/sites-enabled/* 2>/dev/null || true
   rm -f /etc/nginx/conf.d/*       2>/dev/null || true
+  rm -f /etc/nginx/stream.d/* 2>/dev/null || true
   
   mkdir -p /etc/nginx/stream.d /etc/nginx/modules-enabled /etc/nginx/sites-enabled /etc/nginx/conf.d
   find -L /etc/nginx/sites-enabled -type l -delete 2>/dev/null || true
