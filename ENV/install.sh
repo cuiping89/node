@@ -475,68 +475,87 @@ EOF
   log_success "sing-box安装完成"
 }
 
-# 配置Nginx
+# 配置Nginx（stream + ssl_preread，自适应 ALPN→SNI）
 configure_nginx() {
   log "配置 Nginx (stream + ssl_preread)..."
 
+  # 目录 & 清理
   systemctl stop nginx >/dev/null 2>&1 || true
-  mkdir -p /etc/nginx/stream.d /etc/nginx/modules-enabled
-  find -L /etc/nginx/sites-enabled -type l -delete
+  mkdir -p /etc/nginx/stream.d /etc/nginx/modules-enabled /etc/nginx/sites-enabled /etc/nginx/conf.d
+  find -L /etc/nginx/sites-enabled -type l -delete 2>/dev/null || true
 
-# ★ 自动探测并写入 stream 模块加载路径
-  STREAM_MOD="$(find /usr/lib /usr/lib64 -type f -name ngx_stream_module.so 2>/dev/null | head -n1)"
-  PREREAD_MOD="$(find /usr/lib /usr/lib64 -type f -name ngx_stream_ssl_preread_module.so 2>/dev/null | head -n1)"
-  if [[ -z "$STREAM_MOD" || -z "$PREREAD_MOD" ]]; then
-    apt-get update -y && apt-get install -y libnginx-mod-stream || true
-    STREAM_MOD="$(find /usr/lib /usr/lib64 -type f -name ngx_stream_module.so 2>/dev/null | head -n1)"
-    PREREAD_MOD="$(find /usr/lib /usr/lib64 -type f -name ngx_stream_ssl_preread_module.so 2>/dev/null | head -n1)"
-  fi
-  if [[ -z "$STREAM_MOD" || -z "$PREREAD_MOD" ]]; then
-    log_error "未找到 ngx_stream* 模块文件，请安装带 stream 模块的 Nginx（如 libnginx-mod-stream/nginx-extras）。"
-    exit 1
-  fi
-  cat > /etc/nginx/modules-enabled/50-mod-stream.conf <<EOF
-load_module ${STREAM_MOD};
-load_module ${PREREAD_MOD};
+  # 1) 加载 stream 动态模块（Ubuntu/Debian 官方包只需这一行；不要再写 ssl_preread 的 .so）
+  cat >/etc/nginx/modules-enabled/50-mod-stream.conf <<'EOF'
+load_module modules/ngx_stream_module.so;
 EOF
 
-  # ★ 确保加载 stream 动态模块（兼容 /usr/lib 与 /usr/lib64）
-  for moddir in /usr/lib/nginx/modules /usr/lib64/nginx/modules; do
-    if [[ -f "${moddir}/ngx_stream_module.so" ]]; then
-      cat > /etc/nginx/modules-enabled/50-mod-stream.conf <<EOF
-load_module ${moddir}/ngx_stream_module.so;
-load_module ${moddir}/ngx_stream_ssl_preread_module.so;
-EOF
-      break
-    fi
-  done
-
-  # ★ 重写 nginx.conf：顶层一定要 include 模块目录
-  cat > /etc/nginx/nginx.conf <<'NGINX'
+  # 2) 主配置：顶层 include 模块目录；http 只给静态订阅用；stream 做分流
+  cat >/etc/nginx/nginx.conf <<'NGINX'
 user www-data;
 worker_processes auto;
 pid /run/nginx.pid;
 error_log /var/log/nginx/error.log warn;
 
-include /etc/nginx/modules-enabled/*.conf;   # ← 关键：加载动态模块
+include /etc/nginx/modules-enabled/*.conf;
 
 events { worker_connections 1024; }
 
 http {
-    include /etc/nginx/mime.types;
-    default_type application/octet-stream;
-    access_log /var/log/nginx/access.log;
-    include /etc/nginx/conf.d/*.conf;
-    include /etc/nginx/sites-enabled/*;
+  include /etc/nginx/mime.types;
+  default_type application/octet-stream;
+  access_log /var/log/nginx/access.log;
+  include /etc/nginx/conf.d/*.conf;
+  include /etc/nginx/sites-enabled/*;
 }
 
 stream {
-    include /etc/nginx/stream.d/*.conf;
+  include /etc/nginx/stream.d/*.conf;
 }
 NGINX
 
-  # …后续照你原来的逻辑写 /etc/nginx/stream.d/edgebox.conf，然后：
-  nginx -t || { nginx -t; error "Nginx配置测试失败"; }
+  # 3) 先写 ALPN 分流（Ubuntu 24.04 常用变量：$ssl_preread_alpn_protocols）
+  cat >/etc/nginx/stream.d/edgebox.conf <<'EOF'
+# EdgeBox stream 分流（ALPN 优先：h2->gRPC，其它->WS）
+upstream grpc_backend { server 127.0.0.1:10085; }
+upstream ws_backend   { server 127.0.0.1:10086; }
+
+map $ssl_preread_alpn_protocols $edgebox_upstream {
+    ~\bh2\b  grpc_backend;
+    default  ws_backend;
+}
+
+server {
+    listen 127.0.0.1:10443 reuseport;
+    ssl_preread on;
+    proxy_pass $edgebox_upstream;
+    proxy_connect_timeout 3s;
+    proxy_timeout 60s;
+}
+EOF
+
+  # 4) 若当前构建不支持该变量，则自动回退到 SNI 分流（grpc.* -> gRPC / 其它 -> WS）
+  if ! nginx -t >/dev/null 2>&1; then
+    cat >/etc/nginx/stream.d/edgebox.conf <<'EOF'
+# EdgeBox stream 分流（SNI 兜底：grpc.* -> gRPC；其它 -> WS）
+upstream grpc_backend { server 127.0.0.1:10085; }
+upstream ws_backend   { server 127.0.0.1:10086; }
+
+map $ssl_preread_server_name $edgebox_upstream {
+    ~^grpc\.  grpc_backend;
+    default   ws_backend;
+}
+
+server {
+    listen 127.0.0.1:10443 reuseport;
+    ssl_preread on;
+    proxy_pass $edgebox_upstream;
+    proxy_connect_timeout 3s;
+    proxy_timeout 60s;
+}
+EOF
+    nginx -t >/dev/null 2>&1 || { nginx -t; error "Nginx配置测试失败"; return 1; }
+  fi
+
   systemctl enable nginx >/dev/null 2>&1 || true
   systemctl restart nginx
   log_ok "Nginx 配置完成"
