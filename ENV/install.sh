@@ -483,6 +483,23 @@ configure_nginx() {
   mkdir -p /etc/nginx/stream.d /etc/nginx/modules-enabled
   find -L /etc/nginx/sites-enabled -type l -delete
 
+# ★ 自动探测并写入 stream 模块加载路径
+  STREAM_MOD="$(find /usr/lib /usr/lib64 -type f -name ngx_stream_module.so 2>/dev/null | head -n1)"
+  PREREAD_MOD="$(find /usr/lib /usr/lib64 -type f -name ngx_stream_ssl_preread_module.so 2>/dev/null | head -n1)"
+  if [[ -z "$STREAM_MOD" || -z "$PREREAD_MOD" ]]; then
+    apt-get update -y && apt-get install -y libnginx-mod-stream || true
+    STREAM_MOD="$(find /usr/lib /usr/lib64 -type f -name ngx_stream_module.so 2>/dev/null | head -n1)"
+    PREREAD_MOD="$(find /usr/lib /usr/lib64 -type f -name ngx_stream_ssl_preread_module.so 2>/dev/null | head -n1)"
+  fi
+  if [[ -z "$STREAM_MOD" || -z "$PREREAD_MOD" ]]; then
+    log_error "未找到 ngx_stream* 模块文件，请安装带 stream 模块的 Nginx（如 libnginx-mod-stream/nginx-extras）。"
+    exit 1
+  fi
+  cat > /etc/nginx/modules-enabled/50-mod-stream.conf <<EOF
+load_module ${STREAM_MOD};
+load_module ${PREREAD_MOD};
+EOF
+
   # ★ 确保加载 stream 动态模块（兼容 /usr/lib 与 /usr/lib64）
   for moddir in /usr/lib/nginx/modules /usr/lib64/nginx/modules; do
     if [[ -f "${moddir}/ngx_stream_module.so" ]]; then
