@@ -576,31 +576,25 @@ EOF
 configure_xray() {
   log "配置 Xray..."
 
-  cat > ${CONFIG_DIR}/xray.json <<EOF
+  cat > "${CONFIG_DIR}/xray.json" <<EOF
 {
   "log": {
     "loglevel": "warning",
     "access": "/var/log/xray/access.log",
-    "error": "/var/log/xray/error.log"
+    "error":  "/var/log/xray/error.log"
   },
   "inbounds": [
     {
       "tag": "VLESS-Reality",
       "port": 443,
       "protocol": "vless",
-      "sniffing": {
-        "enabled": true,
-        "destOverride": ["http","tls"]
-      },
       "settings": {
         "clients": [
           { "id": "${UUID_VLESS}", "flow": "xtls-rprx-vision", "email": "reality@edgebox" }
         ],
         "decryption": "none",
         "fallbacks": [
-          { "sni": "grpc.edgebox.local", "alpn": ["h2"],        "dest": "127.0.0.1:${PORT_NGINX_STREAM}", "xver": 0 },
-          { "sni": "www.edgebox.local",  "alpn": ["http/1.1"],  "dest": "127.0.0.1:${PORT_NGINX_STREAM}", "xver": 0 },
-          { "dest": "127.0.0.1:${PORT_NGINX_STREAM}", "xver": 0 }
+          { "dest": "127.0.0.1:10443", "xver": 0 }
         ]
       },
       "streamSettings": {
@@ -619,7 +613,7 @@ configure_xray() {
     {
       "tag": "VLESS-gRPC",
       "listen": "127.0.0.1",
-      "port": ${PORT_GRPC},
+      "port": 10085,
       "protocol": "vless",
       "settings": {
         "clients": [ { "id": "${UUID_VLESS}", "email": "grpc@edgebox" } ],
@@ -638,7 +632,7 @@ configure_xray() {
     {
       "tag": "VLESS-WS",
       "listen": "127.0.0.1",
-      "port": ${PORT_WS},
+      "port": 10086,
       "protocol": "vless",
       "settings": {
         "clients": [ { "id": "${UUID_VLESS}", "email": "ws@edgebox" } ],
@@ -655,16 +649,17 @@ configure_xray() {
       }
     }
   ],
-  "outbounds": [ { "protocol": "freedom", "settings": {} } ],
-  "routing": { "rules": [] }
+  "outbounds": [ { "protocol": "freedom", "settings": {} } ]
 }
 EOF
 
-  cat >/etc/systemd/system/xray.service <<'EOF'
+  # systemd unit（保持你现有路径）
+  cat >/etc/systemd/system/xray.service <<'UNIT'
 [Unit]
 Description=Xray Service (EdgeBox)
 After=network.target
 StartLimitIntervalSec=0
+
 [Service]
 Type=simple
 User=root
@@ -672,11 +667,13 @@ ExecStart=/usr/local/bin/xray run -c /etc/edgebox/config/xray.json
 Restart=on-failure
 RestartSec=5
 LimitNOFILE=infinity
+
 [Install]
 WantedBy=multi-user.target
-EOF
+UNIT
 
   systemctl daemon-reload
+  xray run -test -c "${CONFIG_DIR}/xray.json" || { log_error "xray.json 语法错误"; return 1; }
   systemctl enable --now xray
   log_ok "Xray 配置完成"
 }
