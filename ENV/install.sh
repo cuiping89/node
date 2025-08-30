@@ -1149,5 +1149,3 @@ create_edgeboxctl
 
 # 执行主函数
 main "$@"
-
-
