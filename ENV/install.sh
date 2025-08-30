@@ -581,16 +581,16 @@ configure_xray() {
   "log": {
     "loglevel": "warning",
     "access": "/var/log/xray/access.log",
-    "error":  "/var/log/xray/error.log"
+    "error": "/var/log/xray/error.log"
   },
   "inbounds": [
     {
       "tag": "VLESS-Reality",
       "port": 443,
       "protocol": "vless",
-      "sniffing": {                     /* ← 关键：保证非 REALITY 握手会被回落 */
+      "sniffing": {
         "enabled": true,
-        "destOverride": ["tls"]
+        "destOverride": ["http","tls"]
       },
       "settings": {
         "clients": [
@@ -598,8 +598,8 @@ configure_xray() {
         ],
         "decryption": "none",
         "fallbacks": [
-          { "sni": "grpc.edgebox.local", "alpn": "h2",        "dest": "127.0.0.1:${PORT_NGINX_STREAM}", "xver": 0 },
-          { "sni": "www.edgebox.local",  "alpn": "http/1.1",  "dest": "127.0.0.1:${PORT_NGINX_STREAM}", "xver": 0 },
+          { "sni": "grpc.edgebox.local", "alpn": ["h2"],        "dest": "127.0.0.1:${PORT_NGINX_STREAM}", "xver": 0 },
+          { "sni": "www.edgebox.local",  "alpn": ["http/1.1"],  "dest": "127.0.0.1:${PORT_NGINX_STREAM}", "xver": 0 },
           { "dest": "127.0.0.1:${PORT_NGINX_STREAM}", "xver": 0 }
         ]
       },
