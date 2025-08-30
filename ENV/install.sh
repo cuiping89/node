@@ -726,7 +726,7 @@ configure_sing_box() {
       "tls": {
         "enabled": true,
         "certificate_path": "${CERT_DIR}/current.pem",
-        "key_path": "${CERT_DIR}/current.key"
+        "key_path": "${CERT_DIR}/current.key",
         "alpn": ["h3"]
       }
     },
@@ -746,7 +746,7 @@ configure_sing_box() {
       "tls": {
         "enabled": true,
         "certificate_path": "${CERT_DIR}/current.pem",
-        "key_path": "${CERT_DIR}/current.key"
+        "key_path": "${CERT_DIR}/current.key",
         "alpn": ["h3"]
       }
     }
