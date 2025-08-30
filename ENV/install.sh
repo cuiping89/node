@@ -846,10 +846,11 @@ generate_subscription() {
   mkdir -p /var/www/html
   printf '%s' "$(echo -e "${plain}" | base64 -w0)" > /var/www/html/sub
 
-  # 极简站点暴露 /sub
+  # 极简站点暴露 /sub（仅 80 端口）
   cat >/etc/nginx/sites-available/edgebox-sub <<'EOF'
 server {
   listen 80;
+  listen [::]:80;
   server_name _;
   root /var/www/html;
   default_type text/plain;
