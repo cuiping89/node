@@ -430,7 +430,7 @@ generate_reality_keys() {
     return 1
 }
 
-# 配置Nginx
+# 配置Nginx（SNI定向 + ALPN兜底架构）- 修复WS分流问题
 configure_nginx() {
     log_info "配置 Nginx（SNI定向 + ALPN兜底架构）..."
     
@@ -448,7 +448,7 @@ configure_nginx() {
         cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak
     fi
 
-    # SNI定向 + ALPN兜底的稳定架构
+    # SNI定向 + ALPN兜底的稳定架构（修复版）
     cat > /etc/nginx/nginx.conf << 'NGINX_CONFIG'
 user www-data;
 worker_processes auto;
@@ -489,28 +489,44 @@ http {
 }
 
 stream {
-    map $ssl_preread_server_name $sni_backend {
-        ~^(www\.cloudflare\.com|www\.apple\.com|www\.microsoft\.com)$ 127.0.0.1:11443;
-        grpc.edgebox.internal   127.0.0.1:10085;
-        ws.edgebox.internal     127.0.0.1:10086;
+    # 定义专用的 SNI 标识符（解决证书不匹配问题）
+    map $ssl_preread_server_name $svc {
+        # Reality 伪装域名：直接定向到 Reality
+        ~^(www\.cloudflare\.com|www\.apple\.com|www\.microsoft\.com)$ reality;
+        
+        # 专用服务标识符：避免证书验证问题
+        grpc.edgebox.internal   grpc;    # gRPC 专用标识
+        ws.edgebox.internal     ws;      # WebSocket 专用标识
+        
+        # 默认为空，交给 ALPN 处理
         default "";
     }
     
-    map $ssl_preread_alpn_protocols $alpn_backend {
-        ~\bh2\b         127.0.0.1:10085;
-        ~\bhttp/1\.1\b  127.0.0.1:10086;
-        default         127.0.0.1:11443;
+    # ALPN 兜底分流（仅在 SNI 未匹配时生效）
+    map $ssl_preread_alpn_protocols $by_alpn {
+        ~\bh2\b         127.0.0.1:10085;   # HTTP/2 -> gRPC
+        ~\bhttp/1\.1\b  127.0.0.1:10086;   # HTTP/1.1 -> WebSocket
+        default         127.0.0.1:10086;   # 兜底走 WS，防回环
+    }
+
+    # 先看 SNI，如能识别则直接定向；否则落回 ALPN
+    map $svc $upstream_sni {
+        reality 127.0.0.1:11443;
+        grpc    127.0.0.1:10085;
+        ws      127.0.0.1:10086;
+        default "";
     }
     
-    map $sni_backend $final_backend {
-        ~.+     $sni_backend;
-        default $alpn_backend;
+    # 最终分流决策：SNI 优先，ALPN 兜底
+    map $upstream_sni $upstream {
+        ~.+     $upstream_sni;
+        default $by_alpn;
     }
 
     server {
         listen 0.0.0.0:443;
         ssl_preread on;
-        proxy_pass $final_backend;
+        proxy_pass $upstream;
         proxy_timeout 15s;
         proxy_connect_timeout 5s;
         proxy_protocol off;
