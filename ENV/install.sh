@@ -338,32 +338,61 @@ generate_self_signed_cert() {
 
 # 生成Reality密钥对
 generate_reality_keys() {
-    log_info "开始生成 Reality 密钥对..."
-    local tries=0
-    local ok=0
-    while [[ $tries -lt 3 ]]; do
-        if command -v xray >/dev/null 2>&1; then
-            local out
-            out=$(xray x25519 2>/dev/null || true)
-            local priv pub
-            priv=$(echo "$out" | awk -F': ' '/Private key/{print $2}')
-            pub=$(echo "$out"  | awk -F': ' '/Public key/{print  $2}')
-            if [[ -n "$priv" && -n "$pub" ]]; then
-                REALITY_PRIVATE_KEY="$priv"
-                REALITY_PUBLIC_KEY="$pub"
-                ok=1; break
-            fi
+    log_info "生成Reality密钥对..."
+
+    # 优先用 sing-box 生成
+    if command -v sing-box >/dev/null 2>&1; then
+        local out
+        out="$(sing-box generate reality-keypair 2>/dev/null || sing-box generate reality-key 2>/dev/null || true)"
+        REALITY_PRIVATE_KEY="$(echo "$out" | awk -F': ' '/Private/{print $2}')"
+        REALITY_PUBLIC_KEY="$(echo "$out"  | awk -F': ' '/Public/{print  $2}')"
+        if [[ -n "$REALITY_PRIVATE_KEY" && -n "$REALITY_PUBLIC_KEY" ]]; then
+            log_success "Reality密钥对生成完成（sing-box）"
+            return 0
         fi
-        tries=$((tries+1))
-        sleep 1
+    fi
+
+    # 回退：下载 Xray 生成
+    local tmp_dir tag url ok=""
+    tmp_dir="$(mktemp -d)"
+    pushd "$tmp_dir" >/dev/null
+
+    tag="$(curl -sIL -o /dev/null -w '%{url_effective}' https://github.com/XTLS/Xray-core/releases/latest | awk -F/ '{print $NF}')"
+    [[ -z "$tag" ]] && tag="v1.8.11"
+
+    for base in \
+      "https://github.com/XTLS/Xray-core/releases/download" \
+      "https://ghproxy.com/https://github.com/XTLS/Xray-core/releases/download"
+    do
+      url="${base}/${tag}/Xray-linux-64.zip"
+      if wget -q --tries=3 --timeout=20 "$url" -O Xray-linux-64.zip; then 
+          ok=1
+          break
+      fi
     done
-    if [[ $ok -ne 1 ]]; then
-        log_error "生成Reality密钥失败（未找到 xray 或解析失败）。"
+    
+    if [[ -z "$ok" ]]; then
+        log_error "下载Xray失败"
+        popd >/dev/null
+        rm -rf "$tmp_dir"
         return 1
     fi
-    # shortId 8~16 hex
-    REALITY_SHORT_ID=$(openssl rand -hex 8)
-    log_success "Reality 密钥对生成完成"
+
+    unzip -q Xray-linux-64.zip
+    local keys
+    keys="$(./xray x25519)"
+    REALITY_PRIVATE_KEY="$(echo "$keys" | awk '/Private key/{print $3}')"
+    REALITY_PUBLIC_KEY="$(echo  "$keys" | awk '/Public key/{print  $3}')"
+
+    popd >/dev/null
+    rm -rf "$tmp_dir"
+    
+    if [[ -n "$REALITY_PRIVATE_KEY" && -n "$REALITY_PUBLIC_KEY" ]]; then
+        log_success "Reality密钥对生成完成"
+    else
+        log_error "生成Reality密钥失败"
+        return 1
+    fi
 }
 
 # 安装Xray
@@ -602,7 +631,7 @@ configure_nginx() {
     fi
 
     # SNI定向 + ALPN兜底的稳定架构
-    cat > /etc/nginx/nginx.conf <<NGINX_STABLE_END
+    cat > /etc/nginx/nginx.conf <<'NGINX_STABLE_END'
 user www-data;
 worker_processes auto;
 pid /run/nginx.pid;
@@ -631,7 +660,7 @@ http {
         root /var/www/html;
         
         location / {
-            try_files \$uri \$uri/ =404;
+            try_files $uri $uri/ =404;
         }
         
         location = /sub {
@@ -643,9 +672,9 @@ http {
 
 stream {
     # 定义专用的 SNI 标识符（解决证书不匹配问题）
-    map \$ssl_preread_server_name \$sni_backend {
+    map $ssl_preread_server_name $sni_backend {
         # Reality 伪装域名：直接定向到 Reality
-        ~^(www\.cloudflare\.com|www\.apple\.com|www\.microsoft\.com)\$ 127.0.0.1:11443;
+        ~^(www\.cloudflare\.com|www\.apple\.com|www\.microsoft\.com)$ 127.0.0.1:11443;
         
         # 专用服务标识符：避免证书验证问题
         grpc.edgebox.internal   127.0.0.1:10085;    # gRPC 专用标识
@@ -656,22 +685,22 @@ stream {
     }
     
     # ALPN 兜底分流（仅在 SNI 未匹配时生效）
-    map \$ssl_preread_alpn_protocols \$alpn_backend {
+    map $ssl_preread_alpn_protocols $alpn_backend {
         ~\bh2\b         127.0.0.1:10085;   # HTTP/2 -> gRPC
         ~\bhttp/1\.1\b  127.0.0.1:10086;   # HTTP/1.1 -> WebSocket
         default         127.0.0.1:11443;   # 默认 -> Reality
     }
     
     # 最终分流决策：SNI 优先，ALPN 兜底
-    map \$sni_backend \$final_backend {
-        ~.+     \$sni_backend;  # 如果 SNI 匹配成功，使用 SNI 结果
-        default \$alpn_backend; # 否则使用 ALPN 兜底
+    map $sni_backend $final_backend {
+        ~.+     $sni_backend;  # 如果 SNI 匹配成功，使用 SNI 结果
+        default $alpn_backend; # 否则使用 ALPN 兜底
     }
 
     server {
         listen 0.0.0.0:443;
         ssl_preread on;
-        proxy_pass \$final_backend;
+        proxy_pass $final_backend;
         proxy_timeout 15s;
         proxy_connect_timeout 5s;
         proxy_protocol off;
@@ -1398,7 +1427,3 @@ case "$1" in
     help|*) show_help ;;
 esac
 EOFCTL
-chmod +x /usr/local/bin/edgeboxctl
-}
-    
-    
