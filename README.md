@@ -124,16 +124,7 @@ EdgeBox 的证书管理模块旨在实现全自动化，根据用户是否提供
 | **内部回环** | TCP/10085 | Xray | VLESS-gRPC 专用，启用 TLS。 |
 | | TCP/10086 | Xray | VLESS-WS 专用，启用 TLS。 |
 
-### 3. 安全与运维
-
-* **防火墙**：仅放行 TCP/443、UDP/443、UDP/2053 和 SSH 等管理端口，严格禁止外部访问 `10085` 和 `10086` 等内部端口。
-* **证书管理**：全部服务统一使用 /etc/ssl/edgebox/cert.pem 与 /etc/ssl/edgebox/key.pem；由 edgeboxctl 统一更新与校验。
-* **订阅获取**：通过 `edgeboxctl sub` 在终端获取，供客户端手动导入。
-* **健康自检**：在应用配置前执行 `xray -test -config` 进行预检，并采用“生成新文件 → 预检通过 → 原子替换 → reload”的流程，失败则自动回滚。
-
-根据您提供的文件和我们最终确定的**“极简架构”**，以下是修订和整合后的文档，使其与最终方案完全一致。
-
-### 4. 部署与模式切换策略
+### 3. 部署与模式切换策略
 
 本方案的关键在于 **edgeboxctl** 管理工具，它能实现两种核心模式之间的无缝切换，以适应不同的网络环境。
 
@@ -148,7 +139,6 @@ EdgeBox 的证书管理模块旨在实现全自动化，根据用户是否提供
 * **Hysteria2 / TUIC**：同样使用**自签名证书**启动。
 
 #### 模式双向切换（`edgeboxctl` 命令）
-
 * **切换至域名模式**：
     * **命令**：`edgeboxctl change-to-domain <your_domain>`
     * **逻辑**：工具将检查域名解析，自动申请 Let's Encrypt 证书，并用新证书替换**所有协议**的自签名证书。Xray 和 sing-box 的配置将被更新以使用真实域名。
@@ -156,10 +146,8 @@ EdgeBox 的证书管理模块旨在实现全自动化，根据用户是否提供
     * **命令**：`edgeboxctl change-to-ip`
     * **逻辑**：当域名或住宅 IP 失效时，此命令将删除或禁用 Let's Encrypt 证书，重新生成并启用自签名证书，并将所有配置回退到初始 IP 模式。
   
-### 5. 动态生成订阅链接
-
+### 4. 动态生成订阅链接
 **`edgeboxctl sub`** 命令是获取订阅链接的唯一途径，它能根据当前模式动态生成一键导入的聚合链接。
-
 * **逻辑判断**：脚本通过检查 `/etc/letsencrypt/` 目录下是否存在证书来判断当前模式。
 * **IP 模式下的链接生成**：
     * `address`：使用服务器的**公网 IP**。
@@ -169,7 +157,7 @@ EdgeBox 的证书管理模块旨在实现全自动化，根据用户是否提供
     * `address`：使用你的**真实域名**。
     * **VLESS-gRPC/WS**：SNI 使用你的真实域名，移除 `allowInsecure=1` 参数。
     * **Hysteria2/TUIC**：移除 `insecure=true` 或 `skip-cert-verify=true` 参数。
-* **聚合**：将所有协议的链接聚合，进行 Base64 编码，并在终端中**直接打印**或保存到本地文件，供客户端手动导入。本方案**不提供任何 HTTP 订阅链接**。
+* **聚合**：将所有协议的链接聚合，进行 Base64 编码，并在终端中**直接打印**或保存到本地文件，供客户端手动导入。
 
 ---
 
@@ -283,70 +271,75 @@ EdgeBox 的证书管理模块旨在实现全自动化，根据用户是否提供
 - edgeboxctl uninstall            # 完全卸载
 ---
 
-## 分模块开发
+好的，根据我们前面讨论的**“极简架构”**，你提供的这份分模块开发文档需要进行相应的修订。我将结合我们最终敲定的方案，帮你重新整理和优化这份文档，确保所有细节都与最终方案保持一致。
+
+---
+
+### 分模块开发
+
 ### 模块 1 - 核心基础安装（内核契约）
 - 目标：交付一个功能完整、稳定可靠的基础安装包。该模块负责所有核心服务的部署，并定义后续模块将依赖的**“内核契约”**。
 #### 关键任务与交付物：
-- 安装/卸载脚本框架 (install.sh, uninstall.sh)
-- 脚本骨架： 定义全局变量、颜色、日志函数、错误处理 (set -e)。
-- 核心功能函数： install_dependencies()、configure_xray()、configure_sing_box()、configure_nginx()、start_services() 等。
-- 幂等卸载： uninstall.sh 脚本必须能完全清除所有文件、服务和配置，确保多次运行不会出错，为重新安装提供干净环境。
+- 安装/卸载脚本框架 (`install.sh`, `uninstall.sh`)。
+- 脚本骨架：定义全局变量、颜色、日志函数、错误处理 (`set -e`)。
+- 核心功能函数：`install_dependencies()`、`configure_xray()`、`configure_sing_box()`、`start_services()` 等。
+- 幂等卸载：`uninstall.sh` 脚本必须能完全清除所有文件、服务和配置，确保多次运行不会出错，为重新安装提供干净环境。
 #### 协议配置与契约定义
 ##### 端口契约：
-- 在 install.sh 中明确定义所有协议的内部端口。
-- VLESS-Reality：内部回环 127.0.0.1:443
-- Hysteria2：内部回环 127.0.0.1:443（避免端口冲突）
-- Nginx：内部回环 127.0.0.1:10443
+- 在 `install.sh` 中明确定义所有协议的内部端口。
+- **VLESS-Reality**：Xray 监听公网 **TCP/443**，**不使用内部回环端口**。
+- **VLESS-gRPC/WS**：内部回环 **127.0.0.1:10085** 和 **127.0.0.1:10086**。
+- **Hysteria2/TUIC**：sing-box 监听公网 **UDP/443** 和 **UDP/2053**。
 ##### 回落机制：
-- Nginx 监听 127.0.0.1:10443，并根据 ALPN 流量分发到不同的后端，这是核心路由逻辑。
+- **核心路由逻辑由Xray 完成**。当流量的 SNI 命中占位符（如 `grpc.edgebox.local`）且 ALPN 命中 `h2` 或 `http/1.1` 时，流量将被**直接回落**至 Xray 内部的 `127.0.0.1:10085` 或 `127.0.0.1:10086`，**不再经过 Nginx**。
 ##### 证书软链接：
-- 确保所有服务都从 CERT_DIR/current.pem 和 CERT_DIR/current.key 获取证书。这是模块 2 动态证书管理的基础。
+- 确保所有服务都从 `CERT_DIR/current.pem` 和 `CERT_DIR/current.key` 获取证书。这是模块 2 动态证书管理的基础。
 ##### 基础订阅：
-- 确保 install.sh 在安装完成后能生成一个基础的、硬编码的订阅链接。订阅链接的格式、字段是模块 2 动态生成订阅的契约。
+- 确保 `install.sh` 在安装完成后能生成一个基础的、硬编码的订阅链接。订阅链接的格式、字段是模块 2 动态生成订阅的契约。
 #### 测试与验证
-##### 功能测试： 在一台干净的虚拟机上运行 install.sh。
-- 验证所有服务是否正常运行：systemctl status nginx sing-box xray。
-- 验证所有监听端口是否正常：netstat -tulnp。
-- 验证客户端能成功连接所有 5 个协议。
-##### 卸载测试：
-- 运行 uninstall.sh 并验证所有文件和服务是否被完全清除。
+- **功能测试**：在干净的虚拟机上运行 `install.sh`。
+    - 验证所有服务是否正常运行：`systemctl status sing-box xray`（**移除对 Nginx 的检查**）。
+    - 验证所有监听端口是否正常：`netstat -tulnp`（**重点检查 443、2053 端口**）。
+    - 验证客户端能成功连接所有协议。
+- **卸载测试**：
+    - 运行 `uninstall.sh` 并验证所有文件和服务是否被完全清除。
 
-### 模块 2 - edgeboxctl 管理工具
+### 模块 2 - `edgeboxctl` 管理工具
 - 前置条件：模块 1 已完成并冻结“内核契约”。模块 2 的开发必须基于这些已定义的端口、文件路径和订阅格式。
 - 目标：开发一个命令行工具，作为用户与核心服务进行交互的管理层，实现动态配置和模式切换。
 #### 关键任务与交付物：
-#### 命令行工具 (edgeboxctl)
-- 使用 Shell 脚本（或 Python/Go）开发 edgeboxctl。
-##### 模式切换： 实现 edgeboxctl config switch-mode。
-**IP 模式 ⟶ 域名模式：**
-- 获取 Let's Encrypt 证书。
-- 更新 Nginx 和 Reality/Hysteria2 的配置，将 IP 监听改为域名监听，并将自签名证书软链到新证书。
-**域名模式 ⟶ IP 模式：**
-- 重新生成自签名证书。
-- 更新配置，将域名监听改回 IP 监听，并将软链指回自签名证书。
+- **命令行工具 (`edgeboxctl`)**：使用 Shell 脚本（或 Python/Go）开发。
+##### **模式切换**：实现 `edgeboxctl config switch-mode`。
+- **IP 模式 ⟶ 域名模式**：
+    - 获取 Let's Encrypt 证书。
+    - 更新 Xray 和 sing-box 的配置，将自签名证书软链到新证书。
+- **域名模式 ⟶ IP 模式**：
+    - 重新生成自签名证书。
+    - 更新配置，将软链指回自签名证书。
 ##### 证书管理：
-- edgeboxctl cert renew：手动触发 Certbot 证书续期。
-- edgeboxctl cert upload：接受用户上传自定义证书，并将其软链到 CERT_DIR/current.pem 和 CERT_DIR/current.key。
+- `edgeboxctl cert renew`：手动触发 Certbot 证书续期。
+- `edgeboxctl cert upload`：接受用户上传自定义证书，并将其软链到 `CERT_DIR/current.pem` 和 `CERT_DIR/current.key`。
 ##### 配置管理：
-- edgeboxctl config regenerate-uuid：重置所有 UUID，并更新所有配置文件。
-- edgeboxctl config show：显示所有关键配置信息（UUID、密码、端口等）。
+- `edgeboxctl config regenerate-uuid`：重置所有 UUID，并更新所有配置文件。
+- `edgeboxctl config show`：显示所有关键配置信息（UUID、密码、端口等）。
 #### 动态订阅生成
-- 订阅 API： edgeboxctl sub 命令应根据当前模式（IP/域名）和配置，动态生成并显示订阅链接。这需要工具能够读取 xray.json 和 sing-box.json 配置。
+- `edgeboxctl sub` 命令应根据当前模式（IP/域名）和配置，动态生成并显示订阅链接。这需要工具能够读取 `xray.json` 和 `sing-box.json` 配置。
 
 ### 模块 3 - 高级运维功能（可选）
 - 前置条件：模块 1 和 2 已完成，并已建立稳定的内核和管理层。
 - 目标：在现有框架之上，添加运维和高级功能，不影响核心服务的稳定性。
 #### 关键任务与交付物：
-### 出站分流：
-- 流量路由： 增加 sing-box 的出站规则，将特定流量（如 googlevideo.com）直接路由，其余流量通过住宅代理出站。
-- 配置管理： 在 edgeboxctl 中添加 edgeboxctl config switch-outbound 命令，用于切换分流模式。
-### 流量统计：
-- 数据收集： 使用 iptables 或 vnStat 收集流量数据。
-- 命令行接口： 在 edgeboxctl 中添加 edgeboxctl traffic show 和 edgeboxctl traffic reset 命令，用于显示和重置流量计数。
-### 自动备份/恢复：
-- 备份脚本： 创建一个脚本，自动备份 /etc/edgebox/ 目录到 /root/edgebox-backup/。
-- 定时任务： 配置 cron 任务，实现每日自动备份。
-- 恢复命令： 在 edgeboxctl 中添加 edgeboxctl backup restore 命令，用于恢复备份。
+- **出站分流**：
+    - 流量路由：增加 sing-box 的出站规则，将特定流量（如 `googlevideo.com`）直接路由。
+    - 配置管理：在 `edgeboxctl` 中添加 `edgeboxctl config switch-outbound` 命令，用于切换分流模式。
+- **流量统计**：
+    - 数据收集：使用 `iptables` 或 `vnStat` 收集流量数据。
+    - 命令行接口：在 `edgeboxctl` 中添加 `edgeboxctl traffic show` 和 `edgeboxctl traffic reset` 命令，用于显示和重置流量计数。
+- **自动备份/恢复**：
+    - 备份脚本：创建一个脚本，自动备份 `/etc/edgebox/` 目录到 `/root/edgebox-backup/`。
+    - 定时任务：配置 `cron` 任务，实现每日自动备份。
+    - 恢复命令：在 `edgeboxctl` 中添加 `edgeboxctl backup restore` 命令，用于恢复备份。
+
 ---
 
 ## 一键安装
