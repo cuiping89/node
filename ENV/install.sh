@@ -46,7 +46,7 @@ PASSWORD_HYSTERIA2=""
 PASSWORD_TUIC=""
 
 # 端口配置（单端口复用架构）
-PORT_REALITY=443      # Xray单一入口
+PORT_REALITY=11443      # 内部回环 (Xray Reality)
 PORT_HYSTERIA2=443    # UDP
 PORT_TUIC=2053        # UDP
 PORT_GRPC=10085       # 内部回环
@@ -262,32 +262,6 @@ configure_firewall() {
         log_warn "未检测到防火墙软件，请手动配置"
     fi
 }
-configure_firewall() {
-    log_info "配置防火墙规则..."
-    
-    if command -v ufw &> /dev/null; then
-        ufw --force disable >/dev/null 2>&1
-        
-        ufw default deny incoming >/dev/null 2>&1
-        ufw default allow outgoing >/dev/null 2>&1
-        
-        ufw allow 22/tcp comment 'SSH' >/dev/null 2>&1
-        ufw allow 443/tcp comment 'EdgeBox TCP' >/dev/null 2>&1
-        ufw allow 443/udp comment 'EdgeBox Hysteria2' >/dev/null 2>&1
-        ufw allow 2053/udp comment 'EdgeBox TUIC' >/dev/null 2>&1
-        
-        ufw --force enable >/dev/null 2>&1
-        log_success "UFW防火墙规则配置完成"
-    elif command -v firewall-cmd &> /dev/null; then
-        firewall-cmd --permanent --add-port=443/tcp >/dev/null 2>&1
-        firewall-cmd --permanent --add-port=443/udp >/dev/null 2>&1
-        firewall-cmd --permanent --add-port=2053/udp >/dev/null 2>&1
-        firewall-cmd --reload >/dev/null 2>&1
-        log_success "Firewalld防火墙规则配置完成"
-    else
-        log_warn "未检测到防火墙软件，请手动配置"
-    fi
-}
 
 # 优化系统参数
 optimize_system() {
@@ -494,7 +468,7 @@ EOF
 
 # 配置Xray（Reality + Fallback to Nginx）
 configure_xray() {
-    log_info "配置 Xray（Reality + Fallback to Nginx）..."
+    log_info "配置 Xray（内部服务，无fallbacks）..."
 
     cat > ${CONFIG_DIR}/xray.json <<XRAY_CONFIG
 {
@@ -506,17 +480,18 @@ configure_xray() {
   "inbounds": [
     {
       "tag": "VLESS-Reality",
-      "listen": "0.0.0.0",
-      "port": 443,
+      "listen": "127.0.0.1",
+      "port": 11443,
       "protocol": "vless",
       "settings": {
         "clients": [
-          { "id": "${UUID_VLESS}", "flow": "xtls-rprx-vision", "email": "reality@edgebox" }
+          { 
+            "id": "${UUID_VLESS}", 
+            "flow": "xtls-rprx-vision", 
+            "email": "reality@edgebox" 
+          }
         ],
-        "decryption": "none",
-        "fallbacks": [
-          { "dest": 10443 }
-        ]
+        "decryption": "none"
       },
       "streamSettings": {
         "network": "tcp",
@@ -525,7 +500,11 @@ configure_xray() {
           "show": false,
           "dest": "www.cloudflare.com:443",
           "xver": 0,
-          "serverNames": ["www.cloudflare.com","www.microsoft.com","www.apple.com"],
+          "serverNames": [
+            "www.cloudflare.com",
+            "www.microsoft.com",
+            "www.apple.com"
+          ],
           "privateKey": "${REALITY_PRIVATE_KEY}",
           "shortIds": ["${REALITY_SHORT_ID}"]
         }
@@ -537,7 +516,12 @@ configure_xray() {
       "port": 10085,
       "protocol": "vless",
       "settings": {
-        "clients": [ { "id": "${UUID_VLESS}", "email": "grpc-internal@edgebox" } ],
+        "clients": [ 
+          { 
+            "id": "${UUID_VLESS}", 
+            "email": "grpc-internal@edgebox" 
+          } 
+        ],
         "decryption": "none"
       },
       "streamSettings": {
@@ -545,33 +529,63 @@ configure_xray() {
         "security": "tls",
         "tlsSettings": {
           "alpn": ["h2"],
-          "certificates": [ { "certificateFile": "${CERT_DIR}/current.pem", "keyFile": "${CERT_DIR}/current.key" } ]
+          "certificates": [ 
+            { 
+              "certificateFile": "${CERT_DIR}/current.pem", 
+              "keyFile": "${CERT_DIR}/current.key" 
+            } 
+          ]
         },
-        "grpcSettings": { "serviceName": "grpc" }
+        "grpcSettings": { 
+          "serviceName": "grpc",
+          "multiMode": true
+        }
       }
     },
     {
-      "tag": "VLESS-WS-Internal",
+      "tag": "VLESS-WS-Internal", 
       "listen": "127.0.0.1",
       "port": 10086,
       "protocol": "vless",
       "settings": {
-        "clients": [ { "id": "${UUID_VLESS}", "email": "ws-internal@edgebox" } ],
+        "clients": [ 
+          { 
+            "id": "${UUID_VLESS}", 
+            "email": "ws-internal@edgebox" 
+          } 
+        ],
         "decryption": "none"
       },
       "streamSettings": {
         "network": "ws",
-        "security": "tls",
+        "security": "tls", 
         "tlsSettings": {
           "alpn": ["http/1.1"],
-          "certificates": [ { "certificateFile": "${CERT_DIR}/current.pem", "keyFile": "${CERT_DIR}/current.key" } ]
+          "certificates": [ 
+            { 
+              "certificateFile": "${CERT_DIR}/current.pem", 
+              "keyFile": "${CERT_DIR}/current.key" 
+            } 
+          ]
         },
-        "wsSettings": { "path": "/ws" }
+        "wsSettings": { 
+          "path": "/ws",
+          "headers": {
+            "Host": "ws.edgebox.local"
+          }
+        }
       }
     }
   ],
-  "outbounds": [ { "protocol": "freedom", "settings": {} } ],
-  "routing": { "rules": [] }
+  "outbounds": [ 
+    { 
+      "protocol": "freedom", 
+      "settings": {} 
+    } 
+  ],
+  "routing": { 
+    "rules": [] 
+  }
 }
 XRAY_CONFIG
 
@@ -597,7 +611,7 @@ XRAY_SERVICE
 
 # 配置Nginx（stream模块 + ALPN分流）
 configure_nginx() {
-    log_info "配置 Nginx（订阅服务与内部回落分流）..."
+    log_info "配置 Nginx（Nginx-first 单端口复用架构）..."
     
     # 停止 Nginx 避免冲突
     systemctl stop nginx >/dev/null 2>&1 || true
@@ -613,18 +627,19 @@ configure_nginx() {
         cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak
     fi
 
-    # 创建主配置文件
-    cat > /etc/nginx/nginx.conf <<'NGINX_END'
+    # 创建正确的Nginx-first配置
+    cat > /etc/nginx/nginx.conf <<'NGINX_FIRST_END'
 user www-data;
 worker_processes auto;
 pid /run/nginx.pid;
-error_log /var/log/nginx/error.log;
+error_log /var/log/nginx/error.log warn;
 
-# 加载动态模块
+# 加载stream模块
 include /etc/nginx/modules-enabled/*.conf;
 
 events {
-    worker_connections 768;
+    worker_connections 1024;
+    use epoll;
 }
 
 http {
@@ -843,7 +858,7 @@ start_services() {
 
 # 生成订阅链接（单端口复用 - 443）
 generate_subscription() {
-    log_info "生成订阅链接..."
+    log_info "生成订阅链接（Nginx-first 架构）..."
 
     local ip="${SERVER_IP}"
     local uuid="${UUID_VLESS}"
@@ -853,13 +868,13 @@ generate_subscription() {
     HY2_PW_ENC=$(jq -rn --arg v "$PASSWORD_HYSTERIA2" '$v|@uri')
     TUIC_PW_ENC=$(jq -rn --arg v "$PASSWORD_TUIC" '$v|@uri')
 
-    # 1) VLESS Reality - 443端口
-    local reality_link="vless://${uuid}@${ip}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&spx=%2F&type=tcp#EdgeBox-REALITY"
+    # 1) VLESS Reality - 443端口，SNI使用伪装域名
+    local reality_link="vless://${uuid}@${ip}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&type=tcp#EdgeBox-REALITY"
 
-    # 2) VLESS gRPC - 443端口（通过Xray fallback → Nginx → 内部10085）
+    # 2) VLESS gRPC - 443端口，通过Nginx分流，SNI使用服务域名
     local grpc_link="vless://${uuid}@${ip}:443?encryption=none&security=tls&sni=grpc.edgebox.local&alpn=h2&type=grpc&serviceName=grpc&allowInsecure=1#EdgeBox-gRPC"
 
-    # 3) VLESS WS - 443端口（通过Xray fallback → Nginx → 内部10086）
+    # 3) VLESS WS - 443端口，通过Nginx分流，SNI使用服务域名  
     local ws_link="vless://${uuid}@${ip}:443?encryption=none&security=tls&sni=ws.edgebox.local&alpn=http%2F1.1&type=ws&host=ws.edgebox.local&path=%2Fws&allowInsecure=1#EdgeBox-WS"
 
     # 4) Hysteria2 - 443端口(UDP)
@@ -876,18 +891,15 @@ ${hy2_link}
 ${tuic_link}"
     
     echo -e "${plain}" > "${CONFIG_DIR}/subscription.txt"
-    
-    # 生成Base64编码的订阅文件
     echo -e "${plain}" | base64 -w0 > "${CONFIG_DIR}/subscription.base64"
 
     # 创建HTTP订阅服务
     mkdir -p /var/www/html
     echo -e "${plain}" | base64 -w0 > /var/www/html/sub
     
-    log_success "订阅已生成并保存到本地文件：${CONFIG_DIR}/subscription.txt"
+    log_success "订阅已生成（Nginx-first架构）"
     log_success "HTTP订阅地址：http://${ip}/sub"
 }
-
 # 创建edgeboxctl管理工具（模块1：核心基础）
 create_edgeboxctl() {
     log_info "创建管理工具..."
@@ -1047,7 +1059,7 @@ debug_ports() {
     echo -e "${CYAN}端口调试信息（单端口复用架构）：${NC}"
     
     echo -e "\n${YELLOW}端口检查：${NC}"
-    echo "  TCP/443 (Xray单一入口): $(ss -tln | grep -q ":443 " && echo "✓" || echo "✗")"
+    echo "  TCP/443 (Nginx单一入口): $(ss -tln | grep -q ":443 " && echo "✓" || echo "✗")"
     echo "  UDP/443 (Hysteria2): $(ss -uln | grep -q ":443 " && echo "✓" || echo "✗")"
     echo "  UDP/2053 (TUIC): $(ss -uln | grep -q ":2053 " && echo "✓" || echo "✗")" 
     echo "  TCP/10085 (gRPC内部): $(ss -tln | grep -q "127.0.0.1:10085 " && echo "✓" || echo "✗")"
@@ -1063,7 +1075,7 @@ test_connection() {
         return 1
     }
     
-    echo -n "  TCP 443端口（Xray单一入口）: "
+    echo -n "  TCP 443端口（Nginx单一入口）: "
     if timeout 3 bash -c "echo >/dev/tcp/${server_ip}/443" 2>/dev/null; then
         echo -e "${GREEN}开放${NC}"
     else
@@ -1121,13 +1133,13 @@ show_installation_info() {
     echo -e "      SNI: www.cloudflare.com"
     
     echo -e "\n  ${PURPLE}[2] VLESS-gRPC${NC}"
-    echo -e "      端口: 443（Reality隧道）"
+    echo -e "      端口: 443（Nginx 分流）"
     echo -e "      UUID: ${UUID_VLESS}"
     echo -e "      SNI: grpc.edgebox.local"
     echo -e "      serviceName: grpc"
     
     echo -e "\n  ${PURPLE}[3] VLESS-WS${NC}"
-    echo -e "      端口: 443（Reality隧道）"
+    echo -e "      端口: 443（Nginx 分流）"
     echo -e "      UUID: ${UUID_VLESS}"
     echo -e "      SNI: ws.edgebox.local"
     echo -e "      路径: /ws"
