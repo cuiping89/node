@@ -95,7 +95,7 @@ EdgeBox 支持两种证书类型，它们在安装和运行的不同阶段自动
 
 | **协议类型** | **工作流程** |
 | :--- | :--- |
-| **Reality** | 客户端 → **Nginx:443** → **Nginx** 根据 **SNI 伪装域名** 转发 → **Xray Reality 入站@11443** (内部) |
+| **Reality** | 客户端 → **Nginx:443** → **Nginx** 根据 **SNI 伪装域名** 转发 → **Xray Reality 入站@10443** (内部) |
 | **gRPC** | 客户端 → **Nginx:443** → **Nginx** 根据 **ALPN=h2** 转发 → **Xray gRPC 入站@10085** (内部) |
 | **WebSocket** | 客户端 → **Nginx:443** → **Nginx** 根据 **ALPN=http/1.1** 转发 → **Xray WS 入站@10086** (内部) |
 | **Hysteria2/TUIC** | 客户端 → **Sing-box** 直接处理 **UDP** 流量（分别监听 `443/udp` 和 `2053/udp`），与 Nginx 无关。 |
@@ -107,7 +107,7 @@ EdgeBox 支持两种证书类型，它们在安装和运行的不同阶段自动
 | **对外暴露** | TCP/443 | 所有 TCP 协议的统一入口，由 Nginx 监听。 |
 | | UDP/443 | Hysteria2 使用，实现高隐蔽性。 |
 | | UDP/2053 | TUIC 使用（可选）。 |
-| **内部回环** | TCP/11443 | Xray Reality 服务。 |
+| **内部回环** | TCP/10443 | Xray Reality 服务。 |
 | | TCP/10085 | Xray gRPC 服务。 |
 | | TCP/10086 | Xray WebSocket 服务。 |
 
