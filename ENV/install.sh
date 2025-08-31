@@ -338,61 +338,32 @@ generate_self_signed_cert() {
 
 # 生成Reality密钥对
 generate_reality_keys() {
-    log_info "生成Reality密钥对..."
-
-    # 优先用 sing-box 生成
-    if command -v sing-box >/dev/null 2>&1; then
-        local out
-        out="$(sing-box generate reality-keypair 2>/dev/null || sing-box generate reality-key 2>/dev/null || true)"
-        REALITY_PRIVATE_KEY="$(echo "$out" | awk -F': ' '/Private/{print $2}')"
-        REALITY_PUBLIC_KEY="$(echo "$out"  | awk -F': ' '/Public/{print  $2}')"
-        if [[ -n "$REALITY_PRIVATE_KEY" && -n "$REALITY_PUBLIC_KEY" ]]; then
-            log_success "Reality密钥对生成完成（sing-box）"
-            return 0
+    log_info "开始生成 Reality 密钥对..."
+    local tries=0
+    local ok=0
+    while [[ $tries -lt 3 ]]; do
+        if command -v xray >/dev/null 2>&1; then
+            local out
+            out=$(xray x25519 2>/dev/null || true)
+            local priv pub
+            priv=$(echo "$out" | awk -F': ' '/Private key/{print $2}')
+            pub=$(echo "$out"  | awk -F': ' '/Public key/{print  $2}')
+            if [[ -n "$priv" && -n "$pub" ]]; then
+                REALITY_PRIVATE_KEY="$priv"
+                REALITY_PUBLIC_KEY="$pub"
+                ok=1; break
+            fi
         fi
-    fi
-
-    # 回退：下载 Xray 生成
-    local tmp_dir tag url ok=""
-    tmp_dir="$(mktemp -d)"
-    pushd "$tmp_dir" >/dev/null
-
-    tag="$(curl -sIL -o /dev/null -w '%{url_effective}' https://github.com/XTLS/Xray-core/releases/latest | awk -F/ '{print $NF}')"
-    [[ -z "$tag" ]] && tag="v1.8.11"
-
-    for base in \
-      "https://github.com/XTLS/Xray-core/releases/download" \
-      "https://ghproxy.com/https://github.com/XTLS/Xray-core/releases/download"
-    do
-      url="${base}/${tag}/Xray-linux-64.zip"
-      if wget -q --tries=3 --timeout=20 "$url" -O Xray-linux-64.zip; then 
-          ok=1
-          break
-      fi
+        tries=$((tries+1))
+        sleep 1
     done
-    
-    if [[ -z "$ok" ]]; then
-        log_error "下载Xray失败"
-        popd >/dev/null
-        rm -rf "$tmp_dir"
+    if [[ $ok -ne 1 ]]; then
+        log_error "生成Reality密钥失败（未找到 xray 或解析失败）。"
         return 1
     fi
-
-    unzip -q Xray-linux-64.zip
-    local keys
-    keys="$(./xray x25519)"
-    REALITY_PRIVATE_KEY="$(echo "$keys" | awk '/Private key/{print $3}')"
-    REALITY_PUBLIC_KEY="$(echo  "$keys" | awk '/Public key/{print  $3}')"
-
-    popd >/dev/null
-    rm -rf "$tmp_dir"
-    
-    if [[ -n "$REALITY_PRIVATE_KEY" && -n "$REALITY_PUBLIC_KEY" ]]; then
-        log_success "Reality密钥对生成完成"
-    else
-        log_error "生成Reality密钥失败"
-        return 1
-    fi
+    # shortId 8~16 hex
+    REALITY_SHORT_ID=$(openssl rand -hex 8)
+    log_success "Reality 密钥对生成完成"
 }
 
 # 安装Xray
@@ -1431,28 +1402,3 @@ chmod +x /usr/local/bin/edgeboxctl
 }
     
     
-
-#############################################
-# 执行安装流程（非交互式 IP 模式，模块1）
-#############################################
-check_root
-check_system
-get_server_ip
-install_dependencies
-generate_credentials
-create_directories
-check_ports
-optimize_system
-generate_self_signed_cert
-generate_reality_keys
-install_xray
-install_sing_box
-configure_xray
-configure_nginx
-configure_sing_box
-save_config_info
-start_services
-generate_subscription
-create_edgeboxctl
-
-log_success "EdgeBox 模块1安装完成。"
