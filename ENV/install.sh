@@ -503,11 +503,11 @@ stream {
     }
     
     # ALPN 兜底分流（仅在 SNI 未匹配时生效）
-    map $ssl_preread_alpn_protocols $by_alpn {
-        ~\bh2\b         127.0.0.1:10085;   # HTTP/2 -> gRPC
-        ~\bhttp/1\.1\b  127.0.0.1:10086;   # HTTP/1.1 -> WebSocket
-        default         127.0.0.1:10086;   # 兜底走 WS，防回环
-    }
+map $ssl_preread_alpn_protocols $by_alpn {
+    ~\bhttp/1\.1\b  127.0.0.1:10086;  # WS 优先
+    ~\bh2\b         127.0.0.1:10085;  # gRPC
+    default         127.0.0.1:10086;  # 兜底走 WS
+}
 
     # 先看 SNI，如能识别则直接定向；否则落回 ALPN
     map $svc $upstream_sni {
@@ -689,10 +689,7 @@ configure_xray() {
           ]
         },
         "wsSettings": { 
-          "path": "/ws",
-          "headers": {
-            "Host": "${SERVER_IP}"
-          }
+          "path": "/ws"
         }
       }
     }
@@ -901,6 +898,7 @@ generate_subscription() {
     local uuid="${UUID_VLESS}"
     local allowInsecure_param="&allowInsecure=1"
     local insecure_param="&insecure=1"
+    local WS_SNI="ws.edgebox.internal"
 
     # URL编码密码
     local HY2_PW_ENC TUIC_PW_ENC
@@ -912,8 +910,8 @@ generate_subscription() {
 
     local grpc_link="vless://${uuid}@${address}:443?encryption=none&security=tls&sni=grpc.edgebox.internal&alpn=h2&type=grpc&serviceName=grpc&fp=chrome${allowInsecure_param}#EdgeBox-gRPC"
 
-    local ws_link="vless://${uuid}@${address}:443?encryption=none&security=tls&sni=ws.edgebox.internal&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome${allowInsecure_param}#EdgeBox-WS"
-
+    local ws_link="vless://${uuid}@${address}:443?encryption=none&security=tls&sni=${WS_SNI}&host=${WS_SNI}&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome${allowInsecure_param}#EdgeBox-WS"
+    
     local hy2_link="hysteria2://${HY2_PW_ENC}@${address}:443?sni=${address}&alpn=h3${insecure_param}#EdgeBox-HYSTERIA2"
 
     local tuic_link="tuic://${UUID_TUIC}:${TUIC_PW_ENC}@${address}:2053?congestion_control=bbr&alpn=h3&sni=${address}${allowInsecure_param}#EdgeBox-TUIC"
