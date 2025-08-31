@@ -500,29 +500,18 @@ configure_xray() {
           { "id": "${UUID_VLESS}", "flow": "xtls-rprx-vision", "email": "reality@edgebox" }
         ],
         "decryption": "none",
-        "fallbacks": [
-          {
-            "name": "grpc.edgebox.local",
-            "alpn": "h2",
-            "dest": 10085,
-            "xver": 1
-          },
-          {
-            "name": "ws.edgebox.local", 
-            "alpn": "http/1.1",
-            "dest": 10086,
-            "xver": 1
-          },
-          {
-            "alpn": "h2",
-            "dest": 10085,
-            "xver": 1
-          },
-          {
-            "dest": 10086,
-            "xver": 1
-          }
-        ]
+"fallbacks": [
+    {
+      "alpn": "h2",
+      "dest": 10085,
+      "xver": 1
+    },
+    {
+      "alpn": "http/1.1",
+      "dest": 10086,
+      "xver": 1
+    }
+]
       },
       "streamSettings": {
         "network": "tcp",
