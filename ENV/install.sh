@@ -676,8 +676,8 @@ stream {
 
     # 非 Reality 时再看 ALPN 分流
     map $ssl_preread_alpn_protocols $alpn {
-        ~h2         grpc;
-        ~http/1\.1 ws;
+        ~\bh2\b         grpc;
+        ~\bhttp/1\.1\b ws;
         default           ws;
     }
 
@@ -881,10 +881,10 @@ generate_subscription() {
     local reality_link="vless://${uuid}@${ip}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&type=tcp#EdgeBox-REALITY"
 
     # 2) VLESS gRPC - 443端口，通过Nginx分流，SNI使用服务域名
-    local grpc_link="vless://${uuid}@${ip}:443?encryption=none&security=tls&sni=grpc.edgebox.local&alpn=h2&type=grpc&serviceName=grpc&allowInsecure=1#EdgeBox-gRPC"
+    local grpc_link="vless://${uuid}@${ip}:443?encryption=none&security=tls&sni=grpc.edgebox.local&alpn=h2&type=grpc&serviceName=grpc&alpn=h2#EdgeBox-gRPC"
 
     # 3) VLESS WS - 443端口，通过Nginx分流，SNI使用服务域名  
-    local ws_link="vless://${uuid}@${ip}:443?encryption=none&security=tls&sni=ws.edgebox.local&alpn=http%2F1.1&type=ws&host=ws.edgebox.local&path=%2Fws&allowInsecure=1#EdgeBox-WS"
+    local ws_link="vless://${uuid}@${ip}:443?encryption=none&security=tls&sni=ws.edgebox.local&alpn=http%2F1.1&type=ws&path=/ws&host=${ip}&alpn=http/1.1#EdgeBox-WS"
 
     # 4) Hysteria2 - 443端口(UDP)
     local hy2_link="hysteria2://${HY2_PW_ENC}@${ip}:443?insecure=1&sni=${ip}&alpn=h3#EdgeBox-HYSTERIA2"
