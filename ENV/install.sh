@@ -1,4 +1,83 @@
-#!/bin/bash
+debug_ports() {
+    echo -e "${CYAN}端口调试信息（单端口复用架构）：${NC}"
+    
+    echo -e "\n${YELLOW}1. 端口契约检查：${NC}"
+    echo "  TCP/443 (Xray单一入口): $(ss -tln | grep -q ":443 " && echo "✓" || echo "✗")"
+    echo "  UDP/443 (Hysteria2): $(ss -uln | grep -q ":443 " && echo "✓" || echo "✗")"
+    echo "  UDP/2053 (TUIC): $(ss -uln | grep -q ":2053 " && echo "✓" || echo "✗")" 
+    echo "  TCP/10085 (gRPC内部): $(ss -tln | grep -q "127.0.0.1:10085 " && echo "✓" || echo "✗")"
+    echo "  TCP/10086 (WS内部): $(ss -tln | grep -q "127.0.0.1:10086 " && echo "✓" || echo "✗")"
+    
+    echo -e "\n${YELLOW}2. 详细端口信息：${NC}"
+    echo "TCP端口："
+    ss -tlnp 2>/dev/null | grep -E ":(443|10085|10086) " | while read line; do
+        echo "  $line"
+    done
+    
+    echo "UDP端口："
+    ss -ulnp 2>/dev/null | grep -E ":(443|2053) " | while read line; do
+        echo "  $line"  
+    done
+    
+    echo -e "\n${YELLOW}3. 进程检查：${NC}"
+    for service in xray sing-box; do
+        if pgrep -f $service >/dev/null 2>&1; then
+            echo -e "  $service: ${GREEN}运行中${NC}"
+        else
+            echo -e "  $service: ${RED}未运行${NC}"
+        fi
+    done
+}
+
+test_connection() {
+    echo -e "${CYAN}连接测试（单端口复用架构）：${NC}"
+    
+    local server_ip
+    server_ip=$(jq -r .server_ip ${CONFIG_DIR}/server.json 2>/dev/null) || {
+        echo -e "${RED}无法获取服务器IP${NC}"
+        return 1
+    }
+    
+    echo -e "\n${YELLOW}公网端口测试：${NC}"
+    
+    # TCP 443测试（Xray单一入口）
+    echo -n "  TCP 443端口（Xray单一入口）: "
+    if timeout 3 bash -c "echo >/dev/tcp/${server_ip}/443" 2>/dev/null; then
+        echo -e "${GREEN}开放${NC}"
+    else
+        echo -e "${RED}关闭${NC}"
+    fi
+    
+    # UDP端口测试（较难准确测试）
+    echo -n "  UDP 443端口（Hysteria2）: "
+    if command -v nc >/dev/null 2>&1 && timeout 2 nc -u -z ${server_ip} 443 2>/dev/null; then
+        echo -e "${GREEN}开放${NC}"
+    else
+        echo -e "${YELLOW}无法确定（UDP测试限制）${NC}"
+    fi
+    
+    echo -n "  UDP 2053端口（TUIC）: "
+    if command -v nc >/dev/null 2>&1 && timeout 2 nc -u -z ${server_ip} 2053 2>/dev/null; then
+        echo -e "${GREEN}开放${NC}"
+    else
+        echo -e "${YELLOW}无法确定（UDP测试限制）${NC}"
+    fi
+    
+    echo -e "\n${YELLOW}内部服务测试：${NC}"
+    echo -n "  gRPC内部处理 (127.0.0.1:10085): "
+    if timeout 1 bash -c "echo >/dev/tcp/127.0.0.1/10085" 2>/dev/null; then
+        echo -e "${GREEN}正常${NC}"
+    else
+        echo -e "${RED}无法连接${NC}"
+    fi
+    
+    echo -n "  WS内部处理 (127.0.0.1:10086): "
+    if timeout 1 bash -c "echo >/dev/tcp/127.0.0.1/10086" 2>/dev/null; then
+        echo -e "${GREEN}正常${NC}"
+    else
+        echo -e "${RED}无法连接${NC}"
+    fi
+}#!/bin/bash
 
 #############################################
 # EdgeBox 一站式多协议节点部署脚本
@@ -172,11 +251,11 @@ install_dependencies() {
     # 网络监控工具
     PACKAGES="$PACKAGES vnstat iftop"
     
-    # 证书工具
-    PACKAGES="$PACKAGES certbot python3-certbot-nginx"
+# 删除HTTP服务器相关的依赖安装
+    # 删除了 certbot python3-certbot-nginx（IP模式不需要）
     
-    # Nginx
-    PACKAGES="$PACKAGES nginx libnginx-mod-stream"
+# 删除Nginx相关的依赖安装
+    # PACKAGES="$PACKAGES nginx libnginx-mod-stream"
     
     for pkg in $PACKAGES; do
         if ! dpkg -l | grep -q "^ii.*$pkg"; then
@@ -476,56 +555,7 @@ EOF
 }
 
 
-# 配置Nginx（仅处理HTTP订阅服务）
-configure_nginx() {
-  log "配置 Nginx (仅HTTP服务，无需stream分流)"
-
-  systemctl stop nginx >/dev/null 2>&1 || true
-  
-  # 清理旧配置
-  rm -f /etc/nginx/sites-enabled/* 2>/dev/null || true
-  rm -f /etc/nginx/conf.d/*       2>/dev/null || true
-  rm -f /etc/nginx/stream.d/* 2>/dev/null || true
-  
-  mkdir -p /etc/nginx/sites-enabled /etc/nginx/conf.d
-
-  # 简化的 Nginx 配置（只处理 HTTP）
-  cat >/etc/nginx/nginx.conf <<'NGINX'
-user www-data;
-worker_processes auto;
-pid /run/nginx.pid;
-error_log /var/log/nginx/error.log warn;
-
-events { worker_connections 1024; }
-
-http {
-  include /etc/nginx/mime.types;
-  default_type application/octet-stream;
-  access_log /var/log/nginx/access.log;
-  include /etc/nginx/conf.d/*.conf;
-  include /etc/nginx/sites-enabled/*;
-}
-NGINX
-
-  nginx -t || { 
-    log_error "Nginx配置测试失败"
-    return 1
-  }
-  
-  systemctl enable nginx >/dev/null 2>&1 || true
-  systemctl restart nginx
-  
-  sleep 1
-  if systemctl is-active --quiet nginx; then
-    log_ok "Nginx 重启成功"
-  else
-    log_error "Nginx 重启失败"
-    journalctl -u nginx -n 20 --no-pager
-    return 1
-  fi
-  
-  log_ok "Nginx 配置完成（仅HTTP服务）"
-}
+# 删除了configure_http_subscription函数，不再需要HTTP服务器
 
 # 配置Xray（单端口复用架构）
 configure_xray() {
@@ -722,15 +752,14 @@ start_services() {
 
   systemctl daemon-reload
 
-  systemctl enable nginx xray sing-box >/dev/null 2>&1 || true
+  systemctl enable xray sing-box >/dev/null 2>&1 || true
 
-  systemctl restart nginx  >/dev/null 2>&1
   systemctl restart xray   >/dev/null 2>&1
   systemctl restart sing-box >/dev/null 2>&1
 
   sleep 2
 
-  for s in nginx xray sing-box; do
+  for s in xray sing-box; do
     if systemctl is-active --quiet "$s"; then
       log_success "$s 运行正常"
     else
@@ -813,23 +842,9 @@ generate_subscription() {
   local plain="${reality_link}\n${grpc_link}\n${ws_link}\n${hy2_link}\n${tuic_link}\n"
   echo -e "${plain}" > "${CONFIG_DIR}/subscription.txt"
 
+  # 极简站点暴露 /sub（仅 80 端口）
   mkdir -p /var/www/html
   printf '%s' "$(echo -e "${plain}" | base64 -w0)" > /var/www/html/sub
-
-  # 极简站点暴露 /sub（仅 80 端口）
-  cat >/etc/nginx/sites-available/edgebox-sub <<'EOF'
-server {
-  listen 80;
-  listen [::]:80;
-  server_name _;
-  root /var/www/html;
-  default_type text/plain;
-  location = /sub { try_files /sub =404; }
-}
-EOF
-
-  ln -sf /etc/nginx/sites-available/edgebox-sub /etc/nginx/sites-enabled/edgebox-sub
-  systemctl reload nginx >/dev/null 2>&1
 
   log_success "订阅已生成：${CONFIG_DIR}/subscription.txt 以及 http://${ip}/sub"
 }
@@ -1170,8 +1185,8 @@ case "$1" in
     test)
         test_connection
         ;;
-    debug-stream)
-        debug_nginx_stream
+    debug-ports)
+        debug_ports
         ;;
     fix-permissions)
         fix_permissions
@@ -1230,7 +1245,7 @@ show_installation_info() {
     echo -e "  ${YELLOW}edgeboxctl status${NC}     # 查看服务状态"
     echo -e "  ${YELLOW}edgeboxctl restart${NC}    # 重启所有服务"
     echo -e "  ${YELLOW}edgeboxctl test${NC}       # 测试连接"
-    echo -e "  ${YELLOW}edgeboxctl debug-stream${NC} # 调试单端口复用"
+    echo -e "  ${YELLOW}edgeboxctl debug-ports${NC}   # 调试端口状态"
     echo -e "  ${YELLOW}edgeboxctl logs xray${NC}  # 查看日志"
     
     echo -e "\n${YELLOW}⚠️  注意事项：${NC}"
@@ -1238,9 +1253,10 @@ show_installation_info() {
     echo -e "  2. 客户端需要开启'跳过证书验证'选项"
     echo -e "  3. Reality协议不需要跳过证书验证"
     echo -e "  4. 防火墙已配置，请确保云服务商防火墙也开放相应端口"
-    echo -e "  5. 如连接异常，可使用 ${YELLOW}edgeboxctl debug-stream${NC} 调试单端口复用"
+    echo -e "  5. 订阅链接已保存到本地文件，使用 ${YELLOW}edgeboxctl sub${NC} 查看"
     
     print_separator
+}
 }
 
 # 清理函数
@@ -1279,7 +1295,6 @@ generate_self_signed_cert
 install_sing_box          # ← 提前
 generate_reality_keys     # ← 现在可以稳定用 sing-box 直接出 key
 install_xray
-configure_nginx
 configure_xray
 configure_sing_box
 save_config_info
