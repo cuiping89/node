@@ -1,3 +1,4 @@
+
 # EdgeBox：一站式多协议节点部署方案
 
 - EdgeBox 是一个多协议一键部署脚本，旨在提供一个**健壮灵活、一键部署、幂等卸载**的安全上网解决方案，
@@ -11,75 +12,58 @@
 * **一键安装**：非交互式默认“IP模式”安装
 * **幂等卸载**：一键清理所有组件，简洁、高效、幂等、非交互，为安装失败后重装准备环境，适合自动化和故障排除
 * **协议组合**：VLESS-gRPC、VLESS-WS、VLESS-Reality、Hysteria2、TUIC
-* **端口分配**：单端口复用（443）+ Nginx内部回环分流
+* **端口分配**：**Nginx + Xray 单端口复用（Nginx-first）**，实现 TCP/443 和 UDP/443 的深度伪装。
 * **出站分流**：直连白名单 与 住宅IP出站
-* **模式切换**：提供管理工具edgeboxctl，实现模式双向切换：IP模式 ⇋ 域名模式；VPS直出模式 ⇋ 住宅代理分流模式
+* **模式切换**：提供管理工具 `edgeboxctl`，实现模式双向切换：IP模式 ⇋ 域名模式；VPS直出模式 ⇋ 住宅代理分流模式
 * **流量统计**：内置 vnStat + iptables 流量监控
 * **备份恢复**：每日自动备份，支持一键恢复
 
 ---
 
 ### **软件要求**
-
 * 系统软件：Ubuntu 18.04+； Debian 10+
-* 依赖软件：安装脚本会自动检测并安装curl, wget, unzip, tar, **nginx**, certbot, vnstat, iftop。
+* 依赖软件：安装脚本会自动检测并安装 `curl`, `wget`, `unzip`, `tar`, **`nginx`**, `certbot`, `vnstat`, `iftop`。
 
-## 硬件要求
+#### **硬件要求**
+* CPU: 1 核
+* 内存: 512MB（内存不足自动创建 2G swap 补足）
+* 存储: 10GB 可用空间
+* 网络: 稳定的公网 IP
 
-- CPU: 1 核
-- 内存: 512MB（内存不足自动创建s2G swap补足）
-- 存储: 10GB 可用空间
-- 网络: 稳定的公网 IP
+### **核心组件**
+* **Nginx**：作为公网 `TCP/443` 的前置代理，负责基于 **SNI/ALPN** 的非终止 TLS 分流。
+* **Xray**：运行 Reality、VLESS-gRPC 和 VLESS-WS 协议，监听内部回环端口，负责各自协议的 TLS 终止。
+* **sing-box**：独立运行 Hysteria2 和 TUIC 协议，直接监听 UDP 端口。
 
----
-
-## 核心组件
-
-- **Nginx**: 前置代理，TLS终止，SNI分流
-- **Xray**: VLESS-gRPC + VLESS-WS
-- **sing-box**: Reality + Hysteria2 + TUIC
-
----
-
-## 证书管理
-
+### **证书管理**
 EdgeBox 的证书管理模块旨在实现全自动化，根据用户是否提供域名来智能选择证书类型，并确保证书的生命周期得到妥善管理。
 
-### 1. 证书类型与生成流程
+#### **1. 证书类型与生成流程**
+EdgeBox 支持两种证书类型，它们在安装和运行的不同阶段自动生成或配置，以满足不同模式的需求。
 
-- EdgeBox 支持两种证书类型，它们在安装和运行的不同阶段自动生成或配置。
+* **自签名证书（IP 模式）**
+    * **生成时机**：在非交互式安装或无域名配置时自动生成。
+    * **用途**：用于初始阶段，确保 VLESS-gRPC、VLESS-WS、Hysteria2 和 TUIC 协议能够立即启用并工作。这些协议在客户端连接时需要开启“跳过证书验证”或“允许不安全”。
+    * **文件路径**：
+        * 私钥：`/etc/edgebox/cert/self-signed.key`
+        * 公钥：`/etc/edgebox/cert/self-signed.pem`
 
-#### 自签名证书（IP模式）
+* **Let's Encrypt 证书（域名模式）**
+    * **生成时机**：用户使用 `edgeboxctl change-to-domain` 命令并提供有效域名后，脚本会自动调用 Certbot 申请。
+    * **用途**：提供受信任的、安全的 TLS 加密，使所有协议在客户端无需额外设置即可安全连接。
+    * **文件路径**：
+        * 私钥：`/etc/letsencrypt/live/<your_domain>/privkey.pem`
+        * 公钥：`/etc/letsencrypt/live/<your_domain>/fullchain.pem`
+    * **自动续期**：脚本将配置一个 `cron` 任务，自动执行 `certbot renew` 命令，确保证书在到期前自动续期。
 
-- 生成时机：在非交互式安装或无域名配置时自动生成。
-- 用途：用于初始阶段，确保 VLESS-gRPC、VLESS-WS、Hysteria2 和 TUIC 协议能够立即启用并工作。这些协议在客户端连接时需要开启“跳过证书验证”或“允许不安全”。
-- 文件路径：
-  - 私钥：/etc/edgebox/cert/self-signed.key
-  - 公钥：/etc/edgebox/cert/self-signed.pem
+#### **2. 证书在配置文件中的引用**
 
-#### Let's Encrypt 证书（域名模式）
+为确保模式切换的幂等性，所有服务配置文件都将使用软链接来动态指向正确的证书文件。
 
-- 生成时机：用户使用 edgeboxctl change-to-domain 命令并提供有效域名后，脚本会自动调用 certbot 申请。
-- 用途：提供受信任的、安全的TLS加密，使所有协议在客户端无需任何额外设置即可安全连接。
-- 文件路径：
-  - 私钥：/etc/letsencrypt/live/<your_domain>/privkey.pem
-  - 公钥：/etc/letsencrypt/live/<your_domain>/fullchain.pem
-- 自动续期：脚本将配置一个 cron 任务，自动执行 certbot renew 命令，确保证书在到期前自动续期。
-
-### 2. 证书在配置文件中的引用
-
-为了确保证书切换的幂等性，配置文件将使用变量或软链接来动态指向正确的证书文件。
-
-#### Nginx 配置 (/etc/nginx/nginx.conf 或相关文件)
-
-- ssl_certificate：动态指向 /etc/edgebox/cert/current.pem
-- ssl_certificate_key：动态指向 /etc/edgebox/cert/current.key
-
-#### Xray 和 sing-box 配置
-
-- tls.certificates[0].certificate_file：指向 /etc/edgebox/cert/current.pem
-- tls.certificates[0].key_file：指向 /etc/edgebox/cert/current.key
-- edgeboxctl 工具在切换模式时，将更新 /etc/edgebox/cert/current.pem 和 /etc/edgebox/cert/current.key 这两个软链接，使其分别指向自签名证书或 Let's Encrypt 证书的实际文件。
+* **Nginx、Xray 和 sing-box**：
+    * `ssl_certificate`：指向 `/etc/edgebox/cert/current.pem`
+    * `ssl_certificate_key`：指向 `/etc/edgebox/cert/current.key`
+    * `edgeboxctl` 工具在切换模式时，将更新这两个软链接，使其分别指向自签名证书或 Let's Encrypt 证书的实际文件，从而实现无缝切换。
 
 ---
 
@@ -98,72 +82,70 @@ EdgeBox 的证书管理模块旨在实现全自动化，根据用户是否提供
 - **VLESS-Reality**: 通过伪装 TLS 指纹，让流量看起来像是在访问真实热门网站
 - **Hysteria2**: 伪装成 HTTP/3 流量，利用 QUIC 协议的特性
 - **TUIC**: 基于 QUIC 的轻量级协议，具有较好的抗检测能力
-
 ---
 
-### **## 端口分配策略**
+## 端口分配策略
 
-本方案采用 **Xray + Nginx 混合单端口复用** 架构，实现了深度伪装和智能分流的完美结合。
+本方案采用 **Nginx + Xray 单端口复用（Nginx-first）** 架构，实现了智能分流和深度伪装的完美结合。
 
-### **1. 架构与技术原理**
+**核心理念：**
+- 让 **Nginx** 成为所有 **TCP** 流量的守门员，它只监听公网 `443` 端口。Nginx只是通过读取流量的 **SNI** 和 **ALPN** 信息，将流量智能地分发给后端不同功能的 **Xray** 内部服务。
 
-* **单一入口**：所有基于 TCP 的加密流量均由 **Xray** 在公网 **TCP/443** 端口接收。
-* **双层分流**：
-    * **第一层分流 (Xray)**：当 Reality 客户端连接时，Xray 直接在 `443` 端口处理。对于所有**非 Reality** 的 TLS 流量（如 VLESS-gRPC 或 VLESS-WS），Xray 会通过 `fallbacks` 机制将流量**无条件转发**到 Nginx 监听的内部回环端口。
-    * **第二层分流 (Nginx)**：**Nginx** 监听内部回环端口，并使用 `stream` 模块根据流量的 **ALPN**（`h2` 或 `http/1.1`）进行**二次分流**，将流量分别转发到 Xray 对应的内部端口。
-* **内部处理**：
-    * **TCP/10085**（gRPC）和 **TCP/10086**（WS）端口仅监听 `127.0.0.1`。
-    * 这两个端口上的 Xray 服务各自启用 TLS，在本机完成握手与解密。
+### **工作流**
 
-### **2. 端口分配**
+| **协议类型** | **工作流程** |
+| :--- | :--- |
+| **Reality** | 客户端 → **Nginx:443** → **Nginx** 根据 **SNI 伪装域名** 转发 → **Xray Reality 入站@11443** (内部) |
+| **gRPC** | 客户端 → **Nginx:443** → **Nginx** 根据 **ALPN=h2** 转发 → **Xray gRPC 入站@10085** (内部) |
+| **WebSocket** | 客户端 → **Nginx:443** → **Nginx** 根据 **ALPN=http/1.1** 转发 → **Xray WS 入站@10086** (内部) |
+| **Hysteria2/TUIC** | 客户端 → **Sing-box** 直接处理 **UDP** 流量（分别监听 `443/udp` 和 `2053/udp`），与 Nginx 无关。 |
 
-| 类型 | 端口 | 协议/组件 | 描述 |
-| :--- | :--- | :--- | :--- |
-| **对外开放** | TCP/443 | Xray | 唯一入口，用于 Reality、VLESS-gRPC 和 VLESS-WS。 |
-| | UDP/443 | sing-box | 用于 Hysteria2。 |
-| | UDP/2053 | sing-box | 用于 TUIC。 |
-| **内部回环** | TCP/10443 | Nginx | 接收来自 Xray 的回落流量，并进行二次分流。 |
-| | TCP/10085 | Xray | VLESS-gRPC 专用，启用 TLS。 |
-| | TCP/10086 | Xray | VLESS-WS 专用，启用 TLS。 |
+### **端口分配**
 
-### **3. 部署与模式切换策略**
+| **类型** | **端口** | **功能** |
+| :--- | :--- | :--- |
+| **对外暴露** | TCP/443 | 所有 TCP 协议的统一入口，由 Nginx 监听。 |
+| | UDP/443 | Hysteria2 使用，实现高隐蔽性。 |
+| | UDP/2053 | TUIC 使用（可选）。 |
+| **内部回环** | TCP/11443 | Xray Reality 服务。 |
+| | TCP/10085 | Xray gRPC 服务。 |
+| | TCP/10086 | Xray WebSocket 服务。 |
 
-本方案的关键在于 **edgeboxctl** 管理工具，它能实现两种核心模式之间的无缝切换，以适应不同的网络环境。
+**重要提醒**：在你的 Nginx 配置中，请确保 **Reality** 的 `serverNames` 列表**只包含伪装域名**，这样可以防止 Reality “劫持”你真实的 gRPC 或 WS 流量。
 
-#### **初始安装（非交互式 IP 模式）**
+### 部署与模式切换策略
 
-安装脚本默认为非交互模式，专为无域名或非住宅 IP 的环境设计。安装后，所有协议均可立即工作，但部分协议使用自签名证书。
+本方案的核心在于 **edgeboxctl** 管理工具，它能实现两种核心模式之间的无缝切换，以适应不同的网络环境。
 
-* **Reality**：启用，`server_name` 伪装为 **`www.cloudflare.com`**，按常规生成密钥。
-* **VLESS-gRPC / VLESS-WS**：
-    * Xray 后端使用 **自签名证书**。
-    * Reality 入站配置中设置**回落规则（fallbacks）**，将所有非 Reality 流量**无条件回落**到 **Nginx 监听的内部回环端口 127.0.0.1:10443**。
-* **Hysteria2 / TUIC**：同样使用**自签名证书**启动。
+#### 初始安装（非交互式 IP 模式）
+- 安装脚本默认为非交互模式，专为无域名或非住宅 IP 的环境设计。安装后，所有协议均可立即工作，但部分协议使用自签名证书。
+* **Nginx**： * 作为公网 `443/TCP` 的唯一入口，启动时将所有非 Reality 的流量转发到 Xray 的内部回环端口。
+* **Reality**：* 独立启用，监听**内部回环端口**。其 `server_name` 伪装为 `www.cloudflare.com` 等常规网站，按常规生成密钥对。
+* **VLESS-gRPC / VLESS-WS**：* 分别监听**内部回环端口**。后端使用 **自签名证书**，并配置各自的 `alpn`。
+* **Hysteria2 / TUIC**： * 同样使用 **自签名证书** 启动，分别监听 **UDP/443** 和 **UDP/2053**。
 
-#### **模式双向切换（`edgeboxctl` 命令）**
-
+#### 模式双向切换（`edgeboxctl` 命令）
 * **切换至域名模式**：
     * **命令**：`edgeboxctl change-to-domain <your_domain>`
-    * **逻辑**：工具将检查域名解析，自动申请 Let's Encrypt 证书，并用新证书替换**所有协议**的自签名证书。Nginx、Xray 和 sing-box 的配置将被更新以使用真实域名。
+    * **逻辑**：工具将检查域名解析，自动申请 Let's Encrypt 证书，并用新证书替换所有需要 TLS 的协议（VLESS-gRPC/WS、Hysteria2/TUIC）的自签名证书。Nginx、Xray 和 sing-box 的配置将被更新以使用真实域名。
 * **回退至 IP 模式**：
     * **命令**：`edgeboxctl change-to-ip`
-    * **逻辑**：当域名或住宅 IP 失效时，此命令将删除或禁用 Let's Encrypt 证书，重新生成并启用自签名证书，并将所有配置回退到初始 IP 模式。
+    * **逻辑**：当域名或住宅 IP 失效时，此命令将删除或禁用 Let's Encrypt 证书，重新生成并启用自签名证书，并将所有配置回退到初始的 IP 模式。
 
-### **4. 动态生成订阅链接**
+### 动态生成订阅链接
 
 **`edgeboxctl sub`** 命令是获取订阅链接的唯一途径，它能根据当前模式动态生成一键导入的聚合链接。
 
 * **逻辑判断**：脚本通过检查 `/etc/letsencrypt/` 目录下是否存在证书来判断当前模式。
 * **IP 模式下的链接生成**：
     * `address`：使用服务器的**公网 IP**。
-    * **VLESS-gRPC/WS**：SNI 使用占位符（`grpc.edgebox.local` / `www.edgebox.local`），并添加 `allowInsecure=1` 参数。
-    * **Hysteria2/TUIC**：添加 `insecure=true` 或 `skip-cert-verify=true` 参数。
+    * **VLESS-gRPC/WS**：SNI 使用占位符（`grpc.edgebox.local` / `www.edgebox.local`），并添加 `allowInsecure=1` 参数，以跳过自签名证书验证。
+    * **Hysteria2/TUIC**：添加 `insecure=true` 或 `skip-cert-verify=true` 参数，以跳过自签名证书验证。
 * **域名模式下的链接生成**：
     * `address`：使用你的**真实域名**。
     * **VLESS-gRPC/WS**：SNI 使用你的真实域名，移除 `allowInsecure=1` 参数。
     * **Hysteria2/TUIC**：移除 `insecure=true` 或 `skip-cert-verify=true` 参数。
 * **聚合**：将所有协议的链接聚合，进行 Base64 编码，并在终端中**直接打印**或保存到本地文件，供客户端手动导入。
-
 ---
 
 ## 出站分流策略
