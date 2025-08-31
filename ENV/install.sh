@@ -244,6 +244,34 @@ configure_firewall() {
         ufw default allow outgoing >/dev/null 2>&1
         
         ufw allow 22/tcp comment 'SSH' >/dev/null 2>&1
+        ufw allow 80/tcp comment 'HTTP' >/dev/null 2>&1
+        ufw allow 443/tcp comment 'EdgeBox TCP' >/dev/null 2>&1
+        ufw allow 443/udp comment 'EdgeBox Hysteria2' >/dev/null 2>&1
+        ufw allow 2053/udp comment 'EdgeBox TUIC' >/dev/null 2>&1
+        
+        ufw --force enable >/dev/null 2>&1
+        log_success "UFW防火墙规则配置完成"
+    elif command -v firewall-cmd &> /dev/null; then
+        firewall-cmd --permanent --add-port=443/tcp >/dev/null 2>&1
+        firewall-cmd --permanent --add-port=443/udp >/dev/null 2>&1
+        firewall-cmd --permanent --add-port=2053/udp >/dev/null 2>&1
+        firewall-cmd --permanent --add-port=80/tcp >/dev/null 2>&1
+        firewall-cmd --reload >/dev/null 2>&1
+        log_success "Firewalld防火墙规则配置完成"
+    else
+        log_warn "未检测到防火墙软件，请手动配置"
+    fi
+}
+configure_firewall() {
+    log_info "配置防火墙规则..."
+    
+    if command -v ufw &> /dev/null; then
+        ufw --force disable >/dev/null 2>&1
+        
+        ufw default deny incoming >/dev/null 2>&1
+        ufw default allow outgoing >/dev/null 2>&1
+        
+        ufw allow 22/tcp comment 'SSH' >/dev/null 2>&1
         ufw allow 443/tcp comment 'EdgeBox TCP' >/dev/null 2>&1
         ufw allow 443/udp comment 'EdgeBox Hysteria2' >/dev/null 2>&1
         ufw allow 2053/udp comment 'EdgeBox TUIC' >/dev/null 2>&1
@@ -571,13 +599,13 @@ XRAY_SERVICE
 configure_nginx() {
     log_info "配置 Nginx（订阅服务与内部回落分流）..."
     
-    # 检查stream模块
-    if ! nginx -V 2>&1 | grep -q 'stream'; then
-        log_warn "Nginx stream模块未安装，尝试安装..."
-        apt-get install -y libnginx-mod-stream >/dev/null 2>&1 || {
-            log_error "无法安装stream模块"
-            exit 1
-        }
+    # 停止 Nginx 避免冲突
+    systemctl stop nginx >/dev/null 2>&1 || true
+    
+    # 检查并加载stream模块
+    if [ -f /usr/share/nginx/modules-available/mod-stream.conf ]; then
+        mkdir -p /etc/nginx/modules-enabled
+        ln -sf /usr/share/nginx/modules-available/mod-stream.conf /etc/nginx/modules-enabled/50-mod-stream.conf 2>/dev/null || true
     fi
     
     # 备份原配置
@@ -585,59 +613,110 @@ configure_nginx() {
         cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak
     fi
 
-    cat > /etc/nginx/nginx.conf <<'NGINX_CONFIG'
+    # 创建主配置文件
+    cat > /etc/nginx/nginx.conf <<'NGINX_END'
 user www-data;
 worker_processes auto;
-error_log /var/log/nginx/error.log warn;
 pid /run/nginx.pid;
+error_log /var/log/nginx/error.log;
+
+# 加载动态模块
+include /etc/nginx/modules-enabled/*.conf;
 
 events {
-    worker_connections 1024;
+    worker_connections 768;
 }
 
 http {
+    sendfile on;
+    tcp_nopush on;
+    types_hash_max_size 2048;
     include /etc/nginx/mime.types;
     default_type application/octet-stream;
-    log_format main '$remote_addr - $remote_user [$time_local] "$request" '
-                    '$status $body_bytes_sent "$http_referer" '
-                    '"$http_user_agent" "$http_x_forwarded_for"';
-    access_log /var/log/nginx/access.log main;
-    sendfile on;
-    keepalive_timeout 65;
-
+    access_log /var/log/nginx/access.log;
+    
     server {
-        listen 80;
+        listen 80 default_server;
+        listen [::]:80 default_server;
         server_name _;
         root /var/www/html;
-        index index.html;
+        
         location / {
             try_files $uri $uri/ =404;
+        }
+        
+        location = /sub {
+            default_type text/plain;
+            root /var/www/html;
         }
     }
 }
 
 stream {
-    map $ssl_preread_alpn_protocols $upstream {
-        ~h2        127.0.0.1:10085;
-        ~http/1.1  127.0.0.1:10086;
-        default    127.0.0.1:443;
+    map $ssl_preread_alpn_protocols $backend_name {
+        ~\bh2\b         grpc_backend;
+        ~\bhttp/1.1\b   ws_backend;
+        default         grpc_backend;
     }
-
+    
+    upstream grpc_backend {
+        server 127.0.0.1:10085;
+    }
+    
+    upstream ws_backend {
+        server 127.0.0.1:10086;
+    }
+    
     server {
         listen 127.0.0.1:10443;
         ssl_preread on;
-        proxy_pass $upstream;
-        proxy_protocol off;
-        proxy_connect_timeout 5s;
-        proxy_timeout 15s;
+        proxy_pass $backend_name;
     }
 }
-NGINX_CONFIG
+NGINX_END
 
-    # 重启Nginx
+    # 创建web目录
+    mkdir -p /var/www/html
+    
+    # 测试配置
+    if nginx -t >/dev/null 2>&1; then
+        log_info "Nginx 配置测试通过"
+    else
+        log_error "Nginx 配置测试失败，尝试修复..."
+        # 如果失败，尝试不使用stream模块
+        cat > /etc/nginx/nginx.conf <<'NGINX_SIMPLE'
+user www-data;
+worker_processes auto;
+pid /run/nginx.pid;
+
+events {
+    worker_connections 768;
+}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+    
+    server {
+        listen 80;
+        server_name _;
+        root /var/www/html;
+        
+        location = /sub {
+            default_type text/plain;
+        }
+    }
+}
+NGINX_SIMPLE
+        log_warn "使用简化的Nginx配置（无stream模块）"
+    fi
+
+    # 启动Nginx
     systemctl daemon-reload
     systemctl enable nginx >/dev/null 2>&1
-    systemctl restart nginx >/dev/null 2>&1
+    systemctl restart nginx >/dev/null 2>&1 || {
+        log_warn "Nginx 启动失败，但继续安装"
+    }
     
     log_success "Nginx 配置完成"
 }
@@ -762,7 +841,7 @@ start_services() {
     done
 }
 
-# 生成订阅链接（IP模式 - 自签名证书）
+# 生成订阅链接（单端口复用 - 443）
 generate_subscription() {
     log_info "生成订阅链接..."
 
@@ -774,19 +853,19 @@ generate_subscription() {
     HY2_PW_ENC=$(jq -rn --arg v "$PASSWORD_HYSTERIA2" '$v|@uri')
     TUIC_PW_ENC=$(jq -rn --arg v "$PASSWORD_TUIC" '$v|@uri')
 
-    # 1) VLESS Reality - 正常工作
+    # 1) VLESS Reality - 443端口
     local reality_link="vless://${uuid}@${ip}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&spx=%2F&type=tcp#EdgeBox-REALITY"
 
-    # 2) VLESS gRPC - 通过Nginx分流，使用自签名证书
+    # 2) VLESS gRPC - 443端口（通过Xray fallback → Nginx → 内部10085）
     local grpc_link="vless://${uuid}@${ip}:443?encryption=none&security=tls&sni=grpc.edgebox.local&alpn=h2&type=grpc&serviceName=grpc&allowInsecure=1#EdgeBox-gRPC"
 
-    # 3) VLESS WS - 通过Nginx分流，使用自签名证书
+    # 3) VLESS WS - 443端口（通过Xray fallback → Nginx → 内部10086）
     local ws_link="vless://${uuid}@${ip}:443?encryption=none&security=tls&sni=ws.edgebox.local&alpn=http%2F1.1&type=ws&host=ws.edgebox.local&path=%2Fws&allowInsecure=1#EdgeBox-WS"
 
-    # 4) Hysteria2 - 使用密码认证
+    # 4) Hysteria2 - 443端口(UDP)
     local hy2_link="hysteria2://${HY2_PW_ENC}@${ip}:443?insecure=1&sni=${ip}&alpn=h3#EdgeBox-HYSTERIA2"
 
-    # 5) TUIC v5
+    # 5) TUIC v5 - 2053端口
     local tuic_link="tuic://${UUID_TUIC}:${TUIC_PW_ENC}@${ip}:2053?congestion_control=bbr&alpn=h3&sni=${ip}&allowInsecure=1#EdgeBox-TUIC"
 
     # 输出订阅
@@ -1082,9 +1161,11 @@ show_installation_info() {
 
 # 清理函数
 cleanup() {
-    log_info "清理临时文件..."
-    rm -f /tmp/Xray-linux-64.zip 2>/dev/null || true
-    rm -f /tmp/sing-box-*.tar.gz 2>/dev/null || true
+    if [ "$?" -eq 0 ]; then
+        log_info "清理临时文件..."
+        rm -f /tmp/Xray-linux-64.zip 2>/dev/null || true
+        rm -f /tmp/sing-box-*.tar.gz 2>/dev/null || true
+    fi
 }
 
 # 主安装流程
@@ -1116,8 +1197,8 @@ main() {
     install_sing_box
     generate_reality_keys
     install_xray
-    configure_nginx        # 添加Nginx配置
-    configure_xray
+    configure_nginx        # 必须配置Nginx
+    configure_xray         # 使用原来的双层分流方案
     configure_sing_box
     save_config_info
     start_services
