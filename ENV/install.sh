@@ -1428,4 +1428,6 @@ case "$1" in
 esac
 EOFCTL
     
-    
+    chmod +x /usr/local/bin/edgeboxctl
+    log_success "管理工具创建完成（模块1：核心契约已建立）"
+}
