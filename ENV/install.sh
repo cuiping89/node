@@ -488,17 +488,17 @@ configure_xray() {
   { "dest": "127.0.0.1:10086" }
         ]
       },
-      "streamSettings": {
-        "network": "tcp",
-        "security": "reality",
-        "realitySettings": {
-          "show": false,
-          "dest": "www.cloudflare.com:443",
-          "serverNames": ["www.cloudflare.com","www.microsoft.com","www.apple.com"],
-          "privateKey": "${REALITY_PRIVATE_KEY}",
-          "shortIds": ["${REALITY_SHORT_ID}"]
-        }
-      }
+"streamSettings": {
+  "network": "tcp",
+  "security": "reality",
+  "realitySettings": {
+    "show": false,
+    "dest": "443",
+    "serverNames": ["www.cloudflare.com","www.microsoft.com","www.apple.com"],
+    "privateKey": "${REALITY_PRIVATE_KEY}",
+    "shortIds": ["${REALITY_SHORT_ID}"]
+  }
+}
     },
     {
       "tag": "vless-grpc",
@@ -565,6 +565,12 @@ LimitNOFILE=infinity
 [Install]
 WantedBy=multi-user.target
 EOF
+
+# 预检后再替换
+/usr/local/bin/xray -test -config "$tmp" || { log_error "xray 配置校验失败"; exit 1; }
+install -m 0644 -o root -g root "$tmp" /etc/edgebox/config/xray.json
+rm -f "$tmp"
+systemctl daemon-reload
 
     # 先做配置校验，再刷新 systemd
     /usr/local/bin/xray -test -c ${CONFIG_DIR}/xray.json || { log_error "xray 配置校验失败"; exit 1; }
