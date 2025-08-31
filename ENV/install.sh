@@ -1427,3 +1427,32 @@ case "$1" in
     help|*) show_help ;;
 esac
 EOFCTL
+chmod +x /usr/local/bin/edgeboxctl
+}
+    
+    
+
+#############################################
+# 执行安装流程（非交互式 IP 模式，模块1）
+#############################################
+check_root
+check_system
+get_server_ip
+install_dependencies
+generate_credentials
+create_directories
+check_ports
+optimize_system
+generate_self_signed_cert
+generate_reality_keys
+install_xray
+install_sing_box
+configure_xray
+configure_nginx
+configure_sing_box
+save_config_info
+start_services
+generate_subscription
+create_edgeboxctl
+
+log_success "EdgeBox 模块1安装完成。"
