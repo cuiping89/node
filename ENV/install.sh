@@ -2,10 +2,10 @@
 
 #############################################
 # EdgeBox 一站式多协议节点部署脚本
-# Version: 2.0.0 
-# Description: 非交互式IP模式安装 - 模块1：核心基础
+# Version: 2.0.1 
+# Description: 非交互式IP模式安装 - 模块1：核心基础 + 契约定义
 # Protocols: VLESS-Reality, VLESS-gRPC, VLESS-WS, Hysteria2, TUIC
-# Architecture: 单端口复用 + 本地订阅文件
+# Architecture: SNI定向 + ALPN兜底 + 本地订阅文件
 #############################################
 
 set -e
@@ -162,7 +162,7 @@ install_dependencies() {
     log_info "安装必要依赖..."
     
     # 基础工具（最小化依赖）
-    PACKAGES="curl wget unzip tar net-tools openssl jq uuid-runtime vnstat iftop"
+    PACKAGES="curl wget unzip tar net-tools openssl jq uuid-runtime vnstat iftop certbot"
     
     # 添加Nginx和stream模块
     PACKAGES="$PACKAGES nginx libnginx-mod-stream"
@@ -314,7 +314,7 @@ generate_self_signed_cert() {
         -days 3650 \
         -subj "/C=US/ST=California/L=San Francisco/O=EdgeBox/CN=${SERVER_IP}" >/dev/null 2>&1
     
-    # 创建软链接
+    # 创建软链接（契约接口）
     ln -sf ${CERT_DIR}/self-signed.key ${CERT_DIR}/current.key
     ln -sf ${CERT_DIR}/self-signed.pem ${CERT_DIR}/current.pem
     
@@ -327,6 +327,9 @@ generate_self_signed_cert() {
     if openssl x509 -in ${CERT_DIR}/current.pem -noout -text >/dev/null 2>&1 && \
        openssl ec -in ${CERT_DIR}/current.key -noout -text >/dev/null 2>&1; then
         log_success "自签名证书生成完成并验证通过"
+        
+        # 设置初始证书模式（契约状态）
+        echo "self-signed" > ${CONFIG_DIR}/cert_mode
     else
         log_error "证书验证失败"
         return 1
@@ -571,7 +574,7 @@ configure_xray() {
         "wsSettings": { 
           "path": "/ws",
           "headers": {
-            "Host": "ws.edgebox.local"
+            "Host": "${SERVER_IP}"
           }
         }
       }
@@ -609,9 +612,9 @@ XRAY_SERVICE
     log_success "Xray 配置完成"
 }
 
-# 配置Nginx（stream模块 + ALPN分流）
+# 配置Nginx（SNI定向 + ALPN兜底架构）
 configure_nginx() {
-    log_info "配置 Nginx（Nginx-first 单端口复用架构）..."
+    log_info "配置 Nginx（SNI定向 + ALPN兜底架构）..."
     
     # 停止 Nginx 避免冲突
     systemctl stop nginx >/dev/null 2>&1 || true
@@ -627,8 +630,8 @@ configure_nginx() {
         cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak
     fi
 
-    # 创建正确的Nginx-first配置
-    cat > /etc/nginx/nginx.conf <<'NGINX_FIRST_END'
+    # SNI定向 + ALPN兜底的稳定架构
+    cat > /etc/nginx/nginx.conf <<NGINX_STABLE_END
 user www-data;
 worker_processes auto;
 pid /run/nginx.pid;
@@ -657,7 +660,7 @@ http {
         root /var/www/html;
         
         location / {
-            try_files $uri $uri/ =404;
+            try_files \$uri \$uri/ =404;
         }
         
         location = /sub {
@@ -668,53 +671,52 @@ http {
 }
 
 stream {
-    # 伪装站（走 Reality）
-    map $ssl_preread_server_name $svc {
-        ~^(www\.cloudflare\.com|www\.apple\.com|www\.microsoft\.com)$ reality;
-        grpc.edgebox.local   grpc;   # 你可以换成自己的：grpc.<你的域名>
-        ws.edgebox.local     ws;     # 你可以换成自己的：ws.<你的域名>
-        default              "";
-    }
-
-    # ALPN 兜底（仅在 $svc 为空时才生效）
-    map $ssl_preread_alpn_protocols $by_alpn {
-        ~\bh2\b         127.0.0.1:10085;   # gRPC
-        ~\bhttp/1\.1\b  127.0.0.1:10086;   # WS
-        default         127.0.0.1:10086;   # 兜底走 WS，防回环
-    }
-
-    # 先看 SNI，如能识别则直接定向；否则落回 ALPN
-    map $svc $upstream_sni {
-        reality 127.0.0.1:11443;
-        grpc    127.0.0.1:10085;
-        ws      127.0.0.1:10086;
+    # 定义专用的 SNI 标识符（解决证书不匹配问题）
+    map \$ssl_preread_server_name \$sni_backend {
+        # Reality 伪装域名：直接定向到 Reality
+        ~^(www\.cloudflare\.com|www\.apple\.com|www\.microsoft\.com)\$ 127.0.0.1:11443;
+        
+        # 专用服务标识符：避免证书验证问题
+        grpc.edgebox.internal   127.0.0.1:10085;    # gRPC 专用标识
+        ws.edgebox.internal     127.0.0.1:10086;    # WebSocket 专用标识
+        
+        # 默认为空，交给 ALPN 处理
         default "";
     }
-    map $upstream_sni $upstream {
-        ~.+     $upstream_sni;
-        default $by_alpn;
+    
+    # ALPN 兜底分流（仅在 SNI 未匹配时生效）
+    map \$ssl_preread_alpn_protocols \$alpn_backend {
+        ~\bh2\b         127.0.0.1:10085;   # HTTP/2 -> gRPC
+        ~\bhttp/1\.1\b  127.0.0.1:10086;   # HTTP/1.1 -> WebSocket
+        default         127.0.0.1:11443;   # 默认 -> Reality
+    }
+    
+    # 最终分流决策：SNI 优先，ALPN 兜底
+    map \$sni_backend \$final_backend {
+        ~.+     \$sni_backend;  # 如果 SNI 匹配成功，使用 SNI 结果
+        default \$alpn_backend; # 否则使用 ALPN 兜底
     }
 
     server {
         listen 0.0.0.0:443;
         ssl_preread on;
-        proxy_pass $upstream;
+        proxy_pass \$final_backend;
         proxy_timeout 15s;
         proxy_connect_timeout 5s;
+        proxy_protocol off;
     }
 }
-
-NGINX_FIRST_END
+NGINX_STABLE_END
 
     # 创建web目录
     mkdir -p /var/www/html
     
     # 测试配置
     if nginx -t >/dev/null 2>&1; then
-        log_info "Nginx 配置测试通过"
+        log_success "Nginx 配置测试通过（SNI定向 + ALPN兜底）"
     else
-        log_error "Nginx 配置测试失败，尝试修复..."
-        # 如果失败，尝试不使用stream模块
+        log_error "Nginx 配置测试失败，使用备用配置..."
+        # 如果失败，使用简化配置（无stream模块）
         cat > /etc/nginx/nginx.conf <<'NGINX_SIMPLE'
 user www-data;
 worker_processes auto;
@@ -739,7 +741,7 @@ http {
     }
 }
 NGINX_SIMPLE
-        log_warn "使用简化的Nginx配置（无stream模块）"
+        log_warn "使用简化的Nginx配置（无stream模块），部分协议需要直连端口"
     fi
 
     # 启动Nginx
@@ -749,7 +751,7 @@ NGINX_SIMPLE
         log_warn "Nginx 启动失败，但继续安装"
     }
     
-    log_success "Nginx 配置完成"
+    log_success "Nginx 配置完成（SNI定向 + ALPN兜底）"
 }
 
 # 配置sing-box（Hysteria2 + TUIC）
@@ -812,6 +814,125 @@ SINGBOX_CONFIG
     log_success "sing-box配置完成"
 }
 
+#############################################
+# 契约接口函数（为模块2准备）
+#############################################
+
+# 契约接口：证书模式切换
+switch_certificate_mode() {
+    local mode=$1  # "self-signed" 或 "letsencrypt"
+    local domain=$2  # 仅在 letsencrypt 模式时需要
+    
+    log_info "切换证书模式: $mode"
+    
+    case "$mode" in
+        "self-signed")
+            log_info "切换到自签名证书模式..."
+            if [[ ! -f ${CERT_DIR}/self-signed.key ]]; then
+                log_info "重新生成自签名证书..."
+                generate_self_signed_cert
+            fi
+            
+            ln -sf ${CERT_DIR}/self-signed.key ${CERT_DIR}/current.key
+            ln -sf ${CERT_DIR}/self-signed.pem ${CERT_DIR}/current.pem
+            echo "self-signed" > ${CONFIG_DIR}/cert_mode
+            ;;
+        "letsencrypt")
+            if [[ -z "$domain" ]]; then
+                log_error "域名模式需要提供域名参数"
+                return 1
+            fi
+            
+            log_info "切换到Let's Encrypt证书模式: $domain"
+            if [[ ! -f /etc/letsencrypt/live/${domain}/privkey.pem ]]; then
+                log_error "Let's Encrypt证书不存在，请先申请证书"
+                return 1
+            fi
+            
+            ln -sf /etc/letsencrypt/live/${domain}/privkey.pem ${CERT_DIR}/current.key
+            ln -sf /etc/letsencrypt/live/${domain}/fullchain.pem ${CERT_DIR}/current.pem
+            echo "letsencrypt:${domain}" > ${CONFIG_DIR}/cert_mode
+            ;;
+        *)
+            log_error "未知的证书模式: $mode"
+            return 1
+            ;;
+    esac
+    
+    log_success "证书模式切换完成: $mode"
+}
+
+# 契约接口：获取当前证书模式
+get_current_cert_mode() {
+    if [[ -f ${CONFIG_DIR}/cert_mode ]]; then
+        cat ${CONFIG_DIR}/cert_mode
+    else
+        echo "self-signed"  # 默认模式
+    fi
+}
+
+# 契约接口：根据证书模式动态生成订阅
+generate_subscription_by_mode() {
+    local cert_mode_info=$(get_current_cert_mode)
+    local cert_mode=${cert_mode_info%%:*}
+    local domain=""
+    
+    if [[ "$cert_mode" == "letsencrypt" ]]; then
+        domain=${cert_mode_info##*:}
+    fi
+    
+    log_info "生成订阅链接（证书模式: $cert_mode）..."
+
+    # 确定地址和SNI参数
+    local address sni allowInsecure_param insecure_param
+    if [[ "$cert_mode" == "letsencrypt" && -n "$domain" ]]; then
+        address="$domain"
+        sni="$domain"
+        allowInsecure_param=""
+        insecure_param=""
+    else
+        address="${SERVER_IP}"
+        sni="${SERVER_IP}"
+        allowInsecure_param="&allowInsecure=1"
+        insecure_param="&insecure=1"
+    fi
+
+    local uuid="${UUID_VLESS}"
+
+    # URL编码密码
+    local HY2_PW_ENC TUIC_PW_ENC
+    HY2_PW_ENC=$(jq -rn --arg v "$PASSWORD_HYSTERIA2" '$v|@uri')
+    TUIC_PW_ENC=$(jq -rn --arg v "$PASSWORD_TUIC" '$v|@uri')
+
+    # 生成订阅链接（使用专用内部标识符）
+    local reality_link="vless://${uuid}@${address}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&type=tcp#EdgeBox-REALITY"
+
+    local grpc_link="vless://${uuid}@${address}:443?encryption=none&security=tls&sni=grpc.edgebox.internal&alpn=h2&type=grpc&serviceName=grpc&fp=chrome${allowInsecure_param}#EdgeBox-gRPC"
+
+    local ws_link="vless://${uuid}@${address}:443?encryption=none&security=tls&sni=ws.edgebox.internal&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome${allowInsecure_param}#EdgeBox-WS"
+
+    local hy2_link="hysteria2://${HY2_PW_ENC}@${address}:443?sni=${sni}&alpn=h3${insecure_param}#EdgeBox-HYSTERIA2"
+
+    local tuic_link="tuic://${UUID_TUIC}:${TUIC_PW_ENC}@${address}:2053?congestion_control=bbr&alpn=h3&sni=${sni}${allowInsecure_param}#EdgeBox-TUIC"
+
+    # 输出订阅
+    local plain="${reality_link}
+${grpc_link}
+${ws_link}
+${hy2_link}
+${tuic_link}"
+    
+    echo -e "${plain}" > "${CONFIG_DIR}/subscription.txt"
+    echo -e "${plain}" | base64 -w0 > "${CONFIG_DIR}/subscription.base64"
+
+    # 创建HTTP订阅服务
+    mkdir -p /var/www/html
+    echo -e "${plain}" | base64 -w0 > /var/www/html/sub
+    
+    log_success "订阅已生成（证书模式: $cert_mode）"
+    log_success "HTTP订阅地址: http://${address}/sub"
+}
+
 # 保存配置信息
 save_config_info() {
     log_info "保存配置信息..."
@@ -860,7 +981,7 @@ start_services() {
     systemctl restart xray >/dev/null 2>&1
     systemctl restart sing-box >/dev/null 2>&1
 
-    sleep 2
+    sleep 3
 
     for s in nginx xray sing-box; do
         if systemctl is-active --quiet "$s"; then
@@ -872,59 +993,20 @@ start_services() {
     done
 }
 
-# 生成订阅链接（单端口复用 - 443）
+# 生成订阅链接（兼容性包装）
 generate_subscription() {
-    log_info "生成订阅链接（Nginx-first 架构）..."
-
-    local ip="${SERVER_IP}"
-    local uuid="${UUID_VLESS}"
-
-    # URL编码密码
-    local HY2_PW_ENC TUIC_PW_ENC
-    HY2_PW_ENC=$(jq -rn --arg v "$PASSWORD_HYSTERIA2" '$v|@uri')
-    TUIC_PW_ENC=$(jq -rn --arg v "$PASSWORD_TUIC" '$v|@uri')
-
-    # 1) VLESS Reality - 443端口，SNI使用伪装域名
-    local reality_link="vless://${uuid}@${ip}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&type=tcp#EdgeBox-REALITY"
-
-    # 2) VLESS gRPC - 443端口，通过Nginx分流，SNI使用服务域名
-    local grpc_link="vless://${uuid}@${ip}:443?encryption=none&security=tls&sni=grpc.edgebox.local&alpn=h2&type=grpc&serviceName=grpc&alpn=h2&fp=chrome&allowInsecure=1#EdgeBox-gRPC"
-
-    # 3) VLESS WS - 443端口，通过Nginx分流，SNI使用服务域名  
-    local ws_link="vless://${uuid}@${ip}:443?encryption=none&security=tls&sni=ws.edgebox.local&alpn=http%2F1.1&type=ws&path=/ws&alpn=http/1.1&fp=chrome&allowInsecure=1#EdgeBox-WS"
-
-    # 4) Hysteria2 - 443端口(UDP)
-    local hy2_link="hysteria2://${HY2_PW_ENC}@${ip}:443?insecure=1&sni=${ip}&alpn=h3#EdgeBox-HYSTERIA2"
-
-    # 5) TUIC v5 - 2053端口
-    local tuic_link="tuic://${UUID_TUIC}:${TUIC_PW_ENC}@${ip}:2053?congestion_control=bbr&alpn=h3&sni=${ip}&allowInsecure=1#EdgeBox-TUIC"
-
-    # 输出订阅
-    local plain="${reality_link}
-${grpc_link}
-${ws_link}
-${hy2_link}
-${tuic_link}"
-    
-    echo -e "${plain}" > "${CONFIG_DIR}/subscription.txt"
-    echo -e "${plain}" | base64 -w0 > "${CONFIG_DIR}/subscription.base64"
-
-    # 创建HTTP订阅服务
-    mkdir -p /var/www/html
-    echo -e "${plain}" | base64 -w0 > /var/www/html/sub
-    
-    log_success "订阅已生成（Nginx-first架构）"
-    log_success "HTTP订阅地址：http://${ip}/sub"
+    generate_subscription_by_mode
 }
-# 创建edgeboxctl管理工具（模块1：核心基础）
+
+# 创建edgeboxctl管理工具（增强版，包含契约接口）
 create_edgeboxctl() {
     log_info "创建管理工具..."
     
     cat > /usr/local/bin/edgeboxctl << 'EOFCTL'
 #!/bin/bash
 
-# EdgeBox Control Script - Module 1: Core Foundation
-VERSION="2.0.0"
+# EdgeBox Control Script - Module 1: Core Foundation + Contract
+VERSION="2.0.1"
 CONFIG_DIR="/etc/edgebox/config"
 CERT_DIR="/etc/edgebox/cert"
 
@@ -937,9 +1019,173 @@ PURPLE='\033[0;35m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
+log_info() {
+    echo -e "${GREEN}[INFO]${NC} $1"
+}
+
+log_warn() {
+    echo -e "${YELLOW}[WARN]${NC} $1"
+}
+
+log_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
+log_success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $1"
+}
+
+# 契约接口：获取当前证书模式
+get_current_cert_mode() {
+    if [[ -f ${CONFIG_DIR}/cert_mode ]]; then
+        cat ${CONFIG_DIR}/cert_mode
+    else
+        echo "self-signed"
+    fi
+}
+
+# 契约接口：切换证书模式
+switch_cert_mode() {
+    local mode=$1
+    local domain=$2
+    
+    case "$mode" in
+        "ip")
+            log_info "切换到IP模式（自签名证书）..."
+            
+            # 重新生成自签名证书
+            local server_ip=$(jq -r '.server_ip' ${CONFIG_DIR}/server.json)
+            openssl req -x509 -nodes -newkey ec:<(openssl ecparam -name secp384r1) \
+                -keyout ${CERT_DIR}/self-signed.key \
+                -out ${CERT_DIR}/self-signed.pem \
+                -days 3650 \
+                -subj "/C=US/ST=California/L=San Francisco/O=EdgeBox/CN=${server_ip}" >/dev/null 2>&1
+            
+            ln -sf ${CERT_DIR}/self-signed.key ${CERT_DIR}/current.key
+            ln -sf ${CERT_DIR}/self-signed.pem ${CERT_DIR}/current.pem
+            echo "self-signed" > ${CONFIG_DIR}/cert_mode
+            ;;
+        "domain")
+            if [[ -z "$domain" ]]; then
+                log_error "域名模式需要提供域名参数"
+                return 1
+            fi
+            
+            log_info "切换到域名模式: $domain"
+            
+            # 检查域名解析
+            if ! nslookup "$domain" >/dev/null 2>&1; then
+                log_error "域名 $domain 无法解析"
+                return 1
+            fi
+            
+            # 申请 Let's Encrypt 证书
+            log_info "申请 Let's Encrypt 证书..."
+            systemctl stop nginx >/dev/null 2>&1
+            
+            certbot certonly --standalone --non-interactive --agree-tos \
+                --email "admin@${domain}" -d "$domain" || {
+                log_error "证书申请失败"
+                systemctl start nginx >/dev/null 2>&1
+                return 1
+            }
+            
+            systemctl start nginx >/dev/null 2>&1
+            
+            ln -sf /etc/letsencrypt/live/${domain}/privkey.pem ${CERT_DIR}/current.key
+            ln -sf /etc/letsencrypt/live/${domain}/fullchain.pem ${CERT_DIR}/current.pem
+            echo "letsencrypt:${domain}" > ${CONFIG_DIR}/cert_mode
+            ;;
+        *)
+            log_error "未知模式: $mode"
+            return 1
+            ;;
+    esac
+    
+    # 重启服务
+    log_info "重启服务以应用新证书..."
+    systemctl restart xray sing-box >/dev/null 2>&1
+    
+    # 重新生成订阅
+    regenerate_subscription
+    
+    log_success "证书模式切换完成"
+}
+
+# 契约接口：动态生成订阅
+regenerate_subscription() {
+    log_info "重新生成订阅链接..."
+    
+    local cert_mode_info=$(get_current_cert_mode)
+    local cert_mode=${cert_mode_info%%:*}
+    local domain=""
+    
+    if [[ "$cert_mode" == "letsencrypt" ]]; then
+        domain=${cert_mode_info##*:}
+    fi
+    
+    # 读取配置
+    if [[ ! -f ${CONFIG_DIR}/server.json ]]; then
+        log_error "配置文件不存在"
+        return 1
+    fi
+    
+    local server_ip=$(jq -r '.server_ip' ${CONFIG_DIR}/server.json)
+    local uuid_vless=$(jq -r '.uuid.vless' ${CONFIG_DIR}/server.json)
+    local uuid_tuic=$(jq -r '.uuid.tuic' ${CONFIG_DIR}/server.json)
+    local password_hy2=$(jq -r '.password.hysteria2' ${CONFIG_DIR}/server.json)
+    local password_tuic=$(jq -r '.password.tuic' ${CONFIG_DIR}/server.json)
+    local reality_public_key=$(jq -r '.reality.public_key' ${CONFIG_DIR}/server.json)
+    local reality_short_id=$(jq -r '.reality.short_id' ${CONFIG_DIR}/server.json)
+    
+    # 确定地址和安全参数
+    local address sni allowInsecure_param insecure_param
+    if [[ "$cert_mode" == "letsencrypt" && -n "$domain" ]]; then
+        address="$domain"
+        sni="$domain"
+        allowInsecure_param=""
+        insecure_param=""
+    else
+        address="$server_ip"
+        sni="$server_ip"
+        allowInsecure_param="&allowInsecure=1"
+        insecure_param="&insecure=1"
+    fi
+    
+    # URL编码密码
+    local HY2_PW_ENC TUIC_PW_ENC
+    HY2_PW_ENC=$(jq -rn --arg v "$password_hy2" '$v|@uri')
+    TUIC_PW_ENC=$(jq -rn --arg v "$password_tuic" '$v|@uri')
+    
+    # 生成订阅链接（使用专用内部标识符避免证书问题）
+    local reality_link="vless://${uuid_vless}@${address}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${reality_public_key}&sid=${reality_short_id}&type=tcp#EdgeBox-REALITY"
+    
+    local grpc_link="vless://${uuid_vless}@${address}:443?encryption=none&security=tls&sni=grpc.edgebox.internal&alpn=h2&type=grpc&serviceName=grpc&fp=chrome${allowInsecure_param}#EdgeBox-gRPC"
+    
+    local ws_link="vless://${uuid_vless}@${address}:443?encryption=none&security=tls&sni=ws.edgebox.internal&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome${allowInsecure_param}#EdgeBox-WS"
+    
+    local hy2_link="hysteria2://${HY2_PW_ENC}@${address}:443?sni=${sni}&alpn=h3${insecure_param}#EdgeBox-HYSTERIA2"
+    
+    local tuic_link="tuic://${uuid_tuic}:${TUIC_PW_ENC}@${address}:2053?congestion_control=bbr&alpn=h3&sni=${sni}${allowInsecure_param}#EdgeBox-TUIC"
+    
+    # 保存订阅
+    local subscription="${reality_link}
+${grpc_link}
+${ws_link}
+${hy2_link}
+${tuic_link}"
+    
+    echo -e "${subscription}" > "${CONFIG_DIR}/subscription.txt"
+    echo -e "${subscription}" | base64 -w0 > "${CONFIG_DIR}/subscription.base64"
+    mkdir -p /var/www/html
+    echo -e "${subscription}" | base64 -w0 > /var/www/html/sub
+    
+    log_success "订阅链接已重新生成（模式: $cert_mode）"
+}
+
 show_help() {
     echo -e "${CYAN}EdgeBox 管理工具 v${VERSION}${NC}"
-    echo -e "${YELLOW}模块1：核心基础功能${NC}"
+    echo -e "${YELLOW}模块1：核心基础功能 + 契约接口${NC}"
     echo ""
     echo "用法: edgeboxctl [命令] [选项]"
     echo ""
@@ -951,6 +1197,12 @@ show_help() {
     echo "配置管理:"
     echo "  show-config     显示当前配置"
     echo "  sub             显示订阅链接"
+    echo "  regenerate-sub  重新生成订阅链接"
+    echo ""
+    echo "证书管理 (契约接口):"
+    echo "  switch-to-domain <domain>  切换到域名模式"
+    echo "  switch-to-ip               切换到IP模式"
+    echo "  cert-mode                  查看当前证书模式"
     echo ""
     echo "调试工具:"
     echo "  test            测试连接"
@@ -959,7 +1211,7 @@ show_help() {
     echo ""
     echo "  help            显示帮助信息"
     echo ""
-    echo -e "${YELLOW}注：高级功能（模式切换、证书管理、分流等）将在模块2中实现${NC}"
+    echo -e "${YELLOW}注：高级功能（分流、备份等）将在模块2中实现${NC}"
 }
 
 show_sub() {
@@ -968,7 +1220,8 @@ show_sub() {
         exit 1
     fi
     
-    echo -e "${CYAN}订阅链接（本地文件模式）：${NC}"
+    local cert_mode=$(get_current_cert_mode)
+    echo -e "${CYAN}订阅链接（证书模式: ${cert_mode}）：${NC}"
     echo ""
     
     if [[ -f ${CONFIG_DIR}/subscription.txt ]]; then
@@ -983,16 +1236,20 @@ show_sub() {
         echo ""
     fi
     
+    local server_ip=$(jq -r '.server_ip' ${CONFIG_DIR}/server.json)
+    echo -e "${CYAN}HTTP订阅地址：${NC}"
+    echo "http://${server_ip}/sub"
+    echo ""
     echo -e "${CYAN}说明：${NC}"
-    echo "- 订阅链接已保存到本地文件，请手动导入到客户端"
-    echo "- 明文链接位置：${CONFIG_DIR}/subscription.txt"
-    echo "- Base64订阅位置：${CONFIG_DIR}/subscription.base64"
+    echo "- 使用专用内部标识符 (*.edgebox.internal) 避免证书冲突"
+    echo "- SNI定向 + ALPN兜底架构，解决协议摇摆问题"
+    echo "- 当前证书模式: ${cert_mode}"
 }
 
 show_status() {
-    echo -e "${CYAN}服务状态（单端口复用架构）：${NC}"
+    echo -e "${CYAN}服务状态（SNI定向 + ALPN兜底架构）：${NC}"
     
-    for service in xray sing-box; do
+    for service in nginx xray sing-box; do
         if systemctl is-active --quiet $service 2>/dev/null; then
             echo -e "  $service: ${GREEN}运行中${NC}"
         else
@@ -1003,19 +1260,25 @@ show_status() {
     echo ""
     echo -e "${CYAN}端口监听状态：${NC}"
     echo -e "${YELLOW}公网端口：${NC}"
-    ss -tlnp 2>/dev/null | grep ":443 " && echo -e "  TCP/443: ${GREEN}正常${NC}" || echo -e "  TCP/443: ${RED}异常${NC}"
-    ss -ulnp 2>/dev/null | grep ":443 " && echo -e "  UDP/443: ${GREEN}正常${NC}" || echo -e "  UDP/443: ${RED}异常${NC}"
-    ss -ulnp 2>/dev/null | grep ":2053 " && echo -e "  UDP/2053: ${GREEN}正常${NC}" || echo -e "  UDP/2053: ${RED}异常${NC}"
+    ss -tlnp 2>/dev/null | grep ":443 " && echo -e "  TCP/443 (Nginx): ${GREEN}正常${NC}" || echo -e "  TCP/443: ${RED}异常${NC}"
+    ss -ulnp 2>/dev/null | grep ":443 " && echo -e "  UDP/443 (Hysteria2): ${GREEN}正常${NC}" || echo -e "  UDP/443: ${RED}异常${NC}"
+    ss -ulnp 2>/dev/null | grep ":2053 " && echo -e "  UDP/2053 (TUIC): ${GREEN}正常${NC}" || echo -e "  UDP/2053: ${RED}异常${NC}"
     
     echo -e "${YELLOW}内部回环端口：${NC}"
+    ss -tlnp 2>/dev/null | grep "127.0.0.1:11443 " && echo -e "  Reality内部: ${GREEN}正常${NC}" || echo -e "  Reality内部: ${RED}异常${NC}"
     ss -tlnp 2>/dev/null | grep "127.0.0.1:10085 " && echo -e "  gRPC内部: ${GREEN}正常${NC}" || echo -e "  gRPC内部: ${RED}异常${NC}"
     ss -tlnp 2>/dev/null | grep "127.0.0.1:10086 " && echo -e "  WS内部: ${GREEN}正常${NC}" || echo -e "  WS内部: ${RED}异常${NC}"
+    
+    echo ""
+    echo -e "${CYAN}证书状态：${NC}"
+    local cert_mode=$(get_current_cert_mode)
+    echo -e "  当前模式: ${YELLOW}${cert_mode}${NC}"
 }
 
 restart_services() {
     echo -e "${CYAN}重启所有服务...${NC}"
     
-    services=("sing-box" "xray")
+    services=("nginx" "xray" "sing-box")
     
     for service in "${services[@]}"; do
         echo -n "  重启 $service..."
@@ -1047,16 +1310,23 @@ show_config() {
     else
         cat ${CONFIG_DIR}/server.json
     fi
+    
+    echo ""
+    echo -e "${CYAN}证书模式：${NC}$(get_current_cert_mode)"
 }
 
 show_logs() {
     local service=$1
     if [[ -z "$service" ]]; then
-        echo "用法: edgeboxctl logs [xray|sing-box]"
+        echo "用法: edgeboxctl logs [nginx|xray|sing-box]"
         return
     fi
     
     case "$service" in
+        nginx)
+            echo -e "${CYAN}Nginx 系统日志：${NC}"
+            journalctl -u nginx -n 30 --no-pager 2>/dev/null || echo "无法获取日志"
+            ;;
         xray)
             echo -e "${CYAN}Xray 系统日志：${NC}"
             journalctl -u xray -n 30 --no-pager 2>/dev/null || echo "无法获取日志"
@@ -1072,18 +1342,24 @@ show_logs() {
 }
 
 debug_ports() {
-    echo -e "${CYAN}端口调试信息（单端口复用架构）：${NC}"
+    echo -e "${CYAN}端口调试信息（SNI定向 + ALPN兜底架构）：${NC}"
     
     echo -e "\n${YELLOW}端口检查：${NC}"
     echo "  TCP/443 (Nginx单一入口): $(ss -tln | grep -q ":443 " && echo "✓" || echo "✗")"
     echo "  UDP/443 (Hysteria2): $(ss -uln | grep -q ":443 " && echo "✓" || echo "✗")"
     echo "  UDP/2053 (TUIC): $(ss -uln | grep -q ":2053 " && echo "✓" || echo "✗")" 
+    echo "  TCP/11443 (Reality内部): $(ss -tln | grep -q "127.0.0.1:11443 " && echo "✓" || echo "✗")"
     echo "  TCP/10085 (gRPC内部): $(ss -tln | grep -q "127.0.0.1:10085 " && echo "✓" || echo "✗")"
     echo "  TCP/10086 (WS内部): $(ss -tln | grep -q "127.0.0.1:10086 " && echo "✓" || echo "✗")"
+    
+    echo -e "\n${YELLOW}架构特点：${NC}"
+    echo "  - SNI 优先定向：避免 ALPN 双栈冲突"
+    echo "  - 内部标识符：解决证书不匹配问题"
+    echo "  - ALPN 兜底：确保连接稳定性"
 }
 
 test_connection() {
-    echo -e "${CYAN}连接测试（单端口复用架构）：${NC}"
+    echo -e "${CYAN}连接测试（SNI定向 + ALPN兜底架构）：${NC}"
     
     local server_ip
     server_ip=$(jq -r .server_ip ${CONFIG_DIR}/server.json 2>/dev/null) || {
@@ -1091,11 +1367,18 @@ test_connection() {
         return 1
     }
     
-    echo -n "  TCP 443端口（Nginx单一入口）: "
+    echo -n "  TCP 443端口（Nginx入口）: "
     if timeout 3 bash -c "echo >/dev/tcp/${server_ip}/443" 2>/dev/null; then
         echo -e "${GREEN}开放${NC}"
     else
         echo -e "${RED}关闭${NC}"
+    fi
+    
+    echo -n "  HTTP 订阅服务: "
+    if curl -s "http://${server_ip}/sub" >/dev/null; then
+        echo -e "${GREEN}正常${NC}"
+    else
+        echo -e "${RED}异常${NC}"
     fi
 }
 
@@ -1122,125 +1405,25 @@ case "$1" in
     test) test_connection ;;
     debug-ports) debug_ports ;;
     fix-permissions) fix_permissions ;;
+    
+    # 契约接口
+    switch-to-domain)
+        if [[ -z "$2" ]]; then
+            echo "用法: edgeboxctl switch-to-domain <domain>"
+            exit 1
+        fi
+        switch_cert_mode "domain" "$2"
+        ;;
+    switch-to-ip)
+        switch_cert_mode "ip"
+        ;;
+    cert-mode)
+        echo "当前证书模式: $(get_current_cert_mode)"
+        ;;
+    regenerate-sub)
+        regenerate_subscription
+        ;;
+    
     help|*) show_help ;;
 esac
 EOFCTL
-    
-    chmod +x /usr/local/bin/edgeboxctl
-    log_success "管理工具创建完成（模块1：核心契约已建立）"
-}
-
-# 显示安装信息
-show_installation_info() {
-    clear
-    print_separator
-    echo -e "${GREEN}EdgeBox 安装完成！${NC}"
-    print_separator
-    
-    echo -e "${CYAN}服务器信息：${NC}"
-    echo -e "  IP地址: ${GREEN}${SERVER_IP}${NC}"
-    echo -e "  模式: ${YELLOW}IP模式（自签名证书）${NC}"
-    
-    echo -e "\n${CYAN}协议信息：${NC}"
-    echo -e "  ${PURPLE}[1] VLESS-Reality${NC}"
-    echo -e "      端口: 443"
-    echo -e "      UUID: ${UUID_VLESS}"
-    echo -e "      公钥: ${REALITY_PUBLIC_KEY}"
-    echo -e "      SNI: www.cloudflare.com"
-    
-    echo -e "\n  ${PURPLE}[2] VLESS-gRPC${NC}"
-    echo -e "      端口: 443（Nginx 分流）"
-    echo -e "      UUID: ${UUID_VLESS}"
-    echo -e "      SNI: grpc.edgebox.local"
-    echo -e "      serviceName: grpc"
-    
-    echo -e "\n  ${PURPLE}[3] VLESS-WS${NC}"
-    echo -e "      端口: 443（Nginx 分流）"
-    echo -e "      UUID: ${UUID_VLESS}"
-    echo -e "      SNI: ws.edgebox.local"
-    echo -e "      路径: /ws"
-    
-    echo -e "\n  ${PURPLE}[4] Hysteria2${NC}"
-    echo -e "      端口: 443 (UDP)"
-    echo -e "      密码: ${PASSWORD_HYSTERIA2}"
-    
-    echo -e "\n  ${PURPLE}[5] TUIC${NC}"
-    echo -e "      端口: 2053 (UDP)"
-    echo -e "      UUID: ${UUID_TUIC}"
-    echo -e "      密码: ${PASSWORD_TUIC}"
-    
-    echo -e "\n${CYAN}管理命令：${NC}"
-    echo -e "  ${YELLOW}edgeboxctl sub${NC}        # 查看订阅链接（本地文件）"
-    echo -e "  ${YELLOW}edgeboxctl status${NC}     # 查看服务状态"
-    echo -e "  ${YELLOW}edgeboxctl restart${NC}    # 重启所有服务"
-    echo -e "  ${YELLOW}edgeboxctl test${NC}       # 测试连接"
-    echo -e "  ${YELLOW}edgeboxctl debug-ports${NC}   # 调试端口状态"
-    echo -e "  ${YELLOW}edgeboxctl logs xray${NC}  # 查看日志"
-    
-    echo -e "\n${YELLOW}注意事项：${NC}"
-    echo -e "  1. 当前为IP模式，使用自签名证书"
-    echo -e "  2. 客户端需要开启'跳过证书验证'选项"
-    echo -e "  3. Reality协议不需要跳过证书验证"
-    echo -e "  4. 防火墙已配置，请确保云服务商防火墙也开放相应端口"
-    echo -e "  5. 订阅链接已保存到本地文件，使用 ${YELLOW}edgeboxctl sub${NC} 查看"
-    
-    print_separator
-}
-
-# 清理函数
-cleanup() {
-    if [ "$?" -eq 0 ]; then
-        log_info "清理临时文件..."
-        rm -f /tmp/Xray-linux-64.zip 2>/dev/null || true
-        rm -f /tmp/sing-box-*.tar.gz 2>/dev/null || true
-    fi
-}
-
-# 主安装流程
-main() {
-    clear
-    print_separator
-    echo -e "${GREEN}EdgeBox 安装脚本 v2.0.0${NC}"
-    echo -e "${CYAN}开始非交互式IP模式安装...${NC}"
-    print_separator
-    
-    # 创建日志文件
-    mkdir -p $(dirname ${LOG_FILE})
-    touch ${LOG_FILE}
-    
-    # 设置错误处理
-    trap cleanup EXIT
-    
-    # 执行安装步骤
-    check_root
-    check_system
-    get_server_ip
-    install_dependencies
-    generate_credentials
-    create_directories
-    check_ports
-    configure_firewall
-    optimize_system
-    generate_self_signed_cert
-    install_sing_box
-    generate_reality_keys
-    install_xray
-    configure_nginx        # 必须配置Nginx
-    configure_xray         # 使用原来的双层分流方案
-    configure_sing_box
-    save_config_info
-    start_services
-    generate_subscription
-    create_edgeboxctl
-    
-    # 显示安装信息
-    show_installation_info
-    
-    log_success "EdgeBox安装完成！"
-    log_info "安装日志: ${LOG_FILE}"
-    echo ""
-    echo -e "${GREEN}配置已保存，您可以随时使用 edgeboxctl 命令管理服务${NC}"
-}
-
-# 执行主函数
-main "$@"
