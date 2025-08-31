@@ -463,9 +463,8 @@ EOF
 
 # 配置Xray（回退到稳定的gRPC/WS协议）
 configure_xray() {
-    log "配置 Xray（单端口 + fallbacks + 内侧 TLS）..."
+    log "配置 Xray（单端口复用架构）..."
 
-    # 直接写到目标文件
     cat > ${CONFIG_DIR}/xray.json <<EOF
 {
   "log": {
@@ -475,7 +474,7 @@ configure_xray() {
   },
   "inbounds": [
     {
-      "tag": "vless-entry",
+      "tag": "VLESS-MultiProtocol",
       "listen": "0.0.0.0",
       "port": 443,
       "protocol": "vless",
@@ -485,8 +484,16 @@ configure_xray() {
         ],
         "decryption": "none",
         "fallbacks": [
-          { "alpn": "h2", "dest": "127.0.0.1:10085" },
-          { "dest": "127.0.0.1:10086" }
+          {
+            "alpn": "h2",
+            "dest": 10085,
+            "xver": 1
+          },
+          {
+            "alpn": "http/1.1",
+            "dest": 10086,
+            "xver": 1
+          }
         ]
       },
       "streamSettings": {
@@ -494,7 +501,8 @@ configure_xray() {
         "security": "reality",
         "realitySettings": {
           "show": false,
-          "dest": "443",
+          "dest": "www.cloudflare.com:443",
+          "xver": 0,
           "serverNames": ["www.cloudflare.com","www.microsoft.com","www.apple.com"],
           "privateKey": "${REALITY_PRIVATE_KEY}",
           "shortIds": ["${REALITY_SHORT_ID}"]
@@ -502,7 +510,7 @@ configure_xray() {
       }
     },
     {
-      "tag": "vless-grpc",
+      "tag": "VLESS-gRPC-Internal",
       "listen": "127.0.0.1",
       "port": 10085,
       "protocol": "vless",
@@ -515,15 +523,13 @@ configure_xray() {
         "security": "tls",
         "tlsSettings": {
           "alpn": ["h2"],
-          "certificates": [
-            { "certificateFile": "${CERT_DIR}/current.pem", "keyFile": "${CERT_DIR}/current.key" }
-          ]
+          "certificates": [ { "certificateFile": "${CERT_DIR}/current.pem", "keyFile": "${CERT_DIR}/current.key" } ]
         },
         "grpcSettings": { "serviceName": "grpc" }
       }
     },
     {
-      "tag": "vless-ws",
+      "tag": "VLESS-WS-Internal",
       "listen": "127.0.0.1",
       "port": 10086,
       "protocol": "vless",
@@ -536,72 +542,35 @@ configure_xray() {
         "security": "tls",
         "tlsSettings": {
           "alpn": ["http/1.1"],
-          "certificates": [
-            { "certificateFile": "${CERT_DIR}/current.pem", "keyFile": "${CERT_DIR}/current.key" }
-          ]
+          "certificates": [ { "certificateFile": "${CERT_DIR}/current.pem", "keyFile": "${CERT_DIR}/current.key" } ]
         },
         "wsSettings": { "path": "/ws" }
       }
     }
   ],
-  "outbounds": [ { "protocol": "freedom" } ]
+  "outbounds": [ { "protocol": "freedom", "settings": {} } ],
+  "routing": { "rules": [] }
 }
 EOF
 
-    # 覆盖 xray 的 systemd（固定读取这份配置）
-    cat >/etc/systemd/system/xray.service <<EOF
+    cat >/etc/systemd/system/xray.service <<'EOF'
 [Unit]
 Description=Xray Service (EdgeBox)
 After=network.target
 StartLimitIntervalSec=0
-
 [Service]
 Type=simple
 User=root
-ExecStart=/usr/local/bin/xray run -c ${CONFIG_DIR}/xray.json
+ExecStart=/usr/local/bin/xray run -c /etc/edgebox/config/xray.json
 Restart=on-failure
 RestartSec=5
 LimitNOFILE=infinity
-
 [Install]
 WantedBy=multi-user.target
 EOF
 
-    # 预检 + 刷新 + 不要引用不存在的 $tmp
-    /usr/local/bin/xray -test -c ${CONFIG_DIR}/xray.json || { log_error "xray 配置校验失败"; exit 1; }
     systemctl daemon-reload
-    log_ok "Xray 配置完成（单口 + fallbacks + 内侧 TLS）"
-}
-
-# 配置sing-box
-configure_sing_box() {
-    log "配置 sing-box..."
-
-    cat > ${CONFIG_DIR}/sing-box.json <<EOF
-{
-  "log": { "level": "warn", "timestamp": true },
-  "inbounds": [
-    {
-      "type": "hysteria2", "tag": "hysteria2-in",
-      "listen": "::", "listen_port": 443,
-      "users": [ { "name": "user", "password": "${PASSWORD_HYSTERIA2}" } ],
-      "masquerade": "https://www.cloudflare.com",
-      "tls": { "enabled": true, "certificate_path": "${CERT_DIR}/current.pem", "key_path": "${CERT_DIR}/current.key" }
-    },
-    {
-      "type": "tuic", "tag": "tuic-in",
-      "listen": "::", "listen_port": 2053,
-      "users": [ { "uuid": "${UUID_TUIC}", "password": "${PASSWORD_TUIC}" } ],
-      "congestion_control": "bbr",
-      "tls": { "enabled": true, "alpn": ["h3"], "certificate_path": "${CERT_DIR}/current.pem", "key_path": "${CERT_DIR}/current.key" }
-    }
-  ],
-  "outbounds": [ { "type": "direct" } ]
-}
-EOF
-
-    systemctl daemon-reload
-    log_ok "sing-box 配置完成"
+    log_ok "Xray 配置完成"
 }
 
 # 保存配置信息
