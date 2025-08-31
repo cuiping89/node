@@ -464,9 +464,9 @@ EOF
     log_success "sing-box安装完成"
 }
 
-# 配置Xray（单端口复用架构）
+# 配置Xray（单端口复用架构 - 使用XHTTP替代弃用协议）
 configure_xray() {
-    log "配置 Xray（单端口复用架构）..."
+    log "配置 Xray（单端口复用架构 - XHTTP协议）..."
 
     cat > ${CONFIG_DIR}/xray.json <<EOF
 {
@@ -484,22 +484,20 @@ configure_xray() {
       "settings": {
         "clients": [
           { "id": "${UUID_VLESS}", "flow": "xtls-rprx-vision", "email": "reality@edgebox" },
-          { "id": "${UUID_VLESS}", "email": "grpc@edgebox" },
-          { "id": "${UUID_VLESS}", "email": "ws@edgebox" }
+          { "id": "${UUID_VLESS}", "email": "xhttp-h2@edgebox" },
+          { "id": "${UUID_VLESS}", "email": "xhttp-h1@edgebox" }
         ],
         "decryption": "none",
         "fallbacks": [
           {
-            "name": "grpc.edgebox.local",
+            "name": "h2.edgebox.local",
             "alpn": "h2",
-            "path": "/grpc",
             "dest": 10085,
             "xver": 1
           },
           {
-            "name": "www.edgebox.local", 
+            "name": "h1.edgebox.local", 
             "alpn": "http/1.1",
-            "path": "/ws",
             "dest": 10086,
             "xver": 1
           },
@@ -528,33 +526,41 @@ configure_xray() {
       }
     },
     {
-      "tag": "VLESS-gRPC-Internal",
+      "tag": "VLESS-XHTTP-H2",
       "listen": "127.0.0.1",
       "port": 10085,
       "protocol": "vless",
       "settings": {
-        "clients": [ { "id": "${UUID_VLESS}", "email": "grpc-internal@edgebox" } ],
+        "clients": [ { "id": "${UUID_VLESS}", "email": "xhttp-h2-internal@edgebox" } ],
         "decryption": "none"
       },
       "streamSettings": {
-        "network": "grpc",
+        "network": "xhttp",
         "security": "none",
-        "grpcSettings": { "serviceName": "grpc" }
+        "xhttpSettings": {
+          "mode": "stream-up",
+          "host": ["h2.edgebox.local"],
+          "path": "/xhttp-h2"
+        }
       }
     },
     {
-      "tag": "VLESS-WS-Internal", 
+      "tag": "VLESS-XHTTP-H1", 
       "listen": "127.0.0.1",
       "port": 10086,
       "protocol": "vless",
       "settings": {
-        "clients": [ { "id": "${UUID_VLESS}", "email": "ws-internal@edgebox" } ],
+        "clients": [ { "id": "${UUID_VLESS}", "email": "xhttp-h1-internal@edgebox" } ],
         "decryption": "none"
       },
       "streamSettings": {
-        "network": "ws",
+        "network": "xhttp",
         "security": "none",
-        "wsSettings": { "path": "/ws" }
+        "xhttpSettings": {
+          "mode": "stream-one",
+          "host": ["h1.edgebox.local"],
+          "path": "/xhttp-h1"
+        }
       }
     }
   ],
@@ -580,7 +586,7 @@ WantedBy=multi-user.target
 EOF
 
     systemctl daemon-reload
-    log_ok "Xray 配置完成（单端口复用架构）"
+    log_ok "Xray 配置完成（单端口复用架构 - XHTTP协议）"
 }
 
 # 配置sing-box
@@ -673,13 +679,12 @@ start_services() {
     done
 }
 
-# 生成订阅链接（本地文件模式）
+# 生成订阅链接（本地文件模式 - 使用XHTTP协议）
 generate_subscription() {
     log_info "生成订阅链接..."
 
     local ip="${SERVER_IP}"
     local uuid="${UUID_VLESS}"
-    local ws_path="/ws"
 
     # URL编码密码
     local HY2_PW_ENC TUIC_PW_ENC
@@ -687,27 +692,27 @@ generate_subscription() {
     TUIC_PW_ENC=$(jq -rn --arg v "$PASSWORD_TUIC"     '$v|@uri')
 
     # IP模式的主机名
-    local grpc_host="grpc.edgebox.local"
-    local ws_host="www.edgebox.local"
+    local h2_host="h2.edgebox.local"
+    local h1_host="h1.edgebox.local"
     local quic_sni="www.edgebox.local"
 
-    # 1) VLESS Reality
+    # 1) VLESS Reality（未受影响）
     local reality_link="vless://${uuid}@${ip}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&spx=%2F#EdgeBox-REALITY"
 
-    # 2) VLESS gRPC
-    local grpc_link="vless://${uuid}@${ip}:443?encryption=none&security=tls&sni=${grpc_host}&alpn=h2&type=grpc&serviceName=grpc&allowInsecure=1#EdgeBox-gRPC"
+    # 2) VLESS XHTTP H2（替代gRPC）
+    local xhttp_h2_link="vless://${uuid}@${ip}:443?encryption=none&security=tls&sni=${h2_host}&alpn=h2&type=xhttp&mode=stream-up&host=${h2_host}&path=/xhttp-h2&allowInsecure=1#EdgeBox-XHTTP-H2"
 
-    # 3) VLESS WS  
-    local ws_link="vless://${uuid}@${ip}:443?encryption=none&security=tls&sni=${ws_host}&alpn=http/1.1&type=ws&host=${ws_host}&path=${ws_path}&allowInsecure=1#EdgeBox-WS"
+    # 3) VLESS XHTTP H1（替代WebSocket）
+    local xhttp_h1_link="vless://${uuid}@${ip}:443?encryption=none&security=tls&sni=${h1_host}&alpn=http/1.1&type=xhttp&mode=stream-one&host=${h1_host}&path=/xhttp-h1&allowInsecure=1#EdgeBox-XHTTP-H1"
 
-    # 4) Hysteria2
+    # 4) Hysteria2（未受影响）
     local hy2_link="hysteria2://${HY2_PW_ENC}@${ip}:443?sni=${quic_sni}&insecure=1&alpn=h3#EdgeBox-HYSTERIA2"
 
-    # 5) TUIC v5
+    # 5) TUIC v5（未受影响）
     local tuic_link="tuic://${UUID_TUIC}:${TUIC_PW_ENC}@${ip}:2053?congestion_control=bbr&alpn=h3&sni=${quic_sni}&allowInsecure=1#EdgeBox-TUIC"
 
     # 输出订阅（仅保存到本地文件）
-    local plain="${reality_link}\n${grpc_link}\n${ws_link}\n${hy2_link}\n${tuic_link}\n"
+    local plain="${reality_link}\n${xhttp_h2_link}\n${xhttp_h1_link}\n${hy2_link}\n${tuic_link}\n"
     echo -e "${plain}" > "${CONFIG_DIR}/subscription.txt"
     
     # 生成Base64编码的订阅文件
@@ -808,7 +813,7 @@ show_status() {
     ss -ulnp 2>/dev/null | grep ":2053 " && echo -e "  UDP/2053: ${GREEN}正常${NC}" || echo -e "  UDP/2053: ${RED}异常${NC}"
     
     echo -e "${YELLOW}内部回环端口：${NC}"
-    ss -tlnp 2>/dev/null | grep "127.0.0.1:10085 " && echo -e "  gRPC内部: ${GREEN}正常${NC}" || echo -e "  gRPC内部: ${RED}异常${NC}"
+    ss -tlnp 2>/dev/null | grep "127.0.0.1:10085 " &&     echo -e "  gRPC内部: ${GREEN}正常${NC}" || echo -e "  gRPC内部: ${RED}异常${NC}"
     ss -tlnp 2>/dev/null | grep "127.0.0.1:10086 " && echo -e "  WS内部: ${GREEN}正常${NC}" || echo -e "  WS内部: ${RED}异常${NC}"
 }
 
@@ -947,15 +952,15 @@ show_installation_info() {
     echo -e "      UUID: ${UUID_VLESS}"
     echo -e "      公钥: ${REALITY_PUBLIC_KEY}"
     
-    echo -e "\n  ${PURPLE}[2] VLESS-gRPC${NC}"
+    echo -e "\n  ${PURPLE}[2] VLESS-XHTTP-H2${NC}"
     echo -e "      端口: 443（单端口复用）"
     echo -e "      UUID: ${UUID_VLESS}"
-    echo -e "      SNI: grpc.edgebox.local"
+    echo -e "      SNI: h2.edgebox.local"
     
-    echo -e "\n  ${PURPLE}[3] VLESS-WS${NC}"
+    echo -e "\n  ${PURPLE}[3] VLESS-XHTTP-H1${NC}"
     echo -e "      端口: 443（单端口复用）"
     echo -e "      UUID: ${UUID_VLESS}"
-    echo -e "      路径: /ws"
+    echo -e "      路径: /xhttp-h1"
     
     echo -e "\n  ${PURPLE}[4] Hysteria2${NC}"
     echo -e "      端口: 443 (UDP)"
