@@ -291,44 +291,58 @@ EOF
     log_success "系统参数优化完成"
 }
 
-# 生成自签名证书
+# 生成自签名证书（增强版本，确保密钥匹配）
 generate_self_signed_cert() {
     log_info "生成自签名证书..."
     
+    # 确保目录存在
+    mkdir -p ${CERT_DIR}
+    
+    # 删除旧的证书文件
+    rm -f ${CERT_DIR}/self-signed.key ${CERT_DIR}/self-signed.pem
+    rm -f ${CERT_DIR}/current.key ${CERT_DIR}/current.pem
+    
+    # 生成新的证书和私钥
     openssl req -x509 -nodes -newkey ec:<(openssl ecparam -name secp384r1) \
         -keyout ${CERT_DIR}/self-signed.key \
         -out ${CERT_DIR}/self-signed.pem \
         -days 3650 \
         -subj "/C=US/ST=California/L=San Francisco/O=EdgeBox/CN=${SERVER_IP}" >/dev/null 2>&1
     
-    # 创建软链接
-    rm -f ${CERT_DIR}/current.key ${CERT_DIR}/current.pem
-    ln -s ${CERT_DIR}/self-signed.key ${CERT_DIR}/current.key
-    ln -s ${CERT_DIR}/self-signed.pem ${CERT_DIR}/current.pem
+    # 验证证书和私钥是否匹配
+    local cert_modulus key_modulus
+    cert_modulus=$(openssl x509 -noout -modulus -in ${CERT_DIR}/self-signed.pem 2>/dev/null | openssl md5)
+    key_modulus=$(openssl ec -noout -modulus -in ${CERT_DIR}/self-signed.key 2>/dev/null | openssl md5)
     
-    # 设置权限
+    if [[ "$cert_modulus" != "$key_modulus" ]]; then
+        log_error "证书和私钥不匹配，重新生成..."
+        rm -f ${CERT_DIR}/self-signed.key ${CERT_DIR}/self-signed.pem
+        
+        # 重新生成
+        openssl req -x509 -nodes -newkey ec:<(openssl ecparam -name secp384r1) \
+            -keyout ${CERT_DIR}/self-signed.key \
+            -out ${CERT_DIR}/self-signed.pem \
+            -days 3650 \
+            -subj "/C=US/ST=California/L=San Francisco/O=EdgeBox/CN=${SERVER_IP}" >/dev/null 2>&1
+    fi
+    
+    # 创建软链接
+    ln -sf ${CERT_DIR}/self-signed.key ${CERT_DIR}/current.key
+    ln -sf ${CERT_DIR}/self-signed.pem ${CERT_DIR}/current.pem
+    
+    # 设置正确的权限
+    chown root:root ${CERT_DIR}/*.key ${CERT_DIR}/*.pem
     chmod 600 ${CERT_DIR}/*.key
     chmod 644 ${CERT_DIR}/*.pem
 
-    # 配对校验
-    local cert_pub tmp_pub
-    cert_pub="$(openssl x509 -in ${CERT_DIR}/current.pem -pubkey -noout 2>/dev/null | openssl sha256 2>/dev/null)"
-    tmp_pub="$(openssl pkey -in ${CERT_DIR}/current.key -pubout 2>/dev/null | openssl sha256 2>/dev/null || true)"
-    if [[ -z "$cert_pub" || -z "$tmp_pub" || "$cert_pub" != "$tmp_pub" ]]; then
-        log_warn "检测到证书密钥不匹配，重新生成..."
-        openssl req -x509 -nodes -newkey ec:<(openssl ecparam -name secp384r1) \
-          -keyout ${CERT_DIR}/self-signed.key \
-          -out ${CERT_DIR}/self-signed.pem \
-          -days 3650 \
-          -subj "/C=US/ST=California/L=San Francisco/O=EdgeBox/CN=${SERVER_IP}" >/dev/null 2>&1
-        ln -sf ${CERT_DIR}/self-signed.key ${CERT_DIR}/current.key
-        ln -sf ${CERT_DIR}/self-signed.pem ${CERT_DIR}/current.pem
-        chmod 600 ${CERT_DIR}/*.key
-        chmod 644 ${CERT_DIR}/*.pem
-        log_success "已重新配对自签名证书与私钥"
+    # 最终验证
+    if openssl x509 -in ${CERT_DIR}/current.pem -noout -text >/dev/null 2>&1 && \
+       openssl ec -in ${CERT_DIR}/current.key -noout -text >/dev/null 2>&1; then
+        log_success "自签名证书生成完成并验证通过"
+    else
+        log_error "证书验证失败"
+        return 1
     fi
-
-    log_success "自签名证书生成完成"
 }
 
 # 生成Reality密钥对
@@ -464,9 +478,9 @@ EOF
     log_success "sing-box安装完成"
 }
 
-# 配置Xray（单端口复用架构 - 使用XHTTP替代弃用协议）
+# 配置Xray（回退到稳定的gRPC/WS协议）
 configure_xray() {
-    log "配置 Xray（单端口复用架构 - XHTTP协议）..."
+    log "配置 Xray（单端口复用架构 - 稳定协议）..."
 
     cat > ${CONFIG_DIR}/xray.json <<EOF
 {
@@ -483,20 +497,18 @@ configure_xray() {
       "protocol": "vless",
       "settings": {
         "clients": [
-          { "id": "${UUID_VLESS}", "flow": "xtls-rprx-vision", "email": "reality@edgebox" },
-          { "id": "${UUID_VLESS}", "email": "xhttp-h2@edgebox" },
-          { "id": "${UUID_VLESS}", "email": "xhttp-h1@edgebox" }
+          { "id": "${UUID_VLESS}", "flow": "xtls-rprx-vision", "email": "reality@edgebox" }
         ],
         "decryption": "none",
         "fallbacks": [
           {
-            "name": "h2.edgebox.local",
+            "name": "grpc.edgebox.local",
             "alpn": "h2",
             "dest": 10085,
             "xver": 1
           },
           {
-            "name": "h1.edgebox.local", 
+            "name": "ws.edgebox.local", 
             "alpn": "http/1.1",
             "dest": 10086,
             "xver": 1
@@ -526,41 +538,41 @@ configure_xray() {
       }
     },
     {
-      "tag": "VLESS-XHTTP-H2",
+      "tag": "VLESS-gRPC-Internal",
       "listen": "127.0.0.1",
       "port": 10085,
       "protocol": "vless",
       "settings": {
-        "clients": [ { "id": "${UUID_VLESS}", "email": "xhttp-h2-internal@edgebox" } ],
+        "clients": [ { "id": "${UUID_VLESS}", "email": "grpc-internal@edgebox" } ],
         "decryption": "none"
       },
       "streamSettings": {
-        "network": "xhttp",
-        "security": "none",
-        "xhttpSettings": {
-          "mode": "stream-up",
-          "host": ["h2.edgebox.local"],
-          "path": "/xhttp-h2"
-        }
+        "network": "grpc",
+        "security": "tls",
+        "tlsSettings": {
+          "alpn": ["h2"],
+          "certificates": [ { "certificateFile": "${CERT_DIR}/current.pem", "keyFile": "${CERT_DIR}/current.key" } ]
+        },
+        "grpcSettings": { "serviceName": "grpc" }
       }
     },
     {
-      "tag": "VLESS-XHTTP-H1", 
+      "tag": "VLESS-WS-Internal", 
       "listen": "127.0.0.1",
       "port": 10086,
       "protocol": "vless",
       "settings": {
-        "clients": [ { "id": "${UUID_VLESS}", "email": "xhttp-h1-internal@edgebox" } ],
+        "clients": [ { "id": "${UUID_VLESS}", "email": "ws-internal@edgebox" } ],
         "decryption": "none"
       },
       "streamSettings": {
-        "network": "xhttp",
-        "security": "none",
-        "xhttpSettings": {
-          "mode": "stream-one",
-          "host": ["h1.edgebox.local"],
-          "path": "/xhttp-h1"
-        }
+        "network": "ws",
+        "security": "tls",
+        "tlsSettings": {
+          "alpn": ["http/1.1"],
+          "certificates": [ { "certificateFile": "${CERT_DIR}/current.pem", "keyFile": "${CERT_DIR}/current.key" } ]
+        },
+        "wsSettings": { "path": "/ws" }
       }
     }
   ],
@@ -586,7 +598,7 @@ WantedBy=multi-user.target
 EOF
 
     systemctl daemon-reload
-    log_ok "Xray 配置完成（单端口复用架构 - XHTTP协议）"
+    log_ok "Xray 配置完成（单端口复用架构 - 稳定协议）"
 }
 
 # 配置sing-box
@@ -679,7 +691,7 @@ start_services() {
     done
 }
 
-# 生成订阅链接（本地文件模式 - 使用XHTTP协议）
+# 生成订阅链接（本地文件模式 - 稳定协议）
 generate_subscription() {
     log_info "生成订阅链接..."
 
@@ -692,27 +704,27 @@ generate_subscription() {
     TUIC_PW_ENC=$(jq -rn --arg v "$PASSWORD_TUIC"     '$v|@uri')
 
     # IP模式的主机名
-    local h2_host="h2.edgebox.local"
-    local h1_host="h1.edgebox.local"
+    local grpc_host="grpc.edgebox.local"
+    local ws_host="ws.edgebox.local"
     local quic_sni="www.edgebox.local"
 
-    # 1) VLESS Reality（未受影响）
+    # 1) VLESS Reality
     local reality_link="vless://${uuid}@${ip}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&spx=%2F#EdgeBox-REALITY"
 
-    # 2) VLESS XHTTP H2（替代gRPC）
-    local xhttp_h2_link="vless://${uuid}@${ip}:443?encryption=none&security=tls&sni=${h2_host}&alpn=h2&type=xhttp&mode=stream-up&host=${h2_host}&path=/xhttp-h2&allowInsecure=1#EdgeBox-XHTTP-H2"
+    # 2) VLESS gRPC（忽略弃用警告，使用稳定配置）
+    local grpc_link="vless://${uuid}@${ip}:443?encryption=none&security=tls&sni=${grpc_host}&alpn=h2&type=grpc&serviceName=grpc&allowInsecure=1#EdgeBox-gRPC"
 
-    # 3) VLESS XHTTP H1（替代WebSocket）
-    local xhttp_h1_link="vless://${uuid}@${ip}:443?encryption=none&security=tls&sni=${h1_host}&alpn=http/1.1&type=xhttp&mode=stream-one&host=${h1_host}&path=/xhttp-h1&allowInsecure=1#EdgeBox-XHTTP-H1"
+    # 3) VLESS WS（忽略弃用警告，使用稳定配置）
+    local ws_link="vless://${uuid}@${ip}:443?encryption=none&security=tls&sni=${ws_host}&alpn=http/1.1&type=ws&host=${ws_host}&path=/ws&allowInsecure=1#EdgeBox-WS"
 
-    # 4) Hysteria2（未受影响）
+    # 4) Hysteria2
     local hy2_link="hysteria2://${HY2_PW_ENC}@${ip}:443?sni=${quic_sni}&insecure=1&alpn=h3#EdgeBox-HYSTERIA2"
 
-    # 5) TUIC v5（未受影响）
+    # 5) TUIC v5
     local tuic_link="tuic://${UUID_TUIC}:${TUIC_PW_ENC}@${ip}:2053?congestion_control=bbr&alpn=h3&sni=${quic_sni}&allowInsecure=1#EdgeBox-TUIC"
 
     # 输出订阅（仅保存到本地文件）
-    local plain="${reality_link}\n${xhttp_h2_link}\n${xhttp_h1_link}\n${hy2_link}\n${tuic_link}\n"
+    local plain="${reality_link}\n${grpc_link}\n${ws_link}\n${hy2_link}\n${tuic_link}\n"
     echo -e "${plain}" > "${CONFIG_DIR}/subscription.txt"
     
     # 生成Base64编码的订阅文件
@@ -952,15 +964,15 @@ show_installation_info() {
     echo -e "      UUID: ${UUID_VLESS}"
     echo -e "      公钥: ${REALITY_PUBLIC_KEY}"
     
-    echo -e "\n  ${PURPLE}[2] VLESS-XHTTP-H2${NC}"
+    echo -e "\n  ${PURPLE}[2] VLESS-gRPC${NC}"
     echo -e "      端口: 443（单端口复用）"
     echo -e "      UUID: ${UUID_VLESS}"
-    echo -e "      SNI: h2.edgebox.local"
+    echo -e "      SNI: grpc.edgebox.local"
     
-    echo -e "\n  ${PURPLE}[3] VLESS-XHTTP-H1${NC}"
+    echo -e "\n  ${PURPLE}[3] VLESS-WS${NC}"
     echo -e "      端口: 443（单端口复用）"
     echo -e "      UUID: ${UUID_VLESS}"
-    echo -e "      路径: /xhttp-h1"
+    echo -e "      路径: /ws"
     
     echo -e "\n  ${PURPLE}[4] Hysteria2${NC}"
     echo -e "      端口: 443 (UDP)"
