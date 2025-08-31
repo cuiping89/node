@@ -494,7 +494,6 @@ configure_xray() {
         "realitySettings": {
           "show": false,
           "dest": "www.cloudflare.com:443",
-          "xver": 0,
           "serverNames": ["www.cloudflare.com","www.microsoft.com","www.apple.com"],
           "privateKey": "${REALITY_PRIVATE_KEY}",
           "shortIds": ["${REALITY_SHORT_ID}"]
