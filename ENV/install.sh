@@ -484,8 +484,8 @@ configure_xray() {
         ],
         "decryption": "none",
         "fallbacks": [
-          { "alpn": "h2",        "dest": "127.0.0.1:10085" },
-          { "alpn": "http/1.1",  "dest": "127.0.0.1:10086" }
+  { "alpn": "h2", "dest": "127.0.0.1:10085" },
+  { "dest": "127.0.0.1:10086" }
         ]
       },
       "streamSettings": {
