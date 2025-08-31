@@ -1415,7 +1415,7 @@ NGINX_SIMPLE
 configure_xray() {
     log_info "配置 Xray（内部服务，无fallbacks）..."
 
-    cat > ${CONFIG_DIR}/xray.json << XRAY_CONFIG
+    cat > ${CONFIG_DIR}/xray.json << 'XRAY_CONFIG'
 {
   "log": {
     "loglevel": "warning",
@@ -1431,7 +1431,7 @@ configure_xray() {
       "settings": {
         "clients": [
           { 
-            "id": "${UUID_VLESS}", 
+            "id": "UUID_VLESS_PLACEHOLDER", 
             "flow": "xtls-rprx-vision", 
             "email": "reality@edgebox" 
           }
@@ -1450,8 +1450,8 @@ configure_xray() {
             "www.microsoft.com",
             "www.apple.com"
           ],
-          "privateKey": "${REALITY_PRIVATE_KEY}",
-          "shortIds": ["${REALITY_SHORT_ID}"]
+          "privateKey": "REALITY_PRIVATE_KEY_PLACEHOLDER",
+          "shortIds": ["REALITY_SHORT_ID_PLACEHOLDER"]
         }
       }
     },
@@ -1463,7 +1463,7 @@ configure_xray() {
       "settings": {
         "clients": [ 
           { 
-            "id": "${UUID_VLESS}", 
+            "id": "UUID_VLESS_PLACEHOLDER", 
             "email": "grpc-internal@edgebox" 
           } 
         ],
@@ -1476,8 +1476,8 @@ configure_xray() {
           "alpn": ["h2"],
           "certificates": [ 
             { 
-              "certificateFile": "${CERT_DIR}/current.pem", 
-              "keyFile": "${CERT_DIR}/current.key" 
+              "certificateFile": "CERT_DIR_PLACEHOLDER/current.pem", 
+              "keyFile": "CERT_DIR_PLACEHOLDER/current.key" 
             } 
           ]
         },
@@ -1495,7 +1495,7 @@ configure_xray() {
       "settings": {
         "clients": [ 
           { 
-            "id": "${UUID_VLESS}", 
+            "id": "UUID_VLESS_PLACEHOLDER", 
             "email": "ws-internal@edgebox" 
           } 
         ],
@@ -1508,15 +1508,15 @@ configure_xray() {
           "alpn": ["http/1.1"],
           "certificates": [ 
             { 
-              "certificateFile": "${CERT_DIR}/current.pem", 
-              "keyFile": "${CERT_DIR}/current.key" 
+              "certificateFile": "CERT_DIR_PLACEHOLDER/current.pem", 
+              "keyFile": "CERT_DIR_PLACEHOLDER/current.key" 
             } 
           ]
         },
         "wsSettings": { 
           "path": "/ws",
           "headers": {
-            "Host": "${SERVER_IP}"
+            "Host": "SERVER_IP_PLACEHOLDER"
           }
         }
       }
@@ -1533,6 +1533,21 @@ configure_xray() {
   }
 }
 XRAY_CONFIG
+
+    # 安全地替换占位符
+    sed -i "s|UUID_VLESS_PLACEHOLDER|${UUID_VLESS}|g" ${CONFIG_DIR}/xray.json
+    sed -i "s|REALITY_PRIVATE_KEY_PLACEHOLDER|${REALITY_PRIVATE_KEY}|g" ${CONFIG_DIR}/xray.json
+    sed -i "s|REALITY_SHORT_ID_PLACEHOLDER|${REALITY_SHORT_ID}|g" ${CONFIG_DIR}/xray.json
+    sed -i "s|CERT_DIR_PLACEHOLDER|${CERT_DIR}|g" ${CONFIG_DIR}/xray.json
+    sed -i "s|SERVER_IP_PLACEHOLDER|${SERVER_IP}|g" ${CONFIG_DIR}/xray.json
+
+    # 验证 JSON 语法
+    if jq '.' ${CONFIG_DIR}/xray.json >/dev/null 2>&1; then
+        log_success "Xray 配置完成并验证通过"
+    else
+        log_error "Xray 配置JSON语法错误"
+        return 1
+    fi
 
     cat > /etc/systemd/system/xray.service << 'XRAY_SERVICE'
 [Unit]
