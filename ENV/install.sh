@@ -668,25 +668,31 @@ http {
 }
 
 stream {
-    # SNI 是否伪装站：命中则走 Reality
-    map $ssl_preread_server_name $is_reality {
-        ~^(www\.cloudflare\.com|www\.apple\.com|www\.microsoft\.com)$ 1;
-        default 0;
+    # 伪装站（走 Reality）
+    map $ssl_preread_server_name $svc {
+        ~^(www\.cloudflare\.com|www\.apple\.com|www\.microsoft\.com)$ reality;
+        grpc.edgebox.local   grpc;   # 你可以换成自己的：grpc.<你的域名>
+        ws.edgebox.local     ws;     # 你可以换成自己的：ws.<你的域名>
+        default              "";
     }
 
-    # 非 Reality 时再看 ALPN 分流
-    map $ssl_preread_alpn_protocols $alpn {
-        ~\bhttp/1\.1\b  ws;
-        ~\bh2\b         grpc;
-        default           ws;
+    # ALPN 兜底（仅在 $svc 为空时才生效）
+    map $ssl_preread_alpn_protocols $by_alpn {
+        ~\bh2\b         127.0.0.1:10085;   # gRPC
+        ~\bhttp/1\.1\b  127.0.0.1:10086;   # WS
+        default         127.0.0.1:10086;   # 兜底走 WS，防回环
     }
 
-    # 组合路由：优先 Reality，其次 ALPN
-    map "$is_reality:$alpn" $upstream {
-        "~^1:"      127.0.0.1:11443; # Reality
-        "~^0:grpc$" 127.0.0.1:10085; # gRPC
-        "~^0:ws$"   127.0.0.1:10086; # WS
-        default     127.0.0.1:10086; # 兜底防回环
+    # 先看 SNI，如能识别则直接定向；否则落回 ALPN
+    map $svc $upstream_sni {
+        reality 127.0.0.1:11443;
+        grpc    127.0.0.1:10085;
+        ws      127.0.0.1:10086;
+        default "";
+    }
+    map $upstream_sni $upstream {
+        ~.+     $upstream_sni;
+        default $by_alpn;
     }
 
     server {
@@ -697,6 +703,7 @@ stream {
         proxy_connect_timeout 5s;
     }
 }
+
 NGINX_FIRST_END
 
     # 创建web目录
