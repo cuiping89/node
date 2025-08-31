@@ -1,772 +1,128 @@
-#!/bin/bash
-
-#############################################
-# EdgeBox 一站式多协议节点部署脚本
-# Version: 2.0.1 
-# Description: 非交互式IP模式安装 - 模块1：核心基础 + 契约定义
-# Protocols: VLESS-Reality, VLESS-gRPC, VLESS-WS, Hysteria2, TUIC
-# Architecture: SNI定向 + ALPN兜底 + 本地订阅文件
-#############################################
-
-set -e
-
-# 颜色定义
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-PURPLE='\033[0;35m'
-CYAN='\033[0;36m'
-NC='\033[0m' # No Color
-
-# 全局变量
-INSTALL_DIR="/etc/edgebox"
-CERT_DIR="${INSTALL_DIR}/cert"
-CONFIG_DIR="${INSTALL_DIR}/config"
-BACKUP_DIR="/root/edgebox-backup"
-LOG_FILE="/var/log/edgebox-install.log"
-
-# 服务器信息
-SERVER_IP=""
-SERVER_DOMAIN=""
-INSTALL_MODE="ip" # 默认IP模式
-
-# UUID生成
-UUID_VLESS=""
-UUID_HYSTERIA2=""
-UUID_TUIC=""
-
-# Reality密钥
-REALITY_PRIVATE_KEY=""
-REALITY_PUBLIC_KEY=""
-REALITY_SHORT_ID=""
-
-# 密码生成
-PASSWORD_HYSTERIA2=""
-PASSWORD_TUIC=""
-
-# 端口配置（单端口复用架构）
-PORT_REALITY=11443      # 内部回环 (Xray Reality)
-PORT_HYSTERIA2=443    # UDP
-PORT_TUIC=2053        # UDP
-PORT_GRPC=10085       # 内部回环
-PORT_WS=10086         # 内部回环
-
-#############################################
-# 工具函数
-#############################################
-
-log_info() {
-    echo -e "${GREEN}[INFO]${NC} $1" | tee -a ${LOG_FILE}
+# 显示安装信息
+show_installation_info() {
+    clear
+    print_separator
+    echo -e "${GREEN}EdgeBox 安装完成！${NC}"
+    print_separator
+    
+    echo -e "${CYAN}服务器信息：${NC}"
+    echo -e "  IP地址: ${GREEN}${SERVER_IP}${NC}"
+    echo -e "  模式: ${YELLOW}IP模式（自签名证书）${NC}"
+    echo -e "  架构: ${PURPLE}SNI定向 + ALPN兜底${NC}"
+    
+    echo -e "\n${CYAN}协议信息：${NC}"
+    echo -e "  ${PURPLE}[1] VLESS-Reality${NC}"
+    echo -e "      端口: 443"
+    echo -e "      UUID: ${UUID_VLESS}"
+    echo -e "      公钥: ${REALITY_PUBLIC_KEY}"
+    echo -e "      SNI: www.cloudflare.com"
+    
+    echo -e "\n  ${PURPLE}[2] VLESS-gRPC${NC}"
+    echo -e "      端口: 443（Nginx SNI 定向）"
+    echo -e "      UUID: ${UUID_VLESS}"
+    echo -e "      SNI: grpc.edgebox.internal"
+    echo -e "      serviceName: grpc"
+    
+    echo -e "\n  ${PURPLE}[3] VLESS-WS${NC}"
+    echo -e "      端口: 443（Nginx SNI 定向）"
+    echo -e "      UUID: ${UUID_VLESS}"
+    echo -e "      SNI: ws.edgebox.internal"
+    echo -e "      路径: /ws"
+    
+    echo -e "\n  ${PURPLE}[4] Hysteria2${NC}"
+    echo -e "      端口: 443 (UDP)"
+    echo -e "      密码: ${PASSWORD_HYSTERIA2}"
+    
+    echo -e "\n  ${PURPLE}[5] TUIC${NC}"
+    echo -e "      端口: 2053 (UDP)"
+    echo -e "      UUID: ${UUID_TUIC}"
+    echo -e "      密码: ${PASSWORD_TUIC}"
+    
+    echo -e "\n${CYAN}管理命令：${NC}"
+    echo -e "  ${YELLOW}edgeboxctl sub${NC}              # 查看订阅链接"
+    echo -e "  ${YELLOW}edgeboxctl status${NC}           # 查看服务状态"
+    echo -e "  ${YELLOW}edgeboxctl restart${NC}          # 重启所有服务"
+    echo -e "  ${YELLOW}edgeboxctl switch-to-domain <域名>${NC}  # 切换到域名模式"
+    echo -e "  ${YELLOW}edgeboxctl switch-to-ip${NC}     # 切换回IP模式"
+    echo -e "  ${YELLOW}edgeboxctl test${NC}             # 测试连接"
+    echo -e "  ${YELLOW}edgeboxctl debug-ports${NC}      # 调试端口状态"
+    echo -e "  ${YELLOW}edgeboxctl logs xray${NC}        # 查看日志"
+    
+    echo -e "\n${YELLOW}架构优化：${NC}"
+    echo -e "  ✅ SNI定向 + ALPN兜底：解决协议摇摆问题"
+    echo -e "  ✅ 内部标识符：避免证书不匹配错误"
+    echo -e "  ✅ 契约接口：支持IP ⇋ 域名模式无缝切换"
+    echo -e "  ✅ 自签证书：开箱即用，客户端需开启'跳过证书验证'"
+    
+    echo -e "\n${YELLOW}注意事项：${NC}"
+    echo -e "  1. 当前为IP模式，VLESS协议客户端需开启'跳过证书验证'"
+    echo -e "  2. Reality协议不需要跳过证书验证"
+    echo -e "  3. 使用内部标识符 (*.edgebox.internal) 避免证书冲突"
+    echo -e "  4. 防火墙已配置，请确保云服务商防火墙也开放相应端口"
+    echo -e "  5. 订阅链接: ${YELLOW}edgeboxctl sub${NC}"
+    
+    print_separator
+    echo -e "${GREEN}🎉 模块1安装完成！契约接口已就绪，可开始模块2开发${NC}"
 }
 
-log_warn() {
-    echo -e "${YELLOW}[WARN]${NC} $1" | tee -a ${LOG_FILE}
-}
-
-log_error() {
-    echo -e "${RED}[ERROR]${NC} $1" | tee -a ${LOG_FILE}
-}
-
-log_success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $1" | tee -a ${LOG_FILE}
-}
-
-print_separator() {
-    echo -e "${BLUE}========================================${NC}"
-}
-
-# 兼容别名
-log() { log_info "$@"; }
-log_ok() { log_success "$@"; }
-error() { log_error "$@"; }
-
-# 检查root权限
-check_root() {
-    if [[ $EUID -ne 0 ]]; then
-        log_error "此脚本必须以root权限运行"
-        exit 1
+# 清理函数
+cleanup() {
+    if [ "$?" -eq 0 ]; then
+        log_info "清理临时文件..."
+        rm -f /tmp/Xray-linux-64.zip 2>/dev/null || true
+        rm -f /tmp/sing-box-*.tar.gz 2>/dev/null || true
     fi
 }
 
-# 检查系统
-check_system() {
-    log_info "检查系统兼容性..."
+# 主安装流程
+main() {
+    clear
+    print_separator
+    echo -e "${GREEN}EdgeBox 安装脚本 v2.0.1${NC}"
+    echo -e "${CYAN}SNI定向 + ALPN兜底架构 + 契约接口${NC}"
+    print_separator
     
-    if [ -f /etc/os-release ]; then
-        . /etc/os-release
-        OS=$ID
-        VERSION=$VERSION_ID
-    else
-        log_error "无法确定操作系统类型"
-        exit 1
-    fi
+    # 创建日志文件
+    mkdir -p $(dirname ${LOG_FILE})
+    touch ${LOG_FILE}
     
-    # 支持的系统版本
-    SUPPORTED=false
+    # 设置错误处理
+    trap cleanup EXIT
     
-    case "$OS" in
-        ubuntu)
-            MAJOR_VERSION=$(echo "$VERSION" | cut -d. -f1)
-            if [ "$MAJOR_VERSION" -ge 18 ] 2>/dev/null; then
-                SUPPORTED=true
-            fi
-            ;;
-        debian)
-            if [ "$VERSION" -ge 10 ] 2>/dev/null; then
-                SUPPORTED=true
-            fi
-            ;;
-        *)
-            SUPPORTED=false
-            ;;
-    esac
+    # 执行安装步骤
+    check_root
+    check_system
+    get_server_ip
+    install_dependencies
+    generate_credentials
+    create_directories
+    check_ports
+    configure_firewall
+    optimize_system
+    generate_self_signed_cert        # 生成自签证书并设置契约状态
+    install_sing_box
+    install_xray                     # 先安装 xray
+    generate_reality_keys           # 然后生成 Reality 密钥（修复依赖顺序）
+    configure_nginx                  # SNI定向 + ALPN兜底架构
+    configure_xray                   # 内部回环服务
+    configure_sing_box              # UDP协议服务
+    save_config_info                # 保存配置信息
+    start_services                  # 启动所有服务
+    generate_subscription           # 生成初始订阅（基于契约）
+    create_edgeboxctl              # 创建增强版管理工具
     
-    if [ "$SUPPORTED" = "true" ]; then
-        log_success "系统检查通过: $OS $VERSION"
-    else
-        log_error "不支持的系统: $OS $VERSION"
-        log_info "支持的系统: Ubuntu 18.04+, Debian 10+"
-        exit 1
-    fi
+    # 显示安装信息
+    show_installation_info
+    
+    log_success "EdgeBox安装完成！契约接口已建立，为模块2开发做好准备"
+    log_info "安装日志: ${LOG_FILE}"
+    echo ""
+    echo -e "${GREEN}配置已保存，您可以随时使用 edgeboxctl 命令管理服务${NC}"
+    echo -e "${BLUE}下一步：使用 'edgeboxctl sub' 获取订阅链接${NC}"
 }
 
-# 获取服务器IP
-get_server_ip() {
-    log_info "获取服务器公网IP..."
-    
-    IP_SERVICES=(
-        "https://api.ipify.org"
-        "https://icanhazip.com"
-        "https://ipecho.net/plain"
-        "https://api.ip.sb/ip"
-    )
-    
-    for service in "${IP_SERVICES[@]}"; do
-        SERVER_IP=$(curl -s --max-time 5 $service 2>/dev/null | grep -Eo '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' | head -n1)
-        if [[ -n "$SERVER_IP" ]]; then
-            log_success "获取到服务器IP: $SERVER_IP"
-            return 0
-        fi
-    done
-    
-    log_error "无法获取服务器公网IP"
-    exit 1
-}
-
-# 检查并安装依赖
-install_dependencies() {
-    log_info "更新软件源..."
-    apt-get update -qq
-    
-    log_info "安装必要依赖..."
-    
-    # 基础工具（最小化依赖）
-    PACKAGES="curl wget unzip tar net-tools openssl jq uuid-runtime vnstat iftop certbot"
-    
-    # 添加Nginx和stream模块
-    PACKAGES="$PACKAGES nginx libnginx-mod-stream"
-    
-    for pkg in $PACKAGES; do
-        if ! dpkg -l | grep -q "^ii.*$pkg"; then
-            log_info "安装 $pkg..."
-            DEBIAN_FRONTEND=noninteractive apt-get install -y $pkg >/dev/null 2>&1 || {
-                log_warn "$pkg 安装失败，尝试继续..."
-            }
-        else
-            log_info "$pkg 已安装"
-        fi
-    done
-    
-    # 启用vnstat
-    systemctl enable vnstat >/dev/null 2>&1
-    systemctl start vnstat >/dev/null 2>&1
-    
-    log_success "依赖安装完成"
-}
-
-# 生成UUID和密码
-generate_credentials() {
-    log_info "生成UUID和密码..."
-    
-    UUID_VLESS=$(uuidgen)
-    UUID_HYSTERIA2=$(uuidgen)
-    UUID_TUIC=$(uuidgen)
-    
-    REALITY_SHORT_ID="$(openssl rand -hex 8)"
-    PASSWORD_HYSTERIA2=$(openssl rand -base64 16)
-    PASSWORD_TUIC=$(openssl rand -base64 16)
-    
-    log_success "凭证生成完成"
-}
-
-# 创建目录结构
-create_directories() {
-    log_info "创建目录结构..."
-    
-    mkdir -p ${INSTALL_DIR}/{cert,config,templates,scripts}
-    mkdir -p ${BACKUP_DIR}
-    mkdir -p /var/log/edgebox
-    mkdir -p /var/log/xray
-    
-    log_success "目录结构创建完成"
-}
-
-# 检查端口占用
-check_ports() {
-    log_info "检查端口占用情况..."
-    
-    local ports=(443 2053)
-    local occupied=false
-    
-    for port in "${ports[@]}"; do
-        if ss -tuln 2>/dev/null | grep -q ":${port} "; then
-            log_warn "端口 $port 已被占用"
-            occupied=true
-        fi
-    done
-    
-    if [[ "$occupied" == true ]]; then
-        log_warn "某些端口已被占用，可能需要调整配置"
-    else
-        log_success "端口检查通过"
-    fi
-}
-
-# 配置防火墙
-configure_firewall() {
-    log_info "配置防火墙规则..."
-    
-    if command -v ufw &> /dev/null; then
-        ufw --force disable >/dev/null 2>&1
-        
-        ufw default deny incoming >/dev/null 2>&1
-        ufw default allow outgoing >/dev/null 2>&1
-        
-        ufw allow 22/tcp comment 'SSH' >/dev/null 2>&1
-        ufw allow 80/tcp comment 'HTTP' >/dev/null 2>&1
-        ufw allow 443/tcp comment 'EdgeBox TCP' >/dev/null 2>&1
-        ufw allow 443/udp comment 'EdgeBox Hysteria2' >/dev/null 2>&1
-        ufw allow 2053/udp comment 'EdgeBox TUIC' >/dev/null 2>&1
-        
-        ufw --force enable >/dev/null 2>&1
-        log_success "UFW防火墙规则配置完成"
-    elif command -v firewall-cmd &> /dev/null; then
-        firewall-cmd --permanent --add-port=443/tcp >/dev/null 2>&1
-        firewall-cmd --permanent --add-port=443/udp >/dev/null 2>&1
-        firewall-cmd --permanent --add-port=2053/udp >/dev/null 2>&1
-        firewall-cmd --permanent --add-port=80/tcp >/dev/null 2>&1
-        firewall-cmd --reload >/dev/null 2>&1
-        log_success "Firewalld防火墙规则配置完成"
-    else
-        log_warn "未检测到防火墙软件，请手动配置"
-    fi
-}
-
-# 优化系统参数
-optimize_system() {
-    log_info "优化系统参数..."
-    
-    if [[ ! -f /etc/sysctl.conf.bak ]]; then
-        cp /etc/sysctl.conf /etc/sysctl.conf.bak
-    fi
-    
-    if grep -q "EdgeBox Optimizations" /etc/sysctl.conf; then
-        log_info "系统参数已优化"
-        return
-    fi
-    
-    cat >> /etc/sysctl.conf << 'EOF'
-
-# EdgeBox Optimizations
-net.core.default_qdisc = fq
-net.ipv4.tcp_congestion_control = bbr
-net.ipv4.tcp_fastopen = 3
-net.ipv4.tcp_syncookies = 1
-net.ipv4.tcp_tw_reuse = 1
-net.ipv4.ip_local_port_range = 10000 65000
-net.core.rmem_max = 134217728
-net.core.wmem_max = 134217728
-net.ipv4.tcp_rmem = 4096 87380 134217728
-net.ipv4.tcp_wmem = 4096 65536 134217728
-net.core.netdev_max_backlog = 5000
-EOF
-    
-    sysctl -p >/dev/null 2>&1
-    log_success "系统参数优化完成"
-}
-
-# 生成自签名证书（修复EC证书验证）
-generate_self_signed_cert() {
-    log_info "生成自签名证书..."
-    
-    # 确保目录存在
-    mkdir -p ${CERT_DIR}
-    
-    # 删除旧的证书文件
-    rm -f ${CERT_DIR}/self-signed.key ${CERT_DIR}/self-signed.pem
-    rm -f ${CERT_DIR}/current.key ${CERT_DIR}/current.pem
-    
-    # 生成新的证书和私钥
-    openssl req -x509 -nodes -newkey ec:<(openssl ecparam -name secp384r1) \
-        -keyout ${CERT_DIR}/self-signed.key \
-        -out ${CERT_DIR}/self-signed.pem \
-        -days 3650 \
-        -subj "/C=US/ST=California/L=San Francisco/O=EdgeBox/CN=${SERVER_IP}" >/dev/null 2>&1
-    
-    # 创建软链接（契约接口）
-    ln -sf ${CERT_DIR}/self-signed.key ${CERT_DIR}/current.key
-    ln -sf ${CERT_DIR}/self-signed.pem ${CERT_DIR}/current.pem
-    
-    # 设置正确的权限
-    chown root:root ${CERT_DIR}/*.key ${CERT_DIR}/*.pem
-    chmod 600 ${CERT_DIR}/*.key
-    chmod 644 ${CERT_DIR}/*.pem
-
-    # 最终验证（仅验证文件格式，不比对modulus）
-    if openssl x509 -in ${CERT_DIR}/current.pem -noout -text >/dev/null 2>&1 && \
-       openssl ec -in ${CERT_DIR}/current.key -noout -text >/dev/null 2>&1; then
-        log_success "自签名证书生成完成并验证通过"
-        
-        # 设置初始证书模式（契约状态）
-        echo "self-signed" > ${CONFIG_DIR}/cert_mode
-    else
-        log_error "证书验证失败"
-        return 1
-    fi
-}
-
-# 生成Reality密钥对
-generate_reality_keys() {
-    log_info "生成Reality密钥对..."
-
-    # 优先用 sing-box 生成
-    if command -v sing-box >/dev/null 2>&1; then
-        local out
-        out="$(sing-box generate reality-keypair 2>/dev/null || sing-box generate reality-key 2>/dev/null || true)"
-        REALITY_PRIVATE_KEY="$(echo "$out" | awk -F': ' '/Private/{print $2}')"
-        REALITY_PUBLIC_KEY="$(echo "$out"  | awk -F': ' '/Public/{print  $2}')"
-        if [[ -n "$REALITY_PRIVATE_KEY" && -n "$REALITY_PUBLIC_KEY" ]]; then
-            log_success "Reality密钥对生成完成（sing-box）"
-            return 0
-        fi
-    fi
-
-    # 回退：下载 Xray 生成
-    local tmp_dir tag url ok=""
-    tmp_dir="$(mktemp -d)"
-    pushd "$tmp_dir" >/dev/null
-
-    tag="$(curl -sIL -o /dev/null -w '%{url_effective}' https://github.com/XTLS/Xray-core/releases/latest | awk -F/ '{print $NF}')"
-    [[ -z "$tag" ]] && tag="v1.8.11"
-
-    for base in \
-      "https://github.com/XTLS/Xray-core/releases/download" \
-      "https://ghproxy.com/https://github.com/XTLS/Xray-core/releases/download"
-    do
-      url="${base}/${tag}/Xray-linux-64.zip"
-      if wget -q --tries=3 --timeout=20 "$url" -O Xray-linux-64.zip; then 
-          ok=1
-          break
-      fi
-    done
-    
-    if [[ -z "$ok" ]]; then
-        log_error "下载Xray失败"
-        popd >/dev/null
-        rm -rf "$tmp_dir"
-        return 1
-    fi
-
-    unzip -q Xray-linux-64.zip
-    local keys
-    keys="$(./xray x25519)"
-    REALITY_PRIVATE_KEY="$(echo "$keys" | awk '/Private key/{print $3}')"
-    REALITY_PUBLIC_KEY="$(echo  "$keys" | awk '/Public key/{print  $3}')"
-
-    popd >/dev/null
-    rm -rf "$tmp_dir"
-    
-    if [[ -n "$REALITY_PRIVATE_KEY" && -n "$REALITY_PUBLIC_KEY" ]]; then
-        log_success "Reality密钥对生成完成"
-    else
-        log_error "生成Reality密钥失败"
-        return 1
-    fi
-}
-
-# 安装Xray
-install_xray() {
-    log_info "安装Xray..."
-
-    if command -v xray &>/dev/null; then
-        log_info "Xray已安装，跳过"
-    else
-        bash <(curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh) >/dev/null 2>&1 || {
-            log_error "Xray安装失败"
-            exit 1
-        }
-    fi
-
-    # 停用官方的 systemd 服务
-    systemctl disable --now xray >/dev/null 2>&1 || true
-    rm -rf /etc/systemd/system/xray.service.d 2>/dev/null || true
-
-    log_success "Xray安装完成"
-}
-
-# 安装sing-box
-install_sing_box() {
-    log_info "安装sing-box..."
-
-    if [[ -f /usr/local/bin/sing-box ]]; then
-        log_info "sing-box已安装，跳过"
-    else
-        local tag latest ver ok=""
-        latest="$(curl -sIL -o /dev/null -w '%{url_effective}' https://github.com/SagerNet/sing-box/releases/latest | awk -F/ '{print $NF}')"
-        ver="$(echo "$latest" | sed 's/^v//')"
-        [[ -z "$ver" ]] && ver="1.12.4"
-
-        for base in \
-          "https://github.com/SagerNet/sing-box/releases/download" \
-          "https://ghproxy.com/https://github.com/SagerNet/sing-box/releases/download"
-        do
-          url="${base}/v${ver}/sing-box-${ver}-linux-amd64.tar.gz"
-          log_info "下载 ${url}"
-          if wget -q --tries=3 --timeout=25 "$url" -O "/tmp/sing-box-${ver}.tar.gz"; then 
-              ok=1
-              break
-          fi
-        done
-        
-        if [[ -z "$ok" ]]; then
-            log_error "下载sing-box失败"
-            exit 1
-        fi
-
-        tar -xzf "/tmp/sing-box-${ver}.tar.gz" -C /tmp
-        install -m 0755 "/tmp/sing-box-${ver}-linux-amd64/sing-box" /usr/local/bin/sing-box
-        rm -rf "/tmp/sing-box-${ver}.tar.gz" "/tmp/sing-box-${ver}-linux-amd64"
-    fi
-
-    # 创建 systemd
-    cat > /etc/systemd/system/sing-box.service << EOF
-[Unit]
-Description=sing-box service
-After=network.target
-StartLimitIntervalSec=0
-[Service]
-Type=simple
-User=root
-ExecStart=/usr/local/bin/sing-box run -c ${CONFIG_DIR}/sing-box.json
-Restart=on-failure
-RestartSec=10
-LimitNOFILE=infinity
-[Install]
-WantedBy=multi-user.target
-EOF
-    systemctl daemon-reload
-    log_success "sing-box安装完成"
-}
-
-# 配置Xray（Reality + Fallback to Nginx）
-configure_xray() {
-    log_info "配置 Xray（内部服务，无fallbacks）..."
-
-    cat > ${CONFIG_DIR}/xray.json <<XRAY_CONFIG
-{
-  "log": {
-    "loglevel": "warning",
-    "access": "/var/log/xray/access.log",
-    "error": "/var/log/xray/error.log"
-  },
-  "inbounds": [
-    {
-      "tag": "VLESS-Reality",
-      "listen": "127.0.0.1",
-      "port": 11443,
-      "protocol": "vless",
-      "settings": {
-        "clients": [
-          { 
-            "id": "${UUID_VLESS}", 
-            "flow": "xtls-rprx-vision", 
-            "email": "reality@edgebox" 
-          }
-        ],
-        "decryption": "none"
-      },
-      "streamSettings": {
-        "network": "tcp",
-        "security": "reality",
-        "realitySettings": {
-          "show": false,
-          "dest": "www.cloudflare.com:443",
-          "xver": 0,
-          "serverNames": [
-            "www.cloudflare.com",
-            "www.microsoft.com",
-            "www.apple.com"
-          ],
-          "privateKey": "${REALITY_PRIVATE_KEY}",
-          "shortIds": ["${REALITY_SHORT_ID}"]
-        }
-      }
-    },
-    {
-      "tag": "VLESS-gRPC-Internal",
-      "listen": "127.0.0.1",
-      "port": 10085,
-      "protocol": "vless",
-      "settings": {
-        "clients": [ 
-          { 
-            "id": "${UUID_VLESS}", 
-            "email": "grpc-internal@edgebox" 
-          } 
-        ],
-        "decryption": "none"
-      },
-      "streamSettings": {
-        "network": "grpc",
-        "security": "tls",
-        "tlsSettings": {
-          "alpn": ["h2"],
-          "certificates": [ 
-            { 
-              "certificateFile": "${CERT_DIR}/current.pem", 
-              "keyFile": "${CERT_DIR}/current.key" 
-            } 
-          ]
-        },
-        "grpcSettings": { 
-          "serviceName": "grpc",
-          "multiMode": true
-        }
-      }
-    },
-    {
-      "tag": "VLESS-WS-Internal", 
-      "listen": "127.0.0.1",
-      "port": 10086,
-      "protocol": "vless",
-      "settings": {
-        "clients": [ 
-          { 
-            "id": "${UUID_VLESS}", 
-            "email": "ws-internal@edgebox" 
-          } 
-        ],
-        "decryption": "none"
-      },
-      "streamSettings": {
-        "network": "ws",
-        "security": "tls", 
-        "tlsSettings": {
-          "alpn": ["http/1.1"],
-          "certificates": [ 
-            { 
-              "certificateFile": "${CERT_DIR}/current.pem", 
-              "keyFile": "${CERT_DIR}/current.key" 
-            } 
-          ]
-        },
-        "wsSettings": { 
-          "path": "/ws",
-          "headers": {
-            "Host": "${SERVER_IP}"
-          }
-        }
-      }
-    }
-  ],
-  "outbounds": [ 
-    { 
-      "protocol": "freedom", 
-      "settings": {} 
-    } 
-  ],
-  "routing": { 
-    "rules": [] 
-  }
-}
-XRAY_CONFIG
-
-    cat >/etc/systemd/system/xray.service <<'XRAY_SERVICE'
-[Unit]
-Description=Xray Service (EdgeBox)
-After=network.target
-StartLimitIntervalSec=0
-[Service]
-Type=simple
-User=root
-ExecStart=/usr/local/bin/xray run -c /etc/edgebox/config/xray.json
-Restart=on-failure
-RestartSec=5
-LimitNOFILE=infinity
-[Install]
-WantedBy=multi-user.target
-XRAY_SERVICE
-
-    systemctl daemon-reload
-    log_success "Xray 配置完成"
-}
-
-# 配置Nginx（SNI定向 + ALPN兜底架构）
-configure_nginx() {
-    log_info "配置 Nginx（SNI定向 + ALPN兜底架构）..."
-    
-    # 停止 Nginx 避免冲突
-    systemctl stop nginx >/dev/null 2>&1 || true
-    
-    # 检查并加载stream模块
-    if [ -f /usr/share/nginx/modules-available/mod-stream.conf ]; then
-        mkdir -p /etc/nginx/modules-enabled
-        ln -sf /usr/share/nginx/modules-available/mod-stream.conf /etc/nginx/modules-enabled/50-mod-stream.conf 2>/dev/null || true
-    fi
-    
-    # 备份原配置
-    if [ -f /etc/nginx/nginx.conf ] && [ ! -f /etc/nginx/nginx.conf.bak ]; then
-        cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak
-    fi
-
-    # SNI定向 + ALPN兜底的稳定架构
-    cat > /etc/nginx/nginx.conf <<'NGINX_STABLE_END'
-user www-data;
-worker_processes auto;
-pid /run/nginx.pid;
-error_log /var/log/nginx/error.log warn;
-
-# 加载stream模块
-include /etc/nginx/modules-enabled/*.conf;
-
-events {
-    worker_connections 1024;
-    use epoll;
-}
-
-http {
-    sendfile on;
-    tcp_nopush on;
-    types_hash_max_size 2048;
-    include /etc/nginx/mime.types;
-    default_type application/octet-stream;
-    access_log /var/log/nginx/access.log;
-    
-    server {
-        listen 80 default_server;
-        listen [::]:80 default_server;
-        server_name _;
-        root /var/www/html;
-        
-        location / {
-            try_files $uri $uri/ =404;
-        }
-        
-        location = /sub {
-            default_type text/plain;
-            root /var/www/html;
-        }
-    }
-}
-
-stream {
-    # 定义专用的 SNI 标识符（解决证书不匹配问题）
-    map $ssl_preread_server_name $sni_backend {
-        # Reality 伪装域名：直接定向到 Reality
-        ~^(www\.cloudflare\.com|www\.apple\.com|www\.microsoft\.com)$ 127.0.0.1:11443;
-        
-        # 专用服务标识符：避免证书验证问题
-        grpc.edgebox.internal   127.0.0.1:10085;    # gRPC 专用标识
-        ws.edgebox.internal     127.0.0.1:10086;    # WebSocket 专用标识
-        
-        # 默认为空，交给 ALPN 处理
-        default "";
-    }
-    
-    # ALPN 兜底分流（仅在 SNI 未匹配时生效）
-    map $ssl_preread_alpn_protocols $alpn_backend {
-        ~\bh2\b         127.0.0.1:10085;   # HTTP/2 -> gRPC
-        ~\bhttp/1\.1\b  127.0.0.1:10086;   # HTTP/1.1 -> WebSocket
-        default         127.0.0.1:11443;   # 默认 -> Reality
-    }
-    
-    # 最终分流决策：SNI 优先，ALPN 兜底
-    map $sni_backend $final_backend {
-        ~.+     $sni_backend;  # 如果 SNI 匹配成功，使用 SNI 结果
-        default $alpn_backend; # 否则使用 ALPN 兜底
-    }
-
-    server {
-        listen 0.0.0.0:443;
-        ssl_preread on;
-        proxy_pass $final_backend;
-        proxy_timeout 15s;
-        proxy_connect_timeout 5s;
-        proxy_protocol off;
-    }
-}
-NGINX_STABLE_END
-
-    # 创建web目录
-    mkdir -p /var/www/html
-    
-    # 测试配置
-    if nginx -t >/dev/null 2>&1; then
-        log_success "Nginx 配置测试通过（SNI定向 + ALPN兜底）"
-    else
-        log_error "Nginx 配置测试失败，使用备用配置..."
-        # 如果失败，使用简化配置（无stream模块）
-        cat > /etc/nginx/nginx.conf <<'NGINX_SIMPLE'
-user www-data;
-worker_processes auto;
-pid /run/nginx.pid;
-
-events {
-    worker_connections 768;
-}
-
-http {
-    include /etc/nginx/mime.types;
-    default_type application/octet-stream;
-    
-    server {
-        listen 80;
-        server_name _;
-        root /var/www/html;
-        
-        location = /sub {
-            default_type text/plain;
-        }
-    }
-}
-NGINX_SIMPLE
-        log_warn "使用简化的Nginx配置（无stream模块），部分协议需要直连端口"
-    fi
-
-    # 启动Nginx
-    systemctl daemon-reload
-    systemctl enable nginx >/dev/null 2>&1
-    systemctl restart nginx >/dev/null 2>&1 || {
-        log_warn "Nginx 启动失败，但继续安装"
-    }
-    
-    log_success "Nginx 配置完成（SNI定向 + ALPN兜底）"
-}
-
-# 配置sing-box（Hysteria2 + TUIC）
-configure_sing_box() {
-    log_info "配置sing-box（Hysteria2 + TUIC）..."
-    
-    cat > ${CONFIG_DIR}/sing-box.json <<SINGBOX_CONFIG
-{
-  "log": {
-    "level": "warn",
-    "timestamp": true
-  },
-  "inbounds": [
-    {
-      "type": "hysteria2",
+# 执行主函数
+main "$@"
       "tag": "hysteria2-in",
       "listen": "::",
       "listen_port": 443,
@@ -1430,4 +786,784 @@ EOFCTL
     
     chmod +x /usr/local/bin/edgeboxctl
     log_success "管理工具创建完成（模块1：核心契约已建立）"
+}#!/bin/bash
+
+#############################################
+# EdgeBox 一站式多协议节点部署脚本
+# Version: 2.0.1 
+# Description: 非交互式IP模式安装 - 模块1：核心基础 + 契约定义
+# Protocols: VLESS-Reality, VLESS-gRPC, VLESS-WS, Hysteria2, TUIC
+# Architecture: SNI定向 + ALPN兜底 + 本地订阅文件
+#############################################
+
+set -e
+
+# 颜色定义
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+PURPLE='\033[0;35m'
+CYAN='\033[0;36m'
+NC='\033[0m' # No Color
+
+# 全局变量
+INSTALL_DIR="/etc/edgebox"
+CERT_DIR="${INSTALL_DIR}/cert"
+CONFIG_DIR="${INSTALL_DIR}/config"
+BACKUP_DIR="/root/edgebox-backup"
+LOG_FILE="/var/log/edgebox-install.log"
+
+# 服务器信息
+SERVER_IP=""
+SERVER_DOMAIN=""
+INSTALL_MODE="ip" # 默认IP模式
+
+# UUID生成
+UUID_VLESS=""
+UUID_HYSTERIA2=""
+UUID_TUIC=""
+
+# Reality密钥
+REALITY_PRIVATE_KEY=""
+REALITY_PUBLIC_KEY=""
+REALITY_SHORT_ID=""
+
+# 密码生成
+PASSWORD_HYSTERIA2=""
+PASSWORD_TUIC=""
+
+# 端口配置（单端口复用架构）
+PORT_REALITY=11443      # 内部回环 (Xray Reality)
+PORT_HYSTERIA2=443    # UDP
+PORT_TUIC=2053        # UDP
+PORT_GRPC=10085       # 内部回环
+PORT_WS=10086         # 内部回环
+
+#############################################
+# 工具函数
+#############################################
+
+log_info() {
+    echo -e "${GREEN}[INFO]${NC} $1" | tee -a ${LOG_FILE}
 }
+
+log_warn() {
+    echo -e "${YELLOW}[WARN]${NC} $1" | tee -a ${LOG_FILE}
+}
+
+log_error() {
+    echo -e "${RED}[ERROR]${NC} $1" | tee -a ${LOG_FILE}
+}
+
+log_success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $1" | tee -a ${LOG_FILE}
+}
+
+print_separator() {
+    echo -e "${BLUE}========================================${NC}"
+}
+
+# 兼容别名
+log() { log_info "$@"; }
+log_ok() { log_success "$@"; }
+error() { log_error "$@"; }
+
+# 检查root权限
+check_root() {
+    if [[ $EUID -ne 0 ]]; then
+        log_error "此脚本必须以root权限运行"
+        exit 1
+    fi
+}
+
+# 检查系统
+check_system() {
+    log_info "检查系统兼容性..."
+    
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        OS=$ID
+        VERSION=$VERSION_ID
+    else
+        log_error "无法确定操作系统类型"
+        exit 1
+    fi
+    
+    # 支持的系统版本
+    SUPPORTED=false
+    
+    case "$OS" in
+        ubuntu)
+            MAJOR_VERSION=$(echo "$VERSION" | cut -d. -f1)
+            if [ "$MAJOR_VERSION" -ge 18 ] 2>/dev/null; then
+                SUPPORTED=true
+            fi
+            ;;
+        debian)
+            if [ "$VERSION" -ge 10 ] 2>/dev/null; then
+                SUPPORTED=true
+            fi
+            ;;
+        *)
+            SUPPORTED=false
+            ;;
+    esac
+    
+    if [ "$SUPPORTED" = "true" ]; then
+        log_success "系统检查通过: $OS $VERSION"
+    else
+        log_error "不支持的系统: $OS $VERSION"
+        log_info "支持的系统: Ubuntu 18.04+, Debian 10+"
+        exit 1
+    fi
+}
+
+# 获取服务器IP
+get_server_ip() {
+    log_info "获取服务器公网IP..."
+    
+    IP_SERVICES=(
+        "https://api.ipify.org"
+        "https://icanhazip.com"
+        "https://ipecho.net/plain"
+        "https://api.ip.sb/ip"
+    )
+    
+    for service in "${IP_SERVICES[@]}"; do
+        SERVER_IP=$(curl -s --max-time 5 $service 2>/dev/null | grep -Eo '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' | head -n1)
+        if [[ -n "$SERVER_IP" ]]; then
+            log_success "获取到服务器IP: $SERVER_IP"
+            return 0
+        fi
+    done
+    
+    log_error "无法获取服务器公网IP"
+    exit 1
+}
+
+# 检查并安装依赖
+install_dependencies() {
+    log_info "更新软件源..."
+    apt-get update -qq
+    
+    log_info "安装必要依赖..."
+    
+    # 基础工具（最小化依赖）
+    PACKAGES="curl wget unzip tar net-tools openssl jq uuid-runtime vnstat iftop certbot"
+    
+    # 添加Nginx和stream模块
+    PACKAGES="$PACKAGES nginx libnginx-mod-stream"
+    
+    for pkg in $PACKAGES; do
+        if ! dpkg -l | grep -q "^ii.*$pkg"; then
+            log_info "安装 $pkg..."
+            DEBIAN_FRONTEND=noninteractive apt-get install -y $pkg >/dev/null 2>&1 || {
+                log_warn "$pkg 安装失败，尝试继续..."
+            }
+        else
+            log_info "$pkg 已安装"
+        fi
+    done
+    
+    # 启用vnstat
+    systemctl enable vnstat >/dev/null 2>&1
+    systemctl start vnstat >/dev/null 2>&1
+    
+    log_success "依赖安装完成"
+}
+
+# 生成UUID和密码
+generate_credentials() {
+    log_info "生成UUID和密码..."
+    
+    UUID_VLESS=$(uuidgen)
+    UUID_HYSTERIA2=$(uuidgen)
+    UUID_TUIC=$(uuidgen)
+    
+    REALITY_SHORT_ID="$(openssl rand -hex 8)"
+    PASSWORD_HYSTERIA2=$(openssl rand -base64 16)
+    PASSWORD_TUIC=$(openssl rand -base64 16)
+    
+    log_success "凭证生成完成"
+}
+
+# 创建目录结构
+create_directories() {
+    log_info "创建目录结构..."
+    
+    mkdir -p ${INSTALL_DIR}/{cert,config,templates,scripts}
+    mkdir -p ${BACKUP_DIR}
+    mkdir -p /var/log/edgebox
+    mkdir -p /var/log/xray
+    
+    log_success "目录结构创建完成"
+}
+
+# 检查端口占用
+check_ports() {
+    log_info "检查端口占用情况..."
+    
+    local ports=(443 2053)
+    local occupied=false
+    
+    for port in "${ports[@]}"; do
+        if ss -tuln 2>/dev/null | grep -q ":${port} "; then
+            log_warn "端口 $port 已被占用"
+            occupied=true
+        fi
+    done
+    
+    if [[ "$occupied" == true ]]; then
+        log_warn "某些端口已被占用，可能需要调整配置"
+    else
+        log_success "端口检查通过"
+    fi
+}
+
+# 配置防火墙
+configure_firewall() {
+    log_info "配置防火墙规则..."
+    
+    if command -v ufw &> /dev/null; then
+        ufw --force disable >/dev/null 2>&1
+        
+        ufw default deny incoming >/dev/null 2>&1
+        ufw default allow outgoing >/dev/null 2>&1
+        
+        ufw allow 22/tcp comment 'SSH' >/dev/null 2>&1
+        ufw allow 80/tcp comment 'HTTP' >/dev/null 2>&1
+        ufw allow 443/tcp comment 'EdgeBox TCP' >/dev/null 2>&1
+        ufw allow 443/udp comment 'EdgeBox Hysteria2' >/dev/null 2>&1
+        ufw allow 2053/udp comment 'EdgeBox TUIC' >/dev/null 2>&1
+        
+        ufw --force enable >/dev/null 2>&1
+        log_success "UFW防火墙规则配置完成"
+    elif command -v firewall-cmd &> /dev/null; then
+        firewall-cmd --permanent --add-port=443/tcp >/dev/null 2>&1
+        firewall-cmd --permanent --add-port=443/udp >/dev/null 2>&1
+        firewall-cmd --permanent --add-port=2053/udp >/dev/null 2>&1
+        firewall-cmd --permanent --add-port=80/tcp >/dev/null 2>&1
+        firewall-cmd --reload >/dev/null 2>&1
+        log_success "Firewalld防火墙规则配置完成"
+    else
+        log_warn "未检测到防火墙软件，请手动配置"
+    fi
+}
+
+# 优化系统参数
+optimize_system() {
+    log_info "优化系统参数..."
+    
+    if [[ ! -f /etc/sysctl.conf.bak ]]; then
+        cp /etc/sysctl.conf /etc/sysctl.conf.bak
+    fi
+    
+    if grep -q "EdgeBox Optimizations" /etc/sysctl.conf; then
+        log_info "系统参数已优化"
+        return
+    fi
+    
+    cat >> /etc/sysctl.conf << 'EOF'
+
+# EdgeBox Optimizations
+net.core.default_qdisc = fq
+net.ipv4.tcp_congestion_control = bbr
+net.ipv4.tcp_fastopen = 3
+net.ipv4.tcp_syncookies = 1
+net.ipv4.tcp_tw_reuse = 1
+net.ipv4.ip_local_port_range = 10000 65000
+net.core.rmem_max = 134217728
+net.core.wmem_max = 134217728
+net.ipv4.tcp_rmem = 4096 87380 134217728
+net.ipv4.tcp_wmem = 4096 65536 134217728
+net.core.netdev_max_backlog = 5000
+EOF
+    
+    sysctl -p >/dev/null 2>&1
+    log_success "系统参数优化完成"
+}
+
+# 生成自签名证书（修复EC证书验证）
+generate_self_signed_cert() {
+    log_info "生成自签名证书..."
+    
+    # 确保目录存在
+    mkdir -p ${CERT_DIR}
+    
+    # 删除旧的证书文件
+    rm -f ${CERT_DIR}/self-signed.key ${CERT_DIR}/self-signed.pem
+    rm -f ${CERT_DIR}/current.key ${CERT_DIR}/current.pem
+    
+    # 生成新的证书和私钥
+    openssl req -x509 -nodes -newkey ec:<(openssl ecparam -name secp384r1) \
+        -keyout ${CERT_DIR}/self-signed.key \
+        -out ${CERT_DIR}/self-signed.pem \
+        -days 3650 \
+        -subj "/C=US/ST=California/L=San Francisco/O=EdgeBox/CN=${SERVER_IP}" >/dev/null 2>&1
+    
+    # 创建软链接（契约接口）
+    ln -sf ${CERT_DIR}/self-signed.key ${CERT_DIR}/current.key
+    ln -sf ${CERT_DIR}/self-signed.pem ${CERT_DIR}/current.pem
+    
+    # 设置正确的权限
+    chown root:root ${CERT_DIR}/*.key ${CERT_DIR}/*.pem
+    chmod 600 ${CERT_DIR}/*.key
+    chmod 644 ${CERT_DIR}/*.pem
+
+    # 最终验证（仅验证文件格式，不比对modulus）
+    if openssl x509 -in ${CERT_DIR}/current.pem -noout -text >/dev/null 2>&1 && \
+       openssl ec -in ${CERT_DIR}/current.key -noout -text >/dev/null 2>&1; then
+        log_success "自签名证书生成完成并验证通过"
+        
+        # 设置初始证书模式（契约状态）
+        echo "self-signed" > ${CONFIG_DIR}/cert_mode
+    else
+        log_error "证书验证失败"
+        return 1
+    fi
+}
+
+# 安装Xray
+install_xray() {
+    log_info "安装Xray..."
+
+    if command -v xray &>/dev/null; then
+        log_info "Xray已安装，跳过"
+    else
+        bash <(curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh) >/dev/null 2>&1 || {
+            log_error "Xray安装失败"
+            exit 1
+        }
+    fi
+
+    # 停用官方的 systemd 服务
+    systemctl disable --now xray >/dev/null 2>&1 || true
+    rm -rf /etc/systemd/system/xray.service.d 2>/dev/null || true
+
+    log_success "Xray安装完成"
+}
+
+# 安装sing-box
+install_sing_box() {
+    log_info "安装sing-box..."
+
+    if [[ -f /usr/local/bin/sing-box ]]; then
+        log_info "sing-box已安装，跳过"
+    else
+        local tag latest ver ok=""
+        latest="$(curl -sIL -o /dev/null -w '%{url_effective}' https://github.com/SagerNet/sing-box/releases/latest | awk -F/ '{print $NF}')"
+        ver="$(echo "$latest" | sed 's/^v//')"
+        [[ -z "$ver" ]] && ver="1.12.4"
+
+        for base in \
+          "https://github.com/SagerNet/sing-box/releases/download" \
+          "https://ghproxy.com/https://github.com/SagerNet/sing-box/releases/download"
+        do
+          url="${base}/v${ver}/sing-box-${ver}-linux-amd64.tar.gz"
+          log_info "下载 ${url}"
+          if wget -q --tries=3 --timeout=25 "$url" -O "/tmp/sing-box-${ver}.tar.gz"; then 
+              ok=1
+              break
+          fi
+        done
+        
+        if [[ -z "$ok" ]]; then
+            log_error "下载sing-box失败"
+            exit 1
+        fi
+
+        tar -xzf "/tmp/sing-box-${ver}.tar.gz" -C /tmp
+        install -m 0755 "/tmp/sing-box-${ver}-linux-amd64/sing-box" /usr/local/bin/sing-box
+        rm -rf "/tmp/sing-box-${ver}.tar.gz" "/tmp/sing-box-${ver}-linux-amd64"
+    fi
+
+    # 创建 systemd
+    cat > /etc/systemd/system/sing-box.service << EOF
+[Unit]
+Description=sing-box service
+After=network.target
+StartLimitIntervalSec=0
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/sing-box run -c ${CONFIG_DIR}/sing-box.json
+Restart=on-failure
+RestartSec=10
+LimitNOFILE=infinity
+[Install]
+WantedBy=multi-user.target
+EOF
+    systemctl daemon-reload
+    log_success "sing-box安装完成"
+}
+
+# 生成Reality密钥对
+generate_reality_keys() {
+    log_info "生成Reality密钥对..."
+
+    # 优先用 sing-box 生成
+    if command -v sing-box >/dev/null 2>&1; then
+        local out
+        out="$(sing-box generate reality-keypair 2>/dev/null || sing-box generate reality-key 2>/dev/null || true)"
+        REALITY_PRIVATE_KEY="$(echo "$out" | awk -F': ' '/Private/{print $2}')"
+        REALITY_PUBLIC_KEY="$(echo "$out"  | awk -F': ' '/Public/{print  $2}')"
+        if [[ -n "$REALITY_PRIVATE_KEY" && -n "$REALITY_PUBLIC_KEY" ]]; then
+            log_success "Reality密钥对生成完成（sing-box）"
+            return 0
+        fi
+    fi
+
+    # 回退：使用 Xray 生成（现在 xray 已安装）
+    if command -v xray >/dev/null 2>&1; then
+        local keys
+        keys="$(xray x25519)"
+        REALITY_PRIVATE_KEY="$(echo "$keys" | awk '/Private key/{print $3}')"
+        REALITY_PUBLIC_KEY="$(echo  "$keys" | awk '/Public key/{print  $3}')"
+        if [[ -n "$REALITY_PRIVATE_KEY" && -n "$REALITY_PUBLIC_KEY" ]]; then
+            log_success "Reality密钥对生成完成（xray）"
+            return 0
+        fi
+    fi
+
+    # 最后回退：下载 Xray 生成
+    local tmp_dir tag url ok=""
+    tmp_dir="$(mktemp -d)"
+    pushd "$tmp_dir" >/dev/null
+
+    tag="$(curl -sIL -o /dev/null -w '%{url_effective}' https://github.com/XTLS/Xray-core/releases/latest | awk -F/ '{print $NF}')"
+    [[ -z "$tag" ]] && tag="v1.8.11"
+
+    for base in \
+      "https://github.com/XTLS/Xray-core/releases/download" \
+      "https://ghproxy.com/https://github.com/XTLS/Xray-core/releases/download"
+    do
+      url="${base}/${tag}/Xray-linux-64.zip"
+      if wget -q --tries=3 --timeout=20 "$url" -O Xray-linux-64.zip; then 
+          ok=1
+          break
+      fi
+    done
+    
+    if [[ -z "$ok" ]]; then
+        log_error "下载Xray失败"
+        popd >/dev/null
+        rm -rf "$tmp_dir"
+        return 1
+    fi
+
+    unzip -q Xray-linux-64.zip
+    local keys
+    keys="$(./xray x25519)"
+    REALITY_PRIVATE_KEY="$(echo "$keys" | awk '/Private key/{print $3}')"
+    REALITY_PUBLIC_KEY="$(echo  "$keys" | awk '/Public key/{print  $3}')"
+
+    popd >/dev/null
+    rm -rf "$tmp_dir"
+    
+    if [[ -n "$REALITY_PRIVATE_KEY" && -n "$REALITY_PUBLIC_KEY" ]]; then
+        log_success "Reality密钥对生成完成"
+    else
+        log_error "生成Reality密钥失败"
+        return 1
+    fi
+}
+
+# 配置Nginx（SNI定向 + ALPN兜底架构）
+configure_nginx() {
+    log_info "配置 Nginx（SNI定向 + ALPN兜底架构）..."
+    
+    # 停止 Nginx 避免冲突
+    systemctl stop nginx >/dev/null 2>&1 || true
+    
+    # 检查并加载stream模块
+    if [ -f /usr/share/nginx/modules-available/mod-stream.conf ]; then
+        mkdir -p /etc/nginx/modules-enabled
+        ln -sf /usr/share/nginx/modules-available/mod-stream.conf /etc/nginx/modules-enabled/50-mod-stream.conf 2>/dev/null || true
+    fi
+    
+    # 备份原配置
+    if [ -f /etc/nginx/nginx.conf ] && [ ! -f /etc/nginx/nginx.conf.bak ]; then
+        cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak
+    fi
+
+    # SNI定向 + ALPN兜底的稳定架构
+    cat > /etc/nginx/nginx.conf << 'NGINX_CONFIG'
+user www-data;
+worker_processes auto;
+pid /run/nginx.pid;
+error_log /var/log/nginx/error.log warn;
+
+# 加载stream模块
+include /etc/nginx/modules-enabled/*.conf;
+
+events {
+    worker_connections 1024;
+    use epoll;
+}
+
+http {
+    sendfile on;
+    tcp_nopush on;
+    types_hash_max_size 2048;
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+    access_log /var/log/nginx/access.log;
+    
+    server {
+        listen 80 default_server;
+        listen [::]:80 default_server;
+        server_name _;
+        root /var/www/html;
+        
+        location / {
+            try_files $uri $uri/ =404;
+        }
+        
+        location = /sub {
+            default_type text/plain;
+            root /var/www/html;
+        }
+    }
+}
+
+stream {
+    # 定义专用的 SNI 标识符（解决证书不匹配问题）
+    map $ssl_preread_server_name $sni_backend {
+        # Reality 伪装域名：直接定向到 Reality
+        ~^(www\.cloudflare\.com|www\.apple\.com|www\.microsoft\.com)$ 127.0.0.1:11443;
+        
+        # 专用服务标识符：避免证书验证问题
+        grpc.edgebox.internal   127.0.0.1:10085;    # gRPC 专用标识
+        ws.edgebox.internal     127.0.0.1:10086;    # WebSocket 专用标识
+        
+        # 默认为空，交给 ALPN 处理
+        default "";
+    }
+    
+    # ALPN 兜底分流（仅在 SNI 未匹配时生效）
+    map $ssl_preread_alpn_protocols $alpn_backend {
+        ~\bh2\b         127.0.0.1:10085;   # HTTP/2 -> gRPC
+        ~\bhttp/1\.1\b  127.0.0.1:10086;   # HTTP/1.1 -> WebSocket
+        default         127.0.0.1:11443;   # 默认 -> Reality
+    }
+    
+    # 最终分流决策：SNI 优先，ALPN 兜底
+    map $sni_backend $final_backend {
+        ~.+     $sni_backend;  # 如果 SNI 匹配成功，使用 SNI 结果
+        default $alpn_backend; # 否则使用 ALPN 兜底
+    }
+
+    server {
+        listen 0.0.0.0:443;
+        ssl_preread on;
+        proxy_pass $final_backend;
+        proxy_timeout 15s;
+        proxy_connect_timeout 5s;
+        proxy_protocol off;
+    }
+}
+NGINX_CONFIG
+
+    # 创建web目录
+    mkdir -p /var/www/html
+    
+    # 测试配置
+    if nginx -t >/dev/null 2>&1; then
+        log_success "Nginx 配置测试通过（SNI定向 + ALPN兜底）"
+    else
+        log_error "Nginx 配置测试失败，使用备用配置..."
+        # 如果失败，使用简化配置（无stream模块）
+        cat > /etc/nginx/nginx.conf << 'NGINX_SIMPLE'
+user www-data;
+worker_processes auto;
+pid /run/nginx.pid;
+
+events {
+    worker_connections 768;
+}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+    
+    server {
+        listen 80;
+        server_name _;
+        root /var/www/html;
+        
+        location = /sub {
+            default_type text/plain;
+        }
+    }
+}
+NGINX_SIMPLE
+        log_warn "使用简化的Nginx配置（无stream模块），部分协议需要直连端口"
+    fi
+
+    # 启动Nginx
+    systemctl daemon-reload
+    systemctl enable nginx >/dev/null 2>&1
+    systemctl restart nginx >/dev/null 2>&1 || {
+        log_warn "Nginx 启动失败，但继续安装"
+    }
+    
+    log_success "Nginx 配置完成（SNI定向 + ALPN兜底）"
+}
+
+# 配置Xray（Reality + Fallback to Nginx）
+configure_xray() {
+    log_info "配置 Xray（内部服务，无fallbacks）..."
+
+    cat > ${CONFIG_DIR}/xray.json << XRAY_CONFIG
+{
+  "log": {
+    "loglevel": "warning",
+    "access": "/var/log/xray/access.log",
+    "error": "/var/log/xray/error.log"
+  },
+  "inbounds": [
+    {
+      "tag": "VLESS-Reality",
+      "listen": "127.0.0.1",
+      "port": 11443,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          { 
+            "id": "${UUID_VLESS}", 
+            "flow": "xtls-rprx-vision", 
+            "email": "reality@edgebox" 
+          }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "dest": "www.cloudflare.com:443",
+          "xver": 0,
+          "serverNames": [
+            "www.cloudflare.com",
+            "www.microsoft.com",
+            "www.apple.com"
+          ],
+          "privateKey": "${REALITY_PRIVATE_KEY}",
+          "shortIds": ["${REALITY_SHORT_ID}"]
+        }
+      }
+    },
+    {
+      "tag": "VLESS-gRPC-Internal",
+      "listen": "127.0.0.1",
+      "port": 10085,
+      "protocol": "vless",
+      "settings": {
+        "clients": [ 
+          { 
+            "id": "${UUID_VLESS}", 
+            "email": "grpc-internal@edgebox" 
+          } 
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "grpc",
+        "security": "tls",
+        "tlsSettings": {
+          "alpn": ["h2"],
+          "certificates": [ 
+            { 
+              "certificateFile": "${CERT_DIR}/current.pem", 
+              "keyFile": "${CERT_DIR}/current.key" 
+            } 
+          ]
+        },
+        "grpcSettings": { 
+          "serviceName": "grpc",
+          "multiMode": true
+        }
+      }
+    },
+    {
+      "tag": "VLESS-WS-Internal", 
+      "listen": "127.0.0.1",
+      "port": 10086,
+      "protocol": "vless",
+      "settings": {
+        "clients": [ 
+          { 
+            "id": "${UUID_VLESS}", 
+            "email": "ws-internal@edgebox" 
+          } 
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "ws",
+        "security": "tls", 
+        "tlsSettings": {
+          "alpn": ["http/1.1"],
+          "certificates": [ 
+            { 
+              "certificateFile": "${CERT_DIR}/current.pem", 
+              "keyFile": "${CERT_DIR}/current.key" 
+            } 
+          ]
+        },
+        "wsSettings": { 
+          "path": "/ws",
+          "headers": {
+            "Host": "${SERVER_IP}"
+          }
+        }
+      }
+    }
+  ],
+  "outbounds": [ 
+    { 
+      "protocol": "freedom", 
+      "settings": {} 
+    } 
+  ],
+  "routing": { 
+    "rules": [] 
+  }
+}
+XRAY_CONFIG
+
+    cat > /etc/systemd/system/xray.service << 'XRAY_SERVICE'
+[Unit]
+Description=Xray Service (EdgeBox)
+After=network.target
+StartLimitIntervalSec=0
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/xray run -c /etc/edgebox/config/xray.json
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=infinity
+[Install]
+WantedBy=multi-user.target
+XRAY_SERVICE
+
+    systemctl daemon-reload
+    log_success "Xray 配置完成"
+}
+
+# 配置sing-box（Hysteria2 + TUIC）
+configure_sing_box() {
+    log_info "配置sing-box（Hysteria2 + TUIC）..."
+    
+    cat > ${CONFIG_DIR}/sing-box.json << SINGBOX_CONFIG
+{
+  "log": {
+    "level": "warn",
+    "timestamp": true
+  },
+  "inbounds": [
+    {
+      "type": "hysteria2
