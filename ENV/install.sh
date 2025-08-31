@@ -461,7 +461,7 @@ EOF
     log_success "sing-box安装完成"
 }
 
-# 配置Xray（单端口复用架构）
+# 配置Xray（单端口复用架构 - 修复gRPC/WS分流）
 configure_xray() {
     log_info "配置 Xray（单端口复用架构）..."
 
@@ -480,19 +480,25 @@ configure_xray() {
       "protocol": "vless",
       "settings": {
         "clients": [
-          { "id": "${UUID_VLESS}", "flow": "xtls-rprx-vision", "email": "reality@edgebox" }
+          { "id": "${UUID_VLESS}", "flow": "", "email": "multi@edgebox" }
         ],
         "decryption": "none",
         "fallbacks": [
           {
+            "name": "grpc.edgebox.local",
             "alpn": "h2",
             "dest": 10085,
             "xver": 1
           },
           {
-            "alpn": "http/1.1",
+            "name": "ws.edgebox.local",
+            "path": "/ws",
             "dest": 10086,
             "xver": 1
+          },
+          {
+            "dest": "www.cloudflare.com:443",
+            "xver": 0
           }
         ]
       },
@@ -503,7 +509,7 @@ configure_xray() {
           "show": false,
           "dest": "www.cloudflare.com:443",
           "xver": 0,
-          "serverNames": ["www.cloudflare.com","www.microsoft.com","www.apple.com"],
+          "serverNames": ["www.cloudflare.com", "www.microsoft.com", "www.apple.com", "grpc.edgebox.local", "ws.edgebox.local"],
           "privateKey": "${REALITY_PRIVATE_KEY}",
           "shortIds": ["${REALITY_SHORT_ID}"]
         }
@@ -692,7 +698,7 @@ start_services() {
     done
 }
 
-# 生成订阅链接（修复版）
+# 生成订阅链接（使用Reality隧道传输gRPC/WS）
 generate_subscription() {
     log_info "生成订阅链接..."
 
@@ -704,19 +710,19 @@ generate_subscription() {
     HY2_PW_ENC=$(jq -rn --arg v "$PASSWORD_HYSTERIA2" '$v|@uri')
     TUIC_PW_ENC=$(jq -rn --arg v "$PASSWORD_TUIC" '$v|@uri')
 
-    # 1) VLESS Reality - 正确
+    # 1) VLESS Reality - 原生Reality协议
     local reality_link="vless://${uuid}@${ip}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&spx=%2F&type=tcp#EdgeBox-REALITY"
 
-    # 2) VLESS gRPC - 需要指定端口和正确的参数
-    local grpc_link="vless://${uuid}@${ip}:443?encryption=none&security=tls&sni=${ip}&alpn=h2&type=grpc&serviceName=grpc&allowInsecure=1#EdgeBox-gRPC"
+    # 2) VLESS gRPC - 通过Reality隧道
+    local grpc_link="vless://${uuid}@${ip}:443?encryption=none&security=reality&sni=grpc.edgebox.local&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&type=grpc&serviceName=grpc#EdgeBox-gRPC"
 
-    # 3) VLESS WS - 需要指定端口和正确的参数  
-    local ws_link="vless://${uuid}@${ip}:443?encryption=none&security=tls&sni=${ip}&alpn=http%2F1.1&type=ws&host=${ip}&path=%2Fws&allowInsecure=1#EdgeBox-WS"
+    # 3) VLESS WS - 通过Reality隧道
+    local ws_link="vless://${uuid}@${ip}:443?encryption=none&security=reality&sni=ws.edgebox.local&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&type=ws&path=%2Fws#EdgeBox-WS"
 
     # 4) Hysteria2 - 使用密码认证
     local hy2_link="hysteria2://${HY2_PW_ENC}@${ip}:443?insecure=1&sni=${ip}&alpn=h3#EdgeBox-HYSTERIA2"
 
-    # 5) TUIC v5 - 正确
+    # 5) TUIC v5 - 正确格式
     local tuic_link="tuic://${UUID_TUIC}:${TUIC_PW_ENC}@${ip}:2053?congestion_control=bbr&alpn=h3&sni=${ip}&allowInsecure=1#EdgeBox-TUIC"
 
     # 输出订阅
@@ -964,14 +970,18 @@ show_installation_info() {
     echo -e "      端口: 443"
     echo -e "      UUID: ${UUID_VLESS}"
     echo -e "      公钥: ${REALITY_PUBLIC_KEY}"
+    echo -e "      SNI: www.cloudflare.com"
     
     echo -e "\n  ${PURPLE}[2] VLESS-gRPC${NC}"
-    echo -e "      端口: 443（单端口复用）"
+    echo -e "      端口: 443（Reality隧道）"
     echo -e "      UUID: ${UUID_VLESS}"
+    echo -e "      SNI: grpc.edgebox.local"
+    echo -e "      serviceName: grpc"
     
     echo -e "\n  ${PURPLE}[3] VLESS-WS${NC}"
-    echo -e "      端口: 443（单端口复用）"
+    echo -e "      端口: 443（Reality隧道）"
     echo -e "      UUID: ${UUID_VLESS}"
+    echo -e "      SNI: ws.edgebox.local"
     echo -e "      路径: /ws"
     
     echo -e "\n  ${PURPLE}[4] Hysteria2${NC}"
