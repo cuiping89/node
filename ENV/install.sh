@@ -468,7 +468,7 @@ EOF
 configure_xray() {
     log_info "配置 Xray（Reality + Fallback to Nginx）..."
 
-    cat > ${CONFIG_DIR}/xray.json <<EOF
+    cat > ${CONFIG_DIR}/xray.json <<XRAY_CONFIG
 {
   "log": {
     "loglevel": "warning",
@@ -545,9 +545,9 @@ configure_xray() {
   "outbounds": [ { "protocol": "freedom", "settings": {} } ],
   "routing": { "rules": [] }
 }
-EOF
+XRAY_CONFIG
 
-    cat >/etc/systemd/system/xray.service <<'EOF'
+    cat >/etc/systemd/system/xray.service <<'XRAY_SERVICE'
 [Unit]
 Description=Xray Service (EdgeBox)
 After=network.target
@@ -561,7 +561,7 @@ RestartSec=5
 LimitNOFILE=infinity
 [Install]
 WantedBy=multi-user.target
-EOF
+XRAY_SERVICE
 
     systemctl daemon-reload
     log_success "Xray 配置完成"
@@ -585,7 +585,7 @@ configure_nginx() {
         cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak
     fi
 
-    cat > /etc/nginx/nginx.conf <<'EOF'
+    cat > /etc/nginx/nginx.conf <<'NGINX_CONFIG'
 user www-data;
 worker_processes auto;
 error_log /var/log/nginx/error.log warn;
@@ -632,7 +632,7 @@ stream {
         proxy_timeout 15s;
     }
 }
-EOF
+NGINX_CONFIG
 
     # 重启Nginx
     systemctl daemon-reload
@@ -646,7 +646,7 @@ EOF
 configure_sing_box() {
     log_info "配置sing-box（Hysteria2 + TUIC）..."
     
-    cat > ${CONFIG_DIR}/sing-box.json <<EOF
+    cat > ${CONFIG_DIR}/sing-box.json <<SINGBOX_CONFIG
 {
   "log": {
     "level": "warn",
@@ -697,7 +697,7 @@ configure_sing_box() {
     }
   ]
 }
-EOF
+SINGBOX_CONFIG
     
     log_success "sing-box配置完成"
 }
