@@ -703,7 +703,7 @@ generate_subscription() {
     HY2_PW_ENC=$(jq -rn --arg v "$PASSWORD_HYSTERIA2" '$v|@uri')
     TUIC_PW_ENC=$(jq -rn --arg v "$PASSWORD_TUIC"     '$v|@uri')
 
-    # IP模式的主机名
+    # IP模式的主机名（与fallbacks配置一致）
     local grpc_host="grpc.edgebox.local"
     local ws_host="ws.edgebox.local"
     local quic_sni="www.edgebox.local"
