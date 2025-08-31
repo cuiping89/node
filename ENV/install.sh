@@ -461,9 +461,9 @@ EOF
     log_success "sing-box安装完成"
 }
 
-# 配置Xray（回退到稳定的gRPC/WS协议）
+# 配置Xray（单端口复用架构）
 configure_xray() {
-    log "配置 Xray（单端口复用架构）..."
+    log_info "配置 Xray（单端口复用架构）..."
 
     cat > ${CONFIG_DIR}/xray.json <<EOF
 {
@@ -570,7 +570,67 @@ WantedBy=multi-user.target
 EOF
 
     systemctl daemon-reload
-    log_ok "Xray 配置完成"
+    log_success "Xray 配置完成"
+}
+
+# 配置sing-box（Hysteria2 + TUIC）
+configure_sing_box() {
+    log_info "配置sing-box（Hysteria2 + TUIC）..."
+    
+    cat > ${CONFIG_DIR}/sing-box.json <<EOF
+{
+  "log": {
+    "level": "warn",
+    "timestamp": true
+  },
+  "inbounds": [
+    {
+      "type": "hysteria2",
+      "tag": "hysteria2-in",
+      "listen": "::",
+      "listen_port": 443,
+      "users": [
+        {
+          "password": "${PASSWORD_HYSTERIA2}"
+        }
+      ],
+      "tls": {
+        "enabled": true,
+        "alpn": ["h3"],
+        "certificate_path": "${CERT_DIR}/current.pem",
+        "key_path": "${CERT_DIR}/current.key"
+      }
+    },
+    {
+      "type": "tuic",
+      "tag": "tuic-in",
+      "listen": "::",
+      "listen_port": 2053,
+      "users": [
+        {
+          "uuid": "${UUID_TUIC}",
+          "password": "${PASSWORD_TUIC}"
+        }
+      ],
+      "congestion_control": "bbr",
+      "tls": {
+        "enabled": true,
+        "alpn": ["h3"],
+        "certificate_path": "${CERT_DIR}/current.pem",
+        "key_path": "${CERT_DIR}/current.key"
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
+  ]
+}
+EOF
+    
+    log_success "sing-box配置完成"
 }
 
 # 保存配置信息
@@ -632,7 +692,7 @@ start_services() {
     done
 }
 
-# 生成订阅链接（修复SNI依赖问题）
+# 生成订阅链接（修复版）
 generate_subscription() {
     log_info "生成订阅链接..."
 
@@ -642,25 +702,30 @@ generate_subscription() {
     # URL编码密码
     local HY2_PW_ENC TUIC_PW_ENC
     HY2_PW_ENC=$(jq -rn --arg v "$PASSWORD_HYSTERIA2" '$v|@uri')
-    TUIC_PW_ENC=$(jq -rn --arg v "$PASSWORD_TUIC"     '$v|@uri')
+    TUIC_PW_ENC=$(jq -rn --arg v "$PASSWORD_TUIC" '$v|@uri')
 
-    # 1) VLESS Reality
-    local reality_link="vless://${uuid}@${ip}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&spx=%2F#EdgeBox-REALITY"
+    # 1) VLESS Reality - 正确
+    local reality_link="vless://${uuid}@${ip}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&spx=%2F&type=tcp#EdgeBox-REALITY"
 
-    # 2) VLESS gRPC（去掉SNI依赖，仅通过ALPN分流）
-    local grpc_link="vless://${uuid}@${ip}:443?encryption=none&security=tls&alpn=h2&type=grpc&serviceName=grpc&allowInsecure=1#EdgeBox-gRPC"
+    # 2) VLESS gRPC - 需要指定端口和正确的参数
+    local grpc_link="vless://${uuid}@${ip}:443?encryption=none&security=tls&sni=${ip}&alpn=h2&type=grpc&serviceName=grpc&allowInsecure=1#EdgeBox-gRPC"
 
-    # 3) VLESS WS（去掉SNI依赖，作为默认fallback）
-    local ws_link="vless://${uuid}@${ip}:443?encryption=none&security=tls&alpn=http/1.1&type=ws&path=/ws&allowInsecure=1#EdgeBox-WS"
+    # 3) VLESS WS - 需要指定端口和正确的参数  
+    local ws_link="vless://${uuid}@${ip}:443?encryption=none&security=tls&sni=${ip}&alpn=http%2F1.1&type=ws&host=${ip}&path=%2Fws&allowInsecure=1#EdgeBox-WS"
 
-    # 4) Hysteria2
-    local hy2_link="hysteria2://${HY2_PW_ENC}@${ip}:443?insecure=1&alpn=h3#EdgeBox-HYSTERIA2"
+    # 4) Hysteria2 - 使用密码认证
+    local hy2_link="hysteria2://${HY2_PW_ENC}@${ip}:443?insecure=1&sni=${ip}&alpn=h3#EdgeBox-HYSTERIA2"
 
-    # 5) TUIC v5
-    local tuic_link="tuic://${UUID_TUIC}:${TUIC_PW_ENC}@${ip}:2053?congestion_control=bbr&alpn=h3&allowInsecure=1#EdgeBox-TUIC"
+    # 5) TUIC v5 - 正确
+    local tuic_link="tuic://${UUID_TUIC}:${TUIC_PW_ENC}@${ip}:2053?congestion_control=bbr&alpn=h3&sni=${ip}&allowInsecure=1#EdgeBox-TUIC"
 
-    # 输出订阅（仅保存到本地文件）
-    local plain="${reality_link}\n${grpc_link}\n${ws_link}\n${hy2_link}\n${tuic_link}\n"
+    # 输出订阅
+    local plain="${reality_link}
+${grpc_link}
+${ws_link}
+${hy2_link}
+${tuic_link}"
+    
     echo -e "${plain}" > "${CONFIG_DIR}/subscription.txt"
     
     # 生成Base64编码的订阅文件
@@ -761,7 +826,7 @@ show_status() {
     ss -ulnp 2>/dev/null | grep ":2053 " && echo -e "  UDP/2053: ${GREEN}正常${NC}" || echo -e "  UDP/2053: ${RED}异常${NC}"
     
     echo -e "${YELLOW}内部回环端口：${NC}"
-    ss -tlnp 2>/dev/null | grep "127.0.0.1:10085 " &&     echo -e "  gRPC内部: ${GREEN}正常${NC}" || echo -e "  gRPC内部: ${RED}异常${NC}"
+    ss -tlnp 2>/dev/null | grep "127.0.0.1:10085 " && echo -e "  gRPC内部: ${GREEN}正常${NC}" || echo -e "  gRPC内部: ${RED}异常${NC}"
     ss -tlnp 2>/dev/null | grep "127.0.0.1:10086 " && echo -e "  WS内部: ${GREEN}正常${NC}" || echo -e "  WS内部: ${RED}异常${NC}"
 }
 
@@ -903,7 +968,6 @@ show_installation_info() {
     echo -e "\n  ${PURPLE}[2] VLESS-gRPC${NC}"
     echo -e "      端口: 443（单端口复用）"
     echo -e "      UUID: ${UUID_VLESS}"
-    echo -e "      SNI: grpc.edgebox.local"
     
     echo -e "\n  ${PURPLE}[3] VLESS-WS${NC}"
     echo -e "      端口: 443（单端口复用）"
