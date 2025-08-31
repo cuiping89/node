@@ -668,27 +668,36 @@ http {
 }
 
 stream {
-    map $ssl_preread_alpn_protocols $backend_name {
-        ~\bh2\b         grpc_backend;
-        ~\bhttp/1.1\b   ws_backend;
-        default         grpc_backend;
+    # SNI 是否伪装站：命中则走 Reality
+    map $ssl_preread_server_name $is_reality {
+        ~^(www\.cloudflare\.com|www\.apple\.com|www\.microsoft\.com)$ 1;
+        default 0;
     }
-    
-    upstream grpc_backend {
-        server 127.0.0.1:10085;
+
+    # 非 Reality 时再看 ALPN 分流
+    map $ssl_preread_alpn_protocols $alpn {
+        ~h2         grpc;
+        ~http/1\.1 ws;
+        default           ws;
     }
-    
-    upstream ws_backend {
-        server 127.0.0.1:10086;
+
+    # 组合路由：优先 Reality，其次 ALPN
+    map "$is_reality:$alpn" $upstream {
+        "~^1:"      127.0.0.1:11443; # Reality
+        "~^0:grpc$" 127.0.0.1:10085; # gRPC
+        "~^0:ws$"   127.0.0.1:10086; # WS
+        default     127.0.0.1:10086; # 兜底防回环
     }
-    
+
     server {
-        listen 127.0.0.1:10443;
+        listen 0.0.0.0:443;
         ssl_preread on;
-        proxy_pass $backend_name;
+        proxy_pass $upstream;
+        proxy_timeout 15s;
+        proxy_connect_timeout 5s;
     }
 }
-NGINX_END
+NGINX_FIRST_END
 
     # 创建web目录
     mkdir -p /var/www/html
