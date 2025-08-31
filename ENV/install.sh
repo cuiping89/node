@@ -463,7 +463,7 @@ EOF
 
 # 配置Xray（回退到稳定的gRPC/WS协议）
 configure_xray() {
-    log "配置 Xray（单端口复用架构 - 稳定协议）..."
+    log "配置 Xray（单端口 + fallbacks + 内侧 TLS）..."
 
     cat > ${CONFIG_DIR}/xray.json <<EOF
 {
@@ -474,7 +474,7 @@ configure_xray() {
   },
   "inbounds": [
     {
-      "tag": "VLESS-MultiProtocol",
+      "tag": "vless-entry",
       "listen": "0.0.0.0",
       "port": 443,
       "protocol": "vless",
@@ -483,10 +483,10 @@ configure_xray() {
           { "id": "${UUID_VLESS}", "flow": "xtls-rprx-vision", "email": "reality@edgebox" }
         ],
         "decryption": "none",
-"fallbacks": [
-  { "alpn": "h2",        "dest": "127.0.0.1:10085" },   // gRPC
-  { "alpn": "http/1.1",  "dest": "127.0.0.1:10086" }    // WebSocket
-]
+        "fallbacks": [
+          { "alpn": "h2",        "dest": "127.0.0.1:10085" },
+          { "alpn": "http/1.1",  "dest": "127.0.0.1:10086" }
+        ]
       },
       "streamSettings": {
         "network": "tcp",
@@ -501,7 +501,7 @@ configure_xray() {
       }
     },
     {
-      "tag": "VLESS-gRPC-Internal",
+      "tag": "vless-grpc",
       "listen": "127.0.0.1",
       "port": 10085,
       "protocol": "vless",
@@ -514,13 +514,15 @@ configure_xray() {
         "security": "tls",
         "tlsSettings": {
           "alpn": ["h2"],
-          "certificates": [ { "certificateFile": "${CERT_DIR}/current.pem", "keyFile": "${CERT_DIR}/current.key" } ]
+          "certificates": [
+            { "certificateFile": "${CERT_DIR}/current.pem", "keyFile": "${CERT_DIR}/current.key" }
+          ]
         },
         "grpcSettings": { "serviceName": "grpc" }
       }
     },
     {
-      "tag": "VLESS-WS-Internal", 
+      "tag": "vless-ws",
       "listen": "127.0.0.1",
       "port": 10086,
       "protocol": "vless",
@@ -533,35 +535,41 @@ configure_xray() {
         "security": "tls",
         "tlsSettings": {
           "alpn": ["http/1.1"],
-          "certificates": [ { "certificateFile": "${CERT_DIR}/current.pem", "keyFile": "${CERT_DIR}/current.key" } ]
+          "certificates": [
+            { "certificateFile": "${CERT_DIR}/current.pem", "keyFile": "${CERT_DIR}/current.key" }
+          ]
         },
         "wsSettings": { "path": "/ws" }
       }
     }
   ],
-  "outbounds": [ { "protocol": "freedom", "settings": {} } ],
-  "routing": { "rules": [] }
+  "outbounds": [ { "protocol": "freedom" } ]
 }
 EOF
 
-    cat >/etc/systemd/system/xray.service <<'EOF'
+    # 覆盖 xray 的 systemd（读取我们写入的配置路径）
+    cat >/etc/systemd/system/xray.service <<EOF
 [Unit]
 Description=Xray Service (EdgeBox)
 After=network.target
 StartLimitIntervalSec=0
+
 [Service]
 Type=simple
 User=root
-ExecStart=/usr/local/bin/xray run -c /etc/edgebox/config/xray.json
+ExecStart=/usr/local/bin/xray run -c ${CONFIG_DIR}/xray.json
 Restart=on-failure
 RestartSec=5
 LimitNOFILE=infinity
+
 [Install]
 WantedBy=multi-user.target
 EOF
 
+    # 先做配置校验，再刷新 systemd
+    /usr/local/bin/xray -test -c ${CONFIG_DIR}/xray.json || { log_error "xray 配置校验失败"; exit 1; }
     systemctl daemon-reload
-    log_ok "Xray 配置完成（单端口复用架构 - 稳定协议）"
+    log_ok "Xray 配置完成（单口 + fallbacks + 内侧 TLS）"
 }
 
 # 配置sing-box
