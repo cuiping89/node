@@ -500,22 +500,29 @@ configure_xray() {
           { "id": "${UUID_VLESS}", "flow": "xtls-rprx-vision", "email": "reality@edgebox" }
         ],
         "decryption": "none",
-"fallbacks": [
-    {
-      "alpn": "h2",
-      "dest": 10085,
-      "xver": 1
-    },
-    {
-      "alpn": "http/1.1",
-      "dest": 10086,
-      "xver": 1
-    },
-    {
-      "dest": 10086,
-      "xver": 1
-    }
-]
+        "fallbacks": [
+          {
+            "name": "grpc.edgebox.local",
+            "alpn": "h2",
+            "dest": 10085,
+            "xver": 1
+          },
+          {
+            "name": "ws.edgebox.local", 
+            "alpn": "http/1.1",
+            "dest": 10086,
+            "xver": 1
+          },
+          {
+            "alpn": "h2",
+            "dest": 10085,
+            "xver": 1
+          },
+          {
+            "dest": 10086,
+            "xver": 1
+          }
+        ]
       },
       "streamSettings": {
         "network": "tcp",
@@ -684,7 +691,7 @@ start_services() {
     done
 }
 
-# 生成订阅链接（本地文件模式 - 稳定协议）
+# 生成订阅链接（修复SNI依赖问题）
 generate_subscription() {
     log_info "生成订阅链接..."
 
@@ -696,25 +703,20 @@ generate_subscription() {
     HY2_PW_ENC=$(jq -rn --arg v "$PASSWORD_HYSTERIA2" '$v|@uri')
     TUIC_PW_ENC=$(jq -rn --arg v "$PASSWORD_TUIC"     '$v|@uri')
 
-    # IP模式的主机名（与fallbacks配置一致）
-    local grpc_host="grpc.edgebox.local"
-    local ws_host="ws.edgebox.local"
-    local quic_sni="www.edgebox.local"
-
     # 1) VLESS Reality
     local reality_link="vless://${uuid}@${ip}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&spx=%2F#EdgeBox-REALITY"
 
-    # 2) VLESS gRPC（忽略弃用警告，使用稳定配置）
-    local grpc_link="vless://${uuid}@${ip}:443?encryption=none&security=tls&sni=${grpc_host}&alpn=h2&type=grpc&serviceName=grpc&allowInsecure=1#EdgeBox-gRPC"
+    # 2) VLESS gRPC（去掉SNI依赖，仅通过ALPN分流）
+    local grpc_link="vless://${uuid}@${ip}:443?encryption=none&security=tls&alpn=h2&type=grpc&serviceName=grpc&allowInsecure=1#EdgeBox-gRPC"
 
-    # 3) VLESS WS（忽略弃用警告，使用稳定配置）
-    local ws_link="vless://${uuid}@${ip}:443?encryption=none&security=tls&sni=${ws_host}&alpn=http/1.1&type=ws&host=${ws_host}&path=/ws&allowInsecure=1#EdgeBox-WS"
+    # 3) VLESS WS（去掉SNI依赖，作为默认fallback）
+    local ws_link="vless://${uuid}@${ip}:443?encryption=none&security=tls&alpn=http/1.1&type=ws&path=/ws&allowInsecure=1#EdgeBox-WS"
 
     # 4) Hysteria2
-    local hy2_link="hysteria2://${HY2_PW_ENC}@${ip}:443?sni=${quic_sni}&insecure=1&alpn=h3#EdgeBox-HYSTERIA2"
+    local hy2_link="hysteria2://${HY2_PW_ENC}@${ip}:443?insecure=1&alpn=h3#EdgeBox-HYSTERIA2"
 
     # 5) TUIC v5
-    local tuic_link="tuic://${UUID_TUIC}:${TUIC_PW_ENC}@${ip}:2053?congestion_control=bbr&alpn=h3&sni=${quic_sni}&allowInsecure=1#EdgeBox-TUIC"
+    local tuic_link="tuic://${UUID_TUIC}:${TUIC_PW_ENC}@${ip}:2053?congestion_control=bbr&alpn=h3&allowInsecure=1#EdgeBox-TUIC"
 
     # 输出订阅（仅保存到本地文件）
     local plain="${reality_link}\n${grpc_link}\n${ws_link}\n${hy2_link}\n${tuic_link}\n"
