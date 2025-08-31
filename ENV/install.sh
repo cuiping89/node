@@ -291,7 +291,7 @@ EOF
     log_success "系统参数优化完成"
 }
 
-# 生成自签名证书（增强版本，确保密钥匹配）
+# 生成自签名证书（修复EC证书验证）
 generate_self_signed_cert() {
     log_info "生成自签名证书..."
     
@@ -309,23 +309,6 @@ generate_self_signed_cert() {
         -days 3650 \
         -subj "/C=US/ST=California/L=San Francisco/O=EdgeBox/CN=${SERVER_IP}" >/dev/null 2>&1
     
-    # 验证证书和私钥是否匹配
-    local cert_modulus key_modulus
-    cert_modulus=$(openssl x509 -noout -modulus -in ${CERT_DIR}/self-signed.pem 2>/dev/null | openssl md5)
-    key_modulus=$(openssl ec -noout -modulus -in ${CERT_DIR}/self-signed.key 2>/dev/null | openssl md5)
-    
-    if [[ "$cert_modulus" != "$key_modulus" ]]; then
-        log_error "证书和私钥不匹配，重新生成..."
-        rm -f ${CERT_DIR}/self-signed.key ${CERT_DIR}/self-signed.pem
-        
-        # 重新生成
-        openssl req -x509 -nodes -newkey ec:<(openssl ecparam -name secp384r1) \
-            -keyout ${CERT_DIR}/self-signed.key \
-            -out ${CERT_DIR}/self-signed.pem \
-            -days 3650 \
-            -subj "/C=US/ST=California/L=San Francisco/O=EdgeBox/CN=${SERVER_IP}" >/dev/null 2>&1
-    fi
-    
     # 创建软链接
     ln -sf ${CERT_DIR}/self-signed.key ${CERT_DIR}/current.key
     ln -sf ${CERT_DIR}/self-signed.pem ${CERT_DIR}/current.pem
@@ -335,7 +318,7 @@ generate_self_signed_cert() {
     chmod 600 ${CERT_DIR}/*.key
     chmod 644 ${CERT_DIR}/*.pem
 
-    # 最终验证
+    # 最终验证（仅验证文件格式，不比对modulus）
     if openssl x509 -in ${CERT_DIR}/current.pem -noout -text >/dev/null 2>&1 && \
        openssl ec -in ${CERT_DIR}/current.key -noout -text >/dev/null 2>&1; then
         log_success "自签名证书生成完成并验证通过"
@@ -500,18 +483,29 @@ configure_xray() {
           { "id": "${UUID_VLESS}", "flow": "xtls-rprx-vision", "email": "reality@edgebox" }
         ],
         "decryption": "none",
-"fallbacks": [
-    {
-      "alpn": "h2",
-      "dest": 10085,
-      "xver": 1
-    },
-    {
-      "alpn": "http/1.1",
-      "dest": 10086,
-      "xver": 1
-    }
-]
+        "fallbacks": [
+          {
+            "name": "grpc.edgebox.local",
+            "alpn": "h2",
+            "dest": 10085,
+            "xver": 1
+          },
+          {
+            "name": "ws.edgebox.local", 
+            "alpn": "http/1.1",
+            "dest": 10086,
+            "xver": 1
+          },
+          {
+            "alpn": "h2",
+            "dest": 10085,
+            "xver": 1
+          },
+          {
+            "dest": 10086,
+            "xver": 1
+          }
+        ]
       },
       "streamSettings": {
         "network": "tcp",
