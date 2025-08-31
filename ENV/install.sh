@@ -676,8 +676,8 @@ stream {
 
     # 非 Reality 时再看 ALPN 分流
     map $ssl_preread_alpn_protocols $alpn {
+        ~\bhttp/1\.1\b  ws;
         ~\bh2\b         grpc;
-        ~\bhttp/1\.1\b ws;
         default           ws;
     }
 
@@ -884,7 +884,7 @@ generate_subscription() {
     local grpc_link="vless://${uuid}@${ip}:443?encryption=none&security=tls&sni=grpc.edgebox.local&alpn=h2&type=grpc&serviceName=grpc&alpn=h2&fp=chrome&allowInsecure=1#EdgeBox-gRPC"
 
     # 3) VLESS WS - 443端口，通过Nginx分流，SNI使用服务域名  
-    local ws_link="vless://${uuid}@${ip}:443?encryption=none&security=tls&sni=ws.edgebox.local&alpn=http%2F1.1&type=ws&path=/ws&host=${ip}&alpn=http/1.1&fp=chrome&allowInsecure=1#EdgeBox-WS"
+    local ws_link="vless://${uuid}@${ip}:443?encryption=none&security=tls&sni=ws.edgebox.local&alpn=http%2F1.1&type=ws&path=/ws&alpn=http/1.1&fp=chrome&allowInsecure=1#EdgeBox-WS"
 
     # 4) Hysteria2 - 443端口(UDP)
     local hy2_link="hysteria2://${HY2_PW_ENC}@${ip}:443?insecure=1&sni=${ip}&alpn=h3#EdgeBox-HYSTERIA2"
