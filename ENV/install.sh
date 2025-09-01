@@ -941,10 +941,11 @@ create_edgeboxctl() {
     cat > /usr/local/bin/edgeboxctl << 'EOFCTL'
 #!/bin/bash
 
-# EdgeBox Control Script - Module 1: Core Foundation + Contract
-VERSION="2.0.2"
+# EdgeBox 增强版控制脚本 - 模块2：证书管理集成
+VERSION="2.1.0"
 CONFIG_DIR="/etc/edgebox/config"
 CERT_DIR="/etc/edgebox/cert"
+LOG_FILE="/var/log/edgebox.log"
 
 # 颜色定义
 RED='\033[0;31m'
@@ -956,22 +957,25 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 log_info() {
-    echo -e "${GREEN}[INFO]${NC} $1"
+    echo -e "${GREEN}[INFO]${NC} $1" | tee -a ${LOG_FILE} 2>/dev/null || echo -e "${GREEN}[INFO]${NC} $1"
 }
 
 log_warn() {
-    echo -e "${YELLOW}[WARN]${NC} $1"
+    echo -e "${YELLOW}[WARN]${NC} $1" | tee -a ${LOG_FILE} 2>/dev/null || echo -e "${YELLOW}[WARN]${NC} $1"
 }
 
 log_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
+    echo -e "${RED}[ERROR]${NC} $1" | tee -a ${LOG_FILE} 2>/dev/null || echo -e "${RED}[ERROR]${NC} $1"
 }
 
 log_success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $1"
+    echo -e "${GREEN}[SUCCESS]${NC} $1" | tee -a ${LOG_FILE} 2>/dev/null || echo -e "${GREEN}[SUCCESS]${NC} $1"
 }
 
-# 契约接口：获取当前证书模式
+#############################################
+# 基础契约接口函数（继承自模块1）
+#############################################
+
 get_current_cert_mode() {
     if [[ -f ${CONFIG_DIR}/cert_mode ]]; then
         cat ${CONFIG_DIR}/cert_mode
@@ -980,28 +984,24 @@ get_current_cert_mode() {
     fi
 }
 
-show_help() {
-    echo -e "${CYAN}EdgeBox 管理工具 v${VERSION}${NC}"
-    echo -e "${YELLOW}模块1：核心基础功能 + 契约接口${NC}"
-    echo ""
-    echo "用法: edgeboxctl [命令] [选项]"
-    echo ""
-    echo "基础服务管理:"
-    echo "  status          显示服务状态"
-    echo "  restart         重启所有服务" 
-    echo "  logs [service]  查看服务日志"
-    echo ""
-    echo "配置管理:"
-    echo "  show-config     显示当前配置"
-    echo "  sub             显示订阅链接"
-    echo ""
-    echo "调试工具:"
-    echo "  test            测试连接"
-    echo "  debug-ports     调试端口状态"
-    echo "  fix-permissions 修复证书权限"
-    echo ""
-    echo "  help            显示帮助信息"
+get_server_info() {
+    if [[ ! -f ${CONFIG_DIR}/server.json ]]; then
+        log_error "配置文件不存在"
+        return 1
+    fi
+    
+    SERVER_IP=$(jq -r '.server_ip' ${CONFIG_DIR}/server.json 2>/dev/null)
+    UUID_VLESS=$(jq -r '.uuid.vless' ${CONFIG_DIR}/server.json 2>/dev/null)
+    UUID_TUIC=$(jq -r '.uuid.tuic' ${CONFIG_DIR}/server.json 2>/dev/null)
+    PASSWORD_HYSTERIA2=$(jq -r '.password.hysteria2' ${CONFIG_DIR}/server.json 2>/dev/null)
+    PASSWORD_TUIC=$(jq -r '.password.tuic' ${CONFIG_DIR}/server.json 2>/dev/null)
+    REALITY_PUBLIC_KEY=$(jq -r '.reality.public_key' ${CONFIG_DIR}/server.json 2>/dev/null)
+    REALITY_SHORT_ID=$(jq -r '.reality.short_id' ${CONFIG_DIR}/server.json 2>/dev/null)
 }
+
+#############################################
+# 模块1基础功能（保持不变）
+#############################################
 
 show_sub() {
     if [[ ! -f ${CONFIG_DIR}/server.json ]]; then
@@ -1054,7 +1054,6 @@ show_status() {
     ss -ulnp 2>/dev/null | grep -q ":2053 " && echo -e "  UDP/2053 (TUIC): ${GREEN}正常${NC}" || echo -e "  UDP/2053: ${RED}异常${NC}"
     
     echo -e "${YELLOW}内部回环端口：${NC}"
-    ss -tlnp 2>/dev/null | grep -q "127.0.0.1:11443 " && echo -e "  Reality内部: ${GREEN}正常${NC}" || echo -e "  Reality内部: ${RED}异常${NC}"
     ss -tlnp 2>/dev/null | grep -q "127.0.0.1:10085 " && echo -e "  gRPC内部: ${GREEN}正常${NC}" || echo -e "  gRPC内部: ${RED}异常${NC}"
     ss -tlnp 2>/dev/null | grep -q "127.0.0.1:10086 " && echo -e "  WS内部: ${GREEN}正常${NC}" || echo -e "  WS内部: ${RED}异常${NC}"
     
@@ -1185,7 +1184,392 @@ fix_permissions() {
     fi
 }
 
+#############################################
+# 模块2：证书管理功能
+#############################################
+
+check_domain_resolution() {
+    local domain=$1
+    log_info "检查域名解析: $domain"
+    
+    if ! nslookup "$domain" >/dev/null 2>&1; then
+        log_error "域名 $domain 无法解析"
+        return 1
+    fi
+    
+    get_server_info
+    local resolved_ip=$(dig +short "$domain" 2>/dev/null | tail -n1)
+    if [[ -n "$resolved_ip" && "$resolved_ip" != "$SERVER_IP" ]]; then
+        log_warn "域名解析IP ($resolved_ip) 与服务器IP ($SERVER_IP) 不匹配"
+        log_warn "这可能导致Let's Encrypt验证失败"
+        read -p "是否继续？[y/N]: " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            return 1
+        fi
+    fi
+    
+    log_success "域名解析检查通过"
+    return 0
+}
+
+request_letsencrypt_cert() {
+    local domain=$1
+    log_info "为域名 $domain 申请Let's Encrypt证书"
+    
+    mkdir -p ${CERT_DIR}
+    
+    log_info "临时停止nginx以释放80端口"
+    systemctl stop nginx >/dev/null 2>&1
+    
+    if certbot certonly \
+        --standalone \
+        --non-interactive \
+        --agree-tos \
+        --email "admin@${domain}" \
+        --domains "$domain" \
+        --preferred-challenges http \
+        --http-01-port 80; then
+        
+        log_success "Let's Encrypt证书申请成功"
+    else
+        log_error "Let's Encrypt证书申请失败"
+        systemctl start nginx >/dev/null 2>&1
+        return 1
+    fi
+    
+    systemctl start nginx >/dev/null 2>&1
+    
+    if [[ ! -f "/etc/letsencrypt/live/${domain}/fullchain.pem" ]] || \
+       [[ ! -f "/etc/letsencrypt/live/${domain}/privkey.pem" ]]; then
+        log_error "证书文件不存在"
+        return 1
+    fi
+    
+    log_success "证书文件验证通过"
+    return 0
+}
+
+switch_to_domain_mode() {
+    local domain=$1
+    
+    if [[ -z "$domain" ]]; then
+        log_error "请提供域名"
+        echo "用法: edgeboxctl switch-to-domain <domain>"
+        return 1
+    fi
+    
+    log_info "开始切换到域名模式: $domain"
+    
+    get_server_info || return 1
+    check_domain_resolution "$domain" || return 1
+    request_letsencrypt_cert "$domain" || return 1
+    
+    log_info "更新证书软链接"
+    ln -sf "/etc/letsencrypt/live/${domain}/privkey.pem" ${CERT_DIR}/current.key
+    ln -sf "/etc/letsencrypt/live/${domain}/fullchain.pem" ${CERT_DIR}/current.pem
+    
+    echo "letsencrypt:${domain}" > ${CONFIG_DIR}/cert_mode
+    
+    regenerate_subscription_for_domain "$domain" || return 1
+    
+    log_info "重启服务以应用新证书"
+    systemctl restart xray sing-box >/dev/null 2>&1
+    
+    sleep 3
+    local failed_services=()
+    for service in xray sing-box; do
+        if ! systemctl is-active --quiet "$service"; then
+            failed_services+=("$service")
+        fi
+    done
+    
+    if [[ ${#failed_services[@]} -gt 0 ]]; then
+        log_error "以下服务启动失败: ${failed_services[*]}"
+        log_info "查看日志: journalctl -u xray -u sing-box -n 20"
+        return 1
+    fi
+    
+    setup_auto_renewal "$domain"
+    
+    log_success "成功切换到域名模式: $domain"
+    log_info "订阅链接已更新，使用 'edgeboxctl sub' 查看"
+    
+    return 0
+}
+
+switch_to_ip_mode() {
+    log_info "开始切换到IP模式"
+    
+    get_server_info || return 1
+    
+    log_info "重新生成自签名证书"
+    generate_self_signed_cert || return 1
+    
+    ln -sf ${CERT_DIR}/self-signed.key ${CERT_DIR}/current.key
+    ln -sf ${CERT_DIR}/self-signed.pem ${CERT_DIR}/current.pem
+    
+    echo "self-signed" > ${CONFIG_DIR}/cert_mode
+    
+    regenerate_subscription_for_ip || return 1
+    
+    log_info "重启服务以应用新证书"
+    systemctl restart xray sing-box >/dev/null 2>&1
+    
+    sleep 3
+    for service in xray sing-box; do
+        if ! systemctl is-active --quiet "$service"; then
+            log_error "$service 启动失败"
+            return 1
+        fi
+    done
+    
+    log_success "成功切换到IP模式"
+    log_info "订阅链接已更新，使用 'edgeboxctl sub' 查看"
+    
+    return 0
+}
+
+generate_self_signed_cert() {
+    log_info "生成自签名证书..."
+    
+    rm -f ${CERT_DIR}/self-signed.key ${CERT_DIR}/self-signed.pem
+    
+    openssl req -x509 -nodes -newkey ec:<(openssl ecparam -name secp384r1) \
+        -keyout ${CERT_DIR}/self-signed.key \
+        -out ${CERT_DIR}/self-signed.pem \
+        -days 3650 \
+        -subj "/C=US/ST=California/L=San Francisco/O=EdgeBox/CN=${SERVER_IP}" >/dev/null 2>&1
+    
+    chown root:root ${CERT_DIR}/self-signed.*
+    chmod 600 ${CERT_DIR}/self-signed.key
+    chmod 644 ${CERT_DIR}/self-signed.pem
+    
+    if openssl x509 -in ${CERT_DIR}/self-signed.pem -noout -text >/dev/null 2>&1; then
+        log_success "自签名证书生成成功"
+    else
+        log_error "自签名证书生成失败"
+        return 1
+    fi
+}
+
+regenerate_subscription_for_domain() {
+    local domain=$1
+    log_info "为域名模式重新生成订阅链接"
+    
+    local HY2_PW_ENC TUIC_PW_ENC
+    HY2_PW_ENC=$(printf '%s' "$PASSWORD_HYSTERIA2" | jq -rR @uri)
+    TUIC_PW_ENC=$(printf '%s' "$PASSWORD_TUIC" | jq -rR @uri)
+    
+    local reality_link="vless://${UUID_VLESS}@${domain}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&type=tcp#EdgeBox-REALITY"
+    
+    local grpc_link="vless://${UUID_VLESS}@${domain}:443?encryption=none&security=tls&sni=${domain}&alpn=h2&type=grpc&serviceName=grpc&fp=chrome#EdgeBox-gRPC"
+    
+    local ws_link="vless://${UUID_VLESS}@${domain}:443?encryption=none&security=tls&sni=${domain}&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome#EdgeBox-WS"
+    
+    local hy2_link="hysteria2://${HY2_PW_ENC}@${domain}:443?sni=${domain}&alpn=h3#EdgeBox-HYSTERIA2"
+    
+    local tuic_link="tuic://${UUID_TUIC}:${TUIC_PW_ENC}@${domain}:2053?congestion_control=bbr&alpn=h3&sni=${domain}#EdgeBox-TUIC"
+    
+    local subscription="${reality_link}
+${grpc_link}
+${ws_link}
+${hy2_link}
+${tuic_link}"
+    
+    echo -e "${subscription}" > "${CONFIG_DIR}/subscription.txt"
+    echo -e "${subscription}" | base64 -w0 > "${CONFIG_DIR}/subscription.base64"
+    
+    mkdir -p /var/www/html
+    echo -e "${subscription}" | base64 -w0 > /var/www/html/sub
+    
+    log_success "域名模式订阅链接已更新"
+}
+
+regenerate_subscription_for_ip() {
+    log_info "为IP模式重新生成订阅链接"
+    
+    local HY2_PW_ENC TUIC_PW_ENC
+    HY2_PW_ENC=$(printf '%s' "$PASSWORD_HYSTERIA2" | jq -rR @uri)
+    TUIC_PW_ENC=$(printf '%s' "$PASSWORD_TUIC" | jq -rR @uri)
+    
+    local reality_link="vless://${UUID_VLESS}@${SERVER_IP}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&type=tcp#EdgeBox-REALITY"
+    
+    local grpc_link="vless://${UUID_VLESS}@${SERVER_IP}:443?encryption=none&security=tls&sni=grpc.edgebox.internal&alpn=h2&type=grpc&serviceName=grpc&fp=chrome&allowInsecure=1#EdgeBox-gRPC"
+    
+    local ws_link="vless://${UUID_VLESS}@${SERVER_IP}:443?encryption=none&security=tls&sni=ws.edgebox.internal&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome&allowInsecure=1#EdgeBox-WS"
+    
+    local hy2_link="hysteria2://${HY2_PW_ENC}@${SERVER_IP}:443?sni=${SERVER_IP}&alpn=h3&insecure=1#EdgeBox-HYSTERIA2"
+    
+    local tuic_link="tuic://${UUID_TUIC}:${TUIC_PW_ENC}@${SERVER_IP}:2053?congestion_control=bbr&alpn=h3&sni=${SERVER_IP}&allowInsecure=1#EdgeBox-TUIC"
+    
+    local subscription="${reality_link}
+${grpc_link}
+${ws_link}
+${hy2_link}
+${tuic_link}"
+    
+    echo -e "${subscription}" > "${CONFIG_DIR}/subscription.txt"
+    echo -e "${subscription}" | base64 -w0 > "${CONFIG_DIR}/subscription.base64"
+    
+    mkdir -p /var/www/html
+    echo -e "${subscription}" | base64 -w0 > /var/www/html/sub
+    
+    log_success "IP模式订阅链接已更新"
+}
+
+setup_auto_renewal() {
+    local domain=$1
+    log_info "设置Let's Encrypt证书自动续期"
+    
+    mkdir -p /etc/edgebox/scripts
+    
+    cat > /etc/edgebox/scripts/cert-renewal.sh << 'EOF'
+#!/bin/bash
+# EdgeBox 证书自动续期脚本
+
+LOG_FILE="/var/log/edgebox-renewal.log"
+
+echo "[$(date)] 开始证书续期检查" >> $LOG_FILE
+
+systemctl stop nginx >> $LOG_FILE 2>&1
+
+if certbot renew --quiet >> $LOG_FILE 2>&1; then
+    echo "[$(date)] 证书续期成功" >> $LOG_FILE
+    
+    systemctl start nginx >> $LOG_FILE 2>&1
+    systemctl restart xray sing-box >> $LOG_FILE 2>&1
+    
+    echo "[$(date)] 服务重启完成" >> $LOG_FILE
+else
+    echo "[$(date)] 证书续期失败" >> $LOG_FILE
+    systemctl start nginx >> $LOG_FILE 2>&1
+fi
+EOF
+    
+    chmod +x /etc/edgebox/scripts/cert-renewal.sh
+    
+    if ! crontab -l 2>/dev/null | grep -q "cert-renewal.sh"; then
+        (crontab -l 2>/dev/null; echo "0 3 * * * /etc/edgebox/scripts/cert-renewal.sh") | crontab -
+        log_success "自动续期任务已添加（每日凌晨3点执行）"
+    else
+        log_info "自动续期任务已存在"
+    fi
+}
+
+manual_cert_renewal() {
+    local cert_mode=$(get_current_cert_mode)
+    
+    if [[ "$cert_mode" != letsencrypt:* ]]; then
+        log_error "当前不是域名模式，无法续期Let's Encrypt证书"
+        return 1
+    fi
+    
+    local domain=${cert_mode##*:}
+    log_info "手动续期域名 $domain 的证书"
+    
+    systemctl stop nginx
+    
+    if certbot renew --force-renewal --domain "$domain"; then
+        log_success "证书续期成功"
+        
+        systemctl start nginx
+        systemctl restart xray sing-box
+        
+        log_success "服务重启完成"
+    else
+        log_error "证书续期失败"
+        systemctl start nginx
+        return 1
+    fi
+}
+
+show_cert_status() {
+    local cert_mode=$(get_current_cert_mode)
+    
+    echo -e "${CYAN}证书状态信息：${NC}"
+    echo -e "  当前模式: ${YELLOW}${cert_mode}${NC}"
+    
+    if [[ "$cert_mode" == "self-signed" ]]; then
+        echo -e "  证书类型: ${YELLOW}自签名证书${NC}"
+        echo -e "  私钥文件: ${CERT_DIR}/current.key"
+        echo -e "  证书文件: ${CERT_DIR}/current.pem"
+        
+        if [[ -f ${CERT_DIR}/current.pem ]]; then
+            local expire_date=$(openssl x509 -in ${CERT_DIR}/current.pem -noout -enddate 2>/dev/null | cut -d= -f2)
+            echo -e "  过期时间: ${GREEN}${expire_date}${NC}"
+        fi
+    elif [[ "$cert_mode" == letsencrypt:* ]]; then
+        local domain=${cert_mode##*:}
+        echo -e "  证书类型: ${GREEN}Let's Encrypt${NC}"
+        echo -e "  域名: ${GREEN}${domain}${NC}"
+        echo -e "  私钥文件: /etc/letsencrypt/live/${domain}/privkey.pem"
+        echo -e "  证书文件: /etc/letsencrypt/live/${domain}/fullchain.pem"
+        
+        if [[ -f "/etc/letsencrypt/live/${domain}/fullchain.pem" ]]; then
+            local expire_date=$(openssl x509 -in "/etc/letsencrypt/live/${domain}/fullchain.pem" -noout -enddate 2>/dev/null | cut -d= -f2)
+            echo -e "  过期时间: ${GREEN}${expire_date}${NC}"
+            
+            if crontab -l 2>/dev/null | grep -q "cert-renewal.sh"; then
+                echo -e "  自动续期: ${GREEN}已启用${NC}"
+            else
+                echo -e "  自动续期: ${YELLOW}未启用${NC}"
+            fi
+        fi
+    fi
+    
+    echo ""
+    echo -e "${CYAN}证书文件权限：${NC}"
+    if [[ -f ${CERT_DIR}/current.key ]]; then
+        local key_perm=$(stat -c "%a" ${CERT_DIR}/current.key)
+        echo -e "  私钥权限: ${GREEN}${key_perm}${NC}"
+    fi
+    if [[ -f ${CERT_DIR}/current.pem ]]; then
+        local cert_perm=$(stat -c "%a" ${CERT_DIR}/current.pem)
+        echo -e "  证书权限: ${GREEN}${cert_perm}${NC}"
+    fi
+}
+
+#############################################
+# 帮助和主命令处理
+#############################################
+
+show_help() {
+    echo -e "${CYAN}EdgeBox 管理工具 v${VERSION}${NC}"
+    echo -e "${YELLOW}模块1 + 模块2：基础功能 + 证书管理${NC}"
+    echo ""
+    echo "用法: edgeboxctl [命令] [选项]"
+    echo ""
+    echo "基础服务管理:"
+    echo "  status              显示服务状态"
+    echo "  restart             重启所有服务" 
+    echo "  logs [service]      查看服务日志"
+    echo ""
+    echo "配置管理:"
+    echo "  show-config         显示当前配置"
+    echo "  sub                 显示订阅链接"
+    echo ""
+    echo "证书管理 (模块2新增):"
+    echo -e "  ${GREEN}switch-to-domain <domain>${NC}  切换到域名模式"
+    echo -e "  ${GREEN}switch-to-ip${NC}               切换到IP模式"
+    echo -e "  ${GREEN}cert-status${NC}                显示证书状态"
+    echo -e "  ${GREEN}cert-renew${NC}                 手动续期证书"
+    echo ""
+    echo "调试工具:"
+    echo "  test                测试连接"
+    echo "  debug-ports         调试端口状态"
+    echo "  fix-permissions     修复证书权限"
+    echo ""
+    echo "示例："
+    echo "  edgeboxctl switch-to-domain example.com"
+    echo "  edgeboxctl switch-to-ip"
+    echo "  edgeboxctl cert-status"
+    echo ""
+    echo "  help                显示帮助信息"
+}
+
 case "$1" in
+    # 模块1基础功能
     sub) show_sub ;;
     status) show_status ;;
     restart) restart_services ;;
@@ -1194,10 +1578,25 @@ case "$1" in
     test) test_connection ;;
     debug-ports) debug_ports ;;
     fix-permissions) fix_permissions ;;
-    help|*) show_help ;;
-esac
-EOFCTL
     
+    # 模块2证书管理功能
+    switch-to-domain)
+        switch_to_domain_mode "$2"
+        ;;
+    switch-to-ip)
+        switch_to_ip_mode
+        ;;
+    cert-status)
+        show_cert_status
+        ;;
+    cert-renew)
+        manual_cert_renewal
+        ;;
+    
+    help|*) show_help ;;
+esac.1:11443 " && echo -e "  Reality内部: ${GREEN}正常${NC}" || echo -e "  Reality内部: ${RED}异常${NC}"
+    ss -tlnp 2>/dev/null | grep -q "127.0.0
+EOFCTL
     chmod +x /usr/local/bin/edgeboxctl
     log_success "管理工具创建完成"
 }
