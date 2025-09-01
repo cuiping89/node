@@ -489,35 +489,30 @@ http {
 }
 
 stream {
-    # 定义专用的 SNI 标识符（解决证书不匹配问题）
+    # 1) SNI 显式路由：IP 模式识别专用内网标识；Reality 伪装直送 11443
     map $ssl_preread_server_name $svc {
-        # Reality 伪装域名：直接定向到 Reality
-        ~^(www\.cloudflare\.com|www\.apple\.com|www\.microsoft\.com)$ reality;
-        
-        # 专用服务标识符：避免证书验证问题
-        grpc.edgebox.internal   grpc;    # gRPC 专用标识
-        ws.edgebox.internal     ws;      # WebSocket 专用标识
-        
-        # 默认为空，交给 ALPN 处理
+        ~^(www\.cloudflare\.com|www\.apple\.com|www\.microsoft\.com)$  reality; # Reality 伪装域名
+        grpc.edgebox.internal  grpc;    # gRPC 专用标识（IP 模式）
+        ws.edgebox.internal    ws;      # WS   专用标识（IP 模式）
         default "";
     }
-    
-    # ALPN 兜底分流（仅在 SNI 未匹配时生效）
-map $ssl_preread_alpn_protocols $by_alpn {
-    ~\bhttp/1\.1\b  127.0.0.1:10086;  # WS 优先
-    ~\bh2\b         127.0.0.1:10085;  # gRPC
-    default         127.0.0.1:10086;  # 兜底走 WS
-}
 
-    # 先看 SNI，如能识别则直接定向；否则落回 ALPN
-    map $svc $upstream_sni {
-        reality 127.0.0.1:11443;
-        grpc    127.0.0.1:10085;
-        ws      127.0.0.1:10086;
-        default "";
+    # 2) ALPN 兜底（域名模式主要靠它）——必须 h2 优先
+    map $ssl_preread_alpn_protocols $by_alpn {
+        ~\bh2\b          127.0.0.1:10085;  # gRPC
+        ~\bhttp/1\.1\b   127.0.0.1:10086;  # WS
+        default          127.0.0.1:10086;  # 默认给 WS，避免空握手阻塞
     }
-    
-    # 最终分流决策：SNI 优先，ALPN 兜底
+
+    # 3) 将 SNI 标识映射到具体上游（命中则直送）
+    map $svc $upstream_sni {
+        reality  127.0.0.1:11443;  # Xray Reality 内部端口
+        grpc     127.0.0.1:10085;  # Xray gRPC  内部端口
+        ws       127.0.0.1:10086;  # Xray WS    内部端口
+        default  "";
+    }
+
+    # 4) 最终决策：SNI 优先，未命中再按 ALPN
     map $upstream_sni $upstream {
         ~.+     $upstream_sni;
         default $by_alpn;
@@ -527,8 +522,8 @@ map $ssl_preread_alpn_protocols $by_alpn {
         listen 0.0.0.0:443;
         ssl_preread on;
         proxy_pass $upstream;
-        proxy_timeout 15s;
         proxy_connect_timeout 5s;
+        proxy_timeout 15s;
         proxy_protocol off;
     }
 }
@@ -1237,21 +1232,29 @@ setup_auto_renewal() {
 # EdgeBox 证书自动续期脚本
 
 LOG_FILE="/var/log/edgebox-renewal.log"
+CERT_DIR="/etc/edgebox/cert"
 
-echo "[$(date)] 开始证书续期检查" >> $LOG_FILE
+echo "[$(date)] 开始证书续期检查" >> "$LOG_FILE"
 
-systemctl stop nginx >> $LOG_FILE 2>&1
+systemctl stop nginx >> "$LOG_FILE" 2>&1
 
-if certbot renew --quiet >> $LOG_FILE 2>&1; then
-    echo "[$(date)] 证书续期成功" >> $LOG_FILE
-    
-    systemctl start nginx >> $LOG_FILE 2>&1
-    systemctl restart xray sing-box >> $LOG_FILE 2>&1
-    
-    echo "[$(date)] 服务重启完成" >> $LOG_FILE
+if certbot renew --quiet >> "$LOG_FILE" 2>&1; then
+  echo "[$(date)] 证书续期成功" >> "$LOG_FILE"
+
+  # 续期后修权限（跟随 current.* 软链）
+  chown -R root:root "${CERT_DIR}" >> "$LOG_FILE" 2>&1
+  chmod 755 "${CERT_DIR}" >> "$LOG_FILE" 2>&1
+  [[ -L "${CERT_DIR}/current.key" ]] && chmod 600 "${CERT_DIR}/current.key" >> "$LOG_FILE" 2>&1
+  [[ -L "${CERT_DIR}/current.pem" ]] && chmod 644 "${CERT_DIR}/current.pem" >> "$LOG_FILE" 2>&1
+  find "${CERT_DIR}" -type f -name '*.key' -exec chmod 600 {} \; >> "$LOG_FILE" 2>&1
+  find "${CERT_DIR}" -type f -name '*.pem' -exec chmod 644 {} \; >> "$LOG_FILE" 2>&1
+
+  systemctl start nginx >> "$LOG_FILE" 2>&1
+  systemctl restart xray sing-box >> "$LOG_FILE" 2>&1
+  echo "[$(date)] 服务重启完成" >> "$LOG_FILE"
 else
-    echo "[$(date)] 证书续期失败" >> $LOG_FILE
-    systemctl start nginx >> $LOG_FILE 2>&1
+  echo "[$(date)] 证书续期失败" >> "$LOG_FILE"
+  systemctl start nginx >> "$LOG_FILE" 2>&1
 fi
 EOF
     
@@ -1478,17 +1481,44 @@ show_cert_status() {
     fi
 }
 
-fix_cert_permissions() {
+fix_permissions() {
+    # 证书目录与软链
+    local CERT_DIR="/etc/edgebox/cert"
+
     echo -e "${CYAN}修复证书权限...${NC}"
-    
-    if [[ -d ${CERT_DIR} ]]; then
-        chown -R root:root ${CERT_DIR}
-        chmod 755 ${CERT_DIR}
-        chmod 600 ${CERT_DIR}/*.key 2>/dev/null || true
-        chmod 644 ${CERT_DIR}/*.pem 2>/dev/null || true
-        echo -e "${GREEN}证书权限修复完成${NC}"
+
+    if [[ ! -d "${CERT_DIR}" ]]; then
+        echo -e "${RED}证书目录不存在: ${CERT_DIR}${NC}"
+        return 1
+    fi
+
+    # 目录本身权限
+    chown -R root:root "${CERT_DIR}"
+    chmod 755 "${CERT_DIR}"
+
+    # 自签名文件（若存在）
+    [[ -f "${CERT_DIR}/self-signed.key" ]] && chmod 600 "${CERT_DIR}/self-signed.key"
+    [[ -f "${CERT_DIR}/self-signed.pem" ]] && chmod 644 "${CERT_DIR}/self-signed.pem"
+
+    # 软链 current.* 会跟随修改目标文件权限（LE 或 自签）
+    if [[ -L "${CERT_DIR}/current.key" ]]; then
+        chmod 600 "${CERT_DIR}/current.key" 2>/dev/null || true
+    fi
+    if [[ -L "${CERT_DIR}/current.pem" ]]; then
+        chmod 644 "${CERT_DIR}/current.pem" 2>/dev/null || true
+    fi
+
+    # 最后再把证书目录下所有 .key/.pem 兜底收紧
+    find "${CERT_DIR}" -type f -name '*.key' -exec chmod 600 {} \; 2>/dev/null || true
+    find "${CERT_DIR}" -type f -name '*.pem' -exec chmod 644 {} \; 2>/dev/null || true
+
+    # 显示结果
+    if command -v stat >/dev/null 2>&1; then
+        echo -e "${GREEN}权限修复完成，当前状态：${NC}"
+        stat -c '  %a %n' "${CERT_DIR}/current.key" 2>/dev/null || true
+        stat -c '  %a %n' "${CERT_DIR}/current.pem" 2>/dev/null || true
     else
-        echo -e "${RED}证书目录不存在${NC}"
+        echo -e "${GREEN}权限修复完成${NC}"
     fi
 }
 
