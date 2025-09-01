@@ -1131,19 +1131,52 @@ show_logs() {
 
 debug_ports() {
     echo -e "${CYAN}端口调试信息（SNI定向 + ALPN兜底架构）：${NC}"
-    
-    echo -e "\n${YELLOW}端口检查：${NC}"
-    echo "  TCP/443 (Nginx单一入口): $(ss -tln | grep -q ":443 " && echo "✓" || echo "✗")"
-    echo "  UDP/443 (Hysteria2): $(ss -uln | grep -q ":443 " && echo "✓" || echo "✗")"
-    echo "  UDP/2053 (TUIC): $(ss -uln | grep -q ":2053 " && echo "✓" || echo "✗")" 
-    echo "  TCP/11443 (Reality内部): $(ss -tln | grep -q "127.0.0.1:11443 " && echo "✓" || echo "✗")"
-    echo "  TCP/10085 (gRPC内部): $(ss -tln | grep -q "127.0.0.1:10085 " && echo "✓" || echo "✗")"
-    echo "  TCP/10086 (WS内部): $(ss -tln | grep -q "127.0.0.1:10086 " && echo "✓" || echo "✗")"
-    
+
+    # 公网端口
+    echo -e "\n${YELLOW}公网端口：${NC}"
+    if ss -tln 2>/dev/null | grep -q ":443 "; then
+        echo -e "  TCP/443 (Nginx单一入口): ${GREEN}正常${NC}"
+    else
+        echo -e "  TCP/443 (Nginx单一入口): ${RED}异常${NC}"
+    fi
+
+    if ss -uln 2>/dev/null | grep -q ":443 "; then
+        echo -e "  UDP/443 (Hysteria2): ${GREEN}正常${NC}"
+    else
+        echo -e "  UDP/443 (Hysteria2): ${RED}异常${NC}"
+    fi
+
+    if ss -uln 2>/dev/null | grep -q ":2053 "; then
+        echo -e "  UDP/2053 (TUIC): ${GREEN}正常${NC}"
+    else
+        echo -e "  UDP/2053 (TUIC): ${RED}异常${NC}"
+    fi
+
+    # 内部回环端口
+    echo -e "\n${YELLOW}内部回环端口：${NC}"
+
+    if ss -tln 2>/dev/null | grep -q "127.0.0.1:11443 "; then
+        echo -e "  TCP/11443 (Reality内部): ${GREEN}正常${NC}"
+    else
+        echo -e "  TCP/11443 (Reality内部): ${RED}异常${NC}"
+    fi
+
+    if ss -tln 2>/dev/null | grep -q "127.0.0.1:10085 "; then
+        echo -e "  TCP/10085 (gRPC内部): ${GREEN}正常${NC}"
+    else
+        echo -e "  TCP/10085 (gRPC内部): ${RED}异常${NC}"
+    fi
+
+    if ss -tln 2>/dev/null | grep -q "127.0.0.1:10086 "; then
+        echo -e "  TCP/10086 (WS内部): ${GREEN}正常${NC}"
+    else
+        echo -e "  TCP/10086 (WS内部): ${RED}异常${NC}"
+    fi
+
     echo -e "\n${YELLOW}架构特点：${NC}"
     echo "  - SNI 优先定向：避免 ALPN 双栈冲突"
-    echo "  - 内部标识符：解决证书不匹配问题"
-    echo "  - ALPN 兜底：确保连接稳定性"
+    echo "  - 内部标识符：解决证书不匹配问题（grpc.edgebox.internal / ws.edgebox.internal）"
+    echo "  - ALPN 兜底：确保连接稳定性（h2→gRPC，http/1.1→WS）"
 }
 
 test_connection() {
