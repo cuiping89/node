@@ -1522,7 +1522,76 @@ show_help() {
 # 主命令处理
 #############################################
 
+# 缺失的 show_sub 函数 - 添加到 edgeboxctl 脚本中
+show_sub() {
+    if [[ ! -f ${CONFIG_DIR}/server.json ]]; then
+        echo -e "${RED}配置文件不存在${NC}"
+        exit 1
+    fi
+    
+    local cert_mode=$(get_current_cert_mode)
+    echo -e "${CYAN}订阅链接（证书模式: ${cert_mode}）：${NC}"
+    echo ""
+    
+    if [[ -f ${CONFIG_DIR}/subscription.txt ]]; then
+        echo -e "${YELLOW}明文链接：${NC}"
+        cat ${CONFIG_DIR}/subscription.txt
+        echo ""
+    fi
+    
+    if [[ -f ${CONFIG_DIR}/subscription.base64 ]]; then
+        echo -e "${YELLOW}Base64订阅：${NC}"
+        cat ${CONFIG_DIR}/subscription.base64
+        echo ""
+    fi
+    
+    local server_ip=$(jq -r '.server_ip' ${CONFIG_DIR}/server.json)
+    echo -e "${CYAN}HTTP订阅地址：${NC}"
+    echo "http://${server_ip}/sub"
+    echo ""
+    echo -e "${CYAN}说明：${NC}"
+    echo "- 使用专用内部标识符 (*.edgebox.internal) 避免证书冲突"
+    echo "- SNI定向 + ALPN兜底架构，解决协议摇摆问题"
+    echo "- 当前证书模式: ${cert_mode}"
+}
+
+# 缺失的 show_status 函数 - 添加到 edgeboxctl 脚本中
+show_status() {
+    echo -e "${CYAN}服务状态（SNI定向 + ALPN兜底架构）：${NC}"
+    
+    for service in nginx xray sing-box; do
+        if systemctl is-active --quiet $service 2>/dev/null; then
+            echo -e "  $service: ${GREEN}运行中${NC}"
+        else
+            echo -e "  $service: ${RED}已停止${NC}"
+        fi
+    done
+    
+    echo ""
+    echo -e "${CYAN}端口监听状态：${NC}"
+    echo -e "${YELLOW}公网端口：${NC}"
+    ss -tlnp 2>/dev/null | grep -q ":443 " && echo -e "  TCP/443 (Nginx): ${GREEN}正常${NC}" || echo -e "  TCP/443: ${RED}异常${NC}"
+    ss -ulnp 2>/dev/null | grep -q ":443 " && echo -e "  UDP/443 (Hysteria2): ${GREEN}正常${NC}" || echo -e "  UDP/443: ${RED}异常${NC}"
+    ss -ulnp 2>/dev/null | grep -q ":2053 " && echo -e "  UDP/2053 (TUIC): ${GREEN}正常${NC}" || echo -e "  UDP/2053: ${RED}异常${NC}"
+    
+    echo -e "${YELLOW}内部回环端口：${NC}"
+    ss -tlnp 2>/dev/null | grep -q "127.0.0.1:10085 " && echo -e "  gRPC内部: ${GREEN}正常${NC}" || echo -e "  gRPC内部: ${RED}异常${NC}"
+    ss -tlnp 2>/dev/null | grep -q "127.0.0.1:10086 " && echo -e "  WS内部: ${GREEN}正常${NC}" || echo -e "  WS内部: ${RED}异常${NC}"
+    ss -tlnp 2>/dev/null | grep -q "127.0.0.1:11443 " && echo -e "  Reality内部: ${GREEN}正常${NC}" || echo -e "  Reality内部: ${RED}异常${NC}"
+    
+    echo ""
+    echo -e "${CYAN}证书状态：${NC}"
+    local cert_mode=$(get_current_cert_mode)
+    echo -e "  当前模式: ${YELLOW}${cert_mode}${NC}"
+}
+
+# 更新 edgeboxctl 的 case 语句 - 替换现有的 case 部分
 case "$1" in
+    # 订阅和状态查看
+    sub) show_sub ;;
+    status) show_status ;;
+    
+    # 证书管理功能
     switch-to-domain)
         switch_to_domain_mode "$2"
         ;;
@@ -1538,6 +1607,7 @@ case "$1" in
     fix-permissions)
         fix_cert_permissions
         ;;
+    
     help|*)
         show_help
         ;;
