@@ -1347,10 +1347,14 @@ show_installation_info() {
     echo -e "  ${YELLOW}edgeboxctl restart${NC}                 # 重启所有服务"
     echo -e "  ${YELLOW}edgeboxctl test${NC}                    # 测试连接"
     echo -e "  ${YELLOW}edgeboxctl debug-ports${NC}             # 调试端口状态"
-    echo -e "  ${YELLOW}edgeboxctl logs xray${NC}               # 查看日志"，
+    echo -e "  ${YELLOW}edgeboxctl logs xray${NC}               # 查看日志"
+    
     echo -e "  ${YELLOW}edgeboxctl switch-to-domain <域名>${NC} # 切换到域名模式"
     echo -e "  ${YELLOW}edgeboxctl switch-to-ip${NC}            # 切换到IP模式"
-    
+    echo -e "  ${YELLOW}edgeboxctl cert-status${NC}             # 查看证书状态"
+    echo -e "  ${YELLOW}edgeboxctl cert-renew${NC}              # 强制续期(LE)"
+    echo -e "  ${YELLOW}edgeboxctl fix-permissions${NC}         # 修复证书权限"
+
     print_separator
     echo -e "${GREEN}🎉 模块1安装完成！${NC}"
 }
