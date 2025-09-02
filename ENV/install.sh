@@ -430,7 +430,7 @@ generate_reality_keys() {
     return 1
 }
 
-# 配置Nginx（SNI定向 + ALPN兜底架构）- 修复WS分流问题
+# 配置Nginx（SNI定向 + ALPN兜底架构）
 configure_nginx() {
   log_info "配置 Nginx（SNI 定向 + ALPN 兜底）..."
 
@@ -893,7 +893,7 @@ ${tuic_link}"
 }
 
 # 创建edgeboxctl管理工具
-create_edgeboxctl() {
+create_edgeboxctl(){
 sudo tee /usr/local/bin/edgeboxctl >/dev/null <<'EOF'
 #!/bin/bash
 # EdgeBox 控制脚本（整合：基础 + 证书管理 + 调试）
@@ -1101,34 +1101,127 @@ RSH
   log_success "自动续期任务就绪（每日 03:00）"
 }
 
-switch_to_domain_mode(){
+switch_to_domain_mode() {
   local domain=$1
-  [[ -z "$domain" ]] && { log_error "用法: edgeboxctl switch-to-domain <domain>"; return 1; }
+  if [[ -z "$domain" ]]; then
+    log_error "用法: edgeboxctl switch-to-domain <domain>"
+    return 1
+  fi
+
+  log_info "开始切换到域名模式: ${domain}"
   get_server_info || return 1
+
   check_domain_resolution "$domain" || return 1
   request_letsencrypt_cert "$domain" || return 1
+
+  log_info "更新证书软链接"
   ln -sf "/etc/letsencrypt/live/${domain}/privkey.pem" ${CERT_DIR}/current.key
   ln -sf "/etc/letsencrypt/live/${domain}/fullchain.pem" ${CERT_DIR}/current.pem
   echo "letsencrypt:${domain}" > ${CONFIG_DIR}/cert_mode
+
   regenerate_subscription_for_domain "$domain" || return 1
+
+  log_info "重启服务以应用新证书"
   systemctl restart xray sing-box >/dev/null 2>&1
-  sleep 2
+
+  # 自动续期 + 权限收紧
   setup_auto_renewal "$domain"
-  log_success "已切换到域名模式：${domain}"
+  fix_permissions
+
+  log_success "成功切换到域名模式: ${domain}"
+  log_info "开始自动验证..."
+  post_switch_checks "domain" "$domain"
 }
 
-switch_to_ip_mode(){
+switch_to_ip_mode() {
+  log_info "开始切换到 IP 模式"
   get_server_info || return 1
-  # 生成自签（保持与安装脚本一致）
+
+  log_info "重新生成自签名证书"
+  # 与安装脚本保持一致的 EC 自签
+  rm -f ${CERT_DIR}/self-signed.key ${CERT_DIR}/self-signed.pem
   openssl req -x509 -nodes -newkey ec:<(openssl ecparam -name secp384r1) \
-   -keyout ${CERT_DIR}/self-signed.key -out ${CERT_DIR}/self-signed.pem -days 3650 \
-   -subj "/C=US/ST=California/L=San Francisco/O=EdgeBox/CN=${SERVER_IP}" >/dev/null 2>&1
+    -keyout ${CERT_DIR}/self-signed.key \
+    -out ${CERT_DIR}/self-signed.pem \
+    -days 3650 \
+    -subj "/C=US/ST=California/L=San Francisco/O=EdgeBox/CN=${SERVER_IP}" >/dev/null 2>&1
+
   ln -sf ${CERT_DIR}/self-signed.key ${CERT_DIR}/current.key
   ln -sf ${CERT_DIR}/self-signed.pem ${CERT_DIR}/current.pem
   echo "self-signed" > ${CONFIG_DIR}/cert_mode
+
   regenerate_subscription_for_ip || return 1
+
+  log_info "重启服务以应用新证书"
   systemctl restart xray sing-box >/dev/null 2>&1
-  log_success "已切换到IP模式"
+
+  # 权限收紧
+  fix_permissions
+
+  log_success "成功切换到 IP 模式"
+  log_info "开始自动验证..."
+  post_switch_checks "ip"
+}
+
+post_switch_checks() {
+  # $1 = mode: domain|ip
+  # $2 = domain (当 $1=domain 时有效)
+  local mode="$1"
+  local domain="$2"
+
+  echo -e "\n===================="
+  echo -e "🔍 切换后自动验证报告"
+  echo -e "===================="
+
+  # 基础信息
+  get_server_info >/dev/null 2>&1
+  local cur_mode
+  cur_mode=$(get_current_cert_mode 2>/dev/null)
+
+  echo -e "\n[1/6] 证书状态 & 权限"
+  show_cert_status
+  echo -e "\n软链接与权限："
+  stat -L -c '  %a %n' "${CERT_DIR}/current.key" 2>/dev/null || true
+  stat -L -c '  %a %n' "${CERT_DIR}/current.pem" 2>/dev/null || true
+
+  echo -e "\n[2/6] 服务与端口"
+  show_status
+  echo ""
+  debug_ports
+
+  echo -e "\n[3/6] 订阅输出（明文 & Base64 & HTTP 地址）"
+  echo ""
+  show_sub
+
+  echo -e "\n[4/6] 证书续期任务"
+  if crontab -l 2>/dev/null | grep -q "cert-renewal.sh"; then
+    echo "  ✓ 已配置每日 03:00 自动续期"
+  else
+    echo "  ✗ 未发现自动续期任务（仅域名模式需要）"
+  fi
+  [[ -f /var/log/edgebox-renewal.log ]] && {
+    echo "  最近续期日志（末尾 10 行）："
+    tail -n 10 /var/log/edgebox-renewal.log || true
+  }
+
+  echo -e "\n[5/6] OpenSSL 探针（握手快速体检）"
+  if [[ "$mode" == "domain" && -n "$domain" ]]; then
+    # 域名模式：期望受信任链
+    timeout 5s openssl s_client -alpn h2 -connect "${domain}:443" -servername "${domain}" -brief </dev/null 2>&1 | sed -n '1,12p' || true
+    timeout 5s openssl s_client -alpn http/1.1 -connect "${domain}:443" -servername "${domain}" -brief </dev/null 2>&1 | sed -n '1,12p' || true
+  else
+    # IP 模式：内部标识 + 自签预期
+    timeout 5s openssl s_client -alpn h2 -connect "${SERVER_IP}:443" -servername grpc.edgebox.internal -brief </dev/null 2>&1 | sed -n '1,12p' || true
+    timeout 5s openssl s_client -alpn http/1.1 -connect "${SERVER_IP}:443" -servername ws.edgebox.internal -brief </dev/null 2>&1 | sed -n '1,12p' || true
+  fi
+  # Reality 伪装（两种模式都测）
+  timeout 5s openssl s_client -connect "${SERVER_IP}:443" -servername www.cloudflare.com -brief </dev/null 2>&1 | sed -n '1,12p' || true
+
+  echo -e "\n[6/6] 一次性权限收紧（防止 777 漏洞）"
+  fix_permissions
+
+  echo -e "\n✅ 验证完成。若有异常，先看：edgeboxctl logs nginx|xray|sing-box"
+  echo -e "====================\n"
 }
 
 manual_cert_renewal(){
@@ -1196,8 +1289,7 @@ case "$1" in
 esac
 EOF
 sudo chmod +x /usr/local/bin/edgeboxctl
-    log_success "管理工具创建完成"
-}
+log_success "管理工具创建完成"
 
 # 显示安装信息
 show_installation_info() {
