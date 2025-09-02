@@ -305,6 +305,23 @@ EdgeBox 支持两种证书类型，它们在安装和运行的不同阶段自动
 * **配置管理**：`edgeboxctl config regenerate-uuid` 和 `edgeboxctl config show`。
 * **动态订阅生成**：`edgeboxctl sub` 命令应根据当前模式（IP/域名）和配置，动态生成并显示订阅链接。
 
+### **模块 3 - 高级运维功能（可选）**
+
+**前置条件：** 模块 1 和 2 已完成，并已建立稳定的内核和管理层。该模块将利用 `edgeboxctl` 工具提供的接口，实现自动化和高级运维功能，不影响核心服务的稳定性。
+
+* **出站分流：**
+    * **流量路由：** 在 `sing-box` 的配置中添加**出站规则**。例如，通过识别 `googlevideo.com` 等特定域名，将其流量直接路由，而将剩余的流量通过代理（如住宅代理）出站。
+    * **配置管理：** 在 `edgeboxctl` 中添加 `edgeboxctl config switch-outbound <mode>` 命令，其中 `<mode>` 可以是 `direct`（所有流量直连）、`proxy`（所有流量代理）或 `smart`（按规则分流），该命令会修改 `sing-box` 的配置文件并重新加载服务。
+* **流量统计：**
+    * **数据收集：** 使用**`vnStat`**或**`iptables`**作为流量数据收集器。`vnStat` 是一个轻量级的网络流量监控工具，非常适合收集和记录流量数据。
+    * **命令行接口：** 在 `edgeboxctl` 中添加 `edgeboxctl traffic show` 和 `edgeboxctl traffic reset` 命令。`show` 命令将调用 `vnStat` 或解析 `iptables` 规则，显示所有协议的总流量和分协议流量；`reset` 命令则清零所有计数器。
+* **自动备份与恢复：**
+    * **备份脚本：** 创建一个脚本，自动备份 `/etc/edgebox/`、核心配置以及**`vnStat`**的数据文件到 `/root/edgebox-backup/` 目录。
+    * **定时任务：** 配置 `cron` 任务，每日自动运行备份脚本，保留最近 N 个备份版本。
+    * **恢复命令：** 在 `edgeboxctl` 中添加 `edgeboxctl backup restore <timestamp>` 命令，该命令会解压指定时间戳的备份文件，覆盖现有配置文件，并重新加载所有服务。
+
+通过这种分模块的开发方式，您将能够构建一个强大、灵活且易于维护的代理服务系统。每个模块都专注于特定的功能，并严格遵守前置模块定义的契约，从而确保了系统的稳定性和可扩展性。
+
 ---
 
 ## 一键安装
