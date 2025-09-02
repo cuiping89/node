@@ -1339,7 +1339,7 @@ show_installation_info() {
     echo -e "\n${YELLOW}注意事项：${NC}"
     echo -e "  1. 当前为IP模式，VLESS协议客户端配置需开启'跳过证书验证，Reality协议不需要；'"
     echo -e "  2. 防火墙已配置，请确保云服务商防火墙也开放相应端口；"
-    echo -e "  3. 订阅链接: ${YELLOW}edgeboxctl sub${NC}"
+    echo -e "  3. 订阅链接: ${YELLOW}http://35.212.192.41/${NC}"
         
     echo -e "\n${CYAN}管理命令：${NC}"
     echo -e "  ${YELLOW}edgeboxctl sub${NC}                     # 查看订阅链接"
