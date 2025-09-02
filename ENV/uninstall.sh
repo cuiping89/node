@@ -1,163 +1,154 @@
 #!/usr/bin/env bash
-# =====================================================================================
-# EdgeBox / node 项目 —— 终版通用卸载脚本（无交互，一把梭）
-#
-# 幂等设计：存在即删 / 不存在忽略。默认做这些事：
-# 1) 停用并删除：sing-box.service（若有）、xray.service（若有）
-# 2) 删除这些路径/文件（若有）：
-#    - /etc/sing-box
-#    - /usr/local/bin/sing-box
-#    - /usr/local/etc/xray/config.json
-#    - /etc/nginx/conf.d/edgebox.conf
-#    - /etc/nginx/sites-available/edgebox  /etc/nginx/sites-enabled/edgebox
-#    - /etc/ssl/edgebox
-#    - /var/lib/sb-sub
-#    - /var/www/html/sub     （订阅页）
-# 3) 清理 UFW 放行：443/tcp、8443/tcp、443/udp、8443/udp、2053/udp（不存在会自动忽略），并 ufw reload
-# 4) 移除我们加的 sysctl 调优文件与脚本创建的 swap（带标记/约定命名）
-# 5) 卸掉安装时拉的工具（jq / unzip / socat / qrencode），并 apt autoremove（若系统是 Debian/Ubuntu）
-# 6) 不卸载 Nginx 包，只删站点/订阅页，避免影响以后重装
-#
-# 自检（脚本结尾会自动执行并给提示）：
-#  - ss -lntup | egrep ':443|:8443|:2053'     # 输出为空 ≈ 相关端口都未占用（理想状态）
-#  - systemctl status sing-box xray nginx     # sing-box/xray 若显示 inactive/not-found 即已卸；nginx active 也OK
-#  - nginx -t                                 # 若仍安装 nginx，应显示 syntax is ok / test is successful
-# =====================================================================================
+# ===========================================================
+# EdgeBox / node —— 一键卸载与回滚脚本（幂等、无交互）
+# 作用：
+#  1) 停止并禁用 xray / sing-box；移除二进制与配置
+#  2) 回滚 Nginx（如存在我们生成的备份则恢复）
+#  3) 移除订阅文件、证书软链接、自动续期任务等
+#  4) 最后做一次自检与提示
+# ===========================================================
 
 set -Eeuo pipefail
 
-# --- 自动提权：若不是 root，用 sudo -i 重新执行本脚本 ---
-if [[ $EUID -ne 0 ]]; then
-  exec sudo -i bash "$0" "$@"
-fi
+# —— 目录与文件约定（与你当前安装脚本的落地路径一致）——
+INSTALL_DIR="/etc/edgebox"
+CONFIG_DIR="${INSTALL_DIR}/config"
+CERT_DIR="${INSTALL_DIR}/cert"
+SCRIPT_DIR="${INSTALL_DIR}/scripts"
 
-# ---------- 常量 ----------
-BACKUP_DIR="/root/sb-backups"
-TS="$(date +%F-%H%M%S)"
-mkdir -p "$BACKUP_DIR"
-BACKUP_TGZ="$BACKUP_DIR/edgebox-$TS.tgz"
-
-# 服务/文件路径（与安装脚本约定一致）
-SB_SVC="/etc/systemd/system/sing-box.service"
-SB_DIR="/etc/sing-box"
-SB_BIN="/usr/local/bin/sing-box"
-
-XRAY_SVC="/etc/systemd/system/xray.service"
-XRAY_CFG="/usr/local/etc/xray/config.json"
 XRAY_BIN="/usr/local/bin/xray"
+XRAY_SVC="/etc/systemd/system/xray.service"
+XRAY_LOG_DIR="/var/log/xray"
 
-SUB_DIR="/var/lib/sb-sub"
-SUB_LINK="/var/www/html/sub"
-CERT_DIR="/etc/ssl/edgebox"
+SBOX_BIN="/usr/local/bin/sing-box"
+SBOX_SVC="/etc/systemd/system/sing-box.service"
 
-NGX_CONF_D_FILE="/etc/nginx/conf.d/edgebox.conf"
-NGX_SITE_AVAIL="/etc/nginx/sites-available/edgebox"
-NGX_SITE_ENABL="/etc/nginx/sites-enabled/edgebox"
+# 我们接管的 nginx 主配置（安装时会备份一份 *.bak）
+NGX_MAIN="/etc/nginx/nginx.conf"
+NGX_MAIN_BAK="/etc/nginx/nginx.conf.bak"
+NGX_MOD_ENABLED_DIR="/etc/nginx/modules-enabled"
+NGX_MOD_STREAM_LINK="${NGX_MOD_ENABLED_DIR}/50-mod-stream.conf"
 
-# 我们创建的 sysctl 与 swap 标记/命名
-SYSCTL_TUNE_GLOB="/etc/sysctl.d/*sb*{tune,bbr,fq}*.conf"
-FSTAB_TAG="# sb-swap"
-SB_SWAP_PATHS=(
-  "/swapfile-sb"
-  "/swap_sb"
-)
+# 订阅文件发布位置
+SUB_FILE="/var/www/html/sub"
 
-echo "[*] 备份相关文件到：$BACKUP_TGZ"
-tar -czf "$BACKUP_TGZ" \
-  --ignore-failed-read \
-  "$SB_DIR" "$XRAY_CFG" "$NGX_CONF_D_FILE" \
-  "$NGX_SITE_AVAIL" "$NGX_SITE_ENABL" \
-  "$CERT_DIR" "$SUB_DIR" "$SUB_LINK" 2>/dev/null || true
+# 自动续期
+CRON_MARK="cert-renewal.sh"
+RENEW_SH="${SCRIPT_DIR}/cert-renewal.sh"
+RENEW_LOG="/var/log/edgebox-renewal.log"
 
-echo "[*] 停止并禁用服务（若存在）"
-systemctl disable --now sing-box 2>/dev/null || true
-systemctl disable --now xray     2>/dev/null || true
+# —— 输出着色 —— 
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
+msg()   { echo -e "${GREEN}[INFO]${NC} $*"; }
+warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
+err()   { echo -e "${RED}[ERROR]${NC} $*"; }
+ok()    { echo -e "${GREEN}[OK]${NC} $*"; }
 
-echo "[*] 删除 sing-box / xray 配置与二进制（若存在）"
-rm -rf "$SB_DIR"              2>/dev/null || true
-rm -f  "$SB_SVC"              2>/dev/null || true
-rm -f  "$SB_BIN"              2>/dev/null || true
-rm -f  "$XRAY_CFG"            2>/dev/null || true
-rm -f  "$XRAY_BIN"            2>/dev/null || true
-
-echo "[*] 删除订阅页与证书目录（若存在）"
-rm -rf "$SUB_DIR" "$SUB_LINK" "$CERT_DIR" 2>/dev/null || true
-
-echo "[*] 清理 Nginx 站点（不卸 nginx 包）"
-rm -f "$NGX_CONF_D_FILE" 2>/dev/null || true
-rm -f "$NGX_SITE_AVAIL" "$NGX_SITE_ENABL" 2>/dev/null || true
-# 兜底：清理任何 edgebox* 命名的站点文件
-find /etc/nginx -type f -maxdepth 2 -regex '.*/\(conf\.d\|sites-available\|sites-enabled\)/edgebox.*' -print0 2>/dev/null \
-  | xargs -0r rm -f || true
-
-echo "[*] 重载 systemd"
-systemctl daemon-reload 2>/dev/null || true
-
-echo "[*] 清理 UFW 放行（若安装过 ufw）"
-if command -v ufw >/dev/null 2>&1; then
-  ufw --force delete allow 443/tcp  2>/dev/null || true
-  ufw --force delete allow 8443/tcp 2>/dev/null || true
-  ufw --force delete allow 443/udp  2>/dev/null || true
-  ufw --force delete allow 8443/udp 2>/dev/null || true
-  ufw --force delete allow 2053/udp 2>/dev/null || true
-  ufw reload 2>/dev/null || true
-fi
-
-echo "[*] 移除我们加的 sysctl 调优（若存在）"
-shopt -s nullglob
-for f in $SYSCTL_TUNE_GLOB; do
-  rm -f "$f" 2>/dev/null || true
-done
-sysctl --system >/dev/null 2>&1 || true
-
-echo "[*] 移除脚本创建的 swap（仅删除带标记或约定命名的）"
-# 1) fstab 中带标记的 swap
-if grep -q "$FSTAB_TAG" /etc/fstab 2>/dev/null; then
-  while IFS= read -r line; do
-    path=$(awk '{print $1}' <<<"$line")
-    swapoff "$path" 2>/dev/null || true
-    sed -i "\|${path}.*${FSTAB_TAG}|d" /etc/fstab 2>/dev/null || true
-    rm -f "$path" 2>/dev/null || true
-  done < <(grep "$FSTAB_TAG" /etc/fstab || true)
-fi
-# 2) 约定命名的 swap 文件
-for s in "${SB_SWAP_PATHS[@]}"; do
-  if [[ -e "$s" ]]; then
-    swapoff "$s" 2>/dev/null || true
-    sed -i "\|^$s |d" /etc/fstab 2>/dev/null || true
-    rm -f "$s" 2>/dev/null || true
+# —— 工具函数 —— 
+safe_disable_stop() {
+  local svc="$1"
+  if systemctl list-unit-files | grep -q "^${svc}.service"; then
+    systemctl disable --now "${svc}" >/dev/null 2>&1 || true
+    ok "服务已停止并禁用：${svc}"
   fi
-done
+}
 
-echo "[*] 卸载安装时拉的工具（若存在且系统为 Debian/Ubuntu）"
-if command -v apt >/dev/null 2>&1; then
-  DEBIAN_FRONTEND=noninteractive apt purge -y jq unzip socat qrencode 2>/dev/null || true
-  DEBIAN_FRONTEND=noninteractive apt autoremove -y 2>/dev/null || true
+safe_rm() {
+  # 可传多个参数
+  for p in "$@"; do
+    if [[ -e "$p" || -L "$p" ]]; then
+      rm -rf -- "$p" 2>/dev/null || true
+      ok "已删除：$p"
+    fi
+  done
+}
+
+cron_purge_line_contains() {
+  local mark="$1"
+  local tmp
+  tmp="$(mktemp)"
+  crontab -l 2>/dev/null | sed "/${mark//\//\\/}/d" >"$tmp" || true
+  crontab "$tmp" 2>/dev/null || true
+  rm -f "$tmp"
+}
+
+need_cmd() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+# —— 1) 停服务与禁用 —— 
+msg "停止并禁用相关服务..."
+safe_disable_stop "xray"
+safe_disable_stop "sing-box"
+
+# —— 2) 移除 systemd 单元与二进制 —— 
+msg "移除 systemd 单元与二进制..."
+safe_rm "$XRAY_SVC" "$SBOX_SVC"
+safe_rm "$XRAY_BIN" "$SBOX_BIN"
+systemctl daemon-reload || true
+
+# —— 3) 移除项目配置/证书/脚本/日志/订阅 —— 
+msg "移除 EdgeBox 配置与文件..."
+safe_rm "$CONFIG_DIR"              # /etc/edgebox/config
+safe_rm "$SCRIPT_DIR"              # /etc/edgebox/scripts
+safe_rm "$XRAY_LOG_DIR"            # /var/log/xray
+safe_rm "$SUB_FILE"                # /var/www/html/sub
+
+# 证书：只删除软链接和我们生成的自签名，不碰 /etc/letsencrypt
+if [[ -d "$CERT_DIR" ]]; then
+  # 仅删除 current.* 软链接与自签名，保守一些
+  safe_rm "${CERT_DIR}/current.key" "${CERT_DIR}/current.pem"
+  safe_rm "${CERT_DIR}/self-signed.key" "${CERT_DIR}/self-signed.pem"
+  # 若目录空了，可一并移除
+  rmdir "$CERT_DIR" 2>/dev/null || true
 fi
 
-# Nginx 存在则测试并重载（删了站点但不卸包）
-if command -v nginx >/dev/null 2>&1; then
+# —— 4) 回滚 nginx 主配置（若有备份）并移除我们加载的 stream 模块软链 —— 
+if [[ -f "$NGX_MAIN_BAK" ]]; then
+  msg "检测到 nginx 备份，准备回滚..."
+  cp -f "$NGX_MAIN_BAK" "$NGX_MAIN"
+  ok "已回滚 nginx 主配置"
+fi
+
+if [[ -L "$NGX_MOD_STREAM_LINK" ]]; then
+  safe_rm "$NGX_MOD_STREAM_LINK"
+fi
+
+# 尝试重启 nginx（若安装在系统中）
+if need_cmd nginx; then
   if nginx -t >/dev/null 2>&1; then
-    systemctl reload nginx 2>/dev/null || true
+    systemctl enable nginx >/dev/null 2>&1 || true
+    systemctl restart nginx >/dev/null 2>&1 || true
+    ok "nginx 已可用"
+  else
+    warn "nginx 配置自检失败：$(nginx -t 2>&1 | tail -n1)"
   fi
 fi
 
-echo "[OK] 卸载完成。备份文件：$BACKUP_TGZ"
-echo "如需恢复：  tar -xzf $BACKUP_TGZ -C / && systemctl daemon-reload && systemctl restart nginx xray sing-box"
+# —— 5) 移除自动续期与相关日志 —— 
+msg "清理证书自动续期任务..."
+cron_purge_line_contains "$CRON_MARK"
+safe_rm "$RENEW_SH" "$RENEW_LOG"
 
-# ========================== 自检（只读提示，不是报错） ==========================
+# —— 6) 友好自检 —— 
 echo
-echo "=== 自检（只读提示）==="
-echo "- 端口占用检查（期望：无输出或与本项目无关的服务）："
-ss -lntup | egrep ':443|:8443|:2053' || true
+echo "================ 自检（只读）================"
+echo "- 端口占用（理想：不再由 xray/sing-box 占用 443/2053）："
+ss -lntup 2>/dev/null | egrep ':443|:2053' || true
 echo
-echo "- 服务状态（期望：sing-box/xray inactive 或 not-found；nginx active 即可）："
-systemctl status sing-box xray nginx --no-pager -l || true
+echo "- 服务状态（理想：xray/sing-box inactive 或 not-found，nginx active 可选）："
+systemctl status xray sing-box nginx --no-pager -l 2>/dev/null | sed -n '1,120p' || true
 echo
-if command -v nginx >/dev/null 2>&1; then
-  echo "- nginx 配置测试（期望：syntax is ok / test is successful）："
+if need_cmd nginx; then
+  echo "- nginx 配置测试（理想：syntax is ok / test is successful）："
   nginx -t || true
 fi
-echo "================================================================"
-exit 0
+echo "============================================="
+echo -e "${GREEN}卸载流程已完成。${NC}"
 
+# —— 7) 补充提示 —— 
+echo
+echo "提示："
+echo "1) 若你还修改过防火墙（ufw/firewalld）端口策略，可按需手动回滚。"
+echo "2) 若要彻底删除 /etc/edgebox 目录（上面已尽量清理），可手动： rm -rf /etc/edgebox"
+echo "3) 如打算重新安装，建议先重启系统，确保端口与 systemd 干净。"
