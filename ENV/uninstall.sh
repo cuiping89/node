@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # ===========================================================
-# EdgeBox / Xray / sing-box 可读性强的卸载脚本（非静默，强反馈）
+# EdgeBox / Xray / sing-box 可读性强的卸载脚本（强反馈）
 # - 幂等：重复执行安全
-# - 步骤化输出：强烈“卸载感”
+# - 卸载：过程简明详细
 # - 容错：systemd/nginx 缺失不致命，但会解释原因
 # ===========================================================
 set -Eeuo pipefail
@@ -131,9 +131,6 @@ restore_nginx(){
 
 main(){
   need_root
-  echo -e "${CYAN}============================================================${NC}"
-  echo -e "${CYAN} EdgeBox 卸载清理（详细模式）${NC}"
-  echo -e "${CYAN}============================================================${NC}"
 
   title "环境信息"
   echo -n "  系统："; (lsb_release -ds 2>/dev/null || cat /etc/os-release | sed -n 's/^PRETTY_NAME=//p' | tr -d '"') || echo "Unknown"
@@ -209,7 +206,7 @@ main(){
   echo "  1) 若要立刻重装，可直接运行你的安装命令（幂等安装）。"
   echo "  2) 如需手动验证，请执行："
   echo "     - ss -lntup | egrep ':443|:2053|:11443|:10085|:10086'  # 端口应无残留"
-  echo "     - systemctl status xray sing-box nginx --no-pager      # xray/sing-box 应 inactive 或 not-found"
+  echo "     - systemctl status xray sing-box nginx --no-pager      # xray/sing-box应显示：inactive 或 not-found"
   echo -e "${CYAN}============================================================${NC}\n"
 }
 
