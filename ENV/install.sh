@@ -432,29 +432,31 @@ generate_reality_keys() {
 
 # 配置Nginx（SNI定向 + ALPN兜底架构）- 修复WS分流问题
 configure_nginx() {
-    log_info "配置 Nginx（SNI定向 + ALPN兜底架构）..."
-    
-    # 停止 Nginx 避免冲突
-    systemctl stop nginx >/dev/null 2>&1 || true
-    
-    # 检查并加载stream模块
-    if [ -f /usr/share/nginx/modules-available/mod-stream.conf ]; then
-        mkdir -p /etc/nginx/modules-enabled
-        ln -sf /usr/share/nginx/modules-available/mod-stream.conf /etc/nginx/modules-enabled/50-mod-stream.conf 2>/dev/null || true
-    fi
-    
-    # 备份原配置
-    if [ -f /etc/nginx/nginx.conf ] && [ ! -f /etc/nginx/nginx.conf.bak ]; then
-        cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak
-    fi
+  log_info "配置 Nginx（SNI 定向 + ALPN 兜底）..."
 
-# SNI定向 + ALPN兜底的稳定架构（修复版）
-sudo tee /etc/nginx/nginx.conf >/dev/null <<'EOF'
+  # 停服务，避免端口/旧配置冲突
+  systemctl stop nginx >/dev/null 2>&1 || true
+
+  # 确保 stream 模块已加载
+  if [ -f /usr/share/nginx/modules-available/mod-stream.conf ]; then
+    mkdir -p /etc/nginx/modules-enabled
+    ln -sf /usr/share/nginx/modules-available/mod-stream.conf \
+           /etc/nginx/modules-enabled/50-mod-stream.conf 2>/dev/null || true
+  fi
+
+  # 备份一次原配置
+  if [ -f /etc/nginx/nginx.conf ] && [ ! -f /etc/nginx/nginx.conf.bak ]; then
+    cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak
+  fi
+
+  # 写入带 stream 的主配置（SNI 优先 + ALPN 兜底）
+  cat > /etc/nginx/nginx.conf <<'NGINX_CONF'
 user www-data;
 worker_processes auto;
 pid /run/nginx.pid;
 error_log /var/log/nginx/error.log warn;
 
+# 加载动态模块（包含 stream）
 include /etc/nginx/modules-enabled/*.conf;
 
 events { worker_connections 1024; use epoll; }
@@ -465,39 +467,41 @@ http {
   access_log /var/log/nginx/access.log;
 
   server {
-    listen 80 default_server; listen [::]:80 default_server;
+    listen 80 default_server;
+    listen [::]:80 default_server;
     server_name _;
     root /var/www/html;
+
     location / { try_files $uri $uri/ =404; }
     location = /sub { default_type text/plain; root /var/www/html; }
   }
 }
 
 stream {
-  # SNI 专用标识（IP模式直达），Reality 伪装域名直送 Reality
+  # 1) SNI 显式路由（Reality 伪装域名直送 Reality；IP 模式用内部标识）
   map $ssl_preread_server_name $svc {
-    ~^(www\.cloudflare\.com|www\.apple\.com|www\.microsoft\.com)$ reality;
+    ~^(www\.cloudflare\.com|www\.apple\.com|www\.microsoft\.com)$  reality;
     grpc.edgebox.internal  grpc;
     ws.edgebox.internal    ws;
     default "";
   }
 
-  # ALPN 兜底（h2 优先给 gRPC，其它走 WS）
+  # 2) ALPN 兜底（h2 -> gRPC；http/1.1 -> WS）
   map $ssl_preread_alpn_protocols $by_alpn {
-    ~\bh2\b        127.0.0.1:10085;
-    ~\bhttp/1\.1\b 127.0.0.1:10086;
-    default        127.0.0.1:10086;
+    ~\bh2\b          127.0.0.1:10085;
+    ~\bhttp/1\.1\b   127.0.0.1:10086;
+    default          127.0.0.1:10086;
   }
 
-  # SNI 命中则直送
+  # 3) SNI 命中优先
   map $svc $upstream_sni {
-    reality 127.0.0.1:11443;
-    grpc    127.0.0.1:10085;
-    ws      127.0.0.1:10086;
-    default "";
+    reality  127.0.0.1:11443;
+    grpc     127.0.0.1:10085;
+    ws       127.0.0.1:10086;
+    default  "";
   }
 
-  # 最终决策：SNI 优先，未命中走 ALPN
+  # 4) 最终决策：SNI 优先，未命中走 ALPN
   map $upstream_sni $upstream {
     ~.+     $upstream_sni;
     default $by_alpn;
@@ -512,52 +516,27 @@ stream {
     proxy_protocol off;
   }
 }
-EOF
-sudo nginx -t && sudo systemctl reload nginx
+NGINX_CONF
 
-    # 创建web目录
-    mkdir -p /var/www/html
-    
-    # 测试配置
-    if nginx -t >/dev/null 2>&1; then
-        log_success "Nginx 配置测试通过（SNI定向 + ALPN兜底）"
-    else
-        log_error "Nginx 配置测试失败，使用备用配置..."
-        cat > /etc/nginx/nginx.conf << 'NGINX_SIMPLE'
-user www-data;
-worker_processes auto;
-pid /run/nginx.pid;
+  # 准备静态目录与订阅文件托管位置
+  mkdir -p /var/www/html
 
-events {
-    worker_connections 768;
-}
+  # 语法校验
+  if ! nginx -t >/dev/null 2>&1; then
+    log_error "Nginx 配置测试失败，请检查 /etc/nginx/nginx.conf"
+    return 1
+  fi
 
-http {
-    include /etc/nginx/mime.types;
-    default_type application/octet-stream;
-    
-    server {
-        listen 80;
-        server_name _;
-        root /var/www/html;
-        
-        location = /sub {
-            default_type text/plain;
-        }
-    }
-}
-NGINX_SIMPLE
-        log_warn "使用简化的Nginx配置（无stream模块）"
-    fi
-
-    # 启动Nginx
-    systemctl daemon-reload
-    systemctl enable nginx >/dev/null 2>&1
-    systemctl restart nginx >/dev/null 2>&1 || {
-        log_warn "Nginx 启动失败，但继续安装"
-    }
-    
-    log_success "Nginx 配置完成"
+  # 用 enable + restart（不要 reload）
+  systemctl daemon-reload
+  systemctl enable nginx >/dev/null 2>&1 || true
+  if systemctl restart nginx >/dev/null 2>&1; then
+    log_success "Nginx 已启动（SNI 定向 + ALPN 兜底架构生效）"
+  else
+    log_error "Nginx 启动失败，最近日志："
+    journalctl -u nginx -n 50 --no-pager | tail -n 20
+    return 1
+  fi
 }
 
 # 配置Xray
@@ -844,25 +823,23 @@ EOF
 
 # 启动服务
 start_services() {
-    log_info "启动所有服务..."
+  log_info "启动所有服务..."
+  systemctl daemon-reload
+  systemctl enable nginx xray sing-box >/dev/null 2>&1 || true
 
-    systemctl daemon-reload
-    systemctl enable nginx xray sing-box >/dev/null 2>&1 || true
+  systemctl restart nginx >/dev/null 2>&1
+  systemctl restart xray  >/dev/null 2>&1
+  systemctl restart sing-box >/dev/null 2>&1
 
-    systemctl restart nginx >/dev/null 2>&1
-    systemctl restart xray >/dev/null 2>&1
-    systemctl restart sing-box >/dev/null 2>&1
-
-    sleep 3
-
-    for s in nginx xray sing-box; do
-        if systemctl is-active --quiet "$s"; then
-            log_success "$s 运行正常"
-        else
-            log_error "$s 启动失败"
-            journalctl -u "$s" -n 20 --no-pager | tee -a ${LOG_FILE}
-        fi
-    done
+  sleep 2
+  for s in nginx xray sing-box; do
+    if systemctl is-active --quiet "$s"; then
+      log_success "$s 运行正常"
+    else
+      log_error "$s 启动失败"
+      journalctl -u "$s" -n 30 --no-pager | tail -n 20
+    fi
+  done
 }
 
 # 生成订阅链接
