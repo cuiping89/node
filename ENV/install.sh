@@ -1288,7 +1288,7 @@ case "$1" in
   *) echo -e "${RED}未知命令: $1${NC}"; show_help; exit 1 ;;
 esac
 EOF
-sudo chmod +x /usr/local/bin/edgeboxctl
+chmod +x /usr/local/bin/edgeboxctl
 log_success "管理工具创建完成"
 }
 
