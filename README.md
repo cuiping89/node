@@ -148,73 +148,184 @@ EdgeBox 支持两种证书类型，它们在安装和运行的不同阶段自动
 * **聚合**：将所有协议的链接聚合，进行 Base64 编码，并在终端中**直接打印**或保存到本地文件，供客户端手动导入。
 ---
 
-## 出站分流策略
+你的方案非常完善，已经考虑到了多种场景和异常处理。我将你的所有要点进行整合，使其更具逻辑性和可读性，并且语言更精炼，可以作为项目 `README` 或技术文档的核心部分。
 
-- 本模块旨在为 EdgeBox 节点提供灵活、高效的流量分流能力。它允许用户在节省流量和保持账号画像稳定之间取得平衡，并且与核心的域名/IP 切换功能解耦。
+-----
 
-### 1. 策略目标
+## 出站分流策略 (增强版)
 
-- 直连白名单：将指定域名（例如 googlevideo.com 等）的流量直接通过 VPS 出口访问。这能显著节省住宅代理IP流量，并提供最佳的流媒体观看体验。
-- 住宅IP出站：将所有不属于白名单的流量通过配置的静态住宅代理IP出站。这有助于稳定账号的地域画像，避免频繁变更IP地址导致的异常行为。
+本模块为 EdgeBox 节点提供灵活、高效的流量分流能力。它允许用户在三种互斥的出站模式之间自由切换，通过精细的白名单管理，在节省流量和维护账号画像之间取得平衡。
 
-### 2. 模式与状态
+### 核心模式
+该模块由 **`SHUNT_MODE`** 变量控制，并与核心的域名/IP 切换功能完全解耦。
 
-- 本分流模块是一个独立的、支持双向切换的功能，其状态由 SHUNT_MODE 变量控制，与域名模式/IP 模式完全解耦。
-  - 默认模式：VPS 直出（SHUNT_MODE=direct）
-    - 行为：这是非交互式安装后的默认状态。所有流量都通过您的 VPS 服务器 IP 地址直接出站。
-    - 优点：零配置，开箱即用，满足“先用后配”的要求。
-  - 可选模式：住宅代理出站（SHUNT_MODE=resi）
-    - 行为：当此模式启用时，除白名单流量外，其余所有流量都将通过指定的住宅代理IP出站。
-    - 优点：保护账号画像，适用于需要稳定出口IP的场景。
+| 模式 | `SHUNT_MODE` | 行为 | 典型用途 |
+| :--- | :--- | :--- | :--- |
+| **VPS 全量出** | `vps` | 所有流量通过 VPS 出口发出。 | 默认模式、零配置、排障时最稳定。 |
+| **住宅 IP 全量出**| `resi` | 所有流量通过配置的住宅代理 IP 发出。 | 需稳定地域画像的场景。 |
+| **白名单 + 分流** | `direct_resi`| 白名单域名直连 VPS；其余流量走住宅 IP。 | 兼顾成本与画像的平衡方案。 |
 
-### 3. 管理工具实现（edgeboxctl）
+### 管理工具 (`edgeboxctl`)
+所有分流管理操作均通过 `edgeboxctl` 命令完成。
+  * **配置与更新住宅代理**
+    ```bash
+    edgeboxctl shunt apply <IP:PORT[:USER:PASS]>
+    ```
+  该命令仅写入代理参数到 `/etc/edgebox/shunt/resi.conf`，不改变当前模式。
+  * **模式切换**
+    ```bash
+    edgeboxctl shunt mode vps          # 切换至 VPS 全量出
+    edgeboxctl shunt mode resi         # 切换至住宅 IP 全量出
+    edgeboxctl shunt mode direct_resi  # 切换至白名单 + 分流
+    ```
+    **注意**: 切换到 `resi` 或 `direct_resi` 模式前，系统会进行健康探活。如果住宅代理不可用，将保持 `vps` 模式并给出提示。
+  * **清除代理配置**
+    ```bash
+    edgeboxctl shunt clear
+    ```
+    此命令会删除代理配置，并强制切换回 `vps` 全量出模式。
+  * **白名单维护**
 
-- 启用住宅代理出站：
-  - 命令：edgeboxctl shunt apply <代理地址>
-  - 代理地址格式：
-    - 不带认证：<IP>:<端口>，例如 192.0.2.1:8080
-    - 带认证：<IP>:<端口>:<用户名>:<密码>，例如 192.0.2.1:8080:user:pass
-  - 实现逻辑：
-    - 脚本解析传入的 <代理地址> 字符串，识别其格式并提取 IP、端口、用户名和密码（如果存在）。
-    - 将代理信息永久保存到配置文件中。
-    - 修改 sing-box 或 Xray 的核心配置文件，注入一个指向该代理的 outbound 配置。
-    - 添加分流路由规则，将白名单流量路由到直连，其余流量路由到代理。
-    - 执行健康探活，确保代理可用。
-    - 重启 sing-box 和 Xray 服务以应用更改。
-- 切换回 VPS直出模式：
-  - 命令：edgeboxctl shunt clear
-  - 实现逻辑：
-    - 删除或清空保存代理IP和端口的配置文件。
-    - 修改 sing-box 或 Xray 的核心配置文件，删除代理 outbound 和相关的分流 routing 规则。
-    - 确保默认的直连 outbound 是唯一的或优先级最高的出站规则。
-    - 重启 sing-box 和 Xray 服务。
+    ```bash
+    edgeboxctl shunt whitelist add <domain_suffix>
+    edgeboxctl shunt whitelist del <domain_suffix>
+    edgeboxctl shunt whitelist list
+    ```
+    白名单匹配采用域名后缀方式（例如 `googlevideo.com`），确保白名单始终优先匹配并直连 VPS。
+  * **状态与健康检查**
+    ```bash
+    edgeboxctl shunt test     # 立即对住宅代理进行健康探活
+    edgeboxctl shunt status   # 显示当前模式、代理可用性、最后切换时间等
+    ```   
+### 实现细节
+
+#### 文件与目录布局
+所有分流相关文件都统一管理在 `/etc/edgebox/shunt/` 目录下，保证清晰和原子化。
+```
+/etc/edgebox/shunt/
+  ├─ whitelist-vps.txt   # 白名单列表
+  ├─ resi.conf           # 住宅代理配置
+  └─ state.json          # 记录当前状态与统计信息
+```
+#### 路由实现
+本模块通过修改 Sing-box 或 Xray 配置文件的 `outbounds` 和 `route` 片段来实现分流。
+  * **出站 (`outbounds`)**: 至少包含 `direct` 和 `resi_out` 两个出站标签，分别对应 VPS 和住宅代理。
+  * **路由规则 (`routing`)**: 工具根据 `SHUNT_MODE` 变量，生成不同的路由规则，决定流量的最终去向。
+      * **`vps` 模式**: 最终去向 (`final`) 为 `direct`。
+      * **`resi` 模式**: 最终去向 (`final`) 为 `resi_out`。
+      * **`direct_resi` 模式**: 白名单流量优先去向 `direct`，非白名单流量最终去向 `resi_out`。
+#### 健康探活与回退
+系统在切换到 `resi` 或 `direct_resi` 模式前，会首先对住宅代理进行健康探活。若探活失败，将自动回退到 `vps` 模式，并记录告警，确保服务不中断。此外，系统可配置定时巡检，在代理故障时自动回退，并在恢复后自动切换回原模式。
 
 ### 4. 开发细节与约束
 
 - 模板幂等性：edgeboxctl shunt apply 仅修改出站与路由片段，不触碰证书、入站、fallbacks 和端口策略。这确保了分流模块是一个独立的、可控的单元，满足幂等部署的需求。
 - GCP 出站约束：为避免触发 GCP 的公网出站计费，请确保您的配置遵循以下原则：
-  - 不启用 Cloudflare 的 Argo/WARP/Zero Trust 等服务。
-  - 不让任何代理“回源”到 Cloudflare 边缘节点。
-  - 此策略旨在保持在 200GB 内的标准计费，避免意外产生高额费用。
+  - 不启用 Cloudflare 的 Argo/WARP/Zero Trust 等服务。
+  - 不让任何代理“回源”到 Cloudflare 边缘节点。
+  - 此策略旨在保持在 200GB 内的标准计费，避免意外产生高额费用。
 - 默认直连白名单：可编辑的白名单列表应在代码中清晰定义，例如：
-  - googlevideo.com
-  - ytimg.com
-  - ggpht.com
+  - googlevideo.com
+  - ytimg.com
+  - ggpht.com
 - 健康探活：在切换到代理出站模式前，应添加简单的探活逻辑，以验证代理的可用性。如果代理不可用，应自动回退到直连模式并给出提示。
 
----
+-----
 
 ## 运维与管理
 
 ### 1. 流量统计
+本方案采用**轻量级采集 + 结构化存储 + Matplotlib 静态图**，并将流量图表与订阅链接集成到同一浏览器页面中。整个系统不引入复杂的依赖或前端框架，保持了极简、可维护和幂等的设计。
 
-- 命令：edgeboxctl traffic show
-  - 显示内容：vnStat 系统流量、各协议端口流量、iptables/nftables 计数。
-- 命令：edgeboxctl traffic reset
-  - 重置流量计数。
+#### 架构与流程
+本方案的核心是将数据采集、图表渲染和 Web 展示紧密结合，并统一发布在站点的根路径下，实现了用户访问的零门槛。
+  * **数据采集器 (`traffic-collector.sh`)**:
+      * 通过 `cron` 任务每小时执行，调用 `edgeboxctl traffic show` 和 `iptables`/`nftables` 来获取流量数据。
+      * 将数据按天汇总并写入 `daily.csv`，同时维护 `monthly.csv` 以保留长期趋势数据。
+  * **渲染器 (`generate-charts.py`)**:
+      * 这是一个 Python 脚本，每日定时执行。
+      * 它负责读取 CSV 数据，使用 **Matplotlib** 生成三张静态图表（日曲线、端口曲线、月累计）。
+      * 同时，脚本会调用 `edgeboxctl sub` 生成订阅文本，并最终将所有元素（订阅文本、三张图表）整合到一张 **`index.html`** 页面中。
+  * **Web 展示**:
+      * **Nginx** 将站点的根路径直接指向数据产出目录。
+      * 用户访问 `http://<your-ip-or-domain>/` 即可查看包含所有内容的统一页面。
+
+#### 目录结构
+所有核心文件都集中在 `/etc/edgebox/` 目录下，并有清晰的职责划分。
+```
+/etc/edgebox/
+  ├─ scripts/
+  │   ├─ traffic-collector.sh        # 采集器
+  │   └─ generate-charts.py          # 渲染器
+  ├─ traffic/                        # Nginx 的 Web 根目录
+  │   ├─ logs/
+  │   │   ├─ daily.csv               # 每日流量数据 (6 个月滚动)
+  │   │   └─ monthly.csv             # 月度累计数据 (24 个月滚动)
+  │   ├─ charts/
+  │   │   ├─ daily.png               # 最近 30 天日流量曲线
+  │   │   ├─ ports.png               # 最近 30 天高流量端口曲线
+  │   │   └─ monthly.png             # 最近 12 个月月累计对比图
+  │   ├─ sub.txt                     # 订阅链接文本
+  │   └─ index.html                  # 订阅与流量总览页面
+  └─ nginx/root-site.conf            # Nginx 站点配置文件
+```
+
+#### 统计维度与数据保留
+  * **时间粒度**:
+      * **日维度**：按天采集，图表展示最近 30 天的趋势，数据保留 6 个月。
+      * **月累计**：图表展示最近 12 个月的对比，数据保留 24 个月。
+  * **统计维度**:
+      * 系统总流量 (`vnStat`)
+      * VPS 直出流量
+      * 住宅 IP 直出流量
+      * 高流量端口 (如 `TCP/443`, `UDP/443(Hysteria2)`, `UDP/2053(TUIC)`)
+
+#### 核心脚本职责
+  * **`traffic-collector.sh`**:
+      * 定时由 `cron` 触发。
+      * 调用 `edgeboxctl traffic show` 和 `iptables/nftables` 计数，将数据写入 `daily.csv` 和 `monthly.csv`。
+  * **`generate-charts.py`**:
+      * 每日定时由 `cron` 触发。
+      * 读取 CSV 文件，生成三张 `.png` 格式的图表。
+      * 调用 `edgeboxctl sub` 将订阅链接写入 `sub.txt`。
+      * 生成包含订阅、三张图表以及更新时间的 `index.html`。
+
+#### 定时任务 (cron)
+```bash
+# 数据采集：每小时
+0 * * * * /etc/edgebox/scripts/traffic-collector.sh
+
+# 图表与总览页生成：每日一次（如需更频繁，可调整）
+10 0 * * * /etc/edgebox/scripts/generate-charts.py
+```
+
+#### Nginx 根路径发布
+将以下配置片段保存为 `/etc/edgebox/nginx/root-site.conf`，并 `include` 到主配置中，实现根路径直出。
+```nginx
+server {
+    listen 80;
+    server_name _;
+
+    root /etc/edgebox/traffic;
+    index index.html;
+
+    add_header Cache-Control "no-store";
+}
+```
+
+#### 使用方式
+  * **浏览器访问**: `http://<your-ip-or-domain>/`
+  * **命令行**:
+      * `edgeboxctl traffic show`：查看实时流量快照。
+      * `cat /etc/edgebox/traffic/sub.txt`：获取原始订阅文本。
+      * `/etc/edgebox/scripts/generate-charts.py`：手动触发页面刷新。
+
+#### 幂等性与卸载
+  * **幂等性**: 脚本设计为可重复执行，`CSV` 文件会追加合并，`PNG/HTML` 文件会直接覆盖，确保系统的稳定。
+  * **卸载**: `uninstall.sh` 脚本应对称删除所有相关文件和配置，包括 `/etc/edgebox/traffic/`、脚本、`cron` 任务和 Nginx 配置片段。
+
 
 ### 2. 备份与恢复
-
 - 自动备份：每日凌晨3点自动备份配置、证书和用户数据到 /root/edgebox-backup/，保留最近15天的备份。
 - 手动操作：
   - edgeboxctl backup list：列出所有备份。
