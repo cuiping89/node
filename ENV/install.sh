@@ -1290,6 +1290,7 @@ esac
 EOF
 sudo chmod +x /usr/local/bin/edgeboxctl
 log_success "管理工具创建完成"
+}
 
 # 显示安装信息
 show_installation_info() {
