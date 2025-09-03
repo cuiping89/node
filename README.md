@@ -172,36 +172,10 @@ EdgeBox 的核心在于其精巧的分层架构，实现了协议组合、端口
       * **`vps` 模式**: 最终去向 (`final`) 为 `direct`。
       * **`resi` 模式**: 最终去向 (`final`) 为 `resi_out`。
       * **`direct_resi` 模式**: 白名单流量优先去向 `direct`，非白名单流量最终去向 `resi_out`。
-
-### 健康探活与回退
-- 系统在切换到 `resi` 或 `direct_resi` 模式前，会首先对住宅代理进行健康探活。若探活失败，将自动回退到 `vps` 模式，并记录告警，确保服务不中断。此外，系统可配置定时巡检，在代理故障时自动回退，并在恢复后自动切换回原模式。
-
+   
 ### 开发约束
 - 模板幂等性：edgeboxctl shunt apply 仅修改出站与路由片段，不触碰证书、入站、fallbacks 和端口策略。这确保了分流模块是一个独立的、可控的单元，满足幂等部署的需求。
 - GCP 出站约束：为避免触发 GCP 的公网出站计费，请确保您的配置遵循以下原则：CF灰云，不启用 Cloudflare 的 Argo/WARP/Zero Trust 等服务，不让任何代理“回源”到 Cloudflare 边缘节点，此策略旨在保持在 200GB 内的标准计费，避免意外产生高额费用。
-
-### 管理工具 (`edgeboxctl`)
-
-管理工具 [`edgeboxctl shunt`] 支持**切换模式、配置住宅代理、维护白名单**。
-  * **配置与更新住宅代理**
-    ```bash
-    edgeboxctl shunt apply <IP:PORT[:USER:PASS]>
-    ```
-  - 该命令仅写入代理参数到 `/etc/edgebox/shunt/resi.conf`，不改变当前模式。
-  * **模式切换**
-    ```bash
-    edgeboxctl shunt mode vps          # 切换至 VPS 全量出
-    edgeboxctl shunt mode resi         # 切换至住宅 IP 全量出
-    edgeboxctl shunt mode direct_resi  # 切换至白名单 + 分流
-    ```
-    - 注意: 切换到 `resi` 或 `direct_resi` 模式前，系统会进行健康探活。如果住宅代理不可用，将保持 `vps` 模式并给出提示。
-  * **白名单维护**
-    ```bash
-    edgeboxctl shunt whitelist add <domain_suffix>
-    edgeboxctl shunt whitelist del <domain_suffix>
-    edgeboxctl shunt whitelist list
-    ```
-    - 白名单匹配采用域名后缀方式（例如 `googlevideo.com、ytimg.com、ggpht.com`），确保白名单始终优先匹配并直连 VPS。
 
 -----
 
@@ -292,23 +266,38 @@ server {
 
 -----
 
-## 使用指南 (`edgeboxctl`)
+### 管理工具 (`edgeboxctl`)
 
-`edgeboxctl` 是管理 EdgeBox 的核心工具，所有操作都通过它完成。
+`edgeboxctl` 是管理 EdgeBox 的核心工具，所有操作都通过它完成，管理工具 [`edgeboxctl shunt`] 支持**切换模式、配置住宅代理、维护白名单**。
 
-### 模式切换
-
+  * **配置与更新住宅代理**
+    ```bash
+    edgeboxctl shunt apply <IP:PORT[:USER:PASS]>
+    ```
+  - 该命令仅写入代理参数到 `/etc/edgebox/shunt/resi.conf`，不改变当前模式。
+  * **出战分流切换**
+    ```bash
+    edgeboxctl shunt mode vps          # 切换至 VPS 全量出
+    edgeboxctl shunt mode resi         # 切换至住宅 IP 全量出
+    edgeboxctl shunt mode direct_resi  # 切换至白名单 + 分流
+    ```
+    - 注意: 切换到 `resi` 或 `direct_resi` 模式前，系统会进行健康探活。如果住宅代理不可用，将保持 `vps` 模式并给出提示。
+  * **白名单维护**
+    ```bash
+    edgeboxctl shunt whitelist add <domain_suffix>
+    edgeboxctl shunt whitelist del <domain_suffix>
+    edgeboxctl shunt whitelist list
+    ```
+    白名单匹配采用域名后缀方式（例如 `googlevideo.com、ytimg.com、ggpht.com`），确保白名单始终优先匹配并直连 VPS。
+  * **模式切换**
   * **切换至域名模式**：`edgeboxctl change-to-domain <your_domain>`
   * **回退至 IP 模式**：`edgeboxctl change-to-ip`
-
-### 运维管理
 
   * **流量统计**：`edgeboxctl traffic show` (显示流量)，或通过浏览器访问 `http://<your-ip-or-domain>/` 查看静态图表。
   * **出站分流**：`edgeboxctl shunt mode vps/resi/direct_resi`
   * **备份与恢复**：`edgeboxctl backup create/restore`
 
-### 常用命令
-
+  * **常用命令：**
 | **命令** | **功能** |
 | :--- | :--- |
 | `edgeboxctl service status` | 查看服务状态 |
