@@ -293,6 +293,7 @@ server {
     白名单匹配采用域名后缀方式（例如 `googlevideo.com、ytimg.com、ggpht.com`），确保白名单始终优先匹配并直连 VPS。
 
 * **模式切换**
+
 | `edgeboxctl change-to-domain <your_domain>` | 切换到域名模式|
 | `edgeboxctl change-to-ip` | 回退到 IP 模式|
 | `edgeboxctl cert status` | 查看证书状态|
@@ -300,17 +301,20 @@ server {
 | `edgeboxctl cert upload <fullchain> <key>` | 上传自定义证书|
 
 * **流量统计**：
+
 | `edgeboxctl traffic show` | 查看当前流量|
 | `edgeboxctl traffic reset` | 重置流量计数|
 或通过浏览器访问 `http://<your-ip-or-domain>/` 查看静态图表。
 
-* **出站分流**：`edgeboxctl shunt mode vps/resi/direct_resi`
+* **出站分流**：
+
 | `edgeboxctl shunt apply <IP:PORT[:USER:PASS]>`| 写入/更新住宅代理配置|
 | `edgeboxctl shunt mode vps\|resi\|direct_resi` | 互斥切换分流模式|
 | `edgeboxctl shunt whitelist add\|del\|list <domain_suffix>` | 白名单维护|
 | `edgeboxctl shunt clear` | 清除住宅代理配置|
  
 * **备份与恢复**：
+
 | `edgeboxctl backup list` | 列出备份|
 | `edgeboxctl backup create` | 手动创建备份|
 | `edgeboxctl backup restore <DATE>` | 恢复指定日期的备份|
