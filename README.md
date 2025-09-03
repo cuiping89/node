@@ -13,8 +13,8 @@
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/refs/heads/main/ENV/install.sh)
 ```
-浏览器访问：http://<your-ip-or-domain>/ (订阅 + 流量图表同页的静态页面)
-命令管理：edgeboxctl help
+- 浏览器访问：http://<your-ip-or-domain>/ (订阅 + 流量图表同页的静态页面)
+- 命令管理：edgeboxctl help
 
 -----
 
