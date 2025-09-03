@@ -10,11 +10,12 @@
 
 ### **🚀 功能亮点**
 
-  * **一键安装与卸载**：默认非交互式“IP模式”安装，并支持一键清理所有组件，确保幂等高效。
-  * **多协议支持**：集成 VLESS-gRPC、VLESS-WS、VLESS-Reality、Hysteria2 和 TUIC，提供多样的协议选择。
+  * **一键安装**：默认非交互式“IP模式”安装。
+  * **幂等卸载**：一键清理所有组件，确保幂等高效，为安装失败后重装准备环境，适合自动化和故障排除
+  * **协议组合**：集成 VLESS-gRPC、VLESS-WS、VLESS-Reality、Hysteria2 和 TUIC，提供多样的协议选择。
   * **深度伪装**：采用 \*\*Nginx + Xray 单端口复用（Nginx-first）\*\*架构，实现 TCP/443 和 UDP/443 的深度伪装。
-  * **灵活分流**：支持 **VPS 直出、住宅IP 直出、VPS与住宅IP 分流**，并通过 `edgeboxctl` 工具轻松切换。
-  * **智能管理**：提供 `edgeboxctl` 管理工具，实现 **IP 模式 ⇋ 域名模式**和 **VPS 直出 ⇋ 住宅IP分流**的双向切换。
+  * **灵活分流**：支持 ***VPS 直出、住宅IP 直出、VPS & 住宅IP分流**，并通过 `edgeboxctl` 工具轻松切换。
+  * **智能管理**：提供 `edgeboxctl` 管理工具，实现 **IP 模式 ⇋ 域名模式**和 **VPS 直出、住宅IP 直出、VPS & 住宅IP分流**的双向切换。
   * **全面运维**：内置 `vnStat` 和 `iptables` 流量监控，支持每日自动备份与一键恢复。
 
 -----
@@ -25,12 +26,7 @@
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/refs/heads/main/ENV/install.sh)
 ```
-
-**安装后，请进行以下验证：**
-
-  * **服务状态**：检查 `nginx`、`sing-box` 和 `xray` 等服务是否正常运行。
-  * **端口监听**：验证 **Nginx 监听 443/TCP**，而 **Xray 和 sing-box 仅监听内部端口或 UDP 端口**。
-  * **配置文件**：确保配置文件语法正确。
+* **浏览器访问**: `http://<your-ip-or-domain>/`
 
 -----
 
@@ -46,9 +42,6 @@ bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/refs/heads/ma
 
 ### 证书管理
  * EdgeBox 提供全自动化的证书管理，支持两种证书类型，根据模式智能选择证书类型。
-  * **IP 模式**：自动生成自签名证书，无需域名，开箱即用。
-  * **域名模式**：通过 `edgeboxctl` 申请 Let's Encrypt 证书，并配置 `cron` 任务自动续期。
-  * **无缝切换**：所有服务都通过软链接引用证书文件，确保在 IP 和域名模式间无缝切换。
 
 * **自签名证书（IP 模式）**
     * **生成时机**：在非交互式安装或无域名配置时自动生成。
@@ -67,7 +60,8 @@ bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/refs/heads/ma
 
 * **证书在配置文件中的引用**
     * 为确保模式切换的幂等性，所有服务配置文件都将使用软链接来动态指向正确的证书文件。
-* **Nginx、Xray 和 sing-box**：
+ 
+* **Nginx、Xray、sing-box**：
     * `ssl_certificate`：指向 `/etc/edgebox/cert/current.pem`
     * `ssl_certificate_key`：指向 `/etc/edgebox/cert/current.key`
     * `edgeboxctl` 工具在切换模式时，将更新这两个软链接，使其分别指向自签名证书或 Let's Encrypt 证书的实际文件，从而实现无缝切换。
@@ -88,7 +82,6 @@ bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/refs/heads/ma
 | **WebSocket** | 客户端 → **Nginx:443** → 根据 **ALPN=http/1.1** 转发 → **Xray WS** (内部) |
 | **Hysteria2/TUIC** | 客户端 → **Sing-box** 直接处理 **UDP** 流量，与 Nginx 无关。 |
 
-
 ### 协议组合策略
 
 | 矩阵协议           | 传输特征          | 行为伪装效果     | 适用场景                 |
@@ -104,16 +97,14 @@ bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/refs/heads/ma
 - **VLESS-Reality**: 通过伪装 TLS 指纹，让流量看起来像是在访问真实热门网站
 - **Hysteria2**: 伪装成 HTTP/3 流量，利用 QUIC 协议的特性
 - **TUIC**: 基于 QUIC 的轻量级协议，具有较好的抗检测能力
----
 
-## 端口分配策略
-
-本方案采用 **Nginx + Xray 单端口复用（Nginx-first）** 架构，实现了智能分流和深度伪装的完美结合。
+### 端口分配策略
+- 本方案采用 **Nginx + Xray 单端口复用（Nginx-first）** 架构，实现了智能分流和深度伪装的完美结合。
 
 **核心理念：**
 - 让 **Nginx** 成为所有 **TCP** 流量的守门员，它只监听公网 `443` 端口。Nginx根据流量类型（通过 SNI/ALPN 判断）智能地分发给后端不同功能的 **Xray** 内部服务。
 
-### **工作流**
+#### **工作流**
 
 | **协议类型** | **工作流程** |
 | :--- | :--- |
@@ -122,7 +113,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/refs/heads/ma
 | **WebSocket** | 客户端 → **Nginx:443** → **Nginx** 根据 **ALPN=http/1.1** 转发 → **Xray WS 入站@10086** (内部) |
 | **Hysteria2/TUIC** | 客户端 → **Sing-box** 直接处理 **UDP** 流量（分别监听 `443/udp` 和 `2053/udp`），与 Nginx 无关。 |
 
-### **端口分配**
+#### **端口分配**
 
 | **类型** | **端口** | **功能** |
 | :--- | :--- | :--- |
@@ -135,18 +126,18 @@ bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/refs/heads/ma
 
 **重要提醒**：在你的 Nginx 配置中，请确保 **Reality** 的 `serverNames` 列表**只包含伪装域名**，这样可以防止 Reality “劫持”你真实的 gRPC 或 WS 流量。
 
-### 部署与模式切换策略
 
-本方案的核心在于 **edgeboxctl** 管理工具，它能实现两种核心模式之间的无缝切换，以适应不同的网络环境。
+## 模式切换策略
+- 本方案的核心在于 **edgeboxctl** 管理工具，它能实现两种核心模式之间的无缝切换，以适应不同的网络环境。
 
-#### 初始安装（非交互式 IP 模式）
+### 初始安装（非交互式 IP 模式）
 - 安装脚本默认为非交互模式，专为无域名或非住宅 IP 的环境设计。安装后，所有协议均可立即工作，但部分协议使用自签名证书。
 * **Nginx**： * 作为公网 `443/TCP` 的唯一入口，启动时将所有非 Reality 的流量转发到 Xray 的内部回环端口。
 * **Reality**：* 独立启用，监听**内部回环端口**。其 `server_name` 伪装为 `www.cloudflare.com` 等常规网站，按常规生成密钥对。
 * **VLESS-gRPC / VLESS-WS**：* 分别监听**内部回环端口**。后端使用 **自签名证书**，并配置各自的 `alpn`。
 * **Hysteria2 / TUIC**： * 同样使用 **自签名证书** 启动，分别监听 **UDP/443** 和 **UDP/2053**。
 
-#### 模式双向切换（`edgeboxctl` 命令）
+### 模式双向切换（`edgeboxctl` 命令）
 * **切换至域名模式**：
     * **命令**：`edgeboxctl change-to-domain <your_domain>`
     * **逻辑**：工具将检查域名解析，自动申请 Let's Encrypt 证书，并用新证书替换所有需要 TLS 的协议（VLESS-gRPC/WS、Hysteria2/TUIC）的自签名证书。Nginx、Xray 和 sing-box 的配置将被更新以使用真实域名。
@@ -173,49 +164,17 @@ bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/refs/heads/ma
 
 ## 出站分流策略
 
-- 本模块为 EdgeBox 节点提供灵活、高效的流量分流能力。它允许用户在三种互斥的出站模式之间自由切换，通过精细的白名单管理，在节省流量和维护账号画像之间取得平衡。
-### 核心模式
-该模块由 **`SHUNT_MODE`** 变量控制，并与核心的域名/IP 切换功能完全解耦。
+ * 本模块提供三种互斥的出站模式：
+  * **VPS 全量出 (`vps`)**：所有流量通过 VPS 出口，是默认和最稳定的模式。
+  * **住宅 IP 全量出 (`resi`)**：所有流量通过配置的住宅代理 IP。
+  * **白名单 + 分流 (`direct_resi`)**：白名单域名直连 VPS，其余流量走住宅 IP，兼顾成本与画像。
+ * 管理工具 [`edgeboxctl shunt`] 支持**切换模式、配置住宅代理、维护白名单**，并在切换前进行健康探活，确保代理可用。
 
-| 模式 | `SHUNT_MODE` | 行为 | 典型用途 |
-| :--- | :--- | :--- | :--- |
-| **VPS 全量出** | `vps` | 所有流量通过 VPS 出口发出。 | 默认模式、零配置、排障时最稳定。 |
-| **住宅 IP 全量出**| `resi` | 所有流量通过配置的住宅代理 IP 发出。 | 需稳定地域画像的场景。 |
-| **白名单 + 住宅IP** | `direct_resi`| 白名单域名直连 VPS；其余流量走住宅 IP。 | 兼顾成本与画像的平衡方案。 |
-
-### 管理工具 (`edgeboxctl`)
-所有分流管理操作均通过 `edgeboxctl` 命令完成。
-  * **配置与更新住宅代理**
-    ```bash
-    edgeboxctl shunt apply <IP:PORT[:USER:PASS]>
-    ```
-  该命令仅写入代理参数到 `/etc/edgebox/shunt/resi.conf`，不改变当前模式。
-  * **模式切换**
-    ```bash
-    edgeboxctl shunt mode vps          # 切换至 VPS 全量出
-    edgeboxctl shunt mode resi         # 切换至住宅 IP 全量出
-    edgeboxctl shunt mode direct_resi  # 切换至白名单 + 分流
-    ```
-    **注意**: 切换到 `resi` 或 `direct_resi` 模式前，系统会进行健康探活。如果住宅代理不可用，将保持 `vps` 模式并给出提示。
-  * **清除代理配置**
-    ```bash
-    edgeboxctl shunt clear
-    ```
-    此命令会删除代理配置，并强制切换回 `vps` 全量出模式。
-  * **白名单维护**
-
-    ```bash
-    edgeboxctl shunt whitelist add <domain_suffix>
-    edgeboxctl shunt whitelist del <domain_suffix>
-    edgeboxctl shunt whitelist list
-    ```
-    白名单匹配采用域名后缀方式（例如 `googlevideo.com`），确保白名单始终优先匹配并直连 VPS。
-  * **状态与健康检查**
-    ```bash
-    edgeboxctl shunt test     # 立即对住宅代理进行健康探活
-    edgeboxctl shunt status   # 显示当前模式、代理可用性、最后切换时间等
-    ```   
-### 实现细节
+### 流量统计
+本方案采用**轻量级采集 + 结构化存储 + Matplotlib 静态图**，并在一个浏览器页面中同时展示图表和订阅链接。
+  * **数据采集**：`traffic-collector.sh` 每小时由 `cron` 触发，收集流量数据并写入 `daily.csv` 和 `monthly.csv`。
+  * **图表渲染**：`generate-charts.py` 每日生成静态 `.png` 图表和 `index.html` 页面，由 Nginx 托管在站点根路径 `http://<your-ip-or-domain>/`。
+  * **统计维度**：包括系统总流量、VPS 直出流量、住宅 IP 直出流量以及高流量端口。
 
 #### 文件与目录布局
 所有分流相关文件都统一管理在 `/etc/edgebox/shunt/` 目录下，保证清晰和原子化。
@@ -233,27 +192,41 @@ bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/refs/heads/ma
       * **`resi` 模式**: 最终去向 (`final`) 为 `resi_out`。
       * **`direct_resi` 模式**: 白名单流量优先去向 `direct`，非白名单流量最终去向 `resi_out`。
 #### 健康探活与回退
-系统在切换到 `resi` 或 `direct_resi` 模式前，会首先对住宅代理进行健康探活。若探活失败，将自动回退到 `vps` 模式，并记录告警，确保服务不中断。此外，系统可配置定时巡检，在代理故障时自动回退，并在恢复后自动切换回原模式。
+- 系统在切换到 `resi` 或 `direct_resi` 模式前，会首先对住宅代理进行健康探活。若探活失败，将自动回退到 `vps` 模式，并记录告警，确保服务不中断。此外，系统可配置定时巡检，在代理故障时自动回退，并在恢复后自动切换回原模式。
 
-### 4. 开发细节与约束
+### 开发约束
 
 - 模板幂等性：edgeboxctl shunt apply 仅修改出站与路由片段，不触碰证书、入站、fallbacks 和端口策略。这确保了分流模块是一个独立的、可控的单元，满足幂等部署的需求。
-- GCP 出站约束：为避免触发 GCP 的公网出站计费，请确保您的配置遵循以下原则：
-  - 不启用 Cloudflare 的 Argo/WARP/Zero Trust 等服务。
-  - 不让任何代理“回源”到 Cloudflare 边缘节点。
-  - 此策略旨在保持在 200GB 内的标准计费，避免意外产生高额费用。
-- 默认直连白名单：可编辑的白名单列表应在代码中清晰定义，例如：
-  - googlevideo.com
-  - ytimg.com
-  - ggpht.com
-- 健康探活：在切换到代理出站模式前，应添加简单的探活逻辑，以验证代理的可用性。如果代理不可用，应自动回退到直连模式并给出提示。
+- GCP 出站约束：为避免触发 GCP 的公网出站计费，请确保您的配置遵循以下原则：CF灰云，不启用 Cloudflare 的 Argo/WARP/Zero Trust 等服务，不让任何代理“回源”到 Cloudflare 边缘节点，此策略旨在保持在 200GB 内的标准计费，避免意外产生高额费用。
+
+### 管理 (`edgeboxctl`)
+- 所有分流管理操作均通过 `edgeboxctl` 命令完成。
+  * **配置与更新住宅代理**
+    ```bash
+    edgeboxctl shunt apply <IP:PORT[:USER:PASS]>
+    ```
+  - 该命令仅写入代理参数到 `/etc/edgebox/shunt/resi.conf`，不改变当前模式。
+  * **模式切换**
+    ```bash
+    edgeboxctl shunt mode vps          # 切换至 VPS 全量出
+    edgeboxctl shunt mode resi         # 切换至住宅 IP 全量出
+    edgeboxctl shunt mode direct_resi  # 切换至白名单 + 分流
+    ```
+    - 注意: 切换到 `resi` 或 `direct_resi` 模式前，系统会进行健康探活。如果住宅代理不可用，将保持 `vps` 模式并给出提示。
+  * **白名单维护**
+    ```bash
+    edgeboxctl shunt whitelist add <domain_suffix>
+    edgeboxctl shunt whitelist del <domain_suffix>
+    edgeboxctl shunt whitelist list
+    ```
+    - 白名单匹配采用域名后缀方式（例如 `googlevideo.com、ytimg.com、ggpht.com`），确保白名单始终优先匹配并直连 VPS。
 
 -----
 
 ## 运维与管理
 
-### 1. 流量统计
-本方案采用**轻量级采集 + 结构化存储 + Matplotlib 静态图**，并将流量图表与订阅链接集成到同一浏览器页面中。整个系统不引入复杂的依赖或前端框架，保持了极简、可维护和幂等的设计。
+### 流量统计
+- 本方案采用**轻量级采集 + 结构化存储 + Matplotlib 静态图**，并将流量图表与订阅链接集成到同一浏览器页面中。整个系统不引入复杂的依赖或前端框架，保持了极简、可维护和幂等的设计。
 
 #### 架构与流程
 本方案的核心是将数据采集、图表渲染和 Web 展示紧密结合，并统一发布在站点的根路径下，实现了用户访问的零门槛。
@@ -287,7 +260,6 @@ bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/refs/heads/ma
   │   └─ index.html                  # 订阅与流量总览页面
   └─ nginx/root-site.conf            # Nginx 站点配置文件
 ```
-
 #### 统计维度与数据保留
   * **时间粒度**:
       * **日维度**：按天采集，图表展示最近 30 天的趋势，数据保留 6 个月。
@@ -316,7 +288,6 @@ bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/refs/heads/ma
 # 图表与总览页生成：每日一次（如需更频繁，可调整）
 10 0 * * * /etc/edgebox/scripts/generate-charts.py
 ```
-
 #### Nginx 根路径发布
 将以下配置片段保存为 `/etc/edgebox/nginx/root-site.conf`，并 `include` 到主配置中，实现根路径直出。
 ```nginx
@@ -331,8 +302,10 @@ server {
 }
 ```
 
- * **浏览器访问**: `http://<your-ip-or-domain>/`
+### 备份与恢复
+系统每日凌晨3点自动备份配置和数据到 `/root/edgebox-backup/`。你可以使用 `edgeboxctl backup` 命令手动创建、列出和恢复备份。
 
+-----
 
 ## 使用指南 (`edgeboxctl`)
 
@@ -359,26 +332,6 @@ server {
 | `edgeboxctl config regenerate-uuid` | 重新生成 UUID |
 | `edgeboxctl update` | 更新 EdgeBox |
 | `edgeboxctl uninstall` | 完全卸载 EdgeBox |
-
------
-
-## 运维与管理
-
-### 出站分流策略
- * 本模块提供三种互斥的出站模式：
-  * **VPS 全量出 (`vps`)**：所有流量通过 VPS 出口，是默认和最稳定的模式。
-  * **住宅 IP 全量出 (`resi`)**：所有流量通过配置的住宅代理 IP。
-  * **白名单 + 分流 (`direct_resi`)**：白名单域名直连 VPS，其余流量走住宅 IP，兼顾成本与画像。
- * 管理工具 [`edgeboxctl shunt`] 支持**切换模式、配置住宅代理、维护白名单**，并在切换前进行健康探活，确保代理可用。
-
-### 流量统计
-本方案采用**轻量级采集 + 结构化存储 + Matplotlib 静态图**，并在一个浏览器页面中同时展示图表和订阅链接。
-  * **数据采集**：`traffic-collector.sh` 每小时由 `cron` 触发，收集流量数据并写入 `daily.csv` 和 `monthly.csv`。
-  * **图表渲染**：`generate-charts.py` 每日生成静态 `.png` 图表和 `index.html` 页面，由 Nginx 托管在站点根路径 `http://<your-ip-or-domain>/`。
-  * **统计维度**：包括系统总流量、VPS 直出流量、住宅 IP 直出流量以及高流量端口。
-
-### 备份与恢复
-系统每日凌晨3点自动备份配置和数据到 `/root/edgebox-backup/`。你可以使用 `edgeboxctl backup` 命令手动创建、列出和恢复备份。
 
 -----
 
