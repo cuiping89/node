@@ -22,11 +22,11 @@
 
 ## 快速开始
 
-只需在你的服务器上执行以下命令，即可开始一键部署：
+只需在服务器上执行以下命令，即可一键部署：
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/refs/heads/main/ENV/install.sh)
 ```
-* **浏览器访问**: `http://<your-ip-or-domain>/`
+**浏览器访问**: `http://<your-ip-or-domain>/`
 
 -----
 
