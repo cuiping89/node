@@ -1,45 +1,54 @@
 
+
 # EdgeBox：一站式多协议节点部署方案
 
-- EdgeBox 是一个多协议一键部署脚本，旨在提供一个**健壮灵活、一键部署、幂等卸载**的安全上网解决方案，
-- 核心策略：**协议组合+端口分配+出站分流**，健壮灵活、深度伪装、灵活路由，能应对复杂多变的网络环境，
-- 运维功能：**模式切换+流量统计+备份恢复**。配置灵活、流量预警、安全备份，满足运维需求。
+- EdgeBox 是一个多协议一键部署脚本，旨在提供一个**健壮灵活、一键部署、幂等卸载**的安全上网解决方案；
+- 它通过**协议组合、端口分配、出站分流**等核心策略，实现深度伪装和灵活路由，以应对复杂多变的网络环境；
+- 同时还内置了**模式切换、流量统计、备份恢复**等运维功能，满足日常运维需求。
 
----
+-----
 
 ### **🚀 功能亮点**
 
-* **一键安装**：默认非交互式“IP模式”安装
-* **幂等卸载**：一键清理所有组件，简洁、高效、幂等、非交互，为安装失败后重装准备环境，适合自动化和故障排除
-* **协议组合**：VLESS-gRPC、VLESS-WS、VLESS-Reality、Hysteria2、TUIC
-* **端口分配**：**Nginx + Xray 单端口复用（Nginx-first）**，实现 TCP/443 和 UDP/443 的深度伪装。
-* **出站分流**：直连白名单 与 住宅IP出站
-* **模式切换**：提供管理工具 `edgeboxctl`，实现模式双向切换：IP模式 ⇋ 域名模式；VPS直出模式 ⇋ 住宅代理分流模式
-* **流量统计**：内置 vnStat + iptables 流量监控
-* **备份恢复**：每日自动备份，支持一键恢复
+  * **一键安装与卸载**：默认非交互式“IP模式”安装，并支持一键清理所有组件，确保幂等高效。
+  * **多协议支持**：集成 VLESS-gRPC、VLESS-WS、VLESS-Reality、Hysteria2 和 TUIC，提供多样的协议选择。
+  * **深度伪装**：采用 \*\*Nginx + Xray 单端口复用（Nginx-first）\*\*架构，实现 TCP/443 和 UDP/443 的深度伪装。
+  * **灵活分流**：支持 **VPS 直出、住宅IP 直出、VPS与住宅IP 分流**，并通过 `edgeboxctl` 工具轻松切换。
+  * **智能管理**：提供 `edgeboxctl` 管理工具，实现 **IP 模式 ⇋ 域名模式**和 **VPS 直出 ⇋ 住宅IP分流**的双向切换。
+  * **全面运维**：内置 `vnStat` 和 `iptables` 流量监控，支持每日自动备份与一键恢复。
 
----
+-----
 
-### **软件要求**
-* 系统软件：Ubuntu 18.04+； Debian 10+
-* 依赖软件：安装脚本会自动检测并安装 `curl`, `wget`, `unzip`, `tar`, **`nginx`**, `certbot`, `vnstat`, `iftop`。
+## 快速开始
 
-#### **硬件要求**
-* CPU: 1 核
-* 内存: 512MB（内存不足自动创建 2G swap 补足）
-* 存储: 10GB 可用空间
-* 网络: 稳定的公网 IP
+只需在你的服务器上执行以下命令，即可开始一键部署：
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/refs/heads/main/ENV/install.sh)
+```
 
-### **核心组件**
-* **Nginx**：作为公网 `TCP/443` 的前置代理，负责基于 **SNI/ALPN** 的非终止 TLS 分流。
-* **Xray**：运行 Reality、VLESS-gRPC 和 VLESS-WS 协议，监听内部回环端口，负责各自协议的 TLS 终止。
-* **sing-box**：独立运行 Hysteria2 和 TUIC 协议，直接监听 UDP 端口。
+**安装后，请进行以下验证：**
 
-### **证书管理**
-EdgeBox 的证书管理模块旨在实现全自动化，根据用户是否提供域名来智能选择证书类型，并确保证书的生命周期得到妥善管理。
+  * **服务状态**：检查 `nginx`、`sing-box` 和 `xray` 等服务是否正常运行。
+  * **端口监听**：验证 **Nginx 监听 443/TCP**，而 **Xray 和 sing-box 仅监听内部端口或 UDP 端口**。
+  * **配置文件**：确保配置文件语法正确。
 
-#### **1. 证书类型与生成流程**
-EdgeBox 支持两种证书类型，它们在安装和运行的不同阶段自动生成或配置，以满足不同模式的需求。
+-----
+
+### 软件与硬件要求
+  * **系统**：Ubuntu 18.04+ 或 Debian 10+。
+  * **硬件**：CPU 1核，内存 512MB（内存不足自动创建 2G swap），存储 10GB 可用空间，并需稳定的公网 IP。
+  * **依赖**：`curl`, `wget`, `unzip`, `tar`, `nginx`, `certbot`, `vnstat`, `iftop` 等，将由安装脚本自动检测并安装。
+
+### 核心组件
+  * **Nginx**：作为所有 TCP 协议的唯一入口，监听公网 `TCP/443`，并基于 SNI/ALPN 进行非终止 TLS 分流。
+  * **Xray**：运行 Reality、VLESS-gRPC 和 VLESS-WS 协议，监听内部回环端口，负责各自协议的 TLS 终止。
+  * **sing-box**：独立运行 Hysteria2 和 TUIC 协议，直接监听 UDP 端口。
+
+### 证书管理
+ * EdgeBox 提供全自动化的证书管理，支持两种证书类型，根据模式智能选择证书类型。
+  * **IP 模式**：自动生成自签名证书，无需域名，开箱即用。
+  * **域名模式**：通过 `edgeboxctl` 申请 Let's Encrypt 证书，并配置 `cron` 任务自动续期。
+  * **无缝切换**：所有服务都通过软链接引用证书文件，确保在 IP 和域名模式间无缝切换。
 
 * **自签名证书（IP 模式）**
     * **生成时机**：在非交互式安装或无域名配置时自动生成。
@@ -56,10 +65,8 @@ EdgeBox 支持两种证书类型，它们在安装和运行的不同阶段自动
         * 公钥：`/etc/letsencrypt/live/<your_domain>/fullchain.pem`
     * **自动续期**：脚本将配置一个 `cron` 任务，自动执行 `certbot renew` 命令，确保证书在到期前自动续期。
 
-#### **2. 证书在配置文件中的引用**
-
-为确保模式切换的幂等性，所有服务配置文件都将使用软链接来动态指向正确的证书文件。
-
+* **证书在配置文件中的引用**
+    * 为确保模式切换的幂等性，所有服务配置文件都将使用软链接来动态指向正确的证书文件。
 * **Nginx、Xray 和 sing-box**：
     * `ssl_certificate`：指向 `/etc/edgebox/cert/current.pem`
     * `ssl_certificate_key`：指向 `/etc/edgebox/cert/current.key`
@@ -67,7 +74,22 @@ EdgeBox 支持两种证书类型，它们在安装和运行的不同阶段自动
 
 ---
 
-## 协议组合策略
+## 技术架构
+ * EdgeBox 的核心在于其精巧的分层架构，实现了协议组合、流量分发和证书管理的自动化。
+
+### 协议组合与端口分配策略
+
+ * 本方案采用 \*\*Nginx + Xray 单端口复用（Nginx-first）\*\*架构，实现了智能分流和深度伪装。
+
+| **协议类型** | **工作流程** |
+| :--- | :--- |
+| **Reality** | 客户端 → **Nginx:443** → 根据 **SNI** 转发 → **Xray Reality** (内部) |
+| **gRPC** | 客户端 → **Nginx:443** → 根据 **ALPN=h2** 转发 → **Xray gRPC** (内部) |
+| **WebSocket** | 客户端 → **Nginx:443** → 根据 **ALPN=http/1.1** 转发 → **Xray WS** (内部) |
+| **Hysteria2/TUIC** | 客户端 → **Sing-box** 直接处理 **UDP** 流量，与 Nginx 无关。 |
+
+
+### 协议组合策略
 
 | 矩阵协议           | 传输特征          | 行为伪装效果     | 适用场景                 |
 |--------------------|-------------------|------------------|--------------------------|
@@ -309,159 +331,96 @@ server {
 }
 ```
 
-#### 使用方式
-  * **浏览器访问**: `http://<your-ip-or-domain>/`
-  * **命令行**:
-      * `edgeboxctl traffic show`：查看实时流量快照。
-      * `cat /etc/edgebox/traffic/sub.txt`：获取原始订阅文本。
-      * `/etc/edgebox/scripts/generate-charts.py`：手动触发页面刷新。
-
-#### 幂等性与卸载
-  * **幂等性**: 脚本设计为可重复执行，`CSV` 文件会追加合并，`PNG/HTML` 文件会直接覆盖，确保系统的稳定。
-  * **卸载**: `uninstall.sh` 脚本应对称删除所有相关文件和配置，包括 `/etc/edgebox/traffic/`、脚本、`cron` 任务和 Nginx 配置片段。
+ * **浏览器访问**: `http://<your-ip-or-domain>/`
 
 
-### 2. 备份与恢复
-- 自动备份：每日凌晨3点自动备份配置、证书和用户数据到 /root/edgebox-backup/，保留最近15天的备份。
-- 手动操作：
-  - edgeboxctl backup list：列出所有备份。
-  - edgeboxctl backup create：手动创建备份。
-  - edgeboxctl backup restore <日期>：恢复指定日期的备份。
+## 使用指南 (`edgeboxctl`)
 
-### 3. edgeboxctl 命令集
+`edgeboxctl` 是管理 EdgeBox 的核心工具，所有操作都通过它完成。
 
-#### 配置管理
+### 模式切换
 
-- edgeboxctl config show          # 显示当前配置
-- edgeboxctl config show-sub      # 显示订阅链接
-- edgeboxctl config regenerate-uuid # 重新生成 UUID
+  * **切换至域名模式**：`edgeboxctl change-to-domain <your_domain>`
+  * **回退至 IP 模式**：`edgeboxctl change-to-ip`
 
-#### 服务管理
+### 运维管理
 
-- edgeboxctl service status       # 服务状态
-- edgeboxctl service restart      # 重启服务
-- edgeboxctl service logs         # 查看日志
+  * **流量统计**：`edgeboxctl traffic show` (显示流量)，或通过浏览器访问 `http://<your-ip-or-domain>/` 查看静态图表。
+  * **出站分流**：`edgeboxctl shunt mode vps/resi/direct_resi`
+  * **备份与恢复**：`edgeboxctl backup create/restore`
 
-#### 出站分流
+### 常用命令
 
-- edgeboxctl shunt apply          # 启用住宅代理分流
-- edgeboxctl shunt clear          # 切换回VPS直连
+| **命令** | **功能** |
+| :--- | :--- |
+| `edgeboxctl service status` | 查看服务状态 |
+| `edgeboxctl sub` | 动态生成订阅链接 |
+| `edgeboxctl cert status` | 查看证书状态 |
+| `edgeboxctl config regenerate-uuid` | 重新生成 UUID |
+| `edgeboxctl update` | 更新 EdgeBox |
+| `edgeboxctl uninstall` | 完全卸载 EdgeBox |
 
-#### 流量统计
+-----
 
-- edgeboxctl traffic show         # 显示流量统计
-- edgeboxctl traffic reset        # 重置流量计数
+## 运维与管理
 
-#### 证书管理
+### 出站分流策略
+ * 本模块提供三种互斥的出站模式：
+  * **VPS 全量出 (`vps`)**：所有流量通过 VPS 出口，是默认和最稳定的模式。
+  * **住宅 IP 全量出 (`resi`)**：所有流量通过配置的住宅代理 IP。
+  * **白名单 + 分流 (`direct_resi`)**：白名单域名直连 VPS，其余流量走住宅 IP，兼顾成本与画像。
+ * 管理工具 [`edgeboxctl shunt`] 支持**切换模式、配置住宅代理、维护白名单**，并在切换前进行健康探活，确保代理可用。
 
-- edgeboxctl cert status	        # 查看状态：显示当前使用的证书类型、到期时间，及自动续期任务状态。
-- edgeboxctl cert renew	        # 手动续期：强制执行 certbot 续期操作。通常用于测试或自动续期失败时。
-- edgeboxctl cert upload <fullchain_path> <key_path>	# 上传自定义证书：允许用户使用自己的证书。脚本将把提供的证书文件软链接到 current.pem/key。
+### 流量统计
+本方案采用**轻量级采集 + 结构化存储 + Matplotlib 静态图**，并在一个浏览器页面中同时展示图表和订阅链接。
+  * **数据采集**：`traffic-collector.sh` 每小时由 `cron` 触发，收集流量数据并写入 `daily.csv` 和 `monthly.csv`。
+  * **图表渲染**：`generate-charts.py` 每日生成静态 `.png` 图表和 `index.html` 页面，由 Nginx 托管在站点根路径 `http://<your-ip-or-domain>/`。
+  * **统计维度**：包括系统总流量、VPS 直出流量、住宅 IP 直出流量以及高流量端口。
 
-#### 系统管理
+### 备份与恢复
+系统每日凌晨3点自动备份配置和数据到 `/root/edgebox-backup/`。你可以使用 `edgeboxctl backup` 命令手动创建、列出和恢复备份。
 
-- edgeboxctl update               # 更新EdgeBox
-- edgeboxctl reinstall            # 重新安装
-- edgeboxctl uninstall            # 完全卸载
----
+-----
 
-## 一键安装
-
-服务器上执行以下命令即可开始：
-
-```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/refs/heads/main/ENV/install.sh)
-```
-
-### 1. 系统预检查
-
-- ✅ 操作系统兼容性
-- ✅ 网络连通性测试
-- ✅ 防火墙端口检查
-- ✅ 系统资源验证
-- ✅ DNS解析测试
-
-### 2. 安装后验证
-
-- 🔍 服务状态检查
-- 🔍 端口监听验证
-- 🔍 证书有效性检查
-- 🔍 配置文件语法验证
-
----
-
-## 📱 订阅链接
-
-- 浏览器方式：http://your-domain
-- SSH方式：edgeboxctl sub
-
-## 🔒 安全建议
+## 安全建议与常见问题
 
 ### 客户端配置
 
-- ✅ 启用"绕过大陆"分流规则
-- ✅ 配合VPS白名单直出策略
-- ✅ 定期更换伪装域名
+  * 启用“绕过大陆”分流规则。
+  * 配合 VPS 白名单直出策略。
+  * 定期更换伪装域名。
 
 ### 服务端维护
 
-- 🔄 定期系统更新：`apt update && apt upgrade`
-- 📊 监控异常流量：`edgeboxctl traffic show`
-- 🔑 适时轮换UUID：`edgeboxctl config regenerate-uuid`
+  * 定期系统更新：`apt update && apt upgrade`。
+  * 监控异常流量：`edgeboxctl traffic show`。
+  * 适时轮换 UUID：`edgeboxctl config regenerate-uuid`。
 
----
+### 常见问题
 
-## ❓ 常见问题
+  * **Q: 连接失败，显示 -1ms？**
+      * **排查步骤**：检查防火墙端口、服务运行状态、证书配置和日志。
+  * **Q: Reality 协议无法连接？**
+      * **解决方案**：确认伪装域名可访问、检查 SNI 配置并验证端口 443 未被占用。
+  * **Q: GCP会因 gRPC 协议切换高级网络吗？**
+      * **答案**：绝对不会。GCP 网络层级在 VM 创建时已固定，协议类型不会影响网络层级计费。
 
-<details>
-<summary><strong>Q: 连接失败，显示 -1ms？</strong></summary>
-
-**排查步骤：**
-1. 检查防火墙端口开放：`ufw status`
-2. 验证服务运行状态：`edgeboxctl service status`
-3. 检查证书配置：`edgeboxctl cert status`
-4. 查看服务日志：`edgeboxctl service logs`
-</details>
-
-<details>
-<summary><strong>Q: Reality 协议无法连接？</strong></summary>
-
-**解决方案：**
-1. 确认伪装域名可访问：`curl -I https://www.cloudflare.com`
-2. 检查SNI配置：`edgeboxctl config show`
-3. 验证端口443未被占用：`netstat -tlnp | grep :443`
-</details>
-
-<details>
-<summary><strong>Q: GCP会因gRPC协议切换高级网络吗？</strong></summary>
-
-**答案：绝对不会！**
-- GCP网络层级在VM创建时固定设置
-- gRPC本质是HTTP/2，使用标准TCP/443端口
-- 只要VM设为"标准网络层级"，200GB内都是标准计费
-- 协议类型不影响网络层级计费
-</details>
-
----
+-----
 
 ## 📈 社区特色
 
-- 👥 **安装友好**：一键安装、幂等卸载、文档详细
-- 🎯 **GCP优化**：针对GCP网络计费进行网络优化
-- 📊 **灵活运维**：模式切换、流量统计、自动备份
+  * **安装友好**：一键安装、幂等卸载、文档详细。
+  * **GCP 优化**：针对 GCP 网络计费进行优化。
+  * **灵活运维**：模式切换、流量统计、自动备份。
 
----
+-----
 
 ## 📄 许可证
 
-本项目采用 MIT 许可证，详见 [LICENSE](LICENSE) 文件。
+本项目采用 MIT 许可证，详见 [LICENSE](https://www.google.com/search?q=LICENSE) 文件。
 
----
+-----
 
-## 🤝 贡献
+## 🤝 贡献与支持
 
-欢迎提交 Issue 和 Pull Request！
-
-## ⭐ 支持项目
-
-如果这个项目对您有帮助，请给个 Star ⭐
+欢迎提交 Issue 和 Pull Request！如果这个项目对您有帮助，请给个 Star ⭐。
