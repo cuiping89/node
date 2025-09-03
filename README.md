@@ -258,67 +258,61 @@ server {
 
 ### 3.管理工具 (`edgeboxctl`)
 
-`edgeboxctl` 是管理 EdgeBox 的核心工具，所有操作都通过它完成，管理工具 [`edgeboxctl shunt`] 支持**切换模式、配置住宅代理、维护白名单**。
+`edgeboxctl` 是管理 EdgeBox 的核心工具，所有操作都通过它完成。管理工具提供了丰富的功能，支持模式切换、配置更新、分流管理、流量统计、备份恢复以及证书管理等。
 
-| **命令** | **功能** |
-| :--- | :--- |
-| `edgeboxctl config show` | 显示当前配置|
-| `edgeboxctl config regenerate-uuid` | 重新生成 UUID|
-| `edgeboxctl service status` | 查看服务状态|
-| `edgeboxctl service restart` | 重启服务|
-| `edgeboxctl service logs` | 查看日志|
-| `edgeboxctl sub` | 动态生成订阅链接|
-| `edgeboxctl update` | 更新 EdgeBox|
+#### **配置与服务管理**
 
-* **配置与更新住宅代理**
-    ```bash
-    edgeboxctl shunt apply <IP:PORT[:USER:PASS]>
-    ```
-  - 该命令仅写入代理参数到 `/etc/edgebox/shunt/resi.conf`，不改变当前模式。
- 
-* **出战分流切换**
-    ```bash
-    edgeboxctl shunt mode vps          # 切换至 VPS 全量出
-    edgeboxctl shunt mode resi         # 切换至住宅 IP 全量出
-    edgeboxctl shunt mode direct_resi  # 切换至白名单 + 分流
-    ```
-    - 注意: 切换到 `resi` 或 `direct_resi` 模式前，系统会进行健康探活。如果住宅代理不可用，将保持 `vps` 模式并给出提示。
+```bash
+edgeboxctl config show               # 显示当前配置
+edgeboxctl config regenerate-uuid    # 重新生成 UUID
+edgeboxctl service status            # 查看服务状态
+edgeboxctl service restart           # 重启服务
+edgeboxctl service logs              # 查看服务日志
+edgeboxctl sub                       # 动态生成订阅链接
+edgeboxctl update                    # 更新 EdgeBox
+```
 
-* **白名单维护**
-    ```bash
-    edgeboxctl shunt whitelist add <domain_suffix>
-    edgeboxctl shunt whitelist del <domain_suffix>
-    edgeboxctl shunt whitelist list
-    ```
-    白名单匹配采用域名后缀方式（例如 `googlevideo.com、ytimg.com、ggpht.com`），确保白名单始终优先匹配并直连 VPS。
+#### **出站分流管理**
 
-* **模式切换**
-    ```bash
-| `edgeboxctl change-to-domain <your_domain>`  # 切换到域名模式|
-| `edgeboxctl change-to-ip`  # 回退到 IP 模式|
-| `edgeboxctl cert status` # 查看证书状态|
-| `edgeboxctl cert renew`  # 手动续期 LE 证书|
-| `edgeboxctl cert upload <fullchain> <key>`  # 上传自定义证书|
-    ```
-* **流量统计**：
-    ```bash
-| `edgeboxctl traffic show`  # 查看当前流量|
-| `edgeboxctl traffic reset`  # 重置流量计数|
-浏览器访问 `http://<your-ip-or-domain>/`  # 查看静态图表。
-    ```
-* **出站分流**：
-    ```bash
-| `edgeboxctl shunt apply <IP:PORT[:USER:PASS]>` # 写入/更新住宅代理配置|
-| `edgeboxctl shunt mode vps\|resi\|direct_resi`  # 互斥切换分流模式|
-| `edgeboxctl shunt whitelist add\|del\|list <domain_suffix>` # 白名单维护|
-| `edgeboxctl shunt clear` # 清除住宅代理配置|
-     ```
-* **备份与恢复**：
-    ```bash
-| `edgeboxctl backup list` # 列出备份|
-| `edgeboxctl backup create`  # 手动创建备份|
-| `edgeboxctl backup restore <DATE>`  # 恢复指定日期的备份|
-    ```
+分流功能提供了三种互斥模式，并支持白名单维护。
+
+```bash
+edgeboxctl shunt apply <IP:PORT[:USER:PASS]>    # 写入/更新住宅代理配置
+edgeboxctl shunt mode vps                       # 切换至 VPS 全量出
+edgeboxctl shunt mode resi                      # 切换至住宅 IP 全量出
+edgeboxctl shunt mode direct_resi               # 切换至白名单 + 分流
+edgeboxctl shunt whitelist add <domain_suffix>  # 添加白名单
+edgeboxctl shunt whitelist del <domain_suffix>  # 删除白名单
+edgeboxctl shunt whitelist list                 # 列出白名单
+edgeboxctl shunt clear                          # 清除住宅代理配置并回到 vps 模式
+```
+
+#### **模式与证书管理**
+
+```bash
+edgeboxctl change-to-domain <your_domain>       # 切换到域名模式
+edgeboxctl change-to-ip                         # 回退到 IP 模式
+edgeboxctl cert status                          # 查看证书状态
+edgeboxctl cert renew                           # 手动续期 Let's Encrypt 证书
+edgeboxctl cert upload <fullchain> <key>        # 上传自定义证书
+```
+
+#### **流量统计**
+
+```bash
+edgeboxctl traffic show                         # 查看当前流量
+edgeboxctl traffic reset                        # 重置流量计数
+```
+
+**浏览器访问**：`http://<your-ip-or-domain>/` 查看静态图表。
+
+#### **备份与恢复**
+
+```bash
+edgeboxctl backup list                          # 列出备份
+edgeboxctl backup create                        # 手动创建备份
+edgeboxctl backup restore <DATE>                # 恢复指定日期的备份
+```
  
 -----
 
