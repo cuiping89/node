@@ -112,8 +112,6 @@ EdgeBox 的核心在于其精巧的分层架构，实现了协议组合、端口
 | | TCP/10085 | Xray gRPC 服务。 |
 | | TCP/10086 | Xray WebSocket 服务。 |
 
-**重要提醒**：在你的 Nginx 配置中，请确保 **Reality** 的 `serverNames` 列表**只包含伪装域名**，这样可以防止 Reality “劫持”你真实的 gRPC 或 WS 流量。
-
 
 ## 模式切换策略
 - 本方案的核心在于 **edgeboxctl** 管理工具，它能实现两种核心模式之间的无缝切换，以适应不同的网络环境。
