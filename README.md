@@ -181,7 +181,7 @@ EdgeBox 的核心在于其精巧的分层架构，实现了协议组合、端口
 
 ## 运维与管理
 
-### 流量统计
+### 1.流量统计
 本方案采用**轻量级采集 + 结构化存储 + Matplotlib 静态图**，并在一个浏览器页面中同时展示图表和订阅链接。
   * **数据采集**：`traffic-collector.sh` 每小时由 `cron` 触发，收集流量数据并写入 `daily.csv` 和 `monthly.csv`。
   * **图表渲染**：`generate-charts.py` 每日生成静态 `.png` 图表和 `index.html` 页面，由 Nginx 托管在站点根路径 `http://<your-ip-or-domain>/`。
@@ -261,12 +261,10 @@ server {
 }
 ```
 
-### 备份与恢复
+### 2.备份与恢复
 系统每日凌晨3点自动备份配置和数据到 `/root/edgebox-backup/`。你可以使用 `edgeboxctl backup` 命令手动创建、列出和恢复备份。
 
------
-
-### 管理工具 (`edgeboxctl`)
+### 3.管理工具 (`edgeboxctl`)
 
 `edgeboxctl` 是管理 EdgeBox 的核心工具，所有操作都通过它完成，管理工具 [`edgeboxctl shunt`] 支持**切换模式、配置住宅代理、维护白名单**。
 
