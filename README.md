@@ -7,38 +7,40 @@
 - 同时还内置了**模式切换、流量统计、备份恢复**等运维功能，满足日常运维需求。
 
 -----
-
-### **🚀 功能亮点**
-
-  * **一键安装**：默认非交互式“IP模式”安装。
-  * **幂等卸载**：一键清理所有组件，确保幂等高效，为安装失败后重装准备环境，适合自动化和故障排除
-  * **协议组合**：集成 VLESS-gRPC、VLESS-WS、VLESS-Reality、Hysteria2 和 TUIC，提供多样的协议选择。
-  * **深度伪装**：采用 \*\*Nginx + Xray 单端口复用（Nginx-first）\*\*架构，实现 TCP/443 和 UDP/443 的深度伪装。
-  * **灵活分流**：支持 ***VPS 直出、住宅IP 直出、VPS & 住宅IP分流**，并通过 `edgeboxctl` 工具轻松切换。
-  * **智能管理**：提供 `edgeboxctl` 管理工具，实现 **IP 模式 ⇋ 域名模式**和 **VPS 直出、住宅IP 直出、VPS & 住宅IP分流**的双向切换。
-  * **全面运维**：内置 `vnStat` 和 `iptables` 流量监控，支持每日自动备份与一键恢复。
-
------
-
 ## 快速开始
 
 只需在服务器上执行以下命令，即可一键部署：
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/refs/heads/main/ENV/install.sh)
 ```
-**浏览器访问**: `http://<your-ip-or-domain>/`
+浏览器访问：http://<your-ip-or-domain>/ (订阅 + 流量图表同页的静态页面)
+命令管理：edgeboxctl help
 
-### 环境要求
+-----
+
+## 🚀 功能亮点
+
+  * **一键安装**：默认非交互式“IP模式”安装。
+  * **幂等卸载**：一键清理所有组件，确保幂等高效，为安装失败后重装准备环境，适合自动化和故障排除
+  * **协议组合**：集成 VLESS-gRPC、VLESS-WS、VLESS-Reality、Hysteria2 和 TUIC，提供多样的协议选择。
+  * **单口复用**：采用 \*\*Nginx + Xray 单端口复用（Nginx-first）\*\*架构，SNI/ALPN 定向 + 内部回环端口隔离，实现深度伪装。
+  * **证书管理**：提供 `edgeboxctl` 管理工具，实现 **IP 模式 ⇋ 域名模式**的双向切换，软链接契约实现“无缝切换”。
+  * **灵活分流**：支持 VPS 全量 / 住宅 IP 全量 / 白名单直连 + 非白名单走住宅（真正分流），并通过 `edgeboxctl` 工具轻松切换、配置白名单。
+  * **全面运维**：内置 `vnStat` 和 `iptables` 流量监控，支持每日自动备份与一键恢复。
+
+-----
+
+## 环境要求
   * **系统**：Ubuntu 18.04+ 或 Debian 10+。
   * **硬件**：CPU 1核，内存 512MB（内存不足自动创建 2G swap），存储 10GB 可用空间，并需稳定的公网 IP。
   * **依赖**：`curl`, `wget`, `unzip`, `tar`, `nginx`, `certbot`, `vnstat`, `iftop` 等，将由安装脚本自动检测并安装。
 
-### 核心组件
+## 核心组件
   * **Nginx**：作为所有 TCP 协议的唯一入口，监听公网 `TCP/443`，并基于 SNI/ALPN 进行非终止 TLS 分流。
   * **Xray**：运行 Reality、VLESS-gRPC 和 VLESS-WS 协议，监听内部回环端口，负责各自协议的 TLS 终止。
   * **sing-box**：独立运行 Hysteria2 和 TUIC 协议，直接监听 UDP 端口。
 
-### 证书管理
+## 证书管理
 
 EdgeBox 提供全自动化的证书管理，支持两种证书类型，根据模式智能选择证书类型。
 
@@ -71,7 +73,7 @@ EdgeBox 提供全自动化的证书管理，支持两种证书类型，根据模
 
 EdgeBox 的核心在于其精巧的分层架构，实现了协议组合、端口复用、模式切换、流量分发。
 
-### 协议组合与端口分配策略
+### 协议组合与端口分配
 
 本方案采用 \*\*Nginx + Xray 单端口复用（Nginx-first）\*\*架构，实现了智能分流和深度伪装。
 
