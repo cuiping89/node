@@ -41,6 +41,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/refs/heads/ma
   * **sing-box**：独立运行 Hysteria2 和 TUIC 协议，直接监听 UDP 端口。
 
 ### 证书管理
+
 EdgeBox 提供全自动化的证书管理，支持两种证书类型，根据模式智能选择证书类型。
 
 * **自签名证书（IP 模式）**
@@ -69,7 +70,8 @@ EdgeBox 提供全自动化的证书管理，支持两种证书类型，根据模
 ---
 
 ## 技术架构
- * EdgeBox 的核心在于其精巧的分层架构，实现了协议组合、流量分发和证书管理的自动化。
+
+EdgeBox 的核心在于其精巧的分层架构，实现了协议组合、流量分发和证书管理的自动化。
 
 ### 协议组合与端口分配策略
 
