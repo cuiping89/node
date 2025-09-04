@@ -189,7 +189,7 @@ EdgeBox 的核心在于其精巧的分层架构，实现了协议组合、端口
 * **常看用量**：定期使用 `edgeboxctl traffic show` 命令和静态图表（网站根路径首页）核对套餐流量阈值。
 * **避免“隐式代理”**：任何“智能加速/优化”开关都可能导致隐形代理或回源，建议关闭。
 
-#### **🧪 一眼看懂：自检清单**
+#### **🧪自检清单**
 
 以下是一些快速检查项目配置状态的命令，以确保 DNS 直连、Cloudflare 灰云和出站回源策略都按预期工作。
 
@@ -211,129 +211,88 @@ EdgeBox 的核心在于其精巧的分层架构，实现了协议组合、端口
     ```
   * **验证分流效果**：
       * 通过浏览静态首页的日曲线图表，一段时间后可以清晰看到 VPS 和住宅代理的分摊情况。
-
+  * **验证流量统计**：
+      * 检查 `/etc/edgebox/traffic/traffic-all.json` 文件是否存在且更新。
+      * 在浏览器中查看图表，确认 VPS 和住宅代理的流量分摊是否可见。
+  * **验证 `nftables` 计数**：
+      * `nft list sets inet edgebox`：确认 `resi_addr/resi_port` 已被正确写入。
+  * **验证流量预警**：
+      * 检查 `alert.conf` 配置是否正确。
+      * 查看 `alert.state` 文件，确认是否已记录已触发的告警状态。
+    
 -----
 
 ## 运维与管理
 
 ### 1.流量统计
-本方案采用**轻量级采集 + 结构化存储 + Matplotlib 静态图**，并在一个浏览器页面中同时展示图表和订阅链接。
-  * **数据采集**：`traffic-collector.sh` 每小时由 `cron` 触发，收集流量数据并写入 `daily.csv` 和 `monthly.csv`。
-  * **图表渲染**：`generate-charts.py` 每日生成静态 `.png` 图表和 `index.html` 页面，由 Nginx 托管在站点根路径 `http://<your-ip-or-domain>/`。
-  * **统计维度**：包括系统总流量、VPS 直出流量、住宅 IP 直出流量以及高流量端口。
 
-#### 架构与流程
-本方案的核心是将数据采集、图表渲染和 Web 展示紧密结合，并统一发布在站点的根路径下，实现了用户访问的零门槛。
-  * **数据采集器 (`traffic-collector.sh`)**:
-      * 通过 `cron` 任务每小时执行，调用 `edgeboxctl traffic show` 和 `iptables`/`nftables` 来获取流量数据。
-      * 将数据按天汇总并写入 `daily.csv`，同时维护 `monthly.csv` 以保留长期趋势数据。
-  * **渲染器 (`generate-charts.py`)**:
-      * 这是一个 Python 脚本，每日定时执行。
-      * 它负责读取 CSV 数据，使用 **Matplotlib** 生成三张静态图表（日曲线、端口曲线、月累计）。
-      * 同时，脚本会调用 `edgeboxctl sub` 生成订阅文本，并最终将所有元素（订阅文本、三张图表）整合到一张 **`index.html`** 页面中。
-  * **Web 展示**:
-      * **Nginx** 将站点的根路径直接指向数据产出目录。
-      * 用户访问 `http://<your-ip-or-domain>/` 即可查看包含所有内容的同一页面。
+本方案采用 **轻量级采集 (`vnStat` + `nftables`) + 结构化存储 (CSV/JSON) + `Chart.js` 前端渲染**，并在同一浏览器页面同时展示图表和订阅链接。
 
-#### 目录结构
-所有核心文件都集中在 `/etc/edgebox/` 目录下，并有清晰的职责划分。
-```
-/etc/edgebox/
-  ├─ scripts/
-  │   ├─ traffic-collector.sh        # 采集器
-  │   └─ generate-charts.py          # 渲染器
-  ├─ traffic/                        # Nginx 的 Web 根目录
-  │   ├─ logs/
-  │   │   ├─ daily.csv               # 每日流量数据 (3 个月滚动)
-  │   │   └─ monthly.csv             # 月度累计数据 (18 个月滚动)
-  │   ├─ charts/
-  │   │   ├─ daily.png               # 最近 30 天日流量曲线
-  │   │   ├─ ports.png               # 最近 30 天高流量端口曲线
-  │   │   └─ monthly.png             # 最近 12 个月月累计表格
-  │   ├─ sub.txt                     # 订阅链接文本
-  │   └─ index.html                  # 订阅与流量总览页面
-  └─ nginx/root-site.conf            # Nginx 站点配置文件
-```
-#### 统计维度与数据保留
-  * **时间粒度**:
-      * **日维度**：按天采集，图表展示最近 30 天的趋势，数据保留 3 个月。
-      * **月累计**：图表展示最近 12 个月的对比，数据保留 18 个月。
-  * **统计维度**:
-      * 系统总流量 (`vnStat`)
-      * VPS 直出流量
-      * 住宅 IP 直出流量
-      * 高流量端口 (如 `TCP/443`, `UDP/443(Hysteria2)`, `UDP/2053(TUIC)`)
-
-#### 核心脚本职责
-  * **`traffic-collector.sh`**:
-      * 定时由 `cron` 触发。
-      * 调用 `edgeboxctl traffic show` 和 `iptables/nftables` 计数，将数据写入 `daily.csv` 和 `monthly.csv`。
-  * **`generate-charts.py`**:
-      * 每日定时由 `cron` 触发。
-      * 读取 CSV 文件，生成三张 `.png` 格式的曲线图/表格。
-      * 调用 `edgeboxctl sub` 将订阅链接写入 `sub.txt`。
-      * 生成包含订阅、三张图表以及更新时间的 `index.html`。
-
-#### 定时任务 (cron)
-```bash
-# 数据采集：每小时
-0 * * * * /etc/edgebox/scripts/traffic-collector.sh
-
-# 图表与总览页生成：每日一次（如需更频繁，可调整）
-10 0 * * * /etc/edgebox/scripts/generate-charts.py
-```
-#### Nginx 根路径发布
-将以下配置片段保存为 `/etc/edgebox/nginx/root-site.conf`，并 `include` 到主配置中，实现根路径直出。
-```nginx
-server {
-    listen 80;
-    server_name _;
-
-    root /etc/edgebox/traffic;
-    index index.html;
-
-    add_header Cache-Control "no-store";
-}
-```
+  * **架构与流程**
+    本方案将数据采集与 Web 展示解耦：后端仅产出结构化数据 (CSV/JSON)，前端在浏览器侧渲染图表，从而避免了 Python 科学栈的重依赖，实现了轻量化。
+      * **数据采集器 (`traffic-collector.sh`)**：每小时由 `cron` 触发。它通过 `vnstat` 获取网卡级总流量，并利用 `nftables` 计数器获取分流及端口维度的流量（VPS直出、住宅IP直出、高流量端口）。所有数据将写入 `daily.csv`、`monthly.csv`，并生成供前端使用的 `traffic-all.json`。
+      * **渲染器 (`Chart.js`)**：取代原有的 `generate-charts.py`。`index.html` 使用 `Chart.js` (可从 CDN 或本地加载) 读取 `traffic-all.json`，在浏览器端动态绘制以下图表：
+          * **日曲线 \#1**：分流出站口（VPS直出 vs 住宅直出）。
+          * **日曲线 \#2**：高流量端口（TCP/443、UDP/443、UDP/2053）。
+          * **月累计表格**：展示最近 12 个月的各指标累计。
+  * **目录结构**
+    所有核心文件都集中在 `/etc/edgebox/` 目录下，并有清晰的职责划分。
+    ```
+    /etc/edgebox/
+      ├─ scripts/
+      │   ├─ traffic-collector.sh        # 采集器
+      │   └─ traffic-alert.sh            # 预警脚本（可选）
+      ├─ traffic/                        # Nginx Web 根目录
+      │   ├─ logs/
+      │   │   ├─ daily.csv               # 每小时增量（保留 90 天）
+      │   │   └─ monthly.csv             # 月累计（保留 18 个月）
+      │   ├─ assets/
+      │   │   └─ js/chart.min.js         # （可选）Chart.js 本地化文件
+      │   ├─ traffic-all.json            # 前端渲染所需的聚合 JSON
+      │   ├─ sub.txt                     # 订阅链接文本
+      │   └─ index.html                  # 订阅 + 图表总览页面
+      └─ nginx/root-site.conf            # Nginx 站点配置片段
+    ```
+  * **统计维度与数据保留**
+      * **时间粒度**：按小时采集，曲线展示最近 24 小时；数据分别保留 90 天 (daily) 和 18 个月 (monthly)。
+      * **统计维度**：系统总流量 (`vnStat`)、VPS 直出流量、住宅 IP 直出流量以及高流量端口。
+  * **定时任务 (`cron`)**
+    ```bash
+    # 数据采集：每小时
+    0 * * * * /etc/edgebox/scripts/traffic-collector.sh
+    # 流量预警：每小时
+    7 * * * * /etc/edgebox/scripts/traffic-alert.sh
+    ```
+  * **`nftables` 计数规则**
+    用于精确统计分流和端口流量，与 `edgeboxctl shunt apply/clear` 命令联动，自动维护住宅代理上游集合。
+    ```
+    # nftables 规则定义 (一次性安装)
+    sudo nft -f - <<'NFT'
+    table inet edgebox {
+      counters {
+        c_tcp443 {}
+        c_udp443 {}
+        c_udp2053 {}
+        c_resi_out {}
+      }
+      # ...
+    }
+    NFT
+    ```
 
 ### 2.流量预警功能
 
-该功能在不引入复杂服务的情况下，在现有架构上增加一个轻量级预警脚本。它支持根据**每月总流量预算**，在达到不同百分比（例如 30%、60%、90%）时通过邮件或 Webhook（Telegram/Slack/飞书）发送告警。
+该功能使用一个轻量级脚本 `traffic-alert.sh`，根据月度总流量预算，在达到可配置的百分比（例如 30%、60%、90%）时，通过邮件或 Webhook 发送告警。
 
-#### 约定与阈值配置
-
-所有配置都集中在 `/etc/edgebox/traffic/alert.conf` 文件中。您可以通过修改该文件来设定月度预算和通知方式。
-```ini
-ALERT_MONTHLY_GIB=100           # 月度总流量预算（GiB）
-ALERT_EMAIL=ops@example.com     # 接收邮件的地址
-ALERT_WEBHOOK=                  # 可留空；填写 Webhook URL
-```
- * **告警逻辑**：脚本将自动根据 `ALERT_MONTHLY_GIB` 计算 30%、60%、90% 的阈值，并在达到这些百分比时触发告警。
-
-#### 预警脚本（新增）
-
-该脚本位于 `/etc/edgebox/scripts/traffic-alert.sh`，仅在每月流量数据更新后运行。当每月总流量达到配置文件中设定的任一百分比阈值时，它会发送一次告警，并在 `/etc/edgebox/traffic/alert.state` 中记录已触发的状态，避免重复发送。
-
-**脚本核心逻辑**：
-  * 读取配置文件，获取当月总预算和通知方式。
-  * 从 `monthly.csv` 中获取当月总流量数据。
-  * 遍历 30%、60%、90% 三个阈值，判断当前流量是否已达到。
-  * 如果达到阈值，则发送告警邮件或 Webhook 通知，并在状态文件中记录已告警的百分比，防止重复触发。
-**邮件发送器**：建议使用 `msmtp`，它是一个轻量且易于配置的命令行邮件客户端。您需要配置 `/etc/msmtprc` 文件来连接您的邮件服务。
-
-#### 定时任务（`cron`）
-
-为了确保流量统计和预警的正常运行，需要设置以下 `cron` 定时任务。
-```bash
-# 每小时：采集流量数据并写入日志
-0 * * * * /etc/edgebox/scripts/traffic-collector.sh
-
-# 每日：渲染首页（包含订阅与图表）
-10 0 * * * /etc/edgebox/scripts/generate-charts.py
-
-# 每小时：检查月度流量，并在达到阈值时触发预警
-7 * * * * /etc/edgebox/scripts/traffic-alert.sh
-```
+  * **约定与阈值配置**
+    所有配置集中在 `/etc/edgebox/traffic/alert.conf`：
+    ```ini
+    ALERT_MONTHLY_GIB=100           # 月度总流量预算（GiB）
+    ALERT_EMAIL=ops@example.com     # 接收邮件地址（可留空）
+    ALERT_WEBHOOK=                  # Webhook URL（可留空）
+    ```
+  * **预警脚本**
+    脚本位于 `/etc/edgebox/scripts/traffic-alert.sh`，每小时执行一次。它从 `monthly.csv` 中获取当月累计流量，并与配置的百分比阈值进行比对。一旦达到阈值，便发送告警并记录状态，避免重复触发。
 
 ### 3.备份与恢复
 
