@@ -1,6 +1,6 @@
 
 
-# EdgeBox：一站式多协议节点部署方案
+# EdgeBox：企业级多协议节点部署方案
 
 - EdgeBox 是一个多协议一键部署脚本，旨在提供一个**健壮灵活、一键部署、幂等卸载**的安全上网解决方案；
 - 它通过**协议组合、端口分配、出站分流**等核心策略，实现深度伪装和灵活路由，以应对复杂多变的网络环境；
@@ -9,7 +9,7 @@
 -----
 ## 快速开始
 
-只需在服务器上执行以下命令，即可一键部署：
+只需连接服务器执行以下命令，即可一键部署：
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/refs/heads/main/ENV/install.sh)
 ```
@@ -21,11 +21,11 @@ bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/refs/heads/ma
 ## 🚀 功能亮点
 
   * **一键安装**：默认非交互式“IP模式”安装。
-  * **幂等卸载**：一键清理所有组件，确保幂等高效，为安装失败后重装准备环境，适合自动化和故障排除
+  * **幂等卸载**：一键清理所有组件，确保幂等高效，为重装准备环境，适合自动化和故障排除。
   * **协议组合**：集成 VLESS-gRPC、VLESS-WS、VLESS-Reality、Hysteria2 和 TUIC，提供多样的协议选择。
   * **单口复用**：采用 \*\*Nginx + Xray 单端口复用（Nginx-first）\*\*架构，SNI/ALPN 定向 + 内部回环端口隔离，实现深度伪装。
-  * **证书管理**：提供 `edgeboxctl` 管理工具，实现 **IP 模式 ⇋ 域名模式**的双向切换，软链接契约实现“无缝切换”。
-  * **灵活分流**：支持 VPS 全量 / 住宅 IP 全量 / 白名单直连 + 非白名单走住宅（真正分流），并通过 `edgeboxctl` 工具轻松切换、配置白名单。
+  * **证书管理**：通过 `edgeboxctl` 管理工具，实现 **IP模式 ⇋ 域名模式** 双向切换，软链接契约实现“无缝切换”。
+  * **灵活分流**：支持 VPS 全量 / 住宅IP 全量 / 白名单直连 + 非白名单走住宅（真正分流），并通过 `edgeboxctl` 工具轻松切换、配置白名单。
   * **全面运维**：内置 `vnStat` 和 `iptables` 流量监控，支持每日自动备份与一键恢复。
 
 -----
@@ -34,7 +34,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/refs/heads/ma
   * **系统**：Ubuntu 18.04+ 或 Debian 10+。
   * **硬件**：CPU 1核，内存 512MB（内存不足自动创建 2G swap），存储 10GB 可用空间，并需稳定的公网 IP。
   * **依赖**：`curl`, `wget`, `unzip`, `tar`, `nginx`, `certbot`, `vnstat`, `iftop` 等，将由安装脚本自动检测并安装。
-
+  * **双层防火墙**：在云服务商的安全组和操作系统级防火墙（如 `ufw`）中放行 `TCP:443`、`UDP:443` 、`UDP:2053` 端口。
 ## 核心组件
   * **Nginx**：作为所有 TCP 协议的唯一入口，监听公网 `TCP/443`，并基于 SNI/ALPN 进行非终止 TLS 分流。
   * **Xray**：运行 Reality、VLESS-gRPC 和 VLESS-WS 协议，监听内部回环端口，负责各自协议的 TLS 终止。
@@ -104,7 +104,6 @@ EdgeBox 的核心在于其精巧的分层架构，实现了协议组合、端口
 - 本方案采用 **Nginx + Xray 单端口复用（Nginx-first）** 架构，实现了智能分流和深度伪装的完美结合。
 - **核心理念：** 让 **Nginx** 成为所有 **TCP** 流量的守门员，它只监听公网 `443` 端口。Nginx根据流量类型（通过 SNI/ALPN 判断）智能地分发给后端不同功能的 **Xray** 内部服务。
 
-#### **端口分配**
 | **类型** | **端口** | **功能** |
 | :--- | :--- | :--- |
 | **对外暴露** | TCP/443 | 所有 TCP 协议的统一入口，由 Nginx 监听。 |
@@ -164,10 +163,54 @@ EdgeBox 的核心在于其精巧的分层架构，实现了协议组合、端口
   ├─ resi.conf           # 住宅代理 <IP:PORT[:USER:PASS]>
   └─ state.json          # 当前模式/健康探活/切换时间
 ```
-**实现约束**：
-  * 仅修改 `outbounds` 和 `route` 片段，遵循原子更新与回滚。
-  * DNS 走 `direct`。
-  * **GCP 出站约束**：为避免触发 GCP 的公网出站计费，请注意不要启用 Cloudflare 的 Argo/WARP/Zero Trust 等服务，不让任何代理“回源”到 Cloudflare 边缘节点。
+
+-----
+
+## **特定环境配置**
+
+在不同的云服务商或 VPS 环境下，虽然核心部署流程一致，但需要特别注意网络和计费策略，以优化性能并有效控制成本。
+
+#### **GCP 环境（重点：出站成本与回源风险）**
+* **流量分流实现约束**：`edgeboxctl shunt` 命令仅修改 `outbounds` 和 `route` 片段，确保变更可回退、口径一致。
+* **DNS 强制直连**：在 `sing-box` 配置中将 DNS 明确 `detour` 到 `direct`，并通过路由规则强制所有 `UDP/53` 流量直出，避免 DNS 解析产生额外代理费用。
+* **Cloudflare 灰云**：若域名托管在 Cloudflare，务必将 DNS 记录设置为 **DNS Only（灰云）**，而非 Proxied（橙云）。您可以通过 `dig` 或 `curl` 命令验证流量是否直连您的 VPS。
+* **出站约束**：**切勿**开启 Cloudflare 的 Argo/WARP/Zero Trust 等服务，这类服务会将您的出站流量回源到 Cloudflare 边缘，从而在 GCP 上产生高额出站费用。
+* **预算与阈值告警**：在「Billing → Budgets & alerts」中设置月度预算告警，并在「Monitoring → Alerting」中利用 `network/sent_bytes_count` 指标创建 **24 小时滚动阈值告警**，例如日流量超过 7 GiB 时触发邮件通知。
+
+#### **AWS 环境（重点：免费额度与安全组）**
+* **免费额度**：EC2 通常有 15 GiB 免费出站流量。将大流量（如视频）尽量留在 VPS 直出（使用 `direct_resi` 模式的白名单），以充分利用免费额度。
+* **预算**：开启 AWS Budgets 服务，以便在超出免费额度时及时收到通知。
+
+#### **阿里云（重点：区域价差与放行）**
+* **费用中心**：利用阿里云的费用中心，根据地域价格差异设置预算提醒。
+* **分流**：结合 `direct_resi` 模式，将需要稳定画像的登录/支付流量走住宅代理，其余流量走 VPS 直出以控制成本。
+
+#### **其他 VPS/VM（通用做法）**
+* **常看用量**：定期使用 `edgeboxctl traffic show` 命令和静态图表（网站根路径首页）核对套餐流量阈值。
+* **避免“隐式代理”**：任何“智能加速/优化”开关都可能导致隐形代理或回源，建议关闭。
+
+#### **🧪 一眼看懂：自检清单**
+
+以下是一些快速检查项目配置状态的命令，以确保 DNS 直连、Cloudflare 灰云和出站回源策略都按预期工作。
+
+  * **验证直连 DNS**：
+    ```bash
+    grep port\":\ 53.*outbound\":\ \"direct\" in config # 检查配置中是否有 DNS 强制直连规则
+    ```
+  * **验证 Cloudflare 灰云**：
+    ```bash
+    dig A yourdomain +short              # 应返回你的 VPS 真实 IP
+    curl -I https://yourdomain           # 不应出现 server: cloudflare / cf-ray 头
+    ```
+  * **验证出站回源**：
+    ```bash
+    # 在 VPS 模式下，应返回你的 VPS 公网 IP
+    curl -s https://ipinfo.io/ip
+    # 在住宅模式/分流非白名单时，应返回住宅出口 IP
+    curl -s https://ipinfo.io/ip
+    ```
+  * **验证分流效果**：
+      * 通过浏览静态首页的日曲线图表，一段时间后可以清晰看到 VPS 和住宅代理的分摊情况。
 
 -----
 
@@ -252,16 +295,58 @@ server {
     add_header Cache-Control "no-store";
 }
 ```
+好的，我已经为您将这份技术文档进行了优化和整理。我将所有关键信息和代码逻辑都归纳到清晰的板块中，同时保留了所有的细节，使其既易于理解又方便查阅和实现。
 
-### 2.备份与恢复
-系统每日凌晨3点自动备份配置和数据到 `/root/edgebox-backup/`。你可以使用 `edgeboxctl backup` 命令手动创建、列出和恢复备份。
+-----
 
-### 3.管理工具 (`edgeboxctl`)
+### 2.流量预警功能
+
+该功能在不引入复杂服务的情况下，在现有架构上增加一个轻量级预警脚本。它支持根据**每月总流量预算**，在达到不同百分比（例如 30%、60%、90%）时通过邮件或 Webhook（Telegram/Slack/飞书）发送告警。
+
+#### 约定与阈值配置
+
+所有配置都集中在 `/etc/edgebox/traffic/alert.conf` 文件中。您可以通过修改该文件来设定月度预算和通知方式。
+```ini
+ALERT_MONTHLY_GIB=100           # 月度总流量预算（GiB）
+ALERT_EMAIL=ops@example.com     # 接收邮件的地址
+ALERT_WEBHOOK=                  # 可留空；填写 Webhook URL
+```
+ * **告警逻辑**：脚本将自动根据 `ALERT_MONTHLY_GIB` 计算 30%、60%、90% 的阈值，并在达到这些百分比时触发告警。
+
+#### 预警脚本（新增）
+
+该脚本位于 `/etc/edgebox/scripts/traffic-alert.sh`，仅在每月流量数据更新后运行。当每月总流量达到配置文件中设定的任一百分比阈值时，它会发送一次告警，并在 `/etc/edgebox/traffic/alert.state` 中记录已触发的状态，避免重复发送。
+
+**脚本核心逻辑**：
+  * 读取配置文件，获取当月总预算和通知方式。
+  * 从 `monthly.csv` 中获取当月总流量数据。
+  * 遍历 30%、60%、90% 三个阈值，判断当前流量是否已达到。
+  * 如果达到阈值，则发送告警邮件或 Webhook 通知，并在状态文件中记录已告警的百分比，防止重复触发。
+**邮件发送器**：建议使用 `msmtp`，它是一个轻量且易于配置的命令行邮件客户端。您需要配置 `/etc/msmtprc` 文件来连接您的邮件服务。
+
+#### 定时任务（`cron`）
+
+为了确保流量统计和预警的正常运行，需要设置以下 `cron` 定时任务。
+```bash
+# 每小时：采集流量数据并写入日志
+0 * * * * /etc/edgebox/scripts/traffic-collector.sh
+
+# 每日：渲染首页（包含订阅与图表）
+10 0 * * * /etc/edgebox/scripts/generate-charts.py
+
+# 每小时：检查月度流量，并在达到阈值时触发预警
+7 * * * * /etc/edgebox/scripts/traffic-alert.sh
+```
+
+### 3.备份与恢复
+
+系统每日凌晨3点自动备份配置和数据到 `/root/edgebox-backup/`；可以使用 `edgeboxctl backup` 命令手动创建、列出和恢复备份。
+
+### 4.管理工具 (`edgeboxctl`)
 
 `edgeboxctl` 是管理 EdgeBox 的核心工具，所有操作都通过它完成。管理工具提供了丰富的功能，支持模式切换、配置更新、分流管理、流量统计、备份恢复以及证书管理等。
 
 #### **配置与服务管理**
-
 ```bash
 edgeboxctl config show               # 显示当前配置
 edgeboxctl config regenerate-uuid    # 重新生成 UUID
@@ -272,23 +357,7 @@ edgeboxctl sub                       # 动态生成订阅链接
 edgeboxctl update                    # 更新 EdgeBox
 ```
 
-#### **出站分流管理**
-
-分流功能提供了三种互斥模式，并支持白名单维护。
-
-```bash
-edgeboxctl shunt apply <IP:PORT[:USER:PASS]>    # 写入/更新住宅代理配置
-edgeboxctl shunt mode vps                       # 切换至 VPS 全量出
-edgeboxctl shunt mode resi                      # 切换至住宅 IP 全量出
-edgeboxctl shunt mode direct_resi               # 切换至白名单 + 分流
-edgeboxctl shunt whitelist add <domain_suffix>  # 添加白名单
-edgeboxctl shunt whitelist del <domain_suffix>  # 删除白名单
-edgeboxctl shunt whitelist list                 # 列出白名单
-edgeboxctl shunt clear                          # 清除住宅代理配置并回到 vps 模式
-```
-
 #### **模式与证书管理**
-
 ```bash
 edgeboxctl change-to-domain <your_domain>       # 切换到域名模式
 edgeboxctl change-to-ip                         # 回退到 IP 模式
@@ -297,17 +366,23 @@ edgeboxctl cert renew                           # 手动续期 Let's Encrypt 证
 edgeboxctl cert upload <fullchain> <key>        # 上传自定义证书
 ```
 
-#### **流量统计**
+#### **出站分流管理**
+```bash
+edgeboxctl shunt apply <IP:PORT:USER:PASS>      # 写入/更新住宅代理配置
+edgeboxctl shunt mode vps                       # 切换至 VPS 全量出
+edgeboxctl shunt mode resi                      # 切换至 住宅IP 全量出
+edgeboxctl shunt mode direct_resi               # 切换至 白名单 + 分流
+edgeboxctl shunt whitelist add <domain_suffix>  # 配置白名单
+```
 
+#### **流量统计**
 ```bash
 edgeboxctl traffic show                         # 查看当前流量
 edgeboxctl traffic reset                        # 重置流量计数
 ```
-
 **浏览器访问**：`http://<your-ip-or-domain>/` 查看静态图表。
 
 #### **备份与恢复**
-
 ```bash
 edgeboxctl backup list                          # 列出备份
 edgeboxctl backup create                        # 手动创建备份
@@ -322,6 +397,7 @@ edgeboxctl backup restore <DATE>                # 恢复指定日期的备份
       * **排查步骤**：检查防火墙端口、服务运行状态、证书配置和日志。
   * **Q: Reality 协议无法连接？**
       * **解决方案**：确认伪装域名可访问、检查 SNI 配置并验证端口 443 未被占用。
+  * **Q: ··· ··· ？**
 
 -----
 
@@ -342,8 +418,7 @@ edgeboxctl backup restore <DATE>                # 恢复指定日期的备份
 ## 📈 社区特色
 
   * **安装友好**：一键安装、幂等卸载、文档详细。
-  * **GCP 优化**：针对 GCP 网络计费进行优化。
-  * **灵活运维**：模式切换、流量统计、自动备份。
+  * **灵活运维**：模式切换、流量分流、流量统计、自动备份。
 
 -----
 
