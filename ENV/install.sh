@@ -1100,7 +1100,7 @@ EOF
 create_enhanced_edgeboxctl() {
     log_info "创建增强版edgeboxctl管理工具..."
     
-    cat > /usr/local/bin/edgeboxctl << 'EDGEBOXCTL_SCRIPT'
+    cat > /usr/local/bin/edgeboxctl << 'EDGEBOXCTL_END'
 #!/bin/bash
 # EdgeBox 增强版控制脚本 - 模块1+2+3完整版
 # Version: 3.0.0 - 包含流量统计、预警、备份恢复等高级运维功能
@@ -1140,10 +1140,7 @@ get_server_info() {
   REALITY_SHORT_ID=$(jq -r '.reality.short_id' ${CONFIG_DIR}/server.json 2>/dev/null)
 }
 
-#############################################
-# 基础功能
-#############################################
-
+# 显示订阅
 show_sub() {
   if [[ ! -f ${CONFIG_DIR}/server.json ]]; then echo -e "${RED}配置文件不存在${NC}"; exit 1; fi
   local cert_mode=$(get_current_cert_mode)
@@ -1151,16 +1148,128 @@ show_sub() {
   [[ -f ${CONFIG_DIR}/subscription.txt ]] && { echo -e "${YELLOW}节点链接：${NC}"; cat ${CONFIG_DIR}/subscription.txt; echo ""; }
   [[ -f ${CONFIG_DIR}/subscription.base64 ]] && { echo -e "${YELLOW}Base64订阅：${NC}"; cat ${CONFIG_DIR}/subscription.base64; echo ""; }
   local server_ip=$(jq -r '.server_ip' ${CONFIG_DIR}/server.json)
-  echo -e "${CYAN}控制面板：${NC}"; echo "http://${server_ip}/"; echo ""
-  echo -e "${CYAN}说明：${NC}"
-  echo "- 使用 *.edgebox.internal 作为内部标识避免证书冲突"
-  echo "- SNI定向 + ALPN兜底，解决 gRPC/WS 摇摆"
-  echo "- 当前证书模式: ${cert_mode}"
-  echo "- 支持协议: Reality, gRPC, WS, Hysteria2, TUIC"
+  echo -e "${CYAN}控制面板：${NC}"; echo "http://${server_ip}/";
 }
 
+# 显示状态
 show_status() {
   echo -e "${CYAN}EdgeBox 服务状态（v${VERSION}）：${NC}"
+  for svc in nginx xray sing-box; do
+    systemctl is-active --quiet "$svc" && echo -e "  $svc: ${GREEN}运行中${NC}" || echo -e "  $svc: ${RED}已停止${NC}"
+  done
+  echo -e "\n${CYAN}端口监听状态：${NC}\n${YELLOW}公网端口：${NC}"
+  ss -tlnp 2>/dev/null | grep -q ":443 "  && echo -e "  TCP/443 (Nginx): ${GREEN}正常${NC}" || echo -e "  TCP/443: ${RED}异常${NC}"
+  ss -ulnp 2>/dev/null | grep -q ":443 "  && echo -e "  UDP/443 (Hysteria2): ${GREEN}正常${NC}" || echo -e "  UDP/443: ${RED}异常${NC}"
+  ss -ulnp 2>/dev/null | grep -q ":2053 " && echo -e "  UDP/2053 (TUIC): ${GREEN}正常${NC}"     || echo -e "  UDP/2053: ${RED}异常${NC}"
+  echo -e "\n${YELLOW}内部回环端口：${NC}"
+  ss -tlnp 2>/dev/null | grep -q "127.0.0.1:11443 " && echo -e "  Reality内部: ${GREEN}正常${NC}" || echo -e "  Reality内部: ${RED}异常${NC}"
+  ss -tlnp 2>/dev/null | grep -q "127.0.0.1:10085 " && echo -e "  gRPC内部: ${GREEN}正常${NC}"    || echo -e "  gRPC内部: ${RED}异常${NC}"
+  ss -tlnp 2>/dev/null | grep -q "127.0.0.1:10086 " && echo -e "  WS内部: ${GREEN}正常${NC}"      || echo -e "  WS内部: ${RED}异常${NC}"
+  echo -e "\n${CYAN}证书状态：${NC}  当前模式: ${YELLOW}$(get_current_cert_mode)${NC}"
+  
+  # 显示分流状态
+  show_shunt_status
+}
+
+restart_services(){ 
+  echo -e "${CYAN}重启EdgeBox服务...${NC}"; 
+  for s in nginx xray sing-box; do 
+    echo -n "  重启 $s... "; 
+    systemctl restart "$s" && echo -e "${GREEN}OK${NC}" || echo -e "${RED}FAIL${NC}"; 
+  done; 
+}
+
+show_logs(){ 
+  case "$1" in 
+    nginx|xray|sing-box) journalctl -u "$1" -n 100 --no-pager ;; 
+    *) echo -e "用法: edgeboxctl logs [nginx|xray|sing-box]";; 
+  esac; 
+}
+
+test_connection(){
+  local ip; ip=$(jq -r .server_ip ${CONFIG_DIR}/server.json 2>/dev/null)
+  [[ -z "$ip" || "$ip" == "null" ]] && { echo "未找到 server_ip"; return 1; }
+  echo -n "TCP 443 连通性: "; timeout 3 bash -c "echo >/dev/tcp/${ip}/443" 2>/dev/null && echo "OK" || echo "FAIL"
+  echo -n "控制面板: "; curl -fsS "http://${ip}/" >/dev/null && echo "OK" || echo "FAIL"
+}
+
+debug_ports(){
+  echo -e "${CYAN}EdgeBox 端口调试信息：${NC}"
+  echo -e "\n${YELLOW}端口检查：${NC}"
+  echo "  TCP/443 (Nginx入口): $(ss -tln | grep -q ':443 ' && echo '✓' || echo '✗')"
+  echo "  UDP/443 (Hysteria2): $(ss -uln | grep -q ':443 ' && echo '✓' || echo '✗')"
+  echo "  UDP/2053 (TUIC): $(ss -uln | grep -q ':2053 ' && echo '✓' || echo '✗')"
+  echo "  TCP/11443 (Reality内部): $(ss -tln | grep -q '127.0.0.1:11443 ' && echo '✓' || echo '✗')"
+  echo "  TCP/10085 (gRPC内部): $(ss -tln | grep -q '127.0.0.1:10085 ' && echo '✓' || echo '✗')"
+  echo "  TCP/10086 (WS内部): $(ss -tln | grep -q '127.0.0.1:10086 ' && echo '✓' || echo '✗')"
+}
+
+show_shunt_status() {
+    echo -e "\n${CYAN}出站分流状态：${NC}"
+    if [[ -f "${CONFIG_DIR}/shunt/state.json" ]]; then
+        local mode=$(jq -r '.mode' "${CONFIG_DIR}/shunt/state.json" 2>/dev/null || echo "vps")
+        case "$mode" in
+            vps) echo -e "  当前模式: ${GREEN}VPS全量出${NC}";;
+            *) echo -e "  当前模式: ${GREEN}VPS直出 (默认)${NC}";;
+        esac
+    else
+        echo -e "  当前模式: ${GREEN}VPS全量出（默认）${NC}"
+    fi
+}
+
+format_bytes(){ 
+    local b=$1
+    [[ $b -ge 1073741824 ]] && echo "$(bc<<<"scale=2;$b/1073741824")GB" || \
+    ([[ $b -ge 1048576 ]] && echo "$(bc<<<"scale=2;$b/1048576")MB" || \
+    ([[ $b -ge 1024 ]] && echo "$(bc<<<"scale=1;$b/1024")KB" || echo "${b}B"))
+}
+
+traffic_show(){
+    echo -e "${CYAN}流量统计：${NC}"
+    if command -v vnstat >/dev/null 2>&1; then 
+        local iface=$(ip route | awk '/default/{print $5; exit}')
+        vnstat -i "$iface" --oneline 2>/dev/null | tail -1 | awk -F';' '{print "  今日: "$4" ↑, "$5" ↓\n  本月: "$8" ↑, "$9" ↓\n  总计: "$11" ↑, "$12" ↓"}' || echo "  vnStat 数据获取失败"
+    else 
+        echo "  vnStat 未安装"; 
+    fi
+}
+
+# 主命令处理
+case "$1" in
+  sub|subscription) show_sub ;;
+  status) show_status ;;
+  restart) restart_services ;;
+  logs|log) show_logs "$2" ;;
+  test) test_connection ;;
+  debug-ports) debug_ports ;;
+  traffic) 
+    case "$2" in 
+      show|"") traffic_show ;; 
+      *) echo "用法: edgeboxctl traffic show";; 
+    esac 
+    ;;
+  help|"")
+    echo "EdgeBox 管理工具 v${VERSION} - 常用命令:"
+    echo ""
+    echo "edgeboxctl status              # 查看服务状态"
+    echo "edgeboxctl restart             # 重启所有服务"
+    echo "edgeboxctl sub                 # 查看订阅链接"
+    echo "edgeboxctl logs nginx          # 查看Nginx日志"
+    echo "edgeboxctl logs xray           # 查看Xray日志"
+    echo "edgeboxctl logs sing-box       # 查看sing-box日志"
+    echo "edgeboxctl test                # 测试连接"
+    echo "edgeboxctl debug-ports         # 调试端口状态"
+    echo "edgeboxctl traffic show        # 查看流量统计"
+    echo ""
+    echo "控制面板: http://$(jq -r .server_ip ${CONFIG_DIR}/server.json 2>/dev/null || echo "YOUR_IP")/"
+    ;;
+  *) 
+    echo -e "${RED}未知命令: $1${NC}"
+    echo "使用 'edgeboxctl help' 查看帮助"
+    exit 1
+    ;;
+esac
+EDGEBOXCTL_END务状态（v${VERSION}）：${NC}"
   for svc in nginx xray sing-box; do
     systemctl is-active --quiet "$svc" && echo -e "  $svc: ${GREEN}运行中${NC}" || echo -e "  $svc: ${RED}已停止${NC}"
   done
