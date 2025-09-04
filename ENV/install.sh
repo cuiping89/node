@@ -30,7 +30,7 @@ cert_status(){
 
 setup_auto_renewal(){
   local domain=$1
-  cat > /etc/edgebox/scripts/cert-renewal.sh <<'RSH'
+  cat > /etc/edgebox/scripts/cert-renewal.sh << 'RENEWAL_SCRIPT'
 #!/bin/bash
 LOG_FILE="/var/log/edgebox-renewal.log"
 echo "[$(date)] 开始证书续期检查" >> $LOG_FILE
@@ -44,7 +44,7 @@ else
   echo "[$(date)] 证书续期失败" >> $LOG_FILE
   systemctl start nginx >> $LOG_FILE 2>&1
 fi
-RSH
+RENEWAL_SCRIPT
   chmod +x /etc/edgebox/scripts/cert-renewal.sh
   crontab -l 2>/dev/null | grep -q cert-renewal.sh || (crontab -l 2>/dev/null; echo "0 3 * * * /etc/edgebox/scripts/cert-renewal.sh") | crontab -
   log_success "自动续期任务已设置（每日 03:00）"
