@@ -1184,6 +1184,15 @@ post_switch_checks() {
   stat -L -c '  %a %n' "${CERT_DIR}/current.key" 2>/dev/null || true
   stat -L -c '  %a %n' "${CERT_DIR}/current.pem" 2>/dev/null || true
 
+  echo -e "\n[2/6] 服务与端口"
+  show_status
+  echo ""
+  debug_ports
+
+  echo -e "\n[3/6] 订阅输出（明文 & Base64 & HTTP 地址）"
+  echo ""
+  show_sub
+
   echo -e "\n[4/6] 证书续期任务"
   if crontab -l 2>/dev/null | grep -q "cert-renewal.sh"; then
     echo "  ✓ 已配置每日 03:00 自动续期"
@@ -1193,15 +1202,6 @@ post_switch_checks() {
   [[ -f /var/log/edgebox-renewal.log ]] && {
     echo "  最近续期日志（末尾 10 行）："
     tail -n 10 /var/log/edgebox-renewal.log || true
-  
-  echo -e "\n[2/6] 服务与端口"
-  show_status
-  echo ""
-  debug_ports
-
-  echo -e "\n[3/6] 订阅输出（明文 & Base64 & HTTP 地址）"
-  echo ""
-  show_sub
   }
 
   echo -e "\n[5/6] OpenSSL 探针（握手快速体检）"
@@ -1288,7 +1288,7 @@ case "$1" in
   *) echo -e "${RED}未知命令: $1${NC}"; show_help; exit 1 ;;
 esac
 EOF
-chmod +x /usr/local/bin/edgeboxctl
+sudo chmod +x /usr/local/bin/edgeboxctl
 log_success "管理工具创建完成"
 }
 
@@ -1302,6 +1302,7 @@ show_installation_info() {
     echo -e "${CYAN}服务器信息：${NC}"
     echo -e "  IP地址: ${GREEN}${SERVER_IP}${NC}"
     echo -e "  模式: ${YELLOW}IP模式（自签名证书）${NC}"
+    echo -e "  架构: ${PURPLE}SNI定向 + ALPN兜底${NC}"
     
     echo -e "\n${CYAN}协议信息：${NC}"
     echo -e "  ${PURPLE}[1] VLESS-Reality${NC}"
@@ -1330,31 +1331,27 @@ show_installation_info() {
     echo -e "      端口: 2053 (UDP)"
     echo -e "      UUID: ${UUID_TUIC}"
     echo -e "      密码: ${PASSWORD_TUIC}"
-       
+    
+    echo -e "\n${CYAN}管理命令：${NC}"
+    echo -e "  ${YELLOW}edgeboxctl sub${NC}              # 查看订阅链接"
+    echo -e "  ${YELLOW}edgeboxctl status${NC}           # 查看服务状态"
+    echo -e "  ${YELLOW}edgeboxctl restart${NC}          # 重启所有服务"
+    echo -e "  ${YELLOW}edgeboxctl test${NC}             # 测试连接"
+    echo -e "  ${YELLOW}edgeboxctl debug-ports${NC}      # 调试端口状态"
+    echo -e "  ${YELLOW}edgeboxctl logs xray${NC}        # 查看日志"
+    
     echo -e "\n${YELLOW}架构优化：${NC}"
     echo -e "  ✅ SNI定向 + ALPN兜底：解决协议摇摆问题"
     echo -e "  ✅ 内部标识符：避免证书不匹配错误"
     echo -e "  ✅ 自签证书：开箱即用，客户端需开启'跳过证书验证'"
     
     echo -e "\n${YELLOW}注意事项：${NC}"
-    echo -e "  1. 当前为IP模式，VLESS协议客户端配置需开启'跳过证书验证，Reality协议不需要；'"
-    echo -e "  2. 防火墙已配置，请确保云服务商防火墙也开放相应端口；"
-    echo -e "  3. 订阅链接: ${YELLOW}http://35.212.192.41/${NC}"
-        
-    echo -e "\n${CYAN}管理命令：${NC}"
-    echo -e "  ${YELLOW}edgeboxctl sub${NC}                     # 查看订阅链接"
-    echo -e "  ${YELLOW}edgeboxctl status${NC}                  # 查看服务状态"
-    echo -e "  ${YELLOW}edgeboxctl restart${NC}                 # 重启所有服务"
-    echo -e "  ${YELLOW}edgeboxctl test${NC}                    # 测试连接"
-    echo -e "  ${YELLOW}edgeboxctl debug-ports${NC}             # 调试端口状态"
-    echo -e "  ${YELLOW}edgeboxctl logs xray${NC}               # 查看日志"
+    echo -e "  1. 当前为IP模式，VLESS协议客户端需开启'跳过证书验证'"
+    echo -e "  2. Reality协议不需要跳过证书验证"
+    echo -e "  3. 使用内部标识符 (*.edgebox.internal) 避免证书冲突"
+    echo -e "  4. 防火墙已配置，请确保云服务商防火墙也开放相应端口"
+    echo -e "  5. 订阅链接: ${YELLOW}edgeboxctl sub${NC}"
     
-    echo -e "  ${YELLOW}edgeboxctl switch-to-domain <域名>${NC} # 切换到域名模式"
-    echo -e "  ${YELLOW}edgeboxctl switch-to-ip${NC}            # 切换到IP模式"
-    echo -e "  ${YELLOW}edgeboxctl cert-status${NC}             # 查看证书状态"
-    echo -e "  ${YELLOW}edgeboxctl cert-renew${NC}              # 强制续期(LE)"
-    echo -e "  ${YELLOW}edgeboxctl fix-permissions${NC}         # 修复证书权限"
-
     print_separator
     echo -e "${GREEN}🎉 模块1安装完成！${NC}"
 }
