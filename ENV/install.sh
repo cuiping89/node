@@ -1559,9 +1559,10 @@ TRAFFIC_DIR="/etc/edgebox/traffic"
 SCRIPTS_DIR="/etc/edgebox/scripts"
 WHITELIST_DOMAINS="googlevideo.com,ytimg.com,ggpht.com,youtube.com,youtu.be,googleapis.com,gstatic.com"
 
-# 颜色定义
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; 
-BLUE='\033[0;34m'; CYAN='\033[0;36m'; NC='\033[0m'
+# 颜色定义（修复：使用真实 ESC 而不是字面 \033）
+ESC=$'\033'
+RED="${ESC}[0;31m"; GREEN="${ESC}[0;32m"; YELLOW="${ESC}[1;33m"
+BLUE="${ESC}[0;34m"; CYAN="${ESC}[0;36m"; NC="${ESC}[0m"
 
 # 日志函数
 log_info(){ echo -e "${GREEN}[INFO]${NC} $1" | tee -a ${LOG_FILE} 2>/dev/null || echo -e "${GREEN}[INFO]${NC} $1"; }
@@ -1911,6 +1912,239 @@ RSH
 # 出站分流系统
 #############################################
 
+# 清空 nftables 的住宅采集集合（VPS 全量出站时用）
+flush_nft_resi_sets() {
+  nft flush set inet edgebox resi_addr4 2>/dev/null || true
+  nft flush set inet edgebox resi_addr6 2>/dev/null || true
+}
+
+# VPS 出站后的快速验收
+post_vps_report() {
+  echo -e "\n${CYAN}-----分流配置验收报告（VPS 全量出站）-----${NC}"
+  # 1) 出口 IP
+  local via_vps; via_vps=$(curl -fsS --max-time 6 https://api.ipify.org 2>/dev/null || true)
+  echo -e "1) 出口 IP: ${via_vps:-?}"
+
+  # 2) Xray 路由是否只有 direct
+  echo -n "2) Xray 路由: "
+  if jq -e '.outbounds[]?|select(.tag=="resi-proxy")' ${CONFIG_DIR}/xray.json >/dev/null 2>&1; then
+    echo -e "${RED}发现 resi-proxy 出站（不应存在）${NC}"
+  else
+    echo -e "${GREEN}仅 direct（符合预期）${NC}"
+  fi
+
+  # 3) nft 采集集是否已清空
+  local set4 set6
+  set4=$(nft list set inet edgebox resi_addr4 2>/dev/null | sed -n 's/.*elements = {\(.*\)}/\1/p' | xargs)
+  set6=$(nft list set inet edgebox resi_addr6 2>/dev/null | sed -n 's/.*elements = {\(.*\)}/\1/p' | xargs)
+  if [[ -z "$set4$set6" ]]; then
+    echo -e "3) 采集集: ${GREEN}已清空${NC}"
+  else
+    echo -e "3) 采集集: IPv4={${set4:-}}  IPv6={${set6:-}} ${YELLOW}(建议清空)${NC}"
+  fi
+  echo -e "${CYAN}------------------------------------------${NC}\n"
+}
+
+# 白名单操作后的轻验收（可选传入一个域名做存在性校验）
+post_whitelist_report() {
+  local action="$1"; shift || true
+  local test_domain="$1"
+
+  echo -e "\n${CYAN}-----白名单变更验收（${action}）-----${NC}"
+  local count=0
+  [[ -s "${CONFIG_DIR}/shunt/whitelist.txt" ]] && count=$(wc -l < "${CONFIG_DIR}/shunt/whitelist.txt" | tr -d ' ')
+  echo -e "1) 白名单条数：${count}"
+
+  # 展示前 10 条
+  if [[ "$count" -gt 0 ]]; then
+    echo -e "2) 样例（前 10 条）："
+    nl -ba "${CONFIG_DIR}/shunt/whitelist.txt" | head -n 10
+  else
+    echo -e "2) 样例：<空>"
+  fi
+
+  # Xray 路由里是否已同步（存在 direct 规则）
+  echo -n "3) Xray 路由同步："
+  if jq -e '.routing.rules[]?|select(.outboundTag=="direct")' ${CONFIG_DIR}/xray.json >/dev/null 2>&1; then
+    echo -e "${GREEN}已存在直连规则${NC}"
+  else
+    echo -e "${YELLOW}未检测到直连规则，请检查生成逻辑${NC}"
+  fi
+
+  # 可选：对指定域名做“是否在白名单文件中”的校验与解析
+  if [[ -n "$test_domain" ]]; then
+    echo -n "4) 域名存在性："
+    if grep -Fxq "$test_domain" "${CONFIG_DIR}/shunt/whitelist.txt" 2>/dev/null; then
+      echo -e "${GREEN}${test_domain} 在白名单文件中${NC}"
+    else
+      echo -e "${RED}${test_domain} 不在白名单文件中${NC}"
+    fi
+    local ip4 ip6
+    ip4=$(getent ahostsv4 "$test_domain" | awk '{print $1; exit}' || true)
+    ip6=$(getent ahostsv6 "$test_domain" | awk '{print $1; exit}' || true)
+    echo -e "5) 解析结果：IPv4=${ip4:-?}  IPv6=${ip6:-?}"
+  fi
+  echo -e "${CYAN}------------------------------------------${NC}\n"
+}
+
+# 把解析后的 PROXY_* 变量拼成 curl 可用的代理 URI
+format_curl_proxy_uri() {
+  local __retvar="$1" auth=""
+  [[ -n "$PROXY_USER" ]] && auth="${PROXY_USER}:${PROXY_PASS}@"
+  local uri
+  if [[ "$PROXY_SCHEME" == "http" ]]; then
+    local scheme="http"; [[ "$PROXY_TLS" -eq 1 ]] && scheme="https"
+    uri="${scheme}://${auth}${PROXY_HOST}:${PROXY_PORT}"
+  else
+    # socks5h: 让域名解析也走代理端
+    uri="socks5h://${auth}${PROXY_HOST}:${PROXY_PORT}"
+  fi
+  printf -v "$__retvar" '%s' "$uri"
+}
+
+# 用代理主机的 IP 更新 nftables 采集集合（供流量面板统计）
+update_nft_resi_set() {
+  local host="$1"
+  local ip4 ip6
+  ip4="$(getent ahostsv4 "$host" | awk '{print $1; exit}')" || true
+  ip6="$(getent ahostsv6 "$host" | awk '{print $1; exit}')" || true
+  nft flush set inet edgebox resi_addr4 2>/dev/null || true
+  nft flush set inet edgebox resi_addr6 2>/dev/null || true
+  [[ -n "$ip4" ]] && nft add element inet edgebox resi_addr4 { ${ip4} } 2>/dev/null || true
+  [[ -n "$ip6" ]] && nft add element inet edgebox resi_addr6 { ${ip6} } 2>/dev/null || true
+}
+
+# 分流配置后的自动验收报告
+post_shunt_report() {
+  local mode="$1" url="$2"
+  echo -e "\n${CYAN}-----分流配置验收报告（${mode}）-----${NC}"
+
+  # 1) 上游连通性
+  echo -n "1) 上游连通性: "
+  if check_proxy_health_url "$url"; then
+    echo -e "${GREEN}OK${NC}"
+  else
+    echo -e "${RED}FAIL${NC}"
+  fi
+
+  # 2) 出口 IP 对比（VPS vs 走上游）
+  local via_vps via_resi proxy_uri
+  via_vps=$(curl -fsS --max-time 6 https://api.ipify.org 2>/dev/null || true)
+  parse_proxy_url "$url" >/dev/null 2>&1 || true
+  format_curl_proxy_uri proxy_uri
+  via_resi=$(curl -fsS --max-time 8 --proxy "$proxy_uri" https://api.ipify.org 2>/dev/null || true)
+  echo -e "2) 出口 IP: VPS=${via_vps:-?}  上游=${via_resi:-?}"
+  if [[ -n "$via_vps" && -n "$via_resi" && "$via_vps" != "$via_resi" ]]; then
+    echo -e "   ${GREEN}判定：出口已切换/可用${NC}"
+  else
+    echo -e "   ${YELLOW}判定：出口未变化或上游未通，请检查账号、连通性${NC}"
+  fi
+
+  # 3) Xray 路由生效
+  echo -n "3) Xray 路由: "
+  if jq -e '.outbounds[]?|select(.tag=="resi-proxy")' ${CONFIG_DIR}/xray.json >/dev/null 2>&1; then
+    echo -e "${GREEN}存在 resi-proxy 出站${NC}"
+  else
+    echo -e "${RED}未发现 resi-proxy 出站${NC}"
+  fi
+
+  # 4) nftables 采集集
+  local set4 set6
+  set4=$(nft list set inet edgebox resi_addr4 2>/dev/null | sed -n 's/.*elements = {\(.*\)}/\1/p' | xargs)
+  set6=$(nft list set inet edgebox resi_addr6 2>/dev/null | sed -n 's/.*elements = {\(.*\)}/\1/p' | xargs)
+  echo -e "4) 采集集: IPv4={${set4:-}}  IPv6={${set6:-}}"
+
+  echo -e "${CYAN}--------------------------------------${NC}\n"
+}
+
+# === 住宅代理解析 + 健康检查 + JSON 构造 ===
+# 支持的 URL 形式：
+#   http://[user:pass@]host:port
+#   https://[user:pass@]host:port           # HTTP 代理 + TLS
+#   socks5://[user:pass@]host:port
+#   socks5s://[user:pass@]host:port?sni=..  # SOCKS over TLS，可选 ?sni
+parse_proxy_url() {
+  local url
+  url="$(printf '%s' "$1" | tr -d '\r' | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')"
+  [[ -z "$url" ]] && { echo "空代理地址"; return 1; }
+
+  PROXY_SCHEME="${url%%://*}"; PROXY_SCHEME="${PROXY_SCHEME%:*}"
+  local rest="${url#*://}" auth hostport query
+  [[ "$rest" == *\?* ]] && { query="${rest#*\?}"; rest="${rest%%\?*}"; }
+  if [[ "$rest" == *@* ]]; then
+    auth="${rest%@*}"; hostport="${rest#*@}"
+    PROXY_USER="${auth%%:*}"; PROXY_PASS="${auth#*:}"; [[ "$PROXY_PASS" == "$auth" ]] && PROXY_PASS=""
+  else
+    hostport="$rest"; PROXY_USER=""; PROXY_PASS=""
+  fi
+  PROXY_HOST="${hostport%%:*}"; PROXY_PORT="${hostport##*:}"
+  PROXY_TLS=0; PROXY_SNI=""
+
+  case "$PROXY_SCHEME" in
+    http)   PROXY_TLS=0 ;;
+    https)  PROXY_SCHEME="http"; PROXY_TLS=1 ;;
+    socks|socks5) PROXY_SCHEME="socks"; PROXY_TLS=0 ;;
+    socks5s)      PROXY_SCHEME="socks"; PROXY_TLS=1 ;;
+    *) echo "不支持的代理协议: $PROXY_SCHEME"; return 1;;
+  esac
+
+  if [[ -n "$query" ]]; then
+    local kv k v; IFS='&' read -r -a kv <<<"$query"
+    for k in "${kv[@]}"; do v="${k#*=}"; k="${k%%=*}"; [[ "$k" == "sni" ]] && PROXY_SNI="$v"; done
+  fi
+}
+
+# 用 curl 做 204 探测，能通就认为健康
+check_proxy_health_url() {
+  parse_proxy_url "$1" || return 1
+  local auth="" proxy_uri=""
+  [[ -n "$PROXY_USER" ]] && auth="${PROXY_USER}:${PROXY_PASS}@"
+  if [[ "$PROXY_SCHEME" == "http" ]]; then
+    local scheme="http"; [[ "$PROXY_TLS" -eq 1 ]] && scheme="https"
+    proxy_uri="${scheme}://${auth}${PROXY_HOST}:${PROXY_PORT}"
+  else
+    proxy_uri="socks5h://${auth}${PROXY_HOST}:${PROXY_PORT}"
+  fi
+  curl -fsS --max-time 6 --connect-timeout 4 --proxy "$proxy_uri" \
+       http://www.gstatic.com/generate_204 >/dev/null
+}
+
+# 生成 Xray 的住宅代理 outbound
+build_xray_resi_outbound() {
+  local users='' stream=''
+  [[ -n "$PROXY_USER" ]] && users=", \"users\":[{\"user\":\"$PROXY_USER\",\"pass\":\"$PROXY_PASS\"}]"
+  if [[ "$PROXY_TLS" -eq 1 ]]; then
+    stream=", \"streamSettings\": {\"security\":\"tls\"$( [[ -n "$PROXY_SNI" ]] && echo ",\"tlsSettings\":{\"serverName\":\"$PROXY_SNI\"}" )}"
+  fi
+  if [[ "$PROXY_SCHEME" == "http" ]]; then
+    cat <<JSON
+{ "protocol":"http","tag":"resi-proxy","settings":{"servers":[{"address":"$PROXY_HOST","port":$PROXY_PORT$users}]}$stream }
+JSON
+  else
+    cat <<JSON
+{ "protocol":"socks","tag":"resi-proxy","settings":{"servers":[{"address":"$PROXY_HOST","port":$PROXY_PORT$users}]}$stream }
+JSON
+  fi
+}
+
+# 生成 sing-box 的住宅代理 outbound（如需让 HY2/TUIC 也走住宅可用）
+build_singbox_resi_outbound() {
+  local auth='' tls=''
+  [[ -n "$PROXY_USER" ]] && auth=",\"username\":\"$PROXY_USER\",\"password\":\"$PROXY_PASS\""
+  if [[ "$PROXY_TLS" -eq 1 ]]; then
+    tls=",\"tls\":{\"enabled\":true$( [[ -n "$PROXY_SNI" ]] && echo ",\"server_name\":\"$PROXY_SNI\"" )}"
+  fi
+  if [[ "$PROXY_SCHEME" == "http" ]]; then
+    cat <<JSON
+{"type":"http","tag":"resi-proxy","server":"$PROXY_HOST","server_port":$PROXY_PORT$auth$tls}
+JSON
+  else
+    cat <<JSON
+{"type":"socks","tag":"resi-proxy","server":"$PROXY_HOST","server_port":$PROXY_PORT$auth$tls}
+JSON
+  fi
+}
+
 setup_shunt_directories() {
     mkdir -p "${CONFIG_DIR}/shunt" 2>/dev/null || true
     if [[ ! -f "${CONFIG_DIR}/shunt/whitelist.txt" ]]; then
@@ -1983,6 +2217,8 @@ EOF
     setup_shunt_directories
     update_shunt_state "vps" "" "healthy"
     systemctl restart xray sing-box && log_success "VPS全量出站模式配置成功" || { log_error "配置失败"; return 1; }
+	flush_nft_resi_sets
+post_vps_report
 }
 
 setup_outbound_resi() {
@@ -2038,6 +2274,8 @@ EOF
   setup_shunt_directories
   update_shunt_state "resi" "$url" "healthy"
   systemctl restart xray sing-box && log_success "住宅IP全量出站模式配置成功" || { log_error "失败"; return 1; }
+  update_nft_resi_set "$PROXY_HOST"
+post_shunt_report "住宅全量出站" "$url"
 }
 
 setup_outbound_direct_resi() {
@@ -2077,6 +2315,8 @@ EOF
   echo "$url" > "${CONFIG_DIR}/shunt/resi.conf"
   update_shunt_state "direct_resi" "$url" "healthy"
   systemctl restart xray sing-box && log_success "智能分流模式配置成功" || { log_error "失败"; return 1; }
+  update_nft_resi_set "$PROXY_HOST"
+post_shunt_report "智能分流（白名单直连）" "$url"
 }
 
 manage_whitelist() {
@@ -2382,11 +2622,11 @@ ${YELLOW}配置管理:${NC}
   edgeboxctl config regenerate-uuid        重新生成UUID
 
 ${YELLOW}出站分流:${NC}
-  edgeboxctl shunt vps                                VPS全量出站
-  edgeboxctl shunt resi IP:PORT[:USER:PASS]           住宅IP全量出站
-  edgeboxctl shunt direct-resi IP:PORT[:USER:PASS]    智能分流模式
-  edgeboxctl shunt status                             查看分流状态
-  edgeboxctl shunt whitelist [add|remove|list|reset] [domain] 管理白名单
+  edgeboxctl shunt resi '<scheme://[user:pass@]host:port[?sni=…]>'         住宅IP全量出站
+  edgeboxctl shunt direct-resi '<scheme://[user:pass@]host:port[?sni=…]>'  智能分流模式
+  edgeboxctl shunt vps                                                     VPS全量出站
+  edgeboxctl shunt status                                                  查看分流状态
+  edgeboxctl shunt whitelist [add|remove|list|reset] [domain]              管理白名单
 
 ${YELLOW}流量统计:${NC}
   edgeboxctl traffic show                  查看流量统计
