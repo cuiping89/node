@@ -159,22 +159,24 @@ get_server_ip() {
 # 检查并安装依赖
 install_dependencies() {
     log_info "安装依赖..."
+    DEBIAN_FRONTEND=noninteractive apt-get update -y >/dev/null 2>&1 || true
 
-    # 必要包：网络、文本处理、定时器、Web、采集与计数
-    local pkgs=(curl ca-certificates jq bc uuid-runtime dnsutils vnstat nginx libnginx-mod-stream nftables msmtp-mta bsd-mailx cron)
+    # 必要包
+    local pkgs=(curl ca-certificates jq bc uuid-runtime dnsutils wget openssl \
+            vnstat nginx libnginx-mod-stream nftables msmtp-mta bsd-mailx cron certbot)
     for pkg in "${pkgs[@]}"; do
-        if ! dpkg -l | grep -q "^ii.*${pkg}"; then
-            log_info "安装 ${pkg}..."
-            DEBIAN_FRONTEND=noninteractive apt-get install -y "${pkg}" >/dev/null 2>&1 || {
-                log_warn "${pkg} 安装失败，尝试继续..."
-            }
-        else
-            log_info "${pkg} 已安装"
-        fi
+      if ! dpkg -l | grep -q "^ii.*${pkg}"; then
+        log_info "安装 ${pkg}..."
+        DEBIAN_FRONTEND=noninteractive apt-get install -y "${pkg}" >/dev/null 2>&1 || {
+          log_warn "${pkg} 安装失败，尝试继续..."
+        }
+      else
+        log_info "${pkg} 已安装"
+      fi
     done
 
     systemctl enable vnstat >/dev/null 2>&1 || true
-    systemctl start vnstat  >/dev/null 2>&1 || true
+    systemctl start  vnstat  >/dev/null 2>&1 || true
 
     systemctl enable nftables >/dev/null 2>&1 || true
     systemctl start  nftables  >/dev/null 2>&1 || true
@@ -857,7 +859,6 @@ ${tuic_link}"
     # 兼容：单行 Base64 工具
 _b64_line() { if base64 --help 2>&1 | grep -q -- '-w'; then base64 -w0; else base64 | tr -d '\n'; fi; }
 _ensure_nl(){ sed -e '$a\'; }
-    _ensure_nl(){ sed -e '$a\'; }
 
     # 写入配置目录
     echo -e "${plain}" > "${CONFIG_DIR}/subscription.txt"
