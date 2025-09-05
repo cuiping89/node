@@ -2329,6 +2329,7 @@ manage_whitelist() {
             if ! grep -Fxq "$domain" "${CONFIG_DIR}/shunt/whitelist.txt" 2>/dev/null; then
                 echo "$domain" >> "${CONFIG_DIR}/shunt/whitelist.txt"
                 log_success "已添加域名到白名单: $domain"
+				post_whitelist_report "add" "$domain"
             else
                 log_warn "域名已存在于白名单: $domain"
             fi
@@ -2337,6 +2338,7 @@ manage_whitelist() {
             [[ -z "$domain" ]] && { echo "用法: edgeboxctl shunt whitelist remove domain.com"; return 1; }
             if sed -i "/^${domain}$/d" "${CONFIG_DIR}/shunt/whitelist.txt" 2>/dev/null; then
                 log_success "已从白名单移除域名: $domain"
+				post_whitelist_report "remove" "$domain"     # ← 新增
             else
                 log_error "移除失败或域名不存在: $domain"
             fi
@@ -2345,6 +2347,7 @@ manage_whitelist() {
             echo -e "${CYAN}白名单域名：${NC}"
             if [[ -f "${CONFIG_DIR}/shunt/whitelist.txt" ]]; then
                 cat "${CONFIG_DIR}/shunt/whitelist.txt" | nl -w2 -s'. '
+				post_whitelist_report "list" 
             else
                 echo "  无白名单文件"
             fi
@@ -2352,6 +2355,7 @@ manage_whitelist() {
         reset)
             echo "$WHITELIST_DOMAINS" | tr ',' '\n' > "${CONFIG_DIR}/shunt/whitelist.txt"
             log_success "已重置白名单为默认值"
+			post_whitelist_report "reset"                    # ← 新增
             ;;
         *)
             echo "用法: edgeboxctl shunt whitelist [add|remove|list|reset] [domain]"
