@@ -1148,18 +1148,14 @@ get_server_info() {
 show_sub() {
   if [[ ! -f ${CONFIG_DIR}/server.json ]]; then echo -e "${RED}配置文件不存在${NC}"; exit 1; fi
   local cert_mode=$(get_current_cert_mode)
-  echo -e "${CYAN}EdgeBox 订阅链接（证书模式: ${cert_mode}）：${NC}\n"
+  
+  echo -e "${CYAN}EdgeBox 证书模式: ${cert_mode}：${NC}\n"
+  echo "${CYAN}支持协议: Reality, gRPC, WS, Hysteria2, TUIC ${NC}"
   [[ -f ${CONFIG_DIR}/subscription.txt ]] && { echo -e "${YELLOW}明文链接：${NC}"; cat ${CONFIG_DIR}/subscription.txt; echo ""; }
   [[ -f ${CONFIG_DIR}/subscription.base64 ]] && { echo -e "${YELLOW}Base64订阅：${NC}"; cat ${CONFIG_DIR}/subscription.base64; echo ""; }
   local server_ip=$(jq -r '.server_ip' ${CONFIG_DIR}/server.json)
-
-  echo -e "${CYAN}控制面板：${NC}"; "http://${server_ip}/"; echo ""
-  echo -e "${CYAN}说明：${NC}"
-  echo "- 使用 *.edgebox.internal 作为内部标识避免证书冲突"
-  echo "- SNI定向 + ALPN兜底，解决 gRPC/WS 摇摆"
-  echo "- 当前证书模式: ${cert_mode}"
-  echo "- 支持协议: Reality, gRPC, WS, Hysteria2, TUIC"
   echo ""
+  echo -e "${CYAN}控制面板：http://${server_ip}/${NC}"; echo ""
 }
 
 show_status() {
@@ -1255,17 +1251,68 @@ request_letsencrypt_cert(){
   log_success "证书文件验证通过"
 }
 
-post_switch_report(){
-  echo -e "\n${CYAN}=== 切换后自动验收报告 ===${NC}"
-  echo -n "1) Nginx 配置测试: "; nginx -t >/dev/null 2>&1 && echo -e "${GREEN}OK${NC}" || echo -e "${RED}FAIL${NC}"
-  echo -n "2) 服务可用性: "
-  local bad=0
-  for s in nginx xray sing-box; do systemctl is-active --quiet "$s" || bad=1; done
-  [[ $bad -eq 0 ]] && echo -e "${GREEN}nginx/xray/sing-box 全部正常${NC}" || echo -e "${RED}存在异常，建议 edgeboxctl logs <svc>${NC}"
-  echo -n "3) 订阅文件: "; local ip=$(jq -r .server_ip ${CONFIG_DIR}/server.json); curl -fsS "http://${ip}/sub" >/dev/null && echo -e "${GREEN}可访问${NC}" || echo -e "${RED}不可访问${NC}"
-  echo -n "4) 证书软链: "; [[ -L ${CERT_DIR}/current.pem && -L ${CERT_DIR}/current.key ]] && echo -e "${GREEN}存在${NC}" || echo -e "${RED}缺失${NC}"
-  echo -n "5) 证书权限: "; stat -L -c '%a' ${CERT_DIR}/current.key 2>/dev/null | grep -qE '600|640' && echo -e "${GREEN}已收紧${NC}" || echo -e "${YELLOW}建议运行 edgeboxctl fix-permissions${NC}"
-  echo -e "${CYAN}====================${NC}\n"
+post_switch_report() {
+  # 颜色变量若未定义，避免报错
+  : "${CYAN:=}" "${GREEN:=}" "${RED:=}" "${YELLOW:=}" "${NC:=}"
+
+  echo -e "\n${CYAN}-----切换证书模式后自动验收报告-----${NC}"
+
+  # 1) Nginx 配置测试
+  echo -e "${CYAN}1) Nginx 配置测试 · 详细输出:${NC}"
+  local _nginx_out _rc
+  _nginx_out="$(nginx -t 2>&1)"; _rc=$?
+  echo "${_nginx_out}" | sed 's/^/   | /'
+  echo -n "   => 结果: "
+  [[ $_rc -eq 0 ]] && echo -e "${GREEN}OK${NC}" || echo -e "${RED}FAIL${NC}"
+
+  # 2) 服务可用性
+  echo -e "${CYAN}2) 服务可用性 · 详细输出:${NC}"
+  local bad=0 s st
+  for s in nginx xray sing-box; do
+    st="$(systemctl is-active "$s" 2>&1)"
+    echo "   | $s : ${st}"
+    [[ "$st" == "active" ]] || bad=1
+  done
+  echo -n "   => 结果: "
+  [[ $bad -eq 0 ]] && \
+    echo -e "${GREEN}nginx/xray/sing-box 全部正常${NC}" || \
+    echo -e "${RED}存在异常，建议 edgeboxctl logs <svc>${NC}"
+
+  # 3) 订阅文件可访问性（避免把 Base64 全量打屏，仅显示状态码/大小/耗时）
+  echo -e "${CYAN}3) 订阅文件 · 详细输出:${NC}"
+  local ip code size time_total
+  ip="$(jq -r .server_ip "${CONFIG_DIR}/server.json" 2>/dev/null)"
+  read -r code size time_total < <(curl -sS -o /dev/null -w '%{http_code} %{size_download} %{time_total}\n' "http://${ip}/sub" || echo "000 0 0")
+  echo "   | URL: http://${ip}/sub"
+  echo "   | HTTP: ${code}   Size: ${size}B   Time: ${time_total}s"
+  echo -n "   => 结果: "
+  if [[ "$code" =~ ^[23][0-9]{2}$ ]] || { [[ "$code" -ge 200 ]] && [[ "$code" -lt 400 ]]; }; then
+    echo -e "${GREEN}可访问${NC}"
+  else
+    echo -e "${RED}不可访问${NC}"
+  fi
+
+  # 4) 证书软链
+  echo -e "${CYAN}4) 证书软链 · 详细输出:${NC}"
+  ls -l "${CERT_DIR}/current.pem" "${CERT_DIR}/current.key" 2>/dev/null | sed 's/^/   | /' || true
+  echo -n "   => 结果: "
+  [[ -L ${CERT_DIR}/current.pem && -L ${CERT_DIR}/current.key ]] && \
+    echo -e "${GREEN}存在${NC}" || echo -e "${RED}缺失${NC}"
+
+  # 5) 证书权限
+  echo -e "${CYAN}5) 证书权限 · 详细输出:${NC}"
+  local perm_line perm
+  perm_line="$(stat -L -c '%a %U:%G %n' "${CERT_DIR}/current.key" 2>/dev/null || true)"
+  [[ -n "$perm_line" ]] && echo "   | $perm_line"
+  perm="$(printf '%s\n' "$perm_line" | awk '{print $1}')"
+  echo -n "   => 结果: "
+  if [[ "$perm" == "600" || "$perm" == "640" ]]; then
+    echo -e "${GREEN}已收紧${NC}"
+  else
+    echo -e "${YELLOW}建议运行 edgeboxctl fix-permissions${NC}"
+  fi
+
+  echo -e "${CYAN}--------------------------------${NC}\n"
 }
 
 # 生成订阅（域名 / IP模式）
@@ -2139,6 +2186,7 @@ show_installation_info() {
     echo -e "  2. 使用 switch-to-domain 可获得受信任证书"
     echo -e "  3. 流量预警配置: ${TRAFFIC_DIR}/alert.conf"
     echo -e "  4. 安装日志: ${LOG_FILE}"
+	
 }
 
 # 清理函数
@@ -2215,10 +2263,6 @@ main() {
     if [[ -x "${SCRIPTS_DIR}/traffic-collector.sh" ]]; then
         "${SCRIPTS_DIR}/traffic-collector.sh" >/dev/null 2>&1 || true
     fi
-    
-    # 显示安装信息
-    show_installation_info  
-    log_success "EdgeBox v3.0.0 企业级部署完成！"
 }
 
 # 执行主函数
