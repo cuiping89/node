@@ -142,19 +142,22 @@ main(){
   list_listeners || true
   hr
 
-  title "停止与禁用服务"
-  if has_cmd systemctl; then
-    for s in xray sing-box; do
-      state=$(systemctl is-active "$s" 2>/dev/null || true)
-      echo -n "  $s: 当前状态 $state，执行 stop/disable ... "
-      systemd_safe stop "$s"
-      systemd_safe disable "$s"
-      echo -e "${GREEN}完成${NC}"
-    done
-  else
-    skip "systemd 不可用，跳过 stop/disable"
-  fi
-  hr
+title "停止与禁用服务"
+if has_cmd systemctl; then
+  for s in xray sing-box; do
+    # 先给默认值，确保在 set -u 下已定义
+    state="unknown"
+    # is-active 非 0 时用 echo fallback，确保总有输出
+    state="$(systemctl is-active "$s" 2>/dev/null || echo unknown)"
+    printf "  %s: 当前状态 %s，执行 stop/disable ... " "$s" "$state"
+    systemd_safe stop "$s"
+    systemd_safe disable "$s"
+    echo -e "${GREEN}完成${NC}"
+  done
+else
+  skip "systemd 不可用，跳过 stop/disable"
+fi
+hr
 
   title "结束残留监听进程（443/2053/11443/10085/10086）"
   kill_listeners
