@@ -33,7 +33,8 @@ bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/refs/heads/ma
 ## 环境要求
   * **系统**：Ubuntu 18.04+ 或 Debian 10+。
   * **硬件**：CPU 1核，内存 512MB（内存不足自动创建 2G swap），存储 10GB 可用空间，并需稳定的公网 IP。
-  * **依赖**：`curl`, `wget`, `unzip`, `tar`, `nginx`, `certbot`, `vnstat`, `iftop` 等，将由安装脚本自动检测并安装。
+  * **依赖**：curl wget unzip ca-certificates jq bc uuid-runtime dnsutils openssl \
+            vnstat nginx libnginx-mod-stream nftables certbot msmtp-mta bsd-mailx cron tar等，将由安装脚本自动检测并安装。
   * **双层防火墙**：在云服务商的安全组和操作系统级防火墙（如 `ufw`）中放行 `TCP:443`、`UDP:443` 、`UDP:2053` 端口。
 ## 核心组件
   * **Nginx**：作为所有 TCP 协议的唯一入口，监听公网 `TCP/443`，并基于 SNI/ALPN 进行非终止 TLS 分流。
