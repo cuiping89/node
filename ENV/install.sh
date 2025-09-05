@@ -1149,16 +1149,17 @@ show_sub() {
   if [[ ! -f ${CONFIG_DIR}/server.json ]]; then echo -e "${RED}配置文件不存在${NC}"; exit 1; fi
   local cert_mode=$(get_current_cert_mode)
   echo -e "${CYAN}EdgeBox 订阅链接（证书模式: ${cert_mode}）：${NC}\n"
-  [[ -f ${CONFIG_DIR}/subscription.txt ]] && { echo -e "${YELLOW}节点链接：${NC}"; cat ${CONFIG_DIR}/subscription.txt; echo ""; }
+  [[ -f ${CONFIG_DIR}/subscription.txt ]] && { echo -e "${YELLOW}明文链接：${NC}"; cat ${CONFIG_DIR}/subscription.txt; echo ""; }
   [[ -f ${CONFIG_DIR}/subscription.base64 ]] && { echo -e "${YELLOW}Base64订阅：${NC}"; cat ${CONFIG_DIR}/subscription.base64; echo ""; }
   local server_ip=$(jq -r '.server_ip' ${CONFIG_DIR}/server.json)
-  echo -e "${CYAN}HTTP订阅地址：${NC}"; echo "http://${server_ip}/sub"; echo ""
-  echo -e "${CYAN}控制面板：${NC}"; echo "http://${server_ip}/"; echo ""
+
+  echo -e "${CYAN}控制面板：${NC}"; "http://${server_ip}/"; echo ""
   echo -e "${CYAN}说明：${NC}"
   echo "- 使用 *.edgebox.internal 作为内部标识避免证书冲突"
   echo "- SNI定向 + ALPN兜底，解决 gRPC/WS 摇摆"
   echo "- 当前证书模式: ${cert_mode}"
   echo "- 支持协议: Reality, gRPC, WS, Hysteria2, TUIC"
+  echo ""
 }
 
 show_status() {
@@ -1787,42 +1788,42 @@ case "$1" in
 ${CYAN}EdgeBox 管理工具 v${VERSION}${NC}
 
 ${YELLOW}基础操作:${NC}
-  status          查看服务状态
-  restart         重启所有服务  
-  sub             查看订阅链接
-  logs <svc>      查看服务日志 [nginx|xray|sing-box]
-  test            测试连接
-  debug-ports     调试端口状态
+  edgeboxctl status          查看服务状态
+  edgeboxctl restart         重启所有服务  
+  edgeboxctl sub             查看订阅链接
+  edgeboxctl logs <svc>      查看服务日志 [nginx|xray|sing-box]
+  edgeboxctl test            测试连接
+  edgeboxctl debug-ports     调试端口状态
 
 ${YELLOW}证书管理:${NC}
-  cert-status                   查看证书状态
-  fix-permissions               修复证书权限
-  switch-to-domain <domain>     切换到域名模式
-  switch-to-ip                  切换到IP模式
+  edgeboxctl cert-status                   查看证书状态
+  edgeboxctl fix-permissions               修复证书权限
+  edgeboxctl switch-to-domain <domain>     切换到域名模式
+  edgeboxctl switch-to-ip                  切换到IP模式
 
 ${YELLOW}配置管理:${NC}
-  config show                   显示当前配置
-  config regenerate-uuid        重新生成UUID
+  edgeboxctl config show                   显示当前配置
+  edgeboxctl config regenerate-uuid        重新生成UUID
 
 ${YELLOW}出站分流:${NC}
-  shunt vps                     VPS全量出站
-  shunt resi IP:PORT[:USER:PASS] 住宅IP全量出站
-  shunt direct-resi IP:PORT[:USER:PASS] 智能分流模式
-  shunt status                  查看分流状态
-  shunt whitelist [add|remove|list|reset] [domain] 管理白名单
+  edgeboxctl shunt vps                     VPS全量出站
+  edgeboxctl shunt resi IP:PORT[:USER:PASS] 住宅IP全量出站
+  edgeboxctl shunt direct-resi IP:PORT[:USER:PASS] 智能分流模式
+  edgeboxctl shunt status                  查看分流状态
+  edgeboxctl shunt whitelist [add|remove|list|reset] [domain] 管理白名单
 
 ${YELLOW}流量统计:${NC}
-  traffic show                  查看流量统计
-  traffic reset                 重置流量计数
+  edgeboxctl traffic show                  查看流量统计
+  edgeboxctl traffic reset                 重置流量计数
 
 ${YELLOW}备份恢复:${NC}
-  backup create                 创建备份
-  backup list                   列出备份
-  backup restore <file>         恢复备份
+  edgeboxctl backup create                 创建备份
+  edgeboxctl backup list                   列出备份
+  edgeboxctl backup restore <file>         恢复备份
 
 ${YELLOW}系统:${NC}
-  update                        更新EdgeBox
-  help                          显示此帮助
+  edgeboxctl update                        更新EdgeBox
+  edgeboxctl help                          显示此帮助
 
 ${CYAN}EdgeBox 企业级多协议节点部署方案${NC}
 控制面板: http://$(jq -r .server_ip ${CONFIG_DIR}/server.json 2>/dev/null || echo "YOUR_IP")/
@@ -2107,7 +2108,7 @@ show_installation_info() {
     echo -e "  IP地址: ${GREEN}${SERVER_IP}${NC}"
     echo -e "  模式: ${YELLOW}IP模式（自签名证书）${NC}"
     echo -e "  版本: ${YELLOW}EdgeBox v3.0.0 企业级完整版${NC}"
-    
+
     echo -e "\n${CYAN}协议信息：${NC}"
     echo -e "  ${PURPLE}[1] VLESS-Reality${NC}  端口: 443  UUID: ${UUID_VLESS}"
     echo -e "  ${PURPLE}[2] VLESS-gRPC${NC}     端口: 443  UUID: ${UUID_VLESS}"  
@@ -2116,16 +2117,13 @@ show_installation_info() {
     echo -e "  ${PURPLE}[5] TUIC${NC}           端口: 2053 UUID: ${UUID_TUIC}"
        
     echo -e "\n${CYAN}访问地址：${NC}"
-    echo -e "  🌐 控制面板: ${YELLOW}http://${SERVER_IP}/${NC}"
-    echo -e "  📱 订阅链接: ${YELLOW}http://${SERVER_IP}/sub${NC}"
-    echo -e "  📊 流量统计: 控制面板内置图表"
+    echo -e "  🌐 控制面板: ${YELLOW}http://${SERVER_IP}/${NC}" #订阅链接\流量统计\运维命令
     
-    echo -e "\n${YELLOW}✨ v3.0.0 新增功能：${NC}"
-    echo -e "  🎯 智能出站分流：支持VPS直出/住宅IP/智能分流三种模式"
-    echo -e "  📈 流量统计图表：自动生成日/月流量趋势图，集成控制面板"
-    echo -e "  📧 流量预警系统：支持邮件/Webhook通知，可配置阈值"
-    echo -e "  💾 自动备份恢复：每日自动备份，支持一键恢复"
-    echo -e "  🎨 Web控制面板：订阅+统计+操作指南一体化界面"
+    echo -e "\n${CYAN}高级运维：${NC}"
+    echo -e "  🔄 出站分流: 支持住宅IP代理，降低VPS出站成本"
+    echo -e "  📊 流量监控: 实时图表展示，支持端口维度统计"
+    echo -e "  ⚠️  预警通知: 流量阈值告警，避免超额费用"
+    echo -e "  🛡️  自动备份: 配置自动备份，故障快速恢复"
     
     echo -e "\n${CYAN}管理命令：${NC}"
     echo -e "  ${YELLOW}edgeboxctl status${NC}                  # 查看服务状态"
@@ -2136,22 +2134,11 @@ show_installation_info() {
     echo -e "  ${YELLOW}edgeboxctl backup create${NC}           # 手动备份"
     echo -e "  ${YELLOW}edgeboxctl help${NC}                    # 查看完整帮助"
     
-    echo -e "\n${CYAN}高级运维：${NC}"
-    echo -e "  🔄 出站分流: 支持住宅IP代理，降低VPS出站成本"
-    echo -e "  📊 流量监控: 实时图表展示，支持端口维度统计"
-    echo -e "  ⚠️  预警通知: 流量阈值告警，避免超额费用"
-    echo -e "  🛡️  自动备份: 配置自动备份，故障快速恢复"
-    
     echo -e "\n${YELLOW}⚠️  重要提醒：${NC}"
     echo -e "  1. 当前为IP模式，VLESS协议需在客户端开启'跳过证书验证'"
     echo -e "  2. 使用 switch-to-domain 可获得受信任证书"
     echo -e "  3. 流量预警配置: ${TRAFFIC_DIR}/alert.conf"
-    echo -e "  4. 完整卸载命令: edgebox-uninstall"
-
-    print_separator
-    echo -e "${GREEN}🚀 EdgeBox v3.0.0 企业级多协议节点部署完成！${NC}"
-    echo -e "${CYAN}控制面板: http://${SERVER_IP}/${NC}"
-    print_separator
+    echo -e "  4. 安装日志: ${LOG_FILE}"
 }
 
 # 清理函数
@@ -2230,14 +2217,8 @@ main() {
     fi
     
     # 显示安装信息
-    show_installation_info
-    
+    show_installation_info  
     log_success "EdgeBox v3.0.0 企业级部署完成！"
-    log_info "安装日志: ${LOG_FILE}"
-    log_info "卸载命令: edgebox-uninstall"
-    echo ""
-    echo -e "${GREEN}🎯 立即体验：访问 http://${SERVER_IP}/ 查看控制面板${NC}"
-    echo -e "${BLUE}📚 完整文档：edgeboxctl help${NC}"
 }
 
 # 执行主函数
