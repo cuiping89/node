@@ -161,7 +161,7 @@ install_dependencies() {
     log_info "安装依赖（精简版：去除 Python 绘图栈）..."
 
     # 必要包：网络、文本处理、定时器、Web、采集与计数
-    local pkgs=(curl jq bc vnstat nginx nftables msmtp-mta bsd-mailx cron)
+    local pkgs=(curl jq bc vnstat nginx libnginx-mod-stream nftables msmtp-mta bsd-mailx cron)
     for pkg in "${pkgs[@]}"; do
         if ! dpkg -l | grep -q "^ii.*${pkg}"; then
             log_info "安装 ${pkg}..."
