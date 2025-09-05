@@ -1095,6 +1095,16 @@ setup_cron_jobs() {
       echo "7 * * * * /etc/edgebox/scripts/traffic-alert.sh" \
     ) | crontab - 2>/dev/null || true
     log_success "cron 已配置（每小时采集 + 告警）"
+	# --- 轻量告警脚本（占位版，避免 cron 报错） ---
+cat > /etc/edgebox/scripts/traffic-alert.sh <<'ALERT'
+#!/bin/bash
+set -euo pipefail
+LOG="/var/log/edgebox-traffic-alert.log"
+# 这里将来可以做: 读取 /etc/edgebox/traffic/monthly.csv -> 判定阈值 -> 调 msmtp 发邮件
+echo "[$(date -Is)] heartbeat" >> "$LOG"
+exit 0
+ALERT
+chmod +x /etc/edgebox/scripts/traffic-alert.sh
 }
 
 # 创建完整的edgeboxctl管理工具
@@ -2263,6 +2273,9 @@ main() {
     if [[ -x "${SCRIPTS_DIR}/traffic-collector.sh" ]]; then
         "${SCRIPTS_DIR}/traffic-collector.sh" >/dev/null 2>&1 || true
     fi
+	
+	# 在安装收尾输出总结信息（原来没调用）
+    show_installation_info
 }
 
 # 执行主函数
