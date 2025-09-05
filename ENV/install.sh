@@ -11,13 +11,14 @@
 set -e
 
 # 颜色定义
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-PURPLE='\033[0;35m'
-CYAN='\033[0;36m'
-NC='\033[0m' # No Color
+ESC=$'\033'
+BLUE="${ESC}[0;34m"
+PURPLE="${ESC}[0;35m"
+CYAN="${ESC}[0;36m"
+YELLOW="${ESC}[1;33m"
+GREEN="${ESC}[0;32m"
+RED="${ESC}[0;31m"
+NC="${ESC}[0m"
 
 # 全局变量
 INSTALL_DIR="/etc/edgebox"
@@ -162,8 +163,8 @@ install_dependencies() {
     DEBIAN_FRONTEND=noninteractive apt-get update -y >/dev/null 2>&1 || true
 
     # 必要包
-    local pkgs=(curl ca-certificates jq bc uuid-runtime dnsutils wget openssl \
-            vnstat nginx libnginx-mod-stream nftables msmtp-mta bsd-mailx cron certbot)
+    local pkgs=(curl wget unzip ca-certificates jq bc uuid-runtime dnsutils openssl \
+            vnstat nginx libnginx-mod-stream nftables certbot msmtp-mta bsd-mailx cron tar)
     for pkg in "${pkgs[@]}"; do
       if ! dpkg -l | grep -q "^ii.*${pkg}"; then
         log_info "安装 ${pkg}..."
@@ -366,39 +367,41 @@ install_xray() {
 
 # 安装sing-box
 install_sing_box() {
-    log_info "安装sing-box..."
+    # 版本可用环境变量覆盖：SING_BOX_VERSION=1.12.4 bash install.sh
+    local ver="${SING_BOX_VERSION:-1.12.4}"
+    local arch="$(uname -m)"
+    local arch_tag=
+    case "$arch" in
+      x86_64|amd64)   arch_tag="amd64" ;;
+      aarch64|arm64)  arch_tag="arm64" ;;
+      armv7l)         arch_tag="armv7" ;;
+      *) log_error "不支持的 CPU 架构: $arch"; return 1 ;;
+    esac
 
-    if [[ -f /usr/local/bin/sing-box ]]; then
-        log_info "sing-box已安装，跳过"
-    else
-        local tag latest ver ok=""
-        latest="$(curl -sIL -o /dev/null -w '%{url_effective}' https://github.com/SagerNet/sing-box/releases/latest | awk -F/ '{print $NF}')"
-        ver="$(echo "$latest" | sed 's/^v//')"
-        [[ -z "$ver" ]] && ver="1.12.4"
+    local pkg="sing-box-${ver}-linux-${arch_tag}.tar.gz"
+    local url="https://github.com/SagerNet/sing-box/releases/download/v${ver}/${pkg}"
+    local tmp="/tmp/${pkg}"
 
-        for base in \
-          "https://github.com/SagerNet/sing-box/releases/download" \
-          "https://ghproxy.com/https://github.com/SagerNet/sing-box/releases/download"
-        do
-          url="${base}/v${ver}/sing-box-${ver}-linux-amd64.tar.gz"
-          log_info "下载 ${url}"
-          if wget -q --tries=3 --timeout=25 "$url" -O "/tmp/sing-box-${ver}.tar.gz"; then 
-              ok=1
-              break
-          fi
-        done
-        
-        if [[ -z "$ok" ]]; then
-            log_error "下载sing-box失败"
-            exit 1
-        fi
-
-        tar -xzf "/tmp/sing-box-${ver}.tar.gz" -C /tmp
-        install -m 0755 "/tmp/sing-box-${ver}-linux-amd64/sing-box" /usr/local/bin/sing-box
-        rm -rf "/tmp/sing-box-${ver}.tar.gz" "/tmp/sing-box-${ver}-linux-amd64"
+    log_info "下载 sing-box v${ver} (${arch_tag}) ..."
+    rm -f "$tmp"
+    if ! curl -fL --connect-timeout 15 --retry 3 --retry-delay 2 -o "$tmp" "$url"; then
+        log_error "下载失败：$url"; return 1
     fi
 
-    log_success "sing-box安装完成"
+    log_info "解包并安装..."
+    local tmpdir; tmpdir="$(mktemp -d)"
+    tar -xzf "$tmp" -C "$tmpdir"
+    install -m 0755 -o root -g root "$tmpdir"/sing-box*/sing-box /usr/local/bin/sing-box
+
+    # 清理
+    rm -rf "$tmpdir" "$tmp"
+
+    # 校验
+    if /usr/local/bin/sing-box version >/dev/null 2>&1; then
+        log_success "sing-box 安装完成"
+    else
+        log_error "sing-box 安装失败"; return 1
+    fi
 }
 
 # 生成Reality密钥对
@@ -2253,10 +2256,10 @@ ${YELLOW}配置管理:${NC}
   edgeboxctl config regenerate-uuid        重新生成UUID
 
 ${YELLOW}出站分流:${NC}
-  edgeboxctl shunt vps                     VPS全量出站
-  edgeboxctl shunt resi IP:PORT[:USER:PASS] 住宅IP全量出站
-  edgeboxctl shunt direct-resi IP:PORT[:USER:PASS] 智能分流模式
-  edgeboxctl shunt status                  查看分流状态
+  edgeboxctl shunt vps                                VPS全量出站
+  edgeboxctl shunt resi IP:PORT[:USER:PASS]           住宅IP全量出站
+  edgeboxctl shunt direct-resi IP:PORT[:USER:PASS]    智能分流模式
+  edgeboxctl shunt status                             查看分流状态
   edgeboxctl shunt whitelist [add|remove|list|reset] [domain] 管理白名单
 
 ${YELLOW}流量统计:${NC}
@@ -2451,8 +2454,8 @@ show_installation_info() {
     echo -e "  🌐 控制面板: ${PURPLE}http://${SERVER_IP}/${NC}" #订阅链接\流量统计\运维命令
     
     echo -e "\n${CYAN}高级运维：${NC}"
-	echo -e "  模式切换: IP模式⇋域名模式"
-    echo -e "  出站分流: 住宅IP全量⇋VPS全量出⇋白名单VPS出+非白名单住宅IP出"
+	echo -e "  模式切换: IP模式 ⇋ 域名模式"
+    echo -e "  出站分流: 住宅IP全量 ⇋ VPS全量出 ⇋ 白名单VPS出+非白名单住宅IP出"
     echo -e "  流量监控: 日分流出站曲线图，日高流量协议/端口曲线图，月累计图"
     echo -e "  预警通知: 流量阈值分级30%、60%、90%告警"
     echo -e "  自动备份: 每日自动备份，故障快速恢复"
@@ -2460,7 +2463,7 @@ show_installation_info() {
     echo -e "\n${CYAN}管理命令：${NC}"
     echo -e "  ${PURPLE}edgeboxctl status${NC}                     # 查看服务状态"
     echo -e "  ${PURPLE}edgeboxctl sub${NC}                        # 查看订阅链接"
-    echo -e "  ${PURPLE}edgeboxctl switch-to-domain <域名>${NC}     # 切换到域名模式"
+    echo -e "  ${PURPLE}edgeboxctl switch-to-domain <域名> ${NC}    # 切换到域名模式"
     echo -e "  ${PURPLE}edgeboxctl shunt direct-resi IP:PORT${NC}  # 智能分流"
     echo -e "  ${PURPLE}edgeboxctl traffic show${NC}               # 查看流量统计"
     echo -e "  ${PURPLE}edgeboxctl backup create${NC}              # 手动备份"
