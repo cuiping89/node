@@ -161,7 +161,7 @@ install_dependencies() {
     log_info "安装依赖..."
 
     # 必要包：网络、文本处理、定时器、Web、采集与计数
-    local pkgs=(curl jq bc vnstat nginx libnginx-mod-stream nftables msmtp-mta bsd-mailx cron)
+    local pkgs=(curl ca-certificates jq bc uuid-runtime dnsutils vnstat nginx libnginx-mod-stream nftables msmtp-mta bsd-mailx cron)
     for pkg in "${pkgs[@]}"; do
         if ! dpkg -l | grep -q "^ii.*${pkg}"; then
             log_info "安装 ${pkg}..."
@@ -855,9 +855,8 @@ ${hy2_link}
 ${tuic_link}"
 
     # 兼容：单行 Base64 工具
-    _b64_line() {
-      if base64 --help 2>&1 | grep -q -- '-w'; then base64 -w0; else base64 | tr -d '\n'; fi
-    }
+_b64_line() { if base64 --help 2>&1 | grep -q -- '-w'; then base64 -w0; else base64 | tr -d '\n'; fi; }
+_ensure_nl(){ sed -e '$a\'; }
     _ensure_nl(){ sed -e '$a\'; }
 
     # 写入配置目录
@@ -905,8 +904,16 @@ table inet edgebox {
   counter c_udp443   {}
   counter c_udp2053  {}
   counter c_resi_out {}
-  set resi_addr4 { type ipv4_addr; flags interval }
-  set resi_addr6 { type ipv6_addr; flags interval }
+
+  set resi_addr4 {
+    type ipv4_addr
+    flags interval
+  }
+  set resi_addr6 {
+    type ipv6_addr
+    flags interval
+  }
+
   chain out {
     type filter hook output priority 0; policy accept;
     tcp dport 443   counter name c_tcp443
@@ -1674,8 +1681,8 @@ hysteria2://${HY2_PW_ENC}@${domain}:443?sni=${domain}&alpn=h3#EdgeBox-HYSTERIA2
 tuic://${UUID_TUIC}:${TUIC_PW_ENC}@${domain}:2053?congestion_control=bbr&alpn=h3&sni=${domain}#EdgeBox-TUIC"
 
   # 工具
-  _b64_line(){ if base64 --help 2>&1 | grep -q -- '-w'; then base64 -w0; else base64 | tr -d '\n'; fi; }
-  _ensure_nl(){ sed -e '$a\'; }
+_b64_line() { if base64 --help 2>&1 | grep -q -- '-w'; then base64 -w0; else base64 | tr -d '\n'; fi; }
+_ensure_nl(){ sed -e '$a\'; }
 
   echo -e "${sub}" > "${CONFIG_DIR}/subscription.txt"
   _ensure_nl <<<"${sub}" | _b64_line > "${CONFIG_DIR}/subscription.base64"
@@ -1713,8 +1720,8 @@ vless://${UUID_VLESS}@${SERVER_IP}:443?encryption=none&security=tls&sni=ws.edgeb
 hysteria2://${HY2_PW_ENC}@${SERVER_IP}:443?sni=${SERVER_IP}&alpn=h3&insecure=1#EdgeBox-HYSTERIA2
 tuic://${UUID_TUIC}:${TUIC_PW_ENC}@${SERVER_IP}:2053?congestion_control=bbr&alpn=h3&sni=${SERVER_IP}&allowInsecure=1#EdgeBox-TUIC"
 
-  _b64_line(){ if base64 --help 2>&1 | grep -q -- '-w'; then base64 -w0; else base64 | tr -d '\n'; fi; }
-  _ensure_nl(){ sed -e '$a\'; }
+_b64_line() { if base64 --help 2>&1 | grep -q -- '-w'; then base64 -w0; else base64 | tr -d '\n'; fi; }
+_ensure_nl(){ sed -e '$a\'; }
 
   echo -e "${sub}" > "${CONFIG_DIR}/subscription.txt"
   _ensure_nl <<<"${sub}" | _b64_line > "${CONFIG_DIR}/subscription.base64"
