@@ -879,23 +879,27 @@ setup_traffic_monitoring() {
     log_info "设置流量采集与前端渲染（vnStat + nftables + CSV/JSON + Chart.js）..."
 
     # --- nftables 计数与链（一次性安装/幂等） ---
-    nft list table inet edgebox >/dev/null 2>&1 || nft -f - <<'NFT'
+nft list table inet edgebox >/dev/null 2>&1 || nft -f - <<'NFT'
 table inet edgebox {
-  counters {
-    c_tcp443 {}
-    c_udp443 {}
-    c_udp2053 {}
-    c_resi_out {}
-  }
+  counter c_tcp443   {}
+  counter c_udp443   {}
+  counter c_udp2053  {}
+  counter c_resi_out {}
 
-  set resi_addr4 { type ipv4_addr; flags interval; auto-merge; }
-  set resi_addr6 { type ipv6_addr; flags interval; auto-merge; }
+  set resi_addr4 {
+    type ipv4_addr
+    flags interval
+  }
+  set resi_addr6 {
+    type ipv6_addr
+    flags interval
+  }
 
   chain out {
     type filter hook output priority 0; policy accept;
-    tcp dport 443 counter name c_tcp443
-    udp dport 443 counter name c_udp443
-    udp dport 2053 counter name c_udp2053
+    tcp dport 443   counter name c_tcp443
+    udp dport 443   counter name c_udp443
+    udp dport 2053  counter name c_udp2053
     ip  daddr @resi_addr4 counter name c_resi_out
     ip6 daddr @resi_addr6 counter name c_resi_out
   }
@@ -1911,13 +1915,29 @@ echo "[$(date)] EdgeBox 初始化开始" >> $LOG_FILE
 sleep 10
 
 # nftables 计数器存在性校验（无则创建）
-nft list table inet edgebox >/dev/null 2>&1 || cat <<'NFT' | nft -f -
+nft list table inet edgebox >/dev/null 2>&1 || nft -f - <<'NFT'
 table inet edgebox {
-  counters {
-    c_tcp443 {}
-    c_udp443 {}
-    c_udp2053 {}
-    c_resi_out {}
+  counter c_tcp443   {}
+  counter c_udp443   {}
+  counter c_udp2053  {}
+  counter c_resi_out {}
+
+  set resi_addr4 {
+    type ipv4_addr
+    flags interval
+  }
+  set resi_addr6 {
+    type ipv6_addr
+    flags interval
+  }
+
+  chain out {
+    type filter hook output priority 0; policy accept;
+    tcp dport 443   counter name c_tcp443
+    udp dport 443   counter name c_udp443
+    udp dport 2053  counter name c_udp2053
+    ip  daddr @resi_addr4 counter name c_resi_out
+    ip6 daddr @resi_addr6 counter name c_resi_out
   }
 }
 NFT
