@@ -158,7 +158,7 @@ get_server_ip() {
 
 # 检查并安装依赖
 install_dependencies() {
-    log_info "安装依赖（精简版：去除 Python 绘图栈）..."
+    log_info "安装依赖..."
 
     # 必要包：网络、文本处理、定时器、Web、采集与计数
     local pkgs=(curl jq bc vnstat nginx libnginx-mod-stream nftables msmtp-mta bsd-mailx cron)
