@@ -874,10 +874,10 @@ PLAIN
     mkdir -p /var/www/html
     {
       printf '%s\n\n' "$plain"
-      echo "# Base64（逐行，每行一个链接；多数客户端不支持一次粘贴多行）"
+      echo "# Base64逐行【每行一个协议，多数客户端不支持一次复制多行导入】"
       cat "${CONFIG_DIR}/subscription.b64lines"
       echo
-      echo "# Base64（整包，单行：五协议一起导入，iOS 常用）"
+      echo "# Base64整包【五协议一起导入，iOS 常用】"
       cat "${CONFIG_DIR}/subscription.base64"
       echo
     } > /var/www/html/sub
@@ -1497,7 +1497,7 @@ show_sub() {
   local server_ip=$(jq -r '.server_ip' ${CONFIG_DIR}/server.json)
   echo ""
   if [[ -s /var/www/html/sub ]]; then
-    echo -e "${CYAN}订阅内容（与控制面板一致）：${NC}"
+    echo -e "${CYAN}订阅内容【与控制台一致】：${NC}"
     cat /var/www/html/sub
   else
     # 回退：旧文件
@@ -2433,7 +2433,7 @@ INIT_SERVICE
 show_installation_info() {
     clear
     print_separator
-    echo -e "${GREEN}🎉 EdgeBox v3.0.0 安装完成！${NC}"
+    echo -e "${GREEN}🎉 EdgeBox 企业级多协议节点 v3.0.0 安装完成！${NC}"
     print_separator
     
     echo -e "${CYAN}服务器信息：${NC}"
