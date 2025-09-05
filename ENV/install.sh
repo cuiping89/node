@@ -951,8 +951,8 @@ jq -n --arg updated "$(date -Is)" '
 COLLECTOR
     chmod +x "${SCRIPTS_DIR}/traffic-collector.sh"
 
-    # --- 优化后的控制面板 HTML ---
-    cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
+# 优化后的控制面板HTML
+cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
 <!doctype html>
 <html lang="zh-CN">
 <head>
@@ -960,71 +960,80 @@ COLLECTOR
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>EdgeBox 控制台</title>
 <style>
-:root{--primary:#2563eb;--success:#16a34a;--warning:#d97706;--danger:#dc2626;
---card:#fff;--border:#e2e8f0;--muted:#64748b;--bg:#f8fafc;
---shadow:0 4px 6px -1px rgba(0,0,0,0.1)}
+:root{
+  --primary:#2563eb;--success:#16a34a;--warning:#d97706;--danger:#dc2626;
+  --card:#fff;--border:#e2e8f0;--muted:#64748b;--bg:#f8fafc;
+  --shadow:0 4px 6px -1px rgba(0,0,0,0.1);
+  --spacing:1.25rem;
+}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 background:var(--bg);color:#334155;line-height:1.6}
 
-.header{background:var(--card);border-bottom:1px solid var(--border);padding:1.5rem 2rem;box-shadow:var(--shadow)}
+.header{background:var(--card);border-bottom:1px solid var(--border);padding:var(--spacing) calc(var(--spacing) * 1.6);box-shadow:var(--shadow)}
 .header h1{font-size:1.875rem;font-weight:700;color:#1e293b;margin-bottom:0.5rem}
 .header .subtitle{color:var(--muted);font-size:0.875rem}
 
-.container{max-width:1400px;margin:0 auto;padding:2rem}
-.grid{display:grid;gap:1.5rem}
+.container{max-width:1400px;margin:0 auto;padding:var(--spacing)}
+.grid{display:grid;gap:var(--spacing)}
 .grid-2{grid-template-columns:1fr 1fr}
 @media(max-width:1024px){.grid-2{grid-template-columns:1fr}}
 
 .card{background:var(--card);border:1px solid var(--border);border-radius:0.75rem;box-shadow:var(--shadow);overflow:hidden}
-.card-header{padding:1.25rem 1.5rem;border-bottom:1px solid var(--border);background:#f1f5f9}
+.card-header{padding:var(--spacing);border-bottom:1px solid var(--border);background:#f1f5f9}
 .card-header h3{font-size:1.125rem;font-weight:600;color:#1e293b}
-.card-content{padding:1.5rem}
+.card-content{padding:var(--spacing)}
 
-.info-grid{display:grid;grid-template-columns:120px 1fr;gap:0.75rem 1rem;font-size:0.875rem}
+.info-grid{display:grid;grid-template-columns:110px 1fr;gap:0.75rem var(--spacing);font-size:0.875rem}
 .info-grid .label{font-weight:500;color:var(--muted)}
 .info-grid .value{color:#1e293b;font-family:monospace}
 
+.protocol-section{margin-top:var(--spacing);padding-top:var(--spacing);border-top:1px solid var(--border)}
 .protocol-item{display:flex;justify-content:space-between;align-items:center;
 padding:0.75rem;border:1px solid var(--border);border-radius:0.5rem;background:#f8fafc;margin-bottom:0.5rem}
-.protocol-name{font-weight:500;color:#1e293b}
-.protocol-port{font-size:0.875rem;color:var(--muted)}
+.protocol-name{font-weight:500;color:#1e293b;font-size:0.875rem}
+.protocol-port{font-size:0.75rem;color:var(--muted)}
 .status{padding:0.25rem 0.75rem;border-radius:9999px;font-size:0.75rem;font-weight:500}
 .status.online{background:#dcfce7;color:#166534}
 
-.shunt-mode{padding:0.5rem 1rem;border-radius:0.5rem;font-weight:500;font-size:0.875rem}
+.shunt-section{margin-bottom:var(--spacing)}
+.shunt-mode{display:inline-flex;padding:0.5rem 1rem;border-radius:0.5rem;font-weight:500;font-size:0.875rem}
 .shunt-mode.vps{background:#dcfce7;color:#166534}
 .shunt-mode.resi{background:#fef3c7;color:#d97706}
 .shunt-mode.direct-resi{background:#dbeafe;color:#2563eb}
 
+.whitelist-section{margin-top:var(--spacing);padding-top:var(--spacing);border-top:1px solid var(--border)}
 .tag{display:inline-block;padding:0.25rem 0.5rem;background:#e2e8f0;color:#475569;
-border-radius:0.375rem;font-size:0.75rem;margin:0.25rem;border:1px solid var(--border)}
+border-radius:0.375rem;font-size:0.75rem;margin:0.25rem 0.25rem 0.25rem 0;border:1px solid var(--border)}
 .tag.more{background:var(--primary);color:white;cursor:pointer}
 
 .btn{display:inline-flex;align-items:center;gap:0.5rem;padding:0.5rem 1rem;
 border:1px solid var(--border);border-radius:0.5rem;background:var(--card);
-color:#374151;font-size:0.875rem;cursor:pointer;transition:all 0.2s;margin-right:0.5rem}
+color:#374151;font-size:0.875rem;cursor:pointer;transition:all 0.2s;margin-right:0.5rem;margin-bottom:0.5rem}
 .btn:hover{background:#f3f4f6;border-color:var(--primary)}
 .btn.primary{background:var(--primary);color:white;border-color:var(--primary)}
+.btn:active{transform:translateY(1px)}
 
-.sub-content{background:#0f172a;color:#e5e7eb;padding:1rem;border-radius:0.5rem;
+.sub-content{background:#0f172a;color:#e5e7eb;padding:var(--spacing);border-radius:0.5rem;
 font-family:monospace;font-size:0.875rem;max-height:400px;overflow:auto;
-white-space:pre-wrap;word-break:break-all}
+white-space:pre-wrap;word-break:break-all;margin-top:0.75rem}
 
-.chart-container{position:relative;height:300px;margin-top:1rem}
-.table{width:100%;border-collapse:collapse;margin-top:1rem}
+.chart-container{position:relative;height:300px;margin-top:var(--spacing)}
+.table{width:100%;border-collapse:collapse;margin-top:var(--spacing)}
 .table th,.table td{text-align:left;padding:0.75rem;border-bottom:1px solid var(--border)}
 .table th{background:#f1f5f9;font-weight:600;color:#374151;font-size:0.875rem}
 .table td{font-size:0.875rem;color:#64748b}
 
 .cmd-item{display:flex;align-items:center;gap:0.75rem;padding:0.75rem;
 border:1px solid var(--border);border-radius:0.5rem;background:#f8fafc;margin-bottom:0.5rem}
-.cmd-code{font-family:monospace;color:var(--primary);font-weight:500;flex:1}
+.cmd-code{font-family:monospace;color:var(--primary);font-weight:500;flex:1;font-size:0.875rem}
 .cmd-desc{color:var(--muted);font-size:0.875rem}
 
 .loading{display:inline-block;width:1rem;height:1rem;border:2px solid #f3f4f6;
 border-top:2px solid var(--primary);border-radius:50%;animation:spin 1s linear infinite}
 @keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
+
+.copy-success{background:var(--success) !important;color:white !important;border-color:var(--success) !important}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
@@ -1035,56 +1044,67 @@ border-top:2px solid var(--primary);border-radius:50%;animation:spin 1s linear i
   </div>
 
   <div class="container">
-    <!-- 服务器信息与协议配置 -->
+    <!-- 第一行：服务器信息（含协议）与分流配置（含白名单） -->
     <div class="grid grid-2">
+      <!-- 服务器信息与协议配置 -->
       <div class="card">
         <div class="card-header"><h3>服务器信息</h3></div>
         <div class="card-content">
           <div class="info-grid" id="server-info"></div>
-          <div style="margin-top:1.5rem">
-            <div class="label" style="margin-bottom:0.5rem">分流状态</div>
-            <div id="shunt-status"><div class="shunt-mode vps">VPS全量出站</div></div>
-          </div>
-          <div style="margin-top:1.5rem">
-            <div class="label" style="margin-bottom:0.5rem">直连白名单</div>
-            <div id="whitelist-display"><span class="tag">加载中...</span></div>
+          
+          <!-- 协议配置部分 -->
+          <div class="protocol-section">
+            <h4 style="font-size:1rem;font-weight:600;color:#1e293b;margin-bottom:0.75rem">协议配置</h4>
+            <div id="protocol-list">
+              <div class="protocol-item">
+                <div><div class="protocol-name">VLESS-Reality</div><div class="protocol-port">端口: 443 (TCP)</div></div>
+                <div class="status online">运行中</div>
+              </div>
+              <div class="protocol-item">
+                <div><div class="protocol-name">VLESS-gRPC</div><div class="protocol-port">端口: 443 (TCP)</div></div>
+                <div class="status online">运行中</div>
+              </div>
+              <div class="protocol-item">
+                <div><div class="protocol-name">VLESS-WebSocket</div><div class="protocol-port">端口: 443 (TCP)</div></div>
+                <div class="status online">运行中</div>
+              </div>
+              <div class="protocol-item">
+                <div><div class="protocol-name">Hysteria2</div><div class="protocol-port">端口: 443 (UDP)</div></div>
+                <div class="status online">运行中</div>
+              </div>
+              <div class="protocol-item">
+                <div><div class="protocol-name">TUIC</div><div class="protocol-port">端口: 2053 (UDP)</div></div>
+                <div class="status online">运行中</div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
+      <!-- 分流配置与白名单 -->
       <div class="card">
-        <div class="card-header"><h3>协议配置</h3></div>
-        <div class="card-content" id="protocol-list">
-          <div class="protocol-item">
-            <div><div class="protocol-name">VLESS-Reality</div><div class="protocol-port">端口: 443 (TCP)</div></div>
-            <div class="status online">运行中</div>
+        <div class="card-header"><h3>分流配置</h3></div>
+        <div class="card-content">
+          <!-- 分流状态 -->
+          <div class="shunt-section">
+            <div style="font-weight:500;color:var(--muted);margin-bottom:0.75rem">分流状态</div>
+            <div id="shunt-status"><div class="shunt-mode vps">VPS全量出站</div></div>
           </div>
-          <div class="protocol-item">
-            <div><div class="protocol-name">VLESS-gRPC</div><div class="protocol-port">端口: 443 (TCP)</div></div>
-            <div class="status online">运行中</div>
-          </div>
-          <div class="protocol-item">
-            <div><div class="protocol-name">VLESS-WebSocket</div><div class="protocol-port">端口: 443 (TCP)</div></div>
-            <div class="status online">运行中</div>
-          </div>
-          <div class="protocol-item">
-            <div><div class="protocol-name">Hysteria2</div><div class="protocol-port">端口: 443 (UDP)</div></div>
-            <div class="status online">运行中</div>
-          </div>
-          <div class="protocol-item">
-            <div><div class="protocol-name">TUIC</div><div class="protocol-port">端口: 2053 (UDP)</div></div>
-            <div class="status online">运行中</div>
+
+          <!-- 直连白名单 -->
+          <div class="whitelist-section">
+            <div style="font-weight:500;color:var(--muted);margin-bottom:0.75rem">直连白名单</div>
+            <div id="whitelist-display"><span class="tag">加载中...</span></div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- 订阅内容 -->
+    <!-- 第二行：订阅内容 -->
     <div class="card">
       <div class="card-header"><h3>订阅内容</h3></div>
       <div class="card-content">
-        <div style="margin-bottom:1rem">
-          <button class="btn primary" id="copyAll">复制全部</button>
+        <div>
           <button class="btn" id="copyPlain">复制明文</button>
           <button class="btn" id="copyB64Lines">Base64(逐行)</button>
           <button class="btn" id="copyB64All">Base64(整包)</button>
@@ -1093,7 +1113,7 @@ border-top:2px solid var(--primary);border-radius:50%;animation:spin 1s linear i
       </div>
     </div>
 
-    <!-- 流量图表 -->
+    <!-- 第三行：流量图表 -->
     <div class="grid grid-2">
       <div class="card">
         <div class="card-header"><h3>出站分流统计</h3></div>
@@ -1105,7 +1125,7 @@ border-top:2px solid var(--primary);border-radius:50%;animation:spin 1s linear i
       </div>
     </div>
 
-    <!-- 月度统计与管理命令 -->
+    <!-- 第四行：月度统计与管理命令 -->
     <div class="grid grid-2">
       <div class="card">
         <div class="card-header"><h3>月度累计（近12个月）</h3></div>
@@ -1149,7 +1169,7 @@ border-top:2px solid var(--primary);border-radius:50%;animation:spin 1s linear i
     </div>
   </div>
 
-  <div style="text-align:center;padding:2rem;color:var(--muted);font-size:0.875rem">
+  <div style="text-align:center;padding:calc(var(--spacing) * 1.6);color:var(--muted);font-size:0.875rem">
     EdgeBox v3.0.0 企业级多协议节点部署方案 · 
     <a href="/sub" style="color:var(--primary)">订阅地址</a> · 
     数据更新：<span id="update-time">--</span>
@@ -1204,9 +1224,15 @@ border-top:2px solid var(--primary);border-radius:50%;animation:spin 1s linear i
     const mode = shunt.mode || 'vps';
     let modeHtml = '';
     switch(mode) {
-      case 'vps': modeHtml = '<div class="shunt-mode vps">VPS全量出站</div>'; break;
-      case 'resi': modeHtml = `<div class="shunt-mode resi">住宅IP全量出站</div><div style="margin-top:0.5rem;font-size:0.875rem;color:var(--muted)">代理：${shunt.proxy_info} | 状态：${shunt.health}</div>`; break;
-      case 'direct_resi': modeHtml = `<div class="shunt-mode direct-resi">智能分流模式</div><div style="margin-top:0.5rem;font-size:0.875rem;color:var(--muted)">代理：${shunt.proxy_info} | 状态：${shunt.health}</div>`; break;
+      case 'vps': 
+        modeHtml = '<div class="shunt-mode vps">VPS全量出站</div>'; 
+        break;
+      case 'resi': 
+        modeHtml = `<div class="shunt-mode resi">住宅IP全量出站</div><div style="margin-top:0.5rem;font-size:0.875rem;color:var(--muted)">代理：${shunt.proxy_info} | 状态：${shunt.health}</div>`; 
+        break;
+      case 'direct_resi': 
+        modeHtml = `<div class="shunt-mode direct-resi">智能分流模式</div><div style="margin-top:0.5rem;font-size:0.875rem;color:var(--muted)">代理：${shunt.proxy_info} | 状态：${shunt.health}</div>`; 
+        break;
     }
     shuntStatus.innerHTML = modeHtml;
 
@@ -1230,27 +1256,53 @@ border-top:2px solid var(--primary);border-radius:50%;animation:spin 1s linear i
     // 订阅内容
     document.getElementById('subBox').textContent = subText;
 
-    // 复制功能
-    const copyToClipboard = async (text) => {
+    // 修复复制功能 - 使用事件委托和更好的错误处理
+    const copyToClipboard = async (text, button) => {
       try {
         await navigator.clipboard.writeText(text);
-        const btn = event.target;
-        const original = btn.textContent;
-        btn.textContent = '✓ 已复制';
-        btn.style.background = 'var(--success)';
-        setTimeout(() => { btn.textContent = original; btn.style.background = ''; }, 2000);
-      } catch (err) { console.error('复制失败:', err); }
+        const original = button.textContent;
+        const originalClass = button.className;
+        button.textContent = '✓ 已复制';
+        button.className = originalClass + ' copy-success';
+        setTimeout(() => { 
+          button.textContent = original; 
+          button.className = originalClass;
+        }, 2000);
+      } catch (err) { 
+        console.error('复制失败:', err);
+        // 降级方案：使用传统方法
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+        button.textContent = '✓ 已复制';
+        setTimeout(() => button.textContent = '复制明文', 2000);
+      }
     };
 
+    // 解析订阅内容
     const plainBlock = subText.split('\n# Base64')[0].replace(/^# 明文[^\n]*\n/, '').trim();
     const b64LinesMatch = subText.match(/# Base64（逐行）([\s\S]*?)# Base64（整包/);
     const b64Lines = b64LinesMatch ? b64LinesMatch[1].split('\n').filter(l => !l.startsWith('#') && l.trim()).join('\n') : '';
     const b64All = (subText.split('# Base64（整包')[1] || '').split('\n').filter(l => !l.startsWith('#') && l.trim()).join('\n');
 
-    document.getElementById('copyAll').onclick = () => copyToClipboard(subText);
-    document.getElementById('copyPlain').onclick = () => copyToClipboard(plainBlock);
-    document.getElementById('copyB64Lines').onclick = () => copyToClipboard(b64Lines);
-    document.getElementById('copyB64All').onclick = () => copyToClipboard(b64All);
+    // 绑定复制事件
+    document.getElementById('copyPlain').addEventListener('click', function(e) {
+      e.preventDefault();
+      copyToClipboard(plainBlock, this);
+    });
+    
+    document.getElementById('copyB64Lines').addEventListener('click', function(e) {
+      e.preventDefault();
+      copyToClipboard(b64Lines, this);
+    });
+    
+    document.getElementById('copyB64All').addEventListener('click', function(e) {
+      e.preventDefault();
+      copyToClipboard(b64All, this);
+    });
 
     // 图表
     new Chart(document.getElementById('c1'), {
