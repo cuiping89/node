@@ -1281,28 +1281,31 @@ PANEL
     "${SCRIPTS_DIR}/panel-refresh.sh" || true
 
     log_success "流量采集与前端页面已就绪：${TRAFFIC_DIR}/index.html（含订阅/信息/图表/命令）"
-
+}
 
 # 设置定时任务
+# 设置定时任务
 setup_cron_jobs() {
-    log_info "配置定时任务..."
-    # 先清理旧 edgebox 相关 cron，再追加新任务
-    ( crontab -l 2>/dev/null | grep -vE '/etc/edgebox/scripts/(traffic-collector\.sh|traffic-alert\.sh|generate-charts\.py)' ; \
-      echo "0 * * * * /etc/edgebox/scripts/traffic-collector.sh" ; \
-	  echo "5 * * * * /etc/edgebox/scripts/panel-refresh.sh" \
-      echo "7 * * * * /etc/edgebox/scripts/traffic-alert.sh" \
-    ) | crontab - 2>/dev/null || true
-    log_success "cron 已配置（每小时采集 + 告警）"
-	# --- 轻量告警脚本（占位版，避免 cron 报错） ---
-cat > /etc/edgebox/scripts/traffic-alert.sh <<'ALERT'
+  log_info "配置定时任务..."
+  # 先清理旧 edgebox 相关 cron，再追加新任务
+  (
+    crontab -l 2>/dev/null | grep -vE '/etc/edgebox/scripts/(traffic-collector\.sh|traffic-alert\.sh|panel-refresh\.sh)' 
+    echo "0 * * * * /etc/edgebox/scripts/traffic-collector.sh"
+    echo "5 * * * * /etc/edgebox/scripts/panel-refresh.sh"
+    echo "7 * * * * /etc/edgebox/scripts/traffic-alert.sh"
+  ) | crontab - 2>/dev/null || true
+  log_success "cron 已配置（每小时采集 + 刷新面板 + 告警心跳）"
+
+  # --- 轻量告警脚本（占位版，避免 cron 报错） ---
+  cat > /etc/edgebox/scripts/traffic-alert.sh <<'ALERT'
 #!/bin/bash
 set -euo pipefail
 LOG="/var/log/edgebox-traffic-alert.log"
-# 这里将来可以做: 读取 /etc/edgebox/traffic/monthly.csv -> 判定阈值 -> 调 msmtp 发邮件
+# TODO: 读取 /etc/edgebox/traffic/monthly.csv 判断阈值并发信
 echo "[$(date -Is)] heartbeat" >> "$LOG"
 exit 0
 ALERT
-chmod +x /etc/edgebox/scripts/traffic-alert.sh
+  chmod +x /etc/edgebox/scripts/traffic-alert.sh
 }
 
 # 创建完整的edgeboxctl管理工具
@@ -1929,7 +1932,7 @@ backup_restore(){
     local f="$1"
     [[ -z "$f" || ! -f "$f" ]] && { echo "用法: edgeboxctl backup restore /path/to/edgebox_backup_xxx.tar.gz"; return 1; }
     log_info "恢复备份: $f"
-    local restore_dir="/tmp/edgebox_restore_$"
+    local restore_dir="/tmp/edgebox_restore_$$"
     mkdir -p "$restore_dir"
     
     if tar -xzf "$f" -C "$restore_dir" 2>/dev/null; then
