@@ -1443,6 +1443,103 @@ ALERT
   chmod +x /etc/edgebox/scripts/traffic-alert.sh
 }
 
+# 解析住宅代理 URL => 导出全局变量：
+# PROXY_SCHEME(http|socks) PROXY_HOST PROXY_PORT PROXY_USER PROXY_PASS PROXY_TLS(0/1) PROXY_SNI
+parse_proxy_url() {
+  local url="$(printf '%s' "$1" | tr -d '\r' | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')"
+  [[ -z "$url" ]] && { echo "空代理地址"; return 1; }
+
+  local scheme="${url%%://*}"; scheme="${scheme%:*}"
+  local rest="${url#*://}"
+
+  local auth hostport query user="" pass="" host="" port="" tls=0 sni=""
+  # 拆 query
+  if [[ "$rest" == *\?* ]]; then query="${rest#*\?}"; rest="${rest%%\?*}"; fi
+  # 拆 auth@host:port
+  if [[ "$rest" == *@* ]]; then auth="${rest%@*}"; hostport="${rest#*@}"
+     user="${auth%%:*}"; pass="${auth#*:}"; [[ "$pass" == "$auth" ]] && pass=""
+  else hostport="$rest"; fi
+  host="${hostport%%:*}"; port="${hostport##*:}"
+
+  # 标准化
+  case "$scheme" in
+    http)   tls=0 ;;
+    https)  scheme="http"; tls=1 ;;
+    socks5|socks) scheme="socks"; tls=0 ;;
+    socks5s)      scheme="socks"; tls=1 ;; # 罕见：SOCKS over TLS
+    *) echo "不支持的代理协议: $scheme"; return 1 ;;
+  esac
+
+  # 解析 query
+  if [[ -n "$query" ]]; then
+    local kv k v
+    IFS='&' read -r -a kv <<<"$query"
+    for k in "${kv[@]}"; do
+      v="${k#*=}"; k="${k%%=*}"
+      [[ "$k" == "sni" ]] && sni="$v"
+    done
+  fi
+
+  # 导出
+  PROXY_SCHEME="$scheme"; PROXY_HOST="$host"; PROXY_PORT="$port"
+  PROXY_USER="$user"; PROXY_PASS="$pass"; PROXY_TLS="$tls"; PROXY_SNI="$sni"
+}
+
+# 用 curl 健康检查（http/https/socks 都支持）
+check_proxy_health_url() {
+  parse_proxy_url "$1" || return 1
+  local proxy_uri auth=""
+  [[ -n "$PROXY_USER" ]] && auth="${PROXY_USER}:${PROXY_PASS}@"
+
+  if [[ "$PROXY_SCHEME" == "http" ]]; then
+    local scheme="http"; [[ "$PROXY_TLS" -eq 1 ]] && scheme="https"
+    proxy_uri="${scheme}://${auth}${PROXY_HOST}:${PROXY_PORT}"
+  else
+    # socks5h 确保域名解析走代理端
+    proxy_uri="socks5h://${auth}${PROXY_HOST}:${PROXY_PORT}"
+  fi
+
+  curl -fsS --max-time 6 --connect-timeout 4 --proxy "$proxy_uri" http://www.gstatic.com/generate_204 >/dev/null
+}
+
+# 生成 Xray 的住宅代理 outbound JSON（单个）
+build_xray_resi_outbound() {
+  # 依赖 parse_proxy_url 产生的全局变量
+  local users='' stream=''
+  [[ -n "$PROXY_USER" ]] && users=", \"users\":[{\"user\":\"$PROXY_USER\",\"pass\":\"$PROXY_PASS\"}]"
+  if [[ "$PROXY_TLS" -eq 1 ]]; then
+    stream=", \"streamSettings\": {\"security\":\"tls\"$( [[ -n "$PROXY_SNI" ]] && echo ",\"tlsSettings\":{\"serverName\":\"$PROXY_SNI\"}" )}"
+  fi
+
+  if [[ "$PROXY_SCHEME" == "http" ]]; then
+    cat <<JSON
+{ "protocol":"http","tag":"resi-proxy","settings":{"servers":[{"address":"$PROXY_HOST","port":$PROXY_PORT$users}]}$stream }
+JSON
+  else
+    cat <<JSON
+{ "protocol":"socks","tag":"resi-proxy","settings":{"servers":[{"address":"$PROXY_HOST","port":$PROXY_PORT$users}]}$stream }
+JSON
+  fi
+}
+
+# 生成 sing-box 的住宅代理 outbound JSON（可按需让 HY2/TUIC 也走住宅）
+build_singbox_resi_outbound() {
+  local auth='' tls=''
+  [[ -n "$PROXY_USER" ]] && auth=",\"username\":\"$PROXY_USER\",\"password\":\"$PROXY_PASS\""
+  if [[ "$PROXY_TLS" -eq 1 ]]; then
+    tls=",\"tls\":{\"enabled\":true$( [[ -n "$PROXY_SNI" ]] && echo ",\"server_name\":\"$PROXY_SNI\"" )}"
+  fi
+  if [[ "$PROXY_SCHEME" == "http" ]]; then
+    cat <<JSON
+{"type":"http","tag":"resi-proxy","server":"$PROXY_HOST","server_port":$PROXY_PORT$auth$tls}
+JSON
+  else
+    cat <<JSON
+{"type":"socks","tag":"resi-proxy","server":"$PROXY_HOST","server_port":$PROXY_PORT$auth$tls}
+JSON
+  fi
+}
+
 # 创建完整的edgeboxctl管理工具
 create_enhanced_edgeboxctl() {
     log_info "创建增强版edgeboxctl管理工具..."
@@ -1860,6 +1957,8 @@ show_shunt_status() {
 setup_outbound_vps() {
     log_info "配置VPS全量出站模式..."
     get_server_info || return 1
+
+    # === sing-box：恢复直连 ===
     cp ${CONFIG_DIR}/sing-box.json ${CONFIG_DIR}/sing-box.json.bak 2>/dev/null || true
     cat > ${CONFIG_DIR}/sing-box.json <<EOF
 {"log":{"level":"warn","timestamp":true},
@@ -1873,20 +1972,40 @@ setup_outbound_vps() {
    "tls":{"enabled":true,"alpn":["h3"],"certificate_path":"${CERT_DIR}/current.pem","key_path":"${CERT_DIR}/current.key"}}],
  "outbounds":[{"type":"direct","tag":"direct"}]}
 EOF
+
+    # === Xray：恢复直连（删掉任何代理出站/路由） ===
+    local xray_tmp="${CONFIG_DIR}/xray.json.tmp"
+    jq '
+      .outbounds = [ { "protocol":"freedom", "tag":"direct" } ] |
+      .routing   = { "rules": [] }
+    ' ${CONFIG_DIR}/xray.json > "$xray_tmp" && mv "$xray_tmp" ${CONFIG_DIR}/xray.json
+
     setup_shunt_directories
     update_shunt_state "vps" "" "healthy"
-    systemctl restart sing-box && log_success "VPS全量出站模式配置成功" || { log_error "配置失败，已保留备份"; return 1; }
+    systemctl restart xray sing-box && log_success "VPS全量出站模式配置成功" || { log_error "配置失败"; return 1; }
 }
 
 setup_outbound_resi() {
-    local proxy_addr="$1"
-    [[ -z "$proxy_addr" ]] && { echo "用法: edgeboxctl shunt resi IP:PORT[:USER:PASS]"; return 1; }
-    log_info "配置住宅IP全量出站模式: $proxy_addr"
-    if ! check_proxy_health "$proxy_addr"; then log_error "代理 $proxy_addr 连接失败"; return 1; fi
-    get_server_info || return 1
-    local host port user pass; IFS=':' read -r host port user pass <<< "$proxy_addr"
-    cp ${CONFIG_DIR}/sing-box.json ${CONFIG_DIR}/sing-box.json.bak 2>/dev/null || true
-    local auth_json=""; [[ -n "$user" && -n "$pass" ]] && auth_json=",\"username\":\"$user\",\"password\":\"$pass\""
+  local url="$1"; [[ -z "$url" ]] && { echo "用法: edgeboxctl shunt resi '<scheme://[user:pass@]host:port[?sni=...]>'"; return 1; }
+  log_info "配置住宅IP全量出站: $url"
+  if ! check_proxy_health_url "$url"; then log_error "代理不可用：$url"; return 1; fi
+  get_server_info || return 1
+  parse_proxy_url "$url"
+
+  # === Xray：默认所有流量走住宅，DNS/53 直连 ===
+  local xray_out="$(build_xray_resi_outbound)"
+  jq --argjson ob "$xray_out" '
+    .outbounds = [ { "protocol":"freedom","tag":"direct" }, $ob ] |
+    .routing = { "domainStrategy":"AsIs", "rules":[
+      {"type":"field","port":"53","outboundTag":"direct"},
+      {"type":"field","outboundTag":"resi-proxy"}
+    ] }
+  ' ${CONFIG_DIR}/xray.json > ${CONFIG_DIR}/xray.json.tmp && mv ${CONFIG_DIR}/xray.json.tmp ${CONFIG_DIR}/xray.json
+
+  # === sing-box：如需 HY2/TUIC 也走住宅，把 DEFAULT_TO_RESI=1；否则保留直连 ===
+  local DEFAULT_TO_RESI=0
+  if [[ $DEFAULT_TO_RESI -eq 1 ]]; then
+    local sb_ob="$(build_singbox_resi_outbound)"
     cat > ${CONFIG_DIR}/sing-box.json <<EOF
 {"log":{"level":"warn","timestamp":true},
  "inbounds":[
@@ -1897,37 +2016,52 @@ setup_outbound_resi() {
    "users":[{"uuid":"${UUID_TUIC}","password":"${PASSWORD_TUIC}"}],
    "congestion_control":"bbr",
    "tls":{"enabled":true,"alpn":["h3"],"certificate_path":"${CERT_DIR}/current.pem","key_path":"${CERT_DIR}/current.key"}}],
- "outbounds":[
-  {"type":"http","tag":"resi-proxy","server":"${host}","server_port":${port}${auth_json}},
-  {"type":"direct","tag":"direct"}],
- "route":{"rules":[
-  {"protocol":"dns","outbound":"direct"},
-  {"port":53,"outbound":"direct"},
-  {"outbound":"resi-proxy"}]}}
+ "outbounds":[ $sb_ob ],
+ "route":{"rules":[{"port":53,"outbound":"direct"}]}}
 EOF
-    echo "$proxy_addr" > "${CONFIG_DIR}/shunt/resi.conf"
-    setup_shunt_directories
-    update_shunt_state "resi" "$proxy_addr" "healthy"
-    systemctl restart sing-box && log_success "住宅IP全量出站模式配置成功" || { log_error "配置失败"; return 1; }
+  else
+    cat > ${CONFIG_DIR}/sing-box.json <<EOF
+{"log":{"level":"warn","timestamp":true},
+ "inbounds":[
+  {"type":"hysteria2","tag":"hysteria2-in","listen":"::","listen_port":443,
+   "users":[{"password":"${PASSWORD_HYSTERIA2}"}],
+   "tls":{"enabled":true,"alpn":["h3"],"certificate_path":"${CERT_DIR}/current.pem","key_path":"${CERT_DIR}/current.key"}},
+  {"type":"tuic","tag":"tuic-in","listen":"::","listen_port":2053,
+   "users":[{"uuid":"${UUID_TUIC}","password":"${PASSWORD_TUIC}"}],
+   "congestion_control":"bbr",
+   "tls":{"enabled":true,"alpn":["h3"],"certificate_path":"${CERT_DIR}/current.pem","key_path":"${CERT_DIR}/current.key"}}],
+ "outbounds":[{"type":"direct","tag":"direct"}]}
+EOF
+  fi
+
+  echo "$url" > "${CONFIG_DIR}/shunt/resi.conf"
+  setup_shunt_directories
+  update_shunt_state "resi" "$url" "healthy"
+  systemctl restart xray sing-box && log_success "住宅IP全量出站模式配置成功" || { log_error "失败"; return 1; }
 }
 
 setup_outbound_direct_resi() {
-    local proxy_addr="$1"
-    [[ -z "$proxy_addr" ]] && { echo "用法: edgeboxctl shunt direct-resi IP:PORT[:USER:PASS]"; return 1; }
-    log_info "配置智能分流模式: $proxy_addr"
-    if ! check_proxy_health "$proxy_addr"; then log_error "代理 $proxy_addr 连接失败"; return 1; fi
-    get_server_info || return 1
-    setup_shunt_directories
-    local host port user pass; IFS=':' read -r host port user pass <<< "$proxy_addr"
-    cp ${CONFIG_DIR}/sing-box.json ${CONFIG_DIR}/sing-box.json.bak 2>/dev/null || true
-    local auth_json=""; [[ -n "$user" && -n "$pass" ]] && auth_json=",\"username\":\"$user\",\"password\":\"$pass\""
-    local whitelist_json
-    if [[ -f "${CONFIG_DIR}/shunt/whitelist.txt" ]]; then
-        whitelist_json=$(cat "${CONFIG_DIR}/shunt/whitelist.txt" | jq -R -s 'split("\n") | map(select(length > 0))' | jq -c .)
-    else
-        whitelist_json='["googlevideo.com","ytimg.com","ggpht.com","youtube.com","youtu.be"]'
-    fi
-    cat > ${CONFIG_DIR}/sing-box.json <<EOF
+  local url="$1"; [[ -z "$url" ]] && { echo "用法: edgeboxctl shunt direct-resi '<scheme://[user:pass@]host:port[?sni=...]>'"; return 1; }
+  log_info "配置智能分流: $url"
+  if ! check_proxy_health_url "$url"; then log_error "代理不可用：$url"; return 1; fi
+  get_server_info || return 1; setup_shunt_directories
+  parse_proxy_url "$url"
+
+  # Xray：白名单直连，其余走住宅
+  local xray_ob="$(build_xray_resi_outbound)"
+  local wl='[]'
+  [[ -s "${CONFIG_DIR}/shunt/whitelist.txt" ]] && wl="$(cat "${CONFIG_DIR}/shunt/whitelist.txt" | jq -R -s 'split("\n")|map(select(length>0))|map("domain:"+.)')"
+  jq --argjson ob "$xray_ob" --argjson wl "$wl" '
+    .outbounds = [ { "protocol":"freedom","tag":"direct" }, $ob ] |
+    .routing = { "domainStrategy":"AsIs", "rules":[
+      {"type":"field","port":"53","outboundTag":"direct"},
+      {"type":"field","domain": $wl,"outboundTag":"direct"},
+      {"type":"field","outboundTag":"resi-proxy"}
+    ] }
+  ' ${CONFIG_DIR}/xray.json > ${CONFIG_DIR}/xray.json.tmp && mv ${CONFIG_DIR}/xray.json.tmp ${CONFIG_DIR}/xray.json
+
+  # sing-box：保持直连（如需也走住宅，把 outbounds 改成 build_singbox_resi_outbound 的结果并设置 route）
+  cat > ${CONFIG_DIR}/sing-box.json <<EOF
 {"log":{"level":"warn","timestamp":true},
  "inbounds":[
   {"type":"hysteria2","tag":"hysteria2-in","listen":"::","listen_port":443,
@@ -1937,18 +2071,12 @@ setup_outbound_direct_resi() {
    "users":[{"uuid":"${UUID_TUIC}","password":"${PASSWORD_TUIC}"}],
    "congestion_control":"bbr",
    "tls":{"enabled":true,"alpn":["h3"],"certificate_path":"${CERT_DIR}/current.pem","key_path":"${CERT_DIR}/current.key"}}],
- "outbounds":[
-  {"type":"direct","tag":"direct"},
-  {"type":"http","tag":"resi-proxy","server":"${host}","server_port":${port}${auth_json}}],
- "route":{"rules":[
-  {"protocol":"dns","outbound":"direct"},
-  {"port":53,"outbound":"direct"},
-  {"domain_suffix":${whitelist_json},"outbound":"direct"},
-  {"outbound":"resi-proxy"}]}}
+ "outbounds":[{"type":"direct","tag":"direct"}]}
 EOF
-    echo "$proxy_addr" > "${CONFIG_DIR}/shunt/resi.conf"
-    update_shunt_state "direct_resi" "$proxy_addr" "healthy"
-    systemctl restart sing-box && log_success "智能分流模式配置成功" || { log_error "配置失败"; return 1; }
+
+  echo "$url" > "${CONFIG_DIR}/shunt/resi.conf"
+  update_shunt_state "direct_resi" "$url" "healthy"
+  systemctl restart xray sing-box && log_success "智能分流模式配置成功" || { log_error "失败"; return 1; }
 }
 
 manage_whitelist() {
