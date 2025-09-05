@@ -1052,11 +1052,10 @@ table{border-collapse:collapse;width:100%} th,td{border-bottom:1px solid #eee;pa
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-  <h1>EdgeBox · 订阅 & 流量图表</h1>
-  <p class="card">订阅链接（Base64）：<a class="btn" href="/sub" target="_blank">打开 /sub</a>　<small id="ts"></small></p>
-
+  <h1>EdgeBox · 节点控制台</h1>
+ 
   <div class="grid">
-    <div class="card"><h3>日曲线 #1（出口分担：VPS vs 住宅）</h3><canvas id="c1"></canvas></div>
+    <div class="card"><h3>日曲线 #1（出口分流：VPS vs 住宅）</h3><canvas id="c1"></canvas></div>
     <div class="card"><h3>日曲线 #2（高流量端口）</h3><canvas id="c2"></canvas></div>
     <div class="card"><h3>月累计（近 12 个月）</h3>
       <table id="mt"><thead><tr><th>月份</th><th>↑TX</th><th>↓RX</th><th>VPS↑</th><th>住宅↑</th></tr></thead><tbody></tbody></table>
