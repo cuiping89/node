@@ -2481,7 +2481,7 @@ main() {
     clear
     print_separator
     echo -e "${GREEN}EdgeBox 企业级安装脚本 v3.0.0${NC}"
-    echo -e "${CYAN}模块1+2+3完整版：SNI定向 + 智能分流 + 流量统计 + 备份恢复${NC}"
+    echo -e "${CYAN}完整版：SNI定向 + 证书切换 + 出站分流 + 流量统计 + 流量预警 + 备份恢复${NC}"
     print_separator
     
     # 创建日志文件
