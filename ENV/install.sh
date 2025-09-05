@@ -2451,11 +2451,11 @@ show_installation_info() {
     echo -e "  🌐 控制面板: ${PURPLE}http://${SERVER_IP}/${NC}" #订阅链接\流量统计\运维命令
     
     echo -e "\n${CYAN}高级运维：${NC}"
-	echo -e "  模式切换: 支持IP模式与域名模式双向切换"
-    echo -e "  出站分流: 支持住宅IP代理，降低VPS出站成本"
-    echo -e "  流量监控: 实时图表展示，支持端口维度统计"
-    echo -e "  预警通知: 流量阈值告警，避免超额费用"
-    echo -e "  自动备份: 配置自动备份，故障快速恢复"
+	echo -e "  模式切换: IP模式⇋域名模式"
+    echo -e "  出站分流: 住宅IP全量⇋VPS全量出⇋白名单VPS出+非白名单住宅IP出"
+    echo -e "  流量监控: 日分流出站曲线图，日高流量协议/端口曲线图，月累计图"
+    echo -e "  预警通知: 流量阈值分级30%、60%、90%告警"
+    echo -e "  自动备份: 每日自动备份，故障快速恢复"
     
     echo -e "\n${CYAN}管理命令：${NC}"
     echo -e "  ${PURPLE}edgeboxctl status${NC}                     # 查看服务状态"
@@ -2526,6 +2526,7 @@ main() {
     setup_traffic_monitoring
     setup_cron_jobs
     setup_email_system
+	create_enhanced_edgeboxctl
     create_init_script
 
     # 启动初始化服务
