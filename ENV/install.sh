@@ -437,11 +437,13 @@ generate_reality_keys() {
 configure_nginx() {
   log_info "配置 Nginx（Nginx-first · SNI+ALPN 分流）..."
 
-  # 备份
   [[ -f /etc/nginx/nginx.conf ]] && cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak
 
-  # 按文档契约写入完整 nginx.conf
   cat > /etc/nginx/nginx.conf <<'NGINX_CONF'
+# 加载动态模块（必须有，才会启用 stream / ssl_preread / stream_map 等）
+include /etc/nginx/modules-enabled/*.conf;
+include /usr/share/nginx/modules/*.conf;
+
 user  www-data;
 worker_processes  auto;
 pid /run/nginx.pid;
@@ -460,42 +462,27 @@ http {
     listen [::]:80   default_server;
     server_name _;
 
-    # 根路径按文档跳到统计页
     location = / { return 302 /traffic/; }
-
-    # 订阅（/sub），如脚本将内容写到 /var/www/html/sub
-    location = /sub {
-      default_type text/plain;
-      root /var/www/html;
-    }
-
-    # 统计前端（Chart.js）
-    location ^~ /traffic/ {
-      alias /etc/edgebox/traffic/;
-      autoindex off;
-    }
+    location = /sub { default_type text/plain; root /var/www/html; }
+    location ^~ /traffic/ { alias /etc/edgebox/traffic/; autoindex off; }
   }
 }
 
 # === TCP/443：SNI + ALPN 分流（不终止 TLS）===
 stream {
-  # SNI 显式路由（契约：可自定义你的伪装域名/内部域名）
   map $ssl_preread_server_name $svc {
-    # 匹配常见伪装到 Reality 的域名（示例）
     ~^(www\.cloudflare\.com|www\.apple\.com|www\.microsoft\.com)$  reality;
     grpc.edgebox.internal  grpc;
     ws.edgebox.internal    ws;
     default "";
   }
 
-  # ALPN 兜底：h2 -> gRPC；http/1.1 -> WS；其余 -> Reality
   map $ssl_preread_alpn_protocols $by_alpn {
     ~\bh2\b          127.0.0.1:10085;  # gRPC
     ~\bhttp/1\.1\b   127.0.0.1:10086;  # WebSocket
     default          127.0.0.1:11443;  # Reality
   }
 
-  # SNI 命中优先
   map $svc $upstream_sni {
     reality  127.0.0.1:11443;
     grpc     127.0.0.1:10085;
@@ -503,10 +490,10 @@ stream {
     default  "";
   }
 
-  # 最终选择：优先 SNI，其次 ALPN
+  # SNI 命中则用 SNI；否则回落到 ALPN
   map $upstream_sni $upstream {
-    ~.+     $upstream_sni;
-    default $by_alpn;
+    ""      $by_alpn;
+    default $upstream_sni;
   }
 
   server {
@@ -519,7 +506,6 @@ stream {
 }
 NGINX_CONF
 
-  # 语法校验与启动
   if ! nginx -t >/dev/null 2>&1; then
     log_error "Nginx 配置测试失败，请检查 /etc/nginx/nginx.conf"
     return 1
