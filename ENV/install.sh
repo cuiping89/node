@@ -434,50 +434,56 @@ generate_reality_keys() {
 }
 
 # 配置Nginx（SNI定向 + ALPN兜底架构）
-install_dependencies() {
-    log_info "更新软件源..."
-    apt-get update -qq
+configure_nginx() {
+  log_info "配置Nginx..."
 
-    log_info "安装必要依赖..."
-    # 仅保留轻量依赖：vnStat + nftables + Nginx + 基础工具 + 邮件工具
-    PACKAGES="curl wget unzip tar net-tools openssl jq uuid-runtime vnstat iftop certbot bc"
-    PACKAGES="$PACKAGES nftables nginx libnginx-mod-stream"
-    PACKAGES="$PACKAGES msmtp msmtp-mta mailutils"
+  # 备份
+  [[ -f /etc/nginx/nginx.conf ]] && cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak
 
-    for pkg in $PACKAGES; do
-        if ! dpkg -l | grep -q "^ii.*$pkg"; then
-            log_info "安装 $pkg..."
-            DEBIAN_FRONTEND=noninteractive apt-get install -y $pkg >/dev/null 2>&1 || {
-                log_warn "$pkg 安装失败，尝试继续..."
-            }
-        else
-            log_info "$pkg 已安装"
-        fi
-    done
+  # 正确写入 nginx.conf（注意 heredoc 起止标记）
+  cat > /etc/nginx/nginx.conf <<'NGINX_CONF'
+user  www-data;
+worker_processes  auto;
+pid /run/nginx.pid;
 
-    # 启用vnstat
-    systemctl enable vnstat >/dev/null 2>&1
-    systemctl start vnstat >/dev/null 2>&1
+events { worker_connections 1024; }
 
-    log_success "依赖安装完成（已去除 Python 科学栈）"
-}
-    
-    # 订阅接口
-    location = /sub { 
-      default_type text/plain; 
-      root /var/www/html; 
+http {
+  include       /etc/nginx/mime.types;
+  default_type  application/octet-stream;
+  sendfile on;
+  access_log /var/log/nginx/access.log;
+  error_log  /var/log/nginx/error.log warn;
+
+  server {
+    listen 0.0.0.0:80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+
+    # 静态站点（订阅 + 图表）
+    root  /var/www/html;
+    index index.html;
+
+    # 根路径直接跳到 /traffic/
+    location = / { return 302 /traffic/; }
+
+    # /sub 提供订阅（Base64）
+    location = /sub {
+      default_type text/plain;
+      root /var/www/html;
     }
-    
-    # 流量统计页面
-    location /traffic {
-      alias /etc/edgebox/traffic;
-      autoindex on;
+
+    # /traffic 指向统计页面目录
+    location ^~ /traffic/ {
+      alias /etc/edgebox/traffic/;
+      autoindex off;
     }
   }
 }
 
+# TLS 直通分流（SNI/ALPN）
 stream {
-  # 1) SNI 显式路由（Reality 伪装域名直送 Reality；IP 模式用内部标识）
+  # 1) SNI 显式路由（可按需改伪装域名）
   map $ssl_preread_server_name $svc {
     ~^(www\.cloudflare\.com|www\.apple\.com|www\.microsoft\.com)$  reality;
     grpc.edgebox.internal  grpc;
@@ -485,14 +491,14 @@ stream {
     default "";
   }
 
-  # 2) ALPN 兜底（h2 -> gRPC；http/1.1 -> WS）
+  # 2) ALPN 兜底：h2 -> gRPC；http/1.1 -> WS
   map $ssl_preread_alpn_protocols $by_alpn {
     ~\bh2\b          127.0.0.1:10085;
     ~\bhttp/1\.1\b   127.0.0.1:10086;
     default          127.0.0.1:10086;
   }
 
-  # 3) SNI 命中优先
+  # 3) SNI命中优先
   map $svc $upstream_sni {
     reality  127.0.0.1:11443;
     grpc     127.0.0.1:10085;
@@ -500,39 +506,32 @@ stream {
     default  "";
   }
 
-  # 4) 最终决策：SNI 优先，未命中走 ALPN
+  # 4) 最终选择：先看 SNI 命中，否则走 ALPN
   map $upstream_sni $upstream {
     ~.+     $upstream_sni;
     default $by_alpn;
   }
 
   server {
-    listen 0.0.0.0:443;
+    listen 0.0.0.0:443 reuseport;
     ssl_preread on;
     proxy_pass $upstream;
     proxy_connect_timeout 5s;
     proxy_timeout 15s;
-    proxy_protocol off;
   }
 }
 NGINX_CONF
 
-  # 语法校验
+  # 语法校验并启动
   if ! nginx -t >/dev/null 2>&1; then
     log_error "Nginx 配置测试失败，请检查 /etc/nginx/nginx.conf"
     return 1
   fi
 
-  # 用 enable + restart（不要 reload）
   systemctl daemon-reload
   systemctl enable nginx >/dev/null 2>&1 || true
-  if systemctl restart nginx >/dev/null 2>&1; then
-    log_success "Nginx 已启动（SNI 定向 + ALPN 兜底架构生效）"
-  else
-    log_error "Nginx 启动失败，最近日志："
-    journalctl -u nginx -n 50 --no-pager | tail -n 20
-    return 1
-  fi
+  systemctl restart nginx
+  log_success "Nginx 配置完成（首页已跳转 /traffic/）"
 }
 
 # 配置Xray
