@@ -829,68 +829,61 @@ start_services() {
 generate_subscription() {
     log_info "生成订阅链接..."
 
-    # 验证必要变量
+    # 校验
     if [[ -z "$SERVER_IP" || -z "$UUID_VLESS" || -z "$REALITY_PUBLIC_KEY" ]]; then
-        log_error "必要的配置变量未设置，无法生成订阅"
-        return 1
+        log_error "必要的配置变量未设置，无法生成订阅"; return 1
     fi
 
-    local address="${SERVER_IP}"
-    local uuid="${UUID_VLESS}"
-    local allowInsecure_param="&allowInsecure=1"
-    local insecure_param="&insecure=1"
+    local addr="$SERVER_IP" uuid="$UUID_VLESS"
     local WS_SNI="ws.edgebox.internal"
+    local allowInsecure="&allowInsecure=1"   # IP 模式：gRPC/WS/TUIC 关闭校验
+    local insecure="&insecure=1"             # IP 模式：HY2 关闭校验
 
-    # URL编码密码
+    # URL 编码密码
     local HY2_PW_ENC TUIC_PW_ENC
     HY2_PW_ENC=$(printf '%s' "$PASSWORD_HYSTERIA2" | jq -rR @uri)
-    TUIC_PW_ENC=$(printf '%s' "$PASSWORD_TUIC" | jq -rR @uri)
+    TUIC_PW_ENC=$(printf '%s' "$PASSWORD_TUIC"     | jq -rR @uri)
 
-    # 链接明文（五协议，多行）
-    local reality_link="vless://${uuid}@${address}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&type=tcp#EdgeBox-REALITY"
-    local grpc_link="vless://${uuid}@${address}:443?encryption=none&security=tls&sni=grpc.edgebox.internal&alpn=h2&type=grpc&serviceName=grpc&fp=chrome${allowInsecure_param}#EdgeBox-gRPC"
-    local ws_link="vless://${uuid}@${address}:443?encryption=none&security=tls&sni=${WS_SNI}&host=${WS_SNI}&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome${allowInsecure_param}#EdgeBox-WS"
-    local hy2_link="hysteria2://${HY2_PW_ENC}@${address}:443?sni=${address}&alpn=h3${insecure_param}#EdgeBox-HYSTERIA2"
-    local tuic_link="tuic://${UUID_TUIC}:${TUIC_PW_ENC}@${address}:2053?congestion_control=bbr&alpn=h3&sni=${address}${allowInsecure_param}#EdgeBox-TUIC"
+    # 明文 5 条（⚠️ 无注释、每行一条，放在文件最前面，保证粘贴导入稳定）
+    local plain=$(
+      cat <<PLAIN
+vless://${uuid}@${addr}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&type=tcp#EdgeBox-REALITY
+vless://${uuid}@${addr}:443?encryption=none&security=tls&sni=grpc.edgebox.internal&alpn=h2&type=grpc&serviceName=grpc&fp=chrome${allowInsecure}#EdgeBox-gRPC
+vless://${uuid}@${addr}:443?encryption=none&security=tls&sni=${WS_SNI}&host=${WS_SNI}&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome${allowInsecure}#EdgeBox-WS
+hysteria2://${HY2_PW_ENC}@${addr}:443?sni=${addr}&alpn=h3${insecure}#EdgeBox-HYSTERIA2
+tuic://${UUID_TUIC}:${TUIC_PW_ENC}@${addr}:2053?congestion_control=bbr&alpn=h3&sni=${addr}${allowInsecure}#EdgeBox-TUIC
+PLAIN
+    )
 
-    local plain="${reality_link}
-${grpc_link}
-${ws_link}
-${hy2_link}
-${tuic_link}"
+    # Base64 工具
+    _b64_line(){ if base64 --help 2>&1 | grep -q -- '-w'; then base64 -w0; else base64 | tr -d '\n'; fi; }
+    _ensure_nl(){ sed -e '$a\'; }
 
-    # 兼容：单行 Base64 工具
-_b64_line() { if base64 --help 2>&1 | grep -q -- '-w'; then base64 -w0; else base64 | tr -d '\n'; fi; }
-_ensure_nl(){ sed -e '$a\'; }
+    # 写配置目录（给 CLI 兼容）
+    printf '%s\n' "$plain" > "${CONFIG_DIR}/subscription.txt"
+    _ensure_nl <<<"$plain" | _b64_line > "${CONFIG_DIR}/subscription.base64"
 
-    # 写入配置目录
-    echo -e "${plain}" > "${CONFIG_DIR}/subscription.txt"
-    _ensure_nl <<<"${plain}" | _b64_line > "${CONFIG_DIR}/subscription.base64"
-
-    # 逐行 Base64（每行一个链接 -> 一行一个 Base64）
     : > "${CONFIG_DIR}/subscription.b64lines"
     while IFS= read -r line; do
       [[ -n "$line" ]] || continue
       printf '%s\n' "$line" | _ensure_nl | _b64_line >> "${CONFIG_DIR}/subscription.b64lines"
       printf '\n' >> "${CONFIG_DIR}/subscription.b64lines"
-    done <<< "${plain}"
+    done <<<"$plain"
 
-    # 面板与 CLI 共用的展示内容（同一个框里）
+    # 控制面板文件：第一部分就是纯链接（没有任何注释）
     mkdir -p /var/www/html
     {
-      echo "# 明文（可全选，一次导入全部协议）"
-      printf '%s\n' "${plain}"
-      echo
-      echo "# Base64（逐行：每行一个链接，复制多行可一次导入多个。客户端支持度因软件而异）"
+      printf '%s\n\n' "$plain"
+      echo "# Base64（逐行，每行一个链接；多数客户端不支持一次粘贴多行）"
       cat "${CONFIG_DIR}/subscription.b64lines"
       echo
-      echo "# Base64（整包：单行，五协议一起导入，iOS 客户端常用）"
+      echo "# Base64（整包，单行：五协议一起导入，iOS 常用）"
       cat "${CONFIG_DIR}/subscription.base64"
       echo
     } > /var/www/html/sub
 
     log_success "订阅已生成"
-    log_success "HTTP订阅地址: http://${address}/sub"
+    log_success "HTTP 订阅地址: http://${addr}/sub"
 }
 
 #############################################
@@ -1676,32 +1669,34 @@ regen_sub_domain(){
   local domain=$1; get_server_info
   local HY2_PW_ENC TUIC_PW_ENC
   HY2_PW_ENC=$(printf '%s' "$PASSWORD_HYSTERIA2" | jq -rR @uri)
-  TUIC_PW_ENC=$(printf '%s' "$PASSWORD_TUIC" | jq -rR @uri)
+  TUIC_PW_ENC=$(printf '%s' "$PASSWORD_TUIC"     | jq -rR @uri)
 
-  local sub="vless://${UUID_VLESS}@${domain}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&type=tcp#EdgeBox-REALITY
+  local sub=$(
+    cat <<PLAIN
+vless://${UUID_VLESS}@${domain}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&type=tcp#EdgeBox-REALITY
 vless://${UUID_VLESS}@${domain}:443?encryption=none&security=tls&sni=${domain}&alpn=h2&type=grpc&serviceName=grpc&fp=chrome#EdgeBox-gRPC
 vless://${UUID_VLESS}@${domain}:443?encryption=none&security=tls&sni=${domain}&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome#EdgeBox-WS
 hysteria2://${HY2_PW_ENC}@${domain}:443?sni=${domain}&alpn=h3#EdgeBox-HYSTERIA2
-tuic://${UUID_TUIC}:${TUIC_PW_ENC}@${domain}:2053?congestion_control=bbr&alpn=h3&sni=${domain}#EdgeBox-TUIC"
+tuic://${UUID_TUIC}:${TUIC_PW_ENC}@${domain}:2053?congestion_control=bbr&alpn=h3&sni=${domain}#EdgeBox-TUIC
+PLAIN
+  )
 
-  # 工具
-_b64_line() { if base64 --help 2>&1 | grep -q -- '-w'; then base64 -w0; else base64 | tr -d '\n'; fi; }
-_ensure_nl(){ sed -e '$a\'; }
+  _b64_line(){ if base64 --help 2>&1 | grep -q -- '-w'; then base64 -w0; else base64 | tr -d '\n'; fi; }
+  _ensure_nl(){ sed -e '$a\'; }
 
-  echo -e "${sub}" > "${CONFIG_DIR}/subscription.txt"
-  _ensure_nl <<<"${sub}" | _b64_line > "${CONFIG_DIR}/subscription.base64"
+  printf '%s\n' "$sub" > "${CONFIG_DIR}/subscription.txt"
+  _ensure_nl <<<"$sub" | _b64_line > "${CONFIG_DIR}/subscription.base64"
   : > "${CONFIG_DIR}/subscription.b64lines"
   while IFS= read -r line; do
     [[ -n "$line" ]] || continue
-    printf '%s\n' "$line" | _ensure_nl | _b64_line >> "${CONFIG_DIR}/subscription.b64lines"; printf '\n' >> "${CONFIG_DIR}/subscription.b64lines"
-  done <<< "${sub}"
+    printf '%s\n' "$line" | _ensure_nl | _b64_line >> "${CONFIG_DIR}/subscription.b64lines"
+    printf '\n' >> "${CONFIG_DIR}/subscription.b64lines"
+  done <<<"$sub"
 
   mkdir -p /var/www/html
   {
-    echo "# 明文（可全选，一次导入全部协议）"
-    printf '%s\n' "${sub}"
-    echo
-    echo "# Base64（逐行）"
+    printf '%s\n\n' "$sub"
+    echo "# Base64（逐行，每行一个链接；多数客户端不支持一次粘贴多行）"
     cat "${CONFIG_DIR}/subscription.b64lines"
     echo
     echo "# Base64（整包，单行）"
@@ -1716,31 +1711,34 @@ regen_sub_ip(){
   get_server_info
   local HY2_PW_ENC TUIC_PW_ENC
   HY2_PW_ENC=$(printf '%s' "$PASSWORD_HYSTERIA2" | jq -rR @uri)
-  TUIC_PW_ENC=$(printf '%s' "$PASSWORD_TUIC" | jq -rR @uri)
+  TUIC_PW_ENC=$(printf '%s' "$PASSWORD_TUIC"     | jq -rR @uri)
 
-  local sub="vless://${UUID_VLESS}@${SERVER_IP}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&type=tcp#EdgeBox-REALITY
+  local sub=$(
+    cat <<PLAIN
+vless://${UUID_VLESS}@${SERVER_IP}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&type=tcp#EdgeBox-REALITY
 vless://${UUID_VLESS}@${SERVER_IP}:443?encryption=none&security=tls&sni=grpc.edgebox.internal&alpn=h2&type=grpc&serviceName=grpc&fp=chrome&allowInsecure=1#EdgeBox-gRPC
 vless://${UUID_VLESS}@${SERVER_IP}:443?encryption=none&security=tls&sni=ws.edgebox.internal&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome&allowInsecure=1#EdgeBox-WS
 hysteria2://${HY2_PW_ENC}@${SERVER_IP}:443?sni=${SERVER_IP}&alpn=h3&insecure=1#EdgeBox-HYSTERIA2
-tuic://${UUID_TUIC}:${TUIC_PW_ENC}@${SERVER_IP}:2053?congestion_control=bbr&alpn=h3&sni=${SERVER_IP}&allowInsecure=1#EdgeBox-TUIC"
+tuic://${UUID_TUIC}:${TUIC_PW_ENC}@${SERVER_IP}:2053?congestion_control=bbr&alpn=h3&sni=${SERVER_IP}&allowInsecure=1#EdgeBox-TUIC
+PLAIN
+  )
 
-_b64_line() { if base64 --help 2>&1 | grep -q -- '-w'; then base64 -w0; else base64 | tr -d '\n'; fi; }
-_ensure_nl(){ sed -e '$a\'; }
+  _b64_line(){ if base64 --help 2>&1 | grep -q -- '-w'; then base64 -w0; else base64 | tr -d '\n'; fi; }
+  _ensure_nl(){ sed -e '$a\'; }
 
-  echo -e "${sub}" > "${CONFIG_DIR}/subscription.txt"
-  _ensure_nl <<<"${sub}" | _b64_line > "${CONFIG_DIR}/subscription.base64"
+  printf '%s\n' "$sub" > "${CONFIG_DIR}/subscription.txt"
+  _ensure_nl <<<"$sub" | _b64_line > "${CONFIG_DIR}/subscription.base64"
   : > "${CONFIG_DIR}/subscription.b64lines"
   while IFS= read -r line; do
     [[ -n "$line" ]] || continue
-    printf '%s\n' "$line" | _ensure_nl | _b64_line >> "${CONFIG_DIR}/subscription.b64lines"; printf '\n' >> "${CONFIG_DIR}/subscription.b64lines"
-  done <<< "${sub}"
+    printf '%s\n' "$line" | _ensure_nl | _b64_line >> "${CONFIG_DIR}/subscription.b64lines"
+    printf '\n' >> "${CONFIG_DIR}/subscription.b64lines"
+  done <<<"$sub"
 
   mkdir -p /var/www/html
   {
-    echo "# 明文（可全选，一次导入全部协议）"
-    printf '%s\n' "${sub}"
-    echo
-    echo "# Base64（逐行）"
+    printf '%s\n\n' "$sub"
+    echo "# Base64（逐行，每行一个链接；多数客户端不支持一次粘贴多行）"
     cat "${CONFIG_DIR}/subscription.b64lines"
     echo
     echo "# Base64（整包，单行）"
@@ -1748,7 +1746,7 @@ _ensure_nl(){ sed -e '$a\'; }
     echo
   } > /var/www/html/sub
 
-  log_success "IP模式订阅已更新"
+  log_success "IP 模式订阅已更新"
 }
 
 switch_to_domain(){
