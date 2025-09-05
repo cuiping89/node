@@ -1361,8 +1361,6 @@ show_sub() {
   local cert_mode=$(get_current_cert_mode)
   local server_ip=$(jq -r '.server_ip' ${CONFIG_DIR}/server.json)
   echo ""
-  echo -e "${CYAN}证书模式:${NC} ${cert_mode}"
-  echo -e "${CYAN}支持协议:${NC} Reality, gRPC, WS, Hysteria2, TUIC\n"
   if [[ -s /var/www/html/sub ]]; then
     echo -e "${CYAN}订阅内容（与控制面板一致）：${NC}"
     cat /var/www/html/sub
