@@ -1180,8 +1180,8 @@ show_sub() {
   local cert_mode=$(get_current_cert_mode)
   local server_ip=$(jq -r '.server_ip' ${CONFIG_DIR}/server.json)
   echo ""
-  echo -e "${CYAN}证书模式: ${cert_mode}${NC}\n"
-  echo -e "${CYAN}支持协议: Reality, gRPC, WS, Hysteria2, TUIC${NC}\n"
+  echo -e "${CYAN}证书模式:${NC} ${cert_mode}"
+  echo -e "${CYAN}支持协议:${NC} Reality, gRPC, WS, Hysteria2, TUIC\n"
   if [[ -s /var/www/html/sub ]]; then
     echo -e "${CYAN}订阅内容（与控制面板一致）：${NC}"
     cat /var/www/html/sub
@@ -1290,7 +1290,7 @@ post_switch_report() {
   # 颜色变量若未定义，避免报错
   : "${CYAN:=}" "${GREEN:=}" "${RED:=}" "${YELLOW:=}" "${NC:=}"
 
-  echo -e "\n${CYAN}-----切换证书模式后自动验收报告-----${NC}"
+  echo -e "\n${CYAN}---切换证书模式后自动验收报告---${NC}"
 
   # 1) Nginx 配置测试
   echo -e "${CYAN}1) Nginx 配置测试 · 详细输出:${NC}"
@@ -2103,125 +2103,6 @@ INIT_SERVICE
     log_success "初始化脚本创建完成"
 }
 
-# 创建卸载脚本
-create_uninstall_script() {
-    log_info "创建卸载脚本..."
-    
-    cat > /usr/local/bin/edgebox-uninstall << 'UNINSTALL_SCRIPT'
-#!/bin/bash
-# EdgeBox 完整卸载脚本
-# Version: 3.0.0
-
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m'
-
-echo -e "${YELLOW}EdgeBox 卸载脚本${NC}"
-echo -e "${YELLOW}这将完全移除 EdgeBox 及其所有组件${NC}"
-echo ""
-
-read -p "确认卸载？这个操作无法撤销 [y/N]: " -n 1 -r
-echo
-if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-    echo "已取消"
-    exit 0
-fi
-
-echo -e "${GREEN}开始卸载 EdgeBox...${NC}"
-
-# 停止并禁用服务
-echo "停止服务..."
-for service in nginx xray sing-box edgebox-init; do
-    systemctl stop $service 2>/dev/null || true
-    systemctl disable $service 2>/dev/null || true
-done
-
-# 移除systemd服务文件
-echo "移除服务文件..."
-rm -f /etc/systemd/system/xray.service
-rm -f /etc/systemd/system/sing-box.service  
-rm -f /etc/systemd/system/edgebox-init.service
-systemctl daemon-reload
-
-# 移除程序文件
-echo "移除程序文件..."
-rm -f /usr/local/bin/xray
-rm -f /usr/local/bin/sing-box
-rm -f /usr/local/bin/edgeboxctl
-rm -f /usr/local/bin/edgebox-uninstall
-
-# 清理配置目录
-echo "清理配置文件..."
-rm -rf /etc/edgebox
-rm -rf /var/log/edgebox*
-rm -rf /var/log/xray
-
-# 恢复nginx配置
-echo "恢复Nginx配置..."
-if [[ -f /etc/nginx/nginx.conf.bak ]]; then
-    mv /etc/nginx/nginx.conf.bak /etc/nginx/nginx.conf
-    systemctl restart nginx 2>/dev/null || true
-else
-    # 重置为默认配置
-    apt-get install --reinstall -y nginx >/dev/null 2>&1 || true
-fi
-
-# 清理Web文件
-rm -f /var/www/html/sub
-rm -f /var/www/html/index.html
-
-# 清理定时任务
-echo "清理定时任务..."
-crontab -l 2>/dev/null | grep -v "edgebox" | crontab - 2>/dev/null || true
-
-# 清理防火墙规则
-echo "清理防火墙规则..."
-if command -v ufw >/dev/null 2>&1; then
-    ufw delete allow 443/tcp 2>/dev/null || true
-    ufw delete allow 443/udp 2>/dev/null || true
-    ufw delete allow 2053/udp 2>/dev/null || true
-fi
-
-# 清理iptables规则（流量统计相关）
-iptables -D INPUT -p tcp --dport 443 -j ACCEPT 2>/dev/null || true
-iptables -D INPUT -p udp --dport 443 -j ACCEPT 2>/dev/null || true
-iptables -D INPUT -p udp --dport 2053 -j ACCEPT 2>/dev/null || true
-iptables -D OUTPUT -p tcp --sport 443 -j ACCEPT 2>/dev/null || true
-iptables -D OUTPUT -p udp --sport 443 -j ACCEPT 2>/dev/null || true
-iptables -D OUTPUT -p udp --sport 2053 -j ACCEPT 2>/dev/null || true
-
-# 清理备份文件
-echo "清理备份文件..."
-rm -rf /root/edgebox-backup
-
-# 清理Let's Encrypt证书（可选）
-read -p "是否删除 Let's Encrypt 证书？[y/N]: " -n 1 -r
-echo
-if [[ $REPLY =~ ^[Yy]$ ]]; then
-    rm -rf /etc/letsencrypt
-fi
-
-# 清理邮件配置
-rm -f /etc/msmtprc
-
-# 恢复系统配置
-echo "恢复系统配置..."
-if [[ -f /etc/sysctl.conf.bak ]]; then
-    mv /etc/sysctl.conf.bak /etc/sysctl.conf
-    sysctl -p >/dev/null 2>&1
-fi
-
-echo -e "${GREEN}EdgeBox 卸载完成！${NC}"
-echo "建议重启系统以确保所有更改生效"
-echo ""
-echo "感谢使用 EdgeBox！"
-UNINSTALL_SCRIPT
-
-    chmod +x /usr/local/bin/edgebox-uninstall
-    log_success "卸载脚本创建完成 (/usr/local/bin/edgebox-uninstall)"
-}
-
 #############################################
 # 完整安装流程
 #############################################
@@ -2242,7 +2123,7 @@ show_installation_info() {
     echo -e "  VLESS-Reality  端口: 443  UUID: ${PURPLE}${UUID_VLESS}${NC}"
     echo -e "  VLESS-gRPC     端口: 443  UUID: ${PURPLE}${UUID_VLESS}${NC}"  
     echo -e "  VLESS-WS       端口: 443  UUID: ${PURPLE}${UUID_VLESS}${NC}"
-    echo -e "  Hysteria2      端口: 443  密 码: ${PURPLE}${PASSWORD_HYSTERIA2}${NC}"
+    echo -e "  Hysteria2      端口: 443  密码: ${PURPLE}${PASSWORD_HYSTERIA2}${NC}"
     echo -e "  TUIC           端口: 2053 UUID: ${PURPLE}${UUID_TUIC}${NC}"
        
     echo -e "\n${CYAN}访问地址：${NC}"
@@ -2276,7 +2157,7 @@ show_installation_info() {
 cleanup() {
     if [ "$?" -ne 0 ]; then
         log_error "安装过程中出现错误，请检查日志: ${LOG_FILE}"
-        echo -e "${YELLOW}如需重新安装，请先运行: edgebox-uninstall${NC}"
+        echo -e "${YELLOW}如需重新安装，请先运行: bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/refs/heads/main/ENV/uninstall.sh)${NC}"
     fi
     rm -f /tmp/Xray-linux-64.zip 2>/dev/null || true
     rm -f /tmp/sing-box-*.tar.gz 2>/dev/null || true
@@ -2325,11 +2206,7 @@ main() {
     setup_cron_jobs
     setup_email_system
     create_init_script
-    
-    # 管理工具（模块2+3完整版）
-    create_enhanced_edgeboxctl
-    create_uninstall_script
-    
+
     # 启动初始化服务
     systemctl start edgebox-init.service >/dev/null 2>&1 || true
     
