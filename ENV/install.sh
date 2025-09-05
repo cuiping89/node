@@ -1158,15 +1158,16 @@ get_server_info() {
 show_sub() {
   if [[ ! -f ${CONFIG_DIR}/server.json ]]; then echo -e "${RED}配置文件不存在${NC}"; exit 1; fi
   local cert_mode=$(get_current_cert_mode)
-  
-  echo -e "${CYAN}EdgeBox 证书模式: ${cert_mode}${NC}\n"
+  echo ""
+  echo -e "${CYAN}证书模式: ${cert_mode}${NC}\n"
   echo -e "${CYAN}支持协议: Reality, gRPC, WS, Hysteria2, TUIC${NC}"
   echo ""
   [[ -f ${CONFIG_DIR}/subscription.txt ]] && { echo -e "${CYAN}明文链接：${NC}"; cat ${CONFIG_DIR}/subscription.txt; echo ""; }
   [[ -f ${CONFIG_DIR}/subscription.base64 ]] && { echo -e "${CYAN}Base64订阅：${NC}"; cat ${CONFIG_DIR}/subscription.base64; echo ""; }
   local server_ip=$(jq -r '.server_ip' ${CONFIG_DIR}/server.json)
   echo ""
-  echo -e "${CYAN}控制面板：${NC}http://${server_ip}/"; echo ""
+  echo -e "${CYAN}控制面板：${NC}http://${server_ip}/";
+  echo ""
 }
 
 show_status() {
@@ -2168,11 +2169,11 @@ show_installation_info() {
     echo -e "  版本号: ${PURPLE}EdgeBox v3.0.0 企业级完整版${NC}"
 
     echo -e "\n${CYAN}协议信息：${NC}"
-    echo -e "  VLESS-Reality  ${PURPLE}端口: 443  UUID: ${UUID_VLESS}${NC}"
-    echo -e "  VLESS-gRPC     ${PURPLE}端口: 443  UUID: ${UUID_VLESS}${NC}"  
-    echo -e "  VLESS-WS       ${PURPLE}端口: 443  UUID: ${UUID_VLESS}${NC}"
-    echo -e "  Hysteria2      ${PURPLE}端口: 443  密码: ${PASSWORD_HYSTERIA2}${NC}"
-    echo -e "  TUIC           ${PURPLE}端口: 2053 UUID: ${UUID_TUIC}${NC}"
+    echo -e "  VLESS-Reality  端口: 443  UUID: ${PURPLE}${UUID_VLESS}${NC}"
+    echo -e "  VLESS-gRPC     端口: 443  UUID: ${PURPLE}${UUID_VLESS}${NC}"  
+    echo -e "  VLESS-WS       端口: 443  UUID: ${PURPLE}${UUID_VLESS}${NC}"
+    echo -e "  Hysteria2      端口: 443  密 码: ${PURPLE}${PASSWORD_HYSTERIA2}${NC}"
+    echo -e "  TUIC           端口: 2053 UUID: ${PURPLE}${UUID_TUIC}${NC}"
        
     echo -e "\n${CYAN}访问地址：${NC}"
     echo -e "  🌐 控制面板: ${PURPLE}http://${SERVER_IP}/${NC}" #订阅链接\流量统计\运维命令
@@ -2193,7 +2194,7 @@ show_installation_info() {
     echo -e "  ${PURPLE}edgeboxctl backup create${NC}              # 手动备份"
     echo -e "  ${PURPLE}edgeboxctl help${NC}                       # 查看完整帮助"
     
-    echo -e "\n${YELLOW}⚠️重要提醒：${NC}"
+    echo -e "\n${YELLOW}重要提醒：${NC}"
     echo -e "  1. 当前为IP模式，VLESS协议需在客户端开启'跳过证书验证'"
     echo -e "  2. 使用 switch-to-domain 可获得受信任证书"
     echo -e "  3. 流量预警配置: ${TRAFFIC_DIR}/alert.conf"
