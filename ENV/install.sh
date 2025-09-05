@@ -1159,13 +1159,14 @@ show_sub() {
   if [[ ! -f ${CONFIG_DIR}/server.json ]]; then echo -e "${RED}配置文件不存在${NC}"; exit 1; fi
   local cert_mode=$(get_current_cert_mode)
   
-  echo -e "${CYAN}EdgeBox 证书模式: ${cert_mode}：${NC}\n"
-  echo "${CYAN}支持协议: Reality, gRPC, WS, Hysteria2, TUIC ${NC}"
-  [[ -f ${CONFIG_DIR}/subscription.txt ]] && { echo -e "${YELLOW}明文链接：${NC}"; cat ${CONFIG_DIR}/subscription.txt; echo ""; }
-  [[ -f ${CONFIG_DIR}/subscription.base64 ]] && { echo -e "${YELLOW}Base64订阅：${NC}"; cat ${CONFIG_DIR}/subscription.base64; echo ""; }
+  echo -e "${CYAN}EdgeBox 证书模式: ${cert_mode}${NC}\n"
+  echo -e "${CYAN}支持协议: Reality, gRPC, WS, Hysteria2, TUIC${NC}"
+  echo ""
+  [[ -f ${CONFIG_DIR}/subscription.txt ]] && { echo -e "${CYAN}明文链接：${NC}"; cat ${CONFIG_DIR}/subscription.txt; echo ""; }
+  [[ -f ${CONFIG_DIR}/subscription.base64 ]] && { echo -e "${CYAN}Base64订阅：${NC}"; cat ${CONFIG_DIR}/subscription.base64; echo ""; }
   local server_ip=$(jq -r '.server_ip' ${CONFIG_DIR}/server.json)
   echo ""
-  echo -e "${CYAN}控制面板：http://${server_ip}/${NC}"; echo ""
+  echo -e "${CYAN}控制面板：${NC}http://${server_ip}/"; echo ""
 }
 
 show_status() {
@@ -2162,41 +2163,42 @@ show_installation_info() {
     print_separator
     
     echo -e "${CYAN}服务器信息：${NC}"
-    echo -e "  IP地址: ${GREEN}${SERVER_IP}${NC}"
-    echo -e "  模式: ${YELLOW}IP模式（自签名证书）${NC}"
-    echo -e "  版本: ${YELLOW}EdgeBox v3.0.0 企业级完整版${NC}"
+	echo -e "  证书模式: ${PURPLE}IP模式（自签名证书）${NC}"
+    echo -e "  IP地址: ${PURPLE}${SERVER_IP}${NC}"
+    echo -e "  版本号: ${PURPLE}EdgeBox v3.0.0 企业级完整版${NC}"
 
     echo -e "\n${CYAN}协议信息：${NC}"
-    echo -e "  ${PURPLE}[1] VLESS-Reality${NC}  端口: 443  UUID: ${UUID_VLESS}"
-    echo -e "  ${PURPLE}[2] VLESS-gRPC${NC}     端口: 443  UUID: ${UUID_VLESS}"  
-    echo -e "  ${PURPLE}[3] VLESS-WS${NC}       端口: 443  UUID: ${UUID_VLESS}"
-    echo -e "  ${PURPLE}[4] Hysteria2${NC}      端口: 443  密码: ${PASSWORD_HYSTERIA2}"
-    echo -e "  ${PURPLE}[5] TUIC${NC}           端口: 2053 UUID: ${UUID_TUIC}"
+    echo -e "  VLESS-Reality  ${PURPLE}端口: 443  UUID: ${UUID_VLESS}${NC}"
+    echo -e "  VLESS-gRPC     ${PURPLE}端口: 443  UUID: ${UUID_VLESS}${NC}"  
+    echo -e "  VLESS-WS       ${PURPLE}端口: 443  UUID: ${UUID_VLESS}${NC}"
+    echo -e "  Hysteria2      ${PURPLE}端口: 443  密码: ${PASSWORD_HYSTERIA2}${NC}"
+    echo -e "  TUIC           ${PURPLE}端口: 2053 UUID: ${UUID_TUIC}${NC}"
        
     echo -e "\n${CYAN}访问地址：${NC}"
-    echo -e "  🌐 控制面板: ${YELLOW}http://${SERVER_IP}/${NC}" #订阅链接\流量统计\运维命令
+    echo -e "  🌐 控制面板: ${PURPLE}http://${SERVER_IP}/${NC}" #订阅链接\流量统计\运维命令
     
     echo -e "\n${CYAN}高级运维：${NC}"
-    echo -e "  🔄 出站分流: 支持住宅IP代理，降低VPS出站成本"
-    echo -e "  📊 流量监控: 实时图表展示，支持端口维度统计"
-    echo -e "  ⚠️  预警通知: 流量阈值告警，避免超额费用"
-    echo -e "  🛡️  自动备份: 配置自动备份，故障快速恢复"
+	echo -e "  模式切换: 支持IP模式与域名模式双向切换"
+    echo -e "  出站分流: 支持住宅IP代理，降低VPS出站成本"
+    echo -e "  流量监控: 实时图表展示，支持端口维度统计"
+    echo -e "  预警通知: 流量阈值告警，避免超额费用"
+    echo -e "  自动备份: 配置自动备份，故障快速恢复"
     
     echo -e "\n${CYAN}管理命令：${NC}"
-    echo -e "  ${YELLOW}edgeboxctl status${NC}                  # 查看服务状态"
-    echo -e "  ${YELLOW}edgeboxctl sub${NC}                     # 查看订阅链接"
-    echo -e "  ${YELLOW}edgeboxctl switch-to-domain <域名>${NC} # 切换到域名模式"
-    echo -e "  ${YELLOW}edgeboxctl shunt direct-resi IP:PORT${NC} # 智能分流"
-    echo -e "  ${YELLOW}edgeboxctl traffic show${NC}            # 查看流量统计"
-    echo -e "  ${YELLOW}edgeboxctl backup create${NC}           # 手动备份"
-    echo -e "  ${YELLOW}edgeboxctl help${NC}                    # 查看完整帮助"
+    echo -e "  ${PURPLE}edgeboxctl status${NC}                     # 查看服务状态"
+    echo -e "  ${PURPLE}edgeboxctl sub${NC}                        # 查看订阅链接"
+    echo -e "  ${PURPLE}edgeboxctl switch-to-domain <域名>${NC}     # 切换到域名模式"
+    echo -e "  ${PURPLE}edgeboxctl shunt direct-resi IP:PORT${NC}  # 智能分流"
+    echo -e "  ${PURPLE}edgeboxctl traffic show${NC}               # 查看流量统计"
+    echo -e "  ${PURPLE}edgeboxctl backup create${NC}              # 手动备份"
+    echo -e "  ${PURPLE}edgeboxctl help${NC}                       # 查看完整帮助"
     
-    echo -e "\n${YELLOW}⚠️  重要提醒：${NC}"
+    echo -e "\n${YELLOW}⚠️重要提醒：${NC}"
     echo -e "  1. 当前为IP模式，VLESS协议需在客户端开启'跳过证书验证'"
     echo -e "  2. 使用 switch-to-domain 可获得受信任证书"
     echo -e "  3. 流量预警配置: ${TRAFFIC_DIR}/alert.conf"
     echo -e "  4. 安装日志: ${LOG_FILE}"
-	
+	echo -e " "
 }
 
 # 清理函数
