@@ -435,12 +435,12 @@ generate_reality_keys() {
 
 # 配置Nginx（SNI定向 + ALPN兜底架构）
 configure_nginx() {
-  log_info "配置Nginx..."
+  log_info "配置 Nginx（Nginx-first · SNI+ALPN 分流）..."
 
   # 备份
   [[ -f /etc/nginx/nginx.conf ]] && cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak
 
-  # 正确写入 nginx.conf（注意 heredoc 起止标记）
+  # 按文档契约写入完整 nginx.conf
   cat > /etc/nginx/nginx.conf <<'NGINX_CONF'
 user  www-data;
 worker_processes  auto;
@@ -457,23 +457,19 @@ http {
 
   server {
     listen 0.0.0.0:80 default_server;
-    listen [::]:80 default_server;
+    listen [::]:80   default_server;
     server_name _;
 
-    # 静态站点（订阅 + 图表）
-    root  /var/www/html;
-    index index.html;
-
-    # 根路径直接跳到 /traffic/
+    # 根路径按文档跳到统计页
     location = / { return 302 /traffic/; }
 
-    # /sub 提供订阅（Base64）
+    # 订阅（/sub），如脚本将内容写到 /var/www/html/sub
     location = /sub {
       default_type text/plain;
       root /var/www/html;
     }
 
-    # /traffic 指向统计页面目录
+    # 统计前端（Chart.js）
     location ^~ /traffic/ {
       alias /etc/edgebox/traffic/;
       autoindex off;
@@ -481,24 +477,25 @@ http {
   }
 }
 
-# TLS 直通分流（SNI/ALPN）
+# === TCP/443：SNI + ALPN 分流（不终止 TLS）===
 stream {
-  # 1) SNI 显式路由（可按需改伪装域名）
+  # SNI 显式路由（契约：可自定义你的伪装域名/内部域名）
   map $ssl_preread_server_name $svc {
+    # 匹配常见伪装到 Reality 的域名（示例）
     ~^(www\.cloudflare\.com|www\.apple\.com|www\.microsoft\.com)$  reality;
     grpc.edgebox.internal  grpc;
     ws.edgebox.internal    ws;
     default "";
   }
 
-  # 2) ALPN 兜底：h2 -> gRPC；http/1.1 -> WS
+  # ALPN 兜底：h2 -> gRPC；http/1.1 -> WS；其余 -> Reality
   map $ssl_preread_alpn_protocols $by_alpn {
-    ~\bh2\b          127.0.0.1:10085;
-    ~\bhttp/1\.1\b   127.0.0.1:10086;
-    default          127.0.0.1:10086;
+    ~\bh2\b          127.0.0.1:10085;  # gRPC
+    ~\bhttp/1\.1\b   127.0.0.1:10086;  # WebSocket
+    default          127.0.0.1:11443;  # Reality
   }
 
-  # 3) SNI命中优先
+  # SNI 命中优先
   map $svc $upstream_sni {
     reality  127.0.0.1:11443;
     grpc     127.0.0.1:10085;
@@ -506,7 +503,7 @@ stream {
     default  "";
   }
 
-  # 4) 最终选择：先看 SNI 命中，否则走 ALPN
+  # 最终选择：优先 SNI，其次 ALPN
   map $upstream_sni $upstream {
     ~.+     $upstream_sni;
     default $by_alpn;
@@ -517,21 +514,20 @@ stream {
     ssl_preread on;
     proxy_pass $upstream;
     proxy_connect_timeout 5s;
-    proxy_timeout 15s;
+    proxy_timeout 60s;
   }
 }
 NGINX_CONF
 
-  # 语法校验并启动
+  # 语法校验与启动
   if ! nginx -t >/dev/null 2>&1; then
     log_error "Nginx 配置测试失败，请检查 /etc/nginx/nginx.conf"
     return 1
   fi
-
   systemctl daemon-reload
   systemctl enable nginx >/dev/null 2>&1 || true
   systemctl restart nginx
-  log_success "Nginx 配置完成（首页已跳转 /traffic/）"
+  log_success "Nginx 配置完成（443 单端口复用 · SNI+ALPN 分流，80 提供 /traffic 与 /sub）"
 }
 
 # 配置Xray
