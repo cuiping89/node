@@ -1033,67 +1033,166 @@ jq -n --arg rx "$RX_CUR" --arg tx "$TX_CUR" \
 COLLECTOR
     chmod +x "${SCRIPTS_DIR}/traffic-collector.sh"
 
-    # --- 前端 Index（Chart.js 从 CDN 加载；如需本地化，可把 chart.min.js 放入 assets/js/） ---
+    # --- 控制面板 HTML（含：服务器/证书/协议/分流/住宅IP/白名单、订阅、流量图表、管理命令） ---
     cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
 <!doctype html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>EdgeBox · 订阅 & 流量图表</title>
+<title>EdgeBox 控制台</title>
 <style>
-body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:24px;}
-h1{margin:0 0 12px} .grid{display:grid;grid-template-columns:1fr;gap:24px}
-.card{padding:16px;border:1px solid #eee;border-radius:16px;box-shadow:0 2px 8px rgba(0,0,0,.04)}
-small{color:#666}
-table{border-collapse:collapse;width:100%} th,td{border-bottom:1px solid #eee;padding:8px;text-align:left}
-.btn{display:inline-block;padding:8px 12px;border-radius:10px;border:1px solid #ddd;text-decoration:none}
+:root{--card:#fff;--border:#eaeaea;--muted:#666}
+*{box-sizing:border-box}body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:24px;background:#fafafa}
+h1{margin:0 0 12px}
+small{color:var(--muted)}
+.grid{display:grid;grid-template-columns:1fr;gap:16px}
+@media(min-width:980px){.grid{grid-template-columns:1fr 1fr}}
+.card{padding:16px;border:1px solid var(--border);border-radius:16px;background:var(--card);box-shadow:0 2px 8px rgba(0,0,0,.04)}
+pre{white-space:pre-wrap;word-break:break-all;background:#0f172a;color:#e5e7eb;padding:12px;border-radius:12px;max-height:380px;overflow:auto}
+code{background:#f3f4f6;padding:2px 6px;border-radius:6px}
+table{border-collapse:collapse;width:100%} th,td{border-bottom:1px solid #eee;padding:8px;text-align:left;font-size:14px}
+.btn{display:inline-block;padding:6px 10px;border-radius:8px;border:1px solid #ddd;text-decoration:none;background:#fff}
+.kv{display:grid;grid-template-columns:120px 1fr;gap:6px 12px;font-size:14px}
+.badge{display:inline-block;padding:.2em .55em;border-radius:9999px;border:1px solid #ddd;background:#fff;margin-right:6px}
+ul{margin:0;padding-left:18px}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+footer{margin-top:24px;color:var(--muted);font-size:12px}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-  <h1>EdgeBox · 节点控制台</h1>
- 
+  <h1>EdgeBox 控制台</h1>
+  <small id="ts">数据加载中…</small>
+
   <div class="grid">
-    <div class="card"><h3>日曲线 #1（出口分流：VPS vs 住宅）</h3><canvas id="c1"></canvas></div>
-    <div class="card"><h3>日曲线 #2（高流量端口）</h3><canvas id="c2"></canvas></div>
-    <div class="card"><h3>月累计（近 12 个月）</h3>
+    <div class="card">
+      <h3>服务器/证书/协议/分流</h3>
+      <div class="kv" id="info"></div>
+      <div id="whitelist" style="margin-top:10px"></div>
+    </div>
+
+    <div class="card">
+      <h3>订阅内容</h3>
+      <div class="actions">
+        <button class="btn" id="copyAll">复制全部</button>
+        <button class="btn" id="copyPlain">复制明文</button>
+        <button class="btn" id="copyB64Lines">复制 Base64（逐行）</button>
+        <button class="btn" id="copyB64All">复制 Base64（整包）</button>
+      </div>
+      <pre id="subBox">加载中…</pre>
+    </div>
+
+    <div class="card">
+      <h3>日曲线（出口分流：VPS vs 住宅）</h3>
+      <canvas id="c1"></canvas>
+    </div>
+
+    <div class="card">
+      <h3>日曲线（高流量端口）</h3>
+      <canvas id="c2"></canvas>
+    </div>
+
+    <div class="card">
+      <h3>月累计（近 12 个月）</h3>
       <table id="mt"><thead><tr><th>月份</th><th>↑TX</th><th>↓RX</th><th>VPS↑</th><th>住宅↑</th></tr></thead><tbody></tbody></table>
+    </div>
+
+    <div class="card">
+      <h3>管理命令</h3>
+      <ul>
+        <li><code>edgeboxctl status</code> 查看服务状态</li>
+        <li><code>edgeboxctl sub</code> 查看订阅内容</li>
+        <li><code>edgeboxctl switch-to-domain &lt;域名&gt;</code> 切换到域名模式</li>
+        <li><code>edgeboxctl shunt vps</code> / <code>edgeboxctl shunt resi IP:PORT</code> / <code>edgeboxctl shunt direct-resi IP:PORT</code></li>
+        <li><code>edgeboxctl shunt whitelist list|add|remove|reset</code> 管理直连白名单</li>
+        <li><code>edgeboxctl traffic show</code> / <code>edgeboxctl traffic reset</code></li>
+        <li><code>edgeboxctl backup create</code> / <code>edgeboxctl backup restore &lt;file&gt;</code></li>
+      </ul>
     </div>
   </div>
 
+  <footer>EdgeBox · 浏览器打开根路径将 302 到 /traffic/ · 本页数据由 <code>panel.json</code> 与 <code>traffic-all.json</code> 提供</footer>
+
 <script>
 (async function(){
-  const r=await fetch('traffic-all.json'); const d=await r.json();
-  document.getElementById('ts').textContent='数据更新时间：'+d.updated_at;
+  const fmtGiB = v => (v/1024/1024/1024).toFixed(2)+' GiB';
+  const text = await (await fetch('panel.json', {cache:'no-store'})).text().catch(()=> '');
+  const panel = text ? JSON.parse(text) : null;
+  const traffic = await (await fetch('traffic-all.json', {cache:'no-store'})).json().catch(()=> ({hourly:{labels:[],vps:[],resi:[],tcp443:[],udp443:[],udp2053:[]}, monthly:[]}));
+  const subText = await (await fetch('/sub', {cache:'no-store'})).text().catch(()=> '# 订阅未生成');
+  document.getElementById('subBox').textContent = subText;
 
-  const bytesToGiB = v => (v/1024/1024/1024).toFixed(2);
+  // 顶部时间
+  const ts = panel?.updated_at || traffic?.updated_at || new Date().toISOString();
+  document.getElementById('ts').textContent = '数据更新时间：' + ts;
 
+  // 信息区
+  const info = document.getElementById('info');
+  const s = panel?.server || {}, p = panel?.protocols || {}, sh = panel?.shunt || {};
+  const rows = [
+    ['服务器地址', s.ip || '-'],
+    ['证书模式', (s.cert_mode || '-') + (s.cert_domain? `（${s.cert_domain}）`:'')],
+    ['协议信息', `Reality/gRPC/WS 端口: 443；Hysteria2 端口: 443；TUIC 端口: 2053`],
+    ['分流状态', (sh.mode || 'vps') + (sh.health? `（${sh.health}）`:'')],
+    ['住宅代理IP', sh.proxy_info || '未配置'],
+  ];
+  rows.forEach(([k,v])=>{
+    const kdiv=document.createElement('div'); kdiv.textContent=k;
+    const vdiv=document.createElement('div'); vdiv.textContent=v;
+    info.appendChild(kdiv); info.appendChild(vdiv);
+  });
+
+  // 白名单
+  const wl = (sh.whitelist||[]).filter(Boolean);
+  const wlDiv = document.getElementById('whitelist');
+  wlDiv.innerHTML = '<div class="badge">直连白名单</div>' + (wl.length? wl.slice(0,20).map(d=>`<span class="badge">${d}</span>`).join(' ') : '<span class="badge">（空）</span>');
+  if (wl.length>20){
+    const more=document.createElement('a'); more.href="#"; more.className='btn'; more.textContent='展开全部';
+    more.onclick=(e)=>{e.preventDefault(); wlDiv.innerHTML = '<div class="badge">直连白名单</div>' + wl.map(d=>`<span class="badge">${d}</span>`).join(' ');};
+    wlDiv.appendChild(document.createTextNode(' ')); wlDiv.appendChild(more);
+  }
+
+  // 复制按钮
+  const copy = (txt)=> navigator.clipboard?.writeText(txt);
+  const plainBlock = subText.split('\n# Base64')[0].trim(); // “明文”块
+  const b64LinesMatch = subText.match(/# Base64（逐行[\s\S]*?)# Base64（整包/);
+  const b64Lines = b64LinesMatch? b64LinesMatch[1].split('\n').filter(l=>!l.startsWith('#') && l.trim()).join('\n') : '';
+  const b64All = (subText.split('# Base64（整包')[1]||'').split('\n').filter(l=>!l.startsWith('#') && l.trim()).join('\n');
+
+  document.getElementById('copyAll').onclick=()=>copy(subText);
+  document.getElementById('copyPlain').onclick=()=>copy(plainBlock);
+  document.getElementById('copyB64Lines').onclick=()=>copy(b64Lines);
+  document.getElementById('copyB64All').onclick=()=>copy(b64All);
+
+  // 图表1：VPS vs 住宅
   new Chart(document.getElementById('c1'),{
     type:'line',
-    data:{ labels:d.hourly.labels,
+    data:{ labels:traffic.hourly.labels,
       datasets:[
-        {label:'VPS ↑(B/h)', data:d.hourly.vps, tension:.3},
-        {label:'住宅 ↑(B/h)', data:d.hourly.resi, tension=.3}
+        {label:'VPS ↑ (B/h)', data:traffic.hourly.vps, tension:.3},
+        {label:'住宅 ↑ (B/h)', data:traffic.hourly.resi, tension:.3}
       ]},
     options:{responsive:true,plugins:{legend:{position:'top'}}}
   });
 
+  // 图表2：端口
   new Chart(document.getElementById('c2'),{
     type:'line',
-    data:{ labels:d.hourly.labels,
+    data:{ labels:traffic.hourly.labels,
       datasets:[
-        {label:'TCP/443 B/h', data:d.hourly.tcp443, tension:.3},
-        {label:'UDP/443 B/h', data:d.hourly.udp443, tension:.3},
-        {label:'UDP/2053 B/h', data:d.hourly.udp2053, tension:.3}
+        {label:'TCP/443 (B/h)', data:traffic.hourly.tcp443, tension:.3},
+        {label:'UDP/443 (B/h)', data:traffic.hourly.udp443, tension:.3},
+        {label:'UDP/2053 (B/h)', data:traffic.hourly.udp2053, tension:.3}
       ]},
     options:{responsive:true,plugins:{legend:{position:'top'}}}
   });
 
+  // 月表
   const tb=document.querySelector('#mt tbody');
-  d.monthly.forEach(m=>{
+  (traffic.monthly||[]).forEach(m=>{
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td>${m.month}</td><td>${bytesToGiB(m.tx)} GiB</td><td>${bytesToGiB(m.rx)} GiB</td><td>${bytesToGiB(m.vps)} GiB</td><td>${bytesToGiB(m.resi)} GiB</td>`;
+    tr.innerHTML=`<td>${m.month}</td><td>${fmtGiB(m.tx)}</td><td>${fmtGiB(m.rx)}</td><td>${fmtGiB(m.vps)}</td><td>${fmtGiB(m.resi)}</td>`;
     tb.appendChild(tr);
   });
 })();
@@ -1102,8 +1201,87 @@ table{border-collapse:collapse;width:100%} th,td{border-bottom:1px solid #eee;pa
 </html>
 HTML
 
-    log_success "流量采集与前端页面已就绪：${TRAFFIC_DIR}/index.html"
+    # --- 面板数据生成器：panel.json ---
+    cat > "${SCRIPTS_DIR}/panel-refresh.sh" <<'PANEL'
+#!/usr/bin/env bash
+set -euo pipefail
+CONFIG_DIR="/etc/edgebox/config"
+TRAFFIC_DIR="/etc/edgebox/traffic"
+SHUNT_DIR="${CONFIG_DIR}/shunt"
+mkdir -p "$TRAFFIC_DIR"
+
+get_cert_mode(){
+  local m="self-signed"
+  [[ -f "${CONFIG_DIR}/cert_mode" ]] && m="$(cat "${CONFIG_DIR}/cert_mode" 2>/dev/null || echo self-signed)"
+  echo "$m"
 }
+json_escape(){ jq -R -s @json; }
+
+# 读取 server.json
+srv_json="${CONFIG_DIR}/server.json"
+if [[ ! -s "$srv_json" ]]; then
+  jq -n '{error:"server.json not found"}' > "${TRAFFIC_DIR}/panel.json"
+  exit 0
+fi
+
+server_ip="$(jq -r '.server_ip' "$srv_json")"
+version="$(jq -r '.version' "$srv_json")"
+install_date="$(jq -r '.install_date' "$srv_json")"
+vless_uuid="$(jq -r '.uuid.vless' "$srv_json")"
+tuic_uuid="$(jq -r '.uuid.tuic' "$srv_json")"
+hy2_pass="$(jq -r '.password.hysteria2' "$srv_json")"
+rpk="$(jq -r '.reality.public_key' "$srv_json")"
+ports="$(jq -c '.ports' "$srv_json")"
+
+cert_mode="$(get_cert_mode)"
+cert_domain=""
+if [[ "$cert_mode" == letsencrypt:* ]]; then cert_domain="${cert_mode#letsencrypt:}"; fi
+
+# 分流状态
+state="${SHUNT_DIR}/state.json"
+mode="vps"; proxy=""; health="unknown"
+[[ -s "$state" ]] && { mode="$(jq -r '.mode' "$state")"; proxy="$(jq -r '.proxy_info' "$state")"; health="$(jq -r '.health' "$state")"; }
+[[ -z "$proxy" && -s "${SHUNT_DIR}/resi.conf" ]] && proxy="$(cat "${SHUNT_DIR}/resi.conf" 2>/dev/null || true)"
+
+# 白名单
+wl_file="${SHUNT_DIR}/whitelist.txt"
+if [[ -s "$wl_file" ]]; then
+  wl_json="$(cat "$wl_file" | jq -R -s 'split("\n")|map(select(length>0))')"
+else
+  wl_json='[]'
+fi
+
+# 输出 panel.json
+jq -n \
+  --arg updated "$(date -Is)" \
+  --arg ip "$server_ip" \
+  --arg version "$version" \
+  --arg install_date "$install_date" \
+  --arg cert_mode "$cert_mode" \
+  --arg cert_domain "$cert_domain" \
+  --arg vless_uuid "$vless_uuid" \
+  --arg tuic_uuid "$tuic_uuid" \
+  --arg hy2_pass "$hy2_pass" \
+  --arg rpk "$rpk" \
+  --argjson ports "$ports" \
+  --arg mode "$mode" \
+  --arg proxy "$proxy" \
+  --arg health "$health" \
+  --argjson whitelist "$wl_json" \
+'{
+  updated_at: $updated,
+  server: { ip:$ip, version:$version, install_date:$install_date, cert_mode:$cert_mode, cert_domain: ($cert_domain|select(.!="")) },
+  protocols: { vless_uuid:$vless_uuid, tuic_uuid:$tuic_uuid, hy2_password:$hy2_pass, reality_public_key:$rpk, ports:$ports },
+  shunt: { mode:$mode, proxy_info:$proxy, health:$health, whitelist:$whitelist }
+}' > "${TRAFFIC_DIR}/panel.json"
+PANEL
+    chmod +x "${SCRIPTS_DIR}/panel-refresh.sh"
+
+    # 首次生成 panel.json，避免前端空白
+    "${SCRIPTS_DIR}/panel-refresh.sh" || true
+
+    log_success "流量采集与前端页面已就绪：${TRAFFIC_DIR}/index.html（含订阅/信息/图表/命令）"
+
 
 # 设置定时任务
 setup_cron_jobs() {
@@ -1111,6 +1289,7 @@ setup_cron_jobs() {
     # 先清理旧 edgebox 相关 cron，再追加新任务
     ( crontab -l 2>/dev/null | grep -vE '/etc/edgebox/scripts/(traffic-collector\.sh|traffic-alert\.sh|generate-charts\.py)' ; \
       echo "0 * * * * /etc/edgebox/scripts/traffic-collector.sh" ; \
+	  echo "5 * * * * /etc/edgebox/scripts/panel-refresh.sh" \
       echo "7 * * * * /etc/edgebox/scripts/traffic-alert.sh" \
     ) | crontab - 2>/dev/null || true
     log_success "cron 已配置（每小时采集 + 告警）"
@@ -2073,6 +2252,9 @@ NFT
 
 # 启动 vnstat
 systemctl is-active --quiet vnstat || systemctl start vnstat
+
+# 预跑一次面板数据
+[[ -x /etc/edgebox/scripts/panel-refresh.sh ]] && /etc/edgebox/scripts/panel-refresh.sh >> $LOG_FILE 2>&1 || true
 
 # 预跑一次采集器，生成 JSON 和 CSV
 [[ -x /etc/edgebox/scripts/traffic-collector.sh ]] && /etc/edgebox/scripts/traffic-collector.sh >> $LOG_FILE 2>&1 || true
