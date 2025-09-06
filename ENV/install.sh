@@ -1605,8 +1605,8 @@ TRAFFIC_DIR="/etc/edgebox/traffic"
 SCRIPTS_DIR="/etc/edgebox/scripts"
 WHITELIST_DOMAINS="googlevideo.com,ytimg.com,ggpht.com,youtube.com,youtu.be,googleapis.com,gstatic.com"
 
-# 颜色定义（修复：使用真实 ESC 而不是字面 \033）
-ESC=\033'
+# 颜色定义（使用 ANSI C 风格的转义）
+ESC=$'\033'
 RED="${ESC}[0;31m"; GREEN="${ESC}[0;32m"; YELLOW="${ESC}[1;33m"
 BLUE="${ESC}[0;34m"; CYAN="${ESC}[0;36m"; NC="${ESC}[0m"
 
