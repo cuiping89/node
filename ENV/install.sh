@@ -874,7 +874,7 @@ PLAIN
     mkdir -p /var/www/html
     {
       printf '%s\n\n' "$plain"
-      echo "# Base64逐行【每行一个协议，多数客户端不支持一次复制多行导入】"
+      echo "# Base64逐行【每行一个协议，多数客户端不支持一次复制导入】"
       cat "${CONFIG_DIR}/subscription.b64lines"
       echo
       echo "# Base64整包【五协议一起导入，iOS 常用】"
@@ -2596,7 +2596,7 @@ case "$1" in
   help|"") 
     cat <<HLP
 ${CYAN}EdgeBox 管理工具 v${VERSION}${NC}
-
+控制面板: http://$(jq -r .server_ip ${CONFIG_DIR}/server.json 2>/dev/null || echo "YOUR_IP")/
 ${YELLOW}基础操作:${NC}
   edgeboxctl status          查看服务状态
   edgeboxctl restart         重启所有服务  
@@ -2635,7 +2635,7 @@ ${YELLOW}系统:${NC}
   edgeboxctl help                          显示此帮助
 
 ${CYAN}EdgeBox 企业级多协议节点部署方案${NC}
-控制面板: http://$(jq -r .server_ip ${CONFIG_DIR}/server.json 2>/dev/null || echo "YOUR_IP")/
+
 HLP
   ;;
   
