@@ -1736,18 +1736,34 @@ check_domain_resolution(){
 }
 
 request_letsencrypt_cert(){
-  local domain=$1; log_info "为域名 $domain 申请Let's Encrypt证书（包含 trojan 子域名）"
-  mkdir -p ${CERT_DIR}; systemctl stop nginx >/dev/null 2>&1
-  
-  # 同时申请主域名和 trojan 子域名
-  if certbot certonly --standalone --non-interactive --agree-tos --email "admin@${domain}" --domains "$domain,trojan.${domain}" --preferred-challenges http --http-01-port 80; then
-    log_success "证书申请成功（含 trojan.${domain}）"
-  else
-    log_error "证书申请失败"; systemctl start nginx >/dev/null 2>&1; return 1
+  local domain="$1"
+  [[ -z "$domain" ]] && { log_error "缺少域名"; return 1; }
+
+  # 优先用 nginx 插件（不停机）；失败则回落 standalone（短停 nginx）
+  if ! certbot certonly --nginx --expand \
+        --cert-name "$domain" \
+        -d "$domain" -d "trojan.$domain" \
+        -n --agree-tos --register-unsafely-without-email
+  then
+    log_warn "nginx 插件申请失败，回落 standalone 模式"
+    systemctl stop nginx >/dev/null 2>&1 || true
+    certbot certonly --standalone --expand \
+        --cert-name "$domain" \
+        -d "$domain" -d "trojan.$domain" \
+        -n --agree-tos --register-unsafely-without-email \
+        --preferred-challenges http --http-01-port 80 \
+      || { systemctl start nginx >/dev/null 2>&1 || true; log_error "证书申请失败"; return 1; }
+    systemctl start nginx >/dev/null 2>&1 || true
   fi
-  systemctl start nginx >/dev/null 2>&1
-  [[ -f "/etc/letsencrypt/live/${domain}/fullchain.pem" && -f "/etc/letsencrypt/live/${domain}/privkey.pem" ]] || { log_error "证书文件不存在"; return 1; }
-  log_success "证书文件验证通过"
+
+  # 切换软链并热加载
+  [[ -f "/etc/letsencrypt/live/${domain}/fullchain.pem" && -f "/etc/letsencrypt/live/${domain}/privkey.pem" ]] \
+    || { log_error "证书文件缺失"; return 1; }
+  ln -sf "/etc/letsencrypt/live/${domain}/fullchain.pem" "${CERT_DIR}/current.pem"
+  ln -sf "/etc/letsencrypt/live/${domain}/privkey.pem"    "${CERT_DIR}/current.key"
+  echo "letsencrypt:${domain}" > "${CONFIG_DIR}/cert_mode"
+  systemctl reload nginx xray sing-box >/dev/null 2>&1 || systemctl restart nginx xray sing-box
+  log_success "Let's Encrypt 证书已生效（含 trojan.${domain) }"
 }
 
 post_switch_report() {
@@ -1904,18 +1920,19 @@ PLAIN
 }
 
 switch_to_domain(){
-  local domain="$1"; [[ -z "$domain" ]] && { echo "用法: edgeboxctl switch-to-domain <domain>"; return 1; }
-  get_server_info || return 1
-  check_domain_resolution "$domain" || return 1
+  local domain="$1"
+  [[ -z "$domain" ]] && { echo "用法: edgeboxctl switch-to-domain <domain>"; return 1; }
+
+  log_info "检查域名解析: ${domain}"
+  if ! getent hosts "$domain" >/dev/null; then
+    log_error "${domain} 未解析"; return 1
+  fi
+  log_success "域名解析通过"
+  log_info "为 ${domain} 申请/扩展 Let's Encrypt 证书（含 trojan 子域）"
   request_letsencrypt_cert "$domain" || return 1
-  ln -sf "/etc/letsencrypt/live/${domain}/privkey.pem" ${CERT_DIR}/current.key
-  ln -sf "/etc/letsencrypt/live/${domain}/fullchain.pem" ${CERT_DIR}/current.pem
-  echo "letsencrypt:${domain}" > ${CONFIG_DIR}/cert_mode
-  regen_sub_domain "$domain"
-  systemctl restart xray sing-box >/dev/null 2>&1
-  setup_auto_renewal "$domain"
-  log_success "已切换到域名模式：$domain（含 trojan.${domain}）"
-  post_switch_report
+
+  # 可选验收报告
+  type post_switch_report >/dev/null 2>&1 && post_switch_report
 }
 
 switch_to_ip(){
