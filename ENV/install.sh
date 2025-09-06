@@ -1963,13 +1963,18 @@ post_whitelist_report() {
     echo -e "2) 样例：<空>"
   fi
 
-  # Xray 路由里是否已同步（存在 direct 规则）
-  echo -n "3) Xray 路由同步："
-  if jq -e '.routing.rules[]?|select(.outboundTag=="direct")' ${CONFIG_DIR}/xray.json >/dev/null 2>&1; then
-    echo -e "${GREEN}已存在直连规则${NC}"
+# 3) Xray 路由同步
+echo -n "3) Xray 路由直连规则："
+if jq -e '.routing.rules[]?|select(.outboundTag=="resi-proxy")' ${CONFIG_DIR}/xray.json >/dev/null 2>&1; then
+  # 智能分流/住宅模式：检查是否存在 direct 的 domain 规则
+  if jq -e '.routing.rules[]?|select(.outboundTag=="direct")|select(has("domain"))' ${CONFIG_DIR}/xray.json >/dev/null 2>&1; then
+    echo -e "${GREEN}已同步${NC}"
   else
-    echo -e "${YELLOW}未检测到直连规则，请检查生成逻辑${NC}"
+    echo -e "${YELLOW}未检测到白名单直连规则（请在智能分流模式下使用）${NC}"
   fi
+else
+  echo -e "${YELLOW}当前为 VPS 全量出站模式，此项不适用${NC}"
+fi
 
   # 可选：对指定域名做“是否在白名单文件中”的校验与解析
   if [[ -n "$test_domain" ]]; then
