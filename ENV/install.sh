@@ -2229,16 +2229,19 @@ setup_outbound_resi() {
   get_server_info || return 1
   parse_proxy_url "$url"
 
-  # Xray：所有流量走住宅，DNS直连
+  # Xray: 所有 TCP/UDP 流量走住宅，53 直连
   local xob; xob="$(build_xray_resi_outbound)"
   jq --argjson ob "$xob" '
     .outbounds=[{"protocol":"freedom","tag":"direct"}, $ob] |
-    .routing={"rules":[
-      {"type":"field","port":"53","outboundTag":"direct"},
-      {"type":"field","outboundTag":"resi-proxy"}
-    ]}' ${CONFIG_DIR}/xray.json > ${CONFIG_DIR}/xray.json.tmp && mv ${CONFIG_DIR}/xray.json.tmp ${CONFIG_DIR}/xray.json
+    .routing={
+      "domainStrategy":"AsIs",
+      "rules":[
+        {"type":"field","port":"53","outboundTag":"direct"},
+        {"type":"field","network":"tcp,udp","outboundTag":"resi-proxy"}
+      ]
+    }' ${CONFIG_DIR}/xray.json > ${CONFIG_DIR}/xray.json.tmp && mv ${CONFIG_DIR}/xray.json.tmp ${CONFIG_DIR}/xray.json
 
-  # sing-box：固定直连（避免 TCP/UDP 被上游代理影响）
+  # sing-box: 固定直连（HY2/TUIC 需要 UDP）
   cat > ${CONFIG_DIR}/sing-box.json <<EOF
 {"log":{"level":"warn","timestamp":true},
  "inbounds":[
@@ -2274,16 +2277,18 @@ setup_outbound_direct_resi() {
   wl='[]'
   [[ -s "${CONFIG_DIR}/shunt/whitelist.txt" ]] && wl="$(cat "${CONFIG_DIR}/shunt/whitelist.txt" | jq -R -s 'split("\n")|map(select(length>0))|map("domain:"+.)')"
 
-  # Xray：白名单直连，其它走住宅
   jq --argjson ob "$xob" --argjson wl "$wl" '
     .outbounds=[{"protocol":"freedom","tag":"direct"}, $ob] |
-    .routing={"rules":[
-      {"type":"field","port":"53","outboundTag":"direct"},
-      {"type":"field","domain":$wl,"outboundTag":"direct"},
-      {"type":"field","outboundTag":"resi-proxy"}
-    ]}' ${CONFIG_DIR}/xray.json > ${CONFIG_DIR}/xray.json.tmp && mv ${CONFIG_DIR}/xray.json.tmp ${CONFIG_DIR}/xray.json
+    .routing={
+      "domainStrategy":"AsIs",
+      "rules":[
+        {"type":"field","port":"53","outboundTag":"direct"},
+        {"type":"field","domain":$wl,"outboundTag":"direct"},
+        {"type":"field","network":"tcp,udp","outboundTag":"resi-proxy"}
+      ]
+    }' ${CONFIG_DIR}/xray.json > ${CONFIG_DIR}/xray.json.tmp && mv ${CONFIG_DIR}/xray.json.tmp ${CONFIG_DIR}/xray.json
 
-  # sing-box：固定直连
+  # sing-box: 固定直连
   cat > ${CONFIG_DIR}/sing-box.json <<EOF
 {"log":{"level":"warn","timestamp":true},
  "inbounds":[
