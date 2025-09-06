@@ -2,9 +2,9 @@
 
 #############################################
 # EdgeBox 企业级多协议节点部署脚本 - 完全增强版
-# Version: 3.0.0 - 模块1+2+3完整版
+# Version: 3.0.0 - 模块1+2+3完整版 + Trojan-TLS
 # Description: 包含流量统计、预警、备份恢复、出站分流等高级运维功能
-# Protocols: VLESS-Reality, VLESS-gRPC, VLESS-WS, Hysteria2, TUIC
+# Protocols: VLESS-Reality, VLESS-gRPC, VLESS-WS, Hysteria2, TUIC, Trojan-TLS
 # Architecture: SNI定向 + ALPN兜底 + 智能分流 + 流量监控
 #############################################
 
@@ -38,6 +38,7 @@ INSTALL_MODE="ip" # 默认IP模式
 UUID_VLESS=""
 UUID_HYSTERIA2=""
 UUID_TUIC=""
+UUID_TROJAN=""  # 新增
 
 # Reality密钥
 REALITY_PRIVATE_KEY=""
@@ -47,6 +48,7 @@ REALITY_SHORT_ID=""
 # 密码生成
 PASSWORD_HYSTERIA2=""
 PASSWORD_TUIC=""
+PASSWORD_TROJAN=""  # 新增
 
 # 端口配置（单端口复用架构）
 PORT_REALITY=11443      # 内部回环 (Xray Reality)
@@ -54,6 +56,7 @@ PORT_HYSTERIA2=443    # UDP
 PORT_TUIC=2053        # UDP
 PORT_GRPC=10085       # 内部回环
 PORT_WS=10086         # 内部回环
+PORT_TROJAN=10143     # 内部回环 (新增)
 
 #############################################
 # 工具函数
@@ -192,15 +195,19 @@ generate_credentials() {
     UUID_VLESS=$(uuidgen)
     UUID_HYSTERIA2=$(uuidgen)
     UUID_TUIC=$(uuidgen)
+    UUID_TROJAN=$(uuidgen)  # 新增
     
     REALITY_SHORT_ID="$(openssl rand -hex 8)"
     PASSWORD_HYSTERIA2=$(openssl rand -base64 16)
     PASSWORD_TUIC=$(openssl rand -base64 16)
+    PASSWORD_TROJAN=$(openssl rand -base64 16)  # 新增
     
     log_success "凭证生成完成"
     log_info "VLESS UUID: $UUID_VLESS"
     log_info "TUIC UUID: $UUID_TUIC"
+    log_info "Trojan UUID: $UUID_TROJAN"  # 新增
     log_info "Hysteria2 密码: $PASSWORD_HYSTERIA2"
+    log_info "Trojan 密码: $PASSWORD_TROJAN"  # 新增
 }
 
 # 创建目录结构
@@ -477,6 +484,7 @@ http {
 stream {
   map $ssl_preread_server_name $svc {
     ~^(www\.cloudflare\.com|www\.apple\.com|www\.microsoft\.com)$  reality;
+    ~^trojan\.  trojan;
     grpc.edgebox.internal  grpc;
     ws.edgebox.internal    ws;
     default "";
@@ -490,6 +498,7 @@ stream {
 
   map $svc $upstream_sni {
     reality  127.0.0.1:11443;
+    trojan   127.0.0.1:10143;
     grpc     127.0.0.1:10085;
     ws       127.0.0.1:10086;
     default  "";
@@ -526,7 +535,7 @@ configure_xray() {
     log_info "配置 Xray..."
 
     # 验证必要变量
-    if [[ -z "$UUID_VLESS" || -z "$REALITY_PRIVATE_KEY" || -z "$REALITY_SHORT_ID" ]]; then
+    if [[ -z "$UUID_VLESS" || -z "$REALITY_PRIVATE_KEY" || -z "$REALITY_SHORT_ID" || -z "$UUID_TROJAN" || -z "$PASSWORD_TROJAN" ]]; then
         log_error "必要的配置变量未设置"
         return 1
     fi
@@ -632,6 +641,33 @@ configure_xray() {
         },
         "wsSettings": { 
           "path": "/ws"
+        }
+      }
+    },
+    {
+      "tag": "Trojan-TLS-Internal",
+      "listen": "127.0.0.1",
+      "port": 10143,
+      "protocol": "trojan",
+      "settings": {
+        "clients": [
+          {
+            "password": "${PASSWORD_TROJAN}",
+            "email": "trojan-internal@edgebox"
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "tls",
+        "tlsSettings": {
+          "alpn": ["http/1.1", "h2"],
+          "certificates": [
+            {
+              "certificateFile": "${CERT_DIR}/current.pem",
+              "keyFile": "${CERT_DIR}/current.key"
+            }
+          ]
         }
       }
     }
@@ -779,11 +815,13 @@ save_config_info() {
   "uuid": {
     "vless": "${UUID_VLESS}",
     "hysteria2": "${UUID_HYSTERIA2}",
-    "tuic": "${UUID_TUIC}"
+    "tuic": "${UUID_TUIC}",
+    "trojan": "${UUID_TROJAN}"
   },
   "password": {
     "hysteria2": "${PASSWORD_HYSTERIA2}",
-    "tuic": "${PASSWORD_TUIC}"
+    "tuic": "${PASSWORD_TUIC}",
+    "trojan": "${PASSWORD_TROJAN}"
   },
   "reality": {
     "public_key": "${REALITY_PUBLIC_KEY}",
@@ -795,7 +833,8 @@ save_config_info() {
     "hysteria2": ${PORT_HYSTERIA2},
     "tuic": ${PORT_TUIC},
     "grpc": ${PORT_GRPC},
-    "ws": ${PORT_WS}
+    "ws": ${PORT_WS},
+    "trojan": ${PORT_TROJAN}
   }
 }
 EOF
@@ -830,26 +869,29 @@ generate_subscription() {
     log_info "生成订阅链接..."
 
     # 校验
-    if [[ -z "$SERVER_IP" || -z "$UUID_VLESS" || -z "$REALITY_PUBLIC_KEY" ]]; then
+    if [[ -z "$SERVER_IP" || -z "$UUID_VLESS" || -z "$REALITY_PUBLIC_KEY" || -z "$UUID_TROJAN" || -z "$PASSWORD_TROJAN" ]]; then
         log_error "必要的配置变量未设置，无法生成订阅"; return 1
     fi
 
-    local addr="$SERVER_IP" uuid="$UUID_VLESS"
+    local addr="$SERVER_IP" uuid="$UUID_VLESS" trojan_uuid="$UUID_TROJAN"
     local WS_SNI="ws.edgebox.internal"
-    local allowInsecure="&allowInsecure=1"   # IP 模式：gRPC/WS/TUIC 关闭校验
+    local TROJAN_SNI="trojan.edgebox.internal"
+    local allowInsecure="&allowInsecure=1"   # IP 模式：gRPC/WS/TUIC/Trojan 关闭校验
     local insecure="&insecure=1"             # IP 模式：HY2 关闭校验
 
     # URL 编码密码
-    local HY2_PW_ENC TUIC_PW_ENC
+    local HY2_PW_ENC TUIC_PW_ENC TROJAN_PW_ENC
     HY2_PW_ENC=$(printf '%s' "$PASSWORD_HYSTERIA2" | jq -rR @uri)
     TUIC_PW_ENC=$(printf '%s' "$PASSWORD_TUIC"     | jq -rR @uri)
+    TROJAN_PW_ENC=$(printf '%s' "$PASSWORD_TROJAN" | jq -rR @uri)
 
-    # 明文 5 条（⚠️ 无注释、每行一条，放在文件最前面，保证粘贴导入稳定）
+    # 明文 6 条（⚠️ 无注释、每行一条，放在文件最前面，保证粘贴导入稳定）
     local plain=$(
       cat <<PLAIN
 vless://${uuid}@${addr}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&type=tcp#EdgeBox-REALITY
 vless://${uuid}@${addr}:443?encryption=none&security=tls&sni=grpc.edgebox.internal&alpn=h2&type=grpc&serviceName=grpc&fp=chrome${allowInsecure}#EdgeBox-gRPC
 vless://${uuid}@${addr}:443?encryption=none&security=tls&sni=${WS_SNI}&host=${WS_SNI}&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome${allowInsecure}#EdgeBox-WS
+trojan://${TROJAN_PW_ENC}@${addr}:443?security=tls&sni=${TROJAN_SNI}&alpn=http%2F1.1&fp=chrome${allowInsecure}#EdgeBox-TROJAN
 hysteria2://${HY2_PW_ENC}@${addr}:443?sni=${addr}&alpn=h3${insecure}#EdgeBox-HYSTERIA2
 tuic://${UUID_TUIC}:${TUIC_PW_ENC}@${addr}:2053?congestion_control=bbr&alpn=h3&sni=${addr}${allowInsecure}#EdgeBox-TUIC
 PLAIN
@@ -877,7 +919,7 @@ PLAIN
       echo "# Base64逐行【每行一个协议，多数客户端不支持一次复制导入】"
       cat "${CONFIG_DIR}/subscription.b64lines"
       echo
-      echo "# Base64整包【五协议一起导入，iOS 常用】"
+      echo "# Base64整包【六协议一起导入，iOS 常用】"
       cat "${CONFIG_DIR}/subscription.base64"
       echo
     } > /var/www/html/sub
@@ -1070,6 +1112,10 @@ border-top:2px solid var(--primary);border-radius:50%;animation:spin 1s linear i
               </div>
               <div class="protocol-item">
                 <div><div class="protocol-name">VLESS-WebSocket</div><div class="protocol-port">端口: 443 (TCP)</div></div>
+                <div class="status online">运行中</div>
+              </div>
+              <div class="protocol-item">
+                <div><div class="protocol-name">Trojan-TLS</div><div class="protocol-port">端口: 443 (TCP)</div></div>
                 <div class="status online">运行中</div>
               </div>
               <div class="protocol-item">
@@ -1546,7 +1592,7 @@ create_enhanced_edgeboxctl() {
     
     cat > /usr/local/bin/edgeboxctl << 'EDGEBOXCTL_SCRIPT'
 #!/bin/bash
-# EdgeBox 增强版控制脚本 - 模块1+2+3完整版
+# EdgeBox 增强版控制脚本 - 模块1+2+3完整版 + Trojan-TLS
 # Version: 3.0.0 - 包含流量统计、预警、备份恢复等高级运维功能
 VERSION="3.0.0"
 CONFIG_DIR="/etc/edgebox/config"
@@ -1560,7 +1606,7 @@ SCRIPTS_DIR="/etc/edgebox/scripts"
 WHITELIST_DOMAINS="googlevideo.com,ytimg.com,ggpht.com,youtube.com,youtu.be,googleapis.com,gstatic.com"
 
 # 颜色定义（修复：使用真实 ESC 而不是字面 \033）
-ESC=$'\033'
+ESC=\033'
 RED="${ESC}[0;31m"; GREEN="${ESC}[0;32m"; YELLOW="${ESC}[1;33m"
 BLUE="${ESC}[0;34m"; CYAN="${ESC}[0;36m"; NC="${ESC}[0m"
 
@@ -1579,8 +1625,10 @@ get_server_info() {
   SERVER_IP=$(jq -r '.server_ip' ${CONFIG_DIR}/server.json 2>/dev/null)
   UUID_VLESS=$(jq -r '.uuid.vless' ${CONFIG_DIR}/server.json 2>/dev/null)
   UUID_TUIC=$(jq -r '.uuid.tuic' ${CONFIG_DIR}/server.json 2>/dev/null)
+  UUID_TROJAN=$(jq -r '.uuid.trojan' ${CONFIG_DIR}/server.json 2>/dev/null)
   PASSWORD_HYSTERIA2=$(jq -r '.password.hysteria2' ${CONFIG_DIR}/server.json 2>/dev/null)
   PASSWORD_TUIC=$(jq -r '.password.tuic' ${CONFIG_DIR}/server.json 2>/dev/null)
+  PASSWORD_TROJAN=$(jq -r '.password.trojan' ${CONFIG_DIR}/server.json 2>/dev/null)
   REALITY_PUBLIC_KEY=$(jq -r '.reality.public_key' ${CONFIG_DIR}/server.json 2>/dev/null)
   REALITY_SHORT_ID=$(jq -r '.reality.short_id' ${CONFIG_DIR}/server.json 2>/dev/null)
 }
@@ -1618,6 +1666,7 @@ show_status() {
   ss -tlnp 2>/dev/null | grep -q "127.0.0.1:11443 " && echo -e "  Reality内部: ${GREEN}正常${NC}" || echo -e "  Reality内部: ${RED}异常${NC}"
   ss -tlnp 2>/dev/null | grep -q "127.0.0.1:10085 " && echo -e "  gRPC内部: ${GREEN}正常${NC}"    || echo -e "  gRPC内部: ${RED}异常${NC}"
   ss -tlnp 2>/dev/null | grep -q "127.0.0.1:10086 " && echo -e "  WS内部: ${GREEN}正常${NC}"      || echo -e "  WS内部: ${RED}异常${NC}"
+  ss -tlnp 2>/dev/null | grep -q "127.0.0.1:10143 " && echo -e "  Trojan内部: ${GREEN}正常${NC}"  || echo -e "  Trojan内部: ${RED}异常${NC}"
   echo -e "\n${CYAN}证书状态：${NC}  当前模式: ${YELLOW}$(get_current_cert_mode)${NC}"
   
   # 显示分流状态
@@ -1656,6 +1705,7 @@ debug_ports(){
   echo "  TCP/11443 (Reality内部): $(ss -tln | grep -q '127.0.0.1:11443 ' && echo '✓' || echo '✗')"
   echo "  TCP/10085 (gRPC内部): $(ss -tln | grep -q '127.0.0.1:10085 ' && echo '✓' || echo '✗')"
   echo "  TCP/10086 (WS内部): $(ss -tln | grep -q '127.0.0.1:10086 ' && echo '✓' || echo '✗')"
+  echo "  TCP/10143 (Trojan内部): $(ss -tln | grep -q '127.0.0.1:10143 ' && echo '✓' || echo '✗')"
 }
 
 #############################################
@@ -1686,10 +1736,12 @@ check_domain_resolution(){
 }
 
 request_letsencrypt_cert(){
-  local domain=$1; log_info "为域名 $domain 申请Let's Encrypt证书"
+  local domain=$1; log_info "为域名 $domain 申请Let's Encrypt证书（包含 trojan 子域名）"
   mkdir -p ${CERT_DIR}; systemctl stop nginx >/dev/null 2>&1
-  if certbot certonly --standalone --non-interactive --agree-tos --email "admin@${domain}" --domains "$domain" --preferred-challenges http --http-01-port 80; then
-    log_success "证书申请成功"
+  
+  # 同时申请主域名和 trojan 子域名
+  if certbot certonly --standalone --non-interactive --agree-tos --email "admin@${domain}" --domains "$domain,trojan.${domain}" --preferred-challenges http --http-01-port 80; then
+    log_success "证书申请成功（含 trojan.${domain}）"
   else
     log_error "证书申请失败"; systemctl start nginx >/dev/null 2>&1; return 1
   fi
@@ -1765,15 +1817,17 @@ post_switch_report() {
 # 生成订阅（域名 / IP模式）
 regen_sub_domain(){
   local domain=$1; get_server_info
-  local HY2_PW_ENC TUIC_PW_ENC
+  local HY2_PW_ENC TUIC_PW_ENC TROJAN_PW_ENC
   HY2_PW_ENC=$(printf '%s' "$PASSWORD_HYSTERIA2" | jq -rR @uri)
   TUIC_PW_ENC=$(printf '%s' "$PASSWORD_TUIC"     | jq -rR @uri)
+  TROJAN_PW_ENC=$(printf '%s' "$PASSWORD_TROJAN" | jq -rR @uri)
 
   local sub=$(
     cat <<PLAIN
 vless://${UUID_VLESS}@${domain}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&type=tcp#EdgeBox-REALITY
 vless://${UUID_VLESS}@${domain}:443?encryption=none&security=tls&sni=${domain}&alpn=h2&type=grpc&serviceName=grpc&fp=chrome#EdgeBox-gRPC
 vless://${UUID_VLESS}@${domain}:443?encryption=none&security=tls&sni=${domain}&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome#EdgeBox-WS
+trojan://${TROJAN_PW_ENC}@${domain}:443?security=tls&sni=trojan.${domain}&alpn=http%2F1.1&fp=chrome#EdgeBox-TROJAN
 hysteria2://${HY2_PW_ENC}@${domain}:443?sni=${domain}&alpn=h3#EdgeBox-HYSTERIA2
 tuic://${UUID_TUIC}:${TUIC_PW_ENC}@${domain}:2053?congestion_control=bbr&alpn=h3&sni=${domain}#EdgeBox-TUIC
 PLAIN
@@ -1807,15 +1861,17 @@ PLAIN
 
 regen_sub_ip(){
   get_server_info
-  local HY2_PW_ENC TUIC_PW_ENC
+  local HY2_PW_ENC TUIC_PW_ENC TROJAN_PW_ENC
   HY2_PW_ENC=$(printf '%s' "$PASSWORD_HYSTERIA2" | jq -rR @uri)
   TUIC_PW_ENC=$(printf '%s' "$PASSWORD_TUIC"     | jq -rR @uri)
+  TROJAN_PW_ENC=$(printf '%s' "$PASSWORD_TROJAN" | jq -rR @uri)
 
   local sub=$(
     cat <<PLAIN
 vless://${UUID_VLESS}@${SERVER_IP}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&type=tcp#EdgeBox-REALITY
 vless://${UUID_VLESS}@${SERVER_IP}:443?encryption=none&security=tls&sni=grpc.edgebox.internal&alpn=h2&type=grpc&serviceName=grpc&fp=chrome&allowInsecure=1#EdgeBox-gRPC
 vless://${UUID_VLESS}@${SERVER_IP}:443?encryption=none&security=tls&sni=ws.edgebox.internal&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome&allowInsecure=1#EdgeBox-WS
+trojan://${TROJAN_PW_ENC}@${SERVER_IP}:443?security=tls&sni=trojan.edgebox.internal&alpn=http%2F1.1&fp=chrome&allowInsecure=1#EdgeBox-TROJAN
 hysteria2://${HY2_PW_ENC}@${SERVER_IP}:443?sni=${SERVER_IP}&alpn=h3&insecure=1#EdgeBox-HYSTERIA2
 tuic://${UUID_TUIC}:${TUIC_PW_ENC}@${SERVER_IP}:2053?congestion_control=bbr&alpn=h3&sni=${SERVER_IP}&allowInsecure=1#EdgeBox-TUIC
 PLAIN
@@ -1858,7 +1914,7 @@ switch_to_domain(){
   regen_sub_domain "$domain"
   systemctl restart xray sing-box >/dev/null 2>&1
   setup_auto_renewal "$domain"
-  log_success "已切换到域名模式：$domain"
+  log_success "已切换到域名模式：$domain（含 trojan.${domain}）"
   post_switch_report
 }
 
@@ -1976,7 +2032,7 @@ else
   echo -e "${YELLOW}当前为 VPS 全量出站模式，此项不适用${NC}"
 fi
 
-  # 可选：对指定域名做“是否在白名单文件中”的校验与解析
+  # 可选：对指定域名做"是否在白名单文件中"的校验与解析
   if [[ -n "$test_domain" ]]; then
     echo -n "4) 域名存在性："
     if grep -Fxq "$test_domain" "${CONFIG_DIR}/shunt/whitelist.txt" 2>/dev/null; then
@@ -2432,7 +2488,7 @@ backup_restore(){
     local f="$1"
     [[ -z "$f" || ! -f "$f" ]] && { echo "用法: edgeboxctl backup restore /path/to/edgebox_backup_xxx.tar.gz"; return 1; }
     log_info "恢复备份: $f"
-    local restore_dir="/tmp/edgebox_restore_$$"
+    local restore_dir="/tmp/edgebox_restore_$"
     mkdir -p "$restore_dir"
     
     if tar -xzf "$f" -C "$restore_dir" 2>/dev/null; then
@@ -2468,15 +2524,19 @@ regenerate_uuid(){
     # 生成新UUID
     local new_vless_uuid=$(uuidgen)
     local new_tuic_uuid=$(uuidgen)
+    local new_trojan_uuid=$(uuidgen)
     local new_hy2_pass=$(openssl rand -base64 16)
     local new_tuic_pass=$(openssl rand -base64 16)
+    local new_trojan_pass=$(openssl rand -base64 16)
     
     # 更新server.json
     jq --arg vless "$new_vless_uuid" \
        --arg tuic "$new_tuic_uuid" \
+       --arg trojan "$new_trojan_uuid" \
        --arg hy2_pass "$new_hy2_pass" \
        --arg tuic_pass "$new_tuic_pass" \
-       '.uuid.vless = $vless | .uuid.tuic = $tuic | .password.hysteria2 = $hy2_pass | .password.tuic = $tuic_pass' \
+       --arg trojan_pass "$new_trojan_pass" \
+       '.uuid.vless = $vless | .uuid.tuic = $tuic | .uuid.trojan = $trojan | .password.hysteria2 = $hy2_pass | .password.tuic = $tuic_pass | .password.trojan = $trojan_pass' \
        ${CONFIG_DIR}/server.json > ${CONFIG_DIR}/server.json.tmp && \
        mv ${CONFIG_DIR}/server.json.tmp ${CONFIG_DIR}/server.json
     
@@ -2484,6 +2544,7 @@ regenerate_uuid(){
     sed -i "s/\"id\": \".*\"/\"id\": \"$new_vless_uuid\"/g" ${CONFIG_DIR}/xray.json
     sed -i "s/\"uuid\": \".*\"/\"uuid\": \"$new_tuic_uuid\"/g" ${CONFIG_DIR}/sing-box.json
     sed -i "s/\"password\": \".*\"/\"password\": \"$new_hy2_pass\"/g" ${CONFIG_DIR}/sing-box.json
+    sed -i "s/\"password\": \".*\"/\"password\": \"$new_trojan_pass\"/g" ${CONFIG_DIR}/xray.json
     
     # 重新生成订阅
     local cert_mode=$(get_current_cert_mode)
@@ -2500,8 +2561,10 @@ regenerate_uuid(){
     echo -e "${YELLOW}新的UUID：${NC}"
     echo -e "  VLESS: $new_vless_uuid"
     echo -e "  TUIC: $new_tuic_uuid"
+    echo -e "  Trojan: $new_trojan_uuid"
     echo -e "  Hysteria2 密码: $new_hy2_pass"
     echo -e "  TUIC 密码: $new_tuic_pass"
+    echo -e "  Trojan 密码: $new_trojan_pass"
 }
 
 show_config(){
@@ -2518,9 +2581,11 @@ show_config(){
         
         echo -e "\n${CYAN}协议配置：${NC}"
         echo -e "  VLESS UUID: $(jq -r '.uuid.vless' ${CONFIG_DIR}/server.json)"
-        echo -e "  TUIC UUID: $(jq -r '.uuid.tuic' ${CONFIG_DIR}/server.json)"  
+        echo -e "  TUIC UUID: $(jq -r '.uuid.tuic' ${CONFIG_DIR}/server.json)"
+        echo -e "  Trojan UUID: $(jq -r '.uuid.trojan' ${CONFIG_DIR}/server.json)"
         echo -e "  Hysteria2 密码: $(jq -r '.password.hysteria2' ${CONFIG_DIR}/server.json)"
         echo -e "  TUIC 密码: $(jq -r '.password.tuic' ${CONFIG_DIR}/server.json)"
+        echo -e "  Trojan 密码: $(jq -r '.password.trojan' ${CONFIG_DIR}/server.json)"
         echo -e "  Reality 公钥: $(jq -r '.reality.public_key' ${CONFIG_DIR}/server.json)"
     else
         echo -e "${RED}配置文件不存在${NC}"
@@ -2634,7 +2699,7 @@ ${YELLOW}系统:${NC}
   edgeboxctl update                        更新EdgeBox
   edgeboxctl help                          显示此帮助
 
-${CYAN}EdgeBox 企业级多协议节点部署方案${NC}
+${CYAN}EdgeBox 企业级多协议节点部署方案（含 Trojan-TLS）${NC}
 
 HLP
   ;;
@@ -2800,12 +2865,13 @@ show_installation_info() {
     echo -e "${CYAN}服务器信息：${NC}"
 	echo -e "  证书模式: ${PURPLE}IP模式（自签名证书）${NC}"
     echo -e "  IP地址: ${PURPLE}${SERVER_IP}${NC}"
-    echo -e "  版本号: ${PURPLE}EdgeBox v3.0.0 企业级完整版${NC}"
+    echo -e "  版本号: ${PURPLE}EdgeBox v3.0.0 企业级完整版（含 Trojan-TLS）${NC}"
 
     echo -e "\n${CYAN}协议信息：${NC}"
     echo -e "  VLESS-Reality  端口: 443  UUID: ${PURPLE}${UUID_VLESS}${NC}"
     echo -e "  VLESS-gRPC     端口: 443  UUID: ${PURPLE}${UUID_VLESS}${NC}"  
     echo -e "  VLESS-WS       端口: 443  UUID: ${PURPLE}${UUID_VLESS}${NC}"
+    echo -e "  Trojan-TLS     端口: 443  密码: ${PURPLE}${PASSWORD_TROJAN}${NC}"
     echo -e "  Hysteria2      端口: 443  密码: ${PURPLE}${PASSWORD_HYSTERIA2}${NC}"
     echo -e "  TUIC           端口: 2053 UUID: ${PURPLE}${UUID_TUIC}${NC}"
        
@@ -2829,8 +2895,8 @@ show_installation_info() {
     echo -e "  ${PURPLE}edgeboxctl help${NC}                       # 查看完整帮助"
     
     echo -e "\n${YELLOW}重要提醒：${NC}"
-    echo -e "  1. 当前为IP模式，VLESS协议需在客户端开启'跳过证书验证'"
-    echo -e "  2. 使用 switch-to-domain 可获得受信任证书"
+    echo -e "  1. 当前为IP模式，VLESS/Trojan协议需在客户端开启'跳过证书验证'"
+    echo -e "  2. 使用 switch-to-domain 可获得受信任证书（含 trojan 子域名）"
     echo -e "  3. 流量预警配置: ${TRAFFIC_DIR}/alert.conf"
     echo -e "  4. 安装日志: ${LOG_FILE}"
 	echo -e " "
@@ -2851,7 +2917,7 @@ main() {
     clear
     print_separator
     echo -e "${GREEN}EdgeBox 企业级安装脚本 v3.0.0${NC}"
-    echo -e "${CYAN}完整版：SNI定向 + 证书切换 + 出站分流 + 流量统计 + 流量预警 + 备份恢复${NC}"
+    echo -e "${CYAN}完整版：SNI定向 + 证书切换 + 出站分流 + 流量统计 + 流量预警 + 备份恢复 + Trojan-TLS${NC}"
     print_separator
     
     # 创建日志文件
