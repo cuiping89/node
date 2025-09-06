@@ -1912,24 +1912,6 @@ RSH
 # 出站分流系统
 #############################################
 
-# 解析作用域参数（默认 all）；可选: all | xray | sing-box
-# 用法：parse_scope_and_url "$@"; 之后读取全局变量 SCOPE 和 URL
-parse_scope_and_url() {
-  SCOPE="all"
-  URL=""
-  for a in "$@"; do
-    case "$a" in
-      --scope=all|--scope=xray|--scope=sing-box)
-        SCOPE="${a#*=}"
-        ;;
-      *)
-        [[ -z "$URL" ]] && URL="$a"
-        ;;
-    esac
-  done
-  [[ -z "$URL" ]] && return 1 || return 0
-}
-
 # 清空 nftables 的住宅采集集合（VPS 全量出站时用）
 flush_nft_resi_sets() {
   nft flush set inet edgebox resi_addr4 2>/dev/null || true
@@ -2042,15 +2024,11 @@ post_shunt_report() {
   local mode="$1" url="$2"
   echo -e "\n${CYAN}-----分流配置验收报告（${mode}）-----${NC}"
 
-  # 1) 上游连通性
+  # 1) 上游连通
   echo -n "1) 上游连通性: "
-  if check_proxy_health_url "$url"; then
-    echo -e "${GREEN}OK${NC}"
-  else
-    echo -e "${RED}FAIL${NC}"
-  fi
+  if check_proxy_health_url "$url"; then echo -e "${GREEN}OK${NC}"; else echo -e "${RED}FAIL${NC}"; fi
 
-  # 2) 出口 IP 对比（VPS vs 走上游）
+  # 2) 出口 IP 对比
   local via_vps via_resi proxy_uri
   via_vps=$(curl -fsS --max-time 6 https://api.ipify.org 2>/dev/null || true)
   parse_proxy_url "$url" >/dev/null 2>&1 || true
@@ -2060,23 +2038,20 @@ post_shunt_report() {
   if [[ -n "$via_vps" && -n "$via_resi" && "$via_vps" != "$via_resi" ]]; then
     echo -e "   ${GREEN}判定：出口已切换/可用${NC}"
   else
-    echo -e "   ${YELLOW}判定：出口未变化或上游未通，请检查账号、连通性${NC}"
+    echo -e "   ${YELLOW}判定：出口未变化或上游未通${NC}"
   fi
 
-  # 3) Xray 路由生效
+  # 3) 路由生效
   echo -n "3) Xray 路由: "
-  if jq -e '.outbounds[]?|select(.tag=="resi-proxy")' ${CONFIG_DIR}/xray.json >/dev/null 2>&1; then
-    echo -e "${GREEN}存在 resi-proxy 出站${NC}"
-  else
-    echo -e "${RED}未发现 resi-proxy 出站${NC}"
-  fi
+  jq -e '.outbounds[]?|select(.tag=="resi-proxy")' ${CONFIG_DIR}/xray.json >/dev/null 2>&1 \
+    && echo -e "${GREEN}存在 resi-proxy 出站${NC}" || echo -e "${RED}未发现 resi-proxy 出站${NC}"
+  echo -e "3b) sing-box 路由: ${YELLOW}设计为直连（HY2/TUIC 走 UDP，不参与分流）${NC}"
 
   # 4) nftables 采集集
   local set4 set6
   set4=$(nft list set inet edgebox resi_addr4 2>/dev/null | sed -n 's/.*elements = {\(.*\)}/\1/p' | xargs)
   set6=$(nft list set inet edgebox resi_addr6 2>/dev/null | sed -n 's/.*elements = {\(.*\)}/\1/p' | xargs)
   echo -e "4) 采集集: IPv4={${set4:-}}  IPv6={${set6:-}}"
-
   echo -e "${CYAN}--------------------------------------${NC}\n"
 }
 
@@ -2244,50 +2219,27 @@ EOF
 post_vps_report
 }
 
-# 住宅全量出站：默认 Xray+sing-box 都走住宅；可用 --scope=all|xray|sing-box 调整
+# 住宅全量出站
 setup_outbound_resi() {
-  parse_scope_and_url "$@" || { echo "用法: edgeboxctl shunt resi '<URL>' [--scope=all|xray|sing-box]"; return 1; }
-  local url="$URL" scope="$SCOPE"
+  local url="$1"
+  [[ -z "$url" ]] && { echo "用法: edgeboxctl shunt resi '<URL>'"; return 1; }
 
-  log_info "配置住宅IP全量出站: ${url}（scope=${scope}）"
+  log_info "配置住宅IP全量出站: ${url}"
   if ! check_proxy_health_url "$url"; then log_error "代理不可用：$url"; return 1; fi
   get_server_info || return 1
   parse_proxy_url "$url"
 
-  # === Xray：scope=all|xray => 走住宅；scope=sing-box => 直连 ===
-  if [[ "$scope" == "all" || "$scope" == "xray" ]]; then
-    local xob; xob="$(build_xray_resi_outbound)"
-    jq --argjson ob "$xob" '
-      .outbounds = [ { "protocol":"freedom","tag":"direct" }, $ob ] |
-      .routing   = { "domainStrategy":"AsIs",
-                     "rules":[
-                       {"type":"field","port":"53","outboundTag":"direct"},
-                       {"type":"field","outboundTag":"resi-proxy"}
-                     ] }' \
-      ${CONFIG_DIR}/xray.json > ${CONFIG_DIR}/xray.json.tmp && mv ${CONFIG_DIR}/xray.json.tmp ${CONFIG_DIR}/xray.json
-  else
-    jq '.outbounds=[{"protocol":"freedom","tag":"direct"}] | .routing={"rules":[]}' \
-      ${CONFIG_DIR}/xray.json > ${CONFIG_DIR}/xray.json.tmp && mv ${CONFIG_DIR}/xray.json.tmp ${CONFIG_DIR}/xray.json
-  fi
+  # Xray：所有流量走住宅，DNS直连
+  local xob; xob="$(build_xray_resi_outbound)"
+  jq --argjson ob "$xob" '
+    .outbounds=[{"protocol":"freedom","tag":"direct"}, $ob] |
+    .routing={"rules":[
+      {"type":"field","port":"53","outboundTag":"direct"},
+      {"type":"field","outboundTag":"resi-proxy"}
+    ]}' ${CONFIG_DIR}/xray.json > ${CONFIG_DIR}/xray.json.tmp && mv ${CONFIG_DIR}/xray.json.tmp ${CONFIG_DIR}/xray.json
 
-  # === sing-box：scope=all|sing-box => 走住宅；scope=xray => 直连 ===
-  if [[ "$scope" == "all" || "$scope" == "sing-box" ]]; then
-    local sb_ob; sb_ob="$(build_singbox_resi_outbound)"
-    cat > ${CONFIG_DIR}/sing-box.json <<EOF
-{"log":{"level":"warn","timestamp":true},
- "inbounds":[
-  {"type":"hysteria2","tag":"hysteria2-in","listen":"::","listen_port":443,
-   "users":[{"password":"${PASSWORD_HYSTERIA2}"}],
-   "tls":{"enabled":true,"alpn":["h3"],"certificate_path":"${CERT_DIR}/current.pem","key_path":"${CERT_DIR}/current.key"}},
-  {"type":"tuic","tag":"tuic-in","listen":"::","listen_port":2053,
-   "users":[{"uuid":"${UUID_TUIC}","password":"${PASSWORD_TUIC}"}],
-   "congestion_control":"bbr",
-   "tls":{"enabled":true,"alpn":["h3"],"certificate_path":"${CERT_DIR}/current.pem","key_path":"${CERT_DIR}/current.key"}}],
- "outbounds":[ ${sb_ob} ],
- "route":{"rules":[ {"port":53,"outbound":"direct"}, {"outbound":"resi-proxy"} ]}}
-EOF
-  else
-    cat > ${CONFIG_DIR}/sing-box.json <<EOF
+  # sing-box：固定直连（避免 TCP/UDP 被上游代理影响）
+  cat > ${CONFIG_DIR}/sing-box.json <<EOF
 {"log":{"level":"warn","timestamp":true},
  "inbounds":[
   {"type":"hysteria2","tag":"hysteria2-in","listen":"::","listen_port":443,
@@ -2299,63 +2251,40 @@ EOF
    "tls":{"enabled":true,"alpn":["h3"],"certificate_path":"${CERT_DIR}/current.pem","key_path":"${CERT_DIR}/current.key"}}],
  "outbounds":[{"type":"direct","tag":"direct"}]}
 EOF
-  fi
 
   echo "$url" > "${CONFIG_DIR}/shunt/resi.conf"
   setup_shunt_directories
-  update_shunt_state "resi(scope=${scope})" "$url" "healthy"
-  systemctl restart xray sing-box && log_success "住宅IP全量出站已生效（scope=${scope}）" || { log_error "失败"; return 1; }
+  update_shunt_state "resi(xray-only)" "$url" "healthy"
+  systemctl restart xray sing-box && log_success "住宅全量出站已生效（Xray 分流，sing-box 直连）" || { log_error "失败"; return 1; }
   update_nft_resi_set "$PROXY_HOST"
-  post_shunt_report "住宅全量出站（scope=${scope}）" "$url"
+  post_shunt_report "住宅全量（Xray-only）" "$url"
 }
 
-# 智能分流：白名单直连，其余走住宅；默认 Xray+sing-box 都走住宅；可用 --scope 调整
+# 智能分流
 setup_outbound_direct_resi() {
-  parse_scope_and_url "$@" || { echo "用法: edgeboxctl shunt direct-resi '<URL>' [--scope=all|xray|sing-box]"; return 1; }
-  local url="$URL" scope="$SCOPE"
+  local url="$1"
+  [[ -z "$url" ]] && { echo "用法: edgeboxctl shunt direct-resi '<URL>'"; return 1; }
 
-  log_info "配置智能分流: ${url}（scope=${scope}）"
+  log_info "配置智能分流（白名单直连，其余住宅）: ${url}"
   if ! check_proxy_health_url "$url"; then log_error "代理不可用：$url"; return 1; fi
   get_server_info || return 1; setup_shunt_directories
   parse_proxy_url "$url"
 
-  local xray_ob wl; xray_ob="$(build_xray_resi_outbound)"
+  local xob wl; xob="$(build_xray_resi_outbound)"
   wl='[]'
   [[ -s "${CONFIG_DIR}/shunt/whitelist.txt" ]] && wl="$(cat "${CONFIG_DIR}/shunt/whitelist.txt" | jq -R -s 'split("\n")|map(select(length>0))|map("domain:"+.)')"
 
-  # === Xray：scope=all|xray => 智能分流；scope=sing-box => 直连 ===
-  if [[ "$scope" == "all" || "$scope" == "xray" ]]; then
-    jq --argjson ob "$xray_ob" --argjson wl "$wl" '
-      .outbounds=[{"protocol":"freedom","tag":"direct"}, $ob] |
-      .routing={"rules":[
-        {"type":"field","port":"53","outboundTag":"direct"},
-        {"type":"field","domain":$wl,"outboundTag":"direct"},
-        {"type":"field","outboundTag":"resi-proxy"}
-      ]}' \
-      ${CONFIG_DIR}/xray.json > ${CONFIG_DIR}/xray.json.tmp && mv ${CONFIG_DIR}/xray.json.tmp ${CONFIG_DIR}/xray.json
-  else
-    jq '.outbounds=[{"protocol":"freedom","tag":"direct"}] | .routing={"rules":[]}' \
-      ${CONFIG_DIR}/xray.json > ${CONFIG_DIR}/xray.json.tmp && mv ${CONFIG_DIR}/xray.json.tmp ${CONFIG_DIR}/xray.json
-  fi
+  # Xray：白名单直连，其它走住宅
+  jq --argjson ob "$xob" --argjson wl "$wl" '
+    .outbounds=[{"protocol":"freedom","tag":"direct"}, $ob] |
+    .routing={"rules":[
+      {"type":"field","port":"53","outboundTag":"direct"},
+      {"type":"field","domain":$wl,"outboundTag":"direct"},
+      {"type":"field","outboundTag":"resi-proxy"}
+    ]}' ${CONFIG_DIR}/xray.json > ${CONFIG_DIR}/xray.json.tmp && mv ${CONFIG_DIR}/xray.json.tmp ${CONFIG_DIR}/xray.json
 
-  # === sing-box：scope=all|sing-box => 走住宅（简单：默认全部交给 resi-proxy）；scope=xray => 直连 ===
-  if [[ "$scope" == "all" || "$scope" == "sing-box" ]]; then
-    local sb_ob; sb_ob="$(build_singbox_resi_outbound)"
-    cat > ${CONFIG_DIR}/sing-box.json <<EOF
-{"log":{"level":"warn","timestamp":true},
- "inbounds":[
-  {"type":"hysteria2","tag":"hysteria2-in","listen":"::","listen_port":443,
-   "users":[{"password":"${PASSWORD_HYSTERIA2}"}],
-   "tls":{"enabled":true,"alpn":["h3"],"certificate_path":"${CERT_DIR}/current.pem","key_path":"${CERT_DIR}/current.key"}},
-  {"type":"tuic","tag":"tuic-in","listen":"::","listen_port":2053,
-   "users":[{"uuid":"${UUID_TUIC}","password":"${PASSWORD_TUIC}"}],
-   "congestion_control":"bbr",
-   "tls":{"enabled":true,"alpn":["h3"],"certificate_path":"${CERT_DIR}/current.pem","key_path":"${CERT_DIR}/current.key"}}],
- "outbounds":[ {"type":"direct","tag":"direct"}, ${sb_ob} ],
- "route":{"rules":[ {"port":53,"outbound":"direct"}, {"outbound":"resi-proxy"} ]}}
-EOF
-  else
-    cat > ${CONFIG_DIR}/sing-box.json <<EOF
+  # sing-box：固定直连
+  cat > ${CONFIG_DIR}/sing-box.json <<EOF
 {"log":{"level":"warn","timestamp":true},
  "inbounds":[
   {"type":"hysteria2","tag":"hysteria2-in","listen":"::","listen_port":443,
@@ -2367,13 +2296,12 @@ EOF
    "tls":{"enabled":true,"alpn":["h3"],"certificate_path":"${CERT_DIR}/current.pem","key_path":"${CERT_DIR}/current.key"}}],
  "outbounds":[{"type":"direct","tag":"direct"}]}
 EOF
-  fi
 
   echo "$url" > "${CONFIG_DIR}/shunt/resi.conf"
-  update_shunt_state "direct_resi(scope=${scope})" "$url" "healthy"
-  systemctl restart xray sing-box && log_success "智能分流已生效（scope=${scope}）" || { log_error "失败"; return 1; }
+  update_shunt_state "direct_resi(xray-only)" "$url" "healthy"
+  systemctl restart xray sing-box && log_success "智能分流已生效（Xray 分流，sing-box 直连）" || { log_error "失败"; return 1; }
   update_nft_resi_set "$PROXY_HOST"
-  post_shunt_report "智能分流（scope=${scope}）" "$url"
+  post_shunt_report "智能分流（Xray-only）" "$url"
 }
 
 manage_whitelist() {
@@ -2683,10 +2611,9 @@ ${YELLOW}配置管理:${NC}
   edgeboxctl config regenerate-uuid        重新生成UUID
 
 ${YELLOW}出站分流:${NC}
-edgeboxctl shunt resi '<代理URL>'                             #全量走住宅
-edgeboxctl shunt direct-resi '<代理URL>'                      #智能分流（白名单直连，其余走住宅）
+edgeboxctl shunt resi '<代理URL>'                             #全量走住宅（仅Xray分流）
+edgeboxctl shunt direct-resi '<代理URL>'                      #智能分流（仅Xray分流，白名单直连，其余走住宅）
 edgeboxctl shunt vps                                         #VPS全量出站
-edgeboxctl shunt status                                      #查看分流状态
 edgeboxctl shunt whitelist [add|remove|list|reset] [domain]  #管理白名单
 
 ${YELLOW}流量统计:${NC}
