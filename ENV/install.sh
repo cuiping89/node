@@ -1739,31 +1739,56 @@ request_letsencrypt_cert(){
   local domain="$1"
   [[ -z "$domain" ]] && { log_error "缺少域名"; return 1; }
 
-  # 优先用 nginx 插件（不停机）；失败则回落 standalone（短停 nginx）
+  # 先检查 apex 是否解析；子域 trojan.<domain> 解析不到就先不申请它
+  if ! getent hosts "$domain" >/dev/null; then
+    log_error "${domain} 未解析到本机，无法申请证书"; return 1
+  fi
+
+  local trojan="trojan.${domain}"
+  local args="-d ${domain}"
+  local have_trojan=0
+  if getent hosts "$trojan" >/dev/null; then
+    args="${args} -d ${trojan}"
+    have_trojan=1
+  else
+    log_warn "未检测到 ${trojan} 的 A/AAAA 记录，将先只为 ${domain} 申请证书。"
+    log_warn "等你把 ${trojan} 解析到本机后，再运行同样命令会自动 --expand 加上子域。"
+  fi
+
+  # 首选 nginx 插件（不停机），失败则回落 standalone（临停 80）
   if ! certbot certonly --nginx --expand \
-        --cert-name "$domain" \
-        -d "$domain" -d "trojan.$domain" \
+        --cert-name "${domain}" ${args} \
         -n --agree-tos --register-unsafely-without-email
   then
-    log_warn "nginx 插件申请失败，回落 standalone 模式"
+    log_warn "nginx 插件失败，改用 standalone（临时占用 80）"
     systemctl stop nginx >/dev/null 2>&1 || true
-    certbot certonly --standalone --expand \
-        --cert-name "$domain" \
-        -d "$domain" -d "trojan.$domain" \
-        -n --agree-tos --register-unsafely-without-email \
-        --preferred-challenges http --http-01-port 80 \
-      || { systemctl start nginx >/dev/null 2>&1 || true; log_error "证书申请失败"; return 1; }
+    if ! certbot certonly --standalone --expand \
+          --preferred-challenges http --http-01-port 80 \
+          --cert-name "${domain}" ${args} \
+          -n --agree-tos --register-unsafely-without-email
+    then
+      systemctl start nginx >/dev/null 2>&1 || true
+      log_error "证书申请失败：请确认 ${domain}（以及需要的话 ${trojan}）已正确解析到本机"
+      return 1
+    fi
     systemctl start nginx >/dev/null 2>&1 || true
   fi
 
   # 切换软链并热加载
   [[ -f "/etc/letsencrypt/live/${domain}/fullchain.pem" && -f "/etc/letsencrypt/live/${domain}/privkey.pem" ]] \
     || { log_error "证书文件缺失"; return 1; }
+
   ln -sf "/etc/letsencrypt/live/${domain}/fullchain.pem" "${CERT_DIR}/current.pem"
-  ln -sf "/etc/letsencrypt/live/${domain}/privkey.pem"    "${CERT_DIR}/current.key"
+  ln -sf "/etc/letsencrypt/live/${domain}/privkey.pem"  "${CERT_DIR}/current.key"
   echo "letsencrypt:${domain}" > "${CONFIG_DIR}/cert_mode"
+
   systemctl reload nginx xray sing-box >/dev/null 2>&1 || systemctl restart nginx xray sing-box
-  log_success "Let's Encrypt 证书已生效（含 trojan.${domain) }"
+
+  if [[ ${have_trojan} -eq 1 ]]; then
+    log_success "Let's Encrypt 证书已生效（包含 trojan.${domain}）"
+  else
+    log_success "Let's Encrypt 证书已生效（仅 ${domain}；trojan 子域暂未包含）"
+  fi
 }
 
 post_switch_report() {
