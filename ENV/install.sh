@@ -2683,11 +2683,11 @@ ${YELLOW}配置管理:${NC}
   edgeboxctl config regenerate-uuid        重新生成UUID
 
 ${YELLOW}出站分流:${NC}
-  edgeboxctl shunt resi '<scheme://[user:pass@]host:port[?sni=…]>'         住宅IP全量出站
-  edgeboxctl shunt direct-resi '<scheme://[user:pass@]host:port[?sni=…]>'  智能分流模式
-  edgeboxctl shunt vps                                                     VPS全量出站
-  edgeboxctl shunt status                                                  查看分流状态
-  edgeboxctl shunt whitelist [add|remove|list|reset] [domain]              管理白名单
+edgeboxctl shunt resi '<代理URL>'                             #全量走住宅
+edgeboxctl shunt direct-resi '<代理URL>'                      #智能分流（白名单直连，其余走住宅）
+edgeboxctl shunt vps                                         #VPS全量出站
+edgeboxctl shunt status                                      #查看分流状态
+edgeboxctl shunt whitelist [add|remove|list|reset] [domain]  #管理白名单
 
 ${YELLOW}流量统计:${NC}
   edgeboxctl traffic show                  查看流量统计
