@@ -1,5 +1,22 @@
 #!/bin/bash
 
+# --- auto-elevate to root (works with bash <(curl ...)) ---
+if [[ $EUID -ne 0 ]]; then
+  # 把当前脚本内容拷到临时文件，再以 root 重启执行（兼容 /dev/fd/63）
+  _EB_TMP="$(mktemp)"
+  # shellcheck disable=SC2128
+  cat "${BASH_SOURCE:-/proc/self/fd/0}" > "$_EB_TMP"
+  chmod +x "$_EB_TMP"
+
+  if command -v sudo >/dev/null 2>&1; then
+    exec sudo -E EB_TMP="$_EB_TMP" bash "$_EB_TMP" "$@"
+  else
+    exec su - root -c "EB_TMP='$_EB_TMP' bash '$_EB_TMP' $*"
+  fi
+fi
+# 以 root 运行到这里；如果是从临时文件重启的，退出时自动清理
+trap '[[ -n "${EB_TMP:-}" ]] && rm -f "$EB_TMP"' EXIT
+
 #############################################
 # EdgeBox 企业级多协议节点部署脚本 - 完全增强版
 # Version: 3.0.0 - 模块1+2+3完整版 + Trojan-TLS
@@ -166,8 +183,9 @@ install_dependencies() {
     DEBIAN_FRONTEND=noninteractive apt-get update -y >/dev/null 2>&1 || true
 
     # 必要包
-    local pkgs=(curl wget unzip ca-certificates jq bc uuid-runtime dnsutils openssl \
-            vnstat nginx libnginx-mod-stream nftables certbot msmtp-mta bsd-mailx cron tar)
+local pkgs=(curl wget unzip ca-certificates jq bc uuid-runtime dnsutils openssl \
+            vnstat nginx libnginx-mod-stream nftables certbot python3-certbot-nginx \
+            msmtp-mta bsd-mailx cron tar)
     for pkg in "${pkgs[@]}"; do
       if ! dpkg -l | grep -q "^ii.*${pkg}"; then
         log_info "安装 ${pkg}..."
@@ -1045,7 +1063,7 @@ COLLECTOR
 chmod +x "${SCRIPTS_DIR}/traffic-collector.sh"
 
   # 面板数据刷新（自包含版本，不依赖外部函数）
-  cat > "${SCRIPTS_DIR}/panel-refresh.sh" <<'PANEL'
+cat > "${SCRIPTS_DIR}/panel-refresh.sh" <<'PANEL'
 #!/bin/bash
 set -euo pipefail
 TRAFFIC_DIR="/etc/edgebox/traffic"
@@ -1054,58 +1072,117 @@ SHUNT_DIR="/etc/edgebox/shunt"
 CONFIG_DIR="/etc/edgebox/config"
 mkdir -p "$TRAFFIC_DIR"
 
-# 服务器信息（若有 srv.json 则读取）
+# --- 基本信息 ---
 srv_json="${CONFIG_DIR}/server.json"
 server_ip="$( (jq -r '.server_ip' "$srv_json" 2>/dev/null) || hostname -I | awk '{print $1}' )"
 version="$( (jq -r '.version' "$srv_json" 2>/dev/null) || echo 'v3.0.0')"
 install_date="$( (jq -r '.install_date' "$srv_json" 2>/dev/null) || date +%F)"
-# 检测证书模式
+# 证书模式/域名/到期
 cert_domain=""
+cert_mode="self-signed"
+cert_expire=""
 if ls /etc/letsencrypt/live/*/fullchain.pem >/dev/null 2>&1; then
   cert_mode="letsencrypt"
   cert_domain="$(basename /etc/letsencrypt/live/* 2>/dev/null || true)"
-else
-  cert_mode="self-signed"
+  pem="/etc/letsencrypt/live/${cert_domain}/cert.pem"
+  if [[ -f "$pem" ]] && command -v openssl >/dev/null 2>&1; then
+    cert_expire="$(openssl x509 -enddate -noout -in "$pem" 2>/dev/null | cut -d= -f2)"
+  fi
 fi
 
-# 分流状态
+# 当前出口 IP（尽量轻量：2s 超时，多源兜底）
+get_eip() {
+  (curl -fsS --max-time 2 https://api.ip.sb/ip 2>/dev/null) \
+  || (curl -fsS --max-time 2 https://ifconfig.me 2>/dev/null) \
+  || (dig +short myip.opendns.com @resolver1.opendns.com 2>/dev/null) \
+  || echo ""
+}
+eip="$(get_eip)"
+
+# --- 分流状态 ---
 state_json="${SHUNT_DIR}/state.json"
-mode="vps"; proxy=""; health="unknown"
+mode="vps"; proxy=""; health="unknown"; wl_count=0; whitelist_json='[]'
 if [[ -s "$state_json" ]]; then
   mode="$(jq -r '.mode' "$state_json")"
   proxy="$(jq -r '.proxy_info // ""' "$state_json")"
   health="$(jq -r '.health // "unknown"' "$state_json")"
 fi
-# 白名单
-wl_file="${SHUNT_DIR}/whitelist.txt"
-wl_json='[]'
-[[ -s "$wl_file" ]] && wl_json="$(jq -R -s 'split("\n")|map(select(length>0))' "$wl_file")"
+if [[ -s "${SHUNT_DIR}/whitelist.txt" ]]; then
+  wl_count="$(grep -cve '^\s*$' "${SHUNT_DIR}/whitelist.txt" || true)"
+  whitelist_json="$(jq -R -s 'split("\n")|map(select(length>0))' "${SHUNT_DIR}/whitelist.txt")"
+fi
 
-# 写 panel.json
+# --- 协议配置（检测监听端口/进程，做成一览表） ---
+# 目标：符合 README 的“左侧 70% 协议配置卡片”，至少给出协议名/端口/进程与说明【协议清单见 README】。
+# 数据来源：ss/ps 检测（健壮且不依赖具体实现），缺少时标注“未监听/未配置”。
+SS="$(ss -H -lnptu 2>/dev/null || true)"
+add_proto() {  # name proto port proc note
+  local name="$1" proto="$2" port="$3" proc="$4" note="$5"
+  jq -n --arg name "$name" --arg proto "$proto" --argjson port "$port" \
+        --arg proc "$proc" --arg note "$note" \
+     '{name:$name, proto:$proto, port:$port, proc:$proc, note:$note}'
+}
+has_listen() { # proto port keyword_in_process
+  local proto="$1" port="$2" kw="$3"
+  grep -E "(^| )$proto .*:$port " <<<"$SS" | grep -qi "$kw"
+}
+protos=()
+
+# Xray / sing-box on 443 (Reality / VLESS-WS / VLESS-gRPC / Trojan-TLS 等)
+if has_listen tcp 443 "xray|sing-box|trojan"; then
+  protos+=( "$(add_proto 'VLESS/Trojan (443/TCP)' 'tcp' 443 "$(grep -E 'tcp .*:443 ' <<<"$SS" | awk -F',' '/users/ {print $2;exit}' | sed 's/\"//g')" 'Reality/WS/gRPC/TLS 同端口，多协议复用')" )
+else
+  protos+=( "$(add_proto 'VLESS/Trojan (443/TCP)' 'tcp' 443 '未监听' '未检测到 443 TCP')" )
+fi
+
+# Hysteria2（常见 UDP 端口：8443/443）
+if has_listen udp 8443 "hysteria|sing-box"; then
+  protos+=( "$(add_proto 'Hysteria2' 'udp' 8443 'hysteria/sing-box' '高性能 UDP 通道（直连，不参与分流）')" )
+elif has_listen udp 443 "hysteria|sing-box"; then
+  protos+=( "$(add_proto 'Hysteria2' 'udp' 443 'hysteria/sing-box' '高性能 UDP 通道（直连，不参与分流）')" )
+else
+  protos+=( "$(add_proto 'Hysteria2' 'udp' 0 '未监听' '未检测到常见端口 8443/443')" )
+fi
+
+# TUIC（常见 UDP 端口：2053）
+if has_listen udp 2053 "tuic|sing-box"; then
+  protos+=( "$(add_proto 'TUIC' 'udp' 2053 'tuic/sing-box' '高性能 UDP 通道（直连，不参与分流）')" )
+else
+  protos+=( "$(add_proto 'TUIC' 'udp' 2053 '未监听' '未检测到 2053 UDP')" )
+fi
+
+# 汇总为 JSON 数组
+protocols_json="$(jq -s '.' <<<"${protos[*]:-[]}")"
+
+# --- 写 panel.json ---
 jq -n \
  --arg updated "$(date -Is)" \
  --arg ip "$server_ip" \
+ --arg eip "$eip" \
  --arg version "$version" \
  --arg install_date "$install_date" \
  --arg cert_mode "$cert_mode" \
  --arg cert_domain "$cert_domain" \
+ --arg cert_expire "$cert_expire" \
  --arg mode "$mode" \
  --arg proxy "$proxy" \
  --arg health "$health" \
- --argjson whitelist "$wl_json" \
+ --argjson whitelist "$whitelist_json" \
+ --argjson protocols "$protocols_json" \
  '{
    updated_at:$updated,
-   server:{ip:$ip,version:$version,install_date:$install_date,cert_mode:$cert_mode,cert_domain:($cert_domain|select(.!=""))},
+   server:{ip:$ip,eip:($eip|select(length>0)),version:$version,install_date:$install_date,
+           cert_mode:$cert_mode,cert_domain:($cert_domain|select(length>0)),cert_expire:($cert_expire|select(length>0))},
+   protocols:$protocols,
    shunt:{mode:$mode,proxy_info:$proxy,health:$health,whitelist:$whitelist}
  }' > "${TRAFFIC_DIR}/panel.json"
 
-# 写订阅复制链接（面板读取 /traffic/sub.txt）
-proto="http"
-addr="$server_ip"
+# 写订阅复制链接
+proto="http"; addr="$server_ip"
 if [[ "$cert_mode" == "letsencrypt" && -n "$cert_domain" ]]; then proto="https"; addr="$cert_domain"; fi
 echo "${proto}://${addr}/sub" > "${TRAFFIC_DIR}/sub.txt"
 PANEL
-  chmod +x "${SCRIPTS_DIR}/panel-refresh.sh"
+chmod +x "${SCRIPTS_DIR}/panel-refresh.sh"
 
   # 预警配置（默认）
   cat > "${TRAFFIC_DIR}/alert.conf" <<'CONF'
@@ -1181,91 +1258,176 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
 :root{--card:#fff;--border:#e2e8f0;--bg:#f8fafc;--muted:#64748b;--shadow:0 4px 6px -1px rgba(0,0,0,.1)}
 *{box-sizing:border-box}body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:#334155;margin:0}
 .container{max-width:1200px;margin:0 auto;padding:16px}
-.grid{display:grid;gap:16px}.grid-2{grid-template-columns:2fr 1fr}@media(max-width:980px){.grid-2{grid-template-columns:1fr}}
+.grid{display:grid;gap:16px}
+.grid-full{grid-template-columns:1fr}
+.grid-70-30{grid-template-columns:7fr 3fr}@media(max-width:980px){.grid-70-30{grid-template-columns:1fr}}
 .card{background:var(--card);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow);overflow:hidden}
 .card h3{margin:0;padding:12px 16px;border-bottom:1px solid var(--border);font-size:1rem}
 .card .content{padding:16px}
-.table{width:100%;border-collapse:collapse}.table th,.table td{padding:8px 10px;border-bottom:1px solid var(--border);font-size:.9rem}
+.small{color:var(--muted);font-size:.9rem}
+.table{width:100%;border-collapse:collapse}.table th,.table td{padding:8px 10px;border-bottom:1px solid var(--border);font-size:.9rem;text-align:left}
 .copy{display:flex;gap:8px}.copy input{flex:1;padding:8px;border:1px solid var(--border);border-radius:8px}
 .btn{padding:8px 12px;border:1px solid var(--border);background:#f1f5f9;border-radius:8px;cursor:pointer}
+.badge{display:inline-block;border:1px solid var(--border);border-radius:999px;padding:2px 8px;font-size:.8rem;margin-right:6px}
+.ok{color:#16a34a}.warn{color:#ca8a04}.bad{color:#dc2626}
 .chart{position:relative;height:320px}
-.small{color:var(--muted);font-size:.85rem}
+pre{white-space:pre-wrap;background:#0f172a;color:#e2e8f0;border-radius:10px;padding:12px;overflow:auto}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
 </head><body>
 <div class="container">
-  <div class="grid grid-2">
-    <div class="card"><h3>基本信息</h3><div class="content">
-      <div class="small">服务器地址：<span id="srv-addr">-</span></div>
-      <div class="small">证书模式：<span id="cert-mode">-</span></div>
-      <div class="small">安装版本：<span id="ver">-</span>，安装日期：<span id="inst">-</span></div>
-      <div class="small">数据更新时间：<span id="updated">-</span></div>
-    </div></div>
-    <div class="card"><h3>出站分流状态（Xray 生效）</h3><div class="content">
-      <div class="small">模式：<span id="mode">-</span></div>
-      <div class="small">上游：<span id="proxy">-</span></div>
-      <div class="small">健康：<span id="health">-</span></div>
-      <div class="small">白名单：<span id="wln">-</span></div>
-      <div class="small">提示：HY2/TUIC 为 UDP 通道，始终直连，不参与上游分流。</div>
+
+  <!-- 第1行：基本信息（全宽） -->
+  <div class="grid grid-full">
+    <div class="card">
+      <h3>基本信息</h3>
+      <div class="content">
+        <div class="small">服务器地址：<span id="srv-addr">-</span></div>
+        <div class="small">当前出口 IP：<span id="eip">-</span></div>
+        <div class="small">证书：<span id="cert-mode">-</span> <span id="cert-exp"> </span></div>
+        <div class="small">安装版本：<span id="ver">-</span>，安装日期：<span id="inst">-</span></div>
+        <div class="small">数据更新时间：<span id="updated">-</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 第2行：左 70% 协议配置 + 右 30% 分流状态 -->
+  <div class="grid grid-70-30">
+    <div class="card">
+      <h3>协议配置（关键参数一览）</h3>
+      <div class="content">
+        <table class="table" id="proto">
+          <thead><tr><th>协议</th><th>网络</th><th>端口</th><th>进程/状态</th><th>说明</th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <div class="small">注：HY2/TUIC 为 UDP 通道，<b>直连</b>不参与分流；VLESS/Trojan 由 Xray/sing-box 在 443/TCP 复用【见文档“第2行卡片”说明】。</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>出站分流状态（Xray-only）</h3>
+      <div class="content">
+        <div style="margin-bottom:8px">
+          <span class="badge" id="tag-vps">vps</span>
+          <span class="badge" id="tag-resi">resi</span>
+          <span class="badge" id="tag-direct">direct-resi</span>
+        </div>
+        <div class="small">当前模式：<span id="mode">-</span></div>
+        <div class="small">上游：<span id="proxy">-</span></div>
+        <div class="small">健康：<span id="health">-</span></div>
+        <div class="small">白名单：<span id="wln">-</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 第3行：订阅链接（全宽） -->
+  <div class="grid grid-full">
+    <div class="card"><h3>订阅链接</h3><div class="content">
+      <div class="copy"><input id="sub" readonly><button class="btn" onclick="copySub()">复制</button></div>
     </div></div>
   </div>
 
-  <div class="card"><h3>订阅链接</h3><div class="content">
-    <div class="copy"><input id="sub" readonly><button class="btn" onclick="copySub()">复制</button></div>
-  </div></div>
+  <!-- 第4行：流量统计（全宽） -->
+  <div class="grid grid-full">
+    <div class="card"><h3>近30天流量趋势</h3><div class="content"><canvas id="traffic" class="chart"></canvas></div></div>
+  </div>
 
-  <div class="card"><h3>近30天流量趋势</h3><div class="content"><canvas id="traffic" class="chart"></canvas></div></div>
+  <!-- 第5行：管理命令（全宽） -->
+  <div class="grid grid-full">
+    <div class="card"><h3>常用管理命令</h3>
+      <div class="content">
+<pre>
+# 出站分流（Xray-only）
+edgeboxctl shunt vps
+edgeboxctl shunt resi '&lt;URL&gt;'
+edgeboxctl shunt direct-resi '&lt;URL&gt;'
+edgeboxctl shunt whitelist add|remove|list|reset &lt;domain&gt;
 
-  <div class="card"><h3>月度累计流量（最近12个月）</h3><div class="content">
-    <table class="table"><thead><tr><th>月份</th><th>住宅出口</th><th>VPS 出口</th><th>总出站</th></tr></thead>
-    <tbody id="mt"></tbody></table>
-  </div></div>
+# 域名/IP 模式切换
+edgeboxctl switch-to-domain &lt;your_domain&gt;
+edgeboxctl switch-to-ip
+
+# 订阅
+edgeboxctl sub
+</pre>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script>
 const GiB = 1024**3; const el = id => document.getElementById(id);
 const fmtGiB = b => (b/GiB).toFixed(2)+' GiB';
+
+function paintBadges(mode){
+  ['vps','resi','direct'].forEach(x=>{
+    const id = x==='direct'?'tag-direct':'tag-'+x;
+    const node = el(id); node.style.background = ( (x==='direct'?'direct-resi':x)===mode ) ? '#e2fbe2':'#f1f5f9';
+  });
+}
+
 async function boot(){
   const [subTxt, panel, tjson] = await Promise.all([
     fetch('/traffic/sub.txt',{cache:'no-store'}).then(r=>r.text()).catch(()=>''), 
     fetch('/traffic/panel.json',{cache:'no-store'}).then(r=>r.json()).catch(()=>null),
     fetch('/traffic/traffic.json',{cache:'no-store'}).then(r=>r.json()).catch(()=>null)
   ]);
+
+  // 第3行：订阅
   el('sub').value = (subTxt||'').trim();
 
+  // 第1/2行：基本信息 & 协议配置 & 分流状态
   if(panel){
     const ts = panel.updated_at || new Date().toISOString();
     el('updated').textContent = new Date(ts).toLocaleString();
-    const s=panel.server||{}, sh=panel.shunt||{};
+    const s=panel.server||{}, sh=panel.shunt||{}, protos=panel.protocols||[];
+
     el('srv-addr').textContent = (s.cert_domain||s.ip||'-');
-    el('cert-mode').textContent = s.cert_mode||'-';
-    el('ver').textContent = s.version||'-'; el('inst').textContent = s.install_date||'-';
-    el('mode').textContent = sh.mode||'-'; el('proxy').textContent = sh.proxy_info||'(未配置)';
-    el('health').textContent = sh.health||'unknown';
+    el('eip').textContent = s.eip || '(获取中/不可用)';
+    el('cert-mode').textContent = s.cert_mode || '-';
+    el('cert-exp').textContent = s.cert_expire ? '（到期：'+s.cert_expire+'）' : '';
+    el('ver').textContent = s.version || '-'; el('inst').textContent = s.install_date || '-';
+
+    const tb = document.querySelector('#proto tbody'); tb.innerHTML='';
+    protos.forEach(p=>{
+      const tr=document.createElement('tr');
+      tr.innerHTML=`<td>${p.name||'-'}</td><td>${p.proto||'-'}</td><td>${p.port||'-'}</td><td>${p.proc||'-'}</td><td>${p.note||''}</td>`;
+      tb.appendChild(tr);
+    });
+
+    const mode = sh.mode||'-'; el('mode').textContent = mode; paintBadges(mode);
+    el('proxy').textContent = sh.proxy_info || '(未配置)';
+    const h = (sh.health||'unknown'); el('health').textContent = h;
     el('wln').textContent = Array.isArray(sh.whitelist)?(sh.whitelist.length+' 项'):'-';
   }
 
+  // 第4行：流量统计（含月总额标注）
   if(tjson){
     const labels = (tjson.last30d||[]).map(x=>x.date);
     const vps = (tjson.last30d||[]).map(x=>x.vps);
     const resi= (tjson.last30d||[]).map(x=>x.resi);
-    new Chart(document.getElementById('traffic'),{
+    const monthly=(tjson.monthly||[]);
+
+    new Chart(el('traffic'),{
       type:'line',
       data:{labels,datasets:[
         {label:'VPS 出口', data:vps, tension:.3, borderWidth:2},
         {label:'住宅出口', data:resi, tension:.3, borderWidth:2}
       ]},
       options:{responsive:true,maintainAspectRatio:false,
-        scales:{y:{ticks:{callback:v=>(v/GiB).toFixed(1)+' GiB'}}}}
+        scales:{y:{ticks:{callback:v=>(v/GiB).toFixed(1)+' GiB'}}},
+        plugins:{
+          annotation:{ // 在末尾标注最近几个月总额（符合 README 的“注解标注”建议）
+            annotations: monthly.reduce((acc,m,i)=>{
+              acc['m'+i] = {type:'label', xValue: labels[labels.length-1], yValue: Math.max(...vps, ...resi),
+                content: m.month+'：'+(m.total/GiB).toFixed(2)+' GiB', backgroundColor:'rgba(0,0,0,.05)'};
+              return acc; }, {}) }
+        } }
     );
-    const tb=document.getElementById('mt'); tb.innerHTML='';
-    (tjson.monthly||[]).forEach(m=>{
-      const tr=document.createElement('tr');
-      tr.innerHTML=`<td>${m.month}</td><td>${fmtGiB(m.resi)}</td><td>${fmtGiB(m.vps)}</td><td>${fmtGiB(m.total)}</td>`;
-      tb.appendChild(tr);
-    });
   }
 }
+
 function copySub(){ const x=el('sub'); x.select(); document.execCommand('copy'); }
 boot();
 </script>
@@ -1621,24 +1783,34 @@ request_letsencrypt_cert(){
     log_warn "等你把 ${trojan} 解析到本机后，再运行同样命令会自动 --expand 加上子域。"
   fi
 
-  # 首选 nginx 插件（不停机），失败则回落 standalone（临停 80）
-  if ! certbot certonly --nginx --expand \
-        --cert-name "${domain}" ${args} \
-        -n --agree-tos --register-unsafely-without-email
-  then
-    log_warn "nginx 插件失败，改用 standalone（临时占用 80）"
-    systemctl stop nginx >/dev/null 2>&1 || true
-    if ! certbot certonly --standalone --expand \
-          --preferred-challenges http --http-01-port 80 \
-          --cert-name "${domain}" ${args} \
-          -n --agree-tos --register-unsafely-without-email
-    then
-      systemctl start nginx >/dev/null 2>&1 || true
-      log_error "证书申请失败：请确认 ${domain}（以及需要的话 ${trojan}）已正确解析到本机"
-      return 1
-    fi
-    systemctl start nginx >/dev/null 2>&1 || true
-  fi
+# 首选 nginx 插件（不停机），失败则回落 standalone（临停 80）
+# 1) 组装域名参数
+local cert_args=(-d "${domain}")
+[[ ${have_trojan:-0} -eq 1 ]] && cert_args+=(-d "${trojan}")
+
+# 2) 是否需要 --expand（已有同名证书时）
+local expand=""
+[[ -d "/etc/letsencrypt/live/${domain}" ]] && expand="--expand"
+
+# 3) 选择验证方式
+local CERTBOT_AUTH="--nginx"
+if ! command -v nginx >/dev/null 2>&1 || ! dpkg -l | grep -q '^ii\s\+python3-certbot-nginx'; then
+  CERTBOT_AUTH="--standalone --preferred-challenges http"
+fi
+
+# 4) 执行签发
+if [[ "$CERTBOT_AUTH" == "--nginx" ]]; then
+  certbot certonly --nginx ${expand} \
+    --cert-name "${domain}" "${cert_args[@]}" \
+    -n --agree-tos --register-unsafely-without-email || return 1
+else
+  # standalone 需临时释放 80 端口
+  systemctl stop nginx >/dev/null 2>&1 || true
+  certbot certonly --standalone --preferred-challenges http --http-01-port 80 ${expand} \
+    --cert-name "${domain}" "${cert_args[@]}" \
+    -n --agree-tos --register-unsafely-without-email || { systemctl start nginx >/dev/null 2>&1 || true; return 1; }
+  systemctl start nginx >/dev/null 2>&1 || true
+fi
 
   # 切换软链并热加载
   [[ -f "/etc/letsencrypt/live/${domain}/fullchain.pem" && -f "/etc/letsencrypt/live/${domain}/privkey.pem" ]] \
