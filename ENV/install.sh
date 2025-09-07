@@ -1402,12 +1402,21 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
     <h3>订阅链接</h3>
     <div class="content">
       <div class="copy">
-        <input id="sub" readonly>
-        <button class="btn" onclick="copy('sub')">复制</button>
-      </div>
-      <div class="copy">
-        <textarea id="sub-plain" rows="6" spellcheck="false" wrap="off" readonly></textarea>
+        <label>明文链接</label>
+        <input id="sub-plain" readonly>
         <button class="btn" onclick="copy('sub-plain')">复制</button>
+      </div>
+
+      <div class="copy">
+        <label>Base64</label>
+        <input id="sub-base64" readonly>
+        <button class="btn" onclick="copy('sub-base64')">复制</button>
+      </div>
+
+      <div class="copy">
+        <label>Base64分行</label>
+        <input id="sub-b64lines" readonly>
+        <button class="btn" onclick="copy('sub-b64lines')">复制</button>
       </div>
     </div>
   </div>
@@ -1593,7 +1602,6 @@ if (subTxt && subTxt.trim()) {
 } else {
   el('sub-plain').value = '正在获取订阅内容...';
 }
-
   // 面板数据
   if(panel){
     const ts = panel.updated_at || new Date().toISOString();
