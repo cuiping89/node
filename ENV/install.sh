@@ -1252,31 +1252,7 @@ ALERT
 # 替换setup_traffic_monitoring函数中的控制面板HTML部分
 # 找到原脚本中的控制面板HTML生成部分，完整替换为以下内容：
 
-# 控制面板（优化布局：通知中心整合+横向分块+三种复制标签）
-# 替换setup_traffic_monitoring函数中的控制面板HTML部分
-# 找到原脚本中的控制面板HTML生成部分，完整替换为以下内容：
-
-# 控制面板（优化布局：通知中心整合+横向分块+三种复制标签）
-# 替换setup_traffic_monitoring函数中的控制面板HTML部分
-# 找到原脚本中的控制面板HTML生成部分，完整替换为以下内容：
-
-# 控制面板（优化布局：通知中心整合+横向分块+三种复制标签+出站分流标签页）
-# 替换setup_traffic_monitoring函数中的控制面板HTML部分
-# 找到原脚本中的控制面板HTML生成部分，完整替换为以下内容：
-
-# 控制面板（优化布局：通知中心整合+横向分块+三种复制标签+出站分流标签页）
-# 替换setup_traffic_monitoring函数中的控制面板HTML部分
-# 找到原脚本中的控制面板HTML生成部分，完整替换为以下内容：
-
-# 控制面板（优化布局：通知中心整合+横向分块+三种复制标签+出站分流标签页）
-# 替换setup_traffic_monitoring函数中的控制面板HTML部分
-# 找到原脚本中的控制面板HTML生成部分，完整替换为以下内容：
-
-# 控制面板（优化布局：通知中心整合+横向分块+三种复制标签+出站分流标签页）
-# 替换setup_traffic_monitoring函数中的控制面板HTML部分
-# 找到原脚本中的控制面板HTML生成部分，完整替换为以下内容：
-
-# 控制面板（优化布局：通知中心整合+横向分块+三种复制标签+出站分流标签页）
+# 控制面板（优化布局：通知中心整合+横向分块+三种复制标签+出站分流标签页+月累计表格）
 cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
 <!doctype html>
 <html lang="zh-CN"><head>
@@ -1340,7 +1316,7 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
 .command-list{font-size:.8rem;line-height:1.6}
 .command-list code{background:#e2e8f0;padding:2px 6px;border-radius:4px;font-family:monospace;font-size:.75rem;color:#1e293b}
 .command-list span{color:var(--muted);margin-left:8px}
-.command-list small{display:block;margin-top:4px;color:var(--muted);font-style:italic}
+.command-list small{display:block;margin-top:2px;color:var(--muted);font-style:normal}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head><body>
@@ -1446,7 +1422,30 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
 
   <!-- 流量统计 -->
   <div class="grid grid-full">
-    <div class="card"><h3>近30天流量趋势</h3><div class="content"><canvas id="traffic" class="chart"></canvas></div></div>
+    <div class="card">
+      <h3>近30天流量趋势</h3>
+      <div class="content">
+        <canvas id="traffic" class="chart"></canvas>
+        
+        <!-- 月累计表格 -->
+        <div style="margin-top:24px">
+          <h4 style="margin:0 0 12px 0;font-size:1rem;color:#1e293b">近12个月累计流量</h4>
+          <div style="overflow-x:auto">
+            <table class="table" id="monthly-table">
+              <thead>
+                <tr>
+                  <th>月份</th>
+                  <th>住宅出口</th>
+                  <th>VPS出口</th>
+                  <th>总出站流量</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- 管理命令（两列三行布局） -->
@@ -1481,12 +1480,12 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
               <code>edgeboxctl shunt mode resi &lt;URL&gt;</code> <span># 配置并切换至住宅IP全量出站模式</span><br>
               <code>edgeboxctl shunt mode direct-resi &lt;URL&gt;</code> <span># 配置并切换至白名单智能分流模式</span><br>
               <code>edgeboxctl shunt whitelist &lt;add|remove|list&gt;</code> <span># 管理白名单域名</span><br>
-              <small># 代理URL 支持:</small><br>
-              <small># http://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;</small><br>
-              <small># https://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;?sni=</small><br>
-              <small># socks5://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;</small><br>
-              <small># socks5s://user:pass@&lt;域名&gt;:&lt;端口&gt;?sni=</small><br>
-              <small># 示例：edgeboxctl shunt resi 'socks5://14aa42d05fc94:5069856762@111.222.333.444:11324' # 全栈走住宅</small>
+              <small>代理URL 支持:</small><br>
+              <small>http://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;</small><br>
+              <small>https://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;?sni=</small><br>
+              <small>socks5://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;</small><br>
+              <small>socks5s://user:pass@&lt;域名&gt;:&lt;端口&gt;?sni=</small><br>
+              <small>示例：edgeboxctl shunt resi 'socks5://user:pass@111.222.333.444:11324' # 全栈走住宅</small>
             </div>
           </div>
           
@@ -1608,15 +1607,15 @@ async function boot(){
     const tb = document.querySelector('#proto tbody');
     tb.innerHTML='';
     
-    // 模拟协议数据（实际应从panel.protocols获取）
+    // 协议数据（参考截图内容）
     const protocols = [
       {
         name: 'VLESS-Reality',
         network: 'TCP',
         port: '443',
         uuid: 'xxxxxxxx...',
-        disguise: 'www.cloudflare.com',
-        scenario: '抗审查/高安全',
+        disguise: '极佳',
+        scenario: '最严格的网络环境',
         status: '✓ 运行'
       },
       {
@@ -1624,8 +1623,8 @@ async function boot(){
         network: 'TCP/H2',
         port: '443',
         uuid: 'xxxxxxxx...',
-        disguise: 'gRPC服务',
-        scenario: 'CDN友好',
+        disguise: '极佳',
+        scenario: '网络审查严格的环境',
         status: '✓ 运行'
       },
       {
@@ -1633,8 +1632,8 @@ async function boot(){
         network: 'TCP/WS',
         port: '443',
         uuid: 'xxxxxxxx...',
-        disguise: 'WebSocket',
-        scenario: 'CDN/反代',
+        disguise: '良好',
+        scenario: '一般网络环境，稳定性佳',
         status: '✓ 运行'
       },
       {
@@ -1642,8 +1641,8 @@ async function boot(){
         network: 'TCP',
         port: '443',
         uuid: 'xxxxxxxx...',
-        disguise: 'HTTPS流量',
-        scenario: '通用场景',
+        disguise: '良好',
+        scenario: '移动网络和复杂环境的可靠备选',
         status: '✓ 运行'
       },
       {
@@ -1651,8 +1650,8 @@ async function boot(){
         network: 'UDP/QUIC',
         port: '443',
         uuid: '密码认证',
-        disguise: 'HTTP/3流量',
-        scenario: '高速传输',
+        disguise: '良好',
+        scenario: '需要高速传输的场景',
         status: '✓ 运行'
       },
       {
@@ -1660,8 +1659,8 @@ async function boot(){
         network: 'UDP/QUIC',
         port: '2053',
         uuid: 'xxxxxxxx...',
-        disguise: 'QUIC流量',
-        scenario: '低延迟',
+        disguise: '好',
+        scenario: '移动网络和不稳定连接',
         status: '✓ 运行'
       }
     ];
