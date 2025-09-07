@@ -1542,7 +1542,7 @@ document.addEventListener('click', e => {
 
 async function boot(){
   const [subTxt, panel, tjson, alerts] = await Promise.all([
-    fetch('/traffic/sub.txt',{cache:'no-store'}).then(r=>r.text()).catch(()=>''), 
+    fetch('/sub',{cache:'no-store'}).then(r=>r.text()).catch(()=>''), 
     fetch('/traffic/panel.json',{cache:'no-store'}).then(r=>r.json()).catch(()=>null),
     fetch('/traffic/traffic.json',{cache:'no-store'}).then(r=>r.json()).catch(()=>null),
     fetch('/traffic/alerts.json',{cache:'no-store'}).then(r=>r.json()).catch(()=>[])
@@ -2113,20 +2113,42 @@ get_server_info() {
 # 基础功能
 #############################################
 
-show_sub() {
-  if [[ ! -f ${CONFIG_DIR}/server.json ]]; then echo -e "${RED}配置文件不存在${NC}"; exit 1; fi
-  local cert_mode=$(get_current_cert_mode)
-  local server_ip=$(jq -r '.server_ip' ${CONFIG_DIR}/server.json)
-  echo ""
-  if [[ -s /var/www/html/sub ]]; then
-    echo -e "${CYAN}订阅内容【与控制台一致】：${NC}"
-    cat /var/www/html/sub
-  else
-    # 回退：旧文件
-    [[ -s ${CONFIG_DIR}/subscription.txt ]] && { echo -e "${CYAN}# 明文：${NC}"; cat ${CONFIG_DIR}/subscription.txt; echo; }
-    [[ -s ${CONFIG_DIR}/subscription.base64 ]] && { echo -e "${CYAN}# Base64(整包)：${NC}"; cat ${CONFIG_DIR}/subscription.base64; echo; }
+# === 订阅：统一生成 + 落盘 + 对外暴露 ===
+SUB_TXT="/etc/edgebox/traffic/sub.txt"             # 规范文件
+WEB_SUB="/var/www/html/sub"                         # Web 根下的 /sub
+
+ensure_traffic_dir(){ mkdir -p /etc/edgebox/traffic; }
+
+# 用你现有的生成逻辑替换这里，确保 echo 出所有协议链接（逐行）
+build_sub_payload(){
+  # 示例：如果你已有专门函数/变量请直接用它们
+  # printf "%s\n" "$VLESS_REALITY" "$VLESS_GRPC" "$VLESS_WS" "$TROJAN" "$HY2" "$TUIC"
+  cat /etc/edgebox/traffic/sub.src 2>/dev/null || true
+}
+
+show_sub(){
+  ensure_traffic_dir
+  payload="$(build_sub_payload)"
+  if [[ -z "$payload" ]]; then
+    echo "[WARN] 订阅内容为空，请检查订阅生成逻辑（build_sub_payload）"; return 0
   fi
-  echo -e "\n${CYAN}控制面板：${NC}http://${server_ip}/\n"
+
+  # 1) 统一写到规范文件
+  printf "%s\n" "$payload" > "$SUB_TXT"
+  chmod 644 "$SUB_TXT"
+
+  # 2) 让 /sub 指向同一个文件（优先做软链，失败就拷贝一份）
+  mkdir -p "$(dirname "$WEB_SUB")"
+  ln -sf "$SUB_TXT" "$WEB_SUB" 2>/dev/null || cp -f "$SUB_TXT" "$WEB_SUB"
+  chmod 644 "$WEB_SUB"
+
+  # 3) 回显地址
+  host="$(awk '/server_name/{print $2}' /etc/nginx/sites-enabled/*.conf /etc/nginx/conf.d/*.conf 2>/dev/null | head -n1 | tr -d ';')"
+  [[ -z "$host" ]] && host="$(curl -fsS4 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')"
+  echo "订阅链接: http://${host}/sub"
+
+  # 4) 友好提示
+  echo "[INFO] 订阅已写入: $SUB_TXT ；Web: $WEB_SUB"
 }
 
 show_status() {
