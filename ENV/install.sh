@@ -182,7 +182,7 @@ install_dependencies() {
     DEBIAN_FRONTEND=noninteractive apt-get update -y >/dev/null 2>&1 || true
 
     # 必要包
-local pkgs=(curl wget unzip ca-certificates jq bc uuid-runtime dnsutils openssl \
+local pkgs=(curl wget unzip gawk ca-certificates jq bc uuid-runtime dnsutils openssl \
             vnstat nginx libnginx-mod-stream nftables certbot python3-certbot-nginx \
             msmtp-mta bsd-mailx cron tar)
     for pkg in "${pkgs[@]}"; do
@@ -1039,14 +1039,14 @@ awk -F, -v d="$TODAY" -v vps="$D_VPS" -v resi="$D_RESI" -v tx="$D_TX" -v rx="$D_
   && mv "$TMP" "$LOG_DIR/daily.csv"
 
 # 5) 基于 daily.csv 生成 monthly.csv（month,vps,resi,total,tx,rx），保留最近18个月
-awk -F, 'NR>1{m=substr($1,1,7); vps[m]+=$2; resi[m]+=$3; tx[m]+=$4; rx[m]+=$5}
+awk -F, 'NR>1{
+  m=substr($1,1,7);
+  vps[m]+=$2; resi[m]+=$3; tx[m]+=$4; rx[m]+=$5
+}
 END{
-  print "month,vps,resi,total,tx,rx";
-  n=asorti(vps, ks);
-  for(i=1;i<=n;i++){ m=ks[i]; t=vps[m]+resi[m]; print m","vps[m]","resi[m]","t","tx[m]","rx[m] }
-}' "$LOG_DIR/daily.csv" > "$LOG_DIR/monthly.csv.tmp"
-{ head -n1 "$LOG_DIR/monthly.csv.tmp"; tail -n 18 "$LOG_DIR/monthly.csv.tmp" | grep -v '^month,'; } \
-  > "$LOG_DIR/monthly.csv"
+  for (m in vps) printf "%s,%s,%s,%s,%s,%s\n", m, vps[m], resi[m], vps[m]+resi[m], tx[m], rx[m]
+}' "$LOG_DIR/daily.csv" \
+| (echo "month,vps,resi,total,tx,rx"; sort -t, -k1,1) > "$LOG_DIR/monthly.csv"
 
 # 6) 产出 traffic.json（index.html 读取的唯一数据文件）
 LAST30D_JSON="$(tail -n 30 "$LOG_DIR/daily.csv" | grep -v '^date,' \
@@ -3174,8 +3174,27 @@ case "$1" in
   debug-ports) debug_ports ;;
   
   # 证书管理
+  cert)
+    case "$2" in
+      status|"") 
+        cert_status 
+        ;;
+      renew)
+        echo "[INFO] 尝试续期 Let's Encrypt 证书..."
+        systemctl stop nginx >/dev/null 2>&1 || true
+        certbot renew --quiet || true
+        systemctl start nginx >/dev/null 2>&1 || true
+        # 尽量优先 reload，失败再 restart
+        systemctl reload nginx xray sing-box >/dev/null 2>&1 || systemctl restart nginx xray sing-box
+        cert_status
+        ;;
+      *)
+        echo "用法: edgeboxctl cert [status|renew]"
+        ;;
+    esac
+    ;;
   fix-permissions) fix_permissions ;;
-  cert-status) cert_status ;;
+  cert-status) cert_status ;;                 # 兼容旧命令
   switch-to-domain) shift; switch_to_domain "$1" ;;
   switch-to-ip) switch_to_ip ;;
   
@@ -3245,55 +3264,53 @@ case "$1" in
 help|"") 
   cat <<HLP
 ${CYAN}EdgeBox 管理工具 v${VERSION}${NC}
-控制面板: http://$(jq -r .server_ip ${CONFIG_DIR}/server.json 2>/dev/null || echo "YOUR_IP")/
+
 ${YELLOW}基础操作:${NC}
-  edgeboxctl status          查看服务状态
-  edgeboxctl restart         重启所有服务  
-  edgeboxctl sub             查看订阅链接
-  edgeboxctl logs <svc>      查看服务日志 [nginx|xray|sing-box]
-  edgeboxctl test            测试连接
-  edgeboxctl debug-ports     调试端口状态
+  edgeboxctl sub                                 显示订阅与面板链接
+  edgeboxctl logs <svc> [nginx|xray|sing-box]     查看指定服务实时日志（Ctrl+C 退出）
+  edgeboxctl service status                       查看所有核心服务状态
+  edgeboxctl service restart                      优雅重启核心服务（修改配置后使用）
+  edgeboxctl test                                 测试各协议连通性
+  edgeboxctl debug-ports                          调试 80/443/2053 等端口占用
 
 ${YELLOW}证书管理:${NC}
-  edgeboxctl cert-status                   查看证书状态
-  edgeboxctl fix-permissions               修复证书权限
-  edgeboxctl switch-to-domain <domain>     切换到域名模式
-  edgeboxctl switch-to-ip                  切换到IP模式
-
-${YELLOW}配置管理:${NC}
-  edgeboxctl config show                   显示当前配置
-  edgeboxctl config regenerate-uuid        重新生成UUID
+  edgeboxctl cert status                          查看证书状态（类型/到期）
+  edgeboxctl cert renew                           立即续期证书并重载服务
+  edgeboxctl fix-permissions                      修复证书/密钥文件权限
+  edgeboxctl change-to-domain <domain>            切换域名模式并申请证书
+  edgeboxctl change-to-ip                         切换到 IP 模式（自签证书）
 
 ${YELLOW}出站分流:${NC}
-  edgeboxctl shunt resi '<代理URL>'                             # 全量走住宅（仅Xray分流）
-  edgeboxctl shunt direct-resi '<代理URL>'                      # 智能分流（白名单直连，其余走住宅）
-  edgeboxctl shunt vps                                         # VPS全量出站
-  edgeboxctl shunt whitelist [add|remove|list|reset] [domain]  # 管理白名单
+  edgeboxctl shunt resi '<代理URL>'               全量走住宅（仅 Xray 分流）
+  edgeboxctl shunt direct-resi '<代理URL>'        智能分流（白名单直连，其余走住宅）
+  edgeboxctl shunt vps                            VPS 全量出站
+  edgeboxctl shunt whitelist [add|remove|list|reset] [domain]   管理白名单
+  代理URL示例:
+    http://user:pass@host:port
+    https://user:pass@host:port?sni=example.com
+    socks5://user:pass@host:port
+    socks5s://user:pass@host:port?sni=example.com
+  示例（全栈走住宅）: edgeboxctl shunt resi 'socks5://u:p@111.222.333.444:11324'
 
-${YELLOW}流量统计:${NC}
-  edgeboxctl traffic show                  查看流量统计
-  edgeboxctl traffic reset                 重置流量计数
+${YELLOW}流量统计和预警:${NC}
+  edgeboxctl traffic show                         查看流量统计
+  edgeboxctl traffic reset                        重置流量计数
+  edgeboxctl alert monthly <GiB>                  设置月度预算（GiB）
+  edgeboxctl alert steps 30,60,90                 设置触发阈值（百分比）
+  edgeboxctl alert telegram <bot_token> <chat_id> 配置 Telegram 通知
+  edgeboxctl alert discord <webhook_url>          配置 Discord 通知
+  edgeboxctl alert wechat <pushplus_token>        配置微信 PushPlus 转发
+  edgeboxctl alert webhook <url> [raw|slack|discord]  配置通用 Webhook
+  edgeboxctl alert test [percent]                 模拟触发（默认 40%），写入 /etc/edgebox/traffic/alerts.json
 
-${YELLOW}流量预警（精简版）:${NC}
-  edgeboxctl alert show
-  edgeboxctl alert monthly <GiB>
-  edgeboxctl alert steps 30,60,90
-  edgeboxctl alert telegram <bot_token> <chat_id>
-  edgeboxctl alert discord <webhook_url>
-  edgeboxctl alert wechat <pushplus_token>
-  edgeboxctl alert webhook <url> [raw|slack|discord]
-  edgeboxctl alert test <percent>
+${YELLOW}配置管理:${NC}
+  edgeboxctl config show                          显示当前配置（UUID/Reality/端口等）
+  edgeboxctl config regenerate-uuid               重新生成 UUID
 
 ${YELLOW}备份恢复:${NC}
-  edgeboxctl backup create                 创建备份
-  edgeboxctl backup list                   列出备份
-  edgeboxctl backup restore <file>         恢复备份
-
-${YELLOW}系统:${NC}
-  edgeboxctl update                        更新EdgeBox
-  edgeboxctl help                          显示此帮助
-
-${CYAN}EdgeBox 企业级多协议节点部署方案${NC}
+  edgeboxctl backup create                        创建备份
+  edgeboxctl backup list                          列出备份
+  edgeboxctl backup restore <file>                恢复备份
 HLP
   ;;
   
