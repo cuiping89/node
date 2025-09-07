@@ -1269,6 +1269,10 @@ ALERT
 # 找到原脚本中的控制面板HTML生成部分，完整替换为以下内容：
 
 # 控制面板（优化布局：通知中心整合+横向分块+三种复制标签+出站分流标签页）
+# 替换setup_traffic_monitoring函数中的控制面板HTML部分
+# 找到原脚本中的控制面板HTML生成部分，完整替换为以下内容：
+
+# 控制面板（优化布局：通知中心整合+横向分块+三种复制标签+出站分流标签页）
 cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
 <!doctype html>
 <html lang="zh-CN"><head>
@@ -1450,20 +1454,18 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
             <h4>🔧 基础操作</h4>
             <div class="command-list">
               <code>edgeboxctl service status</code> <span># 查看所有核心服务运行状态</span><br>
-              <code>edgeboxctl service restart</code> <span># 安全重启所有服务</span><br>
-              <code>edgeboxctl sub</code> <span># 显示当前订阅链接</span><br>
-              <code>edgeboxctl logs &lt;svc&gt;</code> <span># 查看服务日志 [nginx|xray|sing-box]</span><br>
-              <code>edgeboxctl test</code> <span># 测试所有协议连接</span><br>
-              <code>edgeboxctl debug-ports</code> <span># 调试关键端口状态</span>
+              <code>edgeboxctl service restart</code> <span># 安全地重启所有服务</span><br>
+              <code>edgeboxctl sub</code> <span># 动态生成并显示当前模式下的订阅链接</span><br>
+              <code>edgeboxctl logs &lt;svc&gt;</code> <span># 查看指定服务的实时日志</span>
             </div>
           </div>
           
           <div class="command-section">
             <h4>🌐 模式与证书管理</h4>
             <div class="command-list">
-              <code>edgeboxctl change-to-domain &lt;域名&gt;</code> <span># 切换到域名模式并申请证书</span><br>
-              <code>edgeboxctl change-to-ip</code> <span># 回退到IP模式使用自签证书</span><br>
-              <code>edgeboxctl cert status</code> <span># 检查证书到期日期和类型</span><br>
+              <code>edgeboxctl change-to-domain &lt;your_domain&gt;</code> <span># 切换到域名模式，申请证书</span><br>
+              <code>edgeboxctl change-to-ip</code> <span># 回退到IP模式，使用自签名证书</span><br>
+              <code>edgeboxctl cert status</code> <span># 检查当前证书的到期日期和类型</span><br>
               <code>edgeboxctl cert renew</code> <span># 手动续期Let's Encrypt证书</span>
             </div>
           </div>
@@ -1471,52 +1473,52 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
           <div class="command-section">
             <h4>🔀 出站分流</h4>
             <div class="command-list">
-              <code>edgeboxctl shunt mode vps</code> <span># VPS全量直出模式</span><br>
-              <code>edgeboxctl shunt mode resi &lt;URL&gt;</code> <span># 住宅IP全量出站模式</span><br>
-              <code>edgeboxctl shunt mode direct-resi &lt;URL&gt;</code> <span># 白名单智能分流模式</span><br>
-              <code>edgeboxctl shunt whitelist add &lt;domain&gt;</code> <span># 添加域名到白名单</span><br>
-              <code>edgeboxctl shunt whitelist remove &lt;domain&gt;</code> <span># 从白名单移除域名</span><br>
-              <code>edgeboxctl shunt whitelist list</code> <span># 查看白名单列表</span><br>
-              <code>edgeboxctl shunt whitelist reset</code> <span># 重置为默认白名单</span><br>
-              <small># 代理URL格式示例:</small><br>
-              <small># http://user:pass@111.222.333.444:8080</small><br>
-              <small># https://user:pass@proxy.com:443?sni=example.com</small><br>
-              <small># socks5://user:pass@111.222.333.444:1080</small><br>
-              <small># socks5s://user:pass@proxy.com:443?sni=example.com</small>
+              <code>edgeboxctl shunt mode vps</code> <span># 切换至VPS全量直出模式</span><br>
+              <code>edgeboxctl shunt mode resi &lt;URL&gt;</code> <span># 配置并切换至住宅IP全量出站模式</span><br>
+              <code>edgeboxctl shunt mode direct-resi &lt;URL&gt;</code> <span># 配置并切换至白名单智能分流模式</span><br>
+              <code>edgeboxctl shunt whitelist &lt;add|remove|list&gt;</code> <span># 管理白名单域名</span><br>
+              <small># 代理URL格式:</small><br>
+              <small># http://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;</small><br>
+              <small># https://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;?sni=</small><br>
+              <small># socks5://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;</small><br>
+              <small># socks5s://user:pass@&lt;域名&gt;:&lt;端口&gt;?sni=</small><br>
+              <small># 示例：edgeboxctl shunt resi 'socks5://14aa42d05fc94:5069856762@111.222.333.444:11324' # 全栈走住宅</small>
             </div>
           </div>
           
           <div class="command-section">
             <h4>📊 流量统计与预警</h4>
             <div class="command-list">
-              <code>edgeboxctl traffic show</code> <span># 查看流量统计数据</span><br>
+              <code>edgeboxctl traffic show</code> <span># 在终端中查看流量统计数据</span><br>
               <code>edgeboxctl traffic reset</code> <span># 重置流量计数器</span><br>
-              <code>edgeboxctl alert show</code> <span># 显示当前预警配置</span><br>
-              <code>edgeboxctl alert monthly &lt;GiB&gt;</code> <span># 设置月度流量预算</span><br>
-              <code>edgeboxctl alert steps 30,60,90</code> <span># 设置预警阈值百分比</span><br>
-              <code>edgeboxctl alert telegram &lt;token&gt; &lt;chat&gt;</code> <span># 配置Telegram通知</span><br>
+              <code>edgeboxctl alert &lt;command&gt;</code> <span># 管理流量预警设置</span><br>
+              <code>edgeboxctl alert monthly</code> <span># 设置月度阈值</span><br>
+              <code>edgeboxctl alert steps 30,60,90</code> <span># 设置预警阈值</span><br>
+              <code>edgeboxctl alert telegram &lt;bot_token&gt; &lt;chat_id&gt;</code> <span># 配置Telegram机器人</span><br>
               <code>edgeboxctl alert discord &lt;webhook_url&gt;</code> <span># 配置Discord通知</span><br>
-              <code>edgeboxctl alert wechat &lt;pushplus_token&gt;</code> <span># 配置微信PushPlus通知</span><br>
-              <code>edgeboxctl alert webhook &lt;url&gt; [format]</code> <span># 配置通用Webhook</span><br>
-              <code>edgeboxctl alert test [percent]</code> <span># 测试预警系统（模拟用量）</span>
+              <code>edgeboxctl alert wechat &lt;pushplus_token&gt;</code> <span># 配置微信通知</span><br>
+              <code>edgeboxctl alert webhook [raw|slack|discord]</code> <span># 配置通用Webhook</span><br>
+              <code>edgeboxctl alert test</code> <span># 测试预警系统</span>
             </div>
           </div>
           
           <div class="command-section">
             <h4>⚙️ 配置管理</h4>
             <div class="command-list">
-              <code>edgeboxctl config show</code> <span># 显示核心配置信息</span><br>
-              <code>edgeboxctl config regenerate-uuid</code> <span># 重新生成所有UUID</span><br>
-              <code>edgeboxctl update</code> <span># 更新EdgeBox到最新版本</span>
+              <code>edgeboxctl config show</code> <span># 显示所有服务的核心配置信息</span><br>
+              <code>edgeboxctl config regenerate-uuid</code> <span># 为所有协议重新生成新的UUID</span><br>
+              <code>edgeboxctl test</code> <span># 测试所有协议的连接是否正常</span><br>
+              <code>edgeboxctl debug-ports</code> <span># 调试关键端口的监听状态</span>
             </div>
           </div>
           
           <div class="command-section">
             <h4>💾 系统维护</h4>
             <div class="command-list">
-              <code>edgeboxctl backup create</code> <span># 创建系统备份</span><br>
-              <code>edgeboxctl backup list</code> <span># 列出所有可用备份</span><br>
-              <code>edgeboxctl backup restore &lt;DATE&gt;</code> <span># 恢复到指定备份</span>
+              <code>edgeboxctl update</code> <span># 自动更新EdgeBox脚本和核心组件</span><br>
+              <code>edgeboxctl backup create</code> <span># 手动创建一个系统备份</span><br>
+              <code>edgeboxctl backup list</code> <span># 列出所有可用的备份</span><br>
+              <code>edgeboxctl backup restore &lt;DATE&gt;</code> <span># 恢复到指定日期的备份状态</span>
             </div>
           </div>
         </div>
