@@ -1281,8 +1281,6 @@ ln -sfn "${TRAFFIC_DIR}" /var/www/html/traffic
 log_success "流量监控系统设置完成：${TRAFFIC_DIR}/index.html"
 }
 
-}
-
 # 设置定时任务
 # 设置定时任务
 setup_cron_jobs() {
