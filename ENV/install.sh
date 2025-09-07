@@ -1269,7 +1269,7 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
 .card .content{padding:16px}
 .small{color:var(--muted);font-size:.9rem}
 .table{width:100%;border-collapse:collapse}.table th,.table td{padding:8px 10px;border-bottom:1px solid var(--border);font-size:.85rem;text-align:left}
-.copy{display:flex;gap:8px;margin:8px 0}.copy input{flex:1;padding:8px;border:1px solid var(--border);border-radius:8px;font-size:.85rem}
+.copy input,.copy textarea{flex:1;padding:8px;border:1px solid var(--border);border-radius:8px;font-family:ui-monospace,monospace;white-space:pre}
 .btn{padding:6px 10px;border:1px solid var(--border);background:#f1f5f9;border-radius:6px;cursor:pointer;font-size:.85rem;white-space:nowrap}
 .btn:hover{background:#e2e8f0}
 .badge{display:inline-block;border:1px solid var(--border);border-radius:999px;padding:2px 8px;font-size:.8rem;margin-right:6px}
@@ -1395,30 +1395,20 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
   </div>
 
   <!-- 订阅链接（三种复制标签） -->
-  <div class="grid grid-full">
-    <div class="card">
-      <h3>订阅链接</h3>
-      <div class="content">
-        <div class="copy-tabs">
-          <div class="copy-tab">
-            <label>明文链接:</label>
-            <input id="sub-plain" readonly>
-            <button class="btn" onclick="copySub('plain')">复制</button>
-          </div>
-          <div class="copy-tab">
-            <label>Base64:</label>
-            <input id="sub-b64" readonly>
-            <button class="btn" onclick="copySub('b64')">复制</button>
-          </div>
-          <div class="copy-tab">
-            <label>B64逐行:</label>
-            <input id="sub-b64lines" readonly>
-            <button class="btn" onclick="copySub('b64lines')">复制</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
+<div class="copy" style="margin-bottom:10px">
+  <input id="sub" readonly>
+  <button class="btn" onclick="copy('sub')">复制</button>
+</div>
+
+<div class="copy" style="margin-bottom:10px">
+  <textarea id="sub-plain" rows="8" spellcheck="false" wrap="off" readonly></textarea>
+  <button class="btn" onclick="copy('sub-plain')">复制</button>
+</div>
+
+<div class="copy">
+  <textarea id="sub-b64lines" rows="8" spellcheck="false" wrap="off" readonly></textarea>
+  <button class="btn" onclick="copy('sub-b64lines')">复制</button>
+</div>
 
   <!-- 流量统计 -->
   <div class="grid grid-full">
@@ -1806,8 +1796,7 @@ const b64Lines   = subLines.map(l => btoa(unescape(encodeURIComponent(l)))).join
 function copySub(type) {
   const input = el(`sub-${type}`);
   input.select();
-  document.execCommand('copy');
-  
+  document.execCommand('copy'); 
   // 简单的视觉反馈
   const btn = input.nextElementSibling;
   const originalText = btn.textContent;
