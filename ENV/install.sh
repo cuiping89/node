@@ -1396,28 +1396,22 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
     </div>
   </div>
 
-  <!-- 订阅链接（三种复制标签） -->
-  <div class="grid grid-full">
-    <div class="card">
-      <h3>订阅链接</h3>
-      <div class="content">
-        <div class="copy">
-          <input id="sub" readonly>
-          <button class="btn" onclick="copy('sub')">复制</button>
-        </div>
-
-        <div class="copy">
-          <textarea id="sub-plain" rows="8" spellcheck="false" wrap="off" readonly></textarea>
-          <button class="btn" onclick="copy('sub-plain')">复制</button>
-        </div>
-
-        <div class="copy">
-          <textarea id="sub-b64lines" rows="8" spellcheck="false" wrap="off" readonly></textarea>
-          <button class="btn" onclick="copy('sub-b64lines')">复制</button>
-        </div>
+<!-- 订阅链接 -->
+<div class="grid grid-full">
+  <div class="card">
+    <h3>订阅链接</h3>
+    <div class="content">
+      <div class="copy">
+        <input id="sub" readonly>
+        <button class="btn" onclick="copy('sub')">复制</button>
+      </div>
+      <div class="copy">
+        <textarea id="sub-plain" rows="6" spellcheck="false" wrap="off" readonly></textarea>
+        <button class="btn" onclick="copy('sub-plain')">复制</button>
       </div>
     </div>
   </div>
+</div>
 
   <!-- 流量统计 -->
   <div class="grid grid-full">
@@ -1569,23 +1563,36 @@ async function boot(){
     notifList.textContent = '暂无通知';
   }
 
-// === 订阅三件套（URL / 明文多行 / Base64逐行） ===
-const raw = (subTxt || '').replace(/\r\n/g, '\n');    // 统一 CRLF 为 LF
-const plainBlock = raw.split('\n# Base64')[0].trim(); // 忽略文件中 “# Base64 …” 以下
-const subLines = plainBlock
-  .split('\n')
-  .map(s => s.trim())
-  .filter(s => /^(vless|trojan|hysteria2|tuic):\/\//i.test(s));
+// === 订阅链接处理（修复版） ===
+const subUrl = location.origin + '/sub';
+el('sub').value = subUrl;
 
-const subUrl   = location.origin + '/sub';
-const b64Lines = subLines
-  .map(l => btoa(unescape(encodeURIComponent(l))))
-  .join('\n');
-
-const setVal = (id, val) => { const x = document.getElementById(id); if (x) x.value = val || ''; };
-setVal('sub',          subUrl);                // 订阅 URL
-setVal('sub-plain',    subLines.join('\n'));   // 明文多行，保留换行
-setVal('sub-b64lines', b64Lines);              // 逐行 Base64，保留换行
+// 处理明文订阅内容
+if (subTxt && subTxt.trim()) {
+  // 从完整的订阅文件中提取明文链接部分
+  const lines = subTxt.split('\n');
+  const plainSection = [];
+  let inPlainSection = true;
+  
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('# Base64')) {
+      inPlainSection = false;
+      break;
+    }
+    if (inPlainSection && trimmed && /^(vless|trojan|hysteria2|tuic):\/\//i.test(trimmed)) {
+      plainSection.push(trimmed);
+    }
+  }
+  
+  if (plainSection.length > 0) {
+    el('sub-plain').value = plainSection.join('\n');
+  } else {
+    el('sub-plain').value = '订阅内容为空，请运行: edgeboxctl sub';
+  }
+} else {
+  el('sub-plain').value = '正在获取订阅内容...';
+}
 
   // 面板数据
   if(panel){
