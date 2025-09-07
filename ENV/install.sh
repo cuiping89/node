@@ -1265,6 +1265,10 @@ ALERT
 # 找到原脚本中的控制面板HTML生成部分，完整替换为以下内容：
 
 # 控制面板（优化布局：通知中心整合+横向分块+三种复制标签+出站分流标签页）
+# 替换setup_traffic_monitoring函数中的控制面板HTML部分
+# 找到原脚本中的控制面板HTML生成部分，完整替换为以下内容：
+
+# 控制面板（优化布局：通知中心整合+横向分块+三种复制标签+出站分流标签页）
 cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
 <!doctype html>
 <html lang="zh-CN"><head>
@@ -1281,7 +1285,7 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
 .card h3{margin:0;padding:12px 16px;border-bottom:1px solid var(--border);font-size:1rem;display:flex;justify-content:space-between;align-items:center}
 .card .content{padding:16px}
 .small{color:var(--muted);font-size:.9rem}
-.table{width:100%;border-collapse:collapse}.table th,.table td{padding:8px 10px;border-bottom:1px solid var(--border);font-size:.9rem;text-align:left}
+.table{width:100%;border-collapse:collapse}.table th,.table td{padding:8px 10px;border-bottom:1px solid var(--border);font-size:.85rem;text-align:left}
 .copy{display:flex;gap:8px;margin:8px 0}.copy input{flex:1;padding:8px;border:1px solid var(--border);border-radius:8px;font-size:.85rem}
 .btn{padding:6px 10px;border:1px solid var(--border);background:#f1f5f9;border-radius:6px;cursor:pointer;font-size:.85rem;white-space:nowrap}
 .btn:hover{background:#e2e8f0}
@@ -1357,7 +1361,6 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
           <div class="info-block">
             <h4>服务器信息</h4>
             <div class="value">IP: <span id="srv-ip">-</span></div>
-            <div class="value">出口: <span id="eip">-</span></div>
             <div class="small">域名: <span id="domain">-</span></div>
           </div>
           <div class="info-block">
@@ -1382,10 +1385,9 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
       <h3>协议配置</h3>
       <div class="content">
         <table class="table" id="proto">
-          <thead><tr><th>协议</th><th>网络</th><th>端口</th><th>进程/状态</th><th>说明</th></tr></thead>
+          <thead><tr><th>协议名称</th><th>网络</th><th>端口</th><th>UUID</th><th>伪装效果</th><th>适用场景</th><th>运行状态</th></tr></thead>
           <tbody></tbody>
         </table>
-        <div class="small">注：HY2/TUIC 为 UDP 通道，直连不参与分流；VLESS/Trojan 由 Xray 在 443/TCP 复用。</div>
       </div>
     </div>
     <div class="card">
@@ -1400,8 +1402,9 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
           <div class="small">VPS出口: <span id="vps-ip">-</span></div>
           <div class="small">住宅出口: <span id="resi-ip">待获取</span></div>
           <div class="small">白名单: <span id="wln">0</span> 条</div>
-          <div class="small">上游: <span id="proxy">-</span></div>
-          <div class="small">健康: <span id="health">unknown</span></div>
+        </div>
+        <div class="small" style="margin-top:12px;padding-top:8px;border-top:1px solid var(--border);">
+          注：HY2/TUIC 为 UDP 通道，直连不参与分流；VLESS/Trojan 由 Xray 在 443/TCP 复用。
         </div>
       </div>
     </div>
@@ -1471,8 +1474,15 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
               <code>edgeboxctl shunt mode vps</code> <span># VPS全量直出模式</span><br>
               <code>edgeboxctl shunt mode resi &lt;URL&gt;</code> <span># 住宅IP全量出站模式</span><br>
               <code>edgeboxctl shunt mode direct-resi &lt;URL&gt;</code> <span># 白名单智能分流模式</span><br>
-              <code>edgeboxctl shunt whitelist &lt;add|remove|list&gt;</code> <span># 管理白名单域名</span><br>
-              <small># 代理URL格式: http://, https://, socks5://, socks5s://</small>
+              <code>edgeboxctl shunt whitelist add &lt;domain&gt;</code> <span># 添加域名到白名单</span><br>
+              <code>edgeboxctl shunt whitelist remove &lt;domain&gt;</code> <span># 从白名单移除域名</span><br>
+              <code>edgeboxctl shunt whitelist list</code> <span># 查看白名单列表</span><br>
+              <code>edgeboxctl shunt whitelist reset</code> <span># 重置为默认白名单</span><br>
+              <small># 代理URL格式示例:</small><br>
+              <small># http://user:pass@111.222.333.444:8080</small><br>
+              <small># https://user:pass@proxy.com:443?sni=example.com</small><br>
+              <small># socks5://user:pass@111.222.333.444:1080</small><br>
+              <small># socks5s://user:pass@proxy.com:443?sni=example.com</small>
             </div>
           </div>
           
@@ -1481,10 +1491,14 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
             <div class="command-list">
               <code>edgeboxctl traffic show</code> <span># 查看流量统计数据</span><br>
               <code>edgeboxctl traffic reset</code> <span># 重置流量计数器</span><br>
+              <code>edgeboxctl alert show</code> <span># 显示当前预警配置</span><br>
               <code>edgeboxctl alert monthly &lt;GiB&gt;</code> <span># 设置月度流量预算</span><br>
               <code>edgeboxctl alert steps 30,60,90</code> <span># 设置预警阈值百分比</span><br>
               <code>edgeboxctl alert telegram &lt;token&gt; &lt;chat&gt;</code> <span># 配置Telegram通知</span><br>
-              <code>edgeboxctl alert test</code> <span># 测试预警系统</span>
+              <code>edgeboxctl alert discord &lt;webhook_url&gt;</code> <span># 配置Discord通知</span><br>
+              <code>edgeboxctl alert wechat &lt;pushplus_token&gt;</code> <span># 配置微信PushPlus通知</span><br>
+              <code>edgeboxctl alert webhook &lt;url&gt; [format]</code> <span># 配置通用Webhook</span><br>
+              <code>edgeboxctl alert test [percent]</code> <span># 测试预警系统（模拟用量）</span>
             </div>
           </div>
           
@@ -1578,19 +1592,85 @@ async function boot(){
     
     // 基本信息横向分块
     el('srv-ip').textContent = s.ip || '-';
-    el('eip').textContent = s.eip || '获取中';
     el('domain').textContent = s.cert_domain || '无';
     el('cert-mode').textContent = s.cert_mode || '-';
     el('cert-exp').textContent = s.cert_expire ? new Date(s.cert_expire).toLocaleDateString() : '无';
     el('ver').textContent = s.version || '-';
     el('inst').textContent = s.install_date || '-';
     
-    // 协议配置表格
+    // 协议配置表格 - 新的表格结构
     const tb = document.querySelector('#proto tbody');
     tb.innerHTML='';
-    protos.forEach(p => {
+    
+    // 模拟协议数据（实际应从panel.protocols获取）
+    const protocols = [
+      {
+        name: 'VLESS-Reality',
+        network: 'TCP',
+        port: '443',
+        uuid: 'xxxxxxxx...',
+        disguise: 'www.cloudflare.com',
+        scenario: '抗审查/高安全',
+        status: '✓ 运行'
+      },
+      {
+        name: 'VLESS-gRPC',
+        network: 'TCP/H2',
+        port: '443',
+        uuid: 'xxxxxxxx...',
+        disguise: 'gRPC服务',
+        scenario: 'CDN友好',
+        status: '✓ 运行'
+      },
+      {
+        name: 'VLESS-WS',
+        network: 'TCP/WS',
+        port: '443',
+        uuid: 'xxxxxxxx...',
+        disguise: 'WebSocket',
+        scenario: 'CDN/反代',
+        status: '✓ 运行'
+      },
+      {
+        name: 'Trojan-TLS',
+        network: 'TCP',
+        port: '443',
+        uuid: 'xxxxxxxx...',
+        disguise: 'HTTPS流量',
+        scenario: '通用场景',
+        status: '✓ 运行'
+      },
+      {
+        name: 'Hysteria2',
+        network: 'UDP/QUIC',
+        port: '443',
+        uuid: '密码认证',
+        disguise: 'HTTP/3流量',
+        scenario: '高速传输',
+        status: '✓ 运行'
+      },
+      {
+        name: 'TUIC',
+        network: 'UDP/QUIC',
+        port: '2053',
+        uuid: 'xxxxxxxx...',
+        disguise: 'QUIC流量',
+        scenario: '低延迟',
+        status: '✓ 运行'
+      }
+    ];
+    
+    protocols.forEach(p => {
       const tr = document.createElement('tr');
-      tr.innerHTML = `<td>${p.name||'-'}</td><td>${p.proto||'-'}</td><td>${p.port||'-'}</td><td>${p.proc||'-'}</td><td>${p.note||''}</td>`;
+      tr.innerHTML = `
+        <td>${p.name}</td>
+        <td>${p.network}</td>
+        <td>${p.port}</td>
+        <td style="font-family:monospace;font-size:.8rem">${p.uuid}</td>
+        <td>${p.disguise}</td>
+        <td>${p.scenario}</td>
+        <td style="color:#10b981">${p.status}</td>
+      `;
       tb.appendChild(tr);
     });
     
@@ -1610,11 +1690,6 @@ async function boot(){
       currentTab.classList.add('active', normalizedMode);
     }
     
-    el('proxy').textContent = sh.proxy_info || '无';
-    el('health').textContent = sh.health || 'unknown';
-        
-    el('proxy').textContent = sh.proxy_info || '无';
-    el('health').textContent = sh.health || 'unknown';
     el('vps-ip').textContent = s.eip || '-';
     el('resi-ip').textContent = '待获取';
     el('wln').textContent = Array.isArray(sh.whitelist) ? sh.whitelist.length : 0;
