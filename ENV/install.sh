@@ -1067,7 +1067,7 @@ cat > "${SCRIPTS_DIR}/panel-refresh.sh" <<'PANEL'
 set -euo pipefail
 TRAFFIC_DIR="/etc/edgebox/traffic"
 SCRIPTS_DIR="/etc/edgebox/scripts"
-SHUNT_DIR="/etc/edgebox/shunt"
+SHUNT_DIR="/etc/edgebox/config/shunt"
 CONFIG_DIR="/etc/edgebox/config"
 mkdir -p "$TRAFFIC_DIR"
 
@@ -1570,13 +1570,12 @@ async function boot(){
     notifList.textContent = '暂无通知';
   }
 
-  // 订阅链接处理 - 修正Base64编码
-  const subLines = (subTxt||'').trim().split('\n').filter(l => l && !l.startsWith('#'));
-  const plainSub = subLines.join('\n');
-  
-  // 正确的Base64编码
-  const b64Sub = btoa(unescape(encodeURIComponent(plainSub)));
-  const b64Lines = subLines.map(l => btoa(unescape(encodeURIComponent(l)))).join('\n');
+// 订阅链接处理（只取“# Base64”之前的明文段，忽略下面两个Base64段）
+const plainBlock = (subTxt || '').split('\n# Base64')[0].trim();
+const subLines   = plainBlock.split('\n').filter(l => /^(vless|trojan|hysteria2|tuic):\/\//.test(l));
+const plainSub   = subLines.join('\n');
+const b64Sub     = btoa(unescape(encodeURIComponent(plainSub)));
+const b64Lines   = subLines.map(l => btoa(unescape(encodeURIComponent(l)))).join('\n');
   
   el('sub-plain').value = plainSub;
   el('sub-b64').value = b64Sub;
@@ -2121,9 +2120,14 @@ ensure_traffic_dir(){ mkdir -p /etc/edgebox/traffic; }
 
 # 用你现有的生成逻辑替换这里，确保 echo 出所有协议链接（逐行）
 build_sub_payload(){
-  # 示例：如果你已有专门函数/变量请直接用它们
-  # printf "%s\n" "$VLESS_REALITY" "$VLESS_GRPC" "$VLESS_WS" "$TROJAN" "$HY2" "$TUIC"
-  cat /etc/edgebox/traffic/sub.src 2>/dev/null || true
+  # 优先读规范文件；没有就从 /var/www/html/sub 取「# Base64」以上的明文段
+  if [[ -s /etc/edgebox/config/subscription.txt ]]; then
+    cat /etc/edgebox/config/subscription.txt
+  elif [[ -s /var/www/html/sub ]]; then
+    awk '/^# Base64/{exit} {print}' /var/www/html/sub | sed '/^\s*$/d'
+  else
+    return 0
+  fi
 }
 
 show_sub(){
@@ -3195,6 +3199,16 @@ case "$1" in
   test) test_connection ;;
   debug-ports) debug_ports ;;
   
+    cert)
+    case "$2" in
+      status) cert_status ;;
+      renew)  setup_auto_renewal ;;     # 可选：你也可以把 renew 改成手动 certbot 调用
+      *) echo "用法: edgeboxctl cert [status|renew]";;
+    esac
+    ;;
+  change-to-domain) switch_to_domain "$2" ;;   # 已有就忽略
+  change-to-ip)     switch_to_ip ;;
+
   # 证书管理
   cert)
     case "$2" in
