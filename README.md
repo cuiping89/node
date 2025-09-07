@@ -15,7 +15,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/refs/heads/ma
 ```
 - 浏览器访问：http://<your-ip-or-domain>/ (订阅 + 流量图表同页的静态页面)
 - 命令管理：edgeboxctl help
-
+- 注：Debian 镜像是“最小化/救援/新装”，往往没预装 curl，一键安装会报 curl: command not found。执行命令`apt update && apt install -y curl`再安装。
 -----
 
 ## 功能亮点
