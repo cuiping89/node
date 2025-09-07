@@ -1253,6 +1253,10 @@ ALERT
 # 找到原脚本中的控制面板HTML生成部分，完整替换为以下内容：
 
 # 控制面板（优化布局：通知中心整合+横向分块+三种复制标签）
+# 替换setup_traffic_monitoring函数中的控制面板HTML部分
+# 找到原脚本中的控制面板HTML生成部分，完整替换为以下内容：
+
+# 控制面板（优化布局：通知中心整合+横向分块+三种复制标签）
 cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
 <!doctype html>
 <html lang="zh-CN"><head>
@@ -1529,11 +1533,16 @@ async function boot(){
     
     // 出站分流状态
     const mode = sh.mode || 'vps';
-    const badge = el('mode-badge');
-    badge.textContent = mode;
-    badge.className = `shunt-mode ${mode.replace('_','-')}`;
     
-    el('mode-text').textContent = mode;
+    // 更新标签页状态
+    document.querySelectorAll('.shunt-mode-tab').forEach(tab => {
+      tab.classList.remove('active', 'vps', 'resi', 'direct-resi');
+      const tabMode = tab.dataset.mode;
+      if (tabMode === mode || (tabMode === 'direct-resi' && mode === 'direct_resi')) {
+        tab.classList.add('active', tabMode.replace('_', '-'));
+      }
+    });
+    
     el('proxy').textContent = sh.proxy_info || '无';
     el('health').textContent = sh.health || 'unknown';
     el('vps-ip').textContent = s.eip || '-';
