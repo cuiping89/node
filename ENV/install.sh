@@ -1585,7 +1585,7 @@ if (subTxt && subTxt.trim()) {
   
   for (const line of lines) {
     const trimmed = line.trim();
-    if (trimmed.startsWith('# Base64')) {
+if (trimmed.startsWith('#')) {
       inPlainSection = false;
       break;
     }
@@ -1602,6 +1602,7 @@ if (subTxt && subTxt.trim()) {
 } else {
   el('sub-plain').value = '正在获取订阅内容...';
 }
+
   // 面板数据
   if(panel){
     const ts = panel.updated_at || new Date().toISOString();
