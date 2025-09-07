@@ -1560,16 +1560,23 @@ async function boot(){
     notifList.textContent = '暂无通知';
   }
 
-// 订阅链接处理（只取“# Base64”之前的明文段，忽略下面两个Base64段）
-const plainBlock = (subTxt || '').split('\n# Base64')[0].trim();
-const subLines   = plainBlock.split('\n').filter(l => /^(vless|trojan|hysteria2|tuic):\/\//.test(l));
-const plainSub   = subLines.join('\n');
-const b64Sub     = btoa(unescape(encodeURIComponent(plainSub)));
-const b64Lines   = subLines.map(l => btoa(unescape(encodeURIComponent(l)))).join('\n');
-  
-  el('sub-plain').value = plainSub;
-  el('sub-b64').value = b64Sub;
-  el('sub-b64lines').value = b64Lines;
+// === 订阅三件套（URL / 明文多行 / Base64逐行） ===
+const raw = (subTxt || '').replace(/\r\n/g, '\n');    // 统一 CRLF 为 LF
+const plainBlock = raw.split('\n# Base64')[0].trim(); // 忽略文件中 “# Base64 …” 以下
+const subLines = plainBlock
+  .split('\n')
+  .map(s => s.trim())
+  .filter(s => /^(vless|trojan|hysteria2|tuic):\/\//i.test(s));
+
+const subUrl   = location.origin + '/sub';
+const b64Lines = subLines
+  .map(l => btoa(unescape(encodeURIComponent(l))))
+  .join('\n');
+
+const setVal = (id, val) => { const x = document.getElementById(id); if (x) x.value = val || ''; };
+setVal('sub',          subUrl);                // 订阅 URL
+setVal('sub-plain',    subLines.join('\n'));   // 明文多行，保留换行
+setVal('sub-b64lines', b64Lines);              // 逐行 Base64，保留换行
 
   // 面板数据
   if(panel){
@@ -1793,21 +1800,25 @@ const b64Lines   = subLines.map(l => btoa(unescape(encodeURIComponent(l)))).join
 }
 
 // 复制函数
-function copySub(type) {
-  const input = el(`sub-${type}`);
-  input.select();
-  document.execCommand('copy'); 
-  // 简单的视觉反馈
-  const btn = input.nextElementSibling;
-  const originalText = btn.textContent;
-  btn.textContent = '已复制';
-  btn.style.background = '#10b981';
-  btn.style.color = 'white';
-  setTimeout(() => {
-    btn.textContent = originalText;
-    btn.style.background = '';
-    btn.style.color = '';
-  }, 1000);
+function copy(id){
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.select();
+  document.execCommand('copy');
+
+  // 复制后的按钮小反馈（按钮就是输入框旁边那个）
+  const btn = el.nextElementSibling;
+  if (btn) {
+    const t = btn.textContent;
+    btn.textContent = '已复制';
+    btn.style.background = '#10b981';
+    btn.style.color = '#fff';
+    setTimeout(() => {
+      btn.textContent = t;
+      btn.style.background = '';
+      btn.style.color = '';
+    }, 900);
+  }
 }
 
 boot();
