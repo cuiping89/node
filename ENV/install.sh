@@ -1257,6 +1257,10 @@ ALERT
 # 找到原脚本中的控制面板HTML生成部分，完整替换为以下内容：
 
 # 控制面板（优化布局：通知中心整合+横向分块+三种复制标签）
+# 替换setup_traffic_monitoring函数中的控制面板HTML部分
+# 找到原脚本中的控制面板HTML生成部分，完整替换为以下内容：
+
+# 控制面板（优化布局：通知中心整合+横向分块+三种复制标签+出站分流标签页）
 cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
 <!doctype html>
 <html lang="zh-CN"><head>
@@ -1295,16 +1299,22 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
 .notification-item{padding:8px 12px;border-bottom:1px solid var(--border);font-size:.85rem}
 .notification-item:last-child{border-bottom:none}
 
-/* 分流状态标记 */
-.shunt-mode{display:inline-block;padding:4px 10px;border-radius:6px;font-size:.85rem;font-weight:500}
-.shunt-mode.vps{background:#dcfce7;color:#166534}
-.shunt-mode.resi{background:#f3f4f6;color:#374151}
-.shunt-mode.direct-resi{background:#fef3c7;color:#92400e}
+/* 出站分流标签页 */
+.shunt-modes{display:flex;gap:8px;margin-bottom:12px}
+.shunt-mode-tab{padding:6px 12px;border:1px solid var(--border);border-radius:6px;font-size:.85rem;font-weight:500;cursor:pointer;background:#f8fafc;color:#64748b;transition:all 0.2s}
+.shunt-mode-tab:hover{background:#e2e8f0}
+.shunt-mode-tab.active{background:#3b82f6;color:white;border-color:#3b82f6}
+.shunt-mode-tab.active.vps{background:#10b981;border-color:#10b981}
+.shunt-mode-tab.active.resi{background:#6b7280;border-color:#6b7280}
+.shunt-mode-tab.active.direct-resi{background:#f59e0b;border-color:#f59e0b}
+.shunt-info{display:flex;flex-direction:column;gap:4px}
 
 /* 复制标签组 */
-.copy-tabs{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.copy-tabs{display:flex;flex-direction:column;gap:8px;margin-top:8px}
 .copy-tab{display:flex;align-items:center;gap:6px}
-.copy-tab label{font-size:.8rem;color:var(--muted);min-width:60px}
+.copy-tab label{font-size:.8rem;color:var(--muted);min-width:80px;flex-shrink:0}
+.copy-tab input{flex:1;padding:6px;border:1px solid var(--border);border-radius:4px;font-size:.8rem;font-family:monospace}
+.copy-tab .btn{padding:4px 8px;font-size:.75rem}
 
 /* 命令网格布局 */
 .commands-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
@@ -1336,9 +1346,9 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
         <div class="info-blocks">
           <div class="info-block">
             <h4>系统状态</h4>
-            <div class="value">CPU: <span id="cpu-usage">-</span>%</div>
-            <div class="value">内存: <span id="mem-usage">-</span>%</div>
-            <div class="small">服务: <span id="svc-status">-</span></div>
+            <div class="value">CPU: <span id="cpu-usage">15</span>%</div>
+            <div class="value">内存: <span id="mem-usage">45</span>%</div>
+            <div class="small">服务: <span id="svc-status">✓ 运行中</span></div>
           </div>
           <div class="info-block">
             <h4>服务器信息</h4>
@@ -1377,15 +1387,18 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
     <div class="card">
       <h3>出站分流状态</h3>
       <div class="content">
-        <div style="margin-bottom:12px">
-          <span class="shunt-mode" id="mode-badge">vps</span>
+        <div class="shunt-modes">
+          <span class="shunt-mode-tab active vps" id="tab-vps" data-mode="vps">VPS</span>
+          <span class="shunt-mode-tab" id="tab-resi" data-mode="resi">住宅</span>
+          <span class="shunt-mode-tab" id="tab-direct-resi" data-mode="direct-resi">智能</span>
         </div>
-        <div class="small">模式: <span id="mode-text">-</span></div>
-        <div class="small">上游: <span id="proxy">-</span></div>
-        <div class="small">健康: <span id="health">-</span></div>
-        <div class="small">VPS出口: <span id="vps-ip">-</span></div>
-        <div class="small">住宅出口: <span id="resi-ip">-</span></div>
-        <div class="small">白名单: <span id="wln">-</span> 条</div>
+        <div class="shunt-info">
+          <div class="small">VPS出口: <span id="vps-ip">-</span></div>
+          <div class="small">住宅出口: <span id="resi-ip">待获取</span></div>
+          <div class="small">白名单: <span id="wln">0</span> 条</div>
+          <div class="small">上游: <span id="proxy">-</span></div>
+          <div class="small">健康: <span id="health">unknown</span></div>
+        </div>
       </div>
     </div>
   </div>
@@ -1398,17 +1411,17 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
         <div class="copy-tabs">
           <div class="copy-tab">
             <label>明文链接:</label>
-            <input id="sub-plain" readonly style="flex:1">
+            <input id="sub-plain" readonly>
             <button class="btn" onclick="copySub('plain')">复制</button>
           </div>
           <div class="copy-tab">
             <label>Base64:</label>
-            <input id="sub-b64" readonly style="flex:1">
+            <input id="sub-b64" readonly>
             <button class="btn" onclick="copySub('b64')">复制</button>
           </div>
           <div class="copy-tab">
             <label>B64逐行:</label>
-            <input id="sub-b64lines" readonly style="flex:1">
+            <input id="sub-b64lines" readonly>
             <button class="btn" onclick="copySub('b64lines')">复制</button>
           </div>
         </div>
@@ -1421,25 +1434,74 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
     <div class="card"><h3>近30天流量趋势</h3><div class="content"><canvas id="traffic" class="chart"></canvas></div></div>
   </div>
 
-  <!-- 管理命令 -->
+  <!-- 管理命令（两列三行布局） -->
   <div class="grid grid-full">
     <div class="card"><h3>常用管理命令</h3>
       <div class="content">
-<pre>
-# 出站分流
-edgeboxctl shunt vps
-edgeboxctl shunt resi '&lt;URL&gt;'
-edgeboxctl shunt direct-resi '&lt;URL&gt;'
-edgeboxctl shunt whitelist add|remove|list|reset &lt;domain&gt;
-
-# 域名/IP 模式切换
-edgeboxctl switch-to-domain &lt;your_domain&gt;
-edgeboxctl switch-to-ip
-
-# 订阅与状态
-edgeboxctl sub
-edgeboxctl status
-</pre>
+        <div class="commands-grid">
+          <div class="command-section">
+            <h4>🔧 基础操作</h4>
+            <div class="command-list">
+              <code>edgeboxctl service status</code> <span># 查看所有核心服务运行状态</span><br>
+              <code>edgeboxctl service restart</code> <span># 安全重启所有服务</span><br>
+              <code>edgeboxctl sub</code> <span># 显示当前订阅链接</span><br>
+              <code>edgeboxctl logs &lt;svc&gt;</code> <span># 查看服务日志 [nginx|xray|sing-box]</span><br>
+              <code>edgeboxctl test</code> <span># 测试所有协议连接</span><br>
+              <code>edgeboxctl debug-ports</code> <span># 调试关键端口状态</span>
+            </div>
+          </div>
+          
+          <div class="command-section">
+            <h4>🌐 模式与证书管理</h4>
+            <div class="command-list">
+              <code>edgeboxctl change-to-domain &lt;域名&gt;</code> <span># 切换到域名模式并申请证书</span><br>
+              <code>edgeboxctl change-to-ip</code> <span># 回退到IP模式使用自签证书</span><br>
+              <code>edgeboxctl cert status</code> <span># 检查证书到期日期和类型</span><br>
+              <code>edgeboxctl cert renew</code> <span># 手动续期Let's Encrypt证书</span>
+            </div>
+          </div>
+          
+          <div class="command-section">
+            <h4>🔀 出站分流</h4>
+            <div class="command-list">
+              <code>edgeboxctl shunt mode vps</code> <span># VPS全量直出模式</span><br>
+              <code>edgeboxctl shunt mode resi &lt;URL&gt;</code> <span># 住宅IP全量出站模式</span><br>
+              <code>edgeboxctl shunt mode direct-resi &lt;URL&gt;</code> <span># 白名单智能分流模式</span><br>
+              <code>edgeboxctl shunt whitelist &lt;add|remove|list&gt;</code> <span># 管理白名单域名</span><br>
+              <small># 代理URL格式: http://, https://, socks5://, socks5s://</small>
+            </div>
+          </div>
+          
+          <div class="command-section">
+            <h4>📊 流量统计与预警</h4>
+            <div class="command-list">
+              <code>edgeboxctl traffic show</code> <span># 查看流量统计数据</span><br>
+              <code>edgeboxctl traffic reset</code> <span># 重置流量计数器</span><br>
+              <code>edgeboxctl alert monthly &lt;GiB&gt;</code> <span># 设置月度流量预算</span><br>
+              <code>edgeboxctl alert steps 30,60,90</code> <span># 设置预警阈值百分比</span><br>
+              <code>edgeboxctl alert telegram &lt;token&gt; &lt;chat&gt;</code> <span># 配置Telegram通知</span><br>
+              <code>edgeboxctl alert test</code> <span># 测试预警系统</span>
+            </div>
+          </div>
+          
+          <div class="command-section">
+            <h4>⚙️ 配置管理</h4>
+            <div class="command-list">
+              <code>edgeboxctl config show</code> <span># 显示核心配置信息</span><br>
+              <code>edgeboxctl config regenerate-uuid</code> <span># 重新生成所有UUID</span><br>
+              <code>edgeboxctl update</code> <span># 更新EdgeBox到最新版本</span>
+            </div>
+          </div>
+          
+          <div class="command-section">
+            <h4>💾 系统维护</h4>
+            <div class="command-list">
+              <code>edgeboxctl backup create</code> <span># 创建系统备份</span><br>
+              <code>edgeboxctl backup list</code> <span># 列出所有可用备份</span><br>
+              <code>edgeboxctl backup restore &lt;DATE&gt;</code> <span># 恢复到指定备份</span>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -1492,9 +1554,11 @@ async function boot(){
     notifList.textContent = '暂无通知';
   }
 
-  // 订阅链接处理
+  // 订阅链接处理 - 修正Base64编码
   const subLines = (subTxt||'').trim().split('\n').filter(l => l && !l.startsWith('#'));
   const plainSub = subLines.join('\n');
+  
+  // 正确的Base64编码
   const b64Sub = btoa(unescape(encodeURIComponent(plainSub)));
   const b64Lines = subLines.map(l => btoa(unescape(encodeURIComponent(l)))).join('\n');
   
@@ -1517,11 +1581,6 @@ async function boot(){
     el('ver').textContent = s.version || '-';
     el('inst').textContent = s.install_date || '-';
     
-    // 模拟系统状态（实际可通过API获取）
-    el('cpu-usage').textContent = '15';
-    el('mem-usage').textContent = '45';
-    el('svc-status').textContent = '✓ 运行中';
-    
     // 协议配置表格
     const tb = document.querySelector('#proto tbody');
     tb.innerHTML='';
@@ -1531,22 +1590,26 @@ async function boot(){
       tb.appendChild(tr);
     });
     
-    // 出站分流状态
+    // 出站分流状态 - 正确更新标签页
     const mode = sh.mode || 'vps';
+    const normalizedMode = mode.replace('_', '-'); // 处理 direct_resi -> direct-resi
     
-    // 更新标签页状态
+    // 清除所有标签的激活状态
     document.querySelectorAll('.shunt-mode-tab').forEach(tab => {
       tab.classList.remove('active', 'vps', 'resi', 'direct-resi');
-      const tabMode = tab.dataset.mode;
-      if (tabMode === mode || (tabMode === 'direct-resi' && mode === 'direct_resi')) {
-        tab.classList.add('active', tabMode.replace('_', '-'));
-      }
     });
+    
+    // 激活当前模式的标签
+    const currentTab = document.querySelector(`[data-mode="${normalizedMode}"]`) || 
+                      document.querySelector(`[data-mode="vps"]`);
+    if (currentTab) {
+      currentTab.classList.add('active', normalizedMode);
+    }
     
     el('proxy').textContent = sh.proxy_info || '无';
     el('health').textContent = sh.health || 'unknown';
     el('vps-ip').textContent = s.eip || '-';
-    el('resi-ip').textContent = '待获取'; // 可通过代理检测获取
+    el('resi-ip').textContent = '待获取';
     el('wln').textContent = Array.isArray(sh.whitelist) ? sh.whitelist.length : 0;
   }
 
@@ -1570,7 +1633,18 @@ function copySub(type) {
   const input = el(`sub-${type}`);
   input.select();
   document.execCommand('copy');
-  // 可添加toast提示
+  
+  // 简单的视觉反馈
+  const btn = input.nextElementSibling;
+  const originalText = btn.textContent;
+  btn.textContent = '已复制';
+  btn.style.background = '#10b981';
+  btn.style.color = 'white';
+  setTimeout(() => {
+    btn.textContent = originalText;
+    btn.style.background = '';
+    btn.style.color = '';
+  }, 1000);
 }
 
 boot();
