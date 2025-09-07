@@ -2528,6 +2528,82 @@ traffic_reset(){
 }
 
 #############################################
+# 预警配置（alert）
+#############################################
+
+ensure_alert_conf(){
+  [[ -d "$TRAFFIC_DIR" ]] || mkdir -p "$TRAFFIC_DIR"
+  [[ -s "$TRAFFIC_DIR/alert.conf" ]] || cat >"$TRAFFIC_DIR/alert.conf" <<'CONF'
+ALERT_MONTHLY_GIB=100
+ALERT_EMAIL=
+ALERT_WEBHOOK=
+ALERT_STEPS=30,60,90
+CONF
+}
+
+alert_show(){
+  ensure_alert_conf
+  echo -e "${CYAN}流量预警配置：${NC}"
+  grep -E '^(ALERT_MONTHLY_GIB|ALERT_EMAIL|ALERT_WEBHOOK|ALERT_STEPS)=' "$TRAFFIC_DIR/alert.conf" \
+    | sed 's/^/  /'
+}
+
+alert_set_email(){
+  ensure_alert_conf
+  local addr="$1"
+  sed -i "s/^ALERT_EMAIL=.*/ALERT_EMAIL=${addr}/" "$TRAFFIC_DIR/alert.conf"
+  log_success "已设置收件邮箱：${addr:-<空>}"
+}
+
+alert_set_monthly(){
+  ensure_alert_conf
+  local gib="$1"
+  [[ "$gib" =~ ^[0-9]+$ ]] || { log_error "月度预算需为整数GiB"; return 1; }
+  sed -i "s/^ALERT_MONTHLY_GIB=.*/ALERT_MONTHLY_GIB=${gib}/" "$TRAFFIC_DIR/alert.conf"
+  log_success "已设置月度预算：${gib} GiB"
+}
+
+alert_set_steps(){
+  ensure_alert_conf
+  local steps="$1"
+  [[ "$steps" =~ ^[0-9]+(,[0-9]+)*$ ]] || { log_error "阈值格式应为: 30,60,90"; return 1; }
+  sed -i "s/^ALERT_STEPS=.*/ALERT_STEPS=${steps}/" "$TRAFFIC_DIR/alert.conf"
+  log_success "已设置阈值：${steps}%"
+}
+
+alert_test(){
+  ensure_alert_conf
+  # 读取预算GiB
+  local budget_gib; budget_gib=$(awk -F= '/^ALERT_MONTHLY_GIB=/{print $2}' "$TRAFFIC_DIR/alert.conf")
+  [[ "$budget_gib" =~ ^[0-9]+$ ]] || budget_gib=100
+  local pct="${1:-40}"
+  [[ "$pct" =~ ^[0-9]+$ ]] || { log_error "百分比应为整数"; return 1; }
+  [[ "$pct" -ge 0 && "$pct" -le 100 ]] || { log_error "百分比范围 0-100"; return 1; }
+
+  local GiB=1073741824
+  local mf="$TRAFFIC_DIR/logs/monthly.csv"
+  local m; m=$(date +%Y-%m)
+  mkdir -p "$TRAFFIC_DIR/logs"
+  [[ -s "$mf" ]] || echo "month,vps,resi,total,tx,rx" > "$mf"
+  grep -q "^$m," "$mf" || echo "$m,0,0,0,0,0" >> "$mf"
+
+  local used=$(( GiB * budget_gib * pct / 100 ))
+  awk -F, -v m="$m" -v u="$used" 'BEGIN{OFS=","}
+    NR==1{print;next}
+    $1==m{$4=u} {print}' "$mf" > "$mf.tmp" && mv "$mf.tmp" "$mf"
+
+  rm -f "$TRAFFIC_DIR/alert.state"
+  if [[ -x "$SCRIPTS_DIR/traffic-alert.sh" ]]; then
+    "$SCRIPTS_DIR/traffic-alert.sh"
+  else
+    /etc/edgebox/scripts/traffic-alert.sh 2>/dev/null || true
+  fi
+  echo -e "${CYAN}最近告警日志：${NC}"
+  tail -n 10 /var/log/edgebox-traffic-alert.log 2>/dev/null || true
+  log_success "已模拟 ${pct}% 用量并触发预警流程（不产生真实流量）"
+}
+
+#############################################
 # 备份恢复
 #############################################
 
@@ -2711,6 +2787,19 @@ case "$1" in
       *) echo "用法: edgeboxctl shunt [vps|resi|direct-resi|status|whitelist] [args...]" ;;
     esac
     ;;
+	
+  # 预警配置
+  alert)
+    ensure_alert_conf
+    case "$2" in
+      show|"")         alert_show ;;
+      email)           shift 2; [[ "$1" == "--clear" || -z "$1" ]] && alert_set_email "" || alert_set_email "$1" ;;
+      monthly)         shift 2; alert_set_monthly "$1" ;;
+      steps)           shift 2; alert_set_steps "$1" ;;
+      test)            shift 2; alert_test "${1:-40}" ;;
+      *) echo "用法: edgeboxctl alert [show|email <addr>|email --clear|monthly <GiB>|steps <p1,p2,...>|test <percent>]";;
+    esac
+    ;;
   
   # 流量统计
   traffic) 
@@ -2738,8 +2827,8 @@ case "$1" in
     ;;
   
   # 帮助信息
-  help|"") 
-    cat <<HLP
+help|"") 
+  cat <<HLP
 ${CYAN}EdgeBox 管理工具 v${VERSION}${NC}
 控制面板: http://$(jq -r .server_ip ${CONFIG_DIR}/server.json 2>/dev/null || echo "YOUR_IP")/
 ${YELLOW}基础操作:${NC}
@@ -2761,14 +2850,22 @@ ${YELLOW}配置管理:${NC}
   edgeboxctl config regenerate-uuid        重新生成UUID
 
 ${YELLOW}出站分流:${NC}
-edgeboxctl shunt resi '<代理URL>'                             #全量走住宅（仅Xray分流）
-edgeboxctl shunt direct-resi '<代理URL>'                      #智能分流（仅Xray分流，白名单直连，其余走住宅）
-edgeboxctl shunt vps                                         #VPS全量出站
-edgeboxctl shunt whitelist [add|remove|list|reset] [domain]  #管理白名单
+  edgeboxctl shunt resi '<代理URL>'                             # 全量走住宅（仅Xray分流）
+  edgeboxctl shunt direct-resi '<代理URL>'                      # 智能分流（白名单直连，其余走住宅）
+  edgeboxctl shunt vps                                         # VPS全量出站
+  edgeboxctl shunt whitelist [add|remove|list|reset] [domain]  # 管理白名单
 
 ${YELLOW}流量统计:${NC}
   edgeboxctl traffic show                  查看流量统计
   edgeboxctl traffic reset                 重置流量计数
+
+${YELLOW}流量预警:${NC}
+  edgeboxctl alert show                    查看当前预警配置
+  edgeboxctl alert email <addr>            设置收件邮箱（支持 msmtp+mailx）
+  edgeboxctl alert email --clear           清空收件邮箱
+  edgeboxctl alert monthly <GiB>           设置月度预算（单位 GiB）
+  edgeboxctl alert steps 30,60,90          设置阈值百分比（逗号分隔）
+  edgeboxctl alert test <percent>          模拟百分比用量并触发一次预警（不产生真实流量）
 
 ${YELLOW}备份恢复:${NC}
   edgeboxctl backup create                 创建备份
@@ -2780,7 +2877,6 @@ ${YELLOW}系统:${NC}
   edgeboxctl help                          显示此帮助
 
 ${CYAN}EdgeBox 企业级多协议节点部署方案（含 Trojan-TLS）${NC}
-
 HLP
   ;;
   
