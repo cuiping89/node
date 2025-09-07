@@ -1252,7 +1252,7 @@ ALERT
 # 替换setup_traffic_monitoring函数中的控制面板HTML部分
 # 找到原脚本中的控制面板HTML生成部分，完整替换为以下内容：
 
-# 控制面板（优化布局：通知中心整合+横向分块+三种复制标签+出站分流标签页+月累计表格）
+# 控制面板（优化布局：代理URL格式统一+月累计表格独立卡片）
 cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
 <!doctype html>
 <html lang="zh-CN"><head>
@@ -1426,23 +1426,27 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
       <h3>近30天流量趋势</h3>
       <div class="content">
         <canvas id="traffic" class="chart"></canvas>
-        
-        <!-- 月累计表格 -->
-        <div style="margin-top:24px">
-          <h4 style="margin:0 0 12px 0;font-size:1rem;color:#1e293b">近12个月累计流量</h4>
-          <div style="overflow-x:auto">
-            <table class="table" id="monthly-table">
-              <thead>
-                <tr>
-                  <th>月份</th>
-                  <th>住宅出口</th>
-                  <th>VPS出口</th>
-                  <th>总出站流量</th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
-          </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 月累计表格 -->
+  <div class="grid grid-full">
+    <div class="card">
+      <h3>近12个月累计流量</h3>
+      <div class="content">
+        <div style="overflow-x:auto">
+          <table class="table" id="monthly-table">
+            <thead>
+              <tr>
+                <th>月份</th>
+                <th>住宅出口</th>
+                <th>VPS出口</th>
+                <th>总出站流量</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
         </div>
       </div>
     </div>
@@ -1480,12 +1484,12 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
               <code>edgeboxctl shunt mode resi &lt;URL&gt;</code> <span># 配置并切换至住宅IP全量出站模式</span><br>
               <code>edgeboxctl shunt mode direct-resi &lt;URL&gt;</code> <span># 配置并切换至白名单智能分流模式</span><br>
               <code>edgeboxctl shunt whitelist &lt;add|remove|list&gt;</code> <span># 管理白名单域名</span><br>
-              <small>代理URL 支持:</small><br>
-              <small>http://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;</small><br>
-              <small>https://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;?sni=</small><br>
-              <small>socks5://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;</small><br>
-              <small>socks5s://user:pass@&lt;域名&gt;:&lt;端口&gt;?sni=</small><br>
-              <small>示例：edgeboxctl shunt resi 'socks5://user:pass@111.222.333.444:11324' # 全栈走住宅</small>
+              <code>代理URL 支持:</code><br>
+              <code>http://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;</code><br>
+              <code>https://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;?sni=</code><br>
+              <code>socks5://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;</code><br>
+              <code>socks5s://user:pass@&lt;域名&gt;:&lt;端口&gt;?sni=</code><br>
+              <code>示例：edgeboxctl shunt resi 'socks5://user:pass@111.222.333.444:11324'</code> <span># 全栈走住宅</span>
             </div>
           </div>
           
