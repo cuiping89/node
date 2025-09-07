@@ -1252,7 +1252,7 @@ ALERT
 # 替换setup_traffic_monitoring函数中的控制面板HTML部分
 # 找到原脚本中的控制面板HTML生成部分，完整替换为以下内容：
 
-# 控制面板（优化布局：代理URL格式统一+月累计表格独立卡片）
+# 控制面板（优化布局：代理URL格式统一+月累计流量柱形图）
 cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
 <!doctype html>
 <html lang="zh-CN"><head>
@@ -1275,6 +1275,7 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
 .btn:hover{background:#e2e8f0}
 .badge{display:inline-block;border:1px solid var(--border);border-radius:999px;padding:2px 8px;font-size:.8rem;margin-right:6px}
 .chart{position:relative;height:320px}
+.monthly-chart{position:relative;height:400px}
 
 /* 横向分块布局 */
 .info-blocks{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:16px}
@@ -1430,24 +1431,12 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
     </div>
   </div>
 
-  <!-- 月累计表格 -->
+  <!-- 月累计流量柱形图 -->
   <div class="grid grid-full">
     <div class="card">
       <h3>近12个月累计流量</h3>
       <div class="content">
-        <div style="overflow-x:auto">
-          <table class="table" id="monthly-table">
-            <thead>
-              <tr>
-                <th>月份</th>
-                <th>住宅出口</th>
-                <th>VPS出口</th>
-                <th>总出站流量</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
+        <canvas id="monthly-chart" class="monthly-chart"></canvas>
       </div>
     </div>
   </div>
@@ -1717,29 +1706,93 @@ async function boot(){
         scales:{y:{ticks:{callback:v=>(v/GiB).toFixed(1)+' GiB'}}}}
     });
     
-    // 月累计表格
-    const monthlyTb = document.querySelector('#monthly-table tbody');
-    monthlyTb.innerHTML = '';
-    
-    if (tjson.monthly && tjson.monthly.length > 0) {
+    // 月累计柱形图
+    if(tjson.monthly && tjson.monthly.length > 0) {
       // 取最近12个月的数据
       const recentMonthly = tjson.monthly.slice(-12);
       
-      recentMonthly.forEach(item => {
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-          <td>${item.month}</td>
-          <td>${fmtGiB(item.resi || 0)}</td>
-          <td>${fmtGiB(item.vps || 0)}</td>
-          <td style="font-weight:600">${fmtGiB(item.total || 0)}</td>
-        `;
-        monthlyTb.appendChild(tr);
+      const monthLabels = recentMonthly.map(item => item.month);
+      const vpsData = recentMonthly.map(item => (item.vps || 0) / GiB); // 转换为GiB
+      const resiData = recentMonthly.map(item => (item.resi || 0) / GiB); // 转换为GiB
+      
+      new Chart(el('monthly-chart'), {
+        type: 'bar',
+        data: {
+          labels: monthLabels,
+          datasets: [
+            {
+              label: 'VPS出口',
+              data: vpsData,
+              backgroundColor: '#3b82f6',
+              borderColor: '#3b82f6',
+              borderWidth: 1,
+              stack: 'stack1'
+            },
+            {
+              label: '住宅出口',
+              data: resiData,
+              backgroundColor: '#f59e0b',
+              borderColor: '#f59e0b',
+              borderWidth: 1,
+              stack: 'stack1'
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            x: {
+              title: {
+                display: true,
+                text: '月份'
+              }
+            },
+            y: {
+              stacked: true,
+              title: {
+                display: true,
+                text: '流量 (GiB)'
+              },
+              ticks: {
+                callback: function(value) {
+                  return value.toFixed(1) + ' GiB';
+                }
+              }
+            }
+          },
+          plugins: {
+            tooltip: {
+              callbacks: {
+                label: function(context) {
+                  const label = context.dataset.label || '';
+                  const value = context.parsed.y.toFixed(2);
+                  return label + ': ' + value + ' GiB';
+                },
+                  return '总流量: ' + total + ' GiB';
+                }
+              }
+            },
+            legend: {
+              display: true,
+              position: 'top'
+            }
+          },
+          interaction: {
+            mode: 'index',
+            intersect: false
+          }
+        }
       });
     } else {
-      // 无数据时显示占位行
-      const tr = document.createElement('tr');
-      tr.innerHTML = '<td colspan="4" style="text-align:center;color:var(--muted)">暂无月度数据</td>';
-      monthlyTb.appendChild(tr);
+      // 无数据时显示占位内容
+      const monthlyChart = el('monthly-chart');
+      const ctx = monthlyChart.getContext('2d');
+      ctx.fillStyle = '#64748b';
+      ctx.font = '16px system-ui';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('暂无月度数据', monthlyChart.width/2, monthlyChart.height/2);
     }
   }
 }
