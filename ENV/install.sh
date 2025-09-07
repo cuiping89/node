@@ -969,8 +969,8 @@ NFT
   [[ -s "${LOG_DIR}/daily.csv" ]]   || echo "date,vps,resi,tx,rx" > "${LOG_DIR}/daily.csv"
   [[ -s "${LOG_DIR}/monthly.csv" ]] || echo "month,vps,resi,total,tx,rx" > "${LOG_DIR}/monthly.csv"
 
-  # 采集器：每小时增量 → 聚合 → traffic.json
-  cat > "${SCRIPTS_DIR}/traffic-collector.sh" <<'COLLECTOR'
+# 流量采集器：每小时增量 → 聚合 → traffic.json
+cat > "${SCRIPTS_DIR}/traffic-collector.sh" <<'COLLECTOR'
 #!/bin/bash
 set -euo pipefail
 TRAFFIC_DIR="/etc/edgebox/traffic"
@@ -978,17 +978,17 @@ LOG_DIR="$TRAFFIC_DIR/logs"
 STATE="${TRAFFIC_DIR}/.state"
 mkdir -p "$LOG_DIR"
 
-# 检测默认出网网卡
+# 1) 识别默认出网网卡
 IFACE="$(ip route | awk '/default/{print $5;exit}')"
 [[ -z "$IFACE" ]] && IFACE="$(ip -o -4 addr show scope global | awk '{print $2;exit}')"
 [[ -z "$IFACE" ]] && { echo "no iface"; exit 0; }
 
-# 读取内核与 nft 计数
+# 2) 读取当前计数
 TX_CUR=$(cat /sys/class/net/$IFACE/statistics/tx_bytes 2>/dev/null || echo 0)
 RX_CUR=$(cat /sys/class/net/$IFACE/statistics/rx_bytes 2>/dev/null || echo 0)
 
+# 住宅出口计数（nftables 计数器 c_resi_out）
 get_resi_bytes() {
-  # 优先 JSON（jq）
   if nft -j list counters table inet edgebox >/dev/null 2>&1; then
     nft -j list counters table inet edgebox \
      | jq -r '[.nftables[]?|select(.counter.name=="c_resi_out")|.counter.bytes][0] // 0'
@@ -998,15 +998,9 @@ get_resi_bytes() {
 }
 RESI_CUR="$(get_resi_bytes)"; RESI_CUR="${RESI_CUR:-0}"
 
-# 载入上次状态
+# 3) 载入上次状态，计算增量
 PREV_TX=0; PREV_RX=0; PREV_RESI=0
-if [[ -f "$STATE" ]]; then
-  # shell 格式：KEY=VALUE
-  # shellcheck source=/dev/null
-  . "$STATE" || true
-fi
-
-# 计算增量，考虑重启/复位
+[[ -f "$STATE" ]] && . "$STATE" || true
 delta() { local cur="$1" prev="$2"; [[ "$cur" -ge "$prev" ]] && echo $((cur-prev)) || echo 0; }
 D_TX=$(delta "$TX_CUR"   "${PREV_TX:-0}")
 D_RX=$(delta "$RX_CUR"   "${PREV_RX:-0}")
@@ -1014,7 +1008,8 @@ D_RESI=$(delta "$RESI_CUR" "${PREV_RESI:-0}")
 D_VPS=$D_TX; [[ $D_RESI -le $D_TX ]] && D_VPS=$((D_TX - D_RESI)) || D_VPS=0
 
 TODAY="$(date +%F)"
-# 写 daily.csv（累加当日）
+# 4) 写 daily.csv（date,vps,resi,tx,rx），保留最近90天
+[[ -s "${LOG_DIR}/daily.csv" ]] || echo "date,vps,resi,tx,rx" > "${LOG_DIR}/daily.csv"
 TMP="$(mktemp)"; export LC_ALL=C
 awk -F, -v d="$TODAY" -v vps="$D_VPS" -v resi="$D_RESI" -v tx="$D_TX" -v rx="$D_RX" '
   BEGIN{OFS=","; updated=0}
@@ -1023,39 +1018,31 @@ awk -F, -v d="$TODAY" -v vps="$D_VPS" -v resi="$D_RESI" -v tx="$D_TX" -v rx="$D_
   {print}
   END{ if(!updated) print d,vps,resi,tx,rx }
 ' "$LOG_DIR/daily.csv" > "$TMP" && mv "$TMP" "$LOG_DIR/daily.csv"
-
-# 只保留最近 90 天（含表头）
 { head -n1 "$LOG_DIR/daily.csv"; tail -n 90 "$LOG_DIR/daily.csv" | grep -v '^date,'; } > "$TMP" \
   && mv "$TMP" "$LOG_DIR/daily.csv"
 
-# 基于 daily.csv 生成 monthly.csv（近 18 个月）
+# 5) 基于 daily.csv 生成 monthly.csv（month,vps,resi,total,tx,rx），保留最近18个月
 awk -F, 'NR>1{m=substr($1,1,7); vps[m]+=$2; resi[m]+=$3; tx[m]+=$4; rx[m]+=$5}
 END{
   print "month,vps,resi,total,tx,rx";
-  # 按月排序输出
   n=asorti(vps, ks);
   for(i=1;i<=n;i++){ m=ks[i]; t=vps[m]+resi[m]; print m","vps[m]","resi[m]","t","tx[m]","rx[m] }
 }' "$LOG_DIR/daily.csv" > "$LOG_DIR/monthly.csv.tmp"
-# 保留最近 18 个月
 { head -n1 "$LOG_DIR/monthly.csv.tmp"; tail -n 18 "$LOG_DIR/monthly.csv.tmp" | grep -v '^month,'; } \
   > "$LOG_DIR/monthly.csv"
 
-# 组装 traffic.json（last30d + monthly）
+# 6) 产出 traffic.json（index.html 读取的唯一数据文件）
 LAST30D_JSON="$(tail -n 30 "$LOG_DIR/daily.csv" | grep -v '^date,' \
   | awk -F, '{printf("{\"date\":\"%s\",\"vps\":%s,\"resi\":%s}\n",$1,$2,$3)}' | jq -s '.')"
 MONTHLY_JSON="$(tail -n 12 "$LOG_DIR/monthly.csv" | grep -v '^month,' \
   | awk -F, '{printf("{\"month\":\"%s\",\"vps\":%s,\"resi\":%s,\"total\":%s,\"tx\":%s,\"rx\":%s}\n",$1,$2,$3,$4,$5,$6)}' | jq -s '.')"
+jq -n --arg updated "$(date -Is)" --argjson last30d "$LAST30D_JSON" --argjson monthly "$MONTHLY_JSON" \
+  '{updated_at:$updated,last30d:$last30d,monthly:$monthly}' > "$TRAFFIC_DIR/traffic.json"
 
-jq -n --arg updated "$(date -Is)" \
-      --argjson last30d "$LAST30D_JSON" \
-      --argjson monthly "$MONTHLY_JSON" \
-  '{updated_at:$updated,last30d:$last30d,monthly:$monthly}' \
-  > "$TRAFFIC_DIR/traffic.json"
-
-# 更新状态
+# 7) 保存状态
 printf 'PREV_TX=%s\nPREV_RX=%s\nPREV_RESI=%s\n' "$TX_CUR" "$RX_CUR" "$RESI_CUR" > "$STATE"
 COLLECTOR
-  chmod +x "${SCRIPTS_DIR}/traffic-collector.sh"
+chmod +x "${SCRIPTS_DIR}/traffic-collector.sh"
 
   # 面板数据刷新（自包含版本，不依赖外部函数）
   cat > "${SCRIPTS_DIR}/panel-refresh.sh" <<'PANEL'
@@ -1184,8 +1171,8 @@ echo "$new_sent" > "$STATE"
 ALERT
   chmod +x "${SCRIPTS_DIR}/traffic-alert.sh"
 
-  # 控制面板（卡片式 UI，读取 /traffic/sub.txt 与 /traffic/traffic.json）
-  cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
+# 控制面板（卡片式 UI，读取 /traffic/sub.txt 与 /traffic/traffic.json）
+cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
 <!doctype html>
 <html lang="zh-CN"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
@@ -1194,23 +1181,37 @@ ALERT
 :root{--card:#fff;--border:#e2e8f0;--bg:#f8fafc;--muted:#64748b;--shadow:0 4px 6px -1px rgba(0,0,0,.1)}
 *{box-sizing:border-box}body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:#334155;margin:0}
 .container{max-width:1200px;margin:0 auto;padding:16px}
-.grid{display:grid;gap:16px}.grid-2{grid-template-columns:1fr 1fr}@media(max-width:900px){.grid-2{grid-template-columns:1fr}}
+.grid{display:grid;gap:16px}.grid-2{grid-template-columns:2fr 1fr}@media(max-width:980px){.grid-2{grid-template-columns:1fr}}
 .card{background:var(--card);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow);overflow:hidden}
 .card h3{margin:0;padding:12px 16px;border-bottom:1px solid var(--border);font-size:1rem}
 .card .content{padding:16px}
 .table{width:100%;border-collapse:collapse}.table th,.table td{padding:8px 10px;border-bottom:1px solid var(--border);font-size:.9rem}
 .copy{display:flex;gap:8px}.copy input{flex:1;padding:8px;border:1px solid var(--border);border-radius:8px}
 .btn{padding:8px 12px;border:1px solid var(--border);background:#f1f5f9;border-radius:8px;cursor:pointer}
-.chart{position:relative;height:300px}
+.chart{position:relative;height:320px}
 .small{color:var(--muted);font-size:.85rem}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
 </head><body>
 <div class="container">
+  <div class="grid grid-2">
+    <div class="card"><h3>基本信息</h3><div class="content">
+      <div class="small">服务器地址：<span id="srv-addr">-</span></div>
+      <div class="small">证书模式：<span id="cert-mode">-</span></div>
+      <div class="small">安装版本：<span id="ver">-</span>，安装日期：<span id="inst">-</span></div>
+      <div class="small">数据更新时间：<span id="updated">-</span></div>
+    </div></div>
+    <div class="card"><h3>出站分流状态（Xray 生效）</h3><div class="content">
+      <div class="small">模式：<span id="mode">-</span></div>
+      <div class="small">上游：<span id="proxy">-</span></div>
+      <div class="small">健康：<span id="health">-</span></div>
+      <div class="small">白名单：<span id="wln">-</span></div>
+      <div class="small">提示：HY2/TUIC 为 UDP 通道，始终直连，不参与上游分流。</div>
+    </div></div>
+  </div>
+
   <div class="card"><h3>订阅链接</h3><div class="content">
     <div class="copy"><input id="sub" readonly><button class="btn" onclick="copySub()">复制</button></div>
-    <div class="small" id="updated">加载中…</div>
   </div></div>
 
   <div class="card"><h3>近30天流量趋势</h3><div class="content"><canvas id="traffic" class="chart"></canvas></div></div>
@@ -1222,49 +1223,42 @@ ALERT
 </div>
 
 <script>
-const GiB = 1024**3;
-function fmtGiB(b){return (b/GiB).toFixed(2)+' GiB';}
+const GiB = 1024**3; const el = id => document.getElementById(id);
+const fmtGiB = b => (b/GiB).toFixed(2)+' GiB';
 async function boot(){
   const [subTxt, panel, tjson] = await Promise.all([
     fetch('/traffic/sub.txt',{cache:'no-store'}).then(r=>r.text()).catch(()=>''), 
     fetch('/traffic/panel.json',{cache:'no-store'}).then(r=>r.json()).catch(()=>null),
     fetch('/traffic/traffic.json',{cache:'no-store'}).then(r=>r.json()).catch(()=>null)
   ]);
-  document.getElementById('sub').value = subTxt.trim() || '';
-  const ts = (tjson&&tjson.updated_at) || (panel&&panel.updated_at) || new Date().toISOString();
-  document.getElementById('updated').textContent = '数据更新时间：' + new Date(ts).toLocaleString();
+  el('sub').value = (subTxt||'').trim();
+
+  if(panel){
+    const ts = panel.updated_at || new Date().toISOString();
+    el('updated').textContent = new Date(ts).toLocaleString();
+    const s=panel.server||{}, sh=panel.shunt||{};
+    el('srv-addr').textContent = (s.cert_domain||s.ip||'-');
+    el('cert-mode').textContent = s.cert_mode||'-';
+    el('ver').textContent = s.version||'-'; el('inst').textContent = s.install_date||'-';
+    el('mode').textContent = sh.mode||'-'; el('proxy').textContent = sh.proxy_info||'(未配置)';
+    el('health').textContent = sh.health||'unknown';
+    el('wln').textContent = Array.isArray(sh.whitelist)?(sh.whitelist.length+' 项'):'-';
+  }
 
   if(tjson){
-    const ctx = document.getElementById('traffic');
-    const labels = tjson.last30d.map(x=>x.date);
-    const vps  = tjson.last30d.map(x=>x.vps);
-    const resi = tjson.last30d.map(x=>x.resi);
-    new Chart(ctx,{
+    const labels = (tjson.last30d||[]).map(x=>x.date);
+    const vps = (tjson.last30d||[]).map(x=>x.vps);
+    const resi= (tjson.last30d||[]).map(x=>x.resi);
+    new Chart(document.getElementById('traffic'),{
       type:'line',
-      data:{labels,
-        datasets:[
-          {label:'VPS 出口', data:vps, tension:.3, borderWidth:2},
-          {label:'住宅出口', data:resi, tension:.3, borderWidth:2}
-        ]},
-      options:{
-        responsive:true, maintainAspectRatio:false,
-        scales:{ y:{ ticks:{ callback:v=> (v/GiB).toFixed(1)+' GiB' } } },
-        plugins:{
-          legend:{position:'top'},
-          annotation:{
-            annotations: (()=>{ // 用 annotation 在每月末标注 total
-              const a={}; (tjson.monthly||[]).forEach(m=>{
-                const txt=`${m.month}：${fmtGiB(m.total)}`;
-                a['m'+m.month]={type:'label',xValue:labels[labels.length-1],yValue:Math.max(...vps, ...resi),content:[txt],position:'end',backgroundColor:'rgba(0,0,0,0.05)'};
-              }); return a;
-            })()
-          }
-        }
-      }
-    });
-
-    // 月度表格
-    const tb = document.getElementById('mt'); tb.innerHTML='';
+      data:{labels,datasets:[
+        {label:'VPS 出口', data:vps, tension:.3, borderWidth:2},
+        {label:'住宅出口', data:resi, tension:.3, borderWidth:2}
+      ]},
+      options:{responsive:true,maintainAspectRatio:false,
+        scales:{y:{ticks:{callback:v=>(v/GiB).toFixed(1)+' GiB'}}}}
+    );
+    const tb=document.getElementById('mt'); tb.innerHTML='';
     (tjson.monthly||[]).forEach(m=>{
       const tr=document.createElement('tr');
       tr.innerHTML=`<td>${m.month}</td><td>${fmtGiB(m.resi)}</td><td>${fmtGiB(m.vps)}</td><td>${fmtGiB(m.total)}</td>`;
@@ -1272,30 +1266,95 @@ async function boot(){
     });
   }
 }
-function copySub(){
-  const el=document.getElementById('sub'); el.select(); document.execCommand('copy');
-}
+function copySub(){ const x=el('sub'); x.select(); document.execCommand('copy'); }
 boot();
 </script>
 </body></html>
 HTML
 
-  # 先跑一次
-  "${SCRIPTS_DIR}/panel-refresh.sh" || true
-  "${SCRIPTS_DIR}/traffic-collector.sh" || true
-  log_success "流量监控系统设置完成：${TRAFFIC_DIR}/index.html"
+# 网站根目录映射 + 首次刷新
+mkdir -p "${TRAFFIC_DIR}" /var/www/html
+ln -sfn "${TRAFFIC_DIR}" /var/www/html/traffic
+# 先跑一次采集与面板生成
+"${SCRIPTS_DIR}/traffic-collector.sh" || true
+"${SCRIPTS_DIR}/panel-refresh.sh" || true
+log_success "流量监控系统设置完成：${TRAFFIC_DIR}/index.html"
+}
+
 }
 
 # 设置定时任务
+# 设置定时任务
 setup_cron_jobs() {
   log_info "配置定时任务..."
+
+  # 1) 写入/覆盖 预警配置
+  cat > /etc/edgebox/traffic/alert.conf <<'CONF'
+ALERT_MONTHLY_GIB=100     # 月度预算（GiB）
+ALERT_EMAIL=              # 可留空
+ALERT_WEBHOOK=            # 可留空
+ALERT_STEPS=30,60,90      # 百分比阈值
+CONF
+
+  # 2) 写入/覆盖 预警脚本（按当月 total 达到阈值去重告警）
+  cat > /etc/edgebox/scripts/traffic-alert.sh <<'ALERT'
+#!/bin/bash
+set -euo pipefail
+TRAFFIC_DIR="/etc/edgebox/traffic"
+LOG_DIR="$TRAFFIC_DIR/logs"
+CONF="$TRAFFIC_DIR/alert.conf"
+STATE="$TRAFFIC_DIR/alert.state"
+LOG="/var/log/edgebox-traffic-alert.log"
+
+[[ -r "$CONF" ]] || { echo "[$(date -Is)] no alert.conf" >> "$LOG"; exit 0; }
+. "$CONF"
+
+month="$(date +%Y-%m)"
+row="$(grep "^${month}," "$LOG_DIR/monthly.csv" 2>/dev/null || true)"
+[[ -z "$row" ]] && { echo "[$(date -Is)] monthly.csv no row for $month" >> "$LOG"; exit 0; }
+
+IFS=',' read -r _ vps resi total tx rx <<<"$row"   # CSV: month,vps,resi,total,tx,rx
+budget_bytes=$(( ${ALERT_MONTHLY_GIB:-100} * 1024 * 1024 * 1024 ))
+used=$total
+pct=$(( used * 100 / budget_bytes ))
+
+sent=""; [[ -f "$STATE" ]] && sent="$(cat "$STATE")"
+
+notify() {
+  local msg="$1"
+  echo "[$(date -Is)] $msg" | tee -a "$LOG" >/dev/null
+  if [[ -n "${ALERT_WEBHOOK:-}" ]]; then
+    curl -m 5 -s -X POST -H 'Content-Type: application/json' \
+      -d "$(jq -n --arg text "$msg" '{text:$text}')" "$ALERT_WEBHOOK" >/dev/null 2>&1 || true
+  fi
+  if command -v mail >/dev/null 2>&1 && [[ -n "${ALERT_EMAIL:-}" ]]; then
+    echo "$msg" | mail -s "EdgeBox 流量预警 (${month})" "$ALERT_EMAIL" || true
+  fi
+}
+
+new_sent="$sent"
+IFS=',' read -ra STEPS <<<"${ALERT_STEPS:-30,60,90}"
+for s in "${STEPS[@]}"; do
+  if [[ "$pct" -ge "$s" ]] && ! grep -q "(^|,)$s(,|$)" <<<",$sent,"; then
+    human_used="$(awk -v b="$used" 'BEGIN{printf "%.2f GiB", b/1024/1024/1024}')"
+    human_budget="$(awk -v b="$budget_bytes" 'BEGIN{printf "%.0f GiB", b/1024/1024/1024}')"
+    notify "本月用量 ${human_used}（${pct}% / 预算 ${human_budget}），触达 ${s}% 阈值。"
+    new_sent="${new_sent:+${new_sent},}${s}"
+  fi
+done
+echo "$new_sent" > "$STATE"
+ALERT
+  chmod +x /etc/edgebox/scripts/traffic-alert.sh
+
+  # 3) 三条 cron（每小时：采集 → 刷面板 → 预警）
   (
-    crontab -l 2>/dev/null | grep -vE '/etc/edgebox/scripts/(traffic-collector\.sh|traffic-alert\.sh|panel-refresh\.sh)'
+    crontab -l 2>/dev/null | grep -vE '/etc/edgebox/scripts/(traffic-collector\.sh|panel-refresh\.sh|traffic-alert\.sh)'
     echo "0 * * * * /etc/edgebox/scripts/traffic-collector.sh"
     echo "5 * * * * /etc/edgebox/scripts/panel-refresh.sh"
     echo "7 * * * * /etc/edgebox/scripts/traffic-alert.sh"
   ) | crontab - 2>/dev/null || true
-  log_success "cron 已配置（每小时采集 + 刷新面板 + 告警）"
+
+  log_success "cron 已配置（每小时采集 + 刷新面板 + 阈值预警）"
 }
 
 # 解析住宅代理 URL => 导出全局变量：
