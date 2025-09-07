@@ -1252,7 +1252,7 @@ ALERT
 # 替换setup_traffic_monitoring函数中的控制面板HTML部分
 # 找到原脚本中的控制面板HTML生成部分，完整替换为以下内容：
 
-# 控制面板（优化布局：代理URL格式统一+月累计流量柱形图）
+# 控制面板（完整版：包含所有功能模块）
 cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
 <!doctype html>
 <html lang="zh-CN"><head>
@@ -1769,6 +1769,12 @@ async function boot(){
                   const value = context.parsed.y.toFixed(2);
                   return label + ': ' + value + ' GiB';
                 },
+                afterLabel: function(context) {
+                  // 计算并显示总流量
+                  const dataIndex = context.dataIndex;
+                  const vpsValue = vpsData[dataIndex] || 0;
+                  const resiValue = resiData[dataIndex] || 0;
+                  const total = (vpsValue + resiValue).toFixed(2);
                   return '总流量: ' + total + ' GiB';
                 }
               }
