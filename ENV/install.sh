@@ -1273,6 +1273,10 @@ ALERT
 # 找到原脚本中的控制面板HTML生成部分，完整替换为以下内容：
 
 # 控制面板（优化布局：通知中心整合+横向分块+三种复制标签+出站分流标签页）
+# 替换setup_traffic_monitoring函数中的控制面板HTML部分
+# 找到原脚本中的控制面板HTML生成部分，完整替换为以下内容：
+
+# 控制面板（优化布局：通知中心整合+横向分块+三种复制标签+出站分流标签页）
 cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
 <!doctype html>
 <html lang="zh-CN"><head>
@@ -1477,7 +1481,7 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
               <code>edgeboxctl shunt mode resi &lt;URL&gt;</code> <span># 配置并切换至住宅IP全量出站模式</span><br>
               <code>edgeboxctl shunt mode direct-resi &lt;URL&gt;</code> <span># 配置并切换至白名单智能分流模式</span><br>
               <code>edgeboxctl shunt whitelist &lt;add|remove|list&gt;</code> <span># 管理白名单域名</span><br>
-              <small># 代理URL格式:</small><br>
+              <small># 代理URL 支持:</small><br>
               <small># http://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;</small><br>
               <small># https://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;?sni=</small><br>
               <small># socks5://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;</small><br>
@@ -1709,6 +1713,31 @@ async function boot(){
       ]}, options:{responsive:true,maintainAspectRatio:false,
         scales:{y:{ticks:{callback:v=>(v/GiB).toFixed(1)+' GiB'}}}}
     });
+    
+    // 月累计表格
+    const monthlyTb = document.querySelector('#monthly-table tbody');
+    monthlyTb.innerHTML = '';
+    
+    if (tjson.monthly && tjson.monthly.length > 0) {
+      // 取最近12个月的数据
+      const recentMonthly = tjson.monthly.slice(-12);
+      
+      recentMonthly.forEach(item => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${item.month}</td>
+          <td>${fmtGiB(item.resi || 0)}</td>
+          <td>${fmtGiB(item.vps || 0)}</td>
+          <td style="font-weight:600">${fmtGiB(item.total || 0)}</td>
+        `;
+        monthlyTb.appendChild(tr);
+      });
+    } else {
+      // 无数据时显示占位行
+      const tr = document.createElement('tr');
+      tr.innerHTML = '<td colspan="4" style="text-align:center;color:var(--muted)">暂无月度数据</td>';
+      monthlyTb.appendChild(tr);
+    }
   }
 }
 
