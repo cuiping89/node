@@ -1269,16 +1269,25 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
 .copy{display:flex;gap:8px}.copy input{flex:1;padding:8px;border:1px solid var(--border);border-radius:8px}
 .btn{padding:8px 12px;border:1px solid var(--border);background:#f1f5f9;border-radius:8px;cursor:pointer}
 .badge{display:inline-block;border:1px solid var(--border);border-radius:999px;padding:2px 8px;font-size:.8rem;margin-right:6px}
-.ok{color:#16a34a}.warn{color:#ca8a04}.bad{color:#dc2626}
 .chart{position:relative;height:320px}
-pre{white-space:pre-wrap;background:#0f172a;color:#e2e8f0;border-radius:10px;padding:12px;overflow:auto}
+.notice{margin:0;padding-left:18px}.notice li{margin:6px 0}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
 </head><body>
 <div class="container">
 
-  <!-- 第1行：基本信息（全宽） -->
+  <!-- 通知中心（全宽） -->
+  <div class="grid grid-full">
+    <div class="card">
+      <h3>通知中心</h3>
+      <div class="content">
+        <ul class="notice" id="alerts"><li class="small">暂无通知</li></ul>
+        <div class="small">注：展示最近 10 条预警；更多见 <code>/traffic/alerts.json</code>。</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 第1行：基本信息 -->
   <div class="grid grid-full">
     <div class="card">
       <h3>基本信息</h3>
@@ -1301,10 +1310,9 @@ pre{white-space:pre-wrap;background:#0f172a;color:#e2e8f0;border-radius:10px;pad
           <thead><tr><th>协议</th><th>网络</th><th>端口</th><th>进程/状态</th><th>说明</th></tr></thead>
           <tbody></tbody>
         </table>
-        <div class="small">注：HY2/TUIC 为 UDP 通道，<b>直连</b>不参与分流；VLESS/Trojan 由 Xray/sing-box 在 443/TCP 复用【见文档“第2行卡片”说明】。</div>
+        <div class="small">注：HY2/TUIC 为 UDP 通道，直连不参与分流；VLESS/Trojan 由 Xray/sing-box 在 443/TCP 复用。</div>
       </div>
     </div>
-
     <div class="card">
       <h3>出站分流状态（Xray-only）</h3>
       <div class="content">
@@ -1321,19 +1329,19 @@ pre{white-space:pre-wrap;background:#0f172a;color:#e2e8f0;border-radius:10px;pad
     </div>
   </div>
 
-  <!-- 第3行：订阅链接（全宽） -->
+  <!-- 第3行：订阅链接 -->
   <div class="grid grid-full">
     <div class="card"><h3>订阅链接</h3><div class="content">
       <div class="copy"><input id="sub" readonly><button class="btn" onclick="copySub()">复制</button></div>
     </div></div>
   </div>
 
-  <!-- 第4行：流量统计（全宽） -->
+  <!-- 第4行：流量统计 -->
   <div class="grid grid-full">
     <div class="card"><h3>近30天流量趋势</h3><div class="content"><canvas id="traffic" class="chart"></canvas></div></div>
   </div>
 
-  <!-- 第5行：管理命令（全宽） -->
+  <!-- 第5行：管理命令 -->
   <div class="grid grid-full">
     <div class="card"><h3>常用管理命令</h3>
       <div class="content">
@@ -1359,75 +1367,56 @@ edgeboxctl sub
 <script>
 const GiB = 1024**3; const el = id => document.getElementById(id);
 const fmtGiB = b => (b/GiB).toFixed(2)+' GiB';
-
-function paintBadges(mode){
-  ['vps','resi','direct'].forEach(x=>{
-    const id = x==='direct'?'tag-direct':'tag-'+x;
-    const node = el(id); node.style.background = ( (x==='direct'?'direct-resi':x)===mode ) ? '#e2fbe2':'#f1f5f9';
-  });
-}
+function paintBadges(mode){ ['vps','resi','direct'].forEach(x=>{ const id=x==='direct'?'tag-direct':'tag-'+x; const n=el(id); n.style.background=((x==='direct'?'direct-resi':x)===mode)?'#e2fbe2':'#f1f5f9'; });}
+function li(text){ const li=document.createElement('li'); li.textContent=text; return li;}
 
 async function boot(){
-  const [subTxt, panel, tjson] = await Promise.all([
+  const [subTxt, panel, tjson, alerts] = await Promise.all([
     fetch('/traffic/sub.txt',{cache:'no-store'}).then(r=>r.text()).catch(()=>''), 
     fetch('/traffic/panel.json',{cache:'no-store'}).then(r=>r.json()).catch(()=>null),
-    fetch('/traffic/traffic.json',{cache:'no-store'}).then(r=>r.json()).catch(()=>null)
+    fetch('/traffic/traffic.json',{cache:'no-store'}).then(r=>r.json()).catch(()=>null),
+    fetch('/traffic/alerts.json',{cache:'no-store'}).then(r=>r.json()).catch(()=>[])
   ]);
 
-  // 第3行：订阅
+  // 通知中心
+  const ul = el('alerts'); ul.innerHTML='';
+  (alerts||[]).slice(0,10).forEach(a=> ul.appendChild(li((a.ts||'')+'  '+(a.msg||''))) );
+  if(ul.children.length===0) ul.appendChild(li('暂无通知'));
+
+  // 订阅
   el('sub').value = (subTxt||'').trim();
 
-  // 第1/2行：基本信息 & 协议配置 & 分流状态
+  // 基本信息 & 协议配置 & 分流状态
   if(panel){
     const ts = panel.updated_at || new Date().toISOString();
     el('updated').textContent = new Date(ts).toLocaleString();
     const s=panel.server||{}, sh=panel.shunt||{}, protos=panel.protocols||[];
-
     el('srv-addr').textContent = (s.cert_domain||s.ip||'-');
     el('eip').textContent = s.eip || '(获取中/不可用)';
     el('cert-mode').textContent = s.cert_mode || '-';
     el('cert-exp').textContent = s.cert_expire ? '（到期：'+s.cert_expire+'）' : '';
     el('ver').textContent = s.version || '-'; el('inst').textContent = s.install_date || '-';
-
     const tb = document.querySelector('#proto tbody'); tb.innerHTML='';
-    protos.forEach(p=>{
-      const tr=document.createElement('tr');
-      tr.innerHTML=`<td>${p.name||'-'}</td><td>${p.proto||'-'}</td><td>${p.port||'-'}</td><td>${p.proc||'-'}</td><td>${p.note||''}</td>`;
-      tb.appendChild(tr);
-    });
-
+    protos.forEach(p=>{ const tr=document.createElement('tr');
+      tr.innerHTML=`<td>${p.name||'-'}</td><td>${p.proto||'-'}</td><td>${p.port||'-'}</td><td>${p.proc||'-'}</td><td>${p.note||''}</td>`; tb.appendChild(tr); });
     const mode = sh.mode||'-'; el('mode').textContent = mode; paintBadges(mode);
-    el('proxy').textContent = sh.proxy_info || '(未配置)';
-    const h = (sh.health||'unknown'); el('health').textContent = h;
-    el('wln').textContent = Array.isArray(sh.whitelist)?(sh.whitelist.length+' 项'):'-';
+    el('proxy').textContent = sh.proxy_info || '(未配置)'; el('health').textContent = (sh.health||'unknown'); el('wln').textContent = Array.isArray(sh.whitelist)?(sh.whitelist.length+' 项'):'-';
   }
 
-  // 第4行：流量统计（含月总额标注）
+  // 流量统计
   if(tjson){
     const labels = (tjson.last30d||[]).map(x=>x.date);
     const vps = (tjson.last30d||[]).map(x=>x.vps);
     const resi= (tjson.last30d||[]).map(x=>x.resi);
-    const monthly=(tjson.monthly||[]);
-
     new Chart(el('traffic'),{
-      type:'line',
-      data:{labels,datasets:[
+      type:'line', data:{labels,datasets:[
         {label:'VPS 出口', data:vps, tension:.3, borderWidth:2},
         {label:'住宅出口', data:resi, tension:.3, borderWidth:2}
-      ]},
-      options:{responsive:true,maintainAspectRatio:false,
-        scales:{y:{ticks:{callback:v=>(v/GiB).toFixed(1)+' GiB'}}},
-        plugins:{
-          annotation:{ // 在末尾标注最近几个月总额（符合 README 的“注解标注”建议）
-            annotations: monthly.reduce((acc,m,i)=>{
-              acc['m'+i] = {type:'label', xValue: labels[labels.length-1], yValue: Math.max(...vps, ...resi),
-                content: m.month+'：'+(m.total/GiB).toFixed(2)+' GiB', backgroundColor:'rgba(0,0,0,.05)'};
-              return acc; }, {}) }
-        } }
+      ]}, options:{responsive:true,maintainAspectRatio:false,
+        scales:{y:{ticks:{callback:v=>(v/GiB).toFixed(1)+' GiB'}}}}
     );
   }
 }
-
 function copySub(){ const x=el('sub'); x.select(); document.execCommand('copy'); }
 boot();
 </script>
@@ -1449,15 +1438,31 @@ setup_cron_jobs() {
   log_info "配置定时任务..."
 
   # 1) 写入/覆盖 预警配置
-  cat > /etc/edgebox/traffic/alert.conf <<'CONF'
-ALERT_MONTHLY_GIB=100     # 月度预算（GiB）
-ALERT_EMAIL=              # 可留空
-ALERT_WEBHOOK=            # 可留空
-ALERT_STEPS=30,60,90      # 百分比阈值
+cat > /etc/edgebox/traffic/alert.conf <<'CONF'
+# 月度预算（GiB）
+ALERT_MONTHLY_GIB=100
+
+# Telegram（@BotFather 获取 BotToken；ChatID 可用 @userinfobot）
+ALERT_TG_BOT_TOKEN=
+ALERT_TG_CHAT_ID=
+
+# Discord（频道里添加 Incoming Webhook）
+ALERT_DISCORD_WEBHOOK=
+
+# 微信（个人可用的 PushPlus 转发）
+# https://www.pushplus.plus/ 里获取 token
+ALERT_PUSHPLUS_TOKEN=
+
+# （可选）通用 Webhook（HTTPS 443），FORMAT=raw|slack|discord
+ALERT_WEBHOOK=
+ALERT_WEBHOOK_FORMAT=raw
+
+# 阈值（百分比，逗号分隔）
+ALERT_STEPS=30,60,90
 CONF
 
   # 2) 写入/覆盖 预警脚本（按当月 total 达到阈值去重告警）
-  cat > /etc/edgebox/scripts/traffic-alert.sh <<'ALERT'
+cat > /etc/edgebox/scripts/traffic-alert.sh <<'ALERT'
 #!/bin/bash
 set -euo pipefail
 TRAFFIC_DIR="/etc/edgebox/traffic"
@@ -1465,33 +1470,72 @@ LOG_DIR="$TRAFFIC_DIR/logs"
 CONF="$TRAFFIC_DIR/alert.conf"
 STATE="$TRAFFIC_DIR/alert.state"
 LOG="/var/log/edgebox-traffic-alert.log"
+ALERTS_JSON="$TRAFFIC_DIR/alerts.json"   # 面板“通知中心”读取
 
 [[ -r "$CONF" ]] || { echo "[$(date -Is)] no alert.conf" >> "$LOG"; exit 0; }
+# shellcheck source=/dev/null
 . "$CONF"
 
 month="$(date +%Y-%m)"
 row="$(grep "^${month}," "$LOG_DIR/monthly.csv" 2>/dev/null || true)"
-[[ -z "$row" ]] && { echo "[$(date -Is)] monthly.csv no row for $month" >> "$LOG"; exit 0; }
+[[ -z "$row" ]] && { echo "[$(date -Is)] monthly.csv no row for ${month}" >> "$LOG"; exit 0; }
 
-IFS=',' read -r _ vps resi total tx rx <<<"$row"   # CSV: month,vps,resi,total,tx,rx
+# CSV: month,vps,resi,total,tx,rx
+IFS=',' read -r _ vps resi total tx rx <<<"$row"
 budget_bytes=$(( ${ALERT_MONTHLY_GIB:-100} * 1024 * 1024 * 1024 ))
 used=$total
-pct=$(( used * 100 / budget_bytes ))
+pct=$(( budget_bytes>0 ? used * 100 / budget_bytes : 0 ))
 
 sent=""; [[ -f "$STATE" ]] && sent="$(cat "$STATE")"
 
+# 写本地通知（保留50条，最新在前）
+persist_local() {
+  local msg="$1" ts="$(date -Is)"
+  local cur; cur="$(cat "$ALERTS_JSON" 2>/dev/null || echo '[]')"
+  printf '%s' "$cur" | jq --arg ts "$ts" --arg m "$msg" \
+    '([{"ts":$ts,"msg":$m}] + .) | .[:50]' > "${ALERTS_JSON}.tmp" && mv "${ALERTS_JSON}.tmp" "$ALERTS_JSON"
+}
+
+# 并发广播：配置了哪个就发哪个；失败不影响其它
 notify() {
   local msg="$1"
   echo "[$(date -Is)] $msg" | tee -a "$LOG" >/dev/null
-  if [[ -n "${ALERT_WEBHOOK:-}" ]]; then
-    curl -m 5 -s -X POST -H 'Content-Type: application/json' \
-      -d "$(jq -n --arg text "$msg" '{text:$text}')" "$ALERT_WEBHOOK" >/dev/null 2>&1 || true
+  persist_local "$msg"
+
+  # Telegram
+  if [[ -n "${ALERT_TG_BOT_TOKEN:-}" && -n "${ALERT_TG_CHAT_ID:-}" ]]; then
+    curl -m 8 -sS "https://api.telegram.org/bot${ALERT_TG_BOT_TOKEN}/sendMessage" \
+      -d "chat_id=${ALERT_TG_CHAT_ID}" -d "text=${msg}" >/dev/null 2>&1 || true
   fi
-  if command -v mail >/dev/null 2>&1 && [[ -n "${ALERT_EMAIL:-}" ]]; then
-    echo "$msg" | mail -s "EdgeBox 流量预警 (${month})" "$ALERT_EMAIL" || true
+
+  # Discord
+  if [[ -n "${ALERT_DISCORD_WEBHOOK:-}" ]]; then
+    curl -m 8 -sS -H 'Content-Type: application/json' -X POST \
+      -d "$(jq -n --arg t "$msg" '{content:$t}')" \
+      "$ALERT_DISCORD_WEBHOOK" >/dev/null 2>&1 || true
+  fi
+
+  # 微信 PushPlus
+  if [[ -n "${ALERT_PUSHPLUS_TOKEN:-}" ]]; then
+    curl -m 8 -sS -H 'Content-Type: application/json' -X POST \
+      -d "$(jq -n --arg tk "$ALERT_PUSHPLUS_TOKEN" --arg t "EdgeBox 预警" --arg c "$msg" \
+            '{token:$tk,title:$t,content:$c}')" \
+      "https://www.pushplus.plus/send" >/dev/null 2>&1 || true
+  fi
+
+  # 通用 Webhook
+  if [[ -n "${ALERT_WEBHOOK:-}" ]]; then
+    case "${ALERT_WEBHOOK_FORMAT:-raw}" in
+      discord) body="$(jq -n --arg t "$msg" '{content:$t}')" ;;
+      slack)   body="$(jq -n --arg t "$msg" '{text:$t}')" ;;
+      *)       body="$(jq -n --arg t "$msg" '{text:$t}')" ;;
+    esac
+    curl -m 8 -sS -H 'Content-Type: application/json' -X POST \
+      -d "$body" "$ALERT_WEBHOOK" >/dev/null 2>&1 || true
   fi
 }
 
+# 阈值触发（去重）
 new_sent="$sent"
 IFS=',' read -ra STEPS <<<"${ALERT_STEPS:-30,60,90}"
 for s in "${STEPS[@]}"; do
@@ -1504,7 +1548,7 @@ for s in "${STEPS[@]}"; do
 done
 echo "$new_sent" > "$STATE"
 ALERT
-  chmod +x /etc/edgebox/scripts/traffic-alert.sh
+chmod +x /etc/edgebox/scripts/traffic-alert.sh
 
   # 3) 三条 cron（每小时：采集 → 刷面板 → 预警）
   (
@@ -2528,79 +2572,43 @@ traffic_reset(){
 }
 
 #############################################
-# 预警配置（alert）
+# 预警配置（极简）
 #############################################
-
 ensure_alert_conf(){
   [[ -d "$TRAFFIC_DIR" ]] || mkdir -p "$TRAFFIC_DIR"
   [[ -s "$TRAFFIC_DIR/alert.conf" ]] || cat >"$TRAFFIC_DIR/alert.conf" <<'CONF'
 ALERT_MONTHLY_GIB=100
-ALERT_EMAIL=
+ALERT_TG_BOT_TOKEN=
+ALERT_TG_CHAT_ID=
+ALERT_DISCORD_WEBHOOK=
+ALERT_PUSHPLUS_TOKEN=
 ALERT_WEBHOOK=
+ALERT_WEBHOOK_FORMAT=raw
 ALERT_STEPS=30,60,90
 CONF
 }
-
-alert_show(){
-  ensure_alert_conf
-  echo -e "${CYAN}流量预警配置：${NC}"
-  grep -E '^(ALERT_MONTHLY_GIB|ALERT_EMAIL|ALERT_WEBHOOK|ALERT_STEPS)=' "$TRAFFIC_DIR/alert.conf" \
-    | sed 's/^/  /'
-}
-
-alert_set_email(){
-  ensure_alert_conf
-  local addr="$1"
-  sed -i "s/^ALERT_EMAIL=.*/ALERT_EMAIL=${addr}/" "$TRAFFIC_DIR/alert.conf"
-  log_success "已设置收件邮箱：${addr:-<空>}"
-}
-
-alert_set_monthly(){
-  ensure_alert_conf
-  local gib="$1"
-  [[ "$gib" =~ ^[0-9]+$ ]] || { log_error "月度预算需为整数GiB"; return 1; }
-  sed -i "s/^ALERT_MONTHLY_GIB=.*/ALERT_MONTHLY_GIB=${gib}/" "$TRAFFIC_DIR/alert.conf"
-  log_success "已设置月度预算：${gib} GiB"
-}
-
-alert_set_steps(){
-  ensure_alert_conf
-  local steps="$1"
-  [[ "$steps" =~ ^[0-9]+(,[0-9]+)*$ ]] || { log_error "阈值格式应为: 30,60,90"; return 1; }
-  sed -i "s/^ALERT_STEPS=.*/ALERT_STEPS=${steps}/" "$TRAFFIC_DIR/alert.conf"
-  log_success "已设置阈值：${steps}%"
-}
-
+alert_show(){ ensure_alert_conf; echo -e "${CYAN}流量预警配置：${NC}"; sed -n '1,99p' "$TRAFFIC_DIR/alert.conf" | sed 's/^/  /'; }
+alert_set_monthly(){ ensure_alert_conf; [[ "$1" =~ ^[0-9]+$ ]] || { log_error "月度预算需为整数GiB"; return 1; }; sed -i "s/^ALERT_MONTHLY_GIB=.*/ALERT_MONTHLY_GIB=${1}/" "$TRAFFIC_DIR/alert.conf"; log_success "已设置预算：$1 GiB"; }
+alert_set_steps(){ ensure_alert_conf; [[ "$1" =~ ^[0-9]+(,[0-9]+)*$ ]] || { log_error "阈值格式: 30,60,90"; return 1; }; sed -i "s/^ALERT_STEPS=.*/ALERT_STEPS=${1}/" "$TRAFFIC_DIR/alert.conf"; log_success "已设置阈值：$1%"; }
+alert_set_telegram(){ ensure_alert_conf; [[ -z "$1" || -z "$2" ]] && { log_error "用法: edgeboxctl alert telegram <bot_token> <chat_id>"; return 1; }
+  sed -i "s|^ALERT_TG_BOT_TOKEN=.*|ALERT_TG_BOT_TOKEN=${1}|" "$TRAFFIC_DIR/alert.conf"
+  sed -i "s|^ALERT_TG_CHAT_ID=.*|ALERT_TG_CHAT_ID=${2}|" "$TRAFFIC_DIR/alert.conf"; log_success "已设置 Telegram"; }
+alert_set_discord(){ ensure_alert_conf; sed -i "s|^ALERT_DISCORD_WEBHOOK=.*|ALERT_DISCORD_WEBHOOK=${1}|" "$TRAFFIC_DIR/alert.conf"; log_success "已设置 Discord Webhook"; }
+alert_set_wechat(){ ensure_alert_conf; sed -i "s|^ALERT_PUSHPLUS_TOKEN=.*|ALERT_PUSHPLUS_TOKEN=${1}|" "$TRAFFIC_DIR/alert.conf"; log_success "已设置 WeChat PushPlus"; }
+alert_set_webhook(){ ensure_alert_conf; local url="$1" fmt="${2:-raw}"; sed -i "s|^ALERT_WEBHOOK=.*|ALERT_WEBHOOK=${url}|" "$TRAFFIC_DIR/alert.conf"; sed -i "s|^ALERT_WEBHOOK_FORMAT=.*|ALERT_WEBHOOK_FORMAT=${fmt}|" "$TRAFFIC_DIR/alert.conf"; log_success "已设置通用 Webhook（${fmt}）"; }
 alert_test(){
   ensure_alert_conf
-  # 读取预算GiB
-  local budget_gib; budget_gib=$(awk -F= '/^ALERT_MONTHLY_GIB=/{print $2}' "$TRAFFIC_DIR/alert.conf")
-  [[ "$budget_gib" =~ ^[0-9]+$ ]] || budget_gib=100
-  local pct="${1:-40}"
-  [[ "$pct" =~ ^[0-9]+$ ]] || { log_error "百分比应为整数"; return 1; }
-  [[ "$pct" -ge 0 && "$pct" -le 100 ]] || { log_error "百分比范围 0-100"; return 1; }
-
-  local GiB=1073741824
-  local mf="$TRAFFIC_DIR/logs/monthly.csv"
-  local m; m=$(date +%Y-%m)
-  mkdir -p "$TRAFFIC_DIR/logs"
-  [[ -s "$mf" ]] || echo "month,vps,resi,total,tx,rx" > "$mf"
+  local budget_gib; budget_gib=$(awk -F= '/^ALERT_MONTHLY_GIB=/{print $2}' "$TRAFFIC_DIR/alert.conf"); [[ "$budget_gib" =~ ^[0-9]+$ ]] || budget_gib=100
+  local pct="${1:-40}"; [[ "$pct" =~ ^[0-9]+$ && "$pct" -ge 0 && "$pct" -le 100 ]] || { log_error "百分比 0-100"; return 1; }
+  local GiB=1073741824 mf="$TRAFFIC_DIR/logs/monthly.csv" m; m=$(date +%Y-%m)
+  mkdir -p "$TRAFFIC_DIR/logs"; [[ -s "$mf" ]] || echo "month,vps,resi,total,tx,rx" > "$mf"
   grep -q "^$m," "$mf" || echo "$m,0,0,0,0,0" >> "$mf"
-
   local used=$(( GiB * budget_gib * pct / 100 ))
-  awk -F, -v m="$m" -v u="$used" 'BEGIN{OFS=","}
-    NR==1{print;next}
-    $1==m{$4=u} {print}' "$mf" > "$mf.tmp" && mv "$mf.tmp" "$mf"
-
+  awk -F, -v m="$m" -v u="$used" 'BEGIN{OFS=","} NR==1{print;next} $1==m{$4=u} {print}' "$mf" > "$mf.tmp" && mv "$mf.tmp" "$mf"
   rm -f "$TRAFFIC_DIR/alert.state"
-  if [[ -x "$SCRIPTS_DIR/traffic-alert.sh" ]]; then
-    "$SCRIPTS_DIR/traffic-alert.sh"
-  else
-    /etc/edgebox/scripts/traffic-alert.sh 2>/dev/null || true
-  fi
-  echo -e "${CYAN}最近告警日志：${NC}"
-  tail -n 10 /var/log/edgebox-traffic-alert.log 2>/dev/null || true
-  log_success "已模拟 ${pct}% 用量并触发预警流程（不产生真实流量）"
+  if [[ -x "$SCRIPTS_DIR/traffic-alert.sh" ]]; then "$SCRIPTS_DIR/traffic-alert.sh"; else /etc/edgebox/scripts/traffic-alert.sh 2>/dev/null || true; fi
+  echo -e "${CYAN}最近告警日志：${NC}"; tail -n 10 /var/log/edgebox-traffic-alert.log 2>/dev/null || true
+  log_success "已模拟 ${pct}% 用量并触发预警（不产生真实流量）"
 }
 
 #############################################
@@ -2789,18 +2797,21 @@ case "$1" in
     ;;
 	
   # 预警配置
-  alert)
+    alert)
     ensure_alert_conf
     case "$2" in
-      show|"")         alert_show ;;
-      email)           shift 2; [[ "$1" == "--clear" || -z "$1" ]] && alert_set_email "" || alert_set_email "$1" ;;
-      monthly)         shift 2; alert_set_monthly "$1" ;;
-      steps)           shift 2; alert_set_steps "$1" ;;
-      test)            shift 2; alert_test "${1:-40}" ;;
-      *) echo "用法: edgeboxctl alert [show|email <addr>|email --clear|monthly <GiB>|steps <p1,p2,...>|test <percent>]";;
+      show|"")        alert_show ;;
+      monthly)        shift 2; alert_set_monthly "$1" ;;
+      steps)          shift 2; alert_set_steps "$1" ;;
+      telegram)       shift 2; alert_set_telegram "$1" "$2" ;;
+      discord)        shift 2; alert_set_discord "$1" ;;
+      wechat)         shift 2; alert_set_wechat "$1" ;;
+      webhook)        shift 2; alert_set_webhook "$1" "${2:-raw}" ;;
+      test)           shift 2; alert_test "${1:-40}" ;;
+      *) echo "用法: edgeboxctl alert [show|monthly <GiB>|steps <p1,p2,..>|telegram <token> <chat>|discord <url>|wechat <pushplus_token>|webhook <url> [raw|slack|discord]|test <percent>]";;
     esac
-    ;;
-  
+    exit 0 ;;
+
   # 流量统计
   traffic) 
     case "$2" in 
@@ -2859,13 +2870,15 @@ ${YELLOW}流量统计:${NC}
   edgeboxctl traffic show                  查看流量统计
   edgeboxctl traffic reset                 重置流量计数
 
-${YELLOW}流量预警:${NC}
-  edgeboxctl alert show                    查看当前预警配置
-  edgeboxctl alert email <addr>            设置收件邮箱（支持 msmtp+mailx）
-  edgeboxctl alert email --clear           清空收件邮箱
-  edgeboxctl alert monthly <GiB>           设置月度预算（单位 GiB）
-  edgeboxctl alert steps 30,60,90          设置阈值百分比（逗号分隔）
-  edgeboxctl alert test <percent>          模拟百分比用量并触发一次预警（不产生真实流量）
+${YELLOW}流量预警（精简版）:${NC}
+  edgeboxctl alert show
+  edgeboxctl alert monthly <GiB>
+  edgeboxctl alert steps 30,60,90
+  edgeboxctl alert telegram <bot_token> <chat_id>
+  edgeboxctl alert discord <webhook_url>
+  edgeboxctl alert wechat <pushplus_token>
+  edgeboxctl alert webhook <url> [raw|slack|discord]
+  edgeboxctl alert test <percent>
 
 ${YELLOW}备份恢复:${NC}
   edgeboxctl backup create                 创建备份
