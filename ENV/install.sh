@@ -1261,6 +1261,10 @@ ALERT
 # 找到原脚本中的控制面板HTML生成部分，完整替换为以下内容：
 
 # 控制面板（优化布局：通知中心整合+横向分块+三种复制标签+出站分流标签页）
+# 替换setup_traffic_monitoring函数中的控制面板HTML部分
+# 找到原脚本中的控制面板HTML生成部分，完整替换为以下内容：
+
+# 控制面板（优化布局：通知中心整合+横向分块+三种复制标签+出站分流标签页）
 cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
 <!doctype html>
 <html lang="zh-CN"><head>
@@ -1606,6 +1610,9 @@ async function boot(){
       currentTab.classList.add('active', normalizedMode);
     }
     
+    el('proxy').textContent = sh.proxy_info || '无';
+    el('health').textContent = sh.health || 'unknown';
+        
     el('proxy').textContent = sh.proxy_info || '无';
     el('health').textContent = sh.health || 'unknown';
     el('vps-ip').textContent = s.eip || '-';
