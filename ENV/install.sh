@@ -18,8 +18,7 @@ fi
 trap '[[ -n "${EB_TMP:-}" ]] && rm -f "$EB_TMP"' EXIT
 
 #############################################
-# EdgeBox 企业级多协议节点部署脚本 - 完全增强版
-# Version: 3.0.0 - 模块1+2+3完整版 + Trojan-TLS
+# EdgeBox 企业级多协议节点部署脚本
 # Description: 包含流量统计、预警、备份恢复、出站分流等高级运维功能
 # Protocols: VLESS-Reality, VLESS-gRPC, VLESS-WS, Hysteria2, TUIC, Trojan-TLS
 # Architecture: SNI定向 + ALPN兜底 + 智能分流 + 流量监控
@@ -1327,7 +1326,7 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
   <div class="grid grid-full">
     <div class="card">
       <h3>
-        基本信息
+        EdgeBox-企业级多协议节点
         <div class="notification-bell" id="notif-bell" onclick="toggleNotifications()">
           🔔 <span id="notif-count">0</span>
           <div class="notification-popup" id="notif-popup">
@@ -1345,13 +1344,13 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
           </div>
           <div class="info-block">
             <h4>服务器信息</h4>
-            <div class="value">IP: <span id="srv-ip">-</span></div>
+            <div class="value">IP : <span id="srv-ip">-</span></div>
             <div class="small">域名: <span id="domain">-</span></div>
           </div>
           <div class="info-block">
             <h4>证书信息</h4>
             <div class="value"><span id="cert-mode">-</span></div>
-            <div class="small">到期: <span id="cert-exp">-</span></div>
+            <div class="small">到期日期: <span id="cert-exp">-</span></div>
           </div>
           <div class="info-block">
             <h4>伪装域名</h4>
@@ -1359,7 +1358,7 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
             <div class="small">Reality 伪装</div>
           </div>
         </div>
-        <div class="small">版本: <span id="ver">-</span> | 安装: <span id="inst">-</span> | 更新: <span id="updated">-</span></div>
+        <div class="small">版本号: <span id="ver">-</span> | 安装日期: <span id="inst">-</span> | 更新时间: <span id="updated">-</span></div>
       </div>
     </div>
   </div>
@@ -1389,7 +1388,7 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
           <div class="small">白名单: <span id="wln">0</span> 条</div>
         </div>
         <div class="small" style="margin-top:12px;padding-top:8px;border-top:1px solid var(--border);">
-          注：HY2/TUIC 为 UDP 通道，直连不参与分流；VLESS/Trojan 由 Xray 在 443/TCP 复用。
+          注：HY2/TUIC为 UDP通道，直出，不参与代理IP分流。
         </div>
       </div>
     </div>
@@ -1424,7 +1423,7 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
   <!-- 流量统计 -->
   <div class="grid grid-full">
     <div class="card">
-      <h3>近30天流量趋势</h3>
+      <h3>近30日出站流量曲线图</h3>
       <div class="content">
         <canvas id="traffic" class="chart"></canvas>
       </div>
@@ -1434,7 +1433,7 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
   <!-- 月累计流量柱形图 -->
   <div class="grid grid-full">
     <div class="card">
-      <h3>近12个月累计流量</h3>
+      <h3>近12个月累计流量柱形图</h3>
       <div class="content">
         <canvas id="monthly-chart" class="monthly-chart"></canvas>
       </div>
@@ -1449,31 +1448,32 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
           <div class="command-section">
             <h4>🔧 基础操作</h4>
             <div class="command-list">
-              <code>edgeboxctl service status</code> <span># 查看所有核心服务运行状态</span><br>
-              <code>edgeboxctl service restart</code> <span># 安全地重启所有服务</span><br>
-              <code>edgeboxctl sub</code> <span># 动态生成并显示当前模式下的订阅链接</span><br>
+              <code>edgeboxctl sub</code>              <span># 动态生成当前模式下的订阅链接</span><br>
               <code>edgeboxctl logs &lt;svc&gt;</code> <span># 查看指定服务的实时日志</span>
+			  <code>edgeboxctl service status</code>   <span># 查看所有核心服务运行状态</span><br>
+              <code>edgeboxctl service restart</code>  <span># 安全地重启所有服务</span><br>
+
             </div>
           </div>
           
           <div class="command-section">
-            <h4>🌐 模式与证书管理</h4>
+            <h4>🌐 证书管理</h4>
             <div class="command-list">
               <code>edgeboxctl change-to-domain &lt;your_domain&gt;</code> <span># 切换到域名模式，申请证书</span><br>
-              <code>edgeboxctl change-to-ip</code> <span># 回退到IP模式，使用自签名证书</span><br>
-              <code>edgeboxctl cert status</code> <span># 检查当前证书的到期日期和类型</span><br>
-              <code>edgeboxctl cert renew</code> <span># 手动续期Let's Encrypt证书</span>
+              <code>edgeboxctl change-to-ip</code>                         <span># 回退到IP模式，使用自签名证书</span><br>
+              <code>edgeboxctl cert status</code>                          <span># 检查当前证书的到期日期和类型</span><br>
+              <code>edgeboxctl cert renew</code>                           <span># 手动续期Let's Encrypt证书</span>
             </div>
           </div>
           
           <div class="command-section">
             <h4>🔀 出站分流</h4>
             <div class="command-list">
-              <code>edgeboxctl shunt mode vps</code> <span># 切换至VPS全量直出模式</span><br>
-              <code>edgeboxctl shunt mode resi &lt;URL&gt;</code> <span># 配置并切换至住宅IP全量出站模式</span><br>
-              <code>edgeboxctl shunt mode direct-resi &lt;URL&gt;</code> <span># 配置并切换至白名单智能分流模式</span><br>
+              <code>edgeboxctl shunt mode vps</code>                          <span># 切换至VPS全量出站</span><br>
+              <code>edgeboxctl shunt mode resi &lt;URL&gt;</code>             <span># 配置并切换至住宅IP全量出站</span><br>
+              <code>edgeboxctl shunt mode direct-resi &lt;URL&gt;</code>      <span># 配置并切换至白名单智能分流状态</span><br>
               <code>edgeboxctl shunt whitelist &lt;add|remove|list&gt;</code> <span># 管理白名单域名</span><br>
-              <code>代理URL 支持:</code><br>
+              <code>代理URL格式:</code><br>
               <code>http://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;</code><br>
               <code>https://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;?sni=</code><br>
               <code>socks5://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;</code><br>
@@ -1485,35 +1485,35 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
           <div class="command-section">
             <h4>📊 流量统计与预警</h4>
             <div class="command-list">
-              <code>edgeboxctl traffic show</code> <span># 在终端中查看流量统计数据</span><br>
-              <code>edgeboxctl traffic reset</code> <span># 重置流量计数器</span><br>
-              <code>edgeboxctl alert &lt;command&gt;</code> <span># 管理流量预警设置</span><br>
-              <code>edgeboxctl alert monthly</code> <span># 设置月度阈值</span><br>
-              <code>edgeboxctl alert steps 30,60,90</code> <span># 设置预警阈值</span><br>
+              <code>edgeboxctl traffic show</code>                <span># 在终端中查看流量统计数据</span><br>
+              <code>edgeboxctl traffic reset</code>               <span># 重置流量计数器</span><br>
+              <code>edgeboxctl alert &lt;command&gt;</code>       <span># 管理流量预警设置</span><br>
+              <code>edgeboxctl alert monthly</code>               <span># 设置月度阈值</span><br>
+              <code>edgeboxctl alert steps 30,60,90</code>        <span># 设置预警阈值</span><br>
               <code>edgeboxctl alert telegram &lt;bot_token&gt; &lt;chat_id&gt;</code> <span># 配置Telegram机器人</span><br>
-              <code>edgeboxctl alert discord &lt;webhook_url&gt;</code> <span># 配置Discord通知</span><br>
-              <code>edgeboxctl alert wechat &lt;pushplus_token&gt;</code> <span># 配置微信通知</span><br>
-              <code>edgeboxctl alert webhook [raw|slack|discord]</code> <span># 配置通用Webhook</span><br>
-              <code>edgeboxctl alert test</code> <span># 测试预警系统</span>
+              <code>edgeboxctl alert discord &lt;webhook_url&gt;</code>                <span># 配置Discord通知</span><br>
+              <code>edgeboxctl alert wechat &lt;pushplus_token&gt;</code>              <span># 配置微信通知</span><br>
+              <code>edgeboxctl alert webhook [raw|slack|discord]</code>                <span># 配置通用Webhook</span><br>
+              <code>edgeboxctl alert test</code>                                       <span># 测试预警系统</span>
             </div>
           </div>
           
           <div class="command-section">
             <h4>⚙️ 配置管理</h4>
             <div class="command-list">
-              <code>edgeboxctl config show</code> <span># 显示所有服务的核心配置信息</span><br>
+              <code>edgeboxctl config show</code>            <span># 显示所有服务的核心配置信息</span><br>
               <code>edgeboxctl config regenerate-uuid</code> <span># 为所有协议重新生成新的UUID</span><br>
-              <code>edgeboxctl test</code> <span># 测试所有协议的连接是否正常</span><br>
-              <code>edgeboxctl debug-ports</code> <span># 调试关键端口的监听状态</span>
+              <code>edgeboxctl test</code>                   <span># 测试所有协议的连接是否正常</span><br>
+              <code>edgeboxctl debug-ports</code>            <span># 调试关键端口的监听状态</span>
             </div>
           </div>
           
           <div class="command-section">
             <h4>💾 系统维护</h4>
             <div class="command-list">
-              <code>edgeboxctl update</code> <span># 自动更新EdgeBox脚本和核心组件</span><br>
-              <code>edgeboxctl backup create</code> <span># 手动创建一个系统备份</span><br>
-              <code>edgeboxctl backup list</code> <span># 列出所有可用的备份</span><br>
+              <code>edgeboxctl update</code>                      <span># 自动更新EdgeBox脚本和核心组件</span><br>
+              <code>edgeboxctl backup create</code>               <span># 手动创建一个系统备份</span><br>
+              <code>edgeboxctl backup list</code>                 <span># 列出所有可用的备份</span><br>
               <code>edgeboxctl backup restore &lt;DATE&gt;</code> <span># 恢复到指定日期的备份状态</span>
             </div>
           </div>
@@ -1608,7 +1608,7 @@ async function boot(){
         port: '443',
         uuid: 'xxxxxxxx...',
         disguise: '极佳',
-        scenario: '最严格的网络环境',
+        scenario: '审查最严格的网络环境',
         status: '✓ 运行'
       },
       {
@@ -1617,7 +1617,7 @@ async function boot(){
         port: '443',
         uuid: 'xxxxxxxx...',
         disguise: '极佳',
-        scenario: '网络审查严格的环境',
+        scenario: '审查严格的网络环境',
         status: '✓ 运行'
       },
       {
@@ -2068,7 +2068,7 @@ create_enhanced_edgeboxctl() {
     
     cat > /usr/local/bin/edgeboxctl << 'EDGEBOXCTL_SCRIPT'
 #!/bin/bash
-# EdgeBox 增强版控制脚本 - 模块1+2+3完整版 + Trojan-TLS
+# EdgeBox 增强版控制脚本
 # Version: 3.0.0 - 包含流量统计、预警、备份恢复等高级运维功能
 VERSION="3.0.0"
 CONFIG_DIR="/etc/edgebox/config"
@@ -2439,7 +2439,7 @@ switch_to_domain(){
     log_error "${domain} 未解析"; return 1
   fi
   log_success "域名解析通过"
-  log_info "为 ${domain} 申请/扩展 Let's Encrypt 证书（含 trojan 子域）"
+  log_info "为 ${domain} 申请/扩展 Let's Encrypt 证书"
   request_letsencrypt_cert "$domain" || return 1
 
   # 可选验收报告
@@ -3293,7 +3293,7 @@ ${YELLOW}系统:${NC}
   edgeboxctl update                        更新EdgeBox
   edgeboxctl help                          显示此帮助
 
-${CYAN}EdgeBox 企业级多协议节点部署方案（含 Trojan-TLS）${NC}
+${CYAN}EdgeBox 企业级多协议节点部署方案${NC}
 HLP
   ;;
   
@@ -3458,7 +3458,7 @@ show_installation_info() {
     echo -e "${CYAN}服务器信息：${NC}"
 	echo -e "  证书模式: ${PURPLE}IP模式（自签名证书）${NC}"
     echo -e "  IP地址: ${PURPLE}${SERVER_IP}${NC}"
-    echo -e "  版本号: ${PURPLE}EdgeBox v3.0.0 企业级完整版（含 Trojan-TLS）${NC}"
+    echo -e "  版本号: ${PURPLE}EdgeBox v3.0.0 企业级完整版${NC}"
 
     echo -e "\n${CYAN}协议信息：${NC}"
     echo -e "  VLESS-Reality  端口: 443  UUID: ${PURPLE}${UUID_VLESS}${NC}"
@@ -3489,7 +3489,7 @@ show_installation_info() {
     
     echo -e "\n${YELLOW}重要提醒：${NC}"
     echo -e "  1. 当前为IP模式，VLESS/Trojan协议需在客户端开启'跳过证书验证'"
-    echo -e "  2. 使用 switch-to-domain 可获得受信任证书（含 trojan 子域名）"
+    echo -e "  2. 使用 switch-to-domain 可获得受信任证书"
     echo -e "  3. 流量预警配置: ${TRAFFIC_DIR}/alert.conf"
     echo -e "  4. 安装日志: ${LOG_FILE}"
 	echo -e " "
@@ -3510,7 +3510,7 @@ main() {
     clear
     print_separator
     echo -e "${GREEN}EdgeBox 企业级安装脚本 v3.0.0${NC}"
-    echo -e "${CYAN}完整版：SNI定向 + 证书切换 + 出站分流 + 流量统计 + 流量预警 + 备份恢复 + Trojan-TLS${NC}"
+    echo -e "${CYAN}完整版：SNI定向 + 证书切换 + 出站分流 + 流量统计 + 流量预警 + 备份恢复${NC}"
     print_separator
     
     # 创建日志文件
