@@ -1283,8 +1283,7 @@ echo "$new_sent" > "$STATE"
 ALERT
   chmod +x "${SCRIPTS_DIR}/traffic-alert.sh"
 
-# 控制面板（完整版：修正数据获取和协议详情弹窗）
-# 控制面板（完整版：按要求修正布局和样式）
+# 控制面板（完整版：按要求优化布局和样式）
 cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
 <!doctype html>
 <html lang="zh-CN"><head>
@@ -1293,8 +1292,8 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
 <style>
 :root{--card:#fff;--border:#e2e8f0;--bg:#f8fafc;--muted:#64748b;--shadow:0 4px 6px -1px rgba(0,0,0,.1);--primary:#3b82f6;--success:#10b981;--warning:#f59e0b;--danger:#ef4444}
 *{box-sizing:border-box}body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:#334155;margin:0}
-.container{max-width:1200px;margin:0 auto;padding:16px}
-.grid{display:grid;gap:16px}
+.container{max-width:1200px;margin:0 auto;padding:20px}
+.grid{display:grid;gap:20px}
 .grid-full{grid-template-columns:1fr}
 .grid-70-30{grid-template-columns:7fr 3fr}@media(max-width:980px){.grid-70-30{grid-template-columns:1fr}}
 .card{background:var(--card);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow);overflow:hidden;position:relative}
@@ -1302,7 +1301,7 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
 .card .content{padding:16px}
 .small{color:var(--muted);font-size:.9rem}
 .table{width:100%;border-collapse:collapse}.table th,.table td{padding:8px 10px;border-bottom:1px solid var(--border);font-size:.85rem;text-align:left}
-.btn{padding:6px 10px;border:1px solid var(--border);background:#f1f5f9;border-radius:6px;cursor:pointer;font-size:.85rem;white-space:nowrap}
+.btn{padding:8px 16px;border:1px solid var(--border);background:#f1f5f9;border-radius:6px;cursor:pointer;font-size:.9rem;white-space:nowrap}
 .btn:hover{background:#e2e8f0}
 .badge{display:inline-block;border:1px solid var(--border);border-radius:999px;padding:2px 8px;font-size:.8rem;margin-right:6px}
 
@@ -1334,15 +1333,15 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
 .shunt-note{font-size:.75rem;color:var(--muted);margin-top:auto;padding-top:8px;border-top:1px solid var(--border)}
 
 /* 订阅链接样式 */
-.sub-url{width:100%;padding:8px;border:1px solid var(--border);border-radius:8px;font-size:.85rem;font-family:monospace;background:#f8fafc;margin:8px 0}
-.sub-actions{display:flex;gap:8px;margin-top:8px}
-.sub-actions .btn{flex:1}
+.sub-container{display:flex;gap:8px;align-items:center}
+.sub-url{flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:.9rem;font-family:monospace;background:#fff;color:#1e293b}
+.sub-actions{display:flex;gap:8px}
 
 /* 流量统计样式 */
 .traffic-card{position:relative}
-.traffic-progress{position:absolute;top:16px;right:16px;width:200px;background:#f1f5f9;border-radius:8px;padding:8px;font-size:.8rem}
-.progress-bar{width:100%;height:8px;background:#e2e8f0;border-radius:4px;overflow:hidden;margin:4px 0}
-.progress-fill{height:100%;background:linear-gradient(90deg,#10b981,#f59e0b,#ef4444);border-radius:4px;transition:width 0.3s}
+.traffic-progress{position:absolute;top:16px;right:16px;width:180px;background:#f8fafc;border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:.75rem}
+.progress-bar{width:100%;height:4px;background:#e2e8f0;border-radius:2px;overflow:hidden;margin:2px 0}
+.progress-fill{height:100%;background:#10b981;border-radius:2px;transition:width 0.3s}
 .traffic-charts{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:40px}
 .chart-container{position:relative;height:320px}
 @media(max-width:980px){.traffic-charts{grid-template-columns:1fr}.traffic-progress{position:static;width:100%;margin-bottom:16px}}
@@ -1453,10 +1452,12 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
     <div class="card">
       <h3>订阅链接</h3>
       <div class="content">
-        <input type="text" id="sub-url" class="sub-url" readonly placeholder="订阅链接将在此显示...">
-        <div class="sub-actions">
-          <button class="btn" onclick="copySubscription()">复制订阅</button>
-          <button class="btn" onclick="openInBrowser()">浏览器打开</button>
+        <div class="sub-container">
+          <input type="text" id="sub-url" class="sub-url" readonly placeholder="订阅链接将在此显示...">
+          <div class="sub-actions">
+            <button class="btn" onclick="copySubscription()">复制</button>
+            <button class="btn" onclick="openInBrowser()">打开</button>
+          </div>
         </div>
       </div>
     </div>
@@ -1804,7 +1805,7 @@ async function boot(){
       notifList.textContent = '暂无通知';
     }
 
-    // 订阅链接处理 - 恢复为截图样式
+    // 订阅链接处理 - 截图样式
     const subUrl = 'http://' + (panel && panel.server && panel.server.ip || window.location.hostname) + '/sub';
     el('sub-url').value = subUrl;
 
@@ -1931,9 +1932,19 @@ async function boot(){
             }
           },
           scales:{
+            x: {
+              title: {
+                display: false
+              }
+            },
             y:{
+              title: {
+                display: true,
+                text: '流量 (GiB)',
+                position: 'top'
+              },
               ticks:{
-                callback: function(v) { return (v/GiB).toFixed(1)+' GiB'; }
+                callback: function(v) { return Math.round(v/GiB); }
               }
             }
           }
