@@ -1067,7 +1067,7 @@ cat > "${SCRIPTS_DIR}/panel-refresh.sh" <<'PANEL'
 set -euo pipefail
 TRAFFIC_DIR="/etc/edgebox/traffic"
 SCRIPTS_DIR="/etc/edgebox/scripts"
-SHUNT_DIR="/etc/edgebox/config/shunt"
+SHUNT_DIR="/etc/edgebox/shunt"
 CONFIG_DIR="/etc/edgebox/config"
 mkdir -p "$TRAFFIC_DIR"
 
@@ -1269,7 +1269,7 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
 .card .content{padding:16px}
 .small{color:var(--muted);font-size:.9rem}
 .table{width:100%;border-collapse:collapse}.table th,.table td{padding:8px 10px;border-bottom:1px solid var(--border);font-size:.85rem;text-align:left}
-.copy input,.copy textarea{flex:1;padding:8px;border:1px solid var(--border);border-radius:8px;font-family:ui-monospace,monospace;white-space:pre}
+.copy{display:flex;gap:8px;margin:8px 0}.copy input{flex:1;padding:8px;border:1px solid var(--border);border-radius:8px;font-size:.85rem}
 .btn{padding:6px 10px;border:1px solid var(--border);background:#f1f5f9;border-radius:6px;cursor:pointer;font-size:.85rem;white-space:nowrap}
 .btn:hover{background:#e2e8f0}
 .badge{display:inline-block;border:1px solid var(--border);border-radius:999px;padding:2px 8px;font-size:.8rem;margin-right:6px}
@@ -1395,20 +1395,30 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
   </div>
 
   <!-- 订阅链接（三种复制标签） -->
-<div class="copy" style="margin-bottom:10px">
-  <input id="sub" readonly>
-  <button class="btn" onclick="copy('sub')">复制</button>
-</div>
-
-<div class="copy" style="margin-bottom:10px">
-  <textarea id="sub-plain" rows="8" spellcheck="false" wrap="off" readonly></textarea>
-  <button class="btn" onclick="copy('sub-plain')">复制</button>
-</div>
-
-<div class="copy">
-  <textarea id="sub-b64lines" rows="8" spellcheck="false" wrap="off" readonly></textarea>
-  <button class="btn" onclick="copy('sub-b64lines')">复制</button>
-</div>
+  <div class="grid grid-full">
+    <div class="card">
+      <h3>订阅链接</h3>
+      <div class="content">
+        <div class="copy-tabs">
+          <div class="copy-tab">
+            <label>明文链接:</label>
+            <input id="sub-plain" readonly>
+            <button class="btn" onclick="copySub('plain')">复制</button>
+          </div>
+          <div class="copy-tab">
+            <label>Base64:</label>
+            <input id="sub-b64" readonly>
+            <button class="btn" onclick="copySub('b64')">复制</button>
+          </div>
+          <div class="copy-tab">
+            <label>B64逐行:</label>
+            <input id="sub-b64lines" readonly>
+            <button class="btn" onclick="copySub('b64lines')">复制</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- 流量统计 -->
   <div class="grid grid-full">
@@ -1560,12 +1570,13 @@ async function boot(){
     notifList.textContent = '暂无通知';
   }
 
-// 订阅链接处理（只取“# Base64”之前的明文段，忽略下面两个Base64段）
-const plainBlock = (subTxt || '').split('\n# Base64')[0].trim();
-const subLines   = plainBlock.split('\n').filter(l => /^(vless|trojan|hysteria2|tuic):\/\//.test(l));
-const plainSub   = subLines.join('\n');
-const b64Sub     = btoa(unescape(encodeURIComponent(plainSub)));
-const b64Lines   = subLines.map(l => btoa(unescape(encodeURIComponent(l)))).join('\n');
+  // 订阅链接处理 - 修正Base64编码
+  const subLines = (subTxt||'').trim().split('\n').filter(l => l && !l.startsWith('#'));
+  const plainSub = subLines.join('\n');
+  
+  // 正确的Base64编码
+  const b64Sub = btoa(unescape(encodeURIComponent(plainSub)));
+  const b64Lines = subLines.map(l => btoa(unescape(encodeURIComponent(l)))).join('\n');
   
   el('sub-plain').value = plainSub;
   el('sub-b64').value = b64Sub;
@@ -1796,7 +1807,8 @@ const b64Lines   = subLines.map(l => btoa(unescape(encodeURIComponent(l)))).join
 function copySub(type) {
   const input = el(`sub-${type}`);
   input.select();
-  document.execCommand('copy'); 
+  document.execCommand('copy');
+  
   // 简单的视觉反馈
   const btn = input.nextElementSibling;
   const originalText = btn.textContent;
@@ -2109,14 +2121,9 @@ ensure_traffic_dir(){ mkdir -p /etc/edgebox/traffic; }
 
 # 用你现有的生成逻辑替换这里，确保 echo 出所有协议链接（逐行）
 build_sub_payload(){
-  # 优先读规范文件；没有就从 /var/www/html/sub 取「# Base64」以上的明文段
-  if [[ -s /etc/edgebox/config/subscription.txt ]]; then
-    cat /etc/edgebox/config/subscription.txt
-  elif [[ -s /var/www/html/sub ]]; then
-    awk '/^# Base64/{exit} {print}' /var/www/html/sub | sed '/^\s*$/d'
-  else
-    return 0
-  fi
+  # 示例：如果你已有专门函数/变量请直接用它们
+  # printf "%s\n" "$VLESS_REALITY" "$VLESS_GRPC" "$VLESS_WS" "$TROJAN" "$HY2" "$TUIC"
+  cat /etc/edgebox/traffic/sub.src 2>/dev/null || true
 }
 
 show_sub(){
@@ -3188,16 +3195,6 @@ case "$1" in
   test) test_connection ;;
   debug-ports) debug_ports ;;
   
-    cert)
-    case "$2" in
-      status) cert_status ;;
-      renew)  setup_auto_renewal ;;     # 可选：你也可以把 renew 改成手动 certbot 调用
-      *) echo "用法: edgeboxctl cert [status|renew]";;
-    esac
-    ;;
-  change-to-domain) switch_to_domain "$2" ;;   # 已有就忽略
-  change-to-ip)     switch_to_ip ;;
-
   # 证书管理
   cert)
     case "$2" in
