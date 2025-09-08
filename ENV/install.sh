@@ -1997,13 +1997,21 @@ async function boot(){
             },
             scales: {
               x: {
-                stacked: true
+                stacked: true,
+                title: {
+                  display: false
+                }
               },
               y: {
                 stacked: true,
+                title: {
+                  display: true,
+                  text: '流量 (GiB)',
+                  position: 'top'
+                },
                 ticks: {
                   callback: function(value) {
-                    return value.toFixed(1) + ' GiB';
+                    return Math.round(value);
                   }
                 }
               }
