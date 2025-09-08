@@ -494,6 +494,18 @@ http {
     location = / { return 302 /traffic/; }
     location = /sub { default_type text/plain; root /var/www/html; }
     location ^~ /traffic/ { alias /etc/edgebox/traffic/; autoindex off; }
+	location ^~ /traffic/ {
+    alias /etc/edgebox/traffic/;
+    autoindex off;
+    add_header Cache-Control "no-store" always;
+    types { application/json json; text/plain txt; }
+    default_type application/json;
+}
+location = /sub {
+    default_type text/plain;
+    add_header Cache-Control "no-store" always;
+    root /var/www/html;
+}
   }
 }
 
@@ -986,15 +998,6 @@ NFT
   [[ -s "${LOG_DIR}/daily.csv" ]]   || echo "date,vps,resi,tx,rx" > "${LOG_DIR}/daily.csv"
   [[ -s "${LOG_DIR}/monthly.csv" ]] || echo "month,vps,resi,total,tx,rx" > "${LOG_DIR}/monthly.csv"
 
-# 流量采集器：每小时增量 → 聚合 → traffic.json
-cat > "${SCRIPTS_DIR}/traffic-collector.sh" <<'COLLECTOR'
-#!/bin/bash
-set -euo pipefail
-TRAFFIC_DIR="/etc/edgebox/traffic"
-LOG_DIR="$TRAFFIC_DIR/logs"
-STATE="${TRAFFIC_DIR}/.state"
-mkdir -p "$LOG_DIR"
-
 # 产出 /etc/edgebox/scripts/system-stats.sh（供面板读 CPU/内存）
 cat > "${SCRIPTS_DIR}/system-stats.sh" <<'SYS'
 #!/bin/bash
@@ -1002,7 +1005,6 @@ set -euo pipefail
 TRAFFIC_DIR="/etc/edgebox/traffic"
 mkdir -p "$TRAFFIC_DIR"
 
-# 两次采样 CPU（/proc/stat）
 read _ a b c idle rest < /proc/stat
 t1=$((a+b+c+idle)); i1=$idle
 sleep 1
@@ -1011,16 +1013,23 @@ t2=$((a+b+c+idle)); i2=$idle
 dt=$((t2-t1)); di=$((i2-i1))
 cpu=$(( dt>0 ? (100*(dt-di) + dt/2) / dt : 0 ))
 
-# 内存（MemTotal / MemAvailable）
 mt=$(awk '/MemTotal/{print $2}' /proc/meminfo)
 ma=$(awk '/MemAvailable/{print $2}' /proc/meminfo)
 mem=$(( mt>0 ? (100*(mt-ma) + mt/2) / mt : 0 ))
 
-# 写 JSON（百分比整数）
 jq -n --arg ts "$(date -Is)" --argjson cpu "$cpu" --argjson memory "$mem" \
   '{updated_at:$ts,cpu:$cpu,memory:$memory}' > "${TRAFFIC_DIR}/system.json"
 SYS
 chmod +x "${SCRIPTS_DIR}/system-stats.sh"
+
+# 流量采集器：每小时增量 → 聚合 → traffic.json
+cat > "${SCRIPTS_DIR}/traffic-collector.sh" <<'COLLECTOR'
+#!/bin/bash
+set -euo pipefail
+TRAFFIC_DIR="/etc/edgebox/traffic"
+LOG_DIR="$TRAFFIC_DIR/logs"
+STATE="${TRAFFIC_DIR}/.state"
+mkdir -p "$LOG_DIR"
 
 # 1) 识别默认出网网卡
 IFACE="$(ip route | awk '/default/{print $5;exit}')"
@@ -2283,15 +2292,14 @@ echo "$new_sent" > "$STATE"
 ALERT
 chmod +x /etc/edgebox/scripts/traffic-alert.sh
 
-  # 3) 三条 cron（每小时：采集 → 刷面板 → 预警）
-  (
-    crontab -l 2>/dev/null | grep -vE '/etc/edgebox/scripts/(traffic-collector\.sh|panel-refresh\.sh|traffic-alert\.sh)'
-    echo "0 * * * * /etc/edgebox/scripts/traffic-collector.sh"
-    echo "5 * * * * /etc/edgebox/scripts/panel-refresh.sh"
-    echo "7 * * * * /etc/edgebox/scripts/traffic-alert.sh"
-  ) | crontab - 2>/dev/null || true
-# 每分钟更新 CPU/内存
-( crontab -l 2>/dev/null | grep -v '/etc/edgebox/scripts/system-stats.sh' ; \
+# 每小时：采集→面板→预警
+( crontab -l 2>/dev/null | grep -vE '/etc/edgebox/scripts/(traffic-collector\.sh|panel-refresh\.sh|traffic-alert\.sh)'; \
+  echo "0 * * * * /etc/edgebox/scripts/traffic-collector.sh"; \
+  echo "5 * * * * /etc/edgebox/scripts/panel-refresh.sh"; \
+  echo "7 * * * * /etc/edgebox/scripts/traffic-alert.sh" ) | crontab -
+
+# 每分钟：CPU/内存
+( crontab -l 2>/dev/null | grep -v '/etc/edgebox/scripts/system-stats.sh'; \
   echo "*/1 * * * * /etc/edgebox/scripts/system-stats.sh" ) | crontab -
 
   log_success "cron 已配置（每小时采集 + 刷新面板 + 阈值预警）"
