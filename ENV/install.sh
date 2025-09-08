@@ -1378,17 +1378,17 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
       <h3>出站分流状态</h3>
       <div class="content">
         <div class="shunt-modes">
-          <span class="shunt-mode-tab active vps" id="tab-vps" data-mode="vps">VPS</span>
-          <span class="shunt-mode-tab" id="tab-resi" data-mode="resi">住宅</span>
-          <span class="shunt-mode-tab" id="tab-direct-resi" data-mode="direct-resi">智能</span>
+          <span class="shunt-mode-tab active vps" id="tab-vps" data-mode="vps">VPSIP出口</span>
+          <span class="shunt-mode-tab" id="tab-resi" data-mode="resi">代理IP出口</span>
+          <span class="shunt-mode-tab" id="tab-direct-resi" data-mode="direct-resi">智能分流</span>
         </div>
         <div class="shunt-info">
-          <div class="small">VPS出口: <span id="vps-ip">-</span></div>
-          <div class="small">住宅出口: <span id="resi-ip">待获取</span></div>
+          <div class="small">VPS出站IP: <span id="vps-ip">-</span></div>
+          <div class="small">代理出站IP: <span id="resi-ip">待获取</span></div>
           <div class="small">白名单: <span id="wln">0</span> 条</div>
         </div>
         <div class="small" style="margin-top:12px;padding-top:8px;border-top:1px solid var(--border);">
-          注：HY2/TUIC为 UDP通道，直出，不参与代理IP分流。
+          注：HY2/TUIC为 UDP通道，VPS直出，不参与代理IP分流。
         </div>
       </div>
     </div>
