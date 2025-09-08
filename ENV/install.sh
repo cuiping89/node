@@ -1605,7 +1605,7 @@ async function boot(){
         name: 'VLESS-Reality',
         network: 'TCP',
         port: '443',
-        客户端配置: '详情》',
+        客户端配置: '详情',
         disguise: '极佳',
         scenario: '审查最严格的网络环境',
         status: '✓ 运行'
@@ -1614,7 +1614,7 @@ async function boot(){
         name: 'VLESS-gRPC',
         network: 'TCP/H2',
         port: '443',
-        客户端配置: '详情》',
+        客户端配置: '详情',
         disguise: '极佳',
         scenario: '审查严格的网络环境',
         status: '✓ 运行'
@@ -1623,7 +1623,7 @@ async function boot(){
         name: 'VLESS-WS',
         network: 'TCP/WS',
         port: '443',
-        客户端配置: '详情》',
+        客户端配置: '详情',
         disguise: '良好',
         scenario: '一般网络环境，稳定性佳',
         status: '✓ 运行'
@@ -1632,7 +1632,7 @@ async function boot(){
         name: 'Trojan-TLS',
         network: 'TCP',
         port: '443',
-        客户端配置: '详情》',
+        客户端配置: '详情',
         disguise: '良好',
         scenario: '移动网络和复杂环境的可靠备选',
         status: '✓ 运行'
@@ -1641,7 +1641,7 @@ async function boot(){
         name: 'Hysteria2',
         network: 'UDP/QUIC',
         port: '443',
-        客户端配置: '详情》',
+        客户端配置: '详情',
         disguise: '良好',
         scenario: '需要高速传输的场景',
         status: '✓ 运行'
@@ -1650,7 +1650,7 @@ async function boot(){
         name: 'TUIC',
         network: 'UDP/QUIC',
         port: '2053',
-        客户端配置: '详情》',
+        客户端配置: '详情',
         disguise: '好',
         scenario: '移动网络和不稳定连接',
         status: '✓ 运行'
@@ -1803,23 +1803,33 @@ async function boot(){
 }
 
 // 复制函数
-function copySub(type) {
-  const input = el(`sub-${type}`);
-  input.select();
-  document.execCommand('copy');
-  
-  // 简单的视觉反馈
+<script>
+function copySub(type){
+  const v = document.getElementById(`sub-${type}`).value;
+  // 直接用 Clipboard API 写入文本，换行不会被压成空格
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(v);
+  } else {
+    // 兼容老环境的兜底：用隐藏 textarea 复制，仍保留换行
+    const ta = document.createElement('textarea');
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    ta.value = v;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+  }
+  // 视觉反馈（保持你原来的按钮样式）
+  const input = document.getElementById(`sub-${type}`);
   const btn = input.nextElementSibling;
-  const originalText = btn.textContent;
+  const txt = btn.textContent;
   btn.textContent = '已复制';
   btn.style.background = '#10b981';
-  btn.style.color = 'white';
-  setTimeout(() => {
-    btn.textContent = originalText;
-    btn.style.background = '';
-    btn.style.color = '';
-  }, 1000);
+  btn.style.color = '#fff';
+  setTimeout(()=>{ btn.textContent = txt; btn.style.background=''; btn.style.color=''; }, 900);
 }
+</script>
 
 boot();
 </script>
