@@ -1581,7 +1581,7 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
 </div>
 
 <script>
-const GiB = 1024**3; 
+const GiB = Math.pow(1024, 3);
 const el = id => document.getElementById(id);
 const fmtGiB = b => (b/GiB).toFixed(2)+' GiB';
 
@@ -1597,94 +1597,69 @@ function closeModal() {
 }
 
 // 显示协议详情
-  function showProtocolDetails(protocol) {
-    var modal = document.getElementById('protocol-modal');
-    var modalTitle = document.getElementById('modal-title');
-    var modalBody = document.getElementById('modal-body');
+function showProtocolDetails(protocol){
+  var modal=document.getElementById('protocol-modal');
+  var modalTitle=document.getElementById('modal-title');
+  var modalBody=document.getElementById('modal-body');
 
-    var serverConfig = window.serverConfig || {};
-    var uuid        = getSafe(serverConfig, ['uuid','vless'], 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx');
-    var tuicUuid    = getSafe(serverConfig, ['uuid','tuic'] , 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx');
-    var reality_key = getSafe(serverConfig, ['reality','public_key'], 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx');
-    var short_id    = getSafe(serverConfig, ['reality','short_id'], 'xxxxxxxxxxxxxxxx');
-    var hy2_pass    = getSafe(serverConfig, ['password','hysteria2'], 'xxxxxxxxxxxx');
-    var tuic_pass   = getSafe(serverConfig, ['password','tuic']     , 'xxxxxxxxxxxx');
-    var trojan_pass = getSafe(serverConfig, ['password','trojan']   , 'xxxxxxxxxxxx');
-    var server      = getSafe(serverConfig, ['server_ip'], window.location.hostname);
+  var sc=window.serverConfig||{};
+  var uuid      = getSafe(sc,['uuid','vless'],'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx');
+  var tuicUuid  = getSafe(sc,['uuid','tuic'],'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx');
+  var realityPK = getSafe(sc,['reality','public_key'],'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx');
+  var shortId   = getSafe(sc,['reality','short_id'],'xxxxxxxxxxxxxxxx');
+  var hy2Pass   = getSafe(sc,['password','hysteria2'],'xxxxxxxxxxxx');
+  var tuicPass  = getSafe(sc,['password','tuic'],'xxxxxxxxxxxx');
+  var trojanPwd = getSafe(sc,['password','trojan'],'xxxxxxxxxxxx');
+  var server    = getSafe(sc,['server_ip'],window.location.hostname);
 
-    var configs = {
-      'VLESS-Reality': {
-        title: 'VLESS-Reality 配置',
-        items: [
-          {label:'服务器地址', value: server + ':443', note:''},
-          {label:'UUID',       value: uuid,            note:''},
-          {label:'传输协议',   value: 'tcp',           note:''},
-          {label:'流控',       value: 'xtls-rprx-vision', note:''},
-          {label:'Reality配置',value: '公钥: ' + reality_key + '\nShortID: ' + short_id + '\nSNI: www.cloudflare.com',
-           note:'支持SNI: cloudflare.com, microsoft.com, apple.com'}
-        ]
-      },
-      'VLESS-gRPC': {
-        title: 'VLESS-gRPC 配置',
-        items: [
-          {label:'服务器地址', value: server + ':443', note:''},
-          {label:'UUID',       value: uuid,            note:''},
-          {label:'传输协议',   value: 'grpc',          note:''},
-          {label:'ServiceName',value: 'grpc',          note:''},
-          {label:'TLS设置',     value: 'tls',           note:'IP模式需开启"跳过证书验证"'}
-        ]
-      },
-      'VLESS-WS': {
-        title: 'VLESS-WebSocket 配置',
-        items: [
-          {label:'服务器地址', value: server + ':443', note:''},
-          {label:'UUID',       value: uuid,            note:''},
-          {label:'传输协议',   value: 'ws',            note:''},
-          {label:'Path',       value: '/ws',           note:''},
-          {label:'TLS设置',     value: 'tls',           note:'IP模式需开启"跳过证书验证"'}
-        ]
-      },
-      'Trojan-TLS': {
-        title: 'Trojan-TLS 配置',
-        items: [
-          {label:'服务器地址', value: server + ':443', note:''},
-          {label:'密码',       value: trojan_pass,     note:''},
-          {label:'SNI',        value: 'trojan.edgebox.internal', note:'IP模式需开启"跳过证书验证"'}
-        ]
-      },
-      'Hysteria2': {
-        title: 'Hysteria2 配置',
-        items: [
-          {label:'服务器地址', value: server + ':443', note:''},
-          {label:'密码',       value: hy2_pass,        note:''},
-          {label:'协议',       value: 'UDP/QUIC',      note:''},
-          {label:'注意事项',   value: '需要支持QUIC的网络环境', note:'IP模式需开启"跳过证书验证"'}
-        ]
-      },
-      'TUIC': {
-        title: 'TUIC 配置',
-        items: [
-          {label:'服务器地址', value: server + ':2053', note:''},
-          {label:'UUID',       value: tuicUuid,         note:''},
-          {label:'密码',       value: tuic_pass,        note:''},
-          {label:'拥塞控制',   value: 'bbr',            note:'IP模式需开启"跳过证书验证"'}
-        ]
-      }
-    };
+  var configs={
+    'VLESS-Reality':{title:'VLESS-Reality 配置',items:[
+      {label:'服务器地址',value:server+':443'},
+      {label:'UUID',value:uuid},
+      {label:'传输协议',value:'tcp'},
+      {label:'流控',value:'xtls-rprx-vision'},
+      {label:'Reality配置',value:'公钥: '+realityPK+'\nShortID: '+shortId+'\nSNI: www.cloudflare.com',note:'支持SNI: cloudflare.com, microsoft.com, apple.com'}
+    ]},
+    'VLESS-gRPC':{title:'VLESS-gRPC 配置',items:[
+      {label:'服务器地址',value:server+':443'},
+      {label:'UUID',value:uuid},
+      {label:'传输协议',value:'grpc'},
+      {label:'ServiceName',value:'grpc'},
+      {label:'TLS设置',value:'tls',note:'IP模式需开启“跳过证书验证”'}
+    ]},
+    'VLESS-WS':{title:'VLESS-WebSocket 配置',items:[
+      {label:'服务器地址',value:server+':443'},
+      {label:'UUID',value:uuid},
+      {label:'传输协议',value:'ws'},
+      {label:'Path',value:'/ws'},
+      {label:'TLS设置',value:'tls',note:'IP模式需开启“跳过证书验证”'}
+    ]},
+    'Trojan-TLS':{title:'Trojan-TLS 配置',items:[
+      {label:'服务器地址',value:server+':443'},
+      {label:'密码',value:trojanPwd},
+      {label:'SNI',value:'trojan.edgebox.internal',note:'IP模式需开启“跳过证书验证”'}
+    ]},
+    'Hysteria2':{title:'Hysteria2 配置',items:[
+      {label:'服务器地址',value:server+':443'},
+      {label:'密码',value:hy2Pass},
+      {label:'协议',value:'UDP/QUIC'},
+      {label:'注意事项',value:'需要支持QUIC的网络环境',note:'IP模式需开启“跳过证书验证”'}
+    ]},
+    'TUIC':{title:'TUIC 配置',items:[
+      {label:'服务器地址',value:server+':2053'},
+      {label:'UUID',value:tuicUuid},
+      {label:'密码',value:tuicPass},
+      {label:'拥塞控制',value:'bbr',note:'IP模式需开启“跳过证书验证”'}
+    ]}
+  };
 
-    var config = configs[protocol];
-    if (!config) return;
-
-    modalTitle.textContent = config.title;
-    modalBody.innerHTML = config.items.map(function(item){
-      return '<div class="config-item"><h4>'+item.label+
-             '</h4><code>'+item.value+'</code>'+
-             (item.note ? '<div class="config-note">⚠️ '+item.note+'</div>' : '')+
-             '</div>';
-    }).join('');
-
-    modal.classList.add('show');
-  }
+  var cfg=configs[protocol]; if(!cfg) return;
+  modalTitle.textContent=cfg.title;
+  modalBody.innerHTML=cfg.items.map(function(it){
+    return '<div class="config-item"><h4>'+it.label+'</h4><code>'+it.value+'</code>'+(it.note?'<div class="config-note">⚠️ '+it.note+'</div>':'')+'</div>';
+  }).join('');
+  modal.classList.add('show');
+}
 
 // 点击外部关闭
 document.addEventListener('click', e => {
@@ -1783,6 +1758,17 @@ async function readServerConfig() {
       return (fallback === undefined ? '' : fallback);
     }
   }
+
+function getSafe(obj, path, fallback){
+  try{
+    var cur=obj;
+    for(var i=0;i<path.length;i++){
+      if(cur==null || !(path[i] in cur)) return (fallback===undefined?'':fallback);
+      cur=cur[path[i]];
+    }
+    return (cur==null?(fallback===undefined?'':fallback):cur);
+  }catch(_){ return (fallback===undefined?'':fallback); }
+}
 
 async function boot(){
 const [subTxt, panel, tjson, alerts, serverJson] = await Promise.all([
