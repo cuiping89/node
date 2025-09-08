@@ -1284,6 +1284,7 @@ ALERT
   chmod +x "${SCRIPTS_DIR}/traffic-alert.sh"
 
 # 控制面板（完整版：修正数据获取和协议详情弹窗）
+# 控制面板（完整版：修正JS语法错误）
 cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
 <!doctype html>
 <html lang="zh-CN"><head>
@@ -1596,6 +1597,20 @@ function closeModal() {
   el('protocol-modal').classList.remove('show');
 }
 
+// 安全取值函数（修复重复定义问题）
+function getSafe(obj, path, fallback) {
+  try {
+    var cur = obj;
+    for (var i = 0; i < path.length; i++) {
+      if (cur == null || !(path[i] in cur)) return (fallback === undefined ? '' : fallback);
+      cur = cur[path[i]];
+    }
+    return (cur == null ? (fallback === undefined ? '' : fallback) : cur);
+  } catch (_) {
+    return (fallback === undefined ? '' : fallback);
+  }
+}
+
 // 显示协议详情
 function showProtocolDetails(protocol){
   var modal=document.getElementById('protocol-modal');
@@ -1625,31 +1640,31 @@ function showProtocolDetails(protocol){
       {label:'UUID',value:uuid},
       {label:'传输协议',value:'grpc'},
       {label:'ServiceName',value:'grpc'},
-      {label:'TLS设置',value:'tls',note:'IP模式需开启“跳过证书验证”'}
+      {label:'TLS设置',value:'tls',note:'IP模式需开启"跳过证书验证"'}
     ]},
     'VLESS-WS':{title:'VLESS-WebSocket 配置',items:[
       {label:'服务器地址',value:server+':443'},
       {label:'UUID',value:uuid},
       {label:'传输协议',value:'ws'},
       {label:'Path',value:'/ws'},
-      {label:'TLS设置',value:'tls',note:'IP模式需开启“跳过证书验证”'}
+      {label:'TLS设置',value:'tls',note:'IP模式需开启"跳过证书验证"'}
     ]},
     'Trojan-TLS':{title:'Trojan-TLS 配置',items:[
       {label:'服务器地址',value:server+':443'},
       {label:'密码',value:trojanPwd},
-      {label:'SNI',value:'trojan.edgebox.internal',note:'IP模式需开启“跳过证书验证”'}
+      {label:'SNI',value:'trojan.edgebox.internal',note:'IP模式需开启"跳过证书验证"'}
     ]},
     'Hysteria2':{title:'Hysteria2 配置',items:[
       {label:'服务器地址',value:server+':443'},
       {label:'密码',value:hy2Pass},
       {label:'协议',value:'UDP/QUIC'},
-      {label:'注意事项',value:'需要支持QUIC的网络环境',note:'IP模式需开启“跳过证书验证”'}
+      {label:'注意事项',value:'需要支持QUIC的网络环境',note:'IP模式需开启"跳过证书验证"'}
     ]},
     'TUIC':{title:'TUIC 配置',items:[
       {label:'服务器地址',value:server+':2053'},
       {label:'UUID',value:tuicUuid},
       {label:'密码',value:tuicPass},
-      {label:'拥塞控制',value:'bbr',note:'IP模式需开启“跳过证书验证”'}
+      {label:'拥塞控制',value:'bbr',note:'IP模式需开启"跳过证书验证"'}
     ]}
   };
 
@@ -1662,7 +1677,7 @@ function showProtocolDetails(protocol){
 }
 
 // 点击外部关闭
-document.addEventListener('click', e => {
+document.addEventListener('click', function(e) {
   if (!e.target.closest('.notification-bell')) {
     el('notif-popup').classList.remove('show');
   }
@@ -1681,7 +1696,7 @@ async function getSystemLoad() {
       el('mem-usage').textContent = data.memory || '-';
     }
   } catch(e) {
-    // 静默失败，保持默认值
+    console.log('系统负载获取失败:', e);
   }
 }
 
@@ -1693,18 +1708,17 @@ async function getServiceStatus() {
       const elId = svc.replace('-', '') + '-status';
       const elem = el(elId);
       if (elem) {
-        // 简单检测：尝试访问对应端口
         if (svc === 'nginx') {
           elem.textContent = 'active';
           elem.style.color = '#10b981';
         } else {
-          elem.textContent = 'active'; // 默认显示active
+          elem.textContent = 'active';
           elem.style.color = '#10b981';
         }
       }
     }
   } catch(e) {
-    // 静默失败
+    console.log('服务状态获取失败:', e);
   }
 }
 
@@ -1715,12 +1729,12 @@ async function readServerConfig() {
   } catch(_) {}
 
   try {
-    const txt = await fetch('/sub', {cache:'no-store'}).then(r=>r.text());
-    const lines = txt.split('\n').map(l=>l.trim())
-      .filter(l => /^vless:|^hysteria2:|^tuic:|^trojan:/.test(l));
+    const txt = await fetch('/sub', {cache:'no-store'}).then(function(r) { return r.text(); });
+    const lines = txt.split('\n').map(function(l) { return l.trim(); })
+      .filter(function(l) { return /^vless:|^hysteria2:|^tuic:|^trojan:/.test(l); });
 
     const cfg = { uuid:{}, password:{}, reality:{} };
-    const v = lines.find(l => l.startsWith('vless://'));
+    const v = lines.find(function(l) { return l.startsWith('vless://'); });
     if (v) {
       const m = v.match(/^vless:\/\/([^@]+)@([^:]+):\d+\?([^#]+)/i);
       if (m) {
@@ -1744,277 +1758,273 @@ async function readServerConfig() {
   } catch(_) { return {}; }
 }
 
-<script>
-  /* 旧内核兼容：安全取值，替代 ?. */
-  function getSafe(obj, path, fallback) {
-    try {
-      var cur = obj;
-      for (var i = 0; i < path.length; i++) {
-        if (cur == null || !(path[i] in cur)) return (fallback === undefined ? '' : fallback);
-        cur = cur[path[i]];
-      }
-      return (cur == null ? (fallback === undefined ? '' : fallback) : cur);
-    } catch (_) {
-      return (fallback === undefined ? '' : fallback);
-    }
-  }
-
-function getSafe(obj, path, fallback){
-  try{
-    var cur=obj;
-    for(var i=0;i<path.length;i++){
-      if(cur==null || !(path[i] in cur)) return (fallback===undefined?'':fallback);
-      cur=cur[path[i]];
-    }
-    return (cur==null?(fallback===undefined?'':fallback):cur);
-  }catch(_){ return (fallback===undefined?'':fallback); }
-}
-
 async function boot(){
-const [subTxt, panel, tjson, alerts, serverJson] = await Promise.all([
-  fetch('/sub',{cache:'no-store'}).then(r=>r.text()).catch(()=>''), 
-  fetch('/traffic/panel.json',{cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null),
-  fetch('/traffic/traffic.json',{cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null),
-  fetch('/traffic/alerts.json',{cache:'no-store'}).then(r=>r.ok?r.json():[]).catch(()=>[]),
-  readServerConfig()
-]);
-window.serverConfig = serverJson || {};
-
-
-  // 保存服务器配置供协议详情使用
-  window.serverConfig = serverJson;
-
-  // 获取系统负载和服务状态
-  getSystemLoad();
-  getServiceStatus();
-
-  // 通知中心
-  const alertCount = (alerts||[]).length;
-  el('notif-count').textContent = alertCount;
-  const bell = el('notif-bell');
-  if (alertCount > 0) {
-    bell.classList.add('has-alerts');
-    bell.querySelector('span').textContent = `${alertCount} 条通知`;
-  }
+  console.log('开始加载数据...');
   
-  const notifList = el('notif-list');
-  notifList.innerHTML = '';
-  if (alertCount > 0) {
-    alerts.slice(0,10).forEach(a => {
-      const div = document.createElement('div');
-      div.className = 'notification-item';
-      div.textContent = `${a.ts||''} ${a.msg||''}`;
-      notifList.appendChild(div);
-    });
-  } else {
-    notifList.textContent = '暂无通知';
-  }
-
-  // 订阅链接处理 - 保持逐行格式
- const subLines = (subTxt||'').trim().split('\n')
-  .map(l => l.trim())
-  .filter(l => /^vless:|^hysteria2:|^tuic:|^trojan:/.test(l));
-
-  // 明文订阅 - 逐行显示
-  el('sub-plain').value = subLines.join('\n');
-  
-  // Base64整包
-  const b64Sub = btoa(unescape(encodeURIComponent(subLines.join('\n'))));
-  el('sub-b64').value = b64Sub;
-  
-  // Base64逐行 - 每个链接单独编码，换行分隔
-  const b64Lines = subLines.map(l => btoa(unescape(encodeURIComponent(l)))).join('\n');
-  el('sub-b64lines').value = b64Lines;
-
-  // 面板数据
-  if(panel){
-    const ts = panel.updated_at || new Date().toISOString();
-    el('updated').textContent = new Date(ts).toLocaleString('zh-CN');
-    const s = panel.server||{}, sh = panel.shunt||{};
+  try {
+    const [subTxt, panel, tjson, alerts, serverJson] = await Promise.all([
+      fetch('/sub',{cache:'no-store'}).then(function(r) { return r.text(); }).catch(function() { return ''; }), 
+      fetch('/traffic/panel.json',{cache:'no-store'}).then(function(r) { return r.ok ? r.json() : null; }).catch(function() { return null; }),
+      fetch('/traffic/traffic.json',{cache:'no-store'}).then(function(r) { return r.ok ? r.json() : null; }).catch(function() { return null; }),
+      fetch('/traffic/alerts.json',{cache:'no-store'}).then(function(r) { return r.ok ? r.json() : []; }).catch(function() { return []; }),
+      readServerConfig()
+    ]);
     
-    // 基本信息
-    el('srv-ip').textContent = s.ip || '-';
-    el('domain').textContent = s.cert_domain || '无';
+    console.log('数据加载完成:', { subTxt: !!subTxt, panel: !!panel, tjson: !!tjson, alerts: alerts.length, serverJson: !!serverJson });
     
-    // 证书模式判断
-    const certMode = s.cert_mode || 'self-signed';
-    if (certMode === 'self-signed') {
-      el('net-mode').textContent = 'IP模式(自签名)';
-      el('cert-mode').textContent = '自签名证书';
-      el('renew-mode').textContent = '无需续期';
+    // 保存服务器配置供协议详情使用
+    window.serverConfig = serverJson || {};
+
+    // 获取系统负载和服务状态
+    getSystemLoad();
+    getServiceStatus();
+
+    // 通知中心
+    const alertCount = (alerts||[]).length;
+    el('notif-count').textContent = alertCount;
+    const bell = el('notif-bell');
+    if (alertCount > 0) {
+      bell.classList.add('has-alerts');
+      bell.querySelector('span').textContent = alertCount + ' 条通知';
+    }
+    
+    const notifList = el('notif-list');
+    notifList.innerHTML = '';
+    if (alertCount > 0) {
+      alerts.slice(0,10).forEach(function(a) {
+        const div = document.createElement('div');
+        div.className = 'notification-item';
+        div.textContent = (a.ts||'') + ' ' + (a.msg||'');
+        notifList.appendChild(div);
+      });
     } else {
-      el('net-mode').textContent = '域名模式(Let\'s Encrypt)';
-      el('cert-mode').textContent = 'Let\'s Encrypt';
-      el('renew-mode').textContent = '自动续期';
+      notifList.textContent = '暂无通知';
     }
-    
-    el('cert-exp').textContent = s.cert_expire ? new Date(s.cert_expire).toLocaleDateString('zh-CN') : '无';
-    el('ver').textContent = s.version || '-';
-    el('inst').textContent = s.install_date || '-';
-    
-    // 协议配置表格 - 添加点击事件
-    const tb = document.querySelector('#proto tbody');
-    tb.innerHTML='';
-    
-    const protocols = [
-      { name: 'VLESS-Reality', network: 'TCP', port: '443', disguise: '极佳', scenario: '审查最严格的网络环境' },
-      { name: 'VLESS-gRPC', network: 'TCP/H2', port: '443', disguise: '极佳', scenario: '审查严格的网络环境' },
-      { name: 'VLESS-WS', network: 'TCP/WS', port: '443', disguise: '良好', scenario: '一般网络环境，稳定性佳' },
-      { name: 'Trojan-TLS', network: 'TCP', port: '443', disguise: '良好', scenario: '移动网络和复杂环境的可靠备选' },
-      { name: 'Hysteria2', network: 'UDP/QUIC', port: '443', disguise: '良好', scenario: '需要高速传输的场景' },
-      { name: 'TUIC', network: 'UDP/QUIC', port: '2053', disguise: '好', scenario: '移动网络和不稳定连接' }
-    ];
-    
-    protocols.forEach(p => {
-      const tr = document.createElement('tr');
-      tr.innerHTML = \`
-        <td>\${p.name}</td>
-        <td>\${p.network}</td>
-        <td>\${p.port}</td>
-        <td><span class="detail-link" onclick="showProtocolDetails('\${p.name}')">详情</span></td>
-        <td>\${p.disguise}</td>
-        <td>\${p.scenario}</td>
-        <td style="color:#10b981">✓ 运行</td>
-      \`;
-      tb.appendChild(tr);
-    });
-    
-    // 出站分流状态
-    const mode = sh.mode || 'vps';
-    const normalizedMode = mode.replace('_', '-').replace(/\(.*\)/, '').trim();
-    
-    document.querySelectorAll('.shunt-mode-tab').forEach(tab => {
-      tab.classList.remove('active', 'vps', 'resi', 'direct-resi');
-    });
-    
-    const modeMap = {
-      'vps': 'vps',
-      'resi': 'resi',
-      'direct-resi': 'direct-resi',
-      'direct_resi': 'direct-resi'
-    };
-    
-    const mappedMode = modeMap[normalizedMode] || 'vps';
-    const currentTab = document.querySelector(\`[data-mode="\${mappedMode}"]\`);
-    if (currentTab) {
-      currentTab.classList.add('active', mappedMode);
-    }
-    
-    el('vps-ip').textContent = s.eip || s.ip || '-';
-    el('resi-ip').textContent = sh.proxy_info ? '已配置' : '待配置';
-    
-    // 显示白名单域名
-    if (Array.isArray(sh.whitelist) && sh.whitelist.length > 0) {
-      const displayCount = 3; // 显示前3个
-      const domains = sh.whitelist.slice(0, displayCount).join(', ');
-      const moreCount = sh.whitelist.length - displayCount;
-      el('whitelist-domains').textContent = domains + (moreCount > 0 ? \` 等\${sh.whitelist.length}个\` : '');
-    } else {
-      el('whitelist-domains').textContent = '无';
-    }
-  }
 
-  // 流量图表
-  if(tjson){
-    const labels = (tjson.last30d||[]).map(x=>x.date);
-    const vps = (tjson.last30d||[]).map(x=>x.vps);
-    const resi= (tjson.last30d||[]).map(x=>x.resi);
-    new Chart(el('traffic'),{
-      type:'line', data:{labels,datasets:[
-        {label:'VPS 出口', data:vps, tension:.3, borderWidth:2, borderColor:'#3b82f6'},
-        {label:'住宅出口', data:resi, tension:.3, borderWidth:2, borderColor:'#f59e0b'}
-      ]}, options:{responsive:true,maintainAspectRatio:false,
-        scales:{y:{ticks:{callback:v=>(v/GiB).toFixed(1)+' GiB'}}}}
-    });
+    // 订阅链接处理 - 保持逐行格式
+    const subLines = (subTxt||'').trim().split('\n')
+      .map(function(l) { return l.trim(); })
+      .filter(function(l) { return /^vless:|^hysteria2:|^tuic:|^trojan:/.test(l); });
+
+    // 明文订阅 - 逐行显示
+    el('sub-plain').value = subLines.join('\n');
     
-    // 月累计柱形图
-    if(tjson.monthly && tjson.monthly.length > 0) {
-      const recentMonthly = tjson.monthly.slice(-12);
-      const monthLabels = recentMonthly.map(item => item.month);
-      const vpsData = recentMonthly.map(item => (item.vps || 0) / GiB);
-      const resiData = recentMonthly.map(item => (item.resi || 0) / GiB);
+    // Base64整包
+    const b64Sub = btoa(unescape(encodeURIComponent(subLines.join('\n'))));
+    el('sub-b64').value = b64Sub;
+    
+    // Base64逐行 - 每个链接单独编码，换行分隔
+    const b64Lines = subLines.map(function(l) { return btoa(unescape(encodeURIComponent(l))); }).join('\n');
+    el('sub-b64lines').value = b64Lines;
+
+    // 面板数据
+    if(panel){
+      const ts = panel.updated_at || new Date().toISOString();
+      el('updated').textContent = new Date(ts).toLocaleString('zh-CN');
+      const s = panel.server||{}, sh = panel.shunt||{};
       
-      new Chart(el('monthly-chart'), {
-        type: 'bar',
-        data: {
-          labels: monthLabels,
-          datasets: [
-            {
-              label: 'VPS出口',
-              data: vpsData,
-              backgroundColor: '#3b82f6',
-              borderColor: '#3b82f6',
-              borderWidth: 1,
-              stack: 'stack1'
-            },
-            {
-              label: '住宅出口',
-              data: resiData,
-              backgroundColor: '#f59e0b',
-              borderColor: '#f59e0b',
-              borderWidth: 1,
-              stack: 'stack1'
-            }
+      // 基本信息
+      el('srv-ip').textContent = s.ip || '-';
+      el('domain').textContent = s.cert_domain || '无';
+      
+      // 证书模式判断
+      const certMode = s.cert_mode || 'self-signed';
+      if (certMode === 'self-signed') {
+        el('net-mode').textContent = 'IP模式(自签名)';
+        el('cert-mode').textContent = '自签名证书';
+        el('renew-mode').textContent = '无需续期';
+      } else {
+        el('net-mode').textContent = '域名模式(Let\'s Encrypt)';
+        el('cert-mode').textContent = 'Let\'s Encrypt';
+        el('renew-mode').textContent = '自动续期';
+      }
+      
+      el('cert-exp').textContent = s.cert_expire ? new Date(s.cert_expire).toLocaleDateString('zh-CN') : '无';
+      el('ver').textContent = s.version || '-';
+      el('inst').textContent = s.install_date || '-';
+      
+      // 协议配置表格 - 添加点击事件
+      const tb = document.querySelector('#proto tbody');
+      tb.innerHTML='';
+      
+      const protocols = [
+        { name: 'VLESS-Reality', network: 'TCP', port: '443', disguise: '极佳', scenario: '审查最严格的网络环境' },
+        { name: 'VLESS-gRPC', network: 'TCP/H2', port: '443', disguise: '极佳', scenario: '审查严格的网络环境' },
+        { name: 'VLESS-WS', network: 'TCP/WS', port: '443', disguise: '良好', scenario: '一般网络环境，稳定性佳' },
+        { name: 'Trojan-TLS', network: 'TCP', port: '443', disguise: '良好', scenario: '移动网络和复杂环境的可靠备选' },
+        { name: 'Hysteria2', network: 'UDP/QUIC', port: '443', disguise: '良好', scenario: '需要高速传输的场景' },
+        { name: 'TUIC', network: 'UDP/QUIC', port: '2053', disguise: '好', scenario: '移动网络和不稳定连接' }
+      ];
+      
+      protocols.forEach(function(p) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = 
+          '<td>' + p.name + '</td>' +
+          '<td>' + p.network + '</td>' +
+          '<td>' + p.port + '</td>' +
+          '<td><span class="detail-link" onclick="showProtocolDetails(\'' + p.name + '\')">详情</span></td>' +
+          '<td>' + p.disguise + '</td>' +
+          '<td>' + p.scenario + '</td>' +
+          '<td style="color:#10b981">✓ 运行</td>';
+        tb.appendChild(tr);
+      });
+      
+      // 出站分流状态
+      const mode = sh.mode || 'vps';
+      const normalizedMode = mode.replace('_', '-').replace(/\(.*\)/, '').trim();
+      
+      document.querySelectorAll('.shunt-mode-tab').forEach(function(tab) {
+        tab.classList.remove('active', 'vps', 'resi', 'direct-resi');
+      });
+      
+      const modeMap = {
+        'vps': 'vps',
+        'resi': 'resi',
+        'direct-resi': 'direct-resi',
+        'direct_resi': 'direct-resi'
+      };
+      
+      const mappedMode = modeMap[normalizedMode] || 'vps';
+      const currentTab = document.querySelector('[data-mode="' + mappedMode + '"]');
+      if (currentTab) {
+        currentTab.classList.add('active', mappedMode);
+      }
+      
+      el('vps-ip').textContent = s.eip || s.ip || '-';
+      el('resi-ip').textContent = sh.proxy_info ? '已配置' : '待配置';
+      
+      // 显示白名单域名
+      if (Array.isArray(sh.whitelist) && sh.whitelist.length > 0) {
+        const displayCount = 3;
+        const domains = sh.whitelist.slice(0, displayCount).join(', ');
+        const moreCount = sh.whitelist.length - displayCount;
+        el('whitelist-domains').textContent = domains + (moreCount > 0 ? ' 等' + sh.whitelist.length + '个' : '');
+      } else {
+        el('whitelist-domains').textContent = '无';
+      }
+    }
+
+    // 流量图表
+    if(tjson){
+      const labels = (tjson.last30d||[]).map(function(x) { return x.date; });
+      const vps = (tjson.last30d||[]).map(function(x) { return x.vps; });
+      const resi= (tjson.last30d||[]).map(function(x) { return x.resi; });
+      
+      new Chart(el('traffic'),{
+        type:'line', 
+        data:{
+          labels: labels,
+          datasets:[
+            {label:'VPS 出口', data:vps, tension:.3, borderWidth:2, borderColor:'#3b82f6'},
+            {label:'住宅出口', data:resi, tension:.3, borderWidth:2, borderColor:'#f59e0b'}
           ]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          scales: {
-            x: {
-              title: {
-                display: true,
-                text: '月份'
-              }
-            },
-            y: {
-              stacked: true,
-              title: {
-                display: true,
-                text: '流量 (GiB)'
-              },
-              ticks: {
-                callback: function(value) {
-                  return value.toFixed(1) + ' GiB';
-                }
+        }, 
+        options:{
+          responsive:true,
+          maintainAspectRatio:false,
+          scales:{
+            y:{
+              ticks:{
+                callback: function(v) { return (v/GiB).toFixed(1)+' GiB'; }
               }
             }
-          },
-          plugins: {
-            tooltip: {
-              callbacks: {
-                label: function(context) {
-                  const label = context.dataset.label || '';
-                  const value = context.parsed.y.toFixed(2);
-                  return label + ': ' + value + ' GiB';
-                },
-                afterLabel: function(context) {
-                  const dataIndex = context.dataIndex;
-                  const vpsValue = vpsData[dataIndex] || 0;
-                  const resiValue = resiData[dataIndex] || 0;
-                  const total = (vpsValue + resiValue).toFixed(2);
-                  return '总流量: ' + total + ' GiB';
-                }
-              }
-            },
-            legend: {
-              display: true,
-              position: 'top'
-            }
-          },
-          interaction: {
-            mode: 'index',
-            intersect: false
           }
         }
       });
+      
+      // 月累计柱形图
+      if(tjson.monthly && tjson.monthly.length > 0) {
+        const recentMonthly = tjson.monthly.slice(-12);
+        const monthLabels = recentMonthly.map(function(item) { return item.month; });
+        const vpsData = recentMonthly.map(function(item) { return (item.vps || 0) / GiB; });
+        const resiData = recentMonthly.map(function(item) { return (item.resi || 0) / GiB; });
+        
+        new Chart(el('monthly-chart'), {
+          type: 'bar',
+          data: {
+            labels: monthLabels,
+            datasets: [
+              {
+                label: 'VPS出口',
+                data: vpsData,
+                backgroundColor: '#3b82f6',
+                borderColor: '#3b82f6',
+                borderWidth: 1,
+                stack: 'stack1'
+              },
+              {
+                label: '住宅出口',
+                data: resiData,
+                backgroundColor: '#f59e0b',
+                borderColor: '#f59e0b',
+                borderWidth: 1,
+                stack: 'stack1'
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+              x: {
+                title: {
+                  display: true,
+                  text: '月份'
+                }
+              },
+              y: {
+                stacked: true,
+                title: {
+                  display: true,
+                  text: '流量 (GiB)'
+                },
+                ticks: {
+                  callback: function(value) {
+                    return value.toFixed(1) + ' GiB';
+                  }
+                }
+              }
+            },
+            plugins: {
+              tooltip: {
+                callbacks: {
+                  label: function(context) {
+                    const label = context.dataset.label || '';
+                    const value = context.parsed.y.toFixed(2);
+                    return label + ': ' + value + ' GiB';
+                  },
+                  afterLabel: function(context) {
+                    const dataIndex = context.dataIndex;
+                    const vpsValue = vpsData[dataIndex] || 0;
+                    const resiValue = resiData[dataIndex] || 0;
+                    const total = (vpsValue + resiValue).toFixed(2);
+                    return '总流量: ' + total + ' GiB';
+                  }
+                }
+              },
+              legend: {
+                display: true,
+                position: 'top'
+              }
+            },
+            interaction: {
+              mode: 'index',
+              intersect: false
+            }
+          }
+        });
+      }
     }
+    
+    console.log('页面渲染完成');
+  } catch (error) {
+    console.error('boot函数执行出错:', error);
   }
 }
 
 // 复制函数
 function copySub(type) {
-  const input = el(\`sub-\${type}\`);
+  const input = el('sub-' + type);
   input.select();
   document.execCommand('copy');
   
@@ -2023,7 +2033,7 @@ function copySub(type) {
   btn.textContent = '已复制';
   btn.style.background = '#10b981';
   btn.style.color = 'white';
-  setTimeout(() => {
+  setTimeout(function() {
     btn.textContent = originalText;
     btn.style.background = '';
     btn.style.color = '';
@@ -2031,6 +2041,7 @@ function copySub(type) {
 }
 
 // 启动
+console.log('脚本开始执行');
 boot();
 // 每30秒刷新一次数据
 setInterval(boot, 30000);
