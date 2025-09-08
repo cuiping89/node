@@ -1803,33 +1803,23 @@ async function boot(){
 }
 
 // 复制函数
-<script>
-function copySub(type){
-  const v = document.getElementById(`sub-${type}`).value;
-  // 直接用 Clipboard API 写入文本，换行不会被压成空格
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(v);
-  } else {
-    // 兼容老环境的兜底：用隐藏 textarea 复制，仍保留换行
-    const ta = document.createElement('textarea');
-    ta.style.position = 'fixed';
-    ta.style.opacity = '0';
-    ta.value = v;
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand('copy');
-    document.body.removeChild(ta);
-  }
-  // 视觉反馈（保持你原来的按钮样式）
-  const input = document.getElementById(`sub-${type}`);
+function copySub(type) {
+  const input = el(`sub-${type}`);
+  input.select();
+  document.execCommand('copy');
+  
+  // 简单的视觉反馈
   const btn = input.nextElementSibling;
-  const txt = btn.textContent;
+  const originalText = btn.textContent;
   btn.textContent = '已复制';
   btn.style.background = '#10b981';
-  btn.style.color = '#fff';
-  setTimeout(()=>{ btn.textContent = txt; btn.style.background=''; btn.style.color=''; }, 900);
+  btn.style.color = 'white';
+  setTimeout(() => {
+    btn.textContent = originalText;
+    btn.style.background = '';
+    btn.style.color = '';
+  }, 1000);
 }
-</script>
 
 boot();
 </script>
