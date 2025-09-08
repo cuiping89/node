@@ -1293,9 +1293,9 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
 :root{--card:#fff;--border:#e2e8f0;--bg:#f8fafc;--muted:#64748b;--shadow:0 4px 6px -1px rgba(0,0,0,.1);--primary:#3b82f6;--success:#10b981;--warning:#f59e0b;--danger:#ef4444}
 *{box-sizing:border-box}body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:#334155;margin:0}
 .container{max-width:1200px;margin:0 auto;padding:20px}
-.grid{display:grid;gap:20px}
+.grid{display:grid;gap:16px;margin-bottom:16px;}
 .grid-full{grid-template-columns:1fr}
-.grid-70-30{grid-template-columns:7fr 3fr}@media(max-width:980px){.grid-70-30{grid-template-columns:1fr}}
+.grid-70-30{grid-template-columns:6fr 4fr}@media(max-width:980px){.grid-70-30{grid-template-columns:1fr}}
 .card{background:var(--card);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow);overflow:hidden;position:relative}
 .card h3{margin:0;padding:12px 16px;border-bottom:1px solid var(--border);font-size:1rem;display:flex;justify-content:space-between;align-items:center}
 .card .content{padding:16px}
@@ -1328,9 +1328,9 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
 .shunt-mode-tab.active.vps{background:#10b981;border-color:#10b981}
 .shunt-mode-tab.active.resi{background:#6b7280;border-color:#6b7280}
 .shunt-mode-tab.active.direct-resi{background:#f59e0b;border-color:#f59e0b}
-.shunt-content{display:flex;flex-direction:column;min-height:120px}
+.shunt-content{display:flex;flex-direction:column;min-height:180px}
 .shunt-info{display:flex;flex-direction:column;gap:4px;flex:1}
-.shunt-note{font-size:.75rem;color:var(--muted);margin-top:auto;padding-top:8px;border-top:1px solid var(--border)}
+.shunt-note{margin-top:auto;padding-top:8px;border-top:1px solid var(--border);}
 
 /* 订阅链接样式 - 严格按照截图 */
 .sub-row{display:flex;gap:8px;align-items:center;margin-bottom:8px}
@@ -1341,10 +1341,10 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
 
 /* 流量统计样式 */
 .traffic-card{position:relative}
-.traffic-progress-container{position:absolute;top:16px;right:16px;width:220px;font-size:.75rem;display:flex;align-items:center;gap:8px}
+.traffic-progress-container{position:absolute;top:16px;right:16px;width:320px;font-size:.75rem;display:flex;align-items:center;gap:8px}
 .progress-label{color:var(--muted);white-space:nowrap}
 .progress-wrapper{flex:1;position:relative}
-.progress-bar{width:100%;height:16px;background:#e2e8f0;border-radius:8px;overflow:hidden}
+.progress-bar{width:100%;height:22px;background:#e2e8f0;border-radius:8px;overflow:hidden}
 .progress-fill{height:100%;background:#10b981;border-radius:8px;transition:width 0.3s;position:relative;display:flex;align-items:center;justify-content:center}
 .progress-percentage{position:absolute;color:white;font-size:.65rem;font-weight:600}
 .progress-budget{color:var(--muted);white-space:nowrap;font-size:.7rem}
