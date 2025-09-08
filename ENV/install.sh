@@ -1335,6 +1335,7 @@ echo "备份原文件..."
 
 echo "生成优化版控制面板..."
 
+# 控制面板（完整版：严格按照截图样式开发）
 cat > "$TARGET_FILE" <<'HTML'
 <!doctype html>
 <html lang="zh-CN"><head>
@@ -1371,7 +1372,7 @@ cat > "$TARGET_FILE" <<'HTML'
 .notification-item{padding:8px 12px;border-bottom:1px solid var(--border);font-size:.85rem}
 .notification-item:last-child{border-bottom:none}
 
-/* 出站分流标签页 */
+/* 出站分流标签页 - 修复注释位置 */
 .shunt-modes{display:flex;gap:8px;margin-bottom:12px;flex-wrap:nowrap}
 .shunt-mode-tab{padding:6px 12px;border:1px solid var(--border);border-radius:6px;font-size:.85rem;font-weight:500;cursor:pointer;background:#f8fafc;color:#64748b;transition:all 0.2s;white-space:nowrap}
 .shunt-mode-tab:hover{background:#e2e8f0}
@@ -1383,14 +1384,14 @@ cat > "$TARGET_FILE" <<'HTML'
 .shunt-info{display:flex;flex-direction:column;gap:4px;flex:1}
 .shunt-note{margin-top:auto;padding-top:8px;border-top:1px solid var(--border);font-size:.8rem;color:var(--muted);background:#f8fafc;padding:8px;border-radius:4px;margin:8px 0 0 0;}
 
-/* 订阅链接样式 - 严格按照截图 */
+/* 订阅链接样式 */
 .sub-row{display:flex;gap:8px;align-items:center;margin-bottom:8px}
 .sub-label{font-size:.9rem;color:var(--muted);min-width:80px}
 .sub-input{flex:1;padding:8px;border:1px solid var(--border);border-radius:4px;font-size:.85rem;font-family:monospace;background:#fff}
 .sub-copy-btn{padding:6px 12px;border:1px solid var(--border);background:#f1f5f9;border-radius:4px;cursor:pointer;font-size:.85rem}
 .sub-copy-btn:hover{background:#e2e8f0}
 
-/* 流量统计样式 */
+/* 流量统计样式 - 修复7:3排版和高度 */
 .traffic-card{position:relative}
 .traffic-progress-container{position:absolute;top:16px;right:16px;width:320px;font-size:.75rem;display:flex;align-items:center;gap:8px}
 .progress-label{color:var(--muted);white-space:nowrap}
@@ -1399,7 +1400,7 @@ cat > "$TARGET_FILE" <<'HTML'
 .progress-fill{height:100%;background:#10b981;border-radius:8px;transition:width 0.3s;position:relative;display:flex;align-items:center;justify-content:center}
 .progress-percentage{position:absolute;color:white;font-size:.65rem;font-weight:600}
 .progress-budget{color:var(--muted);white-space:nowrap;font-size:.7rem}
-.traffic-charts{display:grid;grid-template-columns:6fr 4fr;gap:16px;margin-top:50px}
+.traffic-charts{display:grid;grid-template-columns:7fr 3fr;gap:16px;margin-top:50px}
 .chart-container{position:relative;height:360px}
 @media(max-width:980px){.traffic-charts{grid-template-columns:1fr}.traffic-progress-container{position:static;width:100%;margin-bottom:16px}}
 
@@ -1504,7 +1505,7 @@ cat > "$TARGET_FILE" <<'HTML'
     </div>
   </div>
 
-  <!-- 订阅链接 - 严格按照截图样式 -->
+  <!-- 订阅链接 -->
   <div class="grid grid-full">
     <div class="card">
       <h3>订阅链接</h3>
@@ -1918,7 +1919,7 @@ async function boot(){
       notifList.textContent = '暂无通知';
     }
 
-    // 订阅链接处理 - 按照截图样式
+    // 订阅链接处理
     const subLines = (subTxt||'').trim().split('\n')
       .map(function(l) { return l.trim(); })
       .filter(function(l) { return /^vless:|^hysteria2:|^tuic:|^trojan:/.test(l); });
@@ -2010,7 +2011,7 @@ async function boot(){
       el('vps-ip').textContent = s.eip || s.ip || '-';
       el('resi-ip').textContent = sh.proxy_info ? '已配置' : '待配置';
       
-      // 白名单域名 - 只列域名，不统计个数
+      // 白名单域名
       if (Array.isArray(sh.whitelist) && sh.whitelist.length > 0) {
         el('whitelist-domains').textContent = sh.whitelist.slice(0, 5).join(', ');
       } else {
@@ -2018,7 +2019,7 @@ async function boot(){
       }
     }
 
-    // 流量图表
+    // 流量图表 - 修复7:3排版，添加y轴GiB单位
     if(tjson){
       const labels = (tjson.last30d||[]).map(function(x) { return x.date; });
       const vps = (tjson.last30d||[]).map(function(x) { return x.vps; });
@@ -2040,7 +2041,11 @@ async function boot(){
           plugins: {
             legend: {
               display: true,
-              position: 'bottom'
+              position: 'bottom',
+              labels: {
+                padding: 20,
+                usePointStyle: true
+              }
             }
           },
           scales:{
@@ -2094,6 +2099,7 @@ async function boot(){
           options: {
             responsive: true,
             maintainAspectRatio: false,
+            plugins: [ebYAxisUnitTop],
             plugins: {
               tooltip: {
                 callbacks: {
@@ -2144,8 +2150,7 @@ async function boot(){
               mode: 'index',
               intersect: false
             }
-          },
-          plugins: [ebYAxisUnitTop]
+          }
         });
       }
     }
@@ -2188,16 +2193,6 @@ setInterval(updateProgressBar, 3600000);
 </body></html>
 HTML
 
-echo "✅ 控制面板HTML替换完成！"
-echo ""
-echo "优化内容："
-echo "  ✓ 流量图表改为 7:3 排版 (6fr 4fr)"
-echo "  ✓ 图表容器增高到 360px，避免图例遮挡"
-echo "  ✓ y轴顶部显示 GiB 单位"
-echo "  ✓ 出站分流注释固定在卡片底部"
-echo "  ✓ 本月进度条每小时自动刷新"
-echo ""
-echo "请刷新浏览器查看效果"
 # 网站根目录映射 + 首次刷新
 mkdir -p "${TRAFFIC_DIR}" /var/www/html
 ln -sfn "${TRAFFIC_DIR}" /var/www/html/traffic
