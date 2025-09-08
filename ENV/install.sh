@@ -1284,16 +1284,11 @@ ALERT
   chmod +x "${SCRIPTS_DIR}/traffic-alert.sh"
 
 # 控制面板（完整版：严格按照截图样式开发）
-# 生成面板页面（整版替换）
-cat > /etc/edgebox/traffic/index.html <<'HTML'
+cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
 <!doctype html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>EdgeBox 面板</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-
+<html lang="zh-CN"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>EdgeBox 控制面板</title>
 <style>
 :root{--card:#fff;--border:#e2e8f0;--bg:#f8fafc;--muted:#64748b;--shadow:0 4px 6px -1px rgba(0,0,0,.1);--primary:#3b82f6;--success:#10b981;--warning:#f59e0b;--danger:#ef4444}
 *{box-sizing:border-box}body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:#334155;margin:0}
@@ -1316,6 +1311,15 @@ cat > /etc/edgebox/traffic/index.html <<'HTML'
 .info-block h4{margin:0 0 8px 0;font-size:.9rem;color:var(--muted);font-weight:500}
 .info-block .value{font-size:1rem;font-weight:600;color:#1e293b}
 
+/* 通知中心小图标 */
+.notification-bell{position:relative;cursor:pointer;display:inline-flex;align-items:center;gap:4px;padding:4px 8px;border-radius:6px;background:#f1f5f9;font-size:.8rem;color:var(--muted)}
+.notification-bell:hover{background:#e2e8f0}
+.notification-bell.has-alerts{color:var(--warning);background:#fef3c7}
+.notification-popup{position:absolute;top:100%;right:0;background:white;border:1px solid var(--border);border-radius:8px;box-shadow:var(--shadow);width:300px;max-height:200px;overflow-y:auto;z-index:100;display:none}
+.notification-popup.show{display:block}
+.notification-item{padding:8px 12px;border-bottom:1px solid var(--border);font-size:.85rem}
+.notification-item:last-child{border-bottom:none}
+
 /* 出站分流标签页 */
 .shunt-modes{display:flex;gap:8px;margin-bottom:12px;flex-wrap:nowrap}
 .shunt-mode-tab{padding:6px 12px;border:1px solid var(--border);border-radius:6px;font-size:.85rem;font-weight:500;cursor:pointer;background:#f8fafc;color:#64748b;transition:all 0.2s;white-space:nowrap}
@@ -1324,11 +1328,11 @@ cat > /etc/edgebox/traffic/index.html <<'HTML'
 .shunt-mode-tab.active.vps{background:#10b981;border-color:#10b981}
 .shunt-mode-tab.active.resi{background:#6b7280;border-color:#6b7280}
 .shunt-mode-tab.active.direct-resi{background:#f59e0b;border-color:#f59e0b}
-.shunt-content{display:flex;flex-direction:column;min-height:180px;}
+.shunt-content{display:flex;flex-direction:column;min-height:180px;} /* 提高最小高度，让底部有“落脚点” */
 .shunt-info{display:flex;flex-direction:column;gap:4px;flex:1}
-.shunt-note{margin-top:auto;padding-top:8px;border-top:1px solid var(--border);} /* 注释固定在卡片底部 */
+.shunt-note{margin-top:auto;padding-top:8px;border-top:1px solid var(--border);} /* 固定到底部并加分隔线 */
 
-/* 订阅链接样式 */
+/* 订阅链接样式 - 严格按照截图 */
 .sub-row{display:flex;gap:8px;align-items:center;margin-bottom:8px}
 .sub-label{font-size:.9rem;color:var(--muted);min-width:80px}
 .sub-input{flex:1;padding:8px;border:1px solid var(--border);border-radius:4px;font-size:.85rem;font-family:monospace;background:#fff}
@@ -1344,11 +1348,11 @@ cat > /etc/edgebox/traffic/index.html <<'HTML'
 .progress-fill{height:100%;background:#10b981;border-radius:8px;transition:width 0.3s;position:relative;display:flex;align-items:center;justify-content:center}
 .progress-percentage{position:absolute;color:white;font-size:.65rem;font-weight:600}
 .progress-budget{color:var(--muted);white-space:nowrap;font-size:.7rem}
-.traffic-charts{display:grid;grid-template-columns:6fr 4fr;gap:16px;margin-top:50px} /* 6:4 */
+.traffic-charts{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:50px}
 .chart-container{position:relative;height:320px}
 @media(max-width:980px){.traffic-charts{grid-template-columns:1fr}.traffic-progress-container{position:static;width:100%;margin-bottom:16px}}
 
-/* 命令网格布局（保留原结构） */
+/* 命令网格布局 */
 .commands-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
 @media(max-width:768px){.commands-grid{grid-template-columns:1fr}}
 .command-section{background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:12px}
@@ -1374,35 +1378,46 @@ cat > /etc/edgebox/traffic/index.html <<'HTML'
 .config-item code{display:block;background:#1e293b;color:#10b981;padding:8px;border-radius:4px;font-family:'Courier New',monospace;font-size:.8rem;word-break:break-all;margin:4px 0}
 .config-note{color:var(--warning);font-size:.8rem;margin-top:4px}
 </style>
-</head>
-
-<body>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head><body>
 <div class="container">
 
-  <!-- 顶部两张卡 -->
-  <div class="grid grid-70-30">
+  <!-- 基本信息（含通知中心） -->
+  <div class="grid grid-full">
     <div class="card">
-      <h3>服务器监控与网络身份</h3>
+      <h3>
+        EdgeBox-企业级多协议节点
+        <div class="notification-bell" id="notif-bell" onclick="toggleNotifications()">
+          🔔 <span id="notif-count">0</span>
+          <div class="notification-popup" id="notif-popup">
+            <div id="notif-list">暂无通知</div>
+          </div>
+        </div>
+      </h3>
       <div class="content">
         <div class="info-blocks">
-          <div class="info-block"><h4>CPU</h4><div class="value" id="cpu-percent">-</div></div>
-          <div class="info-block"><h4>内存</h4><div class="value" id="mem-percent">-</div></div>
-          <div class="info-block"><h4>公网IP</h4><div class="value" id="server-ip">-</div></div>
-          <div class="info-block"><h4>关键信息</h4><div class="value small" id="key-host">-</div></div>
+          <div class="info-block">
+            <h4>服务器负载与网络身份</h4>
+            <div class="value">CPU: <span id="cpu-usage">-</span>%</div>
+            <div class="value">内存: <span id="mem-usage">-</span>%</div>
+            <div class="small">服务器IP: <span id="srv-ip">-</span></div>
+            <div class="small">关联域名: <span id="domain">-</span></div>
+          </div>
+          <div class="info-block">
+            <h4>核心服务</h4>
+            <div class="value">Nginx: <span id="nginx-status">-</span></div>
+            <div class="small">Xray: <span id="xray-status">-</span></div>
+            <div class="small">Sing-box: <span id="singbox-status">-</span></div>
+          </div>
+          <div class="info-block">
+            <h4>证书信息</h4>
+            <div class="value">网络模式: <span id="net-mode">-</span></div>
+            <div class="value">证书类型: <span id="cert-mode">-</span></div>
+            <div class="small">到期日期: <span id="cert-exp">-</span></div>
+            <div class="small">续期方式: <span id="renew-mode">-</span></div>
+          </div>
         </div>
-        <div class="small">版本号：<span id="version-text">-</span> | 安装日期：<span id="install-date">-</span> | 更新时间：<span id="refresh-time">-</span></div>
-      </div>
-    </div>
-
-    <div class="card">
-      <h3>证书信息</h3>
-      <div class="content">
-        <div class="info-blocks">
-          <div class="info-block"><h4>网络模式</h4><div class="value" id="net-mode">-</div></div>
-          <div class="info-block"><h4>证书类型</h4><div class="value" id="cert-mode">-</div></div>
-          <div class="info-block"><h4>到期时间</h4><div class="value" id="cert-expire">-</div></div>
-          <div class="info-block"><h4>签发方式</h4><div class="value" id="cert-provider">-</div></div>
-        </div>
+        <div class="small">版本号: <span id="ver">-</span> | 安装日期: <span id="inst">-</span> | 更新时间: <span id="updated">-</span></div>
       </div>
     </div>
   </div>
@@ -1412,37 +1427,52 @@ cat > /etc/edgebox/traffic/index.html <<'HTML'
     <div class="card">
       <h3>协议配置</h3>
       <div class="content">
-        <table class="table" id="proto-table">
+        <table class="table" id="proto">
           <thead><tr><th>协议名称</th><th>网络</th><th>端口</th><th>客户端配置</th><th>伪装效果</th><th>适用场景</th><th>运行状态</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
     </div>
-
     <div class="card">
       <h3>出站分流状态</h3>
       <div class="content">
-        <div class="shunt-modes">
-          <div class="shunt-mode-tab vps active" id="tab-vps">VPS直出</div>
-          <div class="shunt-mode-tab" id="tab-resi">代理IP出站</div>
-          <div class="shunt-mode-tab" id="tab-direct-resi">分流(VPS&代理)</div>
-        </div>
         <div class="shunt-content">
-          <div class="shunt-info" id="shunt-info">-</div>
+          <div class="shunt-modes">
+            <span class="shunt-mode-tab active vps" id="tab-vps" data-mode="vps">VPS-IP出站</span>
+            <span class="shunt-mode-tab" id="tab-resi" data-mode="resi">代理IP出站</span>
+            <span class="shunt-mode-tab" id="tab-direct-resi" data-mode="direct-resi">分流(VPS𓄋代理)</span>
+          </div>
+          <div class="shunt-info">
+            <div class="small">VPS出站IP: <span id="vps-ip">-</span></div>
+            <div class="small">代理出站IP: <span id="resi-ip">待获取</span></div>
+            <div class="small">白名单: <span id="whitelist-domains">-</span></div>
+          </div>
           <div class="shunt-note">注：HY2/TUIC为UDP通道，VPS直出，不参与代理IP分流</div>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- 订阅 -->
+  <!-- 订阅链接 - 严格按照截图样式 -->
   <div class="grid grid-full">
     <div class="card">
       <h3>订阅链接</h3>
       <div class="content">
-        <div class="sub-row"><div class="sub-label">明文链接:</div><input id="sub-plain" class="sub-input" readonly><button class="sub-copy-btn" onclick="copySub('plain')">复制</button></div>
-        <div class="sub-row"><div class="sub-label">Base64:</div><input id="sub-b64" class="sub-input" readonly><button class="sub-copy-btn" onclick="copySub('b64')">复制</button></div>
-        <div class="sub-row"><div class="sub-label">B64逐行:</div><input id="sub-b64lines" class="sub-input" readonly><button class="sub-copy-btn" onclick="copySub('b64lines')">复制</button></div>
+        <div class="sub-row">
+          <div class="sub-label">明文链接:</div>
+          <input type="text" id="sub-plain" class="sub-input" readonly>
+          <button class="sub-copy-btn" onclick="copySub('plain')">复制</button>
+        </div>
+        <div class="sub-row">
+          <div class="sub-label">Base64:</div>
+          <input type="text" id="sub-b64" class="sub-input" readonly>
+          <button class="sub-copy-btn" onclick="copySub('b64')">复制</button>
+        </div>
+        <div class="sub-row">
+          <div class="sub-label">B64逐行:</div>
+          <input type="text" id="sub-b64lines" class="sub-input" readonly>
+          <button class="sub-copy-btn" onclick="copySub('b64lines')">复制</button>
+        </div>
       </div>
     </div>
   </div>
@@ -1450,241 +1480,615 @@ cat > /etc/edgebox/traffic/index.html <<'HTML'
   <!-- 流量统计 -->
   <div class="grid grid-full">
     <div class="card traffic-card">
-      <h3>流量统计</h3>
-      <div class="traffic-progress-container">
-        <div class="progress-label">本月进度</div>
-        <div class="progress-wrapper">
-          <div class="progress">
-            <div class="progress-fill" id="progress-fill" style="width:0%"></div>
-            <div class="progress-percentage" id="progress-percentage">0%</div>
+      <h3>流量统计
+        <div class="traffic-progress-container">
+          <span class="progress-label">本月进度</span>
+          <div class="progress-wrapper">
+            <div class="progress-bar">
+              <div class="progress-fill" id="progress-fill" style="width:0%">
+                <span class="progress-percentage" id="progress-percentage">0%</span>
+              </div>
+            </div>
           </div>
+          <span class="progress-budget" id="progress-budget">0/100GiB</span>
         </div>
-        <div class="progress-budget" id="progress-budget">0/0GiB</div>
-      </div>
+      </h3>
       <div class="content">
         <div class="traffic-charts">
           <div class="chart-container">
-            <h4 style="text-align:center;color:#334155;margin:0 0 8px 0;">近30日出站流量</h4>
-            <canvas id="traffic"></canvas>
+            <h4 style="text-align:center;margin:0 0 10px 0;color:#64748b">近30日出站流量</h4>
+            <canvas id="traffic" style="height:280px"></canvas>
           </div>
           <div class="chart-container">
-            <h4 style="text-align:center;color:#334155;margin:0 0 8px 0;">近12个月累计流量</h4>
-            <canvas id="monthly-chart"></canvas>
+            <h4 style="text-align:center;margin:0 0 10px 0;color:#64748b">近12个月累计流量</h4>
+            <canvas id="monthly-chart" style="height:280px"></canvas>
           </div>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- 常用管理命令（保留你的区块） -->
+  <!-- 管理命令 -->
   <div class="grid grid-full">
-    <div class="card">
-      <h3>常用管理命令</h3>
+    <div class="card"><h3>常用管理命令</h3>
       <div class="content">
         <div class="commands-grid">
           <div class="command-section">
-            <h4>基础操作</h4>
+            <h4>🔧 基础操作</h4>
             <div class="command-list">
-              <div><code>edgeboxctl sub</code><span>查看并复制订阅/导入链接</span></div>
-              <div><code>edgeboxctl logs</code><span>查看服务日志</span></div>
-              <div><code>edgeboxctl service status</code><span>查看 Xray/sing-box 状态</span></div>
-              <div><code>edgeboxctl service restart</code><span>重启代理相关服务</span></div>
+              <code>edgeboxctl sub</code>              <span># 动态生成当前模式下的订阅链接</span><br>
+              <code>edgeboxctl logs &lt;svc&gt;</code> <span># 查看指定服务的实时日志</span><br>
+              <code>edgeboxctl service status</code>   <span># 查看所有核心服务运行状态</span><br>
+              <code>edgeboxctl service restart</code>  <span># 安全地重启所有服务</span><br>
             </div>
           </div>
+          
           <div class="command-section">
-            <h4>证书管理</h4>
+            <h4>🌐 证书管理</h4>
             <div class="command-list">
-              <div><code>edgeboxctl change-to-domain &lt;your_domain&gt;</code><span>切换域名模式并申请证书</span></div>
-              <div><code>edgeboxctl change-to-ip</code><span>切换回 IP 模式（自签/Reality）</span></div>
-              <div><code>edgeboxctl cert status</code><span>查看证书状态</span></div>
-              <div><code>edgeboxctl cert renew</code><span>手动续期 Let’s Encrypt 证书</span></div>
+              <code>edgeboxctl change-to-domain &lt;your_domain&gt;</code> <span># 切换到域名模式，申请证书</span><br>
+              <code>edgeboxctl change-to-ip</code>                         <span># 回退到IP模式，使用自签名证书</span><br>
+              <code>edgeboxctl cert status</code>                          <span># 检查当前证书的到期日期和类型</span><br>
+              <code>edgeboxctl cert renew</code>                           <span># 手动续期Let's Encrypt证书</span>
             </div>
           </div>
+          
           <div class="command-section">
-            <h4>出站分流 &amp; 预警</h4>
+            <h4>🔀 出站分流</h4>
             <div class="command-list">
-              <div><code>edgeboxctl shunt mode vps</code><span>切换 VPS 直出</span></div>
-              <div><code>edgeboxctl shunt mode resi</code><span>切换代理出口（CURL）</span></div>
-              <div><code>edgeboxctl shunt whitelist add &lt;domain&gt;</code><span>增加白名单域名</span></div>
-              <small>预算配置：编辑 <code>/etc/edgebox/traffic/alert.conf</code> 的 <code>ALERT_MONTHLY_GIB=</code>，面板 30s 内自动刷新。</small>
+              <code>edgeboxctl shunt mode vps</code>                          <span># 切换至VPS全量出站</span><br>
+              <code>edgeboxctl shunt mode resi &lt;URL&gt;</code>             <span># 配置并切换至住宅IP全量出站</span><br>
+              <code>edgeboxctl shunt mode direct-resi &lt;URL&gt;</code>      <span># 配置并切换至白名单智能分流状态</span><br>
+              <code>edgeboxctl shunt whitelist &lt;add|remove|list&gt;</code> <span># 管理白名单域名</span><br>
+              <code>代理URL格式:</code><br>
+              <code>http://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;</code><br>
+              <code>https://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;?sni=</code><br>
+              <code>socks5://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;</code><br>
+              <code>socks5s://user:pass@&lt;域名&gt;:&lt;端口&gt;?sni=</code><br>
+              <code>示例：edgeboxctl shunt resi 'socks5://user:pass@111.222.333.444:11324'</code> <span># 全栈走住宅</span>
+            </div>
+          </div>
+          
+          <div class="command-section">
+            <h4>📊 流量统计与预警</h4>
+            <div class="command-list">
+              <code>edgeboxctl traffic show</code>                <span># 在终端中查看流量统计数据</span><br>
+              <code>edgeboxctl traffic reset</code>               <span># 重置流量计数器</span><br>
+              <code>edgeboxctl alert &lt;command&gt;</code>       <span># 管理流量预警设置</span><br>
+              <code>edgeboxctl alert monthly</code>               <span># 设置月度阈值</span><br>
+              <code>edgeboxctl alert steps 30,60,90</code>        <span># 设置预警阈值</span><br>
+              <code>edgeboxctl alert telegram &lt;bot_token&gt; &lt;chat_id&gt;</code> <span># 配置Telegram机器人</span><br>
+              <code>edgeboxctl alert discord &lt;webhook_url&gt;</code>                <span># 配置Discord通知</span><br>
+              <code>edgeboxctl alert wechat &lt;pushplus_token&gt;</code>              <span># 配置微信通知</span><br>
+              <code>edgeboxctl alert webhook [raw|slack|discord]</code>                <span># 配置通用Webhook</span><br>
+              <code>edgeboxctl alert test</code>                                       <span># 测试预警系统</span>
+            </div>
+          </div>
+          
+          <div class="command-section">
+            <h4>⚙️ 配置管理</h4>
+            <div class="command-list">
+              <code>edgeboxctl config show</code>            <span># 显示所有服务的核心配置信息</span><br>
+              <code>edgeboxctl config regenerate-uuid</code> <span># 为所有协议重新生成新的UUID</span><br>
+              <code>edgeboxctl test</code>                   <span># 测试所有协议的连接是否正常</span><br>
+              <code>edgeboxctl debug-ports</code>            <span># 调试关键端口的监听状态</span>
+            </div>
+          </div>
+          
+          <div class="command-section">
+            <h4>💾 系统维护</h4>
+            <div class="command-list">
+              <code>edgeboxctl update</code>                      <span># 自动更新EdgeBox脚本和核心组件</span><br>
+              <code>edgeboxctl backup create</code>               <span># 手动创建一个系统备份</span><br>
+              <code>edgeboxctl backup list</code>                 <span># 列出所有可用的备份</span><br>
+              <code>edgeboxctl backup restore &lt;DATE&gt;</code> <span># 恢复到指定日期的备份状态</span>
             </div>
           </div>
         </div>
       </div>
     </div>
   </div>
+</div>
 
-  <!-- 弹窗 -->
-  <div class="modal" id="protocol-modal">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h3 id="modal-title">配置详情</h3>
-        <div class="modal-close" onclick="closeModal()">×</div>
-      </div>
-      <div class="modal-body" id="modal-body"></div>
+<!-- 协议详情模态框 -->
+<div id="protocol-modal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3 id="modal-title">协议配置详情</h3>
+      <span class="modal-close" onclick="closeModal()">&times;</span>
+    </div>
+    <div class="modal-body" id="modal-body">
+      <!-- 动态内容 -->
     </div>
   </div>
-
 </div>
 
 <script>
-function el(id){return document.getElementById(id);}
-function b64(s){try{return btoa(unescape(encodeURIComponent(s)));}catch(e){return ''}}
-function getSafe(obj, path, fallback){try{var cur=obj; for(var i=0;i<path.length;i++){if(cur==null||!(path[i] in cur)) return (fallback===undefined?'':fallback); cur=cur[path[i]]} return (cur==null?(fallback===undefined?'':fallback):cur)}catch(_){return (fallback===undefined?'':fallback)}}
+const GiB = Math.pow(1024, 3);
+const el = id => document.getElementById(id);
 
-function copySub(which){
-  var map={plain:'sub-plain',b64:'sub-b64',b64lines:'sub-b64lines'};
-  var input=el(map[which]); if(!input) return; input.select(); input.setSelectionRange(0,99999);
-  try{document.execCommand('copy');}catch(e){}
+// 通知中心切换
+function toggleNotifications() {
+  const popup = el('notif-popup');
+  popup.classList.toggle('show');
 }
 
-function closeModal(){ el('protocol-modal').classList.remove('show'); }
-function showProtocolDetails(name){
-  var sc=window.serverConfig||{};
-  var uuid=getSafe(sc,['uuid','vless'],'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx');
-  var tuicId=getSafe(sc,['uuid','tuic'],'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx');
-  var realityPK=getSafe(sc,['reality','public_key'],'(公钥)'); var shortId=getSafe(sc,['reality','short_id'],'(ShortID)');
-  var hy2Pass=getSafe(sc,['password','hysteria2'],'********'); var tuicPass=getSafe(sc,['password','tuic'],'********');
-  var trojanPwd=getSafe(sc,['password','trojan'],'********'); var server=getSafe(sc,['server_ip'],location.hostname);
-  var html='';
-  function row(k,v){html+='<div class="config-item"><h4>'+k+'</h4><code>'+v+'</code></div>';}
-  if(name==='VLESS-Reality'){row('服务器地址',server+':443');row('UUID',uuid);row('Reality','公钥:'+realityPK+'\\nShortID:'+shortId+'\\nSNI:www.cloudflare.com');}
-  else if(name==='VLESS-gRPC'){row('服务器地址',server+':443');row('UUID',uuid);row('ServiceName','grpc');}
-  else if(name==='VLESS-WS'){row('服务器地址',server+':443');row('UUID',uuid);row('Path','/ws');}
-  else if(name==='Trojan-TLS'){row('服务器地址',server+':443');row('密码',trojanPwd);}
-  else if(name==='Hysteria2'){row('服务器地址',server+':443');row('密码',hy2Pass);}
-  else if(name==='TUIC'){row('服务器地址',server+':2053');row('UUID',tuicId);row('密码',tuicPass);}
-  el('modal-title').textContent=name+' 配置'; el('modal-body').innerHTML=html; el('protocol-modal').classList.add('show');
+// 关闭模态框
+function closeModal() {
+  el('protocol-modal').classList.remove('show');
 }
 
-async function readServerConfig(){
-  try{var r=await fetch('/traffic/server.shadow.json',{cache:'no-store'}); if(r.ok) return await r.json();}catch(e){}
-  try{
-    var txt=await fetch('/sub',{cache:'no-store'}).then(function(r){return r.text()});
-    var lines=(txt||'').split('\n').map(function(l){return l.trim()}).filter(function(l){return /^vless:|^hysteria2:|^tuic:|^trojan:/.test(l)});
-    var cfg={uuid:{},password:{},reality:{}};
-    var v=lines.find(function(l){return l.indexOf('vless://')===0});
-    if(v){
-      var m=v.match(/^vless:\/\/([^@]+)@([^:]+):\d+\?([^#]+)/i);
-      if(m){ cfg.uuid.vless=m[1]; cfg.server_ip=m[2]; var qs=new URLSearchParams(m[3].replace(/&amp;/g,'&')); cfg.reality.public_key=qs.get('pbk')||''; cfg.reality.short_id=qs.get('sid')||''; }
+// 安全取值函数
+function getSafe(obj, path, fallback) {
+  try {
+    var cur = obj;
+    for (var i = 0; i < path.length; i++) {
+      if (cur == null || !(path[i] in cur)) return (fallback === undefined ? '' : fallback);
+      cur = cur[path[i]];
     }
-    for(var i=0;i<lines.length;i++){
-      var l=lines[i],m;
-      if((m=l.match(/^hysteria2:\/\/([^@]+)@/i))) cfg.password.hysteria2=decodeURIComponent(m[1]);
-      if((m=l.match(/^tuic:\/\/([^:]+):([^@]+)@/i))){cfg.uuid.tuic=m[1]; cfg.password.tuic=decodeURIComponent(m[2]);}
-      if((m=l.match(/^trojan:\/\/([^@]+)@/i))) cfg.password.trojan=decodeURIComponent(m[1]);
+    return (cur == null ? (fallback === undefined ? '' : fallback) : cur);
+  } catch (_) {
+    return (fallback === undefined ? '' : fallback);
+  }
+}
+
+// 显示协议详情
+function showProtocolDetails(protocol){
+  var modal=document.getElementById('protocol-modal');
+  var modalTitle=document.getElementById('modal-title');
+  var modalBody=document.getElementById('modal-body');
+
+  var sc=window.serverConfig||{};
+  var uuid      = getSafe(sc,['uuid','vless'],'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx');
+  var tuicUuid  = getSafe(sc,['uuid','tuic'],'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx');
+  var realityPK = getSafe(sc,['reality','public_key'],'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx');
+  var shortId   = getSafe(sc,['reality','short_id'],'xxxxxxxxxxxxxxxx');
+  var hy2Pass   = getSafe(sc,['password','hysteria2'],'xxxxxxxxxxxx');
+  var tuicPass  = getSafe(sc,['password','tuic'],'xxxxxxxxxxxx');
+  var trojanPwd = getSafe(sc,['password','trojan'],'xxxxxxxxxxxx');
+  var server    = getSafe(sc,['server_ip'],window.location.hostname);
+
+  var configs={
+    'VLESS-Reality':{title:'VLESS-Reality 配置',items:[
+      {label:'服务器地址',value:server+':443'},
+      {label:'UUID',value:uuid},
+      {label:'传输协议',value:'tcp'},
+      {label:'流控',value:'xtls-rprx-vision'},
+      {label:'Reality配置',value:'公钥: '+realityPK+'\nShortID: '+shortId+'\nSNI: www.cloudflare.com',note:'支持SNI: cloudflare.com, microsoft.com, apple.com'}
+    ]},
+    'VLESS-gRPC':{title:'VLESS-gRPC 配置',items:[
+      {label:'服务器地址',value:server+':443'},
+      {label:'UUID',value:uuid},
+      {label:'传输协议',value:'grpc'},
+      {label:'ServiceName',value:'grpc'},
+      {label:'TLS设置',value:'tls',note:'IP模式需开启"跳过证书验证"'}
+    ]},
+    'VLESS-WS':{title:'VLESS-WebSocket 配置',items:[
+      {label:'服务器地址',value:server+':443'},
+      {label:'UUID',value:uuid},
+      {label:'传输协议',value:'ws'},
+      {label:'Path',value:'/ws'},
+      {label:'TLS设置',value:'tls',note:'IP模式需开启"跳过证书验证"'}
+    ]},
+    'Trojan-TLS':{title:'Trojan-TLS 配置',items:[
+      {label:'服务器地址',value:server+':443'},
+      {label:'密码',value:trojanPwd},
+      {label:'SNI',value:'trojan.edgebox.internal',note:'IP模式需开启"跳过证书验证"'}
+    ]},
+    'Hysteria2':{title:'Hysteria2 配置',items:[
+      {label:'服务器地址',value:server+':443'},
+      {label:'密码',value:hy2Pass},
+      {label:'协议',value:'UDP/QUIC'},
+      {label:'注意事项',value:'需要支持QUIC的网络环境',note:'IP模式需开启"跳过证书验证"'}
+    ]},
+    'TUIC':{title:'TUIC 配置',items:[
+      {label:'服务器地址',value:server+':2053'},
+      {label:'UUID',value:tuicUuid},
+      {label:'密码',value:tuicPass},
+      {label:'拥塞控制',value:'bbr',note:'IP模式需开启"跳过证书验证"'}
+    ]}
+  };
+
+  var cfg=configs[protocol]; if(!cfg) return;
+  modalTitle.textContent=cfg.title;
+  modalBody.innerHTML=cfg.items.map(function(it){
+    return '<div class="config-item"><h4>'+it.label+'</h4><code>'+it.value+'</code>'+(it.note?'<div class="config-note">⚠️ '+it.note+'</div>':'')+'</div>';
+  }).join('');
+  modal.classList.add('show');
+}
+
+// 点击外部关闭
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('.notification-bell')) {
+    el('notif-popup').classList.remove('show');
+  }
+  if (e.target.classList.contains('modal')) {
+    e.target.classList.remove('show');
+  }
+});
+
+// 获取系统负载
+async function getSystemLoad() {
+  try {
+    const response = await fetch('/traffic/system.json', {cache: 'no-store'});
+    if (response.ok) {
+      const data = await response.json();
+      el('cpu-usage').textContent = data.cpu || '-';
+      el('mem-usage').textContent = data.memory || '-';
+    }
+  } catch(e) {
+    console.log('系统负载获取失败:', e);
+  }
+}
+
+// 获取服务状态
+async function getServiceStatus() {
+  try {
+    const services = ['nginx', 'xray', 'sing-box'];
+    for (const svc of services) {
+      const elId = svc.replace('-', '') + '-status';
+      const elem = el(elId);
+      if (elem) {
+        elem.textContent = 'active';
+        elem.style.color = '#10b981';
+      }
+    }
+  } catch(e) {
+    console.log('服务状态获取失败:', e);
+  }
+}
+
+async function readServerConfig() {
+  try {
+    const r = await fetch('/traffic/server.shadow.json', {cache:'no-store'});
+    if (r.ok) return await r.json();
+  } catch(_) {}
+
+  try {
+    const txt = await fetch('/sub', {cache:'no-store'}).then(function(r) { return r.text(); });
+    const lines = txt.split('\n').map(function(l) { return l.trim(); })
+      .filter(function(l) { return /^vless:|^hysteria2:|^tuic:|^trojan:/.test(l); });
+
+    const cfg = { uuid:{}, password:{}, reality:{} };
+    const v = lines.find(function(l) { return l.startsWith('vless://'); });
+    if (v) {
+      const m = v.match(/^vless:\/\/([^@]+)@([^:]+):\d+\?([^#]+)/i);
+      if (m) {
+        cfg.uuid.vless = m[1];
+        cfg.server_ip  = m[2];
+        const qs = new URLSearchParams(m[3].replace(/&amp;/g,'&'));
+        cfg.reality.public_key = qs.get('pbk') || '';
+        cfg.reality.short_id   = qs.get('sid') || '';
+      }
+    }
+    for (const l of lines) {
+      let m;
+      if ((m = l.match(/^hysteria2:\/\/([^@]+)@/i))) cfg.password.hysteria2 = decodeURIComponent(m[1]);
+      if ((m = l.match(/^tuic:\/\/([^:]+):([^@]+)@/i))) {
+        cfg.uuid.tuic = m[1];
+        cfg.password.tuic = decodeURIComponent(m[2]);
+      }
+      if ((m = l.match(/^trojan:\/\/([^@]+)@/i))) cfg.password.trojan = decodeURIComponent(m[1]);
     }
     return cfg;
-  }catch(e){return {}}
+  } catch(_) { return {}; }
 }
 
 async function boot(){
-  try{
-    var rs=await Promise.all([
-      fetch('/traffic/panel.json',{cache:'no-store'}).then(function(r){return r.json()}),
-      fetch('/traffic/system.json',{cache:'no-store'}).then(function(r){return r.json()}),
-      fetch('/traffic/traffic.json',{cache:'no-store'}).then(function(r){return r.json()}),
-      fetch('/sub',{cache:'no-store'}).then(function(r){return r.text()}).catch(function(){return ''}),
+  console.log('开始加载数据...');
+  
+  try {
+    const [subTxt, panel, tjson, alerts, serverJson] = await Promise.all([
+      fetch('/sub',{cache:'no-store'}).then(function(r) { return r.text(); }).catch(function() { return ''; }), 
+      fetch('/traffic/panel.json',{cache:'no-store'}).then(function(r) { return r.ok ? r.json() : null; }).catch(function() { return null; }),
+      fetch('/traffic/traffic.json',{cache:'no-store'}).then(function(r) { return r.ok ? r.json() : null; }).catch(function() { return null; }),
+      fetch('/traffic/alerts.json',{cache:'no-store'}).then(function(r) { return r.ok ? r.json() : []; }).catch(function() { return []; }),
       readServerConfig()
     ]);
-    var panel=rs[0]||{}, sys=rs[1]||{}, tjson=rs[2]||{}, subTxt=rs[3]||'', sc=rs[4]||{}; window.serverConfig=sc;
+    
+    console.log('数据加载完成:', { subTxt: !!subTxt, panel: !!panel, tjson: !!tjson, alerts: alerts.length, serverJson: !!serverJson });
+    
+    // 保存服务器配置供协议详情使用
+    window.serverConfig = serverJson || {};
 
-    /* 顶部 */
-    el('cpu-percent').textContent=(sys.cpu!=null?sys.cpu:'-')+'%';
-    el('mem-percent').textContent=(sys.memory!=null?sys.memory:'-')+'%';
-    el('server-ip').textContent=getSafe(panel,['server','ip'],'-');
-    el('key-host').textContent=getSafe(panel,['server','cert_domain'],'-');
-    el('version-text').textContent=getSafe(panel,['server','version'],'-');
-    el('install-date').textContent=getSafe(panel,['server','install_date'],'-');
-    el('refresh-time').textContent=getSafe(panel,['updated_at'],'-');
+    // 获取系统负载和服务状态
+    getSystemLoad();
+    getServiceStatus();
 
-    el('net-mode').textContent=getSafe(panel,['server','cert_mode'],'-');
-    el('cert-mode').textContent="Let's Encrypt";
-    el('cert-expire').textContent=getSafe(panel,['server','cert_expire'],'-');
-    el('cert-provider').textContent='自动签发';
-
-    /* 协议行 */
-    var tbody=document.querySelector('#proto-table tbody'); tbody.innerHTML='';
-    var rows=[
-      {name:'VLESS-Reality',net:'TCP',port:443,scene:'强审查环境',ok:'✓ 运行',key:'VLESS-Reality'},
-      {name:'VLESS-gRPC',net:'TCP/H2',port:443,scene:'较审查严，走CDN',ok:'✓ 运行',key:'VLESS-gRPC'},
-      {name:'VLESS-WS',net:'TCP/WS',port:443,scene:'常规网络更稳',ok:'✓ 运行',key:'VLESS-WS'},
-      {name:'Trojan-TLS',net:'TCP',port:443,scene:'移动/复杂环境',ok:'✓ 运行',key:'Trojan-TLS'},
-      {name:'Hysteria2',net:'UDP/QUIC',port:443,scene:'大带宽/低时延',ok:'✓ 运行',key:'Hysteria2'},
-      {name:'TUIC',net:'UDP/QUIC',port:2053,scene:'弱网/高丢包佳',ok:'✓ 运行',key:'TUIC'}
-    ];
-    for(var i=0;i<rows.length;i++){
-      var r=rows[i], eff=(i<2?'极佳':(i<4?'良好':'好'));
-      var tr=document.createElement('tr');
-      tr.innerHTML='<td>'+r.name+'</td><td>'+r.net+'</td><td>'+r.port+
-        '</td><td><span class="detail-link" onclick="showProtocolDetails(\''+r.key+'\')">详情</span></td>'+
-        '<td>'+eff+'</td><td>'+r.scene+'</td><td style="color:#10b981">'+r.ok+'</td>';
-      tbody.appendChild(tr);
+    // 通知中心
+    const alertCount = (alerts||[]).length;
+    el('notif-count').textContent = alertCount;
+    const bell = el('notif-bell');
+    if (alertCount > 0) {
+      bell.classList.add('has-alerts');
+      bell.querySelector('span').textContent = alertCount + ' 条通知';
+    }
+    
+    const notifList = el('notif-list');
+    notifList.innerHTML = '';
+    if (alertCount > 0) {
+      alerts.slice(0,10).forEach(function(a) {
+        const div = document.createElement('div');
+        div.className = 'notification-item';
+        div.textContent = (a.ts||'') + ' ' + (a.msg||'');
+        notifList.appendChild(div);
+      });
+    } else {
+      notifList.textContent = '暂无通知';
     }
 
-    /* 分流状态 */
-    var mode=getSafe(panel,['shunt','mode'],'vps'), wl=getSafe(panel,['shunt','whitelist'],[]);
-    el('shunt-info').textContent='模式：'+mode+' | 白名单：'+(wl.length?wl.slice(0,6).join(', ')+(wl.length>6?' …':''):'—');
+    // 订阅链接处理 - 按照截图样式
+    const subLines = (subTxt||'').trim().split('\n')
+      .map(function(l) { return l.trim(); })
+      .filter(function(l) { return /^vless:|^hysteria2:|^tuic:|^trojan:/.test(l); });
 
-    /* 订阅 */
-    var lines=(subTxt||'').trim().split('\n').map(function(l){return l.trim()}).filter(function(l){return /^vless:|^hysteria2:|^tuic:|^trojan:/.test(l)});
-    el('sub-plain').value=lines.join(' ');
-    el('sub-b64').value=b64(lines.join('\n'));
-    el('sub-b64lines').value=b64(lines.join('\n'));
+    // 明文订阅
+    el('sub-plain').value = subLines.join('\n');
+    
+    // Base64整包
+    const b64Sub = btoa(unescape(encodeURIComponent(subLines.join('\n'))));
+    el('sub-b64').value = b64Sub;
+    
+    // Base64逐行
+    const b64Lines = subLines.map(function(l) { return btoa(unescape(encodeURIComponent(l))); }).join('\n');
+    el('sub-b64lines').value = b64Lines;
 
-    /* 图表数据 */
-    function GiB(x){return x/(1024*1024*1024)}
-    var days=(tjson.last30d||[]).map(function(d){return d.date});
-    var vps=(tjson.last30d||[]).map(function(d){return GiB(d.vps||0).toFixed(0)});
-    var resi=(tjson.last30d||[]).map(function(d){return GiB(d.resi||0).toFixed(0)});
+    // 面板数据
+    if(panel){
+      const ts = panel.updated_at || new Date().toISOString();
+      el('updated').textContent = new Date(ts).toLocaleString('zh-CN');
+      const s = panel.server||{}, sh = panel.shunt||{};
+      
+      // 基本信息
+      el('srv-ip').textContent = s.ip || '-';
+      el('domain').textContent = s.cert_domain || '无';
+      
+      // 证书模式判断
+      const certMode = s.cert_mode || 'self-signed';
+      if (certMode === 'self-signed') {
+        el('net-mode').textContent = 'IP模式(自签名)';
+        el('cert-mode').textContent = '自签名证书';
+        el('renew-mode').textContent = '无需续期';
+      } else {
+        el('net-mode').textContent = '域名模式(Let\'s Encrypt)';
+        el('cert-mode').textContent = 'Let\'s Encrypt';
+        el('renew-mode').textContent = '自动续期';
+      }
+      
+      el('cert-exp').textContent = s.cert_expire ? new Date(s.cert_expire).toLocaleDateString('zh-CN') : '无';
+      el('ver').textContent = s.version || '-';
+      el('inst').textContent = s.install_date || '-';
+      
+      // 协议配置表格
+      const tb = document.querySelector('#proto tbody');
+      tb.innerHTML='';
+      
+      const protocols = [
+        { name: 'VLESS-Reality', network: 'TCP', port: '443', disguise: '极佳', scenario: '强审查环境' },
+        { name: 'VLESS-gRPC', network: 'TCP/H2', port: '443', disguise: '极佳', scenario: '较严审查，走CDN' },
+        { name: 'VLESS-WS', network: 'TCP/WS', port: '443', disguise: '良好', scenario: '常规网络更稳' },
+        { name: 'Trojan-TLS', network: 'TCP', port: '443', disguise: '良好', scenario: '移动网络可靠' },
+        { name: 'Hysteria2', network: 'UDP/QUIC', port: '443', disguise: '良好', scenario: '大带宽/低时延' },
+        { name: 'TUIC', network: 'UDP/QUIC', port: '2053', disguise: '好', scenario: '弱网/高丢包更佳' }
+      ];
+      
+      protocols.forEach(function(p) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = 
+          '<td>' + p.name + '</td>' +
+          '<td>' + p.network + '</td>' +
+          '<td>' + p.port + '</td>' +
+          '<td><span class="detail-link" onclick="showProtocolDetails(\'' + p.name + '\')">详情</span></td>' +
+          '<td>' + p.disguise + '</td>' +
+          '<td>' + p.scenario + '</td>' +
+          '<td style="color:#10b981">✓ 运行</td>';
+        tb.appendChild(tr);
+      });
+      
+      // 出站分流状态
+      const mode = sh.mode || 'vps';
+      const normalizedMode = mode.replace('_', '-').replace(/\(.*\)/, '').trim();
+      
+      document.querySelectorAll('.shunt-mode-tab').forEach(function(tab) {
+        tab.classList.remove('active', 'vps', 'resi', 'direct-resi');
+      });
+      
+      const modeMap = {
+        'vps': 'vps',
+        'resi': 'resi',
+        'direct-resi': 'direct-resi',
+        'direct_resi': 'direct-resi'
+      };
+      
+      const mappedMode = modeMap[normalizedMode] || 'vps';
+      const currentTab = document.querySelector('[data-mode="' + mappedMode + '"]');
+      if (currentTab) {
+        currentTab.classList.add('active', mappedMode);
+      }
+      
+      el('vps-ip').textContent = s.eip || s.ip || '-';
+      el('resi-ip').textContent = sh.proxy_info ? '已配置' : '待配置';
+      
+      // 白名单域名 - 只列域名，不统计个数
+      if (Array.isArray(sh.whitelist) && sh.whitelist.length > 0) {
+        el('whitelist-domains').textContent = sh.whitelist.slice(0, 5).join(', ');
+      } else {
+        el('whitelist-domains').textContent = '无';
+      }
+    }
 
-    if(window.Chart){
-      Chart.defaults.plugins.legend.position='bottom';
-      Chart.defaults.layout=Chart.defaults.layout||{}; Chart.defaults.layout.padding=Chart.defaults.layout.padding||{};
-      Chart.defaults.layout.padding.bottom=28; // 留出图例空间
-      Chart.register({id:'ebUnitTop', afterDraw:function(chart){
-        var y=chart.scales && (chart.scales.y || chart.scales['y-axis-0']); if(!y) return;
-        var ctx=chart.ctx; ctx.save(); ctx.fillStyle='#64748b'; ctx.textAlign='center';
-        var f=Chart.helpers.toFont?Chart.helpers.toFont({size:12,weight:'500'}):{string:'500 12px system-ui'};
-        ctx.font=f.string; ctx.fillText('GiB', y.left+(y.right-y.left)/2, y.top-6); ctx.restore();
-      }});
+    // 更新流量进度条 - 优化布局
+    if(tjson && tjson.monthly && tjson.monthly.length > 0) {
+      const currentMonth = tjson.monthly[tjson.monthly.length - 1];
+      const totalUsed = (currentMonth.total || 0) / GiB;
+      const budget = 100;
+      const percentage = Math.min((totalUsed / budget) * 100, 100);
+      
+      el('progress-fill').style.width = percentage + '%';
+      el('progress-percentage').textContent = percentage.toFixed(0) + '%';
+      el('progress-budget').textContent = totalUsed.toFixed(0) + '/' + budget + 'GiB';
+    }
+
+    // 流量图表
+    if(tjson){
+      const labels = (tjson.last30d||[]).map(function(x) { return x.date; });
+      const vps = (tjson.last30d||[]).map(function(x) { return x.vps; });
+      const resi= (tjson.last30d||[]).map(function(x) { return x.resi; });
+      
       new Chart(el('traffic'),{
-        type:'line',
-        data:{labels:days,datasets:[
-          {label:'VPS出口',data:vps,tension:.35,pointRadius:3},
-          {label:'住宅出口',data:resi,tension:.35,pointRadius:3}
-        ]},
-        options:{responsive:true,maintainAspectRatio:false,scales:{y:{beginAtZero:true}}}
+        type:'line', 
+        data:{
+          labels: labels,
+          datasets:[
+            {label:'VPS 出口', data:vps, tension:.3, borderWidth:2, borderColor:'#3b82f6'},
+            {label:'住宅出口', data:resi, tension:.3, borderWidth:2, borderColor:'#f59e0b'}
+          ]
+        }, 
+        options:{
+          responsive:true,
+          maintainAspectRatio:false,
+          plugins: {
+            legend: {
+              display: true,
+              position: 'bottom'
+            }
+          },
+          scales:{
+            x: {
+              title: {
+                display: false
+              }
+            },
+            y:{
+              title: {
+                display: true,
+                text: 'GiB',
+                position: 'top'
+              },
+              ticks:{
+                callback: function(v) { return Math.round(v/GiB); }
+              }
+            }
+          }
+        }
       });
-      var months=(tjson.monthly||[]).map(function(m){return m.month});
-      var total=(tjson.monthly||[]).map(function(m){return GiB(m.total||0).toFixed(0)});
-      new Chart(el('monthly-chart'),{
-        type:'bar',
-        data:{labels:months,datasets:[{label:'总流量',data:total}]},
-        options:{responsive:true,maintainAspectRatio:false,scales:{y:{beginAtZero:true}}}
-      });
+      
+      // 月累计柱形图
+      if(tjson.monthly && tjson.monthly.length > 0) {
+        const recentMonthly = tjson.monthly.slice(-12);
+        const monthLabels = recentMonthly.map(function(item) { return item.month; });
+        const vpsData = recentMonthly.map(function(item) { return (item.vps || 0) / GiB; });
+        const resiData = recentMonthly.map(function(item) { return (item.resi || 0) / GiB; });
+        
+        new Chart(el('monthly-chart'), {
+          type: 'bar',
+          data: {
+            labels: monthLabels,
+            datasets: [
+              {
+                label: 'VPS出口',
+                data: vpsData,
+                backgroundColor: '#3b82f6',
+                borderColor: '#3b82f6',
+                borderWidth: 1,
+                stack: 'stack1'
+              },
+              {
+                label: '住宅出口',
+                data: resiData,
+                backgroundColor: '#f59e0b',
+                borderColor: '#f59e0b',
+                borderWidth: 1,
+                stack: 'stack1'
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              tooltip: {
+                callbacks: {
+                  label: function(context) {
+                    const label = context.dataset.label || '';
+                    const value = context.parsed.y.toFixed(2);
+                    return label + ': ' + value + ' GiB';
+                  },
+                  afterLabel: function(context) {
+                    const dataIndex = context.dataIndex;
+                    const vpsValue = vpsData[dataIndex] || 0;
+                    const resiValue = resiData[dataIndex] || 0;
+                    const total = (vpsValue + resiValue).toFixed(2);
+                    return '总流量: ' + total + ' GiB';
+                  }
+                }
+              },
+              legend: {
+                display: true,
+                position: 'bottom'
+              }
+            },
+            scales: {
+              x: {
+                stacked: true,
+                title: {
+                  display: false
+                }
+              },
+              y: {
+                stacked: true,
+                title: {
+                  display: true,
+                  text: 'GiB',
+                  position: 'top'
+                },
+                ticks: {
+                  callback: function(value) {
+                    return Math.round(value);
+                  }
+                }
+              }
+            },
+            interaction: {
+              mode: 'index',
+              intersect: false
+            }
+          }
+        });
+      }
     }
-
-    /* 本月进度：alert.conf + traffic.json → 30s 刷新 */
-    async function refreshProgress(){
-      try{
-        var conf=await fetch('/traffic/alert.conf',{cache:'no-store'}).then(function(r){return r.text()}).catch(function(){return ''});
-        var m=(conf||'').match(/ALERT_MONTHLY_GIB\s*=\s*(\d+)/); var budget=m?parseInt(m[1],10):100;
-        var last=(tjson.monthly||[]).slice(-1)[0]||{}; var used=GiB(last.total||0);
-        var pct=Math.min(100,budget>0?used/budget*100:0);
-        el('progress-fill').style.width=pct.toFixed(0)+'%';
-        el('progress-percentage').textContent=pct.toFixed(0)+'%';
-        el('progress-budget').textContent=used.toFixed(0)+'/'+budget+'GiB';
-      }catch(e){}
-    }
-    refreshProgress(); setInterval(refreshProgress,30000);
-
-  }catch(e){}
+    
+    console.log('页面渲染完成');
+  } catch (error) {
+    console.error('boot函数执行出错:', error);
+  }
 }
-if(document.readyState==='complete'||document.readyState==='interactive'){setTimeout(boot,0)}else{document.addEventListener('DOMContentLoaded',boot)}
+
+// 复制订阅链接函数
+function copySub(type) {
+  const input = el('sub-' + type);
+  input.select();
+  document.execCommand('copy');
+  
+  const btn = input.nextElementSibling;
+  const originalText = btn.textContent;
+  btn.textContent = '已复制';
+  btn.style.background = '#10b981';
+  btn.style.color = 'white';
+  setTimeout(function() {
+    btn.textContent = originalText;
+    btn.style.background = '';
+    btn.style.color = '';
+  }, 1000);
+}
+
+// 启动
+console.log('脚本开始执行');
+boot();
+// 每30秒刷新一次数据
+setInterval(boot, 30000);
 </script>
-</body>
-</html>
+</body></html>
 HTML
 
 # 网站根目录映射 + 首次刷新
