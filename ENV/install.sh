@@ -1283,7 +1283,7 @@ echo "$new_sent" > "$STATE"
 ALERT
   chmod +x "${SCRIPTS_DIR}/traffic-alert.sh"
 
-# 控制面板（完整版：按要求优化布局和样式）
+# 控制面板（完整版：严格按照截图样式开发）
 cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
 <!doctype html>
 <html lang="zh-CN"><head>
@@ -1328,23 +1328,29 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
 .shunt-mode-tab.active.vps{background:#10b981;border-color:#10b981}
 .shunt-mode-tab.active.resi{background:#6b7280;border-color:#6b7280}
 .shunt-mode-tab.active.direct-resi{background:#f59e0b;border-color:#f59e0b}
-.shunt-content{display:flex;flex-direction:column;height:100%}
+.shunt-content{display:flex;flex-direction:column;min-height:120px}
 .shunt-info{display:flex;flex-direction:column;gap:4px;flex:1}
 .shunt-note{font-size:.75rem;color:var(--muted);margin-top:auto;padding-top:8px;border-top:1px solid var(--border)}
 
-/* 订阅链接样式 */
-.sub-container{display:flex;gap:8px;align-items:center}
-.sub-url{flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:.9rem;font-family:monospace;background:#fff;color:#1e293b}
-.sub-actions{display:flex;gap:8px}
+/* 订阅链接样式 - 严格按照截图 */
+.sub-row{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+.sub-label{font-size:.9rem;color:var(--muted);min-width:80px}
+.sub-input{flex:1;padding:8px;border:1px solid var(--border);border-radius:4px;font-size:.85rem;font-family:monospace;background:#fff}
+.sub-copy-btn{padding:6px 12px;border:1px solid var(--border);background:#f1f5f9;border-radius:4px;cursor:pointer;font-size:.85rem}
+.sub-copy-btn:hover{background:#e2e8f0}
 
 /* 流量统计样式 */
 .traffic-card{position:relative}
-.traffic-progress{position:absolute;top:16px;right:16px;width:180px;background:#f8fafc;border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:.75rem}
-.progress-bar{width:100%;height:4px;background:#e2e8f0;border-radius:2px;overflow:hidden;margin:2px 0}
-.progress-fill{height:100%;background:#10b981;border-radius:2px;transition:width 0.3s}
-.traffic-charts{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:40px}
+.traffic-progress-container{position:absolute;top:16px;right:16px;width:220px;font-size:.75rem;display:flex;align-items:center;gap:8px}
+.progress-label{color:var(--muted);white-space:nowrap}
+.progress-wrapper{flex:1;position:relative}
+.progress-bar{width:100%;height:16px;background:#e2e8f0;border-radius:8px;overflow:hidden}
+.progress-fill{height:100%;background:#10b981;border-radius:8px;transition:width 0.3s;position:relative;display:flex;align-items:center;justify-content:center}
+.progress-percentage{position:absolute;color:white;font-size:.65rem;font-weight:600}
+.progress-budget{color:var(--muted);white-space:nowrap;font-size:.7rem}
+.traffic-charts{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:50px}
 .chart-container{position:relative;height:320px}
-@media(max-width:980px){.traffic-charts{grid-template-columns:1fr}.traffic-progress{position:static;width:100%;margin-bottom:16px}}
+@media(max-width:980px){.traffic-charts{grid-template-columns:1fr}.traffic-progress-container{position:static;width:100%;margin-bottom:16px}}
 
 /* 命令网格布局 */
 .commands-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
@@ -1447,17 +1453,25 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
     </div>
   </div>
 
-  <!-- 订阅链接 -->
+  <!-- 订阅链接 - 严格按照截图样式 -->
   <div class="grid grid-full">
     <div class="card">
       <h3>订阅链接</h3>
       <div class="content">
-        <div class="sub-container">
-          <input type="text" id="sub-url" class="sub-url" readonly placeholder="订阅链接将在此显示...">
-          <div class="sub-actions">
-            <button class="btn" onclick="copySubscription()">复制</button>
-            <button class="btn" onclick="openInBrowser()">打开</button>
-          </div>
+        <div class="sub-row">
+          <div class="sub-label">明文链接:</div>
+          <input type="text" id="sub-plain" class="sub-input" readonly>
+          <button class="sub-copy-btn" onclick="copySub('plain')">复制</button>
+        </div>
+        <div class="sub-row">
+          <div class="sub-label">Base64:</div>
+          <input type="text" id="sub-b64" class="sub-input" readonly>
+          <button class="sub-copy-btn" onclick="copySub('b64')">复制</button>
+        </div>
+        <div class="sub-row">
+          <div class="sub-label">B64逐行:</div>
+          <input type="text" id="sub-b64lines" class="sub-input" readonly>
+          <button class="sub-copy-btn" onclick="copySub('b64lines')">复制</button>
         </div>
       </div>
     </div>
@@ -1467,12 +1481,16 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
   <div class="grid grid-full">
     <div class="card traffic-card">
       <h3>流量统计
-        <div class="traffic-progress" id="traffic-progress">
-          <div>本月流量进度</div>
-          <div class="progress-bar">
-            <div class="progress-fill" id="progress-fill" style="width:0%"></div>
+        <div class="traffic-progress-container">
+          <span class="progress-label">本月进度</span>
+          <div class="progress-wrapper">
+            <div class="progress-bar">
+              <div class="progress-fill" id="progress-fill" style="width:0%">
+                <span class="progress-percentage" id="progress-percentage">0%</span>
+              </div>
+            </div>
           </div>
-          <div id="progress-text">0 / 100 GiB (0%)</div>
+          <span class="progress-budget" id="progress-budget">0/100GiB</span>
         </div>
       </h3>
       <div class="content">
@@ -1588,7 +1606,6 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
 <script>
 const GiB = Math.pow(1024, 3);
 const el = id => document.getElementById(id);
-const fmtGiB = b => (b/GiB).toFixed(2)+' GiB';
 
 // 通知中心切换
 function toggleNotifications() {
@@ -1712,13 +1729,8 @@ async function getServiceStatus() {
       const elId = svc.replace('-', '') + '-status';
       const elem = el(elId);
       if (elem) {
-        if (svc === 'nginx') {
-          elem.textContent = 'active';
-          elem.style.color = '#10b981';
-        } else {
-          elem.textContent = 'active';
-          elem.style.color = '#10b981';
-        }
+        elem.textContent = 'active';
+        elem.style.color = '#10b981';
       }
     }
   } catch(e) {
@@ -1805,9 +1817,21 @@ async function boot(){
       notifList.textContent = '暂无通知';
     }
 
-    // 订阅链接处理 - 截图样式
-    const subUrl = 'http://' + (panel && panel.server && panel.server.ip || window.location.hostname) + '/sub';
-    el('sub-url').value = subUrl;
+    // 订阅链接处理 - 按照截图样式
+    const subLines = (subTxt||'').trim().split('\n')
+      .map(function(l) { return l.trim(); })
+      .filter(function(l) { return /^vless:|^hysteria2:|^tuic:|^trojan:/.test(l); });
+
+    // 明文订阅
+    el('sub-plain').value = subLines.join('\n');
+    
+    // Base64整包
+    const b64Sub = btoa(unescape(encodeURIComponent(subLines.join('\n'))));
+    el('sub-b64').value = b64Sub;
+    
+    // Base64逐行
+    const b64Lines = subLines.map(function(l) { return btoa(unescape(encodeURIComponent(l))); }).join('\n');
+    el('sub-b64lines').value = b64Lines;
 
     // 面板数据
     if(panel){
@@ -1885,26 +1909,24 @@ async function boot(){
       el('vps-ip').textContent = s.eip || s.ip || '-';
       el('resi-ip').textContent = sh.proxy_info ? '已配置' : '待配置';
       
-      // 显示白名单域名
+      // 白名单域名 - 只列域名，不统计个数
       if (Array.isArray(sh.whitelist) && sh.whitelist.length > 0) {
-        const displayCount = 3;
-        const domains = sh.whitelist.slice(0, displayCount).join(', ');
-        const moreCount = sh.whitelist.length - displayCount;
-        el('whitelist-domains').textContent = domains + (moreCount > 0 ? ' 等' + sh.whitelist.length + '个' : '');
+        el('whitelist-domains').textContent = sh.whitelist.slice(0, 5).join(', ');
       } else {
         el('whitelist-domains').textContent = '无';
       }
     }
 
-    // 更新流量进度条
+    // 更新流量进度条 - 优化布局
     if(tjson && tjson.monthly && tjson.monthly.length > 0) {
       const currentMonth = tjson.monthly[tjson.monthly.length - 1];
       const totalUsed = (currentMonth.total || 0) / GiB;
-      const budget = 100; // 默认预算，可以从配置读取
+      const budget = 100;
       const percentage = Math.min((totalUsed / budget) * 100, 100);
       
       el('progress-fill').style.width = percentage + '%';
-      el('progress-text').textContent = totalUsed.toFixed(1) + ' / ' + budget + ' GiB (' + percentage.toFixed(0) + '%)';
+      el('progress-percentage').textContent = percentage.toFixed(0) + '%';
+      el('progress-budget').textContent = totalUsed.toFixed(0) + '/' + budget + 'GiB';
     }
 
     // 流量图表
@@ -1940,7 +1962,7 @@ async function boot(){
             y:{
               title: {
                 display: true,
-                text: '流量 (GiB)',
+                text: 'GiB',
                 position: 'top'
               },
               ticks:{
@@ -2017,7 +2039,7 @@ async function boot(){
                 stacked: true,
                 title: {
                   display: true,
-                  text: '流量 (GiB)',
+                  text: 'GiB',
                   position: 'top'
                 },
                 ticks: {
@@ -2042,13 +2064,13 @@ async function boot(){
   }
 }
 
-// 复制订阅链接
-function copySubscription() {
-  const input = el('sub-url');
+// 复制订阅链接函数
+function copySub(type) {
+  const input = el('sub-' + type);
   input.select();
   document.execCommand('copy');
   
-  const btn = event.target;
+  const btn = input.nextElementSibling;
   const originalText = btn.textContent;
   btn.textContent = '已复制';
   btn.style.background = '#10b981';
@@ -2058,12 +2080,6 @@ function copySubscription() {
     btn.style.background = '';
     btn.style.color = '';
   }, 1000);
-}
-
-// 在浏览器中打开订阅
-function openInBrowser() {
-  const url = el('sub-url').value;
-  window.open(url, '_blank');
 }
 
 // 启动
