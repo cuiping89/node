@@ -1284,7 +1284,24 @@ ALERT
   chmod +x "${SCRIPTS_DIR}/traffic-alert.sh"
 
 # 控制面板（完整版：严格按照截图样式开发）
-cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
+#!/bin/bash
+# EdgeBox 控制面板HTML完整替换脚本
+# 优化：7:3排版 + 图例留白 + y轴顶部GiB + 注释固定底部 + 本月进度自动刷新
+
+set -euo pipefail
+
+TRAFFIC_DIR="/etc/edgebox/traffic"
+TARGET_FILE="${TRAFFIC_DIR}/index.html"
+
+[[ $EUID -ne 0 ]] && { echo "需要 root 权限"; exit 1; }
+[[ ! -d "$TRAFFIC_DIR" ]] && { echo "EdgeBox 未安装"; exit 1; }
+
+echo "备份原文件..."
+[[ -f "$TARGET_FILE" ]] && cp "$TARGET_FILE" "${TARGET_FILE}.bak.$(date +%s)"
+
+echo "生成优化版控制面板..."
+
+cat > "$TARGET_FILE" <<'HTML'
 <!doctype html>
 <html lang="zh-CN"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
@@ -1328,9 +1345,9 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
 .shunt-mode-tab.active.vps{background:#10b981;border-color:#10b981}
 .shunt-mode-tab.active.resi{background:#6b7280;border-color:#6b7280}
 .shunt-mode-tab.active.direct-resi{background:#f59e0b;border-color:#f59e0b}
-.shunt-content{display:flex;flex-direction:column;min-height:180px;} /* 提高最小高度，让底部有“落脚点” */
+.shunt-content{display:flex;flex-direction:column;min-height:200px;}
 .shunt-info{display:flex;flex-direction:column;gap:4px;flex:1}
-.shunt-note{margin-top:auto;padding-top:8px;border-top:1px solid var(--border);} /* 固定到底部并加分隔线 */
+.shunt-note{margin-top:auto;padding-top:8px;border-top:1px solid var(--border);font-size:.8rem;color:var(--muted);background:#f8fafc;padding:8px;border-radius:4px;margin:8px 0 0 0;}
 
 /* 订阅链接样式 - 严格按照截图 */
 .sub-row{display:flex;gap:8px;align-items:center;margin-bottom:8px}
@@ -1348,8 +1365,8 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
 .progress-fill{height:100%;background:#10b981;border-radius:8px;transition:width 0.3s;position:relative;display:flex;align-items:center;justify-content:center}
 .progress-percentage{position:absolute;color:white;font-size:.65rem;font-weight:600}
 .progress-budget{color:var(--muted);white-space:nowrap;font-size:.7rem}
-.traffic-charts{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:50px}
-.chart-container{position:relative;height:320px}
+.traffic-charts{display:grid;grid-template-columns:6fr 4fr;gap:16px;margin-top:50px}
+.chart-container{position:relative;height:360px}
 @media(max-width:980px){.traffic-charts{grid-template-columns:1fr}.traffic-progress-container{position:static;width:100%;margin-bottom:16px}}
 
 /* 命令网格布局 */
@@ -1497,11 +1514,11 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
         <div class="traffic-charts">
           <div class="chart-container">
             <h4 style="text-align:center;margin:0 0 10px 0;color:#64748b">近30日出站流量</h4>
-            <canvas id="traffic" style="height:280px"></canvas>
+            <canvas id="traffic" style="height:300px"></canvas>
           </div>
           <div class="chart-container">
             <h4 style="text-align:center;margin:0 0 10px 0;color:#64748b">近12个月累计流量</h4>
-            <canvas id="monthly-chart" style="height:280px"></canvas>
+            <canvas id="monthly-chart" style="height:300px"></canvas>
           </div>
         </div>
       </div>
@@ -1606,6 +1623,24 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
 <script>
 const GiB = Math.pow(1024, 3);
 const el = id => document.getElementById(id);
+
+// 自定义插件：y轴顶部显示单位
+const ebYAxisUnitTop = {
+  id: 'ebYAxisUnitTop',
+  afterDraw: function(chart) {
+    const ctx = chart.ctx;
+    const yAxis = chart.scales.y;
+    if (yAxis) {
+      ctx.save();
+      ctx.font = '12px system-ui';
+      ctx.fillStyle = '#64748b';
+      ctx.textAlign = 'center';
+      ctx.fillText('GiB', yAxis.left + yAxis.width / 2, yAxis.top - 8);
+      ctx.restore();
+    }
+  }
+};
+Chart.register(ebYAxisUnitTop);
 
 // 通知中心切换
 function toggleNotifications() {
@@ -1774,6 +1809,38 @@ async function readServerConfig() {
   } catch(_) { return {}; }
 }
 
+// 更新本月进度条
+async function updateProgressBar() {
+  try {
+    const [trafficRes, alertRes] = await Promise.all([
+      fetch('/traffic/traffic.json', {cache: 'no-store'}),
+      fetch('/traffic/alert.conf', {cache: 'no-store'})
+    ]);
+    
+    let budget = 100; // 默认预算
+    if (alertRes.ok) {
+      const alertText = await alertRes.text();
+      const match = alertText.match(/ALERT_MONTHLY_GIB=(\d+)/);
+      if (match) budget = parseInt(match[1]);
+    }
+    
+    if (trafficRes.ok) {
+      const traffic = await trafficRes.json();
+      if (traffic.monthly && traffic.monthly.length > 0) {
+        const current = traffic.monthly[traffic.monthly.length - 1];
+        const used = (current.total || 0) / GiB;
+        const pct = Math.min((used / budget) * 100, 100);
+        
+        el('progress-fill').style.width = pct + '%';
+        el('progress-percentage').textContent = pct.toFixed(0) + '%';
+        el('progress-budget').textContent = used.toFixed(1) + '/' + budget + 'GiB';
+      }
+    }
+  } catch(e) {
+    console.log('进度条更新失败:', e);
+  }
+}
+
 async function boot(){
   console.log('开始加载数据...');
   
@@ -1917,18 +1984,6 @@ async function boot(){
       }
     }
 
-    // 更新流量进度条 - 优化布局
-    if(tjson && tjson.monthly && tjson.monthly.length > 0) {
-      const currentMonth = tjson.monthly[tjson.monthly.length - 1];
-      const totalUsed = (currentMonth.total || 0) / GiB;
-      const budget = 100;
-      const percentage = Math.min((totalUsed / budget) * 100, 100);
-      
-      el('progress-fill').style.width = percentage + '%';
-      el('progress-percentage').textContent = percentage.toFixed(0) + '%';
-      el('progress-budget').textContent = totalUsed.toFixed(0) + '/' + budget + 'GiB';
-    }
-
     // 流量图表
     if(tjson){
       const labels = (tjson.last30d||[]).map(function(x) { return x.date; });
@@ -1945,6 +2000,7 @@ async function boot(){
           ]
         }, 
         options:{
+          plugins: [ebYAxisUnitTop],
           responsive:true,
           maintainAspectRatio:false,
           plugins: {
@@ -1961,9 +2017,7 @@ async function boot(){
             },
             y:{
               title: {
-                display: true,
-                text: 'GiB',
-                position: 'top'
+                display: false
               },
               ticks:{
                 callback: function(v) { return Math.round(v/GiB); }
@@ -2004,6 +2058,7 @@ async function boot(){
             ]
           },
           options: {
+            plugins: [ebYAxisUnitTop],
             responsive: true,
             maintainAspectRatio: false,
             plugins: {
@@ -2038,9 +2093,7 @@ async function boot(){
               y: {
                 stacked: true,
                 title: {
-                  display: true,
-                  text: 'GiB',
-                  position: 'top'
+                  display: false
                 },
                 ticks: {
                   callback: function(value) {
@@ -2057,6 +2110,9 @@ async function boot(){
         });
       }
     }
+    
+    // 更新本月进度条
+    updateProgressBar();
     
     console.log('页面渲染完成');
   } catch (error) {
@@ -2087,6 +2143,8 @@ console.log('脚本开始执行');
 boot();
 // 每30秒刷新一次数据
 setInterval(boot, 30000);
+// 每小时刷新本月进度条
+setInterval(updateProgressBar, 3600000);
 </script>
 </body></html>
 HTML
