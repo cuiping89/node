@@ -1597,199 +1597,94 @@ function closeModal() {
 }
 
 // 显示协议详情
-function showProtocolDetails(protocol) {
-  const modal = el('protocol-modal');
-  const modalTitle = el('modal-title');
-  const modalBody = el('modal-body');
-  
-  // 从服务器配置获取实际值
-  const serverConfig = window.serverConfig || {};
-  const uuid = serverConfig.uuid?.vless || 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx';
-  const tuicUuid = serverConfig.uuid?.tuic || 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx';
-  const reality_key = serverConfig.reality?.public_key || 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
-  const short_id = serverConfig.reality?.short_id || 'xxxxxxxxxxxxxxxx';
-  const hy2_pass = serverConfig.password?.hysteria2 || 'xxxxxxxxxxxx';
-  const tuic_pass = serverConfig.password?.tuic || 'xxxxxxxxxxxx';
-  const trojan_pass = serverConfig.password?.trojan || 'xxxxxxxxxxxx';
-  const server = serverConfig.server_ip || window.location.hostname;
-  
-  const configs = {
-    'VLESS-Reality': {
-      title: 'VLESS-Reality 配置',
-      items: [
-        {
-          label: '服务器地址',
-          value: server + ':443',
-          note: ''
-        },
-        {
-          label: 'UUID',
-          value: uuid,
-          note: ''
-        },
-        {
-          label: '传输协议',
-          value: 'tcp',
-          note: ''
-        },
-        {
-          label: '流控',
-          value: 'xtls-rprx-vision',
-          note: ''
-        },
-        {
-          label: 'Reality配置',
-          value: `公钥: ${reality_key}\nShortID: ${short_id}\nSNI: www.cloudflare.com`,
-          note: '支持SNI: cloudflare.com, microsoft.com, apple.com'
-        }
-      ]
-    },
-    'VLESS-gRPC': {
-      title: 'VLESS-gRPC 配置',
-      items: [
-        {
-          label: '服务器地址',
-          value: server + ':443',
-          note: ''
-        },
-        {
-          label: 'UUID',
-          value: uuid,
-          note: ''
-        },
-        {
-          label: '传输协议',
-          value: 'grpc',
-          note: ''
-        },
-        {
-          label: 'ServiceName',
-          value: 'grpc',
-          note: ''
-        },
-        {
-          label: 'TLS设置',
-          value: 'tls',
-          note: 'IP模式需开启"跳过证书验证"'
-        }
-      ]
-    },
-    'VLESS-WS': {
-      title: 'VLESS-WebSocket 配置',
-      items: [
-        {
-          label: '服务器地址',
-          value: server + ':443',
-          note: ''
-        },
-        {
-          label: 'UUID',
-          value: uuid,
-          note: ''
-        },
-        {
-          label: '传输协议',
-          value: 'ws',
-          note: ''
-        },
-        {
-          label: 'Path',
-          value: '/ws',
-          note: ''
-        },
-        {
-          label: 'TLS设置',
-          value: 'tls',
-          note: 'IP模式需开启"跳过证书验证"'
-        }
-      ]
-    },
-    'Trojan-TLS': {
-      title: 'Trojan-TLS 配置',
-      items: [
-        {
-          label: '服务器地址',
-          value: server + ':443',
-          note: ''
-        },
-        {
-          label: '密码',
-          value: trojan_pass,
-          note: ''
-        },
-        {
-          label: 'SNI',
-          value: 'trojan.edgebox.internal',
-          note: 'IP模式需开启"跳过证书验证"'
-        }
-      ]
-    },
-    'Hysteria2': {
-      title: 'Hysteria2 配置',
-      items: [
-        {
-          label: '服务器地址',
-          value: server + ':443',
-          note: ''
-        },
-        {
-          label: '密码',
-          value: hy2_pass,
-          note: ''
-        },
-        {
-          label: '协议',
-          value: 'UDP/QUIC',
-          note: ''
-        },
-        {
-          label: '注意事项',
-          value: '需要支持QUIC的网络环境',
-          note: 'IP模式需开启"跳过证书验证"'
-        }
-      ]
-    },
-    'TUIC': {
-      title: 'TUIC 配置',
-      items: [
-        {
-          label: '服务器地址',
-          value: server + ':2053',
-          note: ''
-        },
-        {
-          label: 'UUID',
-          value: tuicUuid,
-          note: ''
-        },
-        {
-          label: '密码',
-          value: tuic_pass,
-          note: ''
-        },
-        {
-          label: '拥塞控制',
-          value: 'bbr',
-          note: 'IP模式需开启"跳过证书验证"'
-        }
-      ]
-    }
-  };
-  
-  const config = configs[protocol];
-  if (!config) return;
-  
-  modalTitle.textContent = config.title;
-  modalBody.innerHTML = config.items.map(item => `
-    <div class="config-item">
-      <h4>${item.label}</h4>
-      <code>${item.value}</code>
-      ${item.note ? `<div class="config-note">⚠️ ${item.note}</div>` : ''}
-    </div>
-  `).join('');
-  
-  modal.classList.add('show');
-}
+  function showProtocolDetails(protocol) {
+    var modal = document.getElementById('protocol-modal');
+    var modalTitle = document.getElementById('modal-title');
+    var modalBody = document.getElementById('modal-body');
+
+    var serverConfig = window.serverConfig || {};
+    var uuid        = getSafe(serverConfig, ['uuid','vless'], 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx');
+    var tuicUuid    = getSafe(serverConfig, ['uuid','tuic'] , 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx');
+    var reality_key = getSafe(serverConfig, ['reality','public_key'], 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx');
+    var short_id    = getSafe(serverConfig, ['reality','short_id'], 'xxxxxxxxxxxxxxxx');
+    var hy2_pass    = getSafe(serverConfig, ['password','hysteria2'], 'xxxxxxxxxxxx');
+    var tuic_pass   = getSafe(serverConfig, ['password','tuic']     , 'xxxxxxxxxxxx');
+    var trojan_pass = getSafe(serverConfig, ['password','trojan']   , 'xxxxxxxxxxxx');
+    var server      = getSafe(serverConfig, ['server_ip'], window.location.hostname);
+
+    var configs = {
+      'VLESS-Reality': {
+        title: 'VLESS-Reality 配置',
+        items: [
+          {label:'服务器地址', value: server + ':443', note:''},
+          {label:'UUID',       value: uuid,            note:''},
+          {label:'传输协议',   value: 'tcp',           note:''},
+          {label:'流控',       value: 'xtls-rprx-vision', note:''},
+          {label:'Reality配置',value: '公钥: ' + reality_key + '\nShortID: ' + short_id + '\nSNI: www.cloudflare.com',
+           note:'支持SNI: cloudflare.com, microsoft.com, apple.com'}
+        ]
+      },
+      'VLESS-gRPC': {
+        title: 'VLESS-gRPC 配置',
+        items: [
+          {label:'服务器地址', value: server + ':443', note:''},
+          {label:'UUID',       value: uuid,            note:''},
+          {label:'传输协议',   value: 'grpc',          note:''},
+          {label:'ServiceName',value: 'grpc',          note:''},
+          {label:'TLS设置',     value: 'tls',           note:'IP模式需开启"跳过证书验证"'}
+        ]
+      },
+      'VLESS-WS': {
+        title: 'VLESS-WebSocket 配置',
+        items: [
+          {label:'服务器地址', value: server + ':443', note:''},
+          {label:'UUID',       value: uuid,            note:''},
+          {label:'传输协议',   value: 'ws',            note:''},
+          {label:'Path',       value: '/ws',           note:''},
+          {label:'TLS设置',     value: 'tls',           note:'IP模式需开启"跳过证书验证"'}
+        ]
+      },
+      'Trojan-TLS': {
+        title: 'Trojan-TLS 配置',
+        items: [
+          {label:'服务器地址', value: server + ':443', note:''},
+          {label:'密码',       value: trojan_pass,     note:''},
+          {label:'SNI',        value: 'trojan.edgebox.internal', note:'IP模式需开启"跳过证书验证"'}
+        ]
+      },
+      'Hysteria2': {
+        title: 'Hysteria2 配置',
+        items: [
+          {label:'服务器地址', value: server + ':443', note:''},
+          {label:'密码',       value: hy2_pass,        note:''},
+          {label:'协议',       value: 'UDP/QUIC',      note:''},
+          {label:'注意事项',   value: '需要支持QUIC的网络环境', note:'IP模式需开启"跳过证书验证"'}
+        ]
+      },
+      'TUIC': {
+        title: 'TUIC 配置',
+        items: [
+          {label:'服务器地址', value: server + ':2053', note:''},
+          {label:'UUID',       value: tuicUuid,         note:''},
+          {label:'密码',       value: tuic_pass,        note:''},
+          {label:'拥塞控制',   value: 'bbr',            note:'IP模式需开启"跳过证书验证"'}
+        ]
+      }
+    };
+
+    var config = configs[protocol];
+    if (!config) return;
+
+    modalTitle.textContent = config.title;
+    modalBody.innerHTML = config.items.map(function(item){
+      return '<div class="config-item"><h4>'+item.label+
+             '</h4><code>'+item.value+'</code>'+
+             (item.note ? '<div class="config-note">⚠️ '+item.note+'</div>' : '')+
+             '</div>';
+    }).join('');
+
+    modal.classList.add('show');
+  }
 
 // 点击外部关闭
 document.addEventListener('click', e => {
@@ -1873,6 +1768,21 @@ async function readServerConfig() {
     return cfg;
   } catch(_) { return {}; }
 }
+
+<script>
+  /* 旧内核兼容：安全取值，替代 ?. */
+  function getSafe(obj, path, fallback) {
+    try {
+      var cur = obj;
+      for (var i = 0; i < path.length; i++) {
+        if (cur == null || !(path[i] in cur)) return (fallback === undefined ? '' : fallback);
+        cur = cur[path[i]];
+      }
+      return (cur == null ? (fallback === undefined ? '' : fallback) : cur);
+    } catch (_) {
+      return (fallback === undefined ? '' : fallback);
+    }
+  }
 
 async function boot(){
 const [subTxt, panel, tjson, alerts, serverJson] = await Promise.all([
