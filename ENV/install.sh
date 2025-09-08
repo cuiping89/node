@@ -1301,6 +1301,23 @@ echo "备份原文件..."
 
 echo "生成优化版控制面板..."
 
+#!/bin/bash
+# EdgeBox 控制面板HTML完整替换脚本
+# 优化：7:3排版 + 图例留白 + y轴顶部GiB + 注释固定底部 + 本月进度自动刷新
+
+set -euo pipefail
+
+TRAFFIC_DIR="/etc/edgebox/traffic"
+TARGET_FILE="${TRAFFIC_DIR}/index.html"
+
+[[ $EUID -ne 0 ]] && { echo "需要 root 权限"; exit 1; }
+[[ ! -d "$TRAFFIC_DIR" ]] && { echo "EdgeBox 未安装"; exit 1; }
+
+echo "备份原文件..."
+[[ -f "$TARGET_FILE" ]] && cp "$TARGET_FILE" "${TARGET_FILE}.bak.$(date +%s)"
+
+echo "生成优化版控制面板..."
+
 cat > "$TARGET_FILE" <<'HTML'
 <!doctype html>
 <html lang="zh-CN"><head>
@@ -2061,6 +2078,11 @@ async function boot(){
             plugins: [ebYAxisUnitTop],
             responsive: true,
             maintainAspectRatio: false,
+            layout: {
+              padding: {
+                bottom: 30
+              }
+            },
             plugins: {
               tooltip: {
                 callbacks: {
@@ -2080,7 +2102,10 @@ async function boot(){
               },
               legend: {
                 display: true,
-                position: 'bottom'
+                position: 'bottom',
+                labels: {
+                  padding: 20
+                }
               }
             },
             scales: {
