@@ -1284,8 +1284,7 @@ ALERT
   chmod +x "${SCRIPTS_DIR}/traffic-alert.sh"
 
 # 控制面板（完整版：修正数据获取和协议详情弹窗）
-# 控制面板（完整版：修正JS语法错误）
-# 控制面板（完整版：修正JS语法错误）
+# 控制面板（完整版：按要求修正布局和样式）
 cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
 <!doctype html>
 <html lang="zh-CN"><head>
@@ -1303,12 +1302,9 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
 .card .content{padding:16px}
 .small{color:var(--muted);font-size:.9rem}
 .table{width:100%;border-collapse:collapse}.table th,.table td{padding:8px 10px;border-bottom:1px solid var(--border);font-size:.85rem;text-align:left}
-.copy{display:flex;gap:8px;margin:8px 0}.copy input{flex:1;padding:8px;border:1px solid var(--border);border-radius:8px;font-size:.85rem}
 .btn{padding:6px 10px;border:1px solid var(--border);background:#f1f5f9;border-radius:6px;cursor:pointer;font-size:.85rem;white-space:nowrap}
 .btn:hover{background:#e2e8f0}
 .badge{display:inline-block;border:1px solid var(--border);border-radius:999px;padding:2px 8px;font-size:.8rem;margin-right:6px}
-.chart{position:relative;height:320px}
-.monthly-chart{position:relative;height:400px}
 
 /* 横向分块布局 */
 .info-blocks{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:16px}
@@ -1326,22 +1322,30 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
 .notification-item:last-child{border-bottom:none}
 
 /* 出站分流标签页 */
-.shunt-modes{display:flex;gap:8px;margin-bottom:12px}
-.shunt-mode-tab{padding:6px 12px;border:1px solid var(--border);border-radius:6px;font-size:.85rem;font-weight:500;cursor:pointer;background:#f8fafc;color:#64748b;transition:all 0.2s}
+.shunt-modes{display:flex;gap:8px;margin-bottom:12px;flex-wrap:nowrap}
+.shunt-mode-tab{padding:6px 12px;border:1px solid var(--border);border-radius:6px;font-size:.85rem;font-weight:500;cursor:pointer;background:#f8fafc;color:#64748b;transition:all 0.2s;white-space:nowrap}
 .shunt-mode-tab:hover{background:#e2e8f0}
 .shunt-mode-tab.active{background:#3b82f6;color:white;border-color:#3b82f6}
 .shunt-mode-tab.active.vps{background:#10b981;border-color:#10b981}
 .shunt-mode-tab.active.resi{background:#6b7280;border-color:#6b7280}
 .shunt-mode-tab.active.direct-resi{background:#f59e0b;border-color:#f59e0b}
-.shunt-info{display:flex;flex-direction:column;gap:4px}
-.shunt-note{font-size:.75rem;color:var(--muted);margin-top:12px;padding-top:8px;border-top:1px solid var(--border)}
+.shunt-content{display:flex;flex-direction:column;height:100%}
+.shunt-info{display:flex;flex-direction:column;gap:4px;flex:1}
+.shunt-note{font-size:.75rem;color:var(--muted);margin-top:auto;padding-top:8px;border-top:1px solid var(--border)}
 
-/* 复制标签组 */
-.copy-tabs{display:flex;flex-direction:column;gap:8px;margin-top:8px}
-.copy-tab{display:flex;align-items:center;gap:6px}
-.copy-tab label{font-size:.8rem;color:var(--muted);min-width:80px;flex-shrink:0}
-.copy-tab input{flex:1;padding:6px;border:1px solid var(--border);border-radius:4px;font-size:.8rem;font-family:monospace}
-.copy-tab .btn{padding:4px 8px;font-size:.75rem}
+/* 订阅链接样式 */
+.sub-url{width:100%;padding:8px;border:1px solid var(--border);border-radius:8px;font-size:.85rem;font-family:monospace;background:#f8fafc;margin:8px 0}
+.sub-actions{display:flex;gap:8px;margin-top:8px}
+.sub-actions .btn{flex:1}
+
+/* 流量统计样式 */
+.traffic-card{position:relative}
+.traffic-progress{position:absolute;top:16px;right:16px;width:200px;background:#f1f5f9;border-radius:8px;padding:8px;font-size:.8rem}
+.progress-bar{width:100%;height:8px;background:#e2e8f0;border-radius:4px;overflow:hidden;margin:4px 0}
+.progress-fill{height:100%;background:linear-gradient(90deg,#10b981,#f59e0b,#ef4444);border-radius:4px;transition:width 0.3s}
+.traffic-charts{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:40px}
+.chart-container{position:relative;height:320px}
+@media(max-width:980px){.traffic-charts{grid-template-columns:1fr}.traffic-progress{position:static;width:100%;margin-bottom:16px}}
 
 /* 命令网格布局 */
 .commands-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
@@ -1427,67 +1431,65 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
     <div class="card">
       <h3>出站分流状态</h3>
       <div class="content">
-        <div class="shunt-modes">
-          <span class="shunt-mode-tab active vps" id="tab-vps" data-mode="vps">VPSIP出站</span>
-          <span class="shunt-mode-tab" id="tab-resi" data-mode="resi">代理IP出站</span>
-          <span class="shunt-mode-tab" id="tab-direct-resi" data-mode="direct-resi">分流(VPS&代理)</span>
+        <div class="shunt-content">
+          <div class="shunt-modes">
+            <span class="shunt-mode-tab active vps" id="tab-vps" data-mode="vps">VPSIP出站</span>
+            <span class="shunt-mode-tab" id="tab-resi" data-mode="resi">代理IP出站</span>
+            <span class="shunt-mode-tab" id="tab-direct-resi" data-mode="direct-resi">分流(VPS&代理)</span>
+          </div>
+          <div class="shunt-info">
+            <div class="small">VPS出站IP: <span id="vps-ip">-</span></div>
+            <div class="small">代理出站IP: <span id="resi-ip">待获取</span></div>
+            <div class="small">白名单: <span id="whitelist-domains">-</span></div>
+          </div>
+          <div class="shunt-note">注：HY2/TUIC为UDP通道，VPS直出，不参与代理IP分流</div>
         </div>
-        <div class="shunt-info">
-          <div class="small">VPS出站IP: <span id="vps-ip">-</span></div>
-          <div class="small">代理出站IP: <span id="resi-ip">待获取</span></div>
-          <div class="small">白名单: <span id="whitelist-domains">-</span></div>
-        </div>
-        <div class="shunt-note">注：HY2/TUIC为UDP通道，VPS直出，不参与代理IP分流</div>
       </div>
     </div>
   </div>
 
-  <!-- 订阅链接（三种复制标签） -->
+  <!-- 订阅链接 -->
   <div class="grid grid-full">
-<div class="card">
-  <h3>订阅链接</h3>
-  <div class="content">
-    <div class="copy-tabs">
-      <div class="copy-tab">
-        <label>明文链接:</label>
-        <textarea id="sub-plain" rows="4" readonly></textarea>
-        <button class="btn" onclick="copySub('plain')">复制</button>
-      </div>
-      <div class="copy-tab">
-        <label>Base64:</label>
-        <textarea id="sub-b64" rows="2" readonly></textarea>
-        <button class="btn" onclick="copySub('b64')">复制</button>
-      </div>
-      <div class="copy-tab">
-        <label>B64逐行:</label>
-        <textarea id="sub-b64lines" rows="3" readonly></textarea>
-        <button class="btn" onclick="copySub('b64lines')">复制</button>
+    <div class="card">
+      <h3>订阅链接</h3>
+      <div class="content">
+        <input type="text" id="sub-url" class="sub-url" readonly placeholder="订阅链接将在此显示...">
+        <div class="sub-actions">
+          <button class="btn" onclick="copySubscription()">复制订阅</button>
+          <button class="btn" onclick="openInBrowser()">浏览器打开</button>
+        </div>
       </div>
     </div>
   </div>
-</div>
 
   <!-- 流量统计 -->
   <div class="grid grid-full">
-    <div class="card">
-      <h3>近30日出站流量曲线图</h3>
+    <div class="card traffic-card">
+      <h3>流量统计
+        <div class="traffic-progress" id="traffic-progress">
+          <div>本月流量进度</div>
+          <div class="progress-bar">
+            <div class="progress-fill" id="progress-fill" style="width:0%"></div>
+          </div>
+          <div id="progress-text">0 / 100 GiB (0%)</div>
+        </div>
+      </h3>
       <div class="content">
-        <canvas id="traffic" class="chart"></canvas>
+        <div class="traffic-charts">
+          <div class="chart-container">
+            <h4 style="text-align:center;margin:0 0 10px 0;color:#64748b">近30日出站流量</h4>
+            <canvas id="traffic" style="height:280px"></canvas>
+          </div>
+          <div class="chart-container">
+            <h4 style="text-align:center;margin:0 0 10px 0;color:#64748b">近12个月累计流量</h4>
+            <canvas id="monthly-chart" style="height:280px"></canvas>
+          </div>
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- 月累计流量柱形图 -->
-  <div class="grid grid-full">
-    <div class="card">
-      <h3>近12个月累计流量柱形图</h3>
-      <div class="content">
-        <canvas id="monthly-chart" class="monthly-chart"></canvas>
-      </div>
-    </div>
-  </div>
-
-  <!-- 管理命令（保持原样） -->
+  <!-- 管理命令 -->
   <div class="grid grid-full">
     <div class="card"><h3>常用管理命令</h3>
       <div class="content">
@@ -1598,7 +1600,7 @@ function closeModal() {
   el('protocol-modal').classList.remove('show');
 }
 
-// 安全取值函数（修复重复定义问题）
+// 安全取值函数
 function getSafe(obj, path, fallback) {
   try {
     var cur = obj;
@@ -1802,21 +1804,9 @@ async function boot(){
       notifList.textContent = '暂无通知';
     }
 
-    // 订阅链接处理 - 保持逐行格式
-    const subLines = (subTxt||'').trim().split('\n')
-      .map(function(l) { return l.trim(); })
-      .filter(function(l) { return /^vless:|^hysteria2:|^tuic:|^trojan:/.test(l); });
-
-    // 明文订阅 - 逐行显示
-    el('sub-plain').value = subLines.join('\n');
-    
-    // Base64整包
-    const b64Sub = btoa(unescape(encodeURIComponent(subLines.join('\n'))));
-    el('sub-b64').value = b64Sub;
-    
-    // Base64逐行 - 每个链接单独编码，换行分隔
-    const b64Lines = subLines.map(function(l) { return btoa(unescape(encodeURIComponent(l))); }).join('\n');
-    el('sub-b64lines').value = b64Lines;
+    // 订阅链接处理 - 恢复为截图样式
+    const subUrl = 'http://' + (panel && panel.server && panel.server.ip || window.location.hostname) + '/sub';
+    el('sub-url').value = subUrl;
 
     // 面板数据
     if(panel){
@@ -1844,17 +1834,17 @@ async function boot(){
       el('ver').textContent = s.version || '-';
       el('inst').textContent = s.install_date || '-';
       
-      // 协议配置表格 - 添加点击事件
+      // 协议配置表格
       const tb = document.querySelector('#proto tbody');
       tb.innerHTML='';
       
       const protocols = [
-        { name: 'VLESS-Reality', network: 'TCP', port: '443', disguise: '极佳', scenario: '审查最严格的网络环境' },
-        { name: 'VLESS-gRPC', network: 'TCP/H2', port: '443', disguise: '极佳', scenario: '审查严格的网络环境' },
-        { name: 'VLESS-WS', network: 'TCP/WS', port: '443', disguise: '良好', scenario: '一般网络环境，稳定性佳' },
-        { name: 'Trojan-TLS', network: 'TCP', port: '443', disguise: '良好', scenario: '移动网络和复杂环境的可靠备选' },
-        { name: 'Hysteria2', network: 'UDP/QUIC', port: '443', disguise: '良好', scenario: '需要高速传输的场景' },
-        { name: 'TUIC', network: 'UDP/QUIC', port: '2053', disguise: '好', scenario: '移动网络和不稳定连接' }
+        { name: 'VLESS-Reality', network: 'TCP', port: '443', disguise: '极佳', scenario: '强审查环境' },
+        { name: 'VLESS-gRPC', network: 'TCP/H2', port: '443', disguise: '极佳', scenario: '较严审查，走CDN' },
+        { name: 'VLESS-WS', network: 'TCP/WS', port: '443', disguise: '良好', scenario: '常规网络更稳' },
+        { name: 'Trojan-TLS', network: 'TCP', port: '443', disguise: '良好', scenario: '移动网络可靠' },
+        { name: 'Hysteria2', network: 'UDP/QUIC', port: '443', disguise: '良好', scenario: '大带宽/低时延' },
+        { name: 'TUIC', network: 'UDP/QUIC', port: '2053', disguise: '好', scenario: '弱网/高丢包更佳' }
       ];
       
       protocols.forEach(function(p) {
@@ -1905,6 +1895,17 @@ async function boot(){
       }
     }
 
+    // 更新流量进度条
+    if(tjson && tjson.monthly && tjson.monthly.length > 0) {
+      const currentMonth = tjson.monthly[tjson.monthly.length - 1];
+      const totalUsed = (currentMonth.total || 0) / GiB;
+      const budget = 100; // 默认预算，可以从配置读取
+      const percentage = Math.min((totalUsed / budget) * 100, 100);
+      
+      el('progress-fill').style.width = percentage + '%';
+      el('progress-text').textContent = totalUsed.toFixed(1) + ' / ' + budget + ' GiB (' + percentage.toFixed(0) + '%)';
+    }
+
     // 流量图表
     if(tjson){
       const labels = (tjson.last30d||[]).map(function(x) { return x.date; });
@@ -1923,6 +1924,12 @@ async function boot(){
         options:{
           responsive:true,
           maintainAspectRatio:false,
+          plugins: {
+            legend: {
+              display: true,
+              position: 'bottom'
+            }
+          },
           scales:{
             y:{
               ticks:{
@@ -1966,26 +1973,6 @@ async function boot(){
           options: {
             responsive: true,
             maintainAspectRatio: false,
-            scales: {
-              x: {
-                title: {
-                  display: true,
-                  text: '月份'
-                }
-              },
-              y: {
-                stacked: true,
-                title: {
-                  display: true,
-                  text: '流量 (GiB)'
-                },
-                ticks: {
-                  callback: function(value) {
-                    return value.toFixed(1) + ' GiB';
-                  }
-                }
-              }
-            },
             plugins: {
               tooltip: {
                 callbacks: {
@@ -2005,7 +1992,20 @@ async function boot(){
               },
               legend: {
                 display: true,
-                position: 'top'
+                position: 'bottom'
+              }
+            },
+            scales: {
+              x: {
+                stacked: true
+              },
+              y: {
+                stacked: true,
+                ticks: {
+                  callback: function(value) {
+                    return value.toFixed(1) + ' GiB';
+                  }
+                }
               }
             },
             interaction: {
@@ -2045,24 +2045,6 @@ function copySubscription() {
 function openInBrowser() {
   const url = el('sub-url').value;
   window.open(url, '_blank');
-}
-
-// 复制函数（保留备用）
-function copySub(type) {
-  const input = el('sub-' + type);
-  input.select();
-  document.execCommand('copy');
-  
-  const btn = input.nextElementSibling;
-  const originalText = btn.textContent;
-  btn.textContent = '已复制';
-  btn.style.background = '#10b981';
-  btn.style.color = 'white';
-  setTimeout(function() {
-    btn.textContent = originalText;
-    btn.style.background = '';
-    btn.style.color = '';
-  }, 1000);
 }
 
 // 启动
