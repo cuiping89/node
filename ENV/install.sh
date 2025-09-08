@@ -493,7 +493,6 @@ http {
 
     location = / { return 302 /traffic/; }
     location = /sub { default_type text/plain; root /var/www/html; }
-    location ^~ /traffic/ { alias /etc/edgebox/traffic/; autoindex off; }
 	location ^~ /traffic/ {
     alias /etc/edgebox/traffic/;
     autoindex off;
@@ -2158,11 +2157,17 @@ WEB_ROOT=/var/www/html
 mkdir -p "$TRAFFIC_DIR" "$WEB_ROOT"
 # 订阅文件：优先用已有的 subscription.txt，没有就让 edgeboxctl 现生
 if [[ -s ${CONFIG_DIR}/subscription.txt ]]; then
-  cp -f ${CONFIG_DIR}/subscription.txt ${WEB_ROOT}/sub
+  # 若 /var/www/html/sub 已存在且指向同一文件，跳过；否则原子替换
+  if [[ -e ${WEB_ROOT}/sub ]] && \
+     [[ "$(readlink -f ${WEB_ROOT}/sub 2>/dev/null)" == "$(readlink -f ${CONFIG_DIR}/subscription.txt 2>/dev/null)" ]]; then
+    : # same file → do nothing
+  else
+    # 用 install 替换目标（会先移除已有文件/软链，避免 “are the same file”）
+    install -m 0644 -T "${CONFIG_DIR}/subscription.txt" "${WEB_ROOT}/sub"
+  fi
 else
-  # 让 edgeboxctl 生成并回填 /var/www/html/sub（不会报错就行）
   /usr/local/bin/edgeboxctl sub >/dev/null 2>&1 || true
-  [[ -s ${WEB_ROOT}/sub ]] || touch ${WEB_ROOT}/sub
+  [[ -s ${WEB_ROOT}/sub ]] || : > "${WEB_ROOT}/sub"
 fi
 
 # 先跑一遍三件套，保证页面初次打开就有内容
@@ -3972,9 +3977,14 @@ main() {
     if [[ -x "${SCRIPTS_DIR}/traffic-collector.sh" ]]; then
         "${SCRIPTS_DIR}/traffic-collector.sh" >/dev/null 2>&1 || true
     fi
-	# 首次产出 system.json / panel.json，让页面一打开就有数据
+
+# 先产出最不依赖其它的 system.json
 ${SCRIPTS_DIR}/system-stats.sh  || true
+# 再产出 traffic.json（daily/monthly）
+${SCRIPTS_DIR}/traffic-collector.sh || true
+# 最后产出 panel.json（会读取 shunt 与证书状态）
 ${SCRIPTS_DIR}/panel-refresh.sh || true
+
 
 	# 在安装收尾输出总结信息（原来没调用）
     show_installation_info
