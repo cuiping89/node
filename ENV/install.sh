@@ -1295,7 +1295,7 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
 .container{max-width:1200px;margin:0 auto;padding:20px}
 .grid{display:grid;gap:16px;margin-bottom:16px;}
 .grid-full{grid-template-columns:1fr}
-.grid-70-30{grid-template-columns:6fr 4fr}@media(max-width:980px){.grid-70-30{grid-template-columns:1fr}}
+.grid-70-30{grid-template-columns:6.18fr 3.82fr}@media(max-width:980px){.grid-70-30{grid-template-columns:1fr}}
 .card{background:var(--card);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow);overflow:hidden;position:relative}
 .card h3{margin:0;padding:12px 16px;border-bottom:1px solid var(--border);font-size:1rem;display:flex;justify-content:space-between;align-items:center}
 .card .content{padding:16px}
@@ -1328,9 +1328,9 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
 .shunt-mode-tab.active.vps{background:#10b981;border-color:#10b981}
 .shunt-mode-tab.active.resi{background:#6b7280;border-color:#6b7280}
 .shunt-mode-tab.active.direct-resi{background:#f59e0b;border-color:#f59e0b}
-.shunt-content{display:flex;flex-direction:column;min-height:180px}
+.shunt-content{display:flex;flex-direction:column;min-height:180px;} /* 提高最小高度，让底部有“落脚点” */
 .shunt-info{display:flex;flex-direction:column;gap:4px;flex:1}
-.shunt-note{margin-top:auto;padding-top:8px;border-top:1px solid var(--border);}
+.shunt-note{margin-top:auto;padding-top:8px;border-top:1px solid var(--border);} /* 固定到底部并加分隔线 */
 
 /* 订阅链接样式 - 严格按照截图 */
 .sub-row{display:flex;gap:8px;align-items:center;margin-bottom:8px}
