@@ -995,6 +995,33 @@ LOG_DIR="$TRAFFIC_DIR/logs"
 STATE="${TRAFFIC_DIR}/.state"
 mkdir -p "$LOG_DIR"
 
+# 产出 /etc/edgebox/scripts/system-stats.sh（供面板读 CPU/内存）
+cat > "${SCRIPTS_DIR}/system-stats.sh" <<'SYS'
+#!/bin/bash
+set -euo pipefail
+TRAFFIC_DIR="/etc/edgebox/traffic"
+mkdir -p "$TRAFFIC_DIR"
+
+# 两次采样 CPU（/proc/stat）
+read _ a b c idle rest < /proc/stat
+t1=$((a+b+c+idle)); i1=$idle
+sleep 1
+read _ a b c idle rest < /proc/stat
+t2=$((a+b+c+idle)); i2=$idle
+dt=$((t2-t1)); di=$((i2-i1))
+cpu=$(( dt>0 ? (100*(dt-di) + dt/2) / dt : 0 ))
+
+# 内存（MemTotal / MemAvailable）
+mt=$(awk '/MemTotal/{print $2}' /proc/meminfo)
+ma=$(awk '/MemAvailable/{print $2}' /proc/meminfo)
+mem=$(( mt>0 ? (100*(mt-ma) + mt/2) / mt : 0 ))
+
+# 写 JSON（百分比整数）
+jq -n --arg ts "$(date -Is)" --argjson cpu "$cpu" --argjson memory "$mem" \
+  '{updated_at:$ts,cpu:$cpu,memory:$memory}' > "${TRAFFIC_DIR}/system.json"
+SYS
+chmod +x "${SCRIPTS_DIR}/system-stats.sh"
+
 # 1) 识别默认出网网卡
 IFACE="$(ip route | awk '/default/{print $5;exit}')"
 [[ -z "$IFACE" ]] && IFACE="$(ip -o -4 addr show scope global | awk '{print $2;exit}')"
@@ -1067,7 +1094,7 @@ cat > "${SCRIPTS_DIR}/panel-refresh.sh" <<'PANEL'
 set -euo pipefail
 TRAFFIC_DIR="/etc/edgebox/traffic"
 SCRIPTS_DIR="/etc/edgebox/scripts"
-SHUNT_DIR="/etc/edgebox/shunt"
+SHUNT_DIR="/etc/edgebox/config/shunt"
 CONFIG_DIR="/etc/edgebox/config"
 mkdir -p "$TRAFFIC_DIR"
 
@@ -2239,6 +2266,9 @@ chmod +x /etc/edgebox/scripts/traffic-alert.sh
     echo "5 * * * * /etc/edgebox/scripts/panel-refresh.sh"
     echo "7 * * * * /etc/edgebox/scripts/traffic-alert.sh"
   ) | crontab - 2>/dev/null || true
+# 每分钟更新 CPU/内存
+( crontab -l 2>/dev/null | grep -v '/etc/edgebox/scripts/system-stats.sh' ; \
+  echo "*/1 * * * * /etc/edgebox/scripts/system-stats.sh" ) | crontab -
 
   log_success "cron 已配置（每小时采集 + 刷新面板 + 阈值预警）"
 }
@@ -2392,41 +2422,68 @@ get_server_info() {
 #############################################
 
 # === 订阅：统一生成 + 落盘 + 对外暴露 ===
-SUB_TXT="/etc/edgebox/traffic/sub.txt"             # 规范文件
-WEB_SUB="/var/www/html/sub"                         # Web 根下的 /sub
-
+SUB_TXT="/etc/edgebox/traffic/sub.txt"     # 规范内部文件（可不直接使用）
+WEB_SUB="/var/www/html/sub"                 # Web 根下暴露 /sub
 ensure_traffic_dir(){ mkdir -p /etc/edgebox/traffic; }
 
-# 用你现有的生成逻辑替换这里，确保 echo 出所有协议链接（逐行）
+# 优先读取安装阶段写入的 subscription.txt；没有就根据 cert 模式现生成
 build_sub_payload(){
-  # 示例：如果你已有专门函数/变量请直接用它们
-  # printf "%s\n" "$VLESS_REALITY" "$VLESS_GRPC" "$VLESS_WS" "$TROJAN" "$HY2" "$TUIC"
-  cat /etc/edgebox/traffic/sub.src 2>/dev/null || true
+  # 已有订阅（安装时 generate_subscription() 写入）
+  if [[ -s "${CONFIG_DIR}/subscription.txt" ]]; then
+    cat "${CONFIG_DIR}/subscription.txt"
+    return 0
+  fi
+
+  # 没有就按当前证书模式生成
+  local mode
+  mode="$(get_current_cert_mode 2>/dev/null || echo self-signed)"
+  if [[ -f "${CONFIG_DIR}/server.json" ]]; then
+    if [[ "$mode" == "self-signed" ]]; then
+      regen_sub_ip
+    else
+      # letsencrypt:<domain>
+      local domain="${mode##*:}"
+      [[ -n "$domain" ]] && regen_sub_domain "$domain" || regen_sub_ip
+    fi
+    # 生成后必然存在
+    [[ -s "${CONFIG_DIR}/subscription.txt" ]] && cat "${CONFIG_DIR}/subscription.txt"
+  fi
 }
 
 show_sub(){
   ensure_traffic_dir
-  payload="$(build_sub_payload)"
+  local payload; payload="$(build_sub_payload)"
   if [[ -z "$payload" ]]; then
-    echo "[WARN] 订阅内容为空，请检查订阅生成逻辑（build_sub_payload）"; return 0
+    echo "订阅尚未生成，检查 ${CONFIG_DIR}/server.json / 证书模式" >&2
+    exit 1
   fi
 
-  # 1) 统一写到规范文件
-  printf "%s\n" "$payload" > "$SUB_TXT"
-  chmod 644 "$SUB_TXT"
+  # 逐行 → Base64(整包) / Base64(逐行)
+  _b64_line(){ if base64 --help 2>&1 | grep -q -- '-w'; then base64 -w0; else base64 | tr -d '\n'; fi; }
+  _ensure_nl(){ sed -e '$a\'; }
 
-  # 2) 让 /sub 指向同一个文件（优先做软链，失败就拷贝一份）
-  mkdir -p "$(dirname "$WEB_SUB")"
-  ln -sf "$SUB_TXT" "$WEB_SUB" 2>/dev/null || cp -f "$SUB_TXT" "$WEB_SUB"
-  chmod 644 "$WEB_SUB"
+  : > "${CONFIG_DIR}/subscription.b64lines"
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    printf '%s\n' "$line" | _ensure_nl | _b64_line >> "${CONFIG_DIR}/subscription.b64lines"
+    printf '\n' >> "${CONFIG_DIR}/subscription.b64lines"
+  done <<<"$payload"
+  _ensure_nl <<<"$payload" | _b64_line > "${CONFIG_DIR}/subscription.base64"
 
-  # 3) 回显地址
-  host="$(awk '/server_name/{print $2}' /etc/nginx/sites-enabled/*.conf /etc/nginx/conf.d/*.conf 2>/dev/null | head -n1 | tr -d ';')"
-  [[ -z "$host" ]] && host="$(curl -fsS4 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')"
-  echo "订阅链接: http://${host}/sub"
+  # Web /sub：第一段是明文逐行（保持换行），其后展示 Base64 两种
+  mkdir -p /var/www/html
+  {
+    printf '%s\n\n' "$payload"
+    echo "# Base64逐行（每行一个协议，不同客户端兼容性较差）"
+    cat "${CONFIG_DIR}/subscription.b64lines"
+    echo
+    echo "# Base64整包（六协议一起导入，iOS 常用）"
+    cat "${CONFIG_DIR}/subscription.base64"
+    echo
+  } > "${WEB_SUB}"
 
-  # 4) 友好提示
-  echo "[INFO] 订阅已写入: $SUB_TXT ；Web: $WEB_SUB"
+  # 控制台也打印一份明文，便于直接复制
+  printf '%s\n' "$payload"
 }
 
 show_status() {
@@ -3883,7 +3940,10 @@ main() {
     if [[ -x "${SCRIPTS_DIR}/traffic-collector.sh" ]]; then
         "${SCRIPTS_DIR}/traffic-collector.sh" >/dev/null 2>&1 || true
     fi
-	
+	# 首次产出 system.json / panel.json，让页面一打开就有数据
+${SCRIPTS_DIR}/system-stats.sh  || true
+${SCRIPTS_DIR}/panel-refresh.sh || true
+
 	# 在安装收尾输出总结信息（原来没调用）
     show_installation_info
 }
