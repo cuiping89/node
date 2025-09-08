@@ -1269,8 +1269,6 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
 .card .content{padding:16px}
 .small{color:var(--muted);font-size:.9rem}
 .table{width:100%;border-collapse:collapse}.table th,.table td{padding:8px 10px;border-bottom:1px solid var(--border);font-size:.85rem;text-align:left}
-.copy{display:flex;align-items:center;gap:8px;margin:8px 0}
-.copy textarea{min-height:120px}
 .copy input,.copy textarea{flex:1;padding:8px;border:1px solid var(--border);border-radius:8px;font-family:ui-monospace,monospace;white-space:pre}
 .btn{padding:6px 10px;border:1px solid var(--border);background:#f1f5f9;border-radius:6px;cursor:pointer;font-size:.85rem;white-space:nowrap}
 .btn:hover{background:#e2e8f0}
@@ -1396,30 +1394,20 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
     </div>
   </div>
 
-<!-- 订阅链接 -->
-<div class="grid grid-full">
-  <div class="card">
-    <h3>订阅链接</h3>
-    <div class="content">
-      <div class="copy">
-        <label>明文链接</label>
-        <input id="sub-plain" readonly>
-        <button class="btn" onclick="copy('sub-plain')">复制</button>
-      </div>
+  <!-- 订阅链接（三种复制标签） -->
+<div class="copy" style="margin-bottom:10px">
+  <input id="sub" readonly>
+  <button class="btn" onclick="copy('sub')">复制</button>
+</div>
 
-      <div class="copy">
-        <label>Base64</label>
-        <input id="sub-base64" readonly>
-        <button class="btn" onclick="copy('sub-base64')">复制</button>
-      </div>
+<div class="copy" style="margin-bottom:10px">
+  <textarea id="sub-plain" rows="8" spellcheck="false" wrap="off" readonly></textarea>
+  <button class="btn" onclick="copy('sub-plain')">复制</button>
+</div>
 
-      <div class="copy">
-        <label>Base64分行</label>
-        <input id="sub-b64lines" readonly>
-        <button class="btn" onclick="copy('sub-b64lines')">复制</button>
-      </div>
-    </div>
-  </div>
+<div class="copy">
+  <textarea id="sub-b64lines" rows="8" spellcheck="false" wrap="off" readonly></textarea>
+  <button class="btn" onclick="copy('sub-b64lines')">复制</button>
 </div>
 
   <!-- 流量统计 -->
@@ -1572,36 +1560,16 @@ async function boot(){
     notifList.textContent = '暂无通知';
   }
 
-// === 订阅链接处理（修复版） ===
-const subUrl = location.origin + '/sub';
-el('sub').value = subUrl;
-
-// 处理明文订阅内容
-if (subTxt && subTxt.trim()) {
-  // 从完整的订阅文件中提取明文链接部分
-  const lines = subTxt.split('\n');
-  const plainSection = [];
-  let inPlainSection = true;
+// 订阅链接处理（只取“# Base64”之前的明文段，忽略下面两个Base64段）
+const plainBlock = (subTxt || '').split('\n# Base64')[0].trim();
+const subLines   = plainBlock.split('\n').filter(l => /^(vless|trojan|hysteria2|tuic):\/\//.test(l));
+const plainSub   = subLines.join('\n');
+const b64Sub     = btoa(unescape(encodeURIComponent(plainSub)));
+const b64Lines   = subLines.map(l => btoa(unescape(encodeURIComponent(l)))).join('\n');
   
-  for (const line of lines) {
-    const trimmed = line.trim();
-if (trimmed.startsWith('#')) {
-      inPlainSection = false;
-      break;
-    }
-    if (inPlainSection && trimmed && /^(vless|trojan|hysteria2|tuic):\/\//i.test(trimmed)) {
-      plainSection.push(trimmed);
-    }
-  }
-  
-  if (plainSection.length > 0) {
-    el('sub-plain').value = plainSection.join('\n');
-  } else {
-    el('sub-plain').value = '订阅内容为空，请运行: edgeboxctl sub';
-  }
-} else {
-  el('sub-plain').value = '正在获取订阅内容...';
-}
+  el('sub-plain').value = plainSub;
+  el('sub-b64').value = b64Sub;
+  el('sub-b64lines').value = b64Lines;
 
   // 面板数据
   if(panel){
@@ -1825,19 +1793,21 @@ if (trimmed.startsWith('#')) {
 }
 
 // 复制函数
-function copy(id){
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.select();
-  document.execCommand('copy');
-  const btn = el.nextElementSibling;
-  if (btn) {
-    const t = btn.textContent;
-    btn.textContent = '已复制';
-    btn.style.background = '#10b981';
-    btn.style.color = '#fff';
-    setTimeout(() => { btn.textContent = t; btn.style.background = ''; btn.style.color = ''; }, 900);
-  }
+function copySub(type) {
+  const input = el(`sub-${type}`);
+  input.select();
+  document.execCommand('copy'); 
+  // 简单的视觉反馈
+  const btn = input.nextElementSibling;
+  const originalText = btn.textContent;
+  btn.textContent = '已复制';
+  btn.style.background = '#10b981';
+  btn.style.color = 'white';
+  setTimeout(() => {
+    btn.textContent = originalText;
+    btn.style.background = '';
+    btn.style.color = '';
+  }, 1000);
 }
 
 boot();
@@ -2130,47 +2100,48 @@ get_server_info() {
 #############################################
 # 基础功能
 #############################################
-# ---- 订阅生成：统一“生成 -> 写入 -> 暴露” ----
-SUB_TXT="/etc/edgebox/traffic/sub.txt"
-WEB_SUB="/var/www/html/sub"
+
+# === 订阅：统一生成 + 落盘 + 对外暴露 ===
+SUB_TXT="/etc/edgebox/traffic/sub.txt"             # 规范文件
+WEB_SUB="/var/www/html/sub"                         # Web 根下的 /sub
 
 ensure_traffic_dir(){ mkdir -p /etc/edgebox/traffic; }
 
+# 用你现有的生成逻辑替换这里，确保 echo 出所有协议链接（逐行）
 build_sub_payload(){
-  # 优先用你真正产出明文的地方（按你机子现状兜底三处）
+  # 优先读规范文件；没有就从 /var/www/html/sub 取「# Base64」以上的明文段
   if [[ -s /etc/edgebox/config/subscription.txt ]]; then
     cat /etc/edgebox/config/subscription.txt
-  elif [[ -s "$WEB_SUB" ]]; then
-    # 只取 “# Base64 …” 以上的明文段
-    awk '/^# Base64/{exit} {print}' "$WEB_SUB" | sed '/^\s*$/d'
-  elif [[ -s "$SUB_TXT" ]]; then
-    awk '/^# Base64/{exit} {print}' "$SUB_TXT" | sed '/^\s*$/d'
+  elif [[ -s /var/www/html/sub ]]; then
+    awk '/^# Base64/{exit} {print}' /var/www/html/sub | sed '/^\s*$/d'
   else
-    return 1
+    return 0
   fi
 }
 
 show_sub(){
-  set +e
   ensure_traffic_dir
-  payload="$(build_sub_payload 2>/dev/null || true)"
+  payload="$(build_sub_payload)"
+  if [[ -z "$payload" ]]; then
+    echo "[WARN] 订阅内容为空，请检查订阅生成逻辑（build_sub_payload）"; return 0
+  fi
 
-  # 先打印链接；即便 payload 为空也给出链接与提示
+  # 1) 统一写到规范文件
+  printf "%s\n" "$payload" > "$SUB_TXT"
+  chmod 644 "$SUB_TXT"
+
+  # 2) 让 /sub 指向同一个文件（优先做软链，失败就拷贝一份）
+  mkdir -p "$(dirname "$WEB_SUB")"
+  ln -sf "$SUB_TXT" "$WEB_SUB" 2>/dev/null || cp -f "$SUB_TXT" "$WEB_SUB"
+  chmod 644 "$WEB_SUB"
+
+  # 3) 回显地址
   host="$(awk '/server_name/{print $2}' /etc/nginx/sites-enabled/*.conf /etc/nginx/conf.d/*.conf 2>/dev/null | head -n1 | tr -d ';')"
   [[ -z "$host" ]] && host="$(curl -fsS4 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')"
   echo "订阅链接: http://${host}/sub"
 
-  if [[ -n "${payload// }" ]]; then
-    printf "%s\n" "$payload" \
-      | awk '/^(vless|trojan|hysteria2|tuic):\/\//{print}' \
-      | awk '!x[$0]++' > "$SUB_TXT"
-    chmod 644 "$SUB_TXT"
-    ln -sf "$SUB_TXT" "$WEB_SUB" 2>/dev/null || cp -f "$SUB_TXT" "$WEB_SUB"
-    chmod 644 "$WEB_SUB"
-    echo "[INFO] 订阅已写入: $SUB_TXT ; Web: $WEB_SUB"
-  else
-    echo "[WARN] 订阅内容为空（未生成任何 vless/trojan/hysteria2/tuic 链接）"
-  fi
+  # 4) 友好提示
+  echo "[INFO] 订阅已写入: $SUB_TXT ；Web: $WEB_SUB"
 }
 
 show_status() {
@@ -3211,7 +3182,6 @@ show_config(){
 case "$1" in
   # 基础功能
   sub|subscription) show_sub ;;
-  sub) show_sub ;;
   status) show_status ;;
   restart) restart_services ;;
   logs|log) show_logs "$2" ;;
