@@ -502,12 +502,13 @@ http {
     # 控制面板与数据
     location ^~ /traffic/ {
       alias /etc/edgebox/traffic/;
+      index  index.html;                 # ← 新增：保证 /traffic/ 能出 index.html
       autoindex off;
       add_header Cache-Control "no-store" always;
-      types {
-        text/html                 html;
-        application/json          json;
-        text/plain                txt;
+      types {                            # 保证 json/txt/html 的 MIME 正确
+        text/html        html;
+        application/json json;
+        text/plain       txt;
       }
     }
   }
@@ -1206,7 +1207,10 @@ jq -n \
            cert_mode:$cert_mode,cert_domain:($cert_domain|select(length>0)),cert_expire:($cert_expire|select(length>0))},
    protocols:$protocols,
    shunt:{mode:$mode,proxy_info:$proxy,health:$health,whitelist:$whitelist}
- }' > "${TRAFFIC_DIR}/panel.json"
+ }'> "${TRAFFIC_DIR}/panel.json"
+
+# 让前端(仅面板)读取一份“影子配置”，避免再去解析 /sub
+cp -f "/etc/edgebox/config/server.json" "${TRAFFIC_DIR}/server.shadow.json" 2>/dev/null || true
 
 # 写订阅复制链接
 proto="http"; addr="$server_ip"
@@ -1438,29 +1442,28 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
 
   <!-- 订阅链接（三种复制标签） -->
   <div class="grid grid-full">
-    <div class="card">
-      <h3>订阅链接</h3>
-      <div class="content">
-        <div class="copy-tabs">
-          <div class="copy-tab">
-            <label>明文链接:</label>
-            <input id="sub-plain" readonly>
-            <button class="btn" onclick="copySub('plain')">复制</button>
-          </div>
-          <div class="copy-tab">
-            <label>Base64:</label>
-            <input id="sub-b64" readonly>
-            <button class="btn" onclick="copySub('b64')">复制</button>
-          </div>
-          <div class="copy-tab">
-            <label>B64逐行:</label>
-            <input id="sub-b64lines" readonly>
-            <button class="btn" onclick="copySub('b64lines')">复制</button>
-          </div>
-        </div>
+<div class="card">
+  <h3>订阅链接</h3>
+  <div class="content">
+    <div class="copy-tabs">
+      <div class="copy-tab">
+        <label>明文链接:</label>
+        <textarea id="sub-plain" rows="4" readonly></textarea>
+        <button class="btn" onclick="copySub('plain')">复制</button>
+      </div>
+      <div class="copy-tab">
+        <label>Base64:</label>
+        <textarea id="sub-b64" rows="2" readonly></textarea>
+        <button class="btn" onclick="copySub('b64')">复制</button>
+      </div>
+      <div class="copy-tab">
+        <label>B64逐行:</label>
+        <textarea id="sub-b64lines" rows="3" readonly></textarea>
+        <button class="btn" onclick="copySub('b64lines')">复制</button>
       </div>
     </div>
   </div>
+</div>
 
   <!-- 流量统计 -->
   <div class="grid grid-full">
@@ -1835,52 +1838,52 @@ async function getServiceStatus() {
   }
 }
 
-async function boot(){
-  const [subTxt, panel, tjson, alerts, serverJson] = await Promise.all([
-    fetch('/sub',{cache:'no-store'}).then(r=>r.text()).catch(()=>''), 
-    fetch('/traffic/panel.json',{cache:'no-store'}).then(r=>r.json()).catch(()=>null),
-    fetch('/traffic/traffic.json',{cache:'no-store'}).then(r=>r.json()).catch(()=>null),
-    fetch('/traffic/alerts.json',{cache:'no-store'}).then(r=>r.json()).catch(()=>[]),
-    fetch('/sub',{cache:'no-store'}).then(async r => {
-      // 从订阅文件解析服务器配置
-      const text = await r.text();
-      const lines = text.split('\n').filter(l => l.startsWith('vless://') || l.startsWith('hysteria2://') || l.startsWith('tuic://') || l.startsWith('trojan://'));
-      const config = {};
-      
-      // 解析第一条VLESS获取UUID和Reality配置
-      if (lines[0]) {
-        const url = new URL(lines[0]);
-        config.uuid = { vless: url.username };
-        const params = new URLSearchParams(url.search);
-        config.reality = {
-          public_key: params.get('pbk'),
-          short_id: params.get('sid')
-        };
-        config.server_ip = url.hostname;
+async function readServerConfig() {
+  try {
+    const r = await fetch('/traffic/server.shadow.json', {cache:'no-store'});
+    if (r.ok) return await r.json();
+  } catch(_) {}
+
+  try {
+    const txt = await fetch('/sub', {cache:'no-store'}).then(r=>r.text());
+    const lines = txt.split('\n').map(l=>l.trim())
+      .filter(l => /^vless:|^hysteria2:|^tuic:|^trojan:/.test(l));
+
+    const cfg = { uuid:{}, password:{}, reality:{} };
+    const v = lines.find(l => l.startsWith('vless://'));
+    if (v) {
+      const m = v.match(/^vless:\/\/([^@]+)@([^:]+):\d+\?([^#]+)/i);
+      if (m) {
+        cfg.uuid.vless = m[1];
+        cfg.server_ip  = m[2];
+        const qs = new URLSearchParams(m[3].replace(/&amp;/g,'&'));
+        cfg.reality.public_key = qs.get('pbk') || '';
+        cfg.reality.short_id   = qs.get('sid') || '';
       }
-      
-      // 解析其他协议获取密码
-      lines.forEach(line => {
-        if (line.startsWith('hysteria2://')) {
-          const match = line.match(/hysteria2:\/\/([^@]+)@/);
-          if (match) config.password = { ...config.password, hysteria2: decodeURIComponent(match[1]) };
-        }
-        if (line.startsWith('tuic://')) {
-          const match = line.match(/tuic:\/\/([^:]+):([^@]+)@/);
-          if (match) {
-            config.uuid = { ...config.uuid, tuic: match[1] };
-            config.password = { ...config.password, tuic: decodeURIComponent(match[2]) };
-          }
-        }
-        if (line.startsWith('trojan://')) {
-          const match = line.match(/trojan:\/\/([^@]+)@/);
-          if (match) config.password = { ...config.password, trojan: decodeURIComponent(match[1]) };
-        }
-      });
-      
-      return config;
-    }).catch(()=>null)
-  ]);
+    }
+    for (const l of lines) {
+      let m;
+      if ((m = l.match(/^hysteria2:\/\/([^@]+)@/i))) cfg.password.hysteria2 = decodeURIComponent(m[1]);
+      if ((m = l.match(/^tuic:\/\/([^:]+):([^@]+)@/i))) {
+        cfg.uuid.tuic = m[1];
+        cfg.password.tuic = decodeURIComponent(m[2]);
+      }
+      if ((m = l.match(/^trojan:\/\/([^@]+)@/i))) cfg.password.trojan = decodeURIComponent(m[1]);
+    }
+    return cfg;
+  } catch(_) { return {}; }
+}
+
+async function boot(){
+const [subTxt, panel, tjson, alerts, serverJson] = await Promise.all([
+  fetch('/sub',{cache:'no-store'}).then(r=>r.text()).catch(()=>''), 
+  fetch('/traffic/panel.json',{cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null),
+  fetch('/traffic/traffic.json',{cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null),
+  fetch('/traffic/alerts.json',{cache:'no-store'}).then(r=>r.ok?r.json():[]).catch(()=>[]),
+  readServerConfig()
+]);
+window.serverConfig = serverJson || {};
+
 
   // 保存服务器配置供协议详情使用
   window.serverConfig = serverJson;
@@ -1912,8 +1915,10 @@ async function boot(){
   }
 
   // 订阅链接处理 - 保持逐行格式
-  const subLines = (subTxt||'').trim().split('\n').filter(l => l && !l.startsWith('#'));
-  
+ const subLines = (subTxt||'').trim().split('\n')
+  .map(l => l.trim())
+  .filter(l => /^vless:|^hysteria2:|^tuic:|^trojan:/.test(l));
+
   // 明文订阅 - 逐行显示
   el('sub-plain').value = subLines.join('\n');
   
