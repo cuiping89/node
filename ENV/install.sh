@@ -2141,6 +2141,30 @@ ln -sfn "${TRAFFIC_DIR}" /var/www/html/traffic
 log_success "流量监控系统设置完成：${TRAFFIC_DIR}/index.html"
 }
 
+TRAFFIC_DIR=/etc/edgebox/traffic
+SCRIPTS_DIR=/etc/edgebox/scripts
+CONFIG_DIR=/etc/edgebox/config
+WEB_ROOT=/var/www/html
+
+mkdir -p "$TRAFFIC_DIR" "$WEB_ROOT"
+# 订阅文件：优先用已有的 subscription.txt，没有就让 edgeboxctl 现生
+if [[ -s ${CONFIG_DIR}/subscription.txt ]]; then
+  cp -f ${CONFIG_DIR}/subscription.txt ${WEB_ROOT}/sub
+else
+  # 让 edgeboxctl 生成并回填 /var/www/html/sub（不会报错就行）
+  /usr/local/bin/edgeboxctl sub >/dev/null 2>&1 || true
+  [[ -s ${WEB_ROOT}/sub ]] || touch ${WEB_ROOT}/sub
+fi
+
+# 先跑一遍三件套，保证页面初次打开就有内容
+${SCRIPTS_DIR}/system-stats.sh  || true
+${SCRIPTS_DIR}/traffic-collector.sh || true
+${SCRIPTS_DIR}/panel-refresh.sh || true
+
+# 权限（让 nginx 可读）
+chmod 644 ${WEB_ROOT}/sub 2>/dev/null || true
+find ${TRAFFIC_DIR} -type f -exec chmod 644 {} \; 2>/dev/null || true
+
 # 设置定时任务
 # 设置定时任务
 setup_cron_jobs() {
