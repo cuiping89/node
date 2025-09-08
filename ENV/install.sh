@@ -1247,7 +1247,6 @@ echo "$new_sent" > "$STATE"
 ALERT
   chmod +x "${SCRIPTS_DIR}/traffic-alert.sh"
 
-# 控制面板（卡片式 UI，读取 /traffic/sub.txt 与 /traffic/traffic.json）
 # 控制面板（完整版：修正数据获取和协议详情弹窗）
 cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
 <!doctype html>
@@ -2400,47 +2399,9 @@ ensure_traffic_dir(){ mkdir -p /etc/edgebox/traffic; }
 
 # 用你现有的生成逻辑替换这里，确保 echo 出所有协议链接（逐行）
 build_sub_payload(){
-  # 从 /etc/edgebox/config/server.json 取变量
-  get_server_info 2>/dev/null || return 0
-
-  # 证书/模式：self-signed 或 letsencrypt:<domain>
-  local mode domain host sni_grpc sni_ws trojan_sni allowInsecure insecure
-  mode="$(get_current_cert_mode)"
-  if [[ "$mode" == letsencrypt:* ]]; then
-    domain="${mode#*:}"
-    host="$domain"
-    sni_grpc="$domain"
-    sni_ws="$domain"
-    trojan_sni="trojan.${domain}"
-    allowInsecure=""      # 域名模式不降级
-    insecure=""
-  else
-    host="$SERVER_IP"
-    sni_grpc="grpc.edgebox.internal"
-    sni_ws="ws.edgebox.internal"
-    trojan_sni="trojan.edgebox.internal"
-    allowInsecure="&allowInsecure=1"  # IP 模式：gRPC/WS/Trojan 关闭校验
-    insecure="&insecure=1"            # IP 模式：HY2 关闭校验
-  fi
-
-  # URL 编码密码（避免 + / = 被截断）
-  local HY2_PW_ENC TUIC_PW_ENC TROJAN_PW_ENC
-  HY2_PW_ENC=$(printf '%s' "$PASSWORD_HYSTERIA2" | jq -rR @uri)
-  TUIC_PW_ENC=$(printf '%s' "$PASSWORD_TUIC"     | jq -rR @uri)
-  TROJAN_PW_ENC=$(printf '%s' "$PASSWORD_TROJAN" | jq -rR @uri)
-
-  # 关键变量缺失则直接退出（避免产出半截链接）
-  [[ -z "$UUID_VLESS" || -z "$UUID_TUIC" || -z "$REALITY_PUBLIC_KEY" || -z "$host" ]] && return 0
-
-  # “明文”6 条，每行一条；不要插注释，粘贴导入更稳定
-  cat <<EOF
-vless://${UUID_VLESS}@${host}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&type=tcp#EdgeBox-REALITY
-vless://${UUID_VLESS}@${host}:443?encryption=none&security=tls&sni=${sni_grpc}&alpn=h2&type=grpc&serviceName=grpc&fp=chrome${allowInsecure}#EdgeBox-gRPC
-vless://${UUID_VLESS}@${host}:443?encryption=none&security=tls&sni=${sni_ws}&host=${sni_ws}&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome${allowInsecure}#EdgeBox-WS
-trojan://${TROJAN_PW_ENC}@${host}:443?security=tls&sni=${trojan_sni}&alpn=http%2F1.1&fp=chrome${allowInsecure}#EdgeBox-TROJAN
-hysteria2://${HY2_PW_ENC}@${host}:443?sni=${host}&alpn=h3${insecure}#EdgeBox-HYSTERIA2
-tuic://${UUID_TUIC}:${TUIC_PW_ENC}@${host}:2053?congestion_control=bbr&alpn=h3&sni=${host}${allowInsecure}#EdgeBox-TUIC
-EOF
+  # 示例：如果你已有专门函数/变量请直接用它们
+  # printf "%s\n" "$VLESS_REALITY" "$VLESS_GRPC" "$VLESS_WS" "$TROJAN" "$HY2" "$TUIC"
+  cat /etc/edgebox/traffic/sub.src 2>/dev/null || true
 }
 
 show_sub(){
