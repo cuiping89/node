@@ -1318,6 +1318,23 @@ echo "备份原文件..."
 
 echo "生成优化版控制面板..."
 
+#!/bin/bash
+# EdgeBox 控制面板HTML完整替换脚本
+# 优化：7:3排版 + 图例留白 + y轴顶部GiB + 注释固定底部 + 本月进度自动刷新
+
+set -euo pipefail
+
+TRAFFIC_DIR="/etc/edgebox/traffic"
+TARGET_FILE="${TRAFFIC_DIR}/index.html"
+
+[[ $EUID -ne 0 ]] && { echo "需要 root 权限"; exit 1; }
+[[ ! -d "$TRAFFIC_DIR" ]] && { echo "EdgeBox 未安装"; exit 1; }
+
+echo "备份原文件..."
+[[ -f "$TARGET_FILE" ]] && cp "$TARGET_FILE" "${TARGET_FILE}.bak.$(date +%s)"
+
+echo "生成优化版控制面板..."
+
 cat > "$TARGET_FILE" <<'HTML'
 <!doctype html>
 <html lang="zh-CN"><head>
@@ -2075,14 +2092,8 @@ async function boot(){
             ]
           },
           options: {
-            plugins: [ebYAxisUnitTop],
             responsive: true,
             maintainAspectRatio: false,
-            layout: {
-              padding: {
-                bottom: 30
-              }
-            },
             plugins: {
               tooltip: {
                 callbacks: {
@@ -2104,21 +2115,23 @@ async function boot(){
                 display: true,
                 position: 'bottom',
                 labels: {
-                  padding: 20
+                  padding: 20,
+                  usePointStyle: true
                 }
               }
             },
             scales: {
               x: {
                 stacked: true,
-                title: {
+                grid: {
                   display: false
                 }
               },
               y: {
                 stacked: true,
-                title: {
-                  display: false
+                grid: {
+                  display: true,
+                  color: '#f1f5f9'
                 },
                 ticks: {
                   callback: function(value) {
@@ -2131,7 +2144,8 @@ async function boot(){
               mode: 'index',
               intersect: false
             }
-          }
+          },
+          plugins: [ebYAxisUnitTop]
         });
       }
     }
@@ -2174,6 +2188,16 @@ setInterval(updateProgressBar, 3600000);
 </body></html>
 HTML
 
+echo "✅ 控制面板HTML替换完成！"
+echo ""
+echo "优化内容："
+echo "  ✓ 流量图表改为 7:3 排版 (6fr 4fr)"
+echo "  ✓ 图表容器增高到 360px，避免图例遮挡"
+echo "  ✓ y轴顶部显示 GiB 单位"
+echo "  ✓ 出站分流注释固定在卡片底部"
+echo "  ✓ 本月进度条每小时自动刷新"
+echo ""
+echo "请刷新浏览器查看效果"
 # 网站根目录映射 + 首次刷新
 mkdir -p "${TRAFFIC_DIR}" /var/www/html
 ln -sfn "${TRAFFIC_DIR}" /var/www/html/traffic
