@@ -469,77 +469,80 @@ configure_nginx() {
   [[ -f /etc/nginx/nginx.conf ]] && cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak
 
   cat > /etc/nginx/nginx.conf <<'NGINX_CONF'
-# 加载动态模块（必须有，才会启用 stream / ssl_preread / stream_map 等）
-include /etc/nginx/modules-enabled/*.conf;
-include /usr/share/nginx/modules/*.conf;
-
+# ----- 全局/模块 -----
 user  www-data;
 worker_processes  auto;
 pid /run/nginx.pid;
+include /etc/nginx/modules-enabled/*.conf;
 
 events { worker_connections 1024; }
 
 http {
   include       /etc/nginx/mime.types;
   default_type  application/octet-stream;
-  sendfile on;
-  access_log /var/log/nginx/access.log;
-  error_log  /var/log/nginx/error.log warn;
+  sendfile      on;
+  access_log    /var/log/nginx/access.log;
+  error_log     /var/log/nginx/error.log warn;
 
   server {
-    listen 0.0.0.0:80 default_server;
-    listen [::]:80   default_server;
+    listen 0.0.0.0:80  default_server;
+    listen [::]:80     default_server;
     server_name _;
 
+    # 根路径跳转到面板
     location = / { return 302 /traffic/; }
-    location = /sub { default_type text/plain; root /var/www/html; }
-	location ^~ /traffic/ {
-    alias /etc/edgebox/traffic/;
-    autoindex off;
-    add_header Cache-Control "no-store" always;
-    types { application/json json; text/plain txt; }
-    default_type application/json;
-}
-location = /sub {
-    default_type text/plain;
-    add_header Cache-Control "no-store" always;
-    root /var/www/html;
-}
+
+    # 只保留一个 /sub（修复：消除重复定义）
+    location = /sub {
+      default_type text/plain;
+      add_header Cache-Control "no-store" always;
+      root /var/www/html;
+    }
+
+    # 控制面板与数据
+    location ^~ /traffic/ {
+      alias /etc/edgebox/traffic/;
+      autoindex off;
+      add_header Cache-Control "no-store" always;
+      types {
+        text/html                 html;
+        application/json          json;
+        text/plain                txt;
+      }
+    }
   }
 }
 
-# === TCP/443：SNI + ALPN 分流（不终止 TLS）===
+# ===== TCP/443：SNI + ALPN 分流（不终止 TLS）=====
 stream {
+  # 1) SNI 分类（Reality 伪装域名 / trojan 子域 / 内部占位域名）
   map $ssl_preread_server_name $svc {
     ~^(www\.cloudflare\.com|www\.apple\.com|www\.microsoft\.com)$  reality;
-    ~^trojan\.  trojan;
-    grpc.edgebox.internal  grpc;
-    ws.edgebox.internal    ws;
+    ~*^trojan\.                                       trojan;
+    grpc\.edgebox\.internal                           grpc;
+    ws\.edgebox\.internal                             ws;
     default "";
   }
 
+  # 2) ALPN -> 上游端口（gRPC/WS/Reality）
   map $ssl_preread_alpn_protocols $by_alpn {
-    ~\bh2\b          127.0.0.1:10085;  # gRPC
-    ~\bhttp/1\.1\b   127.0.0.1:10086;  # WebSocket
-    default          127.0.0.1:11443;  # Reality
+    ~\bh2\b            127.0.0.1:10085;   # gRPC
+    ~\bhttp/1\.1\b     127.0.0.1:10086;   # WebSocket
+    default            127.0.0.1:11443;   # Reality
   }
 
+  # 3) SNI 命中则用 SNI 对应端口，否则回落到 ALPN
   map $svc $upstream_sni {
-    reality  127.0.0.1:11443;
-    trojan   127.0.0.1:10143;
-    grpc     127.0.0.1:10085;
-    ws       127.0.0.1:10086;
-    default  "";
+    reality   127.0.0.1:11443;
+    trojan    127.0.0.1:10143;
+    grpc      127.0.0.1:10085;
+    ws        127.0.0.1:10086;
+    default   "";
   }
-
-  # SNI 命中则用 SNI；否则回落到 ALPN
-  map $upstream_sni $upstream {
-    ""      $by_alpn;
-    default $upstream_sni;
-  }
+  map $upstream_sni $upstream { "" $by_alpn; default $upstream_sni; }
 
   server {
-    listen 0.0.0.0:443 reuseport;
+    listen 0.0.0.0:443 reuseport;  # 仅 TCP；UDP 443 留给 HY2
     ssl_preread on;
     proxy_pass $upstream;
     proxy_connect_timeout 5s;
@@ -548,14 +551,8 @@ stream {
 }
 NGINX_CONF
 
-  if ! nginx -t >/dev/null 2>&1; then
-    log_error "Nginx 配置测试失败，请检查 /etc/nginx/nginx.conf"
-    return 1
-  fi
-  systemctl daemon-reload
-  systemctl enable nginx >/dev/null 2>&1 || true
-  systemctl restart nginx
-  log_success "Nginx 配置完成（443 单端口复用 · SNI+ALPN 分流，80 提供 /traffic 与 /sub）"
+  nginx -t || return 1
+  systemctl enable --now nginx
 }
 
 # 配置Xray
