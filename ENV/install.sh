@@ -1337,28 +1337,27 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
       <div class="content">
         <div class="info-blocks">
           <div class="info-block">
-            <h4>系统状态</h4>
-            <div class="value">CPU: <span id="cpu-usage">15</span>%</div>
-            <div class="value">内存: <span id="mem-usage">45</span>%</div>
-            <div class="small">服务: <span id="svc-status">✓ 运行中</span></div>
+            <h4>服务器负载与网络身份</h4>
+            <div class="value">CPU: <span id="cpu-usage">-</span>%</div>
+            <div class="value">内存: <span id="mem-usage">-</span>%</div>
+            <div class="small">服务器IP: <span id="svc-status">-</span></div>
+			<div class="small">关联域名: <span id="svc-status">-</span></div>
           </div>
           <div class="info-block">
-            <h4>服务器信息</h4>
-            <div class="value">IP : <span id="srv-ip">-</span></div>
-            <div class="small">域名: <span id="domain">-</span></div>
+            <h4>核心服务</h4>
+            <div class="value">Nginx: <span id="srv-ip">active / inactive</span></div>
+            <div class="small">Xray: <span id="domain">active / inactive</span></div>
+			<div class="small">Sing-box: <span id="domain">active / inactive</span></div>
           </div>
           <div class="info-block">
             <h4>证书信息</h4>
-            <div class="value"><span id="cert-mode">-</span></div>
-            <div class="small">到期日期: <span id="cert-exp">-</span></div>
-          </div>
-          <div class="info-block">
-            <h4>伪装域名</h4>
-            <div class="value"><span id="reality-sni">www.cloudflare.com</span></div>
-            <div class="small">Reality 伪装</div>
+			<div class="value">网络模式: <span id="cert-mode">IP模式(自签名)/域名模式(Let's Encrypt签发)</span></div>
+            <div class="value">证书类型: <span id="cert-mode">Let's Encrypt 或 自签名证书</span></div>
+            <div class="small">到期日期: <span id="cert-exp">具体日期</span></div>
+			<div class="small">续期方式: <span id="cert-exp">自动化/手动续期</span></div>
           </div>
         </div>
-        <div class="small">版本号: <span id="ver">-</span> | 安装日期: <span id="inst">-</span> | 更新时间: <span id="updated">-</span></div>
+        <div class="small">版本号: <span id="ver">-</span>  | 安装日期: <span id="inst">-</span>  | 更新时间: <span id="updated">-</span></div>
       </div>
     </div>
   </div>
@@ -1378,14 +1377,14 @@ cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
       <h3>出站分流状态</h3>
       <div class="content">
         <div class="shunt-modes">
-          <span class="shunt-mode-tab active vps" id="tab-vps" data-mode="vps">VPSIP出口</span>
-          <span class="shunt-mode-tab" id="tab-resi" data-mode="resi">代理IP出口</span>
-          <span class="shunt-mode-tab" id="tab-direct-resi" data-mode="direct-resi">智能分流</span>
+          <span class="shunt-mode-tab active vps" id="tab-vps" data-mode="vps">VPSIP出站</span>
+          <span class="shunt-mode-tab" id="tab-resi" data-mode="resi">代理IP出站</span>
+          <span class="shunt-mode-tab" id="tab-direct-resi" data-mode="direct-resi">分流(VPS&代理)</span>
         </div>
         <div class="shunt-info">
           <div class="small">VPS出站IP: <span id="vps-ip">-</span></div>
           <div class="small">代理出站IP: <span id="resi-ip">待获取</span></div>
-          <div class="small">白名单: <span id="wln">0</span> 条</div>
+          <div class="small">白名单列表: <span id="wln">0</span> 条</div>
         </div>
         <div class="small" style="margin-top:12px;padding-top:8px;border-top:1px solid var(--border);">
           注：HY2/TUIC为 UDP通道，VPS直出，不参与代理IP分流。
@@ -1606,7 +1605,7 @@ async function boot(){
         name: 'VLESS-Reality',
         network: 'TCP',
         port: '443',
-        uuid: 'xxxxxxxx...',
+        客户端配置: '详情》',
         disguise: '极佳',
         scenario: '审查最严格的网络环境',
         status: '✓ 运行'
@@ -1615,7 +1614,7 @@ async function boot(){
         name: 'VLESS-gRPC',
         network: 'TCP/H2',
         port: '443',
-        uuid: 'xxxxxxxx...',
+        客户端配置: '详情》',
         disguise: '极佳',
         scenario: '审查严格的网络环境',
         status: '✓ 运行'
@@ -1624,7 +1623,7 @@ async function boot(){
         name: 'VLESS-WS',
         network: 'TCP/WS',
         port: '443',
-        uuid: 'xxxxxxxx...',
+        客户端配置: '详情》',
         disguise: '良好',
         scenario: '一般网络环境，稳定性佳',
         status: '✓ 运行'
@@ -1633,7 +1632,7 @@ async function boot(){
         name: 'Trojan-TLS',
         network: 'TCP',
         port: '443',
-        uuid: 'xxxxxxxx...',
+        客户端配置: '详情》',
         disguise: '良好',
         scenario: '移动网络和复杂环境的可靠备选',
         status: '✓ 运行'
@@ -1642,7 +1641,7 @@ async function boot(){
         name: 'Hysteria2',
         network: 'UDP/QUIC',
         port: '443',
-        uuid: '密码认证',
+        客户端配置: '详情》',
         disguise: '良好',
         scenario: '需要高速传输的场景',
         status: '✓ 运行'
@@ -1651,7 +1650,7 @@ async function boot(){
         name: 'TUIC',
         network: 'UDP/QUIC',
         port: '2053',
-        uuid: 'xxxxxxxx...',
+        客户端配置: '详情》',
         disguise: '好',
         scenario: '移动网络和不稳定连接',
         status: '✓ 运行'
