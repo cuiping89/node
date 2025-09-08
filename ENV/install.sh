@@ -1285,6 +1285,7 @@ ALERT
 
 # 控制面板（完整版：修正数据获取和协议详情弹窗）
 # 控制面板（完整版：修正JS语法错误）
+# 控制面板（完整版：修正JS语法错误）
 cat > "${TRAFFIC_DIR}/index.html" <<'HTML'
 <!doctype html>
 <html lang="zh-CN"><head>
@@ -2022,7 +2023,31 @@ async function boot(){
   }
 }
 
-// 复制函数
+// 复制订阅链接
+function copySubscription() {
+  const input = el('sub-url');
+  input.select();
+  document.execCommand('copy');
+  
+  const btn = event.target;
+  const originalText = btn.textContent;
+  btn.textContent = '已复制';
+  btn.style.background = '#10b981';
+  btn.style.color = 'white';
+  setTimeout(function() {
+    btn.textContent = originalText;
+    btn.style.background = '';
+    btn.style.color = '';
+  }, 1000);
+}
+
+// 在浏览器中打开订阅
+function openInBrowser() {
+  const url = el('sub-url').value;
+  window.open(url, '_blank');
+}
+
+// 复制函数（保留备用）
 function copySub(type) {
   const input = el('sub-' + type);
   input.select();
