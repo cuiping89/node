@@ -2403,7 +2403,7 @@ chmod 644 ${WEB_ROOT}/sub 2>/dev/null || true
 find ${TRAFFIC_DIR} -type f -exec chmod 644 {} \; 2>/dev/null || true
 
 # 设置定时任务
-setup_cron_jobs() {
+setup_alerting_assets() {
   log_info "配置定时任务..."
 
   # 1) 写入/覆盖 预警配置
@@ -4178,6 +4178,7 @@ main() {
     
     # 高级功能安装（模块3）
     setup_traffic_monitoring
+	setup_alerting_assets
     setup_cron_jobs
     setup_email_system
 	create_enhanced_edgeboxctl
