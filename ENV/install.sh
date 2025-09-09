@@ -1146,12 +1146,27 @@ generate_dashboard_data() {
 }
 
 # -------- 定时任务（稳定刷新） --------
-schedule_dashboard_jobs() {
-  # 清理旧的
-  crontab -l 2>/dev/null | sed '/generate_dashboard_data/d' | crontab -
-  # 每 2 分钟刷新一次（CPU/内存/服务/证书/端口/SNI/订阅 都会更新）
-  (crontab -l 2>/dev/null; echo "*/2 * * * * bash -lc 'source /etc/profile >/dev/null 2>&1; generate_dashboard_data --now >/dev/null 2>&1'") | crontab -
+setup_cron_jobs() {
+  # 先清理历史上可能残留的错误项（函数名、老路径等）
+  crontab -l 2>/dev/null \
+    | sed -E '/generate_dashboard_data/d;/panel-refresh\.sh/d;/system-stats\.sh/d;/traffic-collector\.sh/d' \
+    | crontab - 2>/dev/null || true
+
+  # 每1分钟更新系统状态（CPU/MEM）
+  (crontab -l 2>/dev/null; \
+    echo "*/1 * * * * /etc/edgebox/scripts/system-stats.sh >/dev/null 2>&1") | crontab -
+
+  # 每2分钟刷新面板数据（服务状态/证书/订阅/卡片字段）
+  (crontab -l 2>/dev/null; \
+    echo "*/2 * * * * /etc/edgebox/scripts/panel-refresh.sh >/dev/null 2>&1") | crontab -
+
+  # 每小时跑一次流量采集（如果你已经有 traffic-collector.sh）
+  (crontab -l 2>/dev/null; \
+    echo "15 * * * * /etc/edgebox/scripts/traffic-collector.sh >/dev/null 2>&1") | crontab -
+
+  echo "[SUCCESS] 定时任务已写入（1min 系统；2min 面板；1h 流量）"
 }
+
 # ====== /EdgeBox: Dashboard 后端生成 ======
 
 #############################################
