@@ -1094,108 +1094,103 @@ printf 'PREV_TX=%s\nPREV_RX=%s\nPREV_RESI=%s\n' "$TX_CUR" "$RX_CUR" "$RESI_CUR" 
 COLLECTOR
 chmod +x "${SCRIPTS_DIR}/traffic-collector.sh"
 
-  # 面板数据刷新（自包含版本，不依赖外部函数）
 # === 覆盖生成 /etc/edgebox/scripts/panel-refresh.sh ===
 cat > "${SCRIPTS_DIR}/panel-refresh.sh" <<'PANEL'
 #!/bin/bash
 set -euo pipefail
 CONFIG_DIR="/etc/edgebox/config"
 TRAFFIC_DIR="/etc/edgebox/traffic"
-SHUNT_DIR="/etc/edgebox/shunt"       # 修正：遵循项目约定
+SHUNT_DIR="/etc/edgebox/shunt"
 CERT_LINK_DIR="/etc/edgebox/cert"
 mkdir -p "$TRAFFIC_DIR"
 
-# 读取 server.json（安装时已写入）
 srv_json="${CONFIG_DIR}/server.json"
 jqget(){ jq -r "$1" "$srv_json" 2>/dev/null || true; }
 
-server_ip="$(jqget '.server_ip')";     [[ -z "$server_ip" ]] && server_ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+server_ip="$(jqget '.server_ip')"
+[[ -z "$server_ip" || "$server_ip" == "null" ]] && server_ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
 domain="$(jqget '.domain')"
 version="$(jqget '.version // "-"')"
 install_date="$(jqget '.install_date // "-"')"
 
-# 读取 system.json（若没有先产出一次）
-[[ -s "${TRAFFIC_DIR}/system.json" ]] || { [[ -x /etc/edgebox/scripts/system-stats.sh ]] && /etc/edgebox/scripts/system-stats.sh || true; }
-cpu="-" ; mem="-"
+# CPU/内存
+[[ -x /etc/edgebox/scripts/system-stats.sh ]] && /etc/edgebox/scripts/system-stats.sh || true
+cpu="-" mem="-"
 if [[ -s "${TRAFFIC_DIR}/system.json" ]]; then
   cpu="$(jq -r '.cpu' "${TRAFFIC_DIR}/system.json" 2>/dev/null)"
   mem="$(jq -r '.memory' "${TRAFFIC_DIR}/system.json" 2>/dev/null)"
 fi
 
 # 服务状态
-svc_status(){
-  systemctl is-active --quiet "$1" && echo active || echo inactive
-}
-nginx_state="$(svc_status nginx)"
-xray_state="$(svc_status xray)"
-sbox_state="$(svc_status sing-box)"
+svc(){ systemctl is-active --quiet "$1" && echo active || echo inactive; }
+nginx_state="$(svc nginx)"
+xray_state="$(svc xray)"
+sbox_state="$(svc sing-box)"
 
-# 证书状态（模式/类型/到期/续期方式）
+# 证书
 cert_mode="self-signed"
 [[ -f "${CONFIG_DIR}/cert_mode" ]] && cert_mode="$(cat "${CONFIG_DIR}/cert_mode" 2>/dev/null || echo self-signed)"
-cert_type=$([[ "$cert_mode" == self-signed ]] && echo "自签名证书" || echo "Let's Encrypt")
-cert_chain="${CERT_LINK_DIR}/current.pem"
 cert_expiry="-"
-if [[ -s "$cert_chain" ]]; then
-  cert_expiry="$(openssl x509 -in "$cert_chain" -noout -enddate 2>/dev/null | cut -d= -f2 | xargs -I{} date -d '{}' +%Y-%m-%d 2>/dev/null || echo -)"
+if [[ -s "${CERT_LINK_DIR}/current.pem" ]]; then
+  cert_expiry="$(openssl x509 -in "${CERT_LINK_DIR}/current.pem" -noout -enddate 2>/dev/null | cut -d= -f2 \
+    | xargs -I{} date -d '{}' +%Y-%m-%d 2>/dev/null || echo -)"
 fi
-renew_method=$([[ "$cert_mode" == self-signed ]] && echo "-" || echo "auto(LE)")
 
-# 分流状态（模式/白名单/VPS/代理出口IP）
-shunt_mode="-"; whitelist="-"; vps_ip="-"; resi_ip="待获取"
-[[ -s "${SHUNT_DIR}/state.json" ]] && shunt_mode="$(jq -r '.mode // "-" ' "${SHUNT_DIR}/state.json" 2>/dev/null)"
-[[ -s "${SHUNT_DIR}/whitelist-vps.txt" ]] && whitelist="$(tr -s '\n' ',' < "${SHUNT_DIR}/whitelist-vps.txt" | sed 's/,$//' || true)"
-# 出口 IP：VPS 直出按本机公网，代理出口若有健康探测可在 edgeboxctl 中更新到 state.json
-[[ -z "$vps_ip" || "$vps_ip" == "-" ]] && vps_ip="$(curl -fsS --max-time 2 https://api.ipify.org 2>/dev/null || echo -)"
+# 分流
+whitelist_json='[]'
+if [[ -s "${SHUNT_DIR}/whitelist-vps.txt" ]]; then
+  whitelist_json="$(jq -R -s -c 'split("\n")|map(select(length>0))' "${SHUNT_DIR}/whitelist-vps.txt")"
+fi
+shunt_mode="-"
+[[ -s "${SHUNT_DIR}/state.json" ]] && shunt_mode="$(jq -r '.mode // "-"' "${SHUNT_DIR}/state.json" 2>/dev/null)"
+vps_ip="$(curl -fsS --max-time 2 https://api.ipify.org 2>/dev/null || echo -)"
+resi_ip="待获取"
 
-# 订阅（明文 / Base64 / Base64逐行）
+# 订阅（把已有订阅暴露给前端三种展示）
 SUB_TXT="${TRAFFIC_DIR}/sub.txt"
-if [[ ! -s "$SUB_TXT" ]]; then
-  [[ -s "${CONFIG_DIR}/subscription.txt" ]] && cp -f "${CONFIG_DIR}/subscription.txt" "$SUB_TXT" || true
+if [[ ! -s "$SUB_TXT" && -s "${CONFIG_DIR}/subscription.txt" ]]; then
+  cp -f "${CONFIG_DIR}/subscription.txt" "$SUB_TXT"
 fi
-sub_plain=""; sub_b64=""; sub_b64lines=""
+sub_plain="" sub_b64="" sub_b64lines=""
 if [[ -s "$SUB_TXT" ]]; then
-  # 明文（去掉\r）
   sub_plain="$(tr -d '\r' < "$SUB_TXT")"
-  # Base64（整体编码，单行）
   sub_b64="$(printf '%s' "$sub_plain" | base64 -w0)"
-  # Base64逐行（每行分别编码后再以 \n 连接）
   sub_b64lines="$(awk '{ cmd="base64 -w0"; print | cmd; close(cmd) }' "$SUB_TXT")"
 fi
 
-# 生成 panel.json（兼容前端取值口径）
+updated="$(date -Is)"
+
+# 生成与前端完全对齐的 JSON
 jq -n \
+  --arg updated "$updated" \
   --arg ip "$server_ip" \
   --arg domain "$domain" \
   --arg version "$version" \
   --arg install_date "$install_date" \
-  --argjson cpu ${cpu:-0} \
-  --argjson memory ${mem:-0} \
+  --arg cert_mode "$cert_mode" \
+  --arg cert_expire "$cert_expiry" \
+  --arg cert_domain "$domain" \
+  --arg eip "$server_ip" \
   --arg nginx "$nginx_state" \
   --arg xray "$xray_state" \
   --arg sbox "$sbox_state" \
-  --arg cert_mode "$cert_mode" \
-  --arg cert_type "$cert_type" \
-  --arg cert_expiry "$cert_expiry" \
-  --arg renew "$renew_method" \
   --arg sh_mode "$shunt_mode" \
-  --arg whitelist "$whitelist" \
+  --argjson whitelist "$whitelist_json" \
   --arg vpsip "$vps_ip" \
   --arg resiip "$resi_ip" \
   --arg sub_plain "$sub_plain" \
   --arg sub_b64 "$sub_b64" \
   --arg sub_b64lines "$sub_b64lines" \
-  --arg now "$(date -Is)" \
 '{
-   server: { ip:$ip, domain:$domain, version:$version, install_date:$install_date, updated_at:$now },
-   system: { cpu:$cpu, memory:$memory },
-   service_status: { nginx:$nginx, xray:$xray, sing_box:$sbox },
-   cert: { mode:$cert_mode, type:$cert_type, expiry:$cert_expiry, renew:$renew },
-   shunt: { mode:$sh_mode, whitelist:$whitelist, vps_ip:$vpsip, resi_ip:$resiip },
-   subscription: { plain:$sub_plain, b64:$sub_b64, b64lines:$sub_b64lines }
- }' > "${TRAFFIC_DIR}/panel.json"
+  updated_at: $updated,
+server: { ip:$ip, domain:$domain, version:$version, install_date:$install_date, updated_at:$now, cert_mode:$cert_mode, cert_expire:$cert_expiry, cert_domain:$domain, eip:$ip },
+  system: { cpu: ($ip|length>0 ? 0 : 0) },  # 保留结构（前端另行从 system.json 取数）
+service_status: { nginx:$nginx, xray:$xray, "sing-box":$sbox },
+  shunt: { mode: $sh_mode, whitelist: $whitelist, vps_ip: $vpsip, resi_ip: $resiip },
+  subscription: { plain: $sub_plain, b64: $sub_b64, b64lines: $sub_b64lines }
+}' > "${TRAFFIC_DIR}/panel.json"
 
-# 也把 sub.txt 暴露出来（给老前端直接读）
+# 兼容旧前端：直接暴露 sub.txt
 [[ -n "$sub_plain" ]] && printf '%s\n' "$sub_plain" > "${TRAFFIC_DIR}/sub.txt"
 
 echo "[panel-refresh] updated: ${TRAFFIC_DIR}/panel.json"
