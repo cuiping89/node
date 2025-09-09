@@ -2148,7 +2148,7 @@ cat > "$TARGET_FILE" <<'HTML'
 
   <!-- 管理命令 -->
   <div class="grid grid-full">
-    <div class="card"><h3>常用管理命令</h3>
+    <div class="card"><h3>运维管理</h3>
       <div class="content">
         <div class="commands-grid">
           <div class="command-section">
@@ -2275,8 +2275,28 @@ const ebYAxisUnitTop = {
 };
 Chart.register(ebYAxisUnitTop);
 
+function renderShunt(sh, server) {
+  const mode = (sh?.mode || 'vps').replace('_','-');
+  document.querySelectorAll('.shunt-mode-tab')
+    .forEach(t => t.className = 'shunt-mode-tab');
+  const tab = document.querySelector(`[data-mode="${mode}"]`)
+           || document.querySelector('[data-mode="vps"]');
+  tab.classList.add('active', mode === 'vps' ? 'vps' : (mode === 'resi' ? 'resi' : 'direct-resi'));
+
+  document.getElementById('vps-ip').textContent  = server?.eip || server?.ip || '-';
+  document.getElementById('resi-ip').textContent = sh?.proxy_info ? '已配置' : '未配置';
+
+  const wl = Array.isArray(sh?.whitelist) ? sh.whitelist : [];
+  document.getElementById('whitelist-domains').textContent = wl.length ? wl.slice(0,8).join(', ') : '无';
+}
+
 // 全局变量
 let serverConfig = {};
+let _chartTraffic = null;
+let _chartMonthly = null;
+let _sysTicker = null;
+const clamp = (n, min=0, max=100) =>
+  (Number.isFinite(+n) ? Math.max(min, Math.min(max, Math.round(+n))) : '-');
 
 // 通知中心切换
 function toggleNotifications() {
@@ -2480,7 +2500,7 @@ async function loadData() {
       getTEXT('/sub').catch(() => ''),
       readServerConfig()
     ]);
-    
+    window._subTxtForFallback = subTxt;
     console.log('数据加载完成:', { dashboard: !!dashboard, panel: !!panel, system: !!system, traffic: !!traffic, alerts: alerts.length, serverJson: !!serverJson });
     
     // 保存服务器配置供协议详情使用
@@ -2528,15 +2548,20 @@ function renderHeader(model) {
   document.getElementById('srv-ip').textContent = s.ip || '-';
   document.getElementById('domain').textContent = s.cert_domain || c.domain || '无';
  
-// 证书模式判断：只有“有域名 且 模式=letsencrypt”才算域名模式 —— //
-const domain = (s.cert_domain || c.domain || '').trim();
-const rawMode = String(s.cert_mode || c.mode || '').toLowerCase();
-const isDomainMode = !!domain && rawMode === 'letsencrypt';
+  // 证书 / 网络模式 & 续期方式（动态）
+  const mode  = s.cert_mode || c.mode || 'self-signed';
+  const renew = (c.provider === 'auto' || mode === 'letsencrypt') ? '自动续期' : '手动续期';
 
-document.getElementById('domain').textContent   = domain || '无';
-document.getElementById('net-mode').textContent = isDomainMode ? '域名模式(Let\'s Encrypt)' : 'IP模式(自签名)';
-document.getElementById('cert-mode').textContent= isDomainMode ? 'Let\'s Encrypt' : '自签名证书';
-document.getElementById('renew-mode').textContent = isDomainMode ? '自动续期' : '无需续期';
+  document.getElementById('net-mode').textContent  =
+    mode === 'letsencrypt' ? "域名模式(Let's Encrypt)" : 'IP模式(自签名)';
+  document.getElementById('cert-mode').textContent =
+    mode === 'letsencrypt' ? "Let's Encrypt" : '自签名证书';
+  document.getElementById('renew-mode').textContent = renew;
+
+  document.getElementById('cert-exp').textContent =
+    (s.cert_expire || c.expire)
+      ? new Date(s.cert_expire || c.expire).toLocaleDateString('zh-CN')
+      : '无';
 
 // 到期日期：无值或无效 -> “无”
 const expStr  = (s.cert_expire || c.expire || '').trim();
@@ -2548,9 +2573,19 @@ document.getElementById('cert-exp').textContent =
   document.getElementById('ver').textContent = s.version || '-';
   document.getElementById('inst').textContent = s.install_date || '-';
   
-  // 系统负载
-  document.getElementById('cpu-usage').textContent = sys.cpu ?? '-';
-  document.getElementById('mem-usage').textContent = sys.memory ?? '-';
+  // CPU/内存（更稳 & 限制在 0–100）
+  document.getElementById('cpu-usage').textContent = clamp(sys.cpu);
+  document.getElementById('mem-usage').textContent = clamp(sys.memory);
+
+  // 15s 轮询 system.json，避免一次性采样卡住在 100%
+  clearInterval(_sysTicker);
+  _sysTicker = setInterval(async () => {
+    try {
+      const x = await getJSON('/traffic/system.json');
+      document.getElementById('cpu-usage').textContent = clamp(x.cpu);
+      document.getElementById('mem-usage').textContent = clamp(x.memory);
+    } catch(_) {}
+  }, 15000);
   
   // 服务状态
   document.getElementById('nginx-status').textContent = svc.nginx === 'active' ? '运行中' : '已停止';
@@ -2565,7 +2600,7 @@ function renderProtocols(model) {
   
   const protocols = [
     { name: 'VLESS-Reality', network: 'TCP', port: '443', disguise: '极佳', scenario: '强审查环境' },
-    { name: 'VLESS-gRPC', network: 'TCP/H2', port: '443', disguise: '极佳', scenario: '较严审查，走CDN' },
+    { name: 'VLESS-gRPC', network: 'TCP/H2', port: '443', disguise: '极佳', scenario: '较严审查/走CDN' },
     { name: 'VLESS-WS', network: 'TCP/WS', port: '443', disguise: '良好', scenario: '常规网络更稳' },
     { name: 'Trojan-TLS', network: 'TCP', port: '443', disguise: '良好', scenario: '移动网络可靠' },
     { name: 'Hysteria2', network: 'UDP/QUIC', port: '443', disguise: '良好', scenario: '大带宽/低时延' },
@@ -2605,6 +2640,8 @@ document.getElementById('whitelist-domains').textContent =
 // 渲染流量图表
 function renderTraffic(traffic) {
   if (!traffic) return;
+  if (_chartTraffic) { _chartTraffic.destroy();  _chartTraffic = null; }
+  if (_chartMonthly) { _chartMonthly.destroy();  _chartMonthly = null; }
 
   // 近30天流量图表 - 严格按7:3排版，添加底部留白28px，Y轴顶部显示GiB
   if (traffic.last30d && traffic.last30d.length > 0) {
