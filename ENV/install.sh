@@ -1086,6 +1086,34 @@ generate_dashboard_data(){
   local SUB_LINES="$(cat "$SUB_CACHE" 2>/dev/null || true)"
   local SUB_B64="$(printf '%s' "$SUB_LINES" | (base64 -w0 2>/dev/null || base64) | tr -d '\n')"
 
+# === SUBSCRIPTION: build sub_p / sub_b / sub_l ===
+if [[ -s "$SUB_CACHE" ]]; then
+  # 取明文区块（开头到第一处空行；跳过以 # 开头的注释行）
+  SUB_PLAIN="$(awk 'BEGIN{blk=1} /^$/ {exit} /^#/ {next} {print}' "$SUB_CACHE" | tr -d "\r")"
+else
+  SUB_PLAIN=""
+fi
+
+# base64(整包) —— 兼容没有 -w 的 base64
+if printf '%s' "$SUB_PLAIN" | base64 --help 2>&1 | grep -q -- ' -w'; then
+  SUB_B64="$(printf '%s\n' "$SUB_PLAIN" | base64 -w0)"
+else
+  SUB_B64="$(printf '%s\n' "$SUB_PLAIN" | base64 | tr -d '\n')"
+fi
+
+# base64(逐行)
+SUB_LINES="$(
+  printf '%s\n' "$SUB_PLAIN" | while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    if printf '%s' "$line" | base64 --help 2>&1 | grep -q -- ' -w'; then
+      printf '%s' "$line" | sed -e '$a\' | base64 -w0
+    else
+      printf '%s' "$line" | sed -e '$a\' | base64 | tr -d '\n'
+    fi
+    printf '\n'
+  done
+)"
+
   jq -n \
     --arg ip "$SERVER_IP_" --arg eip "$EIP_" --arg domain "$SERVER_DOMAIN_" \
     --arg mode "$INSTALL_MODE_" --arg ver "${EDGEBOX_VER_:-3.0.0}" --arg inst "${INSTALL_DATE_:-$(date +%F)}" \
@@ -2532,25 +2560,27 @@ async function loadData() {
     window.serverConfig = serverJson || {};
 
     // 统一数据面向 UI
-    const model = dashboard ? {
-      updatedAt: dashboard.updated_at,
-      server: dashboard.server, cert: dashboard.cert,
-      system: dashboard.system, services: dashboard.services,
-      protocols: dashboard.protocols,
-	  shunt: panel?.shunt || {},
-      subscription: dashboard.subscription
-    } : {
-      updatedAt: panel?.updated_at || system?.updated_at,
-      server: panel?.server || {},
-      system: { cpu: system?.cpu ?? null, memory: system?.memory ?? null },
-      protocols: (panel?.protocols) || [],
-	  shunt: panel?.shunt || {},
-      subscription: {
-        plain: subTxt.trim(),
-        base64: btoa(unescape(encodeURIComponent(subTxt.trim()))),
-        b64_lines: subTxt.trim().split('\n').map(l => btoa(unescape(encodeURIComponent(l)))).join('\n')
-      }
-    };
+const dashHasSub = !!(dashboard && dashboard.subscription && dashboard.subscription.plain);
+const model = dashHasSub ? {
+  updatedAt: dashboard.updated_at,
+  server: dashboard.server, cert: dashboard.cert,
+  system: dashboard.system, services: dashboard.services,
+  protocols: dashboard.protocols,
+  shunt: panel?.shunt || {},
+  subscription: dashboard.subscription
+} : {
+  updatedAt: panel?.updated_at || system?.updated_at,
+  server: panel?.server || {},
+  system: { cpu: system?.cpu ?? null, memory: system?.memory ?? null },
+  protocols: (panel?.protocols) || [],
+  shunt: panel?.shunt || {},
+  subscription: {
+    plain: subTxt.trim(),
+    base64: btoa(unescape(encodeURIComponent(subTxt.trim()))),
+    b64_lines: subTxt.trim().split('\n').map(l => btoa(unescape(encodeURIComponent(l)))).join('\n')
+  }
+};
+
 
     // 渲染各个模块
     renderHeader(model);
