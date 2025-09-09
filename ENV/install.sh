@@ -960,6 +960,8 @@ PLAIN
       echo
     } > /var/www/html/sub
 
+install -m 0644 -T /var/www/html/sub /etc/edgebox/traffic/sub.txt
+
     log_success "订阅已生成"
     log_success "HTTP 订阅地址: http://${addr}/sub"
 }
@@ -1006,13 +1008,35 @@ _get_server_facts(){ local sip="" sdom="" ver="" install_date="" eip=""
   echo "$sip" "$sdom" "$ver" "$install_date" "$eip"
 }
 
-_get_cert_info(){ local mode="self-signed" typ="自签名证书" expire="N/A"
-  if ls ${CERT_DIR}/*/fullchain.pem >/dev/null 2>&1; then
-    mode="letsencrypt"; typ="Let's Encrypt"
-    local dom=$(basename ${CERT_DIR}/* 2>/dev/null | head -n1)
-    local pem="${CERT_DIR}/${dom}/cert.pem"
-    [[ -f "$pem" ]] && expire="$( (openssl x509 -enddate -noout -in "$pem" | cut -d= -f2 | xargs -I{} date -d {} +%Y-%m-%d) 2>/dev/null || openssl x509 -enddate -noout -in "$pem" | cut -d= -f2 )"
+# 证书信息：优先读取安装契约 /etc/edgebox/config/cert_mode，其次再探测
+_get_cert_info(){
+  local mode typ expire dom pem notafter
+  local CFG="${CONFIG_DIR:-/etc/edgebox/config}/cert_mode"
+  if [[ -s "$CFG" ]]; then
+    mode="$(cut -d: -f1 "$CFG" 2>/dev/null)"
+    dom="$(cut -d: -f2- "$CFG" 2>/dev/null)"
   fi
+  mode="${mode:-self-signed}"
+
+  case "$mode" in
+    self-signed)
+      typ="自签名证书"; expire="";;
+    letsencrypt)
+      typ="Let's Encrypt"
+      # 若契约里没写域名，再从 live 目录兜底推断一个
+      if [[ -z "$dom" && -d /etc/letsencrypt/live ]]; then
+        dom="$(ls /etc/letsencrypt/live 2>/dev/null | head -n1)"
+      fi
+      pem="/etc/letsencrypt/live/${dom}/cert.pem"
+      if [[ -f "$pem" ]]; then
+        notafter="$(openssl x509 -enddate -noout -in "$pem" | cut -d= -f2)"
+        # 统一转成 ISO 8601（浏览器/JS 100%可解析）
+        expire="$(date -u -d "$notafter" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "$notafter")"
+      fi
+      ;;
+    *) typ="未知"; expire="";;
+  esac
+
   echo "$mode" "$typ" "$expire"
 }
 
@@ -1396,7 +1420,8 @@ cp -f "/etc/edgebox/config/server.json" "${TRAFFIC_DIR}/server.shadow.json" 2>/d
 # 写订阅复制链接
 proto="http"; addr="$server_ip"
 if [[ "$cert_mode" == "letsencrypt" && -n "$cert_domain" ]]; then proto="https"; addr="$cert_domain"; fi
-echo "${proto}://${addr}/sub" > "${TRAFFIC_DIR}/sub.txt"
+[[ -s "${TRAFFIC_DIR}/sub.txt" ]] || cp -f /var/www/html/sub "${TRAFFIC_DIR}/sub.txt"
+echo "${proto}://${addr}/sub" > "${TRAFFIC_DIR}/sub.link"
 PANEL
 chmod +x "${SCRIPTS_DIR}/panel-refresh.sh"
 
@@ -2613,7 +2638,7 @@ function renderProtocols(model) {
       '<td>' + p.name + '</td>' +
       '<td>' + p.network + '</td>' +
       '<td>' + p.port + '</td>' +
-      '<td><span class="detail-link" onclick="showProtocolDetails(\'' + p.name + '\')">详情</span></td>' +
+      '<td><span class="detail-link" onclick="showProtocolDetails(\'' + p.name + '\')">详情>></span></td>' +
       '<td>' + p.disguise + '</td>' +
       '<td>' + p.scenario + '</td>' +
       '<td style="color:#10b981">✓ 运行</td>';
@@ -4640,9 +4665,9 @@ main() {
     configure_nginx
     configure_xray
     configure_sing_box
-    save_config_info
-    start_services
-    generate_subscription
+save_config_info
+generate_subscription
+start_services
     
     # 高级功能安装（模块3）
     setup_traffic_monitoring
