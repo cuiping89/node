@@ -1151,16 +1151,6 @@ fi
 }
 
 # -------- 定时任务（稳定刷新） --------
-schedule_dashboard_jobs() {
-  # 清理旧的
-  crontab -l 2>/dev/null | sed '/generate_dashboard_data/d' | crontab -
-  # 每 2 分钟刷新一次（CPU/内存/服务/证书/端口/SNI/订阅 都会更新）
-  (crontab -l 2>/dev/null; \
-    echo "*/2 * * * * bash -lc 'source /etc/profile >/dev/null 2>&1; generate_dashboard_data --now >/dev/null 2>&1'") \
-  | crontab -
-}
-
-# -------- 定时任务（稳定刷新） --------
 setup_cron_jobs() {
   # 先清理历史上可能残留的错误项（函数名、老路径等）
   crontab -l 2>/dev/null \
@@ -4178,7 +4168,20 @@ main() {
     touch ${LOG_FILE}
     
     # 设置错误处理
-    trap cleanup EXIT
+    # 统一写在 main() 里原 trap 的位置
+trap 'ec=$?; cleanup "$ec"' EXIT
+
+# 替换整个 cleanup() 定义
+cleanup() {
+    local ec="${1:-0}"
+    if [ "$ec" -ne 0 ]; then
+        log_error "安装过程中出现错误，请检查日志: ${LOG_FILE}"
+        echo -e "${YELLOW}如需重新安装，请先运行: bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/refs/heads/main/ENV/uninstall.sh)${NC}"
+    fi
+    rm -f /tmp/Xray-linux-64.zip 2>/dev/null || true
+    rm -f /tmp/sing-box-*.tar.gz 2>/dev/null || true
+    return 0
+}
     
     echo -e "${BLUE}正在执行完整安装流程...${NC}"
     
@@ -4212,7 +4215,6 @@ main() {
 	
 	# 注意：现在函数都已定义好，再调用就不会报错
   generate_dashboard_data --now     # 产出 /etc/edgebox/traffic/dashboard.json
-  schedule_dashboard_jobs           # 写入 cron，后续周期刷新
 
     # 启动初始化服务
     systemctl start edgebox-init.service >/dev/null 2>&1 || true
