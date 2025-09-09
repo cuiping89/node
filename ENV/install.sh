@@ -1150,72 +1150,6 @@ fi
   log_info "控制面板数据已更新 -> ${TRAFFIC_DIR}/panel.json"
 }
 
-# ==== Dashboard 数据生产（被 main 调一次，后续由 cron 定期刷新） ====
-generate_dashboard_data() {
-  local TRAFFIC_DIR="/etc/edgebox/traffic"
-  local SUB_CACHE="/etc/edgebox/config/subscription.txt"
-  mkdir -p "$TRAFFIC_DIR"
-
-  # 1) 系统负载
-  local cpu_idle mem_total mem_used cpu mem
-  cpu_idle="$(LC_ALL=C top -bn1 | awk -F'[, ]+' '/Cpu\\(s\\)/{for(i=1;i<=NF;i++) if($i=="id") print $(i-1)}')"
-  cpu="$(awk -v x="${cpu_idle:-0}" 'BEGIN{printf "%.0f", 100-x}')"
-  mem_total="$(awk '/Mem:/{print $2}' <(free -m))"
-  mem_used="$(awk '/Mem:/{print $3}' <(free -m))"
-  mem="$(awk -v u="${mem_used:-0}" -v t="${mem_total:-1}" 'BEGIN{printf "%.0f", (u*100)/t}')"
-  jq -n --arg ts "$(date -Is)" --argjson cpu "${cpu:-0}" --argjson memory "${mem:-0}" \
-      '{updated_at:$ts, cpu:$cpu, memory:$memory}' > "${TRAFFIC_DIR}/system.json"
-
-  # 2) 端口/证书/服务状态 + 出站分流摘要 → panel.json
-  local has_tcp443="false" has_hy2="false" has_tuic="false"
-  ss -lnt | awk '{print $4}' | grep -qE '(:|\\.)443$' && has_tcp443="true"
-  ss -lun | awk '{print $4}' | grep -qE '(:|\\.)443$' && has_hy2="true"
-  ss -lun | awk '{print $4}' | grep -qE '(:|\\.)2053$' && has_tuic="true"
-
-  local INSTALL_DATE_ SERVER_DOMAIN_ CERT_EXPIRE INSTALL_MODE_ SERVER_IP_ EIP_ VER_
-  INSTALL_DATE_="$(date +%F)"
-  SERVER_DOMAIN_="$(cat /etc/edgebox/config/domain 2>/dev/null || true)"
-  INSTALL_MODE_="$(test -d /etc/letsencrypt && echo "letsencrypt" || echo "ip")"
-  CERT_EXPIRE="$(openssl x509 -in /etc/edgebox/cert/current.pem -noout -enddate 2>/dev/null \
-                  | cut -d= -f2 | xargs -I{} date -d '{}' '+%b %e %T %Y %Z' 2>/dev/null || true)"
-  SERVER_IP_="$(curl -4s --max-time 3 https://api.ipify.org || hostname -I | awk '{print $1}')"
-  EIP_="$SERVER_IP_"
-  VER_="3.0.0"
-
-  jq -n --arg ts "$(date -Is)" --arg ip "$SERVER_IP_" --arg eip "$EIP_" \
-        --arg ver "$VER_" --arg inst "$INSTALL_DATE_" \
-        --arg cm "$INSTALL_MODE_" --arg cd "$SERVER_DOMAIN_" --arg ce "$CERT_EXPIRE" \
-        --arg b1 "$has_tcp443" --arg b2 "$has_hy2" --arg b3 "$has_tuic" '
-  {
-    updated_at:$ts,
-    server:{ip:$ip,eip:($eip|select(.!="")),version:$ver,install_date:$inst,
-            cert_mode:$cm,cert_domain:($cd|select(.!="")),cert_expire:($ce|select(.!=""))},
-    protocols:[
-      {name:"VLESS/Trojan (443/TCP)",proto:"tcp",port:443,proc:(if $b1=="true" then "listening" else "未监听" end),note:"443 端口状态"},
-      {name:"Hysteria2",proto:"udp",port:0,proc:(if $b2=="true" then "listening" else "未监听" end),note:"8443/443"},
-      {name:"TUIC",proto:"udp",port:2053,proc:(if $b3=="true" then "listening" else "未监听" end),note:"2053"}
-    ],
-    shunt:{mode:"vps",proxy_info:"",health:"ok",
-           whitelist:["googlevideo.com","ytimg.com","ggpht.com","youtube.com","youtu.be","googleapis.com","gstatic.com","example.com"]}
-  }' > "${TRAFFIC_DIR}/panel.json"
-
-  # 3) /sub（避免 “are the same file”）
-  if [[ -s "$SUB_CACHE" ]]; then
-    local dest="/var/www/html/sub"
-    if [[ "$(readlink -f "$SUB_CACHE")" != "$(readlink -f "$dest")" ]]; then
-      cp -f "$SUB_CACHE" "$dest" 2>/dev/null || true
-    fi
-  fi
-
-  # 4) 影子信息（面板 JS 可能会用到的安装概览）
-  jq -n --arg ip "$SERVER_IP_" --arg ver "$VER_" --arg mode "$INSTALL_MODE_" \
-        --arg date "$INSTALL_DATE_" \
-        '{server_ip:$ip, version:$ver, install_mode:$mode, install_date:$date}' \
-        > "${TRAFFIC_DIR}/server.shadow.json"
-
-  echo "[OK] panel/system json refreshed: ${TRAFFIC_DIR}"
-}
-
 setup_cron_jobs() {
   # 清理历史错误项
   crontab -l 2>/dev/null \
@@ -2467,35 +2401,6 @@ fi
 # 权限（让 nginx 可读）
 chmod 644 ${WEB_ROOT}/sub 2>/dev/null || true
 find ${TRAFFIC_DIR} -type f -exec chmod 644 {} \; 2>/dev/null || true
-
-# 设置定时任务
-# 设置定时任务
-setup_cron_jobs() {
-  log_info "配置定时任务..."
-
-  # 1) 写入/覆盖 预警配置
-cat > /etc/edgebox/traffic/alert.conf <<'CONF'
-# 月度预算（GiB）
-ALERT_MONTHLY_GIB=100
-
-# Telegram（@BotFather 获取 BotToken；ChatID 可用 @userinfobot）
-ALERT_TG_BOT_TOKEN=
-ALERT_TG_CHAT_ID=
-
-# Discord（频道里添加 Incoming Webhook）
-ALERT_DISCORD_WEBHOOK=
-
-# 微信（个人可用的 PushPlus 转发）
-# https://www.pushplus.plus/ 里获取 token
-ALERT_PUSHPLUS_TOKEN=
-
-# （可选）通用 Webhook（HTTPS 443），FORMAT=raw|slack|discord
-ALERT_WEBHOOK=
-ALERT_WEBHOOK_FORMAT=raw
-
-# 阈值（百分比，逗号分隔）
-ALERT_STEPS=30,60,90
-CONF
 
   # 2) 写入/覆盖 预警脚本（按当月 total 达到阈值去重告警）
 cat > /etc/edgebox/scripts/traffic-alert.sh <<'ALERT'
