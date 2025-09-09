@@ -1186,6 +1186,12 @@ fi
 # 汇总为 JSON 数组
 protocols_json="$(jq -s '.' <<<"${protos[*]:-[]}")"
 
+# 【新增】服务运行状态
+svc_status() { systemctl is-active --quiet "$1" && echo "active" || echo "inactive"; }
+nginx_st="$(svc_status nginx)"
+xray_st="$(svc_status xray)"
+singbox_st="$(svc_status sing-box)"
+
 # --- 写 panel.json ---
 jq -n \
  --arg updated "$(date -Is)" \
@@ -1207,6 +1213,10 @@ jq -n \
            cert_mode:$cert_mode,cert_domain:($cert_domain|select(length>0)),cert_expire:($cert_expire|select(length>0))},
    protocols:$protocols,
    shunt:{mode:$mode,proxy_info:$proxy,health:$health,whitelist:$whitelist}
+  # 【新增】服务状态
+  service_status: { nginx: $nginx_status, xray: $xray_status, "sing-box": $singbox_status },
+  protocols: $protocols,
+  shunt: { mode: $mode, proxy_info: $proxy, health: $health, whitelist: $whitelist }
  }'> "${TRAFFIC_DIR}/panel.json"
 
 # 让前端(仅面板)读取一份“影子配置”，避免再去解析 /sub
@@ -1794,16 +1804,28 @@ async function getSystemLoad() {
 // 获取服务状态
 async function getServiceStatus() {
   try {
-    const services = ['nginx', 'xray', 'sing-box'];
-    for (const svc of services) {
-      const elId = svc.replace('-', '') + '-status';
-      const elem = el(elId);
-      if (elem) {
-        elem.textContent = 'active';
-        elem.style.color = '#10b981';
-      }
+    const r = await fetch('/traffic/panel.json', { cache: 'no-store' });
+    if (!r.ok) return;
+    const p = await r.json();
+    const s = (p && p.service_status) || {};
+
+    const map = {
+      nginx: 'nginx-status',
+      xray: 'xray-status',
+      'sing-box': 'singbox-status'
+    };
+
+    for (const key in map) {
+      const elId = map[key];
+      const elem = document.getElementById(elId);
+      if (!elem) continue;
+      const st = s[key] || 'unknown';
+      elem.textContent = st;
+      elem.style.fontWeight = '600';
+      // 绿色=active，红色=inactive，灰色=unknown
+      elem.style.color = (st === 'active') ? '#10b981' : (st === 'inactive' ? '#ef4444' : '#64748b');
     }
-  } catch(e) {
+  } catch (e) {
     console.log('服务状态获取失败:', e);
   }
 }
@@ -2350,11 +2372,13 @@ echo "$new_sent" > "$STATE"
 ALERT
 chmod +x /etc/edgebox/scripts/traffic-alert.sh
 
-# 每小时：采集→面板→预警
-( crontab -l 2>/dev/null | grep -vE '/etc/edgebox/scripts/(traffic-collector\.sh|panel-refresh\.sh|traffic-alert\.sh)'; \
-  echo "0 * * * * /etc/edgebox/scripts/traffic-collector.sh"; \
-  echo "5 * * * * /etc/edgebox/scripts/panel-refresh.sh"; \
-  echo "7 * * * * /etc/edgebox/scripts/traffic-alert.sh" ) | crontab -
+# 定时：每分钟刷系统和面板；每小时聚合流量；每小时检查预警
+( crontab -l 2>/dev/null | grep -vE '/etc/edgebox/scripts/(system-stats\.sh|traffic-collector\.sh|panel-refresh\.sh|traffic-alert\.sh)'; \
+  echo "*/1 * * * * /etc/edgebox/scripts/system-stats.sh"; \
+  echo "0   * * * * /etc/edgebox/scripts/traffic-collector.sh"; \
+  echo "*/1 * * * * /etc/edgebox/scripts/panel-refresh.sh"; \
+  echo "7   * * * * /etc/edgebox/scripts/traffic-alert.sh" \
+) | crontab -
 
 # 每分钟：CPU/内存
 ( crontab -l 2>/dev/null | grep -v '/etc/edgebox/scripts/system-stats.sh'; \
