@@ -1114,37 +1114,6 @@ SUB_LINES="$(
   done
 )"
 
-# --- 生成 panel.json（补上 subscription） ---
-jq -n \
-  --arg ts "$(date -Is)" \
-  --arg ip "$SERVER_IP_" --arg eip "$EIP_" \
-  --arg ver "${EDGEBOX_VER_:-3.0.0}" --arg inst "${INSTALL_DATE_:-$(date +%F)}" \
-  --arg cm "$INSTALL_MODE_" --arg cd "$SERVER_DOMAIN_" --arg ce "$CERT_EXPIRE" \
-  --arg b1 "$has_tcp443" --arg b2 "$has_hy2" --arg b3 "$has_tuic" \
-  --arg sub_p "$SUB_PLAIN" --arg sub_b "$SUB_B64" --arg sub_l "$SUB_LINES" \
-  '{
-    updated_at: $ts,
-    server: {
-      ip: $ip,
-      eip: (if $eip=="" then null else $eip end),
-      version: $ver,
-      install_date: $inst,
-      cert_mode: $cm,
-      cert_domain: (if $cd=="" then null else $cd end),
-      cert_expire: (if $ce=="" then null else $ce end)
-    },
-    protocols: [
-      { name:"VLESS/Trojan (443/TCP)", proto:"tcp",  port:443,  proc:(if $b1=="true" then "listening" else "未监听" end), note:"443 端口状态" },
-      { name:"Hysteria2",               proto:"udp",  port:0,    proc:(if $b2=="true" then "listening" else "未监听" end), note:"8443/443" },
-      { name:"TUIC",                    proto:"udp",  port:2053, proc:(if $b3=="true" then "listening" else "未监听" end), note:"2053" }
-    ],
-    shunt: {
-      mode:"vps", proxy_info:"", health:"ok",
-      whitelist:["googlevideo.com","ytimg.com","ggpht.com","youtube.com","youtu.be","googleapis.com","gstatic.com","example.com"]
-    },
-    subscription: { plain: $sub_p, base64: $sub_b, b64_lines: $sub_l }
-  }' > "${TRAFFIC_DIR}/panel.json"
-
   chmod 0644 "${TRAFFIC_DIR}/dashboard.json"
 
   jq -n --arg ts "$(date -Is)" --argjson cpu "$CPU" --argjson memory "$MEM" \
