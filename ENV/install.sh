@@ -1891,7 +1891,7 @@ async function updateProgressBar() {
 
 async function boot(){
   console.log('开始加载数据...');
-  
+  renderProtocols();     // ← 新增这一行
   try {
     const [subTxt, panel, tjson, alerts, serverJson] = await Promise.all([
       fetch('/sub',{cache:'no-store'}).then(function(r) { return r.text(); }).catch(function() { return ''; }), 
@@ -1975,28 +1975,30 @@ async function boot(){
       el('inst').textContent = s.install_date || '-';
       
 // —— 协议配置表格：始终渲染 6 行（布局与文案完全不变）——
-const tb = document.querySelector('#proto tbody');
-tb.innerHTML = '';
-const protocols = [
-  { name: 'VLESS-Reality', network: 'TCP',     port: '443', disguise: '极佳', scenario: '强审查环境' },
-  { name: 'VLESS-gRPC',    network: 'TCP/H2',  port: '443', disguise: '极佳', scenario: '较严审查，走CDN' },
-  { name: 'VLESS-WS',      network: 'TCP/WS',  port: '443', disguise: '良好', scenario: '常规网络更稳' },
-  { name: 'Trojan-TLS',    network: 'TCP',     port: '443', disguise: '良好', scenario: '移动网络可靠' },
-  { name: 'Hysteria2',     network: 'UDP/QUIC',port: '443', disguise: '良好', scenario: '大带宽/低时延' },
-  { name: 'TUIC',          network: 'UDP/QUIC',port: '2053',disguise: '好',   scenario: '弱网/高丢包更佳' }
-];
-protocols.forEach(function(p) {
-  const tr = document.createElement('tr');
-  tr.innerHTML =
-    '<td>' + p.name + '</td>' +
-    '<td>' + p.network + '</td>' +
-    '<td>' + p.port + '</td>' +
-    '<td><span class="detail-link" onclick="showProtocolDetails(\'' + p.name + '\')">详情</span></td>' +
-    '<td>' + p.disguise + '</td>' +
-    '<td>' + p.scenario + '</td>' +
-    '<td style="color:#10b981">✓ 运行</td>';
-  tb.appendChild(tr);
-});
+function renderProtocols() {
+  const tb = document.querySelector('#proto tbody');
+  tb.innerHTML = '';
+  const protocols = [
+    { name: 'VLESS-Reality', network: 'TCP',     port: '443', disguise: '极佳', scenario: '强审查环境' },
+    { name: 'VLESS-gRPC',    network: 'TCP/H2',  port: '443', disguise: '极佳', scenario: '较严审查，走CDN' },
+    { name: 'VLESS-WS',      network: 'TCP/WS',  port: '443', disguise: '良好', scenario: '常规网络更稳' },
+    { name: 'Trojan-TLS',    network: 'TCP',     port: '443', disguise: '良好', scenario: '移动网络可靠' },
+    { name: 'Hysteria2',     network: 'UDP/QUIC',port: '443', disguise: '良好', scenario: '大带宽/低时延' },
+    { name: 'TUIC',          network: 'UDP/QUIC',port: '2053',disguise: '好',   scenario: '弱网/高丢包更佳' }
+  ];
+  protocols.forEach(p => {
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      `<td>${p.name}</td>
+       <td>${p.network}</td>
+       <td>${p.port}</td>
+       <td><span class="detail-link" onclick="showProtocolDetails('${p.name}')">详情</span></td>
+       <td>${p.disguise}</td>
+       <td>${p.scenario}</td>
+       <td style="color:#10b981">✓ 运行</td>`;
+    tb.appendChild(tr);
+  });
+}
 
       // 出站分流状态
       const mode = sh.mode || 'vps';
