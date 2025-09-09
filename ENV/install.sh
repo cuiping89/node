@@ -1151,21 +1151,21 @@ fi
 }
 
 # -------- 定时任务（稳定刷新） --------
-setup_cron_jobs() {
-  # 先清理历史上可能残留的错误项（函数名、老路径等）
+schedule_dashboard_jobs() {
+  # 清理历史残留
   crontab -l 2>/dev/null \
     | sed -E '/generate_dashboard_data/d;/panel-refresh\.sh/d;/system-stats\.sh/d;/traffic-collector\.sh/d' \
     | crontab - 2>/dev/null || true
 
-  # 每1分钟更新系统状态（CPU/MEM）
+  # 每 1 分钟更新系统状态（CPU/MEM）
   (crontab -l 2>/dev/null; \
     echo "*/1 * * * * /etc/edgebox/scripts/system-stats.sh >/dev/null 2>&1") | crontab -
 
-  # 每2分钟刷新面板数据（服务状态/证书/订阅/卡片字段）
+  # 每 2 分钟刷新面板数据（服务状态/证书/订阅/端口/分流等）
   (crontab -l 2>/dev/null; \
     echo "*/2 * * * * /etc/edgebox/scripts/panel-refresh.sh >/dev/null 2>&1") | crontab -
 
-  # 每小时跑一次流量采集（如果你已经有 traffic-collector.sh）
+  # 每小时跑一次流量采集
   (crontab -l 2>/dev/null; \
     echo "15 * * * * /etc/edgebox/scripts/traffic-collector.sh >/dev/null 2>&1") | crontab -
 
@@ -2408,11 +2408,6 @@ else
   /usr/local/bin/edgeboxctl sub >/dev/null 2>&1 || true
   [[ -s ${WEB_ROOT}/sub ]] || : > "${WEB_ROOT}/sub"
 fi
-
-# 先跑一遍三件套，保证页面初次打开就有内容
-${SCRIPTS_DIR}/system-stats.sh  || true
-${SCRIPTS_DIR}/traffic-collector.sh || true
-${SCRIPTS_DIR}/panel-refresh.sh || true
 
 # 权限（让 nginx 可读）
 chmod 644 ${WEB_ROOT}/sub 2>/dev/null || true
@@ -4168,11 +4163,9 @@ main() {
     touch ${LOG_FILE}
     
     # 设置错误处理
-    # 统一写在 main() 里原 trap 的位置
-trap 'ec=$?; cleanup "$ec"' EXIT
+     trap 'ec=$?; cleanup "$ec"' EXIT
 
-# 替换整个 cleanup() 定义
-cleanup() {
+    cleanup() {
     local ec="${1:-0}"
     if [ "$ec" -ne 0 ]; then
         log_error "安装过程中出现错误，请检查日志: ${LOG_FILE}"
@@ -4181,7 +4174,7 @@ cleanup() {
     rm -f /tmp/Xray-linux-64.zip 2>/dev/null || true
     rm -f /tmp/sing-box-*.tar.gz 2>/dev/null || true
     return 0
-}
+    }
     
     echo -e "${BLUE}正在执行完整安装流程...${NC}"
     
