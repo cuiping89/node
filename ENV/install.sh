@@ -4213,15 +4213,15 @@ cleanup() {
 	create_enhanced_edgeboxctl
     create_init_script
 	
-	# 注意：现在函数都已定义好，再调用就不会报错
-  generate_dashboard_data --now     # 产出 /etc/edgebox/traffic/dashboard.json
-
     # 启动初始化服务
     systemctl start edgebox-init.service >/dev/null 2>&1 || true
     
     # 等待服务稳定
     sleep 3
     
+    # 注意：现在函数都已定义好，再调用就不会报错
+    generate_dashboard_data --now     # 产出 /etc/edgebox/traffic/dashboard.json
+
     # 生成初始图表和首页
     if [[ -x "${SCRIPTS_DIR}/generate-charts.py" ]]; then
         log_info "生成初始控制面板..."
