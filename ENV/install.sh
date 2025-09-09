@@ -890,10 +890,6 @@ start_services() {
   done
 }
 
-# 生成一次并写入 cron
-generate_dashboard_data --now
-schedule_dashboard_jobs
-
 # 生成订阅链接（安装时）
 generate_subscription() {
     log_info "生成订阅链接..."
