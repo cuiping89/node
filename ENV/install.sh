@@ -2402,6 +2402,34 @@ fi
 chmod 644 ${WEB_ROOT}/sub 2>/dev/null || true
 find ${TRAFFIC_DIR} -type f -exec chmod 644 {} \; 2>/dev/null || true
 
+# 设置定时任务
+setup_cron_jobs() {
+  log_info "配置定时任务..."
+
+  # 1) 写入/覆盖 预警配置
+cat > /etc/edgebox/traffic/alert.conf <<'CONF'
+# 月度预算（GiB）
+ALERT_MONTHLY_GIB=100
+
+# Telegram（@BotFather 获取 BotToken；ChatID 可用 @userinfobot）
+ALERT_TG_BOT_TOKEN=
+ALERT_TG_CHAT_ID=
+
+# Discord（频道里添加 Incoming Webhook）
+ALERT_DISCORD_WEBHOOK=
+
+# 微信（个人可用的 PushPlus 转发）
+# https://www.pushplus.plus/ 里获取 token
+ALERT_PUSHPLUS_TOKEN=
+
+# （可选）通用 Webhook（HTTPS 443），FORMAT=raw|slack|discord
+ALERT_WEBHOOK=
+ALERT_WEBHOOK_FORMAT=raw
+
+# 阈值（百分比，逗号分隔）
+ALERT_STEPS=30,60,90
+CONF
+
   # 2) 写入/覆盖 预警脚本（按当月 total 达到阈值去重告警）
 cat > /etc/edgebox/scripts/traffic-alert.sh <<'ALERT'
 #!/bin/bash
