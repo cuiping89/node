@@ -1099,18 +1099,24 @@ cat > "${SCRIPTS_DIR}/panel-refresh.sh" <<'PANEL'
 #!/bin/bash
 set -euo pipefail
 TRAFFIC_DIR="/etc/edgebox/traffic"
-SCRIPTS_DIR="/etc/edgebox/scripts"
 SHUNT_DIR="/etc/edgebox/config/shunt"
 CONFIG_DIR="/etc/edgebox/config"
 mkdir -p "$TRAFFIC_DIR"
 
-# --- 基本信息 ---
+# --- 基本信息：空值安全读取 ---
 srv_json="${CONFIG_DIR}/server.json"
-server_ip="$( (jq -r '.server_ip' "$srv_json" 2>/dev/null) || hostname -I | awk '{print $1}' )"
-version="$( (jq -r '.version' "$srv_json" 2>/dev/null) || echo 'v3.0.0')"
-install_date="$( (jq -r '.install_date' "$srv_json" 2>/dev/null) || date +%F)"
+jqget(){ jq -r "$1 // empty" "$srv_json" 2>/dev/null || true; }
 
-# --- 证书模式/域名/到期 ---
+server_ip="$(jqget '.server_ip')"
+[[ -z "$server_ip" ]] && server_ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+
+version="$(jqget '.version')"
+[[ -z "$version" ]] && version="v3.0.0"
+
+install_date="$(jqget '.install_date')"
+[[ -z "$install_date" ]] && install_date="$(date +%F)"
+
+# --- 证书信息 ---
 cert_mode="self-signed"
 cert_domain=""
 cert_expire=""
@@ -1122,10 +1128,11 @@ if [[ -f "${CONFIG_DIR}/cert_mode" ]]; then
   fi
 fi
 if [[ "$cert_mode" == "letsencrypt" && -n "$cert_domain" && -f "/etc/letsencrypt/live/${cert_domain}/cert.pem" ]]; then
-  cert_expire="$(openssl x509 -enddate -noout -in "/etc/letsencrypt/live/${cert_domain}/cert.pem" 2>/dev/null | cut -d= -f2)"
+  # 任何一步失败都不影响整脚本继续
+  cert_expire="$(openssl x509 -enddate -noout -in "/etc/letsencrypt/live/${cert_domain}/cert.pem" 2>/dev/null | cut -d= -f2 || true)"
 fi
 
-# --- 当前出口 IP（多源兜底，2s 超时） ---
+# --- 当前出口 IP（多源兜底，超时 2s） ---
 get_eip() {
   (curl -fsS --max-time 2 https://api.ip.sb/ip 2>/dev/null) \
   || (curl -fsS --max-time 2 https://ifconfig.me 2>/dev/null) \
@@ -1138,15 +1145,15 @@ eip="$(get_eip)"
 state_json="${SHUNT_DIR}/state.json"
 mode="vps"; proxy=""; health="unknown"; whitelist_json='[]'
 if [[ -s "$state_json" ]]; then
-  mode="$(jq -r '.mode' "$state_json")"
-  proxy="$(jq -r '.proxy_info // ""' "$state_json")"
-  health="$(jq -r '.health // "unknown"' "$state_json")"
+  mode="$(jq -r '.mode // "vps"' "$state_json" 2>/dev/null || echo vps)"
+  proxy="$(jq -r '.proxy_info // ""' "$state_json" 2>/dev/null || true)"
+  health="$(jq -r '.health // "unknown"' "$state_json" 2>/dev/null || echo unknown)"
 fi
 if [[ -s "${SHUNT_DIR}/whitelist.txt" ]]; then
   whitelist_json="$(jq -R -s 'split("\n")|map(select(length>0))' "${SHUNT_DIR}/whitelist.txt")"
 fi
 
-# --- 协议配置（监听检测，只做一览，不改你前端表格的列） ---
+# --- 协议监听一览（只做展示） ---
 SS="$(ss -H -lnptu 2>/dev/null || true)"
 add_proto(){ jq -n --arg name "$1" --arg proto "$2" --argjson port "$3" --arg proc "$4" --arg note "$5" '{name:$name,proto:$proto,port:$port,proc:$proc,note:$note}'; }
 has_listen(){ grep -E "(^| )$1 .*:$2 " <<<"$SS" | grep -qi "$3"; }
@@ -1170,7 +1177,7 @@ nginx_st="$(svc_status nginx)"
 xray_st="$(svc_status xray)"
 singbox_st="$(svc_status sing-box)"
 
-# --- 写 panel.json（⚠️ 无注释、键不重复） ---
+# --- 写 panel.json（保证一定落盘） ---
 jq -n \
   --arg updated "$(date -Is)" \
   --arg ip "$server_ip" \
@@ -1200,14 +1207,16 @@ jq -n \
   protocols: $protocols,
   shunt: { mode: $mode, proxy_info: $proxy, health: $health, whitelist: $whitelist }
 }' > "${TRAFFIC_DIR}/panel.json"
+chmod 0644 "${TRAFFIC_DIR}/panel.json"
 
-# 影子配置（给前端提取 UUID 等）
-cp -f "/etc/edgebox/config/server.json" "${TRAFFIC_DIR}/server.shadow.json" 2>/dev/null || true
+# 供前端弹窗读取 UUID/密码
+cp -f "${CONFIG_DIR}/server.json" "${TRAFFIC_DIR}/server.shadow.json" 2>/dev/null || true
 
 # 订阅地址（域名优先）
 proto="http"; addr="$server_ip"
 if [[ "$cert_mode" == "letsencrypt" && -n "$cert_domain" ]]; then proto="https"; addr="$cert_domain"; fi
 echo "${proto}://${addr}/sub" > "${TRAFFIC_DIR}/sub.txt"
+chmod 0644 "${TRAFFIC_DIR}/sub.txt"
 PANEL
 chmod +x "${SCRIPTS_DIR}/panel-refresh.sh"
 
@@ -1965,32 +1974,30 @@ async function boot(){
       el('ver').textContent = s.version || '-';
       el('inst').textContent = s.install_date || '-';
       
-      // 协议配置表格
-      const tb = document.querySelector('#proto tbody');
-      tb.innerHTML='';
-      
-      const protocols = [
-        { name: 'VLESS-Reality', network: 'TCP', port: '443', disguise: '极佳', scenario: '强审查环境' },
-        { name: 'VLESS-gRPC', network: 'TCP/H2', port: '443', disguise: '极佳', scenario: '较严审查，走CDN' },
-        { name: 'VLESS-WS', network: 'TCP/WS', port: '443', disguise: '良好', scenario: '常规网络更稳' },
-        { name: 'Trojan-TLS', network: 'TCP', port: '443', disguise: '良好', scenario: '移动网络可靠' },
-        { name: 'Hysteria2', network: 'UDP/QUIC', port: '443', disguise: '良好', scenario: '大带宽/低时延' },
-        { name: 'TUIC', network: 'UDP/QUIC', port: '2053', disguise: '好', scenario: '弱网/高丢包更佳' }
-      ];
-      
-      protocols.forEach(function(p) {
-        const tr = document.createElement('tr');
-        tr.innerHTML = 
-          '<td>' + p.name + '</td>' +
-          '<td>' + p.network + '</td>' +
-          '<td>' + p.port + '</td>' +
-          '<td><span class="detail-link" onclick="showProtocolDetails(\'' + p.name + '\')">详情</span></td>' +
-          '<td>' + p.disguise + '</td>' +
-          '<td>' + p.scenario + '</td>' +
-          '<td style="color:#10b981">✓ 运行</td>';
-        tb.appendChild(tr);
-      });
-      
+// —— 协议配置表格：始终渲染 6 行（布局与文案完全不变）——
+const tb = document.querySelector('#proto tbody');
+tb.innerHTML = '';
+const protocols = [
+  { name: 'VLESS-Reality', network: 'TCP',     port: '443', disguise: '极佳', scenario: '强审查环境' },
+  { name: 'VLESS-gRPC',    network: 'TCP/H2',  port: '443', disguise: '极佳', scenario: '较严审查，走CDN' },
+  { name: 'VLESS-WS',      network: 'TCP/WS',  port: '443', disguise: '良好', scenario: '常规网络更稳' },
+  { name: 'Trojan-TLS',    network: 'TCP',     port: '443', disguise: '良好', scenario: '移动网络可靠' },
+  { name: 'Hysteria2',     network: 'UDP/QUIC',port: '443', disguise: '良好', scenario: '大带宽/低时延' },
+  { name: 'TUIC',          network: 'UDP/QUIC',port: '2053',disguise: '好',   scenario: '弱网/高丢包更佳' }
+];
+protocols.forEach(function(p) {
+  const tr = document.createElement('tr');
+  tr.innerHTML =
+    '<td>' + p.name + '</td>' +
+    '<td>' + p.network + '</td>' +
+    '<td>' + p.port + '</td>' +
+    '<td><span class="detail-link" onclick="showProtocolDetails(\'' + p.name + '\')">详情</span></td>' +
+    '<td>' + p.disguise + '</td>' +
+    '<td>' + p.scenario + '</td>' +
+    '<td style="color:#10b981">✓ 运行</td>';
+  tb.appendChild(tr);
+});
+
       // 出站分流状态
       const mode = sh.mode || 'vps';
       const normalizedMode = mode.replace('_', '-').replace(/\(.*\)/, '').trim();
