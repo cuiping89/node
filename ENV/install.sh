@@ -4218,9 +4218,6 @@ cleanup() {
     
     # 等待服务稳定
     sleep 3
-    
-    # 注意：现在函数都已定义好，再调用就不会报错
-    generate_dashboard_data --now     # 产出 /etc/edgebox/traffic/dashboard.json
 
     # 生成初始图表和首页
     if [[ -x "${SCRIPTS_DIR}/generate-charts.py" ]]; then
@@ -4240,6 +4237,8 @@ ${SCRIPTS_DIR}/traffic-collector.sh || true
 # 最后产出 panel.json（会读取 shunt 与证书状态）
 ${SCRIPTS_DIR}/panel-refresh.sh || true
 
+    # 注意：现在函数都已定义好，再调用就不会报错
+    generate_dashboard_data --now     # 产出 /etc/edgebox/traffic/dashboard.json
 
 	# 在安装收尾输出总结信息（原来没调用）
     show_installation_info
