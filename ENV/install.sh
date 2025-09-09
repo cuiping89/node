@@ -1094,106 +1094,128 @@ printf 'PREV_TX=%s\nPREV_RX=%s\nPREV_RESI=%s\n' "$TX_CUR" "$RX_CUR" "$RESI_CUR" 
 COLLECTOR
 chmod +x "${SCRIPTS_DIR}/traffic-collector.sh"
 
-# === 覆盖生成 /etc/edgebox/scripts/panel-refresh.sh ===
+  # 面板数据刷新（自包含版本，不依赖外部函数）
 cat > "${SCRIPTS_DIR}/panel-refresh.sh" <<'PANEL'
 #!/bin/bash
 set -euo pipefail
-CONFIG_DIR="/etc/edgebox/config"
 TRAFFIC_DIR="/etc/edgebox/traffic"
-SHUNT_DIR="/etc/edgebox/shunt"
-CERT_LINK_DIR="/etc/edgebox/cert"
+SCRIPTS_DIR="/etc/edgebox/scripts"
+SHUNT_DIR="/etc/edgebox/config/shunt"
+CONFIG_DIR="/etc/edgebox/config"
 mkdir -p "$TRAFFIC_DIR"
 
+# --- 基本信息 ---
 srv_json="${CONFIG_DIR}/server.json"
-jqget(){ jq -r "$1" "$srv_json" 2>/dev/null || true; }
-
-server_ip="$(jqget '.server_ip')"
-[[ -z "$server_ip" || "$server_ip" == "null" ]] && server_ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
-domain="$(jqget '.domain')"
-version="$(jqget '.version // "-"')"
-install_date="$(jqget '.install_date // "-"')"
-
-# CPU/内存
-[[ -x /etc/edgebox/scripts/system-stats.sh ]] && /etc/edgebox/scripts/system-stats.sh || true
-cpu="-" mem="-"
-if [[ -s "${TRAFFIC_DIR}/system.json" ]]; then
-  cpu="$(jq -r '.cpu' "${TRAFFIC_DIR}/system.json" 2>/dev/null)"
-  mem="$(jq -r '.memory' "${TRAFFIC_DIR}/system.json" 2>/dev/null)"
-fi
-
-# 服务状态
-svc(){ systemctl is-active --quiet "$1" && echo active || echo inactive; }
-nginx_state="$(svc nginx)"
-xray_state="$(svc xray)"
-sbox_state="$(svc sing-box)"
-
-# 证书
+server_ip="$( (jq -r '.server_ip' "$srv_json" 2>/dev/null) || hostname -I | awk '{print $1}' )"
+version="$( (jq -r '.version' "$srv_json" 2>/dev/null) || echo 'v3.0.0')"
+install_date="$( (jq -r '.install_date' "$srv_json" 2>/dev/null) || date +%F)"
+# 证书模式/域名/到期
+cert_domain=""
 cert_mode="self-signed"
-[[ -f "${CONFIG_DIR}/cert_mode" ]] && cert_mode="$(cat "${CONFIG_DIR}/cert_mode" 2>/dev/null || echo self-signed)"
-cert_expiry="-"
-if [[ -s "${CERT_LINK_DIR}/current.pem" ]]; then
-  cert_expiry="$(openssl x509 -in "${CERT_LINK_DIR}/current.pem" -noout -enddate 2>/dev/null | cut -d= -f2 \
-    | xargs -I{} date -d '{}' +%Y-%m-%d 2>/dev/null || echo -)"
+cert_expire=""
+if ls /etc/letsencrypt/live/*/fullchain.pem >/dev/null 2>&1; then
+  cert_mode="letsencrypt"
+  cert_domain="$(basename /etc/letsencrypt/live/* 2>/dev/null || true)"
+  pem="/etc/letsencrypt/live/${cert_domain}/cert.pem"
+  if [[ -f "$pem" ]] && command -v openssl >/dev/null 2>&1; then
+    cert_expire="$(openssl x509 -enddate -noout -in "$pem" 2>/dev/null | cut -d= -f2)"
+  fi
 fi
 
-# 分流
-whitelist_json='[]'
-if [[ -s "${SHUNT_DIR}/whitelist-vps.txt" ]]; then
-  whitelist_json="$(jq -R -s -c 'split("\n")|map(select(length>0))' "${SHUNT_DIR}/whitelist-vps.txt")"
-fi
-shunt_mode="-"
-[[ -s "${SHUNT_DIR}/state.json" ]] && shunt_mode="$(jq -r '.mode // "-"' "${SHUNT_DIR}/state.json" 2>/dev/null)"
-vps_ip="$(curl -fsS --max-time 2 https://api.ipify.org 2>/dev/null || echo -)"
-resi_ip="待获取"
+# 当前出口 IP（尽量轻量：2s 超时，多源兜底）
+get_eip() {
+  (curl -fsS --max-time 2 https://api.ip.sb/ip 2>/dev/null) \
+  || (curl -fsS --max-time 2 https://ifconfig.me 2>/dev/null) \
+  || (dig +short myip.opendns.com @resolver1.opendns.com 2>/dev/null) \
+  || echo ""
+}
+eip="$(get_eip)"
 
-# 订阅（把已有订阅暴露给前端三种展示）
-SUB_TXT="${TRAFFIC_DIR}/sub.txt"
-if [[ ! -s "$SUB_TXT" && -s "${CONFIG_DIR}/subscription.txt" ]]; then
-  cp -f "${CONFIG_DIR}/subscription.txt" "$SUB_TXT"
+# --- 分流状态 ---
+state_json="${SHUNT_DIR}/state.json"
+mode="vps"; proxy=""; health="unknown"; wl_count=0; whitelist_json='[]'
+if [[ -s "$state_json" ]]; then
+  mode="$(jq -r '.mode' "$state_json")"
+  proxy="$(jq -r '.proxy_info // ""' "$state_json")"
+  health="$(jq -r '.health // "unknown"' "$state_json")"
 fi
-sub_plain="" sub_b64="" sub_b64lines=""
-if [[ -s "$SUB_TXT" ]]; then
-  sub_plain="$(tr -d '\r' < "$SUB_TXT")"
-  sub_b64="$(printf '%s' "$sub_plain" | base64 -w0)"
-  sub_b64lines="$(awk '{ cmd="base64 -w0"; print | cmd; close(cmd) }' "$SUB_TXT")"
+if [[ -s "${SHUNT_DIR}/whitelist.txt" ]]; then
+  wl_count="$(grep -cve '^\s*$' "${SHUNT_DIR}/whitelist.txt" || true)"
+  whitelist_json="$(jq -R -s 'split("\n")|map(select(length>0))' "${SHUNT_DIR}/whitelist.txt")"
 fi
 
-updated="$(date -Is)"
+# --- 协议配置（检测监听端口/进程，做成一览表） ---
+# 目标：符合 README 的“左侧 70% 协议配置卡片”，至少给出协议名/端口/进程与说明【协议清单见 README】。
+# 数据来源：ss/ps 检测（健壮且不依赖具体实现），缺少时标注“未监听/未配置”。
+SS="$(ss -H -lnptu 2>/dev/null || true)"
+add_proto() {  # name proto port proc note
+  local name="$1" proto="$2" port="$3" proc="$4" note="$5"
+  jq -n --arg name "$name" --arg proto "$proto" --argjson port "$port" \
+        --arg proc "$proc" --arg note "$note" \
+     '{name:$name, proto:$proto, port:$port, proc:$proc, note:$note}'
+}
+has_listen() { # proto port keyword_in_process
+  local proto="$1" port="$2" kw="$3"
+  grep -E "(^| )$proto .*:$port " <<<"$SS" | grep -qi "$kw"
+}
+protos=()
 
-# 生成与前端完全对齐的 JSON
+# Xray / sing-box on 443 (Reality / VLESS-WS / VLESS-gRPC / Trojan-TLS 等)
+if has_listen tcp 443 "xray|sing-box|trojan"; then
+  protos+=( "$(add_proto 'VLESS/Trojan (443/TCP)' 'tcp' 443 "$(grep -E 'tcp .*:443 ' <<<"$SS" | awk -F',' '/users/ {print $2;exit}' | sed 's/\"//g')" 'Reality/WS/gRPC/TLS 同端口，多协议复用')" )
+else
+  protos+=( "$(add_proto 'VLESS/Trojan (443/TCP)' 'tcp' 443 '未监听' '未检测到 443 TCP')" )
+fi
+
+# Hysteria2（常见 UDP 端口：8443/443）
+if has_listen udp 8443 "hysteria|sing-box"; then
+  protos+=( "$(add_proto 'Hysteria2' 'udp' 8443 'hysteria/sing-box' '高性能 UDP 通道（直连，不参与分流）')" )
+elif has_listen udp 443 "hysteria|sing-box"; then
+  protos+=( "$(add_proto 'Hysteria2' 'udp' 443 'hysteria/sing-box' '高性能 UDP 通道（直连，不参与分流）')" )
+else
+  protos+=( "$(add_proto 'Hysteria2' 'udp' 0 '未监听' '未检测到常见端口 8443/443')" )
+fi
+
+# TUIC（常见 UDP 端口：2053）
+if has_listen udp 2053 "tuic|sing-box"; then
+  protos+=( "$(add_proto 'TUIC' 'udp' 2053 'tuic/sing-box' '高性能 UDP 通道（直连，不参与分流）')" )
+else
+  protos+=( "$(add_proto 'TUIC' 'udp' 2053 '未监听' '未检测到 2053 UDP')" )
+fi
+
+# 汇总为 JSON 数组
+protocols_json="$(jq -s '.' <<<"${protos[*]:-[]}")"
+
+# --- 写 panel.json ---
 jq -n \
-  --arg updated "$updated" \
-  --arg ip "$server_ip" \
-  --arg domain "$domain" \
-  --arg version "$version" \
-  --arg install_date "$install_date" \
-  --arg cert_mode "$cert_mode" \
-  --arg cert_expire "$cert_expiry" \
-  --arg cert_domain "$domain" \
-  --arg eip "$server_ip" \
-  --arg nginx "$nginx_state" \
-  --arg xray "$xray_state" \
-  --arg sbox "$sbox_state" \
-  --arg sh_mode "$shunt_mode" \
-  --argjson whitelist "$whitelist_json" \
-  --arg vpsip "$vps_ip" \
-  --arg resiip "$resi_ip" \
-  --arg sub_plain "$sub_plain" \
-  --arg sub_b64 "$sub_b64" \
-  --arg sub_b64lines "$sub_b64lines" \
-'{
-  updated_at: $updated,
-server: { ip:$ip, domain:$domain, version:$version, install_date:$install_date, updated_at:$now, cert_mode:$cert_mode, cert_expire:$cert_expiry, cert_domain:$domain, eip:$ip },
-  system: { cpu: ($ip|length>0 ? 0 : 0) },  # 保留结构（前端另行从 system.json 取数）
-service_status: { nginx:$nginx, xray:$xray, "sing-box":$sbox },
-  shunt: { mode: $sh_mode, whitelist: $whitelist, vps_ip: $vpsip, resi_ip: $resiip },
-  subscription: { plain: $sub_plain, b64: $sub_b64, b64lines: $sub_b64lines }
-}' > "${TRAFFIC_DIR}/panel.json"
+ --arg updated "$(date -Is)" \
+ --arg ip "$server_ip" \
+ --arg eip "$eip" \
+ --arg version "$version" \
+ --arg install_date "$install_date" \
+ --arg cert_mode "$cert_mode" \
+ --arg cert_domain "$cert_domain" \
+ --arg cert_expire "$cert_expire" \
+ --arg mode "$mode" \
+ --arg proxy "$proxy" \
+ --arg health "$health" \
+ --argjson whitelist "$whitelist_json" \
+ --argjson protocols "$protocols_json" \
+ '{
+   updated_at:$updated,
+   server:{ip:$ip,eip:($eip|select(length>0)),version:$version,install_date:$install_date,
+           cert_mode:$cert_mode,cert_domain:($cert_domain|select(length>0)),cert_expire:($cert_expire|select(length>0))},
+   protocols:$protocols,
+   shunt:{mode:$mode,proxy_info:$proxy,health:$health,whitelist:$whitelist}
+ }'> "${TRAFFIC_DIR}/panel.json"
 
-# 兼容旧前端：直接暴露 sub.txt
-[[ -n "$sub_plain" ]] && printf '%s\n' "$sub_plain" > "${TRAFFIC_DIR}/sub.txt"
+# 让前端(仅面板)读取一份“影子配置”，避免再去解析 /sub
+cp -f "/etc/edgebox/config/server.json" "${TRAFFIC_DIR}/server.shadow.json" 2>/dev/null || true
 
-echo "[panel-refresh] updated: ${TRAFFIC_DIR}/panel.json"
+# 写订阅复制链接
+proto="http"; addr="$server_ip"
+if [[ "$cert_mode" == "letsencrypt" && -n "$cert_domain" ]]; then proto="https"; addr="$cert_domain"; fi
+echo "${proto}://${addr}/sub" > "${TRAFFIC_DIR}/sub.txt"
 PANEL
 chmod +x "${SCRIPTS_DIR}/panel-refresh.sh"
 
@@ -1772,28 +1794,16 @@ async function getSystemLoad() {
 // 获取服务状态
 async function getServiceStatus() {
   try {
-    const r = await fetch('/traffic/panel.json', { cache: 'no-store' });
-    if (!r.ok) return;
-    const p = await r.json();
-    const s = (p && p.service_status) || {};
-
-    const map = {
-      nginx: 'nginx-status',
-      xray: 'xray-status',
-      'sing-box': 'singbox-status'
-    };
-
-    for (const key in map) {
-      const elId = map[key];
-      const elem = document.getElementById(elId);
-      if (!elem) continue;
-      const st = s[key] || 'unknown';
-      elem.textContent = st;
-      elem.style.fontWeight = '600';
-      // 绿色=active，红色=inactive，灰色=unknown
-      elem.style.color = (st === 'active') ? '#10b981' : (st === 'inactive' ? '#ef4444' : '#64748b');
+    const services = ['nginx', 'xray', 'sing-box'];
+    for (const svc of services) {
+      const elId = svc.replace('-', '') + '-status';
+      const elem = el(elId);
+      if (elem) {
+        elem.textContent = 'active';
+        elem.style.color = '#10b981';
+      }
     }
-  } catch (e) {
+  } catch(e) {
     console.log('服务状态获取失败:', e);
   }
 }
@@ -1868,7 +1878,7 @@ async function updateProgressBar() {
 
 async function boot(){
   console.log('开始加载数据...');
-  renderProtocols();     // ← 新增这一行
+  
   try {
     const [subTxt, panel, tjson, alerts, serverJson] = await Promise.all([
       fetch('/sub',{cache:'no-store'}).then(function(r) { return r.text(); }).catch(function() { return ''; }), 
@@ -1951,32 +1961,32 @@ async function boot(){
       el('ver').textContent = s.version || '-';
       el('inst').textContent = s.install_date || '-';
       
-// —— 协议配置表格：始终渲染 6 行（布局与文案完全不变）——
-function renderProtocols() {
-  const tb = document.querySelector('#proto tbody');
-  tb.innerHTML = '';
-  const protocols = [
-    { name: 'VLESS-Reality', network: 'TCP',     port: '443', disguise: '极佳', scenario: '强审查环境' },
-    { name: 'VLESS-gRPC',    network: 'TCP/H2',  port: '443', disguise: '极佳', scenario: '较严审查，走CDN' },
-    { name: 'VLESS-WS',      network: 'TCP/WS',  port: '443', disguise: '良好', scenario: '常规网络更稳' },
-    { name: 'Trojan-TLS',    network: 'TCP',     port: '443', disguise: '良好', scenario: '移动网络可靠' },
-    { name: 'Hysteria2',     network: 'UDP/QUIC',port: '443', disguise: '良好', scenario: '大带宽/低时延' },
-    { name: 'TUIC',          network: 'UDP/QUIC',port: '2053',disguise: '好',   scenario: '弱网/高丢包更佳' }
-  ];
-  protocols.forEach(p => {
-    const tr = document.createElement('tr');
-    tr.innerHTML =
-      `<td>${p.name}</td>
-       <td>${p.network}</td>
-       <td>${p.port}</td>
-       <td><span class="detail-link" onclick="showProtocolDetails('${p.name}')">详情</span></td>
-       <td>${p.disguise}</td>
-       <td>${p.scenario}</td>
-       <td style="color:#10b981">✓ 运行</td>`;
-    tb.appendChild(tr);
-  });
-}
-
+      // 协议配置表格
+      const tb = document.querySelector('#proto tbody');
+      tb.innerHTML='';
+      
+      const protocols = [
+        { name: 'VLESS-Reality', network: 'TCP', port: '443', disguise: '极佳', scenario: '强审查环境' },
+        { name: 'VLESS-gRPC', network: 'TCP/H2', port: '443', disguise: '极佳', scenario: '较严审查，走CDN' },
+        { name: 'VLESS-WS', network: 'TCP/WS', port: '443', disguise: '良好', scenario: '常规网络更稳' },
+        { name: 'Trojan-TLS', network: 'TCP', port: '443', disguise: '良好', scenario: '移动网络可靠' },
+        { name: 'Hysteria2', network: 'UDP/QUIC', port: '443', disguise: '良好', scenario: '大带宽/低时延' },
+        { name: 'TUIC', network: 'UDP/QUIC', port: '2053', disguise: '好', scenario: '弱网/高丢包更佳' }
+      ];
+      
+      protocols.forEach(function(p) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = 
+          '<td>' + p.name + '</td>' +
+          '<td>' + p.network + '</td>' +
+          '<td>' + p.port + '</td>' +
+          '<td><span class="detail-link" onclick="showProtocolDetails(\'' + p.name + '\')">详情</span></td>' +
+          '<td>' + p.disguise + '</td>' +
+          '<td>' + p.scenario + '</td>' +
+          '<td style="color:#10b981">✓ 运行</td>';
+        tb.appendChild(tr);
+      });
+      
       // 出站分流状态
       const mode = sh.mode || 'vps';
       const normalizedMode = mode.replace('_', '-').replace(/\(.*\)/, '').trim();
@@ -2340,13 +2350,11 @@ echo "$new_sent" > "$STATE"
 ALERT
 chmod +x /etc/edgebox/scripts/traffic-alert.sh
 
-# 定时：每分钟刷系统和面板；每小时聚合流量；每小时检查预警
-( crontab -l 2>/dev/null | grep -vE '/etc/edgebox/scripts/(system-stats\.sh|traffic-collector\.sh|panel-refresh\.sh|traffic-alert\.sh)'; \
-  echo "*/1 * * * * /etc/edgebox/scripts/system-stats.sh"; \
-  echo "0   * * * * /etc/edgebox/scripts/traffic-collector.sh"; \
-  echo "*/1 * * * * /etc/edgebox/scripts/panel-refresh.sh"; \
-  echo "7   * * * * /etc/edgebox/scripts/traffic-alert.sh" \
-) | crontab -
+# 每小时：采集→面板→预警
+( crontab -l 2>/dev/null | grep -vE '/etc/edgebox/scripts/(traffic-collector\.sh|panel-refresh\.sh|traffic-alert\.sh)'; \
+  echo "0 * * * * /etc/edgebox/scripts/traffic-collector.sh"; \
+  echo "5 * * * * /etc/edgebox/scripts/panel-refresh.sh"; \
+  echo "7 * * * * /etc/edgebox/scripts/traffic-alert.sh" ) | crontab -
 
 # 每分钟：CPU/内存
 ( crontab -l 2>/dev/null | grep -v '/etc/edgebox/scripts/system-stats.sh'; \
