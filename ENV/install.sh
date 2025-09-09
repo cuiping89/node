@@ -1505,40 +1505,6 @@ echo "备份原文件..."
 
 echo "生成优化版控制面板..."
 
-#!/bin/bash
-# EdgeBox 控制面板HTML完整替换脚本
-# 优化：7:3排版 + 图例留白 + y轴顶部GiB + 注释固定底部 + 本月进度自动刷新
-
-set -euo pipefail
-
-TRAFFIC_DIR="/etc/edgebox/traffic"
-TARGET_FILE="${TRAFFIC_DIR}/index.html"
-
-[[ $EUID -ne 0 ]] && { echo "需要 root 权限"; exit 1; }
-[[ ! -d "$TRAFFIC_DIR" ]] && { echo "EdgeBox 未安装"; exit 1; }
-
-echo "备份原文件..."
-[[ -f "$TARGET_FILE" ]] && cp "$TARGET_FILE" "${TARGET_FILE}.bak.$(date +%s)"
-
-echo "生成优化版控制面板..."
-
-#!/bin/bash
-# EdgeBox 控制面板HTML完整替换脚本
-# 优化：7:3排版 + 图例留白 + y轴顶部GiB + 注释固定底部 + 本月进度自动刷新
-
-set -euo pipefail
-
-TRAFFIC_DIR="/etc/edgebox/traffic"
-TARGET_FILE="${TRAFFIC_DIR}/index.html"
-
-[[ $EUID -ne 0 ]] && { echo "需要 root 权限"; exit 1; }
-[[ ! -d "$TRAFFIC_DIR" ]] && { echo "EdgeBox 未安装"; exit 1; }
-
-echo "备份原文件..."
-[[ -f "$TARGET_FILE" ]] && cp "$TARGET_FILE" "${TARGET_FILE}.bak.$(date +%s)"
-
-echo "生成优化版控制面板..."
-
 # 控制面板（完整版：严格按照截图样式开发）
 cat > "$TARGET_FILE" <<'HTML'
 <!doctype html>
@@ -4217,6 +4183,10 @@ main() {
     setup_email_system
 	create_enhanced_edgeboxctl
     create_init_script
+	
+	# 注意：现在函数都已定义好，再调用就不会报错
+  generate_dashboard_data --now     # 产出 /etc/edgebox/traffic/dashboard.json
+  schedule_dashboard_jobs           # 写入 cron，后续周期刷新
 
     # 启动初始化服务
     systemctl start edgebox-init.service >/dev/null 2>&1 || true
