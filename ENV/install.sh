@@ -1139,10 +1139,25 @@ generate_dashboard_data() {
 }' > "${TRAFFIC_DIR}/panel.json"
 
   # /sub 给前端使用（如果还没放）
-  if [[ -s "$SUB_CACHE" ]]; then
-    cp -f "$SUB_CACHE" /var/www/html/sub 2>/dev/null || true
+if [[ -s "$SUB_CACHE" ]]; then
+  dest="/var/www/html/sub"
+  # 若源与目标解析到同一实体则跳过，避免 "are the same file"
+  if [[ "$(readlink -f "$SUB_CACHE")" != "$(readlink -f "$dest")" ]]; then
+    cp -f "$SUB_CACHE" "$dest" 2>/dev/null || true
   fi
-  log_info "控制面板数据已更新 -> ${TRAFFIC_DIR}/dashboard.json"
+fi
+
+  log_info "控制面板数据已更新 -> ${TRAFFIC_DIR}/panel.json"
+}
+
+# -------- 定时任务（稳定刷新） --------
+schedule_dashboard_jobs() {
+  # 清理旧的
+  crontab -l 2>/dev/null | sed '/generate_dashboard_data/d' | crontab -
+  # 每 2 分钟刷新一次（CPU/内存/服务/证书/端口/SNI/订阅 都会更新）
+  (crontab -l 2>/dev/null; \
+    echo "*/2 * * * * bash -lc 'source /etc/profile >/dev/null 2>&1; generate_dashboard_data --now >/dev/null 2>&1'") \
+  | crontab -
 }
 
 # -------- 定时任务（稳定刷新） --------
