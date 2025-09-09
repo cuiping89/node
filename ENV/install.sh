@@ -124,7 +124,7 @@ check_system() {
         exit 1
     fi
     
-# 支持的系统版本
+    # 支持的系统版本
     SUPPORTED=false
     
     case "$OS" in
@@ -954,223 +954,6 @@ PLAIN
     log_success "HTTP 订阅地址: http://${addr}/sub"
 }
 
-# ====== EdgeBox: Dashboard 后端生成 ======
-# 说明：
-# - 统一产出 /etc/edgebox/traffic/dashboard.json（前端一次取齐）
-# - 同步产出 /etc/edgebox/traffic/system.json 与 /etc/edgebox/traffic/panel.json（兼容你当前前端）
-# - 不依赖 top 的本地化；CPU/内存用 /proc/meminfo + /proc/stat 计算，稳定
-# - 服务状态用 systemctl；证书截止时间自动解析；协议与 SNI 从 /sub 或配置中提取
-# - 没有变量时自动降级探测（不会因为某些环境变量缺失而报错）
-
-TRAFFIC_DIR="${TRAFFIC_DIR:-/etc/edgebox/traffic}"
-CONFIG_DIR="${CONFIG_DIR:-/etc/edgebox/config}"
-CERT_DIR="${CERT_DIR:-/etc/letsencrypt/live}"
-SUB_CACHE="${SUB_CACHE:-/etc/edgebox/traffic/sub.txt}"   # 允许前端 /sub 读取同一份
-SERVER_JSON="${CONFIG_DIR}/server.json"                  # 你脚本里通常会写这个
-mkdir -p "$TRAFFIC_DIR" "$CONFIG_DIR"
-
-# -------- 小工具：安全 echo 到 JSON 的 helper（避免 null/未定义） --------
-_jq_s(){ jq -n --arg v "${1:-}" '$v // empty'; }
-
-# -------- CPU/内存（稳定、与语言无关） --------
-_get_cpu_mem() {
-  # CPU
-  read _ a b c idle rest < /proc/stat; t1=$((a+b+c+idle)); i1=$idle; sleep 1
-  read _ a b c idle rest < /proc/stat; t2=$((a+b+c+idle)); i2=$idle
-  dt=$((t2-t1)); di=$((i2-i1))
-  CPU=$(( dt>0 ? (100*(dt-di)+dt/2)/dt : 0 ))
-  # Mem
-  MT=$(awk '/MemTotal/{print $2}' /proc/meminfo)
-  MA=$(awk '/MemAvailable/{print $2}' /proc/meminfo)
-  MEM=$(( MT>0 ? (100*(MT-MA)+MT/2)/MT : 0 ))
-  echo "$CPU" "$MEM"
-}
-
-# -------- 服务状态 --------
-_unit_active(){ systemctl is-active --quiet "$1" && echo active || echo inactive; }
-
-# -------- 服务器/域名/IP 获取（变量缺失时降级） --------
-_get_server_facts() {
-  # 优先从 server.json 读（如果你脚本已写入）
-  local sip="" sdom="" ver="" install_date=""
-  if [[ -s "$SERVER_JSON" ]]; then
-    sip=$(jq -r '.server_ip // empty'      "$SERVER_JSON")
-    sdom=$(jq -r '.server_domain // empty' "$SERVER_JSON")
-    ver=$(jq -r '.version // empty'        "$SERVER_JSON")
-    install_date=$(jq -r '.install_date // empty' "$SERVER_JSON")
-  fi
-  # 环境变量兜底
-  [[ -z "$sip"  && -n "${SERVER_IP:-}"      ]] && sip="$SERVER_IP"
-  [[ -z "$sdom" && -n "${SERVER_DOMAIN:-}"  ]] && sdom="$SERVER_DOMAIN"
-  [[ -z "$ver"  && -n "${EDGEBOX_VER:-}"    ]] && ver="$EDGEBOX_VER"
-  [[ -z "$install_date" && -n "${INSTALL_DATE:-}" ]] && install_date="$INSTALL_DATE"
-  # 再兜底：本机 IP / 公网 IP
-  [[ -z "$sip"  ]] && sip="$(hostname -I 2>/dev/null | awk '{print $1}')"
-  # 公网 IP
-  local eip="$(curl -fsS --max-time 2 https://api.ipify.org 2>/dev/null || true)"
-  echo "$sip" "$sdom" "$ver" "$install_date" "$eip"
-}
-
-# -------- 证书信息（自动识别 LE / 自签） --------
-_get_cert_info() {
-  local mode="self-signed" typ="自签名证书" expire="N/A"
-  if ls ${CERT_DIR}/*/fullchain.pem >/dev/null 2>&1; then
-    mode="letsencrypt"; typ="Let's Encrypt"
-    local dom=$(basename ${CERT_DIR}/* 2>/dev/null | head -n1)
-    local pem="${CERT_DIR}/${dom}/cert.pem"
-    [[ -f "$pem" ]] && expire="$(openssl x509 -enddate -noout -in "$pem" | cut -d= -f2 | xargs -I{} date -d {} +%Y-%m-%d 2>/dev/null || openssl x509 -enddate -noout -in "$pem" | cut -d= -f2)"
-  fi
-  echo "$mode" "$typ" "$expire"
-}
-
-# -------- 解析 /sub，拿 SNI、组装订阅（若 edgeboxctl 可用，先生成一份缓存） --------
-_ensure_sub_cache() {
-  # 你原脚本里 edgeboxctl sub 能输出，我们在安装时顺手写到 SUB_CACHE，前端 /sub 也能读
-  if command -v edgeboxctl >/dev/null 2>&1; then
-    edgeboxctl sub > "$SUB_CACHE" 2>/dev/null || true
-  fi
-  # 如果还没有，尽量从 /var/www/html/sub 复制
-  [[ ! -s "$SUB_CACHE" && -s /var/www/html/sub ]] && cp /var/www/html/sub "$SUB_CACHE"
-}
-
-_parse_sni_from_sub() {
-  # $1 协议关键字（reality / trojan）
-  local key="$1"
-  local sni=""
-  if [[ -s "$SUB_CACHE" ]]; then
-    case "$key" in
-      reality) sni=$(grep -i '^vless://' "$SUB_CACHE" | head -n1 | sed -n 's/.*[?&]sni=\([^&]*\).*/\1/p' | sed 's/%2F/\//g;s/%3A/:/g') ;;
-      trojan)  sni=$(grep -i '^trojan://' "$SUB_CACHE" | head -n1 | sed -n 's/.*[?&]sni=\([^&]*\).*/\1/p' | sed 's/%2F/\//g;s/%3A/:/g') ;;
-    esac
-  fi
-  echo "${sni:-}"
-}
-
-# -------- 生成 dashboard.json / system.json / panel.json --------
-generate_dashboard_data() {
-  [[ "${1:-}" == "--now" ]] && true   # 兼容调用样式
-
-  mkdir -p "$TRAFFIC_DIR"
-  _ensure_sub_cache
-
-  # 系统、服务、证书、服务器事实
-  read CPU MEM < <(_get_cpu_mem)
-  local nginx_s=$(_unit_active nginx)
-  local xray_s=$(_unit_active xray)
-  local sbox_s=$(_unit_active sing-box || _unit_active singbox)
-
-  read INSTALL_MODE_ CERT_TYPE CERT_EXPIRE < <(_get_cert_info)   # mode / type / expire
-  read SERVER_IP_ SERVER_DOMAIN_ EDGEBOX_VER_ INSTALL_DATE_ EIP_ < <(_get_server_facts)
-
-  # 协议 SNI（如变量未提供，从 /sub 提取；最后兜底）
-  local REALITY_SNI_="${REALITY_SNI:-$(_parse_sni_from_sub reality)}"
-  [[ -z "$REALITY_SNI_" ]] && REALITY_SNI_="www.cloudflare.com"
-  local TROJAN_SNI_="${TROJAN_SNI:-$(_parse_sni_from_sub trojan)}"
-  [[ -z "$TROJAN_SNI_" ]] && TROJAN_SNI_="trojan.edgebox.internal"
-
-  # 面板“运行监听端口”（基于 ss 检测）
-  local has_tcp443=$(ss -H -lnpt 2>/dev/null | grep -qE 'tcp .*:443 ' && echo true || echo false)
-  local has_tuic=$(ss -H -lnpu 2>/dev/null | grep -qE 'udp .*:2053 ' && echo true || echo false)
-  local has_hy2=$(ss -H -lnpu 2>/dev/null | grep -qE 'udp .*:(8443|443) ' && echo true || echo false)
-
-  # 订阅（plain/base64/base64_lines）
-  local SUB_PLAIN="$(tr '\n' ' ' < "$SUB_CACHE" 2>/dev/null | sed 's/[[:space:]]\+/ /g' | sed 's/[[:space:]]$//')"
-  local SUB_LINES="$(cat "$SUB_CACHE" 2>/dev/null || true)"
-  local SUB_B64="$(printf '%s' "$SUB_LINES" | base64 -w0 2>/dev/null || printf '%s' "$SUB_LINES" | base64 2>/dev/null | tr -d '\n')"
-
-  # ========== 写 dashboard.json ==========
-  jq -n \
-    --arg ip      "$SERVER_IP_" \
-    --arg eip     "$EIP_" \
-    --arg domain  "$SERVER_DOMAIN_" \
-    --arg mode    "$INSTALL_MODE_" \
-    --arg ver     "${EDGEBOX_VER_:-3.0.0}" \
-    --arg inst    "${INSTALL_DATE_:-$(date +%F)}" \
-    --argjson cpu "$CPU" \
-    --argjson mem "$MEM" \
-    --arg nginx   "$nginx_s" \
-    --arg xray    "$xray_s" \
-    --arg sbox    "$sbox_s" \
-    --arg cert_t  "$CERT_TYPE" \
-    --arg cert_e  "$CERT_EXPIRE" \
-    --arg r_sni   "$REALITY_SNI_" \
-    --arg t_sni   "$TROJAN_SNI_" \
-    --arg b_tcp443 "$has_tcp443" \
-    --arg b_hy2   "$has_hy2" \
-    --arg b_tuic  "$has_tuic" \
-    --arg sub_p   "$SUB_PLAIN" \
-    --arg sub_b   "$SUB_B64" \
-    --arg sub_l   "$SUB_LINES" \
-'{
-  updated_at: (now | todate),
-  server: { ip:$ip, eip: (if $eip=="" then null else $eip end), version:$ver, install_date:$inst },
-  cert:   { mode:$mode, type:$cert_t, expire:$cert_e, provider: (if $mode=="letsencrypt" then "auto" else "self" end) },
-  system: { cpu:($cpu|tonumber), memory:($mem|tonumber) },
-  services: { nginx:$nginx, xray:$xray, "sing-box":$sbox },
-  protocols: {
-    "443_tcp":      (if $b_tcp443=="true" then "listening" else "down" end),
-    "hysteria2":    (if $b_hy2=="true"   then "listening" else "down" end),
-    "tuic_2053":    (if $b_tuic=="true"  then "listening" else "down" end),
-    reality_sni: $r_sni, trojan_sni: $t_sni
-  },
-  subscription: { plain:$sub_p, base64:$sub_b, b64_lines:$sub_l }
-}' > "${TRAFFIC_DIR}/dashboard.json"
-  chmod 0644 "${TRAFFIC_DIR}/dashboard.json"
-
-  # ========== 同步 system.json / panel.json（兼容你现有前端） ==========
-  jq -n --arg ts "$(date -Is)" --argjson cpu "$CPU" --argjson memory "$MEM" \
-    '{updated_at:$ts,cpu:$cpu,memory:$memory}' > "${TRAFFIC_DIR}/system.json"
-
-  jq -n \
-    --arg ts "$(date -Is)" \
-    --arg ip "$SERVER_IP_" --arg eip "$EIP_" --arg ver "${EDGEBOX_VER_:-3.0.0}" --arg inst "${INSTALL_DATE_:-$(date +%F)}" \
-    --arg cm "$INSTALL_MODE_" --arg cd "$SERVER_DOMAIN_" --arg ce "$CERT_EXPIRE" \
-    --arg b1 "$has_tcp443" --arg b2 "$has_hy2" --arg b3 "$has_tuic" \
-'{
-  updated_at:$ts,
-  server:{ip:$ip,eip:(if $eip=="" then null else $eip end),version:$ver,install_date:$inst,
-          cert_mode:$cm,cert_domain:(if $cd=="" then null else $cd end),cert_expire:(if $ce=="" then null else $ce end)},
-  protocols:[
-    {name:"VLESS/Trojan (443/TCP)",proto:"tcp",port:443,proc:(if $b1=="true" then "listening" else "未监听" end),note:"443 端口状态"},
-    {name:"Hysteria2",proto:"udp",port:0,proc:(if $b2=="true" then "listening" else "未监听" end),note:"8443/443"},
-    {name:"TUIC",proto:"udp",port:2053,proc:(if $b3=="true" then "listening" else "未监听" end),note:"2053"}
-  ],
-  shunt:{mode:"vps",proxy_info:"",health:"ok",whitelist:["googlevideo.com","ytimg.com","ggpht.com","youtube.com","youtu.be","googleapis.com","gstatic.com","example.com"]}
-}' > "${TRAFFIC_DIR}/panel.json"
-
-  # /sub 给前端使用（如果还没放）
-if [[ -s "$SUB_CACHE" ]]; then
-  dest="/var/www/html/sub"
-  # 若源与目标解析到同一实体则跳过，避免 "are the same file"
-  if [[ "$(readlink -f "$SUB_CACHE")" != "$(readlink -f "$dest")" ]]; then
-    cp -f "$SUB_CACHE" "$dest" 2>/dev/null || true
-  fi
-fi
-
-  log_info "控制面板数据已更新 -> ${TRAFFIC_DIR}/panel.json"
-}
-
-setup_cron_jobs() {
-  # 清理历史错误项
-  crontab -l 2>/dev/null \
-    | sed -E '/generate_dashboard_data/d;/panel-refresh\.sh/d;/system-stats\.sh/d;/traffic-collector\.sh/d' \
-    | crontab - 2>/dev/null || true
-
-  # 每 1 分钟：CPU/MEM
-  (crontab -l 2>/dev/null; \
-    echo "*/1 * * * * /etc/edgebox/scripts/system-stats.sh >/dev/null 2>&1") | crontab -
-
-  # 每 2 分钟：服务/证书/端口/SNI/订阅 → panel.json
-  (crontab -l 2>/dev/null; \
-    echo "*/2 * * * * /etc/edgebox/scripts/panel-refresh.sh >/dev/null 2>&1") | crontab -
-
-  # 每小时：统计流量 → traffic.json
-  (crontab -l 2>/dev/null; \
-    echo "5 * * * *  /etc/edgebox/scripts/traffic-collector.sh >/dev/null 2>&1") | crontab -
-}
-
-# ====== /EdgeBox: Dashboard 后端生成 ======
-
 #############################################
 # 模块3：高级运维功能安装
 #############################################
@@ -1214,17 +997,25 @@ NFT
 
 # 产出 /etc/edgebox/scripts/system-stats.sh（供面板读 CPU/内存）
 cat > "${SCRIPTS_DIR}/system-stats.sh" <<'SYS'
-#!/usr/bin/env bash
+#!/bin/bash
 set -euo pipefail
-TRAFFIC_DIR=/etc/edgebox/traffic
+TRAFFIC_DIR="/etc/edgebox/traffic"
 mkdir -p "$TRAFFIC_DIR"
-cpu_idle="$(LC_ALL=C top -bn1 | awk -F'[, ]+' '/Cpu\\(s\\)/{for(i=1;i<=NF;i++) if($i=="id") print $(i-1)}')"
-cpu="$(awk -v x="${cpu_idle:-0}" 'BEGIN{printf "%.0f", 100-x}')"
-mem_total="$(awk '/Mem:/{print $2}' <(free -m))"
-mem_used="$(awk '/Mem:/{print $3}' <(free -m))"
-mem="$(awk -v u="${mem_used:-0}" -v t="${mem_total:-1}" 'BEGIN{printf "%.0f", (u*100)/t}')"
-jq -n --arg ts "$(date -Is)" --argjson cpu "${cpu:-0}" --argjson memory "${mem:-0}" \
-    '{updated_at:$ts, cpu:$cpu, memory:$memory}' > "${TRAFFIC_DIR}/system.json"
+
+read _ a b c idle rest < /proc/stat
+t1=$((a+b+c+idle)); i1=$idle
+sleep 1
+read _ a b c idle rest < /proc/stat
+t2=$((a+b+c+idle)); i2=$idle
+dt=$((t2-t1)); di=$((i2-i1))
+cpu=$(( dt>0 ? (100*(dt-di) + dt/2) / dt : 0 ))
+
+mt=$(awk '/MemTotal/{print $2}' /proc/meminfo)
+ma=$(awk '/MemAvailable/{print $2}' /proc/meminfo)
+mem=$(( mt>0 ? (100*(mt-ma) + mt/2) / mt : 0 ))
+
+jq -n --arg ts "$(date -Is)" --argjson cpu "$cpu" --argjson memory "$mem" \
+  '{updated_at:$ts,cpu:$cpu,memory:$memory}' > "${TRAFFIC_DIR}/system.json"
 SYS
 chmod +x "${SCRIPTS_DIR}/system-stats.sh"
 
@@ -1493,6 +1284,40 @@ ALERT
   chmod +x "${SCRIPTS_DIR}/traffic-alert.sh"
 
 # 控制面板（完整版：严格按照截图样式开发）
+#!/bin/bash
+# EdgeBox 控制面板HTML完整替换脚本
+# 优化：7:3排版 + 图例留白 + y轴顶部GiB + 注释固定底部 + 本月进度自动刷新
+
+set -euo pipefail
+
+TRAFFIC_DIR="/etc/edgebox/traffic"
+TARGET_FILE="${TRAFFIC_DIR}/index.html"
+
+[[ $EUID -ne 0 ]] && { echo "需要 root 权限"; exit 1; }
+[[ ! -d "$TRAFFIC_DIR" ]] && { echo "EdgeBox 未安装"; exit 1; }
+
+echo "备份原文件..."
+[[ -f "$TARGET_FILE" ]] && cp "$TARGET_FILE" "${TARGET_FILE}.bak.$(date +%s)"
+
+echo "生成优化版控制面板..."
+
+#!/bin/bash
+# EdgeBox 控制面板HTML完整替换脚本
+# 优化：7:3排版 + 图例留白 + y轴顶部GiB + 注释固定底部 + 本月进度自动刷新
+
+set -euo pipefail
+
+TRAFFIC_DIR="/etc/edgebox/traffic"
+TARGET_FILE="${TRAFFIC_DIR}/index.html"
+
+[[ $EUID -ne 0 ]] && { echo "需要 root 权限"; exit 1; }
+[[ ! -d "$TRAFFIC_DIR" ]] && { echo "EdgeBox 未安装"; exit 1; }
+
+echo "备份原文件..."
+[[ -f "$TARGET_FILE" ]] && cp "$TARGET_FILE" "${TARGET_FILE}.bak.$(date +%s)"
+
+echo "生成优化版控制面板..."
+
 #!/bin/bash
 # EdgeBox 控制面板HTML完整替换脚本
 # 优化：7:3排版 + 图例留白 + y轴顶部GiB + 注释固定底部 + 本月进度自动刷新
@@ -2398,12 +2223,18 @@ else
   [[ -s ${WEB_ROOT}/sub ]] || : > "${WEB_ROOT}/sub"
 fi
 
+# 先跑一遍三件套，保证页面初次打开就有内容
+${SCRIPTS_DIR}/system-stats.sh  || true
+${SCRIPTS_DIR}/traffic-collector.sh || true
+${SCRIPTS_DIR}/panel-refresh.sh || true
+
 # 权限（让 nginx 可读）
 chmod 644 ${WEB_ROOT}/sub 2>/dev/null || true
 find ${TRAFFIC_DIR} -type f -exec chmod 644 {} \; 2>/dev/null || true
 
 # 设置定时任务
-setup_alerting_assets() {
+# 设置定时任务
+setup_cron_jobs() {
   log_info "配置定时任务..."
 
   # 1) 写入/覆盖 预警配置
@@ -4130,12 +3961,12 @@ show_installation_info() {
 
 # 清理函数
 cleanup() {
-  local ec="${1:-$?}"   # <== 用 $1 当退出码，兜底用当前$?
-  if [ "$ec" -ne 0 ]; then
-    log_error "安装过程中出现错误，请检查日志: ${LOG_FILE}"
-    echo -e "${YELLOW}如需重新安装，请先运行: bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/refs/heads/main/ENV/uninstall.sh)${NC}"
-  fi
-  rm -f /tmp/Xray-linux-64.zip /tmp/sing-box-*.tar.gz 2>/dev/null || true
+    if [ "$?" -ne 0 ]; then
+        log_error "安装过程中出现错误，请检查日志: ${LOG_FILE}"
+        echo -e "${YELLOW}如需重新安装，请先运行: bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/refs/heads/main/ENV/uninstall.sh)${NC}"
+    fi
+    rm -f /tmp/Xray-linux-64.zip 2>/dev/null || true
+    rm -f /tmp/sing-box-*.tar.gz 2>/dev/null || true
 }
 
 # 主安装流程
@@ -4151,8 +3982,8 @@ main() {
     touch ${LOG_FILE}
     
     # 设置错误处理
-     trap 'ec=$?; cleanup "$ec"' EXIT
-
+    trap cleanup EXIT
+    
     echo -e "${BLUE}正在执行完整安装流程...${NC}"
     
     # 基础安装步骤（模块1）
@@ -4178,18 +4009,17 @@ main() {
     
     # 高级功能安装（模块3）
     setup_traffic_monitoring
-	setup_alerting_assets
     setup_cron_jobs
     setup_email_system
 	create_enhanced_edgeboxctl
     create_init_script
-	
+
     # 启动初始化服务
     systemctl start edgebox-init.service >/dev/null 2>&1 || true
     
     # 等待服务稳定
     sleep 3
-
+    
     # 生成初始图表和首页
     if [[ -x "${SCRIPTS_DIR}/generate-charts.py" ]]; then
         log_info "生成初始控制面板..."
@@ -4208,8 +4038,6 @@ ${SCRIPTS_DIR}/traffic-collector.sh || true
 # 最后产出 panel.json（会读取 shunt 与证书状态）
 ${SCRIPTS_DIR}/panel-refresh.sh || true
 
-    # 注意：现在函数都已定义好，再调用就不会报错
-    generate_dashboard_data --now     # 产出 /etc/edgebox/traffic/dashboard.json
 
 	# 在安装收尾输出总结信息（原来没调用）
     show_installation_info
