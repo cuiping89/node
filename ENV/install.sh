@@ -1150,26 +1150,89 @@ fi
   log_info "控制面板数据已更新 -> ${TRAFFIC_DIR}/panel.json"
 }
 
-# -------- 定时任务（稳定刷新） --------
-schedule_dashboard_jobs() {
-  # 清理历史残留
+# ==== Dashboard 数据生产（被 main 调一次，后续由 cron 定期刷新） ====
+generate_dashboard_data() {
+  local TRAFFIC_DIR="/etc/edgebox/traffic"
+  local SUB_CACHE="/etc/edgebox/config/subscription.txt"
+  mkdir -p "$TRAFFIC_DIR"
+
+  # 1) 系统负载
+  local cpu_idle mem_total mem_used cpu mem
+  cpu_idle="$(LC_ALL=C top -bn1 | awk -F'[, ]+' '/Cpu\\(s\\)/{for(i=1;i<=NF;i++) if($i=="id") print $(i-1)}')"
+  cpu="$(awk -v x="${cpu_idle:-0}" 'BEGIN{printf "%.0f", 100-x}')"
+  mem_total="$(awk '/Mem:/{print $2}' <(free -m))"
+  mem_used="$(awk '/Mem:/{print $3}' <(free -m))"
+  mem="$(awk -v u="${mem_used:-0}" -v t="${mem_total:-1}" 'BEGIN{printf "%.0f", (u*100)/t}')"
+  jq -n --arg ts "$(date -Is)" --argjson cpu "${cpu:-0}" --argjson memory "${mem:-0}" \
+      '{updated_at:$ts, cpu:$cpu, memory:$memory}' > "${TRAFFIC_DIR}/system.json"
+
+  # 2) 端口/证书/服务状态 + 出站分流摘要 → panel.json
+  local has_tcp443="false" has_hy2="false" has_tuic="false"
+  ss -lnt | awk '{print $4}' | grep -qE '(:|\\.)443$' && has_tcp443="true"
+  ss -lun | awk '{print $4}' | grep -qE '(:|\\.)443$' && has_hy2="true"
+  ss -lun | awk '{print $4}' | grep -qE '(:|\\.)2053$' && has_tuic="true"
+
+  local INSTALL_DATE_ SERVER_DOMAIN_ CERT_EXPIRE INSTALL_MODE_ SERVER_IP_ EIP_ VER_
+  INSTALL_DATE_="$(date +%F)"
+  SERVER_DOMAIN_="$(cat /etc/edgebox/config/domain 2>/dev/null || true)"
+  INSTALL_MODE_="$(test -d /etc/letsencrypt && echo "letsencrypt" || echo "ip")"
+  CERT_EXPIRE="$(openssl x509 -in /etc/edgebox/cert/current.pem -noout -enddate 2>/dev/null \
+                  | cut -d= -f2 | xargs -I{} date -d '{}' '+%b %e %T %Y %Z' 2>/dev/null || true)"
+  SERVER_IP_="$(curl -4s --max-time 3 https://api.ipify.org || hostname -I | awk '{print $1}')"
+  EIP_="$SERVER_IP_"
+  VER_="3.0.0"
+
+  jq -n --arg ts "$(date -Is)" --arg ip "$SERVER_IP_" --arg eip "$EIP_" \
+        --arg ver "$VER_" --arg inst "$INSTALL_DATE_" \
+        --arg cm "$INSTALL_MODE_" --arg cd "$SERVER_DOMAIN_" --arg ce "$CERT_EXPIRE" \
+        --arg b1 "$has_tcp443" --arg b2 "$has_hy2" --arg b3 "$has_tuic" '
+  {
+    updated_at:$ts,
+    server:{ip:$ip,eip:($eip|select(.!="")),version:$ver,install_date:$inst,
+            cert_mode:$cm,cert_domain:($cd|select(.!="")),cert_expire:($ce|select(.!=""))},
+    protocols:[
+      {name:"VLESS/Trojan (443/TCP)",proto:"tcp",port:443,proc:(if $b1=="true" then "listening" else "未监听" end),note:"443 端口状态"},
+      {name:"Hysteria2",proto:"udp",port:0,proc:(if $b2=="true" then "listening" else "未监听" end),note:"8443/443"},
+      {name:"TUIC",proto:"udp",port:2053,proc:(if $b3=="true" then "listening" else "未监听" end),note:"2053"}
+    ],
+    shunt:{mode:"vps",proxy_info:"",health:"ok",
+           whitelist:["googlevideo.com","ytimg.com","ggpht.com","youtube.com","youtu.be","googleapis.com","gstatic.com","example.com"]}
+  }' > "${TRAFFIC_DIR}/panel.json"
+
+  # 3) /sub（避免 “are the same file”）
+  if [[ -s "$SUB_CACHE" ]]; then
+    local dest="/var/www/html/sub"
+    if [[ "$(readlink -f "$SUB_CACHE")" != "$(readlink -f "$dest")" ]]; then
+      cp -f "$SUB_CACHE" "$dest" 2>/dev/null || true
+    fi
+  fi
+
+  # 4) 影子信息（面板 JS 可能会用到的安装概览）
+  jq -n --arg ip "$SERVER_IP_" --arg ver "$VER_" --arg mode "$INSTALL_MODE_" \
+        --arg date "$INSTALL_DATE_" \
+        '{server_ip:$ip, version:$ver, install_mode:$mode, install_date:$date}' \
+        > "${TRAFFIC_DIR}/server.shadow.json"
+
+  echo "[OK] panel/system json refreshed: ${TRAFFIC_DIR}"
+}
+
+setup_cron_jobs() {
+  # 清理历史错误项
   crontab -l 2>/dev/null \
     | sed -E '/generate_dashboard_data/d;/panel-refresh\.sh/d;/system-stats\.sh/d;/traffic-collector\.sh/d' \
     | crontab - 2>/dev/null || true
 
-  # 每 1 分钟更新系统状态（CPU/MEM）
+  # 每 1 分钟：CPU/MEM
   (crontab -l 2>/dev/null; \
     echo "*/1 * * * * /etc/edgebox/scripts/system-stats.sh >/dev/null 2>&1") | crontab -
 
-  # 每 2 分钟刷新面板数据（服务状态/证书/订阅/端口/分流等）
+  # 每 2 分钟：服务/证书/端口/SNI/订阅 → panel.json
   (crontab -l 2>/dev/null; \
     echo "*/2 * * * * /etc/edgebox/scripts/panel-refresh.sh >/dev/null 2>&1") | crontab -
 
-  # 每小时跑一次流量采集
+  # 每小时：统计流量 → traffic.json
   (crontab -l 2>/dev/null; \
-    echo "15 * * * * /etc/edgebox/scripts/traffic-collector.sh >/dev/null 2>&1") | crontab -
-
-  echo "[SUCCESS] 定时任务已写入（1min 系统；2min 面板；1h 流量）"
+    echo "5 * * * *  /etc/edgebox/scripts/traffic-collector.sh >/dev/null 2>&1") | crontab -
 }
 
 # ====== /EdgeBox: Dashboard 后端生成 ======
@@ -1217,25 +1280,17 @@ NFT
 
 # 产出 /etc/edgebox/scripts/system-stats.sh（供面板读 CPU/内存）
 cat > "${SCRIPTS_DIR}/system-stats.sh" <<'SYS'
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
-TRAFFIC_DIR="/etc/edgebox/traffic"
+TRAFFIC_DIR=/etc/edgebox/traffic
 mkdir -p "$TRAFFIC_DIR"
-
-read _ a b c idle rest < /proc/stat
-t1=$((a+b+c+idle)); i1=$idle
-sleep 1
-read _ a b c idle rest < /proc/stat
-t2=$((a+b+c+idle)); i2=$idle
-dt=$((t2-t1)); di=$((i2-i1))
-cpu=$(( dt>0 ? (100*(dt-di) + dt/2) / dt : 0 ))
-
-mt=$(awk '/MemTotal/{print $2}' /proc/meminfo)
-ma=$(awk '/MemAvailable/{print $2}' /proc/meminfo)
-mem=$(( mt>0 ? (100*(mt-ma) + mt/2) / mt : 0 ))
-
-jq -n --arg ts "$(date -Is)" --argjson cpu "$cpu" --argjson memory "$mem" \
-  '{updated_at:$ts,cpu:$cpu,memory:$memory}' > "${TRAFFIC_DIR}/system.json"
+cpu_idle="$(LC_ALL=C top -bn1 | awk -F'[, ]+' '/Cpu\\(s\\)/{for(i=1;i<=NF;i++) if($i=="id") print $(i-1)}')"
+cpu="$(awk -v x="${cpu_idle:-0}" 'BEGIN{printf "%.0f", 100-x}')"
+mem_total="$(awk '/Mem:/{print $2}' <(free -m))"
+mem_used="$(awk '/Mem:/{print $3}' <(free -m))"
+mem="$(awk -v u="${mem_used:-0}" -v t="${mem_total:-1}" 'BEGIN{printf "%.0f", (u*100)/t}')"
+jq -n --arg ts "$(date -Is)" --argjson cpu "${cpu:-0}" --argjson memory "${mem:-0}" \
+    '{updated_at:$ts, cpu:$cpu, memory:$memory}' > "${TRAFFIC_DIR}/system.json"
 SYS
 chmod +x "${SCRIPTS_DIR}/system-stats.sh"
 
@@ -4142,12 +4197,12 @@ show_installation_info() {
 
 # 清理函数
 cleanup() {
-    if [ "$?" -ne 0 ]; then
-        log_error "安装过程中出现错误，请检查日志: ${LOG_FILE}"
-        echo -e "${YELLOW}如需重新安装，请先运行: bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/refs/heads/main/ENV/uninstall.sh)${NC}"
-    fi
-    rm -f /tmp/Xray-linux-64.zip 2>/dev/null || true
-    rm -f /tmp/sing-box-*.tar.gz 2>/dev/null || true
+  local ec="${1:-$?}"   # <== 用 $1 当退出码，兜底用当前$?
+  if [ "$ec" -ne 0 ]; then
+    log_error "安装过程中出现错误，请检查日志: ${LOG_FILE}"
+    echo -e "${YELLOW}如需重新安装，请先运行: bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/refs/heads/main/ENV/uninstall.sh)${NC}"
+  fi
+  rm -f /tmp/Xray-linux-64.zip /tmp/sing-box-*.tar.gz 2>/dev/null || true
 }
 
 # 主安装流程
@@ -4165,17 +4220,6 @@ main() {
     # 设置错误处理
      trap 'ec=$?; cleanup "$ec"' EXIT
 
-    cleanup() {
-    local ec="${1:-0}"
-    if [ "$ec" -ne 0 ]; then
-        log_error "安装过程中出现错误，请检查日志: ${LOG_FILE}"
-        echo -e "${YELLOW}如需重新安装，请先运行: bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/refs/heads/main/ENV/uninstall.sh)${NC}"
-    fi
-    rm -f /tmp/Xray-linux-64.zip 2>/dev/null || true
-    rm -f /tmp/sing-box-*.tar.gz 2>/dev/null || true
-    return 0
-    }
-    
     echo -e "${BLUE}正在执行完整安装流程...${NC}"
     
     # 基础安装步骤（模块1）
