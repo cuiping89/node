@@ -1702,6 +1702,9 @@ cat > "$TARGET_FILE" <<'HTML'
             gap: 8px;
             margin-bottom: 12px;
             flex-wrap: nowrap;
+			.shunt-wrap{display:flex}
+.shunt-content{flex:1; display:flex; flex-direction:column; min-height:220px}
+.shunt-note{margin-top:auto}
         }
 
         .shunt-mode-tab {
@@ -2005,6 +2008,13 @@ cat > "$TARGET_FILE" <<'HTML'
             font-size: .8rem;
             margin-top: 4px;
         }
+		/* —— 统一卡片区字体层级 —— */
+.card h3{ font-size:1rem; }                 /* 卡片标题 */
+.info-block h4{ font-size:.9rem; }          /* 小标题 */
+.info-block .value{ font-size:1rem; }       /* 关键数值 */
+.small{ font-size:.85rem; }                 /* 辅助信息 */
+.table th, .table td{ font-size:.85rem; }   /* 表格 */
+.sub-input, .sub-copy-btn{ font-size:.85rem; } /* 订阅区 */
     </style>
 </head>
 <body>
@@ -2063,7 +2073,7 @@ cat > "$TARGET_FILE" <<'HTML'
     </div>
     <div class="card">
       <h3>出站分流状态</h3>
-      <div class="content">
+      <div class="content shunt-wrap">
         <div class="shunt-content">
           <div class="shunt-modes">
             <span class="shunt-mode-tab active vps" id="tab-vps" data-mode="vps">VPS-IP出站</span>
@@ -2482,12 +2492,14 @@ async function loadData() {
       server: dashboard.server, cert: dashboard.cert,
       system: dashboard.system, services: dashboard.services,
       protocols: dashboard.protocols,
+	  shunt: panel?.shunt || {},
       subscription: dashboard.subscription
     } : {
       updatedAt: panel?.updated_at || system?.updated_at,
       server: panel?.server || {},
       system: { cpu: system?.cpu ?? null, memory: system?.memory ?? null },
       protocols: (panel?.protocols) || [],
+	  shunt: panel?.shunt || {},
       subscription: {
         plain: subTxt.trim(),
         base64: btoa(unescape(encodeURIComponent(subTxt.trim()))),
@@ -2515,19 +2527,23 @@ function renderHeader(model) {
   // 基本信息
   document.getElementById('srv-ip').textContent = s.ip || '-';
   document.getElementById('domain').textContent = s.cert_domain || c.domain || '无';
-  
-  // 证书模式判断
-  const certMode = s.cert_mode || c.mode || 'self-signed';
-  if (certMode === 'self-signed') {
-    document.getElementById('net-mode').textContent = 'IP模式(自签名)';
-    document.getElementById('cert-mode').textContent = '自签名证书';
-    document.getElementById('renew-mode').textContent = '无需续期';
-  } else {
-    document.getElementById('net-mode').textContent = '域名模式(Let\'s Encrypt)';
-    document.getElementById('cert-mode').textContent = 'Let\'s Encrypt';
-    document.getElementById('renew-mode').textContent = '自动续期';
-  }
-  
+ 
+// 证书模式判断：只有“有域名 且 模式=letsencrypt”才算域名模式 —— //
+const domain = (s.cert_domain || c.domain || '').trim();
+const rawMode = String(s.cert_mode || c.mode || '').toLowerCase();
+const isDomainMode = !!domain && rawMode === 'letsencrypt';
+
+document.getElementById('domain').textContent   = domain || '无';
+document.getElementById('net-mode').textContent = isDomainMode ? '域名模式(Let\'s Encrypt)' : 'IP模式(自签名)';
+document.getElementById('cert-mode').textContent= isDomainMode ? 'Let\'s Encrypt' : '自签名证书';
+document.getElementById('renew-mode').textContent = isDomainMode ? '自动续期' : '无需续期';
+
+// 到期日期：无值或无效 -> “无”
+const expStr  = (s.cert_expire || c.expire || '').trim();
+const expDate = expStr ? new Date(expStr) : null;
+document.getElementById('cert-exp').textContent =
+  (expDate && !isNaN(expDate)) ? expDate.toLocaleDateString('zh-CN') : '无';
+
   document.getElementById('cert-exp').textContent = s.cert_expire || c.expire ? new Date(s.cert_expire || c.expire).toLocaleDateString('zh-CN') : '无';
   document.getElementById('ver').textContent = s.version || '-';
   document.getElementById('inst').textContent = s.install_date || '-';
@@ -2569,34 +2585,21 @@ function renderProtocols(model) {
     tb.appendChild(tr);
   });
   
-  // 订阅链接处理
-  const sub = model.subscription || {};
-  const subLines = sub.plain ? sub.plain.split('\n').filter(l => l.trim()) : [];
-  
-  // 明文订阅
-  document.getElementById('sub-plain').value = subLines.join('\n');
-  
-  // Base64整包
-  document.getElementById('sub-b64').value = sub.base64 || '';
-  
-  // Base64逐行
-  document.getElementById('sub-b64lines').value = sub.b64_lines || '';
-  
-  // 出站分流状态
-  const server = model.server || {};
-  document.querySelectorAll('.shunt-mode-tab').forEach(function(tab) {
-    tab.classList.remove('active', 'vps', 'resi', 'direct-resi');
-  });
-  
-  // 默认设为VPS模式
-  const vpsTab = document.querySelector('[data-mode="vps"]');
-  if (vpsTab) {
-    vpsTab.classList.add('active', 'vps');
-  }
+// --- 出站分流状态（来自 panel.shunt） ---
+const sh = model.shunt || {};
+const mode = String(sh.mode || 'vps').replace('_', '-');
+document.querySelectorAll('.shunt-mode-tab').forEach(function(tab){
+  tab.classList.remove('active','vps','resi','direct-resi');
+});
+const tab = document.querySelector('[data-mode="'+mode+'"]') || document.querySelector('[data-mode="vps"]');
+if (tab) tab.classList.add('active', mode === 'resi' ? 'resi' : (mode === 'direct-resi' ? 'direct-resi' : 'vps'));
 
-  document.getElementById('vps-ip').textContent = server.eip || server.ip || '-';
-  document.getElementById('resi-ip').textContent = '待配置';
-  document.getElementById('whitelist-domains').textContent = '无';
+document.getElementById('vps-ip').textContent  = (model.server && (model.server.eip || model.server.ip)) || '-';
+document.getElementById('resi-ip').textContent = sh.proxy_info ? '已配置' : '未配置';
+document.getElementById('whitelist-domains').textContent =
+  (Array.isArray(sh.whitelist) && sh.whitelist.length)
+    ? sh.whitelist.slice(0,8).join(', ')
+    : '无';
 }
 
 // 渲染流量图表
