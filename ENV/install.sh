@@ -1095,128 +1095,110 @@ COLLECTOR
 chmod +x "${SCRIPTS_DIR}/traffic-collector.sh"
 
   # 面板数据刷新（自包含版本，不依赖外部函数）
+# === 覆盖生成 /etc/edgebox/scripts/panel-refresh.sh ===
 cat > "${SCRIPTS_DIR}/panel-refresh.sh" <<'PANEL'
 #!/bin/bash
 set -euo pipefail
-TRAFFIC_DIR="/etc/edgebox/traffic"
-SHUNT_DIR="/etc/edgebox/config/shunt"
 CONFIG_DIR="/etc/edgebox/config"
+TRAFFIC_DIR="/etc/edgebox/traffic"
+SHUNT_DIR="/etc/edgebox/shunt"       # 修正：遵循项目约定
+CERT_LINK_DIR="/etc/edgebox/cert"
 mkdir -p "$TRAFFIC_DIR"
 
-# --- 基本信息：空值安全读取 ---
+# 读取 server.json（安装时已写入）
 srv_json="${CONFIG_DIR}/server.json"
-jqget(){ jq -r "$1 // empty" "$srv_json" 2>/dev/null || true; }
+jqget(){ jq -r "$1" "$srv_json" 2>/dev/null || true; }
 
-server_ip="$(jqget '.server_ip')"
-[[ -z "$server_ip" ]] && server_ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+server_ip="$(jqget '.server_ip')";     [[ -z "$server_ip" ]] && server_ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+domain="$(jqget '.domain')"
+version="$(jqget '.version // "-"')"
+install_date="$(jqget '.install_date // "-"')"
 
-version="$(jqget '.version')"
-[[ -z "$version" ]] && version="v3.0.0"
-
-install_date="$(jqget '.install_date')"
-[[ -z "$install_date" ]] && install_date="$(date +%F)"
-
-# --- 证书信息 ---
-cert_mode="self-signed"
-cert_domain=""
-cert_expire=""
-if [[ -f "${CONFIG_DIR}/cert_mode" ]]; then
-  cm="$(cat "${CONFIG_DIR}/cert_mode" 2>/dev/null || true)"
-  if [[ "$cm" == letsencrypt:* ]]; then
-    cert_mode="letsencrypt"
-    cert_domain="${cm#letsencrypt:}"
-  fi
-fi
-if [[ "$cert_mode" == "letsencrypt" && -n "$cert_domain" && -f "/etc/letsencrypt/live/${cert_domain}/cert.pem" ]]; then
-  # 任何一步失败都不影响整脚本继续
-  cert_expire="$(openssl x509 -enddate -noout -in "/etc/letsencrypt/live/${cert_domain}/cert.pem" 2>/dev/null | cut -d= -f2 || true)"
+# 读取 system.json（若没有先产出一次）
+[[ -s "${TRAFFIC_DIR}/system.json" ]] || { [[ -x /etc/edgebox/scripts/system-stats.sh ]] && /etc/edgebox/scripts/system-stats.sh || true; }
+cpu="-" ; mem="-"
+if [[ -s "${TRAFFIC_DIR}/system.json" ]]; then
+  cpu="$(jq -r '.cpu' "${TRAFFIC_DIR}/system.json" 2>/dev/null)"
+  mem="$(jq -r '.memory' "${TRAFFIC_DIR}/system.json" 2>/dev/null)"
 fi
 
-# --- 当前出口 IP（多源兜底，超时 2s） ---
-get_eip() {
-  (curl -fsS --max-time 2 https://api.ip.sb/ip 2>/dev/null) \
-  || (curl -fsS --max-time 2 https://ifconfig.me 2>/dev/null) \
-  || (dig +short myip.opendns.com @resolver1.opendns.com 2>/dev/null) \
-  || echo ""
+# 服务状态
+svc_status(){
+  systemctl is-active --quiet "$1" && echo active || echo inactive
 }
-eip="$(get_eip)"
+nginx_state="$(svc_status nginx)"
+xray_state="$(svc_status xray)"
+sbox_state="$(svc_status sing-box)"
 
-# --- 分流状态 ---
-state_json="${SHUNT_DIR}/state.json"
-mode="vps"; proxy=""; health="unknown"; whitelist_json='[]'
-if [[ -s "$state_json" ]]; then
-  mode="$(jq -r '.mode // "vps"' "$state_json" 2>/dev/null || echo vps)"
-  proxy="$(jq -r '.proxy_info // ""' "$state_json" 2>/dev/null || true)"
-  health="$(jq -r '.health // "unknown"' "$state_json" 2>/dev/null || echo unknown)"
+# 证书状态（模式/类型/到期/续期方式）
+cert_mode="self-signed"
+[[ -f "${CONFIG_DIR}/cert_mode" ]] && cert_mode="$(cat "${CONFIG_DIR}/cert_mode" 2>/dev/null || echo self-signed)"
+cert_type=$([[ "$cert_mode" == self-signed ]] && echo "自签名证书" || echo "Let's Encrypt")
+cert_chain="${CERT_LINK_DIR}/current.pem"
+cert_expiry="-"
+if [[ -s "$cert_chain" ]]; then
+  cert_expiry="$(openssl x509 -in "$cert_chain" -noout -enddate 2>/dev/null | cut -d= -f2 | xargs -I{} date -d '{}' +%Y-%m-%d 2>/dev/null || echo -)"
 fi
-if [[ -s "${SHUNT_DIR}/whitelist.txt" ]]; then
-  whitelist_json="$(jq -R -s 'split("\n")|map(select(length>0))' "${SHUNT_DIR}/whitelist.txt")"
+renew_method=$([[ "$cert_mode" == self-signed ]] && echo "-" || echo "auto(LE)")
+
+# 分流状态（模式/白名单/VPS/代理出口IP）
+shunt_mode="-"; whitelist="-"; vps_ip="-"; resi_ip="待获取"
+[[ -s "${SHUNT_DIR}/state.json" ]] && shunt_mode="$(jq -r '.mode // "-" ' "${SHUNT_DIR}/state.json" 2>/dev/null)"
+[[ -s "${SHUNT_DIR}/whitelist-vps.txt" ]] && whitelist="$(tr -s '\n' ',' < "${SHUNT_DIR}/whitelist-vps.txt" | sed 's/,$//' || true)"
+# 出口 IP：VPS 直出按本机公网，代理出口若有健康探测可在 edgeboxctl 中更新到 state.json
+[[ -z "$vps_ip" || "$vps_ip" == "-" ]] && vps_ip="$(curl -fsS --max-time 2 https://api.ipify.org 2>/dev/null || echo -)"
+
+# 订阅（明文 / Base64 / Base64逐行）
+SUB_TXT="${TRAFFIC_DIR}/sub.txt"
+if [[ ! -s "$SUB_TXT" ]]; then
+  [[ -s "${CONFIG_DIR}/subscription.txt" ]] && cp -f "${CONFIG_DIR}/subscription.txt" "$SUB_TXT" || true
+fi
+sub_plain=""; sub_b64=""; sub_b64lines=""
+if [[ -s "$SUB_TXT" ]]; then
+  # 明文（去掉\r）
+  sub_plain="$(tr -d '\r' < "$SUB_TXT")"
+  # Base64（整体编码，单行）
+  sub_b64="$(printf '%s' "$sub_plain" | base64 -w0)"
+  # Base64逐行（每行分别编码后再以 \n 连接）
+  sub_b64lines="$(awk '{ cmd="base64 -w0"; print | cmd; close(cmd) }' "$SUB_TXT")"
 fi
 
-# --- 协议监听一览（只做展示） ---
-SS="$(ss -H -lnptu 2>/dev/null || true)"
-add_proto(){ jq -n --arg name "$1" --arg proto "$2" --argjson port "$3" --arg proc "$4" --arg note "$5" '{name:$name,proto:$proto,port:$port,proc:$proc,note:$note}'; }
-has_listen(){ grep -E "(^| )$1 .*:$2 " <<<"$SS" | grep -qi "$3"; }
-protos=()
-if has_listen tcp 443 "xray|sing-box|trojan"; then
-  protos+=( "$(add_proto 'VLESS/Trojan (443/TCP)' 'tcp' 443 "$(grep -E 'tcp .*:443 ' <<<"$SS" | awk -F',' '/users/{print $2;exit}' | tr -d '"')" 'Reality/WS/gRPC/TLS 同端口')" )
-else protos+=( "$(add_proto 'VLESS/Trojan (443/TCP)' 'tcp' 443 '未监听' '未检测到 443 TCP')" ); fi
-if has_listen udp 8443 "hysteria|sing-box"; then
-  protos+=( "$(add_proto 'Hysteria2' 'udp' 8443 'hysteria/sing-box' '高性能 UDP 通道')" )
-elif has_listen udp 443 "hysteria|sing-box"; then
-  protos+=( "$(add_proto 'Hysteria2' 'udp' 443 'hysteria/sing-box' '高性能 UDP 通道')" )
-else protos+=( "$(add_proto 'Hysteria2' 'udp' 0 '未监听' '未检测到常见端口')" ); fi
-if has_listen udp 2053 "tuic|sing-box"; then
-  protos+=( "$(add_proto 'TUIC' 'udp' 2053 'tuic/sing-box' '高性能 UDP 通道')" )
-else protos+=( "$(add_proto 'TUIC' 'udp' 2053 '未监听' '未检测到 2053 UDP')" ); fi
-protocols_json="$(jq -s '.' <<<"${protos[*]:-[]}")"
-
-# --- 核心服务状态 ---
-svc_status(){ systemctl is-active --quiet "$1" && echo "active" || echo "inactive"; }
-nginx_st="$(svc_status nginx)"
-xray_st="$(svc_status xray)"
-singbox_st="$(svc_status sing-box)"
-
-# --- 写 panel.json（保证一定落盘） ---
+# 生成 panel.json（兼容前端取值口径）
 jq -n \
-  --arg updated "$(date -Is)" \
   --arg ip "$server_ip" \
-  --arg eip "$eip" \
+  --arg domain "$domain" \
   --arg version "$version" \
   --arg install_date "$install_date" \
+  --argjson cpu ${cpu:-0} \
+  --argjson memory ${mem:-0} \
+  --arg nginx "$nginx_state" \
+  --arg xray "$xray_state" \
+  --arg sbox "$sbox_state" \
   --arg cert_mode "$cert_mode" \
-  --arg cert_domain "$cert_domain" \
-  --arg cert_expire "$cert_expire" \
-  --arg mode "$mode" \
-  --arg proxy "$proxy" \
-  --arg health "$health" \
-  --arg nginx_status "$nginx_st" \
-  --arg xray_status "$xray_st" \
-  --arg singbox_status "$singbox_st" \
-  --argjson whitelist "$whitelist_json" \
-  --argjson protocols "$protocols_json" \
+  --arg cert_type "$cert_type" \
+  --arg cert_expiry "$cert_expiry" \
+  --arg renew "$renew_method" \
+  --arg sh_mode "$shunt_mode" \
+  --arg whitelist "$whitelist" \
+  --arg vpsip "$vps_ip" \
+  --arg resiip "$resi_ip" \
+  --arg sub_plain "$sub_plain" \
+  --arg sub_b64 "$sub_b64" \
+  --arg sub_b64lines "$sub_b64lines" \
+  --arg now "$(date -Is)" \
 '{
-  updated_at: $updated,
-  server: {
-    ip: $ip, eip: ($eip|select(length>0)), version: $version,
-    install_date: $install_date, cert_mode: $cert_mode,
-    cert_domain: ($cert_domain|select(length>0)),
-    cert_expire: ($cert_expire|select(length>0))
-  },
-  service_status: { nginx: $nginx_status, xray: $xray_status, "sing-box": $singbox_status },
-  protocols: $protocols,
-  shunt: { mode: $mode, proxy_info: $proxy, health: $health, whitelist: $whitelist }
-}' > "${TRAFFIC_DIR}/panel.json"
-chmod 0644 "${TRAFFIC_DIR}/panel.json"
+   server: { ip:$ip, domain:$domain, version:$version, install_date:$install_date, updated_at:$now },
+   system: { cpu:$cpu, memory:$memory },
+   service_status: { nginx:$nginx, xray:$xray, sing_box:$sbox },
+   cert: { mode:$cert_mode, type:$cert_type, expiry:$cert_expiry, renew:$renew },
+   shunt: { mode:$sh_mode, whitelist:$whitelist, vps_ip:$vpsip, resi_ip:$resiip },
+   subscription: { plain:$sub_plain, b64:$sub_b64, b64lines:$sub_b64lines }
+ }' > "${TRAFFIC_DIR}/panel.json"
 
-# 供前端弹窗读取 UUID/密码
-cp -f "${CONFIG_DIR}/server.json" "${TRAFFIC_DIR}/server.shadow.json" 2>/dev/null || true
+# 也把 sub.txt 暴露出来（给老前端直接读）
+[[ -n "$sub_plain" ]] && printf '%s\n' "$sub_plain" > "${TRAFFIC_DIR}/sub.txt"
 
-# 订阅地址（域名优先）
-proto="http"; addr="$server_ip"
-if [[ "$cert_mode" == "letsencrypt" && -n "$cert_domain" ]]; then proto="https"; addr="$cert_domain"; fi
-echo "${proto}://${addr}/sub" > "${TRAFFIC_DIR}/sub.txt"
-chmod 0644 "${TRAFFIC_DIR}/sub.txt"
+echo "[panel-refresh] updated: ${TRAFFIC_DIR}/panel.json"
 PANEL
 chmod +x "${SCRIPTS_DIR}/panel-refresh.sh"
 
