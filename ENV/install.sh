@@ -1109,20 +1109,23 @@ srv_json="${CONFIG_DIR}/server.json"
 server_ip="$( (jq -r '.server_ip' "$srv_json" 2>/dev/null) || hostname -I | awk '{print $1}' )"
 version="$( (jq -r '.version' "$srv_json" 2>/dev/null) || echo 'v3.0.0')"
 install_date="$( (jq -r '.install_date' "$srv_json" 2>/dev/null) || date +%F)"
-# 证书模式/域名/到期
-cert_domain=""
+
+# --- 证书模式/域名/到期 ---
 cert_mode="self-signed"
+cert_domain=""
 cert_expire=""
-if ls /etc/letsencrypt/live/*/fullchain.pem >/dev/null 2>&1; then
-  cert_mode="letsencrypt"
-  cert_domain="$(basename /etc/letsencrypt/live/* 2>/dev/null || true)"
-  pem="/etc/letsencrypt/live/${cert_domain}/cert.pem"
-  if [[ -f "$pem" ]] && command -v openssl >/dev/null 2>&1; then
-    cert_expire="$(openssl x509 -enddate -noout -in "$pem" 2>/dev/null | cut -d= -f2)"
+if [[ -f "${CONFIG_DIR}/cert_mode" ]]; then
+  cm="$(cat "${CONFIG_DIR}/cert_mode" 2>/dev/null || true)"
+  if [[ "$cm" == letsencrypt:* ]]; then
+    cert_mode="letsencrypt"
+    cert_domain="${cm#letsencrypt:}"
   fi
 fi
+if [[ "$cert_mode" == "letsencrypt" && -n "$cert_domain" && -f "/etc/letsencrypt/live/${cert_domain}/cert.pem" ]]; then
+  cert_expire="$(openssl x509 -enddate -noout -in "/etc/letsencrypt/live/${cert_domain}/cert.pem" 2>/dev/null | cut -d= -f2)"
+fi
 
-# 当前出口 IP（尽量轻量：2s 超时，多源兜底）
+# --- 当前出口 IP（多源兜底，2s 超时） ---
 get_eip() {
   (curl -fsS --max-time 2 https://api.ip.sb/ip 2>/dev/null) \
   || (curl -fsS --max-time 2 https://ifconfig.me 2>/dev/null) \
@@ -1133,96 +1136,75 @@ eip="$(get_eip)"
 
 # --- 分流状态 ---
 state_json="${SHUNT_DIR}/state.json"
-mode="vps"; proxy=""; health="unknown"; wl_count=0; whitelist_json='[]'
+mode="vps"; proxy=""; health="unknown"; whitelist_json='[]'
 if [[ -s "$state_json" ]]; then
   mode="$(jq -r '.mode' "$state_json")"
   proxy="$(jq -r '.proxy_info // ""' "$state_json")"
   health="$(jq -r '.health // "unknown"' "$state_json")"
 fi
 if [[ -s "${SHUNT_DIR}/whitelist.txt" ]]; then
-  wl_count="$(grep -cve '^\s*$' "${SHUNT_DIR}/whitelist.txt" || true)"
   whitelist_json="$(jq -R -s 'split("\n")|map(select(length>0))' "${SHUNT_DIR}/whitelist.txt")"
 fi
 
-# --- 协议配置（检测监听端口/进程，做成一览表） ---
-# 目标：符合 README 的“左侧 70% 协议配置卡片”，至少给出协议名/端口/进程与说明【协议清单见 README】。
-# 数据来源：ss/ps 检测（健壮且不依赖具体实现），缺少时标注“未监听/未配置”。
+# --- 协议配置（监听检测，只做一览，不改你前端表格的列） ---
 SS="$(ss -H -lnptu 2>/dev/null || true)"
-add_proto() {  # name proto port proc note
-  local name="$1" proto="$2" port="$3" proc="$4" note="$5"
-  jq -n --arg name "$name" --arg proto "$proto" --argjson port "$port" \
-        --arg proc "$proc" --arg note "$note" \
-     '{name:$name, proto:$proto, port:$port, proc:$proc, note:$note}'
-}
-has_listen() { # proto port keyword_in_process
-  local proto="$1" port="$2" kw="$3"
-  grep -E "(^| )$proto .*:$port " <<<"$SS" | grep -qi "$kw"
-}
+add_proto(){ jq -n --arg name "$1" --arg proto "$2" --argjson port "$3" --arg proc "$4" --arg note "$5" '{name:$name,proto:$proto,port:$port,proc:$proc,note:$note}'; }
+has_listen(){ grep -E "(^| )$1 .*:$2 " <<<"$SS" | grep -qi "$3"; }
 protos=()
-
-# Xray / sing-box on 443 (Reality / VLESS-WS / VLESS-gRPC / Trojan-TLS 等)
 if has_listen tcp 443 "xray|sing-box|trojan"; then
-  protos+=( "$(add_proto 'VLESS/Trojan (443/TCP)' 'tcp' 443 "$(grep -E 'tcp .*:443 ' <<<"$SS" | awk -F',' '/users/ {print $2;exit}' | sed 's/\"//g')" 'Reality/WS/gRPC/TLS 同端口，多协议复用')" )
-else
-  protos+=( "$(add_proto 'VLESS/Trojan (443/TCP)' 'tcp' 443 '未监听' '未检测到 443 TCP')" )
-fi
-
-# Hysteria2（常见 UDP 端口：8443/443）
+  protos+=( "$(add_proto 'VLESS/Trojan (443/TCP)' 'tcp' 443 "$(grep -E 'tcp .*:443 ' <<<"$SS" | awk -F',' '/users/{print $2;exit}' | tr -d '"')" 'Reality/WS/gRPC/TLS 同端口')" )
+else protos+=( "$(add_proto 'VLESS/Trojan (443/TCP)' 'tcp' 443 '未监听' '未检测到 443 TCP')" ); fi
 if has_listen udp 8443 "hysteria|sing-box"; then
-  protos+=( "$(add_proto 'Hysteria2' 'udp' 8443 'hysteria/sing-box' '高性能 UDP 通道（直连，不参与分流）')" )
+  protos+=( "$(add_proto 'Hysteria2' 'udp' 8443 'hysteria/sing-box' '高性能 UDP 通道')" )
 elif has_listen udp 443 "hysteria|sing-box"; then
-  protos+=( "$(add_proto 'Hysteria2' 'udp' 443 'hysteria/sing-box' '高性能 UDP 通道（直连，不参与分流）')" )
-else
-  protos+=( "$(add_proto 'Hysteria2' 'udp' 0 '未监听' '未检测到常见端口 8443/443')" )
-fi
-
-# TUIC（常见 UDP 端口：2053）
+  protos+=( "$(add_proto 'Hysteria2' 'udp' 443 'hysteria/sing-box' '高性能 UDP 通道')" )
+else protos+=( "$(add_proto 'Hysteria2' 'udp' 0 '未监听' '未检测到常见端口')" ); fi
 if has_listen udp 2053 "tuic|sing-box"; then
-  protos+=( "$(add_proto 'TUIC' 'udp' 2053 'tuic/sing-box' '高性能 UDP 通道（直连，不参与分流）')" )
-else
-  protos+=( "$(add_proto 'TUIC' 'udp' 2053 '未监听' '未检测到 2053 UDP')" )
-fi
-
-# 汇总为 JSON 数组
+  protos+=( "$(add_proto 'TUIC' 'udp' 2053 'tuic/sing-box' '高性能 UDP 通道')" )
+else protos+=( "$(add_proto 'TUIC' 'udp' 2053 '未监听' '未检测到 2053 UDP')" ); fi
 protocols_json="$(jq -s '.' <<<"${protos[*]:-[]}")"
 
-# 【新增】服务运行状态
-svc_status() { systemctl is-active --quiet "$1" && echo "active" || echo "inactive"; }
+# --- 核心服务状态 ---
+svc_status(){ systemctl is-active --quiet "$1" && echo "active" || echo "inactive"; }
 nginx_st="$(svc_status nginx)"
 xray_st="$(svc_status xray)"
 singbox_st="$(svc_status sing-box)"
 
-# --- 写 panel.json ---
+# --- 写 panel.json（⚠️ 无注释、键不重复） ---
 jq -n \
- --arg updated "$(date -Is)" \
- --arg ip "$server_ip" \
- --arg eip "$eip" \
- --arg version "$version" \
- --arg install_date "$install_date" \
- --arg cert_mode "$cert_mode" \
- --arg cert_domain "$cert_domain" \
- --arg cert_expire "$cert_expire" \
- --arg mode "$mode" \
- --arg proxy "$proxy" \
- --arg health "$health" \
- --argjson whitelist "$whitelist_json" \
- --argjson protocols "$protocols_json" \
- '{
-   updated_at:$updated,
-   server:{ip:$ip,eip:($eip|select(length>0)),version:$version,install_date:$install_date,
-           cert_mode:$cert_mode,cert_domain:($cert_domain|select(length>0)),cert_expire:($cert_expire|select(length>0))},
-   protocols:$protocols,
-   shunt:{mode:$mode,proxy_info:$proxy,health:$health,whitelist:$whitelist}
-  # 【新增】服务状态
+  --arg updated "$(date -Is)" \
+  --arg ip "$server_ip" \
+  --arg eip "$eip" \
+  --arg version "$version" \
+  --arg install_date "$install_date" \
+  --arg cert_mode "$cert_mode" \
+  --arg cert_domain "$cert_domain" \
+  --arg cert_expire "$cert_expire" \
+  --arg mode "$mode" \
+  --arg proxy "$proxy" \
+  --arg health "$health" \
+  --arg nginx_status "$nginx_st" \
+  --arg xray_status "$xray_st" \
+  --arg singbox_status "$singbox_st" \
+  --argjson whitelist "$whitelist_json" \
+  --argjson protocols "$protocols_json" \
+'{
+  updated_at: $updated,
+  server: {
+    ip: $ip, eip: ($eip|select(length>0)), version: $version,
+    install_date: $install_date, cert_mode: $cert_mode,
+    cert_domain: ($cert_domain|select(length>0)),
+    cert_expire: ($cert_expire|select(length>0))
+  },
   service_status: { nginx: $nginx_status, xray: $xray_status, "sing-box": $singbox_status },
   protocols: $protocols,
   shunt: { mode: $mode, proxy_info: $proxy, health: $health, whitelist: $whitelist }
- }'> "${TRAFFIC_DIR}/panel.json"
+}' > "${TRAFFIC_DIR}/panel.json"
 
-# 让前端(仅面板)读取一份“影子配置”，避免再去解析 /sub
+# 影子配置（给前端提取 UUID 等）
 cp -f "/etc/edgebox/config/server.json" "${TRAFFIC_DIR}/server.shadow.json" 2>/dev/null || true
 
-# 写订阅复制链接
+# 订阅地址（域名优先）
 proto="http"; addr="$server_ip"
 if [[ "$cert_mode" == "letsencrypt" && -n "$cert_domain" ]]; then proto="https"; addr="$cert_domain"; fi
 echo "${proto}://${addr}/sub" > "${TRAFFIC_DIR}/sub.txt"
