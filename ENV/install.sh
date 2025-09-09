@@ -889,13 +889,21 @@ start_services() {
     fi
   done
 
-  # 初始化 /sub 缓存（可选，确保首次生成有料）
-  if [[ ! -s "/etc/edgebox/traffic/sub.txt" && -s "/var/www/html/sub" ]]; then
-    cp -f "/var/www/html/sub" "/etc/edgebox/traffic/sub.txt"
+  # 确保订阅文件同步到所有需要的位置
+  if [[ -s "${CONFIG_DIR}/subscription.txt" ]]; then
+    mkdir -p "${TRAFFIC_DIR}"
+    cp -f "${CONFIG_DIR}/subscription.txt" "${TRAFFIC_DIR}/sub.txt"
+    cp -f "${CONFIG_DIR}/subscription.txt" "/var/www/html/sub"
+    log_info "订阅文件已同步到所有位置"
   fi
 
-  # 安装并生成初始面板数据 + 写入定时任务（只跑一次）
+  # 安装并生成初始面板数据
   install_scheduled_dashboard_backend
+  
+  # 设置环境变量确保 dashboard-backend 能找到订阅
+  export CONFIG_DIR="${CONFIG_DIR}"
+  export SUB_CACHE="${TRAFFIC_DIR}/sub.txt"
+  
   /etc/edgebox/scripts/dashboard-backend.sh --now
   /etc/edgebox/scripts/dashboard-backend.sh --schedule
 }
@@ -958,11 +966,16 @@ PLAIN
       echo "# Base64整包【六协议一起导入，iOS 常用】"
       cat "${CONFIG_DIR}/subscription.base64"
       echo
-    } > /var/www/html/sub
+ } > /var/www/html/sub
 
-install -m 0644 -T /var/www/html/sub /etc/edgebox/traffic/sub.txt
+    # 同步到所有需要的位置
+    mkdir -p "${TRAFFIC_DIR}"
+    cp -f "${CONFIG_DIR}/subscription.txt" "${TRAFFIC_DIR}/sub.txt" 2>/dev/null || true
+    
+    # 确保权限正确
+    chmod 644 /var/www/html/sub "${TRAFFIC_DIR}/sub.txt" 2>/dev/null || true
 
-    log_success "订阅已生成"
+    log_success "订阅已生成并同步"
     log_success "HTTP 订阅地址: http://${addr}/sub"
 }
 
@@ -1087,32 +1100,43 @@ generate_dashboard_data(){
   local SUB_B64="$(printf '%s' "$SUB_LINES" | (base64 -w0 2>/dev/null || base64) | tr -d '\n')"
 
 # === SUBSCRIPTION: build sub_p / sub_b / sub_l ===
-if [[ -s "$SUB_CACHE" ]]; then
-  # 取明文区块（开头到第一处空行；跳过以 # 开头的注释行）
+# 优先从 subscription.txt 读取（安装时生成的权威文件）
+if [[ -s "${CONFIG_DIR}/subscription.txt" ]]; then
+  SUB_PLAIN="$(cat "${CONFIG_DIR}/subscription.txt")"
+elif [[ -s "$SUB_CACHE" ]]; then
+  # 取明文区块（开头到第一处空行）
   SUB_PLAIN="$(awk 'BEGIN{blk=1} /^$/ {exit} /^#/ {next} {print}' "$SUB_CACHE" | tr -d "\r")"
+elif [[ -s "/var/www/html/sub" ]]; then
+  # 最后的兜底
+  SUB_PLAIN="$(awk 'BEGIN{blk=1} /^$/ {exit} /^#/ {next} {print}' "/var/www/html/sub" | tr -d "\r")"
 else
   SUB_PLAIN=""
 fi
 
 # base64(整包) —— 兼容没有 -w 的 base64
-if printf '%s' "$SUB_PLAIN" | base64 --help 2>&1 | grep -q -- ' -w'; then
-  SUB_B64="$(printf '%s\n' "$SUB_PLAIN" | base64 -w0)"
+if [[ -n "$SUB_PLAIN" ]]; then
+  if printf '%s' "$SUB_PLAIN" | base64 --help 2>&1 | grep -q -- ' -w'; then
+    SUB_B64="$(printf '%s\n' "$SUB_PLAIN" | base64 -w0)"
+  else
+    SUB_B64="$(printf '%s\n' "$SUB_PLAIN" | base64 | tr -d '\n')"
+  fi
+  
+  # base64(逐行)
+  SUB_LINES="$(
+    printf '%s\n' "$SUB_PLAIN" | while IFS= read -r line; do
+      [[ -z "$line" ]] && continue
+      if printf '%s' "$line" | base64 --help 2>&1 | grep -q -- ' -w'; then
+        printf '%s' "$line" | sed -e '$a\' | base64 -w0
+      else
+        printf '%s' "$line" | sed -e '$a\' | base64 | tr -d '\n'
+      fi
+      printf '\n'
+    done
+  )"
 else
-  SUB_B64="$(printf '%s\n' "$SUB_PLAIN" | base64 | tr -d '\n')"
+  SUB_B64=""
+  SUB_LINES=""
 fi
-
-# base64(逐行)
-SUB_LINES="$(
-  printf '%s\n' "$SUB_PLAIN" | while IFS= read -r line; do
-    [[ -z "$line" ]] && continue
-    if printf '%s' "$line" | base64 --help 2>&1 | grep -q -- ' -w'; then
-      printf '%s' "$line" | sed -e '$a\' | base64 -w0
-    else
-      printf '%s' "$line" | sed -e '$a\' | base64 | tr -d '\n'
-    fi
-    printf '\n'
-  done
-)"
 
   chmod 0644 "${TRAFFIC_DIR}/dashboard.json"
 
