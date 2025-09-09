@@ -1114,29 +1114,34 @@ SUB_LINES="$(
   done
 )"
 
-  jq -n \
-    --arg ip "$SERVER_IP_" --arg eip "$EIP_" --arg domain "$SERVER_DOMAIN_" \
-    --arg mode "$INSTALL_MODE_" --arg ver "${EDGEBOX_VER_:-3.0.0}" --arg inst "${INSTALL_DATE_:-$(date +%F)}" \
-    --argjson cpu "$CPU" --argjson mem "$MEM" \
-    --arg nginx "$nginx_s" --arg xray "$xray_s" --arg sbox "$sbox_s" \
-    --arg cert_t "$CERT_TYPE" --arg cert_e "$CERT_EXPIRE" \
-    --arg r_sni "$REALITY_SNI_" --arg t_sni "$TROJAN_SNI_" \
-    --arg b_tcp443 "$has_tcp443" --arg b_hy2 "$has_hy2" --arg b_tuic "$has_tuic" \
-    --arg sub_p "$SUB_PLAIN" --arg sub_b "$SUB_B64" --arg sub_l "$SUB_LINES" \
-    '{
-      updated_at: (now | todate),
-      server: { ip:$ip, eip:(if $eip=="" then null else $eip end), version:$ver, install_date:$inst },
-      cert: { mode:$mode, type:$cert_t, expire:$cert_e, provider:(if $mode=="letsencrypt" then "auto" else "self" end) },
-      system: { cpu:($cpu|tonumber), memory:($mem|tonumber) },
-      services: { nginx:$nginx, xray:$xray, "sing-box":$sbox },
-      protocols: {
-        "443_tcp": (if $b_tcp443=="true" then "listening" else "down" end),
-        "hysteria2": (if $b_hy2=="true" then "listening" else "down" end),
-        "tuic_2053": (if $b_tuic=="true" then "listening" else "down" end),
-        reality_sni: $r_sni, trojan_sni: $t_sni
-      },
-      subscription: { plain:$sub_p, base64:$sub_b, b64_lines:$sub_l }
-    }' > "${TRAFFIC_DIR}/dashboard.json"
+# --- 生成 panel.json（补上 subscription） ---
+jq -n \
+  --arg ts "$(date -Is)" \
+  --arg ip "$SERVER_IP_" --arg eip "$EIP_" \
+  --arg ver "${EDGEBOX_VER_:-3.0.0}" --arg inst "${INSTALL_DATE_:-$(date +%F)}" \
+  --arg cm "$INSTALL_MODE_" --arg cd "$SERVER_DOMAIN_" --arg ce "$CERT_EXPIRE" \
+  --arg b1 "$has_tcp443" --arg b2 "$has_hy2" --arg b3 "$has_tuic" \
+  --arg sub_p "$SUB_PLAIN" --arg sub_b "$SUB_B64" --arg sub_l "$SUB_LINES" \
+  '{
+    updated_at: $ts,
+    server: {
+      ip: $ip,
+      eip: (if $eip=="" then null else $eip end),
+      version: $ver, install_date: $inst,
+      cert_mode: $cm,
+      cert_domain: (if $cd=="" then null else $cd end),
+      cert_expire: (if $ce=="" then null else $ce end)
+    },
+    protocols: [
+      {name:"VLESS/Trojan (443/TCP)", proto:"tcp", port:443, proc:(if $b1=="true" then "listening" else "未监听" end), note:"443 端口状态"},
+      {name:"Hysteria2", proto:"udp", port:0,   proc:(if $b2=="true" then "listening" else "未监听" end), note:"8443/443"},
+      {name:"TUIC",      proto:"udp", port:2053,proc:(if $b3=="true" then "listening" else "未监听" end), note:"2053"}
+    ],
+    shunt: { mode:"vps", proxy_info:"", health:"ok",
+      whitelist:["googlevideo.com","ytimg.com","ggpht.com","youtube.com","youtu.be","googleapis.com","gstatic.com","example.com"]
+    },
+    subscription: { plain: $sub_p, base64: $sub_b, b64_lines: $sub_l }
+  }' > "${TRAFFIC_DIR}/panel.json"
 
   chmod 0644 "${TRAFFIC_DIR}/dashboard.json"
 
@@ -4695,9 +4700,9 @@ main() {
     configure_nginx
     configure_xray
     configure_sing_box
-save_config_info
-generate_subscription
-start_services
+	save_config_info
+	start_services
+	generate_subscription
     
     # 高级功能安装（模块3）
     setup_traffic_monitoring
