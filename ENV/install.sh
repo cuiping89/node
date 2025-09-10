@@ -826,32 +826,40 @@ start_services() {
 # >>> 修复后的 generate_subscription 函数 >>>生成订阅（权威数据来自 server.json）
 generate_subscription() {
   log_info "生成订阅链接..."
-  
-  # 新增：检查 server.json 文件是否存在
+  # 在函数内部重新定义文件路径，确保作用域正确
+    local CONFIG_FILE="/etc/edgebox/config/server.json"
+    
+    # 检查配置文件是否存在
     if [ ! -f "${CONFIG_FILE}" ]; then
         log_error "错误：配置文件 ${CONFIG_FILE} 不存在！"
         return 1
     fi
     
-    # 新增：检查文件内容是否可读
+    # 检查文件内容是否可读
     if [ ! -s "${CONFIG_FILE}" ]; then
         log_error "警告：配置文件 ${CONFIG_FILE} 是空的！"
         return 1
     fi
     
-    # 新增：在读取文件前打印，确认变量是否为空
-    log_info "尝试读取配置文件中的变量..."
-    
-    # 从配置文件读取变量（您的脚本原有的代码）
-    SERVER_IP=$(jq -r '.server_ip' "${CONFIG_FILE}")
-    UUID_VLESS=$(jq -r '.uuid.vless' "${CONFIG_FILE}")
-    UUID_HYSTERIA2=$(jq -r '.uuid.hysteria2' "${CONFIG_FILE}")
-    UUID_TUIC=$(jq -r '.uuid.tuic' "${CONFIG_FILE}")
-    UUID_TROJAN=$(jq -r '.uuid.trojan' "${CONFIG_FILE}")
-    # ... (其他变量，如 reality_public_key)
-    
     # 新增：在读取文件后打印，确认变量是否成功赋值
     log_info "---------------------------------"
+    log_info "开始从配置文件读取变量..."
+
+    # 从配置文件读取变量（您的脚本原有的代码）
+    local SERVER_IP=$(jq -r '.server_ip' "${CONFIG_FILE}")
+    local UUID_VLESS=$(jq -r '.uuid.vless' "${CONFIG_FILE}")
+    local UUID_HYSTERIA2=$(jq -r '.uuid.hysteria2' "${CONFIG_FILE}")
+    local UUID_TUIC=$(jq -r '.uuid.tuic' "${CONFIG_FILE}")
+    local UUID_TROJAN=$(jq -r '.uuid.trojan' "${CONFIG_FILE}")
+    local REALITY_PUBLIC_KEY=$(jq -r '.reality.public_key' "${CONFIG_FILE}")
+    
+    # 在这里添加一个检查，如果读取到的变量为空，直接报错
+    if [ -z "$SERVER_IP" ] || [ -z "$UUID_VLESS" ]; then
+        log_error "错误：从 ${CONFIG_FILE} 读取变量失败，可能是 jq 命令执行失败或文件格式不正确。"
+        return 1
+    fi
+
+    # 新增：打印读取到的变量值
     log_info "读取到的变量值:"
     log_info "SERVER_IP: ${SERVER_IP}"
     log_info "UUID_VLESS: ${UUID_VLESS}"
