@@ -430,36 +430,22 @@ install_sing_box() {
 
 # 生成Reality密钥对
 generate_reality_keys() {
-    log_info "生成Reality密钥对..."
-
-    # 优先用 sing-box 生成
-    if command -v sing-box >/dev/null 2>&1; then
-        local out
-        out="$(sing-box generate reality-keypair 2>/dev/null || sing-box generate reality-key 2>/dev/null || true)"
-        REALITY_PRIVATE_KEY="$(echo "$out" | awk -F': ' '/Private/{print $2}')"
-        REALITY_PUBLIC_KEY="$(echo "$out"  | awk -F': ' '/Public/{print  $2}')"
-        if [[ -n "$REALITY_PRIVATE_KEY" && -n "$REALITY_PUBLIC_KEY" ]]; then
-            log_success "Reality密钥对生成完成（sing-box）"
-            log_info "Reality公钥: $REALITY_PUBLIC_KEY"
-            return 0
-        fi
+    log_info "正在生成 Reality 密钥对..."
+    local keypair_output
+    # 只生成一次密钥对，并保存其输出
+    keypair_output=$(sing-box generate reality-keypair)
+    
+    # 从单次输出中提取私钥和公钥
+    REALITY_PRIVATE_KEY=$(echo "$keypair_output" | grep -oP 'PrivateKey: \K[a-zA-Z0-9_-]+')
+    REALITY_PUBLIC_KEY=$(echo "$keypair_output" | grep -oP 'PublicKey: \K[a-zA-Z0-9_-]+')
+    
+    if [ -n "${REALITY_PRIVATE_KEY}" ] && [ -n "${REALITY_PUBLIC_KEY}" ]; then
+        log_success "Reality 密钥生成成功。"
+    else
+        log_error "Reality 密钥生成失败！"
+        return 1
     fi
-
-    # 回退：使用 Xray 生成
-    if command -v xray >/dev/null 2>&1; then
-        local keys
-        keys="$(xray x25519)"
-        REALITY_PRIVATE_KEY="$(echo "$keys" | awk '/Private key/{print $3}')"
-        REALITY_PUBLIC_KEY="$(echo  "$keys" | awk '/Public key/{print  $3}')"
-        if [[ -n "$REALITY_PRIVATE_KEY" && -n "$REALITY_PUBLIC_KEY" ]]; then
-            log_success "Reality密钥对生成完成（xray）"
-            log_info "Reality公钥: $REALITY_PUBLIC_KEY"
-            return 0
-        fi
-    fi
-
-    log_error "生成Reality密钥失败"
-    return 1
+    return 0
 }
 
 # 配置Nginx（SNI定向 + ALPN兜底架构）
@@ -4583,8 +4569,6 @@ main() {
     configure_nginx
     configure_xray
     configure_sing_box
-	start_services
-
     save_config_info
     
     # 高级功能安装（模块3）- 先安装后台脚本
@@ -4597,6 +4581,7 @@ main() {
     
     # 生成订阅并启动服务
     generate_subscription
+    start_services
 
     # 启动初始化服务
     systemctl start edgebox-init.service >/dev/null 2>&1 || true
