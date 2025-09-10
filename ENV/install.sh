@@ -870,16 +870,15 @@ EOF
 }
 
 # 启动服务
-# ------------------ start_services (FINAL) ------------------
+# >>> start_services (FINAL) >>>
 start_services() {
   log_info "启动所有服务..."
   systemctl daemon-reload
   systemctl enable nginx xray sing-box >/dev/null 2>&1 || true
 
-  # 先启动（或重启）
-  systemctl restart nginx  >/dev/null 2>&1 || true
-  systemctl restart xray   >/dev/null 2>&1 || true
-  systemctl restart sing-box >/dev/null 2>&1 || true
+  systemctl restart nginx     >/dev/null 2>&1 || true
+  systemctl restart xray      >/dev/null 2>&1 || true
+  systemctl restart sing-box  >/dev/null 2>&1 || true
 
   sleep 2
   for s in nginx xray sing-box; do
@@ -891,14 +890,13 @@ start_services() {
     fi
   done
 
-  # —— 幂等同步订阅（使用 install -T + -ef 判断，杜绝“same file”）——
+  # —— 幂等同步订阅：彻底避免 “are the same file” ——
   local CONFIG_DIR="${CONFIG_DIR:-/etc/edgebox/config}"
   local TRAFFIC_DIR="${TRAFFIC_DIR:-/etc/edgebox/traffic}"
   local WEB_ROOT="/var/www/html"
   mkdir -p "$TRAFFIC_DIR" "$WEB_ROOT"
 
   if [[ -s "$CONFIG_DIR/subscription.txt" ]]; then
-    # 如果目标和源是同一文件就跳过；否则原子替换
     if ! [[ "$CONFIG_DIR/subscription.txt" -ef "$TRAFFIC_DIR/sub.txt" ]]; then
       install -m 0644 -T "$CONFIG_DIR/subscription.txt" "$TRAFFIC_DIR/sub.txt"
     fi
@@ -907,36 +905,35 @@ start_services() {
     fi
     log_info "订阅文件已同步到：$TRAFFIC_DIR/sub.txt 和 $WEB_ROOT/sub"
   else
-    log_warn "订阅文件不存在：$CONFIG_DIR/subscription.txt（稍后 generate_subscription 会生成）"
+    log_warn "未找到 $CONFIG_DIR/subscription.txt，稍后由 generate_subscription 生成"
   fi
 
-  # —— 安装并安排后台刷新（尽量放在订阅生成之后，但这里也做兜底）——
+  # —— Dashboard 后端：安装并安排定时刷新 ——
   if [[ -x /etc/edgebox/scripts/dashboard-backend.sh ]]; then
     /etc/edgebox/scripts/dashboard-backend.sh --install >/dev/null 2>&1 || true
+    /etc/edgebox/scripts/dashboard-backend.sh --now     >/dev/null 2>&1 || true
   fi
 }
-# ------------------ /start_services (FINAL) ------------------
+# <<< start_services (FINAL) <<<
 
-# ------------------ generate_subscription (FINAL) ------------------
+# >>> generate_subscription (FINAL) >>>
 generate_subscription() {
   log_info "生成订阅链接..."
 
-  # 基础目录
-  CONFIG_DIR="${CONFIG_DIR:-/etc/edgebox/config}"
-  TRAFFIC_DIR="${TRAFFIC_DIR:-/etc/edgebox/traffic}"
-  WEB_ROOT="/var/www/html"
+  local CONFIG_DIR="${CONFIG_DIR:-/etc/edgebox/config}"
+  local TRAFFIC_DIR="${TRAFFIC_DIR:-/etc/edgebox/traffic}"
+  local WEB_ROOT="/var/www/html"
   mkdir -p "$CONFIG_DIR" "$TRAFFIC_DIR" "$WEB_ROOT"
 
-  # 1) 从 server.json 读取权威配置（不要依赖内存变量）
   local cfg="$CONFIG_DIR/server.json"
   if [[ ! -s "$cfg" ]]; then
     log_error "缺少 $cfg，无法生成订阅"
     return 1
   fi
 
-  # 基本字段
-  local SERVER_IP UUID_VLESS UUID_TUIC PW_TROJAN PW_TUIC PW_HY2 PBK SID
-  SERVER_IP="$(jq -r '.server_ip // empty' "$cfg")"
+  # 读取权威配置
+  local IP UUID_VLESS UUID_TUIC PW_TROJAN PW_TUIC PW_HY2 PBK SID
+  IP="$(jq -r '.server_ip // empty' "$cfg")"
   UUID_VLESS="$(jq -r '.uuid.vless // empty' "$cfg")"
   UUID_TUIC="$(jq -r '.uuid.tuic // empty' "$cfg")"
   PW_TROJAN="$(jq -r '.password.trojan // empty' "$cfg")"
@@ -945,47 +942,51 @@ generate_subscription() {
   PBK="$(jq -r '.reality.public_key // empty' "$cfg")"
   SID="$(jq -r '.reality.short_id // empty' "$cfg")"
 
-  if [[ -z "$SERVER_IP" || -z "$UUID_VLESS" || -z "$PBK" || -z "$SID" || -z "$PW_TROJAN" || -z "$PW_TUIC" || -z "$UUID_TUIC" || -z "$PW_HY2" ]]; then
+  if [[ -z "$IP" || -z "$UUID_VLESS" || -z "$UUID_TUIC" || -z "$PW_TROJAN" || -z "$PW_TUIC" || -z "$PW_HY2" || -z "$PBK" || -z "$SID" ]]; then
     log_error "server.json 关键字段缺失，无法生成订阅"
     return 1
   fi
 
-  # 2) 常量与 URL 编码
-  local WS_SNI="ws.edgebox.internal"
-  local TROJAN_SNI="trojan.edgebox.internal"
-  local allowInsecure="&allowInsecure=1"
-  local insecure="&insecure=1"
-
-  # 用 jq 做 URL 编码（纯 POSIX）
+  # 常量与 URL 编码
+  local WS_SNI="ws.edgebox.internal" TROJAN_SNI="trojan.edgebox.internal"
+  local allowInsecure="&allowInsecure=1" insecure="&insecure=1"
   local PW_TROJAN_ENC PW_TUIC_ENC PW_HY2_ENC
   PW_TROJAN_ENC=$(printf '%s' "$PW_TROJAN" | jq -Rr @uri)
   PW_TUIC_ENC=$(printf '%s' "$PW_TUIC"   | jq -Rr @uri)
   PW_HY2_ENC=$(printf '%s' "$PW_HY2"     | jq -Rr @uri)
 
-  # 3) 明文订阅（6 条）
+  # 明文订阅（6 条）
   local plain
   read -r -d '' plain <<PLAIN
-vless://${UUID_VLESS}@${SERVER_IP}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${PBK}&sid=${SID}&type=tcp#EdgeBox-REALITY
-vless://${UUID_VLESS}@${SERVER_IP}:443?encryption=none&security=tls&sni=grpc.edgebox.internal&alpn=h2&type=grpc&serviceName=grpc&fp=chrome${allowInsecure}#EdgeBox-gRPC
-vless://${UUID_VLESS}@${SERVER_IP}:443?encryption=none&security=tls&sni=${WS_SNI}&host=${WS_SNI}&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome${allowInsecure}#EdgeBox-WS
-trojan://${PW_TROJAN_ENC}@${SERVER_IP}:443?security=tls&sni=${TROJAN_SNI}&alpn=http%2F1.1&fp=chrome${allowInsecure}#EdgeBox-TROJAN
-hysteria2://${PW_HY2_ENC}@${SERVER_IP}:443?sni=${SERVER_IP}&alpn=h3${insecure}#EdgeBox-HYSTERIA2
-tuic://${UUID_TUIC}:${PW_TUIC_ENC}@${SERVER_IP}:2053?congestion_control=bbr&alpn=h3&sni=${SERVER_IP}${allowInsecure}#EdgeBox-TUIC
+vless://${UUID_VLESS}@${IP}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${PBK}&sid=${SID}&type=tcp#EdgeBox-REALITY
+vless://${UUID_VLESS}@${IP}:443?encryption=none&security=tls&sni=grpc.edgebox.internal&alpn=h2&type=grpc&serviceName=grpc&fp=chrome${allowInsecure}#EdgeBox-gRPC
+vless://${UUID_VLESS}@${IP}:443?encryption=none&security=tls&sni=${WS_SNI}&host=${WS_SNI}&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome${allowInsecure}#EdgeBox-WS
+trojan://${PW_TROJAN_ENC}@${IP}:443?security=tls&sni=${TROJAN_SNI}&alpn=http%2F1.1&fp=chrome${allowInsecure}#EdgeBox-TROJAN
+hysteria2://${PW_HY2_ENC}@${IP}:443?sni=${IP}&alpn=h3${insecure}#EdgeBox-HYSTERIA2
+tuic://${UUID_TUIC}:${PW_TUIC_ENC}@${IP}:2053?congestion_control=bbr&alpn=h3&sni=${IP}${allowInsecure}#EdgeBox-TUIC
 PLAIN
 
-  # 4) 落盘（权威源 + Web + 面板缓存），使用 install -T 原子替换，杜绝 same-file
-  install -m 0644 -T <(printf '%s\n\n# Base64逐行\n' "$plain") "$CONFIG_DIR/subscription.txt"
-  install -m 0644 -T "$CONFIG_DIR/subscription.txt" "$WEB_ROOT/sub"
-  install -m 0644 -T "$CONFIG_DIR/subscription.txt" "$TRAFFIC_DIR/sub.txt"
+  # 写权威源（避免 same-file：先写临时文件，再原子替换）
+  local tmp; tmp="$(mktemp)"
+  printf '%s\n' "$plain" > "$tmp"
+  install -m 0644 -T "$tmp" "$CONFIG_DIR/subscription.txt"
+
+  # 同步 HTTP 与面板缓存（跳过“同一文件”）
+  if ! [[ "$CONFIG_DIR/subscription.txt" -ef "$WEB_ROOT/sub" ]]; then
+    install -m 0644 -T "$CONFIG_DIR/subscription.txt" "$WEB_ROOT/sub"
+  fi
+  if ! [[ "$CONFIG_DIR/subscription.txt" -ef "$TRAFFIC_DIR/sub.txt" ]]; then
+    install -m 0644 -T "$CONFIG_DIR/subscription.txt" "$TRAFFIC_DIR/sub.txt"
+  fi
 
   log_success "订阅已生成并同步：$CONFIG_DIR/subscription.txt → $WEB_ROOT/sub, $TRAFFIC_DIR/sub.txt"
 
-  # 5) 立刻刷新 dashboard（确保 subscription 进 JSON）
+  # 立刻刷新 dashboard（把 Base64 等写入 JSON）
   if [[ -x /etc/edgebox/scripts/dashboard-backend.sh ]]; then
     /etc/edgebox/scripts/dashboard-backend.sh --now >/dev/null 2>&1 || true
   fi
 }
-# ------------------ /generate_subscription (FINAL) ------------------
+# <<< generate_subscription (FINAL) <<<
 
 # === EdgeBox：安装 Dashboard 后端 ===
 install_scheduled_dashboard_backend() {
