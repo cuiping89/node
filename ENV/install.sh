@@ -94,6 +94,10 @@ log_success() {
     echo -e "${GREEN}[SUCCESS]${NC} $1" | tee -a ${LOG_FILE}
 }
 
+log_debug() {
+    echo -e "${RED}[DEBUG]${NC} $1" | tee -a ${LOG_FILE}
+}
+
 print_separator() {
     echo -e "${BLUE}========================================${NC}"
 }
