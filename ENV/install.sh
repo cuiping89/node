@@ -211,22 +211,20 @@ local pkgs=(curl wget unzip gawk ca-certificates jq bc uuid-runtime dnsutils ope
 
 # 生成UUID和密码
 generate_credentials() {
-  log_info "生成 UUID 和密码..."
+    log_info "正在生成 UUID 和密码..."
+    if ! command -v uuidgen &> /dev/null; then
+        log_error "uuidgen 未安装，请先安装: apt-get install -y uuid-runtime"
+        return 1
+    fi
+    
+    # 修正：为每种协议生成一个独立的 UUID
+    UUID_VLESS_REALITY=$(uuidgen)
+    UUID_VLESS_GRPC=$(uuidgen)
+    UUID_VLESS_WS=$(uuidgen)
+    UUID_HYSTERIA2=$(uuidgen)
+    UUID_TUIC=$(uuidgen)
+    UUID_TROJAN=$(uuidgen)
 
-  # 确保 uuidgen 存在
-  if ! command -v uuidgen >/dev/null 2>&1; then
-    apt-get update -y >/dev/null 2>&1 || true
-    apt-get install -y uuid-runtime >/dev/null 2>&1 || true
-  fi
-
-  # 为三种 VLESS 分别生成 UUID
-  UUID_VLESS_REALITY=$(uuidgen)
-  UUID_VLESS_GRPC=$(uuidgen)
-  UUID_VLESS_WS=$(uuidgen)
-
-  # 其他原有的生成保持不变
-  UUID_TROJAN=$(uuidgen)
-  UUID_TUIC=$(uuidgen)
   PASSWORD_TROJAN=$(openssl rand -base64 24)
   PASSWORD_TUIC=$(openssl rand -base64 24)
   PASSWORD_HYSTERIA2=$(openssl rand -base64 24)
@@ -234,6 +232,13 @@ generate_credentials() {
   log_success "VLESS-REALITY: ${UUID_VLESS_REALITY}"
   log_success "VLESS-gRPC   : ${UUID_VLESS_GRPC}"
   log_success "VLESS-WS     : ${UUID_VLESS_WS}"
+  
+  if [ -z "$UUID_VLESS_REALITY" ]; then
+        log_error "UUID 生成失败！"
+        return 1
+    fi
+    log_success "UUID 和密码生成成功。"
+    return 0
 }
 
 # 创建目录结构
@@ -825,8 +830,9 @@ start_services() {
 
 # >>> 修复后的 generate_subscription 函数 >>>生成订阅（权威数据来自 server.json）
 generate_subscription() {
-  log_info "生成订阅链接..."
-  # 在函数内部重新定义文件路径，确保作用域正确
+    log_info "正在生成订阅链接..."
+    
+    # 在函数内部重新声明所有变量以确保作用域正确
     local CONFIG_FILE="/etc/edgebox/config/server.json"
     
     # 检查配置文件是否存在
@@ -835,17 +841,13 @@ generate_subscription() {
         return 1
     fi
     
-    # 检查文件内容是否可读
-    if [ ! -s "${CONFIG_FILE}" ]; then
-        log_error "警告：配置文件 ${CONFIG_FILE} 是空的！"
+    # 检查 jq 命令是否存在
+    if ! command -v jq &> /dev/null; then
+        log_error "错误：未找到 jq 命令，无法解析 JSON。"
         return 1
     fi
-    
-    # 新增：在读取文件后打印，确认变量是否成功赋值
-    log_info "---------------------------------"
-    log_info "开始从配置文件读取变量..."
 
-    # 从配置文件读取变量（您的脚本原有的代码）
+    # 从配置文件读取变量
     local SERVER_IP=$(jq -r '.server_ip' "${CONFIG_FILE}")
     local UUID_VLESS=$(jq -r '.uuid.vless' "${CONFIG_FILE}")
     local UUID_HYSTERIA2=$(jq -r '.uuid.hysteria2' "${CONFIG_FILE}")
@@ -853,14 +855,15 @@ generate_subscription() {
     local UUID_TROJAN=$(jq -r '.uuid.trojan' "${CONFIG_FILE}")
     local REALITY_PUBLIC_KEY=$(jq -r '.reality.public_key' "${CONFIG_FILE}")
     
-    # 在这里添加一个检查，如果读取到的变量为空，直接报错
+    # 检查是否成功读取到关键变量
     if [ -z "$SERVER_IP" ] || [ -z "$UUID_VLESS" ]; then
-        log_error "错误：从 ${CONFIG_FILE} 读取变量失败，可能是 jq 命令执行失败或文件格式不正确。"
+        log_error "错误：从 ${CONFIG_FILE} 读取关键变量失败。文件可能为空或格式不正确。"
         return 1
     fi
 
-    # 新增：打印读取到的变量值
-    log_info "读取到的变量值:"
+    # 打印读取到的变量值进行调试
+    log_info "---------------------------------"
+    log_info "从配置文件中读取到的变量值:"
     log_info "SERVER_IP: ${SERVER_IP}"
     log_info "UUID_VLESS: ${UUID_VLESS}"
     log_info "REALITY_PUBLIC_KEY: ${REALITY_PUBLIC_KEY}"
@@ -4520,8 +4523,8 @@ main() {
     print_separator
     
     # 创建日志文件
-    mkdir -p $(dirname ${LOG_FILE})
-    touch ${LOG_FILE}
+    mkdir -p $(dirname "${LOG_FILE}")
+    touch "${LOG_FILE}"
     
     # 设置错误处理
     trap cleanup EXIT
@@ -4539,8 +4542,8 @@ main() {
     configure_firewall
     optimize_system
     generate_self_signed_cert
-    install_xray
     install_sing_box
+    install_xray
     generate_reality_keys
     configure_nginx
     configure_xray
@@ -4554,8 +4557,8 @@ main() {
     setup_email_system
     create_enhanced_edgeboxctl
     create_init_script
-    
-    # 生成订阅并启动服务
+
+    # 调用 generate_subscription 放在这里
     generate_subscription
     start_services
 
