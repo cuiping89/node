@@ -4469,31 +4469,6 @@ INIT_SERVICE
     log_success "初始化脚本创建完成"
 }
 
-# === 生成订阅并同步（若上文已做可保留幂等） ===
-generate_subscription || true
-sync_subscription_files || true
-
-# === 立即生成首版 dashboard 数据并写入定时 ===
-export CONFIG_DIR="/etc/edgebox/config"
-export TRAFFIC_DIR="/etc/edgebox/traffic"
-export WEB_ROOT="/var/www/html"
-export SUB_CACHE="${TRAFFIC_DIR}/sub.txt"
-
-if [[ -x "/etc/edgebox/scripts/dashboard-backend.sh" ]]; then
-  log_info "生成初始面板数据..."
-  /etc/edgebox/scripts/dashboard-backend.sh --now  >/dev/null 2>&1 || log_warn "首刷失败，稍后由定时任务再试"
-  /etc/edgebox/scripts/dashboard-backend.sh --schedule >/dev/null 2>&1 || true
-fi
-
-# 健康检查（若 subscription 仍为空，再兜底刷一次）
-if ! jq -e '.subscription.plain|length>0' "${TRAFFIC_DIR}/dashboard.json" >/dev/null 2>&1; then
-  ln -sfn "${CONFIG_DIR}/subscription.txt" "${WEB_ROOT}/sub"
-  install -m 0644 -T "${CONFIG_DIR}/subscription.txt" "${TRAFFIC_DIR}/sub.txt"
-  /etc/edgebox/scripts/dashboard-backend.sh --now >/dev/null 2>&1 || true
-fi
-
-exit 0
-
 
 #############################################
 # 完整安装流程
@@ -4557,6 +4532,31 @@ cleanup() {
 }
 trap cleanup EXIT
 # --- /cleanup ---
+
+# === 生成订阅并同步（若上文已做可保留幂等） ===
+generate_subscription || true
+sync_subscription_files || true
+
+# === 立即生成首版 dashboard 数据并写入定时 ===
+export CONFIG_DIR="/etc/edgebox/config"
+export TRAFFIC_DIR="/etc/edgebox/traffic"
+export WEB_ROOT="/var/www/html"
+export SUB_CACHE="${TRAFFIC_DIR}/sub.txt"
+
+if [[ -x "/etc/edgebox/scripts/dashboard-backend.sh" ]]; then
+  log_info "生成初始面板数据..."
+  /etc/edgebox/scripts/dashboard-backend.sh --now  >/dev/null 2>&1 || log_warn "首刷失败，稍后由定时任务再试"
+  /etc/edgebox/scripts/dashboard-backend.sh --schedule >/dev/null 2>&1 || true
+fi
+
+# 健康检查（若 subscription 仍为空，再兜底刷一次）
+if ! jq -e '.subscription.plain|length>0' "${TRAFFIC_DIR}/dashboard.json" >/dev/null 2>&1; then
+  ln -sfn "${CONFIG_DIR}/subscription.txt" "${WEB_ROOT}/sub"
+  install -m 0644 -T "${CONFIG_DIR}/subscription.txt" "${TRAFFIC_DIR}/sub.txt"
+  /etc/edgebox/scripts/dashboard-backend.sh --now >/dev/null 2>&1 || true
+fi
+
+exit 0
 
 # 主安装流程
 main() {
