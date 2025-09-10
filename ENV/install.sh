@@ -926,11 +926,10 @@ generate_subscription() {
 
   local cfg="$CONFIG_DIR/server.json"
   if [[ ! -s "$cfg" ]]; then
-    log_error "缺少 $cfg，无法生成订阅"
-    return 1
+    log_error "缺少 $cfg，无法生成订阅"; return 1
   fi
 
-  # 从 server.json 读取权威字段（不要依赖内存变量）
+  # 从 server.json 读权威字段
   local IP UUID_VLESS UUID_TUIC PW_TROJAN PW_TUIC PW_HY2 PBK SID
   IP="$(jq -r '.server_ip // empty'               "$cfg")"
   UUID_VLESS="$(jq -r '.uuid.vless // empty'      "$cfg")"
@@ -940,23 +939,20 @@ generate_subscription() {
   PW_HY2="$(jq -r '.password.hysteria2 // empty'  "$cfg")"
   PBK="$(jq -r '.reality.public_key // empty'     "$cfg")"
   SID="$(jq -r '.reality.short_id // empty'       "$cfg")"
+  [[ -z "$IP$UUID_VLESS$UUID_TUIC$PW_TROJAN$PW_TUIC$PW_HY2$PBK$SID" ]] && { log_error "server.json 字段缺失"; return 1; }
 
-  if [[ -z "$IP" || -z "$UUID_VLESS" || -z "$UUID_TUIC" || -z "$PW_TROJAN" || -z "$PW_TUIC" || -z "$PW_HY2" || -z "$PBK" || -z "$SID" ]]; then
-    log_error "server.json 字段缺失，无法生成订阅"
-    return 1
-  fi
-
-  # 常量 + URL 编码
   local WS_SNI="ws.edgebox.internal"
   local TROJAN_SNI="trojan.edgebox.internal"
   local allowInsecure="&allowInsecure=1"
   local insecure="&insecure=1"
+
+  # URL 编码密钥
   local PW_TROJAN_ENC PW_TUIC_ENC PW_HY2_ENC
   PW_TROJAN_ENC=$(printf '%s' "$PW_TROJAN" | jq -Rr @uri)
-  PW_TUIC_ENC=$(printf '%s' "$PW_TUIC"   | jq -Rr @uri)
-  PW_HY2_ENC=$(printf '%s' "$PW_HY2"     | jq -Rr @uri)
+  PW_TUIC_ENC=$(printf '%s' "$PW_TUIC"     | jq -Rr @uri)
+  PW_HY2_ENC=$(printf '%s' "$PW_HY2"       | jq -Rr @uri)
 
-  # 明文 6 条（每行一条，无注释，利于一键导入）
+  # 6 条明文（每行一条）
   local plain
   read -r -d '' plain <<PLAIN
 vless://${UUID_VLESS}@${IP}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${PBK}&sid=${SID}&type=tcp#EdgeBox-REALITY
@@ -967,7 +963,7 @@ hysteria2://${PW_HY2_ENC}@${IP}:443?sni=${IP}&alpn=h3${insecure}#EdgeBox-HYSTERI
 tuic://${UUID_TUIC}:${PW_TUIC_ENC}@${IP}:2053?congestion_control=bbr&alpn=h3&sni=${IP}${allowInsecure}#EdgeBox-TUIC
 PLAIN
 
-  # 写入权威文件，并幂等同步到 web 与 traffic（用 -ef 判断 + install -T 原子替换）
+  # 权威文件 + 幂等同步（-ef 判断 + install -T 原子替换）
   install -m 0644 -T <(printf '%s\n' "$plain") "$CONFIG_DIR/subscription.txt"
   if ! [[ "$CONFIG_DIR/subscription.txt" -ef "$WEB_ROOT/sub" ]]; then
     install -m 0644 -T "$CONFIG_DIR/subscription.txt" "$WEB_ROOT/sub"
@@ -1000,7 +996,7 @@ log_info(){ echo "[INFO] $*"; }
 log_warn(){ echo "[WARN] $*"; }
 log_error(){ echo "[ERROR] $*" >&2; }
 
-_get_cpu_mem(){
+_get_cpu_mem(){ 
   local cpu="0" mem="0"
   if command -v top >/dev/null 2>&1; then
     cpu=$(top -bn1 | awk '/Cpu/ {print 100-$8; exit}' 2>/dev/null || echo 0)
@@ -1009,19 +1005,15 @@ _get_cpu_mem(){
   printf '%s %s\n' "${cpu:-0}" "${mem:-0}"
 }
 
-_unit_active(){ systemctl is-active --quiet "$1" && echo "运行中" || echo "未运行"; }
-
+# 读取明文订阅 -> 产出 plain / base64 / b64_lines 三种形态，并把明文落到 traffic/subscription.txt
 _parse_sub(){
-  # 读 subscription 明文，生成三种形态
-  local sub_plain sub_b64 sub_lines line
-  if [[ -s "${CONFIG_DIR}/subscription.txt" ]]; then
+  local sub_plain="" sub_b64="" line
+  if   [[ -s "${CONFIG_DIR}/subscription.txt" ]]; then
     sub_plain="$(cat "${CONFIG_DIR}/subscription.txt")"
   elif [[ -s "${SUB_CACHE}" ]]; then
     sub_plain="$(cat "${SUB_CACHE}")"
   elif [[ -s "/var/www/html/sub" ]]; then
     sub_plain="$(cat "/var/www/html/sub")"
-  else
-    sub_plain=""
   fi
 
   if [[ -n "$sub_plain" ]]; then
@@ -1040,14 +1032,11 @@ _parse_sub(){
       printf '\n'
     done <<<"$sub_plain" > "${TRAFFIC_DIR}/subscription.b64lines"
   else
-    sub_b64=""
     : > "${TRAFFIC_DIR}/subscription.b64lines"
   fi
 
-  # 落盘供 Nginx 直接读
   printf '%s\n' "$sub_plain" > "${TRAFFIC_DIR}/subscription.txt"
 
-  # 通过环境变量“返回”
   export SUB_PLAIN="$sub_plain"
   export SUB_B64="$sub_b64"
   export SUB_LINES="$(cat "${TRAFFIC_DIR}/subscription.b64lines" 2>/dev/null || true)"
@@ -1063,13 +1052,13 @@ generate_dashboard_data(){
   # 服务器事实
   local IP EIP VER INST CM CERT_DOMAIN CERT_EXPIRE
   if [[ -s "$SERVER_JSON" ]]; then
-    IP="$(jq -r '.server_ip // empty'               "$SERVER_JSON")"
-    EIP="$(jq -r '.eip // empty'                     "$SERVER_JSON")"
-    VER="$(jq -r '.version // "3.0.0"'               "$SERVER_JSON")"
-    INST="$(jq -r '.install_date // empty'           "$SERVER_JSON")"
-    CM="$(jq -r '.cert.mode // "ip"'                 "$SERVER_JSON")"
-    CERT_DOMAIN="$(jq -r '.cert.domain // empty'     "$SERVER_JSON")"
-    CERT_EXPIRE="$(jq -r '.cert.expire // empty'     "$SERVER_JSON")"
+    IP="$(jq -r '.server_ip // empty'           "$SERVER_JSON")"
+    EIP="$(jq -r '.eip // empty'                 "$SERVER_JSON")"
+    VER="$(jq -r '.version // "3.0.0"'           "$SERVER_JSON")"
+    INST="$(jq -r '.install_date // empty'       "$SERVER_JSON")"
+    CM="$(jq -r '.cert.mode // "ip"'             "$SERVER_JSON")"
+    CERT_DOMAIN="$(jq -r '.cert.domain // empty' "$SERVER_JSON")"
+    CERT_EXPIRE="$(jq -r '.cert.expire // empty' "$SERVER_JSON")"
   fi
 
   jq -n --arg ts "$(date -Is)" --argjson cpu "$CPU" --argjson memory "$MEM" \
