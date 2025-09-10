@@ -817,7 +817,16 @@ EOF
 # 保存配置信息
 save_config_info() {
     log_info "保存配置信息..."
-    
+    # 打印变量值进行调试
+    log_debug "SERVER_IP: ${SERVER_IP}"
+    log_debug "SERVER_DOMAIN: ${SERVER_DOMAIN}"
+    log_debug "UUID_VLESS: ${UUID_VLESS}"
+    log_debug "UUID_HYSTERIA2: ${UUID_HYSTERIA2}"
+    log_debug "UUID_TUIC: ${UUID_TUIC}"
+    log_debug "UUID_TROJAN: ${UUID_TROJAN}"
+    log_debug "REALITY_PRIVATE_KEY: ${REALITY_PRIVATE_KEY}"
+    log_debug "REALITY_PUBLIC_KEY: ${REALITY_PUBLIC_KEY}"
+	
     cat > ${CONFIG_DIR}/server.json << EOF
 {
   "server_ip": "${SERVER_IP}",
