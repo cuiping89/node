@@ -437,30 +437,26 @@ install_sing_box() {
     fi
 }
 
-# 生成Reality密钥对
+# 生成Reality密钥对（含 shortId）
 generate_reality_keys() {
-    log_info "正在生成 Reality 密钥对..."
-    local keypair_output
-    # 只生成一次密钥对，并保存其输出
-    keypair_output=$(sing-box generate reality-keypair)
-    
-    # 从单次输出中提取私钥和公钥
-    REALITY_PRIVATE_KEY=$(echo "$keypair_output" | grep -oP 'PrivateKey: \K[a-zA-Z0-9_-]+')
-    REALITY_PUBLIC_KEY=$(echo "$keypair_output" | grep -oP 'PublicKey: \K[a-zA-Z0-9_-]+')
-    
-    if [ -n "${REALITY_PRIVATE_KEY}" ] && [ -n "${REALITY_PUBLIC_KEY}" ]; then
-        log_success "Reality 密钥生成成功。"
-    else
-        log_error "Reality 密钥生成失败！"
-        return 1
-    fi
-	# 在函数末尾打印变量值，确认是否成功赋值
-    log_info "---------------------------------"
-    log_info "REALITY 密钥生成结果:"
-    log_info "私钥: ${REALITY_PRIVATE_KEY}"
-    log_info "公钥: ${REALITY_PUBLIC_KEY}"
-    log_info "---------------------------------"
-    return 0
+  log_info "正在生成 Reality 密钥对..."
+  local out
+  out="$(sing-box generate reality-keypair)" || { log_error "Reality 密钥生成失败！"; return 1; }
+
+  # 提取私钥、公钥
+  REALITY_PRIVATE_KEY="$(printf '%s\n' "$out" | grep -oP 'PrivateKey: \K[a-zA-Z0-9_-]+')"
+  REALITY_PUBLIC_KEY="$(printf '%s\n' "$out" | grep -oP 'PublicKey: \K[a-zA-Z0-9_-]+')"
+
+  # 生成 shortId（8~16 个十六进制，Reality 推荐 8 或 10）
+  # 用 openssl 更稳：确保十六进制
+  REALITY_SHORT_ID="$(openssl rand -hex 8 | cut -c1-8)"
+
+  if [[ -z "$REALITY_PRIVATE_KEY" || -z "$REALITY_PUBLIC_KEY" || -z "$REALITY_SHORT_ID" ]]; then
+    log_error "Reality 关键信息生成不完整(PRI/PUB/shortId)，中止。"
+    return 1
+  fi
+
+  log_success "Reality 密钥对生成完成，shortId=${REALITY_SHORT_ID}"
 }
 
 # 配置Nginx（SNI定向 + ALPN兜底架构）
@@ -753,175 +749,149 @@ EOF
 
 # 保存配置信息
 save_config_info() {
-    log_info "保存配置信息..."
-    # 打印变量值进行调试
-    log_debug "SERVER_IP: ${SERVER_IP}"
-    log_debug "SERVER_DOMAIN: ${SERVER_DOMAIN}"
-    log_debug "UUID_VLESS: ${UUID_VLESS}"
-    log_debug "UUID_HYSTERIA2: ${UUID_HYSTERIA2}"
-    log_debug "UUID_TUIC: ${UUID_TUIC}"
-    log_debug "UUID_TROJAN: ${UUID_TROJAN}"
-    log_debug "REALITY_PRIVATE_KEY: ${REALITY_PRIVATE_KEY}"
-    log_debug "REALITY_PUBLIC_KEY: ${REALITY_PUBLIC_KEY}"
-	
-    cat > ${CONFIG_DIR}/server.json << EOF
-{
-  "server_ip": "${SERVER_IP}",
-  "install_mode": "${INSTALL_MODE}",
-  "install_date": "$(date +%Y-%m-%d)",
-  "version": "3.0.0",
-# 例：写入 server.json 的片段
-"uuid": {
-  "vless_reality": "${UUID_VLESS_REALITY}",
-  "vless_grpc":    "${UUID_VLESS_GRPC}",
-  "vless_ws":      "${UUID_VLESS_WS}",
-  "tuic":          "${UUID_TUIC}"
-},
-  "password": {
-    "hysteria2": "${PASSWORD_HYSTERIA2}",
-    "tuic": "${PASSWORD_TUIC}",
-    "trojan": "${PASSWORD_TROJAN}"
-  },
-  "reality": {
-    "public_key": "${REALITY_PUBLIC_KEY}",
-    "private_key": "${REALITY_PRIVATE_KEY}",
-    "short_id": "${REALITY_SHORT_ID}"
-  },
-  "ports": {
-    "reality": ${PORT_REALITY},
-    "hysteria2": ${PORT_HYSTERIA2},
-    "tuic": ${PORT_TUIC},
-    "grpc": ${PORT_GRPC},
-    "ws": ${PORT_WS},
-    "trojan": ${PORT_TROJAN}
-  }
-}
-EOF
-    
-    chmod 600 ${CONFIG_DIR}/server.json
-    log_success "配置信息保存完成"
+  log_info "保存配置信息..."
+  mkdir -p "${CONFIG_DIR}"
+
+  jq -n \
+    --arg ip  "${SERVER_IP}" \
+    --arg vm  "${EDGEBOX_VER}" \
+    --arg vu  "${UUID_VLESS}" \
+    --arg tt  "${PASSWORD_TROJAN}" \
+    --arg tu  "${UUID_TUIC}" \
+    --arg tp  "${PASSWORD_TUIC}" \
+    --arg hy  "${PASSWORD_HYSTERIA2}" \
+    --arg rpub "${REALITY_PUBLIC_KEY}" \
+    --arg rpri "${REALITY_PRIVATE_KEY}" \
+    --arg rsid "${REALITY_SHORT_ID}" \
+    '{
+      server_ip: $ip,
+      version:   $vm,
+      uuid: { vless: $vu, tuic: $tu },
+      password: { trojan: $tt, tuic: $tp, hysteria2: $hy },
+      reality: { public_key: $rpub, private_key: $rpri, short_id: $rsid }
+    }' > "${CONFIG_DIR}/server.json"
+
+  log_success "配置已写入 ${CONFIG_DIR}/server.json"
 }
 
-# >>> 修复后的 start_services 函数 >>>
+# 安全同步订阅文件：/var/www/html/sub 做符号链接；traffic 下保留一份副本
+sync_subscription_files() {
+  log_info "同步订阅文件..."
+  mkdir -p "${WEB_ROOT}" "${TRAFFIC_DIR}"
+
+  local src="${CONFIG_DIR}/subscription.txt"
+  if [[ ! -s "$src" ]]; then
+    log_warn "订阅源不存在：$src"
+    return 0
+  fi
+
+  # Web 目录使用软链接，避免再出现“same file”报错
+  ln -sfn "$src" "${WEB_ROOT}/sub"
+  # traffic 下保留一份副本用于 dashboard-backend
+  install -m 0644 -T "$src" "${TRAFFIC_DIR}/sub.txt"
+
+  log_success "订阅同步完成：${WEB_ROOT}/sub -> ${src}，以及 ${TRAFFIC_DIR}/sub.txt"
+}
+
 start_services() {
-  log_info "启动所有服务..."
+  log_info "启动服务..."
   systemctl daemon-reload
   systemctl enable nginx xray sing-box >/dev/null 2>&1 || true
 
-  systemctl restart nginx     >/dev/null 2>&1 || true
-  systemctl restart xray      >/dev/null 2>&1 || true
-  systemctl restart sing-box  >/dev/null 2>&1 || true
+  systemctl restart nginx
+  systemctl restart xray
+  systemctl restart sing-box
 
   sleep 2
   for s in nginx xray sing-box; do
     if systemctl is-active --quiet "$s"; then
       log_success "$s 运行正常"
     else
-      log_error "$s 启动失败"; journalctl -u "$s" -n 30 --no-pager | tail -n 20
+      log_error "$s 启动失败"
+      journalctl -u "$s" -n 50 --no-pager | tail -n 50
     fi
   done
 
-  # 确保目录存在
-  local CONFIG_DIR="${CONFIG_DIR:-/etc/edgebox/config}"
-  local TRAFFIC_DIR="${TRAFFIC_DIR:-/etc/edgebox/traffic}"
-  local WEB_ROOT="/var/www/html"
-  mkdir -p "$TRAFFIC_DIR" "$WEB_ROOT"
+  # 先生成/刷新订阅 -> 再同步 -> 再生成 dashboard
+  generate_subscription
+  sync_subscription_files
 
-  # 同步订阅文件
-  if [[ -s "$CONFIG_DIR/subscription.txt" ]]; then
-    # 确保文件存在且内容一致
-    if [[ ! -f "$TRAFFIC_DIR/sub.txt" ]] || ! cmp -s "$CONFIG_DIR/subscription.txt" "$TRAFFIC_DIR/sub.txt"; then
-      cp "$CONFIG_DIR/subscription.txt" "$TRAFFIC_DIR/sub.txt"
-    fi
-    if [[ ! -f "$WEB_ROOT/sub" ]] || ! cmp -s "$CONFIG_DIR/subscription.txt" "$WEB_ROOT/sub"; then
-      cp "$CONFIG_DIR/subscription.txt" "$WEB_ROOT/sub"
-    fi
-    log_info "订阅文件已同步到：$TRAFFIC_DIR/sub.txt 和 $WEB_ROOT/sub"
-  else
-    log_warn "未找到 $CONFIG_DIR/subscription.txt，稍后由 generate_subscription 生成"
-  fi
+  # 初次生成 dashboard.json（dashboard-backend 会读取 ${TRAFFIC_DIR}/sub.txt）
+  /etc/edgebox/scripts/dashboard-backend.sh --now 2>/dev/null || true
+  /etc/edgebox/scripts/dashboard-backend.sh --schedule 2>/dev/null || true
 
-  # 启动后台任务
-  if [[ -x /etc/edgebox/scripts/dashboard-backend.sh ]]; then
-    /etc/edgebox/scripts/dashboard-backend.sh --install >/dev/null 2>&1 || true
-    /etc/edgebox/scripts/dashboard-backend.sh --now     >/dev/null 2>&1 || true
-  fi
+  log_success "服务与面板初始化完成"
 }
 
-# >>> 修复后的 generate_subscription 函数 >>>
+# >>> 修复后的 generate_subscription 函数 >>>生成订阅（权威数据来自 server.json）
 generate_subscription() {
   log_info "生成订阅链接..."
+  mkdir -p "${CONFIG_DIR}" "${WEB_ROOT}" "${TRAFFIC_DIR}"
 
-  # 从 server.json 读取，或用环境变量兜底
-  local cfg="${CONFIG_DIR}/server.json"
-  local ip uuid_r uuid_g uuid_w pbk sid trojan_pw tuic_uuid tuic_pw hy2_pw
-  if [[ -s "$cfg" ]]; then
-    ip=$(jq -r '.server_ip // empty' "$cfg")
-    uuid_r=$(jq -r '.uuid.vless_reality // empty' "$cfg")
-    uuid_g=$(jq -r '.uuid.vless_grpc // empty' "$cfg")
-    uuid_w=$(jq -r '.uuid.vless_ws // empty' "$cfg")
-    pbk=$(jq -r '.reality.public_key // empty' "$cfg")
-    sid=$(jq -r '.reality.short_id // empty' "$cfg")
-    trojan_pw=$(jq -r '.password.trojan // empty' "$cfg")
-    tuic_uuid=$(jq -r '.uuid.tuic // empty' "$cfg")
-    tuic_pw=$(jq -r '.password.tuic // empty' "$cfg")
-    hy2_pw=$(jq -r '.password.hysteria2 // empty' "$cfg")
-  else
-    ip="${SERVER_IP}"
-    uuid_r="${UUID_VLESS_REALITY}"
-    uuid_g="${UUID_VLESS_GRPC}"
-    uuid_w="${UUID_VLESS_WS}"
-    pbk="${REALITY_PUBLIC_KEY}"
-    sid="${REALITY_SHORT_ID}"
-    trojan_pw="${PASSWORD_TROJAN}"
-    tuic_uuid="${UUID_TUIC}"
-    tuic_pw="${PASSWORD_TUIC}"
-    hy2_pw="${PASSWORD_HYSTERIA2}"
+  if [[ ! -s "${CONFIG_DIR}/server.json" ]]; then
+    log_error "缺少 ${CONFIG_DIR}/server.json，无法生成订阅"
+    return 1
   fi
 
-  [[ -z "$ip" || -z "$uuid_r" || -z "$uuid_g" || -z "$uuid_w" || -z "$pbk" || -z "$sid" ]] && {
-    log_error "订阅必要字段缺失，生成失败"; return 1; }
+  # 读配置
+  local ip vu rpb rsid tpass hy2pass tuic_u tuic_p
+  ip="$(jq -r '.server_ip'                 "${CONFIG_DIR}/server.json")"
+  vu="$(jq -r '.uuid.vless'                "${CONFIG_DIR}/server.json")"
+  rpb="$(jq -r '.reality.public_key'       "${CONFIG_DIR}/server.json")"
+  rsid="$(jq -r '.reality.short_id'        "${CONFIG_DIR}/server.json")"
+  tpass="$(jq -r '.password.trojan'        "${CONFIG_DIR}/server.json")"
+  hy2pass="$(jq -r '.password.hysteria2'   "${CONFIG_DIR}/server.json")"
+  tuic_u="$(jq -r '.uuid.tuic'             "${CONFIG_DIR}/server.json")"
+  tuic_p="$(jq -r '.password.tuic'         "${CONFIG_DIR}/server.json")"
 
-  local plain=$(
-    cat <<PLAIN
-vless://${uuid_r}@${ip}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${pbk}&sid=${sid}&type=tcp#EdgeBox-REALITY
-vless://${uuid_g}@${ip}:443?encryption=none&security=tls&sni=grpc.edgebox.internal&alpn=h2&type=grpc&serviceName=grpc&fp=chrome&allowInsecure=1#EdgeBox-gRPC
-vless://${uuid_w}@${ip}:443?encryption=none&security=tls&sni=ws.edgebox.internal&host=ws.edgebox.internal&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome&allowInsecure=1#EdgeBox-WS
-trojan://${trojan_pw}@${ip}:443?security=tls&sni=trojan.edgebox.internal&alpn=http%2F1.1&fp=chrome&allowInsecure=1#EdgeBox-TROJAN
-hysteria2://${hy2_pw}@${ip}:443?sni=${ip}&alpn=h3&insecure=1#EdgeBox-HYSTERIA2
-tuic://${tuic_uuid}:${tuic_pw}@${ip}:2053?congestion_control=bbr&alpn=h3&sni=${ip}&allowInsecure=1#EdgeBox-TUIC
+  if [[ -z "$ip" || -z "$vu" || -z "$rpb" || -z "$rsid" || -z "$tpass" || -z "$hy2pass" || -z "$tuic_u" || -z "$tuic_p" ]]; then
+    log_error "server.json 信息不完整，生成订阅失败"
+    return 1
+  fi
+
+  # URL 编码
+  local TENC HY2ENC TUICENC
+  TENC="$(printf '%s' "$tpass"   | jq -rR @uri)"
+  HY2ENC="$(printf '%s' "$hy2pass"| jq -rR @uri)"
+  TUICENC="$(printf '%s' "$tuic_p"| jq -rR @uri)"
+
+  local ws_sni="ws.edgebox.internal"
+  local trojan_sni="trojan.edgebox.internal"
+
+  # 明文
+  local plain
+  read -r -d '' plain <<PLAIN
+vless://${vu}@${ip}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${rpb}&sid=${rsid}&type=tcp#EdgeBox-REALITY
+vless://${vu}@${ip}:443?encryption=none&security=tls&sni=grpc.edgebox.internal&alpn=h2&type=grpc&serviceName=grpc&fp=chrome&allowInsecure=1#EdgeBox-gRPC
+vless://${vu}@${ip}:443?encryption=none&security=tls&sni=${ws_sni}&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome&allowInsecure=1#EdgeBox-WS
+trojan://${TENC}@${ip}:443?security=tls&sni=${trojan_sni}&alpn=http%2F1.1&fp=chrome&allowInsecure=1#EdgeBox-TROJAN
+hysteria2://${HY2ENC}@${ip}:443?sni=${ip}&alpn=h3&insecure=1#EdgeBox-HYSTERIA2
+tuic://${tuic_u}:${TUICENC}@${ip}:2053?congestion_control=bbr&alpn=h3&sni=${ip}&allowInsecure=1#EdgeBox-TUIC
 PLAIN
-  )
 
-  # 写入三份：权威源、WEB、副本
+  # 写入三种形式
   printf '%s\n' "$plain" > "${CONFIG_DIR}/subscription.txt"
-  install -D -m 0644 "${CONFIG_DIR}/subscription.txt" "/var/www/html/sub"
-  install -D -m 0644 "${CONFIG_DIR}/subscription.txt" "${TRAFFIC_DIR}/sub.txt"
 
-  # base64（整包 & 逐行），供 dashboard 使用
-  local b64_all b64_lines
+  # base64(整包)
   if base64 --help 2>&1 | grep -q ' -w'; then
-    b64_all="$(printf '%s\n' "$plain" | base64 -w0)"
+    printf '%s\n' "$plain" | base64 -w0 > "${CONFIG_DIR}/subscription.base64"
   else
-    b64_all="$(printf '%s\n' "$plain" | base64 | tr -d '\n')"
+    printf '%s\n' "$plain" | base64 | tr -d '\n' > "${CONFIG_DIR}/subscription.base64"
   fi
-  b64_lines="$(
-    printf '%s\n' "$plain" | while IFS= read -r line; do
-      [[ -z "$line" ]] && continue
-      if base64 --help 2>&1 | grep -q ' -w'; then
-        printf '%s' "$line" | sed -e '$a\' | base64 -w0
-      else
-        printf '%s' "$line" | sed -e '$a\' | base64 | tr -d '\n'
-      fi
-      printf '\n'
-    done
-  )"
 
-  jq -n --arg p "$plain" --arg b "$b64_all" --arg l "$b64_lines" \
-    '{subscription:{plain:$p,base64:$b,b64_lines:$l}}' \
-    > "${TRAFFIC_DIR}/dashboard.json.tmp" || true
+  # base64(逐行)
+  : > "${CONFIG_DIR}/subscription.b64lines"
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    if base64 --help 2>&1 | grep -q ' -w'; then
+      printf '%s\n' "$line" | base64 -w0 >> "${CONFIG_DIR}/subscription.b64lines"
+    else
+      printf '%s\n' "$line" | base64 | tr -d '\n' >> "${CONFIG_DIR}/subscription.b64lines"
+    fi
+    printf '\n' >> "${CONFIG_DIR}/subscription.b64lines"
+  done <<< "$plain"
 
-  log_success "订阅已生成：/var/www/html/sub"
+  log_success "订阅明文与 Base64 已写入 ${CONFIG_DIR}"
 }
 
 # >>> 修复后的 install_scheduled_dashboard_backend 函数 >>>
