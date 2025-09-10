@@ -211,24 +211,29 @@ local pkgs=(curl wget unzip gawk ca-certificates jq bc uuid-runtime dnsutils ope
 
 # 生成UUID和密码
 generate_credentials() {
-    log_info "生成UUID和密码..."
-    
-    UUID_VLESS=$(uuidgen)
-    UUID_HYSTERIA2=$(uuidgen)
-    UUID_TUIC=$(uuidgen)
-    UUID_TROJAN=$(uuidgen)  # 新增
-    
-    REALITY_SHORT_ID="$(openssl rand -hex 8)"
-    PASSWORD_HYSTERIA2=$(openssl rand -base64 16)
-    PASSWORD_TUIC=$(openssl rand -base64 16)
-    PASSWORD_TROJAN=$(openssl rand -base64 16)  # 新增
-    
-    log_success "凭证生成完成"
-    log_info "VLESS UUID: $UUID_VLESS"
-    log_info "TUIC UUID: $UUID_TUIC"
-    log_info "Trojan UUID: $UUID_TROJAN"  # 新增
-    log_info "Hysteria2 密码: $PASSWORD_HYSTERIA2"
-    log_info "Trojan 密码: $PASSWORD_TROJAN"  # 新增
+  log_info "生成 UUID 和密码..."
+
+  # 确保 uuidgen 存在
+  if ! command -v uuidgen >/dev/null 2>&1; then
+    apt-get update -y >/dev/null 2>&1 || true
+    apt-get install -y uuid-runtime >/dev/null 2>&1 || true
+  fi
+
+  # 为三种 VLESS 分别生成 UUID
+  UUID_VLESS_REALITY=$(uuidgen)
+  UUID_VLESS_GRPC=$(uuidgen)
+  UUID_VLESS_WS=$(uuidgen)
+
+  # 其他原有的生成保持不变
+  UUID_TROJAN=$(uuidgen)
+  UUID_TUIC=$(uuidgen)
+  PASSWORD_TROJAN=$(openssl rand -base64 24)
+  PASSWORD_TUIC=$(openssl rand -base64 24)
+  PASSWORD_HYSTERIA2=$(openssl rand -base64 24)
+
+  log_success "VLESS-REALITY: ${UUID_VLESS_REALITY}"
+  log_success "VLESS-gRPC   : ${UUID_VLESS_GRPC}"
+  log_success "VLESS-WS     : ${UUID_VLESS_WS}"
 }
 
 # 创建目录结构
@@ -554,22 +559,17 @@ NGINX_CONF
 
 # 配置Xray
 configure_xray() {
-    log_info "配置 Xray..."
+  log_info "配置 Xray..."
 
-    # 验证必要变量
-    if [[ -z "$UUID_VLESS" || -z "$REALITY_PRIVATE_KEY" || -z "$REALITY_SHORT_ID" || -z "$UUID_TROJAN" || -z "$PASSWORD_TROJAN" ]]; then
-        log_error "必要的配置变量未设置"
-        return 1
-    fi
+  # 校验必须变量
+  if [[ -z "$UUID_VLESS_REALITY" || -z "$UUID_VLESS_GRPC" || -z "$UUID_VLESS_WS" || -z "$REALITY_PRIVATE_KEY" || -z "$REALITY_SHORT_ID" || -z "$PASSWORD_TROJAN" ]]; then
+    log_error "必要的配置变量未设置"
+    return 1
+  fi
 
-    # 生成配置文件
-    cat > ${CONFIG_DIR}/xray.json << EOF
+  cat > "${CONFIG_DIR}/xray.json" <<'EOF'
 {
-  "log": {
-    "loglevel": "warning",
-    "access": "/var/log/xray/access.log",
-    "error": "/var/log/xray/error.log"
-  },
+  "log": { "loglevel": "warning", "access": "/var/log/xray/access.log", "error": "/var/log/xray/error.log" },
   "inbounds": [
     {
       "tag": "VLESS-Reality",
@@ -578,11 +578,7 @@ configure_xray() {
       "protocol": "vless",
       "settings": {
         "clients": [
-          { 
-            "id": "${UUID_VLESS}", 
-            "flow": "xtls-rprx-vision", 
-            "email": "reality@edgebox" 
-          }
+          { "id": "__UUID_VLESS_REALITY__", "flow": "xtls-rprx-vision", "email": "reality@edgebox" }
         ],
         "decryption": "none"
       },
@@ -593,13 +589,9 @@ configure_xray() {
           "show": false,
           "dest": "www.cloudflare.com:443",
           "xver": 0,
-          "serverNames": [
-            "www.cloudflare.com",
-            "www.microsoft.com",
-            "www.apple.com"
-          ],
-          "privateKey": "${REALITY_PRIVATE_KEY}",
-          "shortIds": ["${REALITY_SHORT_ID}"]
+          "serverNames": ["www.cloudflare.com","www.microsoft.com","www.apple.com"],
+          "privateKey": "__REALITY_PRIVATE_KEY__",
+          "shortIds": ["__REALITY_SHORT_ID__"]
         }
       }
     },
@@ -609,128 +601,63 @@ configure_xray() {
       "port": 10085,
       "protocol": "vless",
       "settings": {
-        "clients": [ 
-          { 
-            "id": "${UUID_VLESS}", 
-            "email": "grpc-internal@edgebox" 
-          } 
+        "clients": [
+          { "id": "__UUID_VLESS_GRPC__", "email": "grpc-internal@edgebox" }
         ],
         "decryption": "none"
       },
       "streamSettings": {
         "network": "grpc",
         "security": "tls",
-        "tlsSettings": {
-          "alpn": ["h2"],
-          "certificates": [ 
-            { 
-              "certificateFile": "${CERT_DIR}/current.pem", 
-              "keyFile": "${CERT_DIR}/current.key" 
-            } 
-          ]
-        },
-        "grpcSettings": { 
-          "serviceName": "grpc",
-          "multiMode": true
-        }
+        "tlsSettings": { "alpn": ["h2"], "certificates": [{ "certificateFile": "__CERT_PEM__", "keyFile": "__CERT_KEY__" }] },
+        "grpcSettings": { "serviceName": "grpc", "multiMode": true }
       }
     },
     {
-      "tag": "VLESS-WS-Internal", 
+      "tag": "VLESS-WS-Internal",
       "listen": "127.0.0.1",
       "port": 10086,
       "protocol": "vless",
       "settings": {
-        "clients": [ 
-          { 
-            "id": "${UUID_VLESS}", 
-            "email": "ws-internal@edgebox" 
-          } 
+        "clients": [
+          { "id": "__UUID_VLESS_WS__", "email": "ws-internal@edgebox" }
         ],
         "decryption": "none"
       },
       "streamSettings": {
         "network": "ws",
-        "security": "tls", 
-        "tlsSettings": {
-          "alpn": ["http/1.1"],
-          "certificates": [ 
-            { 
-              "certificateFile": "${CERT_DIR}/current.pem", 
-              "keyFile": "${CERT_DIR}/current.key" 
-            } 
-          ]
-        },
-        "wsSettings": { 
-          "path": "/ws"
-        }
+        "security": "tls",
+        "tlsSettings": { "alpn": ["http/1.1"], "certificates": [{ "certificateFile": "__CERT_PEM__", "keyFile": "__CERT_KEY__" }] },
+        "wsSettings": { "path": "/ws" }
       }
     },
     {
       "tag": "Trojan-TLS-Internal",
-      "listen": "127.0.0.1",
-      "port": 10143,
-      "protocol": "trojan",
-      "settings": {
-        "clients": [
-          {
-            "password": "${PASSWORD_TROJAN}",
-            "email": "trojan-internal@edgebox"
-          }
-        ]
-      },
+      "listen": "127.0.0.1", "port": 10143, "protocol": "trojan",
+      "settings": { "clients": [{ "password": "__PASSWORD_TROJAN__", "email": "trojan-internal@edgebox" }] },
       "streamSettings": {
         "network": "tcp",
         "security": "tls",
-        "tlsSettings": {
-          "alpn": ["http/1.1", "h2"],
-          "certificates": [
-            {
-              "certificateFile": "${CERT_DIR}/current.pem",
-              "keyFile": "${CERT_DIR}/current.key"
-            }
-          ]
-        }
+        "tlsSettings": { "alpn": ["http/1.1","h2"], "certificates": [{ "certificateFile": "__CERT_PEM__", "keyFile": "__CERT_KEY__" }] }
       }
     }
   ],
-  "outbounds": [ 
-    { 
-      "protocol": "freedom", 
-      "settings": {} 
-    } 
-  ],
-  "routing": { 
-    "rules": [] 
-  }
+  "outbounds": [{ "protocol": "freedom", "settings": {} }],
+  "routing": { "rules": [] }
 }
 EOF
 
-    # 验证配置文件
-    if ! jq '.' ${CONFIG_DIR}/xray.json >/dev/null 2>&1; then
-        log_error "Xray 配置JSON语法错误"
-        return 1
-    fi
-
-    # 创建systemd服务
-    cat > /etc/systemd/system/xray.service << 'XRAY_SERVICE'
-[Unit]
-Description=Xray Service (EdgeBox)
-After=network.target
-StartLimitIntervalSec=0
-[Service]
-Type=simple
-User=root
-ExecStart=/usr/local/bin/xray run -c /etc/edgebox/config/xray.json
-Restart=on-failure
-RestartSec=5
-LimitNOFILE=infinity
-[Install]
-WantedBy=multi-user.target
-XRAY_SERVICE
-
-    systemctl daemon-reload
-    log_success "Xray 配置完成"
+  # 替换占位符
+  sed -i \
+    -e "s#__UUID_VLESS_REALITY__#${UUID_VLESS_REALITY}#g" \
+    -e "s#__UUID_VLESS_GRPC__#${UUID_VLESS_GRPC}#g" \
+    -e "s#__UUID_VLESS_WS__#${UUID_VLESS_WS}#g" \
+    -e "s#__REALITY_PRIVATE_KEY__#${REALITY_PRIVATE_KEY}#g" \
+    -e "s#__REALITY_SHORT_ID__#${REALITY_SHORT_ID}#g" \
+    -e "s#__CERT_PEM__#${CERT_DIR}/current.pem#g" \
+    -e "s#__CERT_KEY__#${CERT_DIR}/current.key#g" \
+    -e "s#__PASSWORD_TROJAN__#${PASSWORD_TROJAN}#g" \
+    "${CONFIG_DIR}/xray.json"
 }
 
 # 配置sing-box
@@ -843,12 +770,13 @@ save_config_info() {
   "install_mode": "${INSTALL_MODE}",
   "install_date": "$(date +%Y-%m-%d)",
   "version": "3.0.0",
-  "uuid": {
-    "vless": "${UUID_VLESS}",
-    "hysteria2": "${UUID_HYSTERIA2}",
-    "tuic": "${UUID_TUIC}",
-    "trojan": "${UUID_TROJAN}"
-  },
+# 例：写入 server.json 的片段
+"uuid": {
+  "vless_reality": "${UUID_VLESS_REALITY}",
+  "vless_grpc":    "${UUID_VLESS_GRPC}",
+  "vless_ws":      "${UUID_VLESS_WS}",
+  "tuic":          "${UUID_TUIC}"
+},
   "password": {
     "hysteria2": "${PASSWORD_HYSTERIA2}",
     "tuic": "${PASSWORD_TUIC}",
@@ -924,68 +852,76 @@ start_services() {
 generate_subscription() {
   log_info "生成订阅链接..."
 
-  local CONFIG_DIR="${CONFIG_DIR:-/etc/edgebox/config}"
-  local TRAFFIC_DIR="${TRAFFIC_DIR:-/etc/edgebox/traffic}"
-  local WEB_ROOT="/var/www/html"
-  mkdir -p "$CONFIG_DIR" "$TRAFFIC_DIR" "$WEB_ROOT"
-
-  local cfg="$CONFIG_DIR/server.json"
-  if [[ ! -s "$cfg" ]]; then
-    log_error "缺少 $cfg，无法生成订阅"; return 1
+  # 从 server.json 读取，或用环境变量兜底
+  local cfg="${CONFIG_DIR}/server.json"
+  local ip uuid_r uuid_g uuid_w pbk sid trojan_pw tuic_uuid tuic_pw hy2_pw
+  if [[ -s "$cfg" ]]; then
+    ip=$(jq -r '.server_ip // empty' "$cfg")
+    uuid_r=$(jq -r '.uuid.vless_reality // empty' "$cfg")
+    uuid_g=$(jq -r '.uuid.vless_grpc // empty' "$cfg")
+    uuid_w=$(jq -r '.uuid.vless_ws // empty' "$cfg")
+    pbk=$(jq -r '.reality.public_key // empty' "$cfg")
+    sid=$(jq -r '.reality.short_id // empty' "$cfg")
+    trojan_pw=$(jq -r '.password.trojan // empty' "$cfg")
+    tuic_uuid=$(jq -r '.uuid.tuic // empty' "$cfg")
+    tuic_pw=$(jq -r '.password.tuic // empty' "$cfg")
+    hy2_pw=$(jq -r '.password.hysteria2 // empty' "$cfg")
+  else
+    ip="${SERVER_IP}"
+    uuid_r="${UUID_VLESS_REALITY}"
+    uuid_g="${UUID_VLESS_GRPC}"
+    uuid_w="${UUID_VLESS_WS}"
+    pbk="${REALITY_PUBLIC_KEY}"
+    sid="${REALITY_SHORT_ID}"
+    trojan_pw="${PASSWORD_TROJAN}"
+    tuic_uuid="${UUID_TUIC}"
+    tuic_pw="${PASSWORD_TUIC}"
+    hy2_pw="${PASSWORD_HYSTERIA2}"
   fi
 
-  # 从 server.json 读权威字段
-  local IP UUID_VLESS UUID_TUIC PW_TROJAN PW_TUIC PW_HY2 PBK SID
-  IP="$(jq -r '.server_ip // empty'               "$cfg")"
-  UUID_VLESS="$(jq -r '.uuid.vless // empty'      "$cfg")"
-  UUID_TUIC="$(jq -r '.uuid.tuic // empty'        "$cfg")"
-  PW_TROJAN="$(jq -r '.password.trojan // empty'  "$cfg")"
-  PW_TUIC="$(jq -r '.password.tuic // empty'      "$cfg")"
-  PW_HY2="$(jq -r '.password.hysteria2 // empty'  "$cfg")"
-  PBK="$(jq -r '.reality.public_key // empty'     "$cfg")"
-  SID="$(jq -r '.reality.short_id // empty'       "$cfg")"
-  
-  # 检查必要字段
-  if [[ -z "$IP" || -z "$UUID_VLESS" || -z "$UUID_TUIC" || -z "$PW_TROJAN" || -z "$PW_TUIC" || -z "$PW_HY2" || -z "$PBK" || -z "$SID" ]]; then
-    log_error "server.json 字段缺失，无法生成订阅"
-    return 1
-  fi
+  [[ -z "$ip" || -z "$uuid_r" || -z "$uuid_g" || -z "$uuid_w" || -z "$pbk" || -z "$sid" ]] && {
+    log_error "订阅必要字段缺失，生成失败"; return 1; }
 
-  local WS_SNI="ws.edgebox.internal"
-  local TROJAN_SNI="trojan.edgebox.internal"
-  local allowInsecure="&allowInsecure=1"
-  local insecure="&insecure=1"
-
-  # URL 编码密钥
-  local PW_TROJAN_ENC PW_TUIC_ENC PW_HY2_ENC
-  PW_TROJAN_ENC=$(printf '%s' "$PW_TROJAN" | jq -Rr @uri)
-  PW_TUIC_ENC=$(printf '%s' "$PW_TUIC"     | jq -Rr @uri)
-  PW_HY2_ENC=$(printf '%s' "$PW_HY2"       | jq -Rr @uri)
-
-  # 6 条明文订阅链接
-  local plain
-  plain=$(cat <<PLAIN
-vless://${UUID_VLESS}@${IP}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${PBK}&sid=${SID}&type=tcp#EdgeBox-REALITY
-vless://${UUID_VLESS}@${IP}:443?encryption=none&security=tls&sni=grpc.edgebox.internal&alpn=h2&type=grpc&serviceName=grpc&fp=chrome${allowInsecure}#EdgeBox-gRPC
-vless://${UUID_VLESS}@${IP}:443?encryption=none&security=tls&sni=${WS_SNI}&host=${WS_SNI}&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome${allowInsecure}#EdgeBox-WS
-trojan://${PW_TROJAN_ENC}@${IP}:443?security=tls&sni=${TROJAN_SNI}&alpn=http%2F1.1&fp=chrome${allowInsecure}#EdgeBox-TROJAN
-hysteria2://${PW_HY2_ENC}@${IP}:443?sni=${IP}&alpn=h3${insecure}#EdgeBox-HYSTERIA2
-tuic://${UUID_TUIC}:${PW_TUIC_ENC}@${IP}:2053?congestion_control=bbr&alpn=h3&sni=${IP}${allowInsecure}#EdgeBox-TUIC
+  local plain=$(
+    cat <<PLAIN
+vless://${uuid_r}@${ip}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${pbk}&sid=${sid}&type=tcp#EdgeBox-REALITY
+vless://${uuid_g}@${ip}:443?encryption=none&security=tls&sni=grpc.edgebox.internal&alpn=h2&type=grpc&serviceName=grpc&fp=chrome&allowInsecure=1#EdgeBox-gRPC
+vless://${uuid_w}@${ip}:443?encryption=none&security=tls&sni=ws.edgebox.internal&host=ws.edgebox.internal&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome&allowInsecure=1#EdgeBox-WS
+trojan://${trojan_pw}@${ip}:443?security=tls&sni=trojan.edgebox.internal&alpn=http%2F1.1&fp=chrome&allowInsecure=1#EdgeBox-TROJAN
+hysteria2://${hy2_pw}@${ip}:443?sni=${ip}&alpn=h3&insecure=1#EdgeBox-HYSTERIA2
+tuic://${tuic_uuid}:${tuic_pw}@${ip}:2053?congestion_control=bbr&alpn=h3&sni=${ip}&allowInsecure=1#EdgeBox-TUIC
 PLAIN
-)
+  )
 
-  # 权威文件 + 幂等同步
-  printf '%s\n' "$plain" > "$CONFIG_DIR/subscription.txt"
-  
-  # 同步到web目录，避免"are the same file"错误
-  if [[ ! "$CONFIG_DIR/subscription.txt" -ef "$WEB_ROOT/sub" ]]; then
-    cp "$CONFIG_DIR/subscription.txt" "$WEB_ROOT/sub"
+  # 写入三份：权威源、WEB、副本
+  printf '%s\n' "$plain" > "${CONFIG_DIR}/subscription.txt"
+  install -D -m 0644 "${CONFIG_DIR}/subscription.txt" "/var/www/html/sub"
+  install -D -m 0644 "${CONFIG_DIR}/subscription.txt" "${TRAFFIC_DIR}/sub.txt"
+
+  # base64（整包 & 逐行），供 dashboard 使用
+  local b64_all b64_lines
+  if base64 --help 2>&1 | grep -q ' -w'; then
+    b64_all="$(printf '%s\n' "$plain" | base64 -w0)"
+  else
+    b64_all="$(printf '%s\n' "$plain" | base64 | tr -d '\n')"
   fi
-  if [[ ! "$CONFIG_DIR/subscription.txt" -ef "$TRAFFIC_DIR/sub.txt" ]]; then
-    cp "$CONFIG_DIR/subscription.txt" "$TRAFFIC_DIR/sub.txt"
-  fi
-  
-  log_success "订阅已生成并同步：$CONFIG_DIR/subscription.txt → $WEB_ROOT/sub, $TRAFFIC_DIR/sub.txt"
+  b64_lines="$(
+    printf '%s\n' "$plain" | while IFS= read -r line; do
+      [[ -z "$line" ]] && continue
+      if base64 --help 2>&1 | grep -q ' -w'; then
+        printf '%s' "$line" | sed -e '$a\' | base64 -w0
+      else
+        printf '%s' "$line" | sed -e '$a\' | base64 | tr -d '\n'
+      fi
+      printf '\n'
+    done
+  )"
+
+  jq -n --arg p "$plain" --arg b "$b64_all" --arg l "$b64_lines" \
+    '{subscription:{plain:$p,base64:$b,b64_lines:$l}}' \
+    > "${TRAFFIC_DIR}/dashboard.json.tmp" || true
+
+  log_success "订阅已生成：/var/www/html/sub"
 }
 
 # >>> 修复后的 install_scheduled_dashboard_backend 函数 >>>
