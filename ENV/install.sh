@@ -866,7 +866,6 @@ generate_subscription() {
   reality_pbk=$($j '.reality.public_key // empty' "$cfg")
   reality_sid=$($j '.reality.short_id  // empty'   "$cfg")
 
-  # —— 按你的实际结构读取，并保留兼容兜底 —— 
   uuid_reality=$($j '.uuid.vless.reality // .uuid.vless // empty' "$cfg")
   uuid_grpc=$($j    '.uuid.vless.grpc    // .uuid.vless // empty' "$cfg")
   uuid_ws=$($j      '.uuid.vless.ws      // .uuid.vless // empty' "$cfg")
@@ -876,11 +875,9 @@ generate_subscription() {
   tuic_uuid=$($j '.uuid.tuic          // empty' "$cfg")
   tuic_pw=$($j   '.password.tuic      // empty' "$cfg")
 
-  # 正确的 URI 编码：把 $s 交给 jq，而不是被 bash 提前展开
   uri(){ jq -nr --arg s "$1" '$s|@uri'; }
 
-  local plain=""
-  # REALITY 四要素齐全才生成
+  plain=""
   if [[ -n "$uuid_reality" && -n "$ip" && -n "$reality_pbk" && -n "$reality_sid" ]]; then
     plain+="vless://${uuid_reality}@${ip}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${reality_pbk}&sid=${reality_sid}&type=tcp#EdgeBox-REALITY\n"
   fi
@@ -892,11 +889,10 @@ generate_subscription() {
 
   [[ -n "$plain" ]] || { log_error "server.json 信息不完整，生成订阅失败"; return 1; }
 
-  # 写入权威源并同步到 web/traffic
   printf "%b" "$plain" > "${CONFIG_DIR}/subscription.txt"
-  install -m 0644 -T "${CONFIG_DIR}/subscription.txt" "${TRAFFIC_DIR}/sub.txt"
-  install -m 0644 -T "${CONFIG_DIR}/subscription.txt" "${WEB_ROOT}/sub"
-  log_success "订阅已生成并同步"
+  install -m0644 -T "${CONFIG_DIR}/subscription.txt" "${TRAFFIC_DIR}/sub.txt"
+  install -m0644 -T "${CONFIG_DIR}/subscription.txt" "${WEB_ROOT}/sub"   # ← 不用软链
+  log_success "订阅已生成并同步（traffic/sub.txt 与 web/sub）"
 }
 
 # >>> 修复后的 install_scheduled_dashboard_backend 函数 >>>
@@ -993,54 +989,44 @@ generate_dashboard_data(){
     '{updated_at:$ts,cpu:$cpu,memory:$memory}' > "${TRAFFIC_DIR}/system.json"
 
 # --- 从 server.json 提取敏感字段，生成 secrets 对象 ---
-SECRETS_JSON="$(
-  jq -n --argfile s "${SERVER_JSON}" 'def pick(x): (x // empty);
-  include "strptime"; # 忽略，jq 标准库没有就不报错
-  # 直接读文件变量 $s
-  ($s|{
-    vless:{
-      reality:    (pick(.uuid.vless.reality) // pick(.uuid.vless)),
-      grpc:       (pick(.uuid.vless.grpc)    // pick(.uuid.vless)),
-      ws:         (pick(.uuid.vless.ws)      // pick(.uuid.vless))
-    },
-    password:{
-      trojan:     pick(.password.trojan),
-      hysteria2:  pick(.password.hysteria2),
-      tuic:       pick(.password.tuic)
-    },
-    tuic_uuid:     pick(.uuid.tuic),
-    reality:{
-      public_key: pick(.reality.public_key),
-      short_id:   pick(.reality.short_id)
-    }
-  })' --argfile s "${SERVER_JSON}"
-)"
+SECRETS_JSON="$(jq -c '{
+  vless:{
+    reality: (.uuid.vless.reality // .uuid.vless),
+    grpc:    (.uuid.vless.grpc    // .uuid.vless),
+    ws:      (.uuid.vless.ws      // .uuid.vless)
+  },
+  tuic_uuid: (.uuid.tuic // empty),
+  password:{
+    trojan:     (.password.trojan     // empty),
+    hysteria2:  (.password.hysteria2  // empty),
+    tuic:       (.password.tuic       // empty)
+  },
+  reality:{
+    public_key: (.reality.public_key // empty),
+    short_id:   (.reality.short_id   // empty)
+  }
+}' "$SERVER_JSON" 2>/dev/null || echo "{}")"
 
-  jq -n \
-    --arg ts "$(date -Is)" \
-    --arg ip "$IP" --arg eip "$EIP" \
-    --arg ver "$VER" --arg inst "$INST" \
-    --arg cm "$CM" --arg cd "$CERT_DOMAIN" --arg ce "$CERT_EXPIRE" \
-    --arg sub_p "${SUB_PLAIN:-}" --arg sub_b "${SUB_B64:-}" --arg sub_l "${SUB_LINES:-}" \
-    --arg nginx_st "$nginx_status" --arg xray_st "$xray_status" --arg singbox_st "$singbox_status" \
-    '{
-      updated_at: $ts,
-      server: {
-        ip: $ip,
-        eip: (if $eip=="" then null else $eip end),
-        version: $ver,
-        install_date: $inst,
-        cert_mode: $cm,
-        cert_domain: (if $cd=="" then null else $cd end),
-        cert_expire: (if $ce=="" then null else $ce end)
-      },
-      services: {
-        nginx: $nginx_st,
-        xray: $xray_st,
-        "sing-box": $singbox_st
-      },
-      subscription: { plain: $sub_p, base64: $sub_b, b64_lines: $sub_l }
-    }' > "${TRAFFIC_DIR}/dashboard.json"
+jq -n \
+  --arg ts "$(date -Is)" \
+  --arg ip "$IP" --arg eip "$EIP" \
+  --arg ver "$VER" --arg inst "$INST" \
+  --arg cm "$CM" --arg cd "$CERT_DOMAIN" --arg ce "$CERT_EXPIRE" \
+  --arg sub_p "${SUB_PLAIN:-}" --arg sub_b "${SUB_B64:-}" --arg sub_l "${SUB_LINES:-}" \
+  --arg nginx_st "$nginx_status" --arg xray_st "$xray_status" --arg singbox_st "$singbox_status" \
+  --argjson secrets "$SECRETS_JSON" \
+  '{
+    updated_at: $ts,
+    server: {
+      ip: $ip, eip: (if $eip=="" then null else $eip end),
+      version: $ver, install_date: $inst,
+      cert_mode: $cm, cert_domain: (if $cd=="" then null else $cd end),
+      cert_expire: (if $ce=="" then null else $ce end)
+    },
+    services: { nginx: $nginx_st, xray: $xray_st, "sing-box": $singbox_st },
+    subscription: { plain: $sub_p, base64: $sub_b, b64_lines: $sub_l },
+    secrets: $secrets
+  }' > "${TRAFFIC_DIR}/dashboard.json"
 
   chmod 0644 "${TRAFFIC_DIR}/dashboard.json" "${TRAFFIC_DIR}/system.json" 2>/dev/null || true
   log_info "dashboard.json 已更新"
@@ -2059,21 +2045,23 @@ cat > "$TARGET_FILE" <<'HTML'
     <div class="card">
       <h3>订阅链接</h3>
       <div class="content">
-        <div class="sub-row">
-          <div class="sub-label">明文链接:</div>
-          <input type="text" id="sub-plain" class="sub-input" readonly>
-          <button class="sub-copy-btn" onclick="copySub('plain')">复制</button>
-        </div>
-        <div class="sub-row">
-          <div class="sub-label">Base64:</div>
-          <input type="text" id="sub-b64" class="sub-input" readonly>
-          <button class="sub-copy-btn" onclick="copySub('b64')">复制</button>
-        </div>
-        <div class="sub-row">
-          <div class="sub-label">B64逐行:</div>
-          <input type="text" id="sub-b64lines" class="sub-input" readonly>
-          <button class="sub-copy-btn" onclick="copySub('b64lines')">复制</button>
-        </div>
+ <div class="sub-row">
+  <div class="sub-label">明文链接:</div>
+  <textarea id="sub-plain" class="sub-input" rows="6" style="white-space:pre-wrap"></textarea>
+  <button class="sub-copy-btn" onclick="copySub('plain')">复制</button>
+</div>
+
+<div class="sub-row">
+  <div class="sub-label">Base64:</div>
+  <textarea id="sub-b64" class="sub-input" rows="2" style="white-space:pre"></textarea>
+  <button class="sub-copy-btn" onclick="copySub('b64')">复制</button>
+</div>
+
+<div class="sub-row">
+  <div class="sub-label">B64逐行:</div>
+  <textarea id="sub-b64lines" class="sub-input" rows="6" style="white-space:pre"></textarea>
+  <button class="sub-copy-btn" onclick="copySub('b64lines')">复制</button>
+</div>
       </div>
     </div>
   </div>
@@ -2349,58 +2337,53 @@ document.addEventListener('click', function(e) {
 
 // 读取服务器配置（统一从dashboard.json读取）
 async function readServerConfig() {
+  // 优先统一数据源：dashboard.json.secrets
   try {
-    // 优先从 dashboard.json 获取服务器配置
-    const dashboard = await getJSON('./dashboard.json');
-    if (dashboard && dashboard.server) {
-      return {
-        server_ip: dashboard.server.ip || '',
-        uuid: {
-          vless: '', // dashboard.json中暂无UUID信息，后续可扩展
-          tuic: ''
-        },
-        password: {
-          hysteria2: '',
-          tuic: '',
-          trojan: ''
-        },
-        reality: {
-          public_key: '',
-          short_id: ''
-        }
-      };
-    }
+    const d = await getJSON('./dashboard.json');
+    const s = (d && d.secrets) || {};
+    const cfg = {
+      server_ip: (d && d.server && (d.server.eip || d.server.ip)) || window.location.hostname,
+      uuid: {
+        vless: s.vless && (s.vless.reality || s.vless.grpc || s.vless.ws) || ''
+      },
+      password: {
+        hysteria2: (s.password && s.password.hysteria2) || '',
+        tuic:      (s.password && s.password.tuic)      || '',
+        trojan:    (s.password && s.password.trojan)    || ''
+      },
+      reality: {
+        public_key: (s.reality && s.reality.public_key) || '',
+        short_id:   (s.reality && s.reality.short_id)   || ''
+      }
+    };
+    if (s.tuic_uuid) cfg.uuid.tuic = s.tuic_uuid;
+    return cfg;
   } catch (_) {}
 
-  // 兜底：从订阅文件解析
+  // 兜底：从 /traffic/sub 或 /traffic/sub.txt 解析
   try {
-    const txt = await getTEXT('./sub');
-    const lines = txt.split('\n').map(function(l) { return l.trim(); })
-      .filter(function(l) { return /^vless:|^hysteria2:|^tuic:|^trojan:/.test(l); });
-
-    const cfg = { uuid: {}, password: {}, reality: {} };
-    const v = lines.find(function(l) { return l.startsWith('vless://'); });
+    let txt = '';
+    try { txt = await getTEXT('./sub'); } catch { txt = await getTEXT('./sub.txt'); }
+    const lines = txt.split('\n').map(l => l.trim()).filter(Boolean);
+    const cfg = { uuid:{}, password:{}, reality:{}, server_ip: window.location.hostname };
+    const v = lines.find(l => l.startsWith('vless://'));
     if (v) {
       const m = v.match(/^vless:\/\/([^@]+)@([^:]+):\d+\?([^#]+)/i);
       if (m) {
-        cfg.uuid.vless = m[1];
-        cfg.server_ip = m[2];
-        const qs = new URLSearchParams(m[3].replace(/&amp;/g, '&'));
+        cfg.uuid.vless = m[1]; cfg.server_ip = m[2];
+        const qs = new URLSearchParams(m[3].replace(/&amp;/g,'&'));
         cfg.reality.public_key = qs.get('pbk') || '';
-        cfg.reality.short_id = qs.get('sid') || '';
+        cfg.reality.short_id   = qs.get('sid') || '';
       }
     }
     for (const l of lines) {
       let m;
       if ((m = l.match(/^hysteria2:\/\/([^@]+)@/i))) cfg.password.hysteria2 = decodeURIComponent(m[1]);
-      if ((m = l.match(/^tuic:\/\/([^:]+):([^@]+)@/i))) {
-        cfg.uuid.tuic = m[1];
-        cfg.password.tuic = decodeURIComponent(m[2]);
-      }
+      if ((m = l.match(/^tuic:\/\/([^:]+):([^@]+)@/i))) { cfg.uuid.tuic = m[1]; cfg.password.tuic = decodeURIComponent(m[2]); }
       if ((m = l.match(/^trojan:\/\/([^@]+)@/i))) cfg.password.trojan = decodeURIComponent(m[1]);
     }
     return cfg;
-  } catch (_) { return {}; }
+  } catch { return {}; }
 }
 
 // 更新本月进度条
@@ -4428,7 +4411,6 @@ finalize_install() {
 
   # 健康检查：若 subscription 仍为空，兜底再刷一次
   if ! jq -e '.subscription.plain|length>0' "${TRAFFIC_DIR}/dashboard.json" >/dev/null 2>&1; then
-    ln -sfn "${CONFIG_DIR}/subscription.txt" "${WEB_ROOT}/sub"
     install -m 0644 -T "${CONFIG_DIR}/subscription.txt" "${TRAFFIC_DIR}/sub.txt"
     [[ -x "${SCRIPTS_DIR}/dashboard-backend.sh" ]] && "${SCRIPTS_DIR}/dashboard-backend.sh" --now >/dev/null 2>&1 || true
   fi
