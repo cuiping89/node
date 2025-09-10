@@ -4621,7 +4621,6 @@ main() {
     ${SCRIPTS_DIR}/traffic-collector.sh || true
     ${SCRIPTS_DIR}/panel-refresh.sh || true
     
-	dashboard-backend.sh --now
 	# 收尾：订阅 + 首刷 + 定时
 	finalize_install
     # 显示安装信息
