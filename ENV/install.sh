@@ -107,6 +107,18 @@ log() { log_info "$@"; }
 log_ok() { log_success "$@"; }
 error() { log_error "$@"; }
 
+show_installation_info() {
+  # 最小化输出，避免再次中断安装
+  local ip
+  ip="$(jq -r '.server_ip // empty' /etc/edgebox/config/server.json 2>/dev/null)"
+  [[ -z "$ip" ]] && ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  echo -e "[SUCCESS] 安装完成"
+  [[ -n "$ip" ]] && {
+    echo "面板:    http://${ip}/"
+    echo "订阅(HTTP): http://${ip}/sub"
+  }
+}
+
 # 检查root权限
 check_root() {
     if [[ $EUID -ne 0 ]]; then
@@ -1392,7 +1404,7 @@ jq -n \
    protocols:$protocols,
    shunt:{mode:$mode,proxy_info:$proxy,health:$health,whitelist:$whitelist},
    subscription:{plain:$sub_plain,base64:$sub_b64,b64_lines:$sub_b64_lines}
- }'> "${TRAFFIC_DIR}/panel.json"
+ }'> "${TRAFFIC_DIR}/dashboard.json"
 
 # 让前端(仅面板)读取一份"影子配置"，避免再去解析 /sub
 cp -f "/etc/edgebox/config/server.json" "${TRAFFIC_DIR}/server.shadow.json" 2>/dev/null || true
