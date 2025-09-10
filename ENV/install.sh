@@ -1313,8 +1313,8 @@ if [[ -s "${SHUNT_DIR}/whitelist.txt" ]]; then
 fi
 
 # --- 协议配置（检测监听端口/进程，做成一览表） ---
-# 目标：符合 README 的“左侧 70% 协议配置卡片”，至少给出协议名/端口/进程与说明【协议清单见 README】。
-# 数据来源：ss/ps 检测（健壮且不依赖具体实现），缺少时标注“未监听/未配置”。
+# 目标：符合 README 的"左侧 70% 协议配置卡片"，至少给出协议名/端口/进程与说明【协议清单见 README】。
+# 数据来源：ss/ps 检测（健壮且不依赖具体实现），缺少时标注"未监听/未配置"。
 SS="$(ss -H -lnptu 2>/dev/null || true)"
 add_proto() {  # name proto port proc note
   local name="$1" proto="$2" port="$3" proc="$4" note="$5"
@@ -1354,6 +1354,45 @@ fi
 # 汇总为 JSON 数组
 protocols_json="$(jq -s '.' <<<"${protos[*]:-[]}")"
 
+# --- 订阅数据获取（修复数据获取问题） ---
+sub_plain=""
+sub_b64=""
+sub_b64_lines=""
+
+# 优先从权威订阅文件读取
+if [[ -s "${CONFIG_DIR}/subscription.txt" ]]; then
+  sub_plain="$(cat "${CONFIG_DIR}/subscription.txt")"
+elif [[ -s "/var/www/html/sub" ]]; then
+  sub_plain="$(cat "/var/www/html/sub")"
+elif [[ -s "${TRAFFIC_DIR}/sub.txt" ]]; then
+  sub_plain="$(cat "${TRAFFIC_DIR}/sub.txt")"
+fi
+
+# 生成 base64 编码
+if [[ -n "$sub_plain" ]]; then
+  if base64 --help 2>&1 | grep -q -- ' -w'; then
+    sub_b64="$(printf '%s\n' "$sub_plain" | base64 -w0)"
+  else
+    sub_b64="$(printf '%s\n' "$sub_plain" | base64 | tr -d '\n')"
+  fi
+  
+  # 生成逐行 base64
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    if base64 --help 2>&1 | grep -q -- ' -w'; then
+      printf '%s' "$line" | sed -e '$a\' | base64 -w0
+    else
+      printf '%s' "$line" | sed -e '$a\' | base64 | tr -d '\n'
+    fi
+    printf '\n'
+  done <<<"$sub_plain" > "${TRAFFIC_DIR}/subscription.b64lines"
+  sub_b64_lines="$(cat "${TRAFFIC_DIR}/subscription.b64lines" 2>/dev/null || true)"
+  
+  # 确保订阅文件同步
+  [[ ! -s "${TRAFFIC_DIR}/sub.txt" ]] && printf '%s\n' "$sub_plain" > "${TRAFFIC_DIR}/sub.txt"
+  [[ ! -s "/var/www/html/sub" ]] && printf '%s\n' "$sub_plain" > "/var/www/html/sub"
+fi
+
 # --- 写 panel.json ---
 jq -n \
  --arg updated "$(date -Is)" \
@@ -1367,6 +1406,9 @@ jq -n \
  --arg mode "$mode" \
  --arg proxy "$proxy" \
  --arg health "$health" \
+ --arg sub_plain "$sub_plain" \
+ --arg sub_b64 "$sub_b64" \
+ --arg sub_b64_lines "$sub_b64_lines" \
  --argjson whitelist "$whitelist_json" \
  --argjson protocols "$protocols_json" \
  '{
@@ -1374,10 +1416,11 @@ jq -n \
    server:{ip:$ip,eip:($eip|select(length>0)),version:$version,install_date:$install_date,
            cert_mode:$cert_mode,cert_domain:($cert_domain|select(length>0)),cert_expire:($cert_expire|select(length>0))},
    protocols:$protocols,
-   shunt:{mode:$mode,proxy_info:$proxy,health:$health,whitelist:$whitelist}
- }'> "${TRAFFIC_DIR}/dashboard.json"
+   shunt:{mode:$mode,proxy_info:$proxy,health:$health,whitelist:$whitelist},
+   subscription:{plain:$sub_plain,base64:$sub_b64,b64_lines:$sub_b64_lines}
+ }'> "${TRAFFIC_DIR}/panel.json"
 
-# 让前端(仅面板)读取一份“影子配置”，避免再去解析 /sub
+# 让前端(仅面板)读取一份"影子配置"，避免再去解析 /sub
 cp -f "/etc/edgebox/config/server.json" "${TRAFFIC_DIR}/server.shadow.json" 2>/dev/null || true
 
 # 写订阅复制链接
@@ -2405,7 +2448,7 @@ document.addEventListener('click', function(e) {
   }
 });
 
-// 读取服务器配置
+// 读取服务器配置（修复数据获取）
 async function readServerConfig() {
   try {
     const r = await fetch('/traffic/server.shadow.json', { cache: 'no-store' });
@@ -2442,7 +2485,7 @@ async function readServerConfig() {
   } catch (_) { return {}; }
 }
 
-// 更新本月进度条
+// 更新本月进度条（确保从后台动态获取）
 async function updateProgressBar() {
   try {
     const [trafficRes, alertRes] = await Promise.all([
@@ -2474,13 +2517,12 @@ async function updateProgressBar() {
   }
 }
 
-// 主数据加载函数
+// 主数据加载函数（修复数据获取逻辑）
 async function loadData() {
   console.log('开始加载数据...');
   
   try {
-    const [dashboard, panel, system, traffic, alerts, subTxt, serverJson] = await Promise.all([
-      getJSON('/traffic/dashboard.json').catch(() => null),
+    const [panel, system, traffic, alerts, subTxt, serverJson] = await Promise.all([
       getJSON('/traffic/panel.json').catch(() => null),
       getJSON('/traffic/system.json').catch(() => null),
       getJSON('/traffic/traffic.json').catch(() => null),
@@ -2489,20 +2531,20 @@ async function loadData() {
       readServerConfig()
     ]);
     window._subTxtForFallback = subTxt;
-    console.log('数据加载完成:', { dashboard: !!dashboard, panel: !!panel, system: !!system, traffic: !!traffic, alerts: alerts.length, serverJson: !!serverJson });
+    console.log('数据加载完成:', { panel: !!panel, system: !!system, traffic: !!traffic, alerts: alerts.length, serverJson: !!serverJson });
     
     // 保存服务器配置供协议详情使用
     window.serverConfig = serverJson || {};
 
     // 统一数据面向 UI
-const dashHasSub = !!(dashboard && dashboard.subscription && dashboard.subscription.plain);
-const model = dashHasSub ? {
-  updatedAt: dashboard.updated_at,
-  server: dashboard.server, cert: dashboard.cert,
-  system: dashboard.system, services: dashboard.services,
-  protocols: dashboard.protocols,
+const panelHasSub = !!(panel && panel.subscription && panel.subscription.plain);
+const model = panelHasSub ? {
+  updatedAt: panel.updated_at,
+  server: panel.server, cert: panel.cert,
+  system: panel.system, services: panel.services,
+  protocols: panel.protocols,
   shunt: panel?.shunt || {},
-  subscription: dashboard.subscription
+  subscription: panel.subscription
 } : {
   updatedAt: panel?.updated_at || system?.updated_at,
   server: panel?.server || {},
@@ -2515,7 +2557,6 @@ const model = dashHasSub ? {
     b64_lines: subTxt.trim().split('\n').map(l => btoa(unescape(encodeURIComponent(l)))).join('\n')
   }
 };
-
 
     // 渲染各个模块
     renderHeader(model);
@@ -2553,7 +2594,7 @@ function renderHeader(model) {
       ? new Date(s.cert_expire || c.expire).toLocaleDateString('zh-CN')
       : '无';
 
-// 到期日期：无值或无效 -> “无”
+// 到期日期：无值或无效 -> "无"
 const expStr  = (s.cert_expire || c.expire || '').trim();
 const expDate = expStr ? new Date(expStr) : null;
 document.getElementById('cert-exp').textContent =
