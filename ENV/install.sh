@@ -4459,13 +4459,15 @@ show_installation_info() {
 
 # 清理函数
 cleanup() {
-    if [ "$?" -ne 0 ]; then
-        log_error "安装过程中出现错误，请检查日志: ${LOG_FILE}"
-        echo -e "${YELLOW}如需重新安装，请先运行: bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/refs/heads/main/ENV/uninstall.sh)${NC}"
-    fi
-    rm -f /tmp/Xray-linux-64.zip 2>/dev/null || true
-    rm -f /tmp/sing-box-*.tar.gz 2>/dev/null || true
+  local rc=$?
+  # 只有真错误（rc!=0）才报
+  if (( rc != 0 )); then
+    log_error "安装脚本异常退出，退出码: ${rc}。请查看日志：${LOG_FILE}"
+  fi
+  exit $rc
 }
+trap cleanup EXIT
+# --- /cleanup ---
 
 # 主安装流程
 main() {
@@ -4528,6 +4530,7 @@ main() {
     
     # 显示安装信息
     show_installation_info
+	exit 0
 }
 
 # 执行主函数
