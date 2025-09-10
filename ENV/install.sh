@@ -3071,7 +3071,7 @@ BLUE="${ESC}[0;34m"; CYAN="${ESC}[0;36m"; NC="${ESC}[0m"
 log_info(){ echo -e "${GREEN}[INFO]${NC} $1" | tee -a ${LOG_FILE} 2>/dev/null || echo -e "${GREEN}[INFO]${NC} $1"; }
 log_warn(){ echo -e "${YELLOW}[WARN]${NC} $1" | tee -a ${LOG_FILE} 2>/dev/null || echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error(){ echo -e "${RED}[ERROR]${NC} $1" | tee -a ${LOG_FILE} 2>/dev/null || echo -e "${RED}[ERROR]${NC} $1"; }
-log_debug() { echo -e "${YELLOW}[DEBUG] ${1}${NC}"; echo -e "[$(date +'%Y-%m-%d %H:%M:%S')] [DEBUG] ${1}" >> "${LOG_FILE}"; }
+log_debug(){ echo -e "${YELLOW}[DEBUG]${NC} $1" | tee -a ${LOG_FILE} 2>/dev/null || echo -e "${YELLOW}[DEBUG]${NC} $1"; }
 log_success(){ echo -e "${GREEN}[SUCCESS]${NC} $1" | tee -a ${LOG_FILE} 2>/dev/null || echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 
 # 工具函数
