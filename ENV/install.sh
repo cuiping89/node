@@ -840,36 +840,36 @@ start_services() {
 generate_subscription() {
     log_info "正在生成订阅链接..."
 	
-	# 新增：检查 server.json 文件是否存在
+	# 修正：在函数内部重新定义变量，确保作用域正确
+    local CONFIG_FILE="/etc/edgebox/config/server.json"
+
+    # 检查配置文件是否存在
     if [ ! -f "${CONFIG_FILE}" ]; then
         log_error "错误：配置文件 ${CONFIG_FILE} 不存在！"
         return 1
     fi
     
-    # 新增：检查文件内容是否可读
-    if [ ! -s "${CONFIG_FILE}" ]; then
-        log_error "警告：配置文件 ${CONFIG_FILE} 是空的！"
+    # 检查 jq 命令是否存在
+    if ! command -v jq &> /dev/null; then
+        log_error "错误：未找到 jq 命令，无法解析 JSON。"
         return 1
     fi
+
+    # 从配置文件读取变量
+    local SERVER_IP=$(jq -r '.server_ip' "${CONFIG_FILE}")
+    local UUID_VLESS_REALITY=$(jq -r '.uuid.vless.reality' "${CONFIG_FILE}")
+    local UUID_VLESS_GRPC=$(jq -r '.uuid.vless.grpc' "${CONFIG_FILE}")
+    local UUID_VLESS_WS=$(jq -r '.uuid.vless.ws' "${CONFIG_FILE}")
+    local UUID_HYSTERIA2=$(jq -r '.uuid.hysteria2' "${CONFIG_FILE}")
+    local UUID_TUIC=$(jq -r '.uuid.tuic' "${CONFIG_FILE}")
+    local UUID_TROJAN=$(jq -r '.uuid.trojan' "${CONFIG_FILE}")
+    local REALITY_PUBLIC_KEY=$(jq -r '.reality.public_key' "${CONFIG_FILE}")
     
-    # 新增：在读取文件前打印，确认变量是否为空
-    log_info "尝试读取配置文件中的变量..."
-    
-    # 从配置文件读取变量（您的脚本原有的代码）
-    SERVER_IP=$(jq -r '.server_ip' "${CONFIG_FILE}")
-    UUID_VLESS=$(jq -r '.uuid.vless' "${CONFIG_FILE}")
-    UUID_HYSTERIA2=$(jq -r '.uuid.hysteria2' "${CONFIG_FILE}")
-    UUID_TUIC=$(jq -r '.uuid.tuic' "${CONFIG_FILE}")
-    UUID_TROJAN=$(jq -r '.uuid.trojan' "${CONFIG_FILE}")
-    # ... (其他变量，如 reality_public_key)
-    
-    # 新增：在读取文件后打印，确认变量是否成功赋值
-    log_info "---------------------------------"
-    log_info "读取到的变量值:"
-    log_info "SERVER_IP: ${SERVER_IP}"
-    log_info "UUID_VLESS: ${UUID_VLESS}"
-    log_info "REALITY_PUBLIC_KEY: ${REALITY_PUBLIC_KEY}"
-    log_info "---------------------------------"
+    # 检查是否成功读取到关键变量
+    if [ -z "$SERVER_IP" ] || [ -z "$UUID_VLESS_REALITY" ] || [ -z "$REALITY_PUBLIC_KEY" ]; then
+        log_error "错误：从 ${CONFIG_FILE} 读取关键变量失败。文件可能为空或格式不正确。"
+        return 1
+    fi
 	
   mkdir -p "${CONFIG_DIR}" "${WEB_ROOT}" "${TRAFFIC_DIR}"
 
