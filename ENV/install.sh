@@ -4583,6 +4583,8 @@ main() {
     configure_nginx
     configure_xray
     configure_sing_box
+	start_services
+
     save_config_info
     
     # 高级功能安装（模块3）- 先安装后台脚本
@@ -4595,7 +4597,6 @@ main() {
     
     # 生成订阅并启动服务
     generate_subscription
-    start_services
 
     # 启动初始化服务
     systemctl start edgebox-init.service >/dev/null 2>&1 || true
