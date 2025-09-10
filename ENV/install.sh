@@ -182,31 +182,39 @@ get_server_ip() {
 
 # 检查并安装依赖
 install_dependencies() {
-    log_info "安装依赖..."
+    log_info "正在安装系统依赖..."
     DEBIAN_FRONTEND=noninteractive apt-get update -y >/dev/null 2>&1 || true
 
     # 必要包
-local pkgs=(curl wget unzip gawk ca-certificates jq bc uuid-runtime dnsutils openssl \
-            vnstat nginx libnginx-mod-stream nftables certbot python3-certbot-nginx \
-            msmtp-mta bsd-mailx cron tar)
+    local pkgs=(curl wget unzip gawk ca-certificates jq bc uuid-runtime dnsutils openssl \
+              vnstat nginx libnginx-mod-stream nftables certbot python3-certbot-nginx \
+              msmtp-mta bsd-mailx cron tar)
+    
     for pkg in "${pkgs[@]}"; do
-      if ! dpkg -l | grep -q "^ii.*${pkg}"; then
-        log_info "安装 ${pkg}..."
-        DEBIAN_FRONTEND=noninteractive apt-get install -y "${pkg}" >/dev/null 2>&1 || {
-          log_warn "${pkg} 安装失败，尝试继续..."
-        }
-      else
-        log_info "${pkg} 已安装"
-      fi
+        if ! dpkg -l | grep -q "^ii.*${pkg}"; then
+            log_info "安装 ${pkg}..."
+            # 修正：移除静默处理，确保能看到具体错误
+            DEBIAN_FRONTEND=noninteractive apt-get install -y "${pkg}"
+        else
+            log_info "${pkg} 已安装"
+        fi
     done
+    
+    # 新增：在安装后再次检查 jq 是否存在
+    if ! command -v jq &> /dev/null; then
+        log_error "jq 安装失败，无法继续。请检查您的网络连接或软件源。"
+        return 1
+    fi
 
+    # 启用和启动服务
     systemctl enable vnstat >/dev/null 2>&1 || true
     systemctl start  vnstat  >/dev/null 2>&1 || true
 
     systemctl enable nftables >/dev/null 2>&1 || true
     systemctl start  nftables  >/dev/null 2>&1 || true
 
-    log_success "依赖安装完成（已移除 Python 科学栈）"
+    log_success "依赖安装完成。"
+    return 0
 }
 
 # 生成UUID和密码
