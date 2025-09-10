@@ -449,6 +449,12 @@ generate_reality_keys() {
         log_error "Reality 密钥生成失败！"
         return 1
     fi
+	# 在函数末尾打印变量值，确认是否成功赋值
+    log_info "---------------------------------"
+    log_info "REALITY 密钥生成结果:"
+    log_info "私钥: ${REALITY_PRIVATE_KEY}"
+    log_info "公钥: ${REALITY_PUBLIC_KEY}"
+    log_info "---------------------------------"
     return 0
 }
 
