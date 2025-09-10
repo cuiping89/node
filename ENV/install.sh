@@ -818,14 +818,14 @@ EOF
 save_config_info() {
     log_info "保存配置信息..."
     # 打印变量值进行调试
-   log_info "SERVER_IP: ${SERVER_IP}"
-    log_info "SERVER_DOMAIN: ${SERVER_DOMAIN}"
-    log_info "UUID_VLESS: ${UUID_VLESS}"
-    log_info "UUID_HYSTERIA2: ${UUID_HYSTERIA2}"
-    log_info "UUID_TUIC: ${UUID_TUIC}"
-    log_info "UUID_TROJAN: ${UUID_TROJAN}"
-    log_info "REALITY_PRIVATE_KEY: ${REALITY_PRIVATE_KEY}"
-    log_info "REALITY_PUBLIC_KEY: ${REALITY_PUBLIC_KEY}"
+    log_debug "SERVER_IP: ${SERVER_IP}"
+    log_debug "SERVER_DOMAIN: ${SERVER_DOMAIN}"
+    log_debug "UUID_VLESS: ${UUID_VLESS}"
+    log_debug "UUID_HYSTERIA2: ${UUID_HYSTERIA2}"
+    log_debug "UUID_TUIC: ${UUID_TUIC}"
+    log_debug "UUID_TROJAN: ${UUID_TROJAN}"
+    log_debug "REALITY_PRIVATE_KEY: ${REALITY_PRIVATE_KEY}"
+    log_debug "REALITY_PUBLIC_KEY: ${REALITY_PUBLIC_KEY}"
 	
     cat > ${CONFIG_DIR}/server.json << EOF
 {
@@ -3071,6 +3071,10 @@ BLUE="${ESC}[0;34m"; CYAN="${ESC}[0;36m"; NC="${ESC}[0m"
 log_info(){ echo -e "${GREEN}[INFO]${NC} $1" | tee -a ${LOG_FILE} 2>/dev/null || echo -e "${GREEN}[INFO]${NC} $1"; }
 log_warn(){ echo -e "${YELLOW}[WARN]${NC} $1" | tee -a ${LOG_FILE} 2>/dev/null || echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error(){ echo -e "${RED}[ERROR]${NC} $1" | tee -a ${LOG_FILE} 2>/dev/null || echo -e "${RED}[ERROR]${NC} $1"; }
+log_debug() {
+    echo -e "${YELLOW}[DEBUG] ${1}${NC}"
+    echo -e "[$(date +'%Y-%m-%d %H:%M:%S')] [DEBUG] ${1}" >> "${LOG_FILE}"
+}
 log_success(){ echo -e "${GREEN}[SUCCESS]${NC} $1" | tee -a ${LOG_FILE} 2>/dev/null || echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 
 # 工具函数
