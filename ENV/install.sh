@@ -834,9 +834,11 @@ generate_subscription() {
   fi
 
   # 读配置
-  local ip vu rpb rsid tpass hy2pass tuic_u tuic_p
+  local ip vr vg vw rpb rsid tpass hy2pass tuic_u tuic_p
   ip="$(jq -r '.server_ip'                 "${CONFIG_DIR}/server.json")"
-  vu="$(jq -r '.uuid.vless'                "${CONFIG_DIR}/server.json")"
+  vr="$(jq -r '.uuid.vless_reality'        "${CONFIG_DIR}/server.json")"
+  vg="$(jq -r '.uuid.vless_grpc'           "${CONFIG_DIR}/server.json")"
+  vw="$(jq -r '.uuid.vless_ws'             "${CONFIG_DIR}/server.json")"
   rpb="$(jq -r '.reality.public_key'       "${CONFIG_DIR}/server.json")"
   rsid="$(jq -r '.reality.short_id'        "${CONFIG_DIR}/server.json")"
   tpass="$(jq -r '.password.trojan'        "${CONFIG_DIR}/server.json")"
@@ -844,56 +846,56 @@ generate_subscription() {
   tuic_u="$(jq -r '.uuid.tuic'             "${CONFIG_DIR}/server.json")"
   tuic_p="$(jq -r '.password.tuic'         "${CONFIG_DIR}/server.json")"
 
-  if [[ -z "$ip" || -z "$vu" || -z "$rpb" || -z "$rsid" || -z "$tpass" || -z "$hy2pass" || -z "$tuic_u" || -z "$tuic_p" ]]; then
+  if [[ -z "$ip" || -z "$vr" || -z "$vg" || -z "$vw" || -z "$rpb" || -z "$rsid" || -z "$tpass" || -z "$hy2pass" || -z "$tuic_u" || -z "$tuic_p" ]]; then
     log_error "server.json 信息不完整，生成订阅失败"
     return 1
   fi
 
   # URL 编码
   local TENC HY2ENC TUICENC
-  TENC="$(printf '%s' "$tpass"   | jq -rR @uri)"
-  HY2ENC="$(printf '%s' "$hy2pass"| jq -rR @uri)"
-  TUICENC="$(printf '%s' "$tuic_p"| jq -rR @uri)"
-
-  local ws_sni="ws.edgebox.internal"
-  local trojan_sni="trojan.edgebox.internal"
+  TENC="$(printf '%s' "$tpass"   | python3 -c "import sys, urllib.parse; print(urllib.parse.quote(sys.stdin.read().strip()))" 2>/dev/null || printf '%s' "$tpass")"
+  HY2ENC="$(printf '%s' "$hy2pass"| python3 -c "import sys, urllib.parse; print(urllib.parse.quote(sys.stdin.read().strip()))" 2>/dev/null || printf '%s' "$hy2pass")"
+  TUICENC="$(printf '%s' "$tuic_p"| python3 -c "import sys, urllib.parse; print(urllib.parse.quote(sys.stdin.read().strip()))" 2>/dev/null || printf '%s' "$tuic_p")"
 
   # 明文
   local plain
-  read -r -d '' plain <<PLAIN
-vless://${vu}@${ip}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${rpb}&sid=${rsid}&type=tcp#EdgeBox-REALITY
-vless://${vu}@${ip}:443?encryption=none&security=tls&sni=grpc.edgebox.internal&alpn=h2&type=grpc&serviceName=grpc&fp=chrome&allowInsecure=1#EdgeBox-gRPC
-vless://${vu}@${ip}:443?encryption=none&security=tls&sni=${ws_sni}&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome&allowInsecure=1#EdgeBox-WS
-trojan://${TENC}@${ip}:443?security=tls&sni=${trojan_sni}&alpn=http%2F1.1&fp=chrome&allowInsecure=1#EdgeBox-TROJAN
+  read -r -d '' plain <<PLAIN || true
+vless://${vr}@${ip}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${rpb}&sid=${rsid}&type=tcp#EdgeBox-REALITY
+vless://${vg}@${ip}:443?encryption=none&security=tls&sni=grpc.edgebox.internal&alpn=h2&type=grpc&serviceName=grpc&fp=chrome&allowInsecure=1#EdgeBox-gRPC
+vless://${vw}@${ip}:443?encryption=none&security=tls&sni=ws.edgebox.internal&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome&allowInsecure=1#EdgeBox-WS
+trojan://${TENC}@${ip}:443?security=tls&sni=trojan.edgebox.internal&alpn=http%2F1.1&fp=chrome&allowInsecure=1#EdgeBox-TROJAN
 hysteria2://${HY2ENC}@${ip}:443?sni=${ip}&alpn=h3&insecure=1#EdgeBox-HYSTERIA2
 tuic://${tuic_u}:${TUICENC}@${ip}:2053?congestion_control=bbr&alpn=h3&sni=${ip}&allowInsecure=1#EdgeBox-TUIC
 PLAIN
 
-  # 写入三种形式
+  # 写入文件
   printf '%s\n' "$plain" > "${CONFIG_DIR}/subscription.txt"
 
-  # base64(整包)
-  if base64 --help 2>&1 | grep -q ' -w'; then
-    printf '%s\n' "$plain" | base64 -w0 > "${CONFIG_DIR}/subscription.base64"
-  else
-    printf '%s\n' "$plain" | base64 | tr -d '\n' > "${CONFIG_DIR}/subscription.base64"
+  # base64编码
+  if command -v base64 >/dev/null 2>&1; then
+    if base64 --help 2>&1 | grep -q -- ' -w'; then
+      printf '%s\n' "$plain" | base64 -w0 > "${CONFIG_DIR}/subscription.base64"
+    else
+      printf '%s\n' "$plain" | base64 | tr -d '\n' > "${CONFIG_DIR}/subscription.base64"
+    fi
   fi
 
   # base64(逐行)
   : > "${CONFIG_DIR}/subscription.b64lines"
   while IFS= read -r line; do
     [[ -z "$line" ]] && continue
-    if base64 --help 2>&1 | grep -q ' -w'; then
-      printf '%s\n' "$line" | base64 -w0 >> "${CONFIG_DIR}/subscription.b64lines"
-    else
-      printf '%s\n' "$line" | base64 | tr -d '\n' >> "${CONFIG_DIR}/subscription.b64lines"
+    if command -v base64 >/dev/null 2>&1; then
+      if base64 --help 2>&1 | grep -q -- ' -w'; then
+        printf '%s\n' "$line" | base64 -w0 >> "${CONFIG_DIR}/subscription.b64lines"
+      else
+        printf '%s\n' "$line" | base64 | tr -d '\n' >> "${CONFIG_DIR}/subscription.b64lines"
+      fi
+      printf '\n' >> "${CONFIG_DIR}/subscription.b64lines"
     fi
-    printf '\n' >> "${CONFIG_DIR}/subscription.b64lines"
   done <<< "$plain"
 
   log_success "订阅明文与 Base64 已写入 ${CONFIG_DIR}"
 }
-
 # >>> 修复后的 install_scheduled_dashboard_backend 函数 >>>
 install_scheduled_dashboard_backend() {
   mkdir -p /etc/edgebox/scripts /etc/edgebox/traffic /etc/edgebox/config
