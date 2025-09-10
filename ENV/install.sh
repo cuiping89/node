@@ -762,31 +762,47 @@ EOF
 
 # 保存配置信息
 save_config_info() {
-  log_info "保存配置信息..."
-  mkdir -p "${CONFIG_DIR}"
+    log_info "保存配置信息..."
+    mkdir -p "${CONFIG_DIR}"
 
-  jq -n \
-    --arg ip  "${SERVER_IP}" \
-    --arg vm  "${EDGEBOX_VER}" \
-    --arg vu  "${UUID_VLESS}" \
-    --arg tt  "${PASSWORD_TROJAN}" \
-    --arg tu  "${UUID_TUIC}" \
-    --arg tp  "${PASSWORD_TUIC}" \
-    --arg hy  "${PASSWORD_HYSTERIA2}" \
-    --arg rpub "${REALITY_PUBLIC_KEY}" \
-    --arg rpri "${REALITY_PRIVATE_KEY}" \
-    --arg rsid "${REALITY_SHORT_ID}" \
-    '{
-      server_ip: $ip,
-      version:   $vm,
-      uuid: { vless: $vu, tuic: $tu },
-      password: { trojan: $tt, tuic: $tp, hysteria2: $hy },
-      reality: { public_key: $rpub, private_key: $rpri, short_id: $rsid }
-    }' > "${CONFIG_DIR}/server.json"
+    jq -n \
+      --arg ip      "${SERVER_IP}" \
+      --arg vm      "${EDGEBOX_VER}" \
+      --arg vr      "${UUID_VLESS_REALITY}" \
+      --arg vg      "${UUID_VLESS_GRPC}" \
+      --arg vw      "${UUID_VLESS_WS}" \
+      --arg tt      "${PASSWORD_TROJAN}" \
+      --arg tu      "${UUID_TUIC}" \
+      --arg tp      "${PASSWORD_TUIC}" \
+      --arg hy      "${PASSWORD_HYSTERIA2}" \
+      --arg rpub    "${REALITY_PUBLIC_KEY}" \
+      --arg rpri    "${REALITY_PRIVATE_KEY}" \
+      --arg rsid    "${REALITY_SHORT_ID}" \
+      '{
+        server_ip: $ip,
+        version:   $vm,
+        uuid: {
+          vless: {
+            reality: $vr,
+            grpc: $vg,
+            ws: $vw
+          },
+          tuic: $tu
+        },
+        password: {
+          trojan: $tt,
+          tuic: $tp,
+          hysteria2: $hy
+        },
+        reality: {
+          public_key: $rpub,
+          private_key: $rpri,
+          short_id: $rsid
+        }
+      }' > "${CONFIG_DIR}/server.json"
 
-  log_success "配置已写入 ${CONFIG_DIR}/server.json"
+    log_success "配置已写入 ${CONFIG_DIR}/server.json"
 }
-
 # 安全同步订阅文件：/var/www/html/sub 做符号链接；traffic 下保留一份副本
 sync_subscription_files() {
   log_info "同步订阅文件..."
