@@ -107,18 +107,6 @@ log() { log_info "$@"; }
 log_ok() { log_success "$@"; }
 error() { log_error "$@"; }
 
-show_installation_info() {
-  # 最小化输出，避免再次中断安装
-  local ip
-  ip="$(jq -r '.server_ip // empty' /etc/edgebox/config/server.json 2>/dev/null)"
-  [[ -z "$ip" ]] && ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
-  echo -e "[SUCCESS] 安装完成"
-  [[ -n "$ip" ]] && {
-    echo "面板:    http://${ip}/"
-    echo "订阅(HTTP): http://${ip}/sub"
-  }
-}
-
 # 检查root权限
 check_root() {
     if [[ $EUID -ne 0 ]]; then
@@ -4504,10 +4492,6 @@ if ! jq -e '.subscription.plain|length>0' "${TRAFFIC_DIR}/dashboard.json" >/dev/
   /etc/edgebox/scripts/dashboard-backend.sh --now >/dev/null 2>&1 || true
 fi
 
-# 若你有 init 服务：
-systemctl start edgebox-init.service >/dev/null 2>&1 || true
-
-show_installation_info
 exit 0
 
 
