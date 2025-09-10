@@ -895,7 +895,7 @@ generate_subscription() {
   # 写入权威源并同步到 web/traffic
   printf "%b" "$plain" > "${CONFIG_DIR}/subscription.txt"
   install -m 0644 -T "${CONFIG_DIR}/subscription.txt" "${TRAFFIC_DIR}/sub.txt"
-  ln -sfn "${CONFIG_DIR}/subscription.txt" "${WEB_ROOT}/sub"
+  install -m 0644 -T "${CONFIG_DIR}/subscription.txt" "${WEB_ROOT}/sub"
   log_success "订阅已生成并同步"
 }
 
@@ -918,12 +918,13 @@ log_warn(){ echo "[WARN] $*"; }
 log_error(){ echo "[ERROR] $*" >&2; }
 
 _get_cpu_mem(){ 
-  local cpu="0" mem="0"
-  if command -v top >/dev/null 2>&1; then
-    cpu=$(top -bn1 | awk '/Cpu/ {print 100-$8; exit}' 2>/dev/null || echo 0)
-    mem=$(free -m | awk '/Mem:/ {printf "%.1f", $3/$2*100}' 2>/dev/null || echo 0)
-  fi
-  printf '%s %s\n' "${cpu:-0}" "${mem:-0}"
+  read _ u n s i _ < /proc/stat; t1=$((u+n+s+i)); i1=$i; sleep 1
+  read _ u n s i _ < /proc/stat; t2=$((u+n+s+i)); i2=$i; dt=$((t2-t1)); di=$((i2-i1))
+  CPU=$(( dt>0 ? (100*(dt-di)+dt/2)/dt : 0 ))
+  MT=$(awk '/MemTotal/{print $2}' /proc/meminfo)
+  MA=$(awk '/MemAvailable/{print $2}' /proc/meminfo)
+  MEM=$(( MT>0 ? (100*(MT-MA)+MT/2)/MT : 0 ))
+  echo "$CPU" "$MEM"
 }
 
 # 读取明文订阅 -> 产出 plain / base64 / b64_lines 三种形态
@@ -990,6 +991,30 @@ generate_dashboard_data(){
 
   jq -n --arg ts "$(date -Is)" --argjson cpu "$CPU" --argjson memory "$MEM" \
     '{updated_at:$ts,cpu:$cpu,memory:$memory}' > "${TRAFFIC_DIR}/system.json"
+
+# --- 从 server.json 提取敏感字段，生成 secrets 对象 ---
+SECRETS_JSON="$(
+  jq -n --argfile s "${SERVER_JSON}" 'def pick(x): (x // empty);
+  include "strptime"; # 忽略，jq 标准库没有就不报错
+  # 直接读文件变量 $s
+  ($s|{
+    vless:{
+      reality:    (pick(.uuid.vless.reality) // pick(.uuid.vless)),
+      grpc:       (pick(.uuid.vless.grpc)    // pick(.uuid.vless)),
+      ws:         (pick(.uuid.vless.ws)      // pick(.uuid.vless))
+    },
+    password:{
+      trojan:     pick(.password.trojan),
+      hysteria2:  pick(.password.hysteria2),
+      tuic:       pick(.password.tuic)
+    },
+    tuic_uuid:     pick(.uuid.tuic),
+    reality:{
+      public_key: pick(.reality.public_key),
+      short_id:   pick(.reality.short_id)
+    }
+  })' --argfile s "${SERVER_JSON}"
+)"
 
   jq -n \
     --arg ts "$(date -Is)" \
@@ -1310,30 +1335,34 @@ fi
 
 # --- 写 dashboard.json（统一数据源） ---
 jq -n \
- --arg updated "$(date -Is)" \
- --arg ip "$server_ip" \
- --arg eip "$eip" \
- --arg version "$version" \
- --arg install_date "$install_date" \
- --arg cert_mode "$cert_mode" \
- --arg cert_domain "$cert_domain" \
- --arg cert_expire "$cert_expire" \
- --arg mode "$mode" \
- --arg proxy "$proxy" \
- --arg health "$health" \
- --arg sub_plain "$sub_plain" \
- --arg sub_b64 "$sub_b64" \
- --arg sub_b64_lines "$sub_b64_lines" \
- --argjson whitelist "$whitelist_json" \
- --argjson protocols "$protocols_json" \
- '{
-   updated_at:$updated,
-   server:{ip:$ip,eip:($eip|select(length>0)),version:$version,install_date:$install_date,
-           cert_mode:$cert_mode,cert_domain:($cert_domain|select(length>0)),cert_expire:($cert_expire|select(length>0))},
-   protocols:$protocols,
-   shunt:{mode:$mode,proxy_info:$proxy,health:$health,whitelist:$whitelist},
-   subscription:{plain:$sub_plain,base64:$sub_b64,b64_lines:$sub_b64_lines}
- }'> "${TRAFFIC_DIR}/dashboard.json"
+  --arg ts "$(date -Is)" \
+  --arg ip "$SERVER_IP_" --arg eip "$EIP_" \
+  --arg ver "${EDGEBOX_VER_:-3.0.0}" --arg inst "${INSTALL_DATE_:-$(date +%F)}" \
+  --arg cm "$INSTALL_MODE_" --arg cd "$SERVER_DOMAIN_" --arg ce "$CERT_EXPIRE" \
+  --arg b1 "$has_tcp443" --arg b2 "$has_hy2" --arg b3 "$has_tuic" \
+  --arg sub_p "$SUB_PLAIN" --arg sub_b "$SUB_B64" --arg sub_l "$SUB_LINES" \
+  --argjson secrets "${SECRETS_JSON:-{}}" \
+  '{
+    updated_at: $ts,
+    server: {
+      ip: $ip,
+      eip: (if $eip=="" then null else $eip end),
+      version: $ver,
+      install_date: $inst,
+      cert_mode: $cm,
+      cert_domain: (if $cd=="" then null else $cd end),
+      cert_expire: (if $ce=="" then null else $ce end)
+    },
+    protocols: [
+      {name:"VLESS/Trojan (443/TCP)", proto:"tcp",  port:443,  proc:(if $b1=="true" then "listening" else "未监听" end), note:"443 端口状态"},
+      {name:"Hysteria2",              proto:"udp",  port:0,    proc:(if $b2=="true" then "listening" else "未监听" end), note:"8443/443"},
+      {name:"TUIC",                   proto:"udp",  port:2053, proc:(if $b3=="true" then "listening" else "未监听" end), note:"2053"}
+    ],
+    shunt: {mode:"vps", proxy_info:"", health:"ok",
+            whitelist:["googlevideo.com","ytimg.com","ggpht.com","youtube.com","youtu.be","googleapis.com","gstatic.com","example.com"]},
+    subscription: { plain: $sub_p, base64: $sub_b, b64_lines: $sub_l },
+    secrets: $secrets
+  }' > "${TRAFFIC_DIR}/dashboard.json"
 
 # 写订阅复制链接
 proto="http"; addr="$server_ip"
