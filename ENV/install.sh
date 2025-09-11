@@ -1490,7 +1490,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 
         .grid-full { grid-template-columns: 1fr; }
         .grid-70-30 { 
-            grid-template-columns: 1fr 410px;  /* 出站分流状态再加宽到420px */
+            grid-template-columns: 1fr 410px;
         }
         
         @media(max-width:980px) {
@@ -1511,9 +1511,9 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             margin: 0;
             padding: 12px 16px;
             border-bottom: 1px solid var(--border);
-            font-size: 1.5rem;   /* 标题级最大 */
-            font-weight: 700;    /* 标题级最粗 */
-            color: #0f172a;      /* 标题级最深 */
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #0f172a;
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -1524,9 +1524,9 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         .command-section h4,
         .chart-title {
             margin: 0 0 8px 0;
-            font-size: 1.125rem; /* 一级字号 */
-            font-weight: 600;    /* 一级字重 */
-            color: #1e293b;      /* 一级颜色 */
+            font-size: 1.125rem;
+            font-weight: 600;
+            color: #1e293b;
         }
 
         .chart-title {
@@ -1535,9 +1535,9 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         }
 
         .chart-title .unit {
-            font-size: .875rem;  /* 三级字号 */
-            font-weight: 400;    /* 三级字重 */
-            color: #64748b;      /* 三级颜色 */
+            font-size: .875rem;
+            font-weight: 400;
+            color: #64748b;
         }
 
         .card .content { padding: 16px; }
@@ -1546,9 +1546,9 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         .table th,
         .shunt-mode-tab,
         .progress-label {
-            font-size: 1rem;     /* 二级字号 */
-            font-weight: 600;    /* 二级字重 */
-            color: #374151;      /* 二级颜色 */
+            font-size: 1rem;
+            font-weight: 600;
+            color: #374151;
         }
 
         /* 表格样式 */
@@ -1557,33 +1557,29 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             border-collapse: collapse;
         }
 
-        /* 表格标题特殊处理 */
         .table th {
-            text-align: left;    /* 标题靠左 */
+            text-align: left;
             padding: 12px 8px;
             border-bottom: 1px solid var(--border);
         }
 
-        /* 表格标题"运行状态"居中 */
         .table th:last-child {
-            text-align: center;  /* "运行状态"标题居中 */
+            text-align: center;
         }
 
-        /* 表格内容 */
         .table td {
-            font-size: .875rem;  /* 三级字号 */
-            font-weight: 400;    /* 三级字重 */
-            color: #64748b;      /* 三级颜色 */
+            font-size: .875rem;
+            font-weight: 400;
+            color: #64748b;
             padding: 12px 8px;
-            border-bottom: 1px solid #e2e8f0;  /* 改为和面板其它行线一致的颜色 */
+            border-bottom: 1px solid #e2e8f0;
         }
 
-        /* 表格中运行状态列居中 */
         .table td:last-child {
-            text-align: center;  /* 运行状态内容居中 */
+            text-align: center;
         }
 
-        /* 协议配置表格运行状态标签样式 */
+        /* 协议配置表格运行状态标签样式 - 新增 */
         .protocol-status-badge {
             display: inline-block;
             padding: 4px 12px;
@@ -1595,7 +1591,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             border: none;
         }
 
-        /* 核心服务状态标签样式 */
+        /* 核心服务状态标签样式 - 新增 */
         .service-status-badge {
             display: inline-block;
             padding: 3px 10px;
@@ -1605,6 +1601,10 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             background: #10b981;
             color: white;
             border: none;
+        }
+
+        .service-status-badge.inactive {
+            background: #6b7280;
         }
 
         /* 分流标签特殊处理 */
@@ -1646,9 +1646,9 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         .sub-copy-btn,
         .command-list,
         .config-note {
-            font-size: .875rem;  /* 三级字号 */
-            font-weight: 400;    /* 三级字重 */
-            color: #64748b;      /* 三级颜色 */
+            font-size: .875rem;
+            font-weight: 400;
+            color: #64748b;
         }
 
         /* === 特殊样式：详情链接 === */
@@ -1656,17 +1656,17 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             color: var(--primary);
             cursor: pointer;
             text-decoration: underline;
-            font-size: .875rem;  /* 三级字号 */
-            font-weight: 400;    /* 三级字重 */
+            font-size: .875rem;
+            font-weight: 400;
         }
 
         .detail-link:hover { color: #2563eb; }
 
-        /* === 特殊样式：运行状态 === */
+        /* === 特殊样式：运行状态文字（非标签） === */
         .status-running {
             color: #10b981 !important;
-            font-size: .875rem;  /* 三级字号 */
-            font-weight: 600 !important;  /* 稍加粗突出 */
+            font-size: .875rem;
+            font-weight: 600 !important;
         }
 
         /* === 其他组件样式 === */
@@ -1747,12 +1747,12 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 
         .notification-item:last-child { border-bottom: none; }
 
-        /* 出站分流布局 */
+        /* 出站分流布局 - 优化实现注释置底 */
         .shunt-modes {
             display: flex;
             gap: 8px;
             margin-bottom: 12px;
-            flex-wrap: wrap;  /* 允许换行以适应更窄的宽度 */
+            flex-wrap: wrap;
         }
 
         .shunt-wrap {
@@ -1781,56 +1781,65 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             border-top: 1px solid var(--border);
             background: #f8fafc;
             border-radius: 4px;
-            font-size: .75rem;    /* 更小的字号 */
-            line-height: 1.4;     /* 适当的行高 */
+            font-size: .75rem;
+            line-height: 1.4;
         }
 
-        /* 订阅链接样式 - 统一高度和对齐 */
+        /* 订阅链接样式 - 完全重写实现统一高度 */
         .sub-row {
             display: flex;
             gap: 8px;
-            align-items: stretch;  /* 改为stretch实现统一高度 */
+            align-items: stretch;
             margin-bottom: 8px;
+            height: 36px;  /* 统一固定高度 */
         }
 
         .sub-label {
             min-width: 80px;
             flex-shrink: 0;
             display: flex;
-            align-items: center;  /* 垂直居中对齐 */
-            font-size: 0.8rem;     /* 调整字号以适应高度 */
+            align-items: center;
+            font-size: .875rem;
+            color: #64748b;
+            font-weight: 400;
         }
 
         .sub-input {
             flex: 1;
-            padding: 6px 8px;     /* 调整内边距 */
+            padding: 8px 10px;
             border: 1px solid var(--border);
             border-radius: 4px;
             font-family: monospace;
             background: #fff;
-            height: 32px;         /* 统一高度 */
-            font-size: 0.8rem;     /* 调整字号以确保单行显示 */
-            line-height: 1.2;     /* 调整行高 */
+            font-size: .875rem;
+            color: #64748b;
+            line-height: 1.4;
             resize: none;
             overflow: hidden;
             white-space: nowrap;
+            display: flex;
+            align-items: center;
         }
 
         .sub-copy-btn {
-            min-width: 80px;      /* 与标签宽度一致 */
-            padding: 6px 12px;    /* 调整内边距 */
+            min-width: 80px;
+            padding: 8px 12px;
             border: 1px solid var(--border);
             background: #f1f5f9;
             border-radius: 4px;
             cursor: pointer;
-            height: 32px;         /* 统一高度 */
-            font-size: 0.8rem;     /* 调整字号 */
+            font-size: .875rem;
+            color: #64748b;
+            font-weight: 400;
             display: flex;
             align-items: center;
             justify-content: center;
+            transition: all 0.2s;
         }
 
-        .sub-copy-btn:hover { background: #e2e8f0; }
+        .sub-copy-btn:hover { 
+            background: #e2e8f0; 
+        }
 
         /* 流量统计样式 */
         .traffic-card { position: relative; }
@@ -1839,7 +1848,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             position: absolute;
             top: 16px;
             right: 16px;
-            width: 390px;  /* 调整宽度以适应新的布局 */
+            width: 390px;
             display: flex;
             align-items: center;
             gap: 8px;
@@ -1884,7 +1893,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         /* 流量图表布局 */
         .traffic-charts {
             display: grid;
-            grid-template-columns: 1fr 400px;  /* 右侧图表调整为400px，与出站分流卡片宽度一致 */
+            grid-template-columns: 1fr 400px;
             gap: 16px;
             margin-top: 50px;
         }
