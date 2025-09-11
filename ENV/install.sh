@@ -1489,7 +1489,9 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         }
 
         .grid-full { grid-template-columns: 1fr; }
-        .grid-70-30 { grid-template-columns: 6.18fr 3.82fr; }
+        .grid-70-30 { 
+            grid-template-columns: 1fr 320px;  /* 右侧固定320px宽度，刚好容纳三个标签 */
+        }
         
         @media(max-width:980px) {
             .grid-70-30 { grid-template-columns: 1fr; }
@@ -1549,11 +1551,32 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             color: #374151;      /* 二级颜色 */
         }
 
+        /* 表格样式 */
+        .table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
         /* 表格标题特殊处理 */
         .table th {
             text-align: left;    /* 标题靠左 */
             padding: 12px 8px;
             border-bottom: 1px solid var(--border);
+        }
+
+        /* 表格内容 */
+        .table td {
+            font-size: .875rem;  /* 三级字号 */
+            font-weight: 400;    /* 三级字重 */
+            color: #64748b;      /* 三级颜色 */
+            padding: 12px 8px;
+            border-bottom: 1px solid #e2e8f0;  /* 改为和面板其它行线一致的颜色 */
+        }
+
+        /* 表格中运行状态列加粗并居中 */
+        .table td:last-child {
+            font-weight: 600;    /* "✓ 运行" 加粗 */
+            text-align: center;  /* "✓ 运行" 居中 */
         }
 
         /* 分流标签特殊处理 */
@@ -1584,7 +1607,6 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         .kv .k,
         .kv .v,
         .progress-budget,
-        .table td,
         .info-block .value,
         .btn,
         .badge,
@@ -1599,22 +1621,6 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             font-size: .875rem;  /* 三级字号 */
             font-weight: 400;    /* 三级字重 */
             color: #64748b;      /* 三级颜色 */
-        }
-
-        /* 表格内容特殊处理 */
-        .table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-
-        .table td {
-            padding: 12px 8px;
-            border-bottom: 1px solid #f1f5f9;  /* 浅灰色行线 */
-        }
-
-        /* 表格中运行状态列加粗 */
-        .table td:last-child {
-            font-weight: 600;    /* "✓ 运行" 加粗 */
         }
 
         /* === 特殊样式：详情链接 === */
@@ -1752,13 +1758,13 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         .sub-row {
             display: flex;
             gap: 8px;
-            align-items: flex-start;
+            align-items: center;  /* 改为center实现垂直居中对齐 */
             margin-bottom: 8px;
         }
 
         .sub-label {
             min-width: 80px;
-            margin-top: 8px;
+            /* 移除上边距 */
         }
 
         .sub-input {
@@ -1780,7 +1786,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             background: #f1f5f9;
             border-radius: 4px;
             cursor: pointer;
-            margin-top: 8px;
+            /* 移除上边距 */
         }
 
         .sub-copy-btn:hover { background: #e2e8f0; }
