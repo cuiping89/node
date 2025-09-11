@@ -1536,13 +1536,13 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         .card .content { padding: 16px; }
 
         .small {
-    color: #94a3b8;     /* 从 var(--muted) 改为具体颜色值，更淡 */
-    font-size: .85rem;  /* 统一小字号 */
+    color: #64748b;      /* 从 #94a3b8 改为 #64748b，统一次要信息颜色 */
+    font-size: .75rem;   /* 从 .85rem 改为 .75rem，明确层次 */
         }
 
 .shunt-info .small {
-    color: #94a3b8;     /* 统一小字颜色 */
-    font-size: .85rem;  /* 统一小字号 */
+    color: #64748b;      /* 统一颜色 */
+    font-size: .75rem;   /* 统一字号 */
 }
 
         .table {
@@ -1550,13 +1550,16 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             border-collapse: collapse;
         }
 
-        .table th, .table td {
-    padding: 8px 10px;
-    border-bottom: 1px solid var(--border);
-    font-size: .85rem;  /* 统一字号 */
-    text-align: left;
-    color: #475569;     /* 统一颜色 */
-        }
+/* 区分表格标题和内容 */
+.table th {
+    font-weight: 600;    /* 表格标题稍重 */
+    color: #374151;      /* 表格标题稍深 */
+}
+
+.table td {
+    font-weight: 400;    /* 表格内容正常 */
+    color: #475569;      /* 表格内容颜色 */
+}
 
         .btn {
             padding: 8px 16px;
@@ -1595,10 +1598,10 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         }
 
 .info-block .value {
-    font-size: .9rem;   /* 统一字号 */
-    font-weight: 500;   /* 统一字重 */
-    color: #64748b;     /* 统一颜色 */
-    margin-bottom: 2px; /* 添加间距 */
+    font-size: .85rem;   /* 从 .9rem 改为 .85rem，与表格标题统一 */
+    font-weight: 500;    /* 保持统一字重 */
+    color: #475569;      /* 从 #64748b 改为 #475569，与表格内容颜色统一 */
+    margin-bottom: 2px;
 }
 		
 /* 运行状态绿色样式 */
@@ -1658,16 +1661,16 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         }
 
         .shunt-mode-tab {
-            padding: 6px 12px;
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            font-size: .85rem;
-            font-weight: 500;
-            cursor: pointer;
-            background: #f8fafc;
-            color: #64748b;
-            transition: all 0.2s;
-            white-space: nowrap;
+    padding: 6px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: .85rem;   /* 与表格标题统一 */
+    font-weight: 500;    /* 与表格标题统一 */
+    cursor: pointer;
+    background: #f8fafc;
+    color: #475569;      /* 从 #64748b 改为 #475569，与表格标题统一 */
+    transition: all 0.2s;
+    white-space: nowrap;
         }
 
         .shunt-mode-tab:hover { background: #e2e8f0; }
@@ -2005,15 +2008,15 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         }
 
         .kv .k {
-    font-size: .85rem;  /* 统一字号 */
-    color: #94a3b8;     /* 统一颜色 */
+    font-size: .75rem;   /* 从 .85rem 改为 .75rem，与 small 统一 */
+    color: #64748b;      /* 与 small 颜色统一 */
     min-width: 60px;
     flex-shrink: 0;
         }
 
         .kv .v {
-    font-size: .85rem;  /* 统一字号 */
-    color: #475569;     /* 统一颜色 */
+    font-size: .85rem;   /* 保持主要信息字号 */
+    color: #475569;      /* 与主要信息颜色统一 */
     flex: 1;
     word-break: break-word;
         }
