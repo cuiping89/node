@@ -2632,7 +2632,6 @@ function renderHeader(model) {
     ? '<span class="service-status-badge">运行中</span>'
     : '<span class="service-status-badge inactive">已停止</span>';
 }
-}
 
 // 单独加载系统状态
 async function loadSystemStats() {
