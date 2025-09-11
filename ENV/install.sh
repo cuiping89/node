@@ -2645,24 +2645,6 @@ function renderHeader(model) {
   // CPU/内存从system.json单独获取
   loadSystemStats();
   
-/* CPU/内存 数值样式（metric badges） */
-.metric-badge {
-    display: inline-block;
-    padding: 4px 8px;
-    border-radius: 10px;
-    font-weight: 700;
-    font-size: .85rem;
-    color: white;
-    min-width: 48px;
-    text-align: center;
-}
-
-/* 颜色类：默认绿色/青色，另外两个为告警/危险 */
-.metric-badge.cpu { background: #10b981; }      /* 绿色 */
-.metric-badge.mem { background: #06b6d4; }      /* 青色 */
-.metric-badge.high { background: #f59e0b; }     /* 警告色 */
-.metric-badge.critical { background: #ef4444; } /* 危险色 */
-
 // 服务状态 - 添加状态样式类
   const nginxStatus = svc.nginx === 'active' ? '运行中' : '已停止';
   const xrayStatus = svc.xray === 'active' ? '运行中' : '已停止';
