@@ -1673,13 +1673,20 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 
         /* 分流标签特殊处理 */
         .shunt-mode-tab {
-            padding: 6px 12px;
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            cursor: pointer;
-            background: #f8fafc;
-            transition: all 0.2s;
-            white-space: nowrap;
+   padding: 4px 10px;          /* 从 6px 12px 调整为 4px 10px */
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    cursor: pointer;
+    background: #f8fafc;
+    transition: all 0.2s;
+    white-space: nowrap;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #374151;
+    height: 28px;               /* 明确设置高度，比之前的约32px小一些 */
+    display: inline-flex;       /* 确保垂直居中 */
+    align-items: center;
+    line-height: 1;
         }
 
         .shunt-mode-tab:hover { background: #e2e8f0; }
@@ -2646,20 +2653,34 @@ async function updateProgressBar() {
   }
 }
 
-// 主数据加载函数（统一从dashboard.json读取）
+// 在主数据加载函数中添加调试信息
 async function loadData() {
   console.log('开始加载数据...');
   
   try {
     // 统一数据源：只从 dashboard.json 读取
     const [dashboard, traffic, alerts, serverJson] = await Promise.all([
-      getJSON('./dashboard.json').catch(() => null),
+      getJSON('./dashboard.json').catch(() => {
+        console.log('dashboard.json 加载失败');
+        return null;
+      }),
       getJSON('./traffic.json').catch(() => null),
       getJSON('./alerts.json').catch(() => []),
       readServerConfig()
     ]);
     
-    console.log('数据加载完成:', { dashboard: !!dashboard, traffic: !!traffic, alerts: alerts.length, serverJson: !!serverJson });
+    console.log('数据加载完成:', { 
+      dashboard: !!dashboard, 
+      traffic: !!traffic, 
+      alerts: alerts.length, 
+      serverJson: !!serverJson,
+      dashboardShunt: dashboard ? dashboard.shunt : null
+    });
+    
+    // 如果 dashboard 存在但 shunt.whitelist 为空，进行调试
+    if (dashboard && dashboard.shunt) {
+      console.log('dashboard.shunt 详细内容:', JSON.stringify(dashboard.shunt, null, 2));
+    }
     
     // 保存服务器配置供协议详情使用
     window.serverConfig = serverJson || {};
@@ -2668,7 +2689,7 @@ async function loadData() {
     const model = dashboard ? {
       updatedAt: dashboard.updated_at,
       server: dashboard.server || {},
-      system: { cpu: null, memory: null }, // 系统信息从system.json单独获取
+      system: { cpu: null, memory: null },
       protocols: dashboard.protocols || [],
       shunt: dashboard.shunt || {},
       subscription: dashboard.subscription || { plain: '', base64: '', b64_lines: '' },
@@ -2776,6 +2797,65 @@ async function loadSystemStats() {
   _sysTicker = setInterval(loadSystemStats, 15000);
 }
 
+<!-- 2. JavaScript 修复片段 - 白名单数据获取逻辑 -->
+<script>
+// 白名单数据获取的完整流程梳理和修复
+function getWhitelistData(model) {
+  console.log('=== 白名单数据获取调试 ===');
+  
+  // 步骤1: 检查 dashboard.json 的 shunt.whitelist
+  let whitelist = [];
+  const shunt = model.shunt || {};
+  
+  console.log('model.shunt:', shunt);
+  console.log('shunt.whitelist:', shunt.whitelist);
+  
+  if (shunt.whitelist && Array.isArray(shunt.whitelist) && shunt.whitelist.length > 0) {
+    whitelist = shunt.whitelist;
+    console.log('✓ 从 dashboard.json 获取到白名单:', whitelist);
+  } else {
+    console.log('✗ dashboard.json 中无白名单数据，尝试其他方式');
+    
+    // 步骤2: 尝试直接读取白名单文件
+    fetch('./shunt/whitelist.txt', { cache: 'no-store' })
+      .then(response => {
+        if (response.ok) return response.text();
+        throw new Error('文件不存在');
+      })
+      .then(text => {
+        const fileWhitelist = text.split('\n')
+          .map(line => line.trim())
+          .filter(line => line.length > 0);
+        
+        if (fileWhitelist.length > 0) {
+          console.log('✓ 从 whitelist.txt 文件获取到:', fileWhitelist);
+          updateWhitelistDisplay(fileWhitelist);
+        }
+      })
+      .catch(err => {
+        console.log('✗ 无法读取 whitelist.txt:', err.message);
+        // 步骤3: 使用默认白名单
+        const defaultWhitelist = [
+          'googlevideo.com', 'ytimg.com', 'ggpht.com',
+          'youtube.com', 'youtu.be', 'googleapis.com', 'gstatic.com'
+        ];
+        console.log('✓ 使用默认白名单:', defaultWhitelist);
+        updateWhitelistDisplay(defaultWhitelist);
+      });
+  }
+  
+  return whitelist;
+}
+
+function updateWhitelistDisplay(whitelist) {
+  const whitelistText = Array.isArray(whitelist) && whitelist.length > 0 
+    ? whitelist.slice(0, 8).join(', ') + (whitelist.length > 8 ? '...' : '')
+    : '加载中...';
+  
+  document.getElementById('whitelist-text').textContent = whitelistText;
+  console.log('✓ 白名单显示已更新:', whitelistText);
+}
+
 // 渲染协议配置（删除端口列）
 function renderProtocols(model) {
   const tb = document.querySelector('#proto tbody');
@@ -2798,7 +2878,7 @@ function renderProtocols(model) {
       '<td><span class="detail-link" onclick="showProtocolDetails(\'' + p.name + '\')">详情>></span></td>' +
       '<td>' + p.disguise + '</td>' +
       '<td>' + p.scenario + '</td>' +
-      '<td><span class="protocol-status-badge">✓ 运行</span></td>';  // 使用标签样式
+      '<td><span class="protocol-status-badge">✓ 运行</span></td>';
     tb.appendChild(tr);
   });
   
@@ -2814,14 +2894,15 @@ function renderProtocols(model) {
   document.getElementById('vps-ip').textContent = (model.server && (model.server.eip || model.server.ip)) || '-';
   document.getElementById('resi-ip').textContent = sh.proxy_info ? '已配置' : '未配置';
   
-  // 修复白名单显示
-// 修复白名单显示
-const whitelist = sh.whitelist || [];  // 确保读取的是 shunt.whitelist
-const whitelistText = Array.isArray(whitelist) && whitelist.length > 0 
-  ? whitelist.slice(0, 8).join(', ') + (whitelist.length > 8 ? '...' : '')
-  : '加载中...';  // 改为更明确的默认值
-document.getElementById('whitelist-text').textContent = whitelistText;
-
+  // === 白名单数据获取和显示 ===
+  console.log('开始处理白名单数据...');
+  const whitelist = getWhitelistData(model);
+  
+  // 如果直接从 model 获取到了数据，立即更新显示
+  if (whitelist && whitelist.length > 0) {
+    updateWhitelistDisplay(whitelist);
+  }
+  
   // 渲染订阅链接
   const sub = model.subscription || {};
   document.getElementById('sub-plain').value = sub.plain || '';
