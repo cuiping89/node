@@ -1387,19 +1387,47 @@ get_eip() {
 }
 eip="$(get_eip)"
 
+ === 替换成下面的代码 ===
+
 # --- 分流状态 ---
 state_json="${SHUNT_DIR}/state.json"
 mode="vps"; proxy=""; health="unknown"; wl_count=0; whitelist_json='[]'
+
+# 确保分流目录存在
+mkdir -p "${SHUNT_DIR}"
+
+# 确保白名单文件存在
+if [[ ! -s "${SHUNT_DIR}/whitelist.txt" ]]; then
+  cat > "${SHUNT_DIR}/whitelist.txt" << 'EOF'
+googlevideo.com
+ytimg.com
+ggpht.com
+youtube.com
+youtu.be
+googleapis.com
+gstatic.com
+EOF
+fi
+
 if [[ -s "$state_json" ]]; then
   mode="$(jq -r '.mode // "vps"' "$state_json" 2>/dev/null)"
   proxy="$(jq -r '.proxy_info // ""' "$state_json" 2>/dev/null)"
   health="$(jq -r '.health // "unknown"' "$state_json" 2>/dev/null)"
 fi
+
 # 修复白名单数据获取
 if [[ -s "${SHUNT_DIR}/whitelist.txt" ]]; then
   wl_count="$(wc -l < "${SHUNT_DIR}/whitelist.txt" 2>/dev/null || echo 0)"
-  whitelist_json="$(cat "${SHUNT_DIR}/whitelist.txt" | jq -R -s 'split("\n")|map(select(length>0))' 2>/dev/null || echo '[]')"
-else
+  # 修复这里的 JSON 生成逻辑
+  whitelist_json="$(awk 'NF' "${SHUNT_DIR}/whitelist.txt" | jq -R -s 'split("\n") | map(select(length > 0))' 2>/dev/null || echo '["googlevideo.com","ytimg.com","ggpht.com","youtube.com","youtu.be","googleapis.com","gstatic.com"]')"
+fi
+
+# 确保 whitelist_json 是有效 JSON
+if ! echo "$whitelist_json" | jq . >/dev/null 2>&1; then
+  whitelist_json='["googlevideo.com","ytimg.com","ggpht.com","youtube.com","youtu.be","googleapis.com","gstatic.com"]'
+  wl_count=7
+fi
+
   # 创建默认白名单
   mkdir -p "${SHUNT_DIR}"
   echo -e "googlevideo.com\nytimg.com\nggpht.com\nyoutube.com\nyoutu.be\ngoogleapis.com\ngstatic.com" > "${SHUNT_DIR}/whitelist.txt"
