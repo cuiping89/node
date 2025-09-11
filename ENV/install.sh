@@ -1111,6 +1111,7 @@ _parse_sub(){
   export SUB_LINES="$(cat "${TRAFFIC_DIR}/subscription.b64lines" 2>/dev/null || true)"
 }
 	
+# 将整个 generate_dashboard_data 函数替换为以下代码：
 generate_dashboard_data(){
   mkdir -p "$TRAFFIC_DIR"
   read CPU MEM < <(_get_cpu_mem || echo "0 0")
@@ -1158,6 +1159,43 @@ SECRETS_JSON="$(jq -c '{
   }
 }' "$SERVER_JSON" 2>/dev/null || echo "{}")"
 
+# ===== 新增：获取分流状态和白名单数据 =====
+  local SHUNT_DIR="/etc/edgebox/config/shunt"
+  local state_json="${SHUNT_DIR}/state.json"
+  local mode="vps"; local proxy=""; local health="unknown"; local whitelist_json='[]'
+  
+  # 确保分流目录和白名单文件存在
+  mkdir -p "${SHUNT_DIR}"
+  if [[ ! -s "${SHUNT_DIR}/whitelist.txt" ]]; then
+    cat > "${SHUNT_DIR}/whitelist.txt" << 'EOF'
+googlevideo.com
+ytimg.com
+ggpht.com
+youtube.com
+youtu.be
+googleapis.com
+gstatic.com
+EOF
+  fi
+  
+  # 读取分流状态
+  if [[ -s "$state_json" ]]; then
+    mode="$(jq -r '.mode // "vps"' "$state_json" 2>/dev/null)"
+    proxy="$(jq -r '.proxy_info // ""' "$state_json" 2>/dev/null)"
+    health="$(jq -r '.health // "unknown"' "$state_json" 2>/dev/null)"
+  fi
+  
+  # 读取白名单数据
+  if [[ -s "${SHUNT_DIR}/whitelist.txt" ]]; then
+    whitelist_json="$(awk 'NF' "${SHUNT_DIR}/whitelist.txt" | jq -R -s 'split("\n")|map(select(length>0))' 2>/dev/null || echo '["googlevideo.com","ytimg.com","ggpht.com","youtube.com","youtu.be","googleapis.com","gstatic.com"]')"
+  fi
+  
+  # 确保 whitelist_json 是有效 JSON
+  if ! echo "$whitelist_json" | jq . >/dev/null 2>&1; then
+    whitelist_json='["googlevideo.com","ytimg.com","ggpht.com","youtube.com","youtu.be","googleapis.com","gstatic.com"]'
+  fi
+# ===== 结束新增部分 =====
+
 jq -n \
   --arg ts "$(date -Is)" \
   --arg ip "$IP" --arg eip "$EIP" \
@@ -1166,6 +1204,7 @@ jq -n \
   --arg sub_p "${SUB_PLAIN:-}" --arg sub_b "${SUB_B64:-}" --arg sub_l "${SUB_LINES:-}" \
   --arg nginx_st "$nginx_status" --arg xray_st "$xray_status" --arg singbox_st "$singbox_status" \
   --argjson secrets "$SECRETS_JSON" \
+  --arg mode "$mode" --arg proxy_info "$proxy" --arg health "$health" --argjson whitelist "$whitelist_json" \
   '{
     updated_at: $ts,
     server: {
@@ -1175,6 +1214,12 @@ jq -n \
       cert_expire: (if $ce=="" then null else $ce end)
     },
     services: { nginx: $nginx_st, xray: $xray_st, "sing-box": $singbox_st },
+    shunt: {
+      mode: $mode,
+      proxy_info: $proxy_info,
+      health: $health,
+      whitelist: $whitelist
+    },
     subscription: { plain: $sub_p, base64: $sub_b, b64_lines: $sub_l },
     secrets: $secrets
   }' > "${TRAFFIC_DIR}/dashboard.json"
@@ -1387,47 +1432,19 @@ get_eip() {
 }
 eip="$(get_eip)"
 
- === 替换成下面的代码 ===
-
 # --- 分流状态 ---
 state_json="${SHUNT_DIR}/state.json"
 mode="vps"; proxy=""; health="unknown"; wl_count=0; whitelist_json='[]'
-
-# 确保分流目录存在
-mkdir -p "${SHUNT_DIR}"
-
-# 确保白名单文件存在
-if [[ ! -s "${SHUNT_DIR}/whitelist.txt" ]]; then
-  cat > "${SHUNT_DIR}/whitelist.txt" << 'EOF'
-googlevideo.com
-ytimg.com
-ggpht.com
-youtube.com
-youtu.be
-googleapis.com
-gstatic.com
-EOF
-fi
-
 if [[ -s "$state_json" ]]; then
   mode="$(jq -r '.mode // "vps"' "$state_json" 2>/dev/null)"
   proxy="$(jq -r '.proxy_info // ""' "$state_json" 2>/dev/null)"
   health="$(jq -r '.health // "unknown"' "$state_json" 2>/dev/null)"
 fi
-
 # 修复白名单数据获取
 if [[ -s "${SHUNT_DIR}/whitelist.txt" ]]; then
   wl_count="$(wc -l < "${SHUNT_DIR}/whitelist.txt" 2>/dev/null || echo 0)"
-  # 修复这里的 JSON 生成逻辑
-  whitelist_json="$(awk 'NF' "${SHUNT_DIR}/whitelist.txt" | jq -R -s 'split("\n") | map(select(length > 0))' 2>/dev/null || echo '["googlevideo.com","ytimg.com","ggpht.com","youtube.com","youtu.be","googleapis.com","gstatic.com"]')"
-fi
-
-# 确保 whitelist_json 是有效 JSON
-if ! echo "$whitelist_json" | jq . >/dev/null 2>&1; then
-  whitelist_json='["googlevideo.com","ytimg.com","ggpht.com","youtube.com","youtu.be","googleapis.com","gstatic.com"]'
-  wl_count=7
-fi
-
+  whitelist_json="$(cat "${SHUNT_DIR}/whitelist.txt" | jq -R -s 'split("\n")|map(select(length>0))' 2>/dev/null || echo '[]')"
+else
   # 创建默认白名单
   mkdir -p "${SHUNT_DIR}"
   echo -e "googlevideo.com\nytimg.com\nggpht.com\nyoutube.com\nyoutu.be\ngoogleapis.com\ngstatic.com" > "${SHUNT_DIR}/whitelist.txt"
