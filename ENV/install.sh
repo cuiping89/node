@@ -1837,7 +1837,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         /* 流量图表布局 */
         .traffic-charts {
             display: grid;
-            grid-template-columns: 7fr 3fr;
+            grid-template-columns: 1fr 320px;  /* 右侧图表固定320px，与出站分流卡片宽度一致 */
             gap: 16px;
             margin-top: 50px;
         }
