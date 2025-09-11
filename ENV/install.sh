@@ -1506,7 +1506,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 
         /* 统一字号层级 */
         .main-title {
-            font-size: 1.3rem;  /* 主标题加大 */
+            font-size: 1.5rem;  /* 主标题加大 */
             font-weight: 600;
         }
 
@@ -1524,7 +1524,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         .info-block h4 {
             margin: 0 0 8px 0;
             font-size: 1rem;  /* 与卡片标题同级 */
-            color: var(--muted);
+            color: #1e293b;
             font-weight: 600;
         }
 
@@ -1584,10 +1584,16 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         }
 
         .info-block .value {
-            font-size: .95rem;  /* 统一值字号 */
-            font-weight: 600;
-            color: #1e293b;
+            font-size: .9rem;  /* 统一值字号 */
+            font-weight: 500;
+            color: #64748b;
         }
+		
+		/* 添加新样式：运行状态为绿色 */
+.info-block .value.status-running {
+    color: #10b981;     /* 绿色，用于"运行中"状态 */
+    font-weight: 600;   /* 运行状态稍微加重 */
+}
 
         /* 通知中心小图标 */
         .notification-bell {
@@ -2062,13 +2068,13 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
           <div class="shunt-modes">
             <span class="shunt-mode-tab active vps" id="tab-vps" data-mode="vps">VPS-IP出站</span>
             <span class="shunt-mode-tab" id="tab-resi" data-mode="resi">代理IP出站</span>
-            <span class="shunt-mode-tab" id="tab-direct-resi" data-mode="direct-resi">分流(VPS𓄋代理)</span>
+            <span class="shunt-mode-tab" id="tab-direct-resi" data-mode="direct-resi">分流(VPS∧代理)</span>
           </div>
           <div class="shunt-info">
             <div class="small">VPS出站IP: <span id="vps-ip">-</span></div>
             <div class="small">代理出站IP: <span id="resi-ip">待获取</span></div>
             <div class="kv">
-              <div class="k">白名单：</div>
+              <div class="k">VPS白名单：</div>
               <div class="v" id="whitelist-text">加载中...</div>
             </div>
           </div>
@@ -2537,10 +2543,22 @@ function renderHeader(model) {
   // CPU/内存从system.json单独获取
   loadSystemStats();
   
-  // 服务状态
-  document.getElementById('nginx-status').textContent = svc.nginx === 'active' ? '运行中' : '已停止';
-  document.getElementById('xray-status').textContent = svc.xray === 'active' ? '运行中' : '已停止';
-  document.getElementById('singbox-status').textContent = svc['sing-box'] === 'active' ? '运行中' : '已停止';
+ // 服务状态 - 添加状态样式类
+const nginxStatus = svc.nginx === 'active' ? '运行中' : '已停止';
+const xrayStatus = svc.xray === 'active' ? '运行中' : '已停止';
+const singboxStatus = svc['sing-box'] === 'active' ? '运行中' : '已停止';
+
+const nginxEl = document.getElementById('nginx-status');
+nginxEl.textContent = nginxStatus;
+nginxEl.className = svc.nginx === 'active' ? 'status-running' : '';
+
+const xrayEl = document.getElementById('xray-status');
+xrayEl.textContent = xrayStatus;
+xrayEl.className = svc.xray === 'active' ? 'status-running' : '';
+
+const singboxEl = document.getElementById('singbox-status');
+singboxEl.textContent = singboxStatus;
+singboxEl.className = svc['sing-box'] === 'active' ? 'status-running' : '';
 }
 
 // 单独加载系统状态
