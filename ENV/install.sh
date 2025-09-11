@@ -1054,6 +1054,9 @@ EOF
 #############################################
 
 # 设置流量监控系统
+#!/bin/bash
+# 修复后的流量监控设置函数
+
 setup_traffic_monitoring() {
   log_info "设置流量采集与前端渲染（vnStat + nftables + CSV/JSON + Chart.js + 预警）..."
 
@@ -1138,7 +1141,7 @@ get_resi_bytes() {
     nft -j list counters table inet edgebox \
      | jq -r '[.nftables[]?|select(.counter.name=="c_resi_out")|.counter.bytes][0] // 0'
   else
-    nft list counter inet edgebox c_resi_out 2>/dev/null | awk '/bytes/ {print $2;exit}'
+    nft list counter inet edgebox c_resi_out 2>/dev/null | awk '/bytes/ {print $2;exit}' || echo 0
   fi
 }
 RESI_CUR="$(get_resi_bytes)"; RESI_CUR="${RESI_CUR:-0}"
@@ -1189,7 +1192,7 @@ printf 'PREV_TX=%s\nPREV_RX=%s\nPREV_RESI=%s\n' "$TX_CUR" "$RX_CUR" "$RESI_CUR" 
 COLLECTOR
 chmod +x "${SCRIPTS_DIR}/traffic-collector.sh"
 
-# 3. 面板数据刷新（自包含版本，不依赖外部函数）
+# 3. 面板数据刷新（修复订阅和白名单数据获取）
 cat > "${SCRIPTS_DIR}/panel-refresh.sh" <<'PANEL'
 #!/bin/bash
 set -euo pipefail
@@ -1201,9 +1204,15 @@ mkdir -p "$TRAFFIC_DIR"
 
 # --- 基本信息 ---
 srv_json="${CONFIG_DIR}/server.json"
-server_ip="$( (jq -r '.server_ip' "$srv_json" 2>/dev/null) || hostname -I | awk '{print $1}' )"
-version="$( (jq -r '.version' "$srv_json" 2>/dev/null) || echo 'v3.0.0')"
-install_date="$( (jq -r '.install_date' "$srv_json" 2>/dev/null) || date +%F)"
+if [[ -s "$srv_json" ]]; then
+  server_ip="$(jq -r '.server_ip // empty' "$srv_json" 2>/dev/null)"
+  version="$(jq -r '.version // empty' "$srv_json" 2>/dev/null)"
+  install_date="$(jq -r '.install_date // empty' "$srv_json" 2>/dev/null)"
+else
+  server_ip="$(hostname -I | awk '{print $1}' || echo '127.0.0.1')"
+  version="v3.0.0"
+  install_date="$(date +%F)"
+fi
 
 # 证书模式/域名/到期
 cert_domain=""
@@ -1231,54 +1240,34 @@ eip="$(get_eip)"
 state_json="${SHUNT_DIR}/state.json"
 mode="vps"; proxy=""; health="unknown"; wl_count=0; whitelist_json='[]'
 if [[ -s "$state_json" ]]; then
-  mode="$(jq -r '.mode' "$state_json")"
-  proxy="$(jq -r '.proxy_info // ""' "$state_json")"
-  health="$(jq -r '.health // "unknown"' "$state_json")"
+  mode="$(jq -r '.mode // "vps"' "$state_json" 2>/dev/null)"
+  proxy="$(jq -r '.proxy_info // ""' "$state_json" 2>/dev/null)"
+  health="$(jq -r '.health // "unknown"' "$state_json" 2>/dev/null)"
 fi
+# 修复白名单数据获取
 if [[ -s "${SHUNT_DIR}/whitelist.txt" ]]; then
-  wl_count="$(grep -cve '^\s*$' "${SHUNT_DIR}/whitelist.txt" || true)"
-  whitelist_json="$(jq -R -s 'split("\n")|map(select(length>0))' "${SHUNT_DIR}/whitelist.txt")"
+  wl_count="$(wc -l < "${SHUNT_DIR}/whitelist.txt" 2>/dev/null || echo 0)"
+  whitelist_json="$(cat "${SHUNT_DIR}/whitelist.txt" | jq -R -s 'split("\n")|map(select(length>0))' 2>/dev/null || echo '[]')"
+else
+  # 创建默认白名单
+  mkdir -p "${SHUNT_DIR}"
+  echo -e "googlevideo.com\nytimg.com\nggpht.com\nyoutube.com\nyoutu.be\ngoogleapis.com\ngstatic.com" > "${SHUNT_DIR}/whitelist.txt"
+  wl_count=7
+  whitelist_json='["googlevideo.com","ytimg.com","ggpht.com","youtube.com","youtu.be","googleapis.com","gstatic.com"]'
 fi
 
 # --- 协议配置（检测监听端口/进程，做成一览表） ---
 SS="$(ss -H -lnptu 2>/dev/null || true)"
-add_proto() {  # name proto port proc note
-  local name="$1" proto="$2" port="$3" proc="$4" note="$5"
-  jq -n --arg name "$name" --arg proto "$proto" --argjson port "$port" \
-        --arg proc "$proc" --arg note "$note" \
-     '{name:$name, proto:$proto, port:$port, proc:$proc, note:$note}'
-}
 has_listen() { # proto port keyword_in_process
   local proto="$1" port="$2" kw="$3"
-  grep -E "(^| )$proto .*:$port " <<<"$SS" | grep -qi "$kw"
+  echo "$SS" | grep -E "(^| )$proto .*:$port " | grep -qi "$kw"
 }
-protos=()
 
-# Xray / sing-box on 443 (Reality / VLESS-WS / VLESS-gRPC / Trojan-TLS 等)
-if has_listen tcp 443 "xray|sing-box|trojan"; then
-  protos+=( "$(add_proto 'VLESS/Trojan (443/TCP)' 'tcp' 443 "$(grep -E 'tcp .*:443 ' <<<"$SS" | awk -F',' '/users/ {print $2;exit}' | sed 's/\"//g')" 'Reality/WS/gRPC/TLS 同端口，多协议复用')" )
-else
-  protos+=( "$(add_proto 'VLESS/Trojan (443/TCP)' 'tcp' 443 '未监听' '未检测到 443 TCP')" )
-fi
-
-# Hysteria2（常见 UDP 端口：8443/443）
-if has_listen udp 8443 "hysteria|sing-box"; then
-  protos+=( "$(add_proto 'Hysteria2' 'udp' 8443 'hysteria/sing-box' '高性能 UDP 通道（直连，不参与分流）')" )
-elif has_listen udp 443 "hysteria|sing-box"; then
-  protos+=( "$(add_proto 'Hysteria2' 'udp' 443 'hysteria/sing-box' '高性能 UDP 通道（直连，不参与分流）')" )
-else
-  protos+=( "$(add_proto 'Hysteria2' 'udp' 0 '未监听' '未检测到常见端口 8443/443')" )
-fi
-
-# TUIC（常见 UDP 端口：2053）
-if has_listen udp 2053 "tuic|sing-box"; then
-  protos+=( "$(add_proto 'TUIC' 'udp' 2053 'tuic/sing-box' '高性能 UDP 通道（直连，不参与分流）')" )
-else
-  protos+=( "$(add_proto 'TUIC' 'udp' 2053 '未监听' '未检测到 2053 UDP')" )
-fi
-
-# 汇总为 JSON 数组
-protocols_json="$(jq -s '.' <<<"${protos[*]:-[]}")"
+# 检查各协议状态
+has_tcp443="false"; has_hy2="false"; has_tuic="false"
+has_listen tcp 443 "nginx" && has_tcp443="true"
+(has_listen udp 443 "sing-box" || has_listen udp 8443 "sing-box" || has_listen udp 443 "hysteria") && has_hy2="true"
+has_listen udp 2053 "sing-box" && has_tuic="true"
 
 # --- 订阅数据获取（修复数据获取问题） ---
 sub_plain=""
@@ -1303,6 +1292,7 @@ if [[ -n "$sub_plain" ]]; then
   fi
   
   # 生成逐行 base64
+  temp_file="$(mktemp)"
   while IFS= read -r line; do
     [[ -z "$line" ]] && continue
     if base64 --help 2>&1 | grep -q -- ' -w'; then
@@ -1311,23 +1301,48 @@ if [[ -n "$sub_plain" ]]; then
       printf '%s' "$line" | sed -e '$a\' | base64 | tr -d '\n'
     fi
     printf '\n'
-  done <<<"$sub_plain" > "${TRAFFIC_DIR}/subscription.b64lines"
-  sub_b64_lines="$(cat "${TRAFFIC_DIR}/subscription.b64lines" 2>/dev/null || true)"
+  done <<<"$sub_plain" > "$temp_file"
+  sub_b64_lines="$(cat "$temp_file")"
+  rm -f "$temp_file"
   
   # 确保订阅文件同步
   [[ ! -s "${TRAFFIC_DIR}/sub.txt" ]] && printf '%s\n' "$sub_plain" > "${TRAFFIC_DIR}/sub.txt"
   [[ ! -s "/var/www/html/sub" ]] && printf '%s\n' "$sub_plain" > "/var/www/html/sub"
 fi
 
+# --- 从 server.json 提取敏感字段，生成 secrets 对象 ---
+secrets_json="{}"
+if [[ -s "$srv_json" ]]; then
+  secrets_json="$(jq -c '{
+    vless:{
+      reality: (.uuid.vless.reality // .uuid.vless // ""),
+      grpc:    (.uuid.vless.grpc    // .uuid.vless // ""),
+      ws:      (.uuid.vless.ws      // .uuid.vless // "")
+    },
+    tuic_uuid: (.uuid.tuic // ""),
+    password:{
+      trojan:     (.password.trojan     // ""),
+      hysteria2:  (.password.hysteria2  // ""),
+      tuic:       (.password.tuic       // "")
+    },
+    reality:{
+      public_key: (.reality.public_key // ""),
+      short_id:   (.reality.short_id   // "")
+    }
+  }' "$srv_json" 2>/dev/null || echo "{}")"
+fi
+
 # --- 写 dashboard.json（统一数据源） ---
 jq -n \
   --arg ts "$(date -Is)" \
-  --arg ip "$SERVER_IP_" --arg eip "$EIP_" \
-  --arg ver "${EDGEBOX_VER_:-3.0.0}" --arg inst "${INSTALL_DATE_:-$(date +%F)}" \
-  --arg cm "$INSTALL_MODE_" --arg cd "$SERVER_DOMAIN_" --arg ce "$CERT_EXPIRE" \
+  --arg ip "$server_ip" --arg eip "$eip" \
+  --arg ver "$version" --arg inst "$install_date" \
+  --arg cm "$cert_mode" --arg cd "$cert_domain" --arg ce "$cert_expire" \
+  --arg mode "$mode" --arg proxy_info "$proxy" --arg health "$health" \
+  --argjson whitelist "$whitelist_json" \
   --arg b1 "$has_tcp443" --arg b2 "$has_hy2" --arg b3 "$has_tuic" \
-  --arg sub_p "$SUB_PLAIN" --arg sub_b "$SUB_B64" --arg sub_l "$SUB_LINES" \
-  --argjson secrets "${SECRETS_JSON:-{}}" \
+  --arg sub_p "$sub_plain" --arg sub_b "$sub_b64" --arg sub_l "$sub_b64_lines" \
+  --argjson secrets "$secrets_json" \
   '{
     updated_at: $ts,
     server: {
@@ -1344,8 +1359,17 @@ jq -n \
       {name:"Hysteria2",              proto:"udp",  port:0,    proc:(if $b2=="true" then "listening" else "未监听" end), note:"8443/443"},
       {name:"TUIC",                   proto:"udp",  port:2053, proc:(if $b3=="true" then "listening" else "未监听" end), note:"2053"}
     ],
-    shunt: {mode:"vps", proxy_info:"", health:"ok",
-            whitelist:["googlevideo.com","ytimg.com","ggpht.com","youtube.com","youtu.be","googleapis.com","gstatic.com","example.com"]},
+    services: {
+      nginx: "'$(systemctl is-active nginx 2>/dev/null || echo "inactive")'",
+      xray: "'$(systemctl is-active xray 2>/dev/null || echo "inactive")'",
+      "sing-box": "'$(systemctl is-active sing-box 2>/dev/null || echo "inactive")'"
+    },
+    shunt: {
+      mode: $mode, 
+      proxy_info: $proxy_info, 
+      health: $health,
+      whitelist: $whitelist
+    },
     subscription: { plain: $sub_p, base64: $sub_b, b64_lines: $sub_l },
     secrets: $secrets
   }' > "${TRAFFIC_DIR}/dashboard.json"
@@ -1353,7 +1377,6 @@ jq -n \
 # 写订阅复制链接
 proto="http"; addr="$server_ip"
 if [[ "$cert_mode" == "letsencrypt" && -n "$cert_domain" ]]; then proto="https"; addr="$cert_domain"; fi
-[[ -s "${TRAFFIC_DIR}/sub.txt" ]] || cp -f /var/www/html/sub "${TRAFFIC_DIR}/sub.txt"
 echo "${proto}://${addr}/sub" > "${TRAFFIC_DIR}/sub.link"
 PANEL
 chmod +x "${SCRIPTS_DIR}/panel-refresh.sh"
@@ -1422,25 +1445,8 @@ echo "$new_sent" > "$STATE"
 ALERT
 chmod +x "${SCRIPTS_DIR}/traffic-alert.sh"
 
-#!/bin/bash
-# EdgeBox 控制面板HTML完整替换脚本
-# 优化：7:3排版 + 图例留白 + y轴顶部GiB + 注释固定底部 + 本月进度自动刷新
-
-set -euo pipefail
-
-TRAFFIC_DIR="/etc/edgebox/traffic"
-TARGET_FILE="${TRAFFIC_DIR}/index.html"
-
-[[ $EUID -ne 0 ]] && { echo "需要 root 权限"; exit 1; }
-[[ ! -d "$TRAFFIC_DIR" ]] && { echo "EdgeBox 未安装"; exit 1; }
-
-echo "备份原文件..."
-[[ -f "$TARGET_FILE" ]] && cp "$TARGET_FILE" "${TARGET_FILE}.bak.$(date +%s)"
-
-echo "生成优化版控制面板..."
-
-# 控制面板（修复版：统一数据源+字号+自适应+置底注释）
-cat > "$TARGET_FILE" <<'HTML'
+# 生成修复后的控制面板HTML
+cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -1686,7 +1692,7 @@ cat > "$TARGET_FILE" <<'HTML'
         .sub-row {
             display: flex;
             gap: 8px;
-            align-items: center;
+            align-items: flex-start;
             margin-bottom: 8px;
         }
 
@@ -1694,6 +1700,7 @@ cat > "$TARGET_FILE" <<'HTML'
             font-size: .85rem;
             color: var(--muted);
             min-width: 80px;
+            margin-top: 8px;
         }
 
         .sub-input {
@@ -1704,6 +1711,8 @@ cat > "$TARGET_FILE" <<'HTML'
             font-size: .85rem;
             font-family: monospace;
             background: #fff;
+            resize: vertical;
+            min-height: 60px;
         }
 
         .sub-copy-btn {
@@ -1713,6 +1722,7 @@ cat > "$TARGET_FILE" <<'HTML'
             border-radius: 4px;
             cursor: pointer;
             font-size: .85rem;
+            margin-top: 8px;
         }
 
         .sub-copy-btn:hover { background: #e2e8f0; }
@@ -1964,6 +1974,28 @@ cat > "$TARGET_FILE" <<'HTML'
             font-size: .8rem;
             margin-top: 4px;
         }
+
+        /* 白名单显示样式 */
+        .kv {
+            display: flex;
+            gap: 8px;
+            align-items: flex-start;
+            margin-bottom: 8px;
+        }
+
+        .kv .k {
+            font-size: .85rem;
+            color: var(--muted);
+            min-width: 60px;
+            flex-shrink: 0;
+        }
+
+        .kv .v {
+            font-size: .85rem;
+            color: #1e293b;
+            flex: 1;
+            word-break: break-word;
+        }
     </style>
 </head>
 <body>
@@ -2033,9 +2065,9 @@ cat > "$TARGET_FILE" <<'HTML'
             <div class="small">VPS出站IP: <span id="vps-ip">-</span></div>
             <div class="small">代理出站IP: <span id="resi-ip">待获取</span></div>
             <div class="kv">
-  <div class="k">白名单：</div>
-  <div class="v" id="whitelist-text">加载中...</div>
-</div>
+              <div class="k">白名单：</div>
+              <div class="v" id="whitelist-text">加载中...</div>
+            </div>
           </div>
         </div>
         <div class="shunt-note">注：HY2/TUIC为UDP通道，VPS直出，不参与代理IP分流</div>
@@ -2048,23 +2080,23 @@ cat > "$TARGET_FILE" <<'HTML'
     <div class="card">
       <h3>订阅链接</h3>
       <div class="content">
-<div class="sub-row">
-  <div class="sub-label">明文链接:</div>
-  <textarea id="sub-plain" class="sub-input sub-one" rows="1"></textarea>
-  <button class="sub-copy-btn" onclick="copySub('plain')">复制</button>
-</div>
+        <div class="sub-row">
+          <div class="sub-label">明文链接:</div>
+          <textarea id="sub-plain" class="sub-input" readonly></textarea>
+          <button class="sub-copy-btn" onclick="copySub('plain')">复制</button>
+        </div>
 
-<div class="sub-row">
-  <div class="sub-label">Base64:</div>
-  <textarea id="sub-b64" class="sub-input sub-one" rows="1"></textarea>
-  <button class="sub-copy-btn" onclick="copySub('b64')">复制</button>
-</div>
+        <div class="sub-row">
+          <div class="sub-label">Base64:</div>
+          <textarea id="sub-b64" class="sub-input" readonly></textarea>
+          <button class="sub-copy-btn" onclick="copySub('b64')">复制</button>
+        </div>
 
-<div class="sub-row">
-  <div class="sub-label">B64逐行:</div>
-  <textarea id="sub-b64lines" class="sub-input sub-one" rows="1"></textarea>
-  <button class="sub-copy-btn" onclick="copySub('b64lines')">复制</button>
-</div>
+        <div class="sub-row">
+          <div class="sub-label">B64逐行:</div>
+          <textarea id="sub-b64lines" class="sub-input" readonly></textarea>
+          <button class="sub-copy-btn" onclick="copySub('b64lines')">复制</button>
+        </div>
       </div>
     </div>
   </div>
@@ -2561,16 +2593,19 @@ function renderProtocols(model) {
 
   document.getElementById('vps-ip').textContent = (model.server && (model.server.eip || model.server.ip)) || '-';
   document.getElementById('resi-ip').textContent = sh.proxy_info ? '已配置' : '未配置';
-  document.getElementById('whitelist-domains').textContent =
-    (Array.isArray(sh.whitelist) && sh.whitelist.length)
-      ? sh.whitelist.slice(0,8).join(', ')
-      : '无';
+  
+  // 修复白名单显示
+  const whitelist = sh.whitelist || [];
+  const whitelistText = Array.isArray(whitelist) && whitelist.length > 0 
+    ? whitelist.slice(0, 8).join(', ') + (whitelist.length > 8 ? '...' : '')
+    : '无';
+  document.getElementById('whitelist-text').textContent = whitelistText;
 
   // 渲染订阅链接
   const sub = model.subscription || {};
-  document.getElementById('sub-plain').innerHTML = sub.plain || '';
-  document.getElementById('sub-b64').innerHTML = sub.base64 || '';
-  document.getElementById('sub-b64lines').innerHTML = sub.b64_lines || '';
+  document.getElementById('sub-plain').value = sub.plain || '';
+  document.getElementById('sub-b64').value = sub.base64 || '';
+  document.getElementById('sub-b64lines').value = sub.b64_lines || '';
 }
 
 // 渲染流量图表（移除Y轴顶部GiB标记）
