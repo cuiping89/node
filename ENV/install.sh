@@ -217,7 +217,7 @@ install_dependencies() {
     return 0
 }
 
-# 生成UUID和密码
+# 修复后的 generate_credentials 函数
 generate_credentials() {
     log_info "正在生成 UUID 和密码..."
     if ! command -v uuidgen &> /dev/null; then
@@ -225,7 +225,7 @@ generate_credentials() {
         return 1
     fi
     
-    # 修正：为每种协议生成一个独立的 UUID
+    # 为每种协议生成独立的 UUID
     UUID_VLESS_REALITY=$(uuidgen)
     UUID_VLESS_GRPC=$(uuidgen)
     UUID_VLESS_WS=$(uuidgen)
@@ -233,19 +233,29 @@ generate_credentials() {
     UUID_TUIC=$(uuidgen)
     UUID_TROJAN=$(uuidgen)
 
-  PASSWORD_TROJAN=$(openssl rand -base64 24)
-  PASSWORD_TUIC=$(openssl rand -base64 24)
-  PASSWORD_HYSTERIA2=$(openssl rand -base64 24)
+    # 为了兼容性，保留通用UUID变量
+    UUID_VLESS="$UUID_VLESS_REALITY"
 
-  log_success "VLESS-REALITY: ${UUID_VLESS_REALITY}"
-  log_success "VLESS-gRPC   : ${UUID_VLESS_GRPC}"
-  log_success "VLESS-WS     : ${UUID_VLESS_WS}"
-  
-  if [ -z "$UUID_VLESS_REALITY" ]; then
-        log_error "UUID 生成失败！"
+    # 生成密码
+    PASSWORD_TROJAN=$(openssl rand -base64 24)
+    PASSWORD_TUIC=$(openssl rand -base64 24)
+    PASSWORD_HYSTERIA2=$(openssl rand -base64 24)
+
+    # 验证生成结果
+    if [[ -z "$UUID_VLESS_REALITY" || -z "$PASSWORD_TROJAN" || -z "$PASSWORD_HYSTERIA2" ]]; then
+        log_error "UUID 或密码生成失败！"
         return 1
     fi
-    log_success "UUID 和密码生成成功。"
+
+    log_success "凭据生成完成："
+    log_success "VLESS-REALITY: ${UUID_VLESS_REALITY}"
+    log_success "VLESS-gRPC   : ${UUID_VLESS_GRPC}"
+    log_success "VLESS-WS     : ${UUID_VLESS_WS}"
+    log_success "TUIC UUID    : ${UUID_TUIC}"
+    log_success "Trojan 密码  : ${PASSWORD_TROJAN:0:8}..."
+    log_success "Hysteria2    : ${PASSWORD_HYSTERIA2:0:8}..."
+    log_success "TUIC 密码    : ${PASSWORD_TUIC:0:8}..."
+    
     return 0
 }
 
@@ -761,26 +771,57 @@ EOF
 }
 
 # 保存配置信息
+# 修复后的 save_config_info 函数
 save_config_info() {
     log_info "保存配置信息..."
     mkdir -p "${CONFIG_DIR}"
 
+    # 确保所有必要变量都有值
+    local server_ip="${SERVER_IP:-}"
+    local version="${EDGEBOX_VER:-3.0.0}"
+    local install_date="$(date +%Y-%m-%d)"
+    
+    # UUID变量检查和默认值
+    local vless_reality="${UUID_VLESS_REALITY:-$UUID_VLESS}"
+    local vless_grpc="${UUID_VLESS_GRPC:-$UUID_VLESS}"
+    local vless_ws="${UUID_VLESS_WS:-$UUID_VLESS}"
+    local tuic_uuid="${UUID_TUIC:-}"
+    
+    # 密码变量检查
+    local trojan_pass="${PASSWORD_TROJAN:-}"
+    local tuic_pass="${PASSWORD_TUIC:-}"
+    local hy2_pass="${PASSWORD_HYSTERIA2:-}"
+    
+    # Reality变量检查
+    local reality_pub="${REALITY_PUBLIC_KEY:-}"
+    local reality_pri="${REALITY_PRIVATE_KEY:-}"
+    local reality_sid="${REALITY_SHORT_ID:-}"
+
+    # 验证关键字段
+    if [[ -z "$server_ip" ]]; then
+        log_error "SERVER_IP 为空"
+        return 1
+    fi
+
+    # 生成配置JSON
     jq -n \
-      --arg ip      "${SERVER_IP}" \
-      --arg vm      "${EDGEBOX_VER}" \
-      --arg vr      "${UUID_VLESS_REALITY}" \
-      --arg vg      "${UUID_VLESS_GRPC}" \
-      --arg vw      "${UUID_VLESS_WS}" \
-      --arg tt      "${PASSWORD_TROJAN}" \
-      --arg tu      "${UUID_TUIC}" \
-      --arg tp      "${PASSWORD_TUIC}" \
-      --arg hy      "${PASSWORD_HYSTERIA2}" \
-      --arg rpub    "${REALITY_PUBLIC_KEY}" \
-      --arg rpri    "${REALITY_PRIVATE_KEY}" \
-      --arg rsid    "${REALITY_SHORT_ID}" \
+      --arg ip "$server_ip" \
+      --arg vm "$version" \
+      --arg inst "$install_date" \
+      --arg vr "$vless_reality" \
+      --arg vg "$vless_grpc" \
+      --arg vw "$vless_ws" \
+      --arg tu "$tuic_uuid" \
+      --arg tt "$trojan_pass" \
+      --arg tp "$tuic_pass" \
+      --arg hy "$hy2_pass" \
+      --arg rpub "$reality_pub" \
+      --arg rpri "$reality_pri" \
+      --arg rsid "$reality_sid" \
       '{
         server_ip: $ip,
-        version:   $vm,
+        version: $vm,
+        install_date: $inst,
         uuid: {
           vless: {
             reality: $vr,
@@ -801,8 +842,16 @@ save_config_info() {
         }
       }' > "${CONFIG_DIR}/server.json"
 
+    # 验证生成的JSON
+    if ! jq '.' "${CONFIG_DIR}/server.json" >/dev/null 2>&1; then
+        log_error "生成的 server.json 格式错误"
+        return 1
+    fi
+
     log_success "配置已写入 ${CONFIG_DIR}/server.json"
+    log_debug "server_ip: $server_ip, reality_key: ${reality_pub:0:20}..."
 }
+
 # 安全同步订阅文件：/var/www/html/sub 做符号链接；traffic 下保留一份副本
 sync_subscription_files() {
   log_info "同步订阅文件..."
@@ -852,47 +901,115 @@ start_services() {
   log_success "服务与面板初始化完成"
 }
 
-# >>> 修复后的 generate_subscription 函数 >>>生成订阅（权威数据来自 server.json）
+# 修复后的 generate_subscription 函数
 generate_subscription() {
   local cfg="${CONFIG_DIR}/server.json"
   [[ -s "$cfg" ]] || { log_error "缺少 ${cfg}"; return 1; }
 
+  # 确保 server.json 存在且格式正确
+  if ! jq '.' "$cfg" >/dev/null 2>&1; then
+    log_error "server.json 格式错误"
+    return 1
+  fi
+
   local j='jq -r'
   local ip reality_pbk reality_sid
-  local uuid_reality uuid_grpc uuid_ws
-  local trojan_pw hy2_pw tuic_uuid tuic_pw
+  local uuid_reality uuid_grpc uuid_ws uuid_tuic
+  local trojan_pw hy2_pw tuic_pw
 
-  ip=$($j '.server_ip // empty'           "$cfg")
+  # 读取基础信息
+  ip=$($j '.server_ip // empty' "$cfg")
+  [[ -z "$ip" || "$ip" == "null" ]] && ip="$SERVER_IP"
+  
+  # 读取 Reality 配置
   reality_pbk=$($j '.reality.public_key // empty' "$cfg")
-  reality_sid=$($j '.reality.short_id  // empty'   "$cfg")
+  reality_sid=$($j '.reality.short_id // empty' "$cfg")
 
+  # 读取 UUID - 支持新旧格式
   uuid_reality=$($j '.uuid.vless.reality // .uuid.vless // empty' "$cfg")
-  uuid_grpc=$($j    '.uuid.vless.grpc    // .uuid.vless // empty' "$cfg")
-  uuid_ws=$($j      '.uuid.vless.ws      // .uuid.vless // empty' "$cfg")
+  uuid_grpc=$($j '.uuid.vless.grpc // .uuid.vless // empty' "$cfg")  
+  uuid_ws=$($j '.uuid.vless.ws // .uuid.vless // empty' "$cfg")
+  uuid_tuic=$($j '.uuid.tuic // empty' "$cfg")
 
-  trojan_pw=$($j '.password.trojan    // empty' "$cfg")
-  hy2_pw=$($j    '.password.hysteria2 // empty' "$cfg")
-  tuic_uuid=$($j '.uuid.tuic          // empty' "$cfg")
-  tuic_pw=$($j   '.password.tuic      // empty' "$cfg")
+  # 如果分别的UUID为空，使用通用UUID
+  [[ -z "$uuid_reality" ]] && uuid_reality="${UUID_VLESS_REALITY:-$UUID_VLESS}"
+  [[ -z "$uuid_grpc" ]] && uuid_grpc="${UUID_VLESS_GRPC:-$UUID_VLESS}"
+  [[ -z "$uuid_ws" ]] && uuid_ws="${UUID_VLESS_WS:-$UUID_VLESS}"
 
-  uri(){ jq -nr --arg s "$1" '$s|@uri'; }
+  # 读取密码
+  trojan_pw=$($j '.password.trojan // empty' "$cfg")
+  hy2_pw=$($j '.password.hysteria2 // empty' "$cfg")
+  tuic_pw=$($j '.password.tuic // empty' "$cfg")
 
-  plain=""
-  if [[ -n "$uuid_reality" && -n "$ip" && -n "$reality_pbk" && -n "$reality_sid" ]]; then
+  # 如果JSON中没有，使用全局变量
+  [[ -z "$trojan_pw" ]] && trojan_pw="$PASSWORD_TROJAN"
+  [[ -z "$hy2_pw" ]] && hy2_pw="$PASSWORD_HYSTERIA2"
+  [[ -z "$tuic_pw" ]] && tuic_pw="$PASSWORD_TUIC"
+  [[ -z "$reality_pbk" ]] && reality_pbk="$REALITY_PUBLIC_KEY"
+  [[ -z "$reality_sid" ]] && reality_sid="$REALITY_SHORT_ID"
+
+  # 验证必要字段
+  if [[ -z "$ip" ]]; then
+    log_error "服务器IP为空"
+    return 1
+  fi
+
+  # URL 编码函数
+  uri() { 
+    local str="$1"
+    printf '%s' "$str" | jq -nr --arg s "$str" '$s|@uri'
+  }
+
+  # 生成订阅内容
+  local plain=""
+  
+  # VLESS-Reality
+  if [[ -n "$uuid_reality" && -n "$reality_pbk" && -n "$reality_sid" ]]; then
     plain+="vless://${uuid_reality}@${ip}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${reality_pbk}&sid=${reality_sid}&type=tcp#EdgeBox-REALITY\n"
   fi
-  [[ -n "$uuid_grpc" ]] && plain+="vless://${uuid_grpc}@${ip}:443?encryption=none&security=tls&sni=grpc.edgebox.internal&alpn=h2&type=grpc&serviceName=grpc&fp=chrome&allowInsecure=1#EdgeBox-gRPC\n"
-  [[ -n "$uuid_ws"   ]] && plain+="vless://${uuid_ws}@${ip}:443?encryption=none&security=tls&sni=ws.edgebox.internal&host=ws.edgebox.internal&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome&allowInsecure=1#EdgeBox-WS\n"
-  [[ -n "$trojan_pw" ]] && plain+="trojan://$(uri "$trojan_pw")@${ip}:443?security=tls&sni=trojan.edgebox.internal&alpn=http%2F1.1&fp=chrome&allowInsecure=1#EdgeBox-TROJAN\n"
-  [[ -n "$hy2_pw"    ]] && plain+="hysteria2://$(uri "$hy2_pw")@${ip}:443?sni=${ip}&alpn=h3&insecure=1#EdgeBox-HYSTERIA2\n"
-  [[ -n "$tuic_uuid" && -n "$tuic_pw" ]] && plain+="tuic://${tuic_uuid}:$(uri "$tuic_pw")@${ip}:2053?congestion_control=bbr&alpn=h3&sni=${ip}&allowInsecure=1#EdgeBox-TUIC\n"
+  
+  # VLESS-gRPC
+  if [[ -n "$uuid_grpc" ]]; then
+    plain+="vless://${uuid_grpc}@${ip}:443?encryption=none&security=tls&sni=grpc.edgebox.internal&alpn=h2&type=grpc&serviceName=grpc&fp=chrome&allowInsecure=1#EdgeBox-gRPC\n"
+  fi
+  
+  # VLESS-WS
+  if [[ -n "$uuid_ws" ]]; then
+    plain+="vless://${uuid_ws}@${ip}:443?encryption=none&security=tls&sni=ws.edgebox.internal&host=ws.edgebox.internal&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome&allowInsecure=1#EdgeBox-WS\n"
+  fi
+  
+  # Trojan
+  if [[ -n "$trojan_pw" ]]; then
+    plain+="trojan://$(uri "$trojan_pw")@${ip}:443?security=tls&sni=trojan.edgebox.internal&alpn=http%2F1.1&fp=chrome&allowInsecure=1#EdgeBox-TROJAN\n"
+  fi
+  
+  # Hysteria2
+  if [[ -n "$hy2_pw" ]]; then
+    plain+="hysteria2://$(uri "$hy2_pw")@${ip}:443?sni=${ip}&alpn=h3&insecure=1#EdgeBox-HYSTERIA2\n"
+  fi
+  
+  # TUIC
+  if [[ -n "$uuid_tuic" && -n "$tuic_pw" ]]; then
+    plain+="tuic://${uuid_tuic}:$(uri "$tuic_pw")@${ip}:2053?congestion_control=bbr&alpn=h3&sni=${ip}&allowInsecure=1#EdgeBox-TUIC\n"
+  fi
 
-  [[ -n "$plain" ]] || { log_error "server.json 信息不完整，生成订阅失败"; return 1; }
+  if [[ -z "$plain" ]]; then
+    log_error "生成的订阅内容为空，请检查配置"
+    return 1
+  fi
 
+  # 写入订阅文件
   printf "%b" "$plain" > "${CONFIG_DIR}/subscription.txt"
+  
+  # 确保目录存在
+  mkdir -p "${TRAFFIC_DIR}" "${WEB_ROOT}"
+  
+  # 同步到各个位置
   install -m0644 -T "${CONFIG_DIR}/subscription.txt" "${TRAFFIC_DIR}/sub.txt"
-  install -m0644 -T "${CONFIG_DIR}/subscription.txt" "${WEB_ROOT}/sub"   # ← 不用软链
-  log_success "订阅已生成并同步（traffic/sub.txt 与 web/sub）"
+  install -m0644 -T "${CONFIG_DIR}/subscription.txt" "${WEB_ROOT}/sub"
+  
+  log_success "订阅已生成：${#plain} 字符，包含 $(printf "%b" "$plain" | grep -c '^[a-z]') 个协议"
+  log_debug "订阅内容预览：$(printf "%b" "$plain" | head -n 2)"
 }
 
 # >>> 修复后的 install_scheduled_dashboard_backend 函数 >>>
@@ -924,8 +1041,12 @@ _get_cpu_mem(){
 }
 
 # 读取明文订阅 -> 产出 plain / base64 / b64_lines 三种形态
+# 修复 install_scheduled_dashboard_backend 函数中的 _parse_sub 部分
+# 读取明文订阅 -> 产出 plain / base64 / b64_lines 三种形态
 _parse_sub(){
   local sub_plain="" sub_b64="" line
+  
+  # 按优先级查找订阅文件
   if   [[ -s "${CONFIG_DIR}/subscription.txt" ]]; then
     sub_plain="$(cat "${CONFIG_DIR}/subscription.txt")"
   elif [[ -s "${SUB_CACHE}" ]]; then
@@ -934,12 +1055,40 @@ _parse_sub(){
     sub_plain="$(cat "/var/www/html/sub")"
   fi
 
+  # 如果还是没有内容，尝试从 server.json 重新生成
+  if [[ -z "$sub_plain" && -s "$SERVER_JSON" ]]; then
+    local ip reality_pbk reality_sid uuid_vless uuid_tuic trojan_pw hy2_pw tuic_pw
+    
+    ip="$(jq -r '.server_ip // empty' "$SERVER_JSON")"
+    reality_pbk="$(jq -r '.reality.public_key // empty' "$SERVER_JSON")"
+    reality_sid="$(jq -r '.reality.short_id // empty' "$SERVER_JSON")"
+    uuid_vless="$(jq -r '.uuid.vless.reality // .uuid.vless // empty' "$SERVER_JSON")"
+    uuid_tuic="$(jq -r '.uuid.tuic // empty' "$SERVER_JSON")"
+    trojan_pw="$(jq -r '.password.trojan // empty'	"$SERVER_JSON")"
+    hy2_pw="$(jq -r '.password.hysteria2 // empty' "$SERVER_JSON")"
+    tuic_pw="$(jq -r '.password.tuic // empty' "$SERVER_JSON")"
+    
+    if [[ -n "$ip" && -n "$uuid_vless" ]]; then
+      # 简化版订阅生成
+      sub_plain="vless://${uuid_vless}@${ip}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${reality_pbk}&sid=${reality_sid}&type=tcp#EdgeBox-REALITY"
+      if [[ -n "$hy2_pw" ]]; then
+        sub_plain="${sub_plain}\nhysteria2://$(printf '%s' "$hy2_pw" | jq -rR @uri)@${ip}:443?sni=${ip}&alpn=h3&insecure=1#EdgeBox-HYSTERIA2"
+      fi
+      if [[ -n "$uuid_tuic" && -n "$tuic_pw" ]]; then
+        sub_plain="${sub_plain}\ntuic://${uuid_tuic}:$(printf '%s' "$tuic_pw" | jq -rR @uri)@${ip}:2053?congestion_control=bbr&alpn=h3&sni=${ip}&allowInsecure=1#EdgeBox-TUIC"
+      fi
+    fi
+  fi
+
   if [[ -n "$sub_plain" ]]; then
     if base64 --help 2>&1 | grep -q -- ' -w'; then
       sub_b64="$(printf '%s\n' "$sub_plain" | base64 -w0)"
     else
       sub_b64="$(printf '%s\n' "$sub_plain" | base64 | tr -d '\n')"
     fi
+    
+    # 生成逐行base64
+    : > "${TRAFFIC_DIR}/subscription.b64lines"
     while IFS= read -r line; do
       [[ -z "$line" ]] && continue
       if base64 --help 2>&1 | grep -q -- ' -w'; then
@@ -948,11 +1097,12 @@ _parse_sub(){
         printf '%s' "$line" | sed -e '$a\' | base64 | tr -d '\n'
       fi
       printf '\n'
-    done <<<"$sub_plain" > "${TRAFFIC_DIR}/subscription.b64lines"
+    done <<<"$sub_plain" >> "${TRAFFIC_DIR}/subscription.b64lines"
   else
     : > "${TRAFFIC_DIR}/subscription.b64lines"
   fi
 
+  # 保存明文订阅
   printf '%s\n' "$sub_plain" > "${TRAFFIC_DIR}/subscription.txt"
 
   export SUB_PLAIN="$sub_plain"
@@ -4775,12 +4925,16 @@ trap cleanup EXIT
 # --- /cleanup ---
 
 # 主安装流程
+# 在 main() 函数的开始部分添加版本号设置
 main() {
     clear
     print_separator
     echo -e "${GREEN}EdgeBox 企业级安装脚本 v3.0.0${NC}"
     echo -e "${CYAN}完整版：SNI定向 + 证书切换 + 出站分流 + 流量统计 + 流量预警 + 备份恢复${NC}"
     print_separator
+    
+    # 设置版本号环境变量
+    export EDGEBOX_VER="3.0.0"
     
     # 创建日志文件
     mkdir -p $(dirname "${LOG_FILE}")
@@ -4796,7 +4950,7 @@ main() {
     check_system  
     get_server_ip
     install_dependencies
-    generate_credentials
+    generate_credentials        # 确保在这里生成所有UUID和密码
     create_directories
     check_ports
     configure_firewall
@@ -4804,11 +4958,11 @@ main() {
     generate_self_signed_cert
     install_sing_box
     install_xray
-    generate_reality_keys
+    generate_reality_keys      # 生成Reality密钥
+    save_config_info          # 保存所有配置到JSON
     configure_nginx
     configure_xray
     configure_sing_box
-    save_config_info
     
     # 高级功能安装（模块3）- 先安装后台脚本
     install_scheduled_dashboard_backend
@@ -4818,8 +4972,8 @@ main() {
     create_enhanced_edgeboxctl
     create_init_script
 
-    # 调用 generate_subscription 放在这里
-    generate_subscription
+    # 生成订阅并启动服务
+    generate_subscription     # 现在有完整的配置数据
     start_services
 
     # 启动初始化服务
@@ -4833,11 +4987,12 @@ main() {
     ${SCRIPTS_DIR}/traffic-collector.sh || true
     ${SCRIPTS_DIR}/panel-refresh.sh || true
     
-	# 收尾：订阅 + 首刷 + 定时
-	finalize_install
+    # 收尾：订阅 + 首刷 + 定时
+    finalize_install
+    
     # 显示安装信息
     show_installation_info
-	exit 0
+    exit 0
 }
 
 # 执行主函数
