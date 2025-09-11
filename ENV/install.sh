@@ -1759,7 +1759,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             display: flex;
             flex-direction: column;
             height: 100%;
-            min-height: 220px;
+            min-height: 260px;
         }
 
         .shunt-content {
@@ -1791,7 +1791,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             gap: 8px;
             align-items: stretch;
             margin-bottom: 8px;
-            height: 36px;  /* 统一固定高度 */
+            height: 32px;  /* 统一固定高度 */
         }
 
         .sub-label {
@@ -1806,14 +1806,14 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 
         .sub-input {
             flex: 1;
-            padding: 8px 10px;
+            padding: 6px 10px;
             border: 1px solid var(--border);
             border-radius: 4px;
             font-family: monospace;
             background: #fff;
-            font-size: .875rem;
+            font-size: .8rem;
             color: #64748b;
-            line-height: 1.4;
+            line-height: 1.2;
             resize: none;
             overflow: hidden;
             white-space: nowrap;
@@ -1823,7 +1823,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 
         .sub-copy-btn {
             min-width: 80px;
-            padding: 8px 12px;
+            padding: 6px 12px;
             border: 1px solid var(--border);
             background: #f1f5f9;
             border-radius: 4px;
@@ -2613,32 +2613,24 @@ function renderHeader(model) {
   loadSystemStats();
   
 // 服务状态 - 添加状态样式类
-const nginxStatus = svc.nginx === 'active' ? '运行中' : '已停止';
-const xrayStatus = svc.xray === 'active' ? '运行中' : '已停止';
-const singboxStatus = svc['sing-box'] === 'active' ? '运行中' : '已停止';
+  const nginxStatus = svc.nginx === 'active' ? '运行中' : '已停止';
+  const xrayStatus = svc.xray === 'active' ? '运行中' : '已停止';
+  const singboxStatus = svc['sing-box'] === 'active' ? '运行中' : '已停止';
 
-const nginxEl = document.getElementById('nginx-status');
-nginxEl.textContent = nginxStatus;
-if (svc.nginx === 'active') {
-    nginxEl.classList.add('status-running');
-} else {
-    nginxEl.classList.remove('status-running');
-}
+  const nginxEl = document.getElementById('nginx-status');
+  nginxEl.innerHTML = svc.nginx === 'active' 
+    ? '<span class="service-status-badge">运行中</span>'
+    : '<span class="service-status-badge inactive">已停止</span>';
 
-const xrayEl = document.getElementById('xray-status');
-xrayEl.textContent = xrayStatus;
-if (svc.xray === 'active') {
-    xrayEl.classList.add('status-running');
-} else {
-    xrayEl.classList.remove('status-running');
-}
+  const xrayEl = document.getElementById('xray-status');
+  xrayEl.innerHTML = svc.xray === 'active'
+    ? '<span class="service-status-badge">运行中</span>'
+    : '<span class="service-status-badge inactive">已停止</span>';
 
-const singboxEl = document.getElementById('singbox-status');
-singboxEl.textContent = singboxStatus;
-if (svc['sing-box'] === 'active') {
-    singboxEl.classList.add('status-running');
-} else {
-    singboxEl.classList.remove('status-running');
+  const singboxEl = document.getElementById('singbox-status');
+  singboxEl.innerHTML = svc['sing-box'] === 'active'
+    ? '<span class="service-status-badge">运行中</span>'
+    : '<span class="service-status-badge inactive">已停止</span>';
 }
 }
 
@@ -2680,7 +2672,7 @@ function renderProtocols(model) {
       '<td><span class="detail-link" onclick="showProtocolDetails(\'' + p.name + '\')">详情>></span></td>' +
       '<td>' + p.disguise + '</td>' +
       '<td>' + p.scenario + '</td>' +
-      '<td style="color:#10b981">✓ 运行</td>';
+      '<td><span class="protocol-status-badge">✓ 运行</span></td>';  // 使用标签样式
     tb.appendChild(tr);
   });
   
