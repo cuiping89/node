@@ -1368,7 +1368,7 @@ jq -n \
       mode: $mode, 
       proxy_info: $proxy_info, 
       health: $health,
-      whitelist: $whitelist
+      whitelist: $whitelist    # 确保这里是 whitelist 而不是其他字段名
     },
     subscription: { plain: $sub_p, base64: $sub_b, b64_lines: $sub_l },
     secrets: $secrets
@@ -1712,7 +1712,10 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             font-family: monospace;
             background: #fff;
             resize: vertical;
-            min-height: 60px;
+            height: 32px;      /* 添加这行，固定单行高度 */
+			resize: none;      /* 添加这行，禁止调整大小 */
+			overflow: hidden;  /* 添加这行，隐藏超出内容 */
+			white-space: nowrap; /* 添加这行，单行显示 */
         }
 
         .sub-copy-btn {
@@ -2595,11 +2598,12 @@ function renderProtocols(model) {
   document.getElementById('resi-ip').textContent = sh.proxy_info ? '已配置' : '未配置';
   
   // 修复白名单显示
-  const whitelist = sh.whitelist || [];
-  const whitelistText = Array.isArray(whitelist) && whitelist.length > 0 
-    ? whitelist.slice(0, 8).join(', ') + (whitelist.length > 8 ? '...' : '')
-    : '无';
-  document.getElementById('whitelist-text').textContent = whitelistText;
+// 修复白名单显示
+const whitelist = sh.whitelist || [];  // 确保读取的是 shunt.whitelist
+const whitelistText = Array.isArray(whitelist) && whitelist.length > 0 
+  ? whitelist.slice(0, 8).join(', ') + (whitelist.length > 8 ? '...' : '')
+  : '加载中...';  // 改为更明确的默认值
+document.getElementById('whitelist-text').textContent = whitelistText;
 
   // 渲染订阅链接
   const sub = model.subscription || {};
