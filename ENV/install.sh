@@ -1756,16 +1756,18 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         }
 
         .shunt-wrap {
-            display: flex;
-            flex-direction: column;
-            height: 100%;
-            min-height: 260px;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 320px;      /* 原来 260 不够时提高，真实值按需求再调 */
+    box-sizing: border-box;
+    position: relative;
         }
 
         .shunt-content {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
+    flex: 1 1 auto;
+    overflow: auto;         /* 关键：允许内部滚动 */
+    padding: 8px;
         }
 
         .shunt-info {
@@ -1776,76 +1778,77 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         }
 
         .shunt-note {
-            margin-top: auto;
-            padding: 8px;
-            border-top: 1px solid var(--border);
-            background: #f8fafc;
-            border-radius: 4px;
-            font-size: .75rem;
-            line-height: 1.4;
+    position: sticky;
+    bottom: 0;
+    margin-top: 8px;
+    padding: 8px;
+    border-top: 1px solid var(--border);
+    background: linear-gradient(180deg, rgba(248,250,252,0.6), rgba(248,250,252,1));
+    border-radius: 4px;
+    font-size: .75rem;
+    line-height: 1.4;
+    z-index: 2;
         }
+		
+	/* 确保内部内容不会被遮挡（当注释为 absolute 时） */
+.shunt-content.padding-bottom-safe { padding-bottom: 56px; }
 
 /* 容器：控制整行高度 */
 .sub-row {
     display: flex;
     gap: 8px;
-    align-items: stretch;    /* 子项高度随容器高度拉伸 */
+    align-items: center;     /* 垂直居中 */
     margin-bottom: 8px;
-    height: 32px;            /* 行高：32px（需要更矮/更高改这里） */
+    height: 32px;            /* 行高，可按需调整 */
+    box-sizing: border-box;
 }
 
-/* 输入显示区：不改字号，只显示一行并用省略号 */
+/* 左侧标签（比如“明文链接:”）——固定宽度，右对齐 */
+.sub-label {
+    width: 140px;            /* 标签列宽，可调（例如 120/140/160） */
+    flex: 0 0 140px;         /* 不缩放、不放大，始终 140px */
+    text-align: right;
+    padding-right: 8px;
+    box-sizing: border-box;
+    font-size: .875rem;
+    color: #334155;
+}
+
+/* 输入区域：确保真正可以缩放/收缩，单行省略号，左对齐 */
 .sub-input {
-    flex: 1;
-    /* 让元素垂直填满容器高度，消除内外尺寸不一致导致的高度偏差 */
+    flex: 1 1 auto;          /* 占据剩余空间，可放大可缩小 */
+    min-width: 0;            /* 关键：允许在 flex 容器内收缩（避免被撑破布局） */
     height: 100%;
-    padding: 6px 10px;                 /* 上下 6px，左右 10px — 保持视觉内距 */
-    box-sizing: border-box;            /* 使 padding 算入高度计算 */
+    padding: 6px 10px;
+    box-sizing: border-box;  /* 让 padding 不撑高父容器 */
     border: 1px solid var(--border);
     border-radius: 4px;
     font-family: monospace;
     background: #fff;
-
-    /* 不改变字号（恢复为 .875rem），确保与你页面的默认字号一致 */
-    font-size: .875rem;                /* 保持原字号，不缩小 */
-
-    /* 为单行显示做准备：设置行高为可用内容高度 */
-    /* 计算思路：容器高度 32px - 上下 padding(6+6)=20px 内容区 12px（也可微调） */
-    line-height: 20px;                 /* 建议：与可视内容高度匹配以垂直居中 */
-
-    /* 单行显示/超出省略号 */
+    font-size: .875rem;      /* 保持原字号 */
+    line-height: 20px;       /* 根据 height 和 padding 调整垂直居中 */
     white-space: nowrap;
     overflow: hidden;
-    text-overflow: ellipsis;
-
-    /* 如果这是 input/textarea，保持不可被拉伸 */
-    resize: none;
-
-    /* 显示内的对齐：把 display 改回 inline-block/ block 更语义化 */
-    display: inline-block;
-    vertical-align: middle;
+    text-overflow: ellipsis; /* 超出省略号 */
+    display: block;          /* 更语义，和 min-width:0 配合更稳定 */
     color: #64748b;
 }
 
-/* 复制按钮：垂直居中并与输入框高度一致（可选） */
+/* 复制按钮：与输入框等高并右侧对齐 */
 .sub-copy-btn {
+    flex: 0 0 auto;
     min-width: 80px;
+    height: 100%;
     padding: 6px 12px;
+    box-sizing: border-box;
     border: 1px solid var(--border);
     background: #f1f5f9;
     border-radius: 4px;
     cursor: pointer;
     font-size: .875rem;
-    color: #64748b;
-    font-weight: 400;
-
-    /* 让按钮与输入框高度一致并垂直居中 */
-    height: 100%;
-    box-sizing: border-box;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    transition: all 0.2s;
 }
 
         .sub-copy-btn:hover { 
@@ -2068,23 +2071,42 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             margin-top: 4px;
         }
 
-        /* 白名单显示样式 */
-        .kv {
-            display: flex;
-            gap: 8px;
-            align-items: flex-start;
-            margin-bottom: 8px;
-        }
+/* ---------------------------
+   白名单（kv）自动折叠样式（CSS）：
+   .kv.v-collapsed 下限制高度，显示省略并出现“查看详情”链接
+   --------------------------- */
+.kv {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    margin-bottom: 8px;
+    position: relative;
+}
+.kv .k { min-width: 60px; flex-shrink: 0; }
+.kv .v { flex: 1; word-break: break-word; }
 
-        .kv .k {
-            min-width: 60px;
-            flex-shrink: 0;
-        }
+/* 折叠状态：限制高度并显示溢出阴影提示 */
+.kv.v-collapsed .v {
+    max-height: 64px;      /* 显示两行左右，按字号调整 */
+    overflow: hidden;
+    position: relative;
+}
+.kv.v-collapsed .v::after {
+    content: "";
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    height: 24px;
+    background: linear-gradient(180deg, rgba(255,255,255,0), rgba(255,255,255,1));
+}
 
-        .kv .v {
-            flex: 1;
-            word-break: break-word;
-        }
+/* 展开/收起按钮 */
+.kv .detail-toggle {
+    margin-left: 8px;
+    cursor: pointer;
+    color: var(--primary);
+    font-size: .85rem;
+    align-self: center;
+}
     </style>
 </head>
 <body>
@@ -2094,7 +2116,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
   <div class="grid grid-full">
     <div class="card">
       <h3 class="main-title">
-        EdgeBox-企业级多协议节点
+        🌐EdgeBox-企业级多协议节点
         <div class="notification-bell" id="notif-bell" onclick="toggleNotifications()">
           🔔 <span id="notif-count">0</span>
           <div class="notification-popup" id="notif-popup">
@@ -2623,6 +2645,24 @@ function renderHeader(model) {
   // CPU/内存从system.json单独获取
   loadSystemStats();
   
+/* CPU/内存 数值样式（metric badges） */
+.metric-badge {
+    display: inline-block;
+    padding: 4px 8px;
+    border-radius: 10px;
+    font-weight: 700;
+    font-size: .85rem;
+    color: white;
+    min-width: 48px;
+    text-align: center;
+}
+
+/* 颜色类：默认绿色/青色，另外两个为告警/危险 */
+.metric-badge.cpu { background: #10b981; }      /* 绿色 */
+.metric-badge.mem { background: #06b6d4; }      /* 青色 */
+.metric-badge.high { background: #f59e0b; }     /* 警告色 */
+.metric-badge.critical { background: #ef4444; } /* 危险色 */
+
 // 服务状态 - 添加状态样式类
   const nginxStatus = svc.nginx === 'active' ? '运行中' : '已停止';
   const xrayStatus = svc.xray === 'active' ? '运行中' : '已停止';
@@ -2705,6 +2745,26 @@ const whitelistText = Array.isArray(whitelist) && whitelist.length > 0
   ? whitelist.slice(0, 8).join(', ') + (whitelist.length > 8 ? '...' : '')
   : '加载中...';  // 改为更明确的默认值
 document.getElementById('whitelist-text').textContent = whitelistText;
+
+document.addEventListener('DOMContentLoaded', function(){
+    // 自动检查所有 .kv .v 内容高度，超出则加 collapsed 并插入 toggle
+    document.querySelectorAll('.kv').forEach(function(kv){
+        var v = kv.querySelector('.v');
+        if(!v) return;
+        // 计算：如果高度超过 72px（两行左右），则折叠
+        if(v.scrollHeight > 72){
+            kv.classList.add('v-collapsed');
+            var btn = document.createElement('span');
+            btn.className = 'detail-toggle';
+            btn.innerText = '详情';
+            btn.addEventListener('click', function(){
+                kv.classList.toggle('v-collapsed');
+                btn.innerText = kv.classList.contains('v-collapsed') ? '详情' : '收起';
+            });
+            kv.appendChild(btn);
+        }
+    });
+});
 
   // 渲染订阅链接
   const sub = model.subscription || {};
