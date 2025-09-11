@@ -1228,6 +1228,75 @@ jq -n \
   log_info "dashboard.json 已更新"
 }
 
+# ===== 新增：获取分流状态和白名单数据 =====
+  local SHUNT_DIR="/etc/edgebox/config/shunt"
+  local state_json="${SHUNT_DIR}/state.json"
+  local mode="vps"; local proxy=""; local health="unknown"; local whitelist_json='[]'
+  
+  # 确保分流目录和白名单文件存在
+  mkdir -p "${SHUNT_DIR}"
+  if [[ ! -s "${SHUNT_DIR}/whitelist.txt" ]]; then
+    cat > "${SHUNT_DIR}/whitelist.txt" << 'EOF'
+googlevideo.com
+ytimg.com
+ggpht.com
+youtube.com
+youtu.be
+googleapis.com
+gstatic.com
+EOF
+  fi
+  
+  # 读取分流状态
+  if [[ -s "$state_json" ]]; then
+    mode="$(jq -r '.mode // "vps"' "$state_json" 2>/dev/null)"
+    proxy="$(jq -r '.proxy_info // ""' "$state_json" 2>/dev/null)"
+    health="$(jq -r '.health // "unknown"' "$state_json" 2>/dev/null)"
+  fi
+  
+  # 读取白名单数据
+  if [[ -s "${SHUNT_DIR}/whitelist.txt" ]]; then
+    whitelist_json="$(awk 'NF' "${SHUNT_DIR}/whitelist.txt" | jq -R -s 'split("\n")|map(select(length>0))' 2>/dev/null || echo '["googlevideo.com","ytimg.com","ggpht.com","youtube.com","youtu.be","googleapis.com","gstatic.com"]')"
+  fi
+  
+  # 确保 whitelist_json 是有效 JSON
+  if ! echo "$whitelist_json" | jq . >/dev/null 2>&1; then
+    whitelist_json='["googlevideo.com","ytimg.com","ggpht.com","youtube.com","youtu.be","googleapis.com","gstatic.com"]'
+  fi
+# ===== 结束新增部分 =====
+
+jq -n \
+  --arg ts "$(date -Is)" \
+  --arg ip "$IP" --arg eip "$EIP" \
+  --arg ver "$VER" --arg inst "$INST" \
+  --arg cm "$CM" --arg cd "$CERT_DOMAIN" --arg ce "$CERT_EXPIRE" \
+  --arg sub_p "${SUB_PLAIN:-}" --arg sub_b "${SUB_B64:-}" --arg sub_l "${SUB_LINES:-}" \
+  --arg nginx_st "$nginx_status" --arg xray_st "$xray_status" --arg singbox_st "$singbox_status" \
+  --argjson secrets "$SECRETS_JSON" \
+  --arg mode "$mode" --arg proxy_info "$proxy" --arg health "$health" --argjson whitelist "$whitelist_json" \
+  '{
+    updated_at: $ts,
+    server: {
+      ip: $ip, eip: (if $eip=="" then null else $eip end),
+      version: $ver, install_date: $inst,
+      cert_mode: $cm, cert_domain: (if $cd=="" then null else $cd end),
+      cert_expire: (if $ce=="" then null else $ce end)
+    },
+    services: { nginx: $nginx_st, xray: $xray_st, "sing-box": $singbox_st },
+    shunt: {
+      mode: $mode,
+      proxy_info: $proxy_info,
+      health: $health,
+      whitelist: $whitelist
+    },
+    subscription: { plain: $sub_p, base64: $sub_b, b64_lines: $sub_l },
+    secrets: $secrets
+  }' > "${TRAFFIC_DIR}/dashboard.json"
+
+  chmod 0644 "${TRAFFIC_DIR}/dashboard.json" "${TRAFFIC_DIR}/system.json" 2>/dev/null || true
+  log_info "dashboard.json 已更新"
+}
+
 schedule_dashboard_jobs(){
   ( crontab -l 2>/dev/null | grep -vE '/dashboard-backend\.sh\b' ) | crontab - || true
   ( crontab -l 2>/dev/null; echo "*/2 * * * * bash -lc '/etc/edgebox/scripts/dashboard-backend.sh --now >/dev/null 2>&1'"; ) | crontab -
