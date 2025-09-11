@@ -1203,15 +1203,19 @@ CONFIG_DIR="/etc/edgebox/config"
 mkdir -p "$TRAFFIC_DIR"
 
 # --- 基本信息 ---
-srv_json="${CONFIG_DIR}/server.json"
 if [[ -s "$srv_json" ]]; then
   server_ip="$(jq -r '.server_ip // empty' "$srv_json" 2>/dev/null)"
   version="$(jq -r '.version // empty' "$srv_json" 2>/dev/null)"
   install_date="$(jq -r '.install_date // empty' "$srv_json" 2>/dev/null)"
 else
-  server_ip="$(hostname -I | awk '{print $1}' || echo '127.0.0.1')"
+  server_ip=""
   version="v3.0.0"
   install_date="$(date +%F)"
+fi
+
+# 修复：如果 server_ip 为空，尝试获取
+if [[ -z "$server_ip" || "$server_ip" == "null" ]]; then
+  server_ip="$(curl -fsS --max-time 3 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}' || echo '127.0.0.1')"
 fi
 
 # 证书模式/域名/到期
@@ -1245,16 +1249,25 @@ if [[ -s "$state_json" ]]; then
   health="$(jq -r '.health // "unknown"' "$state_json" 2>/dev/null)"
 fi
 # 修复白名单数据获取
+# 确保分流目录存在
+mkdir -p "${SHUNT_DIR}"
+
+# 修复白名单数据获取
+if [[ ! -s "${SHUNT_DIR}/whitelist.txt" ]]; then
+  echo -e "googlevideo.com\nytimg.com\nggpht.com\nyoutube.com\nyoutu.be\ngoogleapis.com\ngstatic.com" > "${SHUNT_DIR}/whitelist.txt"
+fi
+
 if [[ -s "${SHUNT_DIR}/whitelist.txt" ]]; then
   wl_count="$(wc -l < "${SHUNT_DIR}/whitelist.txt" 2>/dev/null || echo 0)"
-  whitelist_json="$(cat "${SHUNT_DIR}/whitelist.txt" | jq -R -s 'split("\n")|map(select(length>0))' 2>/dev/null || echo '[]')"
+  whitelist_json="$(cat "${SHUNT_DIR}/whitelist.txt" | jq -R -s 'split("\n")|map(select(length>0))' 2>/dev/null || echo '["googlevideo.com","ytimg.com","ggpht.com","youtube.com","youtu.be","googleapis.com","gstatic.com"]')"
 else
-  # 创建默认白名单
-  mkdir -p "${SHUNT_DIR}"
-  echo -e "googlevideo.com\nytimg.com\nggpht.com\nyoutube.com\nyoutu.be\ngoogleapis.com\ngstatic.com" > "${SHUNT_DIR}/whitelist.txt"
   wl_count=7
   whitelist_json='["googlevideo.com","ytimg.com","ggpht.com","youtube.com","youtu.be","googleapis.com","gstatic.com"]'
 fi
+
+# 确保web目录存在并同步白名单
+mkdir -p /var/www/html/traffic/shunt
+cp "${SHUNT_DIR}/whitelist.txt" "/var/www/html/traffic/shunt/whitelist.txt" 2>/dev/null || true
 
 # --- 协议配置（检测监听端口/进程，做成一览表） ---
 SS="$(ss -H -lnptu 2>/dev/null || true)"
