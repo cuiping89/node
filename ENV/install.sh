@@ -2032,7 +2032,10 @@ cat > "$TARGET_FILE" <<'HTML'
           <div class="shunt-info">
             <div class="small">VPS出站IP: <span id="vps-ip">-</span></div>
             <div class="small">代理出站IP: <span id="resi-ip">待获取</span></div>
-            <div class="small">白名单: <span id="whitelist-domains">-</span></div>
+            <div class="kv">
+  <div class="k">白名单：</div>
+  <div class="v" id="whitelist-text">加载中...</div>
+</div>
           </div>
         </div>
         <div class="shunt-note">注：HY2/TUIC为UDP通道，VPS直出，不参与代理IP分流</div>
@@ -2045,21 +2048,23 @@ cat > "$TARGET_FILE" <<'HTML'
     <div class="card">
       <h3>订阅链接</h3>
       <div class="content">
-        <div class="sub-row">
-          <div class="sub-label">明文链接:</div>
-          <input type="text" id="sub-plain" class="sub-input" readonly>
-          <button class="sub-copy-btn" onclick="copySub('plain')">复制</button>
-        </div>
-        <div class="sub-row">
-          <div class="sub-label">Base64:</div>
-          <input type="text" id="sub-b64" class="sub-input" readonly>
-          <button class="sub-copy-btn" onclick="copySub('b64')">复制</button>
-        </div>
-        <div class="sub-row">
-          <div class="sub-label">B64逐行:</div>
-          <input type="text" id="sub-b64lines" class="sub-input" readonly>
-          <button class="sub-copy-btn" onclick="copySub('b64lines')">复制</button>
-        </div>
+<div class="sub-row">
+  <div class="sub-label">明文链接:</div>
+  <textarea id="sub-plain" class="sub-input sub-one" rows="1"></textarea>
+  <button class="sub-copy-btn" onclick="copySub('plain')">复制</button>
+</div>
+
+<div class="sub-row">
+  <div class="sub-label">Base64:</div>
+  <textarea id="sub-b64" class="sub-input sub-one" rows="1"></textarea>
+  <button class="sub-copy-btn" onclick="copySub('b64')">复制</button>
+</div>
+
+<div class="sub-row">
+  <div class="sub-label">B64逐行:</div>
+  <textarea id="sub-b64lines" class="sub-input sub-one" rows="1"></textarea>
+  <button class="sub-copy-btn" onclick="copySub('b64lines')">复制</button>
+</div>
       </div>
     </div>
   </div>
@@ -2123,16 +2128,16 @@ cat > "$TARGET_FILE" <<'HTML'
           <div class="command-section">
             <h4>🔀 出站分流</h4>
             <div class="command-list">
-              <code>edgeboxctl shunt vps</code> <span># 切换至VPS全量出站</span><br>
-              <code>edgeboxctl shunt resi &lt;URL&gt;</code> <span># 配置并切换至住宅IP全量出站</span><br>
-              <code>edgeboxctl shunt direct-resi &lt;URL&gt;</code> <span># 配置并切换至白名单智能分流状态</span><br>
-              <code>edgeboxctl shunt whitelist &lt;add|remove|list&gt;</code> <span># 管理白名单域名</span><br>
+              <code>edgeboxctl shunt vps</code> <span> # 切换至VPS全量出站</span><br>
+              <code>edgeboxctl shunt resi &lt;URL&gt;</code> <span> # 配置并切换至住宅IP全量出站</span><br>
+              <code>edgeboxctl shunt direct-resi &lt;URL&gt;</code> <span> # 配置并切换至白名单智能分流状态</span><br>
+              <code>edgeboxctl shunt whitelist &lt;add|remove|list&gt;</code> <span> # 管理白名单域名</span><br>
               <code>代理URL格式:</code><br>
               <code>http://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;</code><br>
               <code>https://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;?sni=</code><br>
               <code>socks5://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;</code><br>
               <code>socks5s://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;?sni=</code><br>
-              <code>示例：edgeboxctl shunt resi 'socks5://user:pass@111.222.333.444:11324'</code> <span># 全栈走住宅</span>
+              <code>示例：edgeboxctl shunt resi 'socks5://user:pass@111.222.333.444:11324'</code>
             </div>
           </div>
           
