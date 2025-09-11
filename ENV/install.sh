@@ -1490,7 +1490,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 
         .grid-full { grid-template-columns: 1fr; }
         .grid-70-30 { 
-            grid-template-columns: 1fr 320px;  /* 右侧固定320px宽度，刚好容纳三个标签 */
+            grid-template-columns: 1fr 380px;  /* 右侧调整为380px，增加宽度 */
         }
         
         @media(max-width:980px) {
@@ -1564,6 +1564,11 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             border-bottom: 1px solid var(--border);
         }
 
+        /* 表格标题"运行状态"居中 */
+        .table th:last-child {
+            text-align: center;  /* "运行状态"标题居中 */
+        }
+
         /* 表格内容 */
         .table td {
             font-size: .875rem;  /* 三级字号 */
@@ -1573,10 +1578,33 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             border-bottom: 1px solid #e2e8f0;  /* 改为和面板其它行线一致的颜色 */
         }
 
-        /* 表格中运行状态列加粗并居中 */
+        /* 表格中运行状态列居中 */
         .table td:last-child {
-            font-weight: 600;    /* "✓ 运行" 加粗 */
-            text-align: center;  /* "✓ 运行" 居中 */
+            text-align: center;  /* 运行状态内容居中 */
+        }
+
+        /* 运行状态标签样式 */
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: .75rem;
+            font-weight: 600;
+            background: #10b981;
+            color: white;
+            border: none;
+        }
+
+        /* 服务状态标签样式 */
+        .service-status-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 8px;
+            font-size: .75rem;
+            font-weight: 600;
+            background: #10b981;
+            color: white;
+            border: none;
         }
 
         /* 分流标签特殊处理 */
@@ -1724,13 +1752,14 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             display: flex;
             gap: 8px;
             margin-bottom: 12px;
-            flex-wrap: nowrap;
+            flex-wrap: wrap;  /* 允许换行以适应更窄的宽度 */
         }
 
         .shunt-wrap {
             display: flex;
             flex-direction: column;
-            min-height: 200px;
+            height: 100%;
+            min-height: 220px;
         }
 
         .shunt-content {
@@ -1752,6 +1781,8 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             border-top: 1px solid var(--border);
             background: #f8fafc;
             border-radius: 4px;
+            font-size: .75rem;    /* 更小的字号 */
+            line-height: 1.4;     /* 适当的行高 */
         }
 
         /* 订阅链接样式 */
@@ -1764,6 +1795,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 
         .sub-label {
             min-width: 80px;
+            flex-shrink: 0;
             /* 移除上边距 */
         }
 
@@ -1774,18 +1806,23 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             border-radius: 4px;
             font-family: monospace;
             background: #fff;
-            height: 26px;
+            height: 34px;  /* 增加高度 */
             resize: none;
             overflow: hidden;
             white-space: nowrap;
         }
 
         .sub-copy-btn {
-            padding: 6px 12px;
+            min-width: 80px;   /* 设置最小宽度与标签保持一致 */
+            padding: 8px 16px; /* 调整内边距，增加长度 */
             border: 1px solid var(--border);
             background: #f1f5f9;
             border-radius: 4px;
             cursor: pointer;
+            height: 34px;      /* 与输入框高度一致 */
+            display: flex;
+            align-items: center;
+            justify-content: center;
             /* 移除上边距 */
         }
 
@@ -1798,7 +1835,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             position: absolute;
             top: 16px;
             right: 16px;
-            width: 320px;
+            width: 350px;  /* 增加宽度以适应新的布局 */
             display: flex;
             align-items: center;
             gap: 8px;
@@ -1843,7 +1880,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         /* 流量图表布局 */
         .traffic-charts {
             display: grid;
-            grid-template-columns: 1fr 320px;  /* 右侧图表固定320px，与出站分流卡片宽度一致 */
+            grid-template-columns: 1fr 380px;  /* 右侧图表调整为380px，与出站分流卡片宽度一致 */
             gap: 16px;
             margin-top: 50px;
         }
