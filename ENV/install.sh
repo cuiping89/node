@@ -1785,57 +1785,68 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             line-height: 1.4;
         }
 
-        /* 订阅链接样式 - 完全重写实现统一高度 */
-        .sub-row {
-            display: flex;
-            gap: 8px;
-            align-items: stretch;
-            margin-bottom: 8px;
-            height: 32px;  /* 统一固定高度 */
-        }
+/* 容器：控制整行高度 */
+.sub-row {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;    /* 子项高度随容器高度拉伸 */
+    margin-bottom: 8px;
+    height: 32px;            /* 行高：32px（需要更矮/更高改这里） */
+}
 
-        .sub-label {
-            min-width: 80px;
-            flex-shrink: 0;
-            display: flex;
-            align-items: center;
-            font-size: .875rem;
-            color: #64748b;
-            font-weight: 400;
-        }
+/* 输入显示区：不改字号，只显示一行并用省略号 */
+.sub-input {
+    flex: 1;
+    /* 让元素垂直填满容器高度，消除内外尺寸不一致导致的高度偏差 */
+    height: 100%;
+    padding: 6px 10px;                 /* 上下 6px，左右 10px — 保持视觉内距 */
+    box-sizing: border-box;            /* 使 padding 算入高度计算 */
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-family: monospace;
+    background: #fff;
 
-        .sub-input {
-            flex: 1;
-            padding: 6px 10px;
-            border: 1px solid var(--border);
-            border-radius: 4px;
-            font-family: monospace;
-            background: #fff;
-            font-size: .8rem;
-            color: #64748b;
-            line-height: 1.2;
-            resize: none;
-            overflow: hidden;
-            white-space: nowrap;
-            display: flex;
-            align-items: center;
-        }
+    /* 不改变字号（恢复为 .875rem），确保与你页面的默认字号一致 */
+    font-size: .875rem;                /* 保持原字号，不缩小 */
 
-        .sub-copy-btn {
-            min-width: 80px;
-            padding: 6px 12px;
-            border: 1px solid var(--border);
-            background: #f1f5f9;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: .875rem;
-            color: #64748b;
-            font-weight: 400;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: all 0.2s;
-        }
+    /* 为单行显示做准备：设置行高为可用内容高度 */
+    /* 计算思路：容器高度 32px - 上下 padding(6+6)=20px 内容区 12px（也可微调） */
+    line-height: 20px;                 /* 建议：与可视内容高度匹配以垂直居中 */
+
+    /* 单行显示/超出省略号 */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+
+    /* 如果这是 input/textarea，保持不可被拉伸 */
+    resize: none;
+
+    /* 显示内的对齐：把 display 改回 inline-block/ block 更语义化 */
+    display: inline-block;
+    vertical-align: middle;
+    color: #64748b;
+}
+
+/* 复制按钮：垂直居中并与输入框高度一致（可选） */
+.sub-copy-btn {
+    min-width: 80px;
+    padding: 6px 12px;
+    border: 1px solid var(--border);
+    background: #f1f5f9;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: .875rem;
+    color: #64748b;
+    font-weight: 400;
+
+    /* 让按钮与输入框高度一致并垂直居中 */
+    height: 100%;
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
 
         .sub-copy-btn:hover { 
             background: #e2e8f0; 
