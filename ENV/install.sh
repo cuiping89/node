@@ -1759,6 +1759,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             cursor: pointer;
             font-size: .875rem;  /* 三级字号 */
             font-weight: 400;    /* 三级字重 */
+            color: #64748b;      /* 三级颜色 */
             margin-top: 8px;
         }
 
