@@ -1578,6 +1578,70 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         .table td:last-child {
             text-align: center;
         }
+		
+		/* CPU/内存进度条样式 */
+.system-progress-bar {
+  display: inline-flex;
+  align-items: center;
+  width: 80px;
+  height: 20px;            /* 与服务状态标签高度一致 */
+  background: #e2e8f0;
+  border-radius: 10px;
+  overflow: hidden;
+  margin-left: 8px;
+  position: relative;
+}
+
+.system-progress-fill {
+  height: 100%;
+  background: #10b981;     /* 绿色 */
+  border-radius: 10px;
+  transition: width 0.3s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;         /* 确保即使很小的百分比也能显示数字 */
+}
+
+.system-progress-text {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  color: white;
+  font-size: .75rem;
+  font-weight: 600;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+  z-index: 1;
+}
+
+/* 本月进度条高度调整 */
+.progress-bar {
+  width: 100%;
+  height: 20px;            /* 从 22px 调整为 20px */
+  background: #e2e8f0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: #10b981;
+  border-radius: 8px;
+  transition: width 0.3s;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.progress-percentage {
+  position: absolute;
+  color: white;
+  font-size: .75rem;
+  font-weight: 600;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.3);  /* 添加文字阴影确保可读性 */
+}
 
         /* 协议配置表格运行状态标签样式 - 新增 */
         .protocol-status-badge {
@@ -2092,7 +2156,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 
 /* 折叠状态：限制高度并显示溢出阴影提示 */
 .kv.v-collapsed .v {
-    max-height: 64px;      /* 显示两行左右，按字号调整 */
+    max-height: 3em;      /* 约3行文字高度 */
     overflow: hidden;
     position: relative;
 }
@@ -2131,13 +2195,25 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
       </h3>
       <div class="content">
         <div class="info-blocks">
-          <div class="info-block">
-            <h4>服务器负载与网络身份</h4>
-            <div class="value">CPU: <span id="cpu-usage">-</span>%</div>
-            <div class="value">内存: <span id="mem-usage">-</span>%</div>
-            <div class="value">服务器IP: <span id="srv-ip">-</span></div>
-            <div class="value">关联域名: <span id="domain">-</span></div>
-          </div>
+<div class="info-block">
+  <h4>🖥️ 服务器负载与网络身份</h4>
+  <div class="value">
+    CPU: 
+    <span class="system-progress-bar">
+      <div class="system-progress-fill" id="cpu-progress-fill" style="width: 0%"></div>
+      <span class="system-progress-text" id="cpu-progress-text">0%</span>
+    </span>
+  </div>
+  <div class="value">
+    内存: 
+    <span class="system-progress-bar">
+      <div class="system-progress-fill" id="mem-progress-fill" style="width: 0%"></div>
+      <span class="system-progress-text" id="mem-progress-text">0%</span>
+    </span>
+  </div>
+  <div class="value">服务器IP: <span id="srv-ip">-</span></div>
+  <div class="value">关联域名: <span id="domain">-</span></div>
+</div>
           <div class="info-block">
             <h4>核心服务</h4>
             <div class="value">Nginx: <span id="nginx-status">-</span></div>
@@ -2223,7 +2299,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
     <div class="card traffic-card">
       <h3>流量统计
         <div class="traffic-progress-container">
-          <span class="progress-label">本月进度</span>
+          <span class="progress-label">本月累计/阈值:</span>
           <div class="progress-wrapper">
             <div class="progress-bar">
               <div class="progress-fill" id="progress-fill" style="width:0%">
@@ -2265,7 +2341,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
           </div>
           
           <div class="command-section">
-            <h4>🌐 证书管理</h4>
+            <h4>🔐 证书管理</h4>
             <div class="command-list">
               <code>edgeboxctl switch-to-domain &lt;your_domain&gt;</code> <span># 切换到域名模式，申请证书</span><br>
               <code>edgeboxctl switch-to-ip</code> <span># 回退到IP模式，使用自签名证书</span><br>
@@ -2676,11 +2752,23 @@ function renderHeader(model) {
 async function loadSystemStats() {
   try {
     const sys = await getJSON('./system.json');
-    document.getElementById('cpu-usage').textContent = clamp(sys.cpu);
-    document.getElementById('mem-usage').textContent = clamp(sys.memory);
+    const cpuPercent = clamp(sys.cpu);
+    const memPercent = clamp(sys.memory);
+    
+    // 更新CPU进度条
+    document.getElementById('cpu-progress-fill').style.width = cpuPercent + '%';
+    document.getElementById('cpu-progress-text').textContent = cpuPercent + '%';
+    
+    // 更新内存进度条
+    document.getElementById('mem-progress-fill').style.width = memPercent + '%';
+    document.getElementById('mem-progress-text').textContent = memPercent + '%';
+    
   } catch(_) {
-    document.getElementById('cpu-usage').textContent = '-';
-    document.getElementById('mem-usage').textContent = '-';
+    // 错误时显示默认状态
+    document.getElementById('cpu-progress-fill').style.width = '0%';
+    document.getElementById('cpu-progress-text').textContent = '-';
+    document.getElementById('mem-progress-fill').style.width = '0%';
+    document.getElementById('mem-progress-text').textContent = '-';
   }
   
   // 15s轮询系统状态
@@ -2733,26 +2821,6 @@ const whitelistText = Array.isArray(whitelist) && whitelist.length > 0
   ? whitelist.slice(0, 8).join(', ') + (whitelist.length > 8 ? '...' : '')
   : '加载中...';  // 改为更明确的默认值
 document.getElementById('whitelist-text').textContent = whitelistText;
-
-document.addEventListener('DOMContentLoaded', function(){
-    // 自动检查所有 .kv .v 内容高度，超出则加 collapsed 并插入 toggle
-    document.querySelectorAll('.kv').forEach(function(kv){
-        var v = kv.querySelector('.v');
-        if(!v) return;
-        // 计算：如果高度超过 72px（两行左右），则折叠
-        if(v.scrollHeight > 72){
-            kv.classList.add('v-collapsed');
-            var btn = document.createElement('span');
-            btn.className = 'detail-toggle';
-            btn.innerText = '详情';
-            btn.addEventListener('click', function(){
-                kv.classList.toggle('v-collapsed');
-                btn.innerText = kv.classList.contains('v-collapsed') ? '详情' : '收起';
-            });
-            kv.appendChild(btn);
-        }
-    });
-});
 
   // 渲染订阅链接
   const sub = model.subscription || {};
@@ -2942,9 +3010,36 @@ function copySub(type) {
   }, 1000);
 }
 
+// 白名单自动折叠功能
+function initWhitelistCollapse() {
+  document.querySelectorAll('.kv').forEach(function(kv){
+    var v = kv.querySelector('.v');
+    if(!v) return;
+    
+    // 检查内容是否超出3行高度
+    var lineHeight = parseFloat(getComputedStyle(v).lineHeight) || 20;
+    var maxHeight = lineHeight * 3;
+    
+    if(v.scrollHeight > maxHeight){
+      kv.classList.add('v-collapsed');
+      var btn = document.createElement('span');
+      btn.className = 'detail-toggle';
+      btn.innerText = '详情';
+      btn.addEventListener('click', function(){
+        kv.classList.toggle('v-collapsed');
+        btn.innerText = kv.classList.contains('v-collapsed') ? '详情' : '收起';
+      });
+      kv.appendChild(btn);
+    }
+  });
+}
+
 // 启动
 console.log('脚本开始执行');
-document.addEventListener('DOMContentLoaded', loadData);
+document.addEventListener('DOMContentLoaded', function() {
+  loadData();
+  initWhitelistCollapse();
+});
 
 // 定时刷新：每5分钟刷新一次数据，每小时刷新本月进度条
 setInterval(loadData, 300000);
