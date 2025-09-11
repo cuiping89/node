@@ -1490,7 +1490,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 
         .grid-full { grid-template-columns: 1fr; }
         .grid-70-30 { 
-            grid-template-columns: 1fr 420px;  /* 出站分流状态再加宽到420px */
+            grid-template-columns: 1fr 410px;  /* 出站分流状态再加宽到420px */
         }
         
         @media(max-width:980px) {
@@ -1798,7 +1798,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             flex-shrink: 0;
             display: flex;
             align-items: center;  /* 垂直居中对齐 */
-            font-size: .8rem;     /* 调整字号以适应高度 */
+            font-size: 0.8rem;     /* 调整字号以适应高度 */
         }
 
         .sub-input {
@@ -1809,7 +1809,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             font-family: monospace;
             background: #fff;
             height: 32px;         /* 统一高度 */
-            font-size: .8rem;     /* 调整字号以确保单行显示 */
+            font-size: 0.8rem;     /* 调整字号以确保单行显示 */
             line-height: 1.2;     /* 调整行高 */
             resize: none;
             overflow: hidden;
@@ -1824,7 +1824,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             border-radius: 4px;
             cursor: pointer;
             height: 32px;         /* 统一高度 */
-            font-size: .8rem;     /* 调整字号 */
+            font-size: 0.8rem;     /* 调整字号 */
             display: flex;
             align-items: center;
             justify-content: center;
@@ -1884,7 +1884,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         /* 流量图表布局 */
         .traffic-charts {
             display: grid;
-            grid-template-columns: 1fr 420px;  /* 右侧图表调整为420px，与出站分流卡片宽度一致 */
+            grid-template-columns: 1fr 400px;  /* 右侧图表调整为400px，与出站分流卡片宽度一致 */
             gap: 16px;
             margin-top: 50px;
         }
