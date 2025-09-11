@@ -2568,9 +2568,9 @@ function renderProtocols(model) {
 
   // 渲染订阅链接
   const sub = model.subscription || {};
-  document.getElementById('sub-plain').value = sub.plain || '';
-  document.getElementById('sub-b64').value = sub.base64 || '';
-  document.getElementById('sub-b64lines').value = sub.b64_lines || '';
+  document.getElementById('sub-plain').innerHTML = sub.plain || '';
+  document.getElementById('sub-b64').innerHTML = sub.base64 || '';
+  document.getElementById('sub-b64lines').innerHTML = sub.b64_lines || '';
 }
 
 // 渲染流量图表（移除Y轴顶部GiB标记）
