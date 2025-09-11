@@ -1797,58 +1797,63 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 .sub-row {
     display: flex;
     gap: 8px;
-    align-items: center;     /* 垂直居中 */
+    align-items: stretch;    /* 子项高度随容器高度拉伸 */
     margin-bottom: 8px;
-    height: 32px;            /* 行高，可按需调整 */
-    box-sizing: border-box;
+    height: 32px;            /* 行高：32px（需要更矮/更高改这里） */
 }
 
-/* 左侧标签（比如“明文链接:”）——固定宽度，右对齐 */
-.sub-label {
-    width: 140px;            /* 标签列宽，可调（例如 120/140/160） */
-    flex: 0 0 140px;         /* 不缩放、不放大，始终 140px */
-    text-align: right;
-    padding-right: 8px;
-    box-sizing: border-box;
-    font-size: .875rem;
-    color: #334155;
-}
-
-/* 输入区域：确保真正可以缩放/收缩，单行省略号，左对齐 */
+/* 输入显示区：不改字号，只显示一行并用省略号 */
 .sub-input {
-    flex: 1 1 auto;          /* 占据剩余空间，可放大可缩小 */
-    min-width: 0;            /* 关键：允许在 flex 容器内收缩（避免被撑破布局） */
+    flex: 1;
+    /* 让元素垂直填满容器高度，消除内外尺寸不一致导致的高度偏差 */
     height: 100%;
-    padding: 6px 10px;
-    box-sizing: border-box;  /* 让 padding 不撑高父容器 */
+    padding: 6px 10px;                 /* 上下 6px，左右 10px — 保持视觉内距 */
+    box-sizing: border-box;            /* 使 padding 算入高度计算 */
     border: 1px solid var(--border);
     border-radius: 4px;
     font-family: monospace;
     background: #fff;
-    font-size: .875rem;      /* 保持原字号 */
-    line-height: 20px;       /* 根据 height 和 padding 调整垂直居中 */
+
+    /* 不改变字号（恢复为 .875rem），确保与你页面的默认字号一致 */
+    font-size: .875rem;                /* 保持原字号，不缩小 */
+
+    /* 为单行显示做准备：设置行高为可用内容高度 */
+    /* 计算思路：容器高度 32px - 上下 padding(6+6)=20px 内容区 12px（也可微调） */
+    line-height: 20px;                 /* 建议：与可视内容高度匹配以垂直居中 */
+
+    /* 单行显示/超出省略号 */
     white-space: nowrap;
     overflow: hidden;
-    text-overflow: ellipsis; /* 超出省略号 */
-    display: block;          /* 更语义，和 min-width:0 配合更稳定 */
+    text-overflow: ellipsis;
+
+    /* 如果这是 input/textarea，保持不可被拉伸 */
+    resize: none;
+
+    /* 显示内的对齐：把 display 改回 inline-block/ block 更语义化 */
+    display: inline-block;
+    vertical-align: middle;
     color: #64748b;
 }
 
-/* 复制按钮：与输入框等高并右侧对齐 */
+/* 复制按钮：垂直居中并与输入框高度一致（可选） */
 .sub-copy-btn {
-    flex: 0 0 auto;
     min-width: 80px;
-    height: 100%;
     padding: 6px 12px;
-    box-sizing: border-box;
     border: 1px solid var(--border);
     background: #f1f5f9;
     border-radius: 4px;
     cursor: pointer;
     font-size: .875rem;
+    color: #64748b;
+    font-weight: 400;
+
+    /* 让按钮与输入框高度一致并垂直居中 */
+    height: 100%;
+    box-sizing: border-box;
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    transition: all 0.2s;
 }
 
         .sub-copy-btn:hover { 
