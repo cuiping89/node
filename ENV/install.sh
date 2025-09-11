@@ -2201,18 +2201,19 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
           <textarea id="sub-plain" class="sub-input" readonly></textarea>
           <button class="sub-copy-btn" onclick="copySub('plain')">复制</button>
         </div>
-
+		
+		<div class="sub-row">
+          <div class="sub-label">B64逐行:</div>
+          <textarea id="sub-b64lines" class="sub-input" readonly></textarea>
+          <button class="sub-copy-btn" onclick="copySub('b64lines')">复制</button>
+        </div>
+		
         <div class="sub-row">
           <div class="sub-label">Base64:</div>
           <textarea id="sub-b64" class="sub-input" readonly></textarea>
           <button class="sub-copy-btn" onclick="copySub('b64')">复制</button>
         </div>
 
-        <div class="sub-row">
-          <div class="sub-label">B64逐行:</div>
-          <textarea id="sub-b64lines" class="sub-input" readonly></textarea>
-          <button class="sub-copy-btn" onclick="copySub('b64lines')">复制</button>
-        </div>
       </div>
     </div>
   </div>
