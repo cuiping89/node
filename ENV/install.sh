@@ -1520,7 +1520,12 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             justify-content: space-between;
             align-items: center;
         }
-
+		
+/* 添加主标题专用样式，优先级更高 */
+.card h3.main-title {
+    font-size: 1.5rem !important;  /* 使用 !important 确保优先级 */
+    font-weight: 700;
+}
         .info-block h4 {
             margin: 0 0 8px 0;
             font-size: 1rem;  /* 与卡片标题同级 */
@@ -1531,9 +1536,14 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         .card .content { padding: 16px; }
 
         .small {
-            color: var(--muted);
-            font-size: .85rem;  /* 统一小字号 */
+    color: #94a3b8;     /* 从 var(--muted) 改为具体颜色值，更淡 */
+    font-size: .85rem;  /* 统一小字号 */
         }
+
+.shunt-info .small {
+    color: #94a3b8;     /* 统一小字颜色 */
+    font-size: .85rem;  /* 统一小字号 */
+}
 
         .table {
             width: 100%;
@@ -1541,10 +1551,11 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         }
 
         .table th, .table td {
-            padding: 8px 10px;
-            border-bottom: 1px solid var(--border);
-            font-size: .85rem;
-            text-align: left;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    font-size: .85rem;  /* 统一字号 */
+    text-align: left;
+    color: #475569;     /* 统一颜色 */
         }
 
         .btn {
@@ -1583,16 +1594,17 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             border-radius: 8px;
         }
 
-        .info-block .value {
-            font-size: .9rem;  /* 统一值字号 */
-            font-weight: 500;
-            color: #64748b;
-        }
+.info-block .value {
+    font-size: .9rem;   /* 统一字号 */
+    font-weight: 500;   /* 统一字重 */
+    color: #64748b;     /* 统一颜色 */
+    margin-bottom: 2px; /* 添加间距 */
+}
 		
-		/* 添加新样式：运行状态为绿色 */
-.info-block .value.status-running {
-    color: #10b981;     /* 绿色，用于"运行中"状态 */
-    font-weight: 600;   /* 运行状态稍微加重 */
+/* 运行状态绿色样式 */
+.status-running {
+    color: #10b981 !important;  /* 绿色，使用 !important 确保生效 */
+    font-weight: 600 !important;
 }
 
         /* 通知中心小图标 */
@@ -1718,7 +1730,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             font-family: monospace;
             background: #fff;
             resize: vertical;
-            height: 32px;      /* 添加这行，固定单行高度 */
+            height: 26px;      /* 添加这行，固定单行高度 */
 			resize: none;      /* 添加这行，禁止调整大小 */
 			overflow: hidden;  /* 添加这行，隐藏超出内容 */
 			white-space: nowrap; /* 添加这行，单行显示 */
@@ -1993,17 +2005,17 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         }
 
         .kv .k {
-            font-size: .85rem;
-            color: var(--muted);
-            min-width: 60px;
-            flex-shrink: 0;
+    font-size: .85rem;  /* 统一字号 */
+    color: #94a3b8;     /* 统一颜色 */
+    min-width: 60px;
+    flex-shrink: 0;
         }
 
         .kv .v {
-            font-size: .85rem;
-            color: #1e293b;
-            flex: 1;
-            word-break: break-word;
+    font-size: .85rem;  /* 统一字号 */
+    color: #475569;     /* 统一颜色 */
+    flex: 1;
+    word-break: break-word;
         }
     </style>
 </head>
@@ -2543,22 +2555,34 @@ function renderHeader(model) {
   // CPU/内存从system.json单独获取
   loadSystemStats();
   
- // 服务状态 - 添加状态样式类
+// 服务状态 - 添加状态样式类
 const nginxStatus = svc.nginx === 'active' ? '运行中' : '已停止';
 const xrayStatus = svc.xray === 'active' ? '运行中' : '已停止';
 const singboxStatus = svc['sing-box'] === 'active' ? '运行中' : '已停止';
 
 const nginxEl = document.getElementById('nginx-status');
 nginxEl.textContent = nginxStatus;
-nginxEl.className = svc.nginx === 'active' ? 'status-running' : '';
+if (svc.nginx === 'active') {
+    nginxEl.classList.add('status-running');
+} else {
+    nginxEl.classList.remove('status-running');
+}
 
 const xrayEl = document.getElementById('xray-status');
 xrayEl.textContent = xrayStatus;
-xrayEl.className = svc.xray === 'active' ? 'status-running' : '';
+if (svc.xray === 'active') {
+    xrayEl.classList.add('status-running');
+} else {
+    xrayEl.classList.remove('status-running');
+}
 
 const singboxEl = document.getElementById('singbox-status');
 singboxEl.textContent = singboxStatus;
-singboxEl.className = svc['sing-box'] === 'active' ? 'status-running' : '';
+if (svc['sing-box'] === 'active') {
+    singboxEl.classList.add('status-running');
+} else {
+    singboxEl.classList.remove('status-running');
+}
 }
 
 // 单独加载系统状态
