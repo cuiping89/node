@@ -25,8 +25,8 @@ bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/refs/heads/ma
   * **幂等卸载**：一键清理所有组件，确保幂等高效，为重装准备环境，适合自动化和故障排除。
   * **协议组合**：集成 VLESS-gRPC、VLESS-WS、VLESS-Reality、Trojan(TLS)、Hysteria2 和 TUIC，提供多种使用场景的协议选择。
   * **单口复用**：采用**Nginx + Xray 单端口复用（Nginx-first）** 架构，SNI-ALPN 定向 + 内部回环端口隔离，实现深度伪装。
+  * **出站分流**：支持 VPS出站 / 住宅IP出站 / VPS + 住宅IP（真正分流），并通过 `edgeboxctl` 工具轻松切换、配置白名单。
   * **证书管理**：通过 `edgeboxctl` 管理工具，实现 **IP模式 ⇋ 域名模式** 双向切换，软链接契约实现“无缝切换”。
-  * **灵活分流**：支持 VPS 全量 / 住宅IP 全量 / 白名单直连 + 非白名单走住宅（真正分流），并通过 `edgeboxctl` 工具轻松切换、配置白名单。
   * **全面运维**：内置 `vnStat` 和 `iptables` 流量监控，支持每日自动备份与一键恢复。
 
 -----
