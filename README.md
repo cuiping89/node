@@ -4,7 +4,7 @@
 
 - EdgeBox 是一个企业级多协议节点部署脚本，小巧强悍，旨在提供一个**一键部署、健壮灵活、安全上网**的解决方案；
 - 它通过**协议组合、端口复用、出站分流**等核心策略，实现深度伪装和灵活路由，以应对复杂多变的网络环境；
-- 同时还内置了**模式切换、代理配置、流量统计、备份恢复、面板控制**等运维功能，满足日常运维需求。
+- 同时还内置了**证书切换、代理配置、控制面板、流量统计、备份恢复、**等运维功能，满足日常运维需求。
 
 -----
 ## 快速开始
@@ -13,9 +13,10 @@
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/refs/heads/main/ENV/install.sh)
 ```
-- 浏览器访问：http://<your-ip-or-domain>/ (服务器、系统、协议、分流状态、订阅链接、流量预警、运维管理的静态页面)
+- 注：Debian镜像是“最小化/新装”，一键安装会报 curl: command not found。执行`apt update && apt install -y curl`预装cur后再安装。
+- - 浏览器访问：http://<your-ip-or-domain>/ (服务器、系统、协议、分流状态、订阅链接、流量预警、运维管理的静态页面)
 - 命令管理：edgeboxctl help
-- 注：Debian镜像是“最小化/救援/新装”，一键安装会报 curl: command not found。执行`apt update && apt install -y curl`预装cur后再安装。
+
 -----
 
 ## 功能亮点
