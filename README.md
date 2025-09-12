@@ -123,7 +123,7 @@ EdgeBox 的核心在于其精巧的分层架构，实现了协议组合、端口
 
 ---
 
-## 模式切换策略
+## 模式切换
 
 本方案的核心在于 **edgeboxctl** 管理工具，它能实现两种核心模式之间的无缝切换，以适应不同的网络环境。
 
@@ -178,22 +178,6 @@ EdgeBox 的核心在于其精巧的分层架构，实现了协议组合、端口
     -   `xray` 路由是否存在 `resi-proxy` 出站。
     -   `sing-box`（HY2/TUIC）按方案默认直连（不经上游 HTTP/SOCKS 代理）。
 
------
-
-## 动态生成订阅链接
-
-**`edgeboxctl sub`** 是获取订阅链接，根据当前模式动态生成一键导入的聚合链接，覆盖所有协议。
-
-* **逻辑判断**：脚本通过检查 `/etc/letsencrypt/` 目录下是否存在 Let's Encrypt 证书来判断当前是“IP 模式”还是“域名模式”。
-* **IP 模式下的链接生成**：
-    * `address`：使用服务器的**公网 IP**。
-    * **VLESS-gRPC/WS/Trojan-TLS**：SNI 使用占位符（如 `grpc.edgebox.local` / `trojan.edgebox.internal`），并添加 `allowInsecure=1` 参数，以跳过自签名证书验证。
-    * **Hysteria2/TUIC**：添加 `insecure=true` 或 `skip-cert-verify=true` 参数，以跳过自签名证书验证。
-* **域名模式下的链接生成**：
-    * `address`：使用你的**真实域名**。
-    * **VLESS-gRPC/WS/Trojan-TLS**：SNI 使用你的真实域名，并移除 `allowInsecure=1` 参数。
-    * **Hysteria2/TUIC**：移除 `insecure=true` 或 `skip-cert-verify=true` 参数。
-* **聚合**：将所有协议的链接聚合，进行 Base64 编码，并在终端中**直接打印**或保存到本地文件，供客户端手动导入。
 
 -----
 
@@ -239,10 +223,6 @@ EdgeBox 的核心在于其精巧的分层架构，实现了协议组合、端口
 * **优先选择**：默认使用 **`vps`** 模式。在需要保持账号画像时，切换到 **`direct_resi`**。仅在特殊需求下使用 **`resi`** 模式。
 * **协议选择**：在需要住宅画像时，请切换到 **VLESS 系列**或 **Trojan-TLS**，它们会经由 Xray 分流。`Hysteria2`/`TUIC` 继续作为高效 UDP 通道存在，不受分流影响。
 
------
-当然，这是一个非常好的主意。在主 `README.md` 中，对控制面板的介绍应该简洁、有力，突出其核心价值，并引导用户去访问它。
-
-您可以将以下这段精简后的介绍，直接放入您 `README.md` 的「功能亮点」或一个独立的功能区。
 
 -----
 
@@ -341,70 +321,6 @@ EdgeBox 提供了一个轻量、直观的 Web 控制面板，让您可以通过�
 ### 4.备份与恢复
 
 系统每日凌晨3点自动备份配置和数据到 `/root/edgebox-backup/`；可以使用 `edgeboxctl backup` 命令手动创建、列出和恢复备份。
-
-### 5.管理工具 (`edgeboxctl`)
-
-`edgeboxctl` 是管理 EdgeBox 的核心工具，所有操作都通过它完成。管理工具提供了丰富的功能，支持系统维护、证书管理、模式切换、分流管理、流量统计、备份恢复等。
-
-#### 基础操作
-
-这些是日常使用中最高频的命令，用于管理核心服务的状态。
--   `edgeboxctl service status`：查看所有核心服务（nginx, xray, sing-box）的运行状态。
--   `edgeboxctl service restart`：安全地重启所有服务，通常在修改配置后使用。
--   `edgeboxctl sub`：动态生成并显示当前模式下的订阅链接。
--   `edgeboxctl logs <svc>`：查看指定服务的实时日志（例如 `nginx` 或 `xray`）。
-
-#### 模式与证书管理
-
-这些命令用于在 IP 模式和域名模式之间切换，并管理 TLS 证书。
--   `edgeboxctl change-to-domain <your_domain>`：切换到域名模式，并自动申请 Let's Encrypt 证书。
--   `edgeboxctl change-to-ip`：回退到 IP 模式，使用自签名证书。
--   `edgeboxctl cert status`：检查当前证书的到期日期和类型。
--   `edgeboxctl cert renew`：手动续期 Let's Encrypt 证书。
-
-#### 出站分流
-
-用于配置和管理流量的分流策略。
--   `edgeboxctl shunt mode vps`：切换至 **VPS** 全量直出模式。
--   `edgeboxctl shunt mode resi <URL>`：配置并切换至 **住宅 IP** 全量出站模式。
--   `edgeboxctl shunt mode direct-resi <URL>`：配置并切换至 **白名单智能分流** 模式。
--   `edgeboxctl shunt whitelist <add|remove|list>`：管理白名单域名。
-- 代理URL 支持：
-- http://user:pass@<IP或域名>:<端口>
-- https://user:pass@<IP或域名>:<端口>?sni=<SNI>
-- socks5://user:pass@<IP或域名>:<端口>
-- socks5s://user:pass@<域名>:<端口>?sni=<SNI>
-- 示例：edgeboxctl shunt resi 'socks5://14aa42d05fc94:5069856762@111.222.333.444:11324 # 全栈走住宅
-
-#### 流量统计与预警
-
-用于监控流量使用情况和设置预警通知。
--   `edgeboxctl traffic show`：在终端中查看流量统计数据。
--   `edgeboxctl traffic reset`：重置流量计数器。
--   `edgeboxctl alert <command>`：管理流量预警设置（例如设置月度阈值、配置 Telegram 机器人等）。
-- edgeboxctl alert monthly <GiB>
-  - edgeboxctl alert steps 30,60,90
-  - edgeboxctl alert telegram <bot_token> <chat_id>
-  - edgeboxctl alert discord <webhook_url>
-  - edgeboxctl alert wechat <pushplus_token>
-  - edgeboxctl alert webhook <url> [raw|slack|discord]
-  - edgeboxctl alert test <percent>
-
-#### 配置管理
-
-用于管理核心配置，如 UUID 或查看当前配置。
--   `edgeboxctl config show`：显示所有服务的核心配置信息，例如 UUID、Reality 密钥等。
--   `edgeboxctl config regenerate-uuid`：为所有协议重新生成新的 UUID。
--   `edgeboxctl test`：测试所有协议的连接是否正常。
--   `edgeboxctl debug-ports`：调试关键端口的监听状态。
- 
-#### 系统维护
-
-用于系统的更新、备份与恢复。
--   `edgeboxctl update`：自动更新 EdgeBox 脚本和核心组件。
--   `edgeboxctl backup create`：手动创建一个系统备份。
--   `edgeboxctl backup list`：列出所有可用的备份。
--   `edgeboxctl backup restore <DATE>`：恢复到指定日期的备份状态。
 
 
 -----
