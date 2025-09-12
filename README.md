@@ -34,7 +34,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/refs/heads/ma
   * **系统**：Ubuntu 18.04+ 或 Debian 10+。
   * **硬件**：CPU 1核，内存 512MB（内存不足自动创建 2G swap），存储 10GB 可用空间，并需稳定的公网 IP。
   * **依赖**：curl wget unzip ca-certificates jq bc uuid-runtime dnsutils openssl vnstat nginx libnginx-mod-stream nftables certbot msmtp-mta bsd-mailx cron tar等，将由安装脚本自动检测并安装。
-  * **双层防火墙**：本机防火墙（UFW）安装脚本已自动放行所用端口；**云安全组**仍需手动开放 80/tcp、443/tcp、443/udp、2053/udp（以及 SSH 的 22/tcp）。。
+  * **双层防火墙**：本机防火墙（UFW）安装脚本将自动放行所用端口；**云安全组**仍需手动开放 80/tcp、443/tcp、443/udp、2053/udp（以及 SSH 的 22/tcp）。。
 
 ## 核心组件
   * **Nginx**：作为所有 TCP 协议的唯一入口，监听公网 `TCP/443`，并基于 SNI/ALPN 进行非终止 TLS 分流。
@@ -74,7 +74,7 @@ EdgeBox 提供全自动化的证书管理，支持两种证书类型，根据模
 
 ## 技术架构
 
-EdgeBox 的核心在于其精巧的分层架构，实现了协议组合、端口复用、模式切换和流量分发。
+EdgeBox 的核心在于其精巧的分层架构，实现了协议组合、端口复用、模式切换和出站分流。
 
 ### 协议组合与端口分配
 
