@@ -42,35 +42,6 @@ bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/refs/heads/ma
   * **Xray**：运行 Reality、VLESS-gRPC、VLESS-WS 和 Trojan(TLS) 协议，监听内部回环端口，负责各自协议的 TLS 终止。
   * **sing-box**：独立运行 Hysteria2 和 TUIC 协议，直接监听 UDP 端口。
 
------
-
-## 证书管理
-
-EdgeBox 提供全自动化的证书管理，支持两种证书类型，根据模式智能选择证书类型。
-
-* **自签名证书（IP 模式）**
-    * **生成时机**：在非交互式安装或无域名配置时自动生成。
-    * **用途**：用于初始阶段，确保 VLESS-gRPC、VLESS-WS、Hysteria2 和 TUIC 协议能够立即启用并工作。这些协议在客户端连接时需要开启“跳过证书验证”或“允许不安全”。
-    * **文件路径**：
-        * 私钥：`/etc/edgebox/cert/self-signed.key`
-        * 公钥：`/etc/edgebox/cert/self-signed.pem`
-
-* **Let's Encrypt 证书（域名模式）**
-    * **生成时机**：用户使用 `edgeboxctl change-to-domain` 命令并提供有效域名后，脚本会自动调用 Certbot 申请。
-    * **用途**：提供受信任的、安全的 TLS 加密，使所有协议在客户端无需额外设置即可安全连接。
-    * **文件路径**：
-        * 私钥：`/etc/letsencrypt/live/<your_domain>/privkey.pem`
-        * 公钥：`/etc/letsencrypt/live/<your_domain>/fullchain.pem`
-    * **自动续期**：脚本将配置一个 `cron` 任务，自动执行 `certbot renew` 命令，确保证书在到期前自动续期。
-
-* **证书在配置文件中的引用**
-    * 为确保模式切换的幂等性，所有服务配置文件都将使用软链接来动态指向正确的证书文件。
- 
-* **Nginx、Xray、sing-box**：
-    * `ssl_certificate`：指向 `/etc/edgebox/cert/current.pem`
-    * `ssl_certificate_key`：指向 `/etc/edgebox/cert/current.key`
-    * `edgeboxctl` 工具在切换模式时，将更新这两个软链接，使其分别指向自签名证书或 Let's Encrypt 证书的实际文件，从而实现无缝切换。
-
 ---
 
 ## 技术架构
@@ -179,6 +150,32 @@ EdgeBox 的核心在于其精巧的分层架构，实现了协议组合、端口
     -   `xray` 路由是否存在 `resi-proxy` 出站。
     -   `sing-box`（HY2/TUIC）按方案默认直连（不经上游 HTTP/SOCKS 代理）。
 
+### 证书管理
+
+EdgeBox 提供全自动化的证书管理，支持两种证书类型，根据模式智能选择证书类型。
+
+* **自签名证书（IP 模式）**
+    * **生成时机**：在非交互式安装或无域名配置时自动生成。
+    * **用途**：用于初始阶段，确保 VLESS-gRPC、VLESS-WS、Hysteria2 和 TUIC 协议能够立即启用并工作。这些协议在客户端连接时需要开启“跳过证书验证”或“允许不安全”。
+    * **文件路径**：
+        * 私钥：`/etc/edgebox/cert/self-signed.key`
+        * 公钥：`/etc/edgebox/cert/self-signed.pem`
+
+* **Let's Encrypt 证书（域名模式）**
+    * **生成时机**：用户使用 `edgeboxctl change-to-domain` 命令并提供有效域名后，脚本会自动调用 Certbot 申请。
+    * **用途**：提供受信任的、安全的 TLS 加密，使所有协议在客户端无需额外设置即可安全连接。
+    * **文件路径**：
+        * 私钥：`/etc/letsencrypt/live/<your_domain>/privkey.pem`
+        * 公钥：`/etc/letsencrypt/live/<your_domain>/fullchain.pem`
+    * **自动续期**：脚本将配置一个 `cron` 任务，自动执行 `certbot renew` 命令，确保证书在到期前自动续期。
+
+* **证书在配置文件中的引用**
+    * 为确保模式切换的幂等性，所有服务配置文件都将使用软链接来动态指向正确的证书文件。
+ 
+* **Nginx、Xray、sing-box**：
+    * `ssl_certificate`：指向 `/etc/edgebox/cert/current.pem`
+    * `ssl_certificate_key`：指向 `/etc/edgebox/cert/current.key`
+    * `edgeboxctl` 工具在切换模式时，将更新这两个软链接，使其分别指向自签名证书或 Let's Encrypt 证书的实际文件，从而实现无缝切换。
 
 -----
 
