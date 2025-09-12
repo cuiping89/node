@@ -2,20 +2,20 @@
 
 # 🌐EdgeBox：企业级多协议节点部署方案
 
-- EdgeBox 是一个多协议一键部署脚本，旨在提供一个**健壮灵活、一键部署、幂等卸载**的安全上网解决方案；
-- 它通过**协议组合、端口分配、出站分流**等核心策略，实现深度伪装和灵活路由，以应对复杂多变的网络环境；
-- 同时还内置了**模式切换、流量统计、备份恢复**等运维功能，满足日常运维需求。
+- EdgeBox 是一个企业级多协议节点部署脚本，旨在提供一个**一键部署、健壮灵活、安全上网**的解决方案；
+- 它通过**协议组合、端口复用、出站分流**等核心策略，实现深度伪装和灵活路由，以应对复杂多变的网络环境；
+- 同时还内置了**模式切换、代理配置、流量统计、备份恢复、面板控制**等运维功能，满足日常运维需求。
 
 -----
 ## 快速开始
 
-只需连接服务器执行以下命令，即可一键部署：
+连接服务器执行以下命令，即可一键部署：
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/refs/heads/main/ENV/install.sh)
 ```
-- 浏览器访问：http://<your-ip-or-domain>/ (订阅 + 流量图表同页的静态页面)
+- 浏览器访问：http://<your-ip-or-domain>/ (服务器、系统、协议、分流状态、订阅链接、流量预警、运维管理的静态页面)
 - 命令管理：edgeboxctl help
-- 注：Debian 镜像是“最小化/救援/新装”，往往没预装 curl，一键安装会报 curl: command not found。执行命令`apt update && apt install -y curl`后再安装。
+- 注：Debian镜像是“最小化/救援/新装”，往往没预装 curl，一键安装会报 curl: command not found。执行命令`apt update && apt install -y curl`后再安装。
 -----
 
 ## 功能亮点
@@ -34,7 +34,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/refs/heads/ma
   * **系统**：Ubuntu 18.04+ 或 Debian 10+。
   * **硬件**：CPU 1核，内存 512MB（内存不足自动创建 2G swap），存储 10GB 可用空间，并需稳定的公网 IP。
   * **依赖**：curl wget unzip ca-certificates jq bc uuid-runtime dnsutils openssl vnstat nginx libnginx-mod-stream nftables certbot msmtp-mta bsd-mailx cron tar等，将由安装脚本自动检测并安装。
-  * **双层防火墙**：本机防火墙（UFW）脚本已自动放行所用端口；**云安全组**仍需手动开放 80/tcp、443/tcp、443/udp、2053/udp（以及 SSH 的 22/tcp）。。
+  * **双层防火墙**：本机防火墙（UFW）安装脚本已自动放行所用端口；**云安全组**仍需手动开放 80/tcp、443/tcp、443/udp、2053/udp（以及 SSH 的 22/tcp）。。
 
 ## 核心组件
   * **Nginx**：作为所有 TCP 协议的唯一入口，监听公网 `TCP/443`，并基于 SNI/ALPN 进行非终止 TLS 分流。
