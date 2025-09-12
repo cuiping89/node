@@ -240,6 +240,29 @@ EdgeBox 的核心在于其精巧的分层架构，实现了协议组合、端口
 * **协议选择**：在需要住宅画像时，请切换到 **VLESS 系列**或 **Trojan-TLS**，它们会经由 Xray 分流。`Hysteria2`/`TUIC` 继续作为高效 UDP 通道存在，不受分流影响。
 
 -----
+当然，这是一个非常好的主意。在主 `README.md` 中，对控制面板的介绍应该简洁、有力，突出其核心价值，并引导用户去访问它。
+
+您可以将以下这段精简后的介绍，直接放入您 `README.md` 的「功能亮点」或一个独立的功能区。
+
+-----
+
+### **🎛️ 可视化控制面板 (Visual Control Panel)**
+
+EdgeBox 提供了一个轻量、直观的 Web 控制面板，让您可以通过浏览器轻松掌握节点的完整状态。它是一个纯静态页面，加载迅速，所有数据一目了然。
+
+访问地址: `http://<您的服务器IP>`
+
+**面板核心功能包括：**
+
+  * **实时状态一览**：在一个视图中集中展示服务器负载（CPU/内存）、核心服务（Nginx, Xray）的运行状态、证书信息以及当前出站IP。
+  * **配置与订阅中心**：清晰地列出所有已部署协议的适用场景，并提供一键复制的订阅链接（支持明文、Base64等多种格式）。
+  * **可视化流量监控**：以图表形式直观展示近30日的流量趋势，并精确区分“VPS出口”与“代理出口”的流量。同时提供月度流量进度条，帮助您管理流量配额。
+  * **动态分流展示**：高亮显示当前的出站分流模式（如VPS直连、智能分流等），让您对流量走向了如指掌。
+  * **运维命令参考**：集成了常用的 `edgeboxctl` 命令列表，方便您随时查阅和管理节点。
+
+> 想要了解面板背后的数据流动原理？请查阅 **[控制面板技术文档]([https://raw.githubusercontent.com/cuiping89/node/refs/heads/main/docs/02-Control-Panel.md)**。
+
+-----
 
 ## 特定环境配置
 
@@ -299,235 +322,7 @@ EdgeBox 的核心在于其精巧的分层架构，实现了协议组合、端口
     
 -----
 
-## 运维与管理
-
-### 1.流量统计
-
-本模块提供了一个轻量级、可视化的流量监控系统，让您能够清晰地掌握出站流量的去向，在网卡总流量的基础上，区分出“VPS 直连”与“住宅代理”的流量，为您提供最具决策价值的数据。
-
-#### 设计要点
-  * **聚焦出站去向**：流量统计的核心指标是“VPS 出口”与“住宅出口”。
-  * **轻量化架构**：采用 `vnStat` + `nftables` 进行后端数据采集，并通过 `JSON` 结构化存储。前端 `Chart.js` 在浏览器本地渲染图表，保持服务器端极度轻量。
-  * **双时间维度**：同时提供**近 30 天的每日流量趋势**（曲线图）和**近 12个月的月度总额**（表格），既能看到短期波动，也能掌握长期规模。
-
-#### 工作流程
-  **数据采集器** (`traffic-collector.sh`)
-      * 每小时由 `cron` 自动触发。
-      * 通过 `vnStat` 获取网卡的总出站流量。
-      * 通过 `nftables` 计数器精确统计经过住宅代理的流量。
-      * 计算得出 **“VPS 出口流量” = “总出站流量” - “住宅出口流量”**。
-      * 将数据按日、月粒度分别存储到 `daily.csv` 和 `monthly.csv` 中。
-  **前端展示** (`index.html`)
-      * **每日趋势图**：以折曲图形式，展示近 30 天内“VPS 出口”和“住宅出口”的流量变化。
-      * **月度累计表**：以表格形式，展示近 12 个月“住宅出口”、“VPS 出口”以及“总出站”的累计流量。
-      * **订阅链接**：在同一页面同步展示动态生成的订阅链接，方便您随时获取。
-
-#### 文件结构
-```
-/etc/edgebox/
-  ├─ traffic/                         # Nginx Web 根目录，用于前端展示
-  │   ├─ logs/
-  │   │   ├─ daily.csv                # 日粒度流量记录（保留 90 天）
-  │   │   └─ monthly.csv              # 月粒度流量记录（保留 18 个月）
-  │   ├─ traffic.json                 # 供前端读取的聚合数据
-  │   ├─ sub.txt                      # 订阅链接文件
-  │   └─ index.html                   # 订阅与图表总览页面
-  └─ scripts/
-      └─ traffic-collector.sh         # 后端数据采集脚本
-```
-
-#### nftables 计数规则
-   
-   本方案使用 `nftables` 规则精确统计流向住宅代理的流量。这些规则由 `edgeboxctl` 自动维护，无需手动干预。
-  * **规则目的**：仅在流量从服务器出站 (`postrouting`) 时，匹配目标 IP 为住宅代理的出站流量，并将其字节数累加到 `c_resi_out` 计数器中。
-  * **集合维护**：`edgeboxctl shunt` 命令在切换模式时，会自动更新 `resi_up_v4` 和 `resi_up_v6` IP 集合。
-  * **流量差异**：由于 `Hysteria2`/`TUIC` 等 UDP 流量始终直连，它们会贡献到**总出站流量**中，但不会计入**住宅出口流量**。因此，两者之差就是 VPS 的直连流量。
-
-
-##### **2.2 流量统计图表区块 (`chart` 部分)**
-
-  * **目的**：可视化展示每日流量趋势和月度总额。
-  * **数据来源**：从 `/etc/edgebox/traffic/traffic.json` 文件中异步加载。
-  * **图表类型**：使用 **Chart.js** 库绘制，类型为 **组合图表（`mixed chart`）**。
-      * **主图（折线图）**：
-          * **数据源**：`traffic.json` 中的 `last30d` 数组。
-          * **数据集 1**：表示“住宅出口”流量。
-              * 类型：`line`（折线）。
-              * 数据：`last30d` 中每个对象的 `resi` 属性。
-              * 标签：`住宅出口`。
-              * 颜色：使用醒目的颜色（如蓝色）。
-          * **数据集 2**：表示“VPS 出口”流量。
-              * 类型：`line`（折线）。
-              * 数据：`last30d` 中每个对象的 `vps` 属性。
-              * 标签：`VPS 出口`。
-              * 颜色：与住宅出口形成对比的颜色（如绿色）。
-          * **X轴**：`date`（日期，格式为 `yyyy-MM-dd`）。
-      * **副图（标注）**：
-          * **目的**：在每日趋势图中叠加显示当月总流量，提供宏观背景。
-          * **数据源**：`traffic.json` 中的 `monthly` 数组。
-          * **实现方式**：
-              * **方案一（推荐）**：使用 `Chart.js Annotations` 插件。在每个月的最后一个数据点上，添加一个文本标注，显示该月的总流量（`monthly` 中的 `total` 属性）。
-              * **方案二**：在图表中添加一个 `bar`（柱状）数据集，并设置透明度，将月总额柱形图作为背景叠加在折线图上。
-
-##### **2.3 月度累计数据表格**
-
-  * **目的**：以表格形式提供精确的月度累计流量数据。
-  * **数据来源**：`traffic.json` 中的 `monthly` 数组。
-  * **表格结构**：
-      * **列头**：`月份 (yyyy-MM)`。
-      * **行头**：三行固定标题——`住宅出口`、`VPS 出口`、`总出站流量`。
-      * **数据填充**：从 `monthly` 数组中提取相应数据，并格式化为易读的单位（如 GB）。表格应展示最近 12 个月的数据。
-
-### 实现伪代码结构
-
-这是一个可以遵循的 HTML 骨架和 JavaScript 逻辑流程，它将帮助您保持专注。
-
-```html
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <title>EdgeBox 控制面板</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
-    <style>
-        /* CSS 样式，确保布局清晰 */
-    </style>
-</head>
-<body>
-
-    <main>
-        <section id="subscription">
-            <h2>订阅链接</h2>
-            <p>点击复制以下链接，导入客户端：</p>
-            <div class="sub-link-container">
-                <input type="text" id="sub-url" readonly>
-                <button onclick="copySubLink()">复制</button>
-            </div>
-        </section>
-
-        <section id="traffic-charts">
-            <h2>近30天流量趋势</h2>
-            <canvas id="traffic-chart"></canvas>
-        </section>
-
-        <section id="monthly-table">
-            <h2>月度累计流量 (最近12个月)</h2>
-            <table>
-                <thead>
-                    <tr>
-                        <th>月份</th>
-                        </tr>
-                </thead>
-                <tbody>
-                    </tbody>
-            </table>
-        </section>
-    </main>
-
-    <script>
-        // 1. 订阅链接逻辑
-        async function loadSubscription() {
-            const response = await fetch('/traffic/sub.txt');
-            const subUrl = await response.text();
-            document.getElementById('sub-url').value = subUrl.trim();
-        }
-
-        // 2. 流量图表和表格逻辑
-        async function loadTrafficData() {
-            const response = await fetch('/traffic/traffic.json');
-            const data = await response.json();
-
-            // 绘制图表
-            const ctx = document.getElementById('traffic-chart').getContext('2d');
-            const chartData = {
-                labels: data.last30d.map(item => item.date),
-                datasets: [
-                    // VPS 出口数据
-                    { label: 'VPS 出口', data: data.last30d.map(item => item.vps), borderColor: 'green' },
-                    // 住宅出口数据
-                    { label: '住宅出口', data: data.last30d.map(item => item.resi), borderColor: 'blue' }
-                ]
-            };
-            new Chart(ctx, { type: 'line', data: chartData });
-            
-            // 填充表格
-            const tableBody = document.querySelector('#monthly-table tbody');
-            // ... 根据 monthly 数据填充表格 ...
-        }
-
-        // 页面加载时执行
-        window.onload = () => {
-            loadSubscription();
-            loadTrafficData();
-        };
-    </script>
-</body>
-</html>
-```
-
-### 2.控制面板
-
-`index.html` 页面是可视化控制面板，它采用现代的**卡片式布局（Card-based UI）**，将服务器状态、配置信息、流量数据和管理选项整合在一个页面，实现**轻量、高效、直观**的用户体验。
-
-#### 页面整体结构与布局
-
-整个页面由一系列卡片组成，这些卡片按逻辑功能分行排列，确保信息清晰分层。
-
-| **行** | **卡片内容** | **卡片宽度** | **数据来源** |
-| :--- | :--- | :--- | :--- |
-| **第1行** | **基本信息** | 单卡片，占满全行 | 后端动态生成：服务器 IP/域名、证书信息、当前出口 IP、预警阈值 |
-| **第2行** | **协议配置** & **出站分流状态** | 两张卡片，并排 | 后端动态生成。左侧卡片占比 70%，右侧卡片占比 30%。 |
-| **第3行** | **订阅链接** | 单卡片，占满全行 | 静态读取 `/etc/edgebox/traffic/sub.txt` 文件。 |
-| **第4行** | **流量统计图表** | 单卡片，占满全行 | 异步加载 `/etc/edgebox/traffic/traffic.json`。 |
-| **第5行** | **管理命令** | 单卡片，占满全行 | 静态内容。 |
-
-#### 核心组件设计与数据流
-
-前端开发应严格遵循以下组件设计和数据流向，确保功能准确实现。
-
-##### 基本信息卡片
-
-* **目的**：让用户一眼看到服务器的核心身份和状态。
-* **显示内容**：
-    * **服务器地址**：显示当前的 IP 或域名。
-    * **证书信息**：显示证书类型（`Let's Encrypt` 或 `自签名`）和证书到期日期。
-    * **住宅代理 IP**：如果出站模式为 `resi` 或 `direct-resi`，则显示当前的住宅代理出口 IP，否则显示无。
-
-##### 核心配置与出站状态卡片
-
-* **目的**：清晰展示各协议的配置详情和当前分流策略。
-* **左侧卡片（70%）**：
-    * **协议配置**：列出所有协议（Reality, gRPC, WS, Hysteria2, TUIC, Trojan-TLS）的关键配置参数，例如 端口、UUID、伪装效果、适用场景等，方便用户查阅和配置客户端。
-* **右侧卡片（30%）**：
-    * **分流状态**：显示三个出站模式标签 (`vps` / `resi` / `direct-resi`)，高亮显示当前出站模式。
-    * **直连白名单**：列出当前模式下的白名单域名，让用户直观地了解哪些流量在直连。
-
-##### 订阅链接卡片
-
-* **目的**：提供一键导入的订阅链接。
-* **数据流**：前端通过 `fetch` 请求 `/traffic/sub.txt` 文件内容。
-* **显示内容**：
-    * 标题：订阅链接，后接可复制按钮标签；
-    * 可复制的文本框。
-
-##### 流量统计卡片
-
-* **目的**：可视化展示流量趋势，为用户提供数据参考。
-* **数据流**：异步加载 `/traffic/traffic.json` 文件。
-* **显示内容**：
-    * **日曲线图**：绘制**近 30 天**的流量趋势，包含两条折线——“VPS 出口流量”与“住宅出口流量”。
-    * **月累计表格**：在图表下方，以表格形式展示**近 12 个月**的详细流量数据，包含“住宅出口”、“VPS 出口”与“总出站流量”。
-
-##### 管理命令卡片
-
-* **目的**：为用户提供常用的 `edgeboxctl` 命令参考。
-* **显示内容**：
-    * 将所有管理命令按功能分类（例如“模式切换”、“出站分流配置”等）。
-    * 以双列形式展示命令，并在每一行附带简短的注释说明其功能。
-    * **示例**：
-        * `edgeboxctl change-to-domain`  #切换至域名模式。
-        * `edgeboxctl shunt status`  #查看分流状态。   
+## 运维与管理 
 
 ### 3.流量预警功能
 
