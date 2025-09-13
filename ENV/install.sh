@@ -2387,7 +2387,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
   <div class="grid grid-full">
     <div class="card">
       <h3 class="main-title">
-        🌐EdgeBox-企业级多协议节点
+        🌐EdgeBox-企业级多协议节点 (Control Panel)
         <div class="notification-bell" id="notif-bell" onclick="toggleNotifications()">
           🔔 <span id="notif-count">0</span>
           <div class="notification-popup" id="notif-popup">
