@@ -738,6 +738,4 @@ chmod +x /usr/local/bin/edgebox-ipq.sh
 
 
 
-您看一下上面三段
-
 
