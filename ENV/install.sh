@@ -1395,7 +1395,9 @@ TRAFFIC_DIR="/etc/edgebox/traffic"
 SCRIPTS_DIR="/etc/edgebox/scripts"
 SHUNT_DIR="/etc/edgebox/config/shunt"
 CONFIG_DIR="/etc/edgebox/config"
-mkdir -p "$TRAFFIC_DIR"
+WEB_ROOT="/var/www/html"
+STATUS_DIR="${WEB_ROOT}/status"
+mkdir -p "$TRAFFIC_DIR" "$STATUS_DIR"
 
 # --- 基本信息 ---
 srv_json="${CONFIG_DIR}/server.json"
@@ -1527,6 +1529,28 @@ if [[ -s "$srv_json" ]]; then
   }' "$srv_json" 2>/dev/null || echo "{}")"
 fi
 
+# --- IP质量数据同步到status目录 ---
+# 确保IP质量文件在正确位置供前端读取
+for kind in vps proxy; do
+  src_txt="/etc/edgebox/traffic/ipq_${kind}.txt"
+  src_json="/etc/edgebox/traffic/ipq_${kind}.json"
+  dst_txt="${STATUS_DIR}/ipq_${kind}.txt"
+  dst_json="${STATUS_DIR}/ipq_${kind}.json"
+  
+  # 复制或创建占位文件
+  if [[ -s "$src_txt" ]]; then
+    cp "$src_txt" "$dst_txt"
+  else
+    echo "—" > "$dst_txt"
+  fi
+  
+  if [[ -s "$src_json" ]]; then
+    cp "$src_json" "$dst_json"
+  else
+    echo '{"score":null,"verdict":"未知","lastCheckedAt":null,"ip":"","signals":{},"reasons":["数据尚未生成"]}' > "$dst_json"
+  fi
+done
+
 # --- 写 dashboard.json（统一数据源） ---
 jq -n \
   --arg ts "$(date -Is)" \
@@ -1563,7 +1587,7 @@ jq -n \
       mode: $mode, 
       proxy_info: $proxy_info, 
       health: $health,
-      whitelist: $whitelist    # 确保这里是 whitelist 而不是其他字段名
+      whitelist: $whitelist
     },
     subscription: { plain: $sub_p, base64: $sub_b, b64_lines: $sub_l },
     secrets: $secrets
@@ -2334,50 +2358,45 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         </div>
       </div>
     </div>
-    
-    <div class="card">
-      <h3>网络身份配置</h3>
-      <div class="content">
-        <div class="mode-tabs">
-          <span class="mode-tab active vps" id="network-tab-vps">VPS出站IP</span>
-          <span class="mode-tab" id="network-tab-proxy">代理出站IP</span>
-          <span class="mode-tab" id="network-tab-shunt">分流出站</span>
-        </div>
-        <div class="network-sections">
-          <div class="network-section" id="vps-section">
-            <h5>🌐 VPS出站IP</h5>
-            <div class="value">公网身份: <span>直连</span></div>
-            <div class="value">VPS出站IP: <span id="vps-ip">—</span></div>
-            <div class="value">ASN/ISP: <span id="vps-asn">—</span></div>
-            <div class="value">Geo: <span id="vps-geo">—</span></div>
-            <div class="value">带宽限制: <span id="vps-bandwidth">— / —</span></div>
-            <div class="ip-quality good" id="vps-ip-quality">
-              IP质量：<span id="vps-quality-text">—</span>，<a href="#" class="ip-quality-detail" id="vps-quality-detail">详情</a>
-            </div>
-          </div>
-          
-          <div class="network-section" id="proxy-section" style="display:none;">
-            <h5>🔄 代理出站IP</h5>
-            <div class="value">代理身份: <span>全代理</span></div>
-            <div class="value">代理出站IP: <span id="proxy-ip">—</span></div>
-            <div class="value">ASN/ISP: <span id="proxy-asn">—</span></div>
-            <div class="value">Geo: <span id="proxy-geo">—</span></div>
-            <div class="value">带宽限制: <span id="proxy-bandwidth">— / —</span></div>
-            <div class="ip-quality good" id="proxy-ip-quality">
-              IP质量：<span id="proxy-quality-text">—</span>，<a href="#" class="ip-quality-detail" id="proxy-quality-detail">详情</a>
-            </div>
-          </div>
-          
-          <div class="network-section" id="shunt-section" style="display:none;">
-            <h5>⚡ 分流出站</h5>
-            <div class="value">混合身份: <span>白名单VPS直连 + 其它代理</span></div>
-            <div class="value">白名单: <span id="whitelist-domains">加载中...</span></div>
-            <div class="small" style="margin-top:8px;">注：HY2/TUIC 为 UDP 通道，VPS 直连，不走代理分流</div>
-          </div>
-        </div>
+	
+<!-- 网络身份配置卡片 -->
+<div class="card">
+  <h3>网络身份配置</h3>
+  <div class="content">
+    <div class="mode-tabs">
+      <span class="mode-tab active vps" id="network-tab-vps">VPS出站IP</span>
+      <span class="mode-tab" id="network-tab-proxy">代理出站IP</span>
+      <span class="mode-tab" id="network-tab-shunt">分流出站</span>
+    </div>
+    <div class="network-sections">
+      <!-- VPS出站IP -->
+      <div class="network-section" id="vps-section">
+        <h5>🌐 VPS出站IP</h5>
+        <div class="value">身份: <span>直连</span></div>
+        <div class="value">出站IP: <span id="vps-ip">—</span></div>
+        <div class="value">Geo: <span id="vps-geo">—</span></div>
+        <div class="value">IP质量: <span id="vps-quality-text">—</span>，<a href="#" class="detail-link" id="vps-quality-detail">详情</a></div>
+      </div>
+      
+      <!-- 代理出站IP -->
+      <div class="network-section" id="proxy-section" style="display:none;">
+        <h5>🔄 代理出站IP</h5>
+        <div class="value">身份: <span>全代理</span></div>
+        <div class="value">出站IP: <span id="proxy-ip">—</span></div>
+        <div class="value">Geo: <span id="proxy-geo">—</span></div>
+        <div class="value">IP质量: <span id="proxy-quality-text">—</span>，<a href="#" class="detail-link" id="proxy-quality-detail">详情</a></div>
+      </div>
+      
+      <!-- 分流出站 -->
+      <div class="network-section" id="shunt-section" style="display:none;">
+        <h5>⚡ 分流出站</h5>
+        <div class="value">身份: <span>白名单VPS直连 + 其它代理</span></div>
+        <div class="value">白名单: <span id="whitelist-domains">加载中...</span></div>
+        <div class="small" style="margin-top:8px;">注：HY2/TUIC 为 UDP 通道，VPS 直连，不走代理分流</div>
       </div>
     </div>
   </div>
+</div>
 
   <!-- 第三行: 协议详情 -->
   <div class="grid grid-full">
@@ -2538,37 +2557,89 @@ function closeIpqModal() {
 // IP质量详情弹窗
 async function showIpqDetail(kind) {
   try {
-    const data = await getJSON(`./ipq_${kind}.json`);
+    const data = await getJSON(`./status/ipq_${kind}.json`);
     const el = document.getElementById('ipq-modal-body');
     
-    if (!data || !data.score) {
-      el.innerHTML = '<b>暂无数据</b>';
+    if (!data || (data.score === null && data.verdict === "未配置")) {
+      el.innerHTML = '<div style="text-align:center;padding:20px;color:#666;">暂无数据</div>';
+    } else if (!data.score && data.score !== 0) {
+      el.innerHTML = '<div style="text-align:center;padding:20px;color:#666;">数据加载失败</div>';
     } else {
       const qualityClass = data.score >= 90 ? 'excellent' : 
                           data.score >= 70 ? 'good' : 
                           data.score >= 50 ? 'fair' : 'poor';
       
+      // 安全取值函数
+      const safe = (obj, path, fallback = '—') => {
+        try {
+          let result = obj;
+          for (const key of path.split('.')) {
+            result = result?.[key];
+          }
+          return (result === null || result === undefined || result === '') ? fallback : result;
+        } catch {
+          return fallback;
+        }
+      };
+      
       el.innerHTML = `
-        <h3 style="margin:0 0 4px">IP质量：${data.score}分（${data.verdict}）</h3>
-        <div style="color:#666">最近检测：${data.lastCheckedAt || '—'}</div>
-        <hr>
-        <div>出站IP：<b>${data.ip || '—'}</b></div>
-        <div>ASN/ISP：<b>${data.asn || '—'}</b> / ${data.asName || '—'}</div>
-        <div>Geo：<b>${(data.geo && data.geo.country) || '—'} - ${(data.geo && data.geo.city) || '—'}</b></div>
-        <div>网络类型：${data.signals?.netType || '—'}；rDNS：${data.signals?.rdns || '—'}</div>
-        <div>黑名单命中：${data.signals?.blacklistHits ?? '未知'}；地理一致性：${data.signals?.geoConsistency || '—'}</div>
-        <div>连接时延中位数：${data.signals?.latencyMs ?? '—'} ms</div>
-        <div>TOR出口节点：${data.signals?.isTorExit ? '是' : '否'}</div>
-        <hr>
-        <div>判断依据：</div>
-        <ul>${(data.reasons || []).map(x => `<li>${x}</li>`).join('')}</ul>
-        <div style="color:#888;font-size:12px">提示：评分基于公开信号与连通性，仅供参考。</div>
+        <div style="margin-bottom:16px;">
+          <h3 style="margin:0 0 4px;color:#1f2937;">IP质量：${data.score}分（${data.verdict}）</h3>
+          <div style="color:#6b7280;font-size:0.875rem;">最近检测：${safe(data, 'lastCheckedAt', '—')}</div>
+        </div>
+        <hr style="margin:12px 0;border:0;border-top:1px solid #e5e7eb;">
+        
+        <div style="display:grid;gap:8px;margin-bottom:16px;">
+          <div style="display:flex;justify-content:space-between;">
+            <span style="color:#6b7280;">出站IP：</span>
+            <span style="font-weight:600;color:#1f2937;">${safe(data, 'ip')}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;">
+            <span style="color:#6b7280;">ASN/ISP：</span>
+            <span style="font-weight:600;color:#1f2937;">${safe(data, 'asn')} / ${safe(data, 'asName')}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;">
+            <span style="color:#6b7280;">Geo：</span>
+            <span style="font-weight:600;color:#1f2937;">${safe(data, 'geo.country')} - ${safe(data, 'geo.city')}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;">
+            <span style="color:#6b7280;">网络类型：</span>
+            <span style="font-weight:600;color:#1f2937;">${safe(data, 'signals.netType', '未知')}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;">
+            <span style="color:#6b7280;">rDNS：</span>
+            <span style="font-weight:600;color:#1f2937;">${safe(data, 'signals.rdns') || '无'}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;">
+            <span style="color:#6b7280;">黑名单命中：</span>
+            <span style="font-weight:600;color:#1f2937;">${safe(data, 'signals.blacklistHits', 0)}次</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;">
+            <span style="color:#6b7280;">时延中位数：</span>
+            <span style="font-weight:600;color:#1f2937;">${safe(data, 'signals.latencyMs', '—')} ms</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;">
+            <span style="color:#6b7280;">TOR出口节点：</span>
+            <span style="font-weight:600;color:#1f2937;">${safe(data, 'signals.isTorExit') ? '是' : '否'}</span>
+          </div>
+        </div>
+        
+        <hr style="margin:12px 0;border:0;border-top:1px solid #e5e7eb;">
+        <div style="margin-bottom:8px;font-weight:600;color:#1f2937;">判断依据：</div>
+        <ul style="margin:0;padding-left:20px;color:#6b7280;">
+          ${(data.reasons || []).map(reason => `<li style="margin-bottom:4px;">${reason}</li>`).join('')}
+        </ul>
+        
+        <div style="margin-top:16px;padding:8px;background:#f9fafb;border-radius:4px;font-size:0.75rem;color:#6b7280;">
+          提示：评分基于公开信号与连通性，仅供参考。
+        </div>
       `;
     }
     document.getElementById('ipq-modal').classList.add('show');
   } catch (e) {
     console.error('Failed to load IP quality data:', e);
-    document.getElementById('ipq-modal-body').innerHTML = '<b>数据加载失败</b>';
+    document.getElementById('ipq-modal-body').innerHTML = 
+      '<div style="text-align:center;padding:20px;color:#ef4444;">数据加载失败</div>';
     document.getElementById('ipq-modal').classList.add('show');
   }
 }
@@ -2745,99 +2816,128 @@ async function updateProgressBar() {
   }
 }
 
-// 加载IP质量数据
+// 加载IP质量数据（卡片显示）
 async function loadIpQualityData() {
+  // 安全取值函数
+  const safe = (obj, path, fallback = '—') => {
+    try {
+      let result = obj;
+      for (const key of path.split('.')) {
+        result = result?.[key];
+      }
+      return (result === null || result === undefined || result === '') ? fallback : result;
+    } catch {
+      return fallback;
+    }
+  };
+
+  // 格式化Geo信息
+  const formatGeo = (country, city) => {
+    const countryCode = country === 'UNITED STATES' ? 'US' : 
+                       country === 'UNITED KINGDOM' ? 'UK' :
+                       country === 'CHINA' ? 'CN' : 
+                       country?.slice(0, 2) || '—';
+    const cityCode = city === 'Los Angeles' ? 'LA' :
+                    city === 'New York' ? 'NY' :
+                    city === 'San Francisco' ? 'SF' :
+                    city?.slice(0, 3) || '—';
+    return country && city ? `${countryCode}-${cityCode}` : '—';
+  };
+
   // VPS IP质量
   try {
-    const vpsText = await getTEXT('./ipq_vps.txt');
-    const vpsQualityText = vpsText.replace(/，详情.*/, '');
-    document.getElementById('vps-quality-text').textContent = vpsQualityText.replace('IP质量：', '');
+    const vpsText = await getTEXT('./status/ipq_vps.txt');
+    document.getElementById('vps-quality-text').textContent = vpsText.replace(/，详情.*$/, '');
     
-    const vpsData = await getJSON('./ipq_vps.json');
-    if (vpsData && vpsData.score) {
-      const vpsQualityEl = document.getElementById('vps-ip-quality');
-      const qualityClass = vpsData.score >= 90 ? 'excellent' : 
-                          vpsData.score >= 70 ? 'good' : 
-                          vpsData.score >= 50 ? 'fair' : 'poor';
-      vpsQualityEl.className = 'ip-quality ' + qualityClass;
+    try {
+      const vpsData = await getJSON('./status/ipq_vps.json');
+      if (vpsData) {
+        // 更新出站IP
+        if (vpsData.ip) {
+          document.getElementById('vps-ip').textContent = vpsData.ip;
+        }
+        
+        // 更新Geo信息
+        const vpsGeo = formatGeo(safe(vpsData, 'geo.country'), safe(vpsData, 'geo.city'));
+        document.getElementById('vps-geo').textContent = vpsGeo;
+        
+        // 更新质量等级样式
+        if (vpsData.score !== null && vpsData.score !== undefined) {
+          const vpsQualityEl = document.getElementById('vps-ip-quality');
+          if (vpsQualityEl) {
+            const qualityClass = vpsData.score >= 90 ? 'excellent' : 
+                                vpsData.score >= 70 ? 'good' : 
+                                vpsData.score >= 50 ? 'fair' : 'poor';
+            vpsQualityEl.className = 'ip-quality ' + qualityClass;
+          }
+        }
+      }
+    } catch (e) {
+      console.log('VPS IP质量JSON读取失败:', e);
     }
   } catch (e) {
+    console.log('VPS IP质量文本读取失败:', e);
     document.getElementById('vps-quality-text').textContent = '—';
   }
 
   // 代理 IP质量
   try {
-    const proxyText = await getTEXT('./ipq_proxy.txt');
-    const proxyQualityText = proxyText.replace(/，详情.*/, '');
-    document.getElementById('proxy-quality-text').textContent = proxyQualityText.replace('IP质量：', '');
+    const proxyText = await getTEXT('./status/ipq_proxy.txt');
+    document.getElementById('proxy-quality-text').textContent = proxyText.replace(/，详情.*$/, '');
     
-    const proxyData = await getJSON('./ipq_proxy.json');
-    if (proxyData && proxyData.score) {
-      const proxyQualityEl = document.getElementById('proxy-ip-quality');
-      const qualityClass = proxyData.score >= 90 ? 'excellent' : 
-                          proxyData.score >= 70 ? 'good' : 
-                          proxyData.score >= 50 ? 'fair' : 'poor';
-      proxyQualityEl.className = 'ip-quality ' + qualityClass;
+    try {
+      const proxyData = await getJSON('./status/ipq_proxy.json');
+      if (proxyData) {
+        // 更新出站IP
+        if (proxyData.ip) {
+          document.getElementById('proxy-ip').textContent = proxyData.ip;
+        }
+        
+        // 更新Geo信息
+        const proxyGeo = formatGeo(safe(proxyData, 'geo.country'), safe(proxyData, 'geo.city'));
+        document.getElementById('proxy-geo').textContent = proxyGeo;
+        
+        // 更新质量等级样式
+        if (proxyData.score !== null && proxyData.score !== undefined) {
+          const proxyQualityEl = document.getElementById('proxy-ip-quality');
+          if (proxyQualityEl) {
+            const qualityClass = proxyData.score >= 90 ? 'excellent' : 
+                                proxyData.score >= 70 ? 'good' : 
+                                proxyData.score >= 50 ? 'fair' : 'poor';
+            proxyQualityEl.className = 'ip-quality ' + qualityClass;
+          }
+        }
+      }
+    } catch (e) {
+      console.log('代理IP质量JSON读取失败:', e);
     }
   } catch (e) {
+    console.log('代理IP质量文本读取失败:', e);
     document.getElementById('proxy-quality-text').textContent = '—';
   }
 }
 
-// 模式标签切换
+// 修正模式标签切换中的事件绑定
 function setupModeTabs() {
-  // 证书模式切换
-  document.getElementById('cert-tab-self').onclick = function() {
-    document.getElementById('cert-tab-self').classList.add('active', 'self-signed');
-    document.getElementById('cert-tab-ca').classList.remove('active', 'letsencrypt');
-  };
-  
-  document.getElementById('cert-tab-ca').onclick = function() {
-    document.getElementById('cert-tab-ca').classList.add('active', 'letsencrypt');
-    document.getElementById('cert-tab-self').classList.remove('active', 'self-signed');
-  };
+  // ... 其他代码保持不变 ...
 
-  // 网络身份模式切换
-  document.getElementById('network-tab-vps').onclick = function() {
-    document.getElementById('network-tab-vps').classList.add('active', 'vps');
-    document.getElementById('network-tab-proxy').classList.remove('active', 'proxy');
-    document.getElementById('network-tab-shunt').classList.remove('active', 'shunt');
-    
-    document.getElementById('vps-section').style.display = 'block';
-    document.getElementById('proxy-section').style.display = 'none';
-    document.getElementById('shunt-section').style.display = 'none';
-  };
+  // IP质量详情点击事件修正
+  const vpsDetailLink = document.getElementById('vps-quality-detail');
+  const proxyDetailLink = document.getElementById('proxy-quality-detail');
   
-  document.getElementById('network-tab-proxy').onclick = function() {
-    document.getElementById('network-tab-proxy').classList.add('active', 'proxy');
-    document.getElementById('network-tab-vps').classList.remove('active', 'vps');
-    document.getElementById('network-tab-shunt').classList.remove('active', 'shunt');
-    
-    document.getElementById('vps-section').style.display = 'none';
-    document.getElementById('proxy-section').style.display = 'block';
-    document.getElementById('shunt-section').style.display = 'none';
-  };
+  if (vpsDetailLink) {
+    vpsDetailLink.onclick = function(e) {
+      e.preventDefault();
+      showIpqDetail('vps');
+    };
+  }
   
-  document.getElementById('network-tab-shunt').onclick = function() {
-    document.getElementById('network-tab-shunt').classList.add('active', 'shunt');
-    document.getElementById('network-tab-vps').classList.remove('active', 'vps');
-    document.getElementById('network-tab-proxy').classList.remove('active', 'proxy');
-    
-    document.getElementById('vps-section').style.display = 'none';
-    document.getElementById('proxy-section').style.display = 'none';
-    document.getElementById('shunt-section').style.display = 'block';
-  };
-
-  // IP质量详情点击事件
-  document.getElementById('vps-quality-detail').onclick = function(e) {
-    e.preventDefault();
-    showIpqDetail('vps');
-  };
-  
-  document.getElementById('proxy-quality-detail').onclick = function(e) {
-    e.preventDefault();
-    showIpqDetail('proxy');
-  };
+  if (proxyDetailLink) {
+    proxyDetailLink.onclick = function(e) {
+      e.preventDefault();
+      showIpqDetail('proxy');
+    };
+  }
 }
 
 // 主数据加载函数
@@ -2884,7 +2984,7 @@ async function loadData() {
   }
 }
 
-// 渲染基本信息
+// 修正后的渲染基本信息函数
 function renderHeader(model) {
   const ts = model.updatedAt || new Date().toISOString();
   document.getElementById('updated').textContent = new Date(ts).toLocaleString('zh-CN');
@@ -2922,16 +3022,54 @@ function renderHeader(model) {
   document.getElementById('ver').textContent = s.version || '—';
   document.getElementById('inst').textContent = s.install_date || '—';
   
-  // 网络身份信息
-  document.getElementById('vps-ip').textContent = (s.eip || s.ip) || '—';
+  // 网络身份信息 - VPS出站IP
+  const vpsIP = (s.eip || s.ip) || '—';
+  document.getElementById('vps-ip').textContent = vpsIP;
+  
+  // 从IP信息中提取Geo信息（如果有的话，这里先用占位符）
+  document.getElementById('vps-geo').textContent = '—'; // 将在loadIpQualityData中更新
+  document.getElementById('proxy-ip').textContent = '—'; // 将在loadIpQualityData中更新
+  document.getElementById('proxy-geo').textContent = '—'; // 将在loadIpQualityData中更新
   
   // 分流信息
   const sh = model.shunt || {};
   const whitelist = sh.whitelist || [];
-  const whitelistText = Array.isArray(whitelist) && whitelist.length > 0 
-    ? whitelist.slice(0, 3).join(', ') + (whitelist.length > 3 ? '...' : '')
-    : '加载中...';
+  let whitelistText = '加载中...';
+  if (Array.isArray(whitelist) && whitelist.length > 0) {
+    if (whitelist.length <= 3) {
+      whitelistText = whitelist.join(', ');
+    } else {
+      whitelistText = whitelist.slice(0, 3).join(', ') + ` +${whitelist.length - 3}`;
+    }
+  }
   document.getElementById('whitelist-domains').textContent = whitelistText;
+  
+  // 根据分流模式设置正确的标签状态
+  const shuntMode = sh.mode || 'vps';
+  document.getElementById('network-tab-vps').classList.remove('active', 'vps');
+  document.getElementById('network-tab-proxy').classList.remove('active', 'proxy');
+  document.getElementById('network-tab-shunt').classList.remove('active', 'shunt');
+  
+  document.getElementById('vps-section').style.display = 'none';
+  document.getElementById('proxy-section').style.display = 'none';
+  document.getElementById('shunt-section').style.display = 'none';
+  
+  switch (shuntMode) {
+    case 'resi':
+    case 'resi(xray-only)':
+      document.getElementById('network-tab-proxy').classList.add('active', 'proxy');
+      document.getElementById('proxy-section').style.display = 'block';
+      break;
+    case 'direct_resi':
+    case 'direct_resi(xray-only)':
+      document.getElementById('network-tab-shunt').classList.add('active', 'shunt');
+      document.getElementById('shunt-section').style.display = 'block';
+      break;
+    default: // vps
+      document.getElementById('network-tab-vps').classList.add('active', 'vps');
+      document.getElementById('vps-section').style.display = 'block';
+      break;
+  }
   
   // 服务状态
   const nginxEl = document.getElementById('nginx-status');
