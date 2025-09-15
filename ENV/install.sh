@@ -5271,9 +5271,6 @@ finalize_install() {
 
   # 立即生成首版面板数据 + 写入定时
   if [[ -x "${SCRIPTS_DIR}/dashboard-backend.sh" ]]; then
-      mkdir -p /var/log
-    touch /var/log/edgebox-cron.log
-    chmod 0644 /var/log/edgebox-cron.log || true
     log_info "生成初始面板数据..."
     "${SCRIPTS_DIR}/dashboard-backend.sh" --now      >/dev/null 2>&1 || log_warn "首刷失败，稍后由定时任务再试"
     "${SCRIPTS_DIR}/dashboard-backend.sh" --schedule >/dev/null 2>&1 || true
