@@ -101,33 +101,137 @@ rDNS
 结论:
 判断依据 (要点列表)
 
-#### b) 前端实现与文件约定
-* **数据源**: 前端通过 `fetch` 直接读取由后端每日生成的静态 `.txt` 和 `.json` 文件。
-    * `/var/www/edgebox/status/ipq_vps.json` / `.txt`
-    * `/var/www/edgebox/status/ipq_proxy.json` / `.txt`
-* **交互**: 点击“详情”时，使用 JavaScript 读取对应的 `.json` 文件内容，并渲染到一个弹窗 (`<dialog>`)中。
-* **示例代码**:
-    ```html
-    <div>IP质量：<span id="ipq-vps-text">—</span>，<a href="#" id="ipq-vps-detail">详情</a></div>
-    <div>IP质量：<span id="ipq-proxy-text">—</span>，<a href="#" id="ipq-proxy-detail">详情</a></div>
 
-    <dialog id="ipq-dialog">
-      </dialog>
+## 4. 数据流与口径（最终版）
 
-    <script>
-    // 最终版中提供的JS代码，用于实现静态文件读取和弹窗渲染
-    </script>
-    ```
+### 4.1 总体链路
 
-#### c) 后端实现与自动化
-* **核心脚本**: `/usr/local/bin/edgebox-ipq.sh` 负责执行所有检测和评分逻辑。
-* **定时任务 (Cron)**: 每日凌晨（例如 02:15）自动执行一次评分脚本，覆盖生成最新的静态文件。
-    ```bash
-    15 2 * * * /usr/local/bin/edgebox-ipq.sh --out /var/www/edgebox/status --proxy '<proxy_url>' --targets vps,proxy
-    ```
+**单向数据流**：后端定时采集 → 聚合生成 **统一 JSON** → 前端 `fetch` 渲染。
 
-## 4. 后端 API 接口字段 (Data Contract)
-主 `dashboard.json` 文件不再包含 `ipQuality` 字段。该数据已解耦，由前端按需从 `/var/www/edgebox/status/` 目录下的静态 `ipq_*.json` 文件中获取。主接口格式维持不变。
-````
+**数据源（Sources of Truth）**
 
------
+* 核心配置：`/etc/edgebox/config/server.json`（含 UUID/密码/IP）。
+* 分流白名单：`/etc/edgebox/config/shunt/whitelist.txt`。
+* 分流模式状态：`/etc/edgebox/config/shunt/state.json`。
+* 系统状态：`/proc/*` 读取 CPU/内存。
+* 服务状态：`systemctl is-active`（Nginx/Xray/Sing-box）。
+
+**后端聚合脚本（唯一）**
+
+* `/etc/edgebox/scripts/dashboard-backend.sh` 负责采集/归一化/聚合为单一 JSON 对象。
+
+**中心化数据接口（文件）**
+
+* `dashboard.json`（主数据）、`traffic.json`（流量）、`system.json`（负载）— 三者为前端唯一依赖。
+
+**刷新机制（Cron）**
+
+* `dashboard-backend.sh`：每 **2 分钟**更新 `dashboard.json/system.json`。
+* `traffic-collector.sh`：每 **小时**统计流量，计算并产出 `traffic.json`。
+* `ipq`（IP 质量）：每日 **02:15** 评分，输出到 `/var/www/edgebox/status`。
+
+**前端消费**
+`index.html` 启动后以 `fetch` 读取 `/traffic/` 下三份 JSON（及按需读取 `/status/ipq_*.json`），据键路径填充各 UI 元素。
+
+### 4.2 口径（计算与展示的一致性）
+
+* **流量口径**：以“出站去向”拆分——`总出站 = VPS 直连 + 住宅代理`；`VPS 出站 = 总出站 - 住宅出站`（后端以 `nftables` 计数器分流累积）。
+* **模式口径**：
+
+  * `直连`：所有流量经 VPS 原生出站；
+  * `全代理`：所有流量经代理出站；
+  * `混合`：白名单走 VPS，其他走代理（UI 仅露出“当前是谁/从哪儿出/质量如何”，明细在弹窗）。〔最终版采用“网络身份配置”卡片并以弹窗承载明细〕。
+* **空值口径**：未知 `—`，未设 `(无)`（统一到前端格式化层）。
+
+---
+
+## 5. 后端实现要点
+
+### 5.1 流量采集
+
+* `vnStat` 取网卡总出站；`nftables` 计数器统计“住宅代理”去向；产出 `daily.csv / monthly.csv → traffic.json`。
+
+### 5.2 统一聚合
+
+* `dashboard-backend.sh` 汇总：系统状态、服务状态、证书/模式/白名单等 → `dashboard.json`（不含 IP 质量字段）。
+
+### 5.3 IP 质量评分（解耦）
+
+* **不再放入 `dashboard.json`**，改由独立脚本 `edgebox-ipq.sh` 产出 `/var/www/edgebox/status/ipq_*.json`，供前端弹窗读取。
+
+---
+
+## 6. 前端实现要点
+
+* **静态单页**：`index.html` 纯静态；通过 `fetch` 拉取 JSON 并渲染。
+* **主要卡片**：顶部概览、协议配置/分流、订阅、流量统计、运维管理。
+* **订阅链接**：提供明文、B64逐行、合并Base64 三种格式。
+* **图表渲染**：`traffic.json` → 近30日曲线 + 12个月柱形；本月进度条由 `alert.conf` 配置阈值。
+* **IP 质量弹窗**：点击“详情”→ 读取 `/status/ipq_*.json` -> `<dialog>` 渲染。
+
+---
+
+## 7. 文件与目录结构（最终版）
+
+```
+/etc/edgebox/
+  ├─ traffic/                 # Nginx Web 根（前端可读）
+  │   ├─ logs/
+  │   │   ├─ daily.csv
+  │   │   └─ monthly.csv
+  │   ├─ dashboard.json       # 面板主数据
+  │   ├─ traffic.json         # 流量统计
+  │   ├─ system.json          # 系统负载
+  │   ├─ alert.conf           # 流量预警阈值
+  │   └─ index.html           # 控制面板入口
+  ├─ scripts/
+  │   ├─ dashboard-backend.sh # 2分钟一次：聚合→dashboard/system
+  │   └─ traffic-collector.sh # 1小时一次：采集→traffic
+/var/www/edgebox/status/      # 新增：IP质量静态文件
+  ├─ ipq_vps.json(.txt)
+  └─ ipq_proxy.json(.txt)
+```
+
+（`/etc/edgebox/traffic/*` 结构承袭《02》，新增 `/var/www/edgebox/status/` 承载 `ipq_*` 文件。）
+
+---
+
+## 8. 数据契约（Data Contract）
+
+* **`dashboard.json`**：最终版**不含** IP 质量字段；该数据已解耦，由 `/var/www/edgebox/status/ipq_*.json` 提供。原有键路径（如 `shunt.whitelist`）保持不变，前端照常消费。
+* **`traffic.json`**：包含 `last30d` / `monthly` 等，用于近30日曲线与12个月柱形图。
+* **`system.json`**：CPU/内存等负载指标（进度条驱动）。
+* **`ipq_*.json`**：VPS 与代理两份评分详情，用于弹窗；字段含分数/等级/时间、IP/ASN/ISP/Geo、带宽、网络类型、rDNS、黑名单命中、时延中位数、结论与依据。
+
+---
+
+## 9. 定时任务（Cron）建议
+
+```cron
+*/2 * * * * /etc/edgebox/scripts/dashboard-backend.sh          # dashboard/system
+15   * * * * /etc/edgebox/scripts/traffic-collector.sh         # traffic
+15   2 * * * /usr/local/bin/edgebox-ipq.sh --out /var/www/edgebox/status --proxy '<proxy_url>' --targets vps,proxy  # ipq
+```
+
+（周期来自《02/03》既有频率约定。）
+
+---
+
+## 10. 与旧版差异（V2 → 最终版）
+
+* **信息分层升级**：首行合并为“概览信息”单卡片，提升一屏可读性。
+* **统一口径**：全面采用“出站”术语与空值显示规范。
+* **IP 质量解耦**：从 `dashboard.json` 中移除，改由 `/status/ipq_*.json` 独立供给 + 前端弹窗加载。
+
+---
+
+## 11. 交付物清单（实现所需最小集）
+
+1. `index.html`（含：布局栅格、卡片组件、`fetch` 三 JSON、Chart.js、`<dialog>` 弹窗）；
+2. `dashboard-backend.sh` 与 `traffic-collector.sh`（按上述目录/频率运行）；
+3. `edgebox-ipq.sh`（产出 `/var/www/edgebox/status/ipq_*.json`）；
+4. `alert.conf`（本月流量进度的阈值设置）。
+
+---
+
+如需，我可以把以上内容直接落成 **README.md + 目录树 + 示例 JSON 模板**，方便你放入仓库即用。
