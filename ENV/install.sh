@@ -1023,163 +1023,225 @@ install_scheduled_dashboard_backend() {
   cat >/etc/edgebox/scripts/dashboard-backend.sh <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+export LANG=C LC_ALL=C
 
-TRAFFIC_DIR=/etc/edgebox/traffic
-CONF_DIR=/etc/edgebox/config
-SHUNT_DIR=$CONF_DIR/shunt
-STATUS_DIR=/var/www/edgebox/status
+TRAFFIC_DIR="${TRAFFIC_DIR:-/etc/edgebox/traffic}"
+CONFIG_DIR="${CONFIG_DIR:-/etc/edgebox/config}"
+SERVER_JSON="${SERVER_JSON:-${CONFIG_DIR}/server.json}"
+SUB_CACHE="${SUB_CACHE:-${TRAFFIC_DIR}/sub.txt}"
 
-OUT_DASH=$TRAFFIC_DIR/dashboard.json
-OUT_SYS=$TRAFFIC_DIR/system.json
+log_info(){ echo "[INFO] $*"; }
+log_warn(){ echo "[WARN] $*"; }
+log_error(){ echo "[ERROR] $*" >&2; }
 
-ts(){ date -Is; }
-jqr(){ jq -r "$1" 2>/dev/null || true; }
-
-# ---------- 读取服务器侧静态信息（如有） ----------
-SERVER_JSON="$CONF_DIR/server.json"
-USER_ALIAS=$( [ -s "$SERVER_JSON" ] && jqr '.user_alias // .alias // .name // empty' < "$SERVER_JSON" || echo "" )
-CLOUD_VENDOR=$( [ -s "$SERVER_JSON" ] && jqr '.cloud.vendor // .cloud_provider // .provider // empty' < "$SERVER_JSON" || echo "" )
-CLOUD_REGION=$( [ -s "$SERVER_JSON" ] && jqr '.cloud.region // .region // empty' < "$SERVER_JSON" || echo "" )
-INSTANCE_ID=$( [ -s "$SERVER_JSON" ] && jqr '.instance_id // .instance // .id // empty' < "$SERVER_JSON" || echo "" )
-HOSTNAME=$( [ -s "$SERVER_JSON" ] && jqr '.hostname // .host // empty' < "$SERVER_JSON" || hostname )
-
-VERSION_FILE=/etc/edgebox/version
-VERSION=$( [ -s "$VERSION_FILE" ] && cat "$VERSION_FILE" || echo "3.0.0" )
-INSTALLED_AT_FILE=/etc/edgebox/installed_at
-[ -s "$INSTALLED_AT_FILE" ] || date -Is > "$INSTALLED_AT_FILE"
-INSTALLED_AT=$(cat "$INSTALLED_AT_FILE")
-
-# ---------- 公网 IP（优先用 IPQ 的 vps 出口） ----------
-PUBIP=""
-[ -s "$STATUS_DIR/ipq_vps.json" ] && PUBIP=$(jq -r '.ip // empty' "$STATUS_DIR/ipq_vps.json")
-[ -n "$PUBIP" ] || PUBIP=$(curl -fsS --max-time 4 https://ipinfo.io/ip || true)
-
-# ---------- 服务状态 & 版本 ----------
-svc_status(){ systemctl is-active --quiet "$1" && echo "active" || echo "inactive"; }
-svc_ver_nginx(){ nginx -v 2>&1 | sed -n 's#.*nginx/##p'; }
-svc_ver_xray(){ xray -version 2>/dev/null | awk 'NR==1{print $2}'; }
-svc_ver_sing(){ sing-box version 2>/dev/null | awk 'NR==1{print $2}'; }
-
-NGINX_STATUS=$(svc_status nginx || true)
-XRAY_STATUS=$(svc_status xray || true)
-SING_STATUS=$(svc_status sing-box || svc_status singbox || true)
-
-NGINX_VER=$(svc_ver_nginx || true)
-XRAY_VER=$(svc_ver_xray || true)
-SING_VER=$(svc_ver_sing || true)
-
-# ---------- 分流信息 ----------
-WHITELIST_FILE="$SHUNT_DIR/whitelist.txt"
-STATE_JSON="$SHUNT_DIR/state.json"
-
-WHITELIST=$([ -s "$WHITELIST_FILE" ] \
-  && jq -R -s 'split("\n")|map(select(length>0))' "$WHITELIST_FILE" \
-  || echo '[]')
-SHUNT_MODE=$([ -s "$STATE_JSON" ] && jq -r '.mode // empty' "$STATE_JSON" || echo "")
-PROXY_INFO=$([ -s "$STATE_JSON" ] && jq -r '.proxy_info // empty' "$STATE_JSON" || echo "")
-
-# ---------- 订阅 ----------
-SUB_FILE="$TRAFFIC_DIR/sub.txt"
-PLAIN=$([ -s "$SUB_FILE" ] && cat "$SUB_FILE" || echo "")
-B64_LINES=$([ -s "$SUB_FILE" ] && base64 -w 76 "$SUB_FILE" || echo "")
-B64_ALL=$([ -s "$SUB_FILE" ] && base64 -w 0 "$SUB_FILE" || echo "")
-
-# ---------- 协议（有 protocols.json 就用；否则兜底三行） ----------
-PROTOS="[]"
-if [ -s "$CONF_DIR/protocols.json" ]; then
-  PROTOS=$(cat "$CONF_DIR/protocols.json")
-else
-  PROTOS=$(jq -n \
-    --arg nginx "$NGINX_STATUS" \
-    --arg sing  "$SING_STATUS" '
-  [
-    {
-      name:"VLESS/Trojan (443/TCP)",
-      proto:"TCP",
-      disguise:"SNI/ALPN 分流",
-      scene:"通用",
-      proc:(if $nginx=="active" then "listening" else "stopped" end)
-    },
-    {
-      name:"Hysteria2",
-      proto:"UDP",
-      disguise:"QUIC",
-      scene:"弱网/移动",
-      proc:(if $sing=="active" then "listening" else "stopped" end)
-    },
-    {
-      name:"TUIC",
-      proto:"UDP",
-      disguise:"QUIC",
-      scene:"弱网/移动",
-      proc:(if $sing=="active" then "listening" else "stopped" end)
-    }
-  ]')
-fi
-
-# ---------- 输出 dashboard.json ----------
-jq -n \
-  --arg updated_at "$(ts)" \
-  --arg ua "$USER_ALIAS" \
-  --arg cv "$CLOUD_VENDOR" \
-  --arg cr "$CLOUD_REGION" \
-  --arg iid "$INSTANCE_ID" \
-  --arg hn "$HOSTNAME" \
-  --arg ver "$VERSION" \
-  --arg inst "$INSTALLED_AT" \
-  --arg pubip "$PUBIP" \
-  --arg nginx_s "$NGINX_STATUS" --arg xray_s "$XRAY_STATUS" --arg sing_s "$SING_STATUS" \
-  --arg nginx_v "$NGINX_VER" --arg xray_v "$XRAY_VER" --arg sing_v "$SING_VER" \
-  --argjson whitelist "$WHITELIST" \
-  --arg mode "$SHUNT_MODE" \
-  --arg proxy "$PROXY_INFO" \
-  --arg plain "$PLAIN" --arg b64 "$B64_ALL" --arg b64l "$B64_LINES" \
-  --argjson protocols "$PROTOS" '
-{
-  updated_at: $updated_at,
-  server: {
-    user_alias: $ua,
-    cloud: { vendor: $cv, region: $cr },
-    instance_id: $iid,
-    hostname: $hn,
-    version: $ver,
-    installed_at: $inst,
-    public_ip: $pubip
-  },
-  services: {
-    nginx: $nginx_s,
-    xray: $xray_s,
-    "sing-box": $sing_s,
-    versions: { nginx: $nginx_v, xray: $xray_v, "sing-box": $sing_v }
-  },
-  protocols: $protocols,
-  shunt: { mode: $mode, whitelist: $whitelist, proxy_info: ($proxy|select(.!="")) },
-  subscription: { plain: $plain, base64: $b64, b64_lines: $b64l }
-}' > "$OUT_DASH"
-
-# ---------- 输出 system.json ----------
-cpu_pct(){
-  read -r c1 i1 < <(awk '/^cpu /{print $2+$3+$4+$5+$6+$7+$8, $5}' /proc/stat)
-  sleep 0.3
-  read -r c2 i2 < <(awk '/^cpu /{print $2+$3+$4+$5+$6+$7+$8, $5}' /proc/stat)
-  awk -v a=$c1 -v b=$c2 -v x=$i1 -v y=$i2 'BEGIN{u=((b-a)-(y-x))*100/(b-a); if(u<0)u=0; if(u>100)u=100; printf("%.0f",u)}'
+_get_cpu_mem(){ 
+  read _ u n s i _ < /proc/stat; t1=$((u+n+s+i)); i1=$i; sleep 1
+  read _ u n s i _ < /proc/stat; t2=$((u+n+s+i)); i2=$i; dt=$((t2-t1)); di=$((i2-i1))
+  CPU=$(( dt>0 ? (100*(dt-di)+dt/2)/dt : 0 ))
+  MT=$(awk '/MemTotal/{print $2}' /proc/meminfo)
+  MA=$(awk '/MemAvailable/{print $2}' /proc/meminfo)
+  MEM=$(( MT>0 ? (100*(MT-MA)+MT/2)/MT : 0 ))
+  echo "$CPU" "$MEM"
 }
-MEM_PCT=$(awk '/MemTotal/{t=$2}/MemAvailable/{a=$2} END{if(t>0){printf("%.0f",(t-a)*100/t)}else{print 0}}' /proc/meminfo)
-DISK_PCT=$(df -P / | awk 'NR==2{gsub("%","");print $5}')
-CPU_PCT=$(cpu_pct)
 
-CPU_INFO=$(lscpu 2>/dev/null | awk -F: '/Model name|Socket|Core|Thread/{gsub(/^ +/,"",$2);print}' | paste -sd' / ' - 2>/dev/null || echo "$(nproc) vCPU")
-MEM_INFO=$(free -h --si | awk '/Mem:/{print $2" 总内存"}')
-DISK_INFO=$(df -h -P / | awk 'NR==2{print $2" 总量"}')
+# 读取明文订阅 -> 产出 plain / base64 / b64_lines 三种形态
+# 修复 install_scheduled_dashboard_backend 函数中的 _parse_sub 部分
+# 读取明文订阅 -> 产出 plain / base64 / b64_lines 三种形态
+_parse_sub(){
+  local sub_plain="" sub_b64="" line
+  
+  # 按优先级查找订阅文件
+  if   [[ -s "${CONFIG_DIR}/subscription.txt" ]]; then
+    sub_plain="$(cat "${CONFIG_DIR}/subscription.txt")"
+  elif [[ -s "${SUB_CACHE}" ]]; then
+    sub_plain="$(cat "${SUB_CACHE}")"
+  elif [[ -s "/var/www/html/sub" ]]; then
+    sub_plain="$(cat "/var/www/html/sub")"
+  fi
 
-jq -n --argjson cpu "$CPU_PCT" \
-      --argjson memory "$MEM_PCT" \
-      --argjson disk "$DISK_PCT" \
-      --arg cpu_info "$CPU_INFO" \
-      --arg memory_info "$MEM_INFO" \
-      --arg disk_info "$DISK_INFO" \
-      '{cpu: $cpu, memory: $memory, disk: $disk, cpu_info: $cpu_info, memory_info: $memory_info, disk_info: $disk_info}' \
-      > "$OUT_SYS"
+  # 如果还是没有内容，尝试从 server.json 重新生成
+  if [[ -z "$sub_plain" && -s "$SERVER_JSON" ]]; then
+    local ip reality_pbk reality_sid uuid_vless uuid_tuic trojan_pw hy2_pw tuic_pw
+    
+    ip="$(jq -r '.server_ip // empty' "$SERVER_JSON")"
+    reality_pbk="$(jq -r '.reality.public_key // empty' "$SERVER_JSON")"
+    reality_sid="$(jq -r '.reality.short_id // empty' "$SERVER_JSON")"
+    uuid_vless="$(jq -r '.uuid.vless.reality // .uuid.vless // empty' "$SERVER_JSON")"
+    uuid_tuic="$(jq -r '.uuid.tuic // empty' "$SERVER_JSON")"
+    trojan_pw="$(jq -r '.password.trojan // empty'
+	"$SERVER_JSON")"
+    hy2_pw="$(jq -r '.password.hysteria2 // empty' "$SERVER_JSON")"
+    tuic_pw="$(jq -r '.password.tuic // empty' "$SERVER_JSON")"
+    
+    if [[ -n "$ip" && -n "$uuid_vless" ]]; then
+      # 简化版订阅生成
+      sub_plain="vless://${uuid_vless}@${ip}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${reality_pbk}&sid=${reality_sid}&type=tcp#EdgeBox-REALITY"
+      if [[ -n "$hy2_pw" ]]; then
+        sub_plain="${sub_plain}\nhysteria2://$(printf '%s' "$hy2_pw" | jq -rR @uri)@${ip}:443?sni=${ip}&alpn=h3&insecure=1#EdgeBox-HYSTERIA2"
+      fi
+      if [[ -n "$uuid_tuic" && -n "$tuic_pw" ]]; then
+        sub_plain="${sub_plain}\ntuic://${uuid_tuic}:$(printf '%s' "$tuic_pw" | jq -rR @uri)@${ip}:2053?congestion_control=bbr&alpn=h3&sni=${ip}&allowInsecure=1#EdgeBox-TUIC"
+      fi
+    fi
+  fi
+
+  if [[ -n "$sub_plain" ]]; then
+    if base64 --help 2>&1 | grep -q -- ' -w'; then
+      sub_b64="$(printf '%s\n' "$sub_plain" | base64 -w0)"
+    else
+      sub_b64="$(printf '%s\n' "$sub_plain" | base64 | tr -d '\n')"
+    fi
+    
+    # 生成逐行base64
+    : > "${TRAFFIC_DIR}/subscription.b64lines"
+    while IFS= read -r line; do
+      [[ -z "$line" ]] && continue
+      if base64 --help 2>&1 | grep -q -- ' -w'; then
+        printf '%s' "$line" | sed -e '$a\' | base64 -w0
+      else
+        printf '%s' "$line" | sed -e '$a\' | base64 | tr -d '\n'
+      fi
+      printf '\n'
+    done <<<"$sub_plain" >> "${TRAFFIC_DIR}/subscription.b64lines"
+  else
+    : > "${TRAFFIC_DIR}/subscription.b64lines"
+  fi
+
+  # 保存明文订阅
+  printf '%s\n' "$sub_plain" > "${TRAFFIC_DIR}/subscription.txt"
+
+  export SUB_PLAIN="$sub_plain"
+  export SUB_B64="$sub_b64"
+  export SUB_LINES="$(cat "${TRAFFIC_DIR}/subscription.b64lines" 2>/dev/null || true)"
+}
+	
+# 将整个 generate_dashboard_data 函数替换为以下代码：
+generate_dashboard_data(){
+  mkdir -p "$TRAFFIC_DIR"
+  read CPU MEM < <(_get_cpu_mem || echo "0 0")
+
+  # 订阅形态
+  _parse_sub
+
+  # 服务器事实
+  local IP EIP VER INST CM CERT_DOMAIN CERT_EXPIRE
+  if [[ -s "$SERVER_JSON" ]]; then
+    IP="$(jq -r '.server_ip // empty'           "$SERVER_JSON")"
+    EIP="$(jq -r '.eip // empty'                 "$SERVER_JSON")"
+    VER="$(jq -r '.version // "3.0.0"'           "$SERVER_JSON")"
+    INST="$(jq -r '.install_date // empty'       "$SERVER_JSON")"
+    CM="$(jq -r '.cert.mode // "self-signed"'   "$SERVER_JSON")"
+    CERT_DOMAIN="$(jq -r '.cert.domain // empty' "$SERVER_JSON")"
+    CERT_EXPIRE="$(jq -r '.cert.expire // empty' "$SERVER_JSON")"
+  fi
+
+  # 检查服务状态
+  local nginx_status="inactive" xray_status="inactive" singbox_status="inactive"
+  systemctl is-active --quiet nginx && nginx_status="active"
+  systemctl is-active --quiet xray && xray_status="active"  
+  systemctl is-active --quiet sing-box && singbox_status="active"
+
+  jq -n --arg ts "$(date -Is)" --argjson cpu "$CPU" --argjson memory "$MEM" \
+    '{updated_at:$ts,cpu:$cpu,memory:$memory}' > "${TRAFFIC_DIR}/system.json"
+
+# --- 从 server.json 提取敏感字段，生成 secrets 对象 ---
+SECRETS_JSON="$(jq -c '{
+  vless:{
+    reality: (.uuid.vless.reality // .uuid.vless),
+    grpc:    (.uuid.vless.grpc    // .uuid.vless),
+    ws:      (.uuid.vless.ws      // .uuid.vless)
+  },
+  tuic_uuid: (.uuid.tuic // empty),
+  password:{
+    trojan:     (.password.trojan     // empty),
+    hysteria2:  (.password.hysteria2  // empty),
+    tuic:       (.password.tuic       // empty)
+  },
+  reality:{
+    public_key: (.reality.public_key // empty),
+    short_id:   (.reality.short_id   // empty)
+  }
+}' "$SERVER_JSON" 2>/dev/null || echo "{}")"
+
+# ===== 新增：获取分流状态和白名单数据 =====
+  local SHUNT_DIR="/etc/edgebox/config/shunt"
+  local state_json="${SHUNT_DIR}/state.json"
+  local mode="vps" proxy="" health="unknown" whitelist_json='[]'
+  
+  # 确保分流目录和白名单文件存在
+  mkdir -p "${SHUNT_DIR}"
+  if [[ ! -s "${SHUNT_DIR}/whitelist.txt" ]]; then
+    cat > "${SHUNT_DIR}/whitelist.txt" << 'WHITELIST_EOF'
+googlevideo.com
+ytimg.com
+ggpht.com
+youtube.com
+youtu.be
+googleapis.com
+gstatic.com
+WHITELIST_EOF
+  fi
+  
+  # 读取分流状态
+  if [[ -s "$state_json" ]]; then
+    mode="$(jq -r '.mode // "vps"' "$state_json" 2>/dev/null)"
+    proxy="$(jq -r '.proxy_info // ""' "$state_json" 2>/dev/null)"
+    health="$(jq -r '.health // "unknown"' "$state_json" 2>/dev/null)"
+  fi
+  
+  # 读取白名单数据
+  if [[ -s "${SHUNT_DIR}/whitelist.txt" ]]; then
+    whitelist_json="$(awk 'NF' "${SHUNT_DIR}/whitelist.txt" | jq -R -s 'split("\n")|map(select(length>0))' 2>/dev/null || echo '["googlevideo.com","ytimg.com","ggpht.com","youtube.com","youtu.be","googleapis.com","gstatic.com"]')"
+  fi
+  
+  # 确保 whitelist_json 是有效 JSON
+  if ! echo "$whitelist_json" | jq . >/dev/null 2>&1; then
+    whitelist_json='["googlevideo.com","ytimg.com","ggpht.com","youtube.com","youtu.be","googleapis.com","gstatic.com"]'
+  fi
+# ===== 结束新增部分 =====
+
+  jq -n \
+    --arg ts "$(date -Is)" \
+    --arg ip "$IP" --arg eip "$EIP" \
+    --arg ver "$VER" --arg inst "$INST" \
+    --arg cm "$CM" --arg cd "$CERT_DOMAIN" --arg ce "$CERT_EXPIRE" \
+    --arg sub_p "${SUB_PLAIN:-}" --arg sub_b "${SUB_B64:-}" --arg sub_l "${SUB_LINES:-}" \
+    --arg nginx_st "$nginx_status" --arg xray_st "$xray_status" --arg singbox_st "$singbox_status" \
+    --argjson secrets "$SECRETS_JSON" \
+    --arg mode "$mode" --arg proxy_info "$proxy" --arg health "$health" --argjson whitelist "$whitelist_json" \
+    '{
+      updated_at: $ts,
+      server: {
+        ip: $ip, eip: (if $eip=="" then null else $eip end),
+        version: $ver, install_date: $inst,
+        cert_mode: $cm, cert_domain: (if $cd=="" then null else $cd end),
+        cert_expire: (if $ce=="" then null else $ce end)
+      },
+      services: { nginx: $nginx_st, xray: $xray_st, "sing-box": $singbox_st },
+      shunt: {
+        mode: $mode,
+        proxy_info: $proxy_info,
+        health: $health,
+        whitelist: $whitelist
+      },
+      subscription: { plain: $sub_p, base64: $sub_b, b64_lines: $sub_l },
+      secrets: $secrets
+    }' > "${TRAFFIC_DIR}/dashboard.json"
+
+  chmod 0644 "${TRAFFIC_DIR}/dashboard.json" "${TRAFFIC_DIR}/system.json" 2>/dev/null || true
+  log_info "dashboard.json 已更新"
+}
+schedule_dashboard_jobs(){
+  ( crontab -l 2>/dev/null | grep -vE '/dashboard-backend\.sh\b' ) | crontab - || true
+  ( crontab -l 2>/dev/null; echo "*/2 * * * * bash -lc '/etc/edgebox/scripts/dashboard-backend.sh --now >/dev/null 2>&1'"; ) | crontab -
+  log_info "已写入 cron：*/2 分钟刷新一次 dashboard"
+}
+
+case "${1:-}" in
+  --now|--once|update) generate_dashboard_data ;;
+  --schedule|--install) schedule_dashboard_jobs ;;
+  *) generate_dashboard_data ;;
+esac
 EOF
 
   chmod +x /etc/edgebox/scripts/dashboard-backend.sh
@@ -2938,8 +3000,6 @@ function updateSystemBars(sys) {
   document.getElementById('disk-detail').textContent = diskDetail;
 }
 
-// 渲染协议区块 + 网络/IPQ/白名单/订阅
-function renderProtocols(model) {
   // ---- 网络出站与 IPQ ----
   const ipqV = model.ipq?.vps || null;
   const ipqP = model.ipq?.proxy || null;
@@ -2978,37 +3038,9 @@ function renderProtocols(model) {
 
   // 订阅链接
   const sub = model.subscription || {};
-  if (document.getElementById('sub-plain'))    document.getElementById('sub-plain').value = sub.plain || '';
-  if (document.getElementById('sub-b64'))      document.getElementById('sub-b64').value = sub.base64 || '';
-  if (document.getElementById('sub-b64lines')) document.getElementById('sub-b64lines').value = sub.b64_lines || '';
-
-  // ---- 协议表格 ----
-  const tbody = document.querySelector('#proto tbody');
-  if (!tbody) return;
-  tbody.innerHTML = '';
-
-  // 优先使用后端下发的 protocols；没有就按服务状态兜底构造三行
-  const svc = model.services || {};
-  const list = Array.isArray(model.protocols) && model.protocols.length ? model.protocols : [
-    { name: 'VLESS/Trojan (443/TCP)', proto: 'TCP',  disguise: 'SNI/ALPN 分流', scene: '通用',   proc: (svc.nginx==='active'?'listening':'未监听') },
-    { name: 'Hysteria2',              proto: 'UDP',  disguise: 'QUIC',         scene: '弱网/移动', proc: (svc['sing-box']==='active'?'listening':'未监听') },
-    { name: 'TUIC',                   proto: 'UDP',  disguise: 'QUIC',         scene: '弱网/移动', proc: (svc['sing-box']==='active'?'listening':'未监听') }
-  ];
-
-  list.forEach(p => {
-    const running = (p.proc === 'listening' || p.status === 'active' || p.running === true);
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${p.name || '—'}</td>
-      <td>${p.proto || p.network || '—'}</td>
-      <td>${p.disguise || p.note || '—'}</td>
-      <td>${p.scene || '—'}</td>
-      <td>${running ? '<span class="protocol-status-badge">监听中</span>' : '<span class="protocol-status-badge" style="background:#6b7280">未监听</span>'}</td>
-      <td><button class="btn" onclick="showProtocolDetails('${(p.name||'').split(' ')[0] || 'VLESS-Reality'}')">查看配置</button></td>
-    `;
-    tbody.appendChild(tr);
-  });
-}
+  document.getElementById('sub-plain').value = sub.plain || '';
+  document.getElementById('sub-b64').value = sub.base64 || '';
+  document.getElementById('sub-b64lines').value = sub.b64_lines || '';
 
 // 渲染流量图表
 function renderTraffic(traffic) {
