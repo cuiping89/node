@@ -1287,50 +1287,34 @@ WHITELIST_EOF
   fi
 
   # 生成最终的dashboard.json
-  jq -n \
-    --arg ts "$(date -Is)" \
-    --arg ip "$IP" --arg eip "$EIP" \
-    --arg ver "$VER" --arg inst "$INST" \
-    --arg cm "$CM" --arg cd "$CERT_DOMAIN" --arg ce "$CERT_EXPIRE" \
-    --arg sub_p "${SUB_PLAIN:-}" --arg sub_b "${SUB_B64:-}" --arg sub_l "${SUB_LINES:-}" \
-    --arg nginx_st "$nginx_status" --arg xray_st "$xray_status" --arg singbox_st "$singbox_status" \
-    --argjson secrets "$SECRETS_JSON" \
-    --arg mode "$mode" --arg proxy_info "$proxy" --arg health "$health" --argjson whitelist "$whitelist_json" \
-    --arg hostname "$hostname" --arg cpu_info "$(echo "$cpu_cores"C / "$cpu_model")" \
-    --arg mem_info "${mem_total_gb}GiB" --arg disk_info "$disk_info" \
-    '{
-      updated_at: $ts,
-      server: {
-        ip: $ip, 
-        eip: (if $eip=="" then null else $eip end),
-        version: $ver, 
-        install_date: $inst,
-        cert_mode: $cm, 
-        cert_domain: (if $cd=="" then null else $cd end),
-        cert_expire: (if $ce=="" then null else $ce end),
-        hostname: $hostname,
-        cpu_info: $cpu_info,
-        memory_info: $mem_info,
-        disk_info: $disk_info
-      },
-      services: { 
-        nginx: $nginx_st, 
-        xray: $xray_st, 
-        "sing-box": $singbox_st 
-      },
-      shunt: {
-        mode: $mode,
-        proxy_info: $proxy_info,
-        health: $health,
-        whitelist: $whitelist
-      },
-      subscription: { 
-        plain: $sub_p, 
-        base64: $sub_b, 
-        b64_lines: $sub_l 
-      },
-      secrets: $secrets
-    }' > "${TRAFFIC_DIR}/dashboard.json"
+jq -n \
+  --arg ts "$(date -Is)" \
+  --arg ip "$IP" --arg eip "$EIP" \
+  --arg ver "$VER" --arg inst "$INST" \
+  --arg cm "$CM" --arg cd "$CERT_DOMAIN" --arg ce "$CERT_EXPIRE" \
+  --arg nginx_st "$nginx_status" --arg xray_st "$xray_status" --arg singbox_st "$singbox_status" \
+  --arg nv "$nginx_ver" --arg xv "$xray_ver" --arg sv "$singbox_ver" \
+  --arg host "$host_name" \
+  --arg sub_p "${SUB_PLAIN:-}" --arg sub_b "${SUB_B64:-}" --arg sub_l "${SUB_LINES:-}" \
+  --argjson secrets "$SECRETS_JSON" \
+  --arg mode "$mode" --arg proxy_info "$proxy" --arg health "$health" --argjson whitelist "$whitelist_json" \
+  '{
+    updated_at: $ts,
+    server: {
+      ip: $ip, eip: (if $eip=="" then null else $eip end),
+      version: $ver, install_date: $inst,
+      cert_mode: $cm, cert_domain: (if $cd=="" then null else $cd end),
+      cert_expire: (if $ce=="" then null else $ce end),
+      hostname: $host
+    },
+    services: { nginx: $nginx_st, xray: $xray_st, "sing-box": $singbox_st },
+    services_versions: { nginx: $nv, xray: $xv, "sing-box": $sv },
+    shunt: {
+      mode: $mode, proxy_info: $proxy_info, health: $health, whitelist: $whitelist
+    },
+    subscription: { plain: $sub_p, base64: $sub_b, b64_lines: $sub_l },
+    secrets: $secrets
+  }' > "${TRAFFIC_DIR}/dashboard.json"
 
   chmod 0644 "${TRAFFIC_DIR}/dashboard.json" "${TRAFFIC_DIR}/system.json" 2>/dev/null || true
   log_info "dashboard.json 已更新"
@@ -5083,6 +5067,204 @@ install_ipq_stack() {
     if command -v apt >/dev/null 2>&1; then apt -y update && apt -y install dnsutils;
     elif command -v yum >/dev/null 2>&1; then yum -y install bind-utils; fi
   fi
+
+cat /usr/local/bin/edgebox-ipq.sh <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+export LANG=C LC_ALL=C
+
+STATUS_DIR="/etc/edgebox/status"
+WEB_STATUS="/var/www/html/status"
+SHUNT_DIR="/etc/edgebox/config/shunt"
+LOG_FILE="${STATUS_DIR}/ipq.log"
+mkdir -p "$STATUS_DIR" "$WEB_STATUS"
+ln -sfn "$STATUS_DIR" "$WEB_STATUS" 2>/dev/null || true
+
+usage() {
+  cat <<USAGE
+Usage: edgebox-ipq.sh [--vps] [--proxy] [--auto] [--once]
+  --vps     仅检测直连出口
+  --proxy   仅检测当前代理出口（从 ${SHUNT_DIR}/state.json 读取）
+  --auto    两者都测：有代理就加测代理；无代理只测直连
+  --once    兼容别名，等价于 --auto
+默认 --auto
+USAGE
+}
+
+want_vps=1; want_proxy=1
+case "${1:-}" in
+  --vps)   want_proxy=0 ;;
+  --proxy) want_vps=0 ;;
+  --auto|--once|"") : ;;
+  -h|--help) usage; exit 0 ;;
+esac
+
+ts() { date -Is; }
+log(){ echo "[$(ts)] $*" | tee -a "$LOG_FILE" >&2; }
+
+jqget() { jq -r "$1" 2>/dev/null || echo ""; }
+
+# 解析代理信息 -> curl 代理参数
+build_proxy_args() {
+  local purl="$1"
+  [[ -z "$purl" || "$purl" == "null" ]] && return 0
+  case "$purl" in
+    socks5://*|socks5h://*)
+      echo "--socks5-hostname ${purl#*://}"
+      ;;
+    http://*|https://*)
+      echo "--proxy $purl"
+      ;;
+    *)
+      echo "" # 未知协议，忽略
+      ;;
+  esac
+}
+
+curl_json() {
+  # $1: proxy-args (可为空)  $2: url
+  local pargs="$1" url="$2"
+  # 4秒超时；严格忽略证书问题（某些自签环境）
+  # ip-api 是 http 免费接口，仅取非敏感字段
+  eval "curl -fsS --max-time 4 $pargs \"$url\"" || return 1
+}
+
+# 取 state.json 的 proxy_info
+get_proxy_url(){
+  local sj="${SHUNT_DIR}/state.json"
+  [[ -s "$sj" ]] && jqget '.proxy_info' <"$sj" || echo ""
+}
+
+# 汇聚三源（ipinfo / ip.sb / ip-api）
+collect_one() {
+  # $1: vantage 标识（vps|proxy） $2: curl proxy args（可为空）
+  local vantage="$1" pargs="$2"
+  local ok_ipinfo=false ok_ipsb=false ok_ipapi=false
+  local J1="{}" J2="{}" J3="{}"
+
+  if out=$(curl_json "$pargs" "https://ipinfo.io/json"); then J1="$out"; ok_ipinfo=true; fi
+  if out=$(curl_json "$pargs" "https://ip.sb/api/json"); then J2="$out"; ok_ipsb=true; fi
+  if out=$(curl_json "$pargs" "http://ip-api.com/json/?fields=status,message,country,city,as,asname,reverse,hosting,proxy,mobile,query"); then J3="$out"; ok_ipapi=true; fi
+
+  # 选择 IP
+  local ip=""
+  for j in "$J2" "$J1" "$J3"; do
+    ip="$(jq -r '(.ip // .query // empty)' <<<"$j")"
+    [[ -n "$ip" && "$ip" != "null" ]] && break
+  done
+
+  # 反查 PTR（优先 ip-api 的 reverse）
+  local rdns="$(jq -r '.reverse // empty' <<<"$J3")"
+  if [[ -z "$rdns" && -n "$ip" ]]; then
+    rdns="$(dig +time=1 +tries=1 +short -x "$ip" 2>/dev/null | head -n1)"
+  fi
+
+  # ASN/ISP
+  local asn="$(jq -r '(.asname // .as // empty)' <<<"$J3")"
+  [[ -z "$asn" || "$asn" == "null" ]] && asn="$(jq -r '(.org // empty)' <<<"$J1")"
+  local isp="$(jq -r '(.org // empty)' <<<"$J1")"
+  [[ -z "$isp" || "$isp" == "null" ]] && isp="$(jq -r '(.asname // .as // empty)' <<<"$J3")"
+
+  # 国家城市
+  local country="$(jq -r '(.country // empty)' <<<"$J3")"
+  [[ -z "$country" || "$country" == "null" ]] && country="$(jq -r '(.country // empty)' <<<"$J1")"
+  local city="$(jq -r '(.city // empty)' <<<"$J3")"
+  [[ -z "$city" || "$city" == "null" ]] && city="$(jq -r '(.city // empty)' <<<"$J1")"
+
+  # 风险标记（来自 ip-api）
+  local flag_hosting="$(jq -r '(.hosting // false)' <<<"$J3")"
+  local flag_proxy="$(jq -r '(.proxy   // false)' <<<"$J3")"
+  local flag_mobile="$(jq -r '(.mobile  // false)' <<<"$J3")"
+
+  # DNSBL 简查（1s 限速、只查少量常见列表）
+  local dnsbl_hits=()
+  if [[ -n "$ip" ]]; then
+    IFS=. read -r a b c d <<<"$ip" || true
+    local rip="${d}.${c}.${b}.${a}"
+    for bl in zen.spamhaus.org bl.spamcop.net dnsbl.sorbs.net b.barracudacentral.org; do
+      if dig +time=1 +tries=1 +short "${rip}.${bl}" A >/dev/null 2>&1; then
+        dnsbl_hits+=("$bl")
+      fi
+    done
+  fi
+
+  # 延迟评估：直连→ping 1.1.1.1；代理→TLS 连接时间
+  local latency=999
+  if [[ "$vantage" == "vps" ]]; then
+    if r=$(ping -n -c 3 -w 4 1.1.1.1 2>/dev/null | awk -F'/' '/^rtt/ {print int($5+0.5)}'); then
+      [[ -n "$r" ]] && latency="$r"
+    fi
+  else
+    if r=$(eval "curl -o /dev/null -s $pargs -w '%{time_connect}' https://www.cloudflare.com/cdn-cgi/trace" 2>/dev/null); then
+      latency=$(awk -v t="$r" 'BEGIN{printf("%d", (t*1000)+0.5)}')
+    fi
+  fi
+
+  # 评分（100 满分；尽量可解释）
+  local score=100 notes=()
+  [[ "$flag_proxy"  == "true" ]] && score=$((score-50)) && notes+=("flag_proxy")
+  [[ "$flag_hosting" == "true" ]] && score=$((score-10)) && notes+=("datacenter_ip")
+  [[ "${#dnsbl_hits[@]}" -gt 0 ]] && score=$((score-20*${#dnsbl_hits[@]})); (( score<40 )) && score=40 && notes+=("dnsbl")
+  if   (( latency>400 )); then score=$((score-20)); notes+=("high_latency")
+  elif (( latency>200 )); then score=$((score-10)); notes+=("mid_latency")
+  fi
+  # 简单 ASN 提示（常见云厂商减2 分，不拉太多）
+  if [[ "$asn" =~ (amazon|aws|google|gcp|microsoft|azure|alibaba|tencent|digitalocean|linode|vultr|hivelocity|ovh|hetzner|iij|ntt|cherry|choopa|leaseweb|contabo) ]]; then
+    score=$((score-2))
+  fi
+  (( score<0 )) && score=0
+  local grade="D"; ((score>=80)) && grade="A" || { ((score>=60)) && grade="B" || { ((score>=40)) && grade="C"; }; }
+
+  jq -n --arg ts "$(ts)" \
+        --arg vantage "$vantage" \
+        --arg ip "${ip:-}" --arg country "${country:-}" --arg city "${city:-}" \
+        --arg asn "${asn:-}" --arg isp "${isp:-}" --arg rdns "${rdns:-}" \
+        --argjson flags "{\"ipinfo\":$ok_ipinfo,\"ipsb\":$ok_ipsb,\"ipapi\":$ok_ipapi}" \
+        --argjson risk "$(jq -n --argjson proxy ${flag_proxy:-false} --argjson hosting ${flag_hosting:-false} --argjson mobile ${flag_mobile:-false} --argjson hits "$(printf '%s\n' "${dnsbl_hits[@]:-}" | jq -R -s 'split("\n")|map(select(length>0))')" '{proxy: $proxy, hosting: $hosting, mobile: $mobile, dnsbl_hits: $hits, tor: false}')" \
+        --argjson latency "${latency:-999}" \
+        --argjson score "${score}" --arg grade "$grade" \
+        --arg notes "$(IFS=,; echo "${notes[*]:-}")" '
+  {
+    detected_at: $ts,
+    vantage: $vantage,
+    ip: $ip, country: $country, city: $city,
+    asn: $asn, isp: $isp, rdns: ($rdns|select(.!="")),
+    source_flags: $flags,
+    risk: $risk,
+    latency_ms: $latency,
+    score: $score,
+    grade: $grade,
+    notes: ( ($notes|length>0) and ($notes!="") ? ($notes|split(",")|map(select(length>0))) : [] )
+  }'
+}
+
+run_all(){
+  local did=0
+  if (( want_vps )); then
+    collect_one "vps" "" | tee "${STATUS_DIR}/ipq_vps.json" >/dev/null; did=1
+  fi
+  if (( want_proxy )); then
+    local purl="$(get_proxy_url)"
+    if [[ -n "$purl" && "$purl" != "null" ]]; then
+      local pargs; pargs="$(build_proxy_args "$purl")"
+      collect_one "proxy" "$pargs" | tee "${STATUS_DIR}/ipq_proxy.json" >/dev/null
+    else
+      jq -n --arg ts "$(ts)" '{detected_at:$ts,vantage:"proxy",status:"not_configured"}' \
+        | tee "${STATUS_DIR}/ipq_proxy.json" >/dev/null
+    fi
+    did=1
+  fi
+  jq -n --arg ts "$(ts)" --arg ver "ipq-1.0" '{last_run:$ts,version:$ver}' \
+    | tee "${STATUS_DIR}/ipq_meta.json" >/dev/null
+  chmod 644 "${STATUS_DIR}"/ipq_*.json 2>/dev/null || true
+  [[ $did -eq 1 ]]
+}
+
+run_all || { log "IPQ failed"; exit 1; }
+log "IPQ done"
+SH
+
+chmod +x /usr/local/bin/edgebox-ipq.sh
 
   # 写入评分脚本：/usr/local/bin/edgebox-ipq.sh
   cat > /usr/local/bin/edgebox-ipq.sh <<'IPQ'
