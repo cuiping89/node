@@ -1210,6 +1210,25 @@ generate_dashboard_data(){
   systemctl is-active --quiet nginx 2>/dev/null && nginx_status="active"
   systemctl is-active --quiet xray 2>/dev/null && xray_status="active"  
   systemctl is-active --quiet sing-box 2>/dev/null && singbox_status="active"
+  
+    # 版本号（尽量不报错）
+  local nginx_ver="" xray_ver="" singbox_ver=""
+
+  if command -v nginx >/dev/null 2>&1; then
+    nginx_ver="$(nginx -v 2>&1 | sed -n 's/^nginx version: nginx\///p')"
+  fi
+
+  if command -v xray >/dev/null 2>&1; then
+    xray_ver="$(xray -version 2>&1 | sed -n 's/^Xray \([^ ]*\).*/\1/p')"
+  elif [[ -x "/usr/local/bin/xray" ]]; then
+    xray_ver="$(/usr/local/bin/xray -version 2>&1 | sed -n 's/^Xray \([^ ]*\).*/\1/p')"
+  fi
+
+  if command -v sing-box >/dev/null 2>&1; then
+    singbox_ver="$(sing-box version 2>&1 | sed -n 's/^sing-box version \([^ ]*\).*/\1/p')"
+  elif [[ -x "/usr/local/bin/sing-box" ]]; then
+    singbox_ver="$(/usr/local/bin/sing-box version 2>&1 | sed -n 's/^sing-box version \([^ ]*\).*/\1/p')"
+  fi
 
   # 生成system.json
   jq -n --arg ts "$(date -Is)" --argjson cpu "$CPU" --argjson memory "$MEM" --argjson disk "$DISK" \
@@ -1294,7 +1313,7 @@ jq -n \
   --arg cm "$CM" --arg cd "$CERT_DOMAIN" --arg ce "$CERT_EXPIRE" \
   --arg nginx_st "$nginx_status" --arg xray_st "$xray_status" --arg singbox_st "$singbox_status" \
   --arg nv "$nginx_ver" --arg xv "$xray_ver" --arg sv "$singbox_ver" \
-  --arg host "$host_name" \
+  --arg host "$hostname" \
   --arg sub_p "${SUB_PLAIN:-}" --arg sub_b "${SUB_B64:-}" --arg sub_l "${SUB_LINES:-}" \
   --argjson secrets "$SECRETS_JSON" \
   --arg mode "$mode" --arg proxy_info "$proxy" --arg health "$health" --argjson whitelist "$whitelist_json" \
@@ -1321,9 +1340,18 @@ jq -n \
 }
 
 schedule_dashboard_jobs(){
-  ( crontab -l 2>/dev/null | grep -vE '/dashboard-backend\.sh\b' ) | crontab - || true
-  ( crontab -l 2>/dev/null; echo "*/2 * * * * bash -lc '/etc/edgebox/scripts/dashboard-backend.sh --now >/dev/null 2>&1'"; ) | crontab -
-  log_info "已写入 cron：*/2 分钟刷新一次 dashboard"
+  # 确保 cron 日志文件存在
+  mkdir -p /var/log
+  touch /var/log/edgebox-cron.log
+  chmod 0644 /var/log/edgebox-cron.log || true
+
+  # 去重后写入（只管 dashboard 刷新）
+  ( crontab -l 2>/dev/null | grep -vE '/etc/edgebox/scripts/dashboard-backend\.sh\b' ) | crontab - || true
+  ( crontab -l 2>/dev/null; \
+      echo "*/2 * * * * bash -lc '/etc/edgebox/scripts/dashboard-backend.sh --now >> /var/log/edgebox-cron.log 2>&1'"; \
+    ) | crontab -
+
+  log_info "已写入 cron：*/2 分钟刷新 dashboard（日志：/var/log/edgebox-cron.log）"
 }
 
 case "${1:-}" in
@@ -1480,192 +1508,11 @@ printf 'PREV_TX=%s\nPREV_RX=%s\nPREV_RESI=%s\n' "$TX_CUR" "$RX_CUR" "$RESI_CUR" 
 COLLECTOR
 chmod +x "${SCRIPTS_DIR}/traffic-collector.sh"
 
-# 3. 面板数据刷新（修复订阅和白名单数据获取）
 cat > "${SCRIPTS_DIR}/panel-refresh.sh" <<'PANEL'
-#!/bin/bash
+#!/usr/bin/env bash
+# thin wrapper for backward-compat
 set -euo pipefail
-TRAFFIC_DIR="/etc/edgebox/traffic"
-SCRIPTS_DIR="/etc/edgebox/scripts"
-SHUNT_DIR="/etc/edgebox/config/shunt"
-CONFIG_DIR="/etc/edgebox/config"
-mkdir -p "$TRAFFIC_DIR"
-
-# --- 基本信息 ---
-srv_json="${CONFIG_DIR}/server.json"
-if [[ -s "$srv_json" ]]; then
-  server_ip="$(jq -r '.server_ip // empty' "$srv_json" 2>/dev/null)"
-  version="$(jq -r '.version // empty' "$srv_json" 2>/dev/null)"
-  install_date="$(jq -r '.install_date // empty' "$srv_json" 2>/dev/null)"
-else
-  server_ip="$(hostname -I | awk '{print $1}' || echo '127.0.0.1')"
-  version="v3.0.0"
-  install_date="$(date +%F)"
-fi
-
-# 证书模式/域名/到期
-cert_domain=""
-cert_mode="self-signed"
-cert_expire=""
-if ls /etc/letsencrypt/live/*/fullchain.pem >/dev/null 2>&1; then
-  cert_mode="letsencrypt"
-  cert_domain="$(basename /etc/letsencrypt/live/* 2>/dev/null || true)"
-  pem="/etc/letsencrypt/live/${cert_domain}/cert.pem"
-  if [[ -f "$pem" ]] && command -v openssl >/dev/null 2>&1; then
-    cert_expire="$(openssl x509 -enddate -noout -in "$pem" 2>/dev/null | cut -d= -f2)"
-  fi
-fi
-
-# 当前出口 IP（尽量轻量：2s 超时，多源兜底）
-get_eip() {
-  (curl -fsS --max-time 2 https://api.ip.sb/ip 2>/dev/null) \
-  || (curl -fsS --max-time 2 https://ifconfig.me 2>/dev/null) \
-  || (dig +short myip.opendns.com @resolver1.opendns.com 2>/dev/null) \
-  || echo ""
-}
-eip="$(get_eip)"
-
-# --- 分流状态 ---
-state_json="${SHUNT_DIR}/state.json"
-mode="vps"; proxy=""; health="unknown"; wl_count=0; whitelist_json='[]'
-if [[ -s "$state_json" ]]; then
-  mode="$(jq -r '.mode // "vps"' "$state_json" 2>/dev/null)"
-  proxy="$(jq -r '.proxy_info // ""' "$state_json" 2>/dev/null)"
-  health="$(jq -r '.health // "unknown"' "$state_json" 2>/dev/null)"
-fi
-# 修复白名单数据获取
-if [[ -s "${SHUNT_DIR}/whitelist.txt" ]]; then
-  wl_count="$(wc -l < "${SHUNT_DIR}/whitelist.txt" 2>/dev/null || echo 0)"
-  whitelist_json="$(cat "${SHUNT_DIR}/whitelist.txt" | jq -R -s 'split("\n")|map(select(length>0))' 2>/dev/null || echo '[]')"
-else
-  # 创建默认白名单
-  mkdir -p "${SHUNT_DIR}"
-  echo -e "googlevideo.com\nytimg.com\nggpht.com\nyoutube.com\nyoutu.be\ngoogleapis.com\ngstatic.com" > "${SHUNT_DIR}/whitelist.txt"
-  wl_count=7
-  whitelist_json='["googlevideo.com","ytimg.com","ggpht.com","youtube.com","youtu.be","googleapis.com","gstatic.com"]'
-fi
-
-# --- 协议配置（检测监听端口/进程，做成一览表） ---
-SS="$(ss -H -lnptu 2>/dev/null || true)"
-has_listen() { # proto port keyword_in_process
-  local proto="$1" port="$2" kw="$3"
-  echo "$SS" | grep -E "(^| )$proto .*:$port " | grep -qi "$kw"
-}
-
-# 检查各协议状态
-has_tcp443="false"; has_hy2="false"; has_tuic="false"
-has_listen tcp 443 "nginx" && has_tcp443="true"
-(has_listen udp 443 "sing-box" || has_listen udp 8443 "sing-box" || has_listen udp 443 "hysteria") && has_hy2="true"
-has_listen udp 2053 "sing-box" && has_tuic="true"
-
-# --- 订阅数据获取（修复数据获取问题） ---
-sub_plain=""
-sub_b64=""
-sub_b64_lines=""
-
-# 优先从权威订阅文件读取
-if [[ -s "${CONFIG_DIR}/subscription.txt" ]]; then
-  sub_plain="$(cat "${CONFIG_DIR}/subscription.txt")"
-elif [[ -s "/var/www/html/sub" ]]; then
-  sub_plain="$(cat "/var/www/html/sub")"
-elif [[ -s "${TRAFFIC_DIR}/sub.txt" ]]; then
-  sub_plain="$(cat "${TRAFFIC_DIR}/sub.txt")"
-fi
-
-# 生成 base64 编码
-if [[ -n "$sub_plain" ]]; then
-  if base64 --help 2>&1 | grep -q -- ' -w'; then
-    sub_b64="$(printf '%s\n' "$sub_plain" | base64 -w0)"
-  else
-    sub_b64="$(printf '%s\n' "$sub_plain" | base64 | tr -d '\n')"
-  fi
-  
-  # 生成逐行 base64
-  temp_file="$(mktemp)"
-  while IFS= read -r line; do
-    [[ -z "$line" ]] && continue
-    if base64 --help 2>&1 | grep -q -- ' -w'; then
-      printf '%s' "$line" | sed -e '$a\' | base64 -w0
-    else
-      printf '%s' "$line" | sed -e '$a\' | base64 | tr -d '\n'
-    fi
-    printf '\n'
-  done <<<"$sub_plain" > "$temp_file"
-  sub_b64_lines="$(cat "$temp_file")"
-  rm -f "$temp_file"
-  
-  # 确保订阅文件同步
-  [[ ! -s "${TRAFFIC_DIR}/sub.txt" ]] && printf '%s\n' "$sub_plain" > "${TRAFFIC_DIR}/sub.txt"
-  [[ ! -s "/var/www/html/sub" ]] && printf '%s\n' "$sub_plain" > "/var/www/html/sub"
-fi
-
-# --- 从 server.json 提取敏感字段，生成 secrets 对象 ---
-secrets_json="{}"
-if [[ -s "$srv_json" ]]; then
-  secrets_json="$(jq -c '{
-    vless:{
-      reality: (.uuid.vless.reality // .uuid.vless // ""),
-      grpc:    (.uuid.vless.grpc    // .uuid.vless // ""),
-      ws:      (.uuid.vless.ws      // .uuid.vless // "")
-    },
-    tuic_uuid: (.uuid.tuic // ""),
-    password:{
-      trojan:     (.password.trojan     // ""),
-      hysteria2:  (.password.hysteria2  // ""),
-      tuic:       (.password.tuic       // "")
-    },
-    reality:{
-      public_key: (.reality.public_key // ""),
-      short_id:   (.reality.short_id   // "")
-    }
-  }' "$srv_json" 2>/dev/null || echo "{}")"
-fi
-
-# --- 写 dashboard.json（统一数据源） ---
-jq -n \
-  --arg ts "$(date -Is)" \
-  --arg ip "$server_ip" --arg eip "$eip" \
-  --arg ver "$version" --arg inst "$install_date" \
-  --arg cm "$cert_mode" --arg cd "$cert_domain" --arg ce "$cert_expire" \
-  --arg mode "$mode" --arg proxy_info "$proxy" --arg health "$health" \
-  --argjson whitelist "$whitelist_json" \
-  --arg b1 "$has_tcp443" --arg b2 "$has_hy2" --arg b3 "$has_tuic" \
-  --arg sub_p "$sub_plain" --arg sub_b "$sub_b64" --arg sub_l "$sub_b64_lines" \
-  --argjson secrets "$secrets_json" \
-  '{
-    updated_at: $ts,
-    server: {
-      ip: $ip,
-      eip: (if $eip=="" then null else $eip end),
-      version: $ver,
-      install_date: $inst,
-      cert_mode: $cm,
-      cert_domain: (if $cd=="" then null else $cd end),
-      cert_expire: (if $ce=="" then null else $ce end)
-    },
-    protocols: [
-      {name:"VLESS/Trojan (443/TCP)", proto:"tcp",  port:443,  proc:(if $b1=="true" then "listening" else "未监听" end), note:"443 端口状态"},
-      {name:"Hysteria2",              proto:"udp",  port:0,    proc:(if $b2=="true" then "listening" else "未监听" end), note:"8443/443"},
-      {name:"TUIC",                   proto:"udp",  port:2053, proc:(if $b3=="true" then "listening" else "未监听" end), note:"2053"}
-    ],
-    services: {
-      nginx: "'$(systemctl is-active nginx 2>/dev/null || echo "inactive")'",
-      xray: "'$(systemctl is-active xray 2>/dev/null || echo "inactive")'",
-      "sing-box": "'$(systemctl is-active sing-box 2>/dev/null || echo "inactive")'"
-    },
-    shunt: {
-      mode: $mode, 
-      proxy_info: $proxy_info, 
-      health: $health,
-      whitelist: $whitelist    # 确保这里是 whitelist 而不是其他字段名
-    },
-    subscription: { plain: $sub_p, base64: $sub_b, b64_lines: $sub_l },
-    secrets: $secrets
-  }' > "${TRAFFIC_DIR}/dashboard.json"
-
-# 写订阅复制链接
-proto="http"; addr="$server_ip"
-if [[ "$cert_mode" == "letsencrypt" && -n "$cert_domain" ]]; then proto="https"; addr="$cert_domain"; fi
-echo "${proto}://${addr}/sub" > "${TRAFFIC_DIR}/sub.link"
+exec /etc/edgebox/scripts/dashboard-backend.sh --now
 PANEL
 chmod +x "${SCRIPTS_DIR}/panel-refresh.sh"
 
@@ -3459,9 +3306,9 @@ else
 fi
 
 # 先跑一遍三件套，保证页面初次打开就有内容
-${SCRIPTS_DIR}/system-stats.sh  || true
-${SCRIPTS_DIR}/traffic-collector.sh || true
-${SCRIPTS_DIR}/panel-refresh.sh || true
+${SCRIPTS_DIR}/system-stats.sh        || true
+${SCRIPTS_DIR}/traffic-collector.sh   || true
+${SCRIPTS_DIR}/dashboard-backend.sh --now || true
 
 # 权限（让 nginx 可读）
 chmod 644 ${WEB_ROOT}/sub 2>/dev/null || true
@@ -3497,16 +3344,16 @@ CONF
   # 预警脚本已在 setup_traffic_monitoring 中创建
 
   # 仅保留采集与预警；面板刷新由 dashboard-backend 统一维护
-  ( crontab -l 2>/dev/null | grep -vE '/etc/edgebox/scripts/(traffic-collector\.sh|traffic-alert\.sh)\b' ) | crontab - || true
+  ( crontab -l 2>/dev/null | grep -vE '/etc/edgebox/scripts/(panel-refresh\.sh|traffic-collector\.sh|traffic-alert\.sh|dashboard-backend\.sh)' ) | crontab - || true
   ( crontab -l 2>/dev/null; \
-    echo "0 * * * * /etc/edgebox/scripts/traffic-collector.sh"; \
-    echo "7 * * * * /etc/edgebox/scripts/traffic-alert.sh" \
-  ) | crontab -
-  
-  # 确保面板刷新任务存在
+      echo "0 * * * * /etc/edgebox/scripts/traffic-collector.sh >> /var/log/edgebox-cron.log 2>&1"; \
+      echo "7 * * * * /etc/edgebox/scripts/traffic-alert.sh     >> /var/log/edgebox-cron.log 2>&1"; \
+    ) | crontab -
+
+  # 确保面板刷新任务存在（交给统一函数写入，避免重复）
   /etc/edgebox/scripts/dashboard-backend.sh --schedule
 
-  log_success "cron 已配置（每小时采集 + 刷新面板 + 阈值预警）"
+  log_success "cron 已配置（每小时采集 + 阈值预警 + 面板定时刷新）"
 }
 
 # 解析住宅代理 URL => 导出全局变量：
@@ -5424,6 +5271,9 @@ finalize_install() {
 
   # 立即生成首版面板数据 + 写入定时
   if [[ -x "${SCRIPTS_DIR}/dashboard-backend.sh" ]]; then
+      mkdir -p /var/log
+    touch /var/log/edgebox-cron.log
+    chmod 0644 /var/log/edgebox-cron.log || true
     log_info "生成初始面板数据..."
     "${SCRIPTS_DIR}/dashboard-backend.sh" --now      >/dev/null 2>&1 || log_warn "首刷失败，稍后由定时任务再试"
     "${SCRIPTS_DIR}/dashboard-backend.sh" --schedule >/dev/null 2>&1 || true
