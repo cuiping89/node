@@ -213,8 +213,6 @@ rDNS
 15   2 * * * /usr/local/bin/edgebox-ipq.sh --out /var/www/edgebox/status --proxy '<proxy_url>' --targets vps,proxy  # ipq
 ```
 
-（周期来自《02/03》既有频率约定。）
-
 ---
 
 ## 10. 与旧版差异（V2 → 最终版）
@@ -232,6 +230,4 @@ rDNS
 3. `edgebox-ipq.sh`（产出 `/var/www/edgebox/status/ipq_*.json`）；
 4. `alert.conf`（本月流量进度的阈值设置）。
 
----
 
-如需，我可以把以上内容直接落成 **README.md + 目录树 + 示例 JSON 模板**，方便你放入仓库即用。
