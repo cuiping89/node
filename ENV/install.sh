@@ -1688,12 +1688,12 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         }
 
         .grid-full { grid-template-columns: 1fr; }
-        .grid-70-30 { 
-            grid-template-columns: 1fr 410px;
+        .grid-4-8 { 
+            grid-template-columns: 1fr 2fr;
         }
         
         @media(max-width:980px) {
-            .grid-70-30 { grid-template-columns: 1fr; }
+            .grid-4-8 { grid-template-columns: 1fr; }
         }
 
         .card {
@@ -1705,7 +1705,6 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             position: relative;
         }
 
-        /* === 标题级：EdgeBox-企业级多协议节点 === */
         .card h3 {
             margin: 0;
             padding: 12px 16px;
@@ -1718,7 +1717,6 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             align-items: center;
         }
 
-        /* === 一级标题：服务器负载与网络身份、核心服务、证书信息等 === */
         .info-block h4,
         .command-section h4,
         .chart-title {
@@ -1741,16 +1739,12 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 
         .card .content { padding: 16px; }
 
-        /* === 二级标题：CPU、内存、协议名称、网络等 === */
-        .table th,
-        .shunt-mode-tab,
-        .progress-label {
+        .table th {
             font-size: 1rem;
             font-weight: 600;
             color: #374151;
         }
 
-        /* 表格样式 */
         .table {
             width: 100%;
             border-collapse: collapse;
@@ -1777,72 +1771,69 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         .table td:last-child {
             text-align: center;
         }
-		
-		/* CPU/内存进度条样式 */
-.system-progress-bar {
-  display: inline-flex;
-  align-items: center;
-  width: 80px;
-  height: 20px;            /* 与服务状态标签高度一致 */
-  background: #e2e8f0;
-  border-radius: 10px;
-  overflow: hidden;
-  margin-left: 8px;
-  position: relative;
-}
 
-.system-progress-fill {
-  height: 100%;
-  background: #10b981;     /* 绿色 */
-  border-radius: 10px;
-  transition: width 0.3s;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 20px;         /* 确保即使很小的百分比也能显示数字 */
-}
+        .system-progress-bar {
+            display: inline-flex;
+            align-items: center;
+            width: 80px;
+            height: 20px;
+            background: #e2e8f0;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-left: 8px;
+            position: relative;
+        }
 
-.system-progress-text {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  color: white;
-  font-size: .75rem;
-  font-weight: 600;
-  text-shadow: 0 1px 2px rgba(0,0,0,0.3);
-  z-index: 1;
-}
+        .system-progress-fill {
+            height: 100%;
+            background: #10b981;
+            border-radius: 10px;
+            transition: width 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 20px;
+        }
 
-/* 本月进度条高度调整 */
-.progress-bar {
-  width: 100%;
-  height: 20px;            /* 从 22px 调整为 20px */
-  background: #e2e8f0;
-  border-radius: 8px;
-  overflow: hidden;
-}
+        .system-progress-text {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: .75rem;
+            font-weight: 600;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+            z-index: 1;
+        }
 
-.progress-fill {
-  height: 100%;
-  background: #10b981;
-  border-radius: 8px;
-  transition: width 0.3s;
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background: #e2e8f0;
+            border-radius: 8px;
+            overflow: hidden;
+        }
 
-.progress-percentage {
-  position: absolute;
-  color: white;
-  font-size: .75rem;
-  font-weight: 600;
-  text-shadow: 0 1px 2px rgba(0,0,0,0.3);  /* 添加文字阴影确保可读性 */
-}
+        .progress-fill {
+            height: 100%;
+            background: #10b981;
+            border-radius: 8px;
+            transition: width 0.3s;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
 
-        /* 协议配置表格运行状态标签样式 - 新增 */
+        .progress-percentage {
+            position: absolute;
+            color: white;
+            font-size: .75rem;
+            font-weight: 600;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+        }
+
         .protocol-status-badge {
             display: inline-block;
             padding: 4px 12px;
@@ -1854,7 +1845,6 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             border: none;
         }
 
-        /* 核心服务状态标签样式 - 新增 */
         .service-status-badge {
             display: inline-block;
             padding: 3px 10px;
@@ -1870,47 +1860,33 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             background: #6b7280;
         }
 
-        /* 分流标签特殊处理 */
-        .shunt-mode-tab {
-   padding: 4px 10px;          /* 从 6px 12px 调整为 4px 10px */
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    cursor: pointer;
-    background: #f8fafc;
-    transition: all 0.2s;
-    white-space: nowrap;
-    font-size: 1rem;
-    font-weight: 600;
-    color: #374151;
-    height: 28px;               /* 明确设置高度，比之前的约32px小一些 */
-    display: inline-flex;       /* 确保垂直居中 */
-    align-items: center;
-    line-height: 1;
-        }
-
-        .shunt-mode-tab:hover { background: #e2e8f0; }
-        .shunt-mode-tab.active { background: #3b82f6; color: white; border-color: #3b82f6; }
-        .shunt-mode-tab.active.vps { background: #10b981; border-color: #10b981; }
-        .shunt-mode-tab.active.resi { background: #6b7280; border-color: #6b7280; }
-        .shunt-mode-tab.active.direct-resi { background: #f59e0b; border-color: #f59e0b; }
-
-        /* 进度标签特殊处理 */
-        .progress-label {
+        .status-badge {
+            padding: 4px 10px;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            background: #e2e8f0;
+            color: #64748b;
             white-space: nowrap;
+            font-size: 1rem;
+            font-weight: 600;
+            height: 28px;
+            display: inline-flex;
+            align-items: center;
+            line-height: 1;
         }
 
-        /* === 三级内容：除详情、运行状态外的所有其他文字 === */
+        .status-badge.active {
+            background: #10b981;
+            color: white;
+            border-color: #10b981;
+        }
+
         .small,
-        .shunt-info .small,
-        .kv .k,
-        .kv .v,
-        .progress-budget,
         .info-block .value,
         .btn,
         .badge,
         .notification-bell,
         .notification-item,
-        .shunt-note,
         .sub-label,
         .sub-input,
         .sub-copy-btn,
@@ -1921,7 +1897,6 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             color: #64748b;
         }
 
-        /* === 特殊样式：详情链接 === */
         .detail-link {
             color: var(--primary);
             cursor: pointer;
@@ -1932,14 +1907,12 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 
         .detail-link:hover { color: #2563eb; }
 
-        /* === 特殊样式：运行状态文字（非标签） === */
         .status-running {
             color: #10b981 !important;
             font-size: .875rem;
             font-weight: 600 !important;
         }
 
-        /* === 其他组件样式 === */
         .btn {
             padding: 8px 16px;
             border: 1px solid var(--border);
@@ -1951,15 +1924,6 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 
         .btn:hover { background: #e2e8f0; }
 
-        .badge {
-            display: inline-block;
-            border: 1px solid var(--border);
-            border-radius: 999px;
-            padding: 2px 8px;
-            margin-right: 6px;
-        }
-
-        /* 横向分块布局 */
         .info-blocks {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -1978,7 +1942,6 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             margin-bottom: 2px;
         }
 
-        /* 通知中心 */
         .notification-bell {
             position: relative;
             cursor: pointer;
@@ -2017,120 +1980,106 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 
         .notification-item:last-child { border-bottom: none; }
 
-        /* 出站分流布局 - 优化实现注释置底 */
-        .shunt-modes {
+        .cert-status {
             display: flex;
             gap: 8px;
             margin-bottom: 12px;
             flex-wrap: wrap;
         }
 
-        .shunt-wrap {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-    min-height: 320px;      /* 原来 260 不够时提高，真实值按需求再调 */
-    box-sizing: border-box;
-    position: relative;
-        }
-
-        .shunt-content {
-    flex: 1 1 auto;
-    overflow: auto;         /* 关键：允许内部滚动 */
-    padding: 8px;
-        }
-
-        .shunt-info {
-            flex: 1;
+        .network-status {
             display: flex;
-            flex-direction: column;
-            gap: 4px;
+            gap: 8px;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
         }
 
-        .shunt-note {
-    position: sticky;
-    bottom: 0;
-    margin-top: 8px;
-    padding: 8px;
-    border-top: 1px solid var(--border);
-    background: linear-gradient(180deg, rgba(248,250,252,0.6), rgba(248,250,252,1));
-    border-radius: 4px;
-    font-size: .75rem;
-    line-height: 1.4;
-    z-index: 2;
+        .network-blocks {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 12px;
+            margin-top: 12px;
         }
-		
-	/* 确保内部内容不会被遮挡（当注释为 absolute 时） */
-.shunt-content.padding-bottom-safe { padding-bottom: 56px; }
+        
+        @media(max-width:980px) {
+            .network-blocks { grid-template-columns: 1fr; }
+        }
+        
+        .network-block {
+            padding: 12px;
+            background: #f8fafc;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+        }
+        
+        .network-block h5 {
+            margin: 0 0 8px 0;
+            font-size: 1rem;
+            font-weight: 600;
+            color: #1e293b;
+        }
 
-/* 容器：控制整行高度 */
-.sub-row {
-    display: flex;
-    gap: 8px;
-    align-items: stretch;    /* 子项高度随容器高度拉伸 */
-    margin-bottom: 8px;
-    height: 32px;            /* 行高：32px（需要更矮/更高改这里） */
-}
+        .network-note {
+            margin-top: 16px;
+            padding: 8px;
+            border-top: 1px solid var(--border);
+            background: linear-gradient(180deg, rgba(248,250,252,0.6), rgba(248,250,252,1));
+            border-radius: 4px;
+            font-size: .75rem;
+            line-height: 1.4;
+            color: #64748b;
+        }
 
-/* 输入显示区：不改字号，只显示一行并用省略号 */
-.sub-input {
-    flex: 1;
-    /* 让元素垂直填满容器高度，消除内外尺寸不一致导致的高度偏差 */
-    height: 100%;
-    padding: 6px 10px;                 /* 上下 6px，左右 10px — 保持视觉内距 */
-    box-sizing: border-box;            /* 使 padding 算入高度计算 */
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    font-family: monospace;
-    background: #fff;
+        .sub-row {
+            display: flex;
+            gap: 8px;
+            align-items: stretch;
+            margin-bottom: 8px;
+            height: 32px;
+        }
 
-    /* 不改变字号（恢复为 .875rem），确保与你页面的默认字号一致 */
-    font-size: .875rem;                /* 保持原字号，不缩小 */
+        .sub-input {
+            flex: 1;
+            height: 100%;
+            padding: 6px 10px;
+            box-sizing: border-box;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            font-family: monospace;
+            background: #fff;
+            font-size: .875rem;
+            line-height: 20px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            resize: none;
+            display: inline-block;
+            vertical-align: middle;
+            color: #64748b;
+        }
 
-    /* 为单行显示做准备：设置行高为可用内容高度 */
-    /* 计算思路：容器高度 32px - 上下 padding(6+6)=20px 内容区 12px（也可微调） */
-    line-height: 20px;                 /* 建议：与可视内容高度匹配以垂直居中 */
-
-    /* 单行显示/超出省略号 */
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-
-    /* 如果这是 input/textarea，保持不可被拉伸 */
-    resize: none;
-
-    /* 显示内的对齐：把 display 改回 inline-block/ block 更语义化 */
-    display: inline-block;
-    vertical-align: middle;
-    color: #64748b;
-}
-
-/* 复制按钮：垂直居中并与输入框高度一致（可选） */
-.sub-copy-btn {
-    min-width: 80px;
-    padding: 6px 12px;
-    border: 1px solid var(--border);
-    background: #f1f5f9;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: .875rem;
-    color: #64748b;
-    font-weight: 400;
-
-    /* 让按钮与输入框高度一致并垂直居中 */
-    height: 100%;
-    box-sizing: border-box;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.2s;
-}
+        .sub-copy-btn {
+            min-width: 80px;
+            padding: 6px 12px;
+            border: 1px solid var(--border);
+            background: #f1f5f9;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: .875rem;
+            color: #64748b;
+            font-weight: 400;
+            height: 100%;
+            box-sizing: border-box;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
 
         .sub-copy-btn:hover { 
             background: #e2e8f0; 
         }
 
-        /* 流量统计样式 */
         .traffic-card { position: relative; }
 
         .traffic-progress-container {
@@ -2148,38 +2097,18 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             position: relative;
         }
 
-        .progress-bar {
-            width: 100%;
-            height: 22px;
-            background: #e2e8f0;
-            border-radius: 8px;
-            overflow: hidden;
-        }
-
-        .progress-fill {
-            height: 100%;
-            background: #10b981;
-            border-radius: 8px;
-            transition: width 0.3s;
-            position: relative;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .progress-percentage {
-            position: absolute;
-            color: white;
-            font-size: .75rem;
-            font-weight: 600;
-        }
-
         .progress-budget {
             white-space: nowrap;
             font-size: .75rem;
         }
 
-        /* 流量图表布局 */
+        .progress-label {
+            white-space: nowrap;
+            font-size: 1rem;
+            font-weight: 600;
+            color: #374151;
+        }
+
         .traffic-charts {
             display: grid;
             grid-template-columns: 1fr 400px;
@@ -2199,7 +2128,6 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             }
         }
 
-        /* 图表容器 */
         .chart-container {
             position: relative;
             height: 360px;
@@ -2212,7 +2140,6 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             }
         }
 
-        /* 命令网格布局 */
         .commands-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -2261,7 +2188,6 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             font-style: normal;
         }
 
-        /* 协议详情弹窗 */
         .modal {
             display: none;
             position: fixed;
@@ -2346,48 +2272,33 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             margin-top: 4px;
         }
 
-/* ---------------------------
-   白名单（kv）自动折叠样式（CSS）：
-   .kv.v-collapsed 下限制高度，显示省略并出现“查看详情”链接
-   --------------------------- */
-.kv {
-    display: flex;
-    gap: 8px;
-    align-items: flex-start;
-    margin-bottom: 8px;
-    position: relative;
-}
-.kv .k { min-width: 60px; flex-shrink: 0; }
-.kv .v { flex: 1; word-break: break-word; }
+        .whitelist-content {
+            max-height: 3em;
+            overflow: hidden;
+            position: relative;
+        }
 
-/* 折叠状态：限制高度并显示溢出阴影提示 */
-.kv.v-collapsed .v {
-    max-height: 3em;      /* 约3行文字高度 */
-    overflow: hidden;
-    position: relative;
-}
-.kv.v-collapsed .v::after {
-    content: "";
-    position: absolute;
-    left: 0; right: 0; bottom: 0;
-    height: 24px;
-    background: linear-gradient(180deg, rgba(255,255,255,0), rgba(255,255,255,1));
-}
+        .whitelist-content.expanded {
+            max-height: none;
+        }
 
-/* 展开/收起按钮 */
-.kv .detail-toggle {
-    margin-left: 8px;
-    cursor: pointer;
-    color: var(--primary);
-    font-size: .85rem;
-    align-self: center;
-}
+        .whitelist-content::after {
+            content: "";
+            position: absolute;
+            left: 0; right: 0; bottom: 0;
+            height: 24px;
+            background: linear-gradient(180deg, rgba(255,255,255,0), rgba(255,255,255,1));
+        }
+
+        .whitelist-content.expanded::after {
+            display: none;
+        }
     </style>
 </head>
 <body>
 <div class="container">
 
-  <!-- 基本信息（含通知中心） -->
+  <!-- 第一行：概览信息 -->
   <div class="grid grid-full">
     <div class="card">
       <h3 class="main-title">
@@ -2401,74 +2312,133 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
       </h3>
       <div class="content">
         <div class="info-blocks">
-<div class="info-block">
-  <h4>🖥️ 服务器负载与网络身份</h4>
-  <div class="value">
-    CPU: 
-    <span class="system-progress-bar">
-      <div class="system-progress-fill" id="cpu-progress-fill" style="width: 0%"></div>
-      <span class="system-progress-text" id="cpu-progress-text">0%</span>
-    </span>
-  </div>
-  <div class="value">
-    内存: 
-    <span class="system-progress-bar">
-      <div class="system-progress-fill" id="mem-progress-fill" style="width: 0%"></div>
-      <span class="system-progress-text" id="mem-progress-text">0%</span>
-    </span>
-  </div>
-  <div class="value">服务器IP: <span id="srv-ip">-</span></div>
-  <div class="value">关联域名: <span id="domain">-</span></div>
-</div>
           <div class="info-block">
-            <h4>核心服务</h4>
-            <div class="value">Nginx: <span id="nginx-status">-</span></div>
-            <div class="value">Xray: <span id="xray-status">-</span></div>
-            <div class="value">Sing-box: <span id="singbox-status">-</span></div>
+            <h4>📊 服务器信息</h4>
+            <div class="value">用户备注名: <span id="user-alias">—</span></div>
+            <div class="value">云厂商/区域: <span id="cloud-provider">—</span></div>
+            <div class="value">Instance ID: <span id="instance-id">—</span></div>
+            <div class="value">主机名: <span id="hostname">—</span></div>
           </div>
+          
           <div class="info-block">
-            <h4>证书信息</h4>
-            <div class="value">网络模式: <span id="net-mode">-</span></div>
-            <div class="value">证书类型: <span id="cert-mode">-</span></div>
-            <div class="value">到期日期: <span id="cert-exp">-</span></div>
-            <div class="value">续期方式: <span id="renew-mode">-</span></div>
+            <h4>⚙️ 服务器配置</h4>
+            <div class="value">
+              CPU: 
+              <span class="system-progress-bar">
+                <div class="system-progress-fill" id="cpu-progress-fill" style="width: 0%"></div>
+                <span class="system-progress-text" id="cpu-progress-text">0%</span>
+              </span>
+              <span class="small" id="cpu-detail">—</span>
+            </div>
+            <div class="value">
+              内存: 
+              <span class="system-progress-bar">
+                <div class="system-progress-fill" id="mem-progress-fill" style="width: 0%"></div>
+                <span class="system-progress-text" id="mem-progress-text">0%</span>
+              </span>
+              <span class="small" id="mem-detail">—</span>
+            </div>
+            <div class="value">
+              磁盘: 
+              <span class="system-progress-bar">
+                <div class="system-progress-fill" id="disk-progress-fill" style="width: 0%"></div>
+                <span class="system-progress-text" id="disk-progress-text">0%</span>
+              </span>
+              <span class="small" id="disk-detail">—</span>
+            </div>
+          </div>
+          
+          <div class="info-block">
+            <h4>🔧 核心服务</h4>
+            <div class="value">Nginx: <span id="nginx-status">—</span> <span class="small" id="nginx-version">—</span></div>
+            <div class="value">Xray: <span id="xray-status">—</span> <span class="small" id="xray-version">—</span></div>
+            <div class="value">Sing-box: <span id="singbox-status">—</span> <span class="small" id="singbox-version">—</span></div>
           </div>
         </div>
-        <div class="small">版本号: <span id="ver">-</span> | 安装日期: <span id="inst">-</span> | 更新时间: <span id="updated">-</span></div>
+        <div class="small">版本号: <span id="ver">—</span> | 安装日期: <span id="inst">—</span> | 更新时间: <span id="updated">—</span></div>
       </div>
     </div>
   </div>
 
-  <!-- 协议配置 + 出站分流 -->
-  <div class="grid grid-70-30">
+  <!-- 第二行：证书切换 + 网络身份配置 -->
+  <div class="grid grid-4-8">
+    <!-- 证书切换 -->
     <div class="card">
-      <h3>协议配置</h3>
+      <h3>🔐 证书切换</h3>
       <div class="content">
-        <table class="table" id="proto">
-          <thead><tr><th>协议名称</th><th>网络</th><th>客户端配置</th><th>伪装效果</th><th>适用场景</th><th>运行状态</th></tr></thead>
-          <tbody></tbody>
-        </table>
+<div class="cert-status">
+  <span class="status-badge active" id="cert-status-self">自签证书</span>
+  <span class="status-badge" id="cert-status-ca">CA证书</span>
+</div>
+        <div>
+          <div class="small">证书类型: <span id="cert-type">—</span></div>
+          <div class="small">绑定域名: <span id="cert-domain">—</span></div>
+          <div class="small">续期方式: <span id="cert-renewal">—</span></div>
+          <div class="small">到期日期: <span id="cert-expire">—</span></div>
+        </div>
       </div>
     </div>
+
+    <!-- 网络身份配置 -->
     <div class="card">
-      <h3>出站分流状态</h3>
-      <div class="content shunt-wrap">
-        <div class="shunt-content">
-          <div class="shunt-modes">
-            <span class="shunt-mode-tab active vps" id="tab-vps" data-mode="vps">VPS-IP出站</span>
-            <span class="shunt-mode-tab" id="tab-resi" data-mode="resi">代理IP出站</span>
-            <span class="shunt-mode-tab" id="tab-direct-resi" data-mode="direct-resi">分流(VPS∧代理)</span>
+      <h3>🌐 网络身份配置</h3>
+      <div class="content">
+<div class="network-status">
+  <span class="status-badge active">VPS出站IP</span>
+  <span class="status-badge">代理出站IP</span>
+  <span class="status-badge">分流出站</span>
+</div>
+        
+        <!-- 三个区块并排显示 -->
+        <div class="network-blocks">
+          <!-- VPS出站IP内容 -->
+          <div class="network-block">
+            <h5>📡 VPS出站IP</h5>
+            <div class="small">公网身份: <span class="status-running">直连</span></div>
+            <div class="small">VPS出站IP: <span id="vps-out-ip">—</span></div>
+            <div class="small">Geo: <span id="vps-geo">—</span></div>
+            <div class="small">IP质量检测: <span id="vps-quality">—</span> <span class="detail-link" onclick="showIPQDetails('vps')">详情</span></div>
           </div>
-          <div class="shunt-info">
-            <div class="small">VPS出站IP: <span id="vps-ip">-</span></div>
-            <div class="small">代理出站IP: <span id="resi-ip">待获取</span></div>
-            <div class="kv">
-              <div class="k">VPS白名单：</div>
-              <div class="v" id="whitelist-text">加载中...</div>
+          
+          <!-- 代理出站IP内容 -->
+          <div class="network-block">
+            <h5>🔄 代理出站IP</h5>
+            <div class="small">代理身份: <span class="status-running">全代理</span></div>
+            <div class="small">公网身份: <span>代理</span></div>
+            <div class="small">代理出站IP: <span id="proxy-out-ip">—</span></div>
+            <div class="small">Geo: <span id="proxy-geo">—</span></div>
+            <div class="small">IP质量检测: <span id="proxy-quality">—</span> <span class="detail-link" onclick="showIPQDetails('proxy')">详情</span></div>
+          </div>
+          
+          <!-- 分流出站内容 -->
+          <div class="network-block">
+            <h5>🔀 分流出站</h5>
+            <div class="small">混合身份: <span class="status-running">白名单VPS直连 + 其它代理</span></div>
+            <div class="small">白名单: 
+              <div class="whitelist-content" id="whitelist-content">
+                <span id="whitelist-text">—</span>
+              </div>
+              <span class="detail-link" id="whitelist-toggle" onclick="toggleWhitelist()">查看全部</span>
             </div>
           </div>
         </div>
-        <div class="shunt-note">注：HY2/TUIC为UDP通道，VPS直出，不参与代理IP分流</div>
+        
+        <div class="network-note">
+          注：HY2/TUIC 为 UDP通道，VPS直连，不走代理分流
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 第三行：协议配置 -->
+  <div class="grid grid-full">
+    <div class="card">
+      <h3>📡 协议配置</h3>
+      <div class="content">
+        <table class="table" id="proto">
+          <thead><tr><th>协议名称</th><th>网络</th><th>伪装效果</th><th>适用场景</th><th>运行状态</th><th>客户端配置</th></tr></thead>
+          <tbody></tbody>
+        </table>
       </div>
     </div>
   </div>
@@ -2476,7 +2446,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
   <!-- 订阅链接 -->
   <div class="grid grid-full">
     <div class="card">
-      <h3>订阅链接</h3>
+      <h3>📋 订阅链接</h3>
       <div class="content">
         <div class="sub-row">
           <div class="sub-label">明文链接:</div>
@@ -2485,7 +2455,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         </div>
 		
 		<div class="sub-row">
-          <div class="sub-label">B64逐行:</div>
+          <div class="sub-label">B64换行:</div>
           <textarea id="sub-b64lines" class="sub-input" readonly></textarea>
           <button class="sub-copy-btn" onclick="copySub('b64lines')">复制</button>
         </div>
@@ -2503,7 +2473,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
   <!-- 流量统计 -->
   <div class="grid grid-full">
     <div class="card traffic-card">
-      <h3>流量统计
+      <h3>📊 流量统计
         <div class="traffic-progress-container">
           <span class="progress-label">本月累计/阈值:</span>
           <div class="progress-wrapper">
@@ -2531,9 +2501,9 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
     </div>
   </div>
 
-  <!-- 管理命令 -->
+  <!-- 运维管理 -->
   <div class="grid grid-full">
-    <div class="card"><h3>运维管理</h3>
+    <div class="card"><h3>🔧 运维管理</h3>
       <div class="content">
         <div class="commands-grid">
           <div class="command-section">
@@ -2631,15 +2601,25 @@ const GiB = 1024 ** 3;
 
 // 数据获取工具函数
 async function getJSON(url) {
-  const r = await fetch(url, { cache: 'no-store' });
-  if (!r.ok) throw new Error(url + ' ' + r.status);
-  return r.json();
+  try {
+    const r = await fetch(url, { cache: 'no-store' });
+    if (!r.ok) throw new Error(`${url} ${r.status}`);
+    return r.json();
+  } catch (e) {
+    console.warn(`Failed to fetch ${url}:`, e);
+    return null;
+  }
 }
 
 async function getTEXT(url) {
-  const r = await fetch(url, { cache: 'no-store' });
-  if (!r.ok) throw new Error(url + ' ' + r.status);
-  return r.text();
+  try {
+    const r = await fetch(url, { cache: 'no-store' });
+    if (!r.ok) throw new Error(`${url} ${r.status}`);
+    return r.text();
+  } catch (e) {
+    console.warn(`Failed to fetch ${url}:`, e);
+    return '';
+  }
 }
 
 // 全局变量
@@ -2647,8 +2627,9 @@ let serverConfig = {};
 let _chartTraffic = null;
 let _chartMonthly = null;
 let _sysTicker = null;
+
 const clamp = (n, min=0, max=100) =>
-  (Number.isFinite(+n) ? Math.max(min, Math.min(max, Math.round(+n))) : '-');
+  (Number.isFinite(+n) ? Math.max(min, Math.min(max, Math.round(+n))) : 0);
 
 // 通知中心切换
 function toggleNotifications() {
@@ -2662,36 +2643,36 @@ function closeModal() {
 }
 
 // 安全取值函数
-function getSafe(obj, path, fallback) {
+function getSafe(obj, path, fallback = '') {
   try {
-    var cur = obj;
-    for (var i = 0; i < path.length; i++) {
-      if (cur == null || !(path[i] in cur)) return (fallback === undefined ? '' : fallback);
+    let cur = obj;
+    for (let i = 0; i < path.length; i++) {
+      if (cur == null || !(path[i] in cur)) return fallback;
       cur = cur[path[i]];
     }
-    return (cur == null ? (fallback === undefined ? '' : fallback) : cur);
+    return cur == null ? fallback : cur;
   } catch (_) {
-    return (fallback === undefined ? '' : fallback);
+    return fallback;
   }
 }
 
 // 显示协议详情
 function showProtocolDetails(protocol) {
-  var modal = document.getElementById('protocol-modal');
-  var modalTitle = document.getElementById('modal-title');
-  var modalBody = document.getElementById('modal-body');
+  const modal = document.getElementById('protocol-modal');
+  const modalTitle = document.getElementById('modal-title');
+  const modalBody = document.getElementById('modal-body');
 
-  var sc = window.serverConfig || {};
-  var uuid = getSafe(sc, ['uuid', 'vless'], 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx');
-  var tuicUuid = getSafe(sc, ['uuid', 'tuic'], 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx');
-  var realityPK = getSafe(sc, ['reality', 'public_key'], 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx');
-  var shortId = getSafe(sc, ['reality', 'short_id'], 'xxxxxxxxxxxxxxxx');
-  var hy2Pass = getSafe(sc, ['password', 'hysteria2'], 'xxxxxxxxxxxx');
-  var tuicPass = getSafe(sc, ['password', 'tuic'], 'xxxxxxxxxxxx');
-  var trojanPwd = getSafe(sc, ['password', 'trojan'], 'xxxxxxxxxxxx');
-  var server = getSafe(sc, ['server_ip'], window.location.hostname);
+  const sc = window.serverConfig || {};
+  const uuid = getSafe(sc, ['uuid', 'vless'], 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx');
+  const tuicUuid = getSafe(sc, ['uuid', 'tuic'], 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx');
+  const realityPK = getSafe(sc, ['reality', 'public_key'], 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx');
+  const shortId = getSafe(sc, ['reality', 'short_id'], 'xxxxxxxxxxxxxxxx');
+  const hy2Pass = getSafe(sc, ['password', 'hysteria2'], 'xxxxxxxxxxxx');
+  const tuicPass = getSafe(sc, ['password', 'tuic'], 'xxxxxxxxxxxx');
+  const trojanPwd = getSafe(sc, ['password', 'trojan'], 'xxxxxxxxxxxx');
+  const server = getSafe(sc, ['server_ip'], window.location.hostname);
 
-  var configs = {
+  const configs = {
     'VLESS-Reality': {
       title: 'VLESS-Reality 配置',
       items: [
@@ -2750,7 +2731,7 @@ function showProtocolDetails(protocol) {
     }
   };
 
-  var cfg = configs[protocol];
+  const cfg = configs[protocol];
   if (!cfg) return;
   modalTitle.textContent = cfg.title;
   modalBody.innerHTML = cfg.items.map(function(it) {
@@ -2774,6 +2755,8 @@ async function readServerConfig() {
   // 优先统一数据源：dashboard.json.secrets
   try {
     const d = await getJSON('./dashboard.json');
+    if (!d) throw new Error('Dashboard data not available');
+    
     const s = (d && d.secrets) || {};
     const cfg = {
       server_ip: (d && d.server && (d.server.eip || d.server.ip)) || window.location.hostname,
@@ -2817,7 +2800,14 @@ async function readServerConfig() {
       if ((m = l.match(/^trojan:\/\/([^@]+)@/i))) cfg.password.trojan = decodeURIComponent(m[1]);
     }
     return cfg;
-  } catch { return {}; }
+  } catch { 
+    return {
+      server_ip: window.location.hostname,
+      uuid: { vless: '', tuic: '' },
+      password: { hysteria2: '', tuic: '', trojan: '' },
+      reality: { public_key: '', short_id: '' }
+    };
+  }
 }
 
 // 更新本月进度条
@@ -2829,15 +2819,15 @@ async function updateProgressBar() {
     ]);
     
     let budget = 100;
-    if (alertRes.ok) {
+    if (alertRes && alertRes.ok) {
       const alertText = await alertRes.text();
       const match = alertText.match(/ALERT_MONTHLY_GIB=(\d+)/);
       if (match) budget = parseInt(match[1]);
     }
     
-    if (trafficRes.ok) {
+    if (trafficRes && trafficRes.ok) {
       const traffic = await trafficRes.json();
-      if (traffic.monthly && traffic.monthly.length > 0) {
+      if (traffic && traffic.monthly && traffic.monthly.length > 0) {
         const current = traffic.monthly[traffic.monthly.length - 1];
         const used = (current.total || 0) / GiB;
         const pct = Math.min((used / budget) * 100, 100);
@@ -2848,7 +2838,7 @@ async function updateProgressBar() {
       }
     }
   } catch (e) {
-    console.log('进度条更新失败:', e);
+    console.warn('进度条更新失败:', e);
   }
 }
 
@@ -2859,9 +2849,9 @@ async function loadData() {
   try {
     // 统一数据源：只从 dashboard.json 读取
     const [dashboard, traffic, alerts, serverJson] = await Promise.all([
-      getJSON('./dashboard.json').catch(() => null),
-      getJSON('./traffic.json').catch(() => null),
-      getJSON('./alerts.json').catch(() => []),
+      getJSON('./dashboard.json'),
+      getJSON('./traffic.json'),
+      getJSON('./alerts.json').then(data => data || []),
       readServerConfig()
     ]);
     
@@ -2898,6 +2888,12 @@ async function loadData() {
 
   } catch (e) {
     console.error('loadData failed:', e);
+    // 在出错时显示基本界面
+    renderHeader({
+      updatedAt: new Date().toISOString(),
+      server: {},
+      services: {}
+    });
   }
 }
 
@@ -2907,74 +2903,117 @@ function renderHeader(model) {
   document.getElementById('updated').textContent = new Date(ts).toLocaleString('zh-CN');
   const s = model.server || {}, svc = model.services || {};
   
-  // 基本信息
-  document.getElementById('srv-ip').textContent = s.ip || '-';
-  document.getElementById('domain').textContent = s.cert_domain || '无';
+  // 基本信息 - 修正DOM元素ID
+  const userAlias = document.getElementById('user-alias');
+  const cloudProvider = document.getElementById('cloud-provider');
+  const instanceId = document.getElementById('instance-id');
+  const hostname = document.getElementById('hostname');
+  
+  if (userAlias) userAlias.textContent = s.user_alias || '—';
+  if (cloudProvider) cloudProvider.textContent = s.cloud_provider || '—';
+  if (instanceId) instanceId.textContent = s.instance_id || '—';
+  if (hostname) hostname.textContent = s.hostname || '—';
  
   // 证书 / 网络模式 & 续期方式
   const mode = s.cert_mode || 'self-signed';
-  const renew = mode === 'letsencrypt' ? '自动续期' : '手动续期';
+  const renewal = mode === 'letsencrypt' ? '自动续期' : '手动续期';
 
-  document.getElementById('net-mode').textContent = 
-    mode === 'letsencrypt' ? "域名模式(Let's Encrypt)" : 'IP模式(自签名)';
-  document.getElementById('cert-mode').textContent = 
-    mode === 'letsencrypt' ? "Let's Encrypt" : '自签名证书';
-  document.getElementById('renew-mode').textContent = renew;
+  const certType = document.getElementById('cert-type');
+  const certDomain = document.getElementById('cert-domain');
+  const certRenewal = document.getElementById('cert-renewal');
+  const certExpire = document.getElementById('cert-expire');
+
+  if (certType) certType.textContent = mode === 'letsencrypt' ? "Let's Encrypt" : '自签名证书';
+  if (certDomain) certDomain.textContent = s.cert_domain || '无';
+  if (certRenewal) certRenewal.textContent = renewal;
 
   // 到期日期：处理无效值
   const expStr = (s.cert_expire || '').trim();
   const expDate = expStr ? new Date(expStr) : null;
-  document.getElementById('cert-exp').textContent = 
-    (expDate && !isNaN(expDate)) ? expDate.toLocaleDateString('zh-CN') : '无';
+  if (certExpire) {
+    certExpire.textContent = (expDate && !isNaN(expDate)) ? expDate.toLocaleDateString('zh-CN') : '无';
+  }
 
-  document.getElementById('ver').textContent = s.version || '-';
-  document.getElementById('inst').textContent = s.install_date || '-';
+  const verEl = document.getElementById('ver');
+  const instEl = document.getElementById('inst');
+  if (verEl) verEl.textContent = s.version || '—';
+  if (instEl) instEl.textContent = s.install_date || '—';
   
   // CPU/内存从system.json单独获取
   loadSystemStats();
   
-// 服务状态 - 添加状态样式类
-  const nginxStatus = svc.nginx === 'active' ? '运行中' : '已停止';
-  const xrayStatus = svc.xray === 'active' ? '运行中' : '已停止';
-  const singboxStatus = svc['sing-box'] === 'active' ? '运行中' : '已停止';
-
+  // 服务状态 - 添加状态样式类
   const nginxEl = document.getElementById('nginx-status');
-  nginxEl.innerHTML = svc.nginx === 'active' 
-    ? '<span class="service-status-badge">运行中</span>'
-    : '<span class="service-status-badge inactive">已停止</span>';
-
   const xrayEl = document.getElementById('xray-status');
-  xrayEl.innerHTML = svc.xray === 'active'
-    ? '<span class="service-status-badge">运行中</span>'
-    : '<span class="service-status-badge inactive">已停止</span>';
-
   const singboxEl = document.getElementById('singbox-status');
-  singboxEl.innerHTML = svc['sing-box'] === 'active'
-    ? '<span class="service-status-badge">运行中</span>'
-    : '<span class="service-status-badge inactive">已停止</span>';
+
+  if (nginxEl) {
+    nginxEl.innerHTML = svc.nginx === 'active' 
+      ? '<span class="service-status-badge">运行中</span>'
+      : '<span class="service-status-badge inactive">已停止</span>';
+  }
+
+  if (xrayEl) {
+    xrayEl.innerHTML = svc.xray === 'active'
+      ? '<span class="service-status-badge">运行中</span>'
+      : '<span class="service-status-badge inactive">已停止</span>';
+  }
+
+  if (singboxEl) {
+    singboxEl.innerHTML = svc['sing-box'] === 'active'
+      ? '<span class="service-status-badge">运行中</span>'
+      : '<span class="service-status-badge inactive">已停止</span>';
+  }
 }
 
 // 单独加载系统状态
 async function loadSystemStats() {
   try {
     const sys = await getJSON('./system.json');
+    if (!sys) throw new Error('System data not available');
+    
     const cpuPercent = clamp(sys.cpu);
     const memPercent = clamp(sys.memory);
+    const diskPercent = clamp(sys.disk);
     
     // 更新CPU进度条
-    document.getElementById('cpu-progress-fill').style.width = cpuPercent + '%';
-    document.getElementById('cpu-progress-text').textContent = cpuPercent + '%';
+    const cpuFill = document.getElementById('cpu-progress-fill');
+    const cpuText = document.getElementById('cpu-progress-text');
+    const cpuDetail = document.getElementById('cpu-detail');
+    if (cpuFill) cpuFill.style.width = cpuPercent + '%';
+    if (cpuText) cpuText.textContent = cpuPercent + '%';
+    if (cpuDetail) cpuDetail.textContent = sys.cpu_info || '—';
     
     // 更新内存进度条
-    document.getElementById('mem-progress-fill').style.width = memPercent + '%';
-    document.getElementById('mem-progress-text').textContent = memPercent + '%';
+    const memFill = document.getElementById('mem-progress-fill');
+    const memText = document.getElementById('mem-progress-text');
+    const memDetail = document.getElementById('mem-detail');
+    if (memFill) memFill.style.width = memPercent + '%';
+    if (memText) memText.textContent = memPercent + '%';
+    if (memDetail) memDetail.textContent = sys.memory_info || '—';
+    
+    // 更新磁盘进度条
+    const diskFill = document.getElementById('disk-progress-fill');
+    const diskText = document.getElementById('disk-progress-text');
+    const diskDetail = document.getElementById('disk-detail');
+    if (diskFill) diskFill.style.width = diskPercent + '%';
+    if (diskText) diskText.textContent = diskPercent + '%';
+    if (diskDetail) diskDetail.textContent = sys.disk_info || '—';
     
   } catch(_) {
     // 错误时显示默认状态
-    document.getElementById('cpu-progress-fill').style.width = '0%';
-    document.getElementById('cpu-progress-text').textContent = '-';
-    document.getElementById('mem-progress-fill').style.width = '0%';
-    document.getElementById('mem-progress-text').textContent = '-';
+    const elements = [
+      'cpu-progress-fill', 'cpu-progress-text', 'cpu-detail',
+      'mem-progress-fill', 'mem-progress-text', 'mem-detail',
+      'disk-progress-fill', 'disk-progress-text', 'disk-detail'
+    ];
+    elements.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) {
+        if (id.includes('fill')) el.style.width = '0%';
+        else el.textContent = id.includes('text') ? '-' : '—';
+      }
+    });
   }
   
   // 15s轮询系统状态
@@ -2982,9 +3021,11 @@ async function loadSystemStats() {
   _sysTicker = setInterval(loadSystemStats, 15000);
 }
 
-// 渲染协议配置（删除端口列）
+// 渲染协议配置
 function renderProtocols(model) {
   const tb = document.querySelector('#proto tbody');
+  if (!tb) return;
+  
   tb.innerHTML = '';
   
   const protocols = [
@@ -3001,41 +3042,51 @@ function renderProtocols(model) {
     tr.innerHTML = 
       '<td>' + p.name + '</td>' +
       '<td>' + p.network + '</td>' +
-      '<td><span class="detail-link" onclick="showProtocolDetails(\'' + p.name + '\')">详情>></span></td>' +
       '<td>' + p.disguise + '</td>' +
       '<td>' + p.scenario + '</td>' +
-      '<td><span class="protocol-status-badge">✓ 运行</span></td>';  // 使用标签样式
+      '<td><span class="protocol-status-badge">✓ 运行</span></td>' +
+      '<td><span class="detail-link" onclick="showProtocolDetails(\'' + p.name + '\')">详情>></span></td>';
     tb.appendChild(tr);
   });
   
-  // 出站分流状态
+  // 网络出站状态
   const sh = model.shunt || {};
-  const mode = String(sh.mode || 'vps').replace('_', '-');
-  document.querySelectorAll('.shunt-mode-tab').forEach(function(tab){
-    tab.classList.remove('active','vps','resi','direct-resi');
-  });
-  const tab = document.querySelector('[data-mode="'+mode+'"]') || document.querySelector('[data-mode="vps"]');
-  if (tab) tab.classList.add('active', mode === 'resi' ? 'resi' : (mode === 'direct-resi' ? 'direct-resi' : 'vps'));
-
-  document.getElementById('vps-ip').textContent = (model.server && (model.server.eip || model.server.ip)) || '-';
-  document.getElementById('resi-ip').textContent = sh.proxy_info ? '已配置' : '未配置';
+  
+  // 更新网络信息
+  const vpsOutIp = document.getElementById('vps-out-ip');
+  const vpsGeo = document.getElementById('vps-geo');
+  const vpsQuality = document.getElementById('vps-quality');
+  const proxyOutIp = document.getElementById('proxy-out-ip');
+  const proxyGeo = document.getElementById('proxy-geo');
+  const proxyQuality = document.getElementById('proxy-quality');
+  
+  if (vpsOutIp) vpsOutIp.textContent = (model.server && (model.server.eip || model.server.ip)) || '—';
+  if (vpsGeo) vpsGeo.textContent = sh.vps_geo || '—';
+  if (vpsQuality) vpsQuality.textContent = sh.vps_quality || '—';
+  if (proxyOutIp) proxyOutIp.textContent = sh.proxy_info ? '已配置' : '未配置';
+  if (proxyGeo) proxyGeo.textContent = sh.proxy_geo || '—';
+  if (proxyQuality) proxyQuality.textContent = sh.proxy_quality || '—';
   
   // 修复白名单显示
-// 修复白名单显示
-const whitelist = sh.whitelist || [];  // 确保读取的是 shunt.whitelist
-const whitelistText = Array.isArray(whitelist) && whitelist.length > 0 
-  ? whitelist.slice(0, 8).join(', ') + (whitelist.length > 8 ? '...' : '')
-  : '加载中...';  // 改为更明确的默认值
-document.getElementById('whitelist-text').textContent = whitelistText;
+  const whitelist = sh.whitelist || [];
+  const whitelistText = Array.isArray(whitelist) && whitelist.length > 0 
+    ? whitelist.slice(0, 8).join(', ') + (whitelist.length > 8 ? '...' : '')
+    : '加载中...';
+  const whitelistEl = document.getElementById('whitelist-text');
+  if (whitelistEl) whitelistEl.textContent = whitelistText;
 
   // 渲染订阅链接
   const sub = model.subscription || {};
-  document.getElementById('sub-plain').value = sub.plain || '';
-  document.getElementById('sub-b64').value = sub.base64 || '';
-  document.getElementById('sub-b64lines').value = sub.b64_lines || '';
+  const subPlain = document.getElementById('sub-plain');
+  const subB64 = document.getElementById('sub-b64');
+  const subB64Lines = document.getElementById('sub-b64lines');
+  
+  if (subPlain) subPlain.value = sub.plain || '';
+  if (subB64) subB64.value = sub.base64 || '';
+  if (subB64Lines) subB64Lines.value = sub.b64_lines || '';
 }
 
-// 渲染流量图表（移除Y轴顶部GiB标记）
+// 渲染流量图表
 function renderTraffic(traffic) {
   if (!traffic) return;
   if (_chartTraffic) { _chartTraffic.destroy();  _chartTraffic = null; }
@@ -3047,42 +3098,45 @@ function renderTraffic(traffic) {
     const vps = traffic.last30d.map(function(x) { return (x.vps || 0) / GiB; });
     const resi = traffic.last30d.map(function(x) { return (x.resi || 0) / GiB; });
     
-    _chartTraffic = new Chart(document.getElementById('traffic'), {
-      type: 'line', 
-      data: {
-        labels: labels,
-        datasets: [
-          { label: 'VPS 出口', data: vps, tension: .3, borderWidth: 2, borderColor: '#3b82f6' },
-          { label: '住宅出口', data: resi, tension: .3, borderWidth: 2, borderColor: '#f59e0b' }
-        ]
-      }, 
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: {
-            display: true,
-            position: 'bottom',
-            labels: {
-              padding: 20,
-              usePointStyle: true
+    const trafficCanvas = document.getElementById('traffic');
+    if (trafficCanvas) {
+      _chartTraffic = new Chart(trafficCanvas, {
+        type: 'line', 
+        data: {
+          labels: labels,
+          datasets: [
+            { label: 'VPS 出口', data: vps, tension: .3, borderWidth: 2, borderColor: '#3b82f6' },
+            { label: '住宅出口', data: resi, tension: .3, borderWidth: 2, borderColor: '#f59e0b' }
+          ]
+        }, 
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              display: true,
+              position: 'bottom',
+              labels: {
+                padding: 20,
+                usePointStyle: true
+              }
             }
-          }
-        },
-        scales: {
-          x: { title: { display: false } },
-          y: { 
-            title: { display: false },
-            ticks: {
-              callback: function(v) { return Math.round(v * 10) / 10; }
+          },
+          scales: {
+            x: { title: { display: false } },
+            y: { 
+              title: { display: false },
+              ticks: {
+                callback: function(v) { return Math.round(v * 10) / 10; }
+              }
             }
+          },
+          layout: {
+            padding: { bottom: 28 }
           }
-        },
-        layout: {
-          padding: { bottom: 28 }
         }
-      }
-    });
+      });
+    }
   }
   
   // 月累计柱形图
@@ -3092,82 +3146,85 @@ function renderTraffic(traffic) {
     const vpsData = recentMonthly.map(function(item) { return (item.vps || 0) / GiB; });
     const resiData = recentMonthly.map(function(item) { return (item.resi || 0) / GiB; });
     
-    _chartMonthly = new Chart(document.getElementById('monthly-chart'), {
-      type: 'bar',
-      data: {
-        labels: monthLabels,
-        datasets: [
-          {
-            label: 'VPS出口',
-            data: vpsData,
-            backgroundColor: '#3b82f6',
-            borderColor: '#3b82f6',
-            borderWidth: 1,
-            stack: 'stack1'
-          },
-          {
-            label: '住宅出口',
-            data: resiData,
-            backgroundColor: '#f59e0b',
-            borderColor: '#f59e0b',
-            borderWidth: 1,
-            stack: 'stack1'
-          }
-        ]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          tooltip: {
-            callbacks: {
-              label: function(context) {
-                const label = context.dataset.label || '';
-                const value = context.parsed.y.toFixed(2);
-                return label + ': ' + value + ' GiB';
-              },
-              afterLabel: function(context) {
-                const dataIndex = context.dataIndex;
-                const vpsValue = vpsData[dataIndex] || 0;
-                const resiValue = resiData[dataIndex] || 0;
-                const total = (vpsValue + resiValue).toFixed(2);
-                return '总流量: ' + total + ' GiB';
+    const monthlyCanvas = document.getElementById('monthly-chart');
+    if (monthlyCanvas) {
+      _chartMonthly = new Chart(monthlyCanvas, {
+        type: 'bar',
+        data: {
+          labels: monthLabels,
+          datasets: [
+            {
+              label: 'VPS出口',
+              data: vpsData,
+              backgroundColor: '#3b82f6',
+              borderColor: '#3b82f6',
+              borderWidth: 1,
+              stack: 'stack1'
+            },
+            {
+              label: '住宅出口',
+              data: resiData,
+              backgroundColor: '#f59e0b',
+              borderColor: '#f59e0b',
+              borderWidth: 1,
+              stack: 'stack1'
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            tooltip: {
+              callbacks: {
+                label: function(context) {
+                  const label = context.dataset.label || '';
+                  const value = context.parsed.y.toFixed(2);
+                  return label + ': ' + value + ' GiB';
+                },
+                afterLabel: function(context) {
+                  const dataIndex = context.dataIndex;
+                  const vpsValue = vpsData[dataIndex] || 0;
+                  const resiValue = resiData[dataIndex] || 0;
+                  const total = (vpsValue + resiValue).toFixed(2);
+                  return '总流量: ' + total + ' GiB';
+                }
+              }
+            },
+            legend: {
+              display: true,
+              position: 'bottom',
+              labels: {
+                padding: 20,
+                usePointStyle: true
               }
             }
           },
-          legend: {
-            display: true,
-            position: 'bottom',
-            labels: {
-              padding: 20,
-              usePointStyle: true
-            }
-          }
-        },
-        scales: {
-          x: {
-            stacked: true,
-            grid: { display: false }
-          },
-          y: {
-            stacked: true,
-            grid: { display: true, color: '#f1f5f9' },
-            ticks: {
-              callback: function(value) {
-                return Math.round(value * 10) / 10;
+          scales: {
+            x: {
+              stacked: true,
+              grid: { display: false }
+            },
+            y: {
+              stacked: true,
+              grid: { display: true, color: '#f1f5f9' },
+              ticks: {
+                callback: function(value) {
+                  return Math.round(value * 10) / 10;
+                }
               }
             }
+          },
+          layout: {
+            padding: { bottom: 28 }
+          },
+          interaction: {
+            mode: 'index',
+            intersect: false
           }
-        },
-        layout: {
-          padding: { bottom: 28 }
-        },
-        interaction: {
-          mode: 'index',
-          intersect: false
         }
-      }
-    });
+      });
+    }
   }
   
   // 更新本月进度条
@@ -3177,58 +3234,85 @@ function renderTraffic(traffic) {
 // 渲染通知中心
 function renderAlerts(alerts) {
   const alertCount = (alerts || []).length;
-  document.getElementById('notif-count').textContent = alertCount;
-  const bell = document.getElementById('notif-bell');
-  if (alertCount > 0) {
-    bell.classList.add('has-alerts');
-    bell.querySelector('span').textContent = alertCount + ' 条通知';
+  const notifCountEl = document.getElementById('notif-count');
+  const notifBell = document.getElementById('notif-bell');
+  
+  if (notifCountEl) notifCountEl.textContent = alertCount;
+  
+  if (notifBell && alertCount > 0) {
+    notifBell.classList.add('has-alerts');
+    const span = notifBell.querySelector('span');
+    if (span) span.textContent = alertCount + ' 条通知';
   }
   
   const notifList = document.getElementById('notif-list');
-  notifList.innerHTML = '';
-  if (alertCount > 0) {
-    alerts.slice(0, 10).forEach(function(a) {
-      const div = document.createElement('div');
-      div.className = 'notification-item';
-      div.textContent = (a.ts || '') + ' ' + (a.msg || '');
-      notifList.appendChild(div);
-    });
-  } else {
-    notifList.textContent = '暂无通知';
+  if (notifList) {
+    notifList.innerHTML = '';
+    if (alertCount > 0) {
+      alerts.slice(0, 10).forEach(function(a) {
+        const div = document.createElement('div');
+        div.className = 'notification-item';
+        div.textContent = (a.ts || '') + ' ' + (a.msg || '');
+        notifList.appendChild(div);
+      });
+    } else {
+      notifList.textContent = '暂无通知';
+    }
   }
 }
 
 // 复制订阅链接函数
 function copySub(type) {
   const input = document.getElementById('sub-' + type);
+  if (!input) return;
+  
   input.select();
   document.execCommand('copy');
   
   const btn = input.nextElementSibling;
-  const originalText = btn.textContent;
-  btn.textContent = '已复制';
-  btn.style.background = '#10b981';
-  btn.style.color = 'white';
-  setTimeout(function() {
-    btn.textContent = originalText;
-    btn.style.background = '';
-    btn.style.color = '';
-  }, 1000);
+  if (btn) {
+    const originalText = btn.textContent;
+    btn.textContent = '已复制';
+    btn.style.background = '#10b981';
+    btn.style.color = 'white';
+    setTimeout(function() {
+      btn.textContent = originalText;
+      btn.style.background = '';
+      btn.style.color = '';
+    }, 1000);
+  }
+}
+
+// 白名单展开/收起功能
+function toggleWhitelist() {
+  const content = document.getElementById('whitelist-content');
+  const toggle = document.getElementById('whitelist-toggle');
+  
+  if (content && toggle) {
+    content.classList.toggle('expanded');
+    toggle.textContent = content.classList.contains('expanded') ? '收起' : '查看全部';
+  }
+}
+
+// IP质量详情显示功能
+function showIPQDetails(type) {
+  // 这里可以实现显示IP质量检测详情的功能
+  alert('IP质量检测详情功能待实现 - ' + type);
 }
 
 // 白名单自动折叠功能
 function initWhitelistCollapse() {
   document.querySelectorAll('.kv').forEach(function(kv){
-    var v = kv.querySelector('.v');
+    const v = kv.querySelector('.v');
     if(!v) return;
     
     // 检查内容是否超出3行高度
-    var lineHeight = parseFloat(getComputedStyle(v).lineHeight) || 20;
-    var maxHeight = lineHeight * 3;
+    const lineHeight = parseFloat(getComputedStyle(v).lineHeight) || 20;
+    const maxHeight = lineHeight * 3;
     
     if(v.scrollHeight > maxHeight){
       kv.classList.add('v-collapsed');
-      var btn = document.createElement('span');
+      const btn = document.createElement('span');
       btn.className = 'detail-toggle';
       btn.innerText = '详情';
       btn.addEventListener('click', function(){
