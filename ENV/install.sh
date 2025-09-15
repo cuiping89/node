@@ -2842,249 +2842,205 @@ async function updateProgressBar() {
   }
 }
 
-// 主数据加载函数（统一从dashboard.json读取）
+// 主数据加载函数（统一从 dashboard.json / system.json / IPQ 读取）
 async function loadData() {
-  console.log('开始加载数据...');
-  
   try {
-    // 统一数据源：只从 dashboard.json 读取
-    const [dashboard, traffic, alerts, serverJson] = await Promise.all([
+    const [dashboard, traffic, alerts] = await Promise.all([
       getJSON('./dashboard.json'),
       getJSON('./traffic.json'),
-      getJSON('./alerts.json').then(data => data || []),
-      readServerConfig()
+      getJSON('./alerts.json').then(d => d || [])
     ]);
-    
-    console.log('数据加载完成:', { dashboard: !!dashboard, traffic: !!traffic, alerts: alerts.length, serverJson: !!serverJson });
-    
-    // 保存服务器配置供协议详情使用
+
+    // 服务器配置（供协议详情弹窗）
+    const serverJson = await readServerConfig();
     window.serverConfig = serverJson || {};
 
-    // 统一数据模型（基于dashboard.json）
-    const model = dashboard ? {
-      updatedAt: dashboard.updated_at,
-      server: dashboard.server || {},
-      system: { cpu: null, memory: null }, // 系统信息从system.json单独获取
-      protocols: dashboard.protocols || [],
-      shunt: dashboard.shunt || {},
-      subscription: dashboard.subscription || { plain: '', base64: '', b64_lines: '' },
-      services: dashboard.services || {}
-    } : {
-      // 兜底数据结构
-      updatedAt: new Date().toISOString(),
-      server: {},
-      system: { cpu: null, memory: null },
-      protocols: [],
-      shunt: {},
-      subscription: { plain: '', base64: '', b64_lines: '' },
-      services: {}
+    // 系统指标单独取
+    const sys = await getJSON('./system.json');
+
+    // IP 质量（与文档口径一致：/status/ipq_*.json）
+    const [ipqVps, ipqProxy] = await Promise.all([
+      getJSON('/status/ipq_vps.json').catch(() => null),
+      getJSON('/status/ipq_proxy.json').catch(() => null),
+    ]);
+
+    // 统一模型
+    const model = {
+      updatedAt: dashboard?.updated_at || new Date().toISOString(),
+      server: dashboard?.server || {},
+      services: dashboard?.services || {},
+      protocols: dashboard?.protocols || [],
+      shunt: dashboard?.shunt || {},
+      subscription: dashboard?.subscription || { plain: '', base64: '', b64_lines: '' },
+      system: sys || {},
+      ipq: { vps: ipqVps, proxy: ipqProxy }
     };
 
-    // 渲染各个模块
     renderHeader(model);
     renderProtocols(model);
     renderTraffic(traffic);
     renderAlerts(alerts);
-
   } catch (e) {
     console.error('loadData failed:', e);
-    // 在出错时显示基本界面
     renderHeader({
       updatedAt: new Date().toISOString(),
       server: {},
-      services: {}
+      services: {},
+      system: {}
     });
   }
 }
 
-// 渲染基本信息
+// 渲染基本信息（兼容多口径）
 function renderHeader(model) {
   const ts = model.updatedAt || new Date().toISOString();
   document.getElementById('updated').textContent = new Date(ts).toLocaleString('zh-CN');
-  const s = model.server || {}, svc = model.services || {};
-  
-  // 基本信息 - 修正DOM元素ID
-  const userAlias = document.getElementById('user-alias');
-  const cloudProvider = document.getElementById('cloud-provider');
-  const instanceId = document.getElementById('instance-id');
-  const hostname = document.getElementById('hostname');
-  
-  if (userAlias) userAlias.textContent = s.user_alias || '—';
-  if (cloudProvider) cloudProvider.textContent = s.cloud_provider || '—';
-  if (instanceId) instanceId.textContent = s.instance_id || '—';
-  if (hostname) hostname.textContent = s.hostname || '—';
- 
-  // 证书 / 网络模式 & 续期方式
-  const mode = s.cert_mode || 'self-signed';
-  const renewal = mode === 'letsencrypt' ? '自动续期' : '手动续期';
 
-  const certType = document.getElementById('cert-type');
-  const certDomain = document.getElementById('cert-domain');
-  const certRenewal = document.getElementById('cert-renewal');
-  const certExpire = document.getElementById('cert-expire');
+  const s = model.server || {};
+  const svc = model.services || {};
+  const sys = model.system || {};
 
-  if (certType) certType.textContent = mode === 'letsencrypt' ? "Let's Encrypt" : '自签名证书';
-  if (certDomain) certDomain.textContent = s.cert_domain || '无';
-  if (certRenewal) certRenewal.textContent = renewal;
+  // ---- 服务器信息：多口径兜底 ----
+  const userAlias = s.user_alias || s.alias || s.name || '';
+  const cloudVendor = s.cloud?.vendor || s.cloud_provider || s.provider || '';
+  const cloudRegion = s.cloud?.region || s.region || '';
+  const instanceId = s.instance_id || s.instance || s.id || '';
+  const hostname = s.hostname || s.host || window.location.hostname;
 
-  // 到期日期：处理无效值
-  const expStr = (s.cert_expire || '').trim();
-  const expDate = expStr ? new Date(expStr) : null;
-  if (certExpire) {
-    certExpire.textContent = (expDate && !isNaN(expDate)) ? expDate.toLocaleDateString('zh-CN') : '无';
-  }
+  const cloudText = [cloudVendor, cloudRegion].filter(Boolean).join('/');
+  document.getElementById('user-alias').textContent = userAlias || '—';
+  document.getElementById('cloud-provider').textContent = cloudText || '—';
+  document.getElementById('instance-id').textContent = instanceId || '—';
+  document.getElementById('hostname').textContent = hostname || '—';
 
-  const verEl = document.getElementById('ver');
-  const instEl = document.getElementById('inst');
-  if (verEl) verEl.textContent = s.version || '—';
-  if (instEl) instEl.textContent = s.install_date || '—';
-  
-  // CPU/内存从system.json单独获取
-  loadSystemStats();
-  
-  // 服务状态 - 添加状态样式类
-  const nginxEl = document.getElementById('nginx-status');
-  const xrayEl = document.getElementById('xray-status');
-  const singboxEl = document.getElementById('singbox-status');
+  // ---- 证书信息：兼容 server.cert.*
+  const cert = s.cert || {};
+  const mode = cert.mode || s.cert_mode || 'self-signed';
+  const domain = cert.domain || s.cert_domain || '';
+  const expire = cert.expires_at || cert.expire || s.cert_expire || '';
 
-  if (nginxEl) {
-    nginxEl.innerHTML = svc.nginx === 'active' 
+  document.getElementById('cert-type').textContent = (mode === 'letsencrypt') ? "Let's Encrypt" : '自签名证书';
+  document.getElementById('cert-domain').textContent = domain || '无';
+  document.getElementById('cert-renewal').textContent = (mode === 'letsencrypt') ? '自动续期' : '手动续期';
+  document.getElementById('cert-expire').textContent =
+    (expire && !isNaN(new Date(expire))) ? new Date(expire).toLocaleDateString('zh-CN') : '无';
+
+  // ---- 版本与安装时间（兼容 meta/server 多口径）
+  const ver = s.version || model.meta?.version || '';
+  const inst = s.install_date || s.installed_at || model.meta?.installed_at || '';
+  if (document.getElementById('ver'))  document.getElementById('ver').textContent = ver || '—';
+  if (document.getElementById('inst')) document.getElementById('inst').textContent = inst || '—';
+
+  // ---- 服务状态 + 版本（多口径）
+  const getStatus = (obj) => (obj === 'active' || obj === 'running' || obj === true) ? 'active' : 'inactive';
+  const getVersion = (name) => (
+      svc?.versions?.[name] ||
+      svc?.[name]?.version ||
+      svc?.[`${name}_version`] ||
+      ''
+  );
+
+  const renderSvc = (name, idStatus, idVer) => {
+    const st = getStatus(svc[name] || svc?.[name]?.status);
+    const el = document.getElementById(idStatus);
+    if (el) el.innerHTML = st === 'active'
       ? '<span class="service-status-badge">运行中</span>'
       : '<span class="service-status-badge inactive">已停止</span>';
-  }
+    const ve = document.getElementById(idVer);
+    const v = getVersion(name);
+    if (ve) ve.textContent = v ? ('v' + v) : '—';
+  };
 
-  if (xrayEl) {
-    xrayEl.innerHTML = svc.xray === 'active'
-      ? '<span class="service-status-badge">运行中</span>'
-      : '<span class="service-status-badge inactive">已停止</span>';
-  }
+  renderSvc('nginx', 'nginx-status', 'nginx-version');
+  renderSvc('xray', 'xray-status', 'xray-version');
+  renderSvc('sing-box', 'singbox-status', 'singbox-version');
 
-  if (singboxEl) {
-    singboxEl.innerHTML = svc['sing-box'] === 'active'
-      ? '<span class="service-status-badge">运行中</span>'
-      : '<span class="service-status-badge inactive">已停止</span>';
-  }
+  // ---- CPU/内存/磁盘：直接用 model.system（已在 loadData 拉到）
+  updateSystemBars(sys);
 }
 
-// 单独加载系统状态
-async function loadSystemStats() {
-  try {
-    const sys = await getJSON('./system.json');
-    if (!sys) throw new Error('System data not available');
-    
-    const cpuPercent = clamp(sys.cpu);
-    const memPercent = clamp(sys.memory);
-    const diskPercent = clamp(sys.disk);
-    
-    // 更新CPU进度条
-    const cpuFill = document.getElementById('cpu-progress-fill');
-    const cpuText = document.getElementById('cpu-progress-text');
-    const cpuDetail = document.getElementById('cpu-detail');
-    if (cpuFill) cpuFill.style.width = cpuPercent + '%';
-    if (cpuText) cpuText.textContent = cpuPercent + '%';
-    if (cpuDetail) cpuDetail.textContent = sys.cpu_info || '—';
-    
-    // 更新内存进度条
-    const memFill = document.getElementById('mem-progress-fill');
-    const memText = document.getElementById('mem-progress-text');
-    const memDetail = document.getElementById('mem-detail');
-    if (memFill) memFill.style.width = memPercent + '%';
-    if (memText) memText.textContent = memPercent + '%';
-    if (memDetail) memDetail.textContent = sys.memory_info || '—';
-    
-    // 更新磁盘进度条
-    const diskFill = document.getElementById('disk-progress-fill');
-    const diskText = document.getElementById('disk-progress-text');
-    const diskDetail = document.getElementById('disk-detail');
-    if (diskFill) diskFill.style.width = diskPercent + '%';
-    if (diskText) diskText.textContent = diskPercent + '%';
-    if (diskDetail) diskDetail.textContent = sys.disk_info || '—';
-    
-  } catch(_) {
-    // 错误时显示默认状态
-    const elements = [
-      'cpu-progress-fill', 'cpu-progress-text', 'cpu-detail',
-      'mem-progress-fill', 'mem-progress-text', 'mem-detail',
-      'disk-progress-fill', 'disk-progress-text', 'disk-detail'
-    ];
-    elements.forEach(id => {
-      const el = document.getElementById(id);
-      if (el) {
-        if (id.includes('fill')) el.style.width = '0%';
-        else el.textContent = id.includes('text') ? '-' : '—';
-      }
-    });
-  }
-  
-  // 15s轮询系统状态
-  clearInterval(_sysTicker);
-  _sysTicker = setInterval(loadSystemStats, 15000);
+// 仅负责把 system 指标渲染到进度条（兼容多口径）
+function updateSystemBars(sys) {
+  const pickPct = (o, keys) => {
+    for (const k of keys) {
+      const v = o?.[k];
+      if (Number.isFinite(+v)) return +v;
+    }
+    return 0;
+  };
+  const pickInfo = (o, keys) => {
+    for (const k of keys) {
+      const v = o?.[k];
+      if (v) return v;
+    }
+    return '—';
+  };
+
+  const cpuPercent = Math.max(0, Math.min(100, Math.round(pickPct(sys, ['cpu','cpu_percent','cpu_usage']))));
+  const memPercent = Math.max(0, Math.min(100, Math.round(pickPct(sys, ['memory','mem_percent','ram_percent']))));
+  const diskPercent = Math.max(0, Math.min(100, Math.round(pickPct(sys, ['disk','disk_percent','fs_percent']))));
+
+  const cpuDetail = pickInfo(sys, ['cpu_info','spec_cpu','cpu_spec']);
+  const memDetail = pickInfo(sys, ['memory_info','spec_mem','mem_spec']);
+  const diskDetail = pickInfo(sys, ['disk_info','spec_disk','disk_spec']);
+
+  // CPU
+  document.getElementById('cpu-progress-fill').style.width = cpuPercent + '%';
+  document.getElementById('cpu-progress-text').textContent = cpuPercent + '%';
+  document.getElementById('cpu-detail').textContent = cpuDetail;
+
+  // MEM
+  document.getElementById('mem-progress-fill').style.width = memPercent + '%';
+  document.getElementById('mem-progress-text').textContent = memPercent + '%';
+  document.getElementById('mem-detail').textContent = memDetail;
+
+  // DISK
+  document.getElementById('disk-progress-fill').style.width = diskPercent + '%';
+  document.getElementById('disk-progress-text').textContent = diskPercent + '%';
+  document.getElementById('disk-detail').textContent = diskDetail;
 }
 
-// 渲染协议配置
-function renderProtocols(model) {
-  const tb = document.querySelector('#proto tbody');
-  if (!tb) return;
-  
-  tb.innerHTML = '';
-  
-  const protocols = [
-    { name: 'VLESS-Reality', network: 'TCP', disguise: '极佳', scenario: '强审查环境' },
-    { name: 'VLESS-gRPC', network: 'TCP/H2', disguise: '极佳', scenario: '较严审查/走CDN' },
-    { name: 'VLESS-WS', network: 'TCP/WS', disguise: '良好', scenario: '常规网络更稳' },
-    { name: 'Trojan-TLS', network: 'TCP', disguise: '良好', scenario: '移动网络可靠' },
-    { name: 'Hysteria2', network: 'UDP/QUIC', disguise: '良好', scenario: '大带宽/低时延' },
-    { name: 'TUIC', network: 'UDP/QUIC', disguise: '好', scenario: '弱网/高丢包更佳' }
-  ];
-  
-  protocols.forEach(function(p) {
-    const tr = document.createElement('tr');
-    tr.innerHTML = 
-      '<td>' + p.name + '</td>' +
-      '<td>' + p.network + '</td>' +
-      '<td>' + p.disguise + '</td>' +
-      '<td>' + p.scenario + '</td>' +
-      '<td><span class="protocol-status-badge">✓ 运行</span></td>' +
-      '<td><span class="detail-link" onclick="showProtocolDetails(\'' + p.name + '\')">详情>></span></td>';
-    tb.appendChild(tr);
-  });
-  
-  // 网络出站状态
-  const sh = model.shunt || {};
-  
-  // 更新网络信息
+  // ---- 网络出站与 IPQ ----
+  const ipqV = model.ipq?.vps || null;
+  const ipqP = model.ipq?.proxy || null;
+
+  // VPS 出站
   const vpsOutIp = document.getElementById('vps-out-ip');
   const vpsGeo = document.getElementById('vps-geo');
   const vpsQuality = document.getElementById('vps-quality');
+
+  if (vpsOutIp) vpsOutIp.textContent = ipqV?.ip || model.server?.eip || model.server?.ip || '—';
+  if (vpsGeo) vpsGeo.textContent = (ipqV && (ipqV.country || ipqV.city)) ? [ipqV.country, ipqV.city].filter(Boolean).join('-') : (model.shunt?.vps_geo || '—');
+  if (vpsQuality) vpsQuality.textContent = (ipqV?.score != null) ? `${ipqV.grade || ''} (${ipqV.score})` : '—';
+
+  // 代理出站
   const proxyOutIp = document.getElementById('proxy-out-ip');
   const proxyGeo = document.getElementById('proxy-geo');
   const proxyQuality = document.getElementById('proxy-quality');
-  
-  if (vpsOutIp) vpsOutIp.textContent = (model.server && (model.server.eip || model.server.ip)) || '—';
-  if (vpsGeo) vpsGeo.textContent = sh.vps_geo || '—';
-  if (vpsQuality) vpsQuality.textContent = sh.vps_quality || '—';
-  if (proxyOutIp) proxyOutIp.textContent = sh.proxy_info ? '已配置' : '未配置';
-  if (proxyGeo) proxyGeo.textContent = sh.proxy_geo || '—';
-  if (proxyQuality) proxyQuality.textContent = sh.proxy_quality || '—';
-  
-  // 修复白名单显示
-  const whitelist = sh.whitelist || [];
-  const whitelistText = Array.isArray(whitelist) && whitelist.length > 0 
+
+  if (ipqP && !ipqP.status) {
+    if (proxyOutIp) proxyOutIp.textContent = ipqP.ip || '—';
+    if (proxyGeo) proxyGeo.textContent = (ipqP.country || ipqP.city) ? [ipqP.country, ipqP.city].filter(Boolean).join('-') : (model.shunt?.proxy_geo || '—');
+    if (proxyQuality) proxyQuality.textContent = (ipqP?.score != null) ? `${ipqP.grade || ''} (${ipqP.score})` : '—';
+  } else {
+    if (proxyOutIp) proxyOutIp.textContent = '未配置';
+    if (proxyGeo) proxyGeo.textContent = '—';
+    if (proxyQuality) proxyQuality.textContent = '—';
+  }
+
+  // 白名单
+  const whitelist = model.shunt?.whitelist || [];
+  const whitelistText = Array.isArray(whitelist) && whitelist.length > 0
     ? whitelist.slice(0, 8).join(', ') + (whitelist.length > 8 ? '...' : '')
-    : '加载中...';
+    : '(无)';
   const whitelistEl = document.getElementById('whitelist-text');
   if (whitelistEl) whitelistEl.textContent = whitelistText;
 
-  // 渲染订阅链接
+  // 订阅链接
   const sub = model.subscription || {};
-  const subPlain = document.getElementById('sub-plain');
-  const subB64 = document.getElementById('sub-b64');
-  const subB64Lines = document.getElementById('sub-b64lines');
-  
-  if (subPlain) subPlain.value = sub.plain || '';
-  if (subB64) subB64.value = sub.base64 || '';
-  if (subB64Lines) subB64Lines.value = sub.b64_lines || '';
-}
+  document.getElementById('sub-plain').value = sub.plain || '';
+  document.getElementById('sub-b64').value = sub.base64 || '';
+  document.getElementById('sub-b64lines').value = sub.b64_lines || '';
 
 // 渲染流量图表
 function renderTraffic(traffic) {
