@@ -512,7 +512,7 @@ http {
     # 根路径跳转到面板
     location = / { return 302 /traffic/; }
 
-    # 只保留一个 /sub（修复：消除重复定义）
+    # 只保留一个 /sub
     location = /sub {
       default_type text/plain;
       add_header Cache-Control "no-store" always;
@@ -522,14 +522,18 @@ http {
     # 控制面板与数据
     location ^~ /traffic/ {
       alias /etc/edgebox/traffic/;
-      index  index.html;                 # ← 新增：保证 /traffic/ 能出 index.html
+      index  index.html;
       autoindex off;
       add_header Cache-Control "no-store" always;
-      types {                            # 保证 json/txt/html 的 MIME 正确
-        text/html        html;
-        application/json json;
-        text/plain       txt;
-      }
+      types { text/html html; application/json json; text/plain txt; }
+    }
+
+    # IP 质量状态（与文档口径一致：/status/ipq_*.json）
+    location ^~ /status/ {
+      alias /var/www/edgebox/status/;
+      autoindex off;
+      add_header Cache-Control "no-store" always;
+      types { application/json json; text/plain txt; }
     }
   }
 }
@@ -3254,9 +3258,10 @@ HTML
 # 网站根目录映射 + 首次刷新
 mkdir -p "${TRAFFIC_DIR}" /var/www/html
 ln -sfn "${TRAFFIC_DIR}" /var/www/html/traffic
-# 先跑一次采集与面板生成
+
+# 首次出全量 JSON：traffic.json + dashboard.json/system.json
 "${SCRIPTS_DIR}/traffic-collector.sh" || true
-"${SCRIPTS_DIR}/panel-refresh.sh" || true
+"${SCRIPTS_DIR}/dashboard-backend.sh" --now || true
 
 log_success "流量监控系统设置完成：${TRAFFIC_DIR}/index.html"
 }
@@ -4846,11 +4851,11 @@ NFT
 # 启动 vnstat
 systemctl is-active --quiet vnstat || systemctl start vnstat
 
-# 预跑一次面板数据
-[[ -x /etc/edgebox/scripts/panel-refresh.sh ]] && /etc/edgebox/scripts/panel-refresh.sh >> $LOG_FILE 2>&1 || true
-
-# 预跑一次采集器，生成 JSON 和 CSV
+# 预跑一次采集器，生成 traffic.json / CSV
 [[ -x /etc/edgebox/scripts/traffic-collector.sh ]] && /etc/edgebox/scripts/traffic-collector.sh >> $LOG_FILE 2>&1 || true
+
+# 统一产出 dashboard.json / system.json
+[[ -x /etc/edgebox/scripts/dashboard-backend.sh ]] && /etc/edgebox/scripts/dashboard-backend.sh --now >> $LOG_FILE 2>&1 || true
 
 echo "[$(date)] EdgeBox 初始化完成" >> $LOG_FILE
 INIT_SCRIPT
@@ -5046,6 +5051,10 @@ finalize_install() {
     install -m 0644 -T "${CONFIG_DIR}/subscription.txt" "${TRAFFIC_DIR}/sub.txt"
     [[ -x "${SCRIPTS_DIR}/dashboard-backend.sh" ]] && "${SCRIPTS_DIR}/dashboard-backend.sh" --now >/dev/null 2>&1 || true
   fi
+  
+  # 可选清理：下线旧版面板脚本，避免未来误调用
+rm -f /etc/edgebox/scripts/panel-refresh.sh 2>/dev/null || true
+rm -f /etc/edgebox/scripts/system-stats.sh 2>/dev/null || true
 }
 # ===== /finalize_install =====
 
@@ -5172,10 +5181,9 @@ main() {
     # 等待服务稳定
     sleep 3
     
-    # 运行一次数据初始化
-    ${SCRIPTS_DIR}/system-stats.sh  || true
-    ${SCRIPTS_DIR}/traffic-collector.sh || true
-    ${SCRIPTS_DIR}/panel-refresh.sh || true
+# 运行一次数据初始化（统一由 dashboard-backend 生成 dashboard/system）
+/etc/edgebox/scripts/traffic-collector.sh || true
+/etc/edgebox/scripts/dashboard-backend.sh --now || true
     
     # 收尾：订阅 + 首刷 + 定时
     finalize_install
