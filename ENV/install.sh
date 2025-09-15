@@ -775,7 +775,6 @@ EOF
 }
 
 # 保存配置信息
-# 修复后的 save_config_info 函数
 save_config_info() {
     log_info "保存配置信息..."
     mkdir -p "${CONFIG_DIR}"
@@ -805,6 +804,17 @@ save_config_info() {
     if [[ -z "$server_ip" ]]; then
         log_error "SERVER_IP 为空"
         return 1
+    fi
+    
+    # 如果UUID为空，重新生成
+    if [[ -z "$vless_reality" ]]; then
+        log_warn "VLESS UUID为空，重新生成"
+        vless_reality="$(uuidgen)"
+        vless_grpc="$(uuidgen)"
+        vless_ws="$(uuidgen)"
+        export UUID_VLESS_REALITY="$vless_reality"
+        export UUID_VLESS_GRPC="$vless_grpc"
+        export UUID_VLESS_WS="$vless_ws"
     fi
 
     # 生成配置JSON
@@ -873,6 +883,28 @@ sync_subscription_files() {
   install -m 0644 -T "$src" "${TRAFFIC_DIR}/sub.txt"
 
   log_success "订阅同步完成：${WEB_ROOT}/sub -> ${src}，以及 ${TRAFFIC_DIR}/sub.txt"
+}
+
+start_services_only() {
+  log_info "启动服务..."
+  systemctl daemon-reload
+  systemctl enable nginx xray sing-box >/dev/null 2>&1 || true
+
+  systemctl restart nginx
+  systemctl restart xray
+  systemctl restart sing-box
+
+  sleep 2
+  for s in nginx xray sing-box; do
+    if systemctl is-active --quiet "$s"; then
+      log_success "$s 运行正常"
+    else
+      log_error "$s 启动失败"
+      journalctl -u "$s" -n 20 --no-pager | tail -n 20
+    fi
+  done
+
+  log_success "服务启动完成"
 }
 
 start_services() {
@@ -1034,19 +1066,45 @@ log_info(){ echo "[INFO] $*"; }
 log_warn(){ echo "[WARN] $*"; }
 log_error(){ echo "[ERROR] $*" >&2; }
 
+# 修复后的CPU/内存获取函数
 _get_cpu_mem(){ 
+  # CPU计算
   read _ u n s i _ < /proc/stat; t1=$((u+n+s+i)); i1=$i; sleep 1
   read _ u n s i _ < /proc/stat; t2=$((u+n+s+i)); i2=$i; dt=$((t2-t1)); di=$((i2-i1))
   CPU=$(( dt>0 ? (100*(dt-di)+dt/2)/dt : 0 ))
+  
+  # 内存计算 
   MT=$(awk '/MemTotal/{print $2}' /proc/meminfo)
   MA=$(awk '/MemAvailable/{print $2}' /proc/meminfo)
   MEM=$(( MT>0 ? (100*(MT-MA)+MT/2)/MT : 0 ))
-  echo "$CPU" "$MEM"
+  
+  # 磁盘计算
+  DISK=$(df / | awk 'NR==2{gsub(/%/,"",$5); print $5}')
+  
+  echo "$CPU" "$MEM" "${DISK:-0}"
 }
 
-# 读取明文订阅 -> 产出 plain / base64 / b64_lines 三种形态
-# 修复 install_scheduled_dashboard_backend 函数中的 _parse_sub 部分
-# 读取明文订阅 -> 产出 plain / base64 / b64_lines 三种形态
+# 修复后的系统信息获取
+_get_system_info(){
+  # 获取基础系统信息
+  local hostname="$(hostname 2>/dev/null || echo 'unknown')"
+  local uptime_days="$(awk '{print int($1/86400)}' /proc/uptime 2>/dev/null || echo '0')"
+  
+  # CPU信息
+  local cpu_model="$(grep 'model name' /proc/cpuinfo | head -n1 | cut -d':' -f2 | xargs || echo 'Unknown')"
+  local cpu_cores="$(nproc 2>/dev/null || echo '1')"
+  
+  # 内存信息（转换为GB）
+  local mem_total_kb="$(awk '/MemTotal/{print $2}' /proc/meminfo)"
+  local mem_total_gb="$(( mem_total_kb / 1024 / 1024 ))"
+  
+  # 磁盘信息
+  local disk_info="$(df -h / | awk 'NR==2{print $2}' 2>/dev/null || echo 'Unknown')"
+  
+  echo "$hostname" "$uptime_days" "$cpu_model" "$cpu_cores" "$mem_total_gb" "$disk_info"
+}
+
+# 修复后的订阅解析函数
 _parse_sub(){
   local sub_plain="" sub_b64="" line
   
@@ -1063,28 +1121,30 @@ _parse_sub(){
   if [[ -z "$sub_plain" && -s "$SERVER_JSON" ]]; then
     local ip reality_pbk reality_sid uuid_vless uuid_tuic trojan_pw hy2_pw tuic_pw
     
-    ip="$(jq -r '.server_ip // empty' "$SERVER_JSON")"
-    reality_pbk="$(jq -r '.reality.public_key // empty' "$SERVER_JSON")"
-    reality_sid="$(jq -r '.reality.short_id // empty' "$SERVER_JSON")"
-    uuid_vless="$(jq -r '.uuid.vless.reality // .uuid.vless // empty' "$SERVER_JSON")"
-    uuid_tuic="$(jq -r '.uuid.tuic // empty' "$SERVER_JSON")"
-    trojan_pw="$(jq -r '.password.trojan // empty'
-	"$SERVER_JSON")"
-    hy2_pw="$(jq -r '.password.hysteria2 // empty' "$SERVER_JSON")"
-    tuic_pw="$(jq -r '.password.tuic // empty' "$SERVER_JSON")"
+    ip="$(jq -r '.server_ip // empty' "$SERVER_JSON" 2>/dev/null || echo '')"
+    reality_pbk="$(jq -r '.reality.public_key // empty' "$SERVER_JSON" 2>/dev/null || echo '')"
+    reality_sid="$(jq -r '.reality.short_id // empty' "$SERVER_JSON" 2>/dev/null || echo '')"
+    uuid_vless="$(jq -r '.uuid.vless.reality // .uuid.vless // empty' "$SERVER_JSON" 2>/dev/null || echo '')"
+    uuid_tuic="$(jq -r '.uuid.tuic // empty' "$SERVER_JSON" 2>/dev/null || echo '')"
+    trojan_pw="$(jq -r '.password.trojan // empty' "$SERVER_JSON" 2>/dev/null || echo '')"
+    hy2_pw="$(jq -r '.password.hysteria2 // empty' "$SERVER_JSON" 2>/dev/null || echo '')"
+    tuic_pw="$(jq -r '.password.tuic // empty' "$SERVER_JSON" 2>/dev/null || echo '')"
     
     if [[ -n "$ip" && -n "$uuid_vless" ]]; then
       # 简化版订阅生成
       sub_plain="vless://${uuid_vless}@${ip}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${reality_pbk}&sid=${reality_sid}&type=tcp#EdgeBox-REALITY"
       if [[ -n "$hy2_pw" ]]; then
-        sub_plain="${sub_plain}\nhysteria2://$(printf '%s' "$hy2_pw" | jq -rR @uri)@${ip}:443?sni=${ip}&alpn=h3&insecure=1#EdgeBox-HYSTERIA2"
+        sub_plain="${sub_plain}
+hysteria2://$(printf '%s' "$hy2_pw" | jq -rR @uri)@${ip}:443?sni=${ip}&alpn=h3&insecure=1#EdgeBox-HYSTERIA2"
       fi
       if [[ -n "$uuid_tuic" && -n "$tuic_pw" ]]; then
-        sub_plain="${sub_plain}\ntuic://${uuid_tuic}:$(printf '%s' "$tuic_pw" | jq -rR @uri)@${ip}:2053?congestion_control=bbr&alpn=h3&sni=${ip}&allowInsecure=1#EdgeBox-TUIC"
+        sub_plain="${sub_plain}
+tuic://${uuid_tuic}:$(printf '%s' "$tuic_pw" | jq -rR @uri)@${ip}:2053?congestion_control=bbr&alpn=h3&sni=${ip}&allowInsecure=1#EdgeBox-TUIC"
       fi
     fi
   fi
 
+  # 生成base64编码
   if [[ -n "$sub_plain" ]]; then
     if base64 --help 2>&1 | grep -q -- ' -w'; then
       sub_b64="$(printf '%s\n' "$sub_plain" | base64 -w0)"
@@ -1114,56 +1174,83 @@ _parse_sub(){
   export SUB_B64="$sub_b64"
   export SUB_LINES="$(cat "${TRAFFIC_DIR}/subscription.b64lines" 2>/dev/null || true)"
 }
-	
-# 将整个 generate_dashboard_data 函数替换为以下代码：
+
+# 修复后的主函数
 generate_dashboard_data(){
   mkdir -p "$TRAFFIC_DIR"
-  read CPU MEM < <(_get_cpu_mem || echo "0 0")
+  
+  # 获取CPU/内存/磁盘
+  read CPU MEM DISK < <(_get_cpu_mem || echo "0 0 0")
+  
+  # 获取系统信息
+  read hostname uptime_days cpu_model cpu_cores mem_total_gb disk_info < <(_get_system_info || echo "unknown 0 unknown 1 0 unknown")
 
   # 订阅形态
   _parse_sub
 
-  # 服务器事实
+  # 服务器基础信息
   local IP EIP VER INST CM CERT_DOMAIN CERT_EXPIRE
   if [[ -s "$SERVER_JSON" ]]; then
-    IP="$(jq -r '.server_ip // empty'           "$SERVER_JSON")"
-    EIP="$(jq -r '.eip // empty'                 "$SERVER_JSON")"
-    VER="$(jq -r '.version // "3.0.0"'           "$SERVER_JSON")"
-    INST="$(jq -r '.install_date // empty'       "$SERVER_JSON")"
-    CM="$(jq -r '.cert.mode // "self-signed"'   "$SERVER_JSON")"
-    CERT_DOMAIN="$(jq -r '.cert.domain // empty' "$SERVER_JSON")"
-    CERT_EXPIRE="$(jq -r '.cert.expire // empty' "$SERVER_JSON")"
+    IP="$(jq -r '.server_ip // empty' "$SERVER_JSON" 2>/dev/null || echo '')"
+    EIP="$(jq -r '.eip // empty' "$SERVER_JSON" 2>/dev/null || echo '')"
+    VER="$(jq -r '.version // "3.0.0"' "$SERVER_JSON" 2>/dev/null || echo '3.0.0')"
+    INST="$(jq -r '.install_date // empty' "$SERVER_JSON" 2>/dev/null || echo '')"
+    CM="$(jq -r '.cert.mode // "self-signed"' "$SERVER_JSON" 2>/dev/null || echo 'self-signed')"
+    CERT_DOMAIN="$(jq -r '.cert.domain // empty' "$SERVER_JSON" 2>/dev/null || echo '')"
+    CERT_EXPIRE="$(jq -r '.cert.expire // empty' "$SERVER_JSON" 2>/dev/null || echo '')"
   fi
+
+  # 如果从server.json获取不到，设置默认值
+  [[ -z "$IP" ]] && IP="$(hostname -I | awk '{print $1}' 2>/dev/null || echo '127.0.0.1')"
+  [[ -z "$VER" ]] && VER="3.0.0"
+  [[ -z "$INST" ]] && INST="$(date +%Y-%m-%d)"
 
   # 检查服务状态
   local nginx_status="inactive" xray_status="inactive" singbox_status="inactive"
-  systemctl is-active --quiet nginx && nginx_status="active"
-  systemctl is-active --quiet xray && xray_status="active"  
-  systemctl is-active --quiet sing-box && singbox_status="active"
+  systemctl is-active --quiet nginx 2>/dev/null && nginx_status="active"
+  systemctl is-active --quiet xray 2>/dev/null && xray_status="active"  
+  systemctl is-active --quiet sing-box 2>/dev/null && singbox_status="active"
 
-  jq -n --arg ts "$(date -Is)" --argjson cpu "$CPU" --argjson memory "$MEM" \
-    '{updated_at:$ts,cpu:$cpu,memory:$memory}' > "${TRAFFIC_DIR}/system.json"
+  # 生成system.json
+  jq -n --arg ts "$(date -Is)" --argjson cpu "$CPU" --argjson memory "$MEM" --argjson disk "$DISK" \
+    --arg hostname "$hostname" --arg uptime_days "$uptime_days" \
+    --arg cpu_model "$cpu_model" --arg cpu_cores "$cpu_cores" \
+    --arg mem_total_gb "$mem_total_gb" --arg disk_info "$disk_info" \
+    '{
+      updated_at: $ts,
+      cpu: $cpu,
+      memory: $memory, 
+      disk: $disk,
+      hostname: $hostname,
+      uptime_days: ($uptime_days | tonumber),
+      cpu_info: ("\($cpu_cores)C / \($cpu_model)"),
+      memory_info: ("\($mem_total_gb)GiB"),
+      disk_info: $disk_info
+    }' > "${TRAFFIC_DIR}/system.json"
 
-# --- 从 server.json 提取敏感字段，生成 secrets 对象 ---
-SECRETS_JSON="$(jq -c '{
-  vless:{
-    reality: (.uuid.vless.reality // .uuid.vless),
-    grpc:    (.uuid.vless.grpc    // .uuid.vless),
-    ws:      (.uuid.vless.ws      // .uuid.vless)
-  },
-  tuic_uuid: (.uuid.tuic // empty),
-  password:{
-    trojan:     (.password.trojan     // empty),
-    hysteria2:  (.password.hysteria2  // empty),
-    tuic:       (.password.tuic       // empty)
-  },
-  reality:{
-    public_key: (.reality.public_key // empty),
-    short_id:   (.reality.short_id   // empty)
-  }
-}' "$SERVER_JSON" 2>/dev/null || echo "{}")"
+  # 从 server.json 提取敏感字段，生成 secrets 对象
+  local SECRETS_JSON="{}"
+  if [[ -s "$SERVER_JSON" ]]; then
+    SECRETS_JSON="$(jq -c '{
+      vless:{
+        reality: (.uuid.vless.reality // .uuid.vless // ""),
+        grpc:    (.uuid.vless.grpc    // .uuid.vless // ""),
+        ws:      (.uuid.vless.ws      // .uuid.vless // "")
+      },
+      tuic_uuid: (.uuid.tuic // ""),
+      password:{
+        trojan:     (.password.trojan     // ""),
+        hysteria2:  (.password.hysteria2  // ""),
+        tuic:       (.password.tuic       // "")
+      },
+      reality:{
+        public_key: (.reality.public_key // ""),
+        short_id:   (.reality.short_id   // "")
+      }
+    }' "$SERVER_JSON" 2>/dev/null || echo "{}")"
+  fi
 
-# ===== 新增：获取分流状态和白名单数据 =====
+  # 获取分流状态和白名单数据
   local SHUNT_DIR="/etc/edgebox/config/shunt"
   local state_json="${SHUNT_DIR}/state.json"
   local mode="vps" proxy="" health="unknown" whitelist_json='[]'
@@ -1184,9 +1271,9 @@ WHITELIST_EOF
   
   # 读取分流状态
   if [[ -s "$state_json" ]]; then
-    mode="$(jq -r '.mode // "vps"' "$state_json" 2>/dev/null)"
-    proxy="$(jq -r '.proxy_info // ""' "$state_json" 2>/dev/null)"
-    health="$(jq -r '.health // "unknown"' "$state_json" 2>/dev/null)"
+    mode="$(jq -r '.mode // "vps"' "$state_json" 2>/dev/null || echo 'vps')"
+    proxy="$(jq -r '.proxy_info // ""' "$state_json" 2>/dev/null || echo '')"
+    health="$(jq -r '.health // "unknown"' "$state_json" 2>/dev/null || echo 'unknown')"
   fi
   
   # 读取白名单数据
@@ -1198,8 +1285,8 @@ WHITELIST_EOF
   if ! echo "$whitelist_json" | jq . >/dev/null 2>&1; then
     whitelist_json='["googlevideo.com","ytimg.com","ggpht.com","youtube.com","youtu.be","googleapis.com","gstatic.com"]'
   fi
-# ===== 结束新增部分 =====
 
+  # 生成最终的dashboard.json
   jq -n \
     --arg ts "$(date -Is)" \
     --arg ip "$IP" --arg eip "$EIP" \
@@ -1209,28 +1296,46 @@ WHITELIST_EOF
     --arg nginx_st "$nginx_status" --arg xray_st "$xray_status" --arg singbox_st "$singbox_status" \
     --argjson secrets "$SECRETS_JSON" \
     --arg mode "$mode" --arg proxy_info "$proxy" --arg health "$health" --argjson whitelist "$whitelist_json" \
+    --arg hostname "$hostname" --arg cpu_info "$(echo "$cpu_cores"C / "$cpu_model")" \
+    --arg mem_info "${mem_total_gb}GiB" --arg disk_info "$disk_info" \
     '{
       updated_at: $ts,
       server: {
-        ip: $ip, eip: (if $eip=="" then null else $eip end),
-        version: $ver, install_date: $inst,
-        cert_mode: $cm, cert_domain: (if $cd=="" then null else $cd end),
-        cert_expire: (if $ce=="" then null else $ce end)
+        ip: $ip, 
+        eip: (if $eip=="" then null else $eip end),
+        version: $ver, 
+        install_date: $inst,
+        cert_mode: $cm, 
+        cert_domain: (if $cd=="" then null else $cd end),
+        cert_expire: (if $ce=="" then null else $ce end),
+        hostname: $hostname,
+        cpu_info: $cpu_info,
+        memory_info: $mem_info,
+        disk_info: $disk_info
       },
-      services: { nginx: $nginx_st, xray: $xray_st, "sing-box": $singbox_st },
+      services: { 
+        nginx: $nginx_st, 
+        xray: $xray_st, 
+        "sing-box": $singbox_st 
+      },
       shunt: {
         mode: $mode,
         proxy_info: $proxy_info,
         health: $health,
         whitelist: $whitelist
       },
-      subscription: { plain: $sub_p, base64: $sub_b, b64_lines: $sub_l },
+      subscription: { 
+        plain: $sub_p, 
+        base64: $sub_b, 
+        b64_lines: $sub_l 
+      },
       secrets: $secrets
     }' > "${TRAFFIC_DIR}/dashboard.json"
 
   chmod 0644 "${TRAFFIC_DIR}/dashboard.json" "${TRAFFIC_DIR}/system.json" 2>/dev/null || true
   log_info "dashboard.json 已更新"
 }
+
 schedule_dashboard_jobs(){
   ( crontab -l 2>/dev/null | grep -vE '/dashboard-backend\.sh\b' ) | crontab - || true
   ( crontab -l 2>/dev/null; echo "*/2 * * * * bash -lc '/etc/edgebox/scripts/dashboard-backend.sh --now >/dev/null 2>&1'"; ) | crontab -
@@ -2891,7 +2996,7 @@ async function loadData() {
   }
 }
 
-// 渲染基本信息（兼容多口径）
+// 修复后的渲染基本信息（兼容多口径）
 function renderHeader(model) {
   const ts = model.updatedAt || new Date().toISOString();
   document.getElementById('updated').textContent = new Date(ts).toLocaleString('zh-CN');
@@ -2919,9 +3024,9 @@ function renderHeader(model) {
   const domain = cert.domain || s.cert_domain || '';
   const expire = cert.expires_at || cert.expire || s.cert_expire || '';
 
-  document.getElementById('cert-type').textContent = (mode === 'letsencrypt') ? "Let's Encrypt" : '自签名证书';
-  document.getElementById('cert-domain').textContent = domain || '无';
-  document.getElementById('cert-renewal').textContent = (mode === 'letsencrypt') ? '自动续期' : '手动续期';
+  document.getElementById('cert-type').textContent = (mode === 'letsencrypt' || mode.startsWith('letsencrypt:')) ? "Let's Encrypt" : '自签名证书';
+  document.getElementById('cert-domain').textContent = domain || (mode.includes(':') ? mode.split(':')[1] : '') || '无';
+  document.getElementById('cert-renewal').textContent = (mode === 'letsencrypt' || mode.startsWith('letsencrypt:')) ? '自动续期' : '手动续期';
   document.getElementById('cert-expire').textContent =
     (expire && !isNaN(new Date(expire))) ? new Date(expire).toLocaleDateString('zh-CN') : '无';
 
@@ -2957,6 +3062,48 @@ function renderHeader(model) {
 
   // ---- CPU/内存/磁盘：直接用 model.system（已在 loadData 拉到）
   updateSystemBars(sys);
+
+  // ---- 网络出站与 IPQ ----
+  const ipqV = model.ipq?.vps || null;
+  const ipqP = model.ipq?.proxy || null;
+
+  // VPS 出站
+  const vpsOutIp = document.getElementById('vps-out-ip');
+  const vpsGeo = document.getElementById('vps-geo');
+  const vpsQuality = document.getElementById('vps-quality');
+
+  if (vpsOutIp) vpsOutIp.textContent = ipqV?.ip || model.server?.eip || model.server?.ip || '—';
+  if (vpsGeo) vpsGeo.textContent = (ipqV && (ipqV.country || ipqV.city)) ? [ipqV.country, ipqV.city].filter(Boolean).join('-') : (model.shunt?.vps_geo || '—');
+  if (vpsQuality) vpsQuality.textContent = (ipqV?.score != null) ? `${ipqV.grade || ''} (${ipqV.score})` : '—';
+
+  // 代理出站
+  const proxyOutIp = document.getElementById('proxy-out-ip');
+  const proxyGeo = document.getElementById('proxy-geo');
+  const proxyQuality = document.getElementById('proxy-quality');
+
+  if (ipqP && !ipqP.status) {
+    if (proxyOutIp) proxyOutIp.textContent = ipqP.ip || '—';
+    if (proxyGeo) proxyGeo.textContent = (ipqP.country || ipqP.city) ? [ipqP.country, ipqP.city].filter(Boolean).join('-') : (model.shunt?.proxy_geo || '—');
+    if (proxyQuality) proxyQuality.textContent = (ipqP?.score != null) ? `${ipqP.grade || ''} (${ipqP.score})` : '—';
+  } else {
+    if (proxyOutIp) proxyOutIp.textContent = '未配置';
+    if (proxyGeo) proxyGeo.textContent = '—';
+    if (proxyQuality) proxyQuality.textContent = '—';
+  }
+
+  // 白名单
+  const whitelist = model.shunt?.whitelist || [];
+  const whitelistText = Array.isArray(whitelist) && whitelist.length > 0
+    ? whitelist.slice(0, 8).join(', ') + (whitelist.length > 8 ? '...' : '')
+    : '(无)';
+  const whitelistEl = document.getElementById('whitelist-text');
+  if (whitelistEl) whitelistEl.textContent = whitelistText;
+
+  // 订阅链接
+  const sub = model.subscription || {};
+  if (document.getElementById('sub-plain')) document.getElementById('sub-plain').value = sub.plain || '';
+  if (document.getElementById('sub-b64')) document.getElementById('sub-b64').value = sub.base64 || '';
+  if (document.getElementById('sub-b64lines')) document.getElementById('sub-b64lines').value = sub.b64_lines || '';
 }
 
 // 仅负责把 system 指标渲染到进度条（兼容多口径）
@@ -5067,6 +5214,7 @@ PATHU
 }
 
 # ===== 收尾：生成订阅、同步、首次生成 dashboard =====
+# ===== 收尾：生成订阅、同步、首次生成 dashboard =====
 finalize_install() {
   # 基础环境
   export CONFIG_DIR="/etc/edgebox/config"
@@ -5076,8 +5224,21 @@ finalize_install() {
   export SUB_CACHE="${TRAFFIC_DIR}/sub.txt"
 
   log_info "收尾：生成订阅并同步..."
+  
+  # 确保配置文件存在
+  if [[ ! -s "${CONFIG_DIR}/server.json" ]]; then
+    log_warn "server.json 不存在，重新生成配置信息"
+    save_config_info
+  fi
+  
   generate_subscription       || true
   sync_subscription_files     || true
+
+  # 首次运行流量收集器，生成基础数据结构
+  if [[ -x "${SCRIPTS_DIR}/traffic-collector.sh" ]]; then
+    log_info "初始化流量数据..."
+    "${SCRIPTS_DIR}/traffic-collector.sh" >/dev/null 2>&1 || true
+  fi
 
   # 立即生成首版面板数据 + 写入定时
   if [[ -x "${SCRIPTS_DIR}/dashboard-backend.sh" ]]; then
@@ -5086,15 +5247,35 @@ finalize_install() {
     "${SCRIPTS_DIR}/dashboard-backend.sh" --schedule >/dev/null 2>&1 || true
   fi
 
-  # 健康检查：若 subscription 仍为空，兜底再刷一次
-  if ! jq -e '.subscription.plain|length>0' "${TRAFFIC_DIR}/dashboard.json" >/dev/null 2>&1; then
-    install -m 0644 -T "${CONFIG_DIR}/subscription.txt" "${TRAFFIC_DIR}/sub.txt"
-    [[ -x "${SCRIPTS_DIR}/dashboard-backend.sh" ]] && "${SCRIPTS_DIR}/dashboard-backend.sh" --now >/dev/null 2>&1 || true
+  # 健康检查：确保订阅文件存在且可访问
+  local sub_files=("${CONFIG_DIR}/subscription.txt" "${TRAFFIC_DIR}/sub.txt" "${WEB_ROOT}/sub")
+  for sub_file in "${sub_files[@]}"; do
+    if [[ ! -s "$sub_file" ]]; then
+      log_warn "订阅文件 $sub_file 不存在或为空，重新生成"
+      generate_subscription
+      sync_subscription_files
+      break
+    fi
+  done
+
+  # 再次检查dashboard.json是否正确生成
+  if [[ ! -s "${TRAFFIC_DIR}/dashboard.json" ]]; then
+    log_warn "dashboard.json 未生成，手动触发"
+    "${SCRIPTS_DIR}/dashboard-backend.sh" --now >/dev/null 2>&1 || log_error "dashboard.json 生成失败"
+  fi
+
+  # 验证关键数据
+  if [[ -s "${TRAFFIC_DIR}/dashboard.json" ]]; then
+    if ! jq -e '.server.ip' "${TRAFFIC_DIR}/dashboard.json" >/dev/null 2>&1; then
+      log_error "dashboard.json 数据不完整，可能影响面板显示"
+    else
+      log_success "面板数据生成完成"
+    fi
   fi
   
-  # 可选清理：下线旧版面板脚本，避免未来误调用
-rm -f /etc/edgebox/scripts/panel-refresh.sh 2>/dev/null || true
-rm -f /etc/edgebox/scripts/system-stats.sh 2>/dev/null || true
+  # 设置正确的文件权限
+  chmod 644 "${TRAFFIC_DIR}"/*.json 2>/dev/null || true
+  chmod 644 "${WEB_ROOT}/sub" 2>/dev/null || true
 }
 # ===== /finalize_install =====
 
@@ -5202,7 +5383,7 @@ main() {
     configure_xray
     configure_sing_box
     
-    # 高级功能安装（模块3）- 先安装后台脚本
+# 高级功能安装（模块3）- 先安装后台脚本
     install_scheduled_dashboard_backend
     setup_traffic_monitoring
     setup_cron_jobs
@@ -5210,22 +5391,17 @@ main() {
     create_enhanced_edgeboxctl
     create_init_script
 
-    # 生成订阅并启动服务
-    generate_subscription     # 现在有完整的配置数据
-    start_services
-	install_ipq_stack
-	
+    # 启动服务（不生成订阅，由finalize_install统一处理）
+    start_services_only
+    install_ipq_stack
+    
     # 启动初始化服务
     systemctl start edgebox-init.service >/dev/null 2>&1 || true
     
     # 等待服务稳定
     sleep 3
     
-# 运行一次数据初始化（统一由 dashboard-backend 生成 dashboard/system）
-/etc/edgebox/scripts/traffic-collector.sh || true
-/etc/edgebox/scripts/dashboard-backend.sh --now || true
-    
-    # 收尾：订阅 + 首刷 + 定时
+    # 收尾：订阅 + 首刷 + 定时（统一处理数据生成）
     finalize_install
     
     # 显示安装信息
