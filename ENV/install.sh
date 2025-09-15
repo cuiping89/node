@@ -4877,6 +4877,150 @@ INIT_SERVICE
     log_success "初始化脚本创建完成"
 }
 
+install_ipq_stack() {
+  log_info "安装 IP 质量评分（IPQ）栈..."
+
+  # 目录：按文档口径，物理目录放 /var/www/edgebox/status；映射到站点根 /status
+  local WEB_STATUS_PHY="/var/www/edgebox/status"
+  local WEB_STATUS_LINK="${WEB_ROOT:-/var/www/html}/status"
+  mkdir -p "$WEB_STATUS_PHY" "${WEB_ROOT:-/var/www/html}"
+  ln -sfn "$WEB_STATUS_PHY" "$WEB_STATUS_LINK" 2>/dev/null || true
+
+  # 兜底依赖（dig 用于 rDNS）
+  if ! command -v dig >/dev/null 2>&1; then
+    if command -v apt >/dev/null 2>&1; then apt -y update && apt -y install dnsutils;
+    elif command -v yum >/dev/null 2>&1; then yum -y install bind-utils; fi
+  fi
+
+  # 写入评分脚本：/usr/local/bin/edgebox-ipq.sh
+  cat > /usr/local/bin/edgebox-ipq.sh <<'IPQ'
+#!/usr/bin/env bash
+set -euo pipefail; LANG=C
+STATUS_DIR="/var/www/edgebox/status"
+SHUNT_DIR="/etc/edgebox/config/shunt"
+mkdir -p "$STATUS_DIR"
+
+ts(){ date -Is; }
+jqget(){ jq -r "$1" 2>/dev/null || echo ""; }
+
+build_proxy_args(){ local u="${1:-}"; [[ -z "$u" || "$u" == "null" ]] && return 0
+  case "$u" in socks5://*|socks5h://*) echo "--socks5-hostname ${u#*://}";;
+           http://*|https://*) echo "--proxy $u";; *) :;; esac; }
+
+curl_json(){ # $1 proxy-args  $2 url
+  eval "curl -fsS --max-time 4 $1 \"$2\"" || return 1; }
+
+get_proxy_url(){ local s="${SHUNT_DIR}/state.json"
+  [[ -s "$s" ]] && jqget '.proxy_info' <"$s" || echo ""; }
+
+collect_one(){ # $1 vantage vps|proxy  $2 proxy-args
+  local V="$1" P="$2" J1="{}" J2="{}" J3="{}" ok1=false ok2=false ok3=false
+  if out=$(curl_json "$P" "https://ipinfo.io/json"); then J1="$out"; ok1=true; fi
+  if out=$(curl_json "$P" "https://ip.sb/api/json"); then J2="$out"; ok2=true; fi
+  if out=$(curl_json "$P" "http://ip-api.com/json/?fields=status,message,country,city,as,asname,reverse,hosting,proxy,mobile,query"); then J3="$out"; ok3=true; fi
+
+  local ip=""; for j in "$J2" "$J1" "$J3"; do ip="$(jq -r '(.ip // .query // empty)' <<<"$j")"; [[ -n "$ip" && "$ip" != "null" ]] && break; done
+  local rdns="$(jq -r '.reverse // empty' <<<"$J3")"
+  if [[ -z "$rdns" && -n "$ip" ]]; then rdns="$(dig +time=1 +tries=1 +short -x "$ip" 2>/dev/null | head -n1)"; fi
+  local asn="$(jq -r '(.asname // .as // empty)' <<<"$J3")"; [[ -z "$asn" || "$asn" == "null" ]] && asn="$(jq -r '(.org // empty)' <<<"$J1")"
+  local isp="$(jq -r '(.org // empty)' <<<"$J1")"; [[ -z "$isp" || "$isp" == "null" ]] && isp="$(jq -r '(.asname // .as // empty)' <<<"$J3")"
+  local country="$(jq -r '(.country // empty)' <<<"$J3")"; [[ -z "$country" || "$country" == "null" ]] && country="$(jq -r '(.country // empty)' <<<"$J1")"
+  local city="$(jq -r '(.city // empty)' <<<"$J3")"; [[ -z "$city" || "$city" == "null" ]] && city="$(jq -r '(.city // empty)' <<<"$J1")"
+  local f_host="$(jq -r '(.hosting // false)' <<<"$J3")"; local f_proxy="$(jq -r '(.proxy // false)' <<<"$J3")"; local f_mob="$(jq -r '(.mobile // false)' <<<"$J3")"
+
+  # DNSBL（轻量）
+  declare -a hits=(); if [[ -n "$ip" ]]; then IFS=. read -r a b c d <<<"$ip"; rip="${d}.${c}.${b}.${a}"
+    for bl in zen.spamhaus.org bl.spamcop.net dnsbl.sorbs.net b.barracudacentral.org; do
+      if dig +time=1 +tries=1 +short "${rip}.${bl}" A >/dev/null 2>&1; then hits+=("$bl"); fi
+    done
+  fi
+
+  # 延迟：vps→ping 1.1.1.1；proxy→TLS connect
+  local lat=999
+  if [[ "$V" == "vps" ]]; then
+    r=$(ping -n -c 3 -w 4 1.1.1.1 2>/dev/null | awk -F'/' '/^rtt/ {print int($5+0.5)}'); [[ -n "${r:-}" ]] && lat="$r"
+  else
+    r=$(eval "curl -o /dev/null -s $P -w '%{time_connect}' https://www.cloudflare.com/cdn-cgi/trace" 2>/dev/null)
+    [[ -n "${r:-}" ]] && lat=$(awk -v t="$r" 'BEGIN{printf("%d",(t*1000)+0.5)}')
+  fi
+
+  # 打分
+  local score=100; declare -a notes=()
+  [[ "$f_proxy" == "true"   ]] && score=$((score-50)) && notes+=("flag_proxy")
+  [[ "$f_host"  == "true"   ]] && score=$((score-10)) && notes+=("datacenter_ip")
+  (( ${#hits[@]} )) && score=$((score-20*${#hits[@]})) && notes+=("dnsbl")
+  (( lat>400 )) && score=$((score-20)) && notes+=("high_latency")
+  (( lat>200 && lat<=400 )) && score=$((score-10)) && notes+=("mid_latency")
+  if [[ "$asn" =~ (amazon|aws|google|gcp|microsoft|azure|alibaba|tencent|digitalocean|linode|vultr|hivelocity|ovh|hetzner|iij|ntt|leaseweb|contabo) ]]; then score=$((score-2)); fi
+  (( score<0 )) && score=0
+  local grade="D"; ((score>=80)) && grade="A" || { ((score>=60)) && grade="B" || { ((score>=40)) && grade="C"; }; }
+
+  jq -n --arg ts "$(ts)" --arg V "$V" --arg ip "${ip:-}" --arg c "${country:-}" --arg city "${city:-}" \
+        --arg asn "${asn:-}" --arg isp "${isp:-}" --arg rdns "${rdns:-}" \
+        --argjson flags "{\"ipinfo\":$ok1,\"ipsb\":$ok2,\"ipapi\":$ok3}" \
+        --argjson risk "$(printf '%s\n' "${hits[@]:-}" | jq -R -s 'split(\"\\n\")|map(select(length>0))' | jq -n --argjson bl @- \
+          --argjson p $([[ "$f_proxy" == "true" ]] && echo true || echo false) \
+          --argjson h $([[ "$f_host"  == "true" ]] && echo true || echo false) \
+          --argjson m $([[ "$f_mob"   == "true" ]] && echo true || echo false) \
+          '{proxy:$p,hosting:$h,mobile:$m,dnsbl_hits:$bl,tor:false}')" \
+        --argjson lat "${lat:-999}" --argjson score "$score" --arg grade "$grade" \
+        --arg notes "$(IFS=,; echo "${notes[*]:-}")" '
+  { detected_at:$ts,vantage:$V,ip:$ip,country:$c,city:$city,asn:$asn,isp:$isp,rdns:($rdns|select(.!="")),
+    source_flags:$flags,risk:$risk,latency_ms:$lat,score:$score,grade:$grade,
+    notes:( ($notes|length>0) and ($notes!="") ? ($notes|split(",")|map(select(length>0))) : [] ) }'
+}
+
+main(){
+  # vps + proxy 都测；无代理则输出 not_configured
+  collect_one "vps" "" | tee "${STATUS_DIR}/ipq_vps.json" >/dev/null
+  purl="$(get_proxy_url)"
+  if [[ -n "${purl:-}" && "$purl" != "null" ]]; then
+    pargs="$(build_proxy_args "$purl")"
+    collect_one "proxy" "$pargs" | tee "${STATUS_DIR}/ipq_proxy.json" >/dev/null
+  else
+    jq -n --arg ts "$(ts)" '{detected_at:$ts,vantage:"proxy",status:"not_configured"}' | tee "${STATUS_DIR}/ipq_proxy.json" >/dev/null
+  fi
+  jq -n --arg ts "$(ts)" --arg ver "ipq-1.0" '{last_run:$ts,version:$ver}' | tee "${STATUS_DIR}/ipq_meta.json" >/dev/null
+  chmod 644 "${STATUS_DIR}"/ipq_*.json 2>/dev/null || true
+}
+main "$@"
+IPQ
+  chmod +x /usr/local/bin/edgebox-ipq.sh
+
+  # systemd：监听分流状态变化触发 IPQ
+  cat > /etc/systemd/system/edgebox-ipq.service <<'UNIT'
+[Unit]
+Description=EdgeBox IP Quality (IPQ) refresh
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/edgebox-ipq.sh
+UNIT
+
+  cat > /etc/systemd/system/edgebox-ipq.path <<'PATHU'
+[Unit]
+Description=Watch shunt state.json to refresh IPQ
+[Path]
+PathChanged=/etc/edgebox/config/shunt/state.json
+Unit=edgebox-ipq.service
+[Install]
+WantedBy=multi-user.target
+PATHU
+
+  systemctl daemon-reload
+  systemctl enable --now edgebox-ipq.path >/dev/null 2>&1 || true
+
+  # Cron：每日 02:15 例行评分（与文档频次一致）
+  ( crontab -l 2>/dev/null | grep -v '/usr/local/bin/edgebox-ipq.sh' ) | crontab - || true
+  ( crontab -l 2>/dev/null; echo "15 2 * * * /usr/local/bin/edgebox-ipq.sh >/dev/null 2>&1" ) | crontab -
+
+  # 首次即跑，给前端可用数据
+  /usr/local/bin/edgebox-ipq.sh || true
+
+  log_success "IPQ 栈就绪：/status/ipq_vps.json /status/ipq_proxy.json"
+}
+
 # ===== 收尾：生成订阅、同步、首次生成 dashboard =====
 finalize_install() {
   # 基础环境
@@ -5020,7 +5164,8 @@ main() {
     # 生成订阅并启动服务
     generate_subscription     # 现在有完整的配置数据
     start_services
-
+	install_ipq_stack
+	
     # 启动初始化服务
     systemctl start edgebox-init.service >/dev/null 2>&1 || true
     
