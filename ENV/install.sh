@@ -3000,6 +3000,8 @@ function updateSystemBars(sys) {
   document.getElementById('disk-detail').textContent = diskDetail;
 }
 
+// 渲染协议区块 + 网络/IPQ/白名单/订阅
+function renderProtocols(model) {
   // ---- 网络出站与 IPQ ----
   const ipqV = model.ipq?.vps || null;
   const ipqP = model.ipq?.proxy || null;
@@ -3038,9 +3040,37 @@ function updateSystemBars(sys) {
 
   // 订阅链接
   const sub = model.subscription || {};
-  document.getElementById('sub-plain').value = sub.plain || '';
-  document.getElementById('sub-b64').value = sub.base64 || '';
-  document.getElementById('sub-b64lines').value = sub.b64_lines || '';
+  if (document.getElementById('sub-plain'))    document.getElementById('sub-plain').value = sub.plain || '';
+  if (document.getElementById('sub-b64'))      document.getElementById('sub-b64').value = sub.base64 || '';
+  if (document.getElementById('sub-b64lines')) document.getElementById('sub-b64lines').value = sub.b64_lines || '';
+
+  // ---- 协议表格 ----
+  const tbody = document.querySelector('#proto tbody');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+
+  // 优先使用后端下发的 protocols；没有就按服务状态兜底构造三行
+  const svc = model.services || {};
+  const list = Array.isArray(model.protocols) && model.protocols.length ? model.protocols : [
+    { name: 'VLESS/Trojan (443/TCP)', proto: 'TCP',  disguise: 'SNI/ALPN 分流', scene: '通用',   proc: (svc.nginx==='active'?'listening':'未监听') },
+    { name: 'Hysteria2',              proto: 'UDP',  disguise: 'QUIC',         scene: '弱网/移动', proc: (svc['sing-box']==='active'?'listening':'未监听') },
+    { name: 'TUIC',                   proto: 'UDP',  disguise: 'QUIC',         scene: '弱网/移动', proc: (svc['sing-box']==='active'?'listening':'未监听') }
+  ];
+
+  list.forEach(p => {
+    const running = (p.proc === 'listening' || p.status === 'active' || p.running === true);
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${p.name || '—'}</td>
+      <td>${p.proto || p.network || '—'}</td>
+      <td>${p.disguise || p.note || '—'}</td>
+      <td>${p.scene || '—'}</td>
+      <td>${running ? '<span class="protocol-status-badge">监听中</span>' : '<span class="protocol-status-badge" style="background:#6b7280">未监听</span>'}</td>
+      <td><button class="btn" onclick="showProtocolDetails('${(p.name||'').split(' ')[0] || 'VLESS-Reality'}')">查看配置</button></td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
 
 // 渲染流量图表
 function renderTraffic(traffic) {
