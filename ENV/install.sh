@@ -1079,7 +1079,7 @@ SHUNT_MODE=$([ -s "$STATE_JSON" ] && jq -r '.mode // empty' "$STATE_JSON" || ech
 PROXY_INFO=$([ -s "$STATE_JSON" ] && jq -r '.proxy_info // empty' "$STATE_JSON" || echo "")
 
 # ---------- 订阅 ----------
-SUB_FILE="$TRAFFIC_DIR/sub"
+SUB_FILE="$TRAFFIC_DIR/sub.txt"
 PLAIN=$([ -s "$SUB_FILE" ] && cat "$SUB_FILE" || echo "")
 B64_LINES=$([ -s "$SUB_FILE" ] && base64 -w 76 "$SUB_FILE" || echo "")
 B64_ALL=$([ -s "$SUB_FILE" ] && base64 -w 0 "$SUB_FILE" || echo "")
@@ -1089,11 +1089,31 @@ PROTOS="[]"
 if [ -s "$CONF_DIR/protocols.json" ]; then
   PROTOS=$(cat "$CONF_DIR/protocols.json")
 else
-  PROTOS=$(jq -n '
+  PROTOS=$(jq -n \
+    --arg nginx "$NGINX_STATUS" \
+    --arg sing  "$SING_STATUS" '
   [
-    {name:"VLESS/Trojan (443/TCP)", proto:"TCP", disguise:"SNI/ALPN 分流", scene:"通用",  proc:(env.NGINX_STATUS=="active"?"listening":"stopped")},
-    {name:"Hysteria2",              proto:"UDP", disguise:"QUIC",        scene:"弱网/移动", proc:(env.SING_STATUS=="active"?"listening":"stopped")},
-    {name:"TUIC",                   proto:"UDP", disguise:"QUIC",        scene:"弱网/移动", proc:(env.SING_STATUS=="active"?"listening":"stopped")}
+    {
+      name:"VLESS/Trojan (443/TCP)",
+      proto:"TCP",
+      disguise:"SNI/ALPN 分流",
+      scene:"通用",
+      proc:(if $nginx=="active" then "listening" else "stopped" end)
+    },
+    {
+      name:"Hysteria2",
+      proto:"UDP",
+      disguise:"QUIC",
+      scene:"弱网/移动",
+      proc:(if $sing=="active" then "listening" else "stopped" end)
+    },
+    {
+      name:"TUIC",
+      proto:"UDP",
+      disguise:"QUIC",
+      scene:"弱网/移动",
+      proc:(if $sing=="active" then "listening" else "stopped" end)
+    }
   ]')
 fi
 
