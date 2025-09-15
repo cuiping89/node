@@ -37,13 +37,16 @@ RED="${ESC}[0;31m"
 NC="${ESC}[0m"
 
 # 全局变量
-INSTALL_DIR="/etc/edgebox"
-CERT_DIR="${INSTALL_DIR}/cert"
-CONFIG_DIR="${INSTALL_DIR}/config"
-TRAFFIC_DIR="${INSTALL_DIR}/traffic"
-SCRIPTS_DIR="${INSTALL_DIR}/scripts"
-BACKUP_DIR="/root/edgebox-backup"
-LOG_FILE="/var/log/edgebox-install.log"
+### >>> BEGIN REPLACE: GLOBAL VARS >>>
+set -Eeuo pipefail
+
+INSTALL_DIR="/etc/edgebox"              # 后端与配置根
+WEB_ROOT="/var/www/html"                # Nginx 站点根
+STATUS_DIR="/var/www/edgebox/status"    # 面板 JSON/状态文件
+LOG_FILE="/var/log/edgebox-cron.log"    # 定时任务日志
+
+mkdir -p "${INSTALL_DIR}/config" "${INSTALL_DIR}/traffic" "${STATUS_DIR}"
+### <<< END REPLACE: GLOBAL VARS <<<
 
 # 服务器信息
 SERVER_IP=""
@@ -1062,307 +1065,140 @@ CONFIG_DIR="${CONFIG_DIR:-/etc/edgebox/config}"
 SERVER_JSON="${SERVER_JSON:-${CONFIG_DIR}/server.json}"
 SUB_CACHE="${SUB_CACHE:-${TRAFFIC_DIR}/sub.txt}"
 
-log_info(){ echo "[INFO] $*"; }
-log_warn(){ echo "[WARN] $*"; }
-log_error(){ echo "[ERROR] $*" >&2; }
+log(){ printf '[%s] %s\n' "$1" "${2:-}"; }
 
-# 修复后的CPU/内存获取函数
-_get_cpu_mem(){ 
-  # CPU计算
+# 采集 CPU/MEM/DISK（100制）
+get_cpu_mem_disk() {
   read _ u n s i _ < /proc/stat; t1=$((u+n+s+i)); i1=$i; sleep 1
   read _ u n s i _ < /proc/stat; t2=$((u+n+s+i)); i2=$i; dt=$((t2-t1)); di=$((i2-i1))
-  CPU=$(( dt>0 ? (100*(dt-di)+dt/2)/dt : 0 ))
-  
-  # 内存计算 
-  MT=$(awk '/MemTotal/{print $2}' /proc/meminfo)
-  MA=$(awk '/MemAvailable/{print $2}' /proc/meminfo)
-  MEM=$(( MT>0 ? (100*(MT-MA)+MT/2)/MT : 0 ))
-  
-  # 磁盘计算
-  DISK=$(df / | awk 'NR==2{gsub(/%/,"",$5); print $5}')
-  
-  echo "$CPU" "$MEM" "${DISK:-0}"
+  cpu=$(( dt>0 ? (100*(dt-di)+dt/2)/dt : 0 ))
+
+  mt=$(awk '/MemTotal/{print $2}' /proc/meminfo)
+  ma=$(awk '/MemAvailable/{print $2}' /proc/meminfo)
+  mem=$(( mt>0 ? (100*(mt-ma)+mt/2)/mt : 0 ))
+
+  disk=$(df / | awk 'NR==2{gsub(/%/,"",$5); print $5}')
+  printf '%s %s %s\n' "${cpu:-0}" "${mem:-0}" "${disk:-0}"
 }
 
-# 修复后的系统信息获取
-_get_system_info(){
-  # 获取基础系统信息
-  local hostname="$(hostname 2>/dev/null || echo 'unknown')"
-  local uptime_days="$(awk '{print int($1/86400)}' /proc/uptime 2>/dev/null || echo '0')"
-  
-  # CPU信息
-  local cpu_model="$(grep 'model name' /proc/cpuinfo | head -n1 | cut -d':' -f2 | xargs || echo 'Unknown')"
-  local cpu_cores="$(nproc 2>/dev/null || echo '1')"
-  
-  # 内存信息（转换为GB）
-  local mem_total_kb="$(awk '/MemTotal/{print $2}' /proc/meminfo)"
-  local mem_total_gb="$(( mem_total_kb / 1024 / 1024 ))"
-  
-  # 磁盘信息
-  local disk_info="$(df -h / | awk 'NR==2{print $2}' 2>/dev/null || echo 'Unknown')"
-  
-  echo "$hostname" "$uptime_days" "$cpu_model" "$cpu_cores" "$mem_total_gb" "$disk_info"
+# 简单读 server.json（容错）
+read_server() {
+  [[ -s "$SERVER_JSON" ]] || return 0
+  ip=$(jq -r '.server_ip // empty' "$SERVER_JSON" 2>/dev/null || true)
+  ver=$(jq -r '.version // "3.0.0"' "$SERVER_JSON" 2>/dev/null || echo 3.0.0)
+  inst=$(jq -r '.install_date // empty' "$SERVER_JSON" 2>/dev/null || true)
+  cert_mode=$(jq -r '.cert.mode // .cert_mode // "self-signed"' "$SERVER_JSON" 2>/dev/null || echo self-signed)
+  cert_domain=$(jq -r '.cert.domain // .cert_domain // empty' "$SERVER_JSON" 2>/dev/null || true)
+  cert_expire=$(jq -r '.cert.expire // .cert_expire // empty' "$SERVER_JSON" 2>/dev/null || true)
+  hostname=$(hostname 2>/dev/null || echo unknown)
+
+  # 秘密字段打包（供前端协议弹窗用）
+  secrets=$(jq -c '{
+    vless:{reality:(.uuid.vless.reality // .uuid.vless // ""), grpc:(.uuid.vless.grpc // .uuid.vless // ""), ws:(.uuid.vless.ws // .uuid.vless // "")},
+    tuic_uuid:(.uuid.tuic // ""),
+    password:{trojan:(.password.trojan // ""), hysteria2:(.password.hysteria2 // ""), tuic:(.password.tuic // "")},
+    reality:{public_key:(.reality.public_key // ""), short_id:(.reality.short_id // "")}
+  }' "$SERVER_JSON" 2>/dev/null || echo '{}')
 }
 
-# 修复后的订阅解析函数
-_parse_sub(){
-  local sub_plain="" sub_b64="" line
-  
-  # 按优先级查找订阅文件
-  if   [[ -s "${CONFIG_DIR}/subscription.txt" ]]; then
-    sub_plain="$(cat "${CONFIG_DIR}/subscription.txt")"
-  elif [[ -s "${SUB_CACHE}" ]]; then
-    sub_plain="$(cat "${SUB_CACHE}")"
-  elif [[ -s "/var/www/html/sub" ]]; then
-    sub_plain="$(cat "/var/www/html/sub")"
+# 生成订阅的明文/Base64/逐行Base64（尽量不失败）
+build_subscription() {
+  local txt=""
+  if [[ -s "${CONFIG_DIR}/subscription.txt" ]]; then
+    txt="$(cat "${CONFIG_DIR}/subscription.txt")"
+  elif [[ -s "$SUB_CACHE" ]]; then
+    txt="$(cat "$SUB_CACHE")"
   fi
+  printf '%s' "${txt:-}" > "${TRAFFIC_DIR}/subscription.txt"
 
-  # 如果还是没有内容，尝试从 server.json 重新生成
-  if [[ -z "$sub_plain" && -s "$SERVER_JSON" ]]; then
-    local ip reality_pbk reality_sid uuid_vless uuid_tuic trojan_pw hy2_pw tuic_pw
-    
-    ip="$(jq -r '.server_ip // empty' "$SERVER_JSON" 2>/dev/null || echo '')"
-    reality_pbk="$(jq -r '.reality.public_key // empty' "$SERVER_JSON" 2>/dev/null || echo '')"
-    reality_sid="$(jq -r '.reality.short_id // empty' "$SERVER_JSON" 2>/dev/null || echo '')"
-    uuid_vless="$(jq -r '.uuid.vless.reality // .uuid.vless // empty' "$SERVER_JSON" 2>/dev/null || echo '')"
-    uuid_tuic="$(jq -r '.uuid.tuic // empty' "$SERVER_JSON" 2>/dev/null || echo '')"
-    trojan_pw="$(jq -r '.password.trojan // empty' "$SERVER_JSON" 2>/dev/null || echo '')"
-    hy2_pw="$(jq -r '.password.hysteria2 // empty' "$SERVER_JSON" 2>/dev/null || echo '')"
-    tuic_pw="$(jq -r '.password.tuic // empty' "$SERVER_JSON" 2>/dev/null || echo '')"
-    
-    if [[ -n "$ip" && -n "$uuid_vless" ]]; then
-      # 简化版订阅生成
-      sub_plain="vless://${uuid_vless}@${ip}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${reality_pbk}&sid=${reality_sid}&type=tcp#EdgeBox-REALITY"
-      if [[ -n "$hy2_pw" ]]; then
-        sub_plain="${sub_plain}
-hysteria2://$(printf '%s' "$hy2_pw" | jq -rR @uri)@${ip}:443?sni=${ip}&alpn=h3&insecure=1#EdgeBox-HYSTERIA2"
-      fi
-      if [[ -n "$uuid_tuic" && -n "$tuic_pw" ]]; then
-        sub_plain="${sub_plain}
-tuic://${uuid_tuic}:$(printf '%s' "$tuic_pw" | jq -rR @uri)@${ip}:2053?congestion_control=bbr&alpn=h3&sni=${ip}&allowInsecure=1#EdgeBox-TUIC"
-      fi
-    fi
-  fi
-
-  # 生成base64编码
-  if [[ -n "$sub_plain" ]]; then
-    if base64 --help 2>&1 | grep -q -- ' -w'; then
-      sub_b64="$(printf '%s\n' "$sub_plain" | base64 -w0)"
+  # base64
+  if command -v base64 >/dev/null 2>&1; then
+    if base64 --help 2>&1 | grep -q ' -w'; then
+      printf '%s' "${txt:-}" | base64 -w0 > "${TRAFFIC_DIR}/subscription.b64"
     else
-      sub_b64="$(printf '%s\n' "$sub_plain" | base64 | tr -d '\n')"
+      printf '%s' "${txt:-}" | base64 | tr -d '\n' > "${TRAFFIC_DIR}/subscription.b64"
     fi
-    
-    # 生成逐行base64
     : > "${TRAFFIC_DIR}/subscription.b64lines"
     while IFS= read -r line; do
       [[ -z "$line" ]] && continue
-      if base64 --help 2>&1 | grep -q -- ' -w'; then
+      if base64 --help 2>&1 | grep -q ' -w'; then
         printf '%s' "$line" | sed -e '$a\' | base64 -w0
       else
         printf '%s' "$line" | sed -e '$a\' | base64 | tr -d '\n'
       fi
       printf '\n'
-    done <<<"$sub_plain" >> "${TRAFFIC_DIR}/subscription.b64lines"
+    done <<<"${txt:-}" >> "${TRAFFIC_DIR}/subscription.b64lines"
   else
-    : > "${TRAFFIC_DIR}/subscription.b64lines"
+    : > "${TRAFFIC_DIR}/subscription.b64" "${TRAFFIC_DIR}/subscription.b64lines"
   fi
-
-  # 保存明文订阅
-  printf '%s\n' "$sub_plain" > "${TRAFFIC_DIR}/subscription.txt"
-
-  export SUB_PLAIN="$sub_plain"
-  export SUB_B64="$sub_b64"
-  export SUB_LINES="$(cat "${TRAFFIC_DIR}/subscription.b64lines" 2>/dev/null || true)"
 }
 
-# 修复后的主函数
-generate_dashboard_data(){
+# 生成 system.json / dashboard.json
+generate_json() {
   mkdir -p "$TRAFFIC_DIR"
-  
-  # 获取CPU/内存/磁盘
-  read CPU MEM DISK < <(_get_cpu_mem || echo "0 0 0")
-  
-  # 获取系统信息
-  read hostname uptime_days cpu_model cpu_cores mem_total_gb disk_info < <(_get_system_info || echo "unknown 0 unknown 1 0 unknown")
+  read cpu mem disk < <(get_cpu_mem_disk || echo "0 0 0")
+  read_server || true
+  build_subscription || true
 
-  # 订阅形态
-  _parse_sub
+  # 服务状态 + 版本
+  svc_nginx="inactive"; systemctl is-active --quiet nginx     && svc_nginx="active"
+  svc_xray="inactive";  systemctl is-active --quiet xray      && svc_xray="active"
+  svc_sbox="inactive";  systemctl is-active --quiet sing-box  && svc_sbox="active"
 
-  # 服务器基础信息
-  local IP EIP VER INST CM CERT_DOMAIN CERT_EXPIRE
-  if [[ -s "$SERVER_JSON" ]]; then
-    IP="$(jq -r '.server_ip // empty' "$SERVER_JSON" 2>/dev/null || echo '')"
-    EIP="$(jq -r '.eip // empty' "$SERVER_JSON" 2>/dev/null || echo '')"
-    VER="$(jq -r '.version // "3.0.0"' "$SERVER_JSON" 2>/dev/null || echo '3.0.0')"
-    INST="$(jq -r '.install_date // empty' "$SERVER_JSON" 2>/dev/null || echo '')"
-    CM="$(jq -r '.cert.mode // "self-signed"' "$SERVER_JSON" 2>/dev/null || echo 'self-signed')"
-    CERT_DOMAIN="$(jq -r '.cert.domain // empty' "$SERVER_JSON" 2>/dev/null || echo '')"
-    CERT_EXPIRE="$(jq -r '.cert.expire // empty' "$SERVER_JSON" 2>/dev/null || echo '')"
-  fi
+  ver_nginx=""; command -v nginx     >/dev/null 2>&1 && ver_nginx="$(nginx -v 2>&1 | sed -n 's/^nginx version: nginx\///p')"
+  ver_xray="";  command -v xray      >/dev/null 2>&1 && ver_xray="$(xray -version 2>&1 | sed -n 's/^Xray \([^ ]*\).*/\1/p')"
+  ver_sbox="";  command -v sing-box  >/dev/null 2>&1 && ver_sbox="$(sing-box version 2>&1 | sed -n 's/^sing-box version \([^ ]*\).*/\1/p')"
 
-  # 如果从server.json获取不到，设置默认值
-  [[ -z "$IP" ]] && IP="$(hostname -I | awk '{print $1}' 2>/dev/null || echo '127.0.0.1')"
-  [[ -z "$VER" ]] && VER="3.0.0"
-  [[ -z "$INST" ]] && INST="$(date +%Y-%m-%d)"
+  jq -n --arg ts "$(date -Is)" \
+        --argjson cpu "$cpu" --argjson memory "$mem" --argjson disk "$disk" \
+        --arg hostname "${hostname:-$(hostname)}" \
+        --arg uptime_days "$(awk '{print int($1/86400)}' /proc/uptime)" \
+        --arg cpu_info "$(nproc)C / $(grep 'model name' /proc/cpuinfo | head -n1 | cut -d: -f2 | xargs)" \
+        --arg memory_info "$(awk '/MemTotal/{printf "%.0fGiB",$2/1024/1024}' /proc/meminfo)" \
+        --arg disk_info "$(df -h / | awk 'NR==2{print $2}')" \
+      '{updated_at:$ts,cpu:$cpu,memory:$memory,disk:$disk,hostname:$hostname,uptime_days:($uptime_days|tonumber),cpu_info:$cpu_info,memory_info:$memory_info,disk_info:$disk_info}' \
+      > "${TRAFFIC_DIR}/system.json"
 
-  # 检查服务状态
-  local nginx_status="inactive" xray_status="inactive" singbox_status="inactive"
-  systemctl is-active --quiet nginx 2>/dev/null && nginx_status="active"
-  systemctl is-active --quiet xray 2>/dev/null && xray_status="active"  
-  systemctl is-active --quiet sing-box 2>/dev/null && singbox_status="active"
-  
-    # 版本号（尽量不报错）
-  local nginx_ver="" xray_ver="" singbox_ver=""
+  jq -n --arg ts "$(date -Is)" \
+        --arg ip "${ip:-}" --arg ver "${ver:-3.0.0}" --arg inst "${inst:-$(date +%F)}" \
+        --arg cm "${cert_mode:-self-signed}" --arg cd "${cert_domain:-}" --arg ce "${cert_expire:-}" \
+        --arg nginx_st "$svc_nginx" --arg xray_st "$svc_xray" --arg sbox_st "$svc_sbox" \
+        --arg nv "$ver_nginx" --arg xv "$ver_xray" --arg sv "$ver_sbox" \
+        --argjson secrets "${secrets:-{}}" \
+        --arg sub_p "$(cat "${TRAFFIC_DIR}/subscription.txt" 2>/dev/null || true)" \
+        --arg sub_b "$(cat "${TRAFFIC_DIR}/subscription.b64" 2>/dev/null || true)" \
+        --arg sub_l "$(cat "${TRAFFIC_DIR}/subscription.b64lines" 2>/dev/null || true)" \
+      '{
+        updated_at:$ts,
+        server:{ip:$ip,version:$ver,install_date:$inst,cert_mode:$cm,cert_domain:($cd|select(.!="")),cert_expire:($ce|select(.!="")),hostname:"'"$(hostname)"'"},
+        services:{nginx:$nginx_st,xray:$xray_st,"sing-box":$sbox_st},
+        services_versions:{nginx:$nv,xray:$xv,"sing-box":$sv},
+        shunt:{mode:"vps",proxy_info:"",health:"unknown",whitelist:["googlevideo.com","ytimg.com","ggpht.com","youtube.com","youtu.be","googleapis.com","gstatic.com"]},
+        subscription:{plain:$sub_p,base64:$sub_b,b64_lines:$sub_l},
+        secrets:$secrets
+      }' > "${TRAFFIC_DIR}/dashboard.json"
 
-  if command -v nginx >/dev/null 2>&1; then
-    nginx_ver="$(nginx -v 2>&1 | sed -n 's/^nginx version: nginx\///p')"
-  fi
-
-  if command -v xray >/dev/null 2>&1; then
-    xray_ver="$(xray -version 2>&1 | sed -n 's/^Xray \([^ ]*\).*/\1/p')"
-  elif [[ -x "/usr/local/bin/xray" ]]; then
-    xray_ver="$(/usr/local/bin/xray -version 2>&1 | sed -n 's/^Xray \([^ ]*\).*/\1/p')"
-  fi
-
-  if command -v sing-box >/dev/null 2>&1; then
-    singbox_ver="$(sing-box version 2>&1 | sed -n 's/^sing-box version \([^ ]*\).*/\1/p')"
-  elif [[ -x "/usr/local/bin/sing-box" ]]; then
-    singbox_ver="$(/usr/local/bin/sing-box version 2>&1 | sed -n 's/^sing-box version \([^ ]*\).*/\1/p')"
-  fi
-
-  # 生成system.json
-  jq -n --arg ts "$(date -Is)" --argjson cpu "$CPU" --argjson memory "$MEM" --argjson disk "$DISK" \
-    --arg hostname "$hostname" --arg uptime_days "$uptime_days" \
-    --arg cpu_model "$cpu_model" --arg cpu_cores "$cpu_cores" \
-    --arg mem_total_gb "$mem_total_gb" --arg disk_info "$disk_info" \
-    '{
-      updated_at: $ts,
-      cpu: $cpu,
-      memory: $memory, 
-      disk: $disk,
-      hostname: $hostname,
-      uptime_days: ($uptime_days | tonumber),
-      cpu_info: ("\($cpu_cores)C / \($cpu_model)"),
-      memory_info: ("\($mem_total_gb)GiB"),
-      disk_info: $disk_info
-    }' > "${TRAFFIC_DIR}/system.json"
-
-  # 从 server.json 提取敏感字段，生成 secrets 对象
-  local SECRETS_JSON="{}"
-  if [[ -s "$SERVER_JSON" ]]; then
-    SECRETS_JSON="$(jq -c '{
-      vless:{
-        reality: (.uuid.vless.reality // .uuid.vless // ""),
-        grpc:    (.uuid.vless.grpc    // .uuid.vless // ""),
-        ws:      (.uuid.vless.ws      // .uuid.vless // "")
-      },
-      tuic_uuid: (.uuid.tuic // ""),
-      password:{
-        trojan:     (.password.trojan     // ""),
-        hysteria2:  (.password.hysteria2  // ""),
-        tuic:       (.password.tuic       // "")
-      },
-      reality:{
-        public_key: (.reality.public_key // ""),
-        short_id:   (.reality.short_id   // "")
-      }
-    }' "$SERVER_JSON" 2>/dev/null || echo "{}")"
-  fi
-
-  # 获取分流状态和白名单数据
-  local SHUNT_DIR="/etc/edgebox/config/shunt"
-  local state_json="${SHUNT_DIR}/state.json"
-  local mode="vps" proxy="" health="unknown" whitelist_json='[]'
-  
-  # 确保分流目录和白名单文件存在
-  mkdir -p "${SHUNT_DIR}"
-  if [[ ! -s "${SHUNT_DIR}/whitelist.txt" ]]; then
-    cat > "${SHUNT_DIR}/whitelist.txt" << 'WHITELIST_EOF'
-googlevideo.com
-ytimg.com
-ggpht.com
-youtube.com
-youtu.be
-googleapis.com
-gstatic.com
-WHITELIST_EOF
-  fi
-  
-  # 读取分流状态
-  if [[ -s "$state_json" ]]; then
-    mode="$(jq -r '.mode // "vps"' "$state_json" 2>/dev/null || echo 'vps')"
-    proxy="$(jq -r '.proxy_info // ""' "$state_json" 2>/dev/null || echo '')"
-    health="$(jq -r '.health // "unknown"' "$state_json" 2>/dev/null || echo 'unknown')"
-  fi
-  
-  # 读取白名单数据
-  if [[ -s "${SHUNT_DIR}/whitelist.txt" ]]; then
-    whitelist_json="$(awk 'NF' "${SHUNT_DIR}/whitelist.txt" | jq -R -s 'split("\n")|map(select(length>0))' 2>/dev/null || echo '["googlevideo.com","ytimg.com","ggpht.com","youtube.com","youtu.be","googleapis.com","gstatic.com"]')"
-  fi
-  
-  # 确保 whitelist_json 是有效 JSON
-  if ! echo "$whitelist_json" | jq . >/dev/null 2>&1; then
-    whitelist_json='["googlevideo.com","ytimg.com","ggpht.com","youtube.com","youtu.be","googleapis.com","gstatic.com"]'
-  fi
-
-  # 生成最终的dashboard.json
-jq -n \
-  --arg ts "$(date -Is)" \
-  --arg ip "$IP" --arg eip "$EIP" \
-  --arg ver "$VER" --arg inst "$INST" \
-  --arg cm "$CM" --arg cd "$CERT_DOMAIN" --arg ce "$CERT_EXPIRE" \
-  --arg nginx_st "$nginx_status" --arg xray_st "$xray_status" --arg singbox_st "$singbox_status" \
-  --arg nv "$nginx_ver" --arg xv "$xray_ver" --arg sv "$singbox_ver" \
-  --arg host "$hostname" \
-  --arg sub_p "${SUB_PLAIN:-}" --arg sub_b "${SUB_B64:-}" --arg sub_l "${SUB_LINES:-}" \
-  --argjson secrets "$SECRETS_JSON" \
-  --arg mode "$mode" --arg proxy_info "$proxy" --arg health "$health" --argjson whitelist "$whitelist_json" \
-  '{
-    updated_at: $ts,
-    server: {
-      ip: $ip, eip: (if $eip=="" then null else $eip end),
-      version: $ver, install_date: $inst,
-      cert_mode: $cm, cert_domain: (if $cd=="" then null else $cd end),
-      cert_expire: (if $ce=="" then null else $ce end),
-      hostname: $host
-    },
-    services: { nginx: $nginx_st, xray: $xray_st, "sing-box": $singbox_st },
-    services_versions: { nginx: $nv, xray: $xv, "sing-box": $sv },
-    shunt: {
-      mode: $mode, proxy_info: $proxy_info, health: $health, whitelist: $whitelist
-    },
-    subscription: { plain: $sub_p, base64: $sub_b, b64_lines: $sub_l },
-    secrets: $secrets
-  }' > "${TRAFFIC_DIR}/dashboard.json"
-
-  chmod 0644 "${TRAFFIC_DIR}/dashboard.json" "${TRAFFIC_DIR}/system.json" 2>/dev/null || true
-  log_info "dashboard.json 已更新"
+  chmod 0644 "${TRAFFIC_DIR}/system.json" "${TRAFFIC_DIR}/dashboard.json" || true
+  log INFO "dashboard.json 已更新"
 }
 
-schedule_dashboard_jobs(){
-  # 确保 cron 日志文件存在
+schedule() {
   mkdir -p /var/log
   touch /var/log/edgebox-cron.log
-  chmod 0644 /var/log/edgebox-cron.log || true
-
-  # 去重后写入（只管 dashboard 刷新）
-  ( crontab -l 2>/dev/null | grep -vE '/etc/edgebox/scripts/dashboard-backend\.sh\b' ) | crontab - || true
-  ( crontab -l 2>/dev/null; \
-      echo "*/2 * * * * bash -lc '/etc/edgebox/scripts/dashboard-backend.sh --now >> /var/log/edgebox-cron.log 2>&1'"; \
-    ) | crontab -
-
-  log_info "已写入 cron：*/2 分钟刷新 dashboard（日志：/var/log/edgebox-cron.log）"
+  (crontab -l 2>/dev/null | grep -v '/etc/edgebox/scripts/dashboard-backend.sh --now') | crontab - || true
+  (crontab -l 2>/dev/null; echo "*/2 * * * * bash -lc '/etc/edgebox/scripts/dashboard-backend.sh --now >> /var/log/edgebox-cron.log 2>&1'") | crontab -
+  log INFO "已写入 cron：*/2 分钟刷新 dashboard（日志 /var/log/edgebox-cron.log）"
 }
 
 case "${1:-}" in
-  --now|--once|update) generate_dashboard_data ;;
-  --schedule|--install) schedule_dashboard_jobs ;;
-  *) generate_dashboard_data ;;
+  --now|--once) generate_json ;;
+  --schedule|--install) schedule ;;
+  *) generate_json ;;
 esac
 EOF
 
   chmod +x /etc/edgebox/scripts/dashboard-backend.sh
-  log_success "dashboard-backend.sh 已写入并可执行"
+  echo "[SUCCESS] dashboard-backend.sh 已写入"
 }
 
 #############################################
