@@ -37,16 +37,13 @@ RED="${ESC}[0;31m"
 NC="${ESC}[0m"
 
 # 全局变量
-### >>> BEGIN REPLACE: GLOBAL VARS >>>
-set -Eeuo pipefail
-
-INSTALL_DIR="/etc/edgebox"              # 后端与配置根
-WEB_ROOT="/var/www/html"                # Nginx 站点根
-STATUS_DIR="/var/www/edgebox/status"    # 面板 JSON/状态文件
-LOG_FILE="/var/log/edgebox-cron.log"    # 定时任务日志
-
-mkdir -p "${INSTALL_DIR}/config" "${INSTALL_DIR}/traffic" "${STATUS_DIR}"
-### <<< END REPLACE: GLOBAL VARS <<<
+INSTALL_DIR="/etc/edgebox"
+CERT_DIR="${INSTALL_DIR}/cert"
+CONFIG_DIR="${INSTALL_DIR}/config"
+TRAFFIC_DIR="${INSTALL_DIR}/traffic"
+SCRIPTS_DIR="${INSTALL_DIR}/scripts"
+BACKUP_DIR="/root/edgebox-backup"
+LOG_FILE="/var/log/edgebox-install.log"
 
 # 服务器信息
 SERVER_IP=""
