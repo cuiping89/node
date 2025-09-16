@@ -2532,22 +2532,26 @@ start_and_verify_services() {
             systemctl is-active --quiet "$service" && services_active_count=$((services_active_count + 1))
         done
         
-        # 检查端口监听 (使用更精确的 ss 命令)
-        for p_info in "${required_ports[@]}"; do
-            IFS=':' read -r proto addr port proc <<< "$p_info"
-            local cmd=""
-            if [[ "$addr" == "127.0.0.1" ]]; then
-                cmd="ss -H -tlnp sport = :$port and src = $addr" # 仅限TCP和本地回环地址
-            elif [[ "$proto" == "tcp" ]]; then
-                cmd="ss -H -tlnp sport = :$port"
-            else
-                cmd="ss -H -ulnp sport = :$port"
-            fi
+    # 检查端口监听（放宽过滤条件，避免误判）
+    for p_info in "${required_ports[@]}"; do
+        IFS=':' read -r proto addr port proc <<< "$p_info"
 
-            if $cmd | grep -q "$proc"; then
+        if [[ "$proto" == "tcp" ]]; then
+            if ss -H -tlnp 2>/dev/null | awk -v p=":$port" -v name="$proc" '
+                $4 ~ p && $0 ~ name {found=1}
+                END{exit (found?0:1)}
+            '; then
                 listening_count=$((listening_count + 1))
             fi
-        done
+        else
+            if ss -H -ulnp 2>/dev/null | awk -v p=":$port" -v name="$proc" '
+                $5 ~ p && $0 ~ name {found=1}
+                END{exit (found?0:1)}
+            '; then
+                listening_count=$((listening_count + 1))
+            fi
+        fi
+    done
         
         # 如果全部成功，则跳出循环
         if [[ $services_active_count -eq ${#services[@]} && $listening_count -eq ${#required_ports[@]} ]]; then
@@ -4872,45 +4876,6 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         .whitelist-content.expanded::after {
             display: none;
         }
-		
-		.card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 15px;
-}
-
-.card-note {
-  font-size: 12px;
-  color: #666;
-  margin: 0;
-}
-
-.network-block-title {
-  color: #666;
-  font-weight: 500;
-  margin-bottom: 10px;
-}
-
-.network-block-title.active {
-  color: #28a745;
-  font-weight: 600;
-}
-
-.whitelist-inline {
-  display: inline;
-  margin-right: 5px;
-}
-
-.modal::backdrop {
-  background: rgba(0, 0, 0, 0.5);
-}
-
-.loading {
-  text-align: center;
-  color: #666;
-  padding: 20px;
-}
     </style>
 </head>
 <body>
