@@ -1547,9 +1547,9 @@ esac
 
 # 版本优先级：
 # 1) 若传入 SING_BOX_VERSION（可带/不带 v），则用它
-# 2) 否则通过 GitHub API 拿 latest tag
-# 3) API 不通时，解析 releases/latest 页面提取资产名中的版本
-# 4) 仍失败则回退到一个保守版本
+# 2) 否则 GitHub API releases/latest -> tag_name
+# 3) API 不通则解析 releases/latest 页面
+# 4) 仍失败回退到保守版本
 local ver_raw=""
 if [[ -n "${SING_BOX_VERSION:-}" ]]; then
   ver_raw="${SING_BOX_VERSION#v}"
@@ -1579,6 +1579,13 @@ local urls=(
   "https://github.com/SagerNet/sing-box/releases/download/v${version}/${asset}"
   "https://github.com/SagerNet/sing-box/releases/latest/download/${asset}"
 )
+
+# 支持可选代理（如果你设置了 GH_PROXY=你的中转前缀）
+if [[ -n "${GH_PROXY:-}" ]]; then
+  urls=("${GH_PROXY%/}/SagerNet/sing-box/releases/download/v${version}/${asset}" \
+        "${GH_PROXY%/}/SagerNet/sing-box/releases/latest/download/${asset}" \
+        "${urls[@]}")
+fi
 
 # 下载（多地址重试）
 local temp_file="/tmp/${asset}"
@@ -7869,15 +7876,32 @@ local risk_json; risk_json=$(
 )
 rm -f "$hits_file"
 
-  jq -n --arg ts "$(ts)" --arg V "$V" --arg ip "${ip:-}" --arg c "${country:-}" --arg city "${city:-}" \
-        --arg asn "${asn:-}" --arg isp "${isp:-}" --arg rdns "${rdns:-}" \
-        --argjson flags "{\"ipinfo\":$ok1,\"ipsb\":$ok2,\"ipapi\":$ok3}" \
-        --argjson risk "$risk_json" \
-        --argjson lat "${lat:-999}" --argjson score "$score" --arg grade "$grade" \
-        --arg notes "$(IFS=,; echo "${notes[*]:-}")" '
-  { detected_at:$ts,vantage:$V,ip:$ip,country:$c,city:$city,asn:$asn,isp:$isp,rdns:($rdns|select(.!="")),
-    source_flags:$flags,risk:$risk,latency_ms:$lat,score:$score,grade:$grade,
-    notes:( ($notes|length>0) and ($notes!="") ? ($notes|split(",")|map(select(length>0))) : [] ) }'
+# [PATCH:JQ_NOTES_SAFE] —— 先把 notes 文本安全转为 JSON 数组
+# 假设 bash 变量：$ts $vantage $ip $country $city $asn $isp $rdns 以及 $notes
+notes_json="$(printf '%s\n' "${notes:-}" | tr ',' '\n' | awk 'NF' | jq -R -s 'split("\n")|map(select(length>0))' 2>/dev/null || echo '[]')"
+
+# 统一用 --arg（字符串）和 --argjson（已经是 JSON 的）传参，避免引号嵌套地狱
+jq -n \
+  --arg ts   "${ts:-}" \
+  --arg v    "${vantage:-}" \
+  --arg ip   "${ip:-}" \
+  --arg c    "${country:-}" \
+  --arg city "${city:-}" \
+  --arg asn  "${asn:-}" \
+  --arg isp  "${isp:-}" \
+  --arg rdns "${rdns:-}" \
+  --argjson notes "${notes_json}" \
+  '{
+     detected_at: $ts,
+     vantage: $v,
+     ip: $ip,
+     country: $c,
+     city: $city,
+     asn: $asn,
+     isp: $isp,
+     rdns: (if $rdns == "" then null else $rdns end),
+     notes: $notes
+   }' > "/var/www/edgebox/status/ipq_vps.json"
 }
 
 main(){
