@@ -4906,6 +4906,239 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         .whitelist-content.expanded::after {
             display: none;
         }
+		
+		/* 网络身份配置卡片样式 - 添加到现有CSS中 */
+.card-note {
+  font-size: 0.75rem;
+  color: #6b7280;
+  font-weight: normal;
+  margin-left: 8px;
+}
+
+/* 网络状态标签 */
+.network-status {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.network-title {
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  background: #f1f5f9;
+  color: #64748b;
+  border: 1px solid #e2e8f0;
+  transition: all 0.2s ease;
+}
+
+.network-title.active {
+  background: #10b981;
+  color: white;
+  border-color: #10b981;
+}
+
+/* 网络区块 */
+.network-blocks {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 16px;
+}
+
+@media(max-width: 980px) {
+  .network-blocks {
+    grid-template-columns: 1fr;
+  }
+}
+
+.network-block {
+  padding: 16px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+
+.network-block h5 {
+  margin: 0 0 12px 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.network-block .small {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+  font-size: 0.875rem;
+  color: #475569;
+}
+
+.status-badge {
+  padding: 2px 6px;
+  background: #10b981;
+  color: white;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.detail-link {
+  color: #3b82f6;
+  cursor: pointer;
+  font-size: 0.75rem;
+  text-decoration: none;
+  border-bottom: 1px dotted #3b82f6;
+}
+
+.detail-link:hover {
+  color: #2563eb;
+  border-bottom-color: #2563eb;
+}
+
+/* 白名单内容 */
+.whitelist-content {
+  margin-top: 4px;
+}
+
+#whitelist-inline {
+  font-size: 0.8rem;
+  color: #64748b;
+  line-height: 1.4;
+  margin-bottom: 4px;
+  word-break: break-all;
+}
+
+/* IP质量检测详情样式 */
+.ipq-section {
+  margin-bottom: 20px;
+}
+
+.ipq-section h4 {
+  margin: 0 0 8px 0;
+  font-size: 1rem;
+  color: #374151;
+  border-bottom: 1px solid #e5e7eb;
+  padding-bottom: 4px;
+}
+
+.ipq-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 20px;
+  margin-bottom: 16px;
+}
+
+@media(max-width: 640px) {
+  .ipq-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.ipq-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 0;
+}
+
+.ipq-label {
+  color: #6b7280;
+  font-size: 0.875rem;
+}
+
+.ipq-value {
+  color: #1f2937;
+  font-weight: 500;
+  font-size: 0.875rem;
+}
+
+.ipq-score {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ipq-grade {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.ipq-grade.grade-a { background: #10b981; color: white; }
+.ipq-grade.grade-b { background: #f59e0b; color: white; }
+.ipq-grade.grade-c { background: #ef4444; color: white; }
+.ipq-grade.grade-d { background: #6b7280; color: white; }
+
+.ipq-conclusion {
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  border-radius: 6px;
+  padding: 12px;
+}
+
+.ipq-conclusion h5 {
+  margin: 0 0 8px 0;
+  color: #0c4a6e;
+  font-size: 0.875rem;
+}
+
+.ipq-reasons {
+  margin: 0;
+  padding-left: 16px;
+}
+
+.ipq-reasons li {
+  font-size: 0.8rem;
+  color: #164e63;
+  margin-bottom: 4px;
+}
+
+/* 白名单列表样式 */
+.whitelist-list {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.whitelist-item {
+  padding: 8px 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  margin-bottom: 4px;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 0.875rem;
+  color: #374151;
+}
+
+.whitelist-item:nth-child(odd) {
+  background: #f1f5f9;
+}
+
+.loading {
+  text-align: center;
+  color: #6b7280;
+  font-style: italic;
+  padding: 20px;
+}
+
+.error {
+  text-align: center;
+  color: #ef4444;
+  padding: 20px;
+}
+
+.no-data {
+  text-align: center;
+  color: #9ca3af;
+  padding: 20px;
+  font-style: italic;
+}
+
     </style>
 </head>
 <body>
@@ -4992,22 +5225,25 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
       </div>
     </div>
 
-    <!-- 网络身份配置 -->
+ <!-- 网络身份配置 -->
     <div class="card">
-      <h3>🌐 网络身份配置</h3>
+      <h3>🌐 网络身份配置
+        <div class="card-note">注：HY2/TUIC 为 UDP通道，VPS直连，不走代理分流</div>
+      </h3>
       <div class="content">
-<div class="network-status">
-  <span class="status-badge active">VPS出站IP</span>
-  <span class="status-badge">代理出站IP</span>
-  <span class="status-badge">分流出站</span>
-</div>
+        <!-- 三个子区块标签，当前状态高亮显示 -->
+        <div class="network-status">
+          <span class="network-title" id="network-title-vps">VPS出站IP</span>
+          <span class="network-title" id="network-title-proxy">代理出站IP</span>
+          <span class="network-title" id="network-title-shunt">分流出站</span>
+        </div>
         
-        <!-- 三个区块并排显示 -->
+        <!-- 三个子区块并排显示 -->
         <div class="network-blocks">
           <!-- VPS出站IP内容 -->
           <div class="network-block">
             <h5>📡 VPS出站IP</h5>
-            <div class="small">公网身份: <span class="status-running">直连</span></div>
+            <div class="small">公网身份: <span class="status-badge">直连</span></div>
             <div class="small">VPS出站IP: <span id="vps-out-ip">—</span></div>
             <div class="small">Geo: <span id="vps-geo">—</span></div>
             <div class="small">IP质量检测: <span id="vps-quality">—</span> <span class="detail-link" onclick="showIPQDetails('vps')">详情</span></div>
@@ -5016,8 +5252,8 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
           <!-- 代理出站IP内容 -->
           <div class="network-block">
             <h5>🔄 代理出站IP</h5>
-            <div class="small">代理身份: <span class="status-running">全代理</span></div>
-            <div class="small">代理出站IP: <span id="proxy-out-ip">—</span></div>
+            <div class="small">代理身份: <span class="status-badge">全代理</span></div>
+            <div class="small">代理出站IP: <span id="proxy-out-ip">未配置</span></div>
             <div class="small">Geo: <span id="proxy-geo">—</span></div>
             <div class="small">IP质量检测: <span id="proxy-quality">—</span> <span class="detail-link" onclick="showIPQDetails('proxy')">详情</span></div>
           </div>
@@ -5025,22 +5261,45 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
           <!-- 分流出站内容 -->
           <div class="network-block">
             <h5>🔀 分流出站</h5>
-            <div class="small">混合身份: <span class="status-running">VPS直连 + 代理</span></div>
+            <div class="small">混合身份: <span class="status-badge">白名单VPS直连 + 其它代理</span></div>
             <div class="small">白名单: 
               <div class="whitelist-content" id="whitelist-content">
-                <span id="whitelist-text">—</span>
+                <div id="whitelist-inline">—</div>
+                <span class="detail-link" onclick="showWhitelistModal()">查看全部白名单</span>
               </div>
-              <span class="detail-link" id="whitelist-toggle" onclick="toggleWhitelist()">查看全部</span>
             </div>
           </div>
         </div>
-        
-        <div class="network-note">
-          注：HY2/TUIC 为 UDP通道，VPS直连，不走代理分流
-        </div>
       </div>
     </div>
+
+<!-- 在现有模态框之后添加这两个新模态框 -->
+
+<!-- IP质量检测详情弹窗 -->
+<div class="modal" id="ipq-modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3 id="ipq-modal-title">IP质量检测详情</h3>
+      <button class="modal-close" onclick="closeModal('ipq-modal')">&times;</button>
+    </div>
+    <div class="modal-body" id="ipq-modal-body">
+      <div class="loading">正在加载IP质量数据...</div>
+    </div>
   </div>
+</div>
+
+<!-- 白名单查看弹窗 -->
+<div class="modal" id="whitelist-modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3>白名单域名列表</h3>
+      <button class="modal-close" onclick="closeModal('whitelist-modal')">&times;</button>
+    </div>
+    <div class="modal-body" id="whitelist-modal-body">
+      <div class="loading">正在加载白名单数据...</div>
+    </div>
+  </div>
+</div>
 
   <!-- 第三行：协议配置 -->
   <div class="grid grid-full">
@@ -6162,6 +6421,7 @@ async function loadData() {
     // 渲染各个模块
     renderHeader(model);
     renderProtocols(model);
+	updateNetworkIdentity(model);
     renderTraffic(traffic);
     renderAlerts(alerts);
 
@@ -6474,45 +6734,207 @@ function copySub(type) {
   }
 }
 
-// 白名单展开/收起功能
-function toggleWhitelist() {
-  const content = document.getElementById('whitelist-content');
-  const toggle = document.getElementById('whitelist-toggle');
+// 更新网络身份配置显示
+function updateNetworkIdentity(data) {
+  if (!data) return;
   
-  if (content && toggle) {
-    content.classList.toggle('expanded');
-    toggle.textContent = content.classList.contains('expanded') ? '收起' : '查看全部';
+  try {
+    // 更新当前活跃的分流模式
+    document.querySelectorAll('.network-title').forEach(title => {
+      title.classList.remove('active');
+    });
+    
+    const mode = data.shunt?.mode || 'vps';
+    let activeTitle;
+    if (mode === 'vps') {
+      activeTitle = document.querySelector('#network-title-vps');
+    } else if (mode === 'proxy') {
+      activeTitle = document.querySelector('#network-title-proxy');
+    } else if (mode === 'shunt') {
+      activeTitle = document.querySelector('#network-title-shunt');
+    }
+    if (activeTitle) activeTitle.classList.add('active');
+    
+    // 更新白名单显示
+    const whitelist = data.shunt?.whitelist || [];
+    const whitelistEl = document.getElementById('whitelist-inline');
+    if (whitelistEl) {
+      if (whitelist.length === 0) {
+        whitelistEl.textContent = '(无)';
+      } else {
+        const displayList = whitelist.slice(0, 4);
+        whitelistEl.textContent = displayList.join(', ');
+        if (whitelist.length > 4) {
+          whitelistEl.textContent += '...';
+        }
+      }
+    }
+    
+    // 更新其他信息
+    const elements = {
+      'vps-out-ip': data.shunt?.vps_ip || data.server?.ip || '—',
+      'vps-geo': data.shunt?.vps_geo || '—', 
+      'vps-quality': data.shunt?.vps_quality || '—',
+      'proxy-out-ip': data.shunt?.proxy_ip || '未配置',
+      'proxy-geo': data.shunt?.proxy_geo || '—',
+      'proxy-quality': data.shunt?.proxy_quality || '—'
+    };
+    
+    Object.entries(elements).forEach(([id, value]) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = value;
+    });
+    
+  } catch (error) {
+    console.error('更新网络身份配置时出错:', error);
   }
 }
 
-// IP质量详情显示功能
+// 显示IP质量检测详情
 function showIPQDetails(type) {
-  // 这里可以实现显示IP质量检测详情的功能
-  alert('IP质量检测详情功能待实现 - ' + type);
+  const modal = document.getElementById('ipq-modal');
+  const modalTitle = document.getElementById('ipq-modal-title');
+  const modalBody = document.getElementById('ipq-modal-body');
+  
+  modalTitle.textContent = `${type === 'vps' ? 'VPS' : '代理'}IP质量检测详情`;
+  modalBody.innerHTML = '<div class="loading">正在加载IP质量数据...</div>';
+  modal.classList.add('show');
+  
+  // 获取IP质量数据
+  fetch(`./status/ipq_${type}.json`)
+    .then(response => {
+      if (!response.ok) throw new Error('数据获取失败');
+      return response.json();
+    })
+    .then(data => {
+      modalBody.innerHTML = generateIPQContent(data);
+    })
+    .catch(error => {
+      modalBody.innerHTML = `<div class="error">加载失败: ${error.message}</div>`;
+    });
 }
 
-// 白名单自动折叠功能
-function initWhitelistCollapse() {
-  document.querySelectorAll('.kv').forEach(function(kv){
-    const v = kv.querySelector('.v');
-    if(!v) return;
+// 生成IP质量检测内容
+function generateIPQContent(data) {
+  const score = data.score || 0;
+  const grade = data.grade || 'D';
+  const gradeClass = `grade-${grade.toLowerCase()}`;
+  
+  return `
+    <div class="ipq-section">
+      <h4>总览</h4>
+      <div class="ipq-grid">
+        <div class="ipq-item">
+          <span class="ipq-label">综合评分:</span>
+          <div class="ipq-score">
+            <span class="ipq-value">${score}分</span>
+            <span class="ipq-grade ${gradeClass}">${grade}</span>
+          </div>
+        </div>
+        <div class="ipq-item">
+          <span class="ipq-label">检测时间:</span>
+          <span class="ipq-value">${data.checked_at || '—'}</span>
+        </div>
+      </div>
+    </div>
     
-    // 检查内容是否超出3行高度
-    const lineHeight = parseFloat(getComputedStyle(v).lineHeight) || 20;
-    const maxHeight = lineHeight * 3;
+    <div class="ipq-section">
+      <h4>身份信息</h4>
+      <div class="ipq-grid">
+        <div class="ipq-item">
+          <span class="ipq-label">出站IP:</span>
+          <span class="ipq-value">${data.ip || '—'}</span>
+        </div>
+        <div class="ipq-item">
+          <span class="ipq-label">ASN/ISP:</span>
+          <span class="ipq-value">${data.asn || '—'} / ${data.isp || '—'}</span>
+        </div>
+        <div class="ipq-item">
+          <span class="ipq-label">地理位置:</span>
+          <span class="ipq-value">${data.country || '—'} / ${data.city || '—'}</span>
+        </div>
+        <div class="ipq-item">
+          <span class="ipq-label">网络类型:</span>
+          <span class="ipq-value">${data.network_type || '—'}</span>
+        </div>
+      </div>
+    </div>
     
-    if(v.scrollHeight > maxHeight){
-      kv.classList.add('v-collapsed');
-      const btn = document.createElement('span');
-      btn.className = 'detail-toggle';
-      btn.innerText = '详情';
-      btn.addEventListener('click', function(){
-        kv.classList.toggle('v-collapsed');
-        btn.innerText = kv.classList.contains('v-collapsed') ? '详情' : '收起';
-      });
-      kv.appendChild(btn);
-    }
-  });
+    <div class="ipq-section">
+      <h4>质量细项</h4>
+      <div class="ipq-grid">
+        <div class="ipq-item">
+          <span class="ipq-label">带宽限制:</span>
+          <span class="ipq-value">${data.bandwidth_up || '—'}↑ / ${data.bandwidth_down || '—'}↓</span>
+        </div>
+        <div class="ipq-item">
+          <span class="ipq-label">rDNS:</span>
+          <span class="ipq-value">${data.rdns || '—'}</span>
+        </div>
+        <div class="ipq-item">
+          <span class="ipq-label">黑名单命中:</span>
+          <span class="ipq-value">${data.blacklist_hits || 0} 个</span>
+        </div>
+        <div class="ipq-item">
+          <span class="ipq-label">时延中位数:</span>
+          <span class="ipq-value">${data.latency_median || '—'}ms</span>
+        </div>
+      </div>
+    </div>
+    
+    ${data.conclusion ? `
+    <div class="ipq-section">
+      <div class="ipq-conclusion">
+        <h5>判断依据</h5>
+        <ul class="ipq-reasons">
+          ${(data.conclusion.reasons || []).map(reason => `<li>${reason}</li>`).join('')}
+        </ul>
+      </div>
+    </div>
+    ` : ''}
+  `;
+}
+
+// 显示白名单弹窗
+function showWhitelistModal() {
+  const modal = document.getElementById('whitelist-modal');
+  const modalBody = document.getElementById('whitelist-modal-body');
+  
+  modalBody.innerHTML = '<div class="loading">正在加载白名单数据...</div>';
+  modal.classList.add('show');
+  
+  // 获取白名单数据
+  fetch('./traffic/dashboard.json')
+    .then(response => {
+      if (!response.ok) throw new Error('数据获取失败');
+      return response.json();
+    })
+    .then(data => {
+      const whitelist = data.shunt?.whitelist || [];
+      if (whitelist.length === 0) {
+        modalBody.innerHTML = '<div class="no-data">暂无白名单规则</div>';
+      } else {
+        modalBody.innerHTML = `
+          <div class="whitelist-list">
+            ${whitelist.map(item => `<div class="whitelist-item">${item}</div>`).join('')}
+          </div>
+          <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #f0f0f0; font-size: 12px; color: #666; text-align: center;">
+            共 ${whitelist.length} 个域名规则
+          </div>
+        `;
+      }
+    })
+    .catch(error => {
+      modalBody.innerHTML = `<div class="error">加载失败: ${error.message}</div>`;
+    });
+}
+
+// 如果closeModal函数不存在，添加这个函数
+function closeModal(modalId) {
+  const modal = document.getElementById(modalId);
+  if (modal) {
+    modal.classList.remove('show');
+  }
 }
 
 // 启动
