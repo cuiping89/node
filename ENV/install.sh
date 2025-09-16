@@ -1536,9 +1536,18 @@ install_xray() {
         xray_version=$(xray version 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)
         log_success "Xray验证通过，版本: ${xray_version:-未知}"
         
-        # 创建日志目录
-        mkdir -p /var/log/xray
-        chown nobody:nogroup /var/log/xray 2>/dev/null || chown nobody:nobody /var/log/xray 2>/dev/null || true
+# 创建/清理 Xray 日志目录（确保 nobody 可写）
+local NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
+mkdir -p /var/log/xray
+
+# 预创建日志文件并修正历史 root 拥有者，避免 "permission denied"
+touch /var/log/xray/access.log /var/log/xray/error.log 2>/dev/null || true
+chown -R nobody:${NOBODY_GRP} /var/log/xray
+
+# 目录与文件权限：目录 750，日志 640
+chmod 750 /var/log/xray
+chmod 640 /var/log/xray/*.log 2>/dev/null || true
+
         
         return 0
     else
