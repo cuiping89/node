@@ -4885,6 +4885,33 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         .whitelist-content.expanded::after {
             display: none;
         }
+
+/* 网络身份配置样式 */
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.card-note {
+  font-size: 12px;
+  color: #666;
+  margin: 0;
+}
+
+.network-title {
+  color: #666;
+  font-weight: 500;
+  margin: 0 0 10px 0;
+  font-size: 16px;
+}
+
+.network-title.active {
+  color: #28a745;
+  font-weight: 600;
+}
+
     </style>
 </head>
 <body>
