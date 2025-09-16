@@ -1119,81 +1119,46 @@ if ! jq '.' "${CONFIG_DIR}/server.json" >/dev/null 2>&1; then
 
 # 生成自签名证书（基础版本，模块3会有完整版本）
 generate_self_signed_cert() {
-    log_info "生成自签名证书..."
+    log_info "生成自签名证书并修复权限..."
     
-    # 确保证书目录存在
     mkdir -p "${CERT_DIR}"
+    rm -f "${CERT_DIR}"/self-signed.{key,pem} "${CERT_DIR}"/current.{key,pem}
     
-    # 清理可能存在的旧证书
-    rm -f "${CERT_DIR}"/self-signed.{key,pem}
-    rm -f "${CERT_DIR}"/current.{key,pem}
-    
-    # 检查openssl可用性
     if ! command -v openssl >/dev/null 2>&1; then
-        log_error "openssl未安装，无法生成证书"
-        return 1
+        log_error "openssl未安装，无法生成证书"; return 1;
     fi
     
-    # 生成ECC私钥和自签名证书（推荐secp384r1曲线）
-    if ! openssl ecparam -genkey -name secp384r1 -out "${CERT_DIR}/self-signed.key" 2>/dev/null; then
-        log_error "生成ECC私钥失败"
-        return 1
-    fi
+    # 生成私钥和证书
+    openssl ecparam -genkey -name secp384r1 -out "${CERT_DIR}/self-signed.key" 2>/dev/null || { log_error "生成ECC私钥失败"; return 1; }
+    openssl req -new -x509 -key "${CERT_DIR}/self-signed.key" -out "${CERT_DIR}/self-signed.pem" -days 3650 -subj "/C=US/ST=CA/L=SF/O=EdgeBox/CN=${SERVER_IP}" >/dev/null 2>&1 || { log_error "生成自签名证书失败"; return 1; }
     
-    # 生成自签名证书（有效期10年）
-    if ! openssl req -new -x509 \
-        -key "${CERT_DIR}/self-signed.key" \
-        -out "${CERT_DIR}/self-signed.pem" \
-        -days 3650 \
-        -subj "/C=US/ST=California/L=San Francisco/O=EdgeBox/CN=${SERVER_IP}" \
-        >/dev/null 2>&1; then
-        log_error "生成自签名证书失败"
-        return 1
-    fi
-    
-    # 创建当前证书软链接（统一接口）
+    # 创建软链接
     ln -sf "${CERT_DIR}/self-signed.key" "${CERT_DIR}/current.key"
     ln -sf "${CERT_DIR}/self-signed.pem" "${CERT_DIR}/current.pem"
     
-# —— 原来有的 —— 
-chown root:root "${CERT_DIR}"/*.{key,pem}
-# 私钥严格权限、证书可读
-chmod 600 "${CERT_DIR}"/*.key
-chmod 644 "${CERT_DIR}"/*.pem
-
-# —— 追加（修复 nobody 无法读的问题）——
-NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
-# 让 nobody 所在组能“穿目录 + 读私钥”
-chgrp "${NOBODY_GRP}" "${CERT_DIR}" || true
-chgrp "${NOBODY_GRP}" "${CERT_DIR}"/self-signed.key "${CERT_DIR}"/self-signed.pem || true
-# 私钥改 640（root 可读写，组可读），证书仍 644
-chmod 640 "${CERT_DIR}"/self-signed.key
-# 软链指向的目标权限已覆盖；无需再对 symlink 本身 chmod
+    # --- 关键权限修复 ---
+    # 1. 获取 nobody 用户的主组名 (Debian系是 nogroup, RHEL系是 nobody)
+    local NOBODY_GRP
+    NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
     
-    # 验证证书有效性
-    if openssl x509 -in "${CERT_DIR}/current.pem" -noout -text >/dev/null 2>&1 && \
-       openssl ec -in "${CERT_DIR}/current.key" -noout -text >/dev/null 2>&1; then
-        log_success "自签名证书生成完成并验证通过"
-        
-        # 保存证书模式状态
+    # 2. 设置目录和文件的所有权
+    chown -R root:"${NOBODY_GRP}" "${CERT_DIR}"
+    
+    # 3. 设置目录权限：root可读写执行，组可进入和读取
+    chmod 750 "${CERT_DIR}"
+    
+    # 4. 设置文件权限：root可读写，组可读
+    chmod 640 "${CERT_DIR}"/self-signed.key
+    chmod 644 "${CERT_DIR}"/self-signed.pem
+    # ---------------------
+
+    if openssl x509 -in "${CERT_DIR}/current.pem" -noout >/dev/null 2>&1; then
+        log_success "自签名证书生成及权限设置完成"
         echo "self-signed" > "${CONFIG_DIR}/cert_mode"
-        
-        # 显示证书信息
-        local cert_subject cert_not_after
-        cert_subject=$(openssl x509 -in "${CERT_DIR}/current.pem" -noout -subject 2>/dev/null | sed 's/subject=//')
-        cert_not_after=$(openssl x509 -in "${CERT_DIR}/current.pem" -noout -enddate 2>/dev/null | sed 's/notAfter=//')
-        
-        log_info "证书详情："
-        log_info "├─ 主体: ${cert_subject}"
-        log_info "├─ 有效期至: ${cert_not_after}"
-        log_info "├─ 证书文件: ${CERT_DIR}/current.pem"
-        log_info "└─ 私钥文件: ${CERT_DIR}/current.key"
-        
-        return 0
     else
-        log_error "证书验证失败"
-        return 1
+        log_error "证书验证失败"; return 1;
     fi
+    return 0
 }
 
 #############################################
@@ -1593,7 +1558,7 @@ install_sing_box() {
         
         # 下载文件
         rm -f "$temp_file"
-        if ! curl -fL --connect-timeout 15 --retry 3 --retry-delay 2 -o "$temp_file" "$download_url"; then
+        if ! curl -fL -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36" --connect-timeout 15 --retry 3 --retry-delay 2 -o "$temp_file" "$download_url"; then
             log_error "下载失败: $download_url"
             return 1
         fi
@@ -7773,22 +7738,20 @@ EMAIL_GUIDE
 }
 
 # 安装IP质量评分系统
+# 安装IP质量评分系统 (已修复jq错误)
 install_ipq_stack() {
   log_info "安装 IP 质量评分（IPQ）栈..."
 
-  # 目录：按文档口径，物理目录放 /var/www/edgebox/status；映射到站点根 /status
   local WEB_STATUS_PHY="/var/www/edgebox/status"
   local WEB_STATUS_LINK="${WEB_ROOT:-/var/www/html}/status"
   mkdir -p "$WEB_STATUS_PHY" "${WEB_ROOT:-/var/www/html}"
   ln -sfn "$WEB_STATUS_PHY" "$WEB_STATUS_LINK" 2>/dev/null || true
 
-  # 兜底依赖（dig 用于 rDNS）
   if ! command -v dig >/dev/null 2>&1; then
     if command -v apt >/dev/null 2>&1; then apt -y update && apt -y install dnsutils;
     elif command -v yum >/dev/null 2>&1; then yum -y install bind-utils; fi
   fi
 
-  # 写入评分脚本：/usr/local/bin/edgebox-ipq.sh
   cat > /usr/local/bin/edgebox-ipq.sh <<'IPQ'
 #!/usr/bin/env bash
 set -euo pipefail; LANG=C
@@ -7804,7 +7767,7 @@ build_proxy_args(){ local u="${1:-}"; [[ -z "$u" || "$u" == "null" ]] && return 
            http://*|https://*) echo "--proxy $u";; *) :;; esac; }
 
 curl_json(){ # $1 proxy-args  $2 url
-  eval "curl -fsS --max-time 4 $1 \"$2\"" || return 1; }
+  eval "curl -fL -A 'Mozilla/5.0' -sS --max-time 4 $1 \"$2\"" || return 1; }
 
 get_proxy_url(){ local s="${SHUNT_DIR}/state.json"
   [[ -s "$s" ]] && jqget '.proxy_info' <"$s" || echo ""; }
@@ -7824,14 +7787,12 @@ collect_one(){ # $1 vantage vps|proxy  $2 proxy-args
   local city="$(jq -r '(.city // empty)' <<<"$J3")"; [[ -z "$city" || "$city" == "null" ]] && city="$(jq -r '(.city // empty)' <<<"$J1")"
   local f_host="$(jq -r '(.hosting // false)' <<<"$J3")"; local f_proxy="$(jq -r '(.proxy // false)' <<<"$J3")"; local f_mob="$(jq -r '(.mobile // false)' <<<"$J3")"
 
-  # DNSBL（轻量）
   declare -a hits=(); if [[ -n "$ip" ]]; then IFS=. read -r a b c d <<<"$ip"; rip="${d}.${c}.${b}.${a}"
     for bl in zen.spamhaus.org bl.spamcop.net dnsbl.sorbs.net b.barracudacentral.org; do
       if dig +time=1 +tries=1 +short "${rip}.${bl}" A >/dev/null 2>&1; then hits+=("$bl"); fi
     done
   fi
 
-  # 延迟：vps→ping 1.1.1.1；proxy→TLS connect
   local lat=999
   if [[ "$V" == "vps" ]]; then
     r=$(ping -n -c 3 -w 4 1.1.1.1 2>/dev/null | awk -F'/' '/^rtt/ {print int($5+0.5)}'); [[ -n "${r:-}" ]] && lat="$r"
@@ -7840,7 +7801,6 @@ collect_one(){ # $1 vantage vps|proxy  $2 proxy-args
     [[ -n "${r:-}" ]] && lat=$(awk -v t="$r" 'BEGIN{printf("%d",(t*1000)+0.5)}')
   fi
 
-  # 打分
   local score=100; declare -a notes=()
   [[ "$f_proxy" == "true"   ]] && score=$((score-50)) && notes+=("flag_proxy")
   [[ "$f_host"  == "true"   ]] && score=$((score-10)) && notes+=("datacenter_ip")
@@ -7851,14 +7811,20 @@ collect_one(){ # $1 vantage vps|proxy  $2 proxy-args
   (( score<0 )) && score=0
   local grade="D"; ((score>=80)) && grade="A" || { ((score>=60)) && grade="B" || { ((score>=40)) && grade="C"; }; }
 
-  jq -n --arg ts "$(ts)" --arg V "$V" --arg ip "${ip:-}" --arg c "${country:-}" --arg city "${city:-}" \
-        --arg asn "${asn:-}" --arg isp "${isp:-}" --arg rdns "${rdns:-}" \
-        --argjson flags "{\"ipinfo\":$ok1,\"ipsb\":$ok2,\"ipapi\":$ok3}" \
-        --argjson risk "$(printf '%s\n' "${hits[@]:-}" | jq -R -s 'split(\"\\n\")|map(select(length>0))' | jq -n --argjson bl @- \
+  # --- JQ FIX: Use --slurpfile to read blacklist hits safely ---
+  local hits_file; hits_file=$(mktemp)
+  printf '%s\n' "${hits[@]:-}" > "$hits_file"
+  local risk_json; risk_json=$(jq -n -R -s --slurpfile bl "$hits_file" \
           --argjson p $([[ "$f_proxy" == "true" ]] && echo true || echo false) \
           --argjson h $([[ "$f_host"  == "true" ]] && echo true || echo false) \
           --argjson m $([[ "$f_mob"   == "true" ]] && echo true || echo false) \
-          '{proxy:$p,hosting:$h,mobile:$m,dnsbl_hits:$bl,tor:false}')" \
+          '{proxy:$p,hosting:$h,mobile:$m,dnsbl_hits:($bl[0]|split("\n")|map(select(. != ""))),tor:false}')
+  rm -f "$hits_file"
+
+  jq -n --arg ts "$(ts)" --arg V "$V" --arg ip "${ip:-}" --arg c "${country:-}" --arg city "${city:-}" \
+        --arg asn "${asn:-}" --arg isp "${isp:-}" --arg rdns "${rdns:-}" \
+        --argjson flags "{\"ipinfo\":$ok1,\"ipsb\":$ok2,\"ipapi\":$ok3}" \
+        --argjson risk "$risk_json" \
         --argjson lat "${lat:-999}" --argjson score "$score" --arg grade "$grade" \
         --arg notes "$(IFS=,; echo "${notes[*]:-}")" '
   { detected_at:$ts,vantage:$V,ip:$ip,country:$c,city:$city,asn:$asn,isp:$isp,rdns:($rdns|select(.!="")),
@@ -7867,7 +7833,6 @@ collect_one(){ # $1 vantage vps|proxy  $2 proxy-args
 }
 
 main(){
-  # vps + proxy 都测；无代理则输出 not_configured
   collect_one "vps" "" | tee "${STATUS_DIR}/ipq_vps.json" >/dev/null
   purl="$(get_proxy_url)"
   if [[ -n "${purl:-}" && "$purl" != "null" ]]; then
@@ -7883,37 +7848,10 @@ main "$@"
 IPQ
   chmod +x /usr/local/bin/edgebox-ipq.sh
 
-  # systemd：监听分流状态变化触发 IPQ
-  cat > /etc/systemd/system/edgebox-ipq.service <<'UNIT'
-[Unit]
-Description=EdgeBox IP Quality (IPQ) refresh
-After=network-online.target
-Wants=network-online.target
-[Service]
-Type=oneshot
-ExecStart=/usr/local/bin/edgebox-ipq.sh
-UNIT
-
-  cat > /etc/systemd/system/edgebox-ipq.path <<'PATHU'
-[Unit]
-Description=Watch shunt state.json to refresh IPQ
-[Path]
-PathChanged=/etc/edgebox/config/shunt/state.json
-Unit=edgebox-ipq.service
-[Install]
-WantedBy=multi-user.target
-PATHU
-
-  systemctl daemon-reload
-  systemctl enable --now edgebox-ipq.path >/dev/null 2>&1 || true
-
-  # Cron：每日 02:15 例行评分（与文档频次一致）
   ( crontab -l 2>/dev/null | grep -v '/usr/local/bin/edgebox-ipq.sh' ) | crontab - || true
   ( crontab -l 2>/dev/null; echo "15 2 * * * /usr/local/bin/edgebox-ipq.sh >/dev/null 2>&1" ) | crontab -
 
-  # 首次即跑，给前端可用数据
   /usr/local/bin/edgebox-ipq.sh || true
-
   log_success "IPQ 栈就绪：/status/ipq_vps.json /status/ipq_proxy.json"
 }
 
@@ -8341,113 +8279,73 @@ show_progress() {
 }
 
 # 主安装流程
+# 主安装流程 (v3 优化版)
 main() {
-    # 设置错误处理
     trap cleanup EXIT
     
     clear
     print_separator
     echo -e "${GREEN}EdgeBox 企业级安装脚本 v3.0.0${NC}"
-    echo -e "${CYAN}完整版：SNI定向 + 证书切换 + 出站分流 + 流量统计 + 流量预警 + 备份恢复${NC}"
     print_separator
     
-    # 设置版本号环境变量
     export EDGEBOX_VER="3.0.0"
+    mkdir -p "$(dirname "${LOG_FILE}")" && touch "${LOG_FILE}"
     
-    # 创建日志文件
-    mkdir -p $(dirname "${LOG_FILE}")
-    touch "${LOG_FILE}"
+    log_info "开始执行完整安装流程..."
     
-    echo -e "${BLUE}正在执行完整安装流程...${NC}"
-    
-    # 预安装检查
-    show_progress 1 20 "执行预安装检查"
+    # --- 模块1: 基础环境准备 ---
+    show_progress 1 10 "系统环境检查"
     pre_install_check
-    
-    # 基础安装步骤（模块1）
-    show_progress 2 20 "检查系统环境"
     check_root
-    check_system  
-    
-    show_progress 3 20 "获取服务器信息"
-    get_server_ip
-    
-    show_progress 4 20 "安装系统依赖"
+    check_system
     install_dependencies
     
-    show_progress 5 20 "生成安全凭据"
-    generate_credentials        # 确保在这里生成所有UUID和密码
-    
-    show_progress 6 20 "创建目录结构"
+    show_progress 2 10 "网络与目录配置"
+    get_server_ip
     create_directories
-    
-    show_progress 7 20 "配置系统环境"
     check_ports
     configure_firewall
     optimize_system
-    
-    show_progress 8 20 "生成安全证书"
-    generate_self_signed_cert
-    
-    show_progress 9 20 "安装核心组件"
-    install_sing_box
+
+    # --- 模块2: 凭据与证书生成 ---
+    show_progress 3 10 "生成安全凭据和证书"
+    execute_module2 || { log_error "模块2执行失败"; exit 1; }
+
+    # --- 模块3: 核心组件安装与配置 ---
+    show_progress 4 10 "安装核心组件 (Xray, sing-box)"
     install_xray
-    generate_reality_keys      # 生成Reality密钥
+    install_sing_box
     
-    show_progress 10 20 "保存配置信息"
-    save_config_info          # 保存所有配置到JSON
-    
-    show_progress 11 20 "配置网络服务"
-    configure_nginx
+    show_progress 5 10 "配置服务 (Xray, sing-box, Nginx)"
     configure_xray
     configure_sing_box
+    configure_nginx
     
-    # 高级功能安装（模块3-5）
-    show_progress 12 20 "安装后台脚本"
+    # --- 模块4 & 5: 后台、监控与运维工具 ---
+    show_progress 6 10 "安装后台面板和监控脚本"
     create_dashboard_backend
-    
-    show_progress 13 20 "配置流量监控"
     setup_traffic_monitoring
     
-    show_progress 14 20 "设置定时任务"
-    setup_cron_jobs
-    
-    show_progress 15 20 "配置邮件系统"
-    setup_email_system
-    
-    show_progress 16 20 "创建管理工具"
+    show_progress 7 10 "创建管理工具和初始化服务"
     create_enhanced_edgeboxctl
-    
-    show_progress 17 20 "安装初始化服务"
-    create_init_script
-    
-    # 数据生成和服务启动
-    show_progress 18 20 "生成订阅配置"
-    generate_subscription     # 现在有完整的配置数据
-    
-    show_progress 19 20 "启动核心服务"
-    start_services
+    setup_email_system
     install_ipq_stack
+    create_init_script
+
+    # --- 最终阶段: 启动、验证与数据生成 ---
+    show_progress 8 10 "生成订阅链接"
+    generate_subscription
     
-    # 启动初始化服务
-    systemctl start edgebox-init.service >/dev/null 2>&1 || true
+    show_progress 9 10 "启动并验证所有服务"
+    start_and_verify_services || { log_error "服务未能全部正常启动，请检查日志"; exit 1; }
     
-    # 等待服务稳定
-    sleep 3
-    
-    show_progress 20 20 "完成数据初始化"
-    # 运行一次数据初始化（统一由 dashboard-backend 生成 dashboard/system）
-    /etc/edgebox/scripts/traffic-collector.sh || true
-    /etc/edgebox/scripts/dashboard-backend.sh --now || true
-    
-    # 收尾：订阅 + 首刷 + 定时
+    show_progress 10 10 "最终数据生成与同步"
     finalize_data_generation
     
     # 显示安装信息
     show_installation_info
     
-    # 成功退出
-    log_success "EdgeBox v3.0.0 安装完成！"
+    log_success "EdgeBox v3.0.0 安装成功完成！"
     exit 0
 }
 
