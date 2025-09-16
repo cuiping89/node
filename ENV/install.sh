@@ -6556,30 +6556,39 @@ function showWhitelistModal() {
     });
 }
 
-// 更新网络身份配置显示
+// 修复后的网络身份配置函数
 function updateNetworkIdentity(data) {
   if (!data) return;
   
   try {
-    // 更新当前活跃的分流模式
-    document.querySelectorAll('.network-title').forEach(title => {
-      title.classList.remove('active');
+    // 更新当前活跃的分流模式 - 使用内联样式，避免CSS类问题
+    const h5Elements = document.querySelectorAll('h5');
+    h5Elements.forEach(h5 => {
+      if (h5.textContent.includes('VPS出站IP') || 
+          h5.textContent.includes('代理出站IP') || 
+          h5.textContent.includes('分流出站')) {
+        h5.style.color = '#666';
+        h5.style.fontWeight = '500';
+      }
     });
     
+    // 根据模式高亮对应标题
     const mode = data.shunt?.mode || 'vps';
-    let activeTitle;
-    if (mode === 'vps') {
-      activeTitle = document.querySelector('.network-title:first-of-type');
-    } else if (mode === 'proxy') {
-      activeTitle = document.querySelector('.network-title:nth-of-type(2)');
-    } else if (mode === 'shunt') {
-      activeTitle = document.querySelector('.network-title:nth-of-type(3)');
-    }
-    if (activeTitle) activeTitle.classList.add('active');
+    let targetText = '';
+    if (mode === 'vps') targetText = 'VPS出站IP';
+    else if (mode === 'proxy') targetText = '代理出站IP';
+    else if (mode === 'shunt') targetText = '分流出站';
     
-    // 更新白名单显示
+    h5Elements.forEach(h5 => {
+      if (h5.textContent.includes(targetText)) {
+        h5.style.color = '#28a745';
+        h5.style.fontWeight = '600';
+      }
+    });
+    
+    // 更新白名单显示 - 修正ID名称
     const whitelist = data.shunt?.whitelist || [];
-    const whitelistEl = document.getElementById('whitelist-inline');
+    const whitelistEl = document.getElementById('whitelist-text'); // 修正ID
     if (whitelistEl) {
       if (whitelist.length === 0) {
         whitelistEl.textContent = '(无)';
@@ -6612,31 +6621,49 @@ function updateNetworkIdentity(data) {
   }
 }
 
-// 启动
+// 修复后的启动脚本
 console.log('脚本开始执行');
 document.addEventListener('DOMContentLoaded', function() {
-  // 初始化图表管理器
-  chartManager.init();
+  console.log('DOM加载完成');
+  
+  // 检查必要的对象是否存在
+  if (typeof chartManager !== 'undefined' && chartManager.init) {
+    chartManager.init();
+  } else {
+    console.warn('chartManager未定义，跳过图表初始化');
+  }
   
   // 加载数据
-  loadData();
-  initWhitelistCollapse();
+  if (typeof loadData === 'function') {
+    loadData();
+  } else {
+    console.warn('loadData函数未定义');
+  }
+  
+  // 删除未定义的函数调用
+  // initWhitelistCollapse(); // ❌ 删除这行
   
   console.log('控制面板初始化完成');
 });
 
-// 定时刷新：每5分钟刷新一次数据，每小时刷新本月进度条
+// 定时刷新
 setInterval(() => {
-  loadData();
+  if (typeof loadData === 'function') {
+    loadData();
+  }
 }, 300000);
 
 setInterval(() => {
-  updateProgressBar();
+  if (typeof updateProgressBar === 'function') {
+    updateProgressBar();
+  }
 }, 3600000);
 
-// 页面卸载时清理图表
+// 页面卸载时清理
 window.addEventListener('beforeunload', () => {
-  chartManager.destroyAll();
+  if (typeof chartManager !== 'undefined' && chartManager.destroyAll) {
+    chartManager.destroyAll();
+  }
 });
 </script>
 </body>
