@@ -4972,37 +4972,33 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
     </div>
 
 <!-- 网络身份配置 -->
+<!-- 网络身份配置 -->
     <div class="card">
-      <div class="card-header">
-        <h3>🌐 网络身份配置</h3>
-        <div class="card-note">注：HY2/TUIC 为 UDP通道，VPS直连，不走代理分流</div>
-      </div>
+      <h3>🌐 网络身份配置 <small style="float: right; font-size: 12px; color: #666; font-weight: normal;">注：HY2/TUIC 为 UDP通道，VPS直连，不走代理分流</small></h3>
       <div class="content">
-        <div class="network-blocks">
-          <!-- VPS出站IP内容 -->
-          <div class="network-block">
-            <h5 class="network-title active">📡 VPS出站IP</h5>
-            <div class="small">公网身份: <span class="status-running">直连</span></div>
-            <div class="small">VPS出站IP: <span id="vps-out-ip">—</span></div>
-            <div class="small">Geo: <span id="vps-geo">—</span></div>
-            <div class="small">IP质量检测: <span id="vps-quality">—</span> <span class="detail-link" onclick="alert('IP质量详情功能')">详情</span></div>
-          </div>
-          
-          <!-- 代理出站IP内容 -->
-          <div class="network-block">
-            <h5 class="network-title">🔄 代理出站IP</h5>
-            <div class="small">代理身份: <span class="status-running">全代理</span></div>
-            <div class="small">代理出站IP: <span id="proxy-out-ip">未配置</span></div>
-            <div class="small">Geo: <span id="proxy-geo">—</span></div>
-            <div class="small">IP质量检测: <span id="proxy-quality">—</span> <span class="detail-link" onclick="alert('IP质量详情功能')">详情</span></div>
-          </div>
-          
-          <!-- 分流出站内容 -->
-          <div class="network-block">
-            <h5 class="network-title">🔀 分流出站</h5>
-            <div class="small">混合身份: <span class="status-running">VPS直连 + 代理</span></div>
-            <div class="small">白名单: <span id="whitelist-text">googlevideo.com, ytimg.com, qqpht.com, youtube.com</span> <span class="detail-link" onclick="alert('白名单详情功能')">查看全部</span></div>
-          </div>
+        <!-- VPS出站IP内容 -->
+        <div style="margin-bottom: 15px; padding: 12px; background: #f8f9fa; border-radius: 6px;">
+          <h5 style="margin: 0 0 8px 0; color: #28a745; font-weight: 600;">📡 VPS出站IP</h5>
+          <div class="small">公网身份: <span class="status-running">直连</span></div>
+          <div class="small">VPS出站IP: <span id="vps-out-ip">—</span></div>
+          <div class="small">Geo: <span id="vps-geo">—</span></div>
+          <div class="small">IP质量检测: <span id="vps-quality">—</span> <span class="detail-link">详情</span></div>
+        </div>
+        
+        <!-- 代理出站IP内容 -->
+        <div style="margin-bottom: 15px; padding: 12px; background: #f8f9fa; border-radius: 6px;">
+          <h5 style="margin: 0 0 8px 0; color: #666; font-weight: 500;">🔄 代理出站IP</h5>
+          <div class="small">代理身份: <span class="status-running">全代理</span></div>
+          <div class="small">代理出站IP: <span id="proxy-out-ip">未配置</span></div>
+          <div class="small">Geo: <span id="proxy-geo">—</span></div>
+          <div class="small">IP质量检测: <span id="proxy-quality">—</span> <span class="detail-link">详情</span></div>
+        </div>
+        
+        <!-- 分流出站内容 -->
+        <div style="margin-bottom: 15px; padding: 12px; background: #f8f9fa; border-radius: 6px;">
+          <h5 style="margin: 0 0 8px 0; color: #666; font-weight: 500;">🔀 分流出站</h5>
+          <div class="small">混合身份: <span class="status-running">VPS直连 + 代理</span></div>
+          <div class="small">白名单: <span id="whitelist-text">googlevideo.com, ytimg.com, qqpht.com, youtube.com</span> <span class="detail-link">查看全部</span></div>
         </div>
       </div>
     </div>
