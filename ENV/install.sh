@@ -1536,18 +1536,9 @@ install_xray() {
         xray_version=$(xray version 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)
         log_success "Xray验证通过，版本: ${xray_version:-未知}"
         
-# 创建/清理 Xray 日志目录（确保 nobody 可写）
-local NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
-mkdir -p /var/log/xray
-
-# 预创建日志文件并修正历史 root 拥有者，避免 "permission denied"
-touch /var/log/xray/access.log /var/log/xray/error.log 2>/dev/null || true
-chown -R nobody:${NOBODY_GRP} /var/log/xray
-
-# 目录与文件权限：目录 750，日志 640
-chmod 750 /var/log/xray
-chmod 640 /var/log/xray/*.log 2>/dev/null || true
-
+        # 创建日志目录
+        mkdir -p /var/log/xray
+        chown nobody:nogroup /var/log/xray 2>/dev/null || chown nobody:nobody /var/log/xray 2>/dev/null || true
         
         return 0
     else
@@ -4872,45 +4863,6 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         .whitelist-content.expanded::after {
             display: none;
         }
-		
-		.card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 15px;
-}
-
-.card-note {
-  font-size: 12px;
-  color: #666;
-  margin: 0;
-}
-
-.network-block-title {
-  color: #666;
-  font-weight: 500;
-  margin-bottom: 10px;
-}
-
-.network-block-title.active {
-  color: #28a745;
-  font-weight: 600;
-}
-
-.whitelist-inline {
-  display: inline;
-  margin-right: 5px;
-}
-
-.modal::backdrop {
-  background: rgba(0, 0, 0, 0.5);
-}
-
-.loading {
-  text-align: center;
-  color: #666;
-  padding: 20px;
-}
     </style>
 </head>
 <body>
@@ -4998,70 +4950,54 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
     </div>
 
     <!-- 网络身份配置 -->
-<div class="card">
-  <div class="card-header">
-    <h3>🌐 网络身份配置</h3>
-    <div class="card-note">注：HY2/TUIC 为 UDP通道，VPS直连，不走代理分流</div>
-  </div>
-  <div class="content">
-    <div class="network-blocks">
-      <!-- VPS出站IP内容 -->
-      <div class="network-block" id="network-block-vps">
-        <h5 class="network-block-title active">📡 VPS出站IP</h5>
-        <div class="small">公网身份: <span class="status-running">直连</span></div>
-        <div class="small">VPS出站IP: <span id="vps-out-ip">—</span></div>
-        <div class="small">Geo: <span id="vps-geo">—</span></div>
-        <div class="small">IP质量检测: <span id="vps-quality">—</span> <span class="detail-link" onclick="showIPQDetails('vps')">详情</span></div>
-      </div>
-      
-      <!-- 代理出站IP内容 -->
-      <div class="network-block" id="network-block-proxy">
-        <h5 class="network-block-title">🔄 代理出站IP</h5>
-        <div class="small">代理身份: <span class="status-running">全代理</span></div>
-        <div class="small">代理出站IP: <span id="proxy-out-ip">未配置</span></div>
-        <div class="small">Geo: <span id="proxy-geo">—</span></div>
-        <div class="small">IP质量检测: <span id="proxy-quality">—</span> <span class="detail-link" onclick="showIPQDetails('proxy')">详情</span></div>
-      </div>
-      
-      <!-- 分流出站内容 -->
-      <div class="network-block" id="network-block-shunt">
-        <h5 class="network-block-title">🔀 分流出站</h5>
-        <div class="small">混合身份: <span class="status-running">VPS直连 + 代理</span></div>
-        <div class="small">白名单: <span id="whitelist-short" class="whitelist-inline">googlevideo.com, ytimg.com, qqpht.com, youtube.com</span> <span class="detail-link" onclick="showWhitelistModal()">查看全部</span></div>
-      </div>
-    </div>
-  </div>
+    <div class="card">
+      <h3>🌐 网络身份配置</h3>
+      <div class="content">
+<div class="network-status">
+  <span class="status-badge active">VPS出站IP</span>
+  <span class="status-badge">代理出站IP</span>
+  <span class="status-badge">分流出站</span>
 </div>
-
-<!-- 详情弹窗 -->
-<dialog id="ipq-modal" class="modal">
-  <div class="modal-content">
-    <div class="modal-header">
-      <h3 id="ipq-modal-title">IP质量详情</h3>
-      <button class="modal-close" onclick="closeIPQModal()">×</button>
-    </div>
-    <div class="modal-body">
-      <div id="ipq-details-content">
-        <div class="loading">加载中...</div>
+        
+        <!-- 三个区块并排显示 -->
+        <div class="network-blocks">
+          <!-- VPS出站IP内容 -->
+          <div class="network-block">
+            <h5>📡 VPS出站IP</h5>
+            <div class="small">公网身份: <span class="status-running">直连</span></div>
+            <div class="small">VPS出站IP: <span id="vps-out-ip">—</span></div>
+            <div class="small">Geo: <span id="vps-geo">—</span></div>
+            <div class="small">IP质量检测: <span id="vps-quality">—</span> <span class="detail-link" onclick="showIPQDetails('vps')">详情</span></div>
+          </div>
+          
+          <!-- 代理出站IP内容 -->
+          <div class="network-block">
+            <h5>🔄 代理出站IP</h5>
+            <div class="small">代理身份: <span class="status-running">全代理</span></div>
+            <div class="small">代理出站IP: <span id="proxy-out-ip">—</span></div>
+            <div class="small">Geo: <span id="proxy-geo">—</span></div>
+            <div class="small">IP质量检测: <span id="proxy-quality">—</span> <span class="detail-link" onclick="showIPQDetails('proxy')">详情</span></div>
+          </div>
+          
+          <!-- 分流出站内容 -->
+          <div class="network-block">
+            <h5>🔀 分流出站</h5>
+            <div class="small">混合身份: <span class="status-running">VPS直连 + 代理</span></div>
+            <div class="small">白名单: 
+              <div class="whitelist-content" id="whitelist-content">
+                <span id="whitelist-text">—</span>
+              </div>
+              <span class="detail-link" id="whitelist-toggle" onclick="toggleWhitelist()">查看全部</span>
+            </div>
+          </div>
+        </div>
+        
+        <div class="network-note">
+          注：HY2/TUIC 为 UDP通道，VPS直连，不走代理分流
+        </div>
       </div>
     </div>
   </div>
-</dialog>
-
-<!-- 白名单弹窗 -->
-<dialog id="whitelist-modal" class="modal">
-  <div class="modal-content">
-    <div class="modal-header">
-      <h3>白名单详情</h3>
-      <button class="modal-close" onclick="closeWhitelistModal()">×</button>
-    </div>
-    <div class="modal-body">
-      <div id="whitelist-full-content">
-        <div class="loading">加载中...</div>
-      </div>
-    </div>
-  </div>
-</dialog>
 
   <!-- 第三行：协议配置 -->
   <div class="grid grid-full">
@@ -6508,135 +6444,32 @@ function toggleWhitelist() {
 
 // IP质量详情显示功能
 function showIPQDetails(type) {
-  const modal = document.getElementById('ipq-modal');
-  const title = document.getElementById('ipq-modal-title');
-  const content = document.getElementById('ipq-details-content');
-  
-  title.textContent = type === 'vps' ? 'VPS出站IP质量详情' : '代理出站IP质量详情';
-  content.innerHTML = '<div class="loading">加载中...</div>';
-  
-  modal.showModal();
-  
-  // 加载IP质量数据
-  fetch(`/status/ipq_${type}.json`)
-    .then(response => {
-      if (!response.ok) throw new Error('数据获取失败');
-      return response.json();
-    })
-    .then(data => {
-      content.innerHTML = formatIPQDetails(data);
-    })
-    .catch(error => {
-      content.innerHTML = `<div class="error">加载失败: ${error.message}</div>`;
-    });
+  // 这里可以实现显示IP质量检测详情的功能
+  alert('IP质量检测详情功能待实现 - ' + type);
 }
 
-// 白名单弹窗
-function showWhitelistModal() {
-  const modal = document.getElementById('whitelist-modal');
-  const content = document.getElementById('whitelist-full-content');
-  
-  content.innerHTML = '<div class="loading">加载中...</div>';
-  modal.showModal();
-  
-  // 加载白名单数据
-  fetch('/traffic/dashboard.json')
-    .then(response => {
-      if (!response.ok) throw new Error('数据获取失败');
-      return response.json();
-    })
-    .then(data => {
-      const whitelist = data.shunt?.whitelist || [];
-      if (whitelist.length === 0) {
-        content.innerHTML = '<div class="no-data">暂无白名单规则</div>';
-      } else {
-        content.innerHTML = `
-          <div class="whitelist-list">
-            ${whitelist.map(item => `<div class="whitelist-item">${item}</div>`).join('')}
-          </div>
-        `;
-      }
-    })
-    .catch(error => {
-      content.innerHTML = `<div class="error">加载失败: ${error.message}</div>`;
-    });
-}
-
-// 关闭弹窗函数
-function closeIPQModal() {
-  document.getElementById('ipq-modal').close();
-}
-
-function closeWhitelistModal() {
-  document.getElementById('whitelist-modal').close();
-}
-
-// 格式化IP质量详情
-function formatIPQDetails(data) {
-  return `
-    <div class="ipq-details">
-      <div class="detail-section">
-        <h4>总览</h4>
-        <div>分数：${data.score || '—'} (${data.grade || '—'})</div>
-        <div>检测时间：${data.timestamp || '—'}</div>
-      </div>
-      
-      <div class="detail-section">
-        <h4>身份信息</h4>
-        <div>出站IP：${data.ip || '—'}</div>
-        <div>ASN/ISP：${data.asn || '—'}</div>
-        <div>Geo：${data.geo || '—'}</div>
-      </div>
-      
-      <div class="detail-section">
-        <h4>配置信息</h4>
-        <div>带宽限制：${data.bandwidth || '—'}</div>
-      </div>
-      
-      <div class="detail-section">
-        <h4>质量细项</h4>
-        <div>网络类型：${data.network_type || '—'}</div>
-        <div>rDNS：${data.rdns || '—'}</div>
-        <div>黑名单命中数：${data.blacklist_hits || '—'}</div>
-        <div>时延中位数：${data.latency || '—'}</div>
-      </div>
-      
-      <div class="detail-section">
-        <h4>结论</h4>
-        <div>${data.conclusion || '—'}</div>
-      </div>
-    </div>
-  `;
-}
-
-// 更新网络身份配置显示
-function updateNetworkIdentity(data) {
-  // 更新当前活跃的分流模式
-  document.querySelectorAll('.network-block-title').forEach(title => {
-    title.classList.remove('active');
-  });
-  
-  const mode = data.shunt?.mode || 'vps';
-  const activeBlock = document.getElementById(`network-block-${mode}`);
-  if (activeBlock) {
-    activeBlock.querySelector('.network-block-title').classList.add('active');
-  }
-  
-  // 更新白名单显示（只显示两行）
-  const whitelist = data.shunt?.whitelist || [];
-  const whitelistShort = document.getElementById('whitelist-short');
-  if (whitelistShort) {
-    if (whitelist.length === 0) {
-      whitelistShort.textContent = '(无)';
-    } else {
-      // 只显示前4个域名
-      const displayList = whitelist.slice(0, 4);
-      whitelistShort.textContent = displayList.join(', ');
-      if (whitelist.length > 4) {
-        whitelistShort.textContent += '...';
-      }
+// 白名单自动折叠功能
+function initWhitelistCollapse() {
+  document.querySelectorAll('.kv').forEach(function(kv){
+    const v = kv.querySelector('.v');
+    if(!v) return;
+    
+    // 检查内容是否超出3行高度
+    const lineHeight = parseFloat(getComputedStyle(v).lineHeight) || 20;
+    const maxHeight = lineHeight * 3;
+    
+    if(v.scrollHeight > maxHeight){
+      kv.classList.add('v-collapsed');
+      const btn = document.createElement('span');
+      btn.className = 'detail-toggle';
+      btn.innerText = '详情';
+      btn.addEventListener('click', function(){
+        kv.classList.toggle('v-collapsed');
+        btn.innerText = kv.classList.contains('v-collapsed') ? '详情' : '收起';
+      });
+      kv.appendChild(btn);
     }
-  }
+  });
 }
 
 // 启动
