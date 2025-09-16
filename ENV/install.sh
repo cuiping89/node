@@ -4885,10 +4885,8 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         .whitelist-content.expanded::after {
             display: none;
         }
-		
-		/* 在现有 <style> 标签末尾添加以下样式 */
 
-/* 网络身份配置新增样式 */
+/* 网络身份配置样式 */
 .card-header {
   display: flex;
   justify-content: space-between;
@@ -4914,127 +4912,6 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
   font-weight: 600;
 }
 
-#whitelist-inline {
-  display: inline;
-}
-
-/* 弹窗样式 */
-.modal {
-  border: none;
-  border-radius: 8px;
-  padding: 0;
-  max-width: 600px;
-  width: 90vw;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-}
-
-.modal::backdrop {
-  background: rgba(0, 0, 0, 0.5);
-}
-
-.modal-content {
-  background: white;
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 20px;
-  background: #f8f9fa;
-  border-bottom: 1px solid #dee2e6;
-}
-
-.modal-header h3 {
-  margin: 0;
-  color: #333;
-  font-size: 18px;
-}
-
-.modal-close {
-  background: none;
-  border: none;
-  font-size: 24px;
-  cursor: pointer;
-  color: #666;
-  padding: 0;
-  width: 30px;
-  height: 30px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 4px;
-  transition: all 0.2s;
-}
-
-.modal-close:hover {
-  color: #000;
-  background: #e9ecef;
-}
-
-.modal-body {
-  padding: 20px;
-  max-height: 400px;
-  overflow-y: auto;
-}
-
-.loading {
-  text-align: center;
-  color: #666;
-  padding: 20px;
-  font-style: italic;
-}
-
-.detail-section {
-  margin-bottom: 15px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid #f0f0f0;
-}
-
-.detail-section:last-child {
-  border-bottom: none;
-}
-
-.detail-section h4 {
-  margin: 0 0 8px 0;
-  color: #333;
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.detail-section div {
-  margin: 4px 0;
-  font-size: 13px;
-  color: #555;
-}
-
-.whitelist-list {
-  max-height: 300px;
-  overflow-y: auto;
-}
-
-.whitelist-item {
-  padding: 8px 12px;
-  margin: 4px 0;
-  background: #f8f9fa;
-  border-radius: 4px;
-  font-family: monospace;
-  font-size: 12px;
-  border-left: 3px solid #28a745;
-}
-
-.no-data, .error {
-  text-align: center;
-  color: #666;
-  padding: 30px 20px;
-  font-style: italic;
-}
-
-.error {
-  color: #dc3545;
-}
     </style>
 </head>
 <body>
@@ -5135,7 +5012,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             <div class="small">公网身份: <span class="status-running">直连</span></div>
             <div class="small">VPS出站IP: <span id="vps-out-ip">—</span></div>
             <div class="small">Geo: <span id="vps-geo">—</span></div>
-            <div class="small">IP质量检测: <span id="vps-quality">—</span> <span class="detail-link" onclick="showIPQDetails('vps')">详情</span></div>
+            <div class="small">IP质量检测: <span id="vps-quality">—</span> <span class="detail-link" onclick="alert('IP质量详情功能')">详情</span></div>
           </div>
           
           <!-- 代理出站IP内容 -->
@@ -5144,14 +5021,14 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             <div class="small">代理身份: <span class="status-running">全代理</span></div>
             <div class="small">代理出站IP: <span id="proxy-out-ip">未配置</span></div>
             <div class="small">Geo: <span id="proxy-geo">—</span></div>
-            <div class="small">IP质量检测: <span id="proxy-quality">—</span> <span class="detail-link" onclick="showIPQDetails('proxy')">详情</span></div>
+            <div class="small">IP质量检测: <span id="proxy-quality">—</span> <span class="detail-link" onclick="alert('IP质量详情功能')">详情</span></div>
           </div>
           
           <!-- 分流出站内容 -->
           <div class="network-block">
             <h5 class="network-title">🔀 分流出站</h5>
             <div class="small">混合身份: <span class="status-running">VPS直连 + 代理</span></div>
-            <div class="small">白名单: <span id="whitelist-inline">googlevideo.com, ytimg.com, qqpht.com, youtube.com</span> <span class="detail-link" onclick="showWhitelistModal()">查看全部</span></div>
+            <div class="small">白名单: <span id="whitelist-text">googlevideo.com, ytimg.com, qqpht.com, youtube.com</span> <span class="detail-link" onclick="alert('白名单详情功能')">查看全部</span></div>
           </div>
         </div>
       </div>
@@ -6277,6 +6154,7 @@ async function loadData() {
     // 渲染各个模块
     renderHeader(model);
     renderProtocols(model);
+	updateNetworkIdentity(data);
     renderTraffic(traffic);
     renderAlerts(alerts);
 
