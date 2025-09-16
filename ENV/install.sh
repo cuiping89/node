@@ -2766,6 +2766,10 @@ create_dashboard_backend() {
 set -euo pipefail
 export LANG=C LC_ALL=C
 
+# 解析当前脚本所在目录，并为 SCRIPTS_DIR 提供默认值
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+: "${SCRIPTS_DIR:=${SCRIPT_DIR}}"
+
 #############################################
 # 配置和路径定义
 #############################################
