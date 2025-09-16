@@ -4885,33 +4885,6 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         .whitelist-content.expanded::after {
             display: none;
         }
-
-/* 网络身份配置样式 */
-.card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 15px;
-}
-
-.card-note {
-  font-size: 12px;
-  color: #666;
-  margin: 0;
-}
-
-.network-title {
-  color: #666;
-  font-weight: 500;
-  margin: 0 0 10px 0;
-  font-size: 16px;
-}
-
-.network-title.active {
-  color: #28a745;
-  font-weight: 600;
-}
-
     </style>
 </head>
 <body>
@@ -6154,7 +6127,6 @@ async function loadData() {
     // 渲染各个模块
     renderHeader(model);
     renderProtocols(model);
-	updateNetworkIdentity(data);
     renderTraffic(traffic);
     renderAlerts(alerts);
 
@@ -6584,60 +6556,7 @@ function showWhitelistModal() {
 }
 
 // 更新网络身份配置显示
-function updateNetworkIdentity(data) {
-  if (!data) return;
-  
-  try {
-    // 更新当前活跃的分流模式
-    document.querySelectorAll('.network-title').forEach(title => {
-      title.classList.remove('active');
-    });
-    
-    const mode = data.shunt?.mode || 'vps';
-    let activeTitle;
-    if (mode === 'vps') {
-      activeTitle = document.querySelector('.network-title:first-of-type');
-    } else if (mode === 'proxy') {
-      activeTitle = document.querySelector('.network-title:nth-of-type(2)');
-    } else if (mode === 'shunt') {
-      activeTitle = document.querySelector('.network-title:nth-of-type(3)');
-    }
-    if (activeTitle) activeTitle.classList.add('active');
-    
-    // 更新白名单显示
-    const whitelist = data.shunt?.whitelist || [];
-    const whitelistEl = document.getElementById('whitelist-inline');
-    if (whitelistEl) {
-      if (whitelist.length === 0) {
-        whitelistEl.textContent = '(无)';
-      } else {
-        const displayList = whitelist.slice(0, 4);
-        whitelistEl.textContent = displayList.join(', ');
-        if (whitelist.length > 4) {
-          whitelistEl.textContent += '...';
-        }
-      }
-    }
-    
-    // 更新其他信息
-    const elements = {
-      'vps-out-ip': data.shunt?.vps_ip || data.server?.ip || '—',
-      'vps-geo': data.shunt?.vps_geo || '—', 
-      'vps-quality': data.shunt?.vps_quality || '—',
-      'proxy-out-ip': data.shunt?.proxy_ip || '未配置',
-      'proxy-geo': data.shunt?.proxy_geo || '—',
-      'proxy-quality': data.shunt?.proxy_quality || '—'
-    };
-    
-    Object.entries(elements).forEach(([id, value]) => {
-      const el = document.getElementById(id);
-      if (el) el.textContent = value;
-    });
-    
-  } catch (error) {
-    console.error('更新网络身份配置时出错:', error);
-  }
-}
+
 
 // 启动
 console.log('脚本开始执行');
