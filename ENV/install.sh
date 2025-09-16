@@ -1536,18 +1536,9 @@ install_xray() {
         xray_version=$(xray version 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)
         log_success "Xray验证通过，版本: ${xray_version:-未知}"
         
-# 创建/清理 Xray 日志目录（确保 nobody 可写）
-local NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
-mkdir -p /var/log/xray
-
-# 预创建日志文件并修正历史 root 拥有者，避免 "permission denied"
-touch /var/log/xray/access.log /var/log/xray/error.log 2>/dev/null || true
-chown -R nobody:${NOBODY_GRP} /var/log/xray
-
-# 目录与文件权限：目录 750，日志 640
-chmod 750 /var/log/xray
-chmod 640 /var/log/xray/*.log 2>/dev/null || true
-
+        # 创建日志目录
+        mkdir -p /var/log/xray
+        chown nobody:nogroup /var/log/xray 2>/dev/null || chown nobody:nobody /var/log/xray 2>/dev/null || true
         
         return 0
     else
@@ -2532,26 +2523,22 @@ start_and_verify_services() {
             systemctl is-active --quiet "$service" && services_active_count=$((services_active_count + 1))
         done
         
-    # 检查端口监听（放宽过滤条件，避免误判）
-    for p_info in "${required_ports[@]}"; do
-        IFS=':' read -r proto addr port proc <<< "$p_info"
+        # 检查端口监听 (使用更精确的 ss 命令)
+        for p_info in "${required_ports[@]}"; do
+            IFS=':' read -r proto addr port proc <<< "$p_info"
+            local cmd=""
+            if [[ "$addr" == "127.0.0.1" ]]; then
+                cmd="ss -H -tlnp sport = :$port and src = $addr" # 仅限TCP和本地回环地址
+            elif [[ "$proto" == "tcp" ]]; then
+                cmd="ss -H -tlnp sport = :$port"
+            else
+                cmd="ss -H -ulnp sport = :$port"
+            fi
 
-        if [[ "$proto" == "tcp" ]]; then
-            if ss -H -tlnp 2>/dev/null | awk -v p=":$port" -v name="$proc" '
-                $4 ~ p && $0 ~ name {found=1}
-                END{exit (found?0:1)}
-            '; then
+            if $cmd | grep -q "$proc"; then
                 listening_count=$((listening_count + 1))
             fi
-        else
-            if ss -H -ulnp 2>/dev/null | awk -v p=":$port" -v name="$proc" '
-                $5 ~ p && $0 ~ name {found=1}
-                END{exit (found?0:1)}
-            '; then
-                listening_count=$((listening_count + 1))
-            fi
-        fi
-    done
+        done
         
         # 如果全部成功，则跳出循环
         if [[ $services_active_count -eq ${#services[@]} && $listening_count -eq ${#required_ports[@]} ]]; then
@@ -4237,647 +4224,646 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
     <title>EdgeBox 控制面板</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
 <style>
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
-body {
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: #333;
-  line-height: 1.6;
-  min-height: 100vh;
-  padding: 20px;
-}
-
-.container {
-  max-width: 1200px;
-  margin: 0 auto;
-  background: rgba(255, 255, 255, 0.95);
-  border-radius: 15px;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
-  padding: 30px;
-  backdrop-filter: blur(10px);
-}
-
-.header {
-  text-align: center;
-  margin-bottom: 30px;
-  padding-bottom: 20px;
-  border-bottom: 2px solid #f0f0f0;
-}
-
-.header h1 {
-  color: #2c3e50;
-  font-size: 28px;
-  font-weight: 600;
-  margin-bottom: 10px;
-}
-
-.header .subtitle {
-  color: #7f8c8d;
-  font-size: 14px;
-}
-
-.grid {
-  display: grid;
-  gap: 20px;
-  margin-bottom: 20px;
-}
-
-.grid-full { grid-template-columns: 1fr; }
-.grid-4-8 { grid-template-columns: 1fr 2fr; }
-.grid-thirds { grid-template-columns: repeat(3, 1fr); }
-
-@media (max-width: 768px) {
-  .grid-4-8,
-  .grid-thirds {
-    grid-template-columns: 1fr;
-  }
-  
-  body {
-    padding: 10px;
-  }
-  
-  .container {
-    padding: 20px;
-  }
-}
-
-.card {
-  background: white;
-  border-radius: 12px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.07);
-  padding: 20px;
-  border: 1px solid #f1f3f4;
-  transition: transform 0.2s, box-shadow 0.2s;
-}
-
-.card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
-}
-
-.card h3 {
-  color: #2c3e50;
-  font-size: 18px;
-  font-weight: 600;
-  margin-bottom: 15px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.card .content {
-  color: #555;
-}
-
-/* 网络身份配置相关样式 */
-.card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 15px;
-}
-
-.card-note {
-  font-size: 12px;
-  color: #666;
-  margin: 0;
-}
-
-.network-blocks {
-  display: flex;
-  flex-direction: column;
-  gap: 15px;
-}
-
-.network-block {
-  padding: 15px;
-  background: #f8f9fa;
-  border-radius: 6px;
-  border-left: 4px solid #e9ecef;
-}
-
-.network-block-title {
-  color: #666;
-  font-weight: 500;
-  margin: 0 0 10px 0;
-  font-size: 16px;
-}
-
-.network-block-title.active {
-  color: #28a745;
-  font-weight: 600;
-}
-
-.network-block .small {
-  margin: 5px 0;
-  font-size: 13px;
-}
-
-.whitelist-inline {
-  display: inline;
-  margin-right: 5px;
-}
-
-.small {
-  font-size: 12px;
-  color: #666;
-  margin: 4px 0;
-}
-
-.status-running { color: #28a745; font-weight: 500; }
-.status-stopped { color: #dc3545; font-weight: 500; }
-.status-error { color: #ffc107; font-weight: 500; }
-
-.detail-link {
-  color: #007bff;
-  cursor: pointer;
-  text-decoration: underline;
-  font-size: 12px;
-}
-
-.detail-link:hover {
-  color: #0056b3;
-}
-
-.cert-status {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 15px;
-}
-
-.status-badge {
-  padding: 4px 12px;
-  border-radius: 20px;
-  font-size: 12px;
-  font-weight: 500;
-  border: 1px solid #ddd;
-  color: #666;
-  background: #f8f9fa;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.status-badge.active {
-  background: #28a745;
-  color: white;
-  border-color: #28a745;
-}
-
-.info-blocks {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 20px;
-  margin-bottom: 15px;
-}
-
-.info-block h4 {
-  color: #495057;
-  font-size: 14px;
-  font-weight: 600;
-  margin-bottom: 10px;
-  border-bottom: 2px solid #e9ecef;
-  padding-bottom: 5px;
-}
-
-.info-block .value {
-  margin: 8px 0;
-  font-size: 13px;
-}
-
-.system-progress-bar {
-  display: inline-block;
-  width: 60px;
-  height: 12px;
-  background: #e9ecef;
-  border-radius: 6px;
-  overflow: hidden;
-  position: relative;
-  margin: 0 8px;
-}
-
-.system-progress-fill {
-  height: 100%;
-  background: linear-gradient(90deg, #28a745, #20c997);
-  transition: width 0.3s ease;
-}
-
-.system-progress-text {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  font-size: 9px;
-  font-weight: 600;
-  color: white;
-  text-shadow: 0 1px 2px rgba(0,0,0,0.3);
-}
-
-.table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 10px;
-}
-
-.table th,
-.table td {
-  text-align: left;
-  padding: 12px 8px;
-  border-bottom: 1px solid #f1f3f4;
-}
-
-.table th {
-  background: #f8f9fa;
-  font-weight: 600;
-  color: #495057;
-  font-size: 13px;
-}
-
-.table td {
-  font-size: 12px;
-  color: #666;
-}
-
-.table tbody tr:hover {
-  background: #f8f9fa;
-}
-
-.protocol-status-badge {
-  color: #28a745;
-  font-weight: 500;
-  font-size: 11px;
-}
-
-.sub-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 15px;
-}
-
-.sub-label {
-  font-weight: 500;
-  color: #495057;
-  font-size: 13px;
-  min-width: 80px;
-}
-
-.sub-input {
-  flex: 1;
-  padding: 8px 12px;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  font-size: 12px;
-  font-family: 'Consolas', 'Monaco', monospace;
-  background: #f8f9fa;
-  resize: vertical;
-  min-height: 60px;
-}
-
-.sub-copy-btn {
-  padding: 8px 16px;
-  background: #007bff;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 500;
-  transition: background 0.2s;
-}
-
-.sub-copy-btn:hover {
-  background: #0056b3;
-}
-
-.traffic-card h3 {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 15px;
-}
-
-.traffic-progress-container {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 12px;
-}
-
-.progress-wrapper {
-  position: relative;
-  min-width: 150px;
-}
-
-.progress-bar {
-  width: 100%;
-  height: 20px;
-  background: #e9ecef;
-  border-radius: 10px;
-  overflow: hidden;
-  position: relative;
-}
-
-.progress-fill {
-  height: 100%;
-  background: linear-gradient(90deg, #28a745, #20c997);
-  transition: width 0.3s ease;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 40px;
-}
-
-.progress-percentage {
-  color: white;
-  font-size: 10px;
-  font-weight: 600;
-  text-shadow: 0 1px 2px rgba(0,0,0,0.3);
-}
-
-.progress-budget {
-  color: #666;
-  font-size: 11px;
-  font-weight: 500;
-}
-
-.traffic-charts {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 30px;
-  margin-top: 20px;
-}
-
-@media (max-width: 768px) {
-  .traffic-charts {
-    grid-template-columns: 1fr;
-    gap: 20px;
-  }
-  
-  .traffic-progress-container {
-    flex-wrap: wrap;
-  }
-}
-
-.chart-container {
-  position: relative;
-}
-
-.chart-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: #495057;
-  margin-bottom: 15px;
-  text-align: center;
-}
-
-.unit {
-  font-weight: normal;
-  color: #666;
-  font-size: 12px;
-}
-
-.commands-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: 20px;
-}
-
-.command-section h4 {
-  color: #495057;
-  font-size: 14px;
-  font-weight: 600;
-  margin-bottom: 12px;
-  padding-bottom: 6px;
-  border-bottom: 2px solid #e9ecef;
-}
-
-.command-list {
-  line-height: 1.8;
-}
-
-.command-list code {
-  background: #f8f9fa;
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-family: 'Consolas', 'Monaco', monospace;
-  color: #495057;
-  border: 1px solid #e9ecef;
-}
-
-.command-list span {
-  color: #666;
-  font-size: 11px;
-}
-
-/* 弹窗样式 */
-.modal {
-  border: none;
-  border-radius: 8px;
-  padding: 0;
-  max-width: 600px;
-  width: 90vw;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-}
-
-.modal::backdrop {
-  background: rgba(0, 0, 0, 0.5);
-}
-
-.modal-content {
-  background: white;
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 20px;
-  background: #f8f9fa;
-  border-bottom: 1px solid #dee2e6;
-}
-
-.modal-header h3 {
-  margin: 0;
-  color: #333;
-  font-size: 18px;
-}
-
-.modal-close {
-  background: none;
-  border: none;
-  font-size: 24px;
-  cursor: pointer;
-  color: #666;
-  padding: 0;
-  width: 30px;
-  height: 30px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 4px;
-  transition: all 0.2s;
-}
-
-.modal-close:hover {
-  color: #000;
-  background: #e9ecef;
-}
-
-.modal-body {
-  padding: 20px;
-  max-height: 400px;
-  overflow-y: auto;
-}
-
-.loading {
-  text-align: center;
-  color: #666;
-  padding: 20px;
-  font-style: italic;
-}
-
-.detail-section {
-  margin-bottom: 15px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid #f0f0f0;
-}
-
-.detail-section:last-child {
-  border-bottom: none;
-  margin-bottom: 0;
-}
-
-.detail-section h4 {
-  margin: 0 0 8px 0;
-  color: #333;
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.detail-section div {
-  margin-bottom: 4px;
-  font-size: 13px;
-  color: #555;
-}
-
-.whitelist-list {
-  max-height: 300px;
-  overflow-y: auto;
-}
-
-.whitelist-item {
-  padding: 8px 12px;
-  margin: 4px 0;
-  background: #f8f9fa;
-  border-radius: 4px;
-  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-  font-size: 12px;
-  border-left: 3px solid #28a745;
-}
-
-.no-data, .error {
-  text-align: center;
-  color: #666;
-  padding: 30px 20px;
-  font-style: italic;
-}
-
-.error {
-  color: #dc3545;
-}
-
-/* 响应式 */
-@media (max-width: 768px) {
-  .modal {
-    width: 95vw;
-  }
-  
-  .network-blocks {
-    gap: 10px;
-  }
-  
-  .network-block {
-    padding: 12px;
-  }
-  
-  .modal-body {
-    padding: 15px;
-  }
-  
-  .commands-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* 通知动画 */
-@keyframes slideInRight {
-  from {
-    transform: translateX(100%);
-    opacity: 0;
-  }
-  to {
-    transform: translateX(0);
-    opacity: 1;
-  }
-}
-
-@keyframes slideOutRight {
-  from {
-    transform: translateX(0);
-    opacity: 1;
-  }
-  to {
-    transform: translateX(100%);
-    opacity: 0;
-  }
-}
-
-.notification {
-  position: fixed;
-  top: 20px;
-  right: 20px;
-  background: white;
-  padding: 15px;
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-  border-left: 4px solid #28a745;
-  animation: slideInRight 0.3s ease;
-  z-index: 1000;
-}
-
-.notification.hide {
-  animation: slideOutRight 0.3s ease;
-}
-
-/* 滚动条样式 */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-::-webkit-scrollbar-track {
-  background: #f1f1f1;
-  border-radius: 4px;
-}
-
-::-webkit-scrollbar-thumb {
-  background: #c1c1c1;
-  border-radius: 4px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: #a8a8a8;
-}
-</style>
+        :root {
+            --card: #fff;
+            --border: #e2e8f0;
+            --bg: #f8fafc;
+            --muted: #64748b;
+            --shadow: 0 4px 6px -1px rgba(0,0,0,.1);
+            --primary: #3b82f6;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+        }
+
+        * { box-sizing: border-box; }
+        
+        body {
+            font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+            background: var(--bg);
+            color: #334155;
+            margin: 0;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .grid {
+            display: grid;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+
+        .grid-full { grid-template-columns: 1fr; }
+        .grid-4-8 { 
+            grid-template-columns: 1fr 2fr;
+        }
+        
+        @media(max-width:980px) {
+            .grid-4-8 { grid-template-columns: 1fr; }
+        }
+
+        .card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            box-shadow: var(--shadow);
+            overflow: hidden;
+            position: relative;
+        }
+
+        .card h3 {
+            margin: 0;
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border);
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #0f172a;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .info-block h4,
+        .command-section h4,
+        .chart-title {
+            margin: 0 0 8px 0;
+            font-size: 1.125rem;
+            font-weight: 600;
+            color: #1e293b;
+        }
+
+        .chart-title {
+            text-align: center;
+            margin: 0 0 10px 0;
+        }
+
+        .chart-title .unit {
+            font-size: .875rem;
+            font-weight: 400;
+            color: #64748b;
+        }
+
+        .card .content { padding: 16px; }
+
+        .table th {
+            font-size: 1rem;
+            font-weight: 600;
+            color: #374151;
+        }
+
+        .table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .table th {
+            text-align: left;
+            padding: 12px 8px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .table th:last-child {
+            text-align: center;
+        }
+
+        .table td {
+            font-size: .875rem;
+            font-weight: 400;
+            color: #64748b;
+            padding: 12px 8px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .table td:last-child {
+            text-align: center;
+        }
+
+        .system-progress-bar {
+            display: inline-flex;
+            align-items: center;
+            width: 80px;
+            height: 20px;
+            background: #e2e8f0;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-left: 8px;
+            position: relative;
+        }
+
+        .system-progress-fill {
+            height: 100%;
+            background: #10b981;
+            border-radius: 10px;
+            transition: width 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 20px;
+        }
+
+        .system-progress-text {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: .75rem;
+            font-weight: 600;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+            z-index: 1;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background: #e2e8f0;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: #10b981;
+            border-radius: 8px;
+            transition: width 0.3s;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .progress-percentage {
+            position: absolute;
+            color: white;
+            font-size: .75rem;
+            font-weight: 600;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+        }
+
+        .protocol-status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: .75rem;
+            font-weight: 600;
+            background: #10b981;
+            color: white;
+            border: none;
+        }
+
+        .service-status-badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 10px;
+            font-size: .75rem;
+            font-weight: 600;
+            background: #10b981;
+            color: white;
+            border: none;
+        }
+
+        .service-status-badge.inactive {
+            background: #6b7280;
+        }
+
+        .status-badge {
+            padding: 4px 10px;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            background: #e2e8f0;
+            color: #64748b;
+            white-space: nowrap;
+            font-size: 1rem;
+            font-weight: 600;
+            height: 28px;
+            display: inline-flex;
+            align-items: center;
+            line-height: 1;
+        }
+
+        .status-badge.active {
+            background: #10b981;
+            color: white;
+            border-color: #10b981;
+        }
+
+        .small,
+        .info-block .value,
+        .btn,
+        .badge,
+        .notification-bell,
+        .notification-item,
+        .sub-label,
+        .sub-input,
+        .sub-copy-btn,
+        .command-list,
+        .config-note {
+            font-size: .875rem;
+            font-weight: 400;
+            color: #64748b;
+        }
+
+        .detail-link {
+            color: var(--primary);
+            cursor: pointer;
+            text-decoration: underline;
+            font-size: .875rem;
+            font-weight: 400;
+        }
+
+        .detail-link:hover { color: #2563eb; }
+
+        .status-running {
+            color: #10b981 !important;
+            font-size: .875rem;
+            font-weight: 600 !important;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border: 1px solid var(--border);
+            background: #f1f5f9;
+            border-radius: 6px;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .btn:hover { background: #e2e8f0; }
+
+        .info-blocks {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .info-block {
+            padding: 12px;
+            background: #f8fafc;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+        }
+
+        .info-block .value {
+            margin-bottom: 2px;
+        }
+
+        .notification-bell {
+            position: relative;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 8px;
+            border-radius: 6px;
+            background: #f1f5f9;
+        }
+
+        .notification-bell:hover { background: #e2e8f0; }
+        .notification-bell.has-alerts { color: var(--warning); background: #fef3c7; }
+
+        .notification-popup {
+            position: absolute;
+            top: 100%;
+            right: 0;
+            background: white;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            box-shadow: var(--shadow);
+            width: 300px;
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 100;
+            display: none;
+        }
+
+        .notification-popup.show { display: block; }
+
+        .notification-item {
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .notification-item:last-child { border-bottom: none; }
+
+        .cert-status {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
+        }
+
+        .network-status {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
+        }
+
+        .network-blocks {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 12px;
+            margin-top: 12px;
+        }
+        
+        @media(max-width:980px) {
+            .network-blocks { grid-template-columns: 1fr; }
+        }
+        
+        .network-block {
+            padding: 12px;
+            background: #f8fafc;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+        }
+        
+        .network-block h5 {
+            margin: 0 0 8px 0;
+            font-size: 1rem;
+            font-weight: 600;
+            color: #1e293b;
+        }
+
+        .network-note {
+            margin-top: 16px;
+            padding: 8px;
+            border-top: 1px solid var(--border);
+            background: linear-gradient(180deg, rgba(248,250,252,0.6), rgba(248,250,252,1));
+            border-radius: 4px;
+            font-size: .75rem;
+            line-height: 1.4;
+            color: #64748b;
+        }
+
+        .sub-row {
+            display: flex;
+            gap: 8px;
+            align-items: stretch;
+            margin-bottom: 8px;
+            height: 32px;
+        }
+
+        .sub-input {
+            flex: 1;
+            height: 100%;
+            padding: 6px 10px;
+            box-sizing: border-box;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            font-family: monospace;
+            background: #fff;
+            font-size: .875rem;
+            line-height: 20px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            resize: none;
+            display: inline-block;
+            vertical-align: middle;
+            color: #64748b;
+        }
+
+        .sub-copy-btn {
+            min-width: 80px;
+            padding: 6px 12px;
+            border: 1px solid var(--border);
+            background: #f1f5f9;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: .875rem;
+            color: #64748b;
+            font-weight: 400;
+            height: 100%;
+            box-sizing: border-box;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+
+        .sub-copy-btn:hover { 
+            background: #e2e8f0; 
+        }
+
+        .traffic-card { position: relative; }
+
+        .traffic-progress-container {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            width: 390px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .progress-wrapper {
+            flex: 1;
+            position: relative;
+        }
+
+        .progress-budget {
+            white-space: nowrap;
+            font-size: .75rem;
+        }
+
+        .progress-label {
+            white-space: nowrap;
+            font-size: 1rem;
+            font-weight: 600;
+            color: #374151;
+        }
+
+        .traffic-charts {
+            display: grid;
+            grid-template-columns: 1fr 400px;
+            gap: 16px;
+            margin-top: 50px;
+        }
+
+        @media(max-width:980px) {
+            .traffic-charts { 
+                grid-template-columns: 1fr; 
+                margin-top: 20px;
+            }
+            .traffic-progress-container {
+                position: static;
+                width: 100%;
+                margin-bottom: 16px;
+            }
+        }
+
+        .chart-container {
+            position: relative;
+            height: 360px;
+            width: 100%;
+        }
+
+        @media(max-width:768px) {
+            .chart-container {
+                height: 280px;
+            }
+        }
+
+        .commands-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        @media(max-width:768px) {
+            .commands-grid { grid-template-columns: 1fr; }
+        }
+
+        .command-section {
+            background: #f8fafc;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px;
+        }
+
+        .command-section h4 {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .command-list {
+            line-height: 1.6;
+        }
+
+        .command-list code {
+            background: #e2e8f0;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: .75rem;
+            color: #1e293b;
+        }
+
+        .command-list span {
+            color: var(--muted);
+            margin-left: 8px;
+        }
+
+        .command-list small {
+            display: block;
+            margin-top: 2px;
+            color: var(--muted);
+            font-style: normal;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+        }
+
+        .modal.show {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 12px;
+            max-width: 600px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1);
+        }
+
+        .modal-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-header h3 {
+            margin: 0;
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #374151;
+        }
+
+        .modal-close {
+            font-size: 1.5rem;
+            cursor: pointer;
+            color: var(--muted);
+            line-height: 1;
+        }
+
+        .modal-close:hover { color: #1e293b; }
+
+        .modal-body { padding: 20px; }
+
+        .config-item {
+            margin-bottom: 16px;
+            padding: 12px;
+            background: #f8fafc;
+            border-radius: 8px;
+        }
+
+        .config-item h4 {
+            margin: 0 0 8px 0;
+            font-size: 1rem;
+            font-weight: 600;
+            color: #374151;
+        }
+
+        .config-item code {
+            display: block;
+            background: #1e293b;
+            color: #10b981;
+            padding: 8px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: .875rem;
+            word-break: break-all;
+            margin: 4px 0;
+        }
+
+        .config-note {
+            color: var(--warning);
+            margin-top: 4px;
+        }
+
+        .whitelist-content {
+            max-height: 3em;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .whitelist-content.expanded {
+            max-height: none;
+        }
+
+        .whitelist-content::after {
+            content: "";
+            position: absolute;
+            left: 0; right: 0; bottom: 0;
+            height: 24px;
+            background: linear-gradient(180deg, rgba(255,255,255,0), rgba(255,255,255,1));
+        }
+
+        .whitelist-content.expanded::after {
+            display: none;
+        }
+    </style>
 </head>
 <body>
 <div class="container">
@@ -4963,72 +4949,55 @@ body {
       </div>
     </div>
 
- <!-- 网络身份配置 -->
+    <!-- 网络身份配置 -->
     <div class="card">
-      <div class="card-header">
-        <h3>🌐 网络身份配置</h3>
-        <div class="card-note">注：HY2/TUIC 为 UDP通道，VPS直连，不走代理分流</div>
-      </div>
+      <h3>🌐 网络身份配置</h3>
       <div class="content">
+<div class="network-status">
+  <span class="status-badge active">VPS出站IP</span>
+  <span class="status-badge">代理出站IP</span>
+  <span class="status-badge">分流出站</span>
+</div>
+        
+        <!-- 三个区块并排显示 -->
         <div class="network-blocks">
           <!-- VPS出站IP内容 -->
-          <div class="network-block" id="network-block-vps">
-            <h5 class="network-block-title active">📡 VPS出站IP</h5>
+          <div class="network-block">
+            <h5>📡 VPS出站IP</h5>
             <div class="small">公网身份: <span class="status-running">直连</span></div>
-            <div class="small">VPS出站IP: <span id="vps-out-ip">96.47.238.103</span></div>
+            <div class="small">VPS出站IP: <span id="vps-out-ip">—</span></div>
             <div class="small">Geo: <span id="vps-geo">—</span></div>
             <div class="small">IP质量检测: <span id="vps-quality">—</span> <span class="detail-link" onclick="showIPQDetails('vps')">详情</span></div>
           </div>
           
           <!-- 代理出站IP内容 -->
-          <div class="network-block" id="network-block-proxy">
-            <h5 class="network-block-title">🔄 代理出站IP</h5>
+          <div class="network-block">
+            <h5>🔄 代理出站IP</h5>
             <div class="small">代理身份: <span class="status-running">全代理</span></div>
-            <div class="small">代理出站IP: <span id="proxy-out-ip">未配置</span></div>
+            <div class="small">代理出站IP: <span id="proxy-out-ip">—</span></div>
             <div class="small">Geo: <span id="proxy-geo">—</span></div>
             <div class="small">IP质量检测: <span id="proxy-quality">—</span> <span class="detail-link" onclick="showIPQDetails('proxy')">详情</span></div>
           </div>
           
           <!-- 分流出站内容 -->
-          <div class="network-block" id="network-block-shunt">
-            <h5 class="network-block-title">🔀 分流出站</h5>
+          <div class="network-block">
+            <h5>🔀 分流出站</h5>
             <div class="small">混合身份: <span class="status-running">VPS直连 + 代理</span></div>
-            <div class="small">白名单: <span id="whitelist-short" class="whitelist-inline">googlevideo.com, ytimg.com, qqpht.com, youtube.com</span> <span class="detail-link" onclick="showWhitelistModal()">查看全部</span></div>
+            <div class="small">白名单: 
+              <div class="whitelist-content" id="whitelist-content">
+                <span id="whitelist-text">—</span>
+              </div>
+              <span class="detail-link" id="whitelist-toggle" onclick="toggleWhitelist()">查看全部</span>
+            </div>
           </div>
+        </div>
+        
+        <div class="network-note">
+          注：HY2/TUIC 为 UDP通道，VPS直连，不走代理分流
         </div>
       </div>
     </div>
   </div>
-
-  <!-- IP质量详情弹窗 -->
-  <dialog id="ipq-modal" class="modal">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h3 id="ipq-modal-title">IP质量详情</h3>
-        <button class="modal-close" onclick="closeIPQModal()">×</button>
-      </div>
-      <div class="modal-body">
-        <div id="ipq-details-content">
-          <div class="loading">加载中...</div>
-        </div>
-      </div>
-    </div>
-  </dialog>
-
-  <!-- 白名单详情弹窗 -->
-  <dialog id="whitelist-modal" class="modal">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h3>白名单详情</h3>
-        <button class="modal-close" onclick="closeWhitelistModal()">×</button>
-      </div>
-      <div class="modal-body">
-        <div id="whitelist-full-content">
-          <div class="loading">加载中...</div>
-        </div>
-      </div>
-    </div>
-  </dialog>
 
   <!-- 第三行：协议配置 -->
   <div class="grid grid-full">
@@ -5196,7 +5165,7 @@ body {
   </div>
 </div>
 
-
+<script>
 // ==========================================
 // 模块7.3：图表和可视化组件 (Chart.js集成)
 // EdgeBox控制面板 - 图表渲染和数据可视化
@@ -6150,7 +6119,6 @@ async function loadData() {
     // 渲染各个模块
     renderHeader(model);
     renderProtocols(model);
-	updateNetworkIdentity(model); 
     renderTraffic(traffic);
     renderAlerts(alerts);
 
@@ -6476,135 +6444,32 @@ function toggleWhitelist() {
 
 // IP质量详情显示功能
 function showIPQDetails(type) {
-  const modal = document.getElementById('ipq-modal');
-  const title = document.getElementById('ipq-modal-title');
-  const content = document.getElementById('ipq-details-content');
-  
-  title.textContent = type === 'vps' ? 'VPS出站IP质量详情' : '代理出站IP质量详情';
-  content.innerHTML = '<div class="loading">加载中...</div>';
-  
-  modal.showModal();
-  
-  // 加载IP质量数据
-  fetch(`/status/ipq_${type}.json`)
-    .then(response => {
-      if (!response.ok) throw new Error('数据获取失败');
-      return response.json();
-    })
-    .then(data => {
-      content.innerHTML = formatIPQDetails(data);
-    })
-    .catch(error => {
-      content.innerHTML = `<div class="error">加载失败: ${error.message}</div>`;
-    });
+  // 这里可以实现显示IP质量检测详情的功能
+  alert('IP质量检测详情功能待实现 - ' + type);
 }
 
-// 白名单弹窗
-function showWhitelistModal() {
-  const modal = document.getElementById('whitelist-modal');
-  const content = document.getElementById('whitelist-full-content');
-  
-  content.innerHTML = '<div class="loading">加载中...</div>';
-  modal.showModal();
-  
-  // 加载白名单数据
-  fetch('/traffic/dashboard.json')
-    .then(response => {
-      if (!response.ok) throw new Error('数据获取失败');
-      return response.json();
-    })
-    .then(data => {
-      const whitelist = data.shunt?.whitelist || [];
-      if (whitelist.length === 0) {
-        content.innerHTML = '<div class="no-data">暂无白名单规则</div>';
-      } else {
-        content.innerHTML = `
-          <div class="whitelist-list">
-            ${whitelist.map(item => `<div class="whitelist-item">${item}</div>`).join('')}
-          </div>
-        `;
-      }
-    })
-    .catch(error => {
-      content.innerHTML = `<div class="error">加载失败: ${error.message}</div>`;
-    });
-}
-
-// 关闭弹窗函数
-function closeIPQModal() {
-  document.getElementById('ipq-modal').close();
-}
-
-function closeWhitelistModal() {
-  document.getElementById('whitelist-modal').close();
-}
-
-// 格式化IP质量详情
-function formatIPQDetails(data) {
-  return `
-    <div class="ipq-details">
-      <div class="detail-section">
-        <h4>总览</h4>
-        <div>分数：${data.score || '—'} (${data.grade || '—'})</div>
-        <div>检测时间：${data.timestamp || '—'}</div>
-      </div>
-      
-      <div class="detail-section">
-        <h4>身份信息</h4>
-        <div>出站IP：${data.ip || '—'}</div>
-        <div>ASN/ISP：${data.asn || '—'}</div>
-        <div>Geo：${data.geo || '—'}</div>
-      </div>
-      
-      <div class="detail-section">
-        <h4>配置信息</h4>
-        <div>带宽限制：${data.bandwidth || '—'}</div>
-      </div>
-      
-      <div class="detail-section">
-        <h4>质量细项</h4>
-        <div>网络类型：${data.network_type || '—'}</div>
-        <div>rDNS：${data.rdns || '—'}</div>
-        <div>黑名单命中数：${data.blacklist_hits || '—'}</div>
-        <div>时延中位数：${data.latency || '—'}</div>
-      </div>
-      
-      <div class="detail-section">
-        <h4>结论</h4>
-        <div>${data.conclusion || '—'}</div>
-      </div>
-    </div>
-  `;
-}
-
-// 更新网络身份配置显示
-function updateNetworkIdentity(data) {
-  // 更新当前活跃的分流模式
-  document.querySelectorAll('.network-block-title').forEach(title => {
-    title.classList.remove('active');
-  });
-  
-  const mode = data.shunt?.mode || 'vps';
-  const activeBlock = document.getElementById(`network-block-${mode}`);
-  if (activeBlock) {
-    activeBlock.querySelector('.network-block-title').classList.add('active');
-  }
-  
-  // 更新白名单显示（只显示两行）
-  const whitelist = data.shunt?.whitelist || [];
-  const whitelistShort = document.getElementById('whitelist-short');
-  if (whitelistShort) {
-    if (whitelist.length === 0) {
-      whitelistShort.textContent = '(无)';
-    } else {
-      // 只显示前4个域名
-      const displayList = whitelist.slice(0, 4);
-      whitelistShort.textContent = displayList.join(', ');
-      if (whitelist.length > 4) {
-        whitelistShort.textContent += '...';
-      }
+// 白名单自动折叠功能
+function initWhitelistCollapse() {
+  document.querySelectorAll('.kv').forEach(function(kv){
+    const v = kv.querySelector('.v');
+    if(!v) return;
+    
+    // 检查内容是否超出3行高度
+    const lineHeight = parseFloat(getComputedStyle(v).lineHeight) || 20;
+    const maxHeight = lineHeight * 3;
+    
+    if(v.scrollHeight > maxHeight){
+      kv.classList.add('v-collapsed');
+      const btn = document.createElement('span');
+      btn.className = 'detail-toggle';
+      btn.innerText = '详情';
+      btn.addEventListener('click', function(){
+        kv.classList.toggle('v-collapsed');
+        btn.innerText = kv.classList.contains('v-collapsed') ? '详情' : '收起';
+      });
+      kv.appendChild(btn);
     }
-  }
+  });
 }
 
 // 启动
