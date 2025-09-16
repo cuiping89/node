@@ -26,281 +26,198 @@
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
+export LANG=C LC_ALL=C
 
-# ====================================================================================
-# EdgeBox IP Quality Scoring Script (Ultimate Version)
-# Author: Gemini
-# Version: 2.0
-#
-# 功能:
-#   - 综合评估 VPS 和代理出口 IP 的质量。
-#   - 从多个公开源获取信息，进行交叉验证。
-#   - 检测网络类型、黑名单、TOR出口、地理一致性等多个维度。
-#   - 输出 .json (详情) 和 .txt (摘要) 两种静态文件，供前端调用。
-#
-# 依赖: curl, jq, dig (bind9-dnsutils), whois
-# ====================================================================================
+STATUS_DIR="/etc/edgebox/status"
+WEB_STATUS="/var/www/html/status"
+SHUNT_DIR="/etc/edgebox/config/shunt"
+LOG_FILE="${STATUS_DIR}/ipq.log"
+mkdir -p "$STATUS_DIR" "$WEB_STATUS"
+ln -sfn "$STATUS_DIR" "$WEB_STATUS" 2>/dev/null || true
 
-# --- 可配置参数 ---
-# 评分权重 (总和为100)
-WEIGHT_BLACKLIST=25
-WEIGHT_NETTYPE=25
-WEIGHT_ASN_REP=15
-WEIGHT_GEO_CONSISTENCY=10
-WEIGHT_RDNS=5
-WEIGHT_LATENCY=15
-WEIGHT_TOR_EXIT=5
+usage() {
+  cat <<USAGE
+Usage: edgebox-ipq.sh [--vps] [--proxy] [--auto] [--once]
+  --vps     仅检测直连出口
+  --proxy   仅检测当前代理出口（从 ${SHUNT_DIR}/state.json 读取）
+  --auto    两者都测：有代理就加测代理；无代理只测直连
+  --once    兼容别名，等价于 --auto
+默认 --auto
+USAGE
+}
 
-# API 端点 (按顺序兜底)
-IP_API_ENDPOINTS=(
-    "https://ipinfo.io/json"
-    "https://ip.sb/api/json"
-    "http://ip-api.com/json/?fields=status,country,city,as,asname,reverse,hosting,proxy,mobile"
-)
-IP_ONLY_ENDPOINTS=("https://api.ipify.org" "https://icanhazip.com")
+want_vps=1; want_proxy=1
+case "${1:-}" in
+  --vps)   want_proxy=0 ;;
+  --proxy) want_vps=0 ;;
+  --auto|--once|"") : ;;
+  -h|--help) usage; exit 0 ;;
+esac
 
-# 连接测试目标 (TCP 连接时延)
-LATENCY_TARGETS=("https://www.google.com/generate_204" "https://github.com/" "https://www.cloudflare.com/")
+ts() { date -Is; }
+log(){ echo "[$(ts)] $*" | tee -a "$LOG_FILE" >&2; }
 
-# RBL 黑名单源
-RBL_SOURCES=("zen.spamhaus.org" "dnsbl.dronebl.org" "bl.spamcop.net")
+jqget() { jq -r "$1" 2>/dev/null || echo ""; }
 
-# --- 脚本全局变量 ---
-OUT_DIR="/var/www/edgebox/status"
-PROXY_URL=""
-TARGETS="vps,proxy"
-USER_AGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
-SCRIPT_VERSION="edgebox-ipq.sh v2.0"
-
-# --- 参数解析 ---
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --out) OUT_DIR="$2"; shift 2;;
-    --proxy) PROXY_URL="$2"; shift 2;;
-    --targets) TARGETS="$2"; shift 2;;
-    *) log_error "Unknown arg: $1"; exit 2;;
+# 解析代理信息 -> curl 代理参数
+build_proxy_args() {
+  local purl="$1"
+  [[ -z "$purl" || "$purl" == "null" ]] && return 0
+  case "$purl" in
+    socks5://*|socks5h://*)
+      echo "--socks5-hostname ${purl#*://}"
+      ;;
+    http://*|https://*)
+      echo "--proxy $purl"
+      ;;
+    *)
+      echo "" # 未知协议，忽略
+      ;;
   esac
-done
-mkdir -p "$OUT_DIR"
-
-# --- 工具函数 ---
-log_info() { echo "[$(date -Is)] [INFO] $*" >&2; }
-log_error() { echo "[$(date -Is)] [ERROR] $*" >&2; }
-
-fetch() {
-  local url="$1"; local flag="${2:-noproxy}"; local extra_args=()
-  [[ "$flag" == "proxy" && -n "$PROXY_URL" ]] && extra_args=(--proxy "$PROXY_URL")
-  curl --max-time 8 -sS -A "$USER_AGENT" "${extra_args[@]}" "$url" || true
 }
 
-get_ip_info() {
-    local flag="$1"; local result
-    for url in "${IP_API_ENDPOINTS[@]}"; do
-        result=$(fetch "$url" "$flag")
-        # 简单验证JSON有效性和ip字段存在性
-        if jq -e '.ip' >/dev/null 2>&1 <<<"$result"; then
-            echo "$result"
-            return
-        fi
+curl_json() {
+  # $1: proxy-args (可为空)  $2: url
+  local pargs="$1" url="$2"
+  # 4秒超时；严格忽略证书问题（某些自签环境）
+  # ip-api 是 http 免费接口，仅取非敏感字段
+  eval "curl -fsS --max-time 4 $pargs \"$url\"" || return 1
+}
+
+# 取 state.json 的 proxy_info
+get_proxy_url(){
+  local sj="${SHUNT_DIR}/state.json"
+  [[ -s "$sj" ]] && jqget '.proxy_info' <"$sj" || echo ""
+}
+
+# 汇聚三源（ipinfo / ip.sb / ip-api）
+collect_one() {
+  # $1: vantage 标识（vps|proxy） $2: curl proxy args（可为空）
+  local vantage="$1" pargs="$2"
+  local ok_ipinfo=false ok_ipsb=false ok_ipapi=false
+  local J1="{}" J2="{}" J3="{}"
+
+  if out=$(curl_json "$pargs" "https://ipinfo.io/json"); then J1="$out"; ok_ipinfo=true; fi
+  if out=$(curl_json "$pargs" "https://ip.sb/api/json"); then J2="$out"; ok_ipsb=true; fi
+  if out=$(curl_json "$pargs" "http://ip-api.com/json/?fields=status,message,country,city,as,asname,reverse,hosting,proxy,mobile,query"); then J3="$out"; ok_ipapi=true; fi
+
+  # 选择 IP
+  local ip=""
+  for j in "$J2" "$J1" "$J3"; do
+    ip="$(jq -r '(.ip // .query // empty)' <<<"$j")"
+    [[ -n "$ip" && "$ip" != "null" ]] && break
+  done
+
+  # 反查 PTR（优先 ip-api 的 reverse）
+  local rdns="$(jq -r '.reverse // empty' <<<"$J3")"
+  if [[ -z "$rdns" && -n "$ip" ]]; then
+    rdns="$(dig +time=1 +tries=1 +short -x "$ip" 2>/dev/null | head -n1)"
+  fi
+
+  # ASN/ISP
+  local asn="$(jq -r '(.asname // .as // empty)' <<<"$J3")"
+  [[ -z "$asn" || "$asn" == "null" ]] && asn="$(jq -r '(.org // empty)' <<<"$J1")"
+  local isp="$(jq -r '(.org // empty)' <<<"$J1")"
+  [[ -z "$isp" || "$isp" == "null" ]] && isp="$(jq -r '(.asname // .as // empty)' <<<"$J3")"
+
+  # 国家城市
+  local country="$(jq -r '(.country // empty)' <<<"$J3")"
+  [[ -z "$country" || "$country" == "null" ]] && country="$(jq -r '(.country // empty)' <<<"$J1")"
+  local city="$(jq -r '(.city // empty)' <<<"$J3")"
+  [[ -z "$city" || "$city" == "null" ]] && city="$(jq -r '(.city // empty)' <<<"$J1")"
+
+  # 风险标记（来自 ip-api）
+  local flag_hosting="$(jq -r '(.hosting // false)' <<<"$J3")"
+  local flag_proxy="$(jq -r '(.proxy   // false)' <<<"$J3")"
+  local flag_mobile="$(jq -r '(.mobile  // false)' <<<"$J3")"
+
+  # DNSBL 简查（1s 限速、只查少量常见列表）
+  local dnsbl_hits=()
+  if [[ -n "$ip" ]]; then
+    IFS=. read -r a b c d <<<"$ip" || true
+    local rip="${d}.${c}.${b}.${a}"
+    for bl in zen.spamhaus.org bl.spamcop.net dnsbl.sorbs.net b.barracudacentral.org; do
+      if dig +time=1 +tries=1 +short "${rip}.${bl}" A >/dev/null 2>&1; then
+        dnsbl_hits+=("$bl")
+      fi
     done
-    # 如果所有丰富API都失败，尝试仅获取IP地址
-    for url in "${IP_ONLY_ENDPOINTS[@]}"; do
-        result=$(fetch "$url" "$flag")
-        if [[ "$result" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
-            jq -n --arg ip "$result" '{"ip": $ip}'
-            return
-        fi
-    done
-    echo "{}"
+  fi
+
+  # 延迟评估：直连→ping 1.1.1.1；代理→TLS 连接时间
+  local latency=999
+  if [[ "$vantage" == "vps" ]]; then
+    if r=$(ping -n -c 3 -w 4 1.1.1.1 2>/dev/null | awk -F'/' '/^rtt/ {print int($5+0.5)}'); then
+      [[ -n "$r" ]] && latency="$r"
+    fi
+  else
+    if r=$(eval "curl -o /dev/null -s $pargs -w '%{time_connect}' https://www.cloudflare.com/cdn-cgi/trace" 2>/dev/null); then
+      latency=$(awk -v t="$r" 'BEGIN{printf("%d", (t*1000)+0.5)}')
+    fi
+  fi
+
+  # 评分（100 满分；尽量可解释）
+  local score=100 notes=()
+  [[ "$flag_proxy"  == "true" ]] && score=$((score-50)) && notes+=("flag_proxy")
+  [[ "$flag_hosting" == "true" ]] && score=$((score-10)) && notes+=("datacenter_ip")
+  [[ "${#dnsbl_hits[@]}" -gt 0 ]] && score=$((score-20*${#dnsbl_hits[@]})); (( score<40 )) && score=40 && notes+=("dnsbl")
+  if   (( latency>400 )); then score=$((score-20)); notes+=("high_latency")
+  elif (( latency>200 )); then score=$((score-10)); notes+=("mid_latency")
+  fi
+  # 简单 ASN 提示（常见云厂商减2 分，不拉太多）
+  if [[ "$asn" =~ (amazon|aws|google|gcp|microsoft|azure|alibaba|tencent|digitalocean|linode|vultr|hivelocity|ovh|hetzner|iij|ntt|cherry|choopa|leaseweb|contabo) ]]; then
+    score=$((score-2))
+  fi
+  (( score<0 )) && score=0
+  local grade="D"; ((score>=80)) && grade="A" || { ((score>=60)) && grade="B" || { ((score>=40)) && grade="C"; }; }
+
+  jq -n --arg ts "$(ts)" \
+        --arg vantage "$vantage" \
+        --arg ip "${ip:-}" --arg country "${country:-}" --arg city "${city:-}" \
+        --arg asn "${asn:-}" --arg isp "${isp:-}" --arg rdns "${rdns:-}" \
+        --argjson flags "{\"ipinfo\":$ok_ipinfo,\"ipsb\":$ok_ipsb,\"ipapi\":$ok_ipapi}" \
+        --argjson risk "$(jq -n --argjson proxy ${flag_proxy:-false} --argjson hosting ${flag_hosting:-false} --argjson mobile ${flag_mobile:-false} --argjson hits "$(printf '%s\n' "${dnsbl_hits[@]:-}" | jq -R -s 'split("\n")|map(select(length>0))')" '{proxy: $proxy, hosting: $hosting, mobile: $mobile, dnsbl_hits: $hits, tor: false}')" \
+        --argjson latency "${latency:-999}" \
+        --argjson score "${score}" --arg grade "$grade" \
+        --arg notes "$(IFS=,; echo "${notes[*]:-}")" '
+  {
+    detected_at: $ts,
+    vantage: $vantage,
+    ip: $ip, country: $country, city: $city,
+    asn: $asn, isp: $isp, rdns: ($rdns|select(.!="")),
+    source_flags: $flags,
+    risk: $risk,
+    latency_ms: $latency,
+    score: $score,
+    grade: $grade,
+    notes: ( ($notes|length>0) and ($notes!="") ? ($notes|split(",")|map(select(length>0))) : [] )
+  }'
 }
 
-rdns_lookup() { (dig -x "$1" +short 2>/dev/null | head -n1 | tr -d '\n') || echo ""; }
-
-tcp_connect_ms() {
-  local t; t=$(fetch "$1" "$2" -o /dev/null -w '%{time_connect}' || echo "99")
-  awk -v n="$t" 'BEGIN{printf "%.0f", n*1000}';
-}
-
-median() {
-  awk 'NF{a[++i]=$1} END{if(i==0){print ""} else {asort(a); mid=int((i+1)/2); if(i%2){print a[mid]} else {print int((a[mid]+a[mid+1])/2)}}}' <<<"$@";
-}
-
-check_tor_exit() {
-    local ip="$1"
-    local rev_ip; rev_ip=$(awk -F. '{print $4"."$3"."$2"."$1}' <<<"$ip")
-    # 使用 dnsel.torproject.org 进行检查
-    if dig +short "${rev_ip}.dnsel.torproject.org" A | grep -q "127.0.0.2"; then
-        echo "true"
+run_all(){
+  local did=0
+  if (( want_vps )); then
+    collect_one "vps" "" | tee "${STATUS_DIR}/ipq_vps.json" >/dev/null; did=1
+  fi
+  if (( want_proxy )); then
+    local purl="$(get_proxy_url)"
+    if [[ -n "$purl" && "$purl" != "null" ]]; then
+      local pargs; pargs="$(build_proxy_args "$purl")"
+      collect_one "proxy" "$pargs" | tee "${STATUS_DIR}/ipq_proxy.json" >/dev/null
     else
-        echo "false"
+      jq -n --arg ts "$(ts)" '{detected_at:$ts,vantage:"proxy",status:"not_configured"}' \
+        | tee "${STATUS_DIR}/ipq_proxy.json" >/dev/null
     fi
+    did=1
+  fi
+  jq -n --arg ts "$(ts)" --arg ver "ipq-1.0" '{last_run:$ts,version:$ver}' \
+    | tee "${STATUS_DIR}/ipq_meta.json" >/dev/null
+  chmod 644 "${STATUS_DIR}"/ipq_*.json 2>/dev/null || true
+  [[ $did -eq 1 ]]
 }
 
-rbl_hits() {
-    local ip="$1"; local count=0
-    local rev_ip; rev_ip=$(awk -F. '{print $4"."$3"."$2"."$1}' <<<"$ip")
-    for rbl in "${RBL_SOURCES[@]}"; do
-        if timeout 3 dig +short "${rev_ip}.${rbl}" A >/dev/null 2>&1; then
-            ((count++))
-        fi
-    done
-    echo "$count"
-}
+run_all || { log "IPQ failed"; exit 1; }
+log "IPQ done"
 
-# --- 评分模型 ---
-score_nettype() {
-  case "$1" in
-    residential) echo 100;; mobile) echo 90;; hosting) echo 60;; *) echo 75;;
-  esac
-}
-asn_reputation_score() {
-  local asnname; asnname="$(tr '[:upper:]' '[:lower:]' <<<"${1:-unknown}")"
-  if grep -Eq 'google|amazon|aws|microsoft|azure|ovh|hetzner|digitalocean|linode|vultr' <<<"$asnname"; then echo 65;
-  elif grep -Eq 'm247|choopa|leaseweb|colo|data|server' <<<"$asnname"; then echo 55;
-  elif grep -Eq 'telecom|unicom|mobile|comcast|verizon|spectrum|at&t|bt|kddi|softbank|ntt|telstra|vodafone' <<<"$asnname"; then echo 95;
-  else echo 80; fi
-}
-score_blacklist() { [[ "${1:-0}" -eq 0 ]] && echo 100 || echo 10; }
-score_geo() {
-  case "$1" in high) echo 100;; medium) echo 70;; low) echo 40;; *) echo 60;; esac
-}
-score_rdns() { [[ -z "${1:-}" ]] && echo 60 || echo 90; }
-score_latency() {
-  local ms=${1:-999};
-  if (( ms <= 150 )); then echo 100; elif (( ms <= 300 )); then echo 85;
-  elif (( ms <= 600 )); then echo 65; else echo 40; fi
-}
-score_tor() { [[ "$1" == "false" ]] && echo 100 || echo 0; }
-
-combine_score() {
-    local s_bl="$1" s_nt="$2" s_asn="$3" s_geo="$4" s_rdns="$5" s_lat="$6" s_tor="$7"
-    local total_weight=$((WEIGHT_BLACKLIST + WEIGHT_NETTYPE + WEIGHT_ASN_REP + WEIGHT_GEO_CONSISTENCY + WEIGHT_RDNS + WEIGHT_LATENCY + WEIGHT_TOR_EXIT))
-    awk -v bl="$s_bl" -v nt="$s_nt" -v asn="$s_asn" -v geo="$s_geo" -v rdns="$s_rdns" -v lat="$s_lat" -v tor="$s_tor" \
-        -v w_bl="$WEIGHT_BLACKLIST" -v w_nt="$WEIGHT_NETTYPE" -v w_asn="$WEIGHT_ASN_REP" -v w_geo="$WEIGHT_GEO_CONSISTENCY" -v w_rdns="$WEIGHT_RDNS" -v w_lat="$WEIGHT_LATENCY" -v w_tor="$WEIGHT_TOR_EXIT" \
-        -v total_w="$total_weight" \
-        'BEGIN {
-            score = (bl*w_bl + nt*w_nt + asn*w_asn + geo*w_geo + rdns*w_rdns + lat*w_lat + tor*w_tor) / total_w;
-            printf "%.0f", score
-        }'
-}
-verdict_of() {
-  local s="$1";
-  if (( s >= 90 )); then echo "优秀"; elif (( s >= 70 )); then echo "良好";
-  elif (( s >= 50 )); then echo "一般"; else echo "较差"; fi
-}
-
-# --- 主探测函数 ---
-probe_one() {
-    local kind="$1"; local proxyflag="noproxy"
-    [[ "$kind" == "proxy" ]] && proxyflag="proxy"
-    log_info "Probing IP quality for target: $kind"
-
-    local ip_info1 ip_info2 ip
-    ip_info1=$(get_ip_info "$proxyflag")
-    ip=$(jq -r '.ip // empty' <<<"$ip_info1")
-    [[ -z "$ip" ]] && { log_error "Failed to get IP for $kind"; echo '{"score":0,"verdict":"未知"}'; return; }
-
-    # 获取第二数据源用于交叉验证
-    ip_info2=$(fetch "http://ip-api.com/json/${ip}?fields=status,country,city,as,asname,reverse,hosting,proxy,mobile" "nopropy")
-
-    # 提取核心信息
-    local country1 city1 asn1 asname1
-    country1=$(jq -r '.country // .country_code // empty' <<<"$ip_info1" | tr '[:lower:]' '[:upper:]')
-    city1=$(jq -r '.city // empty' <<<"$ip_info1")
-    asn1=$(jq -r '.asn // .as // empty' <<<"$ip_info1" | sed 's/AS//i')
-    asname1=$(jq -r '.as_name // .asname // .org // empty' <<<"$ip_info1")
-
-    local country2 hosting proxy mobile
-    country2=$(jq -r '.country // empty' <<<"$ip_info2" | tr '[:lower:]' '[:upper:]')
-    hosting=$(jq -r '.hosting // "false"' <<<"$ip_info2")
-    proxy=$(jq -r '.proxy // "false"' <<<"$ip_info2")
-    mobile=$(jq -r '.mobile // "false"' <<<"$ip_info2")
-
-    # 探测
-    local rdns; rdns=$(rdns_lookup "$ip")
-    local hits; hits=$(rbl_hits "$ip")
-    local is_tor; is_tor=$(check_tor_exit "$ip")
-    local latencies=()
-    for target in "${LATENCY_TARGETS[@]}"; do latencies+=("$(tcp_connect_ms "$target" "$proxyflag")"); done
-    local ms; ms=$(median "${latencies[@]}")
-
-    # 归一化标签
-    local netType="unknown"
-    if [[ "$mobile" == "true" ]]; then netType="mobile"
-    elif [[ "$hosting" == "false" && "$proxy" == "false" ]]; then netType="residential"
-    elif [[ "$hosting" == "true" ]]; then netType="hosting"; fi
-    local geoCons="low"
-    if [[ -n "$country1" && -n "$country2" ]]; then
-        [[ "$country1" == "$country2" ]] && geoCons="high" || geoCons="low"
-    elif [[ -n "$country1" || -n "$country2" ]]; then geoCons="medium"; fi
-
-    # 评分
-    local s_bl s_nt s_asn s_geo s_rdns s_lat s_tor
-    s_bl=$(score_blacklist "$hits")
-    s_nt=$(score_nettype "$netType")
-    s_asn=$(asn_reputation_score "$asname1")
-    s_geo=$(score_geo "$geoCons")
-    s_rdns=$(score_rdns "$rdns")
-    s_lat=$(score_latency "$ms")
-    s_tor=$(score_tor "$is_tor")
-    local score; score=$(combine_score "$s_bl" "$s_nt" "$s_asn" "$s_geo" "$s_rdns" "$s_lat" "$s_tor")
-    local verdict; verdict=$(verdict_of "$score")
-
-    # 组装判断依据
-    local reasons=()
-    [[ "$hits" -eq 0 ]] && reasons+=("未命中主流 RBL 黑名单") || reasons+=("命中 RBL 黑名单 (${hits}次)，风险较高")
-    [[ "$is_tor" == "true" ]] && reasons+=("检测为 TOR 出口节点，匿名性高但易被封禁")
-    [[ "$netType" == "hosting" ]] && reasons+=("数据中心出口，部分站点可能识别")
-    [[ "$netType" == "residential" ]] && reasons+=("网络类型为住宅，质量较高")
-    [[ "$geoCons" == "high" ]] && reasons+=("多源地理信息一致性高")
-    [[ -n "$rdns" ]] && reasons+=("存在有效的反向DNS解析 (rDNS)")
-
-    # 输出 JSON
-    jq -n \
-      --argjson score "$score" --arg verdict "$verdict" --arg last "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
-      --arg ip "$ip" --arg asn "$asn1" --arg asName "$asname1" \
-      --arg country "$country1" --arg city "$city1" \
-      --arg netType "$netType" --argjson blHits "$hits" --arg geoC "$geoCons" \
-      --arg rdns "$rdns" --argjson latMs "${ms:-null}" --argjson isTor "$is_tor" \
-      --argjson reasons "$(printf '%s\n' "${reasons[@]}" | jq -R . | jq -s .)" \
-      '{
-        score: $score, verdict: $verdict, lastCheckedAt: $last, ip: $ip,
-        asn: $asn, asName: $asName, geo: { country: $country, city: $city },
-        signals: {
-          netType: $netType, blacklistHits: $blHits, geoConsistency: $geoC,
-          rdns: ($rdns | if . == "" then null else . end), latencyMs: $latMs, isTorExit: $isTor
-        },
-        reasons: $reasons, source: $ENV.SCRIPT_VERSION
-      }'
-}
-
-# --- 执行与输出 ---
-main() {
-    log_info "Starting IP quality check for targets: $TARGETS"
-    if grep -q 'vps' <<<"$TARGETS"; then
-        local vps_json; vps_json=$(probe_one "vps" || echo '{"score":0,"verdict":"未知"}')
-        local score verdict; score=$(jq -r '.score' <<<"$vps_json"); verdict=$(jq -r '.verdict' <<<"$vps_json")
-        echo "$vps_json" > "${OUT_DIR}/ipq_vps.json"
-        printf "IP质量：%s分（%s），详情" "$score" "$verdict" > "${OUT_DIR}/ipq_vps.txt"
-        log_info "VPS check complete. Score: $score ($verdict)"
-    fi
-    if grep -q 'proxy' <<<"$TARGETS"; then
-        if [[ -z "$PROXY_URL" ]]; then
-            log_info "No proxy URL configured, skipping proxy check."
-            jq -n '{"score":null,"verdict":"未配置","lastCheckedAt":null}' > "${OUT_DIR}/ipq_proxy.json"
-            echo -n "IP质量：— (未配置)" > "${OUT_DIR}/ipq_proxy.txt"
-        else
-            local proxy_json; proxy_json=$(probe_one "proxy" || echo '{"score":0,"verdict":"未知"}')
-            local score verdict; score=$(jq -r '.score' <<<"$proxy_json"); verdict=$(jq -r '.verdict' <<<"$proxy_json")
-            echo "$proxy_json" > "${OUT_DIR}/ipq_proxy.json"
-            printf "IP质量：%s分（%s），详情" "$score" "$verdict" > "${OUT_DIR}/ipq_proxy.txt"
-            log_info "Proxy check complete. Score: $score ($verdict)"
-        fi
-    fi
-    log_info "IP quality check finished. Outputs are in $OUT_DIR"
-}
-
-main
 ```
 
 ## 3\. 终极版脚本的核心优化点
