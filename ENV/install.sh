@@ -403,14 +403,10 @@ create_directories() {
         fi
     done
 
-# 设置目录权限
-chmod 755 "${INSTALL_DIR}" "${CONFIG_DIR}" "${SCRIPTS_DIR}"
-# 证书目录：仅 root 与 nobody 所在组可访问
-chmod 750 "${CERT_DIR}"
-# 把证书目录的 group 调整为 nobody 对应的组（Debian 为 nogroup，RHEL 系为 nobody）
-NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
-chgrp "${NOBODY_GRP}" "${CERT_DIR}" || true
-
+    # 设置目录权限
+    chmod 755 "${INSTALL_DIR}" "${CONFIG_DIR}" "${SCRIPTS_DIR}"
+    chmod 750 "${CERT_DIR}"  # 证书目录权限更严格
+    chmod 755 "${TRAFFIC_DIR}" "${WEB_ROOT}"
     
     log_success "目录结构创建完成"
 }
@@ -1155,20 +1151,10 @@ generate_self_signed_cert() {
     ln -sf "${CERT_DIR}/self-signed.key" "${CERT_DIR}/current.key"
     ln -sf "${CERT_DIR}/self-signed.pem" "${CERT_DIR}/current.pem"
     
-# —— 原来有的 —— 
-chown root:root "${CERT_DIR}"/*.{key,pem}
-# 私钥严格权限、证书可读
-chmod 600 "${CERT_DIR}"/*.key
-chmod 644 "${CERT_DIR}"/*.pem
-
-# —— 追加（修复 nobody 无法读的问题）——
-NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
-# 让 nobody 所在组能“穿目录 + 读私钥”
-chgrp "${NOBODY_GRP}" "${CERT_DIR}" || true
-chgrp "${NOBODY_GRP}" "${CERT_DIR}"/self-signed.key "${CERT_DIR}"/self-signed.pem || true
-# 私钥改 640（root 可读写，组可读），证书仍 644
-chmod 640 "${CERT_DIR}"/self-signed.key
-# 软链指向的目标权限已覆盖；无需再对 symlink 本身 chmod
+    # 设置证书文件权限
+    chown root:root "${CERT_DIR}"/*.{key,pem}
+    chmod 600 "${CERT_DIR}"/*.key    # 私钥严格权限
+    chmod 644 "${CERT_DIR}"/*.pem    # 证书可读
     
     # 验证证书有效性
     if openssl x509 -in "${CERT_DIR}/current.pem" -noout -text >/dev/null 2>&1 && \
@@ -1893,9 +1879,7 @@ escape_for_sed() {
 # 配置Xray服务
 configure_xray() {
     log_info "配置Xray多协议服务..."
-	
-local NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
-  
+    
 # 验证必要变量 (增强版)
 local required_vars=(
     "UUID_VLESS_REALITY"
@@ -2186,11 +2170,12 @@ if [[ -n "$unreplaced_vars" ]]; then
     log_error "Xray配置中存在未替换的变量: $unreplaced_vars"
     return 1
 fi
- 
+
 log_success "Xray配置文件验证通过"
     
+    # 创建Xray systemd服务
     log_info "创建Xray系统服务..."
-cat > /etc/systemd/system/xray.service << XRAY_SERVICE
+    cat > /etc/systemd/system/xray.service << XRAY_SERVICE
 [Unit]
 Description=Xray Service
 Documentation=https://github.com/xtls
@@ -2198,7 +2183,32 @@ After=network.target nss-lookup.target
 
 [Service]
 User=nobody
-Group=${NOBODY_GRP}
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+ExecStart=/usr/local/bin/xray run -config ${CONFIG_DIR}/xray.json
+Restart=on-failure
+RestartPreventExitStatus=23
+LimitNPROC=10000
+LimitNOFILE=1000000
+
+[Install]
+WantedBy=multi-user.target
+XRAY_SERVICE
+    
+# ...
+log_success "Xray配置文件验证通过"
+    
+    # 创建Xray systemd服务
+    log_info "创建Xray系统服务..."
+    cat > /etc/systemd/system/xray.service << XRAY_SERVICE
+[Unit]
+Description=Xray Service
+Documentation=https://github.com/xtls
+After=network.target nss-lookup.target
+
+[Service]
+User=nobody
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
 NoNewPrivileges=true
@@ -2297,22 +2307,16 @@ configure_sing_box() {
       "tag": "direct"
     }
   ],
-"route": {
-  "rules": [
-    {
-      "ip_cidr": [
-        "127.0.0.0/8",
-        "10.0.0.0/8",
-        "172.16.0.0/12",
-        "192.168.0.0/16",
-        "::1/128",
-        "fc00::/7",
-        "fe80::/10"
-      ],
-      "outbound": "direct"
-    }
-  ]
-}
+  "route": {
+    "rules": [
+      {
+        "geoip": [
+          "private"
+        ],
+        "outbound": "direct"
+      }
+    ]
+  }
 }
 SINGBOX_CONFIG
     
