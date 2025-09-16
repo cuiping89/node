@@ -3420,8 +3420,8 @@ setup_traffic_monitoring() {
     # 初始化CSV文件
     initialize_traffic_logs
 	
-	# 创建favicon避免404错误
-touch "${WEB_ROOT}/favicon.ico"
+# 创建favicon.ico避免404错误
+touch "${WEB_ROOT:-/var/www/html}/favicon.ico"
     
     log_success "流量监控系统设置完成"
 }
@@ -3951,6 +3951,10 @@ execute_module4() {
         log_warn "流量采集初始化失败，但定时任务将重试"
     fi
     
+	# 修复favicon.ico 404错误
+touch "/var/www/html/favicon.ico"
+log_info "已创建favicon.ico文件"
+
     log_success "======== 模块4执行完成 ========"
     log_info "已完成："
     log_info "├─ Dashboard后端数据采集脚本"
