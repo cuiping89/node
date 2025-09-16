@@ -736,7 +736,7 @@ collect_system_info() {
             log_success "检测到Azure环境: $vm_size @ $region"
             
         # Vultr检测
-        elif [[ -f /etc/vultr ]] || curl -fsS --max-time 2 http://169.254.169.254/v1.json | grep -q vultr 2>/dev/null; then
+        elif [[ -f /etc/vultr ]] || curl -fsS --max-time 2 http://169.254.169.254/v1.json 2>/dev/null | grep -q vultr; then
             provider="Vultr"
             local vultr_info=$(curl -fsS --max-time 2 http://169.254.169.254/v1.json 2>/dev/null)
             if [[ -n "$vultr_info" ]]; then
@@ -7657,7 +7657,7 @@ case "$1" in
   # 更新系统
   update)
     log_info "更新EdgeBox..."
-    curl -fsSL https://raw.githubusercontent.com/cuiping89/node/refs/heads/main/ENV/install.sh | bash
+    curl -fsSL https://raw.githubusercontent.com/cuiping89/node/main/ENV/install.sh | bash
     ;;
   
   # 帮助信息
