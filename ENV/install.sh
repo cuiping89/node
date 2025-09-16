@@ -1911,22 +1911,47 @@ fi
 configure_xray() {
     log_info "配置Xray多协议服务..."
     
-    # 验证必要变量
-    local required_vars=(
-        "UUID_VLESS_REALITY"
-        "UUID_VLESS_GRPC"
-        "UUID_VLESS_WS"
-        "REALITY_PRIVATE_KEY"
-        "REALITY_SHORT_ID"
-        "PASSWORD_TROJAN"
-    )
+# 验证必要变量 (增强版)
+local required_vars=(
+    "UUID_VLESS_REALITY"
+    "UUID_VLESS_GRPC"  
+    "UUID_VLESS_WS"
+    "REALITY_PRIVATE_KEY"
+    "REALITY_SHORT_ID"
+    "PASSWORD_TROJAN"
+)
+
+log_info "检查必要变量设置..."
+local missing_vars=()
+
+for var in "${required_vars[@]}"; do
+    if [[ -z "${!var}" ]]; then
+        missing_vars+=("$var")
+        log_error "必要变量 $var 未设置"
+    else
+        log_success "✓ $var 已设置: ${!var:0:8}..."
+    fi
+done
+
+if [[ ${#missing_vars[@]} -gt 0 ]]; then
+    log_error "缺少必要变量: ${missing_vars[*]}"
+    log_info "尝试从配置文件重新加载变量..."
     
-    for var in "${required_vars[@]}"; do
-        if [[ -z "${!var}" ]]; then
-            log_error "必要变量 $var 未设置"
-            return 1
-        fi
-    done
+    # 尝试从server.json重新加载变量
+    if [[ -f "${CONFIG_DIR}/server.json" ]]; then
+        UUID_VLESS_REALITY=$(jq -r '.uuid.vless.reality // .uuid.vless' "${CONFIG_DIR}/server.json" 2>/dev/null)
+        UUID_VLESS_GRPC=$(jq -r '.uuid.vless.grpc // .uuid.vless' "${CONFIG_DIR}/server.json" 2>/dev/null)
+        UUID_VLESS_WS=$(jq -r '.uuid.vless.ws // .uuid.vless' "${CONFIG_DIR}/server.json" 2>/dev/null)
+        REALITY_PRIVATE_KEY=$(jq -r '.reality.private_key' "${CONFIG_DIR}/server.json" 2>/dev/null)
+        REALITY_SHORT_ID=$(jq -r '.reality.short_id' "${CONFIG_DIR}/server.json" 2>/dev/null)
+        PASSWORD_TROJAN=$(jq -r '.password.trojan' "${CONFIG_DIR}/server.json" 2>/dev/null)
+        
+        log_info "已从配置文件重新加载变量"
+    else
+        log_error "配置文件不存在，无法重新加载变量"
+        return 1
+    fi
+fi
     
     log_info "生成Xray配置文件..."
     
@@ -2106,11 +2131,27 @@ XRAY_CONFIG
         -e "s/__PASSWORD_TROJAN__/${PASSWORD_TROJAN}/g" \
         "${CONFIG_DIR}/xray.json"
     
-    # 验证JSON格式
-    if ! jq '.' "${CONFIG_DIR}/xray.json" >/dev/null 2>&1; then
-        log_error "Xray配置JSON格式错误"
-        return 1
-    fi
+# 验证JSON格式和配置内容
+if ! jq '.' "${CONFIG_DIR}/xray.json" >/dev/null 2>&1; then
+    log_error "Xray配置JSON格式错误"
+    return 1
+fi
+
+# 调试：显示实际生成的配置片段
+log_info "验证Xray配置文件..."
+if ! grep -q "127.0.0.1" "${CONFIG_DIR}/xray.json"; then
+    log_error "Xray配置中缺少监听地址"
+    return 1
+fi
+
+# 检查变量是否正确替换
+local unreplaced_vars=$(grep -o "__[A-Z_]*__" "${CONFIG_DIR}/xray.json" || true)
+if [[ -n "$unreplaced_vars" ]]; then
+    log_error "Xray配置中存在未替换的变量: $unreplaced_vars"
+    return 1
+fi
+
+log_success "Xray配置文件验证通过"
     
     # 创建Xray systemd服务
     log_info "创建Xray系统服务..."
@@ -2139,14 +2180,35 @@ XRAY_SERVICE
     systemctl daemon-reload
     systemctl enable xray >/dev/null 2>&1
     
-    # 启动Xray服务
-    if systemctl restart xray; then
-        log_success "Xray服务启动成功"
-    else
-        log_error "Xray服务启动失败"
-        systemctl status xray --no-pager -l
-        return 1
-    fi
+# 启动Xray服务 (增强调试版)
+log_info "启动Xray服务..."
+
+# 先测试配置文件
+log_info "测试Xray配置文件..."
+if /usr/local/bin/xray -test -config "${CONFIG_DIR}/xray.json"; then
+    log_success "Xray配置文件测试通过"
+else
+    log_error "Xray配置文件测试失败"
+    log_info "配置文件内容预览:"
+    head -20 "${CONFIG_DIR}/xray.json"
+    return 1
+fi
+
+# 创建日志目录
+mkdir -p /var/log/xray
+chown nobody:nogroup /var/log/xray 2>/dev/null || true
+
+# 启动服务
+if systemctl restart xray; then
+    log_success "Xray服务启动成功"
+else
+    log_error "Xray服务启动失败"
+    log_info "查看服务状态:"
+    systemctl status xray --no-pager -l
+    log_info "查看最近日志:"
+    journalctl -u xray -n 20 --no-pager
+    return 1
+fi
     
     # 验证Xray运行状态
     sleep 2
