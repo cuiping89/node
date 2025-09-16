@@ -1533,41 +1533,72 @@ install_sing_box() {
     else
         # 从GitHub下载sing-box
         local version="${SING_BOX_VERSION:-1.12.4}"
-        local arch="$(uname -m)"
-        local arch_tag=""
-        
-        # 架构映射
-        case "$arch" in
-            x86_64|amd64)   arch_tag="amd64" ;;
-            aarch64|arm64)  arch_tag="arm64" ;;
-            armv7l)         arch_tag="armv7" ;;
-            armv6l)         arch_tag="armv6" ;;
-            i386|i686)      arch_tag="386" ;;
-            *)
-                log_error "不支持的CPU架构: $arch"
-                return 1
-                ;;
-        esac
-        
-        local pkg_name="sing-box-${version}-linux-${arch_tag}.tar.gz"
-        local download_url="https://github.com/SagerNet/sing-box/releases/download/v${version}/${pkg_name}"
-        local temp_file="/tmp/${pkg_name}"
-        
-        log_info "下载sing-box v${version} (${arch_tag})..."
-        log_debug "下载URL: $download_url"
-        
-        # 下载文件
-        rm -f "$temp_file"
-        if ! curl -fL -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36" --connect-timeout 15 --retry 3 --retry-delay 2 -o "$temp_file" "$download_url"; then
-            log_error "下载失败: $download_url"
-            return 1
-        fi
-        
-        # 验证下载文件
-        if [[ ! -f "$temp_file" || ! -s "$temp_file" ]]; then
-            log_error "下载的文件无效或为空"
-            return 1
-        fi
+# 解析架构 → sing-box 资产名
+local arch="$(uname -m)"
+local arch_tag=""
+case "$arch" in
+  x86_64|amd64)   arch_tag="amd64" ;;
+  aarch64|arm64)  arch_tag="arm64" ;;
+  armv7l)         arch_tag="armv7" ;;
+  armv6l)         arch_tag="armv6" ;;
+  i386|i686)      arch_tag="386"  ;;
+  *) log_warn "未知架构: $arch，尝试使用 amd64"; arch_tag="amd64" ;;
+esac
+
+# 版本优先级：
+# 1) 若传入 SING_BOX_VERSION（可带/不带 v），则用它
+# 2) 否则通过 GitHub API 拿 latest tag
+# 3) API 不通时，解析 releases/latest 页面提取资产名中的版本
+# 4) 仍失败则回退到一个保守版本
+local ver_raw=""
+if [[ -n "${SING_BOX_VERSION:-}" ]]; then
+  ver_raw="${SING_BOX_VERSION#v}"
+else
+  ver_raw="$(
+    curl -fsSL \
+      -H 'Accept: application/vnd.github+json' \
+      -H 'User-Agent: EdgeBox/3.0 (installer)' \
+      'https://api.github.com/repos/SagerNet/sing-box/releases/latest' \
+      2>/dev/null | jq -r '.tag_name' 2>/dev/null | sed 's/^v//'
+  )"
+  if [[ -z "$ver_raw" || "$ver_raw" == "null" ]]; then
+    ver_raw="$(
+      curl -fsSL -H 'User-Agent: Mozilla/5.0 (EdgeBox)' \
+        'https://github.com/SagerNet/sing-box/releases/latest' 2>/dev/null \
+      | grep -oE 'sing-box-[0-9][0-9.]*-linux-' \
+      | head -1 | sed -E 's/sing-box-([0-9.]+)-linux-.*/\1/'
+    )"
+  fi
+  [[ -z "$ver_raw" ]] && ver_raw="1.8.10"
+fi
+local version="$ver_raw"
+
+# 组合资产与候选 URL（官方 tag、latest/download 双兜底）
+local asset="sing-box-${version}-linux-${arch_tag}.tar.gz"
+local urls=(
+  "https://github.com/SagerNet/sing-box/releases/download/v${version}/${asset}"
+  "https://github.com/SagerNet/sing-box/releases/latest/download/${asset}"
+)
+
+# 下载（多地址重试）
+local temp_file="/tmp/${asset}"
+rm -f "$temp_file"
+local ok=0
+for u in "${urls[@]}"; do
+  log_info "下载 sing-box: $u"
+  if curl -fL -A "Mozilla/5.0 (EdgeBox Installer)" --retry 3 --retry-delay 2 -o "$temp_file" "$u"; then
+    ok=1; break
+  else
+    log_warn "下载失败: $u"
+  fi
+done
+[[ "$ok" -ne 1 ]] && { log_error "所有 sing-box 下载地址均失败"; return 1; }
+
+# 验证下载文件
+if [[ ! -f "$temp_file" || ! -s "$temp_file" ]]; then
+  log_error "下载的文件无效或为空"
+  return 1
+fi
         
         log_info "解压并安装sing-box..."
         
@@ -2469,17 +2500,17 @@ start_and_verify_services() {
         attempts=$((attempts + 1))
         
         # 定义需要检查的所有端口和服务
-        local required_ports=(
-            "tcp:80:nginx" 
-            "tcp:443:nginx" 
-            "udp:443:sing-box" 
-            "udp:2053:sing-box"
-            "tcp:127.0.0.1:11443:xray" # Reality
-            "tcp:127.0.0.1:10085:xray" # gRPC
-            "tcp:127.0.0.1:10086:xray" # WS
-            "tcp:127.0.0.1:10143:xray" # Trojan
-        )
-        
+local required_ports=(
+  "tcp::80:nginx"
+  "tcp::443:nginx"
+  "udp::443:sing-box"
+  "udp::2053:sing-box"
+  "tcp:127.0.0.1:11443:xray"  # Reality
+  "tcp:127.0.0.1:10085:xray"  # gRPC
+  "tcp:127.0.0.1:10086:xray"  # WS
+  "tcp:127.0.0.1:10143:xray"  # Trojan
+)
+
         local listening_count=0
         local services_active_count=0
         
@@ -7823,13 +7854,19 @@ collect_one(){ # $1 vantage vps|proxy  $2 proxy-args
   local grade="D"; ((score>=80)) && grade="A" || { ((score>=60)) && grade="B" || { ((score>=40)) && grade="C"; }; }
 
 # --- JQ FIX: Use --slurpfile to read blacklist hits safely ---
+# [ANCHOR:JQ_BLACKLIST_BLOCK] Read DNSBL hits from plain-text via --rawfile (safe)
 local hits_file; hits_file=$(mktemp)
 printf '%s\n' "${hits[@]:-}" > "$hits_file"
-local risk_json; risk_json=$(jq -n -R -s --slurpfile bl "$hits_file" \
-        --argjson p $([[ "$f_proxy" == "true" ]] && echo true || echo false) \
-        --argjson h $([[ "$f_host"  == "true" ]] && echo true || echo false) \
-        --argjson m $([[ "$f_mob"   == "true" ]] && echo true || echo false) \
-        '{proxy:$p,hosting:$h,mobile:$m,dnsbl_hits:($bl[0]|split("\n")|map(select(. != ""))),tor:false}')
+
+# 用 --rawfile 把纯文本读入为字符串，再在 jq 里 split("\n")
+local risk_json; risk_json=$(
+  jq -n -R -s \
+     --rawfile bl "$hits_file" \
+     --argjson p $([[ "$f_proxy" == "true" ]] && echo true || echo false) \
+     --argjson h $([[ "$f_host"  == "true" ]] && echo true || echo false) \
+     --argjson m $([[ "$f_mob"   == "true" ]] && echo true || echo false) \
+     '{proxy:$p,hosting:$h,mobile:$m,dnsbl_hits:($bl|split("\n")|map(select(. != ""))),tor:false}'
+)
 rm -f "$hits_file"
 
   jq -n --arg ts "$(ts)" --arg V "$V" --arg ip "${ip:-}" --arg c "${country:-}" --arg city "${city:-}" \
