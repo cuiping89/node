@@ -2488,22 +2488,27 @@ start_and_verify_services() {
             systemctl is-active --quiet "$service" && services_active_count=$((services_active_count + 1))
         done
         
-        # 检查端口监听 (使用更精确的 ss 命令)
-        for p_info in "${required_ports[@]}"; do
-            IFS=':' read -r proto addr port proc <<< "$p_info"
-            local cmd=""
-            if [[ "$addr" == "127.0.0.1" ]]; then
-                cmd="ss -H -tlnp sport = :$port and src = $addr" # 仅限TCP和本地回环地址
-            elif [[ "$proto" == "tcp" ]]; then
-                cmd="ss -H -tlnp sport = :$port"
-            else
-                cmd="ss -H -ulnp sport = :$port"
-            fi
+# 检查端口监听 (使用更精确的 ss 命令)
+for p_info in "${required_ports[@]}"; do
+    IFS=':' read -r proto addr port proc <<< "$p_info"
+    # [FIX:PORT_PARSE_COMPAT] 支持三段式 “tcp:80:nginx” → 四段含义
+    if [[ -z "$proc" ]]; then
+        proc="$port"; port="$addr"; addr="";
+    fi
 
-            if $cmd | grep -q "$proc"; then
-                listening_count=$((listening_count + 1))
-            fi
-        done
+    local cmd=""
+    if [[ "$addr" == "127.0.0.1" ]]; then
+        cmd="ss -H -tlnp sport = :$port and src = $addr" # 仅限TCP和本地回环
+    elif [[ "$proto" == "tcp" ]]; then
+        cmd="ss -H -tlnp sport = :$port"
+    else
+        cmd="ss -H -ulnp sport = :$port"
+    fi
+
+    if $cmd | grep -q "$proc"; then
+        listening_count=$((listening_count + 1))
+    fi
+done
         
         # 如果全部成功，则跳出循环
         if [[ $services_active_count -eq ${#services[@]} && $listening_count -eq ${#required_ports[@]} ]]; then
@@ -2526,20 +2531,26 @@ start_and_verify_services() {
         fi
     done
     
-    for p_info in "${required_ports[@]}"; do
-        IFS=':' read -r proto addr port proc <<< "$p_info"
-        local cmd=""
-        if [[ "$addr" == "127.0.0.1" ]]; then
-            cmd="ss -H -tlnp sport = :$port and src = $addr"
-        elif [[ "$proto" == "tcp" ]]; then
-            cmd="ss -H -tlnp sport = :$port"
-        else
-            cmd="ss -H -ulnp sport = :$port"
-        fi
-        if ! $cmd | grep -q "$proc"; then
-            log_error "✗ 端口 $proto:$addr:$port ($proc) 未监听到"
-        fi
-    done
+for p_info in "${required_ports[@]}"; do
+    IFS=':' read -r proto addr port proc <<< "$p_info"
+    # [FIX:PORT_PARSE_COMPAT] 同上：三段式兼容
+    if [[ -z "$proc" ]]; then
+        proc="$port"; port="$addr"; addr="";
+    fi
+
+    local cmd=""
+    if [[ "$addr" == "127.0.0.1" ]]; then
+        cmd="ss -H -tlnp sport = :$port and src = $addr"
+    elif [[ "$proto" == "tcp" ]]; then
+        cmd="ss -H -tlnp sport = :$port"
+    else
+        cmd="ss -H -ulnp sport = :$port"
+    fi
+
+    if ! $cmd | grep -q "$proc"; then
+        log_error "✗ 端口 $proto:$addr:$port ($proc) 未监听到"
+    fi
+done
     
     return 1
 }
@@ -7811,15 +7822,15 @@ collect_one(){ # $1 vantage vps|proxy  $2 proxy-args
   (( score<0 )) && score=0
   local grade="D"; ((score>=80)) && grade="A" || { ((score>=60)) && grade="B" || { ((score>=40)) && grade="C"; }; }
 
-  # --- JQ FIX: Use --slurpfile to read blacklist hits safely ---
-  local hits_file; hits_file=$(mktemp)
-  printf '%s\n' "${hits[@]:-}" > "$hits_file"
-  local risk_json; risk_json=$(jq -n -R -s --slurpfile bl "$hits_file" \
-          --argjson p $([[ "$f_proxy" == "true" ]] && echo true || echo false) \
-          --argjson h $([[ "$f_host"  == "true" ]] && echo true || echo false) \
-          --argjson m $([[ "$f_mob"   == "true" ]] && echo true || echo false) \
-          '{proxy:$p,hosting:$h,mobile:$m,dnsbl_hits:($bl[0]|split("\n")|map(select(. != ""))),tor:false}')
-  rm -f "$hits_file"
+# --- JQ FIX: Use --slurpfile to read blacklist hits safely ---
+local hits_file; hits_file=$(mktemp)
+printf '%s\n' "${hits[@]:-}" > "$hits_file"
+local risk_json; risk_json=$(jq -n -R -s --slurpfile bl "$hits_file" \
+        --argjson p $([[ "$f_proxy" == "true" ]] && echo true || echo false) \
+        --argjson h $([[ "$f_host"  == "true" ]] && echo true || echo false) \
+        --argjson m $([[ "$f_mob"   == "true" ]] && echo true || echo false) \
+        '{proxy:$p,hosting:$h,mobile:$m,dnsbl_hits:($bl[0]|split("\n")|map(select(. != ""))),tor:false}')
+rm -f "$hits_file"
 
   jq -n --arg ts "$(ts)" --arg V "$V" --arg ip "${ip:-}" --arg c "${country:-}" --arg city "${city:-}" \
         --arg asn "${asn:-}" --arg isp "${isp:-}" --arg rdns "${rdns:-}" \
