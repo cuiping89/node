@@ -1482,13 +1482,21 @@ install_xray() {
     else
         log_info "从官方仓库下载并安装Xray..."
         
-        # 使用官方安装脚本
-        if curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh | bash; then
-            log_success "Xray安装完成"
-        else
-            log_error "Xray安装失败"
-            return 1
-        fi
+# 使用官方安装脚本（多源回退，修复 404）
+if curl -fsSL --retry 3 --retry-delay 2 -A "Mozilla/5.0" \
+    https://raw.githubusercontent.com/XTLS/Xray-install/main/install-release.sh | bash; then
+    log_success "Xray安装完成"
+elif curl -fsSL --retry 3 --retry-delay 2 -A "Mozilla/5.0" \
+    https://fastly.jsdelivr.net/gh/XTLS/Xray-install@main/install-release.sh | bash; then
+    log_success "Xray安装完成（jsdelivr镜像）"
+elif curl -fsSL --retry 3 --retry-delay 2 -A "Mozilla/5.0" \
+    https://ghproxy.com/https://raw.githubusercontent.com/XTLS/Xray-install/main/install-release.sh | bash; then
+    log_success "Xray安装完成（ghproxy镜像）"
+else
+    log_error "Xray安装失败（安装脚本 404/不可达）"
+    return 1
+fi
+
     fi
     
     # 停用官方的systemd服务（使用自定义配置）
@@ -1575,10 +1583,12 @@ local version="$ver_raw"
 
 # 组合资产与候选 URL（官方 tag、latest/download 双兜底）
 local asset="sing-box-${version}-linux-${arch_tag}.tar.gz"
-local urls=(
-  "https://github.com/SagerNet/sing-box/releases/download/v${version}/${asset}"
-  "https://github.com/SagerNet/sing-box/releases/latest/download/${asset}"
+DOWNLOAD_URLS=(
+  "https://github.com/SagerNet/sing-box/releases/download/v${version}/${pkg_name}"
+  "https://ghproxy.com/https://github.com/SagerNet/sing-box/releases/download/v${version}/${pkg_name}"
+  "https://download.nju.edu.cn/github-release/SagerNet/sing-box/LatestRelease/${pkg_name}"
 )
+
 
 # 支持可选代理（如果你设置了 GH_PROXY=你的中转前缀）
 if [[ -n "${GH_PROXY:-}" ]]; then
