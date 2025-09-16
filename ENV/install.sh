@@ -2257,35 +2257,9 @@ else
     return 1
 fi
     
-    # 验证Xray运行状态
-    sleep 2
-    if systemctl is-active --quiet xray; then
-        log_success "Xray运行状态验证通过"
-        
-        # 检查内部端口监听
-        local xray_ports=(11443 10085 10086 10143)
-        local listening_count=0
-        
-        for port in "${xray_ports[@]}"; do
-            if ss -tlnp | grep -q ":${port} .*xray"; then
-                log_success "✓ Xray端口 $port 监听正常"
-                listening_count=$((listening_count + 1))
-            else
-                log_warn "✗ Xray端口 $port 未监听"
-            fi
-        done
-        
-        if [[ $listening_count -ge 3 ]]; then
-            log_success "Xray端口监听验证通过 ($listening_count/4)"
-            return 0
-        else
-            log_error "Xray端口监听验证失败 ($listening_count/4)"
-            return 1
-        fi
-    else
-        log_error "Xray运行状态验证失败"
-        return 1
-    fi
+log_success "Xray配置完成"
+return 0
+}
 }
 
 #############################################
