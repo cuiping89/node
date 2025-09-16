@@ -2430,13 +2430,19 @@ generate_subscription() {
         subscription_links+="tuic://${uuid_tuic}:${encoded_tuic_password}@${server_ip}:2053?congestion_control=bbr&alpn=h3&sni=${server_ip}&allowInsecure=1#EdgeBox-TUIC\n"
     fi
     
-    # 保存订阅文件
-    mkdir -p "${WEB_ROOT}"
-    printf "%b" "$subscription_links" > "${CONFIG_DIR}/subscription.txt"
-    cp "${CONFIG_DIR}/subscription.txt" "${WEB_ROOT}/sub"
-    
-    # 设置文件权限
-    chmod 644 "${CONFIG_DIR}/subscription.txt" "${WEB_ROOT}/sub"
+# 保存订阅文件（改为软链同步到 Web，避免 "are the same file"）
+mkdir -p "${WEB_ROOT}"
+printf "%b" "$subscription_links" > "${CONFIG_DIR}/subscription.txt"
+
+# 将 Web 目录的 /sub 作为 subscription.txt 的软链接
+# 若已存在普通文件或错误链接，先移除再创建
+if [[ -e "${WEB_ROOT}/sub" && ! -L "${WEB_ROOT}/sub" ]]; then
+  rm -f "${WEB_ROOT}/sub"
+fi
+ln -sfn "${CONFIG_DIR}/subscription.txt" "${WEB_ROOT}/sub"
+
+# 设置权限（chmod 作用于目标文件；软链本身无需 chmod）
+chmod 644 "${CONFIG_DIR}/subscription.txt"
     
     # 生成Base64编码的订阅（可选）
     if command -v base64 >/dev/null 2>&1; then
