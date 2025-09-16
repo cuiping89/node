@@ -1872,41 +1872,19 @@ NGINX_CONFIG
         return 1
     fi
     
-# 验证Xray运行状态 (修复版)
-sleep 5
-if systemctl is-active --quiet xray; then
-    log_success "Xray运行状态验证通过"
+# 验证Nginx运行状态
+sleep 2
+if systemctl is-active --quiet nginx; then
+    log_success "Nginx运行状态验证通过"
     
-    # 检查内部端口监听 (修复的端口检查逻辑)
-    local xray_ports=(11443 10085 10086 10143)
-    local listening_count=0
+    # 显示监听端口
+    local listening_ports
+    listening_ports=$(ss -tlnp | grep nginx | awk '{print $4}' | cut -d: -f2 | sort -u | tr '\n' ' ')
+    log_info "Nginx监听端口: $listening_ports"
     
-    for port in "${xray_ports[@]}"; do
-        # 修复：移除多余空格，使用多种检查方法
-        if netstat -tlnp 2>/dev/null | grep -q ":$port " || \
-           ss -tlnp 2>/dev/null | grep -q "127\.0\.0\.1:$port\b" || \
-           timeout 2 nc -z 127.0.0.1 "$port" 2>/dev/null; then
-            log_success "✓ Xray内部端口$port监听正常"
-            listening_count=$((listening_count + 1))
-        else
-            log_warn "✗ Xray内部端口$port未监听"
-        fi
-    done
-    
-    # 修复：宽松验证策略
-    if [[ $listening_count -ge 3 ]]; then
-        log_success "Xray运行状态验证通过 ($listening_count/4 端口正常)"
-        return 0
-    elif [[ $listening_count -ge 2 ]]; then
-        log_warn "Xray运行状态部分通过 ($listening_count/4 端口正常)"
-        log_info "某些端口可能需要更长时间启动，继续安装"
-        return 0
-    else
-        log_error "Xray运行状态验证失败 (仅$listening_count/4 端口正常)"
-        return 1
-    fi
+    return 0
 else
-    log_error "Xray运行状态验证失败"
+    log_error "Nginx运行状态验证失败"
     return 1
 fi
 }
@@ -2582,128 +2560,89 @@ generate_subscription() {
 
 # 启动所有服务并验证
 start_and_verify_services() {
-    log_info "启动EdgeBox核心服务..."
+    log_info "启动并验证EdgeBox核心服务..."
     
-    # 重新加载systemd配置
-    systemctl daemon-reload
-    
-    # 启用所有服务
-    local services=(nginx xray sing-box)
+    local services=(xray sing-box nginx)
+    local all_ok=true
+
+    # 1. 重启所有服务 (按后端到前端的顺序)
     for service in "${services[@]}"; do
-        if systemctl enable "$service" >/dev/null 2>&1; then
-            log_success "✓ $service 已设置为开机自启"
+        if systemctl restart "$service"; then
+            log_success "✓ $service 服务已重启"
         else
-            log_warn "✗ $service 开机自启设置失败"
+            log_error "✗ $service 服务启动失败"
+            systemctl status "$service" --no-pager -l
+            all_ok=false
         fi
+        sleep 1 # 短暂间隔
     done
+
+    [[ "$all_ok" == "false" ]] && return 1
+
+    log_info "等待服务稳定并开始验证 (最多等待15秒)..."
+
+    # 2. 循环验证服务和端口，解决竞态条件
+    local attempts=0
+    local max_attempts=15
+    local services_active=false
+    local ports_listening=false
+
+    while [[ $attempts -lt $max_attempts ]]; do
+        attempts=$((attempts + 1))
+        
+        # 验证服务是否都处于 active 状态
+        local active_count=0
+        for service in "${services[@]}"; do
+            systemctl is-active --quiet "$service" && active_count=$((active_count + 1))
+        done
+        [[ $active_count -eq ${#services[@]} ]] && services_active=true
+
+        # 验证关键端口是否都已监听
+        local required_ports=(
+            "tcp:80:nginx" 
+            "tcp:443:nginx" 
+            "udp:443:sing-box" 
+            "udp:2053:sing-box"
+            "tcp:11443:xray" # Reality
+            "tcp:10085:xray" # gRPC
+            "tcp:10086:xray" # WS
+            "tcp:10143:xray" # Trojan
+        )
+        local listening_count=0
+        for p_info in "${required_ports[@]}"; do
+            IFS=':' read -r proto port proc <<< "$p_info"
+            # 使用简化的端口检查
+            if [[ "$proto" == "tcp" ]]; then
+                ss -tlnp | grep -q ":$port.*$proc" && listening_count=$((listening_count + 1))
+            else
+                ss -ulnp | grep -q ":$port.*$proc" && listening_count=$((listening_count + 1))
+            fi
+        done
+        [[ $listening_count -ge 6 ]] && ports_listening=true # 至少6个端口正常
+
+        # 如果全部成功，则跳出循环
+        if [[ "$services_active" == true && "$ports_listening" == true ]]; then
+            log_success "所有服务和端口验证通过！"
+            return 0
+        fi
+
+        echo -n "."
+        sleep 1
+    done
+
+    # 3. 如果超时，则报告详细的失败信息
+    log_error "服务启动验证超时！"
     
-    # 启动服务（有依赖顺序）
-    log_info "按顺序启动服务..."
-    
-    # 1. 先启动Nginx
-    if systemctl restart nginx; then
-        log_success "✓ Nginx 启动成功"
-    else
-        log_error "✗ Nginx 启动失败"
-        systemctl status nginx --no-pager -l
-        return 1
-    fi
-    
-    sleep 2
-    
-    # 2. 启动Xray
-    if systemctl restart xray; then
-        log_success "✓ Xray 启动成功"
-    else
-        log_error "✗ Xray 启动失败"
-        systemctl status xray --no-pager -l
-        return 1
-    fi
-    
-    sleep 2
-    
-    # 3. 启动sing-box
-    if systemctl restart sing-box; then
-        log_success "✓ sing-box 启动成功"
-    else
-        log_error "✗ sing-box 启动失败"
-        systemctl status sing-box --no-pager -l
-        return 1
-    fi
-    
-    # 等待服务稳定
-    log_info "等待服务稳定..."
-    sleep 5
-    
-    # 验证所有服务状态
-    log_info "验证服务运行状态..."
-    local failed_services=()
-    
+    log_info "最终状态检查:"
     for service in "${services[@]}"; do
         if systemctl is-active --quiet "$service"; then
-            log_success "✓ $service 运行正常"
+            log_success "✓ 服务 $service 状态: active"
         else
-            log_error "✗ $service 运行异常"
-            failed_services+=("$service")
+            log_error "✗ 服务 $service 状态: $(systemctl is-active "$service")"
         fi
     done
     
-    # 验证端口监听
-    log_info "验证端口监听状态..."
-    
-    # HTTP端口验证
-    if ss -tlnp | grep -q ":80.*nginx"; then
-        log_success "✓ HTTP端口80监听正常"
-    else
-        log_warn "✗ HTTP端口80未监听"
-    fi
-    
-    # HTTPS端口验证（TCP）
-    if ss -tlnp | grep -q ":443.*nginx"; then
-        log_success "✓ HTTPS端口443(TCP)监听正常"
-    else
-        log_warn "✗ HTTPS端口443(TCP)未监听"
-    fi
-    
-    # UDP端口验证
-    if ss -ulnp | grep -q ":443.*sing-box"; then
-        log_success "✓ Hysteria2端口443(UDP)监听正常"
-    else
-        log_warn "✗ Hysteria2端口443(UDP)未监听"
-    fi
-    
-    if ss -ulnp | grep -q ":2053.*sing-box"; then
-        log_success "✓ TUIC端口2053(UDP)监听正常"
-    else
-        log_warn "✗ TUIC端口2053(UDP)未监听"
-    fi
-    
- # Xray内部端口验证
-local xray_internal_ports=(11443 10085 10086 10143)
-local xray_listening=0
-
-for port in "${xray_internal_ports[@]}"; do
-    # 修复：使用多种方法检查端口，移除错误的正则表达式
-    if netstat -tlnp 2>/dev/null | grep -q ":$port " || \
-       ss -tlnp 2>/dev/null | grep -q "127\.0\.0\.1:$port\b" || \
-       timeout 2 nc -z 127.0.0.1 "$port" 2>/dev/null; then
-        log_success "✓ Xray内部端口$port监听正常"
-        xray_listening=$((xray_listening + 1))
-    else
-        log_warn "✗ Xray内部端口$port未监听"
-    fi
-done
-
-# 修复：宽松验证条件
-if [[ ${#failed_services[@]} -eq 0 && $xray_listening -ge 2 ]]; then
-    log_success "所有服务启动验证通过"
-    return 0
-else
-    log_error "服务启动验证失败:"
-    [[ ${#failed_services[@]} -gt 0 ]] && log_error "  失败服务: ${failed_services[*]}"
-    [[ $xray_listening -lt 2 ]] && log_error "  Xray内部端口监听不足: $xray_listening/4"
     return 1
-fi
 }
 
 #############################################
@@ -2730,15 +2669,7 @@ execute_module3() {
         return 1
     fi
     
-    # 任务3：配置Nginx
-    if configure_nginx; then
-        log_success "✓ Nginx配置完成"
-    else
-        log_error "✗ Nginx配置失败"
-        return 1
-    fi
-    
-    # 任务4：配置Xray
+    # 任务3：配置Xray (先配置后端服务)
     if configure_xray; then
         log_success "✓ Xray配置完成"
     else
@@ -2746,11 +2677,19 @@ execute_module3() {
         return 1
     fi
     
-    # 任务5：配置sing-box
+    # 任务4：配置sing-box (再配置后端服务)
     if configure_sing_box; then
         log_success "✓ sing-box配置完成"
     else
         log_error "✗ sing-box配置失败"
+        return 1
+    fi
+    
+    # 任务5：配置Nginx (最后配置前端代理)
+    if configure_nginx; then
+        log_success "✓ Nginx配置完成"
+    else
+        log_error "✗ Nginx配置失败"
         return 1
     fi
     
