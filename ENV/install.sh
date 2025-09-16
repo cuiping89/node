@@ -2132,17 +2132,42 @@ log_info "├─ REALITY_SHORT_ID: $REALITY_SHORT_ID"
 log_info "├─ PASSWORD_TROJAN: ${PASSWORD_TROJAN:0:8}..."
 log_info "└─ CERT_DIR: $CERT_DIR"
 
-# 执行替换
+# 执行替换 (修复特殊字符处理)
+log_info "开始替换配置文件占位符..."
+
+# 使用安全的sed替换方法，避免特殊字符问题
+# 方法：使用不同的分隔符，并对特殊字符进行转义
+
+# 转义函数：处理sed中的特殊字符
+escape_for_sed() {
+    local input="$1"
+    # 转义 & / \ $ ^ * [ ] . 等特殊字符
+    echo "$input" | sed 's/[[\.*^$()+?{|]/\\&/g'
+}
+
+# 安全替换各个变量
+local safe_uuid_reality=$(escape_for_sed "$UUID_VLESS_REALITY")
+local safe_uuid_grpc=$(escape_for_sed "$UUID_VLESS_GRPC")
+local safe_uuid_ws=$(escape_for_sed "$UUID_VLESS_WS")
+local safe_reality_private=$(escape_for_sed "$REALITY_PRIVATE_KEY")
+local safe_reality_short=$(escape_for_sed "$REALITY_SHORT_ID")
+local safe_password_trojan=$(escape_for_sed "$PASSWORD_TROJAN")
+local safe_cert_pem=$(escape_for_sed "${CERT_DIR}/current.pem")
+local safe_cert_key=$(escape_for_sed "${CERT_DIR}/current.key")
+
+# 执行安全的替换操作
 sed -i \
-    -e "s/__UUID_VLESS_REALITY__/${UUID_VLESS_REALITY}/g" \
-    -e "s/__UUID_VLESS_GRPC__/${UUID_VLESS_GRPC}/g" \
-    -e "s/__UUID_VLESS_WS__/${UUID_VLESS_WS}/g" \
-    -e "s/__REALITY_PRIVATE_KEY__/${REALITY_PRIVATE_KEY}/g" \
-    -e "s/__REALITY_SHORT_ID__/${REALITY_SHORT_ID}/g" \
-    -e "s|__CERT_PEM__|${CERT_DIR}/current.pem|g" \
-    -e "s|__CERT_KEY__|${CERT_DIR}/current.key|g" \
-    -e "s/__PASSWORD_TROJAN__/${PASSWORD_TROJAN}/g" \
+    -e "s#__UUID_VLESS_REALITY__#${safe_uuid_reality}#g" \
+    -e "s#__UUID_VLESS_GRPC__#${safe_uuid_grpc}#g" \
+    -e "s#__UUID_VLESS_WS__#${safe_uuid_ws}#g" \
+    -e "s#__REALITY_PRIVATE_KEY__#${safe_reality_private}#g" \
+    -e "s#__REALITY_SHORT_ID__#${safe_reality_short}#g" \
+    -e "s#__CERT_PEM__#${safe_cert_pem}#g" \
+    -e "s#__CERT_KEY__#${safe_cert_key}#g" \
+    -e "s#__PASSWORD_TROJAN__#${safe_password_trojan}#g" \
     "${CONFIG_DIR}/xray.json"
+
+log_success "配置文件占位符替换完成"
 
 # 验证替换结果
 local unreplaced_vars=$(grep -o "__[A-Z_]*__" "${CONFIG_DIR}/xray.json" || true)
