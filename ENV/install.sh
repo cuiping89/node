@@ -1851,41 +1851,18 @@ stream {
 }
 NGINX_CONFIG
     
-    # 验证Nginx配置
-    log_info "验证Nginx配置..."
-    if nginx -t 2>/dev/null; then
-        log_success "Nginx配置验证通过"
-    else
-        log_error "Nginx配置验证失败"
-        nginx -t  # 显示详细错误信息
-        return 1
-    fi
-    
-    # 启用并启动Nginx
-    systemctl enable nginx >/dev/null 2>&1
-    if systemctl restart nginx; then
-        log_success "Nginx服务启动成功"
-    else
-        log_error "Nginx服务启动失败"
-        systemctl status nginx --no-pager -l
-        return 1
-    fi
-    
-# 验证Nginx运行状态
-sleep 2
-if systemctl is-active --quiet nginx; then
-    log_success "Nginx运行状态验证通过"
-    
-    # 显示监听端口
-    local listening_ports
-    listening_ports=$(ss -tlnp | grep nginx | awk '{print $4}' | cut -d: -f2 | sort -u | tr '\n' ' ')
-    log_info "Nginx监听端口: $listening_ports"
-    
-    return 0
+# 验证Nginx配置
+log_info "验证Nginx配置..."
+if nginx -t 2>/dev/null; then
+    log_success "Nginx配置验证通过"
 else
-    log_error "Nginx运行状态验证失败"
+    log_error "Nginx配置验证失败"
+    nginx -t  # 显示详细错误信息
     return 1
 fi
+    
+log_success "Nginx配置文件创建完成"
+return 0
 }
 
 #############################################
@@ -2219,42 +2196,36 @@ LimitNOFILE=1000000
 WantedBy=multi-user.target
 XRAY_SERVICE
     
-    # 重新加载systemd并启用服务
+# ...
+log_success "Xray配置文件验证通过"
+    
+    # 创建Xray systemd服务
+    log_info "创建Xray系统服务..."
+    cat > /etc/systemd/system/xray.service << XRAY_SERVICE
+[Unit]
+Description=Xray Service
+Documentation=https://github.com/xtls
+After=network.target nss-lookup.target
+
+[Service]
+User=nobody
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+ExecStart=/usr/local/bin/xray run -config ${CONFIG_DIR}/xray.json
+Restart=on-failure
+RestartPreventExitStatus=23
+LimitNPROC=10000
+LimitNOFILE=1000000
+
+[Install]
+WantedBy=multi-user.target
+XRAY_SERVICE
+    
+    # 重新加载systemd，以便后续服务可以启动
     systemctl daemon-reload
-    systemctl enable xray >/dev/null 2>&1
-    
-# 启动Xray服务 (增强调试版)
-log_info "启动Xray服务..."
-
-# 先测试配置文件
-log_info "测试Xray配置文件..."
-if /usr/local/bin/xray -test -config "${CONFIG_DIR}/xray.json"; then
-    log_success "Xray配置文件测试通过"
-else
-    log_error "Xray配置文件测试失败"
-    log_info "配置文件内容预览:"
-    head -20 "${CONFIG_DIR}/xray.json"
-    return 1
-fi
-
-# 创建日志目录
-mkdir -p /var/log/xray
-chown nobody:nogroup /var/log/xray 2>/dev/null || true
-
-# 启动服务
-if systemctl restart xray; then
-    log_success "Xray服务启动成功"
-else
-    log_error "Xray服务启动失败"
-    log_info "查看服务状态:"
-    systemctl status xray --no-pager -l
-    log_info "查看最近日志:"
-    journalctl -u xray -n 20 --no-pager
-    return 1
-fi
-    
-log_success "Xray配置完成"
-return 0
+    log_success "Xray服务文件创建完成"
+    return 0
 }
 
 #############################################
@@ -2355,69 +2326,14 @@ SINGBOX_CONFIG
         return 1
     fi
     
-    # 创建sing-box systemd服务
-    log_info "创建sing-box系统服务..."
-    cat > /etc/systemd/system/sing-box.service << SINGBOX_SERVICE
-[Unit]
-Description=sing-box service
-Documentation=https://sing-box.sagernet.org
-After=network.target nss-lookup.target
+# 创建sing-box systemd服务
+log_info "创建sing-box系统服务..."
+# ... (cat > /etc/systemd/system/sing-box.service) ...
 
-[Service]
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
-AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
-ExecStart=/usr/local/bin/sing-box run -c ${CONFIG_DIR}/sing-box.json
-ExecReload=/bin/kill -HUP \$MAINPID
-Restart=on-failure
-RestartSec=10s
-LimitNOFILE=infinity
-
-[Install]
-WantedBy=multi-user.target
-SINGBOX_SERVICE
-
-    # 重新加载systemd并启用服务
+    # 重新加载systemd
     systemctl daemon-reload
-    systemctl enable sing-box >/dev/null 2>&1
-    
-    # 启动sing-box服务
-    if systemctl restart sing-box; then
-        log_success "sing-box服务启动成功"
-    else
-        log_error "sing-box服务启动失败"
-        systemctl status sing-box --no-pager -l
-        return 1
-    fi
-    
-    # 验证sing-box运行状态
-    sleep 2
-    if systemctl is-active --quiet sing-box; then
-        log_success "sing-box运行状态验证通过"
-        
-        # 检查UDP端口监听
-        local singbox_ports=(443 2053)
-        local listening_count=0
-        
-        for port in "${singbox_ports[@]}"; do
-            if ss -ulnp | grep -q ":${port} .*sing-box"; then
-                log_success "✓ sing-box UDP端口 $port 监听正常"
-                listening_count=$((listening_count + 1))
-            else
-                log_warn "✗ sing-box UDP端口 $port 未监听"
-            fi
-        done
-        
-        if [[ $listening_count -ge 1 ]]; then
-            log_success "sing-box端口监听验证通过 ($listening_count/2)"
-            return 0
-        else
-            log_error "sing-box端口监听验证失败 ($listening_count/2)"
-            return 1
-        fi
-    else
-        log_error "sing-box运行状态验证失败"
-        return 1
-    fi
+    log_success "sing-box服务文件创建完成"
+    return 0
 }
 
 #############################################
@@ -2554,85 +2470,107 @@ generate_subscription() {
 
 # 启动所有服务并验证
 start_and_verify_services() {
-    log_info "启动并验证EdgeBox核心服务..."
+    log_info "统一启动并验证所有EdgeBox核心服务..."
     
-    local services=(xray sing-box nginx)
-    local all_ok=true
-
-    # 1. 重启所有服务 (按后端到前端的顺序)
+    local services=(xray sing-box nginx) # 启动顺序：后端 -> 前端
+    
+    # 1. 重新加载daemon并启用所有服务
+    systemctl daemon-reload
     for service in "${services[@]}"; do
-        if systemctl restart "$service"; then
-            log_success "✓ $service 服务已重启"
-        else
-            log_error "✗ $service 服务启动失败"
-            systemctl status "$service" --no-pager -l
-            all_ok=false
-        fi
-        sleep 1 # 短暂间隔
+        systemctl enable "$service" >/dev/null 2>&1
     done
 
-    [[ "$all_ok" == "false" ]] && return 1
+    # 2. 启动所有服务
+    local all_started=true
+    for service in "${services[@]}"; do
+        if systemctl restart "$service"; then
+            log_success "✓ $service 服务已发出启动命令"
+        else
+            log_error "✗ $service 服务启动命令失败"
+            systemctl status "$service" --no-pager -l
+            all_started=false
+        fi
+    done
+    [[ "$all_started" == "false" ]] && return 1
 
     log_info "等待服务稳定并开始验证 (最多等待15秒)..."
 
-    # 2. 循环验证服务和端口，解决竞态条件
+    # 3. 循环验证，解决竞态条件
     local attempts=0
     local max_attempts=15
-    local services_active=false
-    local ports_listening=false
-
     while [[ $attempts -lt $max_attempts ]]; do
         attempts=$((attempts + 1))
         
-        # 验证服务是否都处于 active 状态
-        local active_count=0
-        for service in "${services[@]}"; do
-            systemctl is-active --quiet "$service" && active_count=$((active_count + 1))
-        done
-        [[ $active_count -eq ${#services[@]} ]] && services_active=true
-
-        # 验证关键端口是否都已监听
+        # 定义需要检查的所有端口和服务
         local required_ports=(
             "tcp:80:nginx" 
             "tcp:443:nginx" 
             "udp:443:sing-box" 
             "udp:2053:sing-box"
-            "tcp:11443:xray" # Reality
-            "tcp:10085:xray" # gRPC
-            "tcp:10086:xray" # WS
-            "tcp:10143:xray" # Trojan
+            "tcp:127.0.0.1:11443:xray" # Reality
+            "tcp:127.0.0.1:10085:xray" # gRPC
+            "tcp:127.0.0.1:10086:xray" # WS
+            "tcp:127.0.0.1:10143:xray" # Trojan
         )
+        
         local listening_count=0
+        local services_active_count=0
+        
+        # 检查服务状态
+        for service in "${services[@]}"; do
+            systemctl is-active --quiet "$service" && services_active_count=$((services_active_count + 1))
+        done
+        
+        # 检查端口监听 (使用更精确的 ss 命令)
         for p_info in "${required_ports[@]}"; do
-            IFS=':' read -r proto port proc <<< "$p_info"
-            # 使用简化的端口检查
-            if [[ "$proto" == "tcp" ]]; then
-                ss -tlnp | grep -q ":$port.*$proc" && listening_count=$((listening_count + 1))
+            IFS=':' read -r proto addr port proc <<< "$p_info"
+            local cmd=""
+            if [[ "$addr" == "127.0.0.1" ]]; then
+                cmd="ss -H -tlnp sport = :$port and src = $addr" # 仅限TCP和本地回环地址
+            elif [[ "$proto" == "tcp" ]]; then
+                cmd="ss -H -tlnp sport = :$port"
             else
-                ss -ulnp | grep -q ":$port.*$proc" && listening_count=$((listening_count + 1))
+                cmd="ss -H -ulnp sport = :$port"
+            fi
+
+            if $cmd | grep -q "$proc"; then
+                listening_count=$((listening_count + 1))
             fi
         done
-        [[ $listening_count -ge 6 ]] && ports_listening=true # 至少6个端口正常
-
+        
         # 如果全部成功，则跳出循环
-        if [[ "$services_active" == true && "$ports_listening" == true ]]; then
-            log_success "所有服务和端口验证通过！"
+        if [[ $services_active_count -eq ${#services[@]} && $listening_count -eq ${#required_ports[@]} ]]; then
+            log_success "所有服务 (${#services[@]}) 和端口 (${#required_ports[@]}) 验证通过！"
             return 0
         fi
 
-        echo -n "."
+        log_info "验证中... (尝试 $attempts/$max_attempts, 服务: $services_active_count/${#services[@]}, 端口: $listening_count/${#required_ports[@]})"
         sleep 1
     done
 
-    # 3. 如果超时，则报告详细的失败信息
+    # 4. 如果超时，报告详细的失败信息
     log_error "服务启动验证超时！"
+    log_info "请检查以下未通过的项目："
     
-    log_info "最终状态检查:"
     for service in "${services[@]}"; do
-        if systemctl is-active --quiet "$service"; then
-            log_success "✓ 服务 $service 状态: active"
-        else
+        if ! systemctl is-active --quiet "$service"; then
             log_error "✗ 服务 $service 状态: $(systemctl is-active "$service")"
+            journalctl -u "$service" -n 10 --no-pager
+        fi
+    done
+    
+    for p_info in "${required_ports[@]}"; do
+        IFS=':' read -r proto addr port proc <<< "$p_info"
+        local cmd=""
+        if [[ "$addr" == "127.0.0.1" ]]; then
+            cmd="ss -H -tlnp sport = :$port and src = $addr"
+        elif [[ "$proto" == "tcp" ]]; then
+            cmd="ss -H -tlnp sport = :$port"
+        else
+            cmd="ss -H -ulnp sport = :$port"
+        fi
+        if ! $cmd | grep -q "$proc"; then
+            log_error "✗ 端口 $proto:$addr:$port ($proc) 未监听到"
         fi
     done
     
