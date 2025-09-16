@@ -1083,11 +1083,10 @@ save_config_info() {
         return 1
     fi
     
-    # 验证生成的JSON文件
-    if ! jq '.' "${CONFIG_DIR}/server.json" >/dev/null 2>&1; then
-        log_error "生成的server.json格式错误"
-        return 1
-    fi
+if ! jq '.' "${CONFIG_DIR}/server.json" >/dev/null 2>&1; then
+       log_error "server.json验证失败"
+       return 1
+   fi
     
     # 设置文件权限（只有root可读写）
     chmod 600 "${CONFIG_DIR}/server.json"
@@ -1893,6 +1892,13 @@ fi
 # Xray 配置函数
 #############################################
 
+# 使用安全的sed替换方法，避免特殊字符问题
+escape_for_sed() {
+    local input="$1"
+    # 转义 & / \ $ ^ * [ ] . 等特殊字符
+    echo "$input" | sed 's/[[\.*^$()+?{|\\]/\\&/g'
+}
+
 # 配置Xray服务
 configure_xray() {
     log_info "配置Xray多协议服务..."
@@ -2135,16 +2141,6 @@ log_info "└─ CERT_DIR: $CERT_DIR"
 # 执行替换 (修复特殊字符处理)
 log_info "开始替换配置文件占位符..."
 
-# 使用安全的sed替换方法，避免特殊字符问题
-# 方法：使用不同的分隔符，并对特殊字符进行转义
-
-# 转义函数：处理sed中的特殊字符
-escape_for_sed() {
-    local input="$1"
-    # 转义 & / \ $ ^ * [ ] . 等特殊字符
-    echo "$input" | sed 's/[[\.*^$()+?{|]/\\&/g'
-}
-
 # 安全替换各个变量
 local safe_uuid_reality=$(escape_for_sed "$UUID_VLESS_REALITY")
 local safe_uuid_grpc=$(escape_for_sed "$UUID_VLESS_GRPC")
@@ -2259,7 +2255,6 @@ fi
     
 log_success "Xray配置完成"
 return 0
-}
 }
 
 #############################################
