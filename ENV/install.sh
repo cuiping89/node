@@ -3851,7 +3851,7 @@ setup_cron_jobs() {
     
     # 移除可能存在的旧任务
     (crontab -l 2>/dev/null | grep -vE '/edgebox/scripts/(dashboard-backend|traffic-collector|traffic-alert)\.sh') | crontab - || true
-    
+
     # 添加新的定时任务
     (crontab -l 2>/dev/null; cat << 'CRON_JOBS'
 # EdgeBox 定时任务
@@ -8278,7 +8278,7 @@ main() {
     
     # 高级功能安装（模块3-5）
     show_progress 12 20 "安装后台脚本"
-    install_scheduled_dashboard_backend
+    create_dashboard_backend
     
     show_progress 13 20 "配置流量监控"
     setup_traffic_monitoring
