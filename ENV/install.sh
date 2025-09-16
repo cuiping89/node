@@ -1800,6 +1800,14 @@ http {
             add_header Content-Type text/plain;
         }
         
+		# Favicon支持
+        location = /favicon.ico {
+            access_log off;
+            log_not_found off;
+            expires 1y;
+            add_header Cache-Control "public, immutable";
+        }
+		
         # 拒绝访问隐藏文件
         location ~ /\. {
             deny all;
