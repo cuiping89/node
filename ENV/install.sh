@@ -1385,6 +1385,14 @@ execute_module2() {
     else
         log_warn "数据完整性验证发现问题，但安装将继续"
     fi
+	
+	# 导出变量供后续模块使用
+export UUID_VLESS_REALITY UUID_VLESS_GRPC UUID_VLESS_WS
+export UUID_TUIC PASSWORD_HYSTERIA2 PASSWORD_TUIC PASSWORD_TROJAN
+export REALITY_PRIVATE_KEY REALITY_PUBLIC_KEY REALITY_SHORT_ID
+export SERVER_IP
+
+log_info "已导出所有必要变量供后续模块使用"
     
     log_success "======== 模块2执行完成 ========"
     log_info "已生成："
@@ -2118,18 +2126,54 @@ fi
 }
 XRAY_CONFIG
     
-    # 替换配置文件中的占位符
-    log_info "应用Xray配置参数..."
-    sed -i \
-        -e "s/__UUID_VLESS_REALITY__/${UUID_VLESS_REALITY}/g" \
-        -e "s/__UUID_VLESS_GRPC__/${UUID_VLESS_GRPC}/g" \
-        -e "s/__UUID_VLESS_WS__/${UUID_VLESS_WS}/g" \
-        -e "s/__REALITY_PRIVATE_KEY__/${REALITY_PRIVATE_KEY}/g" \
-        -e "s/__REALITY_SHORT_ID__/${REALITY_SHORT_ID}/g" \
-        -e "s|__CERT_PEM__|${CERT_DIR}/current.pem|g" \
-        -e "s|__CERT_KEY__|${CERT_DIR}/current.key|g" \
-        -e "s/__PASSWORD_TROJAN__/${PASSWORD_TROJAN}/g" \
-        "${CONFIG_DIR}/xray.json"
+# 替换配置文件中的占位符 (修复版)
+log_info "应用Xray配置参数..."
+
+# 确保所有必要变量都已设置，如果没有则从server.json重新加载
+if [[ -z "$UUID_VLESS_REALITY" || -z "$REALITY_PRIVATE_KEY" ]]; then
+    log_warn "检测到变量缺失，从server.json重新加载..."
+    if [[ -f "${CONFIG_DIR}/server.json" ]]; then
+        UUID_VLESS_REALITY=$(jq -r '.uuid.vless.reality // .uuid.vless' "${CONFIG_DIR}/server.json" 2>/dev/null)
+        UUID_VLESS_GRPC=$(jq -r '.uuid.vless.grpc // .uuid.vless' "${CONFIG_DIR}/server.json" 2>/dev/null)
+        UUID_VLESS_WS=$(jq -r '.uuid.vless.ws // .uuid.vless' "${CONFIG_DIR}/server.json" 2>/dev/null)
+        REALITY_PRIVATE_KEY=$(jq -r '.reality.private_key' "${CONFIG_DIR}/server.json" 2>/dev/null)
+        REALITY_SHORT_ID=$(jq -r '.reality.short_id' "${CONFIG_DIR}/server.json" 2>/dev/null)
+        PASSWORD_TROJAN=$(jq -r '.password.trojan' "${CONFIG_DIR}/server.json" 2>/dev/null)
+        log_info "已重新加载变量"
+    fi
+fi
+
+# 设置证书路径
+CERT_DIR="/etc/edgebox/cert"
+
+# 显示将要替换的变量（调试用）
+log_info "配置变量检查:"
+log_info "├─ UUID_VLESS_REALITY: ${UUID_VLESS_REALITY:0:8}..."
+log_info "├─ REALITY_PRIVATE_KEY: ${REALITY_PRIVATE_KEY:0:8}..."
+log_info "├─ REALITY_SHORT_ID: $REALITY_SHORT_ID"
+log_info "├─ PASSWORD_TROJAN: ${PASSWORD_TROJAN:0:8}..."
+log_info "└─ CERT_DIR: $CERT_DIR"
+
+# 执行替换
+sed -i \
+    -e "s/__UUID_VLESS_REALITY__/${UUID_VLESS_REALITY}/g" \
+    -e "s/__UUID_VLESS_GRPC__/${UUID_VLESS_GRPC}/g" \
+    -e "s/__UUID_VLESS_WS__/${UUID_VLESS_WS}/g" \
+    -e "s/__REALITY_PRIVATE_KEY__/${REALITY_PRIVATE_KEY}/g" \
+    -e "s/__REALITY_SHORT_ID__/${REALITY_SHORT_ID}/g" \
+    -e "s|__CERT_PEM__|${CERT_DIR}/current.pem|g" \
+    -e "s|__CERT_KEY__|${CERT_DIR}/current.key|g" \
+    -e "s/__PASSWORD_TROJAN__/${PASSWORD_TROJAN}/g" \
+    "${CONFIG_DIR}/xray.json"
+
+# 验证替换结果
+local unreplaced_vars=$(grep -o "__[A-Z_]*__" "${CONFIG_DIR}/xray.json" || true)
+if [[ -n "$unreplaced_vars" ]]; then
+    log_error "配置文件中仍存在未替换的变量: $unreplaced_vars"
+    return 1
+else
+    log_success "所有配置变量替换完成"
+fi
     
 # 验证JSON格式和配置内容
 if ! jq '.' "${CONFIG_DIR}/xray.json" >/dev/null 2>&1; then
