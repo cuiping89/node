@@ -1,245 +1,233 @@
-#!/usr/bin/env bash
-# ===========================================================
-# EdgeBox Uninstall (idempotent, verbose)
-# - Keeps original uninstall flow, plus cleans recent install assets
-# - Safe to run multiple times
-# ===========================================================
-set -Eeuo pipefail
 
-# ---------- UI helpers ----------
-GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; CYAN='\033[0;36m'; NC='\033[0m'
-ok()   { echo -e "  ${GREEN}✓${NC} $*"; }
-skip() { echo -e "  ${YELLOW}↷ 跳过${NC} $*"; }
-info() { echo -e "${CYAN}[INFO]${NC} $*"; }
-warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
-err()  { echo -e "${RED}[ERROR]${NC} $*"; }
-hr()   { echo -e "${CYAN}------------------------------------------------------------${NC}"; }
-title(){ echo -e "\n${CYAN}==> $*${NC}"; }
-has_cmd(){ command -v "$1" >/dev/null 2>&1; }
+````markdown
+# EdgeBox 控制面板 - V2 技术规范
 
-need_root() {
-  if [[ ${EUID:-0} -ne 0 ]]; then
-    err "请用 root 运行：sudo bash $0"
-    exit 1
-  fi
-}
+本文档为 EdgeBox 控制面板 V2 版本的技术实现规范，旨在为前端开发提供清晰的布局、内容、状态及接口约定。
 
-# ---------- Paths (aligned with install) ----------
-INSTALL_DIR="/etc/edgebox"
-CONFIG_DIR="${INSTALL_DIR}/config"
-SCRIPTS_DIR="${INSTALL_DIR}/scripts"
-CERT_DIR="${INSTALL_DIR}/cert"
-TRAFFIC_DIR="${INSTALL_DIR}/traffic"
-WEB_ROOT="/var/www/html"
-WEB_STATUS_PHY="/var/www/edgebox/status"
-WEB_STATUS_LINK="${WEB_ROOT}/status"
-TRAFFIC_LINK="${WEB_ROOT}/traffic"
-LOG_DIR="/var/log/edgebox"
-INSTALL_LOG="/var/log/edgebox-install.log"
+## 1. 核心理念与统一口径
 
-# one-shot init unit from latest installer
-INIT_SVC="/etc/systemd/system/edgebox-init.service"
-INIT_SCRIPT="${SCRIPTS_DIR}/edgebox-init.sh"
+新版面板的核心是**信息分层**与**状态清晰**。通过模块化的卡片布局，将不同维度的数据进行逻辑隔离，为用户提供更聚焦、更有条理的视觉体验。
 
-# IP quality scoring helper
-IPQ_BIN="/usr/local/bin/edgebox-ipq.sh"
+### 1.1 术语与命名（统一口径）
 
-# nginx main conf (for restore)
-NGX_MAIN="/etc/nginx/nginx.conf"
+为确保前后端开发与最终用户体验的一致性，所有组件和状态的命名需严格遵守以下口径：
 
-# ---------- Small utils ----------
-systemd_safe(){
-  local action="${1:-}"; shift || true
-  local unit="${1:-}"; shift || true
-  if ! has_cmd systemctl; then return 0; fi
-  systemctl "${action}" "${unit}" >/dev/null 2>&1 || true
-}
+* **通用术语**: 使用“出站”而非“出口”。
+* **卡片标题**: `网络身份配置`
+* **出站模式枚举**: `直连` (Direct), `全代理` (Full-Proxy), `混合` (Shunt)
+* **证书类型**: `Let's Encrypt`, `自签名`
+* **空值显示**:
+    * 数据获取中或未知: 统一显示 `—`
+    * 配置未设置或不存在: 统一显示 `(无)`
 
-list_listeners(){
-  has_cmd ss || return 0
-  ss -lntup 2>/dev/null | egrep ':(443|2053|11443|10085|10086)\b' || true
-}
+## 2. 页面布局（12栅格系统）
 
-kill_listeners(){
-  has_cmd ss || return 0
-  local ports="443 2053 11443 10085 10086"
-  for p in $ports; do
-    # tcp
-    if ss -lntup 2>/dev/null | awk -v P=":$p" '$4 ~ P {print $NF}' | sed 's/.*pid=\([0-9]\+\).*/\1/' | sort -u | xargs -r kill -9 2>/dev/null; then :; fi
-    # udp
-    if ss -lnuap 2>/dev/null | awk -v P=":$p" '$5 ~ P {print $NF}' | sed 's/.*pid=\([0-9]\+\).*/\1/' | sort -u | xargs -r kill -9 2>/dev/null; then :; fi
-  done
-}
+页面采用响应式的12栅格系统进行布局。
 
-remove_paths(){
-  local any=0
-  for p in "$@"; do
-    [[ -z "${p}" ]] && continue
-    if [[ -e "$p" || -L "$p" ]]; then
-      rm -rf --one-file-system "$p" 2>/dev/null || rm -rf "$p" 2>/dev/null || true
-      ok "已删除 $p"; any=1
-    else
-      skip "不存在：$p"
-    fi
-  done
-  return $any
-}
+* **第一行: 概览信息**
+- 卡片标题: EdgeBox-企业级多协议节点
+- 内部区块:内部整合了“服务器信息/服务器配置/核心服务”三个逻辑区块，替换掉了旧有的三卡片展示内容。
+- 卡片底部: 版本号: 3.0.0 | 安装日期: 2025-09-11 | 更新时间: 2025/9/14 20:46:02
 
-restore_nginx() {
-  title "回退 nginx（若有备份）"
-  local cand latest
-  if [[ -f "$NGX_MAIN" ]]; then
-    cp -f "$NGX_MAIN" "${NGX_MAIN}.uninstall.bak.$(date +%s)" || true
-  fi
-  mapfile -t cand < <(ls -1t \
-      /etc/nginx/nginx.conf.bak* \
-      /etc/nginx/nginx.conf.*.bak 2>/dev/null || true)
-  if [[ -n "${cand[*]:-}" ]]; then
-    latest="${cand[0]}"
-    info "发现备份：$latest，执行回滚..."
-    if install -m 0644 -T "$latest" "$NGX_MAIN"; then
-      ok "已回滚到：$latest"
-      if has_cmd nginx && nginx -t >/dev/null 2>&1; then
-        systemd_safe restart nginx
-      fi
-    else
-      warn "回滚失败：$latest"
-    fi
-  else
-    skip "未发现可用的 nginx.conf 备份，跳过回滚"
-  fi
-}
+* **第二行: 核心配置**
+    * `证书切换` (占4列)
+    * `网络身份配置` (占8列)
+* **第三行: 协议详情**
+    * `协议配置` (占12列，整行)
+* **第四行: 常用功能**
+    * `订阅链接` (占12列)，功能和数据来源保持不变
+    * `流量统计` (占12列)，功能和数据来源保持不变
+* **第五行: 运维管理(占12列)**，功能和静态数据保持不变
 
-purge_cron_mark(){
-  # 兼容旧逻辑：清理旧证书续期标记任务
-  local CRON_MARK="cert-renewal.sh"
-  crontab -l 2>/dev/null | sed "/${CRON_MARK//\//\\/}/d" | crontab - 2>/dev/null || true
-}
+## 3. 卡片内容与交互规范
 
-purge_cron_edgebox(){
-  # 清理 EdgeBox 创建的 cron
-  crontab -l 2>/dev/null \
-    | sed -e '/edgebox\/scripts\/dashboard-backend\.sh/d' \
-          -e '/edgebox\/scripts\/traffic-collector\.sh/d' \
-          -e '/edgebox\/scripts\/traffic-alert\.sh/d' \
-          -e ':/usr/local/bin/edgebox-ipq\.sh:d' \
-    | crontab - 2>/dev/null || true
-  ok "已清理相关 crontab"
-}
+### 3.1 服务器信息 (Card)
+* **用户备注名**: 纯文本。
+* **云厂商/区域**: 格式为 `<提供商> | <Region>` (例: `GCP | us-central1`)。
+* **Instance ID**: 纯文本。
+* **主机名 (Hostname)**: 纯文本。
 
-nft_cleanup(){
-  if has_cmd nft && nft list table inet edgebox >/dev/null 2>&1; then
-    info "删除 nftables 表 inet edgebox ..."
-    nft flush table inet edgebox 2>/dev/null || true
-    nft delete table inet edgebox 2>/dev/null || true
-    ok "nftables: 已清理 inet edgebox"
-  else
-    skip "nftables: 未检测到 inet edgebox 表"
-  fi
-}
+### 3.2 服务器配置 (Card)
+* **CPU**: 进度条组件。显示 `已用 <pct>%`，后缀附加灰色小字说明，格式为 `<物理核心>C / <线程>T`。
+* **内存**: 进度条组件。显示 `已用 <pct>%`，后缀附加灰色小字说明，格式为 `<总内存>GiB + <虚拟内存>GiB`。
+* **磁盘**: 进度条组件。显示 `已用 <pct>%`，后缀附加灰色小字说明，格式为 `<总量>GiB`。
 
-restore_kernel_tuning(){
-  # 若存在备份则回滚 sysctl / limits
-  local SCTL="/etc/sysctl.conf" LIMS="/etc/security/limits.conf"
-  local SCTL_BAK="${SCTL}.bak" LIMS_BAK="${LIMS}.bak"
-  [[ -f "$SCTL_BAK" ]] && install -m 0644 -T "$SCTL_BAK" "$SCTL" && ok "已回滚 $SCTL" || true
-  [[ -f "$LIMS_BAK" ]] && install -m 0644 -T "$LIMS_BAK" "$LIMS" && ok "已回滚 $LIMS" || true
-}
+### 3.3 核心服务 (Card)
+* **服务列表**: Nginx, Xray, Sing-box 分别显示状态 `运行中 / 已停止 / 异常 / 未安装`，并附带版本号。
 
-# ---------- Main ----------
-main(){
-  need_root
-  echo -e "${CYAN}============================================================${NC}"
-  echo "EdgeBox 卸载程序（幂等）"
-  echo -n "  系统："; (lsb_release -ds 2>/dev/null || grep -hs ^PRETTY_NAME= /etc/os-release | sed -n 's/^PRETTY_NAME=//p' | tr -d '"') || echo "Unknown"
-  echo -n "  内核："; uname -r
-  echo -n "  systemd："; if has_cmd systemctl; then systemctl --version | sed -n '1p'; else echo "不可用（可能是容器或最小系统）"; fi
-  hr
+### 3.4 证书切换 (Card)
+* **模式标签**: 卡片顶部放置两个标签：“自签证书”、“CA证书”，当前激活的模式标签显示为高亮状态（如绿色）。
+* **证书类型**: `Let's Encrypt` / `自签名`。
+* **绑定域名**: 显示域名字符串，如 `example.com`；若无则显示 `(无)`。
+* **续期方式**: `自动` / `手动`。
+* **到期日期**: 格式为 `YYYY-MM-DD`；自签名证书显示 `—`。
 
-  title "卸载前监听端口快照"
-  list_listeners || true
-  hr
+### 3.5 网络身份配置 (Composite Card)
+这是一个组合卡片，顶部有三个模式标签：“VPS出站IP”、“代理出站IP”、“分流出站”，高亮显示当前激活的模式。
 
-  title "停止与禁用服务（xray / sing-box / edgebox-init）"
-  if has_cmd systemctl; then
-    for s in xray sing-box edgebox-init; do
-      state="$(systemctl is-active "$s" 2>/dev/null || echo unknown)"
-      printf "  %s: 当前状态 %s，执行 stop/disable ... " "$s" "$state"
-      systemd_safe stop "$s"; systemd_safe disable "$s"; echo -e "${GREEN}完成${NC}"
-    done
-    systemctl daemon-reload >/dev/null 2>&1 || true
-  else
-    skip "systemd 不可用，跳过 stop/disable"
-  fi
-  hr
+#### a) VPS出站IP (Sub-section)
+* **公网身份**: `直连`
+* **VPS出站IP**: 显示IP地址。
+* **Geo**: 格式为 `国家代码-城市` (例: `US-Los Angeles`)。
+* **IP质量检测**: IP质量: 85分（良好），并附带 详情 链接。
 
-  title "结束残留监听进程（443/2053/11443/10085/10086）"
-  kill_listeners || true
-  hr
+#### b) 代理出站IP (Sub-section)
+* **代理身份**: `全代理`
+* **公网身份**: `直连`
+* **VPS出站IP**: 显示IP地址。
+* **Geo**: 格式为 `国家代码-城市` (例: `US-Los Angeles`)。
+* **IP质量检测**: IP质量: 85分（良好），并附带 详情 链接。
 
-  title "清理 crontab（安装与评分相关）"
-  purge_cron_mark
-  purge_cron_edgebox
-  hr
+#### c) 分流出站 (Sub-section)
+* **混合身份**: `白名单VPS直连 + 其它代理`
+* **白名单**: 列表显示域名或网段。默认显示前3条，超出部分折叠，提供“查看全部”的交互。
+* **备注**: 卡片底部包含注释：`注：HY2/TUIC 为 UDP通道，VPS直连，不走代理分流`。
 
-  title "删除 Web 资源与链接（/status, /traffic, 日志）"
-  remove_paths "$WEB_STATUS_LINK" "$WEB_STATUS_PHY" "$TRAFFIC_LINK" "$TRAFFIC_DIR" "$LOG_DIR" "$INSTALL_LOG"
-  hr
+### 3.6 IP 质量检测实现规范 (方案A：静态渲染)
+此功能旨在帮助用户快速判断出口IP的质量，以便更好地选择线路和分流策略。
+点击“IP质量”旁的“详情”链接后，弹窗内应展示以下完整信息：
+总览: 分数 + 等级、最近检测时间
+身份信息:
+出站IP
+ASN/ISP
+Geo (国家/城市全称)
+配置信息:
+带宽限制 (上行/下行)
+质量细项:
+网络类型 (住宅/IDC/移动)
+rDNS
+黑名单命中数
+时延中位数
+结论:
+判断依据 (要点列表)
 
-  title "删除 IPQ 评分脚本与一次性初始化服务/脚本"
-  remove_paths "$IPQ_BIN" "$INIT_SCRIPT" "$INIT_SVC"
-  has_cmd systemctl && systemctl daemon-reload >/dev/null 2>&1 || true
-  hr
 
-  title "删除 EdgeBox 目录（/etc/edgebox）"
-  remove_paths "$INSTALL_DIR"
-  hr
+## 4. 数据流与口径（最终版）
 
-  title "清理 nftables（inet edgebox）"
-  nft_cleanup
-  hr
+### 4.1 总体链路
 
-  title "回退内核/limits 调优（若存在备份）"
-  restore_kernel_tuning
-  hr
+**单向数据流**：后端定时采集 → 聚合生成 **统一 JSON** → 前端 `fetch` 渲染。
 
-  restore_nginx
+**数据源（Sources of Truth）**
 
-  hr
-  title "卸载后监听端口快照"
-  list_listeners || true
-  hr
+* 核心配置：`/etc/edgebox/config/server.json`（含 UUID/密码/IP）。
+* 分流白名单：`/etc/edgebox/config/shunt/whitelist.txt`。
+* 分流模式状态：`/etc/edgebox/config/shunt/state.json`。
+* 系统状态：`/proc/*` 读取 CPU/内存。
+* 服务状态：`systemctl is-active`（Nginx/Xray/Sing-box）。
 
-  # 状态汇总
-  local bad=0
-  if has_cmd systemctl; then
-    for s in xray sing-box; do
-      if systemctl is-active --quiet "$s"; then
-        warn "$s 仍在运行"
-        bad=1
-      fi
-    done
-  fi
+**后端聚合脚本（唯一）**
 
-  # Web 残留检查
-  local leftovers=()
-  for p in "$WEB_STATUS_LINK" "$WEB_STATUS_PHY" "$TRAFFIC_LINK" "$TRAFFIC_DIR" "$INSTALL_DIR" "$IPQ_BIN"; do
-    [[ -e "$p" || -L "$p" ]] && leftovers+=("$p")
-  done
+* `/etc/edgebox/scripts/dashboard-backend.sh` 负责采集/归一化/聚合为单一 JSON 对象。
 
-  if [[ $bad -eq 0 && ${#leftovers[@]} -eq 0 ]]; then
-    echo -e "\n${GREEN}✅ 卸载完成。${NC}"
-  else
-    echo -e "\n${YELLOW}⚠️ 卸载完成（存在残留或运行中的服务）。${NC}"
-    ((${#leftovers[@]})) && printf '  残留路径：\n    - %s\n' "${leftovers[@]}"
-  fi
+**中心化数据接口（文件）**
 
-  echo "下一步建议："
-  echo "  1) 若要立刻重装，可直接运行你的安装命令（幂等安装）。"
-  echo "  2) 验证命令："
-  echo "     - ss -lntup | egrep ':443|:2053|:11443|:10085|:10086'"
-  echo "     - systemctl status xray sing-box nginx --no-pager"
-  echo -e "${CYAN}============================================================${NC}"
-}
+* `dashboard.json`（主数据）、`traffic.json`（流量）、`system.json`（负载）— 三者为前端唯一依赖。
 
-main "$@"
+**刷新机制（Cron）**
+
+* `dashboard-backend.sh`：每 **2 分钟**更新 `dashboard.json/system.json`。
+* `traffic-collector.sh`：每 **小时**统计流量，计算并产出 `traffic.json`。
+* `ipq`（IP 质量）：每日 **02:15** 评分，输出到 `/var/www/edgebox/status`。
+
+**前端消费**
+`index.html` 启动后以 `fetch` 读取 `/traffic/` 下三份 JSON（及按需读取 `/status/ipq_*.json`），据键路径填充各 UI 元素。
+
+### 4.2 口径（计算与展示的一致性）
+
+* **流量口径**：以“出站去向”拆分——`总出站 = VPS 直连 + 住宅代理`；`VPS 出站 = 总出站 - 住宅出站`（后端以 `nftables` 计数器分流累积）。
+* **模式口径**：
+
+  * `直连`：所有流量经 VPS 原生出站；
+  * `全代理`：所有流量经代理出站；
+  * `混合`：白名单走 VPS，其他走代理（UI 仅露出“当前是谁/从哪儿出/质量如何”，明细在弹窗）。〔最终版采用“网络身份配置”卡片并以弹窗承载明细〕。
+* **空值口径**：未知 `—`，未设 `(无)`（统一到前端格式化层）。
+
+---
+
+## 5. 后端实现要点
+
+### 5.1 流量采集
+
+* `vnStat` 取网卡总出站；`nftables` 计数器统计“住宅代理”去向；产出 `daily.csv / monthly.csv → traffic.json`。
+
+### 5.2 统一聚合
+
+* `dashboard-backend.sh` 汇总：系统状态、服务状态、证书/模式/白名单等 → `dashboard.json`（不含 IP 质量字段）。
+
+### 5.3 IP 质量评分（解耦）
+
+* **不再放入 `dashboard.json`**，改由独立脚本 `edgebox-ipq.sh` 产出 `/var/www/edgebox/status/ipq_*.json`，供前端弹窗读取。
+
+---
+
+## 6. 前端实现要点
+
+* **静态单页**：`index.html` 纯静态；通过 `fetch` 拉取 JSON 并渲染。
+* **主要卡片**：顶部概览、协议配置/分流、订阅、流量统计、运维管理。
+* **订阅链接**：提供明文、B64逐行、合并Base64 三种格式。
+* **图表渲染**：`traffic.json` → 近30日曲线 + 12个月柱形；本月进度条由 `alert.conf` 配置阈值。
+* **IP 质量弹窗**：点击“详情”→ 读取 `/status/ipq_*.json` -> `<dialog>` 渲染。
+
+---
+
+## 7. 文件与目录结构（最终版）
+
+```
+/etc/edgebox/
+  ├─ traffic/                 # Nginx Web 根（前端可读）
+  │   ├─ logs/
+  │   │   ├─ daily.csv
+  │   │   └─ monthly.csv
+  │   ├─ dashboard.json       # 面板主数据
+  │   ├─ traffic.json         # 流量统计
+  │   ├─ system.json          # 系统负载
+  │   ├─ alert.conf           # 流量预警阈值
+  │   └─ index.html           # 控制面板入口
+  ├─ scripts/
+  │   ├─ dashboard-backend.sh # 2分钟一次：聚合→dashboard/system
+  │   └─ traffic-collector.sh # 1小时一次：采集→traffic
+/var/www/edgebox/status/      # 新增：IP质量静态文件
+  ├─ ipq_vps.json(.txt)
+  └─ ipq_proxy.json(.txt)
+```
+
+（`/etc/edgebox/traffic/*` 结构承袭《02》，新增 `/var/www/edgebox/status/` 承载 `ipq_*` 文件。）
+
+---
+
+## 8. 数据契约（Data Contract）
+
+* **`dashboard.json`**：最终版**不含** IP 质量字段；该数据已解耦，由 `/var/www/edgebox/status/ipq_*.json` 提供。原有键路径（如 `shunt.whitelist`）保持不变，前端照常消费。
+* **`traffic.json`**：包含 `last30d` / `monthly` 等，用于近30日曲线与12个月柱形图。
+* **`system.json`**：CPU/内存等负载指标（进度条驱动）。
+* **`ipq_*.json`**：VPS 与代理两份评分详情，用于弹窗；字段含分数/等级/时间、IP/ASN/ISP/Geo、带宽、网络类型、rDNS、黑名单命中、时延中位数、结论与依据。
+
+---
+
+## 9. 定时任务（Cron）建议
+
+```cron
+*/2 * * * * /etc/edgebox/scripts/dashboard-backend.sh          # dashboard/system
+15   * * * * /etc/edgebox/scripts/traffic-collector.sh         # traffic
+15   2 * * * /usr/local/bin/edgebox-ipq.sh --out /var/www/edgebox/status --proxy '<proxy_url>' --targets vps,proxy  # ipq
+```
+
+---
+
+## 10. 与旧版差异（V2 → 最终版）
+
+* **信息分层升级**：首行合并为“概览信息”单卡片，提升一屏可读性。
+* **统一口径**：全面采用“出站”术语与空值显示规范。
+* **IP 质量解耦**：从 `dashboard.json` 中移除，改由 `/status/ipq_*.json` 独立供给 + 前端弹窗加载。
+
+---
+
+## 11. 交付物清单（实现所需最小集）
+
+1. `index.html`（含：布局栅格、卡片组件、`fetch` 三 JSON、Chart.js、`<dialog>` 弹窗）；
+2. `dashboard-backend.sh` 与 `traffic-collector.sh`（按上述目录/频率运行）；
+3. `edgebox-ipq.sh`（产出 `/var/www/edgebox/status/ipq_*.json`）；
+4. `alert.conf`（本月流量进度的阈值设置）。
+
+
