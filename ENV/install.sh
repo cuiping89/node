@@ -4262,666 +4262,89 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EdgeBox 控制面板</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EdgeBox 控制面板</title>
 <style>
-        :root {
-            --card: #fff;
-            --border: #e2e8f0;
-            --bg: #f8fafc;
-            --muted: #64748b;
-            --shadow: 0 4px 6px -1px rgba(0,0,0,.1);
-            --primary: #3b82f6;
-            --success: #10b981;
-            --warning: #f59e0b;
-            --danger: #ef4444;
-        }
-
-        * { box-sizing: border-box; }
-        
-        body {
-            font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-            background: var(--bg);
-            color: #334155;
-            margin: 0;
-        }
-
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-
-        .grid {
-            display: grid;
-            gap: 16px;
-            margin-bottom: 16px;
-        }
-
-        .grid-full { grid-template-columns: 1fr; }
-        .grid-4-8 { 
-            grid-template-columns: 1fr 2fr;
-        }
-        
-        @media(max-width:980px) {
-            .grid-4-8 { grid-template-columns: 1fr; }
-        }
-
-        .card {
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            box-shadow: var(--shadow);
-            overflow: hidden;
-            position: relative;
-        }
-
-        .card h3 {
-            margin: 0;
-            padding: 12px 16px;
-            border-bottom: 1px solid var(--border);
-            font-size: 1.5rem;
-            font-weight: 700;
-            color: #0f172a;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .info-block h4,
-        .command-section h4,
-        .chart-title {
-            margin: 0 0 8px 0;
-            font-size: 1.125rem;
-            font-weight: 600;
-            color: #1e293b;
-        }
-
-        .chart-title {
-            text-align: center;
-            margin: 0 0 10px 0;
-        }
-
-        .chart-title .unit {
-            font-size: .875rem;
-            font-weight: 400;
-            color: #64748b;
-        }
-
-        .card .content { padding: 16px; }
-
-        .table th {
-            font-size: 1rem;
-            font-weight: 600;
-            color: #374151;
-        }
-
-        .table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-
-        .table th {
-            text-align: left;
-            padding: 12px 8px;
-            border-bottom: 1px solid var(--border);
-        }
-
-        .table th:last-child {
-            text-align: center;
-        }
-
-        .table td {
-            font-size: .875rem;
-            font-weight: 400;
-            color: #64748b;
-            padding: 12px 8px;
-            border-bottom: 1px solid #e2e8f0;
-        }
-
-        .table td:last-child {
-            text-align: center;
-        }
-
-        .system-progress-bar {
-            display: inline-flex;
-            align-items: center;
-            width: 80px;
-            height: 20px;
-            background: #e2e8f0;
-            border-radius: 10px;
-            overflow: hidden;
-            margin-left: 8px;
-            position: relative;
-        }
-
-        .system-progress-fill {
-            height: 100%;
-            background: #10b981;
-            border-radius: 10px;
-            transition: width 0.3s;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            min-width: 20px;
-        }
-
-        .system-progress-text {
-            position: absolute;
-            left: 50%;
-            top: 50%;
-            transform: translate(-50%, -50%);
-            color: white;
-            font-size: .75rem;
-            font-weight: 600;
-            text-shadow: 0 1px 2px rgba(0,0,0,0.3);
-            z-index: 1;
-        }
-
-        .progress-bar {
-            width: 100%;
-            height: 20px;
-            background: #e2e8f0;
-            border-radius: 8px;
-            overflow: hidden;
-        }
-
-        .progress-fill {
-            height: 100%;
-            background: #10b981;
-            border-radius: 8px;
-            transition: width 0.3s;
-            position: relative;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .progress-percentage {
-            position: absolute;
-            color: white;
-            font-size: .75rem;
-            font-weight: 600;
-            text-shadow: 0 1px 2px rgba(0,0,0,0.3);
-        }
-
-        .protocol-status-badge {
-            display: inline-block;
-            padding: 4px 12px;
-            border-radius: 12px;
-            font-size: .75rem;
-            font-weight: 600;
-            background: #10b981;
-            color: white;
-            border: none;
-        }
-
-        .service-status-badge {
-            display: inline-block;
-            padding: 3px 10px;
-            border-radius: 10px;
-            font-size: .75rem;
-            font-weight: 600;
-            background: #10b981;
-            color: white;
-            border: none;
-        }
-
-        .service-status-badge.inactive {
-            background: #6b7280;
-        }
-
-        .status-badge {
-            padding: 4px 10px;
-            border: 1px solid #e2e8f0;
-            border-radius: 6px;
-            background: #e2e8f0;
-            color: #64748b;
-            white-space: nowrap;
-            font-size: 1rem;
-            font-weight: 600;
-            height: 28px;
-            display: inline-flex;
-            align-items: center;
-            line-height: 1;
-        }
-
-        .status-badge.active {
-            background: #10b981;
-            color: white;
-            border-color: #10b981;
-        }
-
-        .small,
-        .info-block .value,
-        .btn,
-        .badge,
-        .notification-bell,
-        .notification-item,
-        .sub-label,
-        .sub-input,
-        .sub-copy-btn,
-        .command-list,
-        .config-note {
-            font-size: .875rem;
-            font-weight: 400;
-            color: #64748b;
-        }
-
-        .detail-link {
-            color: var(--primary);
-            cursor: pointer;
-            text-decoration: underline;
-            font-size: .875rem;
-            font-weight: 400;
-        }
-
-        .detail-link:hover { color: #2563eb; }
-
-        .status-running {
-            color: #10b981 !important;
-            font-size: .875rem;
-            font-weight: 600 !important;
-        }
-
-        .btn {
-            padding: 8px 16px;
-            border: 1px solid var(--border);
-            background: #f1f5f9;
-            border-radius: 6px;
-            cursor: pointer;
-            white-space: nowrap;
-        }
-
-        .btn:hover { background: #e2e8f0; }
-
-        .info-blocks {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 12px;
-            margin-bottom: 16px;
-        }
-
-        .info-block {
-            padding: 12px;
-            background: #f8fafc;
-            border: 1px solid var(--border);
-            border-radius: 8px;
-        }
-
-        .info-block .value {
-            margin-bottom: 2px;
-        }
-
-        .notification-bell {
-            position: relative;
-            cursor: pointer;
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
-            padding: 4px 8px;
-            border-radius: 6px;
-            background: #f1f5f9;
-        }
-
-        .notification-bell:hover { background: #e2e8f0; }
-        .notification-bell.has-alerts { color: var(--warning); background: #fef3c7; }
-
-        .notification-popup {
-            position: absolute;
-            top: 100%;
-            right: 0;
-            background: white;
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            box-shadow: var(--shadow);
-            width: 300px;
-            max-height: 200px;
-            overflow-y: auto;
-            z-index: 100;
-            display: none;
-        }
-
-        .notification-popup.show { display: block; }
-
-        .notification-item {
-            padding: 8px 12px;
-            border-bottom: 1px solid var(--border);
-        }
-
-        .notification-item:last-child { border-bottom: none; }
-
-        .cert-status {
-            display: flex;
-            gap: 8px;
-            margin-bottom: 12px;
-            flex-wrap: wrap;
-        }
-
-        .network-status {
-            display: flex;
-            gap: 8px;
-            margin-bottom: 12px;
-            flex-wrap: wrap;
-        }
-
-        .network-blocks {
-            display: grid;
-            grid-template-columns: 1fr 1fr 1fr;
-            gap: 12px;
-            margin-top: 12px;
-        }
-        
-        @media(max-width:980px) {
-            .network-blocks { grid-template-columns: 1fr; }
-        }
-        
-        .network-block {
-            padding: 12px;
-            background: #f8fafc;
-            border: 1px solid var(--border);
-            border-radius: 8px;
-        }
-        
-        .network-block h5 {
-            margin: 0 0 8px 0;
-            font-size: 1rem;
-            font-weight: 600;
-            color: #1e293b;
-        }
-
-        .network-note {
-            margin-top: 16px;
-            padding: 8px;
-            border-top: 1px solid var(--border);
-            background: linear-gradient(180deg, rgba(248,250,252,0.6), rgba(248,250,252,1));
-            border-radius: 4px;
-            font-size: .75rem;
-            line-height: 1.4;
-            color: #64748b;
-        }
-
-        .sub-row {
-            display: flex;
-            gap: 8px;
-            align-items: stretch;
-            margin-bottom: 8px;
-            height: 32px;
-        }
-
-        .sub-input {
-            flex: 1;
-            height: 100%;
-            padding: 6px 10px;
-            box-sizing: border-box;
-            border: 1px solid var(--border);
-            border-radius: 4px;
-            font-family: monospace;
-            background: #fff;
-            font-size: .875rem;
-            line-height: 20px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            resize: none;
-            display: inline-block;
-            vertical-align: middle;
-            color: #64748b;
-        }
-
-        .sub-copy-btn {
-            min-width: 80px;
-            padding: 6px 12px;
-            border: 1px solid var(--border);
-            background: #f1f5f9;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: .875rem;
-            color: #64748b;
-            font-weight: 400;
-            height: 100%;
-            box-sizing: border-box;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            transition: all 0.2s;
-        }
-
-        .sub-copy-btn:hover { 
-            background: #e2e8f0; 
-        }
-
-        .traffic-card { position: relative; }
-
-        .traffic-progress-container {
-            position: absolute;
-            top: 16px;
-            right: 16px;
-            width: 390px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .progress-wrapper {
-            flex: 1;
-            position: relative;
-        }
-
-        .progress-budget {
-            white-space: nowrap;
-            font-size: .75rem;
-        }
-
-        .progress-label {
-            white-space: nowrap;
-            font-size: 1rem;
-            font-weight: 600;
-            color: #374151;
-        }
-
-        .traffic-charts {
-            display: grid;
-            grid-template-columns: 1fr 400px;
-            gap: 16px;
-            margin-top: 50px;
-        }
-
-        @media(max-width:980px) {
-            .traffic-charts { 
-                grid-template-columns: 1fr; 
-                margin-top: 20px;
-            }
-            .traffic-progress-container {
-                position: static;
-                width: 100%;
-                margin-bottom: 16px;
-            }
-        }
-
-        .chart-container {
-            position: relative;
-            height: 360px;
-            width: 100%;
-        }
-
-        @media(max-width:768px) {
-            .chart-container {
-                height: 280px;
-            }
-        }
-
-        .commands-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
-        }
-
-        @media(max-width:768px) {
-            .commands-grid { grid-template-columns: 1fr; }
-        }
-
-        .command-section {
-            background: #f8fafc;
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 12px;
-        }
-
-        .command-section h4 {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-
-        .command-list {
-            line-height: 1.6;
-        }
-
-        .command-list code {
-            background: #e2e8f0;
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-family: monospace;
-            font-size: .75rem;
-            color: #1e293b;
-        }
-
-        .command-list span {
-            color: var(--muted);
-            margin-left: 8px;
-        }
-
-        .command-list small {
-            display: block;
-            margin-top: 2px;
-            color: var(--muted);
-            font-style: normal;
-        }
-
-        .modal {
-            display: none;
-            position: fixed;
-            z-index: 1000;
-            left: 0;
-            top: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0,0,0,0.5);
-        }
-
-        .modal.show {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .modal-content {
-            background: white;
-            border-radius: 12px;
-            max-width: 600px;
-            width: 90%;
-            max-height: 80vh;
-            overflow-y: auto;
-            box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1);
-        }
-
-        .modal-header {
-            padding: 16px 20px;
-            border-bottom: 1px solid var(--border);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .modal-header h3 {
-            margin: 0;
-            font-size: 1.1rem;
-            font-weight: 600;
-            color: #374151;
-        }
-
-        .modal-close {
-            font-size: 1.5rem;
-            cursor: pointer;
-            color: var(--muted);
-            line-height: 1;
-        }
-
-        .modal-close:hover { color: #1e293b; }
-
-        .modal-body { padding: 20px; }
-
-        .config-item {
-            margin-bottom: 16px;
-            padding: 12px;
-            background: #f8fafc;
-            border-radius: 8px;
-        }
-
-        .config-item h4 {
-            margin: 0 0 8px 0;
-            font-size: 1rem;
-            font-weight: 600;
-            color: #374151;
-        }
-
-        .config-item code {
-            display: block;
-            background: #1e293b;
-            color: #10b981;
-            padding: 8px;
-            border-radius: 4px;
-            font-family: 'Courier New', monospace;
-            font-size: .875rem;
-            word-break: break-all;
-            margin: 4px 0;
-        }
-
-        .config-note {
-            color: var(--warning);
-            margin-top: 4px;
-        }
-
-        .whitelist-content {
-            max-height: 3em;
-            overflow: hidden;
-            position: relative;
-        }
-
-        .whitelist-content.expanded {
-            max-height: none;
-        }
-
-        .whitelist-content::after {
-            content: "";
-            position: absolute;
-            left: 0; right: 0; bottom: 0;
-            height: 24px;
-            background: linear-gradient(180deg, rgba(255,255,255,0), rgba(255,255,255,1));
-        }
-
-        .whitelist-content.expanded::after {
-            display: none;
-        }
-		
-		/* 卡片基础样式 */
-.card {
-  background: #fff;
-  border-radius: 8px;
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  min-height: 100vh;
   padding: 20px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.container {
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.header {
+  text-align: center;
+  color: white;
+  margin-bottom: 30px;
+}
+
+.header h1 {
+  font-size: 32px;
+  margin-bottom: 10px;
+  text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+}
+
+.header p {
+  font-size: 14px;
+  opacity: 0.9;
+}
+
+/* 网格系统 */
+.grid {
+  display: grid;
+  gap: 20px;
   margin-bottom: 20px;
 }
 
+.grid-2 {
+  grid-template-columns: 1fr 1fr;
+}
+
+.grid-3 {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+
+.grid-2-8 {
+  grid-template-columns: 4fr 8fr;
+}
+
+.grid-full {
+  grid-template-columns: 1fr;
+}
+
+/* 卡片样式 */
+.card {
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  backdrop-filter: blur(10px);
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
+}
+
 .card h3 {
-  margin: 0 0 20px 0;
-  padding-bottom: 10px;
-  border-bottom: 1px solid #e0e0e0;
+  font-size: 16px;
   color: #333;
-  font-size: 18px;
+  margin-bottom: 20px;
+  padding-bottom: 10px;
+  border-bottom: 2px solid #e0e0e0;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -4929,87 +4352,411 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 
 /* 右上角注释样式 */
 .card-note {
-  font-size: 12px;
+  font-size: 11px;
   color: #666;
   font-weight: normal;
   margin-left: auto;
+  opacity: 0.8;
 }
 
-/* 网络区块容器 */
-.network-blocks {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 20px;
+.content {
+  color: #666;
 }
 
-/* 网络子区块样式 */
-.network-block {
-  background: #f9f9f9;
-  border-radius: 6px;
-  padding: 15px;
-  position: relative;
+/* 信息组样式 */
+.info-group {
+  margin-bottom: 20px;
 }
 
-/* 子区块标题（绿色标签样式） */
-.network-block h5 {
-  margin: -15px -15px 15px -15px;
-  padding: 10px 15px;
-  background: #4CAF50;
-  color: white;
-  border-radius: 6px 6px 0 0;
+.info-group h4 {
   font-size: 14px;
-  text-align: center;
+  color: #555;
+  margin-bottom: 12px;
+  padding-left: 12px;
+  border-left: 3px solid #667eea;
+}
+
+.info-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px dotted #e0e0e0;
+  font-size: 13px;
+}
+
+.info-item:last-child {
+  border-bottom: none;
+}
+
+.info-item label {
+  color: #888;
+}
+
+.info-item value {
+  color: #333;
   font-weight: 500;
 }
 
-/* 分流状态未激活时的标题样式 */
+/* 进度条样式 */
+.progress-item {
+  margin-bottom: 15px;
+}
+
+.progress-label {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 5px;
+  font-size: 13px;
+}
+
+.progress-label span {
+  color: #666;
+}
+
+.progress-label .usage {
+  color: #333;
+  font-weight: 500;
+}
+
+.progress-label .spec {
+  color: #999;
+  font-size: 11px;
+}
+
+.progress-bar {
+  height: 20px;
+  background: #f0f0f0;
+  border-radius: 10px;
+  overflow: hidden;
+  position: relative;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #667eea, #764ba2);
+  border-radius: 10px;
+  transition: width 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+/* 服务状态样式 */
+.service-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px dotted #e0e0e0;
+  font-size: 13px;
+}
+
+.service-item:last-child {
+  border-bottom: none;
+}
+
+.service-name {
+  color: #666;
+  display: flex;
+  align-items: center;
+}
+
+.service-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.status-badge {
+  padding: 3px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.status-running {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.status-stopped {
+  background: #ffebee;
+  color: #c62828;
+}
+
+.version {
+  color: #999;
+  font-size: 11px;
+}
+
+/* 证书切换卡片样式 */
+.cert-modes {
+  display: flex;
+  margin: -20px -20px 20px -20px;
+  border-radius: 12px 12px 0 0;
+  overflow: hidden;
+}
+
+.cert-mode-btn {
+  flex: 1;
+  padding: 12px;
+  background: #e0e0e0;
+  border: none;
+  color: #666;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-weight: 500;
+}
+
+.cert-mode-btn.active {
+  background: linear-gradient(90deg, #667eea, #764ba2);
+  color: white;
+}
+
+.cert-mode-btn:not(.active):hover {
+  background: #d0d0d0;
+}
+
+.cert-info {
+  font-size: 13px;
+}
+
+.cert-info .info-item {
+  padding: 10px 0;
+}
+
+/* 网络身份配置样式 */
+.network-blocks {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 15px;
+  margin: -5px 0;
+}
+
+.network-block {
+  background: #f8f9fa;
+  border-radius: 8px;
+  padding: 15px;
+  position: relative;
+  min-height: 160px;
+}
+
+.network-block h5 {
+  margin: -15px -15px 12px -15px;
+  padding: 10px 15px;
+  background: linear-gradient(90deg, #667eea, #764ba2);
+  color: white;
+  border-radius: 8px 8px 0 0;
+  font-size: 13px;
+  text-align: center;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+}
+
 .network-block.inactive h5 {
   background: #e0e0e0;
   color: #666;
 }
 
-/* 小字体样式 */
-.small {
-  font-size: 13px;
+.network-info {
+  font-size: 12px;
   color: #666;
-  margin: 8px 0;
-  line-height: 1.4;
+  line-height: 1.6;
+  margin: 6px 0;
 }
 
-.small span {
+.network-info strong {
   color: #333;
-}
-
-/* 状态标签样式 */
-.status-running {
-  color: #4CAF50;
   font-weight: 500;
 }
 
-/* 详情链接样式 */
+.status-tag {
+  color: #2e7d32;
+  font-weight: 500;
+}
+
 .detail-link {
-  color: #1976D2;
+  color: #667eea;
   cursor: pointer;
-  text-decoration: underline;
-  font-size: 12px;
+  text-decoration: none;
+  font-size: 11px;
   margin-left: 5px;
+  transition: color 0.2s;
 }
 
 .detail-link:hover {
-  color: #1565C0;
+  color: #764ba2;
+  text-decoration: underline;
 }
 
-/* 白名单内容样式 */
+/* 白名单样式 */
 .whitelist-container {
   display: inline;
 }
 
 .whitelist-text {
-  display: inline;
   color: #333;
-  max-height: 3.6em;
+  font-weight: 500;
+  display: inline-block;
+  max-width: 100%;
   overflow: hidden;
-  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 协议配置表格 */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.table thead th {
+  background: #f5f5f5;
+  padding: 12px;
+  text-align: left;
+  color: #666;
+  font-weight: 500;
+  border-bottom: 2px solid #e0e0e0;
+}
+
+.table tbody td {
+  padding: 12px;
+  color: #666;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.table tbody tr:hover {
+  background: #fafafa;
+}
+
+.proto-badge {
+  display: inline-block;
+  padding: 3px 8px;
+  background: #e3f2fd;
+  color: #1565c0;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.effect-good {
+  color: #2e7d32;
+  font-weight: 500;
+}
+
+.effect-medium {
+  color: #f57c00;
+  font-weight: 500;
+}
+
+.copy-btn {
+  padding: 4px 10px;
+  background: linear-gradient(90deg, #667eea, #764ba2);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+
+.copy-btn:hover {
+  transform: scale(1.05);
+}
+
+/* 订阅链接样式 */
+.sub-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 15px;
+  gap: 10px;
+}
+
+.sub-label {
+  min-width: 80px;
+  color: #666;
+  font-size: 13px;
+}
+
+.sub-input {
+  flex: 1;
+  padding: 8px;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 12px;
+  color: #666;
+  background: #f9f9f9;
+  resize: none;
+  height: 36px;
+}
+
+.sub-copy-btn {
+  padding: 8px 16px;
+  background: linear-gradient(90deg, #667eea, #764ba2);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: transform 0.2s;
+  white-space: nowrap;
+}
+
+.sub-copy-btn:hover {
+  transform: scale(1.05);
+}
+
+/* 流量统计样式 */
+.traffic-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.stat-item {
+  text-align: center;
+  padding: 15px;
+  background: #f9f9f9;
+  border-radius: 8px;
+}
+
+.stat-value {
+  font-size: 24px;
+  font-weight: bold;
+  color: #667eea;
+  margin-bottom: 5px;
+}
+
+.stat-label {
+  font-size: 12px;
+  color: #666;
+}
+
+/* 图表容器 */
+.chart-container {
+  height: 300px;
+  margin: 20px 0;
+  padding: 20px;
+  background: #fafafa;
+  border-radius: 8px;
+}
+
+/* 底部信息 */
+.footer-info {
+  text-align: center;
+  padding: 15px;
+  background: #f5f5f5;
+  border-radius: 0 0 12px 12px;
+  margin: 20px -20px -20px -20px;
+  color: #666;
+  font-size: 12px;
 }
 
 /* 弹窗样式 */
@@ -5026,26 +4773,27 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 }
 
 .modal-content {
-  background-color: #fefefe;
+  background-color: white;
   margin: 10% auto;
   padding: 0;
-  border-radius: 8px;
+  border-radius: 12px;
   width: 500px;
   max-width: 90%;
   animation: slideIn 0.3s;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
 }
 
 .modal-header {
-  padding: 15px 20px;
-  background: #f5f5f5;
-  border-radius: 8px 8px 0 0;
-  border-bottom: 1px solid #e0e0e0;
+  padding: 20px;
+  background: linear-gradient(90deg, #667eea, #764ba2);
+  border-radius: 12px 12px 0 0;
+  color: white;
 }
 
 .modal-header h4 {
   margin: 0;
-  color: #333;
   font-size: 16px;
+  font-weight: 500;
 }
 
 .modal-body {
@@ -5061,35 +4809,38 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 }
 
 .close-btn {
-  color: #aaa;
+  color: white;
   float: right;
   font-size: 24px;
   font-weight: bold;
   cursor: pointer;
   line-height: 20px;
+  opacity: 0.8;
+  transition: opacity 0.2s;
 }
 
 .close-btn:hover {
-  color: #000;
+  opacity: 1;
 }
 
-.btn {
-  background-color: #1976D2;
-  color: white;
+.btn-close {
   padding: 8px 16px;
+  background: linear-gradient(90deg, #667eea, #764ba2);
+  color: white;
   border: none;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 13px;
+  transition: transform 0.2s;
 }
 
-.btn:hover {
-  background-color: #1565C0;
+.btn-close:hover {
+  transform: scale(1.05);
 }
 
 /* IP质量详情样式 */
 .ipq-details {
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.8;
 }
 
@@ -5103,11 +4854,17 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
   border-bottom: none;
 }
 
+.ipq-section h5 {
+  margin: 0 0 10px 0;
+  color: #667eea;
+  font-size: 14px;
+}
+
 .ipq-label {
   font-weight: 500;
   color: #666;
   display: inline-block;
-  width: 100px;
+  min-width: 100px;
 }
 
 .ipq-value {
@@ -5115,19 +4872,22 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 }
 
 .ipq-score {
-  font-size: 24px;
+  font-size: 32px;
   font-weight: bold;
-  color: #4CAF50;
+  background: linear-gradient(90deg, #667eea, #764ba2);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
   margin-right: 10px;
 }
 
 .ipq-grade {
   display: inline-block;
-  padding: 2px 8px;
-  background: #4CAF50;
+  padding: 4px 12px;
+  background: linear-gradient(90deg, #667eea, #764ba2);
   color: white;
-  border-radius: 3px;
-  font-size: 12px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
 }
 
 /* 白名单列表样式 */
@@ -5137,15 +4897,21 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 }
 
 .whitelist-item {
-  padding: 8px 12px;
+  padding: 10px 15px;
   background: #f5f5f5;
-  margin-bottom: 6px;
-  border-radius: 4px;
+  margin-bottom: 8px;
+  border-radius: 6px;
   font-family: monospace;
   font-size: 13px;
   color: #333;
+  transition: background 0.2s;
 }
 
+.whitelist-item:hover {
+  background: #ebebeb;
+}
+
+/* 动画 */
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -5163,8 +4929,23 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 }
 
 /* 响应式布局 */
-@media (max-width: 768px) {
+@media (max-width: 1024px) {
+  .grid-2-8 {
+    grid-template-columns: 1fr;
+  }
+  
   .network-blocks {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .grid-2,
+  .grid-3 {
+    grid-template-columns: 1fr;
+  }
+  
+  .traffic-stats {
     grid-template-columns: 1fr;
   }
   
@@ -5173,127 +4954,316 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
     margin: 5% auto;
   }
 }
-    </style>
+</style>
 </head>
 <body>
+
 <div class="container">
+  <!-- 头部 -->
+  <div class="header">
+    <h1>🚀 EdgeBox 控制面板</h1>
+    <p>企业级多协议节点管理系统</p>
+  </div>
 
   <!-- 第一行：概览信息 -->
   <div class="grid grid-full">
     <div class="card">
-      <h3 class="main-title">
-        🌐EdgeBox-企业级多协议节点 (Control Panel)
-        <div class="notification-bell" id="notif-bell" onclick="toggleNotifications()">
-          🔔 <span id="notif-count">0</span>
-          <div class="notification-popup" id="notif-popup">
-            <div id="notif-list">暂无通知</div>
-          </div>
-        </div>
-      </h3>
+      <h3>📊 系统概览</h3>
       <div class="content">
-        <div class="info-blocks">
-          <div class="info-block">
-            <h4>📊 服务器信息</h4>
-            <div class="value">用户备注名: <span id="user-alias">—</span></div>
-            <div class="value">云厂商/区域: <span id="cloud-provider">—</span></div>
-            <div class="value">Instance ID: <span id="instance-id">—</span></div>
-            <div class="value">主机名: <span id="hostname">—</span></div>
-          </div>
-          
-          <div class="info-block">
-            <h4>⚙️ 服务器配置</h4>
-            <div class="value">
-              CPU: 
-              <span class="system-progress-bar">
-                <div class="system-progress-fill" id="cpu-progress-fill" style="width: 0%"></div>
-                <span class="system-progress-text" id="cpu-progress-text">0%</span>
-              </span>
-              <span class="small" id="cpu-detail">—</span>
+        <div class="grid grid-3">
+          <!-- 服务器信息 -->
+          <div class="info-group">
+            <h4>服务器信息</h4>
+            <div class="info-item">
+              <label>用户备注名:</label>
+              <value id="server-name">美西节点-01</value>
             </div>
-            <div class="value">
-              内存: 
-              <span class="system-progress-bar">
-                <div class="system-progress-fill" id="mem-progress-fill" style="width: 0%"></div>
-                <span class="system-progress-text" id="mem-progress-text">0%</span>
-              </span>
-              <span class="small" id="mem-detail">—</span>
+            <div class="info-item">
+              <label>云厂商/区域:</label>
+              <value id="cloud-info">Vultr | Los Angeles</value>
             </div>
-            <div class="value">
-              磁盘: 
-              <span class="system-progress-bar">
-                <div class="system-progress-fill" id="disk-progress-fill" style="width: 0%"></div>
-                <span class="system-progress-text" id="disk-progress-text">0%</span>
-              </span>
-              <span class="small" id="disk-detail">—</span>
+            <div class="info-item">
+              <label>Instance ID:</label>
+              <value id="instance-id">i-abc123def</value>
+            </div>
+            <div class="info-item">
+              <label>主机名:</label>
+              <value id="hostname">edgebox-la-01</value>
             </div>
           </div>
-          
-          <div class="info-block">
-            <h4>🔧 核心服务</h4>
-            <div class="value">Nginx: <span id="nginx-status">—</span> <span class="small" id="nginx-version">—</span></div>
-            <div class="value">Xray: <span id="xray-status">—</span> <span class="small" id="xray-version">—</span></div>
-            <div class="value">Sing-box: <span id="singbox-status">—</span> <span class="small" id="singbox-version">—</span></div>
+
+          <!-- 服务器配置 -->
+          <div class="info-group">
+            <h4>服务器配置</h4>
+            <div class="progress-item">
+              <div class="progress-label">
+                <span>CPU</span>
+                <span class="usage">已用 <span id="cpu-usage">23</span>%</span>
+                <span class="spec">4C / 8T</span>
+              </div>
+              <div class="progress-bar">
+                <div class="progress-fill" style="width: 23%">23%</div>
+              </div>
+            </div>
+            <div class="progress-item">
+              <div class="progress-label">
+                <span>内存</span>
+                <span class="usage">已用 <span id="mem-usage">45</span>%</span>
+                <span class="spec">8GiB + 2GiB</span>
+              </div>
+              <div class="progress-bar">
+                <div class="progress-fill" style="width: 45%">45%</div>
+              </div>
+            </div>
+            <div class="progress-item">
+              <div class="progress-label">
+                <span>磁盘</span>
+                <span class="usage">已用 <span id="disk-usage">67</span>%</span>
+                <span class="spec">100GiB</span>
+              </div>
+              <div class="progress-bar">
+                <div class="progress-fill" style="width: 67%">67%</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 核心服务 -->
+          <div class="info-group">
+            <h4>核心服务</h4>
+            <div class="service-item">
+              <span class="service-name">Nginx</span>
+              <div class="service-status">
+                <span class="status-badge status-running">运行中</span>
+                <span class="version">v1.24.0</span>
+              </div>
+            </div>
+            <div class="service-item">
+              <span class="service-name">Xray</span>
+              <div class="service-status">
+                <span class="status-badge status-running">运行中</span>
+                <span class="version">v1.8.4</span>
+              </div>
+            </div>
+            <div class="service-item">
+              <span class="service-name">Sing-box</span>
+              <div class="service-status">
+                <span class="status-badge status-running">运行中</span>
+                <span class="version">v1.7.0</span>
+              </div>
+            </div>
           </div>
         </div>
-        <div class="small">版本号: <span id="ver">—</span> | 安装日期: <span id="inst">—</span> | 更新时间: <span id="updated">—</span></div>
+      </div>
+      <div class="footer-info">
+        版本号: 3.0.0 | 安装日期: 2025-01-11 | 更新时间: 2025-01-16 20:46:02
       </div>
     </div>
   </div>
 
-  <!-- 第二行：证书切换 + 网络身份配置 -->
-  <div class="grid grid-4-8">
+  <!-- 第二行：核心配置 -->
+  <div class="grid grid-2-8">
     <!-- 证书切换 -->
     <div class="card">
-      <h3>🔐 证书切换</h3>
-      <div class="content">
-<div class="cert-status">
-  <span class="status-badge active" id="cert-status-self">自签证书</span>
-  <span class="status-badge" id="cert-status-ca">CA证书</span>
-</div>
-        <div>
-          <div class="small">证书类型: <span id="cert-type">—</span></div>
-          <div class="small">绑定域名: <span id="cert-domain">—</span></div>
-          <div class="small">续期方式: <span id="cert-renewal">—</span></div>
-          <div class="small">到期日期: <span id="cert-expire">—</span></div>
+      <div class="cert-modes">
+        <button class="cert-mode-btn active" onclick="switchCertMode('self')">自签证书</button>
+        <button class="cert-mode-btn" onclick="switchCertMode('ca')">CA证书</button>
+      </div>
+      <div class="cert-info">
+        <div class="info-item">
+          <label>证书类型:</label>
+          <value id="cert-type">自签名</value>
+        </div>
+        <div class="info-item">
+          <label>绑定域名:</label>
+          <value id="cert-domain">(无)</value>
+        </div>
+        <div class="info-item">
+          <label>续期方式:</label>
+          <value id="cert-renew">自动</value>
+        </div>
+        <div class="info-item">
+          <label>到期日期:</label>
+          <value id="cert-expire">—</value>
         </div>
       </div>
     </div>
 
-<!-- 网络身份配置卡片 -->
-<div class="card">
-  <h3>
-    🌐 网络身份配置
-    <span class="card-note">注：HY2/TUIC 为 UDP通道，固定 VPS直连，不参与网络身份配置。</span>
-  </h3>
-  <div class="content">
-    <div class="network-blocks">
-      <!-- VPS出站IP区块（当前激活） -->
-      <div class="network-block" id="vps-block">
-        <h5>📡 VPS出站IP</h5>
-        <div class="small">公网身份: <span class="status-running">直连</span></div>
-        <div class="small">VPS出站IP: <span id="vps-out-ip">45.32.168.245</span></div>
-        <div class="small">Geo: <span id="vps-geo">US-Los Angeles</span></div>
-        <div class="small">IP质量: <span id="vps-quality">85分（良好）</span><span class="detail-link" onclick="showIPQDetails('vps')">详情</span></div>
+    <!-- 网络身份配置 -->
+    <div class="card">
+      <h3>
+        🌐 网络身份配置
+        <span class="card-note">注：HY2/TUIC 为UDP通道，固定 VPS直连，不参与网络身份配置</span>
+      </h3>
+      <div class="content">
+        <div class="network-blocks">
+          <!-- VPS出站IP -->
+          <div class="network-block" id="vps-block">
+            <h5>📡 VPS出站IP</h5>
+            <div class="network-info">公网身份: <strong class="status-tag">直连</strong></div>
+            <div class="network-info">VPS出站IP: <strong id="vps-out-ip">45.32.168.245</strong></div>
+            <div class="network-info">Geo: <strong id="vps-geo">US-Los Angeles</strong></div>
+            <div class="network-info">IP质量: <strong id="vps-quality">85分（良好）</strong><span class="detail-link" onclick="showIPQDetails('vps')">详情</span></div>
+          </div>
+          
+          <!-- 代理出站IP -->
+          <div class="network-block inactive" id="proxy-block">
+            <h5>🔄 代理出站IP</h5>
+            <div class="network-info">代理身份: <strong>全代理</strong></div>
+            <div class="network-info">代理出站IP: <strong id="proxy-out-ip">192.168.1.100</strong></div>
+            <div class="network-info">Geo: <strong id="proxy-geo">CN-Shanghai</strong></div>
+            <div class="network-info">IP质量: <strong id="proxy-quality">92分（优秀）</strong><span class="detail-link" onclick="showIPQDetails('proxy')">详情</span></div>
+          </div>
+          
+          <!-- 分流出站 -->
+          <div class="network-block inactive" id="shunt-block">
+            <h5>🔀 分流出站</h5>
+            <div class="network-info">混合身份: <strong>VPS直连 + 代理</strong></div>
+            <div class="network-info">
+              白名单: 
+              <span class="whitelist-container">
+                <strong class="whitelist-text" id="whitelist-text">google.com, youtube.com, github.com</strong>
+                <span class="detail-link" onclick="showWhitelistModal()">查看全部</span>
+              </span>
+            </div>
+          </div>
+        </div>
       </div>
-      
-      <!-- 代理出站IP区块（未激活） -->
-      <div class="network-block inactive" id="proxy-block">
-        <h5>🔄 代理出站IP</h5>
-        <div class="small">代理身份: <span>全代理</span></div>
-        <div class="small">代理出站IP: <span id="proxy-out-ip">192.168.1.100</span></div>
-        <div class="small">Geo: <span id="proxy-geo">CN-Shanghai</span></div>
-        <div class="small">IP质量: <span id="proxy-quality">92分（优秀）</span><span class="detail-link" onclick="showIPQDetails('proxy')">详情</span></div>
+    </div>
+  </div>
+
+  <!-- 第三行：协议配置 -->
+  <div class="grid grid-full">
+    <div class="card">
+      <h3>📡 协议配置</h3>
+      <div class="content">
+        <table class="table" id="proto">
+          <thead>
+            <tr>
+              <th>协议名称</th>
+              <th>网络</th>
+              <th>伪装效果</th>
+              <th>适用场景</th>
+              <th>运行状态</th>
+              <th>客户端配置</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="proto-badge">VLESS-Reality</span></td>
+              <td>TCP</td>
+              <td class="effect-good">★★★★★</td>
+              <td>最强抗封锁</td>
+              <td><span class="status-badge status-running">运行中</span></td>
+              <td><button class="copy-btn" onclick="copyConfig('vless-reality')">复制</button></td>
+            </tr>
+            <tr>
+              <td><span class="proto-badge">VLESS-gRPC</span></td>
+              <td>HTTP/2</td>
+              <td class="effect-good">★★★★☆</td>
+              <td>CDN友好</td>
+              <td><span class="status-badge status-running">运行中</span></td>
+              <td><button class="copy-btn" onclick="copyConfig('vless-grpc')">复制</button></td>
+            </tr>
+            <tr>
+              <td><span class="proto-badge">VLESS-WS</span></td>
+              <td>WebSocket</td>
+              <td class="effect-medium">★★★☆☆</td>
+              <td>兼容性最好</td>
+              <td><span class="status-badge status-running">运行中</span></td>
+              <td><button class="copy-btn" onclick="copyConfig('vless-ws')">复制</button></td>
+            </tr>
+            <tr>
+              <td><span class="proto-badge">Trojan-TLS</span></td>
+              <td>TCP</td>
+              <td class="effect-good">★★★★☆</td>
+              <td>稳定可靠</td>
+              <td><span class="status-badge status-running">运行中</span></td>
+              <td><button class="copy-btn" onclick="copyConfig('trojan')">复制</button></td>
+            </tr>
+            <tr>
+              <td><span class="proto-badge">Hysteria2</span></td>
+              <td>UDP</td>
+              <td class="effect-good">★★★★★</td>
+              <td>低延迟游戏</td>
+              <td><span class="status-badge status-running">运行中</span></td>
+              <td><button class="copy-btn" onclick="copyConfig('hy2')">复制</button></td>
+            </tr>
+            <tr>
+              <td><span class="proto-badge">TUIC</span></td>
+              <td>UDP</td>
+              <td class="effect-good">★★★★☆</td>
+              <td>高速传输</td>
+              <td><span class="status-badge status-running">运行中</span></td>
+              <td><button class="copy-btn" onclick="copyConfig('tuic')">复制</button></td>
+            </tr>
+          </tbody>
+        </table>
       </div>
-      
-      <!-- 分流出站区块（未激活） -->
-      <div class="network-block inactive" id="shunt-block">
-        <h5>🔀 分流出站</h5>
-        <div class="small">混合身份: <span>VPS直连 + 代理</span></div>
-        <div class="small">
-          白名单: <span class="whitelist-container">
-            <span id="whitelist-text">google.com, youtube.com, github.com, cloudflare.com, openai.com, anthropic.com, microsoft.com, apple.com, amazon.com, facebook.com, twitter.com, netflix.com</span>
-            <span class="detail-link" onclick="showWhitelistModal()">查看全部</span>
-          </span>
+    </div>
+  </div>
+
+  <!-- 第四行：订阅链接 -->
+  <div class="grid grid-full">
+    <div class="card">
+      <h3>📋 订阅链接</h3>
+      <div class="content">
+        <div class="sub-row">
+          <div class="sub-label">明文链接:</div>
+          <textarea id="sub-plain" class="sub-input" readonly>http://45.32.168.245/sub</textarea>
+          <button class="sub-copy-btn" onclick="copySub('plain')">复制</button>
+        </div>
+        <div class="sub-row">
+          <div class="sub-label">B64换行:</div>
+          <textarea id="sub-b64lines" class="sub-input" readonly>aHR0cDovLzQ1LjMyLjE2OC4yNDUvc3Vi</textarea>
+          <button class="sub-copy-btn" onclick="copySub('b64lines')">复制</button>
+        </div>
+        <div class="sub-row">
+          <div class="sub-label">合并B64:</div>
+          <textarea id="sub-b64" class="sub-input" readonly>aHR0cDovLzQ1LjMyLjE2OC4yNDUvc3ViCg==</textarea>
+          <button class="sub-copy-btn" onclick="copySub('b64')">复制</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 第五行：流量统计 -->
+  <div class="grid grid-full">
+    <div class="card">
+      <h3>📊 流量统计</h3>
+      <div class="content">
+        <div class="traffic-stats">
+          <div class="stat-item">
+            <div class="stat-value" id="traffic-today">12.5 GB</div>
+            <div class="stat-label">今日流量</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value" id="traffic-month">385.2 GB</div>
+            <div class="stat-label">本月流量</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value" id="traffic-total">2.3 TB</div>
+            <div class="stat-label">累计流量</div>
+          </div>
+        </div>
+        <div class="chart-container">
+          <canvas id="traffic-chart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 第六行：运维管理 -->
+  <div class="grid grid-full">
+    <div class="card">
+      <h3>🔧 运维管理</h3>
+      <div class="content">
+        <div class="grid grid-3">
+          <button class="sub-copy-btn" onclick="restartServices()">重启服务</button>
+          <button class="sub-copy-btn" onclick="updateSystem()">系统更新</button>
+          <button class="sub-copy-btn" onclick="viewLogs()">查看日志</button>
+          <button class="sub-copy-btn" onclick="backup()">备份配置</button>
+          <button class="sub-copy-btn" onclick="restore()">恢复配置</button>
+          <button class="sub-copy-btn" onclick="resetTraffic()">重置流量</button>
         </div>
       </div>
     </div>
@@ -5309,11 +5279,11 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
     </div>
     <div class="modal-body">
       <div class="ipq-details" id="ipqDetails">
-        <!-- 动态内容将插入这里 -->
+        <!-- 动态内容 -->
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn" onclick="closeIPQModal()">关闭</button>
+      <button class="btn-close" onclick="closeIPQModal()">关闭</button>
     </div>
   </div>
 </div>
@@ -5327,1448 +5297,127 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
     </div>
     <div class="modal-body">
       <div class="whitelist-full" id="whitelistFull">
-        <!-- 动态内容将插入这里 -->
+        <!-- 动态内容 -->
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn" onclick="closeWhitelistModal()">关闭</button>
-    </div>
-  </div>
-</div>
-
-  <!-- 第三行：协议配置 -->
-  <div class="grid grid-full">
-    <div class="card">
-      <h3>📡 协议配置</h3>
-      <div class="content">
-        <table class="table" id="proto">
-          <thead><tr><th>协议名称</th><th>网络</th><th>伪装效果</th><th>适用场景</th><th>运行状态</th><th>客户端配置</th></tr></thead>
-          <tbody></tbody>
-        </table>
-      </div>
-    </div>
-  </div>
-
-  <!-- 订阅链接 -->
-  <div class="grid grid-full">
-    <div class="card">
-      <h3>📋 订阅链接</h3>
-      <div class="content">
-        <div class="sub-row">
-          <div class="sub-label">明文链接:</div>
-          <textarea id="sub-plain" class="sub-input" readonly></textarea>
-          <button class="sub-copy-btn" onclick="copySub('plain')">复制</button>
-        </div>
-		
-		<div class="sub-row">
-          <div class="sub-label">B64换行:</div>
-          <textarea id="sub-b64lines" class="sub-input" readonly></textarea>
-          <button class="sub-copy-btn" onclick="copySub('b64lines')">复制</button>
-        </div>
-		
-        <div class="sub-row">
-          <div class="sub-label">Base64:</div>
-          <textarea id="sub-b64" class="sub-input" readonly></textarea>
-          <button class="sub-copy-btn" onclick="copySub('b64')">复制</button>
-        </div>
-
-      </div>
-    </div>
-  </div>
-
-  <!-- 流量统计 -->
-  <div class="grid grid-full">
-    <div class="card traffic-card">
-      <h3>📊 流量统计
-        <div class="traffic-progress-container">
-          <span class="progress-label">本月累计/阈值:</span>
-          <div class="progress-wrapper">
-            <div class="progress-bar">
-              <div class="progress-fill" id="progress-fill" style="width:0%">
-                <span class="progress-percentage" id="progress-percentage">0%</span>
-              </div>
-            </div>
-          </div>
-          <span class="progress-budget" id="progress-budget">0/100GiB</span>
-        </div>
-      </h3>
-      <div class="content">
-        <div class="traffic-charts">
-          <div class="chart-container">
-            <h4 class="chart-title">近30日出站流量 <span class="unit">(GiB)</span></h4>
-            <canvas id="traffic"></canvas>
-          </div>
-          <div class="chart-container">
-            <h4 class="chart-title">近12个月累计流量 <span class="unit">(GiB)</span></h4>
-            <canvas id="monthly-chart"></canvas>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- 运维管理 -->
-  <div class="grid grid-full">
-    <div class="card"><h3>🔧 运维管理</h3>
-      <div class="content">
-        <div class="commands-grid">
-          <div class="command-section">
-            <h4>🔧 基础操作</h4>
-            <div class="command-list">
-              <code>edgeboxctl sub</code> <span># 动态生成当前模式下的订阅链接</span><br>
-              <code>edgeboxctl logs &lt;svc&gt;</code> <span># 查看指定服务的实时日志</span><br>
-              <code>edgeboxctl status</code> <span># 查看所有核心服务运行状态</span><br>
-              <code>edgeboxctl restart</code> <span># 安全地重启所有服务</span><br>
-            </div>
-          </div>
-          
-          <div class="command-section">
-            <h4>🔐 证书管理</h4>
-            <div class="command-list">
-              <code>edgeboxctl switch-to-domain &lt;your_domain&gt;</code> <span># 切换到域名模式，申请证书</span><br>
-              <code>edgeboxctl switch-to-ip</code> <span># 回退到IP模式，使用自签名证书</span><br>
-              <code>edgeboxctl cert status</code> <span># 检查当前证书的到期日期和类型</span><br>
-              <code>edgeboxctl cert renew</code> <span># 手动续期Let's Encrypt证书</span>
-            </div>
-          </div>
-          
-          <div class="command-section">
-            <h4>🔀 出站分流</h4>
-            <div class="command-list">
-              <code>edgeboxctl shunt vps</code> <span> # 切换至VPS全量出站</span><br>
-              <code>edgeboxctl shunt resi &lt;URL&gt;</code> <span> # 配置并切换至住宅IP全量出站</span><br>
-              <code>edgeboxctl shunt direct-resi &lt;URL&gt;</code> <span> # 配置并切换至白名单智能分流状态</span><br>
-              <code>edgeboxctl shunt whitelist &lt;add|remove|list&gt;</code> <span> # 管理白名单域名</span><br>
-              <code>代理URL格式:</code><br>
-              <code>http://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;</code><br>
-              <code>https://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;?sni=</code><br>
-              <code>socks5://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;</code><br>
-              <code>socks5s://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;?sni=</code><br>
-              <code>示例：edgeboxctl shunt resi 'socks5://user:pass@111.222.333.444:11324'</code>
-            </div>
-          </div>
-          
-          <div class="command-section">
-            <h4>📊 流量统计与预警</h4>
-            <div class="command-list">
-              <code>edgeboxctl traffic show</code> <span># 在终端中查看流量统计数据</span><br>
-              <code>edgeboxctl traffic reset</code> <span># 重置流量计数器</span><br>
-              <code>edgeboxctl alert &lt;command&gt;</code> <span># 管理流量预警设置</span><br>
-              <code>edgeboxctl alert monthly</code> <span># 设置月度阈值</span><br>
-              <code>edgeboxctl alert steps 30,60,90</code> <span># 设置预警阈值</span><br>
-              <code>edgeboxctl alert telegram &lt;bot_token&gt; &lt;chat_id&gt;</code> <span># 配置Telegram机器人</span><br>
-              <code>edgeboxctl alert discord &lt;webhook_url&gt;</code> <span># 配置Discord通知</span><br>
-              <code>edgeboxctl alert wechat &lt;pushplus_token&gt;</code> <span># 配置微信通知</span><br>
-              <code>edgeboxctl alert webhook [raw|slack|discord]</code> <span># 配置通用Webhook</span><br>
-              <code>edgeboxctl alert test</code> <span># 测试预警系统</span>
-            </div>
-          </div>
-          
-          <div class="command-section">
-            <h4>⚙️ 配置管理</h4>
-            <div class="command-list">
-              <code>edgeboxctl config show</code> <span># 显示所有服务的核心配置信息</span><br>
-              <code>edgeboxctl config regenerate-uuid</code> <span># 为所有协议重新生成新的UUID</span><br>
-              <code>edgeboxctl test</code> <span># 测试所有协议的连接是否正常</span><br>
-              <code>edgeboxctl debug-ports</code> <span># 调试关键端口的监听状态</span>
-            </div>
-          </div>
-          
-          <div class="command-section">
-            <h4>💾 系统维护</h4>
-            <div class="command-list">
-              <code>edgeboxctl update</code> <span># 自动更新EdgeBox脚本和核心组件</span><br>
-              <code>edgeboxctl backup create</code> <span># 手动创建一个系统备份</span><br>
-              <code>edgeboxctl backup list</code> <span># 列出所有可用的备份</span><br>
-              <code>edgeboxctl backup restore &lt;DATE&gt;</code> <span># 恢复到指定日期的备份状态</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- 协议详情模态框 -->
-<div id="protocol-modal" class="modal">
-  <div class="modal-content">
-    <div class="modal-header">
-      <h3 id="modal-title">协议配置详情</h3>
-      <span class="modal-close" onclick="closeModal()">&times;</span>
-    </div>
-    <div class="modal-body" id="modal-body">
-      <!-- 动态内容 -->
+      <button class="btn-close" onclick="closeWhitelistModal()">关闭</button>
     </div>
   </div>
 </div>
 
 <script>
-// ==========================================
-// 模块7.3：图表和可视化组件 (Chart.js集成)
-// EdgeBox控制面板 - 图表渲染和数据可视化
-// ==========================================
-
-/**
- * 图表配置和主题设置
- */
-const ChartConfig = {
-    // 全局主题色彩
-    colors: {
-        primary: '#3b82f6',      // 主要蓝色
-        secondary: '#f59e0b',    // 警告橙色  
-        success: '#10b981',      // 成功绿色
-        danger: '#ef4444',       // 危险红色
-        muted: '#64748b',        // 静音灰色
-        background: '#f8fafc'    // 背景色
-    },
-    
-    // 通用图表配置
-    defaults: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-            legend: {
-                display: true,
-                position: 'bottom',
-                labels: {
-                    padding: 20,
-                    usePointStyle: true,
-                    font: {
-                        size: 12,
-                        family: 'system-ui, -apple-system, sans-serif'
-                    }
-                }
-            },
-            tooltip: {
-                backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                titleColor: '#fff',
-                bodyColor: '#fff',
-                borderColor: '#e2e8f0',
-                borderWidth: 1,
-                cornerRadius: 8,
-                displayColors: true,
-                intersect: false,
-                mode: 'index'
-            }
-        },
-        layout: {
-            padding: { bottom: 28 }
-        },
-        interaction: {
-            mode: 'index',
-            intersect: false
-        }
-    }
+// 模拟数据
+const ipqData = {
+  vps: {
+    score: 85,
+    grade: '良好',
+    ip: '45.32.168.245',
+    asn: 'AS20473 Choopa LLC',
+    isp: 'Vultr',
+    geo: 'United States, California, Los Angeles',
+    bandwidth: '1000 Mbps / 1000 Mbps',
+    networkType: 'IDC数据中心',
+    rdns: 'vps-45-32-168-245.vultr.com',
+    blacklist: '0/88 (清洁)',
+    latency: '165ms',
+    lastCheck: '2025-01-16 10:30:00',
+    conclusion: [
+      '✓ IP未被主要黑名单收录',
+      '✓ 数据中心网络，适合建站',
+      '✓ 带宽充足，延迟适中',
+      '⚠ 部分流媒体服务可能受限'
+    ]
+  },
+  proxy: {
+    score: 92,
+    grade: '优秀',
+    ip: '192.168.1.100',
+    asn: 'AS4134 China Telecom',
+    isp: 'China Telecom Shanghai',
+    geo: 'China, Shanghai',
+    bandwidth: '300 Mbps / 50 Mbps',
+    networkType: '住宅宽带',
+    rdns: 'sh-telecom-192-168-1-100.ct.cn',
+    blacklist: '0/88 (清洁)',
+    latency: '28ms',
+    lastCheck: '2025-01-16 10:30:00',
+    conclusion: [
+      '✓ 住宅IP，流媒体友好',
+      '✓ 低延迟，适合实时应用',
+      '✓ IP信誉良好',
+      '✓ 适合各类网站访问'
+    ]
+  }
 };
 
-/**
- * 数据格式化工具类
- */
-class DataFormatter {
-    static formatBytes(bytes, decimals = 2) {
-        if (bytes === 0) return '0 B';
-        const k = 1024;
-        const dm = decimals < 0 ? 0 : decimals;
-        const sizes = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
-    }
-    
-    static formatGiB(bytes, decimals = 1) {
-        const GiB = 1024 ** 3;
-        return Math.round((bytes / GiB) * Math.pow(10, decimals)) / Math.pow(10, decimals);
-    }
-    
-    static formatDate(dateStr) {
-        try {
-            const date = new Date(dateStr);
-            return date.toLocaleDateString('zh-CN', { 
-                month: 'short', 
-                day: 'numeric' 
-            });
-        } catch {
-            return dateStr;
-        }
-    }
-    
-    static formatMonth(monthStr) {
-        try {
-            // 处理 "2024-09" 格式
-            const [year, month] = monthStr.split('-');
-            return `${year}年${month}月`;
-        } catch {
-            return monthStr;
-        }
-    }
-}
+// 白名单数据
+const whitelistFull = [
+  'google.com',
+  'youtube.com',
+  'github.com',
+  'cloudflare.com',
+  'openai.com',
+  'anthropic.com',
+  'microsoft.com',
+  'apple.com',
+  'amazon.com',
+  'facebook.com',
+  'twitter.com',
+  'netflix.com',
+  'spotify.com',
+  'reddit.com',
+  'wikipedia.org',
+  'stackoverflow.com',
+  'docker.com',
+  'npmjs.com',
+  'pypi.org',
+  'ubuntu.com',
+  'debian.org',
+  'archlinux.org',
+  'golang.org',
+  'rust-lang.org',
+  'python.org'
+];
 
-/**
- * 流量图表类 - 近30日趋势图
- */
-class TrafficChart {
-    constructor(canvasId) {
-        this.canvas = document.getElementById(canvasId);
-        this.chart = null;
-        this.data = null;
-    }
-    
-    /**
-     * 渲染流量趋势图
-     * @param {Object} trafficData - 包含 last30d 数组的流量数据
-     */
-    render(trafficData) {
-        if (!this.canvas || !trafficData || !trafficData.last30d) {
-            console.warn('TrafficChart: 无效的画布或数据');
-            return;
-        }
-        
-        // 销毁现有图表
-        if (this.chart) {
-            this.chart.destroy();
-            this.chart = null;
-        }
-        
-        const data = trafficData.last30d;
-        if (!Array.isArray(data) || data.length === 0) {
-            console.warn('TrafficChart: 空的流量数据');
-            return;
-        }
-        
-        // 数据处理
-        const labels = data.map(item => DataFormatter.formatDate(item.date));
-        const vpsData = data.map(item => DataFormatter.formatGiB(item.vps || 0));
-        const resiData = data.map(item => DataFormatter.formatGiB(item.resi || 0));
-        
-        // 计算数据范围以优化Y轴
-        const maxValue = Math.max(...vpsData, ...resiData);
-        const yAxisMax = maxValue > 0 ? Math.ceil(maxValue * 1.1) : 10;
-        
-        // 创建图表
-        this.chart = new Chart(this.canvas, {
-            type: 'line',
-            data: {
-                labels: labels,
-                datasets: [
-                    {
-                        label: 'VPS 直连',
-                        data: vpsData,
-                        borderColor: ChartConfig.colors.primary,
-                        backgroundColor: ChartConfig.colors.primary + '20',
-                        borderWidth: 2.5,
-                        tension: 0.4,
-                        fill: false,
-                        pointBackgroundColor: ChartConfig.colors.primary,
-                        pointBorderColor: '#fff',
-                        pointBorderWidth: 2,
-                        pointRadius: 4,
-                        pointHoverRadius: 6
-                    },
-                    {
-                        label: '住宅代理',
-                        data: resiData,
-                        borderColor: ChartConfig.colors.secondary,
-                        backgroundColor: ChartConfig.colors.secondary + '20',
-                        borderWidth: 2.5,
-                        tension: 0.4,
-                        fill: false,
-                        pointBackgroundColor: ChartConfig.colors.secondary,
-                        pointBorderColor: '#fff',
-                        pointBorderWidth: 2,
-                        pointRadius: 4,
-                        pointHoverRadius: 6
-                    }
-                ]
-            },
-            options: {
-                ...ChartConfig.defaults,
-                scales: {
-                    x: {
-                        title: {
-                            display: false
-                        },
-                        grid: {
-                            display: true,
-                            color: '#f1f5f9',
-                            drawBorder: false
-                        },
-                        ticks: {
-                            font: { size: 11 },
-                            color: ChartConfig.colors.muted
-                        }
-                    },
-                    y: {
-                        title: {
-                            display: false
-                        },
-                        min: 0,
-                        max: yAxisMax,
-                        grid: {
-                            display: true,
-                            color: '#f1f5f9',
-                            drawBorder: false
-                        },
-                        ticks: {
-                            font: { size: 11 },
-                            color: ChartConfig.colors.muted,
-                            callback: function(value) {
-                                return value.toFixed(1);
-                            }
-                        }
-                    }
-                },
-                plugins: {
-                    ...ChartConfig.defaults.plugins,
-                    tooltip: {
-                        ...ChartConfig.defaults.plugins.tooltip,
-                        callbacks: {
-                            title: function(context) {
-                                // 显示完整日期
-                                const index = context[0].dataIndex;
-                                const originalDate = data[index]?.date;
-                                if (originalDate) {
-                                    return new Date(originalDate).toLocaleDateString('zh-CN');
-                                }
-                                return context[0].label;
-                            },
-                            label: function(context) {
-                                const label = context.dataset.label;
-                                const value = context.parsed.y;
-                                return `${label}: ${value.toFixed(2)} GiB`;
-                            },
-                            afterBody: function(context) {
-                                // 显示当日总流量
-                                const index = context[0].dataIndex;
-                                const vps = vpsData[index] || 0;
-                                const resi = resiData[index] || 0;
-                                const total = (vps + resi).toFixed(2);
-                                return [``, `当日总计: ${total} GiB`];
-                            }
-                        }
-                    }
-                },
-                elements: {
-                    point: {
-                        hoverBackgroundColor: '#fff'
-                    }
-                }
-            }
-        });
-        
-        this.data = trafficData;
-        console.log('TrafficChart: 渲染完成', { dataPoints: data.length });
-    }
-    
-    /**
-     * 销毁图表
-     */
-    destroy() {
-        if (this.chart) {
-            this.chart.destroy();
-            this.chart = null;
-        }
-    }
-    
-    /**
-     * 更新数据（不重新创建图表）
-     */
-    updateData(trafficData) {
-        if (!this.chart || !trafficData || !trafficData.last30d) return;
-        
-        const data = trafficData.last30d;
-        this.chart.data.labels = data.map(item => DataFormatter.formatDate(item.date));
-        this.chart.data.datasets[0].data = data.map(item => DataFormatter.formatGiB(item.vps || 0));
-        this.chart.data.datasets[1].data = data.map(item => DataFormatter.formatGiB(item.resi || 0));
-        this.chart.update('none'); // 无动画更新
-    }
-}
-
-/**
- * 月度统计图表类 - 近12个月柱形图
- */
-class MonthlyChart {
-    constructor(canvasId) {
-        this.canvas = document.getElementById(canvasId);
-        this.chart = null;
-        this.data = null;
-    }
-    
-    /**
-     * 渲染月度统计柱形图
-     * @param {Object} trafficData - 包含 monthly 数组的流量数据
-     */
-    render(trafficData) {
-        if (!this.canvas || !trafficData || !trafficData.monthly) {
-            console.warn('MonthlyChart: 无效的画布或数据');
-            return;
-        }
-        
-        // 销毁现有图表
-        if (this.chart) {
-            this.chart.destroy();
-            this.chart = null;
-        }
-        
-        const data = trafficData.monthly;
-        if (!Array.isArray(data) || data.length === 0) {
-            console.warn('MonthlyChart: 空的月度数据');
-            return;
-        }
-        
-        // 取最近12个月
-        const recentData = data.slice(-12);
-        const labels = recentData.map(item => DataFormatter.formatMonth(item.month));
-        const vpsData = recentData.map(item => DataFormatter.formatGiB(item.vps || 0));
-        const resiData = recentData.map(item => DataFormatter.formatGiB(item.resi || 0));
-        
-        // 计算最大值用于Y轴优化
-        const maxValue = Math.max(...vpsData.map((v, i) => v + resiData[i]));
-        const yAxisMax = maxValue > 0 ? Math.ceil(maxValue * 1.1) : 100;
-        
-        // 创建图表
-        this.chart = new Chart(this.canvas, {
-            type: 'bar',
-            data: {
-                labels: labels,
-                datasets: [
-                    {
-                        label: 'VPS 直连',
-                        data: vpsData,
-                        backgroundColor: ChartConfig.colors.primary,
-                        borderColor: ChartConfig.colors.primary,
-                        borderWidth: 1,
-                        borderRadius: 4,
-                        borderSkipped: false,
-                        stack: 'traffic'
-                    },
-                    {
-                        label: '住宅代理',
-                        data: resiData,
-                        backgroundColor: ChartConfig.colors.secondary,
-                        borderColor: ChartConfig.colors.secondary,
-                        borderWidth: 1,
-                        borderRadius: 4,
-                        borderSkipped: false,
-                        stack: 'traffic'
-                    }
-                ]
-            },
-            options: {
-                ...ChartConfig.defaults,
-                scales: {
-                    x: {
-                        stacked: true,
-                        grid: {
-                            display: false
-                        },
-                        ticks: {
-                            font: { size: 11 },
-                            color: ChartConfig.colors.muted,
-                            maxRotation: 45
-                        }
-                    },
-                    y: {
-                        stacked: true,
-                        min: 0,
-                        max: yAxisMax,
-                        grid: {
-                            display: true,
-                            color: '#f1f5f9',
-                            drawBorder: false
-                        },
-                        ticks: {
-                            font: { size: 11 },
-                            color: ChartConfig.colors.muted,
-                            callback: function(value) {
-                                return value.toFixed(0);
-                            }
-                        }
-                    }
-                },
-                plugins: {
-                    ...ChartConfig.defaults.plugins,
-                    tooltip: {
-                        ...ChartConfig.defaults.plugins.tooltip,
-                        callbacks: {
-                            title: function(context) {
-                                return context[0].label;
-                            },
-                            label: function(context) {
-                                const label = context.dataset.label;
-                                const value = context.parsed.y;
-                                return `${label}: ${value.toFixed(2)} GiB`;
-                            },
-                            afterBody: function(context) {
-                                // 显示月度总流量
-                                const index = context[0].dataIndex;
-                                const vps = vpsData[index] || 0;
-                                const resi = resiData[index] || 0;
-                                const total = (vps + resi).toFixed(2);
-                                return [``, `月度总计: ${total} GiB`];
-                            }
-                        }
-                    }
-                }
-            }
-        });
-        
-        this.data = trafficData;
-        console.log('MonthlyChart: 渲染完成', { dataPoints: recentData.length });
-    }
-    
-    /**
-     * 销毁图表
-     */
-    destroy() {
-        if (this.chart) {
-            this.chart.destroy();
-            this.chart = null;
-        }
-    }
-    
-    /**
-     * 更新数据（不重新创建图表）
-     */
-    updateData(trafficData) {
-        if (!this.chart || !trafficData || !trafficData.monthly) return;
-        
-        const data = trafficData.monthly.slice(-12);
-        this.chart.data.labels = data.map(item => DataFormatter.formatMonth(item.month));
-        this.chart.data.datasets[0].data = data.map(item => DataFormatter.formatGiB(item.vps || 0));
-        this.chart.data.datasets[1].data = data.map(item => DataFormatter.formatGiB(item.resi || 0));
-        this.chart.update('none');
-    }
-}
-
-/**
- * 流量进度条组件
- */
-class TrafficProgressBar {
-    constructor(containerId) {
-        this.container = document.getElementById(containerId);
-        this.fillElement = null;
-        this.textElement = null;
-        this.budgetElement = null;
-        this.initElements();
-    }
-    
-    initElements() {
-        if (!this.container) return;
-        
-        this.fillElement = this.container.querySelector('#progress-fill');
-        this.textElement = this.container.querySelector('#progress-percentage');
-        this.budgetElement = this.container.querySelector('#progress-budget');
-    }
-    
-    /**
-     * 更新进度条
-     * @param {number} used - 已使用流量 (GiB)
-     * @param {number} budget - 月度预算 (GiB)
-     */
-    update(used, budget) {
-        if (!this.fillElement || !this.textElement || !this.budgetElement) return;
-        
-        const percentage = Math.min((used / budget) * 100, 100);
-        const percentageRounded = Math.round(percentage);
-        
-        // 更新进度条
-        this.fillElement.style.width = `${percentage}%`;
-        this.textElement.textContent = `${percentageRounded}%`;
-        this.budgetElement.textContent = `${used.toFixed(1)}/${budget}GiB`;
-        
-        // 根据使用率调整颜色
-        let color = ChartConfig.colors.success; // 绿色 < 70%
-        if (percentage >= 90) {
-            color = ChartConfig.colors.danger;   // 红色 >= 90%
-        } else if (percentage >= 70) {
-            color = ChartConfig.colors.secondary; // 橙色 >= 70%
-        }
-        
-        this.fillElement.style.backgroundColor = color;
-        
-        console.log('TrafficProgressBar: 更新完成', { 
-            used: used.toFixed(1), 
-            budget, 
-            percentage: percentageRounded 
-        });
-    }
-}
-
-/**
- * 图表管理器 - 统一管理所有图表
- */
-class ChartManager {
-    constructor() {
-        this.trafficChart = null;
-        this.monthlyChart = null;
-        this.progressBar = null;
-        this.isInitialized = false;
-    }
-    
-    /**
-     * 初始化所有图表组件
-     */
-    init() {
-        if (this.isInitialized) return;
-        
-        try {
-            this.trafficChart = new TrafficChart('traffic');
-            this.monthlyChart = new MonthlyChart('monthly-chart');
-            this.progressBar = new TrafficProgressBar('traffic-progress-container');
-            
-            this.isInitialized = true;
-            console.log('ChartManager: 初始化完成');
-        } catch (error) {
-            console.error('ChartManager: 初始化失败', error);
-        }
-    }
-    
-    /**
-     * 渲染所有图表
-     * @param {Object} trafficData - 流量数据
-     * @param {number} monthlyBudget - 月度预算 (GiB)
-     */
-    async renderAll(trafficData, monthlyBudget = 100) {
-        if (!this.isInitialized) this.init();
-        
-        try {
-            // 并行渲染图表
-            const renderPromises = [];
-            
-            if (this.trafficChart && trafficData) {
-                renderPromises.push(
-                    Promise.resolve(this.trafficChart.render(trafficData))
-                );
-            }
-            
-            if (this.monthlyChart && trafficData) {
-                renderPromises.push(
-                    Promise.resolve(this.monthlyChart.render(trafficData))
-                );
-            }
-            
-            await Promise.allSettled(renderPromises);
-            
-            // 更新进度条
-            this.updateProgressBar(trafficData, monthlyBudget);
-            
-            console.log('ChartManager: 所有图表渲染完成');
-        } catch (error) {
-            console.error('ChartManager: 渲染失败', error);
-        }
-    }
-    
-    /**
-     * 更新进度条
-     */
-    updateProgressBar(trafficData, monthlyBudget) {
-        if (!this.progressBar || !trafficData || !trafficData.monthly) return;
-        
-        const monthlyData = trafficData.monthly;
-        if (monthlyData.length === 0) return;
-        
-        // 获取当月数据（最后一个月的数据）
-        const currentMonth = monthlyData[monthlyData.length - 1];
-        const usedGiB = DataFormatter.formatGiB((currentMonth.vps || 0) + (currentMonth.resi || 0));
-        
-        this.progressBar.update(usedGiB, monthlyBudget);
-    }
-    
-    /**
-     * 更新所有图表数据（轻量级更新，不重新创建）
-     */
-    updateAll(trafficData, monthlyBudget = 100) {
-        if (!this.isInitialized) return;
-        
-        if (this.trafficChart) {
-            this.trafficChart.updateData(trafficData);
-        }
-        
-        if (this.monthlyChart) {
-            this.monthlyChart.updateData(trafficData);
-        }
-        
-        this.updateProgressBar(trafficData, monthlyBudget);
-    }
-    
-    /**
-     * 销毁所有图表
-     */
-    destroyAll() {
-        if (this.trafficChart) {
-            this.trafficChart.destroy();
-            this.trafficChart = null;
-        }
-        
-        if (this.monthlyChart) {
-            this.monthlyChart.destroy();
-            this.monthlyChart = null;
-        }
-        
-        this.progressBar = null;
-        this.isInitialized = false;
-        
-        console.log('ChartManager: 所有图表已销毁');
-    }
-    
-    /**
-     * 响应式处理
-     */
-    handleResize() {
-        if (!this.isInitialized) return;
-        
-        // Chart.js 会自动处理响应式，这里可以添加自定义逻辑
-        setTimeout(() => {
-            if (this.trafficChart && this.trafficChart.chart) {
-                this.trafficChart.chart.resize();
-            }
-            if (this.monthlyChart && this.monthlyChart.chart) {
-                this.monthlyChart.chart.resize();
-            }
-        }, 100);
-    }
-}
-
-/**
- * 导出图表管理器实例（单例模式）
- */
-const chartManager = new ChartManager();
-
-// 监听窗口大小变化
-window.addEventListener('resize', () => {
-    chartManager.handleResize();
-});
-
-// 导出供外部使用
-window.ChartManager = ChartManager;
-window.chartManager = chartManager;
-window.DataFormatter = DataFormatter;
-
-// 兼容性检查
-if (typeof Chart === 'undefined') {
-    console.error('Chart.js 未加载，图表功能将不可用');
-} else {
-    console.log('模块7.3：图表和可视化组件加载完成');
-}
-
-// ==========================================
-// 原有的控制面板逻辑开始
-// ==========================================
-
-const GiB = 1024 ** 3;
-
-// 数据获取工具函数
-async function getJSON(url) {
-  try {
-    const r = await fetch(url, { cache: 'no-store' });
-    if (!r.ok) throw new Error(`${url} ${r.status}`);
-    return r.json();
-  } catch (e) {
-    console.warn(`Failed to fetch ${url}:`, e);
-    return null;
-  }
-}
-
-async function getTEXT(url) {
-  try {
-    const r = await fetch(url, { cache: 'no-store' });
-    if (!r.ok) throw new Error(`${url} ${r.status}`);
-    return r.text();
-  } catch (e) {
-    console.warn(`Failed to fetch ${url}:`, e);
-    return '';
-  }
-}
-
-// 全局变量
-let serverConfig = {};
-let _sysTicker = null;
-
-// 移除原有的图表变量，使用模块7.3的图表管理器
-// let _chartTraffic = null; 
-// let _chartMonthly = null;
-
-const clamp = (n, min=0, max=100) =>
-  (Number.isFinite(+n) ? Math.max(min, Math.min(max, Math.round(+n))) : 0);
-
-// 通知中心切换
-function toggleNotifications() {
-  const popup = document.getElementById('notif-popup');
-  popup.classList.toggle('show');
-}
-
-// 关闭模态框
-function closeModal() {
-  document.getElementById('protocol-modal').classList.remove('show');
-}
-
-// 安全取值函数
-function getSafe(obj, path, fallback = '') {
-  try {
-    let cur = obj;
-    for (let i = 0; i < path.length; i++) {
-      if (cur == null || !(path[i] in cur)) return fallback;
-      cur = cur[path[i]];
-    }
-    return cur == null ? fallback : cur;
-  } catch (_) {
-    return fallback;
-  }
-}
-
-// 显示协议详情
-function showProtocolDetails(protocol) {
-  const modal = document.getElementById('protocol-modal');
-  const modalTitle = document.getElementById('modal-title');
-  const modalBody = document.getElementById('modal-body');
-
-  const sc = window.serverConfig || {};
-  const uuid = getSafe(sc, ['uuid', 'vless'], 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx');
-  const tuicUuid = getSafe(sc, ['uuid', 'tuic'], 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx');
-  const realityPK = getSafe(sc, ['reality', 'public_key'], 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx');
-  const shortId = getSafe(sc, ['reality', 'short_id'], 'xxxxxxxxxxxxxxxx');
-  const hy2Pass = getSafe(sc, ['password', 'hysteria2'], 'xxxxxxxxxxxx');
-  const tuicPass = getSafe(sc, ['password', 'tuic'], 'xxxxxxxxxxxx');
-  const trojanPwd = getSafe(sc, ['password', 'trojan'], 'xxxxxxxxxxxx');
-  const server = getSafe(sc, ['server_ip'], window.location.hostname);
-
-  const configs = {
-    'VLESS-Reality': {
-      title: 'VLESS-Reality 配置',
-      items: [
-        { label: '服务器地址', value: server + ':443' },
-        { label: 'UUID', value: uuid },
-        { label: '传输协议', value: 'tcp' },
-        { label: '流控', value: 'xtls-rprx-vision' },
-        { label: 'Reality配置', value: '公钥: ' + realityPK + '\nShortID: ' + shortId + '\nSNI: www.cloudflare.com', note: '支持SNI: cloudflare.com, microsoft.com, apple.com' }
-      ]
-    },
-    'VLESS-gRPC': {
-      title: 'VLESS-gRPC 配置',
-      items: [
-        { label: '服务器地址', value: server + ':443' },
-        { label: 'UUID', value: uuid },
-        { label: '传输协议', value: 'grpc' },
-        { label: 'ServiceName', value: 'grpc' },
-        { label: 'TLS设置', value: 'tls', note: 'IP模式需开启"跳过证书验证"' }
-      ]
-    },
-    'VLESS-WS': {
-      title: 'VLESS-WebSocket 配置',
-      items: [
-        { label: '服务器地址', value: server + ':443' },
-        { label: 'UUID', value: uuid },
-        { label: '传输协议', value: 'ws' },
-        { label: 'Path', value: '/ws' },
-        { label: 'TLS设置', value: 'tls', note: 'IP模式需开启"跳过证书验证"' }
-      ]
-    },
-    'Trojan-TLS': {
-      title: 'Trojan-TLS 配置',
-      items: [
-        { label: '服务器地址', value: server + ':443' },
-        { label: '密码', value: trojanPwd },
-        { label: 'SNI', value: 'trojan.edgebox.internal', note: 'IP模式需开启"跳过证书验证"' }
-      ]
-    },
-    'Hysteria2': {
-      title: 'Hysteria2 配置',
-      items: [
-        { label: '服务器地址', value: server + ':443' },
-        { label: '密码', value: hy2Pass },
-        { label: '协议', value: 'UDP/QUIC' },
-        { label: '注意事项', value: '需要支持QUIC的网络环境', note: 'IP模式需开启"跳过证书验证"' }
-      ]
-    },
-    'TUIC': {
-      title: 'TUIC 配置',
-      items: [
-        { label: '服务器地址', value: server + ':2053' },
-        { label: 'UUID', value: tuicUuid },
-        { label: '密码', value: tuicPass },
-        { label: '拥塞控制', value: 'bbr', note: 'IP模式需开启"跳过证书验证"' }
-      ]
-    }
-  };
-
-  const cfg = configs[protocol];
-  if (!cfg) return;
-  modalTitle.textContent = cfg.title;
-  modalBody.innerHTML = cfg.items.map(function(it) {
-    return '<div class="config-item"><h4>' + it.label + '</h4><code>' + it.value + '</code>' + (it.note ? '<div class="config-note">⚠️ ' + it.note + '</div>' : '') + '</div>';
-  }).join('');
-  modal.classList.add('show');
-}
-
-// 点击外部关闭
-document.addEventListener('click', function(e) {
-  if (!e.target.closest('.notification-bell')) {
-    document.getElementById('notif-popup').classList.remove('show');
-  }
-  if (e.target.classList.contains('modal')) {
-    e.target.classList.remove('show');
-  }
-});
-
-// 读取服务器配置（统一从dashboard.json读取）
-async function readServerConfig() {
-  // 优先统一数据源：dashboard.json.secrets
-  try {
-    const d = await getJSON('./dashboard.json');
-    if (!d) throw new Error('Dashboard data not available');
-    
-    const s = (d && d.secrets) || {};
-    const cfg = {
-      server_ip: (d && d.server && (d.server.eip || d.server.ip)) || window.location.hostname,
-      uuid: {
-        vless: s.vless && (s.vless.reality || s.vless.grpc || s.vless.ws) || ''
-      },
-      password: {
-        hysteria2: (s.password && s.password.hysteria2) || '',
-        tuic:      (s.password && s.password.tuic)      || '',
-        trojan:    (s.password && s.password.trojan)    || ''
-      },
-      reality: {
-        public_key: (s.reality && s.reality.public_key) || '',
-        short_id:   (s.reality && s.reality.short_id)   || ''
-      }
-    };
-    if (s.tuic_uuid) cfg.uuid.tuic = s.tuic_uuid;
-    return cfg;
-  } catch (_) {}
-
-  // 兜底：从 /traffic/sub 或 /traffic/sub.txt 解析
-  try {
-    let txt = '';
-    try { txt = await getTEXT('./sub'); } catch { txt = await getTEXT('./sub.txt'); }
-    const lines = txt.split('\n').map(l => l.trim()).filter(Boolean);
-    const cfg = { uuid:{}, password:{}, reality:{}, server_ip: window.location.hostname };
-    const v = lines.find(l => l.startsWith('vless://'));
-    if (v) {
-      const m = v.match(/^vless:\/\/([^@]+)@([^:]+):\d+\?([^#]+)/i);
-      if (m) {
-        cfg.uuid.vless = m[1]; cfg.server_ip = m[2];
-        const qs = new URLSearchParams(m[3].replace(/&amp;/g,'&'));
-        cfg.reality.public_key = qs.get('pbk') || '';
-        cfg.reality.short_id   = qs.get('sid') || '';
-      }
-    }
-    for (const l of lines) {
-      let m;
-      if ((m = l.match(/^hysteria2:\/\/([^@]+)@/i))) cfg.password.hysteria2 = decodeURIComponent(m[1]);
-      if ((m = l.match(/^tuic:\/\/([^:]+):([^@]+)@/i))) { cfg.uuid.tuic = m[1]; cfg.password.tuic = decodeURIComponent(m[2]); }
-      if ((m = l.match(/^trojan:\/\/([^@]+)@/i))) cfg.password.trojan = decodeURIComponent(m[1]);
-    }
-    return cfg;
-  } catch { 
-    return {
-      server_ip: window.location.hostname,
-      uuid: { vless: '', tuic: '' },
-      password: { hysteria2: '', tuic: '', trojan: '' },
-      reality: { public_key: '', short_id: '' }
-    };
-  }
-}
-
-// 更新本月进度条 (使用模块7.3组件)
-async function updateProgressBar() {
-  try {
-    const [trafficRes, alertRes] = await Promise.all([
-      fetch('./traffic.json', { cache: 'no-store' }),
-      fetch('./alert.conf', { cache: 'no-store' })
-    ]);
-    
-    let budget = 100;
-    if (alertRes && alertRes.ok) {
-      const alertText = await alertRes.text();
-      const match = alertText.match(/ALERT_MONTHLY_GIB=(\d+)/);
-      if (match) budget = parseInt(match[1]);
-    }
-    
-    if (trafficRes && trafficRes.ok) {
-      const traffic = await trafficRes.json();
-      if (traffic && chartManager.isInitialized) {
-        chartManager.updateProgressBar(traffic, budget);
-      } else {
-        // 降级处理：直接更新DOM元素
-        updateProgressBarDirect(traffic, budget);
-      }
-    }
-  } catch (e) {
-    console.warn('进度条更新失败:', e);
-  }
-}
-
-// 直接更新进度条DOM的降级函数
-function updateProgressBarDirect(traffic, budget) {
-  if (!traffic || !traffic.monthly || traffic.monthly.length === 0) return;
+// 证书模式切换
+function switchCertMode(mode) {
+  document.querySelectorAll('.cert-mode-btn').forEach(btn => {
+    btn.classList.remove('active');
+  });
+  event.target.classList.add('active');
   
-  const current = traffic.monthly[traffic.monthly.length - 1];
-  const used = ((current.vps || 0) + (current.resi || 0)) / (1024 ** 3);
-  const pct = Math.min((used / budget) * 100, 100);
-  
-  const fillEl = document.getElementById('progress-fill');
-  const textEl = document.getElementById('progress-percentage');
-  const budgetEl = document.getElementById('progress-budget');
-  
-  if (fillEl) fillEl.style.width = pct + '%';
-  if (textEl) textEl.textContent = pct.toFixed(0) + '%';
-  if (budgetEl) budgetEl.textContent = used.toFixed(1) + '/' + budget + 'GiB';
-}
-
-// 主数据加载函数（统一从dashboard.json读取）
-async function loadData() {
-  console.log('开始加载数据...');
-  
-  try {
-    // 统一数据源：只从 dashboard.json 读取
-    const [dashboard, traffic, alerts, serverJson] = await Promise.all([
-      getJSON('./dashboard.json'),
-      getJSON('./traffic.json'),
-      getJSON('./alerts.json').then(data => data || []),
-      readServerConfig()
-    ]);
-    
-    console.log('数据加载完成:', { dashboard: !!dashboard, traffic: !!traffic, alerts: alerts.length, serverJson: !!serverJson });
-    
-    // 保存服务器配置供协议详情使用
-    window.serverConfig = serverJson || {};
-
-    // 统一数据模型（基于dashboard.json）
-    const model = dashboard ? {
-      updatedAt: dashboard.updated_at,
-      server: dashboard.server || {},
-      system: { cpu: null, memory: null }, // 系统信息从system.json单独获取
-      protocols: dashboard.protocols || [],
-      shunt: dashboard.shunt || {},
-      subscription: dashboard.subscription || { plain: '', base64: '', b64_lines: '' },
-      services: dashboard.services || {}
-    } : {
-      // 兜底数据结构
-      updatedAt: new Date().toISOString(),
-      server: {},
-      system: { cpu: null, memory: null },
-      protocols: [],
-      shunt: {},
-      subscription: { plain: '', base64: '', b64_lines: '' },
-      services: {}
-    };
-
-    // 渲染各个模块
-    renderHeader(model);
-    renderProtocols(model);
-    renderTraffic(traffic);
-    renderAlerts(alerts);
-
-  } catch (e) {
-    console.error('loadData failed:', e);
-    // 在出错时显示基本界面
-    renderHeader({
-      updatedAt: new Date().toISOString(),
-      server: {},
-      services: {}
-    });
+  if (mode === 'ca') {
+    document.getElementById('cert-type').textContent = 'Let\'s Encrypt';
+    document.getElementById('cert-domain').textContent = 'example.com';
+    document.getElementById('cert-expire').textContent = '2025-04-16';
+  } else {
+    document.getElementById('cert-type').textContent = '自签名';
+    document.getElementById('cert-domain').textContent = '(无)';
+    document.getElementById('cert-expire').textContent = '—';
   }
 }
 
-// 渲染基本信息
-function renderHeader(model) {
-  const ts = model.updatedAt || new Date().toISOString();
-  document.getElementById('updated').textContent = new Date(ts).toLocaleString('zh-CN');
-  const s = model.server || {}, svc = model.services || {};
-  
-  // 基本信息 - 修正DOM元素ID
-  const userAlias = document.getElementById('user-alias');
-  const cloudProvider = document.getElementById('cloud-provider');
-  const instanceId = document.getElementById('instance-id');
-  const hostname = document.getElementById('hostname');
-  
-  if (userAlias) userAlias.textContent = s.user_alias || '—';
-  if (cloudProvider) cloudProvider.textContent = s.cloud_provider || '—';
-  if (instanceId) instanceId.textContent = s.instance_id || '—';
-  if (hostname) hostname.textContent = s.hostname || '—';
- 
-  // 证书 / 网络模式 & 续期方式
-  const mode = s.cert_mode || 'self-signed';
-  const renewal = mode === 'letsencrypt' ? '自动续期' : '手动续期';
-
-  const certType = document.getElementById('cert-type');
-  const certDomain = document.getElementById('cert-domain');
-  const certRenewal = document.getElementById('cert-renewal');
-  const certExpire = document.getElementById('cert-expire');
-
-  if (certType) certType.textContent = mode === 'letsencrypt' ? "Let's Encrypt" : '自签名证书';
-  if (certDomain) certDomain.textContent = s.cert_domain || '无';
-  if (certRenewal) certRenewal.textContent = renewal;
-
-  // 到期日期：处理无效值
-  const expStr = (s.cert_expire || '').trim();
-  const expDate = expStr ? new Date(expStr) : null;
-  if (certExpire) {
-    certExpire.textContent = (expDate && !isNaN(expDate)) ? expDate.toLocaleDateString('zh-CN') : '无';
-  }
-
-  const verEl = document.getElementById('ver');
-  const instEl = document.getElementById('inst');
-  if (verEl) verEl.textContent = s.version || '—';
-  if (instEl) instEl.textContent = s.install_date || '—';
-  
-  // CPU/内存从system.json单独获取
-  loadSystemStats();
-  
-  // 服务状态 - 添加状态样式类
-  const nginxEl = document.getElementById('nginx-status');
-  const xrayEl = document.getElementById('xray-status');
-  const singboxEl = document.getElementById('singbox-status');
-
-  if (nginxEl) {
-    nginxEl.innerHTML = svc.nginx === 'active' 
-      ? '<span class="service-status-badge">运行中</span>'
-      : '<span class="service-status-badge inactive">已停止</span>';
-  }
-
-  if (xrayEl) {
-    xrayEl.innerHTML = svc.xray === 'active'
-      ? '<span class="service-status-badge">运行中</span>'
-      : '<span class="service-status-badge inactive">已停止</span>';
-  }
-
-  if (singboxEl) {
-    singboxEl.innerHTML = svc['sing-box'] === 'active'
-      ? '<span class="service-status-badge">运行中</span>'
-      : '<span class="service-status-badge inactive">已停止</span>';
-  }
-}
-
-// 单独加载系统状态
-async function loadSystemStats() {
-  try {
-    const sys = await getJSON('./system.json');
-    if (!sys) throw new Error('System data not available');
-    
-    const cpuPercent = clamp(sys.cpu);
-    const memPercent = clamp(sys.memory);
-    const diskPercent = clamp(sys.disk);
-    
-    // 更新CPU进度条
-    const cpuFill = document.getElementById('cpu-progress-fill');
-    const cpuText = document.getElementById('cpu-progress-text');
-    const cpuDetail = document.getElementById('cpu-detail');
-    if (cpuFill) cpuFill.style.width = cpuPercent + '%';
-    if (cpuText) cpuText.textContent = cpuPercent + '%';
-    if (cpuDetail) cpuDetail.textContent = sys.cpu_info || '—';
-    
-    // 更新内存进度条
-    const memFill = document.getElementById('mem-progress-fill');
-    const memText = document.getElementById('mem-progress-text');
-    const memDetail = document.getElementById('mem-detail');
-    if (memFill) memFill.style.width = memPercent + '%';
-    if (memText) memText.textContent = memPercent + '%';
-    if (memDetail) memDetail.textContent = sys.memory_info || '—';
-    
-    // 更新磁盘进度条
-    const diskFill = document.getElementById('disk-progress-fill');
-    const diskText = document.getElementById('disk-progress-text');
-    const diskDetail = document.getElementById('disk-detail');
-    if (diskFill) diskFill.style.width = diskPercent + '%';
-    if (diskText) diskText.textContent = diskPercent + '%';
-    if (diskDetail) diskDetail.textContent = sys.disk_info || '—';
-    
-  } catch(_) {
-    // 错误时显示默认状态
-    const elements = [
-      'cpu-progress-fill', 'cpu-progress-text', 'cpu-detail',
-      'mem-progress-fill', 'mem-progress-text', 'mem-detail',
-      'disk-progress-fill', 'disk-progress-text', 'disk-detail'
-    ];
-    elements.forEach(id => {
-      const el = document.getElementById(id);
-      if (el) {
-        if (id.includes('fill')) el.style.width = '0%';
-        else el.textContent = id.includes('text') ? '-' : '—';
-      }
-    });
-  }
-  
-  // 15s轮询系统状态
-  clearInterval(_sysTicker);
-  _sysTicker = setInterval(loadSystemStats, 15000);
-}
-
-// 渲染协议配置
-function renderProtocols(model) {
-  const tb = document.querySelector('#proto tbody');
-  if (!tb) return;
-  
-  tb.innerHTML = '';
-  
-  const protocols = [
-    { name: 'VLESS-Reality', network: 'TCP', disguise: '极佳', scenario: '强审查环境' },
-    { name: 'VLESS-gRPC', network: 'TCP/H2', disguise: '极佳', scenario: '较严审查/走CDN' },
-    { name: 'VLESS-WS', network: 'TCP/WS', disguise: '良好', scenario: '常规网络更稳' },
-    { name: 'Trojan-TLS', network: 'TCP', disguise: '良好', scenario: '移动网络可靠' },
-    { name: 'Hysteria2', network: 'UDP/QUIC', disguise: '良好', scenario: '大带宽/低时延' },
-    { name: 'TUIC', network: 'UDP/QUIC', disguise: '好', scenario: '弱网/高丢包更佳' }
-  ];
-  
-  protocols.forEach(function(p) {
-    const tr = document.createElement('tr');
-    tr.innerHTML = 
-      '<td>' + p.name + '</td>' +
-      '<td>' + p.network + '</td>' +
-      '<td>' + p.disguise + '</td>' +
-      '<td>' + p.scenario + '</td>' +
-      '<td><span class="protocol-status-badge">✓ 运行</span></td>' +
-      '<td><span class="detail-link" onclick="showProtocolDetails(\'' + p.name + '\')">详情>></span></td>';
-    tb.appendChild(tr);
+// 网络模式切换（演示用）
+function switchNetworkMode(mode) {
+  document.querySelectorAll('.network-block').forEach(block => {
+    block.classList.add('inactive');
   });
   
-  // 网络出站状态
-  const sh = model.shunt || {};
-  
-  // 更新网络信息
-  const vpsOutIp = document.getElementById('vps-out-ip');
-  const vpsGeo = document.getElementById('vps-geo');
-  const vpsQuality = document.getElementById('vps-quality');
-  const proxyOutIp = document.getElementById('proxy-out-ip');
-  const proxyGeo = document.getElementById('proxy-geo');
-  const proxyQuality = document.getElementById('proxy-quality');
-  
-  if (vpsOutIp) vpsOutIp.textContent = (model.server && (model.server.eip || model.server.ip)) || '—';
-  if (vpsGeo) vpsGeo.textContent = sh.vps_geo || '—';
-  if (vpsQuality) vpsQuality.textContent = sh.vps_quality || '—';
-  if (proxyOutIp) proxyOutIp.textContent = sh.proxy_info ? '已配置' : '未配置';
-  if (proxyGeo) proxyGeo.textContent = sh.proxy_geo || '—';
-  if (proxyQuality) proxyQuality.textContent = sh.proxy_quality || '—';
-  
-  // 修复白名单显示
-  const whitelist = sh.whitelist || [];
-  const whitelistText = Array.isArray(whitelist) && whitelist.length > 0 
-    ? whitelist.slice(0, 8).join(', ') + (whitelist.length > 8 ? '...' : '')
-    : '加载中...';
-  const whitelistEl = document.getElementById('whitelist-text');
-  if (whitelistEl) whitelistEl.textContent = whitelistText;
-
-  // 渲染订阅链接
-  const sub = model.subscription || {};
-  const subPlain = document.getElementById('sub-plain');
-  const subB64 = document.getElementById('sub-b64');
-  const subB64Lines = document.getElementById('sub-b64lines');
-  
-  if (subPlain) subPlain.value = sub.plain || '';
-  if (subB64) subB64.value = sub.base64 || '';
-  if (subB64Lines) subB64Lines.value = sub.b64_lines || '';
-}
-
-// 渲染流量图表 (使用模块7.3图表组件)
-async function renderTraffic(traffic) {
-  if (!traffic) {
-    console.warn('renderTraffic: 无流量数据');
-    return;
-  }
-  
-  try {
-    // 获取月度预算配置
-    let monthlyBudget = 100; // 默认100GiB
-    try {
-      const alertRes = await fetch('./alert.conf', { cache: 'no-store' });
-      if (alertRes && alertRes.ok) {
-        const alertText = await alertRes.text();
-        const match = alertText.match(/ALERT_MONTHLY_GIB=(\d+)/);
-        if (match) monthlyBudget = parseInt(match[1]);
-      }
-    } catch (e) {
-      console.warn('获取预算配置失败，使用默认值:', e);
-    }
-    
-    // 使用图表管理器渲染所有图表
-    await chartManager.renderAll(traffic, monthlyBudget);
-    
-    console.log('renderTraffic: 图表渲染完成', {
-      hasLast30d: !!(traffic.last30d && traffic.last30d.length),
-      hasMonthly: !!(traffic.monthly && traffic.monthly.length),
-      monthlyBudget
-    });
-    
-  } catch (error) {
-    console.error('renderTraffic: 渲染失败', error);
-    
-    // 降级处理：显示错误状态
-    const trafficCanvas = document.getElementById('traffic');
-    const monthlyCanvas = document.getElementById('monthly-chart');
-    
-    if (trafficCanvas) {
-      const ctx = trafficCanvas.getContext('2d');
-      ctx.clearRect(0, 0, trafficCanvas.width, trafficCanvas.height);
-      ctx.fillStyle = '#64748b';
-      ctx.font = '14px system-ui';
-      ctx.textAlign = 'center';
-      ctx.fillText('图表加载失败', trafficCanvas.width / 2, trafficCanvas.height / 2);
-    }
-    
-    if (monthlyCanvas) {
-      const ctx = monthlyCanvas.getContext('2d');
-      ctx.clearRect(0, 0, monthlyCanvas.width, monthlyCanvas.height);
-      ctx.fillStyle = '#64748b';
-      ctx.font = '14px system-ui';
-      ctx.textAlign = 'center';
-      ctx.fillText('图表加载失败', monthlyCanvas.width / 2, monthlyCanvas.height / 2);
-    }
+  switch(mode) {
+    case 'vps':
+      document.getElementById('vps-block').classList.remove('inactive');
+      break;
+    case 'proxy':
+      document.getElementById('proxy-block').classList.remove('inactive');
+      break;
+    case 'shunt':
+      document.getElementById('shunt-block').classList.remove('inactive');
+      break;
   }
 }
 
-// 渲染通知中心
-function renderAlerts(alerts) {
-  const alertCount = (alerts || []).length;
-  const notifCountEl = document.getElementById('notif-count');
-  const notifBell = document.getElementById('notif-bell');
-  
-  if (notifCountEl) notifCountEl.textContent = alertCount;
-  
-  if (notifBell && alertCount > 0) {
-    notifBell.classList.add('has-alerts');
-    const span = notifBell.querySelector('span');
-    if (span) span.textContent = alertCount + ' 条通知';
-  }
-  
-  const notifList = document.getElementById('notif-list');
-  if (notifList) {
-    notifList.innerHTML = '';
-    if (alertCount > 0) {
-      alerts.slice(0, 10).forEach(function(a) {
-        const div = document.createElement('div');
-        div.className = 'notification-item';
-        div.textContent = (a.ts || '') + ' ' + (a.msg || '');
-        notifList.appendChild(div);
-      });
-    } else {
-      notifList.textContent = '暂无通知';
-    }
-  }
-}
-
-// 复制订阅链接函数
-function copySub(type) {
-  const input = document.getElementById('sub-' + type);
-  if (!input) return;
-  
-  input.select();
-  document.execCommand('copy');
-  
-  const btn = input.nextElementSibling;
-  if (btn) {
-    const originalText = btn.textContent;
-    btn.textContent = '已复制';
-    btn.style.background = '#10b981';
-    btn.style.color = 'white';
-    setTimeout(function() {
-      btn.textContent = originalText;
-      btn.style.background = '';
-      btn.style.color = '';
-    }, 1000);
-  }
-}
-
-// 显示IP质量详情弹窗
+// 显示IP质量详情
 function showIPQDetails(type) {
   const modal = document.getElementById('ipqModal');
   const title = document.getElementById('ipqModalTitle');
@@ -6787,19 +5436,19 @@ function showIPQDetails(type) {
     </div>
     
     <div class="ipq-section">
-      <h5 style="margin: 0 0 10px 0; color: #333;">身份信息</h5>
+      <h5>身份信息</h5>
       <div><span class="ipq-label">出站IP:</span> <span class="ipq-value">${data.ip}</span></div>
       <div><span class="ipq-label">ASN/ISP:</span> <span class="ipq-value">${data.asn} / ${data.isp}</span></div>
       <div><span class="ipq-label">Geo:</span> <span class="ipq-value">${data.geo}</span></div>
     </div>
     
     <div class="ipq-section">
-      <h5 style="margin: 0 0 10px 0; color: #333;">配置信息</h5>
+      <h5>配置信息</h5>
       <div><span class="ipq-label">带宽限制:</span> <span class="ipq-value">${data.bandwidth}</span></div>
     </div>
     
     <div class="ipq-section">
-      <h5 style="margin: 0 0 10px 0; color: #333;">质量细项</h5>
+      <h5>质量细项</h5>
       <div><span class="ipq-label">网络类型:</span> <span class="ipq-value">${data.networkType}</span></div>
       <div><span class="ipq-label">rDNS:</span> <span class="ipq-value">${data.rdns}</span></div>
       <div><span class="ipq-label">黑名单:</span> <span class="ipq-value">${data.blacklist}</span></div>
@@ -6807,7 +5456,7 @@ function showIPQDetails(type) {
     </div>
     
     <div class="ipq-section">
-      <h5 style="margin: 0 0 10px 0; color: #333;">结论</h5>
+      <h5>结论</h5>
       ${data.conclusion.map(item => `<div style="margin: 5px 0;">${item}</div>`).join('')}
     </div>
   `;
@@ -6837,6 +5486,28 @@ function closeWhitelistModal() {
   document.getElementById('whitelistModal').style.display = 'none';
 }
 
+// 复制配置
+function copyConfig(protocol) {
+  // 模拟复制
+  alert(`已复制 ${protocol} 配置到剪贴板`);
+}
+
+// 复制订阅
+function copySub(type) {
+  const textarea = document.getElementById(`sub-${type}`);
+  textarea.select();
+  document.execCommand('copy');
+  alert('已复制到剪贴板');
+}
+
+// 运维功能（演示）
+function restartServices() { alert('正在重启服务...'); }
+function updateSystem() { alert('正在检查更新...'); }
+function viewLogs() { alert('正在获取日志...'); }
+function backup() { alert('正在备份配置...'); }
+function restore() { alert('正在恢复配置...'); }
+function resetTraffic() { alert('正在重置流量统计...'); }
+
 // 点击弹窗外部关闭
 window.onclick = function(event) {
   if (event.target.classList.contains('modal')) {
@@ -6844,36 +5515,26 @@ window.onclick = function(event) {
   }
 }
 
-// 启动
-console.log('脚本开始执行');
+// 初始化
 document.addEventListener('DOMContentLoaded', function() {
-  // 初始化图表管理器
-  chartManager.init();
+  // 默认显示VPS直连模式
+  switchNetworkMode('vps');
   
-  // 加载数据
-  loadData();
-  initWhitelistCollapse();
-  
-  console.log('控制面板初始化完成');
-});
-
-// 定时刷新：每5分钟刷新一次数据，每小时刷新本月进度条
-setInterval(() => {
-  loadData();
-}, 300000);
-
-setInterval(() => {
-  updateProgressBar();
-}, 3600000);
-
-// 页面卸载时清理图表
-window.addEventListener('beforeunload', () => {
-  chartManager.destroyAll();
+  // 模拟流量图表
+  const canvas = document.getElementById('traffic-chart');
+  if (canvas) {
+    const ctx = canvas.getContext('2d');
+    // 这里可以集成Chart.js等图表库
+    ctx.fillStyle = '#667eea';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
 });
 </script>
+
 </body>
 </html>
 HTML
+
 
 # 覆盖块：为控制面板加入 no-cache 元信息，避免浏览器缓存挡住新版
 {
