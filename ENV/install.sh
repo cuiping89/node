@@ -4992,81 +4992,55 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
       </div>
     </div>
 
- <!-- 网络身份配置 -->
+    <!-- 网络身份配置 -->
     <div class="card">
-      <h3>🌐 网络身份配置
-        <div class="card-note">注：HY2/TUIC 为 UDP通道，VPS直连，不走代理分流</div>
-      </h3>
+      <h3>🌐 网络身份配置</h3>
       <div class="content">
-        <!-- 三个子区块标签，当前状态高亮显示 -->
-        <div class="network-status">
-          <span class="network-title" id="network-title-vps">VPS出站IP</span>
-          <span class="network-title" id="network-title-proxy">代理出站IP</span>
-          <span class="network-title" id="network-title-shunt">分流出站</span>
-        </div>
+<div class="network-status">
+  <span class="status-badge active">VPS出站IP</span>
+  <span class="status-badge">代理出站IP</span>
+  <span class="status-badge">分流出站</span>
+</div>
         
-        <!-- 三个子区块并排显示 -->
+        <!-- 三个区块并排显示 -->
         <div class="network-blocks">
           <!-- VPS出站IP内容 -->
           <div class="network-block">
             <h5>📡 VPS出站IP</h5>
-            <div class="small">公网身份: <span class="status-badge">直连</span></div>
+            <div class="small">公网身份: <span class="status-running">直连</span></div>
             <div class="small">VPS出站IP: <span id="vps-out-ip">—</span></div>
             <div class="small">Geo: <span id="vps-geo">—</span></div>
-            <div class="small">IP质量: <span id="vps-quality">—</span> <span class="detail-link" onclick="showIPQDetails('vps')">详情</span></div>
+            <div class="small">IP质量检测: <span id="vps-quality">—</span> <span class="detail-link" onclick="showIPQDetails('vps')">详情</span></div>
           </div>
           
           <!-- 代理出站IP内容 -->
           <div class="network-block">
             <h5>🔄 代理出站IP</h5>
-            <div class="small">代理身份: <span class="status-badge">全代理</span></div>
-            <div class="small">代理出站IP: <span id="proxy-out-ip">未配置</span></div>
+            <div class="small">代理身份: <span class="status-running">全代理</span></div>
+            <div class="small">代理出站IP: <span id="proxy-out-ip">—</span></div>
             <div class="small">Geo: <span id="proxy-geo">—</span></div>
-            <div class="small">IP质量: <span id="proxy-quality">—</span> <span class="detail-link" onclick="showIPQDetails('proxy')">详情</span></div>
+            <div class="small">IP质量检测: <span id="proxy-quality">—</span> <span class="detail-link" onclick="showIPQDetails('proxy')">详情</span></div>
           </div>
           
           <!-- 分流出站内容 -->
           <div class="network-block">
             <h5>🔀 分流出站</h5>
-            <div class="small">混合身份: <span class="status-badge">VPS直连 + 代理</span></div>
+            <div class="small">混合身份: <span class="status-running">VPS直连 + 代理</span></div>
             <div class="small">白名单: 
               <div class="whitelist-content" id="whitelist-content">
-                <div id="whitelist-inline">—</div>
-                <span class="detail-link" onclick="showWhitelistModal()">查看全部</span>
+                <span id="whitelist-text">—</span>
               </div>
+              <span class="detail-link" id="whitelist-toggle" onclick="toggleWhitelist()">查看全部</span>
             </div>
           </div>
         </div>
+        
+        <div class="network-note">
+          注：HY2/TUIC 为UDP通道，固定 VPS直连，不参与网络身份配置。
+        </div>
       </div>
     </div>
-
-<!-- 在现有模态框之后添加这两个新模态框 -->
-
-<!-- IP质量检测详情弹窗 -->
-<div class="modal" id="ipq-modal">
-  <div class="modal-content">
-    <div class="modal-header">
-      <h3 id="ipq-modal-title">IP质量检测详情</h3>
-      <button class="modal-close" onclick="closeModal('ipq-modal')">&times;</button>
-    </div>
-    <div class="modal-body" id="ipq-modal-body">
-      <div class="loading">正在加载IP质量数据...</div>
-    </div>
   </div>
-</div>
-
-<!-- 白名单查看弹窗 -->
-<div class="modal" id="whitelist-modal">
-  <div class="modal-content">
-    <div class="modal-header">
-      <h3>白名单域名列表</h3>
-      <button class="modal-close" onclick="closeModal('whitelist-modal')">&times;</button>
-    </div>
-    <div class="modal-body" id="whitelist-modal-body">
-      <div class="loading">正在加载白名单数据...</div>
-    </div>
-  </div>
-</div>
 
   <!-- 第三行：协议配置 -->
   <div class="grid grid-full">
@@ -6572,6 +6546,23 @@ window.addEventListener('beforeunload', () => {
 </html>
 HTML
 
+# 覆盖块：为控制面板加入 no-cache 元信息，避免浏览器缓存挡住新版
+{
+  build_tag="${EDGEBOX_VER:-3.0.0}-$(date +%Y%m%d%H%M%S)"
+  tmp="${TRAFFIC_DIR}/.index.inject.$$"
+  awk -v tag="$build_tag" '
+    BEGIN{done=0}
+    /<head>/ && !done {
+      print;
+      print "    <meta http-equiv=\"Cache-Control\" content=\"no-cache, no-store, must-revalidate\" />";
+      print "    <meta http-equiv=\"Pragma\" content=\"no-cache\" />";
+      print "    <meta http-equiv=\"Expires\" content=\"0\" />";
+      print "    <meta name=\"edgebox-build\" content=\"" tag "\" />";
+      done=1; next
+    }
+    {print}
+  ' "$TRAFFIC_DIR/index.html" > "$tmp" && mv -f "$tmp" "$TRAFFIC_DIR/index.html"
+} || true
 
 log_success "流量监控系统设置完成：${TRAFFIC_DIR}/index.html"
 }
@@ -8251,16 +8242,11 @@ pre_install_check() {
         fi
     done
     
-    if [[ ${#port_conflicts[@]} -gt 0 ]]; then
-        log_warn "检测到端口冲突: ${port_conflicts[*]}"
-        log_warn "这些端口将被EdgeBox使用，现有服务可能会停止"
-        read -p "是否继续？[y/N]: " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            log_info "安装已取消"
-            exit 0
-        fi
-    fi
+   if [[ ${#port_conflicts[@]} -gt 0 ]]; then
+    log_warn "检测到端口冲突: ${port_conflicts[*]}"
+    log_warn "这些端口将被EdgeBox使用，现有服务可能会停止"
+    # 仅提示，不交互也不退出
+fi
     
     log_success "预安装检查通过"
 }
