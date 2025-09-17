@@ -4274,31 +4274,15 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: #f5f5f5;
   min-height: 100vh;
   padding: 20px;
+  color: #333;
 }
 
 .container {
   max-width: 1400px;
   margin: 0 auto;
-}
-
-.header {
-  text-align: center;
-  color: white;
-  margin-bottom: 30px;
-}
-
-.header h1 {
-  font-size: 32px;
-  margin-bottom: 10px;
-  text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
-}
-
-.header p {
-  font-size: 14px;
-  opacity: 0.9;
 }
 
 /* 网格系统 */
@@ -4316,8 +4300,8 @@ body {
   grid-template-columns: 1fr 1fr 1fr;
 }
 
-.grid-2-8 {
-  grid-template-columns: 4fr 8fr;
+.grid-1-2 {
+  grid-template-columns: 1fr 2fr;
 }
 
 .grid-full {
@@ -4326,17 +4310,10 @@ body {
 
 /* 卡片样式 */
 .card {
-  background: rgba(255, 255, 255, 0.95);
-  border-radius: 12px;
+  background: #fff;
+  border-radius: 8px;
   padding: 20px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-  backdrop-filter: blur(10px);
-  transition: transform 0.3s ease, box-shadow 0.3s ease;
-}
-
-.card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .card h3 {
@@ -4344,7 +4321,7 @@ body {
   color: #333;
   margin-bottom: 20px;
   padding-bottom: 10px;
-  border-bottom: 2px solid #e0e0e0;
+  border-bottom: 1px solid #e0e0e0;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -4353,39 +4330,60 @@ body {
 /* 右上角注释样式 */
 .card-note {
   font-size: 11px;
-  color: #666;
+  color: #999;
   font-weight: normal;
   margin-left: auto;
-  opacity: 0.8;
 }
 
-.content {
-  color: #666;
-}
-
-/* 信息组样式 */
-.info-group {
+/* 标题卡片 */
+.header-card {
+  background: #fff;
+  border-radius: 8px;
+  padding: 30px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  text-align: center;
   margin-bottom: 20px;
 }
 
-.info-group h4 {
-  font-size: 14px;
-  color: #555;
-  margin-bottom: 12px;
-  padding-left: 12px;
-  border-left: 3px solid #667eea;
+.header-card h1 {
+  font-size: 28px;
+  color: #333;
+  margin-bottom: 8px;
 }
 
+.header-card p {
+  font-size: 14px;
+  color: #666;
+}
+
+/* 系统概览区块 */
+.overview-blocks {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+
+.overview-block {
+  padding: 15px;
+  background: #f9f9f9;
+  border-radius: 6px;
+}
+
+.overview-block h4 {
+  font-size: 14px;
+  color: #555;
+  margin-bottom: 15px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+/* 信息项样式 */
 .info-item {
   display: flex;
   justify-content: space-between;
-  padding: 8px 0;
-  border-bottom: 1px dotted #e0e0e0;
+  padding: 6px 0;
   font-size: 13px;
-}
-
-.info-item:last-child {
-  border-bottom: none;
+  color: #666;
 }
 
 .info-item label {
@@ -4399,13 +4397,13 @@ body {
 
 /* 进度条样式 */
 .progress-item {
-  margin-bottom: 15px;
+  margin-bottom: 12px;
 }
 
 .progress-label {
   display: flex;
   justify-content: space-between;
-  margin-bottom: 5px;
+  margin-bottom: 4px;
   font-size: 13px;
 }
 
@@ -4424,24 +4422,22 @@ body {
 }
 
 .progress-bar {
-  height: 20px;
-  background: #f0f0f0;
-  border-radius: 10px;
+  height: 18px;
+  background: #e0e0e0;
+  border-radius: 9px;
   overflow: hidden;
-  position: relative;
 }
 
 .progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, #667eea, #764ba2);
-  border-radius: 10px;
-  transition: width 0.3s ease;
+  background: #4CAF50;
   display: flex;
   align-items: center;
   justify-content: center;
   color: white;
   font-size: 11px;
   font-weight: 500;
+  transition: width 0.3s ease;
 }
 
 /* 服务状态样式 */
@@ -4449,19 +4445,8 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 10px 0;
-  border-bottom: 1px dotted #e0e0e0;
+  padding: 8px 0;
   font-size: 13px;
-}
-
-.service-item:last-child {
-  border-bottom: none;
-}
-
-.service-name {
-  color: #666;
-  display: flex;
-  align-items: center;
 }
 
 .service-status {
@@ -4471,10 +4456,9 @@ body {
 }
 
 .status-badge {
-  padding: 3px 8px;
-  border-radius: 12px;
+  padding: 2px 8px;
+  border-radius: 10px;
   font-size: 11px;
-  font-weight: 500;
 }
 
 .status-running {
@@ -4492,69 +4476,74 @@ body {
   font-size: 11px;
 }
 
-/* 证书切换卡片样式 */
-.cert-modes {
-  display: flex;
-  margin: -20px -20px 20px -20px;
-  border-radius: 12px 12px 0 0;
-  overflow: hidden;
+/* 底部信息 */
+.footer-info {
+  margin-top: 20px;
+  padding-top: 15px;
+  border-top: 1px solid #e0e0e0;
+  color: #999;
+  font-size: 12px;
 }
 
-.cert-mode-btn {
+/* 证书切换卡片 */
+.cert-modes {
+  display: flex;
+  gap: 0;
+  margin-bottom: 20px;
+}
+
+.cert-mode-tab {
   flex: 1;
-  padding: 12px;
+  padding: 10px;
   background: #e0e0e0;
   border: none;
   color: #666;
   font-size: 13px;
-  cursor: pointer;
-  transition: all 0.3s ease;
+  text-align: center;
   font-weight: 500;
+  cursor: default;
 }
 
-.cert-mode-btn.active {
-  background: linear-gradient(90deg, #667eea, #764ba2);
+.cert-mode-tab.active {
+  background: #4CAF50;
   color: white;
 }
 
-.cert-mode-btn:not(.active):hover {
-  background: #d0d0d0;
+.cert-mode-tab:first-child {
+  border-radius: 4px 0 0 4px;
 }
 
-.cert-info {
-  font-size: 13px;
+.cert-mode-tab:last-child {
+  border-radius: 0 4px 4px 0;
 }
 
 .cert-info .info-item {
-  padding: 10px 0;
+  padding: 8px 0;
 }
 
-/* 网络身份配置样式 */
+/* 网络身份配置 */
 .network-blocks {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 15px;
-  margin: -5px 0;
 }
 
 .network-block {
-  background: #f8f9fa;
-  border-radius: 8px;
+  background: #f9f9f9;
+  border-radius: 6px;
   padding: 15px;
   position: relative;
-  min-height: 160px;
 }
 
 .network-block h5 {
   margin: -15px -15px 12px -15px;
   padding: 10px 15px;
-  background: linear-gradient(90deg, #667eea, #764ba2);
+  background: #4CAF50;
   color: white;
-  border-radius: 8px 8px 0 0;
+  border-radius: 6px 6px 0 0;
   font-size: 13px;
   text-align: center;
   font-weight: 500;
-  letter-spacing: 0.5px;
 }
 
 .network-block.inactive h5 {
@@ -4562,34 +4551,32 @@ body {
   color: #666;
 }
 
-.network-info {
+.small {
   font-size: 12px;
   color: #666;
-  line-height: 1.6;
   margin: 6px 0;
+  line-height: 1.5;
 }
 
-.network-info strong {
+.small strong {
   color: #333;
   font-weight: 500;
 }
 
-.status-tag {
-  color: #2e7d32;
+.status-running {
+  color: #4CAF50;
   font-weight: 500;
 }
 
 .detail-link {
-  color: #667eea;
+  color: #1976D2;
   cursor: pointer;
   text-decoration: none;
   font-size: 11px;
   margin-left: 5px;
-  transition: color 0.2s;
 }
 
 .detail-link:hover {
-  color: #764ba2;
   text-decoration: underline;
 }
 
@@ -4601,11 +4588,6 @@ body {
 .whitelist-text {
   color: #333;
   font-weight: 500;
-  display: inline-block;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* 协议配置表格 */
@@ -4617,7 +4599,7 @@ body {
 
 .table thead th {
   background: #f5f5f5;
-  padding: 12px;
+  padding: 10px;
   text-align: left;
   color: #666;
   font-weight: 500;
@@ -4625,7 +4607,7 @@ body {
 }
 
 .table tbody td {
-  padding: 12px;
+  padding: 10px;
   color: #666;
   border-bottom: 1px solid #f0f0f0;
 }
@@ -4636,87 +4618,80 @@ body {
 
 .proto-badge {
   display: inline-block;
-  padding: 3px 8px;
+  padding: 2px 8px;
   background: #e3f2fd;
   color: #1565c0;
-  border-radius: 4px;
+  border-radius: 3px;
   font-size: 11px;
   font-weight: 500;
 }
 
 .effect-good {
-  color: #2e7d32;
-  font-weight: 500;
+  color: #4CAF50;
 }
 
 .effect-medium {
-  color: #f57c00;
-  font-weight: 500;
+  color: #FF9800;
 }
 
-.copy-btn {
-  padding: 4px 10px;
-  background: linear-gradient(90deg, #667eea, #764ba2);
-  color: white;
-  border: none;
-  border-radius: 4px;
-  font-size: 11px;
+.config-link {
+  color: #1976D2;
   cursor: pointer;
-  transition: transform 0.2s;
+  text-decoration: underline;
+  font-size: 12px;
 }
 
-.copy-btn:hover {
-  transform: scale(1.05);
+.config-link:hover {
+  color: #1565C0;
 }
 
-/* 订阅链接样式 */
+/* 订阅链接 */
 .sub-row {
   display: flex;
   align-items: center;
-  margin-bottom: 15px;
+  margin-bottom: 12px;
   gap: 10px;
 }
 
 .sub-label {
-  min-width: 80px;
+  min-width: 70px;
   color: #666;
   font-size: 13px;
 }
 
 .sub-input {
   flex: 1;
-  padding: 8px;
-  border: 1px solid #e0e0e0;
+  padding: 6px 10px;
+  border: 1px solid #d0d0d0;
   border-radius: 4px;
   font-family: monospace;
   font-size: 12px;
   color: #666;
   background: #f9f9f9;
   resize: none;
-  height: 36px;
+  height: 32px;
 }
 
 .sub-copy-btn {
-  padding: 8px 16px;
-  background: linear-gradient(90deg, #667eea, #764ba2);
+  padding: 6px 15px;
+  background: #1976D2;
   color: white;
   border: none;
   border-radius: 4px;
   font-size: 12px;
   cursor: pointer;
-  transition: transform 0.2s;
   white-space: nowrap;
 }
 
 .sub-copy-btn:hover {
-  transform: scale(1.05);
+  background: #1565C0;
 }
 
-/* 流量统计样式 */
+/* 流量统计 */
 .traffic-stats {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 20px;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 15px;
   margin-bottom: 20px;
 }
 
@@ -4724,13 +4699,13 @@ body {
   text-align: center;
   padding: 15px;
   background: #f9f9f9;
-  border-radius: 8px;
+  border-radius: 6px;
 }
 
 .stat-value {
-  font-size: 24px;
+  font-size: 20px;
   font-weight: bold;
-  color: #667eea;
+  color: #333;
   margin-bottom: 5px;
 }
 
@@ -4739,24 +4714,80 @@ body {
   color: #666;
 }
 
-/* 图表容器 */
-.chart-container {
-  height: 300px;
+/* 流量进度条 */
+.traffic-progress {
   margin: 20px 0;
-  padding: 20px;
-  background: #fafafa;
-  border-radius: 8px;
 }
 
-/* 底部信息 */
-.footer-info {
-  text-align: center;
-  padding: 15px;
-  background: #f5f5f5;
-  border-radius: 0 0 12px 12px;
-  margin: 20px -20px -20px -20px;
+.traffic-progress-label {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: 13px;
   color: #666;
-  font-size: 12px;
+}
+
+.traffic-progress-bar {
+  height: 30px;
+  background: #e0e0e0;
+  border-radius: 15px;
+  overflow: hidden;
+  position: relative;
+}
+
+.traffic-progress-fill {
+  height: 100%;
+  background: #4CAF50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 13px;
+  font-weight: 500;
+  transition: width 0.3s ease;
+}
+
+.traffic-progress-fill.warning {
+  background: #FF9800;
+}
+
+.traffic-progress-fill.danger {
+  background: #f44336;
+}
+
+/* 图表容器 */
+.chart-container {
+  height: 200px;
+  margin: 20px 0;
+  padding: 15px;
+  background: #fafafa;
+  border-radius: 6px;
+  border: 1px solid #e0e0e0;
+}
+
+/* 运维管理 */
+.management-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+
+.management-btn {
+  padding: 10px;
+  background: #fff;
+  border: 1px solid #d0d0d0;
+  border-radius: 4px;
+  color: #666;
+  font-size: 13px;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.2s;
+}
+
+.management-btn:hover {
+  background: #1976D2;
+  color: white;
+  border-color: #1976D2;
 }
 
 /* 弹窗样式 */
@@ -4774,24 +4805,25 @@ body {
 
 .modal-content {
   background-color: white;
-  margin: 10% auto;
+  margin: 8% auto;
   padding: 0;
-  border-radius: 12px;
-  width: 500px;
+  border-radius: 8px;
+  width: 600px;
   max-width: 90%;
   animation: slideIn 0.3s;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
 }
 
 .modal-header {
-  padding: 20px;
-  background: linear-gradient(90deg, #667eea, #764ba2);
-  border-radius: 12px 12px 0 0;
-  color: white;
+  padding: 15px 20px;
+  background: #f5f5f5;
+  border-radius: 8px 8px 0 0;
+  border-bottom: 1px solid #e0e0e0;
 }
 
 .modal-header h4 {
   margin: 0;
+  color: #333;
   font-size: 16px;
   font-weight: 500;
 }
@@ -4804,46 +4836,40 @@ body {
 
 .modal-footer {
   padding: 15px 20px;
+  background: #f5f5f5;
   border-top: 1px solid #e0e0e0;
+  border-radius: 0 0 8px 8px;
   text-align: right;
 }
 
 .close-btn {
-  color: white;
+  color: #999;
   float: right;
   font-size: 24px;
   font-weight: bold;
   cursor: pointer;
   line-height: 20px;
-  opacity: 0.8;
-  transition: opacity 0.2s;
 }
 
 .close-btn:hover {
-  opacity: 1;
+  color: #333;
 }
 
-.btn-close {
-  padding: 8px 16px;
-  background: linear-gradient(90deg, #667eea, #764ba2);
+.btn-primary {
+  padding: 8px 20px;
+  background: #1976D2;
   color: white;
   border: none;
   border-radius: 4px;
   cursor: pointer;
   font-size: 13px;
-  transition: transform 0.2s;
 }
 
-.btn-close:hover {
-  transform: scale(1.05);
+.btn-primary:hover {
+  background: #1565C0;
 }
 
-/* IP质量详情样式 */
-.ipq-details {
-  font-size: 13px;
-  line-height: 1.8;
-}
-
+/* IP质量详情 */
 .ipq-section {
   margin-bottom: 15px;
   padding-bottom: 15px;
@@ -4856,59 +4882,115 @@ body {
 
 .ipq-section h5 {
   margin: 0 0 10px 0;
-  color: #667eea;
+  color: #333;
   font-size: 14px;
+  font-weight: 500;
+}
+
+.ipq-item {
+  display: flex;
+  padding: 5px 0;
+  font-size: 13px;
 }
 
 .ipq-label {
-  font-weight: 500;
   color: #666;
-  display: inline-block;
   min-width: 100px;
 }
 
 .ipq-value {
   color: #333;
+  flex: 1;
+}
+
+.ipq-score-display {
+  text-align: center;
+  margin-bottom: 15px;
 }
 
 .ipq-score {
-  font-size: 32px;
+  font-size: 36px;
   font-weight: bold;
-  background: linear-gradient(90deg, #667eea, #764ba2);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  margin-right: 10px;
+  color: #4CAF50;
 }
 
 .ipq-grade {
   display: inline-block;
   padding: 4px 12px;
-  background: linear-gradient(90deg, #667eea, #764ba2);
+  background: #4CAF50;
   color: white;
   border-radius: 4px;
   font-size: 13px;
-  font-weight: 500;
+  margin-left: 10px;
 }
 
-/* 白名单列表样式 */
-.whitelist-full {
+/* 白名单列表 */
+.whitelist-list {
   max-height: 350px;
   overflow-y: auto;
 }
 
 .whitelist-item {
-  padding: 10px 15px;
+  padding: 8px 12px;
   background: #f5f5f5;
-  margin-bottom: 8px;
-  border-radius: 6px;
+  margin-bottom: 6px;
+  border-radius: 4px;
   font-family: monospace;
   font-size: 13px;
   color: #333;
-  transition: background 0.2s;
 }
 
 .whitelist-item:hover {
-  background: #ebebeb;
+  background: #e0e0e0;
+}
+
+/* 客户端配置详情 */
+.config-section {
+  margin-bottom: 20px;
+}
+
+.config-section h5 {
+  margin: 0 0 10px 0;
+  color: #333;
+  font-size: 14px;
+  font-weight: 500;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.config-code {
+  background: #f5f5f5;
+  padding: 15px;
+  border-radius: 4px;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #333;
+  word-break: break-all;
+  margin: 10px 0;
+}
+
+.config-qr {
+  text-align: center;
+  margin: 15px 0;
+  padding: 20px;
+  background: #fafafa;
+  border-radius: 4px;
+}
+
+.copy-btn {
+  padding: 6px 15px;
+  background: #4CAF50;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  margin-right: 10px;
+}
+
+.copy-btn:hover {
+  background: #45a049;
 }
 
 /* 动画 */
@@ -4919,7 +5001,7 @@ body {
 
 @keyframes slideIn {
   from { 
-    transform: translateY(-50px);
+    transform: translateY(-30px);
     opacity: 0;
   }
   to {
@@ -4928,13 +5010,17 @@ body {
   }
 }
 
-/* 响应式布局 */
+/* 响应式 */
 @media (max-width: 1024px) {
-  .grid-2-8 {
+  .grid-1-2 {
     grid-template-columns: 1fr;
   }
   
   .network-blocks {
+    grid-template-columns: 1fr;
+  }
+  
+  .overview-blocks {
     grid-template-columns: 1fr;
   }
 }
@@ -4946,12 +5032,11 @@ body {
   }
   
   .traffic-stats {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, 1fr);
   }
   
-  .modal-content {
-    width: 95%;
-    margin: 5% auto;
+  .management-grid {
+    grid-template-columns: repeat(2, 1fr);
   }
 }
 </style>
@@ -4959,97 +5044,95 @@ body {
 <body>
 
 <div class="container">
-  <!-- 头部 -->
-  <div class="header">
+  <!-- 标题卡片 -->
+  <div class="header-card">
     <h1>🚀 EdgeBox 控制面板</h1>
     <p>企业级多协议节点管理系统</p>
   </div>
 
-  <!-- 第一行：概览信息 -->
+  <!-- 系统概览 -->
   <div class="grid grid-full">
     <div class="card">
       <h3>📊 系统概览</h3>
-      <div class="content">
-        <div class="grid grid-3">
-          <!-- 服务器信息 -->
-          <div class="info-group">
-            <h4>服务器信息</h4>
-            <div class="info-item">
-              <label>用户备注名:</label>
-              <value id="server-name">美西节点-01</value>
+      <div class="overview-blocks">
+        <!-- 服务器信息 -->
+        <div class="overview-block">
+          <h4>服务器信息</h4>
+          <div class="info-item">
+            <label>用户备注名:</label>
+            <value>美西节点-01</value>
+          </div>
+          <div class="info-item">
+            <label>云厂商/区域:</label>
+            <value>Vultr | Los Angeles</value>
+          </div>
+          <div class="info-item">
+            <label>Instance ID:</label>
+            <value>i-abc123def</value>
+          </div>
+          <div class="info-item">
+            <label>主机名:</label>
+            <value>edgebox-la-01</value>
+          </div>
+        </div>
+
+        <!-- 服务器配置 -->
+        <div class="overview-block">
+          <h4>服务器配置</h4>
+          <div class="progress-item">
+            <div class="progress-label">
+              <span>CPU</span>
+              <span class="usage">已用 23%</span>
+              <span class="spec">4C / 8T</span>
             </div>
-            <div class="info-item">
-              <label>云厂商/区域:</label>
-              <value id="cloud-info">Vultr | Los Angeles</value>
-            </div>
-            <div class="info-item">
-              <label>Instance ID:</label>
-              <value id="instance-id">i-abc123def</value>
-            </div>
-            <div class="info-item">
-              <label>主机名:</label>
-              <value id="hostname">edgebox-la-01</value>
+            <div class="progress-bar">
+              <div class="progress-fill" style="width: 23%">23%</div>
             </div>
           </div>
-
-          <!-- 服务器配置 -->
-          <div class="info-group">
-            <h4>服务器配置</h4>
-            <div class="progress-item">
-              <div class="progress-label">
-                <span>CPU</span>
-                <span class="usage">已用 <span id="cpu-usage">23</span>%</span>
-                <span class="spec">4C / 8T</span>
-              </div>
-              <div class="progress-bar">
-                <div class="progress-fill" style="width: 23%">23%</div>
-              </div>
+          <div class="progress-item">
+            <div class="progress-label">
+              <span>内存</span>
+              <span class="usage">已用 45%</span>
+              <span class="spec">8GiB + 2GiB</span>
             </div>
-            <div class="progress-item">
-              <div class="progress-label">
-                <span>内存</span>
-                <span class="usage">已用 <span id="mem-usage">45</span>%</span>
-                <span class="spec">8GiB + 2GiB</span>
-              </div>
-              <div class="progress-bar">
-                <div class="progress-fill" style="width: 45%">45%</div>
-              </div>
-            </div>
-            <div class="progress-item">
-              <div class="progress-label">
-                <span>磁盘</span>
-                <span class="usage">已用 <span id="disk-usage">67</span>%</span>
-                <span class="spec">100GiB</span>
-              </div>
-              <div class="progress-bar">
-                <div class="progress-fill" style="width: 67%">67%</div>
-              </div>
+            <div class="progress-bar">
+              <div class="progress-fill" style="width: 45%">45%</div>
             </div>
           </div>
+          <div class="progress-item">
+            <div class="progress-label">
+              <span>磁盘</span>
+              <span class="usage">已用 67%</span>
+              <span class="spec">100GiB</span>
+            </div>
+            <div class="progress-bar">
+              <div class="progress-fill" style="width: 67%">67%</div>
+            </div>
+          </div>
+        </div>
 
-          <!-- 核心服务 -->
-          <div class="info-group">
-            <h4>核心服务</h4>
-            <div class="service-item">
-              <span class="service-name">Nginx</span>
-              <div class="service-status">
-                <span class="status-badge status-running">运行中</span>
-                <span class="version">v1.24.0</span>
-              </div>
+        <!-- 核心服务 -->
+        <div class="overview-block">
+          <h4>核心服务</h4>
+          <div class="service-item">
+            <span>Nginx</span>
+            <div class="service-status">
+              <span class="status-badge status-running">运行中</span>
+              <span class="version">v1.24.0</span>
             </div>
-            <div class="service-item">
-              <span class="service-name">Xray</span>
-              <div class="service-status">
-                <span class="status-badge status-running">运行中</span>
-                <span class="version">v1.8.4</span>
-              </div>
+          </div>
+          <div class="service-item">
+            <span>Xray</span>
+            <div class="service-status">
+              <span class="status-badge status-running">运行中</span>
+              <span class="version">v1.8.4</span>
             </div>
-            <div class="service-item">
-              <span class="service-name">Sing-box</span>
-              <div class="service-status">
-                <span class="status-badge status-running">运行中</span>
-                <span class="version">v1.7.0</span>
-              </div>
+          </div>
+          <div class="service-item">
+            <span>Sing-box</span>
+            <div class="service-status">
+              <span class="status-badge status-running">运行中</span>
+              <span class="version">v1.7.0</span>
             </div>
           </div>
         </div>
@@ -5060,30 +5143,31 @@ body {
     </div>
   </div>
 
-  <!-- 第二行：核心配置 -->
-  <div class="grid grid-2-8">
+  <!-- 核心配置 -->
+  <div class="grid grid-1-2">
     <!-- 证书切换 -->
     <div class="card">
+      <h3>🔐 证书切换</h3>
       <div class="cert-modes">
-        <button class="cert-mode-btn active" onclick="switchCertMode('self')">自签证书</button>
-        <button class="cert-mode-btn" onclick="switchCertMode('ca')">CA证书</button>
+        <div class="cert-mode-tab active">自签证书</div>
+        <div class="cert-mode-tab">CA证书</div>
       </div>
       <div class="cert-info">
         <div class="info-item">
           <label>证书类型:</label>
-          <value id="cert-type">自签名</value>
+          <value>自签名</value>
         </div>
         <div class="info-item">
           <label>绑定域名:</label>
-          <value id="cert-domain">(无)</value>
+          <value>(无)</value>
         </div>
         <div class="info-item">
           <label>续期方式:</label>
-          <value id="cert-renew">自动</value>
+          <value>自动</value>
         </div>
         <div class="info-item">
           <label>到期日期:</label>
-          <value id="cert-expire">—</value>
+          <value>—</value>
         </div>
       </div>
     </div>
@@ -5094,177 +5178,185 @@ body {
         🌐 网络身份配置
         <span class="card-note">注：HY2/TUIC 为UDP通道，固定 VPS直连，不参与网络身份配置</span>
       </h3>
-      <div class="content">
-        <div class="network-blocks">
-          <!-- VPS出站IP -->
-          <div class="network-block" id="vps-block">
-            <h5>📡 VPS出站IP</h5>
-            <div class="network-info">公网身份: <strong class="status-tag">直连</strong></div>
-            <div class="network-info">VPS出站IP: <strong id="vps-out-ip">45.32.168.245</strong></div>
-            <div class="network-info">Geo: <strong id="vps-geo">US-Los Angeles</strong></div>
-            <div class="network-info">IP质量: <strong id="vps-quality">85分（良好）</strong><span class="detail-link" onclick="showIPQDetails('vps')">详情</span></div>
-          </div>
-          
-          <!-- 代理出站IP -->
-          <div class="network-block inactive" id="proxy-block">
-            <h5>🔄 代理出站IP</h5>
-            <div class="network-info">代理身份: <strong>全代理</strong></div>
-            <div class="network-info">代理出站IP: <strong id="proxy-out-ip">192.168.1.100</strong></div>
-            <div class="network-info">Geo: <strong id="proxy-geo">CN-Shanghai</strong></div>
-            <div class="network-info">IP质量: <strong id="proxy-quality">92分（优秀）</strong><span class="detail-link" onclick="showIPQDetails('proxy')">详情</span></div>
-          </div>
-          
-          <!-- 分流出站 -->
-          <div class="network-block inactive" id="shunt-block">
-            <h5>🔀 分流出站</h5>
-            <div class="network-info">混合身份: <strong>VPS直连 + 代理</strong></div>
-            <div class="network-info">
-              白名单: 
-              <span class="whitelist-container">
-                <strong class="whitelist-text" id="whitelist-text">google.com, youtube.com, github.com</strong>
-                <span class="detail-link" onclick="showWhitelistModal()">查看全部</span>
-              </span>
-            </div>
+      <div class="network-blocks">
+        <!-- VPS出站IP -->
+        <div class="network-block">
+          <h5>📡 VPS出站IP</h5>
+          <div class="small">公网身份: <strong class="status-running">直连</strong></div>
+          <div class="small">VPS出站IP: <strong>45.32.168.245</strong></div>
+          <div class="small">Geo: <strong>US-Los Angeles</strong></div>
+          <div class="small">IP质量: <strong>85分（良好）</strong><span class="detail-link" onclick="showIPQDetails('vps')">详情</span></div>
+        </div>
+        
+        <!-- 代理出站IP -->
+        <div class="network-block inactive">
+          <h5>🔄 代理出站IP</h5>
+          <div class="small">代理身份: <strong>全代理</strong></div>
+          <div class="small">代理出站IP: <strong>192.168.1.100</strong></div>
+          <div class="small">Geo: <strong>CN-Shanghai</strong></div>
+          <div class="small">IP质量: <strong>92分（优秀）</strong><span class="detail-link" onclick="showIPQDetails('proxy')">详情</span></div>
+        </div>
+        
+        <!-- 分流出站 -->
+        <div class="network-block inactive">
+          <h5>🔀 分流出站</h5>
+          <div class="small">混合身份: <strong>VPS直连 + 代理</strong></div>
+          <div class="small">
+            白名单: <span class="whitelist-container">
+              <strong class="whitelist-text">google.com, youtube.com, github.com</strong>
+              <span class="detail-link" onclick="showWhitelistModal()">查看全部</span>
+            </span>
           </div>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- 第三行：协议配置 -->
+  <!-- 协议配置 -->
   <div class="grid grid-full">
     <div class="card">
       <h3>📡 协议配置</h3>
-      <div class="content">
-        <table class="table" id="proto">
-          <thead>
-            <tr>
-              <th>协议名称</th>
-              <th>网络</th>
-              <th>伪装效果</th>
-              <th>适用场景</th>
-              <th>运行状态</th>
-              <th>客户端配置</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><span class="proto-badge">VLESS-Reality</span></td>
-              <td>TCP</td>
-              <td class="effect-good">★★★★★</td>
-              <td>最强抗封锁</td>
-              <td><span class="status-badge status-running">运行中</span></td>
-              <td><button class="copy-btn" onclick="copyConfig('vless-reality')">复制</button></td>
-            </tr>
-            <tr>
-              <td><span class="proto-badge">VLESS-gRPC</span></td>
-              <td>HTTP/2</td>
-              <td class="effect-good">★★★★☆</td>
-              <td>CDN友好</td>
-              <td><span class="status-badge status-running">运行中</span></td>
-              <td><button class="copy-btn" onclick="copyConfig('vless-grpc')">复制</button></td>
-            </tr>
-            <tr>
-              <td><span class="proto-badge">VLESS-WS</span></td>
-              <td>WebSocket</td>
-              <td class="effect-medium">★★★☆☆</td>
-              <td>兼容性最好</td>
-              <td><span class="status-badge status-running">运行中</span></td>
-              <td><button class="copy-btn" onclick="copyConfig('vless-ws')">复制</button></td>
-            </tr>
-            <tr>
-              <td><span class="proto-badge">Trojan-TLS</span></td>
-              <td>TCP</td>
-              <td class="effect-good">★★★★☆</td>
-              <td>稳定可靠</td>
-              <td><span class="status-badge status-running">运行中</span></td>
-              <td><button class="copy-btn" onclick="copyConfig('trojan')">复制</button></td>
-            </tr>
-            <tr>
-              <td><span class="proto-badge">Hysteria2</span></td>
-              <td>UDP</td>
-              <td class="effect-good">★★★★★</td>
-              <td>低延迟游戏</td>
-              <td><span class="status-badge status-running">运行中</span></td>
-              <td><button class="copy-btn" onclick="copyConfig('hy2')">复制</button></td>
-            </tr>
-            <tr>
-              <td><span class="proto-badge">TUIC</span></td>
-              <td>UDP</td>
-              <td class="effect-good">★★★★☆</td>
-              <td>高速传输</td>
-              <td><span class="status-badge status-running">运行中</span></td>
-              <td><button class="copy-btn" onclick="copyConfig('tuic')">复制</button></td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>协议名称</th>
+            <th>网络</th>
+            <th>伪装效果</th>
+            <th>适用场景</th>
+            <th>运行状态</th>
+            <th>客户端配置</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="proto-badge">VLESS-Reality</span></td>
+            <td>TCP</td>
+            <td class="effect-good">★★★★★</td>
+            <td>最强抗封锁</td>
+            <td><span class="status-badge status-running">运行中</span></td>
+            <td><span class="config-link" onclick="showConfigModal('vless-reality')">查看配置</span></td>
+          </tr>
+          <tr>
+            <td><span class="proto-badge">VLESS-gRPC</span></td>
+            <td>HTTP/2</td>
+            <td class="effect-good">★★★★☆</td>
+            <td>CDN友好</td>
+            <td><span class="status-badge status-running">运行中</span></td>
+            <td><span class="config-link" onclick="showConfigModal('vless-grpc')">查看配置</span></td>
+          </tr>
+          <tr>
+            <td><span class="proto-badge">VLESS-WS</span></td>
+            <td>WebSocket</td>
+            <td class="effect-medium">★★★☆☆</td>
+            <td>兼容性最好</td>
+            <td><span class="status-badge status-running">运行中</span></td>
+            <td><span class="config-link" onclick="showConfigModal('vless-ws')">查看配置</span></td>
+          </tr>
+          <tr>
+            <td><span class="proto-badge">Trojan-TLS</span></td>
+            <td>TCP</td>
+            <td class="effect-good">★★★★☆</td>
+            <td>稳定可靠</td>
+            <td><span class="status-badge status-running">运行中</span></td>
+            <td><span class="config-link" onclick="showConfigModal('trojan')">查看配置</span></td>
+          </tr>
+          <tr>
+            <td><span class="proto-badge">Hysteria2</span></td>
+            <td>UDP</td>
+            <td class="effect-good">★★★★★</td>
+            <td>低延迟游戏</td>
+            <td><span class="status-badge status-running">运行中</span></td>
+            <td><span class="config-link" onclick="showConfigModal('hy2')">查看配置</span></td>
+          </tr>
+          <tr>
+            <td><span class="proto-badge">TUIC</span></td>
+            <td>UDP</td>
+            <td class="effect-good">★★★★☆</td>
+            <td>高速传输</td>
+            <td><span class="status-badge status-running">运行中</span></td>
+            <td><span class="config-link" onclick="showConfigModal('tuic')">查看配置</span></td>
+          </tr>
+        </tbody>
+      </table>
     </div>
   </div>
 
-  <!-- 第四行：订阅链接 -->
+  <!-- 订阅链接 -->
   <div class="grid grid-full">
     <div class="card">
       <h3>📋 订阅链接</h3>
-      <div class="content">
-        <div class="sub-row">
-          <div class="sub-label">明文链接:</div>
-          <textarea id="sub-plain" class="sub-input" readonly>http://45.32.168.245/sub</textarea>
-          <button class="sub-copy-btn" onclick="copySub('plain')">复制</button>
-        </div>
-        <div class="sub-row">
-          <div class="sub-label">B64换行:</div>
-          <textarea id="sub-b64lines" class="sub-input" readonly>aHR0cDovLzQ1LjMyLjE2OC4yNDUvc3Vi</textarea>
-          <button class="sub-copy-btn" onclick="copySub('b64lines')">复制</button>
-        </div>
-        <div class="sub-row">
-          <div class="sub-label">合并B64:</div>
-          <textarea id="sub-b64" class="sub-input" readonly>aHR0cDovLzQ1LjMyLjE2OC4yNDUvc3ViCg==</textarea>
-          <button class="sub-copy-btn" onclick="copySub('b64')">复制</button>
-        </div>
+      <div class="sub-row">
+        <div class="sub-label">明文链接:</div>
+        <textarea class="sub-input" readonly>http://45.32.168.245/sub</textarea>
+        <button class="sub-copy-btn" onclick="copySub('plain')">复制</button>
+      </div>
+      <div class="sub-row">
+        <div class="sub-label">B64换行:</div>
+        <textarea class="sub-input" readonly>aHR0cDovLzQ1LjMyLjE2OC4yNDUvc3Vi</textarea>
+        <button class="sub-copy-btn" onclick="copySub('b64lines')">复制</button>
+      </div>
+      <div class="sub-row">
+        <div class="sub-label">合并B64:</div>
+        <textarea class="sub-input" readonly>aHR0cDovLzQ1LjMyLjE2OC4yNDUvc3ViCg==</textarea>
+        <button class="sub-copy-btn" onclick="copySub('b64')">复制</button>
       </div>
     </div>
   </div>
 
-  <!-- 第五行：流量统计 -->
+  <!-- 流量统计 -->
   <div class="grid grid-full">
     <div class="card">
       <h3>📊 流量统计</h3>
-      <div class="content">
-        <div class="traffic-stats">
-          <div class="stat-item">
-            <div class="stat-value" id="traffic-today">12.5 GB</div>
-            <div class="stat-label">今日流量</div>
-          </div>
-          <div class="stat-item">
-            <div class="stat-value" id="traffic-month">385.2 GB</div>
-            <div class="stat-label">本月流量</div>
-          </div>
-          <div class="stat-item">
-            <div class="stat-value" id="traffic-total">2.3 TB</div>
-            <div class="stat-label">累计流量</div>
-          </div>
+      <div class="traffic-stats">
+        <div class="stat-item">
+          <div class="stat-value">12.5 GB</div>
+          <div class="stat-label">今日流量</div>
         </div>
-        <div class="chart-container">
-          <canvas id="traffic-chart"></canvas>
+        <div class="stat-item">
+          <div class="stat-value">385.2 GB</div>
+          <div class="stat-label">本月流量</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value">2.3 TB</div>
+          <div class="stat-label">累计流量</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value">500 GB</div>
+          <div class="stat-label">月度预算</div>
+        </div>
+      </div>
+      
+      <div class="traffic-progress">
+        <div class="traffic-progress-label">
+          <span>本月使用进度</span>
+          <span>385.2 GB / 500 GB (77%)</span>
+        </div>
+        <div class="traffic-progress-bar">
+          <div class="traffic-progress-fill warning" style="width: 77%">77%</div>
+        </div>
+      </div>
+      
+      <div class="chart-container">
+        <div style="text-align: center; color: #999; padding: 70px 0;">
+          流量趋势图表区域
         </div>
       </div>
     </div>
   </div>
 
-  <!-- 第六行：运维管理 -->
+  <!-- 运维管理 -->
   <div class="grid grid-full">
     <div class="card">
       <h3>🔧 运维管理</h3>
-      <div class="content">
-        <div class="grid grid-3">
-          <button class="sub-copy-btn" onclick="restartServices()">重启服务</button>
-          <button class="sub-copy-btn" onclick="updateSystem()">系统更新</button>
-          <button class="sub-copy-btn" onclick="viewLogs()">查看日志</button>
-          <button class="sub-copy-btn" onclick="backup()">备份配置</button>
-          <button class="sub-copy-btn" onclick="restore()">恢复配置</button>
-          <button class="sub-copy-btn" onclick="resetTraffic()">重置流量</button>
-        </div>
+      <div class="management-grid">
+        <button class="management-btn" onclick="restartServices()">重启服务</button>
+        <button class="management-btn" onclick="updateSystem()">系统更新</button>
+        <button class="management-btn" onclick="viewLogs()">查看日志</button>
+        <button class="management-btn" onclick="backup()">备份配置</button>
+        <button class="management-btn" onclick="restore()">恢复配置</button>
+        <button class="management-btn" onclick="resetTraffic()">重置流量</button>
+        <button class="management-btn" onclick="cleanCache()">清理缓存</button>
+        <button class="management-btn" onclick="systemInfo()">系统信息</button>
       </div>
     </div>
   </div>
@@ -5278,12 +5370,10 @@ body {
       <h4 id="ipqModalTitle">IP质量检测详情</h4>
     </div>
     <div class="modal-body">
-      <div class="ipq-details" id="ipqDetails">
-        <!-- 动态内容 -->
-      </div>
+      <div id="ipqDetails"></div>
     </div>
     <div class="modal-footer">
-      <button class="btn-close" onclick="closeIPQModal()">关闭</button>
+      <button class="btn-primary" onclick="closeIPQModal()">关闭</button>
     </div>
   </div>
 </div>
@@ -5296,12 +5386,28 @@ body {
       <h4>白名单完整列表</h4>
     </div>
     <div class="modal-body">
-      <div class="whitelist-full" id="whitelistFull">
-        <!-- 动态内容 -->
-      </div>
+      <div class="whitelist-list" id="whitelistList"></div>
     </div>
     <div class="modal-footer">
-      <button class="btn-close" onclick="closeWhitelistModal()">关闭</button>
+      <button class="btn-primary" onclick="closeWhitelistModal()">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- 客户端配置弹窗 -->
+<div id="configModal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <span class="close-btn" onclick="closeConfigModal()">&times;</span>
+      <h4 id="configModalTitle">客户端配置详情</h4>
+    </div>
+    <div class="modal-body">
+      <div id="configDetails"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="copy-btn" onclick="copyConfig()">复制链接</button>
+      <button class="copy-btn" onclick="copyConfigJson()">复制JSON</button>
+      <button class="btn-primary" onclick="closeConfigModal()">关闭</button>
     </div>
   </div>
 </div>
@@ -5352,7 +5458,7 @@ const ipqData = {
 };
 
 // 白名单数据
-const whitelistFull = [
+const whitelistData = [
   'google.com',
   'youtube.com',
   'github.com',
@@ -5368,54 +5474,89 @@ const whitelistFull = [
   'spotify.com',
   'reddit.com',
   'wikipedia.org',
-  'stackoverflow.com',
-  'docker.com',
-  'npmjs.com',
-  'pypi.org',
-  'ubuntu.com',
-  'debian.org',
-  'archlinux.org',
-  'golang.org',
-  'rust-lang.org',
-  'python.org'
+  'stackoverflow.com'
 ];
 
-// 证书模式切换
-function switchCertMode(mode) {
-  document.querySelectorAll('.cert-mode-btn').forEach(btn => {
-    btn.classList.remove('active');
-  });
-  event.target.classList.add('active');
-  
-  if (mode === 'ca') {
-    document.getElementById('cert-type').textContent = 'Let\'s Encrypt';
-    document.getElementById('cert-domain').textContent = 'example.com';
-    document.getElementById('cert-expire').textContent = '2025-04-16';
-  } else {
-    document.getElementById('cert-type').textContent = '自签名';
-    document.getElementById('cert-domain').textContent = '(无)';
-    document.getElementById('cert-expire').textContent = '—';
+// 客户端配置数据
+const configData = {
+  'vless-reality': {
+    name: 'VLESS-Reality',
+    link: 'vless://uuid@45.32.168.245:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.google.com&fp=chrome&pbk=publickey&sid=shortid&type=tcp&headerType=none#VLESS-Reality',
+    json: {
+      "add": "45.32.168.245",
+      "port": 443,
+      "id": "uuid-here",
+      "net": "tcp",
+      "type": "none",
+      "tls": "reality",
+      "sni": "www.google.com",
+      "fp": "chrome",
+      "pbk": "publickey",
+      "sid": "shortid"
+    }
+  },
+  'vless-grpc': {
+    name: 'VLESS-gRPC',
+    link: 'vless://uuid@45.32.168.245:443?encryption=none&security=tls&type=grpc&serviceName=grpc&sni=45.32.168.245#VLESS-gRPC',
+    json: {
+      "add": "45.32.168.245",
+      "port": 443,
+      "id": "uuid-here",
+      "net": "grpc",
+      "type": "gun",
+      "tls": "tls",
+      "serviceName": "grpc"
+    }
+  },
+  'vless-ws': {
+    name: 'VLESS-WS',
+    link: 'vless://uuid@45.32.168.245:443?encryption=none&security=tls&type=ws&path=%2Fws#VLESS-WS',
+    json: {
+      "add": "45.32.168.245",
+      "port": 443,
+      "id": "uuid-here",
+      "net": "ws",
+      "type": "none",
+      "tls": "tls",
+      "path": "/ws"
+    }
+  },
+  'trojan': {
+    name: 'Trojan-TLS',
+    link: 'trojan://password@45.32.168.245:443?security=tls&type=tcp#Trojan-TLS',
+    json: {
+      "add": "45.32.168.245",
+      "port": 443,
+      "password": "password-here",
+      "type": "tcp",
+      "tls": "tls"
+    }
+  },
+  'hy2': {
+    name: 'Hysteria2',
+    link: 'hy2://password@45.32.168.245:443?insecure=1#Hysteria2',
+    json: {
+      "server": "45.32.168.245:443",
+      "auth": "password-here",
+      "tls": {
+        "insecure": true
+      }
+    }
+  },
+  'tuic': {
+    name: 'TUIC',
+    link: 'tuic://uuid:password@45.32.168.245:2053?congestion_control=bbr&alpn=h3#TUIC',
+    json: {
+      "relay": "45.32.168.245:2053",
+      "uuid": "uuid-here",
+      "password": "password-here",
+      "congestion_control": "bbr",
+      "alpn": ["h3"]
+    }
   }
-}
+};
 
-// 网络模式切换（演示用）
-function switchNetworkMode(mode) {
-  document.querySelectorAll('.network-block').forEach(block => {
-    block.classList.add('inactive');
-  });
-  
-  switch(mode) {
-    case 'vps':
-      document.getElementById('vps-block').classList.remove('inactive');
-      break;
-    case 'proxy':
-      document.getElementById('proxy-block').classList.remove('inactive');
-      break;
-    case 'shunt':
-      document.getElementById('shunt-block').classList.remove('inactive');
-      break;
-  }
-}
+let currentConfig = null;
 
 // 显示IP质量详情
 function showIPQDetails(type) {
@@ -5427,86 +5568,198 @@ function showIPQDetails(type) {
   title.textContent = type === 'vps' ? 'VPS出站IP - 质量检测详情' : '代理出站IP - 质量检测详情';
   
   details.innerHTML = `
+    <div class="ipq-score-display">
+      <span class="ipq-score">${data.score}分</span>
+      <span class="ipq-grade">${data.grade}</span>
+    </div>
+    
     <div class="ipq-section">
-      <div style="text-align: center; margin-bottom: 15px;">
-        <span class="ipq-score">${data.score}分</span>
-        <span class="ipq-grade">${data.grade}</span>
+      <h5>总览</h5>
+      <div class="ipq-item">
+        <span class="ipq-label">最近检测:</span>
+        <span class="ipq-value">${data.lastCheck}</span>
       </div>
-      <div><span class="ipq-label">最近检测:</span> <span class="ipq-value">${data.lastCheck}</span></div>
     </div>
     
     <div class="ipq-section">
       <h5>身份信息</h5>
-      <div><span class="ipq-label">出站IP:</span> <span class="ipq-value">${data.ip}</span></div>
-      <div><span class="ipq-label">ASN/ISP:</span> <span class="ipq-value">${data.asn} / ${data.isp}</span></div>
-      <div><span class="ipq-label">Geo:</span> <span class="ipq-value">${data.geo}</span></div>
+      <div class="ipq-item">
+        <span class="ipq-label">出站IP:</span>
+        <span class="ipq-value">${data.ip}</span>
+      </div>
+      <div class="ipq-item">
+        <span class="ipq-label">ASN/ISP:</span>
+        <span class="ipq-value">${data.asn} / ${data.isp}</span>
+      </div>
+      <div class="ipq-item">
+        <span class="ipq-label">Geo:</span>
+        <span class="ipq-value">${data.geo}</span>
+      </div>
     </div>
     
     <div class="ipq-section">
       <h5>配置信息</h5>
-      <div><span class="ipq-label">带宽限制:</span> <span class="ipq-value">${data.bandwidth}</span></div>
+      <div class="ipq-item">
+        <span class="ipq-label">带宽限制:</span>
+        <span class="ipq-value">${data.bandwidth}</span>
+      </div>
     </div>
     
     <div class="ipq-section">
       <h5>质量细项</h5>
-      <div><span class="ipq-label">网络类型:</span> <span class="ipq-value">${data.networkType}</span></div>
-      <div><span class="ipq-label">rDNS:</span> <span class="ipq-value">${data.rdns}</span></div>
-      <div><span class="ipq-label">黑名单:</span> <span class="ipq-value">${data.blacklist}</span></div>
-      <div><span class="ipq-label">延迟中位数:</span> <span class="ipq-value">${data.latency}</span></div>
+      <div class="ipq-item">
+        <span class="ipq-label">网络类型:</span>
+        <span class="ipq-value">${data.networkType}</span>
+      </div>
+      <div class="ipq-item">
+        <span class="ipq-label">rDNS:</span>
+        <span class="ipq-value">${data.rdns}</span>
+      </div>
+      <div class="ipq-item">
+        <span class="ipq-label">黑名单:</span>
+        <span class="ipq-value">${data.blacklist}</span>
+      </div>
+      <div class="ipq-item">
+        <span class="ipq-label">延迟中位数:</span>
+        <span class="ipq-value">${data.latency}</span>
+      </div>
     </div>
     
     <div class="ipq-section">
       <h5>结论</h5>
-      ${data.conclusion.map(item => `<div style="margin: 5px 0;">${item}</div>`).join('')}
+      ${data.conclusion.map(item => `<div style="margin: 5px 0; color: #666; font-size: 13px;">${item}</div>`).join('')}
     </div>
   `;
   
   modal.style.display = 'block';
 }
 
-// 关闭IP质量弹窗
 function closeIPQModal() {
   document.getElementById('ipqModal').style.display = 'none';
 }
 
-// 显示白名单弹窗
+// 显示白名单
 function showWhitelistModal() {
   const modal = document.getElementById('whitelistModal');
-  const listContainer = document.getElementById('whitelistFull');
+  const list = document.getElementById('whitelistList');
   
-  listContainer.innerHTML = whitelistFull.map(domain => 
+  list.innerHTML = whitelistData.map(domain => 
     `<div class="whitelist-item">${domain}</div>`
   ).join('');
   
   modal.style.display = 'block';
 }
 
-// 关闭白名单弹窗
 function closeWhitelistModal() {
   document.getElementById('whitelistModal').style.display = 'none';
 }
 
-// 复制配置
-function copyConfig(protocol) {
-  // 模拟复制
-  alert(`已复制 ${protocol} 配置到剪贴板`);
+// 显示客户端配置
+function showConfigModal(protocol) {
+  const modal = document.getElementById('configModal');
+  const title = document.getElementById('configModalTitle');
+  const details = document.getElementById('configDetails');
+  
+  currentConfig = configData[protocol];
+  title.textContent = currentConfig.name + ' - 客户端配置';
+  
+  details.innerHTML = `
+    <div class="config-section">
+      <h5>订阅链接</h5>
+      <div class="config-code">${currentConfig.link}</div>
+    </div>
+    
+    <div class="config-section">
+      <h5>JSON配置</h5>
+      <div class="config-code">${JSON.stringify(currentConfig.json, null, 2)}</div>
+    </div>
+    
+    <div class="config-section">
+      <h5>二维码</h5>
+      <div class="config-qr">
+        <div style="width: 200px; height: 200px; margin: 0 auto; background: #f0f0f0; display: flex; align-items: center; justify-content: center; color: #999;">
+          QR Code
+        </div>
+      </div>
+    </div>
+    
+    <div class="config-section">
+      <h5>使用说明</h5>
+      <div style="color: #666; font-size: 13px; line-height: 1.8;">
+        1. 复制上方链接导入到客户端<br>
+        2. 或扫描二维码快速添加<br>
+        3. 支持 V2rayN、Clash、Shadowrocket 等主流客户端<br>
+        4. 建议开启 MUX 多路复用以提高性能
+      </div>
+    </div>
+  `;
+  
+  modal.style.display = 'block';
+}
+
+function closeConfigModal() {
+  document.getElementById('configModal').style.display = 'none';
+}
+
+function copyConfig() {
+  if (currentConfig) {
+    navigator.clipboard.writeText(currentConfig.link);
+    alert('链接已复制到剪贴板');
+  }
+}
+
+function copyConfigJson() {
+  if (currentConfig) {
+    navigator.clipboard.writeText(JSON.stringify(currentConfig.json, null, 2));
+    alert('JSON配置已复制到剪贴板');
+  }
 }
 
 // 复制订阅
 function copySub(type) {
-  const textarea = document.getElementById(`sub-${type}`);
-  textarea.select();
-  document.execCommand('copy');
-  alert('已复制到剪贴板');
+  alert(`${type} 订阅链接已复制`);
 }
 
-// 运维功能（演示）
-function restartServices() { alert('正在重启服务...'); }
-function updateSystem() { alert('正在检查更新...'); }
-function viewLogs() { alert('正在获取日志...'); }
-function backup() { alert('正在备份配置...'); }
-function restore() { alert('正在恢复配置...'); }
-function resetTraffic() { alert('正在重置流量统计...'); }
+// 运维管理功能
+function restartServices() {
+  if (confirm('确定要重启所有服务吗？')) {
+    alert('正在重启服务...');
+  }
+}
+
+function updateSystem() {
+  alert('正在检查系统更新...');
+}
+
+function viewLogs() {
+  alert('正在获取系统日志...');
+}
+
+function backup() {
+  if (confirm('确定要备份当前配置吗？')) {
+    alert('正在备份配置...');
+  }
+}
+
+function restore() {
+  if (confirm('确定要恢复配置吗？这将覆盖当前配置。')) {
+    alert('正在恢复配置...');
+  }
+}
+
+function resetTraffic() {
+  if (confirm('确定要重置流量统计吗？')) {
+    alert('流量统计已重置');
+  }
+}
+
+function cleanCache() {
+  alert('正在清理系统缓存...');
+}
+
+function systemInfo() {
+  alert('正在获取系统信息...');
+}
 
 // 点击弹窗外部关闭
 window.onclick = function(event) {
@@ -5517,24 +5770,13 @@ window.onclick = function(event) {
 
 // 初始化
 document.addEventListener('DOMContentLoaded', function() {
-  // 默认显示VPS直连模式
-  switchNetworkMode('vps');
-  
-  // 模拟流量图表
-  const canvas = document.getElementById('traffic-chart');
-  if (canvas) {
-    const ctx = canvas.getContext('2d');
-    // 这里可以集成Chart.js等图表库
-    ctx.fillStyle = '#667eea';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-  }
+  console.log('EdgeBox Dashboard Loaded');
 });
 </script>
 
 </body>
 </html>
 HTML
-
 
 # 覆盖块：为控制面板加入 no-cache 元信息，避免浏览器缓存挡住新版
 {
