@@ -4258,1209 +4258,709 @@ ln -sfn "${TRAFFIC_DIR}" /var/www/html/traffic
 "${SCRIPTS_DIR}/dashboard-backend.sh" --now || true
 
 # 模块7 控制面板HTML
-cat > "$TRAFFIC_DIR/index.html" <<'HTML'
+cat > "$TARGET_FILE" <<'HTML'
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>EdgeBox Control Panel</title>
-<style>
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
-body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  background: #f5f5f5;
-  min-height: 100vh;
-  padding: 20px;
-  color: #1f2937;
-}
-
-.container {
-  max-width: 1400px;
-  margin: 0 auto;
-}
-
-/* === 文字系统（严格遵循规范） === */
-h1 {
-  font-size: 23px;
-  font-weight: 700;
-  color: #1f2937;
-  line-height: 32px;
-}
-
-h2 {
-  font-size: 18px;
-  font-weight: 600;
-  color: #1f2937;
-  line-height: 26px;
-}
-
-h3 {
-  font-size: 15px;
-  font-weight: 600;
-  color: #1f2937;
-  line-height: 22px;
-}
-
-h4 {
-  font-size: 14px;
-  font-weight: 500;
-  color: #1f2937;
-  line-height: 20px;
-}
-
-body, p, span, td, div {
-  font-size: 13px;
-  font-weight: 500;
-  color: #1f2937;
-  line-height: 20px;
-}
-
-.text-muted {
-  color: #6b7280;
-}
-
-.text-secondary {
-  color: #4b5563;
-}
-
-/* === 卡片系统 === */
-.main-card {
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-  overflow: hidden;
-}
-
-.main-header {
-  background: linear-gradient(135deg, #5e72e4 0%, #825ee4 100%);
-  color: white;
-  padding: 20px 30px;
-  text-align: center;
-}
-
-.main-header h1 {
-  color: white;
-  margin: 0;
-}
-
-.main-content {
-  padding: 20px;
-}
-
-.card {
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-  padding: 20px;
-  margin-bottom: 20px;
-  transition: box-shadow 0.2s;
-}
-
-.card:hover {
-  box-shadow: 0 4px 8px rgba(0,0,0,0.08);
-}
-
-.card-header {
-  margin-bottom: 20px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid #e5e7eb;
-}
-
-.card-header h2 {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.card-note {
-  font-size: 11px;
-  color: #6b7280;
-  font-weight: 400;
-}
-
-/* === 内层区块 === */
-.inner-block {
-  background: #f9fafb;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
-  padding: 15px;
-  margin-bottom: 15px;
-}
-
-.inner-block:last-child {
-  margin-bottom: 0;
-}
-
-.inner-block h3 {
-  margin-bottom: 12px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid #e5e7eb;
-}
-
-/* === 网格系统 === */
-.grid {
-  display: grid;
-  gap: 20px;
-}
-
-.grid-3 {
-  grid-template-columns: repeat(3, 1fr);
-}
-
-.grid-1-2 {
-  grid-template-columns: 1fr 2fr;
-}
-
-/* === 信息项 === */
-.info-item {
-  display: flex;
-  justify-content: space-between;
-  padding: 6px 0;
-}
-
-.info-item label {
-  color: #6b7280;
-}
-
-.info-item value {
-  color: #1f2937;
-  font-weight: 500;
-}
-
-/* === 进度条 === */
-.progress-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 8px;
-}
-
-.progress-label {
-  min-width: 40px;
-  color: #4b5563;
-}
-
-.progress-bar {
-  flex: 1;
-  height: 18px;
-  background: #e5e7eb;
-  border-radius: 9px;
-  overflow: hidden;
-}
-
-.progress-fill {
-  height: 100%;
-  background: #10b981;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: white;
-  font-size: 11px;
-  transition: width 0.3s;
-}
-
-.progress-info {
-  min-width: 80px;
-  text-align: right;
-  color: #6b7280;
-  font-size: 12px;
-}
-
-/* === 服务状态 === */
-.service-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px 0;
-}
-
-.service-status {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.status-badge {
-  padding: 2px 8px;
-  border-radius: 10px;
-  font-size: 11px;
-  background: #f3f4f6;
-  color: #6b7280;
-}
-
-.status-running {
-  background: #d1fae5;
-  color: #10b981;
-}
-
-.version {
-  color: #6b7280;
-  font-size: 11px;
-}
-
-/* === 证书切换 === */
-.cert-modes {
-  display: flex;
-  gap: 6px;
-  margin-bottom: 20px;
-}
-
-.cert-mode-tab {
-  flex: 1;
-  padding: 10px;
-  background: #f9fafb;
-  border: 1px solid #e5e7eb;
-  color: #6b7280;
-  text-align: center;
-  border-radius: 8px;
-  cursor: default;
-}
-
-.cert-mode-tab.active {
-  background: #10b981;
-  color: white;
-  border-color: #10b981;
-}
-
-/* === 网络身份配置 === */
-.network-blocks {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 15px;
-}
-
-.network-block {
-  background: #f9fafb;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 12px;
-  position: relative;
-}
-
-.network-block h3 {
-  margin: -12px -12px 12px -12px;
-  padding: 10px;
-  background: #f3f4f6;
-  color: #6b7280;
-  border-radius: 8px 8px 0 0;
-  text-align: center;
-  border: none;
-}
-
-.network-block.active h3 {
-  background: #10b981;
-  color: white;
-}
-
-.network-info {
-  font-size: 12px;
-  color: #6b7280;
-  margin: 6px 0;
-}
-
-.network-info strong {
-  color: #1f2937;
-}
-
-.detail-link {
-  color: #3b82f6;
-  cursor: pointer;
-  font-size: 11px;
-  margin-left: 5px;
-  text-decoration: none;
-}
-
-.detail-link:hover {
-  text-decoration: underline;
-}
-
-/* === 表格 === */
-.table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.table thead th {
-  background: #f9fafb;
-  padding: 10px;
-  text-align: left;
-  color: #4b5563;
-  font-weight: 500;
-  font-size: 13px;
-  border-bottom: 2px solid #e5e7eb;
-}
-
-.table tbody td {
-  padding: 10px;
-  color: #1f2937;
-  font-size: 13px;
-  border-bottom: 1px solid #f3f4f6;
-}
-
-.table tbody tr:hover {
-  background: #f9fafb;
-}
-
-.proto-badge {
-  display: inline-block;
-  padding: 3px 8px;
-  background: #dbeafe;
-  color: #3b82f6;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 500;
-}
-
-.effect-good {
-  color: #10b981;
-}
-
-.effect-medium {
-  color: #f59e0b;
-}
-
-/* === 订阅链接 === */
-.sub-section {
-  padding-top: 20px;
-  margin-top: 20px;
-  border-top: 1px solid #e5e7eb;
-}
-
-.sub-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.sub-label {
-  min-width: 80px;
-  color: #6b7280;
-}
-
-.sub-input {
-  flex: 1;
-  padding: 6px 12px;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  font-family: monospace;
-  font-size: 12px;
-  color: #4b5563;
-  background: #f9fafb;
-}
-
-/* === 按钮 === */
-.btn {
-  padding: 6px 16px;
-  border-radius: 6px;
-  font-size: 13px;
-  cursor: pointer;
-  border: none;
-  transition: all 0.2s;
-}
-
-.btn-primary {
-  background: #10b981;
-  color: white;
-}
-
-.btn-primary:hover {
-  background: #0ea37a;
-}
-
-.btn-secondary {
-  background: white;
-  color: #6b7280;
-  border: 1px solid #d1d5db;
-}
-
-.btn-secondary:hover {
-  background: #f3f4f6;
-}
-
-.btn-link {
-  background: none;
-  color: #3b82f6;
-  text-decoration: underline;
-  padding: 0;
-  border: none;
-  cursor: pointer;
-}
-
-.btn-link:hover {
-  color: #2563eb;
-}
-
-/* === 流量统计 === */
-.traffic-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
-}
-
-.traffic-period {
-  display: flex;
-  gap: 8px;
-}
-
-.period-btn {
-  padding: 4px 12px;
-  background: white;
-  border: 1px solid #d1d5db;
-  border-radius: 4px;
-  color: #6b7280;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.period-btn.active {
-  background: #10b981;
-  color: white;
-  border-color: #10b981;
-}
-
-.traffic-charts {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 20px;
-  margin-bottom: 20px;
-}
-
-.chart-container {
-  background: #f9fafb;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 20px;
-  height: 250px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #6b7280;
-}
-
-.traffic-summary {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 15px;
-}
-
-.summary-item {
-  background: #f9fafb;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
-  padding: 12px;
-  text-align: center;
-}
-
-.summary-value {
-  font-size: 18px;
-  font-weight: 600;
-  color: #1f2937;
-  margin-bottom: 4px;
-}
-
-.summary-label {
-  font-size: 11px;
-  color: #6b7280;
-}
-
-/* === 运维管理 === */
-.management-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 20px;
-}
-
-.management-section h4 {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 12px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid #e5e7eb;
-}
-
-.management-commands {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.command-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px;
-  background: #f9fafb;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
-  font-family: monospace;
-  font-size: 12px;
-  color: #4b5563;
-}
-
-.command-item code {
-  flex: 1;
-}
-
-.copy-icon {
-  width: 16px;
-  height: 16px;
-  cursor: pointer;
-  opacity: 0.6;
-}
-
-.copy-icon:hover {
-  opacity: 1;
-}
-
-/* === 底部信息 === */
-.footer-info {
-  margin-top: 15px;
-  padding-top: 12px;
-  border-top: 1px solid #e5e7eb;
-  color: #6b7280;
-  font-size: 12px;
-  text-align: right;
-}
-
-/* === 弹窗 === */
-.modal {
-  display: none;
-  position: fixed;
-  z-index: 1000;
-  left: 0;
-  top: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(0, 0, 0, 0.5);
-}
-
-.modal-content {
-  background: white;
-  margin: 5% auto;
-  border-radius: 12px;
-  width: 700px;
-  max-width: 90%;
-  box-shadow: 0 12px 24px rgba(0,0,0,0.14);
-  overflow: hidden;
-}
-
-.modal-header {
-  padding: 20px;
-  background: #f9fafb;
-  border-bottom: 1px solid #e5e7eb;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.modal-header h3 {
-  margin: 0;
-  border: none;
-  padding: 0;
-}
-
-.modal-body {
-  padding: 20px;
-  max-height: 500px;
-  overflow-y: auto;
-}
-
-.modal-footer {
-  padding: 15px 20px;
-  background: #f9fafb;
-  border-top: 1px solid #e5e7eb;
-  display: flex;
-  justify-content: center;
-  gap: 10px;
-}
-
-.close-btn {
-  color: #6b7280;
-  font-size: 24px;
-  cursor: pointer;
-  line-height: 20px;
-}
-
-.close-btn:hover {
-  color: #1f2937;
-}
-
-/* === 配置详情 === */
-.config-section {
-  margin-bottom: 20px;
-  padding-bottom: 20px;
-  border-bottom: 1px solid #e5e7eb;
-}
-
-.config-section:last-child {
-  border-bottom: none;
-  padding-bottom: 0;
-}
-
-.config-section h4 {
-  margin-bottom: 12px;
-}
-
-.config-code {
-  background: #f9fafb;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
-  padding: 12px;
-  font-family: monospace;
-  font-size: 12px;
-  color: #1f2937;
-  word-break: break-all;
-  line-height: 1.6;
-}
-
-.json-config {
-  background: #f9fafb;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
-  padding: 12px;
-}
-
-.json-line {
-  font-family: monospace;
-  font-size: 12px;
-  line-height: 1.8;
-  display: flex;
-  justify-content: space-between;
-  padding: 2px 0;
-}
-
-.json-key {
-  color: #3b82f6;
-}
-
-.json-value {
-  color: #10b981;
-}
-
-.json-comment {
-  color: #6b7280;
-  font-style: italic;
-}
-
-.qr-container {
-  text-align: center;
-  padding: 20px;
-  background: #f9fafb;
-  border-radius: 6px;
-}
-
-.qr-placeholder {
-  width: 256px;
-  height: 256px;
-  margin: 0 auto;
-  background: white;
-  border: 1px solid #e5e7eb;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #6b7280;
-}
-
-/* 响应式 */
-@media (max-width: 1024px) {
-  .grid-3, .grid-1-2 {
-    grid-template-columns: 1fr;
-  }
-  
-  .network-blocks {
-    grid-template-columns: 1fr;
-  }
-  
-  .traffic-charts {
-    grid-template-columns: 1fr;
-  }
-}
-
-@media (max-width: 768px) {
-  .traffic-summary {
-    grid-template-columns: repeat(2, 1fr);
-  }
-  
-  .management-grid {
-    grid-template-columns: 1fr;
-  }
-}
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EdgeBox 控制面板</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <style>
+        /* 保持您现有的完整CSS样式，这里只添加必要的优化 */
+        :root {
+            --card: #fff;
+            --border: #e2e8f0;
+            --bg: #f8fafc;
+            --muted: #64748b;
+            --shadow: 0 4px 6px -1px rgba(0,0,0,.1);
+            --primary: #3b82f6;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+        }
+
+        * { box-sizing: border-box; }
+        
+        body {
+            font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+            background: var(--bg);
+            color: #334155;
+            margin: 0;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .grid {
+            display: grid;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+
+        .grid-full { grid-template-columns: 1fr; }
+        .grid-70-30 { grid-template-columns: 6.18fr 3.82fr; }
+        
+        @media(max-width:980px) {
+            .grid-70-30 { grid-template-columns: 1fr; }
+        }
+
+        .card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            box-shadow: var(--shadow);
+            overflow: hidden;
+            position: relative;
+        }
+
+        .card h3 {
+            margin: 0;
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border);
+            font-size: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .card .content { padding: 16px; }
+
+        .small {
+            color: var(--muted);
+            font-size: .9rem;
+        }
+
+        .table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .table th, .table td {
+            padding: 8px 10px;
+            border-bottom: 1px solid var(--border);
+            font-size: .85rem;
+            text-align: left;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border: 1px solid var(--border);
+            background: #f1f5f9;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: .9rem;
+            white-space: nowrap;
+        }
+
+        .btn:hover { background: #e2e8f0; }
+
+        .badge {
+            display: inline-block;
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            padding: 2px 8px;
+            font-size: .8rem;
+            margin-right: 6px;
+        }
+
+        /* 横向分块布局 */
+        .info-blocks {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .info-block {
+            padding: 12px;
+            background: #f8fafc;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+        }
+
+        .info-block h4 {
+            margin: 0 0 8px 0;
+            font-size: .9rem;
+            color: var(--muted);
+            font-weight: 500;
+        }
+
+        .info-block .value {
+            font-size: 1rem;
+            font-weight: 600;
+            color: #1e293b;
+        }
+
+        /* 通知中心小图标 */
+        .notification-bell {
+            position: relative;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 8px;
+            border-radius: 6px;
+            background: #f1f5f9;
+            font-size: .8rem;
+            color: var(--muted);
+        }
+
+        .notification-bell:hover { background: #e2e8f0; }
+        .notification-bell.has-alerts { color: var(--warning); background: #fef3c7; }
+
+        .notification-popup {
+            position: absolute;
+            top: 100%;
+            right: 0;
+            background: white;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            box-shadow: var(--shadow);
+            width: 300px;
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 100;
+            display: none;
+        }
+
+        .notification-popup.show { display: block; }
+
+        .notification-item {
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--border);
+            font-size: .85rem;
+        }
+
+        .notification-item:last-child { border-bottom: none; }
+
+        /* 出站分流标签页 - 修复注释位置 */
+        .shunt-modes {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+            flex-wrap: nowrap;
+			.shunt-wrap{display:flex}
+.shunt-content{flex:1; display:flex; flex-direction:column; min-height:220px}
+.shunt-note{margin-top:auto}
+        }
+
+        .shunt-mode-tab {
+            padding: 6px 12px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: .85rem;
+            font-weight: 500;
+            cursor: pointer;
+            background: #f8fafc;
+            color: #64748b;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+
+        .shunt-mode-tab:hover { background: #e2e8f0; }
+        .shunt-mode-tab.active { background: #3b82f6; color: white; border-color: #3b82f6; }
+        .shunt-mode-tab.active.vps { background: #10b981; border-color: #10b981; }
+        .shunt-mode-tab.active.resi { background: #6b7280; border-color: #6b7280; }
+        .shunt-mode-tab.active.direct-resi { background: #f59e0b; border-color: #f59e0b; }
+
+        .shunt-content {
+            display: flex;
+            flex-direction: column;
+            min-height: 200px;
+        }
+
+        .shunt-info {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            flex: 1;
+        }
+
+        .shunt-note {
+            margin-top: auto;
+            padding-top: 8px;
+            border-top: 1px solid var(--border);
+            font-size: .8rem;
+            color: var(--muted);
+            background: #f8fafc;
+            padding: 8px;
+            border-radius: 4px;
+            margin: 8px 0 0 0;
+        }
+
+        /* 订阅链接样式 */
+        .sub-row {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .sub-label {
+            font-size: .9rem;
+            color: var(--muted);
+            min-width: 80px;
+        }
+
+        .sub-input {
+            flex: 1;
+            padding: 8px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            font-size: .85rem;
+            font-family: monospace;
+            background: #fff;
+        }
+
+        .sub-copy-btn {
+            padding: 6px 12px;
+            border: 1px solid var(--border);
+            background: #f1f5f9;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: .85rem;
+        }
+
+        .sub-copy-btn:hover { background: #e2e8f0; }
+
+        /* 流量统计样式 - 7:3排版优化 */
+        .traffic-card { position: relative; }
+
+        .traffic-progress-container {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            width: 320px;
+            font-size: .75rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .progress-label {
+            color: var(--muted);
+            white-space: nowrap;
+        }
+
+        .progress-wrapper {
+            flex: 1;
+            position: relative;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 22px;
+            background: #e2e8f0;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: #10b981;
+            border-radius: 8px;
+            transition: width 0.3s;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .progress-percentage {
+            position: absolute;
+            color: white;
+            font-size: .65rem;
+            font-weight: 600;
+        }
+
+        .progress-budget {
+            color: var(--muted);
+            white-space: nowrap;
+            font-size: .7rem;
+        }
+
+        .traffic-charts {
+            display: grid;
+            grid-template-columns: 7fr 3fr;
+            gap: 16px;
+            margin-top: 50px;
+        }
+
+        @media(max-width:980px) {
+            .traffic-charts { grid-template-columns: 1fr; }
+            .traffic-progress-container {
+                position: static;
+                width: 100%;
+                margin-bottom: 16px;
+            }
+        }
+
+        /* 图表容器 - 增加高度，留白处理 */
+        .chart-container {
+            position: relative;
+            height: 360px;
+        }
+
+        /* 命令网格布局 */
+        .commands-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        @media(max-width:768px) {
+            .commands-grid { grid-template-columns: 1fr; }
+        }
+
+        .command-section {
+            background: #f8fafc;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px;
+        }
+
+        .command-section h4 {
+            margin: 0 0 8px 0;
+            font-size: .9rem;
+            font-weight: 600;
+            color: #1e293b;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .command-list {
+            font-size: .8rem;
+            line-height: 1.6;
+        }
+
+        .command-list code {
+            background: #e2e8f0;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: .75rem;
+            color: #1e293b;
+        }
+
+        .command-list span {
+            color: var(--muted);
+            margin-left: 8px;
+        }
+
+        .command-list small {
+            display: block;
+            margin-top: 2px;
+            color: var(--muted);
+            font-style: normal;
+        }
+
+        /* 协议详情弹窗 */
+        .detail-link {
+            color: var(--primary);
+            cursor: pointer;
+            text-decoration: underline;
+        }
+
+        .detail-link:hover { color: #2563eb; }
+
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+        }
+
+        .modal.show {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 12px;
+            max-width: 600px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1);
+        }
+
+        .modal-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-header h3 {
+            margin: 0;
+            font-size: 1.1rem;
+        }
+
+        .modal-close {
+            font-size: 1.5rem;
+            cursor: pointer;
+            color: var(--muted);
+            line-height: 1;
+        }
+
+        .modal-close:hover { color: #1e293b; }
+
+        .modal-body { padding: 20px; }
+
+        .config-item {
+            margin-bottom: 16px;
+            padding: 12px;
+            background: #f8fafc;
+            border-radius: 8px;
+        }
+
+        .config-item h4 {
+            margin: 0 0 8px 0;
+            font-size: .9rem;
+            color: #1e293b;
+        }
+
+        .config-item code {
+            display: block;
+            background: #1e293b;
+            color: #10b981;
+            padding: 8px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: .8rem;
+            word-break: break-all;
+            margin: 4px 0;
+        }
+
+        .config-note {
+            color: var(--warning);
+            font-size: .8rem;
+            margin-top: 4px;
+        }
+		/* —— 统一卡片区字体层级 —— */
+.card h3{ font-size:1rem; }                 /* 卡片标题 */
+.info-block h4{ font-size:.9rem; }          /* 小标题 */
+.info-block .value{ font-size:1rem; }       /* 关键数值 */
+.small{ font-size:.85rem; }                 /* 辅助信息 */
+.table th, .table td{ font-size:.85rem; }   /* 表格 */
+.sub-input, .sub-copy-btn{ font-size:.85rem; } /* 订阅区 */
+    </style>
 </head>
 <body>
-
 <div class="container">
-  <div class="main-card">
-    <!-- 主标题 -->
-    <div class="main-header">
-      <h1>🚀 EdgeBox - 企业级多协议节点管理系统 (Control Panel)</h1>
+
+  <!-- 基本信息（含通知中心） -->
+  <div class="grid grid-full">
+    <div class="card">
+      <h3>
+        EdgeBox-企业级多协议节点
+        <div class="notification-bell" id="notif-bell" onclick="toggleNotifications()">
+          🔔 <span id="notif-count">0</span>
+          <div class="notification-popup" id="notif-popup">
+            <div id="notif-list">暂无通知</div>
+          </div>
+        </div>
+      </h3>
+      <div class="content">
+        <div class="info-blocks">
+          <div class="info-block">
+            <h4>服务器负载与网络身份</h4>
+            <div class="value">CPU: <span id="cpu-usage">-</span>%</div>
+            <div class="value">内存: <span id="mem-usage">-</span>%</div>
+            <div class="small">服务器IP: <span id="srv-ip">-</span></div>
+            <div class="small">关联域名: <span id="domain">-</span></div>
+          </div>
+          <div class="info-block">
+            <h4>核心服务</h4>
+            <div class="value">Nginx: <span id="nginx-status">-</span></div>
+            <div class="small">Xray: <span id="xray-status">-</span></div>
+            <div class="small">Sing-box: <span id="singbox-status">-</span></div>
+          </div>
+          <div class="info-block">
+            <h4>证书信息</h4>
+            <div class="value">网络模式: <span id="net-mode">-</span></div>
+            <div class="value">证书类型: <span id="cert-mode">-</span></div>
+            <div class="small">到期日期: <span id="cert-exp">-</span></div>
+            <div class="small">续期方式: <span id="renew-mode">-</span></div>
+          </div>
+        </div>
+        <div class="small">版本号: <span id="ver">-</span> | 安装日期: <span id="inst">-</span> | 更新时间: <span id="updated">-</span></div>
+      </div>
     </div>
-    
-    <div class="main-content">
-      <!-- 系统概览 -->
-      <div class="card">
-        <div class="card-header">
-          <h2>📊 系统概览</h2>
-        </div>
-        <div class="grid grid-3">
-          <!-- 服务器信息 -->
-          <div class="inner-block">
-            <h3>服务器信息</h3>
-            <div class="info-item">
-              <label>用户备注名:</label>
-              <value id="server-name">美西节点-01</value>
-            </div>
-            <div class="info-item">
-              <label>云厂商/区域:</label>
-              <value id="cloud-info">Vultr | Los Angeles</value>
-            </div>
-            <div class="info-item">
-              <label>Instance ID:</label>
-              <value id="instance-id">i-abc123def</value>
-            </div>
-            <div class="info-item">
-              <label>主机名:</label>
-              <value id="hostname">edgebox-la-01</value>
-            </div>
-          </div>
-          
-          <!-- 服务器配置 -->
-          <div class="inner-block">
-            <h3>服务器配置</h3>
-            <div class="progress-row">
-              <span class="progress-label">CPU</span>
-              <div class="progress-bar">
-                <div class="progress-fill" style="width: 23%">23%</div>
-              </div>
-              <span class="progress-info">4C / 8T</span>
-            </div>
-            <div class="progress-row">
-              <span class="progress-label">内存</span>
-              <div class="progress-bar">
-                <div class="progress-fill" style="width: 45%">45%</div>
-              </div>
-              <span class="progress-info">8GiB + 2GiB</span>
-            </div>
-            <div class="progress-row">
-              <span class="progress-label">磁盘</span>
-              <div class="progress-bar">
-                <div class="progress-fill" style="width: 67%">67%</div>
-              </div>
-              <span class="progress-info">100GiB</span>
-            </div>
-          </div>
-          
-          <!-- 核心服务 -->
-          <div class="inner-block">
-            <h3>核心服务</h3>
-            <div class="service-item">
-              <span>Nginx</span>
-              <div class="service-status">
-                <span class="status-badge status-running">运行中</span>
-                <span class="version">v1.24.0</span>
-              </div>
-            </div>
-            <div class="service-item">
-              <span>Xray</span>
-              <div class="service-status">
-                <span class="status-badge status-running">运行中</span>
-                <span class="version">v1.8.4</span>
-              </div>
-            </div>
-            <div class="service-item">
-              <span>Sing-box</span>
-              <div class="service-status">
-                <span class="status-badge status-running">运行中</span>
-                <span class="version">v1.7.0</span>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div class="footer-info">
-          版本号: 3.0.0 | 安装日期: 2025-01-11 | 更新时间: 2025-01-16 20:46:02
-        </div>
-      </div>
-      
-      <!-- 证书切换 & 网络身份配置 -->
-      <div class="grid grid-1-2">
-        <!-- 证书切换 -->
-        <div class="card">
-          <div class="card-header">
-            <h2>🔐 证书切换</h2>
-          </div>
-          <div class="cert-modes">
-            <div class="cert-mode-tab active">自签证书</div>
-            <div class="cert-mode-tab">CA证书</div>
-          </div>
-          <div class="info-item">
-            <label>证书类型:</label>
-            <value>自签名</value>
-          </div>
-          <div class="info-item">
-            <label>绑定域名:</label>
-            <value>(无)</value>
-          </div>
-          <div class="info-item">
-            <label>续期方式:</label>
-            <value>自动</value>
-          </div>
-          <div class="info-item">
-            <label>到期日期:</label>
-            <value>—</value>
-          </div>
-        </div>
-        
-        <!-- 网络身份配置 -->
-        <div class="card">
-          <div class="card-header">
-            <h2>🌐 网络身份配置
-              <span class="card-note">注：HY2/TUIC 为UDP通道，固定 VPS直连，不参与网络身份配置</span>
-            </h2>
-          </div>
-          <div class="network-blocks">
-            <div class="network-block active">
-              <h3>📡 VPS出站IP</h3>
-              <div class="network-info">公网身份: <strong style="color: #10b981;">直连</strong></div>
-              <div class="network-info">VPS出站IP: <strong>45.32.168.245</strong></div>
-              <div class="network-info">Geo: <strong>US-Los Angeles</strong></div>
-              <div class="network-info">IP质量: <strong>85分（良好）</strong><span class="detail-link" onclick="showIPQDetails('vps')">详情</span></div>
-            </div>
-            
-            <div class="network-block">
-              <h3>🔄 代理出站IP</h3>
-              <div class="network-info">代理身份: <strong>全代理</strong></div>
-              <div class="network-info">代理出站IP: <strong>192.168.1.100</strong></div>
-              <div class="network-info">Geo: <strong>CN-Shanghai</strong></div>
-              <div class="network-info">IP质量: <strong>92分（优秀）</strong><span class="detail-link" onclick="showIPQDetails('proxy')">详情</span></div>
-            </div>
-            
-            <div class="network-block">
-              <h3>🔀 分流出站</h3>
-              <div class="network-info">混合身份: <strong>VPS直连 + 代理</strong></div>
-              <div class="network-info">
-                白名单: <strong>google.com, youtube.com, github.com</strong>
-                <span class="detail-link" onclick="showWhitelistModal()">查看全部</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-      
-      <!-- 协议配置 -->
-      <div class="card">
-        <div class="card-header">
-          <h2>📡 协议配置</h2>
-        </div>
-        <table class="table">
-          <thead>
-            <tr>
-              <th>协议名称</th>
-              <th>网络</th>
-              <th>伪装效果</th>
-              <th>适用场景</th>
-              <th>运行状态</th>
-              <th>客户端配置</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><span class="proto-badge">VLESS-Reality</span></td>
-              <td>TCP</td>
-              <td class="effect-good">★★★★★</td>
-              <td>最强抗封锁</td>
-              <td><span class="status-badge status-running">运行中</span></td>
-              <td><button class="btn-link" onclick="showConfigModal('vless-reality')">查看配置</button></td>
-            </tr>
-            <tr>
-              <td><span class="proto-badge">VLESS-gRPC</span></td>
-              <td>HTTP/2</td>
-              <td class="effect-good">★★★★☆</td>
-              <td>CDN友好</td>
-              <td><span class="status-badge status-running">运行中</span></td>
-              <td><button class="btn-link" onclick="showConfigModal('vless-grpc')">查看配置</button></td>
-            </tr>
-            <tr>
-              <td><span class="proto-badge">VLESS-WS</span></td>
-              <td>WebSocket</td>
-              <td class="effect-medium">★★★☆☆</td>
-              <td>兼容性最好</td>
-              <td><span class="status-badge status-running">运行中</span></td>
-              <td><button class="btn-link" onclick="showConfigModal('vless-ws')">查看配置</button></td>
-            </tr>
-            <tr>
-              <td><span class="proto-badge">Trojan-TLS</span></td>
-              <td>TCP</td>
-              <td class="effect-good">★★★★☆</td>
-              <td>稳定可靠</td>
-              <td><span class="status-badge status-running">运行中</span></td>
-              <td><button class="btn-link" onclick="showConfigModal('trojan')">查看配置</button></td>
-            </tr>
-            <tr>
-              <td><span class="proto-badge">Hysteria2</span></td>
-              <td>UDP</td>
-              <td class="effect-good">★★★★★</td>
-              <td>低延迟游戏</td>
-              <td><span class="status-badge status-running">运行中</span></td>
-              <td><button class="btn-link" onclick="showConfigModal('hy2')">查看配置</button></td>
-            </tr>
-            <tr>
-              <td><span class="proto-badge">TUIC</span></td>
-              <td>UDP</td>
-              <td class="effect-good">★★★★☆</td>
-              <td>高速传输</td>
-              <td><span class="status-badge status-running">运行中</span></td>
-              <td><button class="btn-link" onclick="showConfigModal('tuic')">查看配置</button></td>
-            </tr>
-          </tbody>
+  </div>
+
+  <!-- 协议配置 + 出站分流 -->
+  <div class="grid grid-70-30">
+    <div class="card">
+      <h3>协议配置</h3>
+      <div class="content">
+        <table class="table" id="proto">
+          <thead><tr><th>协议名称</th><th>网络</th><th>端口</th><th>客户端配置</th><th>伪装效果</th><th>适用场景</th><th>运行状态</th></tr></thead>
+          <tbody></tbody>
         </table>
-        
-        <!-- 订阅链接部分 -->
-        <div class="sub-section">
-          <div class="sub-row">
-            <span class="sub-label">明文链接:</span>
-            <input class="sub-input" readonly value="http://45.32.168.245/sub">
-            <button class="btn btn-primary" onclick="copySub('plain')">复制</button>
+      </div>
+    </div>
+    <div class="card">
+      <h3>出站分流状态</h3>
+      <div class="content shunt-wrap">
+        <div class="shunt-content">
+          <div class="shunt-modes">
+            <span class="shunt-mode-tab active vps" id="tab-vps" data-mode="vps">VPS-IP出站</span>
+            <span class="shunt-mode-tab" id="tab-resi" data-mode="resi">代理IP出站</span>
+            <span class="shunt-mode-tab" id="tab-direct-resi" data-mode="direct-resi">分流(VPS𓄋代理)</span>
           </div>
-          <div class="sub-row">
-            <span class="sub-label">合并B64:</span>
-            <input class="sub-input" readonly value="aHR0cDovLzQ1LjMyLjE2OC4yNDUvc3ViCg==">
-            <button class="btn btn-primary" onclick="copySub('b64')">复制</button>
+          <div class="shunt-info">
+            <div class="small">VPS出站IP: <span id="vps-ip">-</span></div>
+            <div class="small">代理出站IP: <span id="resi-ip">待获取</span></div>
+            <div class="small">白名单: <span id="whitelist-domains">-</span></div>
           </div>
+          <div class="shunt-note">注：HY2/TUIC为UDP通道，VPS直出，不参与代理IP分流</div>
         </div>
       </div>
-      
-      <!-- 流量统计 -->
-      <div class="card">
-        <div class="card-header">
-          <h2>📊 流量统计</h2>
+    </div>
+  </div>
+
+  <!-- 订阅链接 -->
+  <div class="grid grid-full">
+    <div class="card">
+      <h3>订阅链接</h3>
+      <div class="content">
+        <div class="sub-row">
+          <div class="sub-label">明文链接:</div>
+          <input type="text" id="sub-plain" class="sub-input" readonly>
+          <button class="sub-copy-btn" onclick="copySub('plain')">复制</button>
         </div>
-        <div class="traffic-header">
-          <div class="traffic-period">
-            <span class="text-muted" style="margin-right: 10px;">本月进度</span>
-            <button class="period-btn active">100%</button>
+        <div class="sub-row">
+          <div class="sub-label">Base64:</div>
+          <input type="text" id="sub-b64" class="sub-input" readonly>
+          <button class="sub-copy-btn" onclick="copySub('b64')">复制</button>
+        </div>
+        <div class="sub-row">
+          <div class="sub-label">B64逐行:</div>
+          <input type="text" id="sub-b64lines" class="sub-input" readonly>
+          <button class="sub-copy-btn" onclick="copySub('b64lines')">复制</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 流量统计 -->
+  <div class="grid grid-full">
+    <div class="card traffic-card">
+      <h3>流量统计
+        <div class="traffic-progress-container">
+          <span class="progress-label">本月进度</span>
+          <div class="progress-wrapper">
+            <div class="progress-bar">
+              <div class="progress-fill" id="progress-fill" style="width:0%">
+                <span class="progress-percentage" id="progress-percentage">0%</span>
+              </div>
+            </div>
           </div>
-          <div class="text-muted">1165.9/1000iB</div>
+          <span class="progress-budget" id="progress-budget">0/100GiB</span>
         </div>
-        
+      </h3>
+      <div class="content">
         <div class="traffic-charts">
           <div class="chart-container">
-            <div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;">
-              <canvas id="lineChart" style="display: none;"></canvas>
-              <span>近30日出站流量 (GiB)</span>
-            </div>
+            <h4 style="text-align:center;margin:0 0 10px 0;color:#64748b">近30日出站流量</h4>
+            <canvas id="traffic" style="height:300px"></canvas>
           </div>
           <div class="chart-container">
-            <div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;">
-              <canvas id="barChart" style="display: none;"></canvas>
-              <span>近12个月累计流量 (GiB)</span>
-            </div>
-          </div>
-        </div>
-        
-        <div class="traffic-summary">
-          <div class="summary-item">
-            <div class="summary-value">45.2 GB</div>
-            <div class="summary-label">今日流量</div>
-          </div>
-          <div class="summary-item">
-            <div class="summary-value">1.16 TB</div>
-            <div class="summary-label">本月流量</div>
-          </div>
-          <div class="summary-item">
-            <div class="summary-value">850 GB</div>
-            <div class="summary-label">VPS直连</div>
-          </div>
-          <div class="summary-item">
-            <div class="summary-value">315 GB</div>
-            <div class="summary-label">住宅代理</div>
+            <h4 style="text-align:center;margin:0 0 10px 0;color:#64748b">近12个月累计流量</h4>
+            <canvas id="monthly-chart" style="height:300px"></canvas>
           </div>
         </div>
       </div>
-      
-      <!-- 运维管理 -->
-      <div class="card">
-        <div class="card-header">
-          <h2>🔧 运维管理</h2>
-        </div>
-        <div class="management-grid">
-          <!-- 基础操作 -->
-          <div class="inner-block">
-            <h4>✨ 基础操作</h4>
-            <div class="management-commands">
-              <div class="command-item">
-                <code>edgeboxctl sub</code>
-                <span class="text-muted"># 动态生成当前模式下的订阅链接</span>
-              </div>
-              <div class="command-item">
-                <code>edgeboxctl logs &lt;svc&gt;</code>
-                <span class="text-muted"># 查看指定服务的实时日志</span>
-              </div>
-              <div class="command-item">
-                <code>edgeboxctl status</code>
-                <span class="text-muted"># 查看所有核心服务运行状态</span>
-              </div>
-              <div class="command-item">
-                <code>edgeboxctl restart</code>
-                <span class="text-muted"># 安全地重启所有服务</span>
-              </div>
+    </div>
+  </div>
+
+  <!-- 管理命令 -->
+  <div class="grid grid-full">
+    <div class="card"><h3>运维管理</h3>
+      <div class="content">
+        <div class="commands-grid">
+          <div class="command-section">
+            <h4>🔧 基础操作</h4>
+            <div class="command-list">
+              <code>edgeboxctl sub</code> <span># 动态生成当前模式下的订阅链接</span><br>
+              <code>edgeboxctl logs &lt;svc&gt;</code> <span># 查看指定服务的实时日志</span><br>
+              <code>edgeboxctl status</code> <span># 查看所有核心服务运行状态</span><br>
+              <code>edgeboxctl restart</code> <span># 安全地重启所有服务</span><br>
             </div>
           </div>
           
-          <!-- 证书管理 -->
-          <div class="inner-block">
-            <h4>🔒 证书管理</h4>
-            <div class="management-commands">
-              <div class="command-item">
-                <code>edgeboxctl switch-to-domain &lt;your_domain&gt;</code>
-                <span class="text-muted"># 切换到域名模式，申请证书</span>
-              </div>
-              <div class="command-item">
-                <code>edgeboxctl switch-to-ip</code>
-                <span class="text-muted"># 回退到IP模式，使用自签名证书</span>
-              </div>
-              <div class="command-item">
-                <code>edgeboxctl cert status</code>
-                <span class="text-muted"># 检查当前证书的到期日期和类型</span>
-              </div>
-              <div class="command-item">
-                <code>edgeboxctl cert renew</code>
-                <span class="text-muted"># 手动续期Let's Encrypt证书</span>
-              </div>
+          <div class="command-section">
+            <h4>🌐 证书管理</h4>
+            <div class="command-list">
+              <code>edgeboxctl switch-to-domain &lt;your_domain&gt;</code> <span># 切换到域名模式，申请证书</span><br>
+              <code>edgeboxctl switch-to-ip</code> <span># 回退到IP模式，使用自签名证书</span><br>
+              <code>edgeboxctl cert status</code> <span># 检查当前证书的到期日期和类型</span><br>
+              <code>edgeboxctl cert renew</code> <span># 手动续期Let's Encrypt证书</span>
             </div>
           </div>
           
-          <!-- 出站分流 -->
-          <div class="inner-block">
-            <h4>🌐 出站分流</h4>
-            <div class="management-commands">
-              <div class="command-item">
-                <code>edgeboxctl shunt vps</code>
-                <span class="text-muted"># 切换至VPS全量出站</span>
-              </div>
-              <div class="command-item">
-                <code>edgeboxctl shunt resi &lt;URL&gt;</code>
-                <span class="text-muted"># 配置并切换至住宅IP全量出站</span>
-              </div>
-              <div class="command-item">
-                <code>edgeboxctl shunt direct-resi &lt;URL&gt;</code>
-                <span class="text-muted"># 配置并切换至白名单智能分流状态</span>
-              </div>
-              <div class="command-item">
-                <code>edgeboxctl shunt whitelist &lt;add|remove|list&gt;</code>
-                <span class="text-muted"># 管理白名单域名</span>
-              </div>
-              <div class="text-muted" style="padding: 8px; font-size: 11px;">
-                代理URL格式：<br>
-                http://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;<br>
-                https://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;?sni=&lt;..&gt;<br>
-                socks5://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;<br>
-                socks5h://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;?sni=&lt;..&gt;<br>
-                示例：edgeboxctl shunt resi 'socks5://user:pass@111.222.333.444:11324'
-              </div>
+          <div class="command-section">
+            <h4>🔀 出站分流</h4>
+            <div class="command-list">
+              <code>edgeboxctl shunt vps</code> <span># 切换至VPS全量出站</span><br>
+              <code>edgeboxctl shunt resi &lt;URL&gt;</code> <span># 配置并切换至住宅IP全量出站</span><br>
+              <code>edgeboxctl shunt direct-resi &lt;URL&gt;</code> <span># 配置并切换至白名单智能分流状态</span><br>
+              <code>edgeboxctl shunt whitelist &lt;add|remove|list&gt;</code> <span># 管理白名单域名</span><br>
+              <code>代理URL格式:</code><br>
+              <code>http://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;</code><br>
+              <code>https://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;?sni=</code><br>
+              <code>socks5://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;</code><br>
+              <code>socks5s://user:pass@&lt;域名&gt;:&lt;端口&gt;?sni=</code><br>
+              <code>示例：edgeboxctl shunt resi 'socks5://user:pass@111.222.333.444:11324'</code> <span># 全栈走住宅</span>
             </div>
           </div>
           
-          <!-- 流量统计与预警 -->
-          <div class="inner-block">
+          <div class="command-section">
             <h4>📊 流量统计与预警</h4>
-            <div class="management-commands">
-              <div class="command-item">
-                <code>edgeboxctl traffic show</code>
-                <span class="text-muted"># 查看当前月度查看流量统计数据</span>
-              </div>
-              <div class="command-item">
-                <code>edgeboxctl traffic reset</code>
-                <span class="text-muted"># 重置流量计数器</span>
-              </div>
-              <div class="command-item">
-                <code>edgeboxctl alert &lt;command&gt;</code>
-                <span class="text-muted"># 管理流量预警设置</span>
-              </div>
-              <div class="command-item">
-                <code>edgeboxctl alert monthly</code>
-                <span class="text-muted"># 设置月度流量阈值</span>
-              </div>
-              <div class="command-item">
-                <code>edgeboxctl alert steps 30,60,90</code>
-                <span class="text-muted"># 设置预警阈值</span>
-              </div>
-              <div class="command-item">
-                <code>edgeboxctl alert telegram &lt;bot_token&gt; &lt;chat_id&gt;</code>
-                <span class="text-muted"># 配置Telegram机器人</span>
-              </div>
-              <div class="command-item">
-                <code>edgeboxctl alert discord &lt;webhook_url&gt;</code>
-                <span class="text-muted"># 配置Discord通知</span>
-              </div>
-              <div class="command-item">
-                <code>edgeboxctl alert wechat &lt;pushplus_token&gt;</code>
-                <span class="text-muted"># 配置微信通知</span>
-              </div>
-              <div class="command-item">
-                <code>edgeboxctl alert webhook [raw|slack|discord]</code>
-                <span class="text-muted"># 配置通用Webhook</span>
-              </div>
-              <div class="command-item">
-                <code>edgeboxctl alert test</code>
-                <span class="text-muted"># 测试预警系统</span>
-              </div>
+            <div class="command-list">
+              <code>edgeboxctl traffic show</code> <span># 在终端中查看流量统计数据</span><br>
+              <code>edgeboxctl traffic reset</code> <span># 重置流量计数器</span><br>
+              <code>edgeboxctl alert &lt;command&gt;</code> <span># 管理流量预警设置</span><br>
+              <code>edgeboxctl alert monthly</code> <span># 设置月度阈值</span><br>
+              <code>edgeboxctl alert steps 30,60,90</code> <span># 设置预警阈值</span><br>
+              <code>edgeboxctl alert telegram &lt;bot_token&gt; &lt;chat_id&gt;</code> <span># 配置Telegram机器人</span><br>
+              <code>edgeboxctl alert discord &lt;webhook_url&gt;</code> <span># 配置Discord通知</span><br>
+              <code>edgeboxctl alert wechat &lt;pushplus_token&gt;</code> <span># 配置微信通知</span><br>
+              <code>edgeboxctl alert webhook [raw|slack|discord]</code> <span># 配置通用Webhook</span><br>
+              <code>edgeboxctl alert test</code> <span># 测试预警系统</span>
             </div>
           </div>
           
-          <!-- 配置管理 -->
-          <div class="inner-block">
+          <div class="command-section">
             <h4>⚙️ 配置管理</h4>
-            <div class="management-commands">
-              <div class="command-item">
-                <code>edgeboxctl config show</code>
-                <span class="text-muted"># 显示所有服务的核心配置信息</span>
-              </div>
-              <div class="command-item">
-                <code>edgeboxctl config regenerate-uuid</code>
-                <span class="text-muted"># 为所有协议重新生成新的UUID</span>
-              </div>
-              <div class="command-item">
-                <code>edgeboxctl test</code>
-                <span class="text-muted"># 测试所有协议的连接是否正常</span>
-              </div>
-              <div class="command-item">
-                <code>edgeboxctl debug-ports</code>
-                <span class="text-muted"># 调试关键端口的监听状态</span>
-              </div>
+            <div class="command-list">
+              <code>edgeboxctl config show</code> <span># 显示所有服务的核心配置信息</span><br>
+              <code>edgeboxctl config regenerate-uuid</code> <span># 为所有协议重新生成新的UUID</span><br>
+              <code>edgeboxctl test</code> <span># 测试所有协议的连接是否正常</span><br>
+              <code>edgeboxctl debug-ports</code> <span># 调试关键端口的监听状态</span>
             </div>
           </div>
           
-          <!-- 系统维护 -->
-          <div class="inner-block">
-            <h4>🔧 系统维护</h4>
-            <div class="management-commands">
-              <div class="command-item">
-                <code>edgeboxctl update</code>
-                <span class="text-muted"># 自动更新EdgeBox脚本和核心组件</span>
-              </div>
-              <div class="command-item">
-                <code>edgeboxctl backup create</code>
-                <span class="text-muted"># 手动创建一个系统备份</span>
-              </div>
-              <div class="command-item">
-                <code>edgeboxctl backup list</code>
-                <span class="text-muted"># 列出所有可用的备份</span>
-              </div>
-              <div class="command-item">
-                <code>edgeboxctl backup restore &lt;DATE&gt;</code>
-                <span class="text-muted"># 恢复到指定日期的备份状态</span>
-              </div>
+          <div class="command-section">
+            <h4>💾 系统维护</h4>
+            <div class="command-list">
+              <code>edgeboxctl update</code> <span># 自动更新EdgeBox脚本和核心组件</span><br>
+              <code>edgeboxctl backup create</code> <span># 手动创建一个系统备份</span><br>
+              <code>edgeboxctl backup list</code> <span># 列出所有可用的备份</span><br>
+              <code>edgeboxctl backup restore &lt;DATE&gt;</code> <span># 恢复到指定日期的备份状态</span>
             </div>
           </div>
         </div>
@@ -5469,374 +4969,615 @@ body, p, span, td, div {
   </div>
 </div>
 
-<!-- IP质量详情弹窗 -->
-<div id="ipqModal" class="modal">
+<!-- 协议详情模态框 -->
+<div id="protocol-modal" class="modal">
   <div class="modal-content">
     <div class="modal-header">
-      <h3 id="ipqModalTitle">IP质量检测详情</h3>
-      <span class="close-btn" onclick="closeIPQModal()">&times;</span>
+      <h3 id="modal-title">协议配置详情</h3>
+      <span class="modal-close" onclick="closeModal()">&times;</span>
     </div>
-    <div class="modal-body">
-      <div id="ipqDetails"></div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-primary" onclick="closeIPQModal()">关闭</button>
-    </div>
-  </div>
-</div>
-
-<!-- 白名单弹窗 -->
-<div id="whitelistModal" class="modal">
-  <div class="modal-content">
-    <div class="modal-header">
-      <h3>白名单完整列表</h3>
-      <span class="close-btn" onclick="closeWhitelistModal()">&times;</span>
-    </div>
-    <div class="modal-body">
-      <div id="whitelistList"></div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-primary" onclick="closeWhitelistModal()">关闭</button>
-    </div>
-  </div>
-</div>
-
-<!-- 客户端配置弹窗 -->
-<div id="configModal" class="modal">
-  <div class="modal-content">
-    <div class="modal-header">
-      <h3 id="configModalTitle">客户端配置详情</h3>
-      <span class="close-btn" onclick="closeConfigModal()">&times;</span>
-    </div>
-    <div class="modal-body">
-      <div id="configDetails"></div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-primary" onclick="copyBase64()">复制Base64链接</button>
-      <button class="btn btn-primary" onclick="copyPlain()">复制明文链接</button>
-      <button class="btn btn-primary" onclick="copyJSON()">复制JSON</button>
+    <div class="modal-body" id="modal-body">
+      <!-- 动态内容 -->
     </div>
   </div>
 </div>
 
 <script>
-// 全局配置变量
-let currentConfig = null;
+const GiB = 1024 ** 3;
 
-// 协议配置模板
-const protocols = {
-  'vless-reality': {
-    name: 'VLESS-Reality',
-    base64: 'dmxlc3M6Ly91dWlkQDQ1LjMyLjE2OC4yNDU6NDQzP2VuY3J5cHRpb249bm9uZSZmbG93PXh0bHMtcnBycC12aXNpb24mc2VjdXJpdHk9cmVhbGl0eSZzbmk9d3d3Lm1pY3Jvc29mdC5jb20mZnA9Y2hyb21lJnBiaz1wdWJsaWNrZXkmc2lkPXNob3J0aWQmdHlwZT10Y3AmaGVhZGVyVHlwZT1ub25lI1ZMRVNTLVJLYW1pdHk=',
-    plain: 'vless://uuid@45.32.168.245:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.microsoft.com&fp=chrome&pbk=publickey&sid=shortid&type=tcp&headerType=none#VLESS-Reality',
-    json: {
-      'add': '45.32.168.245',
-      'port': 443,
-      'id': 'uuid-here',
-      'net': 'tcp',
-      'type': 'none',
-      'tls': 'reality',
-      'sni': 'www.microsoft.com',
-      'fp': 'chrome',
-      'pbk': 'publickey-here',
-      'sid': 'shortid-here'
+// 数据获取工具函数
+async function getJSON(url) {
+  const r = await fetch(url, { cache: 'no-store' });
+  if (!r.ok) throw new Error(url + ' ' + r.status);
+  return r.json();
+}
+
+async function getTEXT(url) {
+  const r = await fetch(url, { cache: 'no-store' });
+  if (!r.ok) throw new Error(url + ' ' + r.status);
+  return r.text();
+}
+
+// Y轴顶部GiB单位自定义插件
+const ebYAxisUnitTop = {
+  id: 'ebYAxisUnitTop',
+  afterDraw: function(chart) {
+    const ctx = chart.ctx;
+    const yAxis = chart.scales.y;
+    if (yAxis) {
+      ctx.save();
+      ctx.font = '12px system-ui';
+      ctx.fillStyle = '#64748b';
+      ctx.textAlign = 'center';
+      ctx.fillText('GiB', yAxis.left + yAxis.width / 2, yAxis.top - 8);
+      ctx.restore();
     }
-  },
-  'vless-grpc': {
-    name: 'VLESS-gRPC',
-    base64: 'dmxlc3M6Ly91dWlkQDQ1LjMyLjE2OC4yNDU6NDQzP2VuY3J5cHRpb249bm9uZSZzZWN1cml0eT10bHMmdHlwZT1ncnBjJnNlcnZpY2VOYW1lPWdycGMmc25pPTQ1LjMyLjE2OC4yNDUjVkxFU1MtZ1JQQw==',
-    plain: 'vless://uuid@45.32.168.245:443?encryption=none&security=tls&type=grpc&serviceName=grpc&sni=45.32.168.245#VLESS-gRPC',
-    json: {
-      'add': '45.32.168.245',
-      'port': 443,
-      'id': 'uuid-here',
-      'net': 'grpc',
-      'type': 'gun',
-      'tls': 'tls',
-      'serviceName': 'grpc',
-      'sni': '45.32.168.245'
+  }
+};
+Chart.register(ebYAxisUnitTop);
+
+function renderShunt(sh, server) {
+  const mode = (sh?.mode || 'vps').replace('_','-');
+  document.querySelectorAll('.shunt-mode-tab')
+    .forEach(t => t.className = 'shunt-mode-tab');
+  const tab = document.querySelector(`[data-mode="${mode}"]`)
+           || document.querySelector('[data-mode="vps"]');
+  tab.classList.add('active', mode === 'vps' ? 'vps' : (mode === 'resi' ? 'resi' : 'direct-resi'));
+
+  document.getElementById('vps-ip').textContent  = server?.eip || server?.ip || '-';
+  document.getElementById('resi-ip').textContent = sh?.proxy_info ? '已配置' : '未配置';
+
+  const wl = Array.isArray(sh?.whitelist) ? sh.whitelist : [];
+  document.getElementById('whitelist-domains').textContent = wl.length ? wl.slice(0,8).join(', ') : '无';
+}
+
+// 全局变量
+let serverConfig = {};
+let _chartTraffic = null;
+let _chartMonthly = null;
+let _sysTicker = null;
+const clamp = (n, min=0, max=100) =>
+  (Number.isFinite(+n) ? Math.max(min, Math.min(max, Math.round(+n))) : '-');
+
+// 通知中心切换
+function toggleNotifications() {
+  const popup = document.getElementById('notif-popup');
+  popup.classList.toggle('show');
+}
+
+// 关闭模态框
+function closeModal() {
+  document.getElementById('protocol-modal').classList.remove('show');
+}
+
+// 安全取值函数
+function getSafe(obj, path, fallback) {
+  try {
+    var cur = obj;
+    for (var i = 0; i < path.length; i++) {
+      if (cur == null || !(path[i] in cur)) return (fallback === undefined ? '' : fallback);
+      cur = cur[path[i]];
     }
-  },
-  'vless-ws': {
-    name: 'VLESS-WS',
-    base64: 'dmxlc3M6Ly91dWlkQDQ1LjMyLjE2OC4yNDU6NDQzP2VuY3J5cHRpb249bm9uZSZzZWN1cml0eT10bHMmdHlwZT13cyZwYXRoPSUyRndzI1ZMRVNTLVNT',
-    plain: 'vless://uuid@45.32.168.245:443?encryption=none&security=tls&type=ws&path=%2Fws#VLESS-WS',
-    json: {
-      'add': '45.32.168.245',
-      'port': 443,
-      'id': 'uuid-here',
-      'net': 'ws',
-      'type': 'none',
-      'tls': 'tls',
-      'path': '/ws'
+    return (cur == null ? (fallback === undefined ? '' : fallback) : cur);
+  } catch (_) {
+    return (fallback === undefined ? '' : fallback);
+  }
+}
+
+// 显示协议详情
+function showProtocolDetails(protocol) {
+  var modal = document.getElementById('protocol-modal');
+  var modalTitle = document.getElementById('modal-title');
+  var modalBody = document.getElementById('modal-body');
+
+  var sc = window.serverConfig || {};
+  var uuid = getSafe(sc, ['uuid', 'vless'], 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx');
+  var tuicUuid = getSafe(sc, ['uuid', 'tuic'], 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx');
+  var realityPK = getSafe(sc, ['reality', 'public_key'], 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx');
+  var shortId = getSafe(sc, ['reality', 'short_id'], 'xxxxxxxxxxxxxxxx');
+  var hy2Pass = getSafe(sc, ['password', 'hysteria2'], 'xxxxxxxxxxxx');
+  var tuicPass = getSafe(sc, ['password', 'tuic'], 'xxxxxxxxxxxx');
+  var trojanPwd = getSafe(sc, ['password', 'trojan'], 'xxxxxxxxxxxx');
+  var server = getSafe(sc, ['server_ip'], window.location.hostname);
+
+  var configs = {
+    'VLESS-Reality': {
+      title: 'VLESS-Reality 配置',
+      items: [
+        { label: '服务器地址', value: server + ':443' },
+        { label: 'UUID', value: uuid },
+        { label: '传输协议', value: 'tcp' },
+        { label: '流控', value: 'xtls-rprx-vision' },
+        { label: 'Reality配置', value: '公钥: ' + realityPK + '\nShortID: ' + shortId + '\nSNI: www.cloudflare.com', note: '支持SNI: cloudflare.com, microsoft.com, apple.com' }
+      ]
+    },
+    'VLESS-gRPC': {
+      title: 'VLESS-gRPC 配置',
+      items: [
+        { label: '服务器地址', value: server + ':443' },
+        { label: 'UUID', value: uuid },
+        { label: '传输协议', value: 'grpc' },
+        { label: 'ServiceName', value: 'grpc' },
+        { label: 'TLS设置', value: 'tls', note: 'IP模式需开启"跳过证书验证"' }
+      ]
+    },
+    'VLESS-WS': {
+      title: 'VLESS-WebSocket 配置',
+      items: [
+        { label: '服务器地址', value: server + ':443' },
+        { label: 'UUID', value: uuid },
+        { label: '传输协议', value: 'ws' },
+        { label: 'Path', value: '/ws' },
+        { label: 'TLS设置', value: 'tls', note: 'IP模式需开启"跳过证书验证"' }
+      ]
+    },
+    'Trojan-TLS': {
+      title: 'Trojan-TLS 配置',
+      items: [
+        { label: '服务器地址', value: server + ':443' },
+        { label: '密码', value: trojanPwd },
+        { label: 'SNI', value: 'trojan.edgebox.internal', note: 'IP模式需开启"跳过证书验证"' }
+      ]
+    },
+    'Hysteria2': {
+      title: 'Hysteria2 配置',
+      items: [
+        { label: '服务器地址', value: server + ':443' },
+        { label: '密码', value: hy2Pass },
+        { label: '协议', value: 'UDP/QUIC' },
+        { label: '注意事项', value: '需要支持QUIC的网络环境', note: 'IP模式需开启"跳过证书验证"' }
+      ]
+    },
+    'TUIC': {
+      title: 'TUIC 配置',
+      items: [
+        { label: '服务器地址', value: server + ':2053' },
+        { label: 'UUID', value: tuicUuid },
+        { label: '密码', value: tuicPass },
+        { label: '拥塞控制', value: 'bbr', note: 'IP模式需开启"跳过证书验证"' }
+      ]
     }
-  },
-  'trojan': {
-    name: 'Trojan-TLS',
-    base64: 'dHJvamFuOi8vcGFzc3dvcmRANDUuMzIuMTY4LjI0NTo0NDM/c2VjdXJpdHk9dGxzJnR5cGU9dGNwI1Ryb2phbi1UTFM=',
-    plain: 'trojan://password@45.32.168.245:443?security=tls&type=tcp#Trojan-TLS',
-    json: {
-      'add': '45.32.168.245',
-      'port': 443,
-      'password': 'password-here',
-      'type': 'tcp',
-      'tls': 'tls'
-    }
-  },
-  'hy2': {
-    name: 'Hysteria2',
-    base64: 'aHkyOi8vcGFzc3dvcmRANDUuMzIuMTY4LjI0NTo0NDM/aW5zZWN1cmU9MSNIeXN0ZXJpYTI=',
-    plain: 'hy2://password@45.32.168.245:443?insecure=1#Hysteria2',
-    json: {
-      'server': '45.32.168.245:443',
-      'auth': 'password-here',
-      'tls': {
-        'insecure': true
+  };
+
+  var cfg = configs[protocol];
+  if (!cfg) return;
+  modalTitle.textContent = cfg.title;
+  modalBody.innerHTML = cfg.items.map(function(it) {
+    return '<div class="config-item"><h4>' + it.label + '</h4><code>' + it.value + '</code>' + (it.note ? '<div class="config-note">⚠️ ' + it.note + '</div>' : '') + '</div>';
+  }).join('');
+  modal.classList.add('show');
+}
+
+// 点击外部关闭
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('.notification-bell')) {
+    document.getElementById('notif-popup').classList.remove('show');
+  }
+  if (e.target.classList.contains('modal')) {
+    e.target.classList.remove('show');
+  }
+});
+
+// 读取服务器配置
+async function readServerConfig() {
+  try {
+    const r = await fetch('/traffic/server.shadow.json', { cache: 'no-store' });
+    if (r.ok) return await r.json();
+  } catch (_) {}
+
+  try {
+    const txt = await fetch('/sub', { cache: 'no-store' }).then(function(r) { return r.text(); });
+    const lines = txt.split('\n').map(function(l) { return l.trim(); })
+      .filter(function(l) { return /^vless:|^hysteria2:|^tuic:|^trojan:/.test(l); });
+
+    const cfg = { uuid: {}, password: {}, reality: {} };
+    const v = lines.find(function(l) { return l.startsWith('vless://'); });
+    if (v) {
+      const m = v.match(/^vless:\/\/([^@]+)@([^:]+):\d+\?([^#]+)/i);
+      if (m) {
+        cfg.uuid.vless = m[1];
+        cfg.server_ip = m[2];
+        const qs = new URLSearchParams(m[3].replace(/&amp;/g, '&'));
+        cfg.reality.public_key = qs.get('pbk') || '';
+        cfg.reality.short_id = qs.get('sid') || '';
       }
     }
-  },
-  'tuic': {
-    name: 'TUIC',
-    base64: 'dHVpYzovL3V1aWQ6cGFzc3dvcmRANDUuMzIuMTY4LjI0NToyMDUzP2Nvbmdlc3Rpb25fY29udHJvbD1iYnImYWxwbj1oMyNUVUlD',
-    plain: 'tuic://uuid:password@45.32.168.245:2053?congestion_control=bbr&alpn=h3#TUIC',
-    json: {
-      'relay': '45.32.168.245:2053',
-      'uuid': 'uuid-here',
-      'password': 'password-here',
-      'congestion_control': 'bbr',
-      'alpn': ['h3']
+    for (const l of lines) {
+      let m;
+      if ((m = l.match(/^hysteria2:\/\/([^@]+)@/i))) cfg.password.hysteria2 = decodeURIComponent(m[1]);
+      if ((m = l.match(/^tuic:\/\/([^:]+):([^@]+)@/i))) {
+        cfg.uuid.tuic = m[1];
+        cfg.password.tuic = decodeURIComponent(m[2]);
+      }
+      if ((m = l.match(/^trojan:\/\/([^@]+)@/i))) cfg.password.trojan = decodeURIComponent(m[1]);
     }
-  }
-};
+    return cfg;
+  } catch (_) { return {}; }
+}
 
-// 配置字段注释
-const configComments = {
-  'add': '服务器地址',
-  'port': '端口',
-  'id': 'UUID',
-  'password': '密码',
-  'net': '传输协议',
-  'type': '伪装类型',
-  'tls': '安全类型',
-  'sni': 'SNI',
-  'fp': '指纹',
-  'pbk': '公钥',
-  'sid': '短ID',
-  'serviceName': 'gRPC服务名',
-  'path': 'WebSocket路径',
-  'server': '服务器地址',
-  'auth': '认证密码',
-  'relay': '中继地址',
-  'uuid': 'UUID',
-  'congestion_control': '拥塞控制',
-  'alpn': 'ALPN协商'
-};
-
-// 显示配置详情
-function showConfigModal(protocol) {
-  const config = protocols[protocol];
-  currentConfig = config;
-  
-  document.getElementById('configModalTitle').textContent = config.name + ' - 客户端配置详情';
-  
-  // 生成JSON显示
-  let jsonHtml = '<div class="json-config">';
-  Object.entries(config.json).forEach(([key, value]) => {
-    const comment = configComments[key] || key;
-    let displayValue = value;
+// 更新本月进度条
+async function updateProgressBar() {
+  try {
+    const [trafficRes, alertRes] = await Promise.all([
+      fetch('/traffic/traffic.json', { cache: 'no-store' }),
+      fetch('/traffic/alert.conf', { cache: 'no-store' })
+    ]);
     
-    if (typeof value === 'object') {
-      displayValue = JSON.stringify(value, null, 2);
+    let budget = 100;
+    if (alertRes.ok) {
+      const alertText = await alertRes.text();
+      const match = alertText.match(/ALERT_MONTHLY_GIB=(\d+)/);
+      if (match) budget = parseInt(match[1]);
     }
     
-    jsonHtml += `
-      <div class="json-line">
-        <span><span class="json-key">"${key}"</span>: <span class="json-value">${displayValue}</span></span>
-        <span class="json-comment">// ${comment}</span>
-      </div>
-    `;
-  });
-  jsonHtml += '</div>';
-  
-  document.getElementById('configDetails').innerHTML = `
-    <div class="config-section">
-      <h4>Base64链接</h4>
-      <div class="config-code">${config.base64}</div>
-    </div>
-    
-    <div class="config-section">
-      <h4>明文链接</h4>
-      <div class="config-code">${config.plain}</div>
-    </div>
-    
-    <div class="config-section">
-      <h4>JSON配置</h4>
-      ${jsonHtml}
-    </div>
-    
-    <div class="config-section">
-      <h4>二维码</h4>
-      <div class="qr-container">
-        <div class="qr-placeholder">
-          QR Code<br>256x256
-        </div>
-      </div>
-    </div>
-    
-    <div class="config-section">
-      <h4>使用说明</h4>
-      <div style="font-size: 12px; color: #6b7280; line-height: 1.8;">
-        1. 复制订阅链接导入客户端<br>
-        2. 支持 V2rayN、Clash、Shadowrocket 等主流客户端<br>
-        3. 自签证书需在客户端开启"跳过证书验证"<br>
-        4. UDP协议（HY2/TUIC）固定走VPS直连
-      </div>
-    </div>
-  `;
-  
-  document.getElementById('configModal').style.display = 'block';
-}
-
-// 复制功能
-function copyBase64() {
-  if (currentConfig) {
-    navigator.clipboard.writeText(currentConfig.base64);
-    alert('Base64链接已复制');
+    if (trafficRes.ok) {
+      const traffic = await trafficRes.json();
+      if (traffic.monthly && traffic.monthly.length > 0) {
+        const current = traffic.monthly[traffic.monthly.length - 1];
+        const used = (current.total || 0) / GiB;
+        const pct = Math.min((used / budget) * 100, 100);
+        
+        document.getElementById('progress-fill').style.width = pct + '%';
+        document.getElementById('progress-percentage').textContent = pct.toFixed(0) + '%';
+        document.getElementById('progress-budget').textContent = used.toFixed(1) + '/' + budget + 'GiB';
+      }
+    }
+  } catch (e) {
+    console.log('进度条更新失败:', e);
   }
 }
 
-function copyPlain() {
-  if (currentConfig) {
-    navigator.clipboard.writeText(currentConfig.plain);
-    alert('明文链接已复制');
+// 主数据加载函数
+async function loadData() {
+  console.log('开始加载数据...');
+  
+  try {
+    const [dashboard, panel, system, traffic, alerts, subTxt, serverJson] = await Promise.all([
+      getJSON('/traffic/dashboard.json').catch(() => null),
+      getJSON('/traffic/panel.json').catch(() => null),
+      getJSON('/traffic/system.json').catch(() => null),
+      getJSON('/traffic/traffic.json').catch(() => null),
+      getJSON('/traffic/alerts.json').catch(() => []),
+      getTEXT('/sub').catch(() => ''),
+      readServerConfig()
+    ]);
+    window._subTxtForFallback = subTxt;
+    console.log('数据加载完成:', { dashboard: !!dashboard, panel: !!panel, system: !!system, traffic: !!traffic, alerts: alerts.length, serverJson: !!serverJson });
+    
+    // 保存服务器配置供协议详情使用
+    window.serverConfig = serverJson || {};
+
+    // 统一数据面向 UI
+    const model = dashboard ? {
+      updatedAt: dashboard.updated_at,
+      server: dashboard.server, cert: dashboard.cert,
+      system: dashboard.system, services: dashboard.services,
+      protocols: dashboard.protocols,
+	  shunt: panel?.shunt || {},
+      subscription: dashboard.subscription
+    } : {
+      updatedAt: panel?.updated_at || system?.updated_at,
+      server: panel?.server || {},
+      system: { cpu: system?.cpu ?? null, memory: system?.memory ?? null },
+      protocols: (panel?.protocols) || [],
+	  shunt: panel?.shunt || {},
+      subscription: {
+        plain: subTxt.trim(),
+        base64: btoa(unescape(encodeURIComponent(subTxt.trim()))),
+        b64_lines: subTxt.trim().split('\n').map(l => btoa(unescape(encodeURIComponent(l)))).join('\n')
+      }
+    };
+
+    // 渲染各个模块
+    renderHeader(model);
+    renderProtocols(model);
+    renderTraffic(traffic);
+    renderAlerts(alerts);
+
+  } catch (e) {
+    console.error('loadData failed:', e);
   }
 }
 
-function copyJSON() {
-  if (currentConfig) {
-    navigator.clipboard.writeText(JSON.stringify(currentConfig.json, null, 2));
-    alert('JSON配置已复制');
-  }
-}
-
-function copySub(type) {
-  const input = type === 'plain' ? 
-    'http://45.32.168.245/sub' : 
-    'aHR0cDovLzQ1LjMyLjE2OC4yNDUvc3ViCg==';
-  navigator.clipboard.writeText(input);
-  alert('订阅链接已复制');
-}
-
-// 显示IP质量详情
-function showIPQDetails(type) {
-  document.getElementById('ipqModalTitle').textContent = 
-    type === 'vps' ? 'VPS出站IP - 质量检测详情' : '代理出站IP - 质量检测详情';
+// 渲染基本信息
+function renderHeader(model) {
+  const ts = model.updatedAt || new Date().toISOString();
+  document.getElementById('updated').textContent = new Date(ts).toLocaleString('zh-CN');
+  const s = model.server || {}, c = model.cert || {}, sys = model.system || {}, svc = model.services || {};
   
-  document.getElementById('ipqDetails').innerHTML = `
-    <div style="text-align: center; margin-bottom: 20px;">
-      <div style="font-size: 32px; font-weight: bold; color: #10b981;">85分</div>
-      <div style="display: inline-block; padding: 4px 12px; background: #10b981; color: white; border-radius: 4px; font-size: 12px; margin-top: 8px;">良好</div>
-    </div>
-    
-    <div class="config-section">
-      <h4>总览</h4>
-      <div style="color: #6b7280; font-size: 12px;">
-        分数: 85分 (良好)<br>
-        最近检测: 2025-01-16 10:30:00
-      </div>
-    </div>
-    
-    <div class="config-section">
-      <h4>身份信息</h4>
-      <div style="color: #6b7280; font-size: 12px;">
-        出站IP: 45.32.168.245<br>
-        ASN/ISP: AS20473 / Vultr<br>
-        Geo: United States, California, Los Angeles
-      </div>
-    </div>
-    
-    <div class="config-section">
-      <h4>配置信息</h4>
-      <div style="color: #6b7280; font-size: 12px;">
-        带宽限制: 1000 Mbps / 1000 Mbps
-      </div>
-    </div>
-    
-    <div class="config-section">
-      <h4>质量细项</h4>
-      <div style="color: #6b7280; font-size: 12px;">
-        网络类型: IDC数据中心<br>
-        rDNS: vps-45-32-168-245.vultr.com<br>
-        黑名单命中数: 0/88 (清洁)<br>
-        时延中位数: 165ms
-      </div>
-    </div>
-    
-    <div class="config-section">
-      <h4>结论</h4>
-      <div style="color: #6b7280; font-size: 12px; line-height: 1.8;">
-        ✓ IP未被主要黑名单收录<br>
-        ✓ 数据中心网络，适合建站<br>
-        ✓ 带宽充足，延迟适中<br>
-        ⚠ 部分流媒体服务可能受限
-      </div>
-    </div>
-  `;
+  // 基本信息
+  document.getElementById('srv-ip').textContent = s.ip || '-';
+  document.getElementById('domain').textContent = s.cert_domain || c.domain || '无';
+ 
+  // 证书 / 网络模式 & 续期方式（动态）
+  const mode  = s.cert_mode || c.mode || 'self-signed';
+  const renew = (c.provider === 'auto' || mode === 'letsencrypt') ? '自动续期' : '手动续期';
+
+  document.getElementById('net-mode').textContent  =
+    mode === 'letsencrypt' ? "域名模式(Let's Encrypt)" : 'IP模式(自签名)';
+  document.getElementById('cert-mode').textContent =
+    mode === 'letsencrypt' ? "Let's Encrypt" : '自签名证书';
+  document.getElementById('renew-mode').textContent = renew;
+
+  document.getElementById('cert-exp').textContent =
+    (s.cert_expire || c.expire)
+      ? new Date(s.cert_expire || c.expire).toLocaleDateString('zh-CN')
+      : '无';
+
+// 到期日期：无值或无效 -> “无”
+const expStr  = (s.cert_expire || c.expire || '').trim();
+const expDate = expStr ? new Date(expStr) : null;
+document.getElementById('cert-exp').textContent =
+  (expDate && !isNaN(expDate)) ? expDate.toLocaleDateString('zh-CN') : '无';
+
+  document.getElementById('cert-exp').textContent = s.cert_expire || c.expire ? new Date(s.cert_expire || c.expire).toLocaleDateString('zh-CN') : '无';
+  document.getElementById('ver').textContent = s.version || '-';
+  document.getElementById('inst').textContent = s.install_date || '-';
   
-  document.getElementById('ipqModal').style.display = 'block';
+  // CPU/内存（更稳 & 限制在 0–100）
+  document.getElementById('cpu-usage').textContent = clamp(sys.cpu);
+  document.getElementById('mem-usage').textContent = clamp(sys.memory);
+
+  // 15s 轮询 system.json，避免一次性采样卡住在 100%
+  clearInterval(_sysTicker);
+  _sysTicker = setInterval(async () => {
+    try {
+      const x = await getJSON('/traffic/system.json');
+      document.getElementById('cpu-usage').textContent = clamp(x.cpu);
+      document.getElementById('mem-usage').textContent = clamp(x.memory);
+    } catch(_) {}
+  }, 15000);
+  
+  // 服务状态
+  document.getElementById('nginx-status').textContent = svc.nginx === 'active' ? '运行中' : '已停止';
+  document.getElementById('xray-status').textContent = svc.xray === 'active' ? '运行中' : '已停止';
+  document.getElementById('singbox-status').textContent = svc['sing-box'] === 'active' ? '运行中' : '已停止';
 }
 
-// 显示白名单
-function showWhitelistModal() {
-  const whitelist = [
-    'google.com',
-    'youtube.com',
-    'github.com',
-    'cloudflare.com',
-    'openai.com',
-    'anthropic.com',
-    'microsoft.com',
-    'apple.com',
-    'amazon.com',
-    'facebook.com',
-    'twitter.com',
-    'netflix.com'
+// 渲染协议配置
+function renderProtocols(model) {
+  const tb = document.querySelector('#proto tbody');
+  tb.innerHTML = '';
+  
+  const protocols = [
+    { name: 'VLESS-Reality', network: 'TCP', port: '443', disguise: '极佳', scenario: '强审查环境' },
+    { name: 'VLESS-gRPC', network: 'TCP/H2', port: '443', disguise: '极佳', scenario: '较严审查/走CDN' },
+    { name: 'VLESS-WS', network: 'TCP/WS', port: '443', disguise: '良好', scenario: '常规网络更稳' },
+    { name: 'Trojan-TLS', network: 'TCP', port: '443', disguise: '良好', scenario: '移动网络可靠' },
+    { name: 'Hysteria2', network: 'UDP/QUIC', port: '443', disguise: '良好', scenario: '大带宽/低时延' },
+    { name: 'TUIC', network: 'UDP/QUIC', port: '2053', disguise: '好', scenario: '弱网/高丢包更佳' }
   ];
   
-  let html = '';
-  whitelist.forEach(domain => {
-    html += `<div style="padding: 8px 12px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 4px; margin-bottom: 6px; font-family: monospace; font-size: 12px; color: #1f2937;">${domain}</div>`;
+  protocols.forEach(function(p) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = 
+      '<td>' + p.name + '</td>' +
+      '<td>' + p.network + '</td>' +
+      '<td>' + p.port + '</td>' +
+      '<td><span class="detail-link" onclick="showProtocolDetails(\'' + p.name + '\')">详情</span></td>' +
+      '<td>' + p.disguise + '</td>' +
+      '<td>' + p.scenario + '</td>' +
+      '<td style="color:#10b981">✓ 运行</td>';
+    tb.appendChild(tr);
   });
   
-  document.getElementById('whitelistList').innerHTML = html;
-  document.getElementById('whitelistModal').style.display = 'block';
+// --- 出站分流状态（来自 panel.shunt） ---
+const sh = model.shunt || {};
+const mode = String(sh.mode || 'vps').replace('_', '-');
+document.querySelectorAll('.shunt-mode-tab').forEach(function(tab){
+  tab.classList.remove('active','vps','resi','direct-resi');
+});
+const tab = document.querySelector('[data-mode="'+mode+'"]') || document.querySelector('[data-mode="vps"]');
+if (tab) tab.classList.add('active', mode === 'resi' ? 'resi' : (mode === 'direct-resi' ? 'direct-resi' : 'vps'));
+
+document.getElementById('vps-ip').textContent  = (model.server && (model.server.eip || model.server.ip)) || '-';
+document.getElementById('resi-ip').textContent = sh.proxy_info ? '已配置' : '未配置';
+document.getElementById('whitelist-domains').textContent =
+  (Array.isArray(sh.whitelist) && sh.whitelist.length)
+    ? sh.whitelist.slice(0,8).join(', ')
+    : '无';
 }
 
-// 关闭弹窗
-function closeIPQModal() {
-  document.getElementById('ipqModal').style.display = 'none';
+// 渲染流量图表
+function renderTraffic(traffic) {
+  if (!traffic) return;
+  if (_chartTraffic) { _chartTraffic.destroy();  _chartTraffic = null; }
+  if (_chartMonthly) { _chartMonthly.destroy();  _chartMonthly = null; }
+
+  // 近30天流量图表 - 严格按7:3排版，添加底部留白28px，Y轴顶部显示GiB
+  if (traffic.last30d && traffic.last30d.length > 0) {
+    const labels = traffic.last30d.map(function(x) { return x.date; });
+    const vps = traffic.last30d.map(function(x) { return x.vps; });
+    const resi = traffic.last30d.map(function(x) { return x.resi; });
+    
+    new Chart(document.getElementById('traffic'), {
+      type: 'line', 
+      data: {
+        labels: labels,
+        datasets: [
+          { label: 'VPS 出口', data: vps, tension: .3, borderWidth: 2, borderColor: '#3b82f6' },
+          { label: '住宅出口', data: resi, tension: .3, borderWidth: 2, borderColor: '#f59e0b' }
+        ]
+      }, 
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            display: true,
+            position: 'bottom',
+            labels: {
+              padding: 20,
+              usePointStyle: true
+            }
+          }
+        },
+        scales: {
+          x: {
+            title: { display: false }
+          },
+          y: {
+            title: { display: false },
+            ticks: {
+              callback: function(v) { return Math.round(v / GiB); }
+            }
+          }
+        },
+        layout: {
+          padding: {
+            bottom: 28  // 确保图例不被遮挡
+          }
+        }
+      },
+      plugins: [ebYAxisUnitTop]  // Y轴顶部显示GiB单位
+    });
+  }
+  
+  // 月累计柱形图 - 同样的优化
+  if (traffic.monthly && traffic.monthly.length > 0) {
+    const recentMonthly = traffic.monthly.slice(-12);
+    const monthLabels = recentMonthly.map(function(item) { return item.month; });
+    const vpsData = recentMonthly.map(function(item) { return (item.vps || 0) / GiB; });
+    const resiData = recentMonthly.map(function(item) { return (item.resi || 0) / GiB; });
+    
+    new Chart(document.getElementById('monthly-chart'), {
+      type: 'bar',
+      data: {
+        labels: monthLabels,
+        datasets: [
+          {
+            label: 'VPS出口',
+            data: vpsData,
+            backgroundColor: '#3b82f6',
+            borderColor: '#3b82f6',
+            borderWidth: 1,
+            stack: 'stack1'
+          },
+          {
+            label: '住宅出口',
+            data: resiData,
+            backgroundColor: '#f59e0b',
+            borderColor: '#f59e0b',
+            borderWidth: 1,
+            stack: 'stack1'
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          tooltip: {
+            callbacks: {
+              label: function(context) {
+                const label = context.dataset.label || '';
+                const value = context.parsed.y.toFixed(2);
+                return label + ': ' + value + ' GiB';
+              },
+              afterLabel: function(context) {
+                const dataIndex = context.dataIndex;
+                const vpsValue = vpsData[dataIndex] || 0;
+                const resiValue = resiData[dataIndex] || 0;
+                const total = (vpsValue + resiValue).toFixed(2);
+                return '总流量: ' + total + ' GiB';
+              }
+            }
+          },
+          legend: {
+            display: true,
+            position: 'bottom',
+            labels: {
+              padding: 20,
+              usePointStyle: true
+            }
+          }
+        },
+        scales: {
+          x: {
+            stacked: true,
+            grid: { display: false }
+          },
+          y: {
+            stacked: true,
+            grid: { display: true, color: '#f1f5f9' },
+            ticks: {
+              callback: function(value) {
+                return Math.round(value);
+              }
+            }
+          }
+        },
+        layout: {
+          padding: {
+            bottom: 28  // 确保图例不被遮挡
+          }
+        },
+        interaction: {
+          mode: 'index',
+          intersect: false
+        }
+      },
+      plugins: [ebYAxisUnitTop]  // Y轴顶部显示GiB单位
+    });
+  }
+  
+  // 更新本月进度条
+  updateProgressBar();
 }
 
-function closeWhitelistModal() {
-  document.getElementById('whitelistModal').style.display = 'none';
-}
-
-function closeConfigModal() {
-  document.getElementById('configModal').style.display = 'none';
-}
-
-// 点击弹窗外部关闭
-window.onclick = function(event) {
-  if (event.target.classList.contains('modal')) {
-    event.target.style.display = 'none';
+// 渲染通知中心
+function renderAlerts(alerts) {
+  const alertCount = (alerts || []).length;
+  document.getElementById('notif-count').textContent = alertCount;
+  const bell = document.getElementById('notif-bell');
+  if (alertCount > 0) {
+    bell.classList.add('has-alerts');
+    bell.querySelector('span').textContent = alertCount + ' 条通知';
+  }
+  
+  const notifList = document.getElementById('notif-list');
+  notifList.innerHTML = '';
+  if (alertCount > 0) {
+    alerts.slice(0, 10).forEach(function(a) {
+      const div = document.createElement('div');
+      div.className = 'notification-item';
+      div.textContent = (a.ts || '') + ' ' + (a.msg || '');
+      notifList.appendChild(div);
+    });
+  } else {
+    notifList.textContent = '暂无通知';
   }
 }
-</script>
 
+// 复制订阅链接函数
+function copySub(type) {
+  const input = document.getElementById('sub-' + type);
+  input.select();
+  document.execCommand('copy');
+  
+  const btn = input.nextElementSibling;
+  const originalText = btn.textContent;
+  btn.textContent = '已复制';
+  btn.style.background = '#10b981';
+  btn.style.color = 'white';
+  setTimeout(function() {
+    btn.textContent = originalText;
+    btn.style.background = '';
+    btn.style.color = '';
+  }, 1000);
+}
+
+// 启动
+console.log('脚本开始执行');
+document.addEventListener('DOMContentLoaded', loadData);
+
+// 定时刷新：每5分钟刷新一次数据，每小时刷新本月进度条
+setInterval(loadData, 300000);
+setInterval(updateProgressBar, 3600000);
+</script>
 </body>
 </html>
 HTML
-
 
 # 覆盖块：为控制面板加入 no-cache 元信息，避免浏览器缓存挡住新版
 {
