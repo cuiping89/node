@@ -5576,7 +5576,7 @@ function updateProtocolTable(protocols) {
   const tbody = document.getElementById('protocol-tbody');
 
   // “使用场景”在“伪装效果”前；三列内容居中显示
-const rows = (protocols || []).map(p => `
+  const rows = (protocols || []).map(p => `
     <tr>
       <td>${escapeHtml(p.name)}</td>
       <td class="text-center">${escapeHtml(p.scenario || '—')}</td>
@@ -5587,11 +5587,11 @@ const rows = (protocols || []).map(p => `
         </span>
       </td>
       <td>
-        <button class="btn btn-sm btn-link"
-                onclick='showConfigModal(${JSON.stringify(p.name)})'>查看配置</button>
+<button class="btn btn-sm btn-link"
+        onclick="showConfigModal('${p.name.replace(/'/g, "\\'")}')"">查看配置</button>
       </td>
     </tr>
-`);
+  `);
 
   // 底部追加“整包订阅链接”行
   rows.push(`
