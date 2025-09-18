@@ -4601,6 +4601,32 @@ body, p, span, td, div {
 
 .data-table tr.subs-row td { background:#f5f5f5; }/* 整包订阅链接行灰底（可选） */
 
+/* === 订阅卡片 === */
+.subscription-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #f5f5f5;  /* 从 #f9fafb 改为 #f5f5f5 */
+  border: 1px solid #e5e7eb;
+  padding: 12px;
+  border-radius: 6px;
+  margin-bottom: 15px;
+}
+
+.subscription-url {
+  font-family: monospace;
+  font-size: 12px;
+  color: #1f2937;
+  word-break: break-all;
+  flex: 1;
+  margin-right: 15px;
+}
+
+.subscription-actions {
+  display: flex;
+  gap: 8px;
+}
+
 /* === 流量统计（来自new5.txt） === */
 .traffic-card { 
   position: relative; 
@@ -5212,6 +5238,21 @@ body, p, span, td, div {
         </table>
       </div>
 
+      <!-- 订阅链接 -->
+      <div class="card">
+        <div class="card-header">
+          <h2>🔗 订阅链接</h2>
+        </div>
+        <div class="subscription-row">
+          <div class="subscription-url" id="sub-url">加载中...</div>
+          <div class="subscription-actions">
+            <button class="btn btn-sm" onclick="copySubscription('plain')">明文链接</button>
+            <button class="btn btn-sm" onclick="copySubscription('b64lines')">B64逐行</button>
+            <button class="btn btn-sm" onclick="copySubscription('base64')">合并B64</button>
+          </div>
+        </div>
+      </div>
+
       <!-- 流量统计（来自new5.txt） -->
       <div class="card traffic-card">
         <h2>📊 流量统计
@@ -5363,12 +5404,16 @@ body, p, span, td, div {
     </div>
     <div class="modal-body">
       <div id="configDetails"></div>
+      <div class="qr-container" style="margin-top:12px">
+        <canvas id="qrcode"></canvas>
+      </div>
     </div>
 <div class="modal-footer">
   <button class="btn btn-sm" onclick="copyPlain()">复制明文链接</button>
   <button class="btn btn-sm" onclick="copyJSON()">复制JSON配置</button>
   <button class="btn btn-sm" onclick="copyBase64()">复制Base64链接</button>
   <button class="btn btn-sm" onclick="copyQRImage()">复制二维码图片</button>
+  <button class="btn btn-sm btn-secondary" onclick="closeConfigModal()">关闭</button>
 </div>
   </div>
 </div>
@@ -5404,13 +5449,6 @@ async function fetchText(url) {
     console.error('Fetch error:', error);
     return '';
   }
-}
-
-function escapeHtml(s=''){
-  return String(s)
-    .replace(/&/g,'&amp;')
-    .replace(/</g,'&lt;')
-    .replace(/>/g,'&gt;');
 }
 
 // Chart.js Y轴单位插件（来自new5.txt）
@@ -5506,6 +5544,11 @@ async function updateSystemOverview() {
     }
   }
   
+  // 订阅链接
+  if (data.subscription_url) {
+    document.getElementById('sub-url').textContent = data.subscription_url;
+  }
+  
   // 协议列表
   updateProtocolTable(data.protocols);
 }
@@ -5533,7 +5576,7 @@ function updateProtocolTable(protocols) {
       <td>${p.scenario || '—'}</td>
       <td>${p.camouflage || '—'}</td>
       <td><span class="status-badge ${p.status === '运行中' ? 'status-running' : ''}">${p.status || '—'}</span></td>
-<td><button class="btn btn-sm btn-link" onclick='showConfigModal(${JSON.stringify(p.name)})'>查看配置</button></td>
+      <td><button class="btn btn-sm btn-link" onclick="showConfigModal('${p.name}')">查看配置</button></td>
     </tr>
   `);
 
@@ -5718,48 +5761,52 @@ function closeWhitelistModal() {
   document.getElementById('whitelistModal').style.display = 'none';
 }
 
-// 全局状态（已存在则保留）
+// 全局记录当前弹窗上下文
 let currentProtocol = null;
 let currentModalType = 'PROTOCOL'; // 'PROTOCOL' | 'SUBS'
 
-// 工具：HTML转义（已存在则保留一个即可）
-function escapeHtml(s=''){
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
-
 function showConfigModal(protocolName) {
-  const modal   = document.getElementById('configModal');
-  const title   = document.getElementById('configModalTitle');
+  const modal = document.getElementById('configModal');
+  const title = document.getElementById('configModalTitle');
   const details = document.getElementById('configDetails');
+  const qrCanvasWrap = document.getElementById('qrcode');
 
-  // —— 整包订阅链接分支 ——
+  // 清空二维码容器
+  if (qrCanvasWrap) qrCanvasWrap.innerHTML = '';
+
+  // —— 处理“整包订阅链接”特殊行 ——
   if (protocolName === '__SUBS__') {
     currentModalType = 'SUBS';
-    currentProtocol  = null;
+    currentProtocol = null;
 
-    const plainLink  = (window.dashboardData && dashboardData.subscription_url) || '';
+    const plainLink = (dashboardData && dashboardData.subscription_url) || '';
+    // base64 合并格式的订阅链接
     const base64Link = plainLink ? (plainLink.includes('?') ? `${plainLink}&format=base64` : `${plainLink}?format=base64`) : '';
 
     title.textContent = '整包订阅链接 - 客户端配置详情';
 
-    // 顺序：明文 → JSON(—) → Base64 → 二维码 → 使用说明
+    // body 展示顺序：明文链接、（无 JSON）、Base64链接、二维码、使用说明
     details.innerHTML = `
       <div class="config-section">
         <h4>明文链接</h4>
-        <div class="config-code" id="plain-link">${escapeHtml(plainLink || '—')}</div>
+        <div class="config-code" id="plain-link">${plainLink || '—'}</div>
       </div>
+
       <div class="config-section">
         <h4>JSON配置</h4>
         <div class="config-code">—</div>
       </div>
+
       <div class="config-section">
         <h4>Base64链接</h4>
-        <div class="config-code" id="base64-link">${escapeHtml(base64Link || '—')}</div>
+        <div class="config-code" id="base64-link">${base64Link || '—'}</div>
       </div>
+
       <div class="config-section">
         <h4>二维码</h4>
-        <div class="qr-container"><div id="qrcode"></div></div>
+        <div class="qr-container"><canvas id="qrcode"></canvas></div>
       </div>
+
       <div class="config-section">
         <h4>使用说明</h4>
         <div style="font-size:12px;color:#6b7280;line-height:1.8;">
@@ -5771,62 +5818,65 @@ function showConfigModal(protocolName) {
       </div>
     `;
 
-    // 补充说明（有值才渲染）
-    const subsNotes = (window.dashboardData && dashboardData.subscription_notes) || '';
-    if (subsNotes) {
-      details.innerHTML += `
-        <div class="config-section">
-          <h4>补充说明</h4>
-          <div class="config-code">${escapeHtml(subsNotes)}</div>
-        </div>`;
-    }
-
-    // 生成二维码（明文订阅链接）
-    const qrContainer = document.getElementById('qrcode');
-    if (plainLink && qrContainer && window.QRCode) {
-      new QRCode(qrContainer, { text: plainLink, width: 256, height: 256, colorDark: "#000", colorLight: "#fff", correctLevel: QRCode.CorrectLevel.H });
+    // 二维码：用明文订阅链接生成
+    if (plainLink && qrCanvasWrap) {
+      new QRCode(qrCanvasWrap, {
+        text: plainLink,
+        width: 256, height: 256,
+        colorDark: "#000000",
+        colorLight: "#ffffff",
+        correctLevel: QRCode.CorrectLevel.H
+      });
     }
 
     modal.style.display = 'block';
     return;
   }
 
-  // —— 普通协议分支 ——
+  // —— 普通协议行 ——
   currentModalType = 'PROTOCOL';
-  const list = (window.dashboardData && dashboardData.protocols) || [];
-  const protocol = list.find(p => p && p.name === protocolName);
+  const protocol = (dashboardData.protocols || []).find(p => p.name === protocolName);
   if (!protocol) return;
+  currentProtocol = protocol;
 
-  currentProtocol   = protocol;
   title.textContent = `${protocol.name} - 客户端配置详情`;
 
+  // 取“明文链接/JSON配置/Base64链接”的候选
   const plainText = protocol.plain || protocol.share_link || '';
-  const jsonText  = protocol.json
+  const jsonText = protocol.json
     ? (typeof protocol.json === 'string' ? protocol.json : JSON.stringify(protocol.json, null, 2))
     : '';
-  let base64Text  = protocol.base64 || '';
+  let base64Text = protocol.base64 || '';
+
+  // 若无 base64 字段，尝试从 share_link 退化（如 vmess://xxxx）
   if (!base64Text && protocol.share_link) {
-    base64Text = protocol.share_link.startsWith('vmess://') ? protocol.share_link.split('://')[1] : protocol.share_link;
+    base64Text = protocol.share_link.startsWith('vmess://')
+      ? protocol.share_link.split('://')[1]
+      : protocol.share_link;
   }
 
-  // 顺序：明文 → JSON → Base64 → 二维码 → 使用说明
+  // body 展示顺序：明文链接 → JSON配置 → Base64链接 → 二维码 → 使用说明
   details.innerHTML = `
     <div class="config-section">
       <h4>明文链接</h4>
-      <div class="config-code" id="plain-link">${escapeHtml(plainText || '—')}</div>
+      <div class="config-code" id="plain-link">${plainText || '—'}</div>
     </div>
+
     <div class="config-section">
       <h4>JSON配置</h4>
-      <div class="config-code" id="json-code">${escapeHtml(jsonText || '—')}</div>
+      <div class="config-code" id="json-code">${jsonText || '—'}</div>
     </div>
+
     <div class="config-section">
       <h4>Base64链接</h4>
-      <div class="config-code" id="base64-link">${escapeHtml(base64Text || '—')}</div>
+      <div class="config-code" id="base64-link">${base64Text || '—'}</div>
     </div>
+
     <div class="config-section">
       <h4>二维码</h4>
-      <div class="qr-container"><div id="qrcode"></div></div>
+      <div class="qr-container"><canvas id="qrcode"></canvas></div>
     </div>
+
     <div class="config-section">
       <h4>使用说明</h4>
       <div style="font-size:12px;color:#6b7280;line-height:1.8;">
@@ -5838,21 +5888,16 @@ function showConfigModal(protocolName) {
     </div>
   `;
 
-  // 协议级补充说明（有值才渲染）
-  const extraNotes = protocol.notes || (window.dashboardData && dashboardData.protocol_notes && dashboardData.protocol_notes[protocol.name]) || '';
-  if (extraNotes) {
-    details.innerHTML += `
-      <div class="config-section">
-        <h4>补充说明</h4>
-        <div class="config-code">${escapeHtml(extraNotes)}</div>
-      </div>`;
-  }
-
-  // 生成二维码（优先明文；否则 share_link）
+  // 二维码：优先用明文（或 share_link）
   const qrText = plainText || protocol.share_link || '';
-  const qrContainer = document.getElementById('qrcode');
-  if (qrText && qrContainer && window.QRCode) {
-    new QRCode(qrContainer, { text: qrText, width: 256, height: 256, colorDark: "#000", colorLight: "#fff", correctLevel: QRCode.CorrectLevel.H });
+  if (qrText && qrCanvasWrap) {
+    new QRCode(qrCanvasWrap, {
+      text: qrText,
+      width: 256, height: 256,
+      colorDark: "#000000",
+      colorLight: "#ffffff",
+      correctLevel: QRCode.CorrectLevel.H
+    });
   }
 
   modal.style.display = 'block';
@@ -5872,6 +5917,19 @@ function copyToClipboard(text) {
   document.execCommand('copy');
   document.body.removeChild(textarea);
   alert('已复制到剪贴板');
+}
+
+function copySubscription(type) {
+  let url = dashboardData.subscription_url || '';
+  if (type === 'b64lines') {
+    url += '?format=b64lines';
+  } else if (type === 'base64') {
+    url += '?format=base64';
+  }
+  
+  fetch(url).then(r => r.text()).then(text => {
+    copyToClipboard(text);
+  });
 }
 
 function copyShareLink() {
