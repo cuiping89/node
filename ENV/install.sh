@@ -3295,30 +3295,26 @@ generate_dashboard_data() {
     secrets_info=$(get_secrets_info)
     
     # 合并所有数据生成dashboard.json
-    local server_ip
-    server_ip=$(safe_jq '.server_ip' "$SERVER_JSON" "")
-    
-    # 合并所有数据生成dashboard.json
-    jq -n \
-        --arg timestamp "$timestamp" \
-        --arg subscription_url "https://${server_ip}/sub" \
-        --argjson system "$system_info" \
-        --argjson cert "$cert_info" \
-        --argjson services "$services_info" \
-        --argjson protocols "$protocols_info" \
-        --argjson shunt "$shunt_info" \
-        --argjson subscription "$subscription_info" \
-        --argjson secrets "$secrets_info" \
-        '{
-            updated_at: $timestamp,
-            subscription_url: $subscription_url,
-            server: ($system + {cert: $cert}),
-            services: $services,
-            protocols: $protocols,
-            shunt: $shunt,
-            subscription: $subscription,
-            secrets: $secrets
-        }' > "${TRAFFIC_DIR}/dashboard.json.tmp"
+jq -n \
+    --arg timestamp "$timestamp" \
+    --argjson system "$system_info" \
+    --argjson cert "$cert_info" \
+    --argjson services "$services_info" \
+    --argjson protocols "$protocols_info" \
+    --argjson shunt "$shunt_info" \
+    --argjson subscription "$subscription_info" \
+    --argjson secrets "$secrets_info" \
+    '{
+        updated_at: $timestamp,
+        # 直接用 system.server_ip 拼接订阅地址（80端口走HTTP）
+        subscription_url: ("http://" + $system.server_ip + "/sub"),
+        server: ($system + {cert: $cert}),
+        services: $services,
+        protocols: $protocols,
+        shunt: $shunt,
+        subscription: $subscription,
+        secrets: $secrets
+    }' > "${TRAFFIC_DIR}/dashboard.json.tmp"
     
     # 原子替换，避免读取时文件不完整
     if [[ -s "${TRAFFIC_DIR}/dashboard.json.tmp" ]]; then
@@ -5580,7 +5576,7 @@ function updateProtocolTable(protocols) {
   const tbody = document.getElementById('protocol-tbody');
 
   // “使用场景”在“伪装效果”前；三列内容居中显示
-  const rows = (protocols || []).map(p => `
+const rows = (protocols || []).map(p => `
     <tr>
       <td>${escapeHtml(p.name)}</td>
       <td class="text-center">${escapeHtml(p.scenario || '—')}</td>
@@ -5592,10 +5588,10 @@ function updateProtocolTable(protocols) {
       </td>
       <td>
         <button class="btn btn-sm btn-link"
-                onclick="showConfigModal(${JSON.stringify(p.name)})">查看配置</button>
+                onclick='showConfigModal(${JSON.stringify(p.name)})'>查看配置</button>
       </td>
     </tr>
-  `);
+`);
 
   // 底部追加“整包订阅链接”行
   rows.push(`
