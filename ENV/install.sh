@@ -5237,14 +5237,15 @@ body.modal-open { overflow: hidden; }
           <h2>📡 协议配置</h2>
         </div>
         <table class="data-table">
-          <thead>
-<tr>
-  <th>协议名称</th>
-  <th>使用场景</th>
-  <th>伪装效果</th>
-  <th>运行状态</th>
-  <th>客户端配置</th>
-</tr>
+<thead>
+  <tr>
+    <th>协议名称</th>
+    <th>使用场景</th>
+    <th>伪装效果</th>
+    <th>运行状态</th>
+    <th>客户端配置</th>
+  </tr>
+</thead>
           </thead>
           <tbody id="protocol-tbody">
             <!-- 动态填充 -->
@@ -5569,31 +5570,40 @@ function attrEscape(s=''){
     .replace(/>/g,'&gt;');
 }
 
-// new 7.txt 中的版本
+<!-- [PATCH:PROTO_TABLE_ROWS_BEGIN] -->
 function updateProtocolTable(protocols) {
   if (!protocols) return;
-
   const tbody = document.getElementById('protocol-tbody');
 
-  // 普通协议行（已去掉端口列，并使用 onclick）
+  // 普通协议行（顺序：使用场景 → 伪装效果；居中列交给已有CSS）
   const rows = (protocols || []).map(p => `
     <tr>
-      <td>${p.name}</td>
-      <td>${p.scenario || '—'}</td>
-      <td>${p.camouflage || '—'}</td>
-      <td><span class="status-badge ${p.status === '运行中' ? 'status-running' : ''}">${p.status || '—'}</span></td>
-      <td><button class="btn btn-sm btn-link" onclick="showConfigModal('${p.name}')">查看配置</button></td>
+      <td>${escapeHtml(p.name)}</td>
+      <td class="text-center">${escapeHtml(p.scenario || '—')}</td>
+      <td class="text-center">${escapeHtml(p.camouflage || '—')}</td>
+      <td class="text-center">
+        <span class="status-badge ${p.status === '运行中' ? 'status-running' : ''}">
+          ${escapeHtml(p.status || '—')}
+        </span>
+      </td>
+      <td>
+        <button class="btn btn-sm btn-link"
+                onclick="showConfigModal(${JSON.stringify(p.name)})">查看配置</button>
+      </td>
     </tr>
   `);
 
-  // 追加“整包订阅链接”行（置于底部）
+  // 追加“整包订阅链接”行（按钮同样用 onclick 直传特殊标识）
   rows.push(`
     <tr class="subs-row">
       <td style="background:#f5f5f5;font-weight:500;">整包订阅链接</td>
-      <td></td>
-      <td></td>
-      <td></td>
-      <td><button class="btn btn-sm btn-link" onclick="showConfigModal('__SUBS__')">查看配置</button></td>
+      <td class="text-center"></td>
+      <td class="text-center"></td>
+      <td class="text-center"></td>
+      <td>
+        <button class="btn btn-sm btn-link"
+                onclick="showConfigModal('__SUBS__')">查看配置</button>
+      </td>
     </tr>
   `);
 
@@ -5766,10 +5776,6 @@ function closeWhitelistModal() {
   document.getElementById('whitelistModal').style.display = 'none';
 }
 
-// 全局状态（若已存在可保留）
-let currentProtocol = null;
-let currentModalType = 'PROTOCOL'; // 'PROTOCOL' | 'SUBS'
-
 // 辅助：HTML 转义（若已有同名函数可保留一个）
 function escapeHtml(s=''){
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -5789,82 +5795,57 @@ function unlockScroll(){
   delete document.body.dataset.prevOverflow;
 }
 
+// 全局状态（若已存在可保留）
+let currentProtocol = null;
+let currentModalType = 'PROTOCOL';
+
 function showConfigModal(key) {
   const modal   = document.getElementById('configModal');
   const title   = document.getElementById('configModalTitle');
   const details = document.getElementById('configDetails');
 
-  // 打开即锁定页面滚动
-  lockScroll();
-
-  // —— 整包订阅链接 ——
+  // 整包订阅
   if (key === '__SUBS__') {
     currentModalType = 'SUBS';
     currentProtocol  = null;
 
     const plainLink  = (window.dashboardData && dashboardData.subscription_url) || '';
-    const base64Link = plainLink
-      ? (plainLink.includes('?') ? `${plainLink}&format=base64` : `${plainLink}?format=base64`)
-      : '';
+    const base64Link = plainLink ? (plainLink.includes('?') ? `${plainLink}&format=base64` : `${plainLink}?format=base64`) : '';
+
     title.textContent = '整包订阅链接 - 客户端配置详情';
-
-    // 固定顺序：明文 → JSON(—) → Base64 → 二维码 → 使用说明
     details.innerHTML = `
-      <div class="config-section">
-        <h4>明文链接</h4>
-        <div class="config-code" id="plain-link">${escapeHtml(plainLink || '—')}</div>
-      </div>
-      <div class="config-section">
-        <h4>JSON配置</h4>
-        <div class="config-code" id="json-code">—</div>
-      </div>
-      <div class="config-section">
-        <h4>Base64链接</h4>
-        <div class="config-code" id="base64-link">${escapeHtml(base64Link || '—')}</div>
-      </div>
-      <div class="config-section">
-        <h4>二维码</h4>
-        <div class="qr-container"><div id="qrcode"></div></div>
-      </div>
-      <div class="config-section">
-        <h4>使用说明</h4>
-        <div class="config-help">
-          1. 复制订阅链接导入客户端<br>
-          2. 支持 V2rayN、Clash、Shadowrocket 等主流客户端<br>
-          3. 自签证书需在客户端开启“跳过证书验证”<br>
-          4. UDP协议（HY2/TUIC）固定走VPS直连
-        </div>
-      </div>
+      <div class="config-section"><h4>明文链接</h4><div class="config-code" id="plain-link">${escapeHtml(plainLink || '—')}</div></div>
+      <div class="config-section"><h4>JSON配置</h4><div class="config-code" id="json-code">—</div></div>
+      <div class="config-section"><h4>Base64链接</h4><div class="config-code" id="base64-link">${escapeHtml(base64Link || '—')}</div></div>
+      <div class="config-section"><h4>二维码</h4><div class="qr-container"><div id="qrcode"></div></div></div>
+      <div class="config-section"><h4>使用说明</h4><div class="config-help">1. 复制订阅链接导入客户端<br>2. 支持 V2rayN、Clash、Shadowrocket 等主流客户端<br>3. 自签证书需在客户端开启“跳过证书验证”<br>4. UDP协议（HY2/TUIC）固定走VPS直连</div></div>
     `;
-
-    // 生成二维码（使用明文订阅链接）
     const qr = document.getElementById('qrcode');
     if (plainLink && qr && window.QRCode) {
       new QRCode(qr, { text: plainLink, width: 256, height: 256, colorDark: "#000", colorLight: "#fff", correctLevel: QRCode.CorrectLevel.H });
     }
-
     modal.style.display = 'block';
     return;
   }
 
-  // —— 普通协议（key 为名称或索引） ——
-  currentModalType = 'PROTOCOL';
-  const list = (window.dashboardData && dashboardData.protocols) || [];
+  // 普通协议（key 为协议名字符串优先）
+  const list = (window.dashboardData && window.dashboardData.protocols) || [];
   let protocol = null;
   if (typeof key === 'string') {
     protocol = list.find(p => p && p.name === key) || list.find(p => p && (p.name||'').trim() === key.trim());
   } else if (typeof key === 'number') {
-    protocol = list[key];
+    protocol = list[key]; // 兼容：万一有旧代码传索引
   }
   if (!protocol) { notify('未找到协议配置', 'warn'); return; }
 
-  currentProtocol   = protocol;
-  title.textContent = `${protocol.name} - 客户端配置详情`;
+  currentModalType   = 'PROTOCOL';
+  currentProtocol    = protocol;
+  title.textContent  = `${protocol.name} - 客户端配置详情`;
 
   const plainText = protocol.plain || protocol.share_link || '';
   const jsonText  = protocol.json
-    ? (typeof protocol.json === 'string' ? protocol.json : JSON.stringify(protocol.json, null, 2))
-    : '';
+      ? (typeof protocol.json === 'string' ? protocol.json : JSON.stringify(protocol.json, null, 2))
+      : '';
   let base64Text  = protocol.base64 || '';
   if (!base64Text && protocol.share_link) {
     base64Text = protocol.share_link.startsWith('vmess://')
@@ -5872,45 +5853,20 @@ function showConfigModal(key) {
       : (()=>{ try { return btoa(protocol.share_link); } catch(e){ return ''; } })();
   }
 
-  // 固定顺序：明文 → JSON → Base64 → 二维码 → 使用说明（即使没有也显示“—”）
   details.innerHTML = `
-    <div class="config-section">
-      <h4>明文链接</h4>
-      <div class="config-code" id="plain-link">${escapeHtml(plainText || '—')}</div>
-    </div>
-    <div class="config-section">
-      <h4>JSON配置</h4>
-      <div class="config-code" id="json-code">${escapeHtml(jsonText || '—')}</div>
-    </div>
-    <div class="config-section">
-      <h4>Base64链接</h4>
-      <div class="config-code" id="base64-link">${escapeHtml(base64Text || '—')}</div>
-    </div>
-    <div class="config-section">
-      <h4>二维码</h4>
-      <div class="qr-container"><div id="qrcode"></div></div>
-    </div>
-    <div class="config-section">
-      <h4>使用说明</h4>
-      <div class="config-help">
-        1. 复制订阅链接导入客户端<br>
-        2. 支持 V2rayN、Clash、Shadowrocket 等主流客户端<br>
-        3. 自签证书需在客户端开启“跳过证书验证”<br>
-        4. UDP协议（HY2/TUIC）固定走VPS直连
-      </div>
-    </div>
+    <div class="config-section"><h4>明文链接</h4><div class="config-code" id="plain-link">${escapeHtml(plainText || '—')}</div></div>
+    <div class="config-section"><h4>JSON配置</h4><div class="config-code" id="json-code">${escapeHtml(jsonText || '—')}</div></div>
+    <div class="config-section"><h4>Base64链接</h4><div class="config-code" id="base64-link">${escapeHtml(base64Text || '—')}</div></div>
+    <div class="config-section"><h4>二维码</h4><div class="qr-container"><div id="qrcode"></div></div></div>
+    <div class="config-section"><h4>使用说明</h4><div class="config-help">1. 复制订阅链接导入客户端<br>2. 支持 V2rayN、Clash、Shadowrocket 等主流客户端<br>3. 自签证书需在客户端开启“跳过证书验证”<br>4. UDP协议（HY2/TUIC）固定走VPS直连</div></div>
   `;
-
-  // 生成二维码（优先明文；否则 share_link）
   const qr = document.getElementById('qrcode');
-  const qrText = plainText || protocol.share_link || '';
-  if (qrText && qr && window.QRCode) {
-    new QRCode(qr, { text: qrText, width: 256, height: 256, colorDark: "#000", colorLight: "#fff", correctLevel: QRCode.CorrectLevel.H });
+  if (qr && plainText && window.QRCode) {
+    new QRCode(qr, { text: plainText, width: 256, height: 256, colorDark: "#000", colorLight: "#fff", correctLevel: QRCode.CorrectLevel.H });
   }
 
-  modal.style.display = 'block';
+  document.getElementById('configModal').style.display = 'block';
 }
-
 
 function closeConfigModal() {
   const m = document.getElementById('configModal');
