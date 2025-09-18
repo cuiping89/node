@@ -4583,14 +4583,12 @@ body, p, span, td, div {
 }
 
 /* 协议配置表格 - 使居中的列 */
-.data-table td:nth-child(3),  /* 使用场景 */
 .data-table td:nth-child(4),  /* 伪装效果 */
 .data-table td:nth-child(5),  /* 运行状态 */
 .data-table td:nth-child(6) { /* 客户端配置 */
   text-align: center;
 }
 
-.data-table th:nth-child(3),
 .data-table th:nth-child(4),
 .data-table th:nth-child(5),
 .data-table th:nth-child(6) {
@@ -4598,8 +4596,10 @@ body, p, span, td, div {
 }
 
 .data-table tr:hover td {
-  background: #f5f5f5;  /* 从 #f9fafb 改为 #f5f5f5 */
+  background: #f5f5f5;
 }
+
+.data-table tr.subs-row td { background:#f5f5f5; }/* 整包订阅链接行灰底（可选） */
 
 /* === 订阅卡片 === */
 .subscription-row {
@@ -5224,14 +5224,13 @@ body, p, span, td, div {
         </div>
         <table class="data-table">
           <thead>
-            <tr>
-              <th>协议名称</th>
-              <th>端口</th>
-              <th>使用场景</th>
-              <th>伪装效果</th>
-              <th>运行状态</th>
-              <th>客户端配置</th>
-            </tr>
+<tr>
+  <th>协议名称</th>
+  <th>使用场景</th>
+  <th>伪装效果</th>
+  <th>运行状态</th>
+  <th>客户端配置</th>
+</tr>
           </thead>
           <tbody id="protocol-tbody">
             <!-- 动态填充 -->
@@ -5405,17 +5404,17 @@ body, p, span, td, div {
     </div>
     <div class="modal-body">
       <div id="configDetails"></div>
-      <div class="qr-container">
+      <div class="qr-container" style="margin-top:12px">
         <canvas id="qrcode"></canvas>
-        <div style="margin-top: 15px;">
-          <button class="btn btn-sm" onclick="copyQRImage()">复制二维码图片</button>
-          <button class="btn btn-sm btn-secondary" onclick="copyShareLink()">复制链接</button>
-        </div>
       </div>
     </div>
-    <div class="modal-footer">
-      <button class="btn btn-primary" onclick="closeConfigModal()">关闭</button>
-    </div>
+<div class="modal-footer">
+  <button class="btn btn-sm" onclick="copyPlain()">复制明文链接</button>
+  <button class="btn btn-sm" onclick="copyJSON()">复制JSON配置</button>
+  <button class="btn btn-sm" onclick="copyBase64()">复制Base64链接</button>
+  <button class="btn btn-sm" onclick="copyQRImage()">复制二维码图片</button>
+  <button class="btn btn-sm btn-secondary" onclick="closeConfigModal()">关闭</button>
+</div>
   </div>
 </div>
 
@@ -5567,18 +5566,33 @@ function updateServiceStatus(service, status) {
 
 function updateProtocolTable(protocols) {
   if (!protocols) return;
-  
+
   const tbody = document.getElementById('protocol-tbody');
-  tbody.innerHTML = protocols.map(p => `
+
+  // 普通协议行（已去掉端口列）
+  const rows = (protocols || []).map(p => `
     <tr>
       <td>${p.name}</td>
-      <td>${p.port}</td>
       <td>${p.scenario || '—'}</td>
       <td>${p.camouflage || '—'}</td>
-      <td><span class="status-badge ${p.status === '运行中' ? 'status-running' : ''}">${p.status}</span></td>
+      <td><span class="status-badge ${p.status === '运行中' ? 'status-running' : ''}">${p.status || '—'}</span></td>
       <td><button class="btn btn-sm btn-link" onclick="showConfigModal('${p.name}')">查看配置</button></td>
     </tr>
-  `).join('');
+  `);
+
+  // 追加“整包订阅链接”行（置于底部）
+  const subUrl = (dashboardData && dashboardData.subscription_url) || '';
+  rows.push(`
+    <tr class="subs-row">
+      <td style="background:#f5f5f5;font-weight:500;">整包订阅链接</td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td><button class="btn btn-sm btn-link" onclick="showConfigModal('__SUBS__')">查看配置</button></td>
+    </tr>
+  `);
+
+  tbody.innerHTML = rows.join('');
 }
 
 // 流量统计（来自new5.txt）
@@ -5747,62 +5761,145 @@ function closeWhitelistModal() {
   document.getElementById('whitelistModal').style.display = 'none';
 }
 
+// 全局记录当前弹窗上下文
+let currentProtocol = null;
+let currentModalType = 'PROTOCOL'; // 'PROTOCOL' | 'SUBS'
+
 function showConfigModal(protocolName) {
-  const protocol = dashboardData.protocols.find(p => p.name === protocolName);
-  if (!protocol) return;
-  
   const modal = document.getElementById('configModal');
   const title = document.getElementById('configModalTitle');
   const details = document.getElementById('configDetails');
-  
-  title.textContent = `${protocol.name} - 客户端配置详情`;
-  currentShareLink = protocol.share_link || '';
-  
-  details.innerHTML = `
-    <div class="config-section">
-      <h4>基本信息</h4>
-      <div class="info-item">
-        <label>协议:</label>
-        <value>${protocol.name}</value>
+  const qrCanvasWrap = document.getElementById('qrcode');
+
+  // 清空二维码容器
+  if (qrCanvasWrap) qrCanvasWrap.innerHTML = '';
+
+  // —— 处理“整包订阅链接”特殊行 ——
+  if (protocolName === '__SUBS__') {
+    currentModalType = 'SUBS';
+    currentProtocol = null;
+
+    const plainLink = (dashboardData && dashboardData.subscription_url) || '';
+    // base64 合并格式的订阅链接
+    const base64Link = plainLink ? (plainLink.includes('?') ? `${plainLink}&format=base64` : `${plainLink}?format=base64`) : '';
+
+    title.textContent = '整包订阅链接 - 客户端配置详情';
+
+    // body 展示顺序：明文链接、（无 JSON）、Base64链接、二维码、使用说明
+    details.innerHTML = `
+      <div class="config-section">
+        <h4>明文链接</h4>
+        <div class="config-code" id="plain-link">${plainLink || '—'}</div>
       </div>
-      <div class="info-item">
-        <label>端口:</label>
-        <value>${protocol.port}</value>
+
+      <div class="config-section">
+        <h4>JSON配置</h4>
+        <div class="config-code">—</div>
       </div>
-      <div class="info-item">
-        <label>状态:</label>
-        <value>${protocol.status}</value>
+
+      <div class="config-section">
+        <h4>Base64链接</h4>
+        <div class="config-code" id="base64-link">${base64Link || '—'}</div>
       </div>
-    </div>
-    ${protocol.uuid ? `
-    <div class="config-section">
-      <h4>认证信息</h4>
-      <div class="config-code">${protocol.uuid || protocol.password || '—'}</div>
-    </div>
-    ` : ''}
-    ${protocol.share_link ? `
-    <div class="config-section">
-      <h4>分享链接</h4>
-      <div class="config-code">${protocol.share_link}</div>
-    </div>
-    ` : ''}
-  `;
-  
-  // 生成二维码
-  if (protocol.share_link) {
-    setTimeout(() => {
-      const canvas = document.getElementById('qrcode');
-      const qr = new QRCode(canvas, {
-        text: protocol.share_link,
-        width: 256,
-        height: 256,
+
+      <div class="config-section">
+        <h4>二维码</h4>
+        <div class="qr-container"><canvas id="qrcode"></canvas></div>
+      </div>
+
+      <div class="config-section">
+        <h4>使用说明</h4>
+        <div style="font-size:12px;color:#6b7280;line-height:1.8;">
+          1. 复制订阅链接导入客户端<br>
+          2. 支持 V2rayN、Clash、Shadowrocket 等主流客户端<br>
+          3. 自签证书需在客户端开启“跳过证书验证”<br>
+          4. UDP协议（HY2/TUIC）固定走VPS直连
+        </div>
+      </div>
+    `;
+
+    // 二维码：用明文订阅链接生成
+    if (plainLink && qrCanvasWrap) {
+      new QRCode(qrCanvasWrap, {
+        text: plainLink,
+        width: 256, height: 256,
         colorDark: "#000000",
         colorLight: "#ffffff",
         correctLevel: QRCode.CorrectLevel.H
       });
-    }, 100);
+    }
+
+    modal.style.display = 'block';
+    return;
   }
-  
+
+  // —— 普通协议行 ——
+  currentModalType = 'PROTOCOL';
+  const protocol = (dashboardData.protocols || []).find(p => p.name === protocolName);
+  if (!protocol) return;
+  currentProtocol = protocol;
+
+  title.textContent = `${protocol.name} - 客户端配置详情`;
+
+  // 取“明文链接/JSON配置/Base64链接”的候选
+  const plainText = protocol.plain || protocol.share_link || '';
+  const jsonText = protocol.json
+    ? (typeof protocol.json === 'string' ? protocol.json : JSON.stringify(protocol.json, null, 2))
+    : '';
+  let base64Text = protocol.base64 || '';
+
+  // 若无 base64 字段，尝试从 share_link 退化（如 vmess://xxxx）
+  if (!base64Text && protocol.share_link) {
+    base64Text = protocol.share_link.startsWith('vmess://')
+      ? protocol.share_link.split('://')[1]
+      : protocol.share_link;
+  }
+
+  // body 展示顺序：明文链接 → JSON配置 → Base64链接 → 二维码 → 使用说明
+  details.innerHTML = `
+    <div class="config-section">
+      <h4>明文链接</h4>
+      <div class="config-code" id="plain-link">${plainText || '—'}</div>
+    </div>
+
+    <div class="config-section">
+      <h4>JSON配置</h4>
+      <div class="config-code" id="json-code">${jsonText || '—'}</div>
+    </div>
+
+    <div class="config-section">
+      <h4>Base64链接</h4>
+      <div class="config-code" id="base64-link">${base64Text || '—'}</div>
+    </div>
+
+    <div class="config-section">
+      <h4>二维码</h4>
+      <div class="qr-container"><canvas id="qrcode"></canvas></div>
+    </div>
+
+    <div class="config-section">
+      <h4>使用说明</h4>
+      <div style="font-size:12px;color:#6b7280;line-height:1.8;">
+        1. 复制订阅链接导入客户端<br>
+        2. 支持 V2rayN、Clash、Shadowrocket 等主流客户端<br>
+        3. 自签证书需在客户端开启“跳过证书验证”<br>
+        4. UDP协议（HY2/TUIC）固定走VPS直连
+      </div>
+    </div>
+  `;
+
+  // 二维码：优先用明文（或 share_link）
+  const qrText = plainText || protocol.share_link || '';
+  if (qrText && qrCanvasWrap) {
+    new QRCode(qrCanvasWrap, {
+      text: qrText,
+      width: 256, height: 256,
+      colorDark: "#000000",
+      colorLight: "#ffffff",
+      correctLevel: QRCode.CorrectLevel.H
+    });
+  }
+
   modal.style.display = 'block';
 }
 
@@ -5853,6 +5950,46 @@ function copyQRImage() {
       });
     });
   }
+}
+
+function copyPlain() {
+  if (currentModalType === 'SUBS') {
+    const plain = (dashboardData && dashboardData.subscription_url) || '';
+    if (!plain) return alert('无可复制的明文链接');
+    return copyToClipboard(plain);
+  }
+  const p = currentProtocol || {};
+  const val = p.plain || p.share_link || '';
+  if (!val) return alert('无可复制的明文链接');
+  copyToClipboard(val);
+}
+
+function copyJSON() {
+  if (currentModalType === 'SUBS') {
+    return alert('订阅链接无 JSON 配置可复制');
+  }
+  const p = currentProtocol || {};
+  const jsonText = p.json
+    ? (typeof p.json === 'string' ? p.json : JSON.stringify(p.json, null, 2))
+    : '';
+  if (!jsonText) return alert('无 JSON 配置可复制');
+  copyToClipboard(jsonText);
+}
+
+function copyBase64() {
+  if (currentModalType === 'SUBS') {
+    const plain = (dashboardData && dashboardData.subscription_url) || '';
+    const b64 = plain ? (plain.includes('?') ? `${plain}&format=base64` : `${plain}?format=base64`) : '';
+    if (!b64) return alert('无可复制的 Base64 链接');
+    return copyToClipboard(b64);
+  }
+  const p = currentProtocol || {};
+  let val = p.base64 || '';
+  if (!val && p.share_link) {
+    val = p.share_link.startsWith('vmess://') ? p.share_link.split('://')[1] : p.share_link;
+  }
+  if (!val) return alert('无可复制的 Base64 内容');
+  copyToClipboard(val);
 }
 
 // 初始化
