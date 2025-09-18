@@ -5562,30 +5562,6 @@ function updateProtocolTable(protocols) {
 
   // 事件委托（只绑定一次）
   if (!tbody._viewBind) {
-// 原代码（有问题的部分）：
-tbody.addEventListener('click', (e) => {
-  const btn = e.target.closest('.view-config');
-  if (!btn) return;
-  
-  const key = btn.dataset.key;
-  if (key === '__SUBS__') {
-    showConfigModal('__SUBS__');
-    return;
-  }
-  
-  // 优先用 data-name（名字不受刷新/顺序影响）
-  const name = btn.dataset.name || '';
-  if (name) {
-    showConfigModal(name);
-    return;
-  }
-  
-  // 兜底：仍支持旧的索引
-  const idx = Number(key);
-  if (!Number.isNaN(idx)) showConfigModal(idx);
-});
-
-// 修改为（直接使用索引）：
 tbody.addEventListener('click', (e) => {
   const btn = e.target.closest('.view-config');
   if (!btn) return;
