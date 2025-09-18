@@ -5734,11 +5734,14 @@ function closeWhitelistModal() {
   document.getElementById('whitelistModal').style.display = 'none';
 }
 
+// 全局状态（如已存在可保留）
 let currentProtocol = null;
-let currentModalType = 'PROTOCOL'; // 'PROTOCOL' | 'SUBS'
+let currentModalType = 'PROTOCOL';
 
-let currentProtocol = null;
-let currentModalType = 'PROTOCOL'; // 'PROTOCOL' | 'SUBS'
+// 工具：HTML 转义（如已有同名函数保留一个即可）
+function escapeHtml(s=''){
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
 
 // new 7.txt 中的版本
 function showConfigModal(protocolName) {
