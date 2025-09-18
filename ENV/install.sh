@@ -5575,7 +5575,7 @@ function updateProtocolTable(protocols) {
   if (!protocols) return;
   const tbody = document.getElementById('protocol-tbody');
 
-  // 普通协议行（顺序：使用场景 → 伪装效果；居中列交给已有CSS）
+  // “使用场景”在“伪装效果”前；三列内容居中显示
   const rows = (protocols || []).map(p => `
     <tr>
       <td>${escapeHtml(p.name)}</td>
@@ -5593,7 +5593,7 @@ function updateProtocolTable(protocols) {
     </tr>
   `);
 
-  // 追加“整包订阅链接”行（按钮同样用 onclick 直传特殊标识）
+  // 底部追加“整包订阅链接”行
   rows.push(`
     <tr class="subs-row">
       <td style="background:#f5f5f5;font-weight:500;">整包订阅链接</td>
@@ -5795,24 +5795,34 @@ function unlockScroll(){
   delete document.body.dataset.prevOverflow;
 }
 
-// 全局状态（若已存在可保留）
-let currentProtocol = null;
+// [PATCH:SHOW_CONFIG_MODAL_BEGIN]
+let currentProtocol = null;      // 已存在可复用
 let currentModalType = 'PROTOCOL';
 
-function showConfigModal(key) {
+function showConfigModal(protocolName) {
   const modal   = document.getElementById('configModal');
   const title   = document.getElementById('configModalTitle');
   const details = document.getElementById('configDetails');
 
-  // 整包订阅
-  if (key === '__SUBS__') {
+  // 打开时锁定页面滚动，避免滚到背景页
+  if (typeof lockScroll === 'function') lockScroll();
+
+  // 清掉上一次的二维码
+  const qrNode = document.getElementById('qrcode');
+  if (qrNode) qrNode.innerHTML = '';
+
+  // —— 整包订阅链接 —— //
+  if (protocolName === '__SUBS__') {
     currentModalType = 'SUBS';
     currentProtocol  = null;
 
     const plainLink  = (window.dashboardData && dashboardData.subscription_url) || '';
-    const base64Link = plainLink ? (plainLink.includes('?') ? `${plainLink}&format=base64` : `${plainLink}?format=base64`) : '';
+    const base64Link = plainLink
+      ? (plainLink.includes('?') ? `${plainLink}&format=base64` : `${plainLink}?format=base64`)
+      : '';
 
     title.textContent = '整包订阅链接 - 客户端配置详情';
+    // 顺序：明文链接 → JSON配置(—) → Base64链接 → 二维码 → 使用说明
     details.innerHTML = `
       <div class="config-section"><h4>明文链接</h4><div class="config-code" id="plain-link">${escapeHtml(plainLink || '—')}</div></div>
       <div class="config-section"><h4>JSON配置</h4><div class="config-code" id="json-code">—</div></div>
@@ -5820,52 +5830,49 @@ function showConfigModal(key) {
       <div class="config-section"><h4>二维码</h4><div class="qr-container"><div id="qrcode"></div></div></div>
       <div class="config-section"><h4>使用说明</h4><div class="config-help">1. 复制订阅链接导入客户端<br>2. 支持 V2rayN、Clash、Shadowrocket 等主流客户端<br>3. 自签证书需在客户端开启“跳过证书验证”<br>4. UDP协议（HY2/TUIC）固定走VPS直连</div></div>
     `;
-    const qr = document.getElementById('qrcode');
-    if (plainLink && qr && window.QRCode) {
-      new QRCode(qr, { text: plainLink, width: 256, height: 256, colorDark: "#000", colorLight: "#fff", correctLevel: QRCode.CorrectLevel.H });
+    if (plainLink && window.QRCode && document.getElementById('qrcode')) {
+      new QRCode(document.getElementById('qrcode'), { text: plainLink, width: 256, height: 256, colorDark: "#000", colorLight: "#fff", correctLevel: QRCode.CorrectLevel.H });
     }
     modal.style.display = 'block';
     return;
   }
 
-  // 普通协议（key 为协议名字符串优先）
-  const list = (window.dashboardData && window.dashboardData.protocols) || [];
-  let protocol = null;
-  if (typeof key === 'string') {
-    protocol = list.find(p => p && p.name === key) || list.find(p => p && (p.name||'').trim() === key.trim());
-  } else if (typeof key === 'number') {
-    protocol = list[key]; // 兼容：万一有旧代码传索引
-  }
-  if (!protocol) { notify('未找到协议配置', 'warn'); return; }
+  // —— 普通协议 —— //
+  currentModalType = 'PROTOCOL';
+  const protocol = (window.dashboardData?.protocols || []).find(p => p.name === protocolName);
+  if (!protocol) { notify && notify('未找到协议配置','warn'); return; }
+  currentProtocol = protocol;
 
-  currentModalType   = 'PROTOCOL';
-  currentProtocol    = protocol;
-  title.textContent  = `${protocol.name} - 客户端配置详情`;
+  title.textContent = `${protocol.name} - 客户端配置详情`;
 
+  // 明文（优先 p.plain；否则 share_link）
   const plainText = protocol.plain || protocol.share_link || '';
+  // JSON（如有对象则格式化；字符串按原样）
   const jsonText  = protocol.json
       ? (typeof protocol.json === 'string' ? protocol.json : JSON.stringify(protocol.json, null, 2))
-      : '';
-  let base64Text  = protocol.base64 || '';
-  if (!base64Text && protocol.share_link) {
-    base64Text = protocol.share_link.startsWith('vmess://')
-      ? protocol.share_link.split('://')[1]
-      : (()=>{ try { return btoa(protocol.share_link); } catch(e){ return ''; } })();
+      : '—';
+  // Base64：优先 p.base64；否则若 share_link 是 vmess://{b64} 取其 b64；否则尝试 btoa(plainText)
+  let base64Text = protocol.base64 || '';
+  if (!base64Text && protocol.share_link && protocol.share_link.startsWith('vmess://')) {
+    base64Text = protocol.share_link.slice('vmess://'.length);
   }
+  if (!base64Text && plainText) {
+    try { base64Text = btoa(plainText); } catch(e) { base64Text = '—'; }
+  }
+  if (!base64Text) base64Text = '—';
 
+  // 顺序：明文 → JSON → Base64 → 二维码 → 使用说明（保留 new6 的布局/样式）
   details.innerHTML = `
     <div class="config-section"><h4>明文链接</h4><div class="config-code" id="plain-link">${escapeHtml(plainText || '—')}</div></div>
-    <div class="config-section"><h4>JSON配置</h4><div class="config-code" id="json-code">${escapeHtml(jsonText || '—')}</div></div>
-    <div class="config-section"><h4>Base64链接</h4><div class="config-code" id="base64-link">${escapeHtml(base64Text || '—')}</div></div>
+    <div class="config-section"><h4>JSON配置</h4><div class="config-code" id="json-code">${escapeHtml(jsonText)}</div></div>
+    <div class="config-section"><h4>Base64链接</h4><div class="config-code" id="base64-link">${escapeHtml(base64Text)}</div></div>
     <div class="config-section"><h4>二维码</h4><div class="qr-container"><div id="qrcode"></div></div></div>
     <div class="config-section"><h4>使用说明</h4><div class="config-help">1. 复制订阅链接导入客户端<br>2. 支持 V2rayN、Clash、Shadowrocket 等主流客户端<br>3. 自签证书需在客户端开启“跳过证书验证”<br>4. UDP协议（HY2/TUIC）固定走VPS直连</div></div>
   `;
-  const qr = document.getElementById('qrcode');
-  if (qr && plainText && window.QRCode) {
-    new QRCode(qr, { text: plainText, width: 256, height: 256, colorDark: "#000", colorLight: "#fff", correctLevel: QRCode.CorrectLevel.H });
+  if (plainText && window.QRCode && document.getElementById('qrcode')) {
+    new QRCode(document.getElementById('qrcode'), { text: plainText, width: 256, height: 256, colorDark: "#000", colorLight: "#fff", correctLevel: QRCode.CorrectLevel.H });
   }
-
-  document.getElementById('configModal').style.display = 'block';
+  modal.style.display = 'block';
 }
 
 function closeConfigModal() {
@@ -5873,10 +5880,13 @@ function closeConfigModal() {
   if (m) m.style.display = 'none';
   const q = document.getElementById('qrcode');
   if (q) q.innerHTML = '';
-  unlockScroll();  // 恢复页面滚动
+  if (typeof unlockScroll === 'function') unlockScroll(); // 关闭时恢复滚动
 }
+// [PATCH:SHOW_CONFIG_MODAL_END]
 
-// 轻提示（toast），默认 1500ms；尽量渲染在弹窗里
+
+// [PATCH:COPY_AND_TOAST_BEGIN]
+// 轻提示（toast），优先渲染在弹窗内部，避免页面跳动
 function notify(msg, type='ok', ms=1500){
   const modalContent = document.querySelector('#configModal .modal-content');
   const host = modalContent || document.body;
@@ -5893,7 +5903,7 @@ function notify(msg, type='ok', ms=1500){
   }, ms);
 }
 
-// 复制文本（优先 Clipboard API）
+// 文本复制：优先 Clipboard API，退化到 execCommand
 async function copyToClipboard(text){
   try{
     if (navigator.clipboard && window.isSecureContext) {
@@ -5934,6 +5944,7 @@ function copyQRImage() {
   }
 }
 
+// 四个按钮：明文 / JSON / Base64 / 二维码图片
 function copyPlain(){
   if (currentModalType === 'SUBS') {
     const plain = (window.dashboardData && dashboardData.subscription_url) || '';
@@ -5947,7 +5958,9 @@ function copyPlain(){
 }
 
 function copyJSON(){
-  if (currentModalType === 'SUBS') return notify('订阅链接无 JSON 配置可复制','warn');
+  if (currentModalType === 'SUBS') {
+    return notify('订阅链接无 JSON 配置可复制','warn');
+  }
   const p = currentProtocol || {};
   const jsonText = p.json
     ? (typeof p.json === 'string' ? p.json : JSON.stringify(p.json, null, 2))
@@ -5965,45 +5978,29 @@ function copyBase64(){
   }
   const p = currentProtocol || {};
   let val = p.base64 || '';
-  if (!val && p.share_link) {
-    val = p.share_link.startsWith('vmess://') ? p.share_link.split('://')[1] : (()=>{ try {return btoa(p.share_link);} catch(e){ return p.share_link; }})();
+  if (!val && p.share_link && p.share_link.startsWith('vmess://')) {
+    val = p.share_link.slice('vmess://'.length);
+  }
+  if (!val && (p.plain || p.share_link)) {
+    try { val = btoa(p.plain || p.share_link); } catch(e) {}
   }
   if (!val) return notify('无可复制的 Base64 内容','warn');
   copyToClipboard(val);
 }
 
-// 复制二维码图片（Canvas/IMG 兼容）
 async function copyQRImage(){
-  const box = document.getElementById('qrcode');
-  if (!box) return notify('未找到二维码','warn');
-
-  const canvas = box.querySelector('canvas');
-  const img = box.querySelector('img');
-
+  const canvas = document.querySelector('#qrcode canvas');
+  if (!canvas) return notify('没有可复制的二维码','warn');
   try{
-    if (canvas && canvas.toBlob && navigator.clipboard && window.ClipboardItem) {
-      const blob = await new Promise(res=> canvas.toBlob(res, 'image/png'));
-      await navigator.clipboard.write([new ClipboardItem({'image/png': blob})]);
-      return notify('二维码图片已复制');
-    }
-    if (img && navigator.clipboard && window.ClipboardItem) {
-      // 将 <img> 转为 blob
-      const data = await fetch(img.src);
-      const blob = await data.blob();
-      await navigator.clipboard.write([new ClipboardItem({[blob.type]: blob})]);
-      return notify('二维码图片已复制');
-    }
-    // 回退：触发下载
-    const dataURL = canvas ? canvas.toDataURL('image/png') : (img ? img.src : '');
-    if (!dataURL) return notify('无法导出二维码图片','warn');
-    const a = document.createElement('a');
-    a.href = dataURL; a.download = 'qrcode.png';
-    document.body.appendChild(a); a.click(); a.remove();
-    notify('已下载二维码图片');
+    const blob = await new Promise(r => canvas.toBlob(r));
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+    notify('二维码图片已复制');
   }catch(e){
-    notify('复制失败：' + (e.message||e), 'warn', 2000);
+    notify('复制失败，请手动保存二维码','warn', 2000);
   }
 }
+// [PATCH:COPY_AND_TOAST_END]
+
 
 // 初始化
 let _overviewTimer = null;
