@@ -5770,13 +5770,17 @@ function showConfigModal(key) {
   const title   = document.getElementById('configModalTitle');
   const details = document.getElementById('configDetails');
 
-  // —— 整包订阅链接 ——
+  // 清空上一次的二维码
+  const qrNode = document.getElementById('qrcode');
+  if (qrNode) qrNode.innerHTML = '';
+
+  // —— 1. 处理“整包订阅链接”的特殊情况 ——
   if (key === '__SUBS__') {
     currentModalType = 'SUBS';
     currentProtocol  = null;
 
     const plainLink  = (window.dashboardData && dashboardData.subscription_url) || '';
-    const base64Link = plainLink ? (plainLink.includes('?') ? `${plainLink}&format=base64` : `${plainLink}?format=base64`) : '';
+    const base64Link = (window.dashboardData && window.dashboardData.subscription && dashboardData.subscription.base64) || '';
 
     title.textContent = '整包订阅链接 - 客户端配置详情';
     details.innerHTML = `
@@ -5785,101 +5789,79 @@ function showConfigModal(key) {
         <div class="config-code" id="plain-link">${escapeHtml(plainLink || '—')}</div>
       </div>
       <div class="config-section">
-        <h4>JSON配置</h4>
-        <div class="config-code">—</div>
-      </div>
-      <div class="config-section">
         <h4>Base64链接</h4>
         <div class="config-code" id="base64-link">${escapeHtml(base64Link || '—')}</div>
       </div>
       <div class="config-section">
-        <h4>二维码</h4>
+        <h4>二维码 (使用明文链接)</h4>
         <div class="qr-container"><div id="qrcode"></div></div>
       </div>
       <div class="config-section">
         <h4>使用说明</h4>
         <div style="font-size:12px;color:#6b7280;line-height:1.8;">
-          1. 复制订阅链接导入客户端<br>
-          2. 支持 V2rayN、Clash、Shadowrocket 等主流客户端<br>
-          3. 自签证书需在客户端开启“跳过证书验证”<br>
-          4. UDP协议（HY2/TUIC）固定走VPS直连
+          1. 复制订阅链接导入客户端。<br>
+          2. 支持 V2rayN、Clash、Shadowrocket 等主流客户端。<br>
+          3. 当前为IP模式，部分协议需在客户端开启“跳过证书验证”。<br>
+          4. UDP协议（HY2/TUIC）固定走VPS直连。
         </div>
       </div>
     `;
 
     // 生成二维码
-    const qr = document.getElementById('qrcode');
-    if (plainLink && qr && window.QRCode) {
-      new QRCode(qr, { text: plainLink, width: 256, height: 256, colorDark: "#000", colorLight: "#fff", correctLevel: QRCode.CorrectLevel.H });
+    if (plainLink && qrNode && window.QRCode) {
+      new QRCode(qrNode, { text: plainLink, width: 256, height: 256, colorDark: "#000", colorLight: "#fff", correctLevel: QRCode.CorrectLevel.H });
     }
 
     modal.style.display = 'block';
     return;
   }
 
-// —— 普通协议（key 可能是名称或索引） ——
-currentModalType = 'PROTOCOL';
-const list = (window.dashboardData && dashboardData.protocols) || [];
-
-let protocol = null;
-if (typeof key === 'string') {
-  protocol = list.find(p => p && p.name === key);
-} else if (typeof key === 'number') {
-  protocol = list[key];
-}
-
-// 再兜底一次：如果 key 是字符串但没找到，尝试去空白后再比对
-if (!protocol && typeof key === 'string') {
-  const k = key.trim();
-  protocol = list.find(p => p && (p.name || '').trim() === k);
-}
-
-if (!protocol) { alert('未找到协议配置'); return; }
+  // —— 2. 处理单个协议的情况 ——
+  currentModalType = 'PROTOCOL';
+  const list = (window.dashboardData && window.dashboardData.protocols) || [];
+  
+  // *** 核心修复：直接将 key 转换为数字索引来查找协议 ***
+  const protocolIndex = Number(key);
+  if (Number.isNaN(protocolIndex) || !list[protocolIndex]) {
+      alert('未找到协议配置');
+      return;
+  }
+  const protocol = list[protocolIndex];
+  // *** 修复结束 ***
 
   currentProtocol   = protocol;
   title.textContent = `${protocol.name} - 客户端配置详情`;
 
-  const plainText = protocol.plain || protocol.share_link || '';
-  const jsonText  = protocol.json
-    ? (typeof protocol.json === 'string' ? protocol.json : JSON.stringify(protocol.json, null, 2))
-    : '';
-  let base64Text  = protocol.base64 || '';
-  if (!base64Text && protocol.share_link) {
-    base64Text = protocol.share_link.startsWith('vmess://') ? protocol.share_link.split('://')[1] : protocol.share_link;
-  }
+  const plainText = protocol.share_link || '';
+  let base64Text = '';
+  try {
+    if (plainText) {
+      base64Text = btoa(plainText);
+    }
+  } catch(e) { console.error("Base64 encoding failed", e); }
+
 
   details.innerHTML = `
     <div class="config-section">
-      <h4>明文链接</h4>
+      <h4>分享链接</h4>
       <div class="config-code" id="plain-link">${escapeHtml(plainText || '—')}</div>
     </div>
     <div class="config-section">
-      <h4>JSON配置</h4>
-      <div class="config-code" id="json-code">${escapeHtml(jsonText || '—')}</div>
+      <h4>JSON配置 (示例)</h4>
+      <div class="config-code" id="json-code">${escapeHtml(JSON.stringify({remark: protocol.name, ...protocol}, null, 2) || '—')}</div>
     </div>
     <div class="config-section">
-      <h4>Base64链接</h4>
+      <h4>Base64内容 (非链接)</h4>
       <div class="config-code" id="base64-link">${escapeHtml(base64Text || '—')}</div>
     </div>
     <div class="config-section">
       <h4>二维码</h4>
       <div class="qr-container"><div id="qrcode"></div></div>
     </div>
-    <div class="config-section">
-      <h4>使用说明</h4>
-      <div style="font-size:12px;color:#6b7280;line-height:1.8;">
-        1. 复制订阅链接导入客户端<br>
-        2. 支持 V2rayN、Clash、Shadowrocket 等主流客户端<br>
-        3. 自签证书需在客户端开启“跳过证书验证”<br>
-        4. UDP协议（HY2/TUIC）固定走VPS直连
-      </div>
-    </div>
   `;
 
-  const qr = document.getElementById('qrcode');
-  const qrText = plainText || protocol.share_link || '';
-  if (qrText && qr && window.QRCode) {
-    new QRCode(qr, { text: qrText, width: 256, height: 256, colorDark: "#000", colorLight: "#fff", correctLevel: QRCode.CorrectLevel.H });
+  if (plainText && qrNode && window.QRCode) {
+    new QRCode(qrNode, { text: plainText, width: 256, height: 256, colorDark: "#000", colorLight: "#fff", correctLevel: QRCode.CorrectLevel.H });
   }
 
   modal.style.display = 'block';
