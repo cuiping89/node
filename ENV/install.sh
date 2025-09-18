@@ -3046,99 +3046,105 @@ get_services_status() {
 
 # 获取协议配置状态
 get_protocols_status() {
-    # 检查端口监听状态
-    local tcp443_status="未监听"
-    local udp443_status="未监听"
-    local udp2053_status="未监听"
+    # 获取服务器信息和订阅链接
+    local server_ip cert_mode domain
+    server_ip=$(safe_jq '.server_ip' "$SERVER_JSON" "")
+    cert_mode=$(get_current_cert_mode 2>/dev/null || echo "self-signed")
     
-    if ss -tlnp 2>/dev/null | grep -q ":443.*nginx"; then
-        tcp443_status="监听中"
+    if [[ "$cert_mode" == "self-signed" ]]; then
+        domain="$server_ip"
+    else
+        domain="${cert_mode##*:}"
     fi
     
-    if ss -ulnp 2>/dev/null | grep -q ":443.*sing-box"; then
-        udp443_status="监听中"
-    fi
+    # 获取凭据信息
+    local uuid_vless reality_public_key reality_short_id
+    local uuid_tuic password_hysteria2 password_tuic password_trojan
     
-    if ss -ulnp 2>/dev/null | grep -q ":2053.*sing-box"; then
-        udp2053_status="监听中"
-    fi
+    uuid_vless=$(safe_jq '.uuid.vless.reality // .uuid.vless' "$SERVER_JSON" "")
+    uuid_tuic=$(safe_jq '.uuid.tuic' "$SERVER_JSON" "")
+    password_hysteria2=$(safe_jq '.password.hysteria2' "$SERVER_JSON" "")
+    password_tuic=$(safe_jq '.password.tuic' "$SERVER_JSON" "")
+    password_trojan=$(safe_jq '.password.trojan' "$SERVER_JSON" "")
+    reality_public_key=$(safe_jq '.reality.public_key' "$SERVER_JSON" "")
+    reality_short_id=$(safe_jq '.reality.short_id' "$SERVER_JSON" "")
     
-    # 检查Xray内部端口
-    local reality_status grpc_status ws_status trojan_status
-    reality_status="未监听"
-    grpc_status="未监听"
-    ws_status="未监听"
-    trojan_status="未监听"
+    # URL编码密码
+    local hy2_pw_enc tuic_pw_enc trojan_pw_enc
+    hy2_pw_enc=$(printf '%s' "$password_hysteria2" | jq -rR @uri)
+    tuic_pw_enc=$(printf '%s' "$password_tuic" | jq -rR @uri)
+    trojan_pw_enc=$(printf '%s' "$password_trojan" | jq -rR @uri)
     
-    if ss -tlnp 2>/dev/null | grep -q ":11443.*xray"; then
-        reality_status="监听中"
-    fi
+    # 检查端口监听状态（保持原有逻辑）
+    local reality_status="未监听" grpc_status="未监听" ws_status="未监听" trojan_status="未监听"
+    local udp443_status="未监听" udp2053_status="未监听"
     
-    if ss -tlnp 2>/dev/null | grep -q ":10085.*xray"; then
-        grpc_status="监听中"
-    fi
+    ss -tlnp 2>/dev/null | grep -q ":11443.*xray" && reality_status="运行中"
+    ss -tlnp 2>/dev/null | grep -q ":10085.*xray" && grpc_status="运行中"  
+    ss -tlnp 2>/dev/null | grep -q ":10086.*xray" && ws_status="运行中"
+    ss -tlnp 2>/dev/null | grep -q ":10143.*xray" && trojan_status="运行中"
+    ss -ulnp 2>/dev/null | grep -q ":443.*sing-box" && udp443_status="运行中"
+    ss -ulnp 2>/dev/null | grep -q ":2053.*sing-box" && udp2053_status="运行中"
     
-    if ss -tlnp 2>/dev/null | grep -q ":10086.*xray"; then
-        ws_status="监听中"
-    fi
-    
-    if ss -tlnp 2>/dev/null | grep -q ":10143.*xray"; then
-        trojan_status="监听中"
-    fi
-    
-    # 输出协议状态数组
-    jq -n \
-        --arg tcp443_status "$tcp443_status" \
-        --arg udp443_status "$udp443_status" \
-        --arg udp2053_status "$udp2053_status" \
-        --arg reality_status "$reality_status" \
-        --arg grpc_status "$grpc_status" \
-        --arg ws_status "$ws_status" \
-        --arg trojan_status "$trojan_status" \
-        '[
-            {
-                name: "VLESS-Reality",
-                protocol: "tcp",
-                port: 11443,
-                status: $reality_status,
-                description: "VLESS with Reality (伪装真实网站)"
-            },
-            {
-                name: "VLESS-gRPC",
-                protocol: "tcp",
-                port: 10085,
-                status: $grpc_status,
-                description: "VLESS over gRPC (HTTP/2传输)"
-            },
-            {
-                name: "VLESS-WebSocket",
-                protocol: "tcp",
-                port: 10086,
-                status: $ws_status,
-                description: "VLESS over WebSocket (WS传输)"
-            },
-            {
-                name: "Trojan-TLS",
-                protocol: "tcp",
-                port: 10143,
-                status: $trojan_status,
-                description: "Trojan over TLS (伪装HTTPS)"
-            },
-            {
-                name: "Hysteria2",
-                protocol: "udp",
-                port: 443,
-                status: $udp443_status,
-                description: "Hysteria2 (高性能UDP协议)"
-            },
-            {
-                name: "TUIC",
-                protocol: "udp",
-                port: 2053,
-                status: $udp2053_status,
-                description: "TUIC (现代UDP协议)"
-            }
-        ]'
+    # 生成协议数组，包含share_link
+    cat <<EOF
+[
+  {
+    "name": "VLESS-Reality",
+    "scenario": "抗审查",
+    "camouflage": "真实网站",
+    "status": "$reality_status",
+    "port": 443,
+    "network": "tcp",
+    "share_link": "vless://${uuid_vless}@${server_ip}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.microsoft.com&pbk=${reality_public_key}&sid=${reality_short_id}&type=tcp#EdgeBox-REALITY"
+  },
+  {
+    "name": "VLESS-gRPC",
+    "scenario": "CDN加速",
+    "camouflage": "HTTP/2",
+    "status": "$grpc_status",
+    "port": 443,
+    "network": "tcp",
+    "share_link": "vless://${uuid_vless}@${domain}:443?encryption=none&security=tls&sni=${domain}&alpn=h2&type=grpc&serviceName=grpc&fp=chrome#EdgeBox-gRPC"
+  },
+  {
+    "name": "VLESS-WebSocket",
+    "scenario": "CDN加速",
+    "camouflage": "WebSocket",
+    "status": "$ws_status",
+    "port": 443,
+    "network": "tcp",
+    "share_link": "vless://${uuid_vless}@${domain}:443?encryption=none&security=tls&sni=${domain}&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome#EdgeBox-WS"
+  },
+  {
+    "name": "Trojan-TLS",
+    "scenario": "经典伪装",
+    "camouflage": "HTTPS",
+    "status": "$trojan_status",
+    "port": 443,
+    "network": "tcp",
+    "share_link": "trojan://${trojan_pw_enc}@${domain}:443?security=tls&sni=trojan.${domain}&alpn=http%2F1.1&fp=chrome#EdgeBox-TROJAN"
+  },
+  {
+    "name": "Hysteria2",
+    "scenario": "高性能",
+    "camouflage": "QUIC",
+    "status": "$udp443_status",
+    "port": 443,
+    "network": "udp",
+    "share_link": "hysteria2://${hy2_pw_enc}@${domain}:443?sni=${domain}&alpn=h3#EdgeBox-HYSTERIA2"
+  },
+  {
+    "name": "TUIC",
+    "scenario": "低延迟",
+    "camouflage": "QUIC",
+    "status": "$udp2053_status",
+    "port": 2053,
+    "network": "udp",
+    "share_link": "tuic://${uuid_tuic}:${tuic_pw_enc}@${domain}:2053?congestion_control=bbr&alpn=h3&sni=${domain}#EdgeBox-TUIC"
+  }
+]
+EOF
 }
 
 # 获取分流配置状态
@@ -3289,24 +3295,26 @@ generate_dashboard_data() {
     secrets_info=$(get_secrets_info)
     
     # 合并所有数据生成dashboard.json
-    jq -n \
-        --arg timestamp "$timestamp" \
-        --argjson system "$system_info" \
-        --argjson cert "$cert_info" \
-        --argjson services "$services_info" \
-        --argjson protocols "$protocols_info" \
-        --argjson shunt "$shunt_info" \
-        --argjson subscription "$subscription_info" \
-        --argjson secrets "$secrets_info" \
-        '{
-            updated_at: $timestamp,
-            server: ($system + {cert: $cert}),
-            services: $services,
-            protocols: $protocols,
-            shunt: $shunt,
-            subscription: $subscription,
-            secrets: $secrets
-        }' > "${TRAFFIC_DIR}/dashboard.json.tmp"
+jq -n \
+    --arg timestamp "$timestamp" \
+    --arg subscription_url "https://${server_ip}/sub" \
+    --argjson system "$system_info" \
+    --argjson cert "$cert_info" \
+    --argjson services "$services_info" \
+    --argjson protocols "$protocols_info" \
+    --argjson shunt "$shunt_info" \
+    --argjson subscription "$subscription_info" \
+    --argjson secrets "$secrets_info" \
+    '{
+        updated_at: $timestamp,
+        subscription_url: $subscription_url,
+        server: ($system + {cert: $cert}),
+        services: $services,
+        protocols: $protocols,
+        shunt: $shunt,
+        subscription: $subscription,
+        secrets: $secrets
+    }' > "${TRAFFIC_DIR}/dashboard.json.tmp"
     
     # 原子替换，避免读取时文件不完整
     if [[ -s "${TRAFFIC_DIR}/dashboard.json.tmp" ]]; then
