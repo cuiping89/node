@@ -5573,40 +5573,30 @@ function attrEscape(s=''){
 <!-- [PATCH:PROTO_TABLE_ROWS_BEGIN] -->
 function updateProtocolTable(protocols) {
   if (!protocols) return;
+  
   const tbody = document.getElementById('protocol-tbody');
-
-  // “使用场景”在“伪装效果”前；三列内容居中显示
-  const rows = (protocols || []).map(p => `
+  
+  const rows = (protocols || []).map((p, index) => \`
     <tr>
-      <td>${escapeHtml(p.name)}</td>
-      <td class="text-center">${escapeHtml(p.scenario || '—')}</td>
-      <td class="text-center">${escapeHtml(p.camouflage || '—')}</td>
-      <td class="text-center">
-        <span class="status-badge ${p.status === '运行中' ? 'status-running' : ''}">
-          ${escapeHtml(p.status || '—')}
-        </span>
-      </td>
-      <td>
-<button class="btn btn-sm btn-link"
-        onclick="showConfigModal('${p.name.replace(/'/g, "\\'")}')"">查看配置</button>
-      </td>
+      <td>\${p.name}</td>
+      <td>\${p.scenario || '—'}</td>
+      <td>\${p.camouflage || '—'}</td>
+      <td><span class="status-badge \${p.status === '运行中' ? 'status-running' : ''}">\${p.status || '—'}</span></td>
+      <td><button class="btn btn-sm btn-link" onclick="showConfigModal('\${p.name}')">查看配置</button></td>
     </tr>
-  `);
-
-  // 底部追加“整包订阅链接”行
-  rows.push(`
+  \`);
+  
+  // 添加订阅链接行
+  rows.push(\`
     <tr class="subs-row">
       <td style="background:#f5f5f5;font-weight:500;">整包订阅链接</td>
-      <td class="text-center"></td>
-      <td class="text-center"></td>
-      <td class="text-center"></td>
-      <td>
-        <button class="btn btn-sm btn-link"
-                onclick="showConfigModal('__SUBS__')">查看配置</button>
-      </td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td><button class="btn btn-sm btn-link" onclick="showConfigModal('__SUBS__')">查看配置</button></td>
     </tr>
-  `);
-
+  \`);
+  
   tbody.innerHTML = rows.join('');
 }
 
@@ -5799,80 +5789,158 @@ function unlockScroll(){
 let currentProtocol = null;      // 已存在可复用
 let currentModalType = 'PROTOCOL';
 
-function showConfigModal(protocolName) {
-  const modal   = document.getElementById('configModal');
-  const title   = document.getElementById('configModalTitle');
+function showConfigModal(key) {
+  const modal = document.getElementById('configModal');
+  const title = document.getElementById('configModalTitle');
   const details = document.getElementById('configDetails');
-
-  // 打开时锁定页面滚动，避免滚到背景页
-  if (typeof lockScroll === 'function') lockScroll();
-
-  // 清掉上一次的二维码
-  const qrNode = document.getElementById('qrcode');
-  if (qrNode) qrNode.innerHTML = '';
-
-  // —— 整包订阅链接 —— //
-  if (protocolName === '__SUBS__') {
-    currentModalType = 'SUBS';
-    currentProtocol  = null;
-
-    const plainLink  = (window.dashboardData && dashboardData.subscription_url) || '';
-    const base64Link = plainLink
-      ? (plainLink.includes('?') ? `${plainLink}&format=base64` : `${plainLink}?format=base64`)
-      : '';
-
+  
+  let protocol = null;
+  let isSubscription = false;
+  
+  // 统一处理：支持协议名称字符串、数字索引和特殊标记
+  if (key === '__SUBS__') {
+    isSubscription = true;
+  } else if (typeof key === 'string') {
+    // 通过名称查找协议
+    protocol = (dashboardData.protocols || []).find(p => p.name === key);
+  } else if (typeof key === 'number') {
+    // 通过索引查找协议
+    protocol = (dashboardData.protocols || [])[key];
+  }
+  
+  // 处理订阅链接
+  if (isSubscription) {
+    const subUrl = dashboardData.subscription_url || '';
+    const base64Url = subUrl ? (subUrl.includes('?') ? \`\${subUrl}&format=base64\` : \`\${subUrl}?format=base64\`) : '';
+    
     title.textContent = '整包订阅链接 - 客户端配置详情';
-    // 顺序：明文链接 → JSON配置(—) → Base64链接 → 二维码 → 使用说明
-    details.innerHTML = `
-      <div class="config-section"><h4>明文链接</h4><div class="config-code" id="plain-link">${escapeHtml(plainLink || '—')}</div></div>
-      <div class="config-section"><h4>JSON配置</h4><div class="config-code" id="json-code">—</div></div>
-      <div class="config-section"><h4>Base64链接</h4><div class="config-code" id="base64-link">${escapeHtml(base64Link || '—')}</div></div>
-      <div class="config-section"><h4>二维码</h4><div class="qr-container"><div id="qrcode"></div></div></div>
-      <div class="config-section"><h4>使用说明</h4><div class="config-help">1. 复制订阅链接导入客户端<br>2. 支持 V2rayN、Clash、Shadowrocket 等主流客户端<br>3. 自签证书需在客户端开启“跳过证书验证”<br>4. UDP协议（HY2/TUIC）固定走VPS直连</div></div>
-    `;
-    if (plainLink && window.QRCode && document.getElementById('qrcode')) {
-      new QRCode(document.getElementById('qrcode'), { text: plainLink, width: 256, height: 256, colorDark: "#000", colorLight: "#fff", correctLevel: QRCode.CorrectLevel.H });
-    }
-    modal.style.display = 'block';
+    
+    details.innerHTML = \`
+      <div class="config-section">
+        <h4>明文链接</h4>
+        <div class="config-code" id="plain-link">\${escapeHtml(subUrl)}</div>
+      </div>
+      <div class="config-section">
+        <h4>Base64链接</h4>
+        <div class="config-code" id="base64-link">\${escapeHtml(base64Url)}</div>
+      </div>
+      <div class="config-section">
+        <h4>二维码</h4>
+        <div class="qr-container">
+          <div id="qrcode-canvas"></div>
+        </div>
+      </div>
+      <div class="config-section">
+        <h4>使用说明</h4>
+        <div style="font-size:12px;color:#6b7280;line-height:1.8;">
+          1. 复制订阅链接导入客户端<br>
+          2. 支持 V2rayN、Clash、Shadowrocket 等主流客户端<br>
+          3. 自签证书需在客户端开启"跳过证书验证"<br>
+          4. UDP协议（HY2/TUIC）固定走VPS直连
+        </div>
+      </div>
+    \`;
+    
+    // 生成二维码
+    setTimeout(() => {
+      const qrCanvas = document.getElementById('qrcode-canvas');
+      if (qrCanvas && subUrl) {
+        qrCanvas.innerHTML = '';
+        new QRCode(qrCanvas, {
+          text: subUrl,
+          width: 256,
+          height: 256,
+          colorDark: "#000000",
+          colorLight: "#ffffff",
+          correctLevel: QRCode.CorrectLevel.H
+        });
+      }
+    }, 100);
+    
+    // 设置当前上下文
+    window.currentModalContext = {
+      type: 'subscription',
+      plainLink: subUrl,
+      base64Link: base64Url
+    };
+    
+  } else if (protocol) {
+    // 处理单个协议
+    title.textContent = \`\${protocol.name} - 客户端配置详情\`;
+    
+    const shareLink = protocol.share_link || '';
+    const jsonConfig = protocol.json ? 
+      (typeof protocol.json === 'string' ? protocol.json : JSON.stringify(protocol.json, null, 2)) : '';
+    const base64Part = shareLink.includes('://') ? shareLink.split('://')[1] : '';
+    
+    details.innerHTML = \`
+      <div class="config-section">
+        <h4>分享链接</h4>
+        <div class="config-code" id="plain-link">\${escapeHtml(shareLink)}</div>
+      </div>
+      \${jsonConfig ? \`
+      <div class="config-section">
+        <h4>JSON配置</h4>
+        <div class="config-code" id="json-config"><pre>\${escapeHtml(jsonConfig)}</pre></div>
+      </div>
+      \` : ''}
+      \${base64Part ? \`
+      <div class="config-section">
+        <h4>Base64内容</h4>
+        <div class="config-code" id="base64-content">\${escapeHtml(base64Part)}</div>
+      </div>
+      \` : ''}
+      <div class="config-section">
+        <h4>二维码</h4>
+        <div class="qr-container">
+          <div id="qrcode-canvas"></div>
+        </div>
+      </div>
+    \`;
+    
+    // 生成二维码
+    setTimeout(() => {
+      const qrCanvas = document.getElementById('qrcode-canvas');
+      if (qrCanvas && shareLink) {
+        qrCanvas.innerHTML = '';
+        new QRCode(qrCanvas, {
+          text: shareLink,
+          width: 256,
+          height: 256,
+          colorDark: "#000000",
+          colorLight: "#ffffff",
+          correctLevel: QRCode.CorrectLevel.H
+        });
+      }
+    }, 100);
+    
+    // 设置当前上下文
+    window.currentModalContext = {
+      type: 'protocol',
+      protocol: protocol,
+      plainLink: shareLink,
+      jsonConfig: jsonConfig,
+      base64Content: base64Part
+    };
+    
+  } else {
+    alert('未找到协议配置');
     return;
   }
-
-  // —— 普通协议 —— //
-  currentModalType = 'PROTOCOL';
-  const protocol = (window.dashboardData?.protocols || []).find(p => p.name === protocolName);
-  if (!protocol) { notify && notify('未找到协议配置','warn'); return; }
-  currentProtocol = protocol;
-
-  title.textContent = `${protocol.name} - 客户端配置详情`;
-
-  // 明文（优先 p.plain；否则 share_link）
-  const plainText = protocol.plain || protocol.share_link || '';
-  // JSON（如有对象则格式化；字符串按原样）
-  const jsonText  = protocol.json
-      ? (typeof protocol.json === 'string' ? protocol.json : JSON.stringify(protocol.json, null, 2))
-      : '—';
-  // Base64：优先 p.base64；否则若 share_link 是 vmess://{b64} 取其 b64；否则尝试 btoa(plainText)
-  let base64Text = protocol.base64 || '';
-  if (!base64Text && protocol.share_link && protocol.share_link.startsWith('vmess://')) {
-    base64Text = protocol.share_link.slice('vmess://'.length);
-  }
-  if (!base64Text && plainText) {
-    try { base64Text = btoa(plainText); } catch(e) { base64Text = '—'; }
-  }
-  if (!base64Text) base64Text = '—';
-
-  // 顺序：明文 → JSON → Base64 → 二维码 → 使用说明（保留 new6 的布局/样式）
-  details.innerHTML = `
-    <div class="config-section"><h4>明文链接</h4><div class="config-code" id="plain-link">${escapeHtml(plainText || '—')}</div></div>
-    <div class="config-section"><h4>JSON配置</h4><div class="config-code" id="json-code">${escapeHtml(jsonText)}</div></div>
-    <div class="config-section"><h4>Base64链接</h4><div class="config-code" id="base64-link">${escapeHtml(base64Text)}</div></div>
-    <div class="config-section"><h4>二维码</h4><div class="qr-container"><div id="qrcode"></div></div></div>
-    <div class="config-section"><h4>使用说明</h4><div class="config-help">1. 复制订阅链接导入客户端<br>2. 支持 V2rayN、Clash、Shadowrocket 等主流客户端<br>3. 自签证书需在客户端开启“跳过证书验证”<br>4. UDP协议（HY2/TUIC）固定走VPS直连</div></div>
-  `;
-  if (plainText && window.QRCode && document.getElementById('qrcode')) {
-    new QRCode(document.getElementById('qrcode'), { text: plainText, width: 256, height: 256, colorDark: "#000", colorLight: "#fff", correctLevel: QRCode.CorrectLevel.H });
-  }
+  
   modal.style.display = 'block';
+}
+
+// HTML转义函数
+function escapeHtml(text) {
+  const map = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#039;'
+  };
+  return text.replace(/[&<>"']/g, m => map[m]);
 }
 
 function closeConfigModal() {
@@ -5945,58 +6013,54 @@ function copyQRImage() {
 }
 
 // 四个按钮：明文 / JSON / Base64 / 二维码图片
-function copyPlain(){
-  if (currentModalType === 'SUBS') {
-    const plain = (window.dashboardData && dashboardData.subscription_url) || '';
-    if (!plain) return notify('无可复制的明文链接','warn');
-    return copyToClipboard(plain);
+function copyPlain() {
+  const ctx = window.currentModalContext;
+  if (!ctx) return;
+  
+  if (ctx.plainLink) {
+    copyToClipboard(ctx.plainLink);
+  } else {
+    alert('无可复制的明文链接');
   }
-  const p = currentProtocol || {};
-  const val = p.plain || p.share_link || '';
-  if (!val) return notify('无可复制的明文链接','warn');
-  copyToClipboard(val);
 }
 
-function copyJSON(){
-  if (currentModalType === 'SUBS') {
-    return notify('订阅链接无 JSON 配置可复制','warn');
+function copyJSON() {
+  const ctx = window.currentModalContext;
+  if (!ctx) return;
+  
+  if (ctx.type === 'subscription') {
+    alert('订阅链接无JSON配置');
+  } else if (ctx.jsonConfig) {
+    copyToClipboard(ctx.jsonConfig);
+  } else {
+    alert('无JSON配置可复制');
   }
-  const p = currentProtocol || {};
-  const jsonText = p.json
-    ? (typeof p.json === 'string' ? p.json : JSON.stringify(p.json, null, 2))
-    : '';
-  if (!jsonText) return notify('无 JSON 配置可复制','warn');
-  copyToClipboard(jsonText);
 }
 
-function copyBase64(){
-  if (currentModalType === 'SUBS') {
-    const plain = (window.dashboardData && dashboardData.subscription_url) || '';
-    const b64 = plain ? (plain.includes('?') ? `${plain}&format=base64` : `${plain}?format=base64`) : '';
-    if (!b64) return notify('无可复制的 Base64 链接','warn');
-    return copyToClipboard(b64);
+function copyBase64() {
+  const ctx = window.currentModalContext;
+  if (!ctx) return;
+  
+  if (ctx.type === 'subscription') {
+    copyToClipboard(ctx.base64Link || '');
+  } else if (ctx.base64Content) {
+    copyToClipboard(ctx.base64Content);
+  } else {
+    alert('无Base64内容可复制');
   }
-  const p = currentProtocol || {};
-  let val = p.base64 || '';
-  if (!val && p.share_link && p.share_link.startsWith('vmess://')) {
-    val = p.share_link.slice('vmess://'.length);
-  }
-  if (!val && (p.plain || p.share_link)) {
-    try { val = btoa(p.plain || p.share_link); } catch(e) {}
-  }
-  if (!val) return notify('无可复制的 Base64 内容','warn');
-  copyToClipboard(val);
 }
 
-async function copyQRImage(){
-  const canvas = document.querySelector('#qrcode canvas');
-  if (!canvas) return notify('没有可复制的二维码','warn');
-  try{
-    const blob = await new Promise(r => canvas.toBlob(r));
-    await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-    notify('二维码图片已复制');
-  }catch(e){
-    notify('复制失败，请手动保存二维码','warn', 2000);
+function copyQRImage() {
+  const canvas = document.querySelector('#qrcode-canvas canvas');
+  if (canvas) {
+    canvas.toBlob(blob => {
+      const item = new ClipboardItem({ 'image/png': blob });
+      navigator.clipboard.write([item]).then(() => {
+        alert('二维码图片已复制到剪贴板');
+      }).catch(() => {
+        alert('复制失败，请手动保存二维码');
+      });
+    });
   }
 }
 // [PATCH:COPY_AND_TOAST_END]
