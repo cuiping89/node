@@ -5542,52 +5542,29 @@ function updateProtocolTable(protocols) {
 
   const tbody = document.getElementById('protocol-tbody');
 
-  const rows = (protocols || []).map((p, i) => `
+  // 普通协议行（已去掉端口列，并使用 onclick）
+  const rows = (protocols || []).map(p => `
     <tr>
-      <td>${escapeHtml(p.name)}</td>
-      <td>${escapeHtml(p.scenario || '—')}</td>
-      <td>${escapeHtml(p.camouflage || '—')}</td>
-      <td><span class="status-badge ${p.status === '运行中' ? 'status-running' : ''}">${escapeHtml(p.status || '—')}</span></td>
-      <td>
-        <button class="btn btn-sm btn-link view-config"
-                data-key="${i}"
-                data-name="${attrEscape(p.name)}">查看配置</button>
-      </td>
+      <td>${p.name}</td>
+      <td>${p.scenario || '—'}</td>
+      <td>${p.camouflage || '—'}</td>
+      <td><span class="status-badge ${p.status === '运行中' ? 'status-running' : ''}">${p.status || '—'}</span></td>
+      <td><button class="btn btn-sm btn-link" onclick="showConfigModal('${p.name}')">查看配置</button></td>
     </tr>
   `);
 
+  // 追加“整包订阅链接”行（置于底部）
   rows.push(`
     <tr class="subs-row">
       <td style="background:#f5f5f5;font-weight:500;">整包订阅链接</td>
-      <td></td><td></td><td></td>
-      <td>
-        <button class="btn btn-sm btn-link view-config" data-key="__SUBS__">查看配置</button>
-      </td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td><button class="btn btn-sm btn-link" onclick="showConfigModal('__SUBS__')">查看配置</button></td>
     </tr>
   `);
 
   tbody.innerHTML = rows.join('');
-
-  // 事件委托（只绑定一次）
-  if (!tbody._viewBind) {
-tbody.addEventListener('click', (e) => {
-  const btn = e.target.closest('.view-config');
-  if (!btn) return;
-  
-  const key = btn.dataset.key;
-  if (key === '__SUBS__') {
-    showConfigModal('__SUBS__');
-    return;
-  }
-  
-  // 直接使用索引
-  const idx = Number(key);
-  if (!Number.isNaN(idx)) {
-    showConfigModal(idx);
-  }
-});
-    tbody._viewBind = true;
-  }
 }
 
 // 流量统计（来自new5.txt）
@@ -5765,103 +5742,61 @@ function escapeHtml(s=''){
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
-function showConfigModal(key) {
-  const modal   = document.getElementById('configModal');
-  const title   = document.getElementById('configModalTitle');
+// new 7.txt 中的版本
+function showConfigModal(protocolName) {
+  const modal = document.getElementById('configModal');
+  const title = document.getElementById('configModalTitle');
   const details = document.getElementById('configDetails');
+  const qrCanvasWrap = document.getElementById('qrcode');
+  
+  // 清空二维码容器
+  if (qrCanvasWrap) qrCanvasWrap.innerHTML = '';
 
-  // 清空上一次的二维码
-  const qrNode = document.getElementById('qrcode');
-  if (qrNode) qrNode.innerHTML = '';
-
-  // —— 1. 处理“整包订阅链接”的特殊情况 ——
-  if (key === '__SUBS__') {
+  // --- 处理“整包订阅链接”特殊情况 ---
+  if (protocolName === '__SUBS__') {
     currentModalType = 'SUBS';
-    currentProtocol  = null;
+    currentProtocol = null;
 
-    const plainLink  = (window.dashboardData && dashboardData.subscription_url) || '';
-    const base64Link = (window.dashboardData && window.dashboardData.subscription && dashboardData.subscription.base64) || '';
-
+    const plainLink = (dashboardData && dashboardData.subscription_url) || '';
+    const base64Link = plainLink ? (plainLink.includes('?') ? `${plainLink}&format=base64` : `${plainLink}?format=base64`) : '';
+    
     title.textContent = '整包订阅链接 - 客户端配置详情';
     details.innerHTML = `
-      <div class="config-section">
-        <h4>明文链接</h4>
-        <div class="config-code" id="plain-link">${escapeHtml(plainLink || '—')}</div>
-      </div>
-      <div class="config-section">
-        <h4>Base64链接</h4>
-        <div class="config-code" id="base64-link">${escapeHtml(base64Link || '—')}</div>
-      </div>
-      <div class="config-section">
-        <h4>二维码 (使用明文链接)</h4>
-        <div class="qr-container"><div id="qrcode"></div></div>
-      </div>
-      <div class="config-section">
-        <h4>使用说明</h4>
-        <div style="font-size:12px;color:#6b7280;line-height:1.8;">
-          1. 复制订阅链接导入客户端。<br>
-          2. 支持 V2rayN、Clash、Shadowrocket 等主流客户端。<br>
-          3. 当前为IP模式，部分协议需在客户端开启“跳过证书验证”。<br>
-          4. UDP协议（HY2/TUIC）固定走VPS直连。
-        </div>
-      </div>
+      <div class="config-section"><h4>明文链接</h4><div class="config-code" id="plain-link">${plainLink || '—'}</div></div>
+      <div class="config-section"><h4>Base64链接</h4><div class="config-code" id="base64-link">${base64Link || '—'}</div></div>
+      <div class="config-section"><h4>使用说明</h4><div style="font-size:12px;color:#6b7280;line-height:1.8;">1. 复制订阅链接导入客户端<br>2. 支持 V2rayN、Clash、Shadowrocket 等主流客户端<br>3. 自签证书需在客户端开启“跳过证书验证”<br>4. UDP协议（HY2/TUIC）固定走VPS直连</div></div>
     `;
 
-    // 生成二维码
-    if (plainLink && qrNode && window.QRCode) {
-      new QRCode(qrNode, { text: plainLink, width: 256, height: 256, colorDark: "#000", colorLight: "#fff", correctLevel: QRCode.CorrectLevel.H });
-    }
+    // 二维码生成现在移到 modal-body 内部
+    const qrContainer = document.createElement('div');
+    qrContainer.className = 'qr-container';
+    qrContainer.innerHTML = '<div id="qrcode-canvas"></div>';
+    details.appendChild(qrContainer);
 
+    if (plainLink && document.getElementById('qrcode-canvas')) {
+      new QRCode(document.getElementById('qrcode-canvas'), { text: plainLink, width: 256, height: 256, colorDark: "#000", colorLight: "#fff", correctLevel: QRCode.CorrectLevel.H });
+    }
+    
     modal.style.display = 'block';
     return;
   }
 
-  // —— 2. 处理单个协议的情况 ——
+  // --- 处理单个协议 ---
   currentModalType = 'PROTOCOL';
-  const list = (window.dashboardData && window.dashboardData.protocols) || [];
+  const protocol = (dashboardData.protocols || []).find(p => p.name === protocolName);
+  if (!protocol) return;
+  currentProtocol = protocol;
   
-  // *** 核心修复：直接将 key 转换为数字索引来查找协议 ***
-  const protocolIndex = Number(key);
-  if (Number.isNaN(protocolIndex) || !list[protocolIndex]) {
-      alert('未找到协议配置');
-      return;
-  }
-  const protocol = list[protocolIndex];
-  // *** 修复结束 ***
-
-  currentProtocol   = protocol;
   title.textContent = `${protocol.name} - 客户端配置详情`;
-
   const plainText = protocol.share_link || '';
-  let base64Text = '';
-  try {
-    if (plainText) {
-      base64Text = btoa(plainText);
-    }
-  } catch(e) { console.error("Base64 encoding failed", e); }
-
 
   details.innerHTML = `
-    <div class="config-section">
-      <h4>分享链接</h4>
-      <div class="config-code" id="plain-link">${escapeHtml(plainText || '—')}</div>
-    </div>
-    <div class="config-section">
-      <h4>JSON配置 (示例)</h4>
-      <div class="config-code" id="json-code">${escapeHtml(JSON.stringify({remark: protocol.name, ...protocol}, null, 2) || '—')}</div>
-    </div>
-    <div class="config-section">
-      <h4>Base64内容 (非链接)</h4>
-      <div class="config-code" id="base64-link">${escapeHtml(base64Text || '—')}</div>
-    </div>
-    <div class="config-section">
-      <h4>二维码</h4>
-      <div class="qr-container"><div id="qrcode"></div></div>
-    </div>
+    <div class="config-section"><h4>分享链接</h4><div class="config-code" id="plain-link">${escapeHtml(plainText)}</div></div>
+    <div class="config-section"><h4>二维码</h4><div class="qr-container"><div id="qrcode-canvas"></div></div></div>
   `;
 
-  if (plainText && qrNode && window.QRCode) {
-    new QRCode(qrNode, { text: plainText, width: 256, height: 256, colorDark: "#000", colorLight: "#fff", correctLevel: QRCode.CorrectLevel.H });
+  if (plainText && document.getElementById('qrcode-canvas')) {
+    new QRCode(document.getElementById('qrcode-canvas'), { text: plainText, width: 256, height: 256, colorDark: "#000", colorLight: "#fff", correctLevel: QRCode.CorrectLevel.H });
   }
 
   modal.style.display = 'block';
@@ -5977,6 +5912,7 @@ window.onclick = function(event) {
 </body>
 </html>
 HTML
+
 
 # 覆盖块：为控制面板加入 no-cache 元信息，避免浏览器缓存挡住新版
 {
