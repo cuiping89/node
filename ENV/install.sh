@@ -5521,6 +5521,14 @@ function updateServiceStatus(service, status) {
   }
 }
 
+function attrEscape(s=''){
+  return String(s)
+    .replace(/&/g,'&amp;')
+    .replace(/"/g,'&quot;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;');
+}
+
 function updateProtocolTable(protocols) {
   if (!protocols) return;
 
@@ -5532,28 +5540,46 @@ function updateProtocolTable(protocols) {
       <td>${escapeHtml(p.scenario || '—')}</td>
       <td>${escapeHtml(p.camouflage || '—')}</td>
       <td><span class="status-badge ${p.status === '运行中' ? 'status-running' : ''}">${escapeHtml(p.status || '—')}</span></td>
-      <td><button class="btn btn-sm btn-link view-config" data-key="${i}">查看配置</button></td>
+      <td>
+        <button class="btn btn-sm btn-link view-config"
+                data-key="${i}"
+                data-name="${attrEscape(p.name)}">查看配置</button>
+      </td>
     </tr>
   `);
 
-  // 追加“整包订阅链接”行（按钮也用 data-key）
   rows.push(`
     <tr class="subs-row">
       <td style="background:#f5f5f5;font-weight:500;">整包订阅链接</td>
       <td></td><td></td><td></td>
-      <td><button class="btn btn-sm btn-link view-config" data-key="__SUBS__">查看配置</button></td>
+      <td>
+        <button class="btn btn-sm btn-link view-config" data-key="__SUBS__">查看配置</button>
+      </td>
     </tr>
   `);
 
   tbody.innerHTML = rows.join('');
 
-  // 只绑定一次事件委托
+  // 事件委托（只绑定一次）
   if (!tbody._viewBind) {
     tbody.addEventListener('click', (e) => {
       const btn = e.target.closest('.view-config');
       if (!btn) return;
+
       const key = btn.dataset.key;
-      if (key === '__SUBS__') return showConfigModal('__SUBS__');
+      if (key === '__SUBS__') {
+        showConfigModal('__SUBS__');
+        return;
+      }
+
+      // 优先用 data-name（名字不受刷新/顺序影响）
+      const name = btn.dataset.name || '';
+      if (name) {
+        showConfigModal(name);
+        return;
+      }
+
+      // 兜底：仍支持旧的索引
       const idx = Number(key);
       if (!Number.isNaN(idx)) showConfigModal(idx);
     });
@@ -5788,11 +5814,24 @@ function showConfigModal(key) {
     return;
   }
 
-  // —— 普通协议（key 是索引或名称） ——
-  currentModalType = 'PROTOCOL';
-  const list = (window.dashboardData && dashboardData.protocols) || [];
-  const protocol = (typeof key === 'number') ? list[key] : list.find(p => p && p.name === key);
-  if (!protocol) { alert('未找到协议配置'); return; }
+// —— 普通协议（key 可能是名称或索引） ——
+currentModalType = 'PROTOCOL';
+const list = (window.dashboardData && dashboardData.protocols) || [];
+
+let protocol = null;
+if (typeof key === 'string') {
+  protocol = list.find(p => p && p.name === key);
+} else if (typeof key === 'number') {
+  protocol = list[key];
+}
+
+// 再兜底一次：如果 key 是字符串但没找到，尝试去空白后再比对
+if (!protocol && typeof key === 'string') {
+  const k = key.trim();
+  protocol = list.find(p => p && (p.name || '').trim() === k);
+}
+
+if (!protocol) { alert('未找到协议配置'); return; }
 
   currentProtocol   = protocol;
   title.textContent = `${protocol.name} - 客户端配置详情`;
@@ -5922,19 +5961,21 @@ function copyBase64() {
 }
 
 // 初始化
+let _overviewTimer = null;
+
 async function init() {
-  // 加载主数据
   await updateSystemOverview();
-  
-  // 加载流量数据
   const trafficData = await fetchJSON('/traffic/traffic.json');
-  if (trafficData) {
-    renderTraffic(trafficData);
-  }
-  
-  // 设置定时刷新
-  setInterval(updateSystemOverview, 30000); // 30秒刷新一次
-  setInterval(updateProgressBar, 3600000); // 每小时刷新流量进度
+  if (trafficData) renderTraffic(trafficData);
+
+  _overviewTimer = setInterval(updateSystemOverview, 30000);
+  setInterval(updateProgressBar, 3600000);
+}
+
+// 打开/关闭弹窗时控制刷新
+function pauseOverviewOnce(ms=10000){
+  if (_overviewTimer) { clearInterval(_overviewTimer); _overviewTimer = null; }
+  setTimeout(()=>{ if(!_overviewTimer) _overviewTimer = setInterval(updateSystemOverview, 30000); }, ms);
 }
 
 // 页面加载完成后初始化
