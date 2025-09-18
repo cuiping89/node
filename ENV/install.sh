@@ -5576,29 +5576,42 @@ function updateProtocolTable(protocols) {
   
   const tbody = document.getElementById('protocol-tbody');
   
-  const rows = (protocols || []).map((p, index) => \`
+  const rows = (protocols || []).map((p, index) => `
     <tr>
-      <td>\${p.name}</td>
-      <td>\${p.scenario || '—'}</td>
-      <td>\${p.camouflage || '—'}</td>
-      <td><span class="status-badge \${p.status === '运行中' ? 'status-running' : ''}">\${p.status || '—'}</span></td>
-      <td><button class="btn btn-sm btn-link" onclick="showConfigModal('\${p.name}')">查看配置</button></td>
+      <td>${p.name}</td>
+      <td>${p.scenario || '—'}</td>
+      <td>${p.camouflage || '—'}</td>
+      <td><span class="status-badge ${p.status === '运行中' ? 'status-running' : ''}">${p.status || '—'}</span></td>
+      <td><button class="btn btn-sm btn-link view-config" data-protocol="${index}">查看配置</button></td>
     </tr>
-  \`);
+  `);
   
-  // 添加订阅链接行
-  rows.push(\`
+  rows.push(`
     <tr class="subs-row">
       <td style="background:#f5f5f5;font-weight:500;">整包订阅链接</td>
       <td></td>
       <td></td>
       <td></td>
-      <td><button class="btn btn-sm btn-link" onclick="showConfigModal('__SUBS__')">查看配置</button></td>
+      <td><button class="btn btn-sm btn-link view-config" data-protocol="__SUBS__">查看配置</button></td>
     </tr>
-  \`);
+  `);
   
   tbody.innerHTML = rows.join('');
 }
+
+// 添加事件监听（在 DOMContentLoaded 或 init 函数中）
+document.addEventListener('DOMContentLoaded', function() {
+  document.getElementById('protocol-tbody').addEventListener('click', function(e) {
+    if (e.target.classList.contains('view-config')) {
+      const index = e.target.dataset.protocol;
+      if (index === '__SUBS__') {
+        showConfigModal('__SUBS__');
+      } else {
+        showConfigModal(parseInt(index));
+      }
+    }
+  });
+});
 
 // 流量统计（来自new5.txt）
 async function updateProgressBar(){
