@@ -4515,8 +4515,8 @@ body, p, span, td, div {
 /* === 证书切换 === */
 .cert-modes {
   display: flex;
-  gap: 6px;
-  margin-bottom: 20px;
+  gap: 3px;
+  margin-bottom: 0px;
 }
 
 .cert-mode-tab {
@@ -4565,6 +4565,55 @@ body, p, span, td, div {
   background: #10b981;
   color: white;
 }
+
+.note-udp{
+  font-size: 11px;
+  font-weight: 400;
+  color: #6b7280;
+  white-space: nowrap;
+  margin-left: 8px;
+}
+
+/* 白名单预览（最多三行） */
+.whitelist-preview{
+  --chip-h: 26px;
+  --gap: 6px;
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gap);
+  max-height: calc(var(--chip-h) * 3 + var(--gap) * 2); /* 最多三行 */
+  overflow: hidden;
+  position: relative;
+  padding-right: 72px; /* 右下角按钮占位 */
+}
+.whitelist-chip{
+  height: var(--chip-h);
+  line-height: var(--chip-h);
+  padding: 0 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  background: #f9fafb;
+  font-size: 11px;
+  color: #374151;
+  white-space: nowrap;
+}
+/* “查看全部”固定在第三行末尾（右下） */
+.whitelist-more{
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  height: var(--chip-h);
+  line-height: var(--chip-h);
+  padding: 0 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 14px;
+  background: #ffffff;
+  font-size: 11px;
+  color: #2563eb;
+  cursor: pointer;
+}
+.whitelist-more:hover{ background:#f3f4f6; }
 
 /* === 表格 === */
 .data-table {
@@ -4790,7 +4839,7 @@ body, p, span, td, div {
   padding: 0;
   border: 1px solid #d1d5db;
   border-radius: 12px;
-  width: 80%;
+  width: min(720px, 92%);
   max-width: 600px;
   box-shadow: 0 12px 24px rgba(0,0,0,0.14);
 }
@@ -4821,8 +4870,8 @@ body, p, span, td, div {
 
 .modal-body {
   padding: 20px;
-  max-height: 60vh;
-  overflow-y: auto;
+  max-height: min(70vh, 560px);
+  overflow: auto;
 }
 
 .modal-footer {
@@ -5168,6 +5217,8 @@ async function updateSystemOverview() {
     }
   }
   
+  if (data.shunt && data.shunt.whitelist) { renderWhitelistPreview(data.shunt.whitelist); }
+
   // 协议列表
   updateProtocolTable(data.protocols);
 }
@@ -5367,6 +5418,27 @@ function showIPQDetails(type) {
 
 function closeIPQModal() {
   document.getElementById('ipqModal').style.display = 'none';
+}
+
+function renderWhitelistPreview(list){
+  try{
+    const wrap = document.getElementById("whitelistPreview");
+    if(!wrap) return;
+    wrap.innerHTML = "";
+    const arr = Array.isArray(list) ? list.slice(0,300) : []; // 保护上限
+    arr.forEach(v=>{
+      const d = document.createElement("div");
+      d.className = "whitelist-chip";
+      d.textContent = v;
+      wrap.appendChild(d);
+    });
+    // 右下角“查看全部”
+    const more = document.createElement("div");
+    more.className = "whitelist-more";
+    more.textContent = "查看全部";
+    more.onclick = showWhitelistModal; // 复用你现有的弹窗函数
+    wrap.appendChild(more);
+  }catch(e){ console.error(e); }
 }
 
 function showWhitelistModal() {
@@ -5867,7 +5939,7 @@ EXTERNAL_JS
         <!-- 网络身份配置 -->
         <div class="card">
           <div class="card-header">
-            <h2>🌐 网络身份配置</h2>
+            <h2>🌐 网络身份配置 <span class="note-udp">注：HY2/TUIC为UDP通道，VPS直连，不走代理分流</span></h2>
           </div>
           <div class="network-blocks">
             <!-- VPS出站IP -->
@@ -5923,9 +5995,7 @@ EXTERNAL_JS
                 <label>白名单:</label>
                 <value><a href="#" class="ipq-link" onclick="showWhitelistModal()">查看全部</a></value>
               </div>
-              <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #e5e7eb;">
-                <span class="text-muted" style="font-size: 11px;">注：HY2/TUIC为UDP通道，VPS直连，不走代理分流</span>
-              </div>
+			  <div class="whitelist-preview" id="whitelistPreview"></div>
             </div>
           </div>
         </div>
