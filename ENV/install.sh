@@ -5738,6 +5738,11 @@ EXTERNAL_JS
 <title>EdgeBox Control Panel</title>
 <!-- PATCH:INDEX_HTML_HEAD_LINK -->
 <link rel="stylesheet" href="./assets/edgebox-panel.css">
+
+<!-- PATCH:INDEX_HTML_TAIL_SCRIPTS -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="./assets/edgebox-panel.js?v=1"></script>
+
 </head>
 <body>
 
