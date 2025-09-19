@@ -3297,6 +3297,7 @@ generate_dashboard_data() {
     # 合并所有数据生成dashboard.json
 jq -n \
     --arg timestamp "$timestamp" \
+    --arg subscription_url "https://${server_ip}/sub" \
     --argjson system "$system_info" \
     --argjson cert "$cert_info" \
     --argjson services "$services_info" \
@@ -3306,8 +3307,7 @@ jq -n \
     --argjson secrets "$secrets_info" \
     '{
         updated_at: $timestamp,
-        # 直接用 system.server_ip 拼接订阅地址（80端口走HTTP）
-        subscription_url: ("http://" + $system.server_ip + "/sub"),
+        subscription_url: $subscription_url,
         server: ($system + {cert: $cert}),
         services: $services,
         protocols: $protocols,
