@@ -5204,7 +5204,7 @@ function updateProtocolTable(protocols) {
       <td>${p.scenario || '—'}</td>
       <td>${p.camouflage || '—'}</td>
       <td><span class="status-badge ${p.status === '运行中' ? 'status-running' : ''}">${p.status || '—'}</span></td>
-      <td><button class="btn btn-sm btn-link" onclick="showConfigModal('${p.name}')">查看配置</button></td>
+      <td><button class="btn btn-sm btn-link view-config" data-protocol="${(p.name||'').replace(/"/g,'&quot;')}">查看配置</button></td>
     </tr>
   `);
 
@@ -5215,7 +5215,7 @@ function updateProtocolTable(protocols) {
       <td></td>
       <td></td>
       <td></td>
-      <td><button class="btn btn-sm btn-link" onclick="showConfigModal('__SUBS__')">查看配置</button></td>
+	  <td><button class="btn btn-sm btn-link view-config" data-protocol="__SUBS__">查看配置</button></td>
     </tr>
   `);
 
@@ -5677,6 +5677,22 @@ async function init() {
   _overviewTimer = setInterval(updateSystemOverview, 30000);
   setInterval(updateProgressBar, 3600000);
 }
+
+(function bindProtocolViewHandler(){
+  const tbody = document.getElementById('protocol-tbody');
+  if (!tbody || tbody.__viewBound) return;
+
+  tbody.addEventListener('click', (e) => {
+    const btn = e.target.closest('button.view-config');
+    if (!btn || !tbody.contains(btn)) return;
+
+    const name = btn.dataset.protocol;
+    // 统一走名称键，包含订阅的 "__SUBS__"
+    showConfigModal(name);
+  });
+
+  tbody.__viewBound = true;
+})();
 
 // 打开/关闭弹窗时控制刷新
 function pauseOverviewOnce(ms=10000){
