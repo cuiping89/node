@@ -4273,9 +4273,739 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>EdgeBox Control Panel</title>
+<style>
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
 
-<link rel="stylesheet" href="./app.css?v=301" />
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  background: #f3f4f6;  /* 从 #f5f5f5 改为 #f3f4f6 */
+  min-height: 100vh;
+  padding: 20px;
+  color: #1f2937;
+}
 
+.container {
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+/* === 文字系统（严格遵循规范） === */
+h1 {
+  font-size: 23px;
+  font-weight: 700;
+  color: #1f2937;
+  line-height: 32px;
+}
+
+h2 {
+  font-size: 18px;
+  font-weight: 600;
+  color: #1f2937;
+  line-height: 26px;
+}
+
+h3 {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1f2937;
+  line-height: 22px;
+}
+
+h4 {
+  font-size: 14px;
+  font-weight: 500;
+  color: #1f2937;
+  line-height: 20px;
+}
+
+body, p, span, td, div {
+  font-size: 13px;
+  font-weight: 500;
+  color: #1f2937;
+  line-height: 20px;
+}
+
+.text-muted {
+  color: #6b7280;
+}
+
+.text-secondary {
+  color: #4b5563;
+}
+
+/* === 卡片系统（增强层次感） === */
+.main-card {
+  background: #ffffff;
+  border: 1px solid #d1d5db;  /* 从 #e5e7eb 改为 #d1d5db */
+  border-radius: 10px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08);  /* 从 0 1px 2px rgba(0,0,0,0.05) 改为更深的阴影 */
+  overflow: hidden;
+}
+
+.main-header {
+  background: linear-gradient(135deg, #5e72e4 0%, #825ee4 100%);
+  color: white;
+  padding: 20px 30px;
+  text-align: center;
+}
+
+.main-header h1 {
+  color: white;
+  margin: 0;
+}
+
+.main-content {
+  padding: 20px;
+}
+
+.card {
+  background: #ffffff;
+  border: 1px solid #d1d5db;  /* 从 #e5e7eb 改为 #d1d5db */
+  border-radius: 10px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08);  /* 更深的阴影 */
+  padding: 20px;
+  margin-bottom: 20px;
+  transition: box-shadow 0.2s;
+}
+
+.card:hover {
+  box-shadow: 0 4px 8px rgba(0,0,0,0.08);
+}
+
+.card-header {
+  margin-bottom: 20px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.card-header h2 {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.card-note {
+  font-size: 11px;
+  color: #6b7280;
+  font-weight: 400;
+}
+
+/* === 内层区块（更新背景色） === */
+.inner-block {
+  background: #f5f5f5;  /* 从 #f9fafb 改为 #f5f5f5 */
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 15px;
+  margin-bottom: 15px;
+}
+
+.inner-block:last-child {
+  margin-bottom: 0;
+}
+
+.inner-block h3 {
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+/* === 网格系统 === */
+.grid {
+  display: grid;
+  gap: 20px;
+}
+
+.grid-3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.grid-1-2 {
+  grid-template-columns: 1fr 2fr;
+}
+
+/* === 信息项 === */
+.info-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 0;
+}
+
+.info-item label {
+  color: #6b7280;
+}
+
+.info-item value {
+  color: #1f2937;
+  font-weight: 500;
+}
+
+/* === 进度条 === */
+.progress-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.progress-label {
+  min-width: 40px;
+  color: #4b5563;
+}
+
+.progress-bar {
+  flex: 1;
+  height: 18px;
+  background: #e5e7eb;
+  border-radius: 9px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: #10b981;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 11px;
+  transition: width 0.3s;
+}
+
+.progress-info {
+  min-width: 80px;
+  text-align: right;
+  color: #6b7280;
+  font-size: 12px;
+}
+
+/* === 服务状态 === */
+.service-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+}
+
+.service-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-badge {
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+.status-running {
+  background: #d1fae5;
+  color: #10b981;
+}
+
+.version {
+  color: #6b7280;
+  font-size: 11px;
+}
+
+/* === 证书切换 === */
+.cert-modes {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 20px;
+}
+
+.cert-mode-tab {
+  flex: 1;
+  padding: 10px;
+  background: #f5f5f5;  /* 从 #f9fafb 改为 #f5f5f5 */
+  border: 1px solid #e5e7eb;
+  color: #6b7280;
+  text-align: center;
+  border-radius: 8px;
+  cursor: default;
+}
+
+.cert-mode-tab.active {
+  background: #10b981;
+  color: white;
+  border-color: #10b981;
+}
+
+/* === 网络身份配置 === */
+.network-blocks {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 15px;
+}
+
+.network-block {
+  background: #f5f5f5;  /* 从 #f9fafb 改为 #f5f5f5 */
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 12px;
+  position: relative;
+}
+
+.network-block h3 {
+  margin: -12px -12px 12px -12px;
+  padding: 10px;
+  background: #f3f4f6;
+  color: #6b7280;
+  border-radius: 8px 8px 0 0;
+  text-align: center;
+  border: none;
+}
+
+.network-block.active h3 {
+  background: #10b981;
+  color: white;
+}
+
+/* === 表格 === */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.data-table th {
+  background: #f5f5f5;  /* 从 #f9fafb 改为 #f5f5f5 */
+  color: #4b5563;
+  font-weight: 500;
+  padding: 10px;
+  text-align: left;
+  font-size: 12px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.data-table td {
+  padding: 10px;
+  border-bottom: 1px solid #f3f4f6;
+  font-size: 12px;
+}
+
+/* 协议配置表格 - 使居中的列 */
+.data-table td:nth-child(4),  /* 伪装效果 */
+.data-table td:nth-child(5),  /* 运行状态 */
+.data-table td:nth-child(6) { /* 客户端配置 */
+  text-align: center;
+}
+
+.data-table th:nth-child(4),
+.data-table th:nth-child(5),
+.data-table th:nth-child(6) {
+  text-align: center;
+}
+
+.data-table tr:hover td {
+  background: #f5f5f5;
+}
+
+.data-table tr.subs-row td { background:#f5f5f5; }/* 整包订阅链接行灰底（可选） */
+
+/* === 流量统计（来自new5.txt） === */
+.traffic-card { 
+  position: relative; 
+}
+
+.traffic-progress-container {
+  position: absolute; 
+  top: 16px; 
+  right: 16px; 
+  width: 320px;
+  font-size: .75rem; 
+  display: flex; 
+  align-items: center; 
+  gap: 8px;
+}
+
+.progress-label { 
+  color: #6b7280; 
+  white-space: nowrap; 
+}
+
+.progress-wrapper { 
+  flex: 1; 
+  position: relative; 
+}
+
+.progress-bar {
+  width: 100%; 
+  height: 22px; 
+  background: #e2e8f0; 
+  border-radius: 8px; 
+  overflow: hidden; 
+}
+
+.progress-fill { 
+  height: 100%; 
+  background: #10b981; 
+  border-radius: 8px; 
+  transition: width .3s; 
+  position: relative; 
+  display: flex; 
+  align-items: center; 
+  justify-content: center; 
+}
+
+.progress-percentage { 
+  position: absolute; 
+  color: #fff; 
+  font-size: .65rem; 
+  font-weight: 600; 
+}
+
+.progress-budget { 
+  color: #6b7280; 
+  white-space: nowrap; 
+  font-size: .7rem; 
+}
+
+.traffic-charts { 
+  display: grid; 
+  grid-template-columns: 7fr 3fr; 
+  gap: 16px; 
+  margin-top: 50px; 
+}
+
+.chart-container { 
+  position: relative; 
+  height: 360px; 
+}
+
+@media (max-width:980px){
+  .traffic-charts { grid-template-columns: 1fr; }
+  .traffic-progress-container { position: static; width: 100%; margin-bottom: 16px; }
+}
+
+/* === 运维管理（来自new5.txt） === */
+.commands-grid { 
+  display: grid; 
+  grid-template-columns: 1fr 1fr; 
+  gap: 20px; 
+}
+
+@media (max-width:768px){ 
+  .commands-grid { grid-template-columns: 1fr; } 
+}
+
+.command-section { 
+  background: #f5f5f5;  /* 从 var(--subtle) 改为 #f5f5f5 */
+  border: 1px solid #d1d5db;  /* 从 var(--border) 改为 #d1d5db */
+  border-radius: 8px; 
+  padding: 12px; 
+}
+
+.command-section h4 { 
+  margin: 0 0 8px 0; 
+  font-size: .9rem; 
+  font-weight: 600; 
+  color: #1e293b; 
+  display: flex; 
+  align-items: center; 
+  gap: 6px; 
+}
+
+.command-list { 
+  font-size: .8rem; 
+  line-height: 1.6; 
+}
+
+.command-list code { 
+  background: #e2e8f0; 
+  padding: 2px 6px; 
+  border-radius: 4px; 
+  font-family: monospace; 
+  font-size: .75rem; 
+  color: #1e293b; 
+}
+
+.command-list span { 
+  color: #6b7280; 
+  margin-left: 8px; 
+}
+
+/* === 按钮 === */
+.btn {
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.2s;
+  background: #10b981;
+  color: white;
+}
+
+.btn:hover {
+  background: #0ea37a;
+}
+
+.btn-sm {
+  padding: 5px 10px;
+  font-size: 11px;
+}
+
+.btn-secondary {
+  background: white;
+  color: #1f2937;
+  border-color: #d1d5db;
+}
+
+.btn-secondary:hover {
+  background: #f3f4f6;
+}
+
+.btn-link {
+  background: none;
+  color: #3b82f6;
+  border: none;
+  padding: 0;
+}
+
+.btn-link:hover {
+  color: #2563eb;
+  text-decoration: underline;
+}
+
+/* === 弹窗 === */
+.modal {
+  display: none;
+  position: fixed;
+  z-index: 1000;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
+}
+
+.modal-content {
+  background-color: #fff;
+  margin: 5% auto;
+  padding: 0;
+  border: 1px solid #d1d5db;  /* 从 #e5e7eb 改为 #d1d5db */
+  border-radius: 12px;
+  width: 80%;
+  max-width: 600px;
+  box-shadow: 0 12px 24px rgba(0,0,0,0.14);
+}
+
+.modal-header {
+  padding: 20px;
+  border-bottom: 1px solid #e5e7eb;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.modal-header h3 {
+  margin: 0;
+  border: none;
+  padding: 0;
+}
+
+.close-btn {
+  font-size: 24px;
+  cursor: pointer;
+  color: #6b7280;
+}
+
+.close-btn:hover {
+  color: #1f2937;
+}
+
+.modal-body {
+  padding: 20px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.modal-footer {
+  padding: 15px 20px;
+  border-top: 1px solid #e5e7eb;
+  text-align: right;
+}
+
+/* === 其他组件 === */
+.ipq-link {
+  color: #3b82f6;
+  cursor: pointer;
+  margin-left: 10px;
+}
+
+.ipq-link:hover {
+  text-decoration: underline;
+}
+
+.whitelist-item {
+  background: white;
+  padding: 5px 10px;
+  margin: 2px 0;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 12px;
+}
+
+/* === 管理命令 === */
+.management-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 20px;
+}
+
+.management-commands {
+  background: #f5f5f5;  /* 从 #f9fafb 改为 #f5f5f5 */
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 15px;
+}
+
+.command-item {
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+
+.command-item code {
+  background: #1f2937;
+  color: #10b981;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-family: monospace;
+  display: inline-block;
+  margin-bottom: 2px;
+}
+
+/* === 流量统计 === */
+.traffic-summary {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 15px;
+  margin-bottom: 20px;
+}
+
+.traffic-stat {
+  background: #f5f5f5;  /* 从 #f9fafb 改为 #f5f5f5 */
+  padding: 15px;
+  border-radius: 8px;
+  text-align: center;
+}
+
+.traffic-stat h4 {
+  margin-bottom: 8px;
+}
+
+.traffic-stat .value {
+  font-size: 24px;
+  font-weight: bold;
+  color: #1f2937;
+}
+
+.traffic-stat .unit {
+  font-size: 14px;
+  color: #6b7280;
+}
+
+/* === 配置详情 === */
+.config-section {
+  margin-bottom: 20px;
+}
+
+.config-section h4 {
+  margin-bottom: 12px;
+}
+
+.config-code {
+  background: #f5f5f5;  /* 从 #f9fafb 改为 #f5f5f5 */
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 12px;
+  font-family: monospace;
+  font-size: 12px;
+  color: #1f2937;
+  word-break: break-all;
+  line-height: 1.6;
+}
+
+.json-config {
+  background: #f5f5f5;  /* 从 #f9fafb 改为 #f5f5f5 */
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 12px;
+}
+
+.json-line {
+  font-family: monospace;
+  font-size: 12px;
+  line-height: 1.8;
+  display: flex;
+  justify-content: space-between;
+  padding: 2px 0;
+}
+
+.json-key {
+  color: #3b82f6;
+}
+
+.json-value {
+  color: #10b981;
+}
+
+.json-comment {
+  color: #6b7280;
+  font-style: italic;
+}
+
+.qr-container {
+  text-align: center;
+  padding: 20px;
+  background: #f5f5f5;  /* 从 #f9fafb 改为 #f5f5f5 */
+  border-radius: 6px;
+}
+
+.qr-placeholder {
+  width: 256px;
+  height: 256px;
+  margin: 0 auto;
+  background: white;
+  border: 1px solid #e5e7eb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #6b7280;
+}
+
+/* 响应式 */
+@media (max-width: 1024px) {
+  .grid-3, .grid-1-2 {
+    grid-template-columns: 1fr;
+  }
+  
+  .network-blocks {
+    grid-template-columns: 1fr;
+  }
+  
+  .traffic-charts {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .traffic-summary {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .management-grid {
+    grid-template-columns: 1fr;
+  }
+}
+</style>
 </head>
 <body>
 
@@ -4656,454 +5386,16 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 <!-- 第三方库 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/chart.js/3.9.1/chart.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+<!-- 业务脚本（外链，避免内联脚本被 HTML 打断） -->
 <script src="./app.js?v=300"></script>
 
 </body>
 </html>
 HTML
 
-# 生成外链样式 app.css（内容与旧 <style> 完全一致）
-cat > "${TRAFFIC_DIR}/app.css" <<'APPCSS'
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
-body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  background: #f3f4f6;  /* 从 #f5f5f5 改为 #f3f4f6 */
-  min-height: 100vh;
-  padding: 20px;
-  color: #1f2937;
-}
-
-/* === Layout 容器 === */
-.container {
-  max-width: 1160px;
-  margin: 0 auto;
-}
-
-/* === 文字系统（严格遵循规范） === */
-h1 {
-  font-size: 23px;
-  font-weight: 700;
-  color: #1f2937;
-  line-height: 32px;
-}
-
-h2 {
-  font-size: 18px;
-  font-weight: 600;
-  color: #374151;
-  line-height: 26px;
-}
-
-h3 {
-  font-size: 16px;
-  font-weight: 600;
-  color: #4b5563;
-  line-height: 22px;
-}
-
-p, span, td, th, li {
-  font-size: 13px;
-  color: #374151;
-  line-height: 20px;
-}
-
-.text-muted {
-  color: #6b7280;
-}
-
-.text-secondary {
-  color: #4b5563;
-}
-
-/* === 卡片系统（增强层次感） === */
-.main-card {
-  background: #ffffff;
-  border: 1px solid #d1d5db;
-  box-shadow: 0 10px 15px -3px rgba(0,0,0,.1), 0 4px 6px -4px rgba(0,0,0,.1);
-  border-radius: 14px;
-  padding: 16px;
-}
-
-.card {
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
-  padding: 16px;
-}
-
-.card + .card {
-  margin-top: 14px;
-}
-
-/* 顶部标题卡片 */
-.header-card {
-  background: linear-gradient(135deg, #8b5cf6, #3b82f6);
-  color: #fff;
-  padding: 14px 16px;
-  border-radius: 14px;
-  margin-bottom: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.header-card h1 {
-  color: #fff;
-}
-
-/* 小标签 */
-.badge {
-  background: rgba(255,255,255,.18);
-  color: #fff;
-  border: 1px solid rgba(255,255,255,.28);
-  border-radius: 999px;
-  font-size: 12px;
-  padding: 4px 10px;
-}
-
-/* === 网格系统 === */
-.grid {
-  display: grid;
-  gap: 12px;
-}
-
-.grid-3 {
-  grid-template-columns: repeat(3, 1fr);
-}
-
-.grid-2 {
-  grid-template-columns: repeat(2, 1fr);
-}
-
-.grid-4 {
-  grid-template-columns: repeat(4, 1fr);
-}
-
-/* === 概览区块 === */
-.overview {
-  display: grid;
-  gap: 12px;
-  grid-template-columns: repeat(3, 1fr);
-}
-
-.overview .card .item {
-  display: flex;
-  justify-content: space-between;
-  padding: 8px 0;
-}
-
-.overview .item .label {
-  color: #6b7280;
-}
-
-.overview .item .value {
-  font-weight: 600;
-  color: #374151;
-}
-
-/* === 小标题行 === */
-.section-title {
-  font-size: 14px;
-  font-weight: 700;
-  color: #6b7280;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 0 10px;
-}
-
-/* === 证书与网络 === */
-.cert-grid,
-.network-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
-}
-
-.info-card {
-  border: 1px dashed #e5e7eb;
-  border-radius: 10px;
-  padding: 12px 14px;
-}
-
-.info-card .label {
-  color: #6b7280;
-}
-
-.info-card .value {
-  font-weight: 600;
-  color: #374151;
-}
-
-/* === 协议表格 === */
-.table {
-  width: 100%;
-  border-collapse: collapse;
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
-  overflow: hidden;
-}
-
-.table thead th {
-  font-size: 12px;
-  color: #6b7280;
-  background: #f3f4f6;
-  padding: 10px 12px;
-  text-align: left;
-  border-bottom: 1px solid #e5e7eb;
-}
-
-.table tbody td {
-  padding: 10px 12px;
-  border-bottom: 1px solid #f3f4f6;
-  vertical-align: middle;
-}
-
-/* 运行状态 badge */
-.status-badge {
-  display: inline-block;
-  padding: 3px 8px;
-  border-radius: 999px;
-  background: #f3f4f6;
-  color: #6b7280;
-  font-weight: 600;
-  font-size: 12px;
-}
-
-.status-running {
-  background: #ecfdf5;
-  color: #059669;
-}
-
-/* “查看配置”按钮 */
-.btn-link {
-  border: none;
-  background: none;
-  padding: 0;
-  color: #3b82f6;
-  cursor: pointer;
-}
-.btn-link:hover { text-decoration: underline; }
-
-/* 表尾“整包订阅链接”行 */
-.subs-row td {
-  background: #f9fafb;
-  font-weight: 600;
-}
-
-/* === 模态框 === */
-.modal {
-  display: none;
-  position: fixed;
-  z-index: 1000;
-  left: 0;
-  top: 0;
-  width: 100%;
-  height: 100%;
-  background-color: rgba(0, 0, 0, 0.5);
-}
-
-.modal-content {
-  background-color: #fff;
-  margin: 5% auto;
-  padding: 0;
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
-  width: 720px;
-  max-width: 95%;
-  box-shadow: 0 10px 15px -3px rgba(0,0,0,.1), 0 4px 6px -4px rgba(0,0,0,.1);
-}
-
-.modal-header {
-  padding: 16px 20px;
-  border-bottom: 1px solid #e5e7eb;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.modal-header h3 { margin: 0; font-size: 16px; font-weight: 600; }
-
-.modal-body {
-  padding: 20px;
-  max-height: 60vh;
-  overflow-y: auto;
-}
-
-.modal-footer {
-  padding: 15px 20px;
-  border-top: 1px solid #e5e7eb;
-  text-align: right;
-}
-
-.close-btn {
-  cursor: pointer;
-  font-size: 22px;
-  color: #9ca3af;
-}
-.close-btn:hover { color: #4b5563; }
-
-/* 弹窗内的各小节 */
-.config-section { margin-bottom: 16px; }
-.config-section h4 { font-size: 13px; color: #6b7280; margin: 0 0 6px; }
-
-.config-code {
-  background: #f9fafb;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 10px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-  font-size: 12px;
-  color: #374151;
-  word-break: break-all;
-}
-
-.qr-container {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #f9fafb;
-  border: 1px dashed #e5e7eb;
-  border-radius: 8px;
-  padding: 16px;
-}
-
-/* 弹窗底部按钮 */
-.btn { 
-  display: inline-block;
-  padding: 8px 12px;
-  border-radius: 6px;
-  border: 1px solid #d1d5db;
-  background: #fff;
-  color: #374151;
-  cursor: pointer;
-  font-size: 12px;
-}
-.btn + .btn { margin-left: 8px; }
-
-.btn-primary {
-  border-color: #2563eb;
-  background: #2563eb;
-  color: #fff;
-}
-.btn-primary:hover { filter: brightness(.98); }
-
-/* === IP 质量弹窗 & 白名单弹窗的一些元素 === */
-.ipq-link {
-  color: #3b82f6;
-  cursor: pointer;
-  margin-left: 10px;
-}
-.ipq-link:hover { text-decoration: underline; }
-
-.whitelist-item {
-  background: white;
-  padding: 5px 10px;
-  margin: 2px 0;
-  border-radius: 4px;
-  font-family: monospace;
-  font-size: 12px;
-}
-
-/* === 管理命令 === */
-.manage-card .cmd {
-  background: #0d1117;
-  color: #e5e7eb;
-  padding: 10px 12px;
-  border-radius: 8px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono";
-  font-size: 12px;
-  overflow-x: auto;
-}
-
-/* === 流量统计 === */
-.traffic-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-
-.traffic-summary, .traffic-charts {
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
-  padding: 12px;
-}
-
-.chart-box {
-  background: #f9fafb;
-  border: 1px dashed #e5e7eb;
-  border-radius: 8px;
-  padding: 12px;
-  height: 260px;
-}
-
-.progress {
-  height: 8px;
-  background: #f1f5f9;
-  border-radius: 999px;
-  overflow: hidden;
-}
-
-.progress .bar {
-  height: 100%;
-  background: linear-gradient(90deg, #60a5fa, #8b5cf6);
-  width: 30%;
-}
-
-/* === 运行管理区块 === */
-.management-grid {
-  display: grid;
-  grid-template-columns: 1.3fr 1fr;
-  gap: 12px;
-}
-
-.management-grid .card .item { display: flex; justify-content: space-between; padding: 6px 0; }
-.management-grid .label { color: #6b7280; }
-.management-grid .value { font-weight: 600; }
-
-.management-grid .actions { display: flex; align-items: center; gap: 8px; }
-.management-grid .actions .btn { padding: 6px 9px; }
-
-/* === 自适应 === */
-@media (max-width: 1024px) {
-  .overview { grid-template-columns: 1fr; }
-  .cert-grid, .network-grid { grid-template-columns: 1fr; }
-  .traffic-grid { grid-template-columns: 1fr; }
-  .management-grid { grid-template-columns: 1fr; }
-}
-
-@media (max-width: 900px) {
-  .grid-3 { grid-template-columns: 1fr; }
-  .grid-4 { grid-template-columns: 1fr; }
-  
-  .network-blocks {
-    grid-template-columns: 1fr;
-  }
-  
-  .traffic-charts {
-    grid-template-columns: 1fr;
-  }
-}
-
-@media (max-width: 768px) {
-  .traffic-summary {
-    grid-template-columns: repeat(2, 1fr);
-  }
-  
-  .management-grid {
-    grid-template-columns: 1fr;
-  }
-}
-APPCSS
-
-
 # 把内联脚本‘外置’为 app.js，生成前端业务脚本（外链）
+# === [PATCH:APP_JS_FILE_BEGIN] ===
 cat > "${TRAFFIC_DIR}/app.js" <<'APPJS'
 /* EdgeBox dashboard front-end app (classic script, attach to window) */
 
