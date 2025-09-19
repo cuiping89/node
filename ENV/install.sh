@@ -4516,7 +4516,7 @@ body, p, span, td, div {
 .cert-modes {
   display: flex;
   gap: 3px;
-  margin-bottom: 0px;
+  margin-bottom: 2px;
 }
 
 .cert-mode-tab {
@@ -4574,46 +4574,14 @@ body, p, span, td, div {
   margin-left: 8px;
 }
 
-/* 白名单预览（最多三行） */
-.whitelist-preview{
-  --chip-h: 26px;
-  --gap: 6px;
-  margin-top: 8px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--gap);
-  max-height: calc(var(--chip-h) * 3 + var(--gap) * 2); /* 最多三行 */
-  overflow: hidden;
-  position: relative;
-  padding-right: 72px; /* 右下角按钮占位 */
-}
-.whitelist-chip{
-  height: var(--chip-h);
-  line-height: var(--chip-h);
-  padding: 0 10px;
-  border: 1px solid #e5e7eb;
-  border-radius: 14px;
-  background: #f9fafb;
-  font-size: 11px;
+/* 白名单行内文本（与其它 value 一致） */
+.whitelist-inline{
   color: #374151;
-  white-space: nowrap;
+  font-size: 13px;
+  line-height: 1.6;
+  word-break: break-all;   /* 遇到超长域名时允许断行 */
+  white-space: normal;     /* 自然换行 */
 }
-/* “查看全部”固定在第三行末尾（右下） */
-.whitelist-more{
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  height: var(--chip-h);
-  line-height: var(--chip-h);
-  padding: 0 10px;
-  border: 1px solid #d1d5db;
-  border-radius: 14px;
-  background: #ffffff;
-  font-size: 11px;
-  color: #2563eb;
-  cursor: pointer;
-}
-.whitelist-more:hover{ background:#f3f4f6; }
 
 /* === 表格 === */
 .data-table {
@@ -5420,25 +5388,13 @@ function closeIPQModal() {
   document.getElementById('ipqModal').style.display = 'none';
 }
 
-function renderWhitelistPreview(list){
-  try{
-    const wrap = document.getElementById("whitelistPreview");
-    if(!wrap) return;
-    wrap.innerHTML = "";
-    const arr = Array.isArray(list) ? list.slice(0,300) : []; // 保护上限
-    arr.forEach(v=>{
-      const d = document.createElement("div");
-      d.className = "whitelist-chip";
-      d.textContent = v;
-      wrap.appendChild(d);
-    });
-    // 右下角“查看全部”
-    const more = document.createElement("div");
-    more.className = "whitelist-more";
-    more.textContent = "查看全部";
-    more.onclick = showWhitelistModal; // 复用你现有的弹窗函数
-    wrap.appendChild(more);
-  }catch(e){ console.error(e); }
+function renderWhitelistInline(list){
+  const el = document.getElementById('whitelistInline');
+  if (!el) return;
+  const items = Array.isArray(list) ? list.filter(Boolean) : [];
+  // 用逗号和空格连接；与其它区块风格一致
+  el.textContent = items.join(', ');
+  // 允许换行自动换，不做 chips，不做按钮
 }
 
 function showWhitelistModal() {
@@ -5939,7 +5895,7 @@ EXTERNAL_JS
         <!-- 网络身份配置 -->
         <div class="card">
           <div class="card-header">
-            <h2>🌐 网络身份配置 <span class="note-udp">注：HY2/TUIC为UDP通道，VPS直连，不走代理分流</span></h2>
+            <h2>🌐 网络身份配置 <span class="note-udp">注：HY2/TUIC为UDP通道，VPS直连，不走代理分流. </span></h2>
           </div>
           <div class="network-blocks">
             <!-- VPS出站IP -->
@@ -5992,10 +5948,10 @@ EXTERNAL_JS
                 <value style="font-size: 11px;">白名单VPS直连+其它代理</value>
               </div>
               <div class="info-item">
-                <label>白名单:</label>
-                <value><a href="#" class="ipq-link" onclick="showWhitelistModal()">查看全部</a></value>
-              </div>
-			  <div class="whitelist-preview" id="whitelistPreview"></div>
+<label>白名单:</label>
+<value id="whitelistInline" class="whitelist-inline"></value>
+<value><a href="#" class="ipq-link" onclick="showWhitelistModal()">查看全部</a></value>
+</div>
             </div>
           </div>
         </div>
