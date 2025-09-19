@@ -5686,9 +5686,12 @@ async function init() {
     const btn = e.target.closest('button.view-config');
     if (!btn || !tbody.contains(btn)) return;
 
-    const name = btn.dataset.protocol;
-    // 统一走名称键，包含订阅的 "__SUBS__"
-    showConfigModal(name);
+    const name = btn.dataset.protocol;  // "__SUBS__" 或具体协议名
+    if (!name) {
+      console.warn('[protocol] missing data-protocol on button', btn);
+      return;
+    }
+    showConfigModal(name);  // 统一按名称处理
   });
 
   tbody.__viewBound = true;
