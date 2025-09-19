@@ -5251,15 +5251,19 @@ function updateProtocolTable(protocols) {
   if (!protocols) return;
 
   const tbody = document.getElementById('protocol-tbody');
+  if (!tbody) {
+    console.error('[updateProtocolTable] tbody#protocol-tbody not found!');
+    return;
+  }
 
-  // 普通协议行 - 改用 data-protocol 属性
+  // 普通协议行 - 使用 data-protocol 属性而不是 onclick
   const rows = (protocols || []).map(p => `
     <tr>
-      <td>${p.name}</td>
+      <td>${p.name || '—'}</td>
       <td>${p.scenario || '—'}</td>
       <td>${p.camouflage || '—'}</td>
       <td><span class="status-badge ${p.status === '运行中' ? 'status-running' : ''}">${p.status || '—'}</span></td>
-      <td><button class="btn btn-sm btn-link view-config" data-protocol="${(p.name||'').replace(/"/g,'&quot;')}">查看配置</button></td>
+      <td><button class="btn btn-sm btn-link view-config" data-protocol="${(p.name || '').replace(/"/g, '&quot;')}">查看配置</button></td>
     </tr>
   `);
 
@@ -5275,6 +5279,8 @@ function updateProtocolTable(protocols) {
   `);
 
   tbody.innerHTML = rows.join('');
+  
+  console.log('[updateProtocolTable] Table updated with', rows.length - 1, 'protocols + 1 subscription row');
 }
 
 // 流量统计（来自new5.txt）
@@ -5798,21 +5804,30 @@ async function init() {
 }
 
 // === 修复协议配置弹窗的事件委托绑定 ===
-(function bindProtocolViewHandler(){
+(function bindProtocolViewHandler() {
+  // 等待 DOM 加载完成
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bindProtocolViewHandler);
+    return;
+  }
+
   const tbody = document.getElementById('protocol-tbody');
   if (!tbody) {
-    console.error('protocol-tbody not found');
+    console.error('[bindProtocolViewHandler] tbody#protocol-tbody not found! Retrying in 1 second...');
+    // 如果找不到，1秒后重试一次（可能DOM还没渲染完）
+    setTimeout(bindProtocolViewHandler, 1000);
     return;
   }
   
   // 防止重复绑定
   if (tbody.__viewBound) {
-    console.log('Protocol view handler already bound');
+    console.log('[bindProtocolViewHandler] Event handler already bound');
     return;
   }
 
-  tbody.addEventListener('click', (e) => {
-    // 查找最近的带有data-protocol属性的按钮
+  // 使用事件委托监听按钮点击
+  tbody.addEventListener('click', function(e) {
+    // 查找最近的带有 data-protocol 属性的按钮
     const btn = e.target.closest('button[data-protocol]');
     if (!btn || !tbody.contains(btn)) return;
     
@@ -5821,27 +5836,32 @@ async function init() {
     
     const protocolName = btn.dataset.protocol;
     if (!protocolName) {
-      console.warn('[protocol] missing data-protocol attribute', btn);
+      console.warn('[bindProtocolViewHandler] Button missing data-protocol:', btn);
       return;
     }
     
-    console.log('[protocol] button clicked:', protocolName);
+    console.log('[bindProtocolViewHandler] Button clicked, protocol:', protocolName);
     
     // 调用弹窗显示函数
     try {
-      showConfigModal(protocolName);
-    } catch (error) {
-      console.error('[protocol] showConfigModal failed:', error);
-      if (window.notify) {
-        notify('打开配置弹窗失败', 'warn');
+      if (typeof showConfigModal === 'function') {
+        showConfigModal(protocolName);
       } else {
-        alert('打开配置弹窗失败');
+        console.error('[bindProtocolViewHandler] showConfigModal function not found');
+        if (typeof notify === 'function') {
+          notify('无法打开配置弹窗', 'warn');
+        }
+      }
+    } catch (error) {
+      console.error('[bindProtocolViewHandler] Error calling showConfigModal:', error);
+      if (typeof notify === 'function') {
+        notify('打开配置弹窗失败', 'warn');
       }
     }
   });
 
   tbody.__viewBound = true;
-  console.log('Protocol view handler bound successfully');
+  console.log('[bindProtocolViewHandler] Event delegation successfully bound to tbody#protocol-tbody');
 })();
 
 // 打开/关闭弹窗时控制刷新
@@ -5938,21 +5958,39 @@ window.addEventListener('click', function(event) {
 // === 调试辅助函数 ===
 window.debugProtocolTable = function() {
   const tbody = document.getElementById('protocol-tbody');
-  const buttons = tbody ? tbody.querySelectorAll('button[data-protocol]') : [];
   
-  console.group('Protocol Table Debug Info');
-  console.log('tbody element:', tbody);
-  console.log('buttons found:', buttons.length);
+  console.group('🔍 Protocol Table Debug Info');
   
-  buttons.forEach((btn, index) => {
-    console.log(`Button ${index}:`, {
-      element: btn,
-      protocol: btn.dataset.protocol,
-      text: btn.textContent.trim()
+  if (!tbody) {
+    console.error('❌ tbody#protocol-tbody NOT FOUND in DOM!');
+    console.log('Available elements with ID:', 
+      Array.from(document.querySelectorAll('[id]')).map(el => el.id)
+    );
+  } else {
+    console.log('✅ tbody element found:', tbody);
+    
+    const buttons = tbody.querySelectorAll('button[data-protocol]');
+    console.log(`📊 Found ${buttons.length} buttons with data-protocol:`);
+    
+    buttons.forEach((btn, index) => {
+      console.log(`  Button ${index + 1}:`, {
+        protocol: btn.dataset.protocol,
+        text: btn.textContent.trim(),
+        className: btn.className
+      });
     });
+    
+    // 检查事件监听器
+    console.log('🎯 Event delegation bound?', tbody.__viewBound === true ? 'YES ✅' : 'NO ❌');
+  }
+  
+  // 检查全局数据
+  console.log('📦 Dashboard data:', {
+    hasData: !!window.dashboardData,
+    protocolCount: window.dashboardData?.protocols?.length || 0,
+    protocols: window.dashboardData?.protocols?.map(p => p.name) || []
   });
   
-  console.log('dashboardData.protocols:', window.dashboardData?.protocols);
   console.groupEnd();
 };
 
