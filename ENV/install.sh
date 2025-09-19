@@ -5474,81 +5474,56 @@ function closeWhitelistModal() {
   document.getElementById('whitelistModal').style.display = 'none';
 }
 
-// 全局变量
-let dashboardData = {};
+// 全局状态（若已存在可保留）
 let currentProtocol = null;
-let currentModalType = 'PROTOCOL';
+let currentModalType = 'PROTOCOL'; // 'PROTOCOL' | 'SUBS'
 
-// [其他工具函数，如 fetchJSON, escapeHtml, notify 等可以保留]
-
-function updateProtocolTable(protocols) {
-    const tbody = document.getElementById('protocol-tbody');
-    if (!tbody) return;
-
-    const rows = (protocols || []).map(p => `
-        <tr>
-            <td>${escapeHtml(p.name)}</td>
-            <td>${escapeHtml(p.scenario || '—')}</td>
-            <td>${escapeHtml(p.camouflage || '—')}</td>
-            <td><span class="status-badge ${p.status === '运行中' ? 'status-running' : ''}">${escapeHtml(p.status || '—')}</span></td>
-            <td><button class="btn btn-sm btn-link view-config" data-protocol="${escapeHtml(p.name)}">查看配置</button></td>
-        </tr>
-    `);
-
-    rows.push(`
-        <tr class="subs-row">
-            <td style="background:#f5f5f5;font-weight:500;">整包订阅链接</td>
-            <td></td><td></td><td></td>
-            <td><button class="btn btn-sm btn-link view-config" data-protocol="__SUBS__">查看配置</button></td>
-        </tr>
-    `);
-    tbody.innerHTML = rows.join('');
+// 锁/解锁页面滚动（B 段 closeConfigModal 会调用 unlockScroll）
+function lockScroll(){
+  if (!document.body.classList.contains('modal-open')) {
+    document.body.dataset.prevOverflow = document.body.style.overflow || '';
+    document.body.style.overflow = 'hidden';
+    document.body.classList.add('modal-open');
+  }
+}
+function unlockScroll(){
+  document.body.style.overflow = document.body.dataset.prevOverflow || '';
+  document.body.classList.remove('modal-open');
+  delete document.body.dataset.prevOverflow;
 }
 
-function showConfigModal(protocolName) {
-    // ... 使用您上一版修复后的 showConfigModal 函数即可 ...
-    // 这里为了简洁，只展示核心逻辑
+if (typeof showConfigModal !== 'function') {
+  // 如果原始函数不存在，定义一个基础版本
+  window.showConfigModal = function(key) {
     const modal = document.getElementById('configModal');
-    if (!modal) return;
+    const title = document.getElementById('configModalTitle');
+    const details = document.getElementById('configDetails');
     
-    if (protocolName === '__SUBS__') {
-        // 处理整包订阅的弹窗逻辑
-    } else {
-        const protocol = (dashboardData.protocols || []).find(p => p.name === protocolName);
-        if (protocol) {
-            // 处理单个协议的弹窗逻辑
-        } else {
-            console.error("Protocol not found:", protocolName);
-            return;
-        }
+    if (!modal || !title || !details) {
+      console.error('[Modal] Required DOM elements not found');
+      return;
     }
+    
+    // 基础显示逻辑
     modal.style.display = 'block';
-}
-
-function closeConfigModal() {
-    document.getElementById('configModal').style.display = 'none';
-}
-
-
-// --- 统一的事件监听器 ---
-document.addEventListener('DOMContentLoaded', function() {
-    const protocolTbody = document.getElementById('protocol-tbody');
+    title.textContent = `配置详情 - ${key}`;
+    details.innerHTML = '<p>加载配置中...</p>';
     
-    if (protocolTbody) {
-        protocolTbody.addEventListener('click', function(event) {
-            const button = event.target.closest('.view-config');
-            if (button) {
-                const protocolName = button.dataset.protocol;
-                if (protocolName) {
-                    showConfigModal(protocolName);
-                }
-            }
-        });
+    // 处理具体的协议数据
+    if (key === '__SUBS__') {
+      title.textContent = '整包订阅链接 - 客户端配置详情';
+      // 订阅链接处理...
+    } else {
+      // 普通协议处理...
+      const protocols = window.dashboardData?.protocols || [];
+      const protocol = protocols.find(p => p.name === key);
+      if (protocol) {
+        title.textContent = `${protocol.name} - 客户端配置详情`;
+        // 显示协议详情...
+      }
     }
-
-    // 初始化加载数据
-    init(); 
-});
+  };
+}
 
 function showConfigModal(key) {
   const modal   = document.getElementById('configModal');
@@ -6217,7 +6192,18 @@ EXTERNAL_JS
   <th>客户端配置</th>
 </tr>
           </thead>
-<tbody id="protocol-tbody"></tbody>
+<tbody id="protocol-tbody">
+  <!-- 动态生成的协议行将在这里插入 -->
+  <!-- 示例行结构如下（由JavaScript动态生成）：
+  <tr>
+    <td>协议名称</td>
+    <td>TCP/UDP</td>
+    <td>端口</td>
+    <td>运行中</td>
+    <td><button class="btn btn-xs" data-protocol="协议名称">查看配置</button></td>
+  </tr>
+  -->
+</tbody>
         </table>
       </div>
 
