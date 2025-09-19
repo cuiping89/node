@@ -5150,13 +5150,7 @@ async function updateSystemOverview() {
   const data = await fetchJSON('/traffic/dashboard.json');
   if (!data) return;
   
-/ 关键修复：保存数据到全局变量
-  window.dashboardData = data;  // 或者直接 dashboardData = data;
-  
-  // 更新服务器信息
-  if (data.server) {
-    // ... 其他更新代码
-  }
+  dashboardData = data;
   
   // 服务器信息
   if (data.server) {
@@ -5801,10 +5795,17 @@ async function copyQRImage(){
 let _overviewTimer = null;
 
 async function init() {
-  await updateSystemOverview();
+  // 获取并保存dashboard数据
+  const data = await fetchJSON('/traffic/dashboard.json');
+  if (data) {
+    window.dashboardData = data;  // 确保保存到全局
+    // 然后更新UI
+    updateSystemOverview();
+  }
+  
   const trafficData = await fetchJSON('/traffic/traffic.json');
   if (trafficData) renderTraffic(trafficData);
-
+  
   _overviewTimer = setInterval(updateSystemOverview, 30000);
   setInterval(updateProgressBar, 3600000);
 }
