@@ -4266,14 +4266,15 @@ ln -sfn "${TRAFFIC_DIR}" /var/www/html/traffic
 "${SCRIPTS_DIR}/dashboard-backend.sh" --now || true
 
 # 模块7 控制面板HTML
-cat > "$TRAFFIC_DIR/index.html" <<'HTML'
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>EdgeBox Control Panel</title>
-<style>
+
+# ========================================
+# 独立的CSS文件
+# ========================================
+# 在 setup_traffic_monitoring() 函数中
+# 在 "cat > $TRAFFIC_DIR/index.html" 之前添加：
+
+# 创建 style.css 文件
+cat > "$TRAFFIC_DIR/style.css" << 'PANEL_CSS'
 * {
   margin: 0;
   padding: 0;
@@ -4282,7 +4283,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  background: #f3f4f6;  /* 从 #f5f5f5 改为 #f3f4f6 */
+  background: #f3f4f6;
   min-height: 100vh;
   padding: 20px;
   color: #1f2937;
@@ -4340,9 +4341,9 @@ body, p, span, td, div {
 /* === 卡片系统（增强层次感） === */
 .main-card {
   background: #ffffff;
-  border: 1px solid #d1d5db;  /* 从 #e5e7eb 改为 #d1d5db */
+  border: 1px solid #d1d5db;
   border-radius: 10px;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.08);  /* 从 0 1px 2px rgba(0,0,0,0.05) 改为更深的阴影 */
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
   overflow: hidden;
 }
 
@@ -4364,327 +4365,333 @@ body, p, span, td, div {
 
 .card {
   background: #ffffff;
-  border: 1px solid #d1d5db;  /* 从 #e5e7eb 改为 #d1d5db */
+  border: 1px solid #d1d5db;
   border-radius: 10px;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.08);  /* 更深的阴影 */
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
   padding: 20px;
   margin-bottom: 20px;
-  transition: box-shadow 0.2s;
+  transition: transform 0.2s, box-shadow 0.2s;
 }
 
 .card:hover {
-  box-shadow: 0 4px 8px rgba(0,0,0,0.08);
+  transform: translateY(-2px);
+  box-shadow: 0 5px 12px rgba(0,0,0,0.12);
 }
 
 .card-header {
-  margin-bottom: 20px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid #e5e7eb;
-}
-
-.card-header h2 {
   display: flex;
   justify-content: space-between;
   align-items: center;
-}
-
-.card-note {
-  font-size: 11px;
-  color: #6b7280;
-  font-weight: 400;
-}
-
-/* === 内层区块（更新背景色） === */
-.inner-block {
-  background: #f5f5f5;  /* 从 #f9fafb 改为 #f5f5f5 */
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
-  padding: 15px;
   margin-bottom: 15px;
-}
-
-.inner-block:last-child {
-  margin-bottom: 0;
-}
-
-.inner-block h3 {
-  margin-bottom: 12px;
-  padding-bottom: 8px;
+  padding-bottom: 15px;
   border-bottom: 1px solid #e5e7eb;
 }
 
-/* === 网格系统 === */
-.grid {
-  display: grid;
-  gap: 20px;
-}
-
-.grid-3 {
-  grid-template-columns: repeat(3, 1fr);
-}
-
-.grid-1-2 {
-  grid-template-columns: 1fr 2fr;
-}
-
-/* === 信息项 === */
-.info-item {
-  display: flex;
-  justify-content: space-between;
-  padding: 6px 0;
-}
-
-.info-item label {
-  color: #6b7280;
-}
-
-.info-item value {
-  color: #1f2937;
-  font-weight: 500;
-}
-
-/* === 进度条 === */
-.progress-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 8px;
-}
-
-.progress-label {
-  min-width: 40px;
-  color: #4b5563;
-}
-
-.progress-bar {
-  flex: 1;
-  height: 18px;
-  background: #e5e7eb;
-  border-radius: 9px;
-  overflow: hidden;
-}
-
-.progress-fill {
-  height: 100%;
-  background: #10b981;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: white;
-  font-size: 11px;
-  transition: width 0.3s;
-}
-
-.progress-info {
-  min-width: 80px;
-  text-align: right;
-  color: #6b7280;
-  font-size: 12px;
-}
-
-/* === 服务状态 === */
-.service-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px 0;
-}
-
-.service-status {
+.card-title {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
+.card-title h2 {
+  margin: 0;
+  border: none;
+}
+
+.card-actions {
+  display: flex;
+  gap: 10px;
+}
+
+/* === 状态标识 === */
 .status-badge {
-  padding: 2px 8px;
-  border-radius: 10px;
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 4px;
   font-size: 11px;
-  background: #f3f4f6;
+  font-weight: 500;
+  background: #e5e7eb;
   color: #6b7280;
 }
 
 .status-running {
   background: #d1fae5;
-  color: #10b981;
+  color: #059669;
 }
 
-.version {
+.status-stopped {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+/* === 表格 === */
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+thead {
+  background: #f9fafb;
+}
+
+th {
+  padding: 10px;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
   color: #6b7280;
-  font-size: 11px;
+  border-bottom: 1px solid #e5e7eb;
 }
 
-/* === 证书切换 === */
-.cert-modes {
+td {
+  padding: 12px 10px;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+tbody tr:hover {
+  background: #f9fafb;
+}
+
+.subs-row td {
+  background: #f5f5f5;
+}
+
+/* === 信息展示 === */
+.info-row {
   display: flex;
-  gap: 6px;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.info-row:last-child {
+  border-bottom: none;
+}
+
+.info-label {
+  color: #6b7280;
+  font-weight: 500;
+}
+
+.info-value {
+  color: #1f2937;
+  font-weight: 600;
+}
+
+/* === 订阅链接 === */
+.subscription-box {
+  background: white;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  margin-bottom: 15px;
+  overflow: hidden;
+}
+
+.subscription-header {
+  display: flex;
+  align-items: center;
+  padding: 12px 15px;
+  background: linear-gradient(135deg, #f9fafb 0%, #f3f4f6 100%);
+  border-bottom: 1px solid #e5e7eb;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.subscription-header:hover {
+  background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
+}
+
+.subscription-header h4 {
+  flex: 1;
+  margin: 0;
+}
+
+.chevron {
+  width: 16px;
+  height: 16px;
+  transition: transform 0.3s;
+}
+
+.subscription-header.expanded .chevron {
+  transform: rotate(90deg);
+}
+
+.subscription-content {
+  display: none;
+  padding: 15px;
+}
+
+.subscription-content.show {
+  display: block;
+}
+
+.link-container {
+  position: relative;
+  margin-bottom: 12px;
+}
+
+.link-display {
+  width: 100%;
+  padding: 10px 90px 10px 12px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  color: #4b5563;
+  word-break: break-all;
+  resize: none;
+  overflow: hidden;
+}
+
+.copy-btn {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 5px 12px;
+  background: #5e72e4;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.copy-btn:hover {
+  background: #4c63d2;
+}
+
+.subscription-note {
+  margin-top: 8px;
+  padding: 8px;
+  background: #fef3c7;
+  border-left: 3px solid #f59e0b;
+  border-radius: 4px;
+}
+
+.subscription-note p {
+  margin: 0;
+  color: #92400e;
+  font-size: 12px;
+}
+
+/* === 流量图表 === */
+.traffic-charts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin: 20px 0;
+}
+
+.chart-container {
+  background: white;
+  padding: 15px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+}
+
+.chart-container h4 {
+  margin: 0 0 15px 0;
+  color: #1f2937;
+}
+
+canvas {
+  max-width: 100%;
+  height: auto !important;
+}
+
+@media (max-width: 768px) {
+  .traffic-charts {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* === 流量统计栏 === */
+.traffic-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 15px;
   margin-bottom: 20px;
 }
 
-.cert-mode-tab {
-  flex: 1;
-  padding: 10px;
-  background: #f5f5f5;  /* 从 #f9fafb 改为 #f5f5f5 */
-  border: 1px solid #e5e7eb;
-  color: #6b7280;
-  text-align: center;
+.stat-box {
+  background: linear-gradient(135deg, #f9fafb 0%, #ffffff 100%);
+  padding: 15px;
   border-radius: 8px;
-  cursor: default;
+  border: 1px solid #e5e7eb;
 }
 
-.cert-mode-tab.active {
-  background: #10b981;
-  color: white;
-  border-color: #10b981;
+.stat-label {
+  font-size: 12px;
+  color: #6b7280;
+  margin-bottom: 5px;
 }
 
-/* === 网络身份配置 === */
-.network-blocks {
+.stat-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: #1f2937;
+}
+
+.stat-value.text-primary {
+  color: #5e72e4;
+}
+
+.stat-value.text-success {
+  color: #10b981;
+}
+
+.stat-value.text-warning {
+  color: #f59e0b;
+}
+
+/* === 进度条 === */
+.progress-bar-container {
+  margin-top: 20px;
+}
+
+.progress-label {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+
+.progress-bar {
+  width: 100%;
+  height: 20px;
+  background: #e5e7eb;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #5e72e4, #825ee4);
+  transition: width 0.3s ease;
+}
+
+/* === 网格布局 === */
+.grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 15px;
+}
+
+.grid-3 {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 15px;
 }
 
-.network-block {
-  background: #f5f5f5;  /* 从 #f9fafb 改为 #f5f5f5 */
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 12px;
-  position: relative;
+@media (max-width: 768px) {
+  .grid-2, .grid-3 {
+    grid-template-columns: 1fr;
+  }
 }
 
-.network-block h3 {
-  margin: -12px -12px 12px -12px;
-  padding: 10px;
-  background: #f3f4f6;
-  color: #6b7280;
-  border-radius: 8px 8px 0 0;
-  text-align: center;
-  border: none;
-}
-
-.network-block.active h3 {
-  background: #10b981;
-  color: white;
-}
-
-/* === 表格 === */
-.data-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.data-table th {
-  background: #f5f5f5;  /* 从 #f9fafb 改为 #f5f5f5 */
-  color: #4b5563;
-  font-weight: 500;
-  padding: 10px;
-  text-align: left;
-  font-size: 12px;
-  border-bottom: 1px solid #e5e7eb;
-}
-
-.data-table td {
-  padding: 10px;
-  border-bottom: 1px solid #f3f4f6;
-  font-size: 12px;
-}
-
-/* 协议配置表格 - 使居中的列 */
-.data-table td:nth-child(4),  /* 伪装效果 */
-.data-table td:nth-child(5),  /* 运行状态 */
-.data-table td:nth-child(6) { /* 客户端配置 */
-  text-align: center;
-}
-
-.data-table th:nth-child(4),
-.data-table th:nth-child(5),
-.data-table th:nth-child(6) {
-  text-align: center;
-}
-
-.data-table tr:hover td {
-  background: #f5f5f5;
-}
-
-.data-table tr.subs-row td { background:#f5f5f5; }/* 整包订阅链接行灰底（可选） */
-
-/* === 流量统计（来自new5.txt） === */
-.traffic-card { 
-  position: relative; 
-}
-
-.traffic-progress-container {
-  position: absolute; 
-  top: 16px; 
-  right: 16px; 
-  width: 320px;
-  font-size: .75rem; 
-  display: flex; 
-  align-items: center; 
-  gap: 8px;
-}
-
-.progress-label { 
-  color: #6b7280; 
-  white-space: nowrap; 
-}
-
-.progress-wrapper { 
-  flex: 1; 
-  position: relative; 
-}
-
-.progress-bar {
-  width: 100%; 
-  height: 22px; 
-  background: #e2e8f0; 
-  border-radius: 8px; 
-  overflow: hidden; 
-}
-
-.progress-fill { 
-  height: 100%; 
-  background: #10b981; 
-  border-radius: 8px; 
-  transition: width .3s; 
-  position: relative; 
-  display: flex; 
-  align-items: center; 
-  justify-content: center; 
-}
-
-.progress-percentage { 
-  position: absolute; 
-  color: #fff; 
-  font-size: .65rem; 
-  font-weight: 600; 
-}
-
-.progress-budget { 
-  color: #6b7280; 
-  white-space: nowrap; 
-  font-size: .7rem; 
-}
-
-.traffic-charts { 
-  display: grid; 
-  grid-template-columns: 7fr 3fr; 
-  gap: 16px; 
-  margin-top: 50px; 
-}
-
-.chart-container { 
-  position: relative; 
-  height: 360px; 
-}
-
-@media (max-width:980px){
-  .traffic-charts { grid-template-columns: 1fr; }
-  .traffic-progress-container { position: static; width: 100%; margin-bottom: 16px; }
-}
-
-/* === 运维管理（来自new5.txt） === */
+/* === 高级功能（命令网格，严格 display: grid） === */
 .commands-grid { 
   display: grid; 
   grid-template-columns: 1fr 1fr; 
@@ -4696,8 +4703,8 @@ body, p, span, td, div {
 }
 
 .command-section { 
-  background: #f5f5f5;  /* 从 var(--subtle) 改为 #f5f5f5 */
-  border: 1px solid #d1d5db;  /* 从 var(--border) 改为 #d1d5db */
+  background: #f5f5f5;
+  border: 1px solid #d1d5db;
   border-radius: 8px; 
   padding: 12px; 
 }
@@ -4790,7 +4797,7 @@ body, p, span, td, div {
   background-color: #fff;
   margin: 5% auto;
   padding: 0;
-  border: 1px solid #d1d5db;  /* 从 #e5e7eb 改为 #d1d5db */
+  border: 1px solid #d1d5db;
   border-radius: 12px;
   width: 80%;
   max-width: 600px;
@@ -4847,165 +4854,165 @@ body, p, span, td, div {
 .whitelist-item {
   background: white;
   padding: 5px 10px;
-  margin: 2px 0;
-  border-radius: 4px;
-  font-family: monospace;
-  font-size: 12px;
-}
-
-/* === 管理命令 === */
-.management-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 20px;
-}
-
-.management-commands {
-  background: #f5f5f5;  /* 从 #f9fafb 改为 #f5f5f5 */
   border: 1px solid #e5e7eb;
-  border-radius: 6px;
-  padding: 15px;
-}
-
-.command-item {
-  margin-bottom: 10px;
-  font-size: 12px;
-}
-
-.command-item code {
-  background: #1f2937;
-  color: #10b981;
-  padding: 3px 8px;
   border-radius: 4px;
-  font-family: monospace;
-  display: inline-block;
-  margin-bottom: 2px;
+  margin-bottom: 5px;
 }
 
-/* === 流量统计 === */
-.traffic-summary {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 15px;
+/* === 详情区块（用于弹窗内） === */
+.details-section {
   margin-bottom: 20px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid #e5e7eb;
 }
 
-.traffic-stat {
-  background: #f5f5f5;  /* 从 #f9fafb 改为 #f5f5f5 */
-  padding: 15px;
-  border-radius: 8px;
-  text-align: center;
+.details-section:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
 }
 
-.traffic-stat h4 {
-  margin-bottom: 8px;
-}
-
-.traffic-stat .value {
-  font-size: 24px;
-  font-weight: bold;
-  color: #1f2937;
-}
-
-.traffic-stat .unit {
+.details-section h5 {
   font-size: 14px;
-  color: #6b7280;
-}
-
-/* === 配置详情 === */
-.config-section {
-  margin-bottom: 20px;
-}
-
-.config-section h4 {
-  margin-bottom: 12px;
-}
-
-.config-code {
-  background: #f5f5f5;  /* 从 #f9fafb 改为 #f5f5f5 */
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
-  padding: 12px;
-  font-family: monospace;
-  font-size: 12px;
+  font-weight: 600;
   color: #1f2937;
-  word-break: break-all;
-  line-height: 1.6;
+  margin: 0 0 10px 0;
 }
 
-.json-config {
-  background: #f5f5f5;  /* 从 #f9fafb 改为 #f5f5f5 */
+.link-wrapper {
+  position: relative;
+  margin-bottom: 10px;
+}
+
+.link-input {
+  width: 100%;
+  padding: 8px 80px 8px 10px;
   border: 1px solid #e5e7eb;
   border-radius: 6px;
-  padding: 12px;
-}
-
-.json-line {
   font-family: monospace;
   font-size: 12px;
-  line-height: 1.8;
+  background: #f9fafb;
+  word-break: break-all;
+}
+
+.copy-small {
+  position: absolute;
+  right: 5px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+/* === QR码容器 === */
+#qrcode {
   display: flex;
-  justify-content: space-between;
-  padding: 2px 0;
-}
-
-.json-key {
-  color: #3b82f6;
-}
-
-.json-value {
-  color: #10b981;
-}
-
-.json-comment {
-  color: #6b7280;
-  font-style: italic;
-}
-
-.qr-container {
-  text-align: center;
-  padding: 20px;
-  background: #f5f5f5;  /* 从 #f9fafb 改为 #f5f5f5 */
-  border-radius: 6px;
-}
-
-.qr-placeholder {
-  width: 256px;
-  height: 256px;
-  margin: 0 auto;
-  background: white;
-  border: 1px solid #e5e7eb;
-  display: flex;
-  align-items: center;
   justify-content: center;
-  color: #6b7280;
+  padding: 20px;
+  background: white;
 }
 
-/* 响应式 */
-@media (max-width: 1024px) {
-  .grid-3, .grid-1-2 {
-    grid-template-columns: 1fr;
-  }
-  
-  .network-blocks {
-    grid-template-columns: 1fr;
-  }
-  
-  .traffic-charts {
-    grid-template-columns: 1fr;
-  }
+/* === 提示样式（轻提示） === */
+.toast {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  background: #10b981;
+  color: white;
+  padding: 12px 20px;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  opacity: 0;
+  transform: translateY(20px);
+  transition: all 0.3s;
+  z-index: 2000;
+  font-size: 14px;
 }
 
+.toast.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.toast.toast-error {
+  background: #ef4444;
+}
+
+.toast.toast-warning {
+  background: #f59e0b;
+}
+
+/* === 响应式优化 === */
 @media (max-width: 768px) {
-  .traffic-summary {
-    grid-template-columns: repeat(2, 1fr);
+  body {
+    padding: 10px;
   }
   
-  .management-grid {
-    grid-template-columns: 1fr;
+  .main-header {
+    padding: 15px 20px;
+  }
+  
+  .main-content {
+    padding: 15px;
+  }
+  
+  .card {
+    padding: 15px;
+  }
+  
+  .modal-content {
+    width: 95%;
+    margin: 10% auto;
   }
 }
-</style>
+
+/* === 加载动画 === */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.loading {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid #e5e7eb;
+  border-top-color: #5e72e4;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+/* === 滚动条美化 === */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f3f4f6;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+PANEL_CSS
+
+
+# ========================================
+# index.html 生成部分
+# ========================================
+    log_info "创建控制面板HTML..."
+cat > "$TRAFFIC_DIR/index.html" <<'HTML'
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EdgeBox Control Panel</title>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
 
@@ -5386,8 +5393,6 @@ body, p, span, td, div {
 <!-- 第三方库 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/chart.js/3.9.1/chart.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-
-<!-- 业务脚本（外链，避免内联脚本被 HTML 打断） -->
 <script src="./app.js?v=300"></script>
 
 </body>
