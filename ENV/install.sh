@@ -5150,7 +5150,13 @@ async function updateSystemOverview() {
   const data = await fetchJSON('/traffic/dashboard.json');
   if (!data) return;
   
-  dashboardData = data;
+/ 关键修复：保存数据到全局变量
+  window.dashboardData = data;  // 或者直接 dashboardData = data;
+  
+  // 更新服务器信息
+  if (data.server) {
+    // ... 其他更新代码
+  }
   
   // 服务器信息
   if (data.server) {
@@ -5226,9 +5232,6 @@ async function updateSystemOverview() {
   // 协议列表
   updateProtocolTable(data.protocols);
 }
-
-// 保存数据到全局变量（这行可能缺失了！）
-dashboardData = data;
   
 function updateServiceStatus(service, status) {
   const badge = document.getElementById(`${service}-status`);
