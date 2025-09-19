@@ -4070,7 +4070,7 @@ setup_traffic_monitoring() {
   ln -sfn "$TRAFFIC_DIR" /var/www/html/traffic
 
   # 创建CSS和JS目录
-  mkdir -p /var/www/html/css /var/www/html/js
+  mkdir -p "${TRAFFIC_DIR}/assets"
 
   # nftables 计数器（若不存在则创建）
   nft list table inet edgebox >/dev/null 2>&1 || nft -f - <<'NFT'
@@ -4271,7 +4271,7 @@ chmod +x "${SCRIPTS_DIR}/traffic-alert.sh"
 
   # ========== 创建外置的CSS文件 ==========
   log_info "创建外置CSS文件..."
-  cat > "/var/www/html/css/edgebox-panel.css" <<'EXTERNAL_CSS'
+  cat > "${TRAFFIC_DIR}/assets/edgebox-panel.css" <<'EXTERNAL_CSS'
 * {
   margin: 0;
   padding: 0;
@@ -5038,7 +5038,8 @@ EXTERNAL_CSS
 
   # ========== 创建外置的JavaScript文件 ==========
   log_info "创建外置JavaScript文件..."
-  cat > "/var/www/html/js/edgebox-panel.js" <<'EXTERNAL_JS'
+  # PATCH:WRITE_JS_PATH
+cat > "${TRAFFIC_DIR}/assets/edgebox-panel.js" <<'EXTERNAL_JS'
 // 全局变量
 let dashboardData = {};
 let currentShareLink = '';
@@ -5694,7 +5695,7 @@ window.onclick = function(event) {
 }
 EXTERNAL_JS
 
-  # ========== 创建HTML文件（引用外置的CSS和JS）==========
+# ======= 创建HTML文件（引用外置的CSS和JS）========
   log_info "创建控制面板HTML文件..."
   cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 <!DOCTYPE html>
@@ -5703,7 +5704,8 @@ EXTERNAL_JS
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>EdgeBox Control Panel</title>
-<link rel="stylesheet" href="/css/edgebox-panel.css">
+<!-- PATCH:INDEX_HTML_HEAD_LINK -->
+<link rel="stylesheet" href="./assets/edgebox-panel.css">
 </head>
 <body>
 
@@ -6082,19 +6084,20 @@ EXTERNAL_JS
 <!-- Chart.js和QRCode库 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-<script src="/js/edgebox-panel.js"></script>
+<script src="./assets/edgebox-panel.js"></script>
 
 </body>
 </html>
 HTML
 
-  # 设置文件权限
-  chmod 644 "/var/www/html/css/edgebox-panel.css"
-  chmod 644 "/var/www/html/js/edgebox-panel.js"
-  chmod 644 "$TRAFFIC_DIR/index.html"
+# 设置文件权限
+chmod 644 "${TRAFFIC_DIR}/assets/edgebox-panel.css"
+chmod 644 "${TRAFFIC_DIR}/assets/edgebox-panel.js"
+chmod 644 "$TRAFFIC_DIR/index.html"
 
   log_success "流量监控系统设置完成（CSS和JS已外置）"
 }
+
 
 # 设置定时任务
 setup_cron_jobs() {
