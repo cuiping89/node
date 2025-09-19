@@ -4058,6 +4058,7 @@ log_info "└─ show_traffic_stats()       # 查看流量统计"
 #############################################
 
 # 设置流量监控系统
+# 设置流量监控系统
 setup_traffic_monitoring() {
   log_info "设置流量采集与前端渲染（vnStat + nftables + CSV/JSON + Chart.js + 预警）..."
 
@@ -5203,7 +5204,7 @@ function updateProtocolTable(protocols) {
       <td>${p.scenario || '—'}</td>
       <td>${p.camouflage || '—'}</td>
       <td><span class="status-badge ${p.status === '运行中' ? 'status-running' : ''}">${p.status || '—'}</span></td>
-      <button class="btn btn-sm btn-info view-config-btn" data-protocol="${row.protocol}">查看配置</button>
+      <td><button class="btn btn-sm btn-link view-config" data-protocol="${(p.name||'').replace(/"/g,'&quot;')}">查看配置</button></td>
     </tr>
   `);
 
