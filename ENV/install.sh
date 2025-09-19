@@ -5227,6 +5227,9 @@ async function updateSystemOverview() {
   updateProtocolTable(data.protocols);
 }
 
+// 保存数据到全局变量（这行可能缺失了！）
+dashboardData = data;
+  
 function updateServiceStatus(service, status) {
   const badge = document.getElementById(`${service}-status`);
   const version = document.getElementById(`${service}-version`);
