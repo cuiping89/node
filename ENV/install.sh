@@ -4515,7 +4515,7 @@ body, p, span, td, div {
 /* === 证书切换 === */
 .cert-modes {
   display: flex;
-  gap: 3px;
+  gap: 6px;
   margin-bottom: 2px;
 }
 
@@ -4582,6 +4582,40 @@ body, p, span, td, div {
   word-break: break-all;   /* 遇到超长域名时允许断行 */
   white-space: normal;     /* 自然换行 */
 }
+
+/* 白名单预览（最多三行） */
+.whitelist-preview{
+  --lh: 22px;             /* 每行行高 */
+  margin-top: 8px;
+  position: relative;
+  padding-right: 72px;     /* 右下角按钮预留 */
+  max-height: calc(var(--lh) * 3);
+  overflow: hidden;
+}
+/* 纯文本内容（逗号分隔） */
+.whitelist-text{
+  font-size: 13px;
+  line-height: var(--lh);
+  color: #374151;
+  white-space: normal;     /* 自然换行 */
+  word-break: break-word;  /* 域名过长时可断行 */
+}
+/* “查看全部”固定在第三行末尾（右下） */
+.whitelist-more{
+  position: absolute;
+  right: 0;
+  bottom: 0;
+height: var(--lh);
+line-height: var(--lh);
+  padding: 0 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 14px;
+  background: #ffffff;
+  font-size: 11px;
+  color: #2563eb;
+  cursor: pointer;
+}
+.whitelist-more:hover{ background:#f3f4f6; }
 
 /* === 表格 === */
 .data-table {
@@ -5397,6 +5431,28 @@ function renderWhitelistInline(list){
   // 允许换行自动换，不做 chips，不做按钮
 }
 
+function renderWhitelistPreview(list){
+  try{
+    const wrap = document.getElementById("whitelistPreview");
+    if(!wrap) return;
+    wrap.innerHTML = "";
+
+    const arr = Array.isArray(list) ? list.filter(Boolean) : [];
+    // 逗号 + 空格分隔，作为纯文本显示（自动换行）
+    const text = document.createElement("div");
+    text.className = "whitelist-text";
+    text.textContent = arr.join(", ");
+    wrap.appendChild(text);
+
+    // 右下角“查看全部”（保留新的这个按钮）
+    const more = document.createElement("div");
+    more.className = "whitelist-more";
+    more.textContent = "查看全部";
+    more.onclick = showWhitelistModal;
+    wrap.appendChild(more);
+  }catch(e){ console.error(e); }
+}
+
 function showWhitelistModal() {
   const modal = document.getElementById('whitelistModal');
   const list = document.getElementById('whitelistList');
@@ -5706,19 +5762,51 @@ async function init() {
   setInterval(updateProgressBar, 3600000);
 }
 
+// === 修复协议配置弹窗的事件委托绑定 ===
 (function bindProtocolViewHandler(){
   const tbody = document.getElementById('protocol-tbody');
-  if (!tbody || tbody.__viewBound) return;
+  if (!tbody) {
+    console.error('protocol-tbody not found');
+    return;
+  }
+  
+  // 防止重复绑定
+  if (tbody.__viewBound) {
+    console.log('Protocol view handler already bound');
+    return;
+  }
 
   tbody.addEventListener('click', (e) => {
-    const btn = e.target.closest('button.view-config');
+    // 查找最近的带有data-protocol属性的按钮
+    const btn = e.target.closest('button[data-protocol]');
     if (!btn || !tbody.contains(btn)) return;
-    const name = btn.dataset.protocol;  // "__SUBS__" 或具体协议名
-    if (!name) { console.warn('[protocol] missing data-protocol', btn); return; }
-    showConfigModal(name);  // 统一按“名称”处理
+    
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const protocolName = btn.dataset.protocol;
+    if (!protocolName) {
+      console.warn('[protocol] missing data-protocol attribute', btn);
+      return;
+    }
+    
+    console.log('[protocol] button clicked:', protocolName);
+    
+    // 调用弹窗显示函数
+    try {
+      showConfigModal(protocolName);
+    } catch (error) {
+      console.error('[protocol] showConfigModal failed:', error);
+      if (window.notify) {
+        notify('打开配置弹窗失败', 'warn');
+      } else {
+        alert('打开配置弹窗失败');
+      }
+    }
   });
 
   tbody.__viewBound = true;
+  console.log('Protocol view handler bound successfully');
 })();
 
 // 打开/关闭弹窗时控制刷新
@@ -5730,12 +5818,108 @@ function pauseOverviewOnce(ms=10000){
 // 页面加载完成后初始化
 window.addEventListener('DOMContentLoaded', init);
 
-// 模态框关闭
-window.onclick = function(event) {
-  if (event.target.className === 'modal') {
-    event.target.style.display = 'none';
+// === 修复showConfigModal函数的错误处理 ===
+const originalShowConfigModal = window.showConfigModal;
+window.showConfigModal = function(key) {
+  console.log('showConfigModal called with:', key, typeof key);
+  
+  const modal = document.getElementById('configModal');
+  const title = document.getElementById('configModalTitle');
+  const details = document.getElementById('configDetails');
+  
+  // 检查必要的DOM元素
+  if (!modal) {
+    console.error('configModal element not found');
+    return;
   }
-}
+  if (!title) {
+    console.error('configModalTitle element not found');
+    return;
+  }
+  if (!details) {
+    console.error('configDetails element not found');
+    return;
+  }
+  
+  try {
+    // 调用原始函数
+    if (typeof originalShowConfigModal === 'function') {
+      originalShowConfigModal.call(this, key);
+    } else {
+      console.error('Original showConfigModal function not found');
+      // 提供基本的显示逻辑
+      modal.style.display = 'block';
+      title.textContent = `配置详情 - ${key}`;
+      details.innerHTML = '<p>配置信息加载中...</p>';
+    }
+  } catch (error) {
+    console.error('showConfigModal execution failed:', error);
+    modal.style.display = 'block';
+    title.textContent = '配置详情';
+    details.innerHTML = `<p style="color: #ef4444;">加载失败: ${error.message}</p>`;
+  }
+};
+
+// === 确保弹窗关闭功能正常 ===
+const originalCloseConfigModal = window.closeConfigModal;
+window.closeConfigModal = function() {
+  const modal = document.getElementById('configModal');
+  if (modal) {
+    modal.style.display = 'none';
+  }
+  
+  const qr = document.getElementById('qrcode');
+  if (qr) {
+    qr.innerHTML = '';
+  }
+  
+// 恢复页面滚动
+  if (typeof unlockScroll === 'function') {
+    unlockScroll();
+  } else {
+    document.body.style.overflow = '';
+    document.body.classList.remove('modal-open');
+  }
+  
+  if (typeof originalCloseConfigModal === 'function') {
+    try {
+      originalCloseConfigModal.call(this);
+    } catch (error) {
+      console.warn('Original closeConfigModal failed:', error);
+    }
+  }
+};
+
+// === 全局弹窗关闭事件优化 ===
+window.addEventListener('click', function(event) {
+  if (event.target.classList.contains('modal')) {
+    event.target.style.display = 'none';
+    // 恢复滚动
+    document.body.style.overflow = '';
+    document.body.classList.remove('modal-open');
+  }
+});
+
+// === 调试辅助函数 ===
+window.debugProtocolTable = function() {
+  const tbody = document.getElementById('protocol-tbody');
+  const buttons = tbody ? tbody.querySelectorAll('button[data-protocol]') : [];
+  
+  console.group('Protocol Table Debug Info');
+  console.log('tbody element:', tbody);
+  console.log('buttons found:', buttons.length);
+  
+  buttons.forEach((btn, index) => {
+    console.log(`Button ${index}:`, {
+      element: btn,
+      protocol: btn.dataset.protocol,
+      text: btn.textContent.trim()
+    });
+  });
+  
+  console.log('dashboardData.protocols:', window.dashboardData?.protocols);
+  console.groupEnd();
+};
 
 // === [PATCH:APPJS_EXPORT_GLOBALS_BEGIN] ===
 // 供 HTML 内联 onclick 使用（不改你现有 HTML）
@@ -5948,10 +6132,9 @@ EXTERNAL_JS
                 <value style="font-size: 11px;">白名单VPS直连+其它代理</value>
               </div>
               <div class="info-item">
-<label>白名单:</label>
-<value id="whitelistInline" class="whitelist-inline"></value>
-<value><a href="#" class="ipq-link" onclick="showWhitelistModal()">查看全部</a></value>
-</div>
+			  <label>白名单:</label>
+			  </div>
+			  <div class="whitelist-preview" id="whitelistPreview"></div>
             </div>
           </div>
         </div>
