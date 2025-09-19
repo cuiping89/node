@@ -5685,13 +5685,9 @@ async function init() {
   tbody.addEventListener('click', (e) => {
     const btn = e.target.closest('button.view-config');
     if (!btn || !tbody.contains(btn)) return;
-
     const name = btn.dataset.protocol;  // "__SUBS__" 或具体协议名
-    if (!name) {
-      console.warn('[protocol] missing data-protocol on button', btn);
-      return;
-    }
-    showConfigModal(name);  // 统一按名称处理
+    if (!name) { console.warn('[protocol] missing data-protocol', btn); return; }
+    showConfigModal(name);  // 统一按“名称”处理
   });
 
   tbody.__viewBound = true;
@@ -5712,6 +5708,23 @@ window.onclick = function(event) {
     event.target.style.display = 'none';
   }
 }
+
+// === [PATCH:APPJS_EXPORT_GLOBALS_BEGIN] ===
+// 供 HTML 内联 onclick 使用（不改你现有 HTML）
+window.showConfigModal   = showConfigModal;
+window.closeConfigModal  = closeConfigModal;
+window.copyPlain         = copyPlain;
+window.copyJSON          = copyJSON;
+window.copyBase64        = copyBase64;
+window.copyQRImage       = copyQRImage;
+
+// 如果页面上还有这些内联按钮，也一并导出（有就用，没有不影响）
+window.showIPQDetails        = typeof showIPQDetails        === 'function' ? showIPQDetails        : undefined;
+window.closeIPQModal         = typeof closeIPQModal         === 'function' ? closeIPQModal         : undefined;
+window.showWhitelistModal    = typeof showWhitelistModal    === 'function' ? showWhitelistModal    : undefined;
+window.closeWhitelistModal   = typeof closeWhitelistModal   === 'function' ? closeWhitelistModal   : undefined;
+// === [PATCH:APPJS_EXPORT_GLOBALS_END] ===
+
 EXTERNAL_JS
 
 # ======= 创建HTML文件（引用外置的CSS和JS）========
