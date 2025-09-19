@@ -4058,7 +4058,6 @@ log_info "└─ show_traffic_stats()       # 查看流量统计"
 #############################################
 
 # 设置流量监控系统
-# 设置流量监控系统
 setup_traffic_monitoring() {
   log_info "设置流量采集与前端渲染（vnStat + nftables + CSV/JSON + Chart.js + 预警）..."
 
@@ -5204,7 +5203,7 @@ function updateProtocolTable(protocols) {
       <td>${p.scenario || '—'}</td>
       <td>${p.camouflage || '—'}</td>
       <td><span class="status-badge ${p.status === '运行中' ? 'status-running' : ''}">${p.status || '—'}</span></td>
-      <td><button class="btn btn-sm btn-link view-config" data-protocol="${(p.name||'').replace(/"/g,'&quot;')}">查看配置</button></td>
+      <button class="btn btn-sm btn-info view-config-btn" data-protocol="${row.protocol}">查看配置</button>
     </tr>
   `);
 
@@ -5692,6 +5691,36 @@ async function init() {
 
   tbody.__viewBound = true;
 })();
+
+// ====== 新增：使用事件委托处理点击事件 ======
+
+// 获取表格容器，使用事件委托，减少事件监听器数量，提高性能
+// 选择具有 .edgebox-table 类的表格，如果您的表格类名不同，请自行修改
+const table = document.querySelector('.edgebox-table'); 
+
+// 确保表格元素存在
+if (table) {
+  // 监听表格上的所有点击事件
+  table.addEventListener('click', (event) => {
+    // 检查被点击的元素或其父元素是否是“查看配置”按钮
+    // 使用 .closest() 向上查找，以确保点击的是按钮本身或其内部的图标等
+    const button = event.target.closest('.view-config-btn');
+
+    // 如果找到了对应的按钮
+    if (button) {
+      // 阻止默认行为（如果按钮是链接等）
+      event.preventDefault();
+
+      // 从按钮的 data-protocol 属性中获取协议名
+      const protocol = button.dataset.protocol;
+      
+      // 调用 showConfigModal 函数，并传入协议名
+      if (protocol && typeof showConfigModal === 'function') {
+        showConfigModal(protocol);
+      }
+    }
+  });
+}
 
 // 打开/关闭弹窗时控制刷新
 function pauseOverviewOnce(ms=10000){
