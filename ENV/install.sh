@@ -4583,30 +4583,32 @@ body, p, span, td, div {
   white-space: normal;     /* 自然换行 */
 }
 
-/* 白名单预览（最多三行） */
+/* 白名单预览容器：紧跟标题显示，最多三行 */
+.whitelist-value{   /* 包裹 value，统一行高与其它区块 */
+  width: 100%;
+}
 .whitelist-preview{
-  --lh: 22px;             /* 每行行高 */
-  margin-top: 8px;
+  --lh: 22px;          /* 每行行高 */
+  margin-top: 4px;     /* 与标题的间距——比原来更紧 */
   position: relative;
-  padding-right: 72px;     /* 右下角按钮预留 */
+  padding-right: 72px; /* 右下角按钮预留 */
   max-height: calc(var(--lh) * 3);
   overflow: hidden;
 }
-/* 纯文本内容（逗号分隔） */
 .whitelist-text{
   font-size: 13px;
   line-height: var(--lh);
   color: #374151;
-  white-space: normal;     /* 自然换行 */
-  word-break: break-word;  /* 域名过长时可断行 */
+  white-space: normal;
+  word-break: break-word;
 }
-/* “查看全部”固定在第三行末尾（右下） */
+/* 右下角“查看全部”，保持在第三行末尾 */
 .whitelist-more{
   position: absolute;
   right: 0;
   bottom: 0;
-height: var(--lh);
-line-height: var(--lh);
+  height: var(--lh);
+  line-height: var(--lh);
   padding: 0 10px;
   border: 1px solid #d1d5db;
   border-radius: 14px;
@@ -5250,7 +5252,7 @@ function updateProtocolTable(protocols) {
 
   const tbody = document.getElementById('protocol-tbody');
 
-  // 普通协议行（已去掉端口列，并使用 onclick）
+  // 普通协议行 - 改用 data-protocol 属性
   const rows = (protocols || []).map(p => `
     <tr>
       <td>${p.name}</td>
@@ -5268,7 +5270,7 @@ function updateProtocolTable(protocols) {
       <td></td>
       <td></td>
       <td></td>
-	  <td><button class="btn btn-sm btn-link view-config" data-protocol="__SUBS__">查看配置</button></td>
+      <td><button class="btn btn-sm btn-link view-config" data-protocol="__SUBS__">查看配置</button></td>
     </tr>
   `);
 
@@ -5488,6 +5490,39 @@ function unlockScroll(){
   document.body.style.overflow = document.body.dataset.prevOverflow || '';
   document.body.classList.remove('modal-open');
   delete document.body.dataset.prevOverflow;
+}
+
+if (typeof showConfigModal !== 'function') {
+  // 如果原始函数不存在，定义一个基础版本
+  window.showConfigModal = function(key) {
+    const modal = document.getElementById('configModal');
+    const title = document.getElementById('configModalTitle');
+    const details = document.getElementById('configDetails');
+    
+    if (!modal || !title || !details) {
+      console.error('[Modal] Required DOM elements not found');
+      return;
+    }
+    
+    // 基础显示逻辑
+    modal.style.display = 'block';
+    title.textContent = `配置详情 - ${key}`;
+    details.innerHTML = '<p>加载配置中...</p>';
+    
+    // 处理具体的协议数据
+    if (key === '__SUBS__') {
+      title.textContent = '整包订阅链接 - 客户端配置详情';
+      // 订阅链接处理...
+    } else {
+      // 普通协议处理...
+      const protocols = window.dashboardData?.protocols || [];
+      const protocol = protocols.find(p => p.name === key);
+      if (protocol) {
+        title.textContent = `${protocol.name} - 客户端配置详情`;
+        // 显示协议详情...
+      }
+    }
+  };
 }
 
 function showConfigModal(key) {
@@ -6131,10 +6166,12 @@ EXTERNAL_JS
                 <label>混合身份:</label>
                 <value style="font-size: 11px;">白名单VPS直连+其它代理</value>
               </div>
-              <div class="info-item">
-			  <label>白名单:</label>
-			  </div>
-			  <div class="whitelist-preview" id="whitelistPreview"></div>
+<div class="info-item">
+  <label>白名单:</label>
+  <value class="whitelist-value">
+    <div class="whitelist-preview" id="whitelistPreview"></div>
+  </value>
+</div>
             </div>
           </div>
         </div>
@@ -6155,9 +6192,18 @@ EXTERNAL_JS
   <th>客户端配置</th>
 </tr>
           </thead>
-          <tbody id="protocol-tbody">
-            <!-- 动态填充 -->
-          </tbody>
+<tbody id="protocol-tbody">
+  <!-- 动态生成的协议行将在这里插入 -->
+  <!-- 示例行结构如下（由JavaScript动态生成）：
+  <tr>
+    <td>协议名称</td>
+    <td>TCP/UDP</td>
+    <td>端口</td>
+    <td>运行中</td>
+    <td><button class="btn btn-xs" data-protocol="协议名称">查看配置</button></td>
+  </tr>
+  -->
+</tbody>
         </table>
       </div>
 
