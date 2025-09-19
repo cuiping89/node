@@ -4293,6 +4293,72 @@ body {
   max-width: 1400px;
   margin: 0 auto;
 }
+/* 在现有CSS基础上，添加这些缺失的关键样式 */
+
+/* === 文字系统（严格遵循规范）=== */
+h1 { font-size: 23px; font-weight: 700; color: #1f2937; line-height: 32px; }
+h2 { font-size: 18px; font-weight: 600; color: #1f2937; line-height: 26px; }
+h3 { font-size: 15px; font-weight: 600; color: #1f2937; line-height: 22px; }
+h4 { font-size: 14px; font-weight: 500; color: #1f2937; line-height: 20px; }
+
+/* === 主卡片系统 === */
+.main-card {
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+  overflow: hidden;
+}
+
+.main-header {
+  background: linear-gradient(135deg, #5e72e4 0%, #825ee4 100%);
+  color: white;
+  padding: 20px 30px;
+  text-align: center;
+}
+
+.main-content {
+  padding: 20px;
+}
+
+/* === 内层区块样式 === */
+.inner-block {
+  background: #f5f5f5;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 15px;
+  margin-bottom: 15px;
+}
+
+.inner-block h3 {
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+/* === 流量进度条（关键样式）=== */
+.traffic-progress-container {
+  position: absolute; 
+  top: 16px; 
+  right: 16px; 
+  width: 320px;
+  font-size: .75rem; 
+  display: flex; 
+  align-items: center; 
+  gap: 8px;
+}
+
+.progress-wrapper { 
+  flex: 1; 
+  position: relative; 
+}
+
+.progress-percentage { 
+  position: absolute; 
+  color: #fff; 
+  font-size: .65rem; 
+  font-weight: 600; 
+}
 
 /* === 文字系统（严格遵循规范） === */
 h1 {
