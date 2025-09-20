@@ -94,6 +94,10 @@ log_success() {
     echo -e "${GREEN}[SUCCESS]${NC} $1" | tee -a ${LOG_FILE}
 }
 
+log_debug() {
+    echo -e "${RED}[DEBUG]${NC} $1" | tee -a ${LOG_FILE}
+}
+
 print_separator() {
     echo -e "${BLUE}========================================${NC}"
 }
@@ -178,53 +182,81 @@ get_server_ip() {
 
 # 检查并安装依赖
 install_dependencies() {
-    log_info "安装依赖..."
+    log_info "正在安装系统依赖..."
     DEBIAN_FRONTEND=noninteractive apt-get update -y >/dev/null 2>&1 || true
 
     # 必要包
-local pkgs=(curl wget unzip gawk ca-certificates jq bc uuid-runtime dnsutils openssl \
-            vnstat nginx libnginx-mod-stream nftables certbot python3-certbot-nginx \
-            msmtp-mta bsd-mailx cron tar)
+    local pkgs=(curl wget unzip gawk ca-certificates jq bc uuid-runtime dnsutils openssl \
+              vnstat nginx libnginx-mod-stream nftables certbot python3-certbot-nginx \
+              msmtp-mta bsd-mailx cron tar)
+    
     for pkg in "${pkgs[@]}"; do
-      if ! dpkg -l | grep -q "^ii.*${pkg}"; then
-        log_info "安装 ${pkg}..."
-        DEBIAN_FRONTEND=noninteractive apt-get install -y "${pkg}" >/dev/null 2>&1 || {
-          log_warn "${pkg} 安装失败，尝试继续..."
-        }
-      else
-        log_info "${pkg} 已安装"
-      fi
+        if ! dpkg -l | grep -q "^ii.*${pkg}"; then
+            log_info "安装 ${pkg}..."
+            # 修正：移除静默处理，确保能看到具体错误
+            DEBIAN_FRONTEND=noninteractive apt-get install -y "${pkg}"
+        else
+            log_info "${pkg} 已安装"
+        fi
     done
+    
+    # 新增：在安装后再次检查 jq 是否存在
+    if ! command -v jq &> /dev/null; then
+        log_error "jq 安装失败，无法继续。请检查您的网络连接或软件源。"
+        return 1
+    fi
 
+    # 启用和启动服务
     systemctl enable vnstat >/dev/null 2>&1 || true
     systemctl start  vnstat  >/dev/null 2>&1 || true
 
     systemctl enable nftables >/dev/null 2>&1 || true
     systemctl start  nftables  >/dev/null 2>&1 || true
 
-    log_success "依赖安装完成（已移除 Python 科学栈）"
+    log_success "依赖安装完成。"
+    return 0
 }
 
-# 生成UUID和密码
+# 修复后的 generate_credentials 函数
 generate_credentials() {
-    log_info "生成UUID和密码..."
+    log_info "正在生成 UUID 和密码..."
+    if ! command -v uuidgen &> /dev/null; then
+        log_error "uuidgen 未安装，请先安装: apt-get install -y uuid-runtime"
+        return 1
+    fi
     
-    UUID_VLESS=$(uuidgen)
+    # 为每种协议生成独立的 UUID
+    UUID_VLESS_REALITY=$(uuidgen)
+    UUID_VLESS_GRPC=$(uuidgen)
+    UUID_VLESS_WS=$(uuidgen)
     UUID_HYSTERIA2=$(uuidgen)
     UUID_TUIC=$(uuidgen)
-    UUID_TROJAN=$(uuidgen)  # 新增
+    UUID_TROJAN=$(uuidgen)
+
+    # 为了兼容性，保留通用UUID变量
+    UUID_VLESS="$UUID_VLESS_REALITY"
+
+    # 生成密码
+    PASSWORD_TROJAN=$(openssl rand -base64 24)
+    PASSWORD_TUIC=$(openssl rand -base64 24)
+    PASSWORD_HYSTERIA2=$(openssl rand -base64 24)
+
+    # 验证生成结果
+    if [[ -z "$UUID_VLESS_REALITY" || -z "$PASSWORD_TROJAN" || -z "$PASSWORD_HYSTERIA2" ]]; then
+        log_error "UUID 或密码生成失败！"
+        return 1
+    fi
+
+    log_success "凭据生成完成："
+    log_success "VLESS-REALITY: ${UUID_VLESS_REALITY}"
+    log_success "VLESS-gRPC   : ${UUID_VLESS_GRPC}"
+    log_success "VLESS-WS     : ${UUID_VLESS_WS}"
+    log_success "TUIC UUID    : ${UUID_TUIC}"
+    log_success "Trojan 密码  : ${PASSWORD_TROJAN:0:8}..."
+    log_success "Hysteria2    : ${PASSWORD_HYSTERIA2:0:8}..."
+    log_success "TUIC 密码    : ${PASSWORD_TUIC:0:8}..."
     
-    REALITY_SHORT_ID="$(openssl rand -hex 8)"
-    PASSWORD_HYSTERIA2=$(openssl rand -base64 16)
-    PASSWORD_TUIC=$(openssl rand -base64 16)
-    PASSWORD_TROJAN=$(openssl rand -base64 16)  # 新增
-    
-    log_success "凭证生成完成"
-    log_info "VLESS UUID: $UUID_VLESS"
-    log_info "TUIC UUID: $UUID_TUIC"
-    log_info "Trojan UUID: $UUID_TROJAN"  # 新增
-    log_info "Hysteria2 密码: $PASSWORD_HYSTERIA2"
-    log_info "Trojan 密码: $PASSWORD_TROJAN"  # 新增
+    return 0
 }
 
 # 创建目录结构
@@ -428,38 +460,26 @@ install_sing_box() {
     fi
 }
 
-# 生成Reality密钥对
+# 生成Reality密钥对（含 shortId）
 generate_reality_keys() {
-    log_info "生成Reality密钥对..."
+  log_info "正在生成 Reality 密钥对..."
+  local out
+  out="$(sing-box generate reality-keypair)" || { log_error "Reality 密钥生成失败！"; return 1; }
 
-    # 优先用 sing-box 生成
-    if command -v sing-box >/dev/null 2>&1; then
-        local out
-        out="$(sing-box generate reality-keypair 2>/dev/null || sing-box generate reality-key 2>/dev/null || true)"
-        REALITY_PRIVATE_KEY="$(echo "$out" | awk -F': ' '/Private/{print $2}')"
-        REALITY_PUBLIC_KEY="$(echo "$out"  | awk -F': ' '/Public/{print  $2}')"
-        if [[ -n "$REALITY_PRIVATE_KEY" && -n "$REALITY_PUBLIC_KEY" ]]; then
-            log_success "Reality密钥对生成完成（sing-box）"
-            log_info "Reality公钥: $REALITY_PUBLIC_KEY"
-            return 0
-        fi
-    fi
+  # 提取私钥、公钥
+  REALITY_PRIVATE_KEY="$(printf '%s\n' "$out" | grep -oP 'PrivateKey: \K[a-zA-Z0-9_-]+')"
+  REALITY_PUBLIC_KEY="$(printf '%s\n' "$out" | grep -oP 'PublicKey: \K[a-zA-Z0-9_-]+')"
 
-    # 回退：使用 Xray 生成
-    if command -v xray >/dev/null 2>&1; then
-        local keys
-        keys="$(xray x25519)"
-        REALITY_PRIVATE_KEY="$(echo "$keys" | awk '/Private key/{print $3}')"
-        REALITY_PUBLIC_KEY="$(echo  "$keys" | awk '/Public key/{print  $3}')"
-        if [[ -n "$REALITY_PRIVATE_KEY" && -n "$REALITY_PUBLIC_KEY" ]]; then
-            log_success "Reality密钥对生成完成（xray）"
-            log_info "Reality公钥: $REALITY_PUBLIC_KEY"
-            return 0
-        fi
-    fi
+  # 生成 shortId（8~16 个十六进制，Reality 推荐 8 或 10）
+  # 用 openssl 更稳：确保十六进制
+  REALITY_SHORT_ID="$(openssl rand -hex 8 | cut -c1-8)"
 
-    log_error "生成Reality密钥失败"
+  if [[ -z "$REALITY_PRIVATE_KEY" || -z "$REALITY_PUBLIC_KEY" || -z "$REALITY_SHORT_ID" ]]; then
+    log_error "Reality 关键信息生成不完整(PRI/PUB/shortId)，中止。"
     return 1
+  fi
+
+  log_success "Reality 密钥对生成完成，shortId=${REALITY_SHORT_ID}"
 }
 
 # 配置Nginx（SNI定向 + ALPN兜底架构）
@@ -492,7 +512,7 @@ http {
     # 根路径跳转到面板
     location = / { return 302 /traffic/; }
 
-    # 只保留一个 /sub（修复：消除重复定义）
+    # 只保留一个 /sub
     location = /sub {
       default_type text/plain;
       add_header Cache-Control "no-store" always;
@@ -502,14 +522,18 @@ http {
     # 控制面板与数据
     location ^~ /traffic/ {
       alias /etc/edgebox/traffic/;
-      index  index.html;                 # ← 新增：保证 /traffic/ 能出 index.html
+      index  index.html;
       autoindex off;
       add_header Cache-Control "no-store" always;
-      types {                            # 保证 json/txt/html 的 MIME 正确
-        text/html        html;
-        application/json json;
-        text/plain       txt;
-      }
+      types { text/html html; application/json json; text/plain txt; }
+    }
+
+    # IP 质量状态（与文档口径一致：/status/ipq_*.json）
+    location ^~ /status/ {
+      alias /var/www/edgebox/status/;
+      autoindex off;
+      add_header Cache-Control "no-store" always;
+      types { application/json json; text/plain txt; }
     }
   }
 }
@@ -558,22 +582,17 @@ NGINX_CONF
 
 # 配置Xray
 configure_xray() {
-    log_info "配置 Xray..."
+  log_info "配置 Xray..."
 
-    # 验证必要变量
-    if [[ -z "$UUID_VLESS" || -z "$REALITY_PRIVATE_KEY" || -z "$REALITY_SHORT_ID" || -z "$UUID_TROJAN" || -z "$PASSWORD_TROJAN" ]]; then
-        log_error "必要的配置变量未设置"
-        return 1
-    fi
+  # 校验必须变量
+  if [[ -z "$UUID_VLESS_REALITY" || -z "$UUID_VLESS_GRPC" || -z "$UUID_VLESS_WS" || -z "$REALITY_PRIVATE_KEY" || -z "$REALITY_SHORT_ID" || -z "$PASSWORD_TROJAN" ]]; then
+    log_error "必要的配置变量未设置"
+    return 1
+  fi
 
-    # 生成配置文件
-    cat > ${CONFIG_DIR}/xray.json << EOF
+  cat > "${CONFIG_DIR}/xray.json" <<'EOF'
 {
-  "log": {
-    "loglevel": "warning",
-    "access": "/var/log/xray/access.log",
-    "error": "/var/log/xray/error.log"
-  },
+  "log": { "loglevel": "warning", "access": "/var/log/xray/access.log", "error": "/var/log/xray/error.log" },
   "inbounds": [
     {
       "tag": "VLESS-Reality",
@@ -582,11 +601,7 @@ configure_xray() {
       "protocol": "vless",
       "settings": {
         "clients": [
-          { 
-            "id": "${UUID_VLESS}", 
-            "flow": "xtls-rprx-vision", 
-            "email": "reality@edgebox" 
-          }
+          { "id": "__UUID_VLESS_REALITY__", "flow": "xtls-rprx-vision", "email": "reality@edgebox" }
         ],
         "decryption": "none"
       },
@@ -597,13 +612,9 @@ configure_xray() {
           "show": false,
           "dest": "www.cloudflare.com:443",
           "xver": 0,
-          "serverNames": [
-            "www.cloudflare.com",
-            "www.microsoft.com",
-            "www.apple.com"
-          ],
-          "privateKey": "${REALITY_PRIVATE_KEY}",
-          "shortIds": ["${REALITY_SHORT_ID}"]
+          "serverNames": ["www.cloudflare.com","www.microsoft.com","www.apple.com"],
+          "privateKey": "__REALITY_PRIVATE_KEY__",
+          "shortIds": ["__REALITY_SHORT_ID__"]
         }
       }
     },
@@ -613,128 +624,63 @@ configure_xray() {
       "port": 10085,
       "protocol": "vless",
       "settings": {
-        "clients": [ 
-          { 
-            "id": "${UUID_VLESS}", 
-            "email": "grpc-internal@edgebox" 
-          } 
+        "clients": [
+          { "id": "__UUID_VLESS_GRPC__", "email": "grpc-internal@edgebox" }
         ],
         "decryption": "none"
       },
       "streamSettings": {
         "network": "grpc",
         "security": "tls",
-        "tlsSettings": {
-          "alpn": ["h2"],
-          "certificates": [ 
-            { 
-              "certificateFile": "${CERT_DIR}/current.pem", 
-              "keyFile": "${CERT_DIR}/current.key" 
-            } 
-          ]
-        },
-        "grpcSettings": { 
-          "serviceName": "grpc",
-          "multiMode": true
-        }
+        "tlsSettings": { "alpn": ["h2"], "certificates": [{ "certificateFile": "__CERT_PEM__", "keyFile": "__CERT_KEY__" }] },
+        "grpcSettings": { "serviceName": "grpc", "multiMode": true }
       }
     },
     {
-      "tag": "VLESS-WS-Internal", 
+      "tag": "VLESS-WS-Internal",
       "listen": "127.0.0.1",
       "port": 10086,
       "protocol": "vless",
       "settings": {
-        "clients": [ 
-          { 
-            "id": "${UUID_VLESS}", 
-            "email": "ws-internal@edgebox" 
-          } 
+        "clients": [
+          { "id": "__UUID_VLESS_WS__", "email": "ws-internal@edgebox" }
         ],
         "decryption": "none"
       },
       "streamSettings": {
         "network": "ws",
-        "security": "tls", 
-        "tlsSettings": {
-          "alpn": ["http/1.1"],
-          "certificates": [ 
-            { 
-              "certificateFile": "${CERT_DIR}/current.pem", 
-              "keyFile": "${CERT_DIR}/current.key" 
-            } 
-          ]
-        },
-        "wsSettings": { 
-          "path": "/ws"
-        }
+        "security": "tls",
+        "tlsSettings": { "alpn": ["http/1.1"], "certificates": [{ "certificateFile": "__CERT_PEM__", "keyFile": "__CERT_KEY__" }] },
+        "wsSettings": { "path": "/ws" }
       }
     },
     {
       "tag": "Trojan-TLS-Internal",
-      "listen": "127.0.0.1",
-      "port": 10143,
-      "protocol": "trojan",
-      "settings": {
-        "clients": [
-          {
-            "password": "${PASSWORD_TROJAN}",
-            "email": "trojan-internal@edgebox"
-          }
-        ]
-      },
+      "listen": "127.0.0.1", "port": 10143, "protocol": "trojan",
+      "settings": { "clients": [{ "password": "__PASSWORD_TROJAN__", "email": "trojan-internal@edgebox" }] },
       "streamSettings": {
         "network": "tcp",
         "security": "tls",
-        "tlsSettings": {
-          "alpn": ["http/1.1", "h2"],
-          "certificates": [
-            {
-              "certificateFile": "${CERT_DIR}/current.pem",
-              "keyFile": "${CERT_DIR}/current.key"
-            }
-          ]
-        }
+        "tlsSettings": { "alpn": ["http/1.1","h2"], "certificates": [{ "certificateFile": "__CERT_PEM__", "keyFile": "__CERT_KEY__" }] }
       }
     }
   ],
-  "outbounds": [ 
-    { 
-      "protocol": "freedom", 
-      "settings": {} 
-    } 
-  ],
-  "routing": { 
-    "rules": [] 
-  }
+  "outbounds": [{ "protocol": "freedom", "settings": {} }],
+  "routing": { "rules": [] }
 }
 EOF
 
-    # 验证配置文件
-    if ! jq '.' ${CONFIG_DIR}/xray.json >/dev/null 2>&1; then
-        log_error "Xray 配置JSON语法错误"
-        return 1
-    fi
-
-    # 创建systemd服务
-    cat > /etc/systemd/system/xray.service << 'XRAY_SERVICE'
-[Unit]
-Description=Xray Service (EdgeBox)
-After=network.target
-StartLimitIntervalSec=0
-[Service]
-Type=simple
-User=root
-ExecStart=/usr/local/bin/xray run -c /etc/edgebox/config/xray.json
-Restart=on-failure
-RestartSec=5
-LimitNOFILE=infinity
-[Install]
-WantedBy=multi-user.target
-XRAY_SERVICE
-
-    systemctl daemon-reload
-    log_success "Xray 配置完成"
+  # 替换占位符
+  sed -i \
+    -e "s#__UUID_VLESS_REALITY__#${UUID_VLESS_REALITY}#g" \
+    -e "s#__UUID_VLESS_GRPC__#${UUID_VLESS_GRPC}#g" \
+    -e "s#__UUID_VLESS_WS__#${UUID_VLESS_WS}#g" \
+    -e "s#__REALITY_PRIVATE_KEY__#${REALITY_PRIVATE_KEY}#g" \
+    -e "s#__REALITY_SHORT_ID__#${REALITY_SHORT_ID}#g" \
+    -e "s#__CERT_PEM__#${CERT_DIR}/current.pem#g" \
+    -e "s#__CERT_KEY__#${CERT_DIR}/current.key#g" \
+    -e "s#__PASSWORD_TROJAN__#${PASSWORD_TROJAN}#g" \
+    "${CONFIG_DIR}/xray.json"
 }
 
 # 配置sing-box
@@ -829,55 +775,114 @@ EOF
 }
 
 # 保存配置信息
+# 修复后的 save_config_info 函数
 save_config_info() {
     log_info "保存配置信息..."
+    mkdir -p "${CONFIG_DIR}"
+
+    # 确保所有必要变量都有值
+    local server_ip="${SERVER_IP:-}"
+    local version="${EDGEBOX_VER:-3.0.0}"
+    local install_date="$(date +%Y-%m-%d)"
     
-    cat > ${CONFIG_DIR}/server.json << EOF
-{
-  "server_ip": "${SERVER_IP}",
-  "install_mode": "${INSTALL_MODE}",
-  "install_date": "$(date +%Y-%m-%d)",
-  "version": "3.0.0",
-  "uuid": {
-    "vless": "${UUID_VLESS}",
-    "hysteria2": "${UUID_HYSTERIA2}",
-    "tuic": "${UUID_TUIC}",
-    "trojan": "${UUID_TROJAN}"
-  },
-  "password": {
-    "hysteria2": "${PASSWORD_HYSTERIA2}",
-    "tuic": "${PASSWORD_TUIC}",
-    "trojan": "${PASSWORD_TROJAN}"
-  },
-  "reality": {
-    "public_key": "${REALITY_PUBLIC_KEY}",
-    "private_key": "${REALITY_PRIVATE_KEY}",
-    "short_id": "${REALITY_SHORT_ID}"
-  },
-  "ports": {
-    "reality": ${PORT_REALITY},
-    "hysteria2": ${PORT_HYSTERIA2},
-    "tuic": ${PORT_TUIC},
-    "grpc": ${PORT_GRPC},
-    "ws": ${PORT_WS},
-    "trojan": ${PORT_TROJAN}
-  }
-}
-EOF
+    # UUID变量检查和默认值
+    local vless_reality="${UUID_VLESS_REALITY:-$UUID_VLESS}"
+    local vless_grpc="${UUID_VLESS_GRPC:-$UUID_VLESS}"
+    local vless_ws="${UUID_VLESS_WS:-$UUID_VLESS}"
+    local tuic_uuid="${UUID_TUIC:-}"
     
-    chmod 600 ${CONFIG_DIR}/server.json
-    log_success "配置信息保存完成"
+    # 密码变量检查
+    local trojan_pass="${PASSWORD_TROJAN:-}"
+    local tuic_pass="${PASSWORD_TUIC:-}"
+    local hy2_pass="${PASSWORD_HYSTERIA2:-}"
+    
+    # Reality变量检查
+    local reality_pub="${REALITY_PUBLIC_KEY:-}"
+    local reality_pri="${REALITY_PRIVATE_KEY:-}"
+    local reality_sid="${REALITY_SHORT_ID:-}"
+
+    # 验证关键字段
+    if [[ -z "$server_ip" ]]; then
+        log_error "SERVER_IP 为空"
+        return 1
+    fi
+
+    # 生成配置JSON
+    jq -n \
+      --arg ip "$server_ip" \
+      --arg vm "$version" \
+      --arg inst "$install_date" \
+      --arg vr "$vless_reality" \
+      --arg vg "$vless_grpc" \
+      --arg vw "$vless_ws" \
+      --arg tu "$tuic_uuid" \
+      --arg tt "$trojan_pass" \
+      --arg tp "$tuic_pass" \
+      --arg hy "$hy2_pass" \
+      --arg rpub "$reality_pub" \
+      --arg rpri "$reality_pri" \
+      --arg rsid "$reality_sid" \
+      '{
+        server_ip: $ip,
+        version: $vm,
+        install_date: $inst,
+        uuid: {
+          vless: {
+            reality: $vr,
+            grpc: $vg,
+            ws: $vw
+          },
+          tuic: $tu
+        },
+        password: {
+          trojan: $tt,
+          tuic: $tp,
+          hysteria2: $hy
+        },
+        reality: {
+          public_key: $rpub,
+          private_key: $rpri,
+          short_id: $rsid
+        }
+      }' > "${CONFIG_DIR}/server.json"
+
+    # 验证生成的JSON
+    if ! jq '.' "${CONFIG_DIR}/server.json" >/dev/null 2>&1; then
+        log_error "生成的 server.json 格式错误"
+        return 1
+    fi
+
+    log_success "配置已写入 ${CONFIG_DIR}/server.json"
+    log_debug "server_ip: $server_ip, reality_key: ${reality_pub:0:20}..."
 }
 
-# 启动服务
+# 安全同步订阅文件：/var/www/html/sub 做符号链接；traffic 下保留一份副本
+sync_subscription_files() {
+  log_info "同步订阅文件..."
+  mkdir -p "${WEB_ROOT}" "${TRAFFIC_DIR}"
+
+  local src="${CONFIG_DIR}/subscription.txt"
+  if [[ ! -s "$src" ]]; then
+    log_warn "订阅源不存在：$src"
+    return 0
+  fi
+
+  # Web 目录使用软链接，避免再出现“same file”报错
+  ln -sfn "$src" "${WEB_ROOT}/sub"
+  # traffic 下保留一份副本用于 dashboard-backend
+  install -m 0644 -T "$src" "${TRAFFIC_DIR}/sub.txt"
+
+  log_success "订阅同步完成：${WEB_ROOT}/sub -> ${src}，以及 ${TRAFFIC_DIR}/sub.txt"
+}
+
 start_services() {
-  log_info "启动所有服务..."
+  log_info "启动服务..."
   systemctl daemon-reload
   systemctl enable nginx xray sing-box >/dev/null 2>&1 || true
 
-  systemctl restart nginx >/dev/null 2>&1
-  systemctl restart xray  >/dev/null 2>&1
-  systemctl restart sing-box >/dev/null 2>&1
+  systemctl restart nginx
+  systemctl restart xray
+  systemctl restart sing-box
 
   sleep 2
   for s in nginx xray sing-box; do
@@ -885,90 +890,136 @@ start_services() {
       log_success "$s 运行正常"
     else
       log_error "$s 启动失败"
-      journalctl -u "$s" -n 30 --no-pager | tail -n 20
+      journalctl -u "$s" -n 50 --no-pager | tail -n 50
     fi
   done
 
-  # 初始化 /sub 缓存（可选，确保首次生成有料）
-  if [[ ! -s "/etc/edgebox/traffic/sub.txt" && -s "/var/www/html/sub" ]]; then
-    cp -f "/var/www/html/sub" "/etc/edgebox/traffic/sub.txt"
+  # 先生成/刷新订阅 -> 再同步 -> 再生成 dashboard
+  generate_subscription
+  sync_subscription_files
+
+  # 初次生成 dashboard.json（dashboard-backend 会读取 ${TRAFFIC_DIR}/sub.txt）
+  /etc/edgebox/scripts/dashboard-backend.sh --now 2>/dev/null || true
+  /etc/edgebox/scripts/dashboard-backend.sh --schedule 2>/dev/null || true
+
+  log_success "服务与面板初始化完成"
+}
+
+# 修复后的 generate_subscription 函数
+generate_subscription() {
+  local cfg="${CONFIG_DIR}/server.json"
+  [[ -s "$cfg" ]] || { log_error "缺少 ${cfg}"; return 1; }
+
+  # 确保 server.json 存在且格式正确
+  if ! jq '.' "$cfg" >/dev/null 2>&1; then
+    log_error "server.json 格式错误"
+    return 1
   fi
 
-  # 安装并生成初始面板数据 + 写入定时任务（只跑一次）
-  install_scheduled_dashboard_backend
-  /etc/edgebox/scripts/dashboard-backend.sh --now
-  /etc/edgebox/scripts/dashboard-backend.sh --schedule
+  local j='jq -r'
+  local ip reality_pbk reality_sid
+  local uuid_reality uuid_grpc uuid_ws uuid_tuic
+  local trojan_pw hy2_pw tuic_pw
+
+  # 读取基础信息
+  ip=$($j '.server_ip // empty' "$cfg")
+  [[ -z "$ip" || "$ip" == "null" ]] && ip="$SERVER_IP"
+  
+  # 读取 Reality 配置
+  reality_pbk=$($j '.reality.public_key // empty' "$cfg")
+  reality_sid=$($j '.reality.short_id // empty' "$cfg")
+
+  # 读取 UUID - 支持新旧格式
+  uuid_reality=$($j '.uuid.vless.reality // .uuid.vless // empty' "$cfg")
+  uuid_grpc=$($j '.uuid.vless.grpc // .uuid.vless // empty' "$cfg")  
+  uuid_ws=$($j '.uuid.vless.ws // .uuid.vless // empty' "$cfg")
+  uuid_tuic=$($j '.uuid.tuic // empty' "$cfg")
+
+  # 如果分别的UUID为空，使用通用UUID
+  [[ -z "$uuid_reality" ]] && uuid_reality="${UUID_VLESS_REALITY:-$UUID_VLESS}"
+  [[ -z "$uuid_grpc" ]] && uuid_grpc="${UUID_VLESS_GRPC:-$UUID_VLESS}"
+  [[ -z "$uuid_ws" ]] && uuid_ws="${UUID_VLESS_WS:-$UUID_VLESS}"
+
+  # 读取密码
+  trojan_pw=$($j '.password.trojan // empty' "$cfg")
+  hy2_pw=$($j '.password.hysteria2 // empty' "$cfg")
+  tuic_pw=$($j '.password.tuic // empty' "$cfg")
+
+  # 如果JSON中没有，使用全局变量
+  [[ -z "$trojan_pw" ]] && trojan_pw="$PASSWORD_TROJAN"
+  [[ -z "$hy2_pw" ]] && hy2_pw="$PASSWORD_HYSTERIA2"
+  [[ -z "$tuic_pw" ]] && tuic_pw="$PASSWORD_TUIC"
+  [[ -z "$reality_pbk" ]] && reality_pbk="$REALITY_PUBLIC_KEY"
+  [[ -z "$reality_sid" ]] && reality_sid="$REALITY_SHORT_ID"
+
+  # 验证必要字段
+  if [[ -z "$ip" ]]; then
+    log_error "服务器IP为空"
+    return 1
+  fi
+
+  # URL 编码函数
+  uri() { 
+    local str="$1"
+    printf '%s' "$str" | jq -nr --arg s "$str" '$s|@uri'
+  }
+
+  # 生成订阅内容
+  local plain=""
+  
+  # VLESS-Reality
+  if [[ -n "$uuid_reality" && -n "$reality_pbk" && -n "$reality_sid" ]]; then
+    plain+="vless://${uuid_reality}@${ip}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${reality_pbk}&sid=${reality_sid}&type=tcp#EdgeBox-REALITY\n"
+  fi
+  
+  # VLESS-gRPC
+  if [[ -n "$uuid_grpc" ]]; then
+    plain+="vless://${uuid_grpc}@${ip}:443?encryption=none&security=tls&sni=grpc.edgebox.internal&alpn=h2&type=grpc&serviceName=grpc&fp=chrome&allowInsecure=1#EdgeBox-gRPC\n"
+  fi
+  
+  # VLESS-WS
+  if [[ -n "$uuid_ws" ]]; then
+    plain+="vless://${uuid_ws}@${ip}:443?encryption=none&security=tls&sni=ws.edgebox.internal&host=ws.edgebox.internal&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome&allowInsecure=1#EdgeBox-WS\n"
+  fi
+  
+  # Trojan
+  if [[ -n "$trojan_pw" ]]; then
+    plain+="trojan://$(uri "$trojan_pw")@${ip}:443?security=tls&sni=trojan.edgebox.internal&alpn=http%2F1.1&fp=chrome&allowInsecure=1#EdgeBox-TROJAN\n"
+  fi
+  
+  # Hysteria2
+  if [[ -n "$hy2_pw" ]]; then
+    plain+="hysteria2://$(uri "$hy2_pw")@${ip}:443?sni=${ip}&alpn=h3&insecure=1#EdgeBox-HYSTERIA2\n"
+  fi
+  
+  # TUIC
+  if [[ -n "$uuid_tuic" && -n "$tuic_pw" ]]; then
+    plain+="tuic://${uuid_tuic}:$(uri "$tuic_pw")@${ip}:2053?congestion_control=bbr&alpn=h3&sni=${ip}&allowInsecure=1#EdgeBox-TUIC\n"
+  fi
+
+  if [[ -z "$plain" ]]; then
+    log_error "生成的订阅内容为空，请检查配置"
+    return 1
+  fi
+
+  # 写入订阅文件
+  printf "%b" "$plain" > "${CONFIG_DIR}/subscription.txt"
+  
+  # 确保目录存在
+  mkdir -p "${TRAFFIC_DIR}" "${WEB_ROOT}"
+  
+  # 同步到各个位置
+  install -m0644 -T "${CONFIG_DIR}/subscription.txt" "${TRAFFIC_DIR}/sub.txt"
+  install -m0644 -T "${CONFIG_DIR}/subscription.txt" "${WEB_ROOT}/sub"
+  
+  log_success "订阅已生成：${#plain} 字符，包含 $(printf "%b" "$plain" | grep -c '^[a-z]') 个协议"
+  log_debug "订阅内容预览：$(printf "%b" "$plain" | head -n 2)"
 }
 
-# 生成订阅链接（安装时）
-generate_subscription() {
-    log_info "生成订阅链接..."
-
-    # 校验
-    if [[ -z "$SERVER_IP" || -z "$UUID_VLESS" || -z "$REALITY_PUBLIC_KEY" || -z "$UUID_TROJAN" || -z "$PASSWORD_TROJAN" ]]; then
-        log_error "必要的配置变量未设置，无法生成订阅"; return 1
-    fi
-
-    local addr="$SERVER_IP" uuid="$UUID_VLESS" trojan_uuid="$UUID_TROJAN"
-    local WS_SNI="ws.edgebox.internal"
-    local TROJAN_SNI="trojan.edgebox.internal"
-    local allowInsecure="&allowInsecure=1"   # IP 模式：gRPC/WS/TUIC/Trojan 关闭校验
-    local insecure="&insecure=1"             # IP 模式：HY2 关闭校验
-
-    # URL 编码密码
-    local HY2_PW_ENC TUIC_PW_ENC TROJAN_PW_ENC
-    HY2_PW_ENC=$(printf '%s' "$PASSWORD_HYSTERIA2" | jq -rR @uri)
-    TUIC_PW_ENC=$(printf '%s' "$PASSWORD_TUIC"     | jq -rR @uri)
-    TROJAN_PW_ENC=$(printf '%s' "$PASSWORD_TROJAN" | jq -rR @uri)
-
-    # 明文 6 条（⚠️ 无注释、每行一条，放在文件最前面，保证粘贴导入稳定）
-    local plain=$(
-      cat <<PLAIN
-vless://${uuid}@${addr}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&type=tcp#EdgeBox-REALITY
-vless://${uuid}@${addr}:443?encryption=none&security=tls&sni=grpc.edgebox.internal&alpn=h2&type=grpc&serviceName=grpc&fp=chrome${allowInsecure}#EdgeBox-gRPC
-vless://${uuid}@${addr}:443?encryption=none&security=tls&sni=${WS_SNI}&host=${WS_SNI}&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome${allowInsecure}#EdgeBox-WS
-trojan://${TROJAN_PW_ENC}@${addr}:443?security=tls&sni=${TROJAN_SNI}&alpn=http%2F1.1&fp=chrome${allowInsecure}#EdgeBox-TROJAN
-hysteria2://${HY2_PW_ENC}@${addr}:443?sni=${addr}&alpn=h3${insecure}#EdgeBox-HYSTERIA2
-tuic://${UUID_TUIC}:${TUIC_PW_ENC}@${addr}:2053?congestion_control=bbr&alpn=h3&sni=${addr}${allowInsecure}#EdgeBox-TUIC
-PLAIN
-    )
-
-    # Base64 工具
-    _b64_line(){ if base64 --help 2>&1 | grep -q -- '-w'; then base64 -w0; else base64 | tr -d '\n'; fi; }
-    _ensure_nl(){ sed -e '$a\'; }
-
-    # 写配置目录（给 CLI 兼容）
-    printf '%s\n' "$plain" > "${CONFIG_DIR}/subscription.txt"
-    _ensure_nl <<<"$plain" | _b64_line > "${CONFIG_DIR}/subscription.base64"
-
-    : > "${CONFIG_DIR}/subscription.b64lines"
-    while IFS= read -r line; do
-      [[ -n "$line" ]] || continue
-      printf '%s\n' "$line" | _ensure_nl | _b64_line >> "${CONFIG_DIR}/subscription.b64lines"
-      printf '\n' >> "${CONFIG_DIR}/subscription.b64lines"
-    done <<<"$plain"
-
-    # 控制面板文件：第一部分就是纯链接（没有任何注释）
-    mkdir -p /var/www/html
-    {
-      printf '%s\n\n' "$plain"
-      echo "# Base64逐行【每行一个协议，多数客户端不支持一次复制导入】"
-      cat "${CONFIG_DIR}/subscription.b64lines"
-      echo
-      echo "# Base64整包【六协议一起导入，iOS 常用】"
-      cat "${CONFIG_DIR}/subscription.base64"
-      echo
-    } > /var/www/html/sub
-
-    log_success "订阅已生成"
-    log_success "HTTP 订阅地址: http://${addr}/sub"
-}
-
-# === EdgeBox：安装 Dashboard 后端 ===
+# >>> 修复后的 install_scheduled_dashboard_backend 函数 >>>
 install_scheduled_dashboard_backend() {
   mkdir -p /etc/edgebox/scripts /etc/edgebox/traffic /etc/edgebox/config
 
-  # 写入后端脚本（generate_dashboard_data / --now / --schedule）
   cat >/etc/edgebox/scripts/dashboard-backend.sh <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -976,170 +1027,235 @@ export LANG=C LC_ALL=C
 
 TRAFFIC_DIR="${TRAFFIC_DIR:-/etc/edgebox/traffic}"
 CONFIG_DIR="${CONFIG_DIR:-/etc/edgebox/config}"
-CERT_DIR="${CERT_DIR:-/etc/letsencrypt/live}"
-SUB_CACHE="${SUB_CACHE:-/etc/edgebox/traffic/sub.txt}"
 SERVER_JSON="${SERVER_JSON:-${CONFIG_DIR}/server.json}"
+SUB_CACHE="${SUB_CACHE:-${TRAFFIC_DIR}/sub.txt}"
 
-type log_info >/dev/null 2>&1 || log_info(){ echo "[INFO] $*"; }
+log_info(){ echo "[INFO] $*"; }
+log_warn(){ echo "[WARN] $*"; }
+log_error(){ echo "[ERROR] $*" >&2; }
 
-_get_cpu_mem(){ read _ a b c idle _ < /proc/stat; t1=$((a+b+c+idle)); i1=$idle; sleep 1
-                read _ a b c idle _ < /proc/stat; t2=$((a+b+c+idle)); i2=$idle; dt=$((t2-t1)); di=$((i2-i1))
-                CPU=$(( dt>0 ? (100*(dt-di)+dt/2)/dt : 0 ))
-                MT=$(awk '/MemTotal/{print $2}' /proc/meminfo)
-                MA=$(awk '/MemAvailable/{print $2}' /proc/meminfo)
-                MEM=$(( MT>0 ? (100*(MT-MA)+MT/2)/MT : 0 ))
-                echo "$CPU" "$MEM"; }
-
-_unit_active(){ systemctl is-active --quiet "$1" && echo active || echo inactive; }
-
-_get_server_facts(){ local sip="" sdom="" ver="" install_date="" eip=""
-  if [[ -s "$SERVER_JSON" ]]; then
-    sip=$(jq -r '.server_ip // empty' "$SERVER_JSON" 2>/dev/null || true)
-    sdom=$(jq -r '.server_domain // empty' "$SERVER_JSON" 2>/dev/null || true)
-    ver=$(jq -r '.version // empty' "$SERVER_JSON" 2>/dev/null || true)
-    install_date=$(jq -r '.install_date // empty' "$SERVER_JSON" 2>/dev/null || true)
-  fi
-  [[ -z "$sip"  ]] && sip="$(hostname -I 2>/dev/null | awk '{print $1}')"
-  if [[ "${ALLOW_EGRESS_EIP:-0}" == "1" ]] && command -v curl >/dev/null 2>&1; then
-    eip="$(curl -fsS --max-time 2 https://api.ipify.org 2>/dev/null || true)"
-  fi
-  echo "$sip" "$sdom" "$ver" "$install_date" "$eip"
+_get_cpu_mem(){ 
+  read _ u n s i _ < /proc/stat; t1=$((u+n+s+i)); i1=$i; sleep 1
+  read _ u n s i _ < /proc/stat; t2=$((u+n+s+i)); i2=$i; dt=$((t2-t1)); di=$((i2-i1))
+  CPU=$(( dt>0 ? (100*(dt-di)+dt/2)/dt : 0 ))
+  MT=$(awk '/MemTotal/{print $2}' /proc/meminfo)
+  MA=$(awk '/MemAvailable/{print $2}' /proc/meminfo)
+  MEM=$(( MT>0 ? (100*(MT-MA)+MT/2)/MT : 0 ))
+  echo "$CPU" "$MEM"
 }
 
-_get_cert_info(){ local mode="self-signed" typ="自签名证书" expire="N/A"
-  if ls ${CERT_DIR}/*/fullchain.pem >/dev/null 2>&1; then
-    mode="letsencrypt"; typ="Let's Encrypt"
-    local dom=$(basename ${CERT_DIR}/* 2>/dev/null | head -n1)
-    local pem="${CERT_DIR}/${dom}/cert.pem"
-    [[ -f "$pem" ]] && expire="$( (openssl x509 -enddate -noout -in "$pem" | cut -d= -f2 | xargs -I{} date -d {} +%Y-%m-%d) 2>/dev/null || openssl x509 -enddate -noout -in "$pem" | cut -d= -f2 )"
+# 读取明文订阅 -> 产出 plain / base64 / b64_lines 三种形态
+# 修复 install_scheduled_dashboard_backend 函数中的 _parse_sub 部分
+# 读取明文订阅 -> 产出 plain / base64 / b64_lines 三种形态
+_parse_sub(){
+  local sub_plain="" sub_b64="" line
+  
+  # 按优先级查找订阅文件
+  if   [[ -s "${CONFIG_DIR}/subscription.txt" ]]; then
+    sub_plain="$(cat "${CONFIG_DIR}/subscription.txt")"
+  elif [[ -s "${SUB_CACHE}" ]]; then
+    sub_plain="$(cat "${SUB_CACHE}")"
+  elif [[ -s "/var/www/html/sub" ]]; then
+    sub_plain="$(cat "/var/www/html/sub")"
   fi
-  echo "$mode" "$typ" "$expire"
-}
 
-_touch_sub_cache_if_needed(){
-  local need=0
-  if [[ ! -s "$SUB_CACHE" ]]; then need=1
+  # 如果还是没有内容，尝试从 server.json 重新生成
+  if [[ -z "$sub_plain" && -s "$SERVER_JSON" ]]; then
+    local ip reality_pbk reality_sid uuid_vless uuid_tuic trojan_pw hy2_pw tuic_pw
+    
+    ip="$(jq -r '.server_ip // empty' "$SERVER_JSON")"
+    reality_pbk="$(jq -r '.reality.public_key // empty' "$SERVER_JSON")"
+    reality_sid="$(jq -r '.reality.short_id // empty' "$SERVER_JSON")"
+    uuid_vless="$(jq -r '.uuid.vless.reality // .uuid.vless // empty' "$SERVER_JSON")"
+    uuid_tuic="$(jq -r '.uuid.tuic // empty' "$SERVER_JSON")"
+    trojan_pw="$(jq -r '.password.trojan // empty'
+	"$SERVER_JSON")"
+    hy2_pw="$(jq -r '.password.hysteria2 // empty' "$SERVER_JSON")"
+    tuic_pw="$(jq -r '.password.tuic // empty' "$SERVER_JSON")"
+    
+    if [[ -n "$ip" && -n "$uuid_vless" ]]; then
+      # 简化版订阅生成
+      sub_plain="vless://${uuid_vless}@${ip}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${reality_pbk}&sid=${reality_sid}&type=tcp#EdgeBox-REALITY"
+      if [[ -n "$hy2_pw" ]]; then
+        sub_plain="${sub_plain}\nhysteria2://$(printf '%s' "$hy2_pw" | jq -rR @uri)@${ip}:443?sni=${ip}&alpn=h3&insecure=1#EdgeBox-HYSTERIA2"
+      fi
+      if [[ -n "$uuid_tuic" && -n "$tuic_pw" ]]; then
+        sub_plain="${sub_plain}\ntuic://${uuid_tuic}:$(printf '%s' "$tuic_pw" | jq -rR @uri)@${ip}:2053?congestion_control=bbr&alpn=h3&sni=${ip}&allowInsecure=1#EdgeBox-TUIC"
+      fi
+    fi
+  fi
+
+  if [[ -n "$sub_plain" ]]; then
+    if base64 --help 2>&1 | grep -q -- ' -w'; then
+      sub_b64="$(printf '%s\n' "$sub_plain" | base64 -w0)"
+    else
+      sub_b64="$(printf '%s\n' "$sub_plain" | base64 | tr -d '\n')"
+    fi
+    
+    # 生成逐行base64
+    : > "${TRAFFIC_DIR}/subscription.b64lines"
+    while IFS= read -r line; do
+      [[ -z "$line" ]] && continue
+      if base64 --help 2>&1 | grep -q -- ' -w'; then
+        printf '%s' "$line" | sed -e '$a\' | base64 -w0
+      else
+        printf '%s' "$line" | sed -e '$a\' | base64 | tr -d '\n'
+      fi
+      printf '\n'
+    done <<<"$sub_plain" >> "${TRAFFIC_DIR}/subscription.b64lines"
   else
-    local now=$(date +%s) mt=$(stat -c %Y "$SUB_CACHE" 2>/dev/null || echo $now)
-    (( now - mt > 900 )) && need=1
+    : > "${TRAFFIC_DIR}/subscription.b64lines"
   fi
-  if (( need == 1 )) && command -v edgeboxctl >/dev/null 2>&1; then
-    edgeboxctl sub > "$SUB_CACHE" 2>/dev/null || true
-  fi
-  [[ ! -s "$SUB_CACHE" && -s /var/www/html/sub ]] && cp /var/www/html/sub "$SUB_CACHE" || true
-}
 
-_parse_sni_from_sub(){ local key="$1" sni=""
-  [[ -s "$SUB_CACHE" ]] || { echo ""; return; }
-  case "$key" in
-    reality) sni=$(grep -i '^vless://'  "$SUB_CACHE" | head -n1 | sed -n 's/.*[?&]sni=\([^&]*\).*/\1/p' | sed 's/%2F/\//g;s/%3A/:/g');;
-    trojan)  sni=$(grep -i '^trojan://' "$SUB_CACHE" | head -n1 | sed -n 's/.*[?&]sni=\([^&]*\).*/\1/p' | sed 's/%2F/\//g;s/%3A/:/g');;
-  esac; echo "$sni"
-}
+  # 保存明文订阅
+  printf '%s\n' "$sub_plain" > "${TRAFFIC_DIR}/subscription.txt"
 
+  export SUB_PLAIN="$sub_plain"
+  export SUB_B64="$sub_b64"
+  export SUB_LINES="$(cat "${TRAFFIC_DIR}/subscription.b64lines" 2>/dev/null || true)"
+}
+	
+# 将整个 generate_dashboard_data 函数替换为以下代码：
 generate_dashboard_data(){
-  mkdir -p "$TRAFFIC_DIR"; _touch_sub_cache_if_needed
+  mkdir -p "$TRAFFIC_DIR"
   read CPU MEM < <(_get_cpu_mem || echo "0 0")
-  local nginx_s=$(_unit_active nginx) xray_s=$(_unit_active xray)
-  local sbox_s=$(_unit_active sing-box || _unit_active singbox)
 
-  read INSTALL_MODE_ CERT_TYPE CERT_EXPIRE < <(_get_cert_info)
-  read SERVER_IP_ SERVER_DOMAIN_ EDGEBOX_VER_ INSTALL_DATE_ EIP_ < <(_get_server_facts)
+  # 订阅形态
+  _parse_sub
 
-  local REALITY_SNI_="${REALITY_SNI:-$(_parse_sni_from_sub reality)}"
-  [[ -z "$REALITY_SNI_" ]] && REALITY_SNI_="www.cloudflare.com"
-  local TROJAN_SNI_="${TROJAN_SNI:-$(_parse_sni_from_sub trojan)}"
-  [[ -z "$TROJAN_SNI_" ]] && TROJAN_SNI_="trojan.edgebox.internal"
-
-  local has_tcp443="false" has_tuic="false" has_hy2="false"
-  if command -v ss >/dev/null 2>&1; then
-    ss -H -lnpt 2>/dev/null | grep -qE 'tcp .*:443 ' && has_tcp443="true" || true
-    ss -H -lnpu 2>/dev/null | grep -qE 'udp .*:2053 ' && has_tuic="true" || true
-    ss -H -lnpu 2>/dev/null | grep -qE 'udp .*:(8443|443) ' && has_hy2="true" || true
+  # 服务器事实
+  local IP EIP VER INST CM CERT_DOMAIN CERT_EXPIRE
+  if [[ -s "$SERVER_JSON" ]]; then
+    IP="$(jq -r '.server_ip // empty'           "$SERVER_JSON")"
+    EIP="$(jq -r '.eip // empty'                 "$SERVER_JSON")"
+    VER="$(jq -r '.version // "3.0.0"'           "$SERVER_JSON")"
+    INST="$(jq -r '.install_date // empty'       "$SERVER_JSON")"
+    CM="$(jq -r '.cert.mode // "self-signed"'   "$SERVER_JSON")"
+    CERT_DOMAIN="$(jq -r '.cert.domain // empty' "$SERVER_JSON")"
+    CERT_EXPIRE="$(jq -r '.cert.expire // empty' "$SERVER_JSON")"
   fi
 
-  local SUB_PLAIN="$(tr '\n' ' ' < "$SUB_CACHE" 2>/dev/null | sed 's/[[:space:]]\+/ /g' | sed 's/[[:space:]]$//')"
-  local SUB_LINES="$(cat "$SUB_CACHE" 2>/dev/null || true)"
-  local SUB_B64="$(printf '%s' "$SUB_LINES" | (base64 -w0 2>/dev/null || base64) | tr -d '\n')"
-
-  jq -n \
-    --arg ip "$SERVER_IP_" --arg eip "$EIP_" --arg domain "$SERVER_DOMAIN_" \
-    --arg mode "$INSTALL_MODE_" --arg ver "${EDGEBOX_VER_:-3.0.0}" --arg inst "${INSTALL_DATE_:-$(date +%F)}" \
-    --argjson cpu "$CPU" --argjson mem "$MEM" \
-    --arg nginx "$nginx_s" --arg xray "$xray_s" --arg sbox "$sbox_s" \
-    --arg cert_t "$CERT_TYPE" --arg cert_e "$CERT_EXPIRE" \
-    --arg r_sni "$REALITY_SNI_" --arg t_sni "$TROJAN_SNI_" \
-    --arg b_tcp443 "$has_tcp443" --arg b_hy2 "$has_hy2" --arg b_tuic "$has_tuic" \
-    --arg sub_p "$SUB_PLAIN" --arg sub_b "$SUB_B64" --arg sub_l "$SUB_LINES" \
-    '{
-      updated_at: (now | todate),
-      server: { ip:$ip, eip:(if $eip=="" then null else $eip end), version:$ver, install_date:$inst },
-      cert: { mode:$mode, type:$cert_t, expire:$cert_e, provider:(if $mode=="letsencrypt" then "auto" else "self" end) },
-      system: { cpu:($cpu|tonumber), memory:($mem|tonumber) },
-      services: { nginx:$nginx, xray:$xray, "sing-box":$sbox },
-      protocols: {
-        "443_tcp": (if $b_tcp443=="true" then "listening" else "down" end),
-        "hysteria2": (if $b_hy2=="true" then "listening" else "down" end),
-        "tuic_2053": (if $b_tuic=="true" then "listening" else "down" end),
-        reality_sni: $r_sni, trojan_sni: $t_sni
-      },
-      subscription: { plain:$sub_p, base64:$sub_b, b64_lines:$sub_l }
-    }' > "${TRAFFIC_DIR}/dashboard.json"
-
-  chmod 0644 "${TRAFFIC_DIR}/dashboard.json"
+  # 检查服务状态
+  local nginx_status="inactive" xray_status="inactive" singbox_status="inactive"
+  systemctl is-active --quiet nginx && nginx_status="active"
+  systemctl is-active --quiet xray && xray_status="active"  
+  systemctl is-active --quiet sing-box && singbox_status="active"
 
   jq -n --arg ts "$(date -Is)" --argjson cpu "$CPU" --argjson memory "$MEM" \
     '{updated_at:$ts,cpu:$cpu,memory:$memory}' > "${TRAFFIC_DIR}/system.json"
 
-  jq -n --arg ts "$(date -Is)" --arg ip "$SERVER_IP_" --arg eip "$EIP_" --arg ver "${EDGEBOX_VER_:-3.0.0}" --arg inst "${INSTALL_DATE_:-$(date +%F)}" \
-    --arg cm "$INSTALL_MODE_" --arg cd "$SERVER_DOMAIN_" --arg ce "$CERT_EXPIRE" \
-    --arg b1 "$has_tcp443" --arg b2 "$has_hy2" --arg b3 "$has_tuic" \
+# --- 从 server.json 提取敏感字段，生成 secrets 对象 ---
+SECRETS_JSON="$(jq -c '{
+  vless:{
+    reality: (.uuid.vless.reality // .uuid.vless),
+    grpc:    (.uuid.vless.grpc    // .uuid.vless),
+    ws:      (.uuid.vless.ws      // .uuid.vless)
+  },
+  tuic_uuid: (.uuid.tuic // empty),
+  password:{
+    trojan:     (.password.trojan     // empty),
+    hysteria2:  (.password.hysteria2  // empty),
+    tuic:       (.password.tuic       // empty)
+  },
+  reality:{
+    public_key: (.reality.public_key // empty),
+    short_id:   (.reality.short_id   // empty)
+  }
+}' "$SERVER_JSON" 2>/dev/null || echo "{}")"
+
+# ===== 新增：获取分流状态和白名单数据 =====
+  local SHUNT_DIR="/etc/edgebox/config/shunt"
+  local state_json="${SHUNT_DIR}/state.json"
+  local mode="vps" proxy="" health="unknown" whitelist_json='[]'
+  
+  # 确保分流目录和白名单文件存在
+  mkdir -p "${SHUNT_DIR}"
+  if [[ ! -s "${SHUNT_DIR}/whitelist.txt" ]]; then
+    cat > "${SHUNT_DIR}/whitelist.txt" << 'WHITELIST_EOF'
+googlevideo.com
+ytimg.com
+ggpht.com
+youtube.com
+youtu.be
+googleapis.com
+gstatic.com
+WHITELIST_EOF
+  fi
+  
+  # 读取分流状态
+  if [[ -s "$state_json" ]]; then
+    mode="$(jq -r '.mode // "vps"' "$state_json" 2>/dev/null)"
+    proxy="$(jq -r '.proxy_info // ""' "$state_json" 2>/dev/null)"
+    health="$(jq -r '.health // "unknown"' "$state_json" 2>/dev/null)"
+  fi
+  
+  # 读取白名单数据
+  if [[ -s "${SHUNT_DIR}/whitelist.txt" ]]; then
+    whitelist_json="$(awk 'NF' "${SHUNT_DIR}/whitelist.txt" | jq -R -s 'split("\n")|map(select(length>0))' 2>/dev/null || echo '["googlevideo.com","ytimg.com","ggpht.com","youtube.com","youtu.be","googleapis.com","gstatic.com"]')"
+  fi
+  
+  # 确保 whitelist_json 是有效 JSON
+  if ! echo "$whitelist_json" | jq . >/dev/null 2>&1; then
+    whitelist_json='["googlevideo.com","ytimg.com","ggpht.com","youtube.com","youtu.be","googleapis.com","gstatic.com"]'
+  fi
+# ===== 结束新增部分 =====
+
+  jq -n \
+    --arg ts "$(date -Is)" \
+    --arg ip "$IP" --arg eip "$EIP" \
+    --arg ver "$VER" --arg inst "$INST" \
+    --arg cm "$CM" --arg cd "$CERT_DOMAIN" --arg ce "$CERT_EXPIRE" \
+    --arg sub_p "${SUB_PLAIN:-}" --arg sub_b "${SUB_B64:-}" --arg sub_l "${SUB_LINES:-}" \
+    --arg nginx_st "$nginx_status" --arg xray_st "$xray_status" --arg singbox_st "$singbox_status" \
+    --argjson secrets "$SECRETS_JSON" \
+    --arg mode "$mode" --arg proxy_info "$proxy" --arg health "$health" --argjson whitelist "$whitelist_json" \
     '{
-      updated_at:$ts,
-      server:{ip:$ip,eip:(if $eip=="" then null else $eip end),version:$ver,install_date:$inst,
-              cert_mode:$cm,cert_domain:(if $cd=="" then null else $cd end),cert_expire:(if $ce=="" then null else $ce end)},
-      protocols:[
-        {name:"VLESS/Trojan (443/TCP)",proto:"tcp",port:443,proc:(if $b1=="true" then "listening" else "未监听" end),note:"443 端口状态"},
-        {name:"Hysteria2",proto:"udp",port:0,proc:(if $b2=="true" then "listening" else "未监听" end),note:"8443/443"},
-        {name:"TUIC",proto:"udp",port:2053,proc:(if $b3=="true" then "listening" else "未监听" end),note:"2053"}
-      ],
-      shunt:{mode:"vps",proxy_info:"",health:"ok",whitelist:["googlevideo.com","ytimg.com","ggpht.com","youtube.com","youtu.be","googleapis.com","gstatic.com","example.com"]}
-    }' > "${TRAFFIC_DIR}/panel.json"
+      updated_at: $ts,
+      server: {
+        ip: $ip, eip: (if $eip=="" then null else $eip end),
+        version: $ver, install_date: $inst,
+        cert_mode: $cm, cert_domain: (if $cd=="" then null else $cd end),
+        cert_expire: (if $ce=="" then null else $ce end)
+      },
+      services: { nginx: $nginx_st, xray: $xray_st, "sing-box": $singbox_st },
+      shunt: {
+        mode: $mode,
+        proxy_info: $proxy_info,
+        health: $health,
+        whitelist: $whitelist
+      },
+      subscription: { plain: $sub_p, base64: $sub_b, b64_lines: $sub_l },
+      secrets: $secrets
+    }' > "${TRAFFIC_DIR}/dashboard.json"
 
-  [[ -s "$SUB_CACHE" ]] && cp -f "$SUB_CACHE" /var/www/html/sub 2>/dev/null || true
-  log_info "dashboard.json 已更新 -> ${TRAFFIC_DIR}/dashboard.json"
+  chmod 0644 "${TRAFFIC_DIR}/dashboard.json" "${TRAFFIC_DIR}/system.json" 2>/dev/null || true
+  log_info "dashboard.json 已更新"
 }
-
 schedule_dashboard_jobs(){
-  ( crontab -l 2>/dev/null | grep -vE '/(dashboard-backend\.sh|generate_dashboard_data|update-dashboard)\b' ) | crontab - || true
+  ( crontab -l 2>/dev/null | grep -vE '/dashboard-backend\.sh\b' ) | crontab - || true
   ( crontab -l 2>/dev/null; echo "*/2 * * * * bash -lc '/etc/edgebox/scripts/dashboard-backend.sh --now >/dev/null 2>&1'"; ) | crontab -
   log_info "已写入 cron：*/2 分钟刷新一次 dashboard"
 }
 
 case "${1:-}" in
   --now|--once|update) generate_dashboard_data ;;
-  --schedule)          schedule_dashboard_jobs ;;
-  --install)           generate_dashboard_data; schedule_dashboard_jobs ;;
-  *)                   generate_dashboard_data ;;
+  --schedule|--install) schedule_dashboard_jobs ;;
+  *) generate_dashboard_data ;;
 esac
 EOF
 
   chmod +x /etc/edgebox/scripts/dashboard-backend.sh
-
-  # 手动刷新命令
-  cat >/usr/local/bin/update-dashboard <<'EOF'
-#!/usr/bin/env bash
-exec /etc/edgebox/scripts/dashboard-backend.sh --now
-EOF
-  chmod +x /usr/local/bin/update-dashboard
+  log_success "dashboard-backend.sh 已写入并可执行"
 }
-# === /EdgeBox：安装 Dashboard 后端（含定时任务） ===
 
 #############################################
 # 模块3：高级运维功能安装
 #############################################
 
 # 设置流量监控系统
+#!/bin/bash
+# 修复后的流量监控设置函数
+
 setup_traffic_monitoring() {
   log_info "设置流量采集与前端渲染（vnStat + nftables + CSV/JSON + Chart.js + 预警）..."
 
@@ -1176,7 +1292,7 @@ NFT
   [[ -s "${LOG_DIR}/daily.csv" ]]   || echo "date,vps,resi,tx,rx" > "${LOG_DIR}/daily.csv"
   [[ -s "${LOG_DIR}/monthly.csv" ]] || echo "month,vps,resi,total,tx,rx" > "${LOG_DIR}/monthly.csv"
 
-# 产出 /etc/edgebox/scripts/system-stats.sh（供面板读 CPU/内存）
+# 1. 系统状态脚本
 cat > "${SCRIPTS_DIR}/system-stats.sh" <<'SYS'
 #!/bin/bash
 set -euo pipefail
@@ -1200,7 +1316,7 @@ jq -n --arg ts "$(date -Is)" --argjson cpu "$cpu" --argjson memory "$mem" \
 SYS
 chmod +x "${SCRIPTS_DIR}/system-stats.sh"
 
-# 流量采集器：每小时增量 → 聚合 → traffic.json
+# 2. 流量采集器：每小时增量 → 聚合 → traffic.json
 cat > "${SCRIPTS_DIR}/traffic-collector.sh" <<'COLLECTOR'
 #!/bin/bash
 set -euo pipefail
@@ -1224,7 +1340,7 @@ get_resi_bytes() {
     nft -j list counters table inet edgebox \
      | jq -r '[.nftables[]?|select(.counter.name=="c_resi_out")|.counter.bytes][0] // 0'
   else
-    nft list counter inet edgebox c_resi_out 2>/dev/null | awk '/bytes/ {print $2;exit}'
+    nft list counter inet edgebox c_resi_out 2>/dev/null | awk '/bytes/ {print $2;exit}' || echo 0
   fi
 }
 RESI_CUR="$(get_resi_bytes)"; RESI_CUR="${RESI_CUR:-0}"
@@ -1275,7 +1391,7 @@ printf 'PREV_TX=%s\nPREV_RX=%s\nPREV_RESI=%s\n' "$TX_CUR" "$RX_CUR" "$RESI_CUR" 
 COLLECTOR
 chmod +x "${SCRIPTS_DIR}/traffic-collector.sh"
 
-  # 面板数据刷新（自包含版本，不依赖外部函数）
+# 3. 面板数据刷新（修复订阅和白名单数据获取）
 cat > "${SCRIPTS_DIR}/panel-refresh.sh" <<'PANEL'
 #!/bin/bash
 set -euo pipefail
@@ -1287,9 +1403,16 @@ mkdir -p "$TRAFFIC_DIR"
 
 # --- 基本信息 ---
 srv_json="${CONFIG_DIR}/server.json"
-server_ip="$( (jq -r '.server_ip' "$srv_json" 2>/dev/null) || hostname -I | awk '{print $1}' )"
-version="$( (jq -r '.version' "$srv_json" 2>/dev/null) || echo 'v3.0.0')"
-install_date="$( (jq -r '.install_date' "$srv_json" 2>/dev/null) || date +%F)"
+if [[ -s "$srv_json" ]]; then
+  server_ip="$(jq -r '.server_ip // empty' "$srv_json" 2>/dev/null)"
+  version="$(jq -r '.version // empty' "$srv_json" 2>/dev/null)"
+  install_date="$(jq -r '.install_date // empty' "$srv_json" 2>/dev/null)"
+else
+  server_ip="$(hostname -I | awk '{print $1}' || echo '127.0.0.1')"
+  version="v3.0.0"
+  install_date="$(date +%F)"
+fi
+
 # 证书模式/域名/到期
 cert_domain=""
 cert_mode="self-signed"
@@ -1316,92 +1439,149 @@ eip="$(get_eip)"
 state_json="${SHUNT_DIR}/state.json"
 mode="vps"; proxy=""; health="unknown"; wl_count=0; whitelist_json='[]'
 if [[ -s "$state_json" ]]; then
-  mode="$(jq -r '.mode' "$state_json")"
-  proxy="$(jq -r '.proxy_info // ""' "$state_json")"
-  health="$(jq -r '.health // "unknown"' "$state_json")"
+  mode="$(jq -r '.mode // "vps"' "$state_json" 2>/dev/null)"
+  proxy="$(jq -r '.proxy_info // ""' "$state_json" 2>/dev/null)"
+  health="$(jq -r '.health // "unknown"' "$state_json" 2>/dev/null)"
 fi
+# 修复白名单数据获取
 if [[ -s "${SHUNT_DIR}/whitelist.txt" ]]; then
-  wl_count="$(grep -cve '^\s*$' "${SHUNT_DIR}/whitelist.txt" || true)"
-  whitelist_json="$(jq -R -s 'split("\n")|map(select(length>0))' "${SHUNT_DIR}/whitelist.txt")"
+  wl_count="$(wc -l < "${SHUNT_DIR}/whitelist.txt" 2>/dev/null || echo 0)"
+  whitelist_json="$(cat "${SHUNT_DIR}/whitelist.txt" | jq -R -s 'split("\n")|map(select(length>0))' 2>/dev/null || echo '[]')"
+else
+  # 创建默认白名单
+  mkdir -p "${SHUNT_DIR}"
+  echo -e "googlevideo.com\nytimg.com\nggpht.com\nyoutube.com\nyoutu.be\ngoogleapis.com\ngstatic.com" > "${SHUNT_DIR}/whitelist.txt"
+  wl_count=7
+  whitelist_json='["googlevideo.com","ytimg.com","ggpht.com","youtube.com","youtu.be","googleapis.com","gstatic.com"]'
 fi
 
 # --- 协议配置（检测监听端口/进程，做成一览表） ---
-# 目标：符合 README 的“左侧 70% 协议配置卡片”，至少给出协议名/端口/进程与说明【协议清单见 README】。
-# 数据来源：ss/ps 检测（健壮且不依赖具体实现），缺少时标注“未监听/未配置”。
 SS="$(ss -H -lnptu 2>/dev/null || true)"
-add_proto() {  # name proto port proc note
-  local name="$1" proto="$2" port="$3" proc="$4" note="$5"
-  jq -n --arg name "$name" --arg proto "$proto" --argjson port "$port" \
-        --arg proc "$proc" --arg note "$note" \
-     '{name:$name, proto:$proto, port:$port, proc:$proc, note:$note}'
-}
 has_listen() { # proto port keyword_in_process
   local proto="$1" port="$2" kw="$3"
-  grep -E "(^| )$proto .*:$port " <<<"$SS" | grep -qi "$kw"
+  echo "$SS" | grep -E "(^| )$proto .*:$port " | grep -qi "$kw"
 }
-protos=()
 
-# Xray / sing-box on 443 (Reality / VLESS-WS / VLESS-gRPC / Trojan-TLS 等)
-if has_listen tcp 443 "xray|sing-box|trojan"; then
-  protos+=( "$(add_proto 'VLESS/Trojan (443/TCP)' 'tcp' 443 "$(grep -E 'tcp .*:443 ' <<<"$SS" | awk -F',' '/users/ {print $2;exit}' | sed 's/\"//g')" 'Reality/WS/gRPC/TLS 同端口，多协议复用')" )
-else
-  protos+=( "$(add_proto 'VLESS/Trojan (443/TCP)' 'tcp' 443 '未监听' '未检测到 443 TCP')" )
+# 检查各协议状态
+has_tcp443="false"; has_hy2="false"; has_tuic="false"
+has_listen tcp 443 "nginx" && has_tcp443="true"
+(has_listen udp 443 "sing-box" || has_listen udp 8443 "sing-box" || has_listen udp 443 "hysteria") && has_hy2="true"
+has_listen udp 2053 "sing-box" && has_tuic="true"
+
+# --- 订阅数据获取（修复数据获取问题） ---
+sub_plain=""
+sub_b64=""
+sub_b64_lines=""
+
+# 优先从权威订阅文件读取
+if [[ -s "${CONFIG_DIR}/subscription.txt" ]]; then
+  sub_plain="$(cat "${CONFIG_DIR}/subscription.txt")"
+elif [[ -s "/var/www/html/sub" ]]; then
+  sub_plain="$(cat "/var/www/html/sub")"
+elif [[ -s "${TRAFFIC_DIR}/sub.txt" ]]; then
+  sub_plain="$(cat "${TRAFFIC_DIR}/sub.txt")"
 fi
 
-# Hysteria2（常见 UDP 端口：8443/443）
-if has_listen udp 8443 "hysteria|sing-box"; then
-  protos+=( "$(add_proto 'Hysteria2' 'udp' 8443 'hysteria/sing-box' '高性能 UDP 通道（直连，不参与分流）')" )
-elif has_listen udp 443 "hysteria|sing-box"; then
-  protos+=( "$(add_proto 'Hysteria2' 'udp' 443 'hysteria/sing-box' '高性能 UDP 通道（直连，不参与分流）')" )
-else
-  protos+=( "$(add_proto 'Hysteria2' 'udp' 0 '未监听' '未检测到常见端口 8443/443')" )
+# 生成 base64 编码
+if [[ -n "$sub_plain" ]]; then
+  if base64 --help 2>&1 | grep -q -- ' -w'; then
+    sub_b64="$(printf '%s\n' "$sub_plain" | base64 -w0)"
+  else
+    sub_b64="$(printf '%s\n' "$sub_plain" | base64 | tr -d '\n')"
+  fi
+  
+  # 生成逐行 base64
+  temp_file="$(mktemp)"
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    if base64 --help 2>&1 | grep -q -- ' -w'; then
+      printf '%s' "$line" | sed -e '$a\' | base64 -w0
+    else
+      printf '%s' "$line" | sed -e '$a\' | base64 | tr -d '\n'
+    fi
+    printf '\n'
+  done <<<"$sub_plain" > "$temp_file"
+  sub_b64_lines="$(cat "$temp_file")"
+  rm -f "$temp_file"
+  
+  # 确保订阅文件同步
+  [[ ! -s "${TRAFFIC_DIR}/sub.txt" ]] && printf '%s\n' "$sub_plain" > "${TRAFFIC_DIR}/sub.txt"
+  [[ ! -s "/var/www/html/sub" ]] && printf '%s\n' "$sub_plain" > "/var/www/html/sub"
 fi
 
-# TUIC（常见 UDP 端口：2053）
-if has_listen udp 2053 "tuic|sing-box"; then
-  protos+=( "$(add_proto 'TUIC' 'udp' 2053 'tuic/sing-box' '高性能 UDP 通道（直连，不参与分流）')" )
-else
-  protos+=( "$(add_proto 'TUIC' 'udp' 2053 '未监听' '未检测到 2053 UDP')" )
+# --- 从 server.json 提取敏感字段，生成 secrets 对象 ---
+secrets_json="{}"
+if [[ -s "$srv_json" ]]; then
+  secrets_json="$(jq -c '{
+    vless:{
+      reality: (.uuid.vless.reality // .uuid.vless // ""),
+      grpc:    (.uuid.vless.grpc    // .uuid.vless // ""),
+      ws:      (.uuid.vless.ws      // .uuid.vless // "")
+    },
+    tuic_uuid: (.uuid.tuic // ""),
+    password:{
+      trojan:     (.password.trojan     // ""),
+      hysteria2:  (.password.hysteria2  // ""),
+      tuic:       (.password.tuic       // "")
+    },
+    reality:{
+      public_key: (.reality.public_key // ""),
+      short_id:   (.reality.short_id   // "")
+    }
+  }' "$srv_json" 2>/dev/null || echo "{}")"
 fi
 
-# 汇总为 JSON 数组
-protocols_json="$(jq -s '.' <<<"${protos[*]:-[]}")"
-
-# --- 写 panel.json ---
+# --- 写 dashboard.json（统一数据源） ---
 jq -n \
- --arg updated "$(date -Is)" \
- --arg ip "$server_ip" \
- --arg eip "$eip" \
- --arg version "$version" \
- --arg install_date "$install_date" \
- --arg cert_mode "$cert_mode" \
- --arg cert_domain "$cert_domain" \
- --arg cert_expire "$cert_expire" \
- --arg mode "$mode" \
- --arg proxy "$proxy" \
- --arg health "$health" \
- --argjson whitelist "$whitelist_json" \
- --argjson protocols "$protocols_json" \
- '{
-   updated_at:$updated,
-   server:{ip:$ip,eip:($eip|select(length>0)),version:$version,install_date:$install_date,
-           cert_mode:$cert_mode,cert_domain:($cert_domain|select(length>0)),cert_expire:($cert_expire|select(length>0))},
-   protocols:$protocols,
-   shunt:{mode:$mode,proxy_info:$proxy,health:$health,whitelist:$whitelist}
- }'> "${TRAFFIC_DIR}/panel.json"
-
-# 让前端(仅面板)读取一份“影子配置”，避免再去解析 /sub
-cp -f "/etc/edgebox/config/server.json" "${TRAFFIC_DIR}/server.shadow.json" 2>/dev/null || true
+  --arg ts "$(date -Is)" \
+  --arg ip "$server_ip" --arg eip "$eip" \
+  --arg ver "$version" --arg inst "$install_date" \
+  --arg cm "$cert_mode" --arg cd "$cert_domain" --arg ce "$cert_expire" \
+  --arg mode "$mode" --arg proxy_info "$proxy" --arg health "$health" \
+  --argjson whitelist "$whitelist_json" \
+  --arg b1 "$has_tcp443" --arg b2 "$has_hy2" --arg b3 "$has_tuic" \
+  --arg sub_p "$sub_plain" --arg sub_b "$sub_b64" --arg sub_l "$sub_b64_lines" \
+  --argjson secrets "$secrets_json" \
+  '{
+    updated_at: $ts,
+    server: {
+      ip: $ip,
+      eip: (if $eip=="" then null else $eip end),
+      version: $ver,
+      install_date: $inst,
+      cert_mode: $cm,
+      cert_domain: (if $cd=="" then null else $cd end),
+      cert_expire: (if $ce=="" then null else $ce end)
+    },
+    protocols: [
+      {name:"VLESS/Trojan (443/TCP)", proto:"tcp",  port:443,  proc:(if $b1=="true" then "listening" else "未监听" end), note:"443 端口状态"},
+      {name:"Hysteria2",              proto:"udp",  port:0,    proc:(if $b2=="true" then "listening" else "未监听" end), note:"8443/443"},
+      {name:"TUIC",                   proto:"udp",  port:2053, proc:(if $b3=="true" then "listening" else "未监听" end), note:"2053"}
+    ],
+    services: {
+      nginx: "'$(systemctl is-active nginx 2>/dev/null || echo "inactive")'",
+      xray: "'$(systemctl is-active xray 2>/dev/null || echo "inactive")'",
+      "sing-box": "'$(systemctl is-active sing-box 2>/dev/null || echo "inactive")'"
+    },
+    shunt: {
+      mode: $mode, 
+      proxy_info: $proxy_info, 
+      health: $health,
+      whitelist: $whitelist    # 确保这里是 whitelist 而不是其他字段名
+    },
+    subscription: { plain: $sub_p, base64: $sub_b, b64_lines: $sub_l },
+    secrets: $secrets
+  }' > "${TRAFFIC_DIR}/dashboard.json"
 
 # 写订阅复制链接
 proto="http"; addr="$server_ip"
 if [[ "$cert_mode" == "letsencrypt" && -n "$cert_domain" ]]; then proto="https"; addr="$cert_domain"; fi
-echo "${proto}://${addr}/sub" > "${TRAFFIC_DIR}/sub.txt"
+echo "${proto}://${addr}/sub" > "${TRAFFIC_DIR}/sub.link"
 PANEL
 chmod +x "${SCRIPTS_DIR}/panel-refresh.sh"
 
-  # 预警配置（默认）
-  cat > "${TRAFFIC_DIR}/alert.conf" <<'CONF'
+# 4. 预警配置（默认）
+cat > "${TRAFFIC_DIR}/alert.conf" <<'CONF'
 # 月度预算（GiB）
 ALERT_MONTHLY_GIB=100
 # 邮件/Hook（可留空）
@@ -1411,8 +1591,8 @@ ALERT_WEBHOOK=
 ALERT_STEPS=30,60,90
 CONF
 
-  # 预警脚本（读取 monthly.csv 与 alert.conf，阈值去重）
-  cat > "${SCRIPTS_DIR}/traffic-alert.sh" <<'ALERT'
+# 5. 预警脚本（读取 monthly.csv 与 alert.conf，阈值去重）
+cat > "${SCRIPTS_DIR}/traffic-alert.sh" <<'ALERT'
 #!/bin/bash
 set -euo pipefail
 TRAFFIC_DIR="/etc/edgebox/traffic"
@@ -1462,62 +1642,10 @@ for s in $(parse_steps); do
 done
 echo "$new_sent" > "$STATE"
 ALERT
-  chmod +x "${SCRIPTS_DIR}/traffic-alert.sh"
+chmod +x "${SCRIPTS_DIR}/traffic-alert.sh"
 
-# 控制面板（完整版：严格按照截图样式开发）
-#!/bin/bash
-# EdgeBox 控制面板HTML完整替换脚本
-# 优化：7:3排版 + 图例留白 + y轴顶部GiB + 注释固定底部 + 本月进度自动刷新
-
-set -euo pipefail
-
-TRAFFIC_DIR="/etc/edgebox/traffic"
-TARGET_FILE="${TRAFFIC_DIR}/index.html"
-
-[[ $EUID -ne 0 ]] && { echo "需要 root 权限"; exit 1; }
-[[ ! -d "$TRAFFIC_DIR" ]] && { echo "EdgeBox 未安装"; exit 1; }
-
-echo "备份原文件..."
-[[ -f "$TARGET_FILE" ]] && cp "$TARGET_FILE" "${TARGET_FILE}.bak.$(date +%s)"
-
-echo "生成优化版控制面板..."
-
-#!/bin/bash
-# EdgeBox 控制面板HTML完整替换脚本
-# 优化：7:3排版 + 图例留白 + y轴顶部GiB + 注释固定底部 + 本月进度自动刷新
-
-set -euo pipefail
-
-TRAFFIC_DIR="/etc/edgebox/traffic"
-TARGET_FILE="${TRAFFIC_DIR}/index.html"
-
-[[ $EUID -ne 0 ]] && { echo "需要 root 权限"; exit 1; }
-[[ ! -d "$TRAFFIC_DIR" ]] && { echo "EdgeBox 未安装"; exit 1; }
-
-echo "备份原文件..."
-[[ -f "$TARGET_FILE" ]] && cp "$TARGET_FILE" "${TARGET_FILE}.bak.$(date +%s)"
-
-echo "生成优化版控制面板..."
-
-#!/bin/bash
-# EdgeBox 控制面板HTML完整替换脚本
-# 优化：7:3排版 + 图例留白 + y轴顶部GiB + 注释固定底部 + 本月进度自动刷新
-
-set -euo pipefail
-
-TRAFFIC_DIR="/etc/edgebox/traffic"
-TARGET_FILE="${TRAFFIC_DIR}/index.html"
-
-[[ $EUID -ne 0 ]] && { echo "需要 root 权限"; exit 1; }
-[[ ! -d "$TRAFFIC_DIR" ]] && { echo "EdgeBox 未安装"; exit 1; }
-
-echo "备份原文件..."
-[[ -f "$TARGET_FILE" ]] && cp "$TARGET_FILE" "${TARGET_FILE}.bak.$(date +%s)"
-
-echo "生成优化版控制面板..."
-
-# 控制面板（完整版：严格按照截图样式开发）
-cat > "$TARGET_FILE" <<'HTML'
+# 生成修复后的控制面板HTML
+cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -1525,8 +1653,7 @@ cat > "$TARGET_FILE" <<'HTML'
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>EdgeBox 控制面板</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
-    <style>
-        /* 保持您现有的完整CSS样式，这里只添加必要的优化 */
+<style>
         :root {
             --card: #fff;
             --border: #e2e8f0;
@@ -1561,10 +1688,12 @@ cat > "$TARGET_FILE" <<'HTML'
         }
 
         .grid-full { grid-template-columns: 1fr; }
-        .grid-70-30 { grid-template-columns: 6.18fr 3.82fr; }
+        .grid-4-8 { 
+            grid-template-columns: 1fr 2fr;
+        }
         
         @media(max-width:980px) {
-            .grid-70-30 { grid-template-columns: 1fr; }
+            .grid-4-8 { grid-template-columns: 1fr; }
         }
 
         .card {
@@ -1580,17 +1709,40 @@ cat > "$TARGET_FILE" <<'HTML'
             margin: 0;
             padding: 12px 16px;
             border-bottom: 1px solid var(--border);
-            font-size: 1rem;
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #0f172a;
             display: flex;
             justify-content: space-between;
             align-items: center;
         }
 
+        .info-block h4,
+        .command-section h4,
+        .chart-title {
+            margin: 0 0 8px 0;
+            font-size: 1.125rem;
+            font-weight: 600;
+            color: #1e293b;
+        }
+
+        .chart-title {
+            text-align: center;
+            margin: 0 0 10px 0;
+        }
+
+        .chart-title .unit {
+            font-size: .875rem;
+            font-weight: 400;
+            color: #64748b;
+        }
+
         .card .content { padding: 16px; }
 
-        .small {
-            color: var(--muted);
-            font-size: .9rem;
+        .table th {
+            font-size: 1rem;
+            font-weight: 600;
+            color: #374151;
         }
 
         .table {
@@ -1598,11 +1750,167 @@ cat > "$TARGET_FILE" <<'HTML'
             border-collapse: collapse;
         }
 
-        .table th, .table td {
-            padding: 8px 10px;
-            border-bottom: 1px solid var(--border);
-            font-size: .85rem;
+        .table th {
             text-align: left;
+            padding: 12px 8px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .table th:last-child {
+            text-align: center;
+        }
+
+        .table td {
+            font-size: .875rem;
+            font-weight: 400;
+            color: #64748b;
+            padding: 12px 8px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .table td:last-child {
+            text-align: center;
+        }
+
+        .system-progress-bar {
+            display: inline-flex;
+            align-items: center;
+            width: 80px;
+            height: 20px;
+            background: #e2e8f0;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-left: 8px;
+            position: relative;
+        }
+
+        .system-progress-fill {
+            height: 100%;
+            background: #10b981;
+            border-radius: 10px;
+            transition: width 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 20px;
+        }
+
+        .system-progress-text {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: .75rem;
+            font-weight: 600;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+            z-index: 1;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background: #e2e8f0;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: #10b981;
+            border-radius: 8px;
+            transition: width 0.3s;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .progress-percentage {
+            position: absolute;
+            color: white;
+            font-size: .75rem;
+            font-weight: 600;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+        }
+
+        .protocol-status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: .75rem;
+            font-weight: 600;
+            background: #10b981;
+            color: white;
+            border: none;
+        }
+
+        .service-status-badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 10px;
+            font-size: .75rem;
+            font-weight: 600;
+            background: #10b981;
+            color: white;
+            border: none;
+        }
+
+        .service-status-badge.inactive {
+            background: #6b7280;
+        }
+
+        .status-badge {
+            padding: 4px 10px;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            background: #e2e8f0;
+            color: #64748b;
+            white-space: nowrap;
+            font-size: 1rem;
+            font-weight: 600;
+            height: 28px;
+            display: inline-flex;
+            align-items: center;
+            line-height: 1;
+        }
+
+        .status-badge.active {
+            background: #10b981;
+            color: white;
+            border-color: #10b981;
+        }
+
+        .small,
+        .info-block .value,
+        .btn,
+        .badge,
+        .notification-bell,
+        .notification-item,
+        .sub-label,
+        .sub-input,
+        .sub-copy-btn,
+        .command-list,
+        .config-note {
+            font-size: .875rem;
+            font-weight: 400;
+            color: #64748b;
+        }
+
+        .detail-link {
+            color: var(--primary);
+            cursor: pointer;
+            text-decoration: underline;
+            font-size: .875rem;
+            font-weight: 400;
+        }
+
+        .detail-link:hover { color: #2563eb; }
+
+        .status-running {
+            color: #10b981 !important;
+            font-size: .875rem;
+            font-weight: 600 !important;
         }
 
         .btn {
@@ -1611,22 +1919,11 @@ cat > "$TARGET_FILE" <<'HTML'
             background: #f1f5f9;
             border-radius: 6px;
             cursor: pointer;
-            font-size: .9rem;
             white-space: nowrap;
         }
 
         .btn:hover { background: #e2e8f0; }
 
-        .badge {
-            display: inline-block;
-            border: 1px solid var(--border);
-            border-radius: 999px;
-            padding: 2px 8px;
-            font-size: .8rem;
-            margin-right: 6px;
-        }
-
-        /* 横向分块布局 */
         .info-blocks {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -1641,20 +1938,10 @@ cat > "$TARGET_FILE" <<'HTML'
             border-radius: 8px;
         }
 
-        .info-block h4 {
-            margin: 0 0 8px 0;
-            font-size: .9rem;
-            color: var(--muted);
-            font-weight: 500;
-        }
-
         .info-block .value {
-            font-size: 1rem;
-            font-weight: 600;
-            color: #1e293b;
+            margin-bottom: 2px;
         }
 
-        /* 通知中心小图标 */
         .notification-bell {
             position: relative;
             cursor: pointer;
@@ -1664,8 +1951,6 @@ cat > "$TARGET_FILE" <<'HTML'
             padding: 4px 8px;
             border-radius: 6px;
             background: #f1f5f9;
-            font-size: .8rem;
-            color: var(--muted);
         }
 
         .notification-bell:hover { background: #e2e8f0; }
@@ -1691,118 +1976,120 @@ cat > "$TARGET_FILE" <<'HTML'
         .notification-item {
             padding: 8px 12px;
             border-bottom: 1px solid var(--border);
-            font-size: .85rem;
         }
 
         .notification-item:last-child { border-bottom: none; }
 
-        /* 出站分流标签页 - 修复注释位置 */
-        .shunt-modes {
+        .cert-status {
             display: flex;
             gap: 8px;
             margin-bottom: 12px;
-            flex-wrap: nowrap;
-			.shunt-wrap{display:flex}
-.shunt-content{flex:1; display:flex; flex-direction:column; min-height:220px}
-.shunt-note{margin-top:auto}
+            flex-wrap: wrap;
         }
 
-        .shunt-mode-tab {
-            padding: 6px 12px;
+        .network-status {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
+        }
+
+        .network-blocks {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 12px;
+            margin-top: 12px;
+        }
+        
+        @media(max-width:980px) {
+            .network-blocks { grid-template-columns: 1fr; }
+        }
+        
+        .network-block {
+            padding: 12px;
+            background: #f8fafc;
             border: 1px solid var(--border);
-            border-radius: 6px;
-            font-size: .85rem;
-            font-weight: 500;
-            cursor: pointer;
-            background: #f8fafc;
-            color: #64748b;
-            transition: all 0.2s;
-            white-space: nowrap;
+            border-radius: 8px;
+        }
+        
+        .network-block h5 {
+            margin: 0 0 8px 0;
+            font-size: 1rem;
+            font-weight: 600;
+            color: #1e293b;
         }
 
-        .shunt-mode-tab:hover { background: #e2e8f0; }
-        .shunt-mode-tab.active { background: #3b82f6; color: white; border-color: #3b82f6; }
-        .shunt-mode-tab.active.vps { background: #10b981; border-color: #10b981; }
-        .shunt-mode-tab.active.resi { background: #6b7280; border-color: #6b7280; }
-        .shunt-mode-tab.active.direct-resi { background: #f59e0b; border-color: #f59e0b; }
-
-        .shunt-content {
-            display: flex;
-            flex-direction: column;
-            min-height: 200px;
-        }
-
-        .shunt-info {
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-            flex: 1;
-        }
-
-        .shunt-note {
-            margin-top: auto;
-            padding-top: 8px;
-            border-top: 1px solid var(--border);
-            font-size: .8rem;
-            color: var(--muted);
-            background: #f8fafc;
+        .network-note {
+            margin-top: 16px;
             padding: 8px;
+            border-top: 1px solid var(--border);
+            background: linear-gradient(180deg, rgba(248,250,252,0.6), rgba(248,250,252,1));
             border-radius: 4px;
-            margin: 8px 0 0 0;
+            font-size: .75rem;
+            line-height: 1.4;
+            color: #64748b;
         }
 
-        /* 订阅链接样式 */
         .sub-row {
             display: flex;
             gap: 8px;
-            align-items: center;
+            align-items: stretch;
             margin-bottom: 8px;
-        }
-
-        .sub-label {
-            font-size: .9rem;
-            color: var(--muted);
-            min-width: 80px;
+            height: 32px;
         }
 
         .sub-input {
             flex: 1;
-            padding: 8px;
+            height: 100%;
+            padding: 6px 10px;
+            box-sizing: border-box;
             border: 1px solid var(--border);
             border-radius: 4px;
-            font-size: .85rem;
             font-family: monospace;
             background: #fff;
+            font-size: .875rem;
+            line-height: 20px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            resize: none;
+            display: inline-block;
+            vertical-align: middle;
+            color: #64748b;
         }
 
         .sub-copy-btn {
+            min-width: 80px;
             padding: 6px 12px;
             border: 1px solid var(--border);
             background: #f1f5f9;
             border-radius: 4px;
             cursor: pointer;
-            font-size: .85rem;
+            font-size: .875rem;
+            color: #64748b;
+            font-weight: 400;
+            height: 100%;
+            box-sizing: border-box;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
         }
 
-        .sub-copy-btn:hover { background: #e2e8f0; }
+        .sub-copy-btn:hover { 
+            background: #e2e8f0; 
+        }
 
-        /* 流量统计样式 - 7:3排版优化 */
         .traffic-card { position: relative; }
 
         .traffic-progress-container {
             position: absolute;
             top: 16px;
             right: 16px;
-            width: 320px;
-            font-size: .75rem;
+            width: 390px;
             display: flex;
             align-items: center;
             gap: 8px;
-        }
-
-        .progress-label {
-            color: var(--muted);
-            white-space: nowrap;
         }
 
         .progress-wrapper {
@@ -1810,47 +2097,30 @@ cat > "$TARGET_FILE" <<'HTML'
             position: relative;
         }
 
-        .progress-bar {
-            width: 100%;
-            height: 22px;
-            background: #e2e8f0;
-            border-radius: 8px;
-            overflow: hidden;
-        }
-
-        .progress-fill {
-            height: 100%;
-            background: #10b981;
-            border-radius: 8px;
-            transition: width 0.3s;
-            position: relative;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .progress-percentage {
-            position: absolute;
-            color: white;
-            font-size: .65rem;
-            font-weight: 600;
-        }
-
         .progress-budget {
-            color: var(--muted);
             white-space: nowrap;
-            font-size: .7rem;
+            font-size: .75rem;
+        }
+
+        .progress-label {
+            white-space: nowrap;
+            font-size: 1rem;
+            font-weight: 600;
+            color: #374151;
         }
 
         .traffic-charts {
             display: grid;
-            grid-template-columns: 7fr 3fr;
+            grid-template-columns: 1fr 400px;
             gap: 16px;
             margin-top: 50px;
         }
 
         @media(max-width:980px) {
-            .traffic-charts { grid-template-columns: 1fr; }
+            .traffic-charts { 
+                grid-template-columns: 1fr; 
+                margin-top: 20px;
+            }
             .traffic-progress-container {
                 position: static;
                 width: 100%;
@@ -1858,13 +2128,18 @@ cat > "$TARGET_FILE" <<'HTML'
             }
         }
 
-        /* 图表容器 - 增加高度，留白处理 */
         .chart-container {
             position: relative;
             height: 360px;
+            width: 100%;
         }
 
-        /* 命令网格布局 */
+        @media(max-width:768px) {
+            .chart-container {
+                height: 280px;
+            }
+        }
+
         .commands-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -1883,17 +2158,12 @@ cat > "$TARGET_FILE" <<'HTML'
         }
 
         .command-section h4 {
-            margin: 0 0 8px 0;
-            font-size: .9rem;
-            font-weight: 600;
-            color: #1e293b;
             display: flex;
             align-items: center;
             gap: 6px;
         }
 
         .command-list {
-            font-size: .8rem;
             line-height: 1.6;
         }
 
@@ -1917,15 +2187,6 @@ cat > "$TARGET_FILE" <<'HTML'
             color: var(--muted);
             font-style: normal;
         }
-
-        /* 协议详情弹窗 */
-        .detail-link {
-            color: var(--primary);
-            cursor: pointer;
-            text-decoration: underline;
-        }
-
-        .detail-link:hover { color: #2563eb; }
 
         .modal {
             display: none;
@@ -1965,6 +2226,8 @@ cat > "$TARGET_FILE" <<'HTML'
         .modal-header h3 {
             margin: 0;
             font-size: 1.1rem;
+            font-weight: 600;
+            color: #374151;
         }
 
         .modal-close {
@@ -1987,8 +2250,9 @@ cat > "$TARGET_FILE" <<'HTML'
 
         .config-item h4 {
             margin: 0 0 8px 0;
-            font-size: .9rem;
-            color: #1e293b;
+            font-size: 1rem;
+            font-weight: 600;
+            color: #374151;
         }
 
         .config-item code {
@@ -1998,33 +2262,47 @@ cat > "$TARGET_FILE" <<'HTML'
             padding: 8px;
             border-radius: 4px;
             font-family: 'Courier New', monospace;
-            font-size: .8rem;
+            font-size: .875rem;
             word-break: break-all;
             margin: 4px 0;
         }
 
         .config-note {
             color: var(--warning);
-            font-size: .8rem;
             margin-top: 4px;
         }
-		/* —— 统一卡片区字体层级 —— */
-.card h3{ font-size:1rem; }                 /* 卡片标题 */
-.info-block h4{ font-size:.9rem; }          /* 小标题 */
-.info-block .value{ font-size:1rem; }       /* 关键数值 */
-.small{ font-size:.85rem; }                 /* 辅助信息 */
-.table th, .table td{ font-size:.85rem; }   /* 表格 */
-.sub-input, .sub-copy-btn{ font-size:.85rem; } /* 订阅区 */
+
+        .whitelist-content {
+            max-height: 3em;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .whitelist-content.expanded {
+            max-height: none;
+        }
+
+        .whitelist-content::after {
+            content: "";
+            position: absolute;
+            left: 0; right: 0; bottom: 0;
+            height: 24px;
+            background: linear-gradient(180deg, rgba(255,255,255,0), rgba(255,255,255,1));
+        }
+
+        .whitelist-content.expanded::after {
+            display: none;
+        }
     </style>
 </head>
 <body>
 <div class="container">
 
-  <!-- 基本信息（含通知中心） -->
+  <!-- 第一行：概览信息 -->
   <div class="grid grid-full">
     <div class="card">
-      <h3>
-        EdgeBox-企业级多协议节点
+      <h3 class="main-title">
+        🌐EdgeBox-企业级多协议节点 (Control Panel)
         <div class="notification-bell" id="notif-bell" onclick="toggleNotifications()">
           🔔 <span id="notif-count">0</span>
           <div class="notification-popup" id="notif-popup">
@@ -2035,58 +2313,132 @@ cat > "$TARGET_FILE" <<'HTML'
       <div class="content">
         <div class="info-blocks">
           <div class="info-block">
-            <h4>服务器负载与网络身份</h4>
-            <div class="value">CPU: <span id="cpu-usage">-</span>%</div>
-            <div class="value">内存: <span id="mem-usage">-</span>%</div>
-            <div class="small">服务器IP: <span id="srv-ip">-</span></div>
-            <div class="small">关联域名: <span id="domain">-</span></div>
+            <h4>📊 服务器信息</h4>
+            <div class="value">用户备注名: <span id="user-alias">—</span></div>
+            <div class="value">云厂商/区域: <span id="cloud-provider">—</span></div>
+            <div class="value">Instance ID: <span id="instance-id">—</span></div>
+            <div class="value">主机名: <span id="hostname">—</span></div>
           </div>
+          
           <div class="info-block">
-            <h4>核心服务</h4>
-            <div class="value">Nginx: <span id="nginx-status">-</span></div>
-            <div class="small">Xray: <span id="xray-status">-</span></div>
-            <div class="small">Sing-box: <span id="singbox-status">-</span></div>
+            <h4>⚙️ 服务器配置</h4>
+            <div class="value">
+              CPU: 
+              <span class="system-progress-bar">
+                <div class="system-progress-fill" id="cpu-progress-fill" style="width: 0%"></div>
+                <span class="system-progress-text" id="cpu-progress-text">0%</span>
+              </span>
+              <span class="small" id="cpu-detail">—</span>
+            </div>
+            <div class="value">
+              内存: 
+              <span class="system-progress-bar">
+                <div class="system-progress-fill" id="mem-progress-fill" style="width: 0%"></div>
+                <span class="system-progress-text" id="mem-progress-text">0%</span>
+              </span>
+              <span class="small" id="mem-detail">—</span>
+            </div>
+            <div class="value">
+              磁盘: 
+              <span class="system-progress-bar">
+                <div class="system-progress-fill" id="disk-progress-fill" style="width: 0%"></div>
+                <span class="system-progress-text" id="disk-progress-text">0%</span>
+              </span>
+              <span class="small" id="disk-detail">—</span>
+            </div>
           </div>
+          
           <div class="info-block">
-            <h4>证书信息</h4>
-            <div class="value">网络模式: <span id="net-mode">-</span></div>
-            <div class="value">证书类型: <span id="cert-mode">-</span></div>
-            <div class="small">到期日期: <span id="cert-exp">-</span></div>
-            <div class="small">续期方式: <span id="renew-mode">-</span></div>
+            <h4>🔧 核心服务</h4>
+            <div class="value">Nginx: <span id="nginx-status">—</span> <span class="small" id="nginx-version">—</span></div>
+            <div class="value">Xray: <span id="xray-status">—</span> <span class="small" id="xray-version">—</span></div>
+            <div class="value">Sing-box: <span id="singbox-status">—</span> <span class="small" id="singbox-version">—</span></div>
           </div>
         </div>
-        <div class="small">版本号: <span id="ver">-</span> | 安装日期: <span id="inst">-</span> | 更新时间: <span id="updated">-</span></div>
+        <div class="small">版本号: <span id="ver">—</span> | 安装日期: <span id="inst">—</span> | 更新时间: <span id="updated">—</span></div>
       </div>
     </div>
   </div>
 
-  <!-- 协议配置 + 出站分流 -->
-  <div class="grid grid-70-30">
+  <!-- 第二行：证书切换 + 网络身份配置 -->
+  <div class="grid grid-4-8">
+    <!-- 证书切换 -->
     <div class="card">
-      <h3>协议配置</h3>
+      <h3>🔐 证书切换</h3>
       <div class="content">
-        <table class="table" id="proto">
-          <thead><tr><th>协议名称</th><th>网络</th><th>端口</th><th>客户端配置</th><th>伪装效果</th><th>适用场景</th><th>运行状态</th></tr></thead>
-          <tbody></tbody>
-        </table>
+<div class="cert-status">
+  <span class="status-badge active" id="cert-status-self">自签证书</span>
+  <span class="status-badge" id="cert-status-ca">CA证书</span>
+</div>
+        <div>
+          <div class="small">证书类型: <span id="cert-type">—</span></div>
+          <div class="small">绑定域名: <span id="cert-domain">—</span></div>
+          <div class="small">续期方式: <span id="cert-renewal">—</span></div>
+          <div class="small">到期日期: <span id="cert-expire">—</span></div>
+        </div>
       </div>
     </div>
+
+    <!-- 网络身份配置 -->
     <div class="card">
-      <h3>出站分流状态</h3>
-      <div class="content shunt-wrap">
-        <div class="shunt-content">
-          <div class="shunt-modes">
-            <span class="shunt-mode-tab active vps" id="tab-vps" data-mode="vps">VPS-IP出站</span>
-            <span class="shunt-mode-tab" id="tab-resi" data-mode="resi">代理IP出站</span>
-            <span class="shunt-mode-tab" id="tab-direct-resi" data-mode="direct-resi">分流(VPS𓄋代理)</span>
+      <h3>🌐 网络身份配置</h3>
+      <div class="content">
+<div class="network-status">
+  <span class="status-badge active">VPS出站IP</span>
+  <span class="status-badge">代理出站IP</span>
+  <span class="status-badge">分流出站</span>
+</div>
+        
+        <!-- 三个区块并排显示 -->
+        <div class="network-blocks">
+          <!-- VPS出站IP内容 -->
+          <div class="network-block">
+            <h5>📡 VPS出站IP</h5>
+            <div class="small">公网身份: <span class="status-running">直连</span></div>
+            <div class="small">VPS出站IP: <span id="vps-out-ip">—</span></div>
+            <div class="small">Geo: <span id="vps-geo">—</span></div>
+            <div class="small">IP质量检测: <span id="vps-quality">—</span> <span class="detail-link" onclick="showIPQDetails('vps')">详情</span></div>
           </div>
-          <div class="shunt-info">
-            <div class="small">VPS出站IP: <span id="vps-ip">-</span></div>
-            <div class="small">代理出站IP: <span id="resi-ip">待获取</span></div>
-            <div class="small">白名单: <span id="whitelist-domains">-</span></div>
+          
+          <!-- 代理出站IP内容 -->
+          <div class="network-block">
+            <h5>🔄 代理出站IP</h5>
+            <div class="small">代理身份: <span class="status-running">全代理</span></div>
+            <div class="small">公网身份: <span>代理</span></div>
+            <div class="small">代理出站IP: <span id="proxy-out-ip">—</span></div>
+            <div class="small">Geo: <span id="proxy-geo">—</span></div>
+            <div class="small">IP质量检测: <span id="proxy-quality">—</span> <span class="detail-link" onclick="showIPQDetails('proxy')">详情</span></div>
           </div>
-          <div class="shunt-note">注：HY2/TUIC为UDP通道，VPS直出，不参与代理IP分流</div>
+          
+          <!-- 分流出站内容 -->
+          <div class="network-block">
+            <h5>🔀 分流出站</h5>
+            <div class="small">混合身份: <span class="status-running">白名单VPS直连 + 其它代理</span></div>
+            <div class="small">白名单: 
+              <div class="whitelist-content" id="whitelist-content">
+                <span id="whitelist-text">—</span>
+              </div>
+              <span class="detail-link" id="whitelist-toggle" onclick="toggleWhitelist()">查看全部</span>
+            </div>
+          </div>
         </div>
+        
+        <div class="network-note">
+          注：HY2/TUIC 为 UDP通道，VPS直连，不走代理分流
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 第三行：协议配置 -->
+  <div class="grid grid-full">
+    <div class="card">
+      <h3>📡 协议配置</h3>
+      <div class="content">
+        <table class="table" id="proto">
+          <thead><tr><th>协议名称</th><th>网络</th><th>伪装效果</th><th>适用场景</th><th>运行状态</th><th>客户端配置</th></tr></thead>
+          <tbody></tbody>
+        </table>
       </div>
     </div>
   </div>
@@ -2094,23 +2446,26 @@ cat > "$TARGET_FILE" <<'HTML'
   <!-- 订阅链接 -->
   <div class="grid grid-full">
     <div class="card">
-      <h3>订阅链接</h3>
+      <h3>📋 订阅链接</h3>
       <div class="content">
         <div class="sub-row">
           <div class="sub-label">明文链接:</div>
-          <input type="text" id="sub-plain" class="sub-input" readonly>
+          <textarea id="sub-plain" class="sub-input" readonly></textarea>
           <button class="sub-copy-btn" onclick="copySub('plain')">复制</button>
         </div>
-        <div class="sub-row">
-          <div class="sub-label">Base64:</div>
-          <input type="text" id="sub-b64" class="sub-input" readonly>
-          <button class="sub-copy-btn" onclick="copySub('b64')">复制</button>
-        </div>
-        <div class="sub-row">
-          <div class="sub-label">B64逐行:</div>
-          <input type="text" id="sub-b64lines" class="sub-input" readonly>
+		
+		<div class="sub-row">
+          <div class="sub-label">B64换行:</div>
+          <textarea id="sub-b64lines" class="sub-input" readonly></textarea>
           <button class="sub-copy-btn" onclick="copySub('b64lines')">复制</button>
         </div>
+		
+        <div class="sub-row">
+          <div class="sub-label">Base64:</div>
+          <textarea id="sub-b64" class="sub-input" readonly></textarea>
+          <button class="sub-copy-btn" onclick="copySub('b64')">复制</button>
+        </div>
+
       </div>
     </div>
   </div>
@@ -2118,9 +2473,9 @@ cat > "$TARGET_FILE" <<'HTML'
   <!-- 流量统计 -->
   <div class="grid grid-full">
     <div class="card traffic-card">
-      <h3>流量统计
+      <h3>📊 流量统计
         <div class="traffic-progress-container">
-          <span class="progress-label">本月进度</span>
+          <span class="progress-label">本月累计/阈值:</span>
           <div class="progress-wrapper">
             <div class="progress-bar">
               <div class="progress-fill" id="progress-fill" style="width:0%">
@@ -2134,21 +2489,21 @@ cat > "$TARGET_FILE" <<'HTML'
       <div class="content">
         <div class="traffic-charts">
           <div class="chart-container">
-            <h4 style="text-align:center;margin:0 0 10px 0;color:#64748b">近30日出站流量</h4>
-            <canvas id="traffic" style="height:300px"></canvas>
+            <h4 class="chart-title">近30日出站流量 <span class="unit">(GiB)</span></h4>
+            <canvas id="traffic"></canvas>
           </div>
           <div class="chart-container">
-            <h4 style="text-align:center;margin:0 0 10px 0;color:#64748b">近12个月累计流量</h4>
-            <canvas id="monthly-chart" style="height:300px"></canvas>
+            <h4 class="chart-title">近12个月累计流量 <span class="unit">(GiB)</span></h4>
+            <canvas id="monthly-chart"></canvas>
           </div>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- 管理命令 -->
+  <!-- 运维管理 -->
   <div class="grid grid-full">
-    <div class="card"><h3>运维管理</h3>
+    <div class="card"><h3>🔧 运维管理</h3>
       <div class="content">
         <div class="commands-grid">
           <div class="command-section">
@@ -2162,7 +2517,7 @@ cat > "$TARGET_FILE" <<'HTML'
           </div>
           
           <div class="command-section">
-            <h4>🌐 证书管理</h4>
+            <h4>🔐 证书管理</h4>
             <div class="command-list">
               <code>edgeboxctl switch-to-domain &lt;your_domain&gt;</code> <span># 切换到域名模式，申请证书</span><br>
               <code>edgeboxctl switch-to-ip</code> <span># 回退到IP模式，使用自签名证书</span><br>
@@ -2174,16 +2529,16 @@ cat > "$TARGET_FILE" <<'HTML'
           <div class="command-section">
             <h4>🔀 出站分流</h4>
             <div class="command-list">
-              <code>edgeboxctl shunt vps</code> <span># 切换至VPS全量出站</span><br>
-              <code>edgeboxctl shunt resi &lt;URL&gt;</code> <span># 配置并切换至住宅IP全量出站</span><br>
-              <code>edgeboxctl shunt direct-resi &lt;URL&gt;</code> <span># 配置并切换至白名单智能分流状态</span><br>
-              <code>edgeboxctl shunt whitelist &lt;add|remove|list&gt;</code> <span># 管理白名单域名</span><br>
+              <code>edgeboxctl shunt vps</code> <span> # 切换至VPS全量出站</span><br>
+              <code>edgeboxctl shunt resi &lt;URL&gt;</code> <span> # 配置并切换至住宅IP全量出站</span><br>
+              <code>edgeboxctl shunt direct-resi &lt;URL&gt;</code> <span> # 配置并切换至白名单智能分流状态</span><br>
+              <code>edgeboxctl shunt whitelist &lt;add|remove|list&gt;</code> <span> # 管理白名单域名</span><br>
               <code>代理URL格式:</code><br>
               <code>http://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;</code><br>
               <code>https://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;?sni=</code><br>
               <code>socks5://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;</code><br>
-              <code>socks5s://user:pass@&lt;域名&gt;:&lt;端口&gt;?sni=</code><br>
-              <code>示例：edgeboxctl shunt resi 'socks5://user:pass@111.222.333.444:11324'</code> <span># 全栈走住宅</span>
+              <code>socks5s://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;?sni=</code><br>
+              <code>示例：edgeboxctl shunt resi 'socks5://user:pass@111.222.333.444:11324'</code>
             </div>
           </div>
           
@@ -2246,48 +2601,25 @@ const GiB = 1024 ** 3;
 
 // 数据获取工具函数
 async function getJSON(url) {
-  const r = await fetch(url, { cache: 'no-store' });
-  if (!r.ok) throw new Error(url + ' ' + r.status);
-  return r.json();
+  try {
+    const r = await fetch(url, { cache: 'no-store' });
+    if (!r.ok) throw new Error(`${url} ${r.status}`);
+    return r.json();
+  } catch (e) {
+    console.warn(`Failed to fetch ${url}:`, e);
+    return null;
+  }
 }
 
 async function getTEXT(url) {
-  const r = await fetch(url, { cache: 'no-store' });
-  if (!r.ok) throw new Error(url + ' ' + r.status);
-  return r.text();
-}
-
-// Y轴顶部GiB单位自定义插件
-const ebYAxisUnitTop = {
-  id: 'ebYAxisUnitTop',
-  afterDraw: function(chart) {
-    const ctx = chart.ctx;
-    const yAxis = chart.scales.y;
-    if (yAxis) {
-      ctx.save();
-      ctx.font = '12px system-ui';
-      ctx.fillStyle = '#64748b';
-      ctx.textAlign = 'center';
-      ctx.fillText('GiB', yAxis.left + yAxis.width / 2, yAxis.top - 8);
-      ctx.restore();
-    }
+  try {
+    const r = await fetch(url, { cache: 'no-store' });
+    if (!r.ok) throw new Error(`${url} ${r.status}`);
+    return r.text();
+  } catch (e) {
+    console.warn(`Failed to fetch ${url}:`, e);
+    return '';
   }
-};
-Chart.register(ebYAxisUnitTop);
-
-function renderShunt(sh, server) {
-  const mode = (sh?.mode || 'vps').replace('_','-');
-  document.querySelectorAll('.shunt-mode-tab')
-    .forEach(t => t.className = 'shunt-mode-tab');
-  const tab = document.querySelector(`[data-mode="${mode}"]`)
-           || document.querySelector('[data-mode="vps"]');
-  tab.classList.add('active', mode === 'vps' ? 'vps' : (mode === 'resi' ? 'resi' : 'direct-resi'));
-
-  document.getElementById('vps-ip').textContent  = server?.eip || server?.ip || '-';
-  document.getElementById('resi-ip').textContent = sh?.proxy_info ? '已配置' : '未配置';
-
-  const wl = Array.isArray(sh?.whitelist) ? sh.whitelist : [];
-  document.getElementById('whitelist-domains').textContent = wl.length ? wl.slice(0,8).join(', ') : '无';
 }
 
 // 全局变量
@@ -2295,8 +2627,9 @@ let serverConfig = {};
 let _chartTraffic = null;
 let _chartMonthly = null;
 let _sysTicker = null;
+
 const clamp = (n, min=0, max=100) =>
-  (Number.isFinite(+n) ? Math.max(min, Math.min(max, Math.round(+n))) : '-');
+  (Number.isFinite(+n) ? Math.max(min, Math.min(max, Math.round(+n))) : 0);
 
 // 通知中心切换
 function toggleNotifications() {
@@ -2310,36 +2643,36 @@ function closeModal() {
 }
 
 // 安全取值函数
-function getSafe(obj, path, fallback) {
+function getSafe(obj, path, fallback = '') {
   try {
-    var cur = obj;
-    for (var i = 0; i < path.length; i++) {
-      if (cur == null || !(path[i] in cur)) return (fallback === undefined ? '' : fallback);
+    let cur = obj;
+    for (let i = 0; i < path.length; i++) {
+      if (cur == null || !(path[i] in cur)) return fallback;
       cur = cur[path[i]];
     }
-    return (cur == null ? (fallback === undefined ? '' : fallback) : cur);
+    return cur == null ? fallback : cur;
   } catch (_) {
-    return (fallback === undefined ? '' : fallback);
+    return fallback;
   }
 }
 
 // 显示协议详情
 function showProtocolDetails(protocol) {
-  var modal = document.getElementById('protocol-modal');
-  var modalTitle = document.getElementById('modal-title');
-  var modalBody = document.getElementById('modal-body');
+  const modal = document.getElementById('protocol-modal');
+  const modalTitle = document.getElementById('modal-title');
+  const modalBody = document.getElementById('modal-body');
 
-  var sc = window.serverConfig || {};
-  var uuid = getSafe(sc, ['uuid', 'vless'], 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx');
-  var tuicUuid = getSafe(sc, ['uuid', 'tuic'], 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx');
-  var realityPK = getSafe(sc, ['reality', 'public_key'], 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx');
-  var shortId = getSafe(sc, ['reality', 'short_id'], 'xxxxxxxxxxxxxxxx');
-  var hy2Pass = getSafe(sc, ['password', 'hysteria2'], 'xxxxxxxxxxxx');
-  var tuicPass = getSafe(sc, ['password', 'tuic'], 'xxxxxxxxxxxx');
-  var trojanPwd = getSafe(sc, ['password', 'trojan'], 'xxxxxxxxxxxx');
-  var server = getSafe(sc, ['server_ip'], window.location.hostname);
+  const sc = window.serverConfig || {};
+  const uuid = getSafe(sc, ['uuid', 'vless'], 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx');
+  const tuicUuid = getSafe(sc, ['uuid', 'tuic'], 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx');
+  const realityPK = getSafe(sc, ['reality', 'public_key'], 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx');
+  const shortId = getSafe(sc, ['reality', 'short_id'], 'xxxxxxxxxxxxxxxx');
+  const hy2Pass = getSafe(sc, ['password', 'hysteria2'], 'xxxxxxxxxxxx');
+  const tuicPass = getSafe(sc, ['password', 'tuic'], 'xxxxxxxxxxxx');
+  const trojanPwd = getSafe(sc, ['password', 'trojan'], 'xxxxxxxxxxxx');
+  const server = getSafe(sc, ['server_ip'], window.location.hostname);
 
-  var configs = {
+  const configs = {
     'VLESS-Reality': {
       title: 'VLESS-Reality 配置',
       items: [
@@ -2398,7 +2731,7 @@ function showProtocolDetails(protocol) {
     }
   };
 
-  var cfg = configs[protocol];
+  const cfg = configs[protocol];
   if (!cfg) return;
   modalTitle.textContent = cfg.title;
   modalBody.innerHTML = cfg.items.map(function(it) {
@@ -2417,61 +2750,84 @@ document.addEventListener('click', function(e) {
   }
 });
 
-// 读取服务器配置
+// 读取服务器配置（统一从dashboard.json读取）
 async function readServerConfig() {
+  // 优先统一数据源：dashboard.json.secrets
   try {
-    const r = await fetch('/traffic/server.shadow.json', { cache: 'no-store' });
-    if (r.ok) return await r.json();
+    const d = await getJSON('./dashboard.json');
+    if (!d) throw new Error('Dashboard data not available');
+    
+    const s = (d && d.secrets) || {};
+    const cfg = {
+      server_ip: (d && d.server && (d.server.eip || d.server.ip)) || window.location.hostname,
+      uuid: {
+        vless: s.vless && (s.vless.reality || s.vless.grpc || s.vless.ws) || ''
+      },
+      password: {
+        hysteria2: (s.password && s.password.hysteria2) || '',
+        tuic:      (s.password && s.password.tuic)      || '',
+        trojan:    (s.password && s.password.trojan)    || ''
+      },
+      reality: {
+        public_key: (s.reality && s.reality.public_key) || '',
+        short_id:   (s.reality && s.reality.short_id)   || ''
+      }
+    };
+    if (s.tuic_uuid) cfg.uuid.tuic = s.tuic_uuid;
+    return cfg;
   } catch (_) {}
 
+  // 兜底：从 /traffic/sub 或 /traffic/sub.txt 解析
   try {
-    const txt = await fetch('/sub', { cache: 'no-store' }).then(function(r) { return r.text(); });
-    const lines = txt.split('\n').map(function(l) { return l.trim(); })
-      .filter(function(l) { return /^vless:|^hysteria2:|^tuic:|^trojan:/.test(l); });
-
-    const cfg = { uuid: {}, password: {}, reality: {} };
-    const v = lines.find(function(l) { return l.startsWith('vless://'); });
+    let txt = '';
+    try { txt = await getTEXT('./sub'); } catch { txt = await getTEXT('./sub.txt'); }
+    const lines = txt.split('\n').map(l => l.trim()).filter(Boolean);
+    const cfg = { uuid:{}, password:{}, reality:{}, server_ip: window.location.hostname };
+    const v = lines.find(l => l.startsWith('vless://'));
     if (v) {
       const m = v.match(/^vless:\/\/([^@]+)@([^:]+):\d+\?([^#]+)/i);
       if (m) {
-        cfg.uuid.vless = m[1];
-        cfg.server_ip = m[2];
-        const qs = new URLSearchParams(m[3].replace(/&amp;/g, '&'));
+        cfg.uuid.vless = m[1]; cfg.server_ip = m[2];
+        const qs = new URLSearchParams(m[3].replace(/&amp;/g,'&'));
         cfg.reality.public_key = qs.get('pbk') || '';
-        cfg.reality.short_id = qs.get('sid') || '';
+        cfg.reality.short_id   = qs.get('sid') || '';
       }
     }
     for (const l of lines) {
       let m;
       if ((m = l.match(/^hysteria2:\/\/([^@]+)@/i))) cfg.password.hysteria2 = decodeURIComponent(m[1]);
-      if ((m = l.match(/^tuic:\/\/([^:]+):([^@]+)@/i))) {
-        cfg.uuid.tuic = m[1];
-        cfg.password.tuic = decodeURIComponent(m[2]);
-      }
+      if ((m = l.match(/^tuic:\/\/([^:]+):([^@]+)@/i))) { cfg.uuid.tuic = m[1]; cfg.password.tuic = decodeURIComponent(m[2]); }
       if ((m = l.match(/^trojan:\/\/([^@]+)@/i))) cfg.password.trojan = decodeURIComponent(m[1]);
     }
     return cfg;
-  } catch (_) { return {}; }
+  } catch { 
+    return {
+      server_ip: window.location.hostname,
+      uuid: { vless: '', tuic: '' },
+      password: { hysteria2: '', tuic: '', trojan: '' },
+      reality: { public_key: '', short_id: '' }
+    };
+  }
 }
 
 // 更新本月进度条
 async function updateProgressBar() {
   try {
     const [trafficRes, alertRes] = await Promise.all([
-      fetch('/traffic/traffic.json', { cache: 'no-store' }),
-      fetch('/traffic/alert.conf', { cache: 'no-store' })
+      fetch('./traffic.json', { cache: 'no-store' }),
+      fetch('./alert.conf', { cache: 'no-store' })
     ]);
     
     let budget = 100;
-    if (alertRes.ok) {
+    if (alertRes && alertRes.ok) {
       const alertText = await alertRes.text();
       const match = alertText.match(/ALERT_MONTHLY_GIB=(\d+)/);
       if (match) budget = parseInt(match[1]);
     }
     
-    if (trafficRes.ok) {
+    if (trafficRes && trafficRes.ok) {
       const traffic = await trafficRes.json();
-      if (traffic.monthly && traffic.monthly.length > 0) {
+      if (traffic && traffic.monthly && traffic.monthly.length > 0) {
         const current = traffic.monthly[traffic.monthly.length - 1];
         const used = (current.total || 0) / GiB;
         const pct = Math.min((used / budget) * 100, 100);
@@ -2482,160 +2838,209 @@ async function updateProgressBar() {
       }
     }
   } catch (e) {
-    console.log('进度条更新失败:', e);
+    console.warn('进度条更新失败:', e);
   }
 }
 
-// 主数据加载函数
+// 主数据加载函数（统一从 dashboard.json / system.json / IPQ 读取）
 async function loadData() {
-  console.log('开始加载数据...');
-  
   try {
-    const [dashboard, panel, system, traffic, alerts, subTxt, serverJson] = await Promise.all([
-      getJSON('/traffic/dashboard.json').catch(() => null),
-      getJSON('/traffic/panel.json').catch(() => null),
-      getJSON('/traffic/system.json').catch(() => null),
-      getJSON('/traffic/traffic.json').catch(() => null),
-      getJSON('/traffic/alerts.json').catch(() => []),
-      getTEXT('/sub').catch(() => ''),
-      readServerConfig()
+    const [dashboard, traffic, alerts] = await Promise.all([
+      getJSON('./dashboard.json'),
+      getJSON('./traffic.json'),
+      getJSON('./alerts.json').then(d => d || [])
     ]);
-    window._subTxtForFallback = subTxt;
-    console.log('数据加载完成:', { dashboard: !!dashboard, panel: !!panel, system: !!system, traffic: !!traffic, alerts: alerts.length, serverJson: !!serverJson });
-    
-    // 保存服务器配置供协议详情使用
+
+    // 服务器配置（供协议详情弹窗）
+    const serverJson = await readServerConfig();
     window.serverConfig = serverJson || {};
 
-    // 统一数据面向 UI
-    const model = dashboard ? {
-      updatedAt: dashboard.updated_at,
-      server: dashboard.server, cert: dashboard.cert,
-      system: dashboard.system, services: dashboard.services,
-      protocols: dashboard.protocols,
-	  shunt: panel?.shunt || {},
-      subscription: dashboard.subscription
-    } : {
-      updatedAt: panel?.updated_at || system?.updated_at,
-      server: panel?.server || {},
-      system: { cpu: system?.cpu ?? null, memory: system?.memory ?? null },
-      protocols: (panel?.protocols) || [],
-	  shunt: panel?.shunt || {},
-      subscription: {
-        plain: subTxt.trim(),
-        base64: btoa(unescape(encodeURIComponent(subTxt.trim()))),
-        b64_lines: subTxt.trim().split('\n').map(l => btoa(unescape(encodeURIComponent(l)))).join('\n')
-      }
+    // 系统指标单独取
+    const sys = await getJSON('./system.json');
+
+    // IP 质量（与文档口径一致：/status/ipq_*.json）
+    const [ipqVps, ipqProxy] = await Promise.all([
+      getJSON('/status/ipq_vps.json').catch(() => null),
+      getJSON('/status/ipq_proxy.json').catch(() => null),
+    ]);
+
+    // 统一模型
+    const model = {
+      updatedAt: dashboard?.updated_at || new Date().toISOString(),
+      server: dashboard?.server || {},
+      services: dashboard?.services || {},
+      protocols: dashboard?.protocols || [],
+      shunt: dashboard?.shunt || {},
+      subscription: dashboard?.subscription || { plain: '', base64: '', b64_lines: '' },
+      system: sys || {},
+      ipq: { vps: ipqVps, proxy: ipqProxy }
     };
 
-    // 渲染各个模块
     renderHeader(model);
     renderProtocols(model);
     renderTraffic(traffic);
     renderAlerts(alerts);
-
   } catch (e) {
     console.error('loadData failed:', e);
+    renderHeader({
+      updatedAt: new Date().toISOString(),
+      server: {},
+      services: {},
+      system: {}
+    });
   }
 }
 
-// 渲染基本信息
+// 渲染基本信息（兼容多口径）
 function renderHeader(model) {
   const ts = model.updatedAt || new Date().toISOString();
   document.getElementById('updated').textContent = new Date(ts).toLocaleString('zh-CN');
-  const s = model.server || {}, c = model.cert || {}, sys = model.system || {}, svc = model.services || {};
-  
-  // 基本信息
-  document.getElementById('srv-ip').textContent = s.ip || '-';
-  document.getElementById('domain').textContent = s.cert_domain || c.domain || '无';
- 
-  // 证书 / 网络模式 & 续期方式（动态）
-  const mode  = s.cert_mode || c.mode || 'self-signed';
-  const renew = (c.provider === 'auto' || mode === 'letsencrypt') ? '自动续期' : '手动续期';
 
-  document.getElementById('net-mode').textContent  =
-    mode === 'letsencrypt' ? "域名模式(Let's Encrypt)" : 'IP模式(自签名)';
-  document.getElementById('cert-mode').textContent =
-    mode === 'letsencrypt' ? "Let's Encrypt" : '自签名证书';
-  document.getElementById('renew-mode').textContent = renew;
+  const s = model.server || {};
+  const svc = model.services || {};
+  const sys = model.system || {};
 
-  document.getElementById('cert-exp').textContent =
-    (s.cert_expire || c.expire)
-      ? new Date(s.cert_expire || c.expire).toLocaleDateString('zh-CN')
-      : '无';
+  // ---- 服务器信息：多口径兜底 ----
+  const userAlias = s.user_alias || s.alias || s.name || '';
+  const cloudVendor = s.cloud?.vendor || s.cloud_provider || s.provider || '';
+  const cloudRegion = s.cloud?.region || s.region || '';
+  const instanceId = s.instance_id || s.instance || s.id || '';
+  const hostname = s.hostname || s.host || window.location.hostname;
 
-// 到期日期：无值或无效 -> “无”
-const expStr  = (s.cert_expire || c.expire || '').trim();
-const expDate = expStr ? new Date(expStr) : null;
-document.getElementById('cert-exp').textContent =
-  (expDate && !isNaN(expDate)) ? expDate.toLocaleDateString('zh-CN') : '无';
+  const cloudText = [cloudVendor, cloudRegion].filter(Boolean).join('/');
+  document.getElementById('user-alias').textContent = userAlias || '—';
+  document.getElementById('cloud-provider').textContent = cloudText || '—';
+  document.getElementById('instance-id').textContent = instanceId || '—';
+  document.getElementById('hostname').textContent = hostname || '—';
 
-  document.getElementById('cert-exp').textContent = s.cert_expire || c.expire ? new Date(s.cert_expire || c.expire).toLocaleDateString('zh-CN') : '无';
-  document.getElementById('ver').textContent = s.version || '-';
-  document.getElementById('inst').textContent = s.install_date || '-';
-  
-  // CPU/内存（更稳 & 限制在 0–100）
-  document.getElementById('cpu-usage').textContent = clamp(sys.cpu);
-  document.getElementById('mem-usage').textContent = clamp(sys.memory);
+  // ---- 证书信息：兼容 server.cert.*
+  const cert = s.cert || {};
+  const mode = cert.mode || s.cert_mode || 'self-signed';
+  const domain = cert.domain || s.cert_domain || '';
+  const expire = cert.expires_at || cert.expire || s.cert_expire || '';
 
-  // 15s 轮询 system.json，避免一次性采样卡住在 100%
-  clearInterval(_sysTicker);
-  _sysTicker = setInterval(async () => {
-    try {
-      const x = await getJSON('/traffic/system.json');
-      document.getElementById('cpu-usage').textContent = clamp(x.cpu);
-      document.getElementById('mem-usage').textContent = clamp(x.memory);
-    } catch(_) {}
-  }, 15000);
-  
-  // 服务状态
-  document.getElementById('nginx-status').textContent = svc.nginx === 'active' ? '运行中' : '已停止';
-  document.getElementById('xray-status').textContent = svc.xray === 'active' ? '运行中' : '已停止';
-  document.getElementById('singbox-status').textContent = svc['sing-box'] === 'active' ? '运行中' : '已停止';
+  document.getElementById('cert-type').textContent = (mode === 'letsencrypt') ? "Let's Encrypt" : '自签名证书';
+  document.getElementById('cert-domain').textContent = domain || '无';
+  document.getElementById('cert-renewal').textContent = (mode === 'letsencrypt') ? '自动续期' : '手动续期';
+  document.getElementById('cert-expire').textContent =
+    (expire && !isNaN(new Date(expire))) ? new Date(expire).toLocaleDateString('zh-CN') : '无';
+
+  // ---- 版本与安装时间（兼容 meta/server 多口径）
+  const ver = s.version || model.meta?.version || '';
+  const inst = s.install_date || s.installed_at || model.meta?.installed_at || '';
+  if (document.getElementById('ver'))  document.getElementById('ver').textContent = ver || '—';
+  if (document.getElementById('inst')) document.getElementById('inst').textContent = inst || '—';
+
+  // ---- 服务状态 + 版本（多口径）
+  const getStatus = (obj) => (obj === 'active' || obj === 'running' || obj === true) ? 'active' : 'inactive';
+  const getVersion = (name) => (
+      svc?.versions?.[name] ||
+      svc?.[name]?.version ||
+      svc?.[`${name}_version`] ||
+      ''
+  );
+
+  const renderSvc = (name, idStatus, idVer) => {
+    const st = getStatus(svc[name] || svc?.[name]?.status);
+    const el = document.getElementById(idStatus);
+    if (el) el.innerHTML = st === 'active'
+      ? '<span class="service-status-badge">运行中</span>'
+      : '<span class="service-status-badge inactive">已停止</span>';
+    const ve = document.getElementById(idVer);
+    const v = getVersion(name);
+    if (ve) ve.textContent = v ? ('v' + v) : '—';
+  };
+
+  renderSvc('nginx', 'nginx-status', 'nginx-version');
+  renderSvc('xray', 'xray-status', 'xray-version');
+  renderSvc('sing-box', 'singbox-status', 'singbox-version');
+
+  // ---- CPU/内存/磁盘：直接用 model.system（已在 loadData 拉到）
+  updateSystemBars(sys);
 }
 
-// 渲染协议配置
-function renderProtocols(model) {
-  const tb = document.querySelector('#proto tbody');
-  tb.innerHTML = '';
-  
-  const protocols = [
-    { name: 'VLESS-Reality', network: 'TCP', port: '443', disguise: '极佳', scenario: '强审查环境' },
-    { name: 'VLESS-gRPC', network: 'TCP/H2', port: '443', disguise: '极佳', scenario: '较严审查/走CDN' },
-    { name: 'VLESS-WS', network: 'TCP/WS', port: '443', disguise: '良好', scenario: '常规网络更稳' },
-    { name: 'Trojan-TLS', network: 'TCP', port: '443', disguise: '良好', scenario: '移动网络可靠' },
-    { name: 'Hysteria2', network: 'UDP/QUIC', port: '443', disguise: '良好', scenario: '大带宽/低时延' },
-    { name: 'TUIC', network: 'UDP/QUIC', port: '2053', disguise: '好', scenario: '弱网/高丢包更佳' }
-  ];
-  
-  protocols.forEach(function(p) {
-    const tr = document.createElement('tr');
-    tr.innerHTML = 
-      '<td>' + p.name + '</td>' +
-      '<td>' + p.network + '</td>' +
-      '<td>' + p.port + '</td>' +
-      '<td><span class="detail-link" onclick="showProtocolDetails(\'' + p.name + '\')">详情</span></td>' +
-      '<td>' + p.disguise + '</td>' +
-      '<td>' + p.scenario + '</td>' +
-      '<td style="color:#10b981">✓ 运行</td>';
-    tb.appendChild(tr);
-  });
-  
-// --- 出站分流状态（来自 panel.shunt） ---
-const sh = model.shunt || {};
-const mode = String(sh.mode || 'vps').replace('_', '-');
-document.querySelectorAll('.shunt-mode-tab').forEach(function(tab){
-  tab.classList.remove('active','vps','resi','direct-resi');
-});
-const tab = document.querySelector('[data-mode="'+mode+'"]') || document.querySelector('[data-mode="vps"]');
-if (tab) tab.classList.add('active', mode === 'resi' ? 'resi' : (mode === 'direct-resi' ? 'direct-resi' : 'vps'));
+// 仅负责把 system 指标渲染到进度条（兼容多口径）
+function updateSystemBars(sys) {
+  const pickPct = (o, keys) => {
+    for (const k of keys) {
+      const v = o?.[k];
+      if (Number.isFinite(+v)) return +v;
+    }
+    return 0;
+  };
+  const pickInfo = (o, keys) => {
+    for (const k of keys) {
+      const v = o?.[k];
+      if (v) return v;
+    }
+    return '—';
+  };
 
-document.getElementById('vps-ip').textContent  = (model.server && (model.server.eip || model.server.ip)) || '-';
-document.getElementById('resi-ip').textContent = sh.proxy_info ? '已配置' : '未配置';
-document.getElementById('whitelist-domains').textContent =
-  (Array.isArray(sh.whitelist) && sh.whitelist.length)
-    ? sh.whitelist.slice(0,8).join(', ')
-    : '无';
+  const cpuPercent = Math.max(0, Math.min(100, Math.round(pickPct(sys, ['cpu','cpu_percent','cpu_usage']))));
+  const memPercent = Math.max(0, Math.min(100, Math.round(pickPct(sys, ['memory','mem_percent','ram_percent']))));
+  const diskPercent = Math.max(0, Math.min(100, Math.round(pickPct(sys, ['disk','disk_percent','fs_percent']))));
+
+  const cpuDetail = pickInfo(sys, ['cpu_info','spec_cpu','cpu_spec']);
+  const memDetail = pickInfo(sys, ['memory_info','spec_mem','mem_spec']);
+  const diskDetail = pickInfo(sys, ['disk_info','spec_disk','disk_spec']);
+
+  // CPU
+  document.getElementById('cpu-progress-fill').style.width = cpuPercent + '%';
+  document.getElementById('cpu-progress-text').textContent = cpuPercent + '%';
+  document.getElementById('cpu-detail').textContent = cpuDetail;
+
+  // MEM
+  document.getElementById('mem-progress-fill').style.width = memPercent + '%';
+  document.getElementById('mem-progress-text').textContent = memPercent + '%';
+  document.getElementById('mem-detail').textContent = memDetail;
+
+  // DISK
+  document.getElementById('disk-progress-fill').style.width = diskPercent + '%';
+  document.getElementById('disk-progress-text').textContent = diskPercent + '%';
+  document.getElementById('disk-detail').textContent = diskDetail;
 }
+
+  // ---- 网络出站与 IPQ ----
+  const ipqV = model.ipq?.vps || null;
+  const ipqP = model.ipq?.proxy || null;
+
+  // VPS 出站
+  const vpsOutIp = document.getElementById('vps-out-ip');
+  const vpsGeo = document.getElementById('vps-geo');
+  const vpsQuality = document.getElementById('vps-quality');
+
+  if (vpsOutIp) vpsOutIp.textContent = ipqV?.ip || model.server?.eip || model.server?.ip || '—';
+  if (vpsGeo) vpsGeo.textContent = (ipqV && (ipqV.country || ipqV.city)) ? [ipqV.country, ipqV.city].filter(Boolean).join('-') : (model.shunt?.vps_geo || '—');
+  if (vpsQuality) vpsQuality.textContent = (ipqV?.score != null) ? `${ipqV.grade || ''} (${ipqV.score})` : '—';
+
+  // 代理出站
+  const proxyOutIp = document.getElementById('proxy-out-ip');
+  const proxyGeo = document.getElementById('proxy-geo');
+  const proxyQuality = document.getElementById('proxy-quality');
+
+  if (ipqP && !ipqP.status) {
+    if (proxyOutIp) proxyOutIp.textContent = ipqP.ip || '—';
+    if (proxyGeo) proxyGeo.textContent = (ipqP.country || ipqP.city) ? [ipqP.country, ipqP.city].filter(Boolean).join('-') : (model.shunt?.proxy_geo || '—');
+    if (proxyQuality) proxyQuality.textContent = (ipqP?.score != null) ? `${ipqP.grade || ''} (${ipqP.score})` : '—';
+  } else {
+    if (proxyOutIp) proxyOutIp.textContent = '未配置';
+    if (proxyGeo) proxyGeo.textContent = '—';
+    if (proxyQuality) proxyQuality.textContent = '—';
+  }
+
+  // 白名单
+  const whitelist = model.shunt?.whitelist || [];
+  const whitelistText = Array.isArray(whitelist) && whitelist.length > 0
+    ? whitelist.slice(0, 8).join(', ') + (whitelist.length > 8 ? '...' : '')
+    : '(无)';
+  const whitelistEl = document.getElementById('whitelist-text');
+  if (whitelistEl) whitelistEl.textContent = whitelistText;
+
+  // 订阅链接
+  const sub = model.subscription || {};
+  document.getElementById('sub-plain').value = sub.plain || '';
+  document.getElementById('sub-b64').value = sub.base64 || '';
+  document.getElementById('sub-b64lines').value = sub.b64_lines || '';
 
 // 渲染流量图表
 function renderTraffic(traffic) {
@@ -2643,141 +3048,139 @@ function renderTraffic(traffic) {
   if (_chartTraffic) { _chartTraffic.destroy();  _chartTraffic = null; }
   if (_chartMonthly) { _chartMonthly.destroy();  _chartMonthly = null; }
 
-  // 近30天流量图表 - 严格按7:3排版，添加底部留白28px，Y轴顶部显示GiB
+  // 近30天流量图表
   if (traffic.last30d && traffic.last30d.length > 0) {
     const labels = traffic.last30d.map(function(x) { return x.date; });
-    const vps = traffic.last30d.map(function(x) { return x.vps; });
-    const resi = traffic.last30d.map(function(x) { return x.resi; });
+    const vps = traffic.last30d.map(function(x) { return (x.vps || 0) / GiB; });
+    const resi = traffic.last30d.map(function(x) { return (x.resi || 0) / GiB; });
     
-    new Chart(document.getElementById('traffic'), {
-      type: 'line', 
-      data: {
-        labels: labels,
-        datasets: [
-          { label: 'VPS 出口', data: vps, tension: .3, borderWidth: 2, borderColor: '#3b82f6' },
-          { label: '住宅出口', data: resi, tension: .3, borderWidth: 2, borderColor: '#f59e0b' }
-        ]
-      }, 
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: {
-            display: true,
-            position: 'bottom',
-            labels: {
-              padding: 20,
-              usePointStyle: true
+    const trafficCanvas = document.getElementById('traffic');
+    if (trafficCanvas) {
+      _chartTraffic = new Chart(trafficCanvas, {
+        type: 'line', 
+        data: {
+          labels: labels,
+          datasets: [
+            { label: 'VPS 出口', data: vps, tension: .3, borderWidth: 2, borderColor: '#3b82f6' },
+            { label: '住宅出口', data: resi, tension: .3, borderWidth: 2, borderColor: '#f59e0b' }
+          ]
+        }, 
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              display: true,
+              position: 'bottom',
+              labels: {
+                padding: 20,
+                usePointStyle: true
+              }
             }
-          }
-        },
-        scales: {
-          x: {
-            title: { display: false }
           },
-          y: {
-            title: { display: false },
-            ticks: {
-              callback: function(v) { return Math.round(v / GiB); }
+          scales: {
+            x: { title: { display: false } },
+            y: { 
+              title: { display: false },
+              ticks: {
+                callback: function(v) { return Math.round(v * 10) / 10; }
+              }
             }
-          }
-        },
-        layout: {
-          padding: {
-            bottom: 28  // 确保图例不被遮挡
+          },
+          layout: {
+            padding: { bottom: 28 }
           }
         }
-      },
-      plugins: [ebYAxisUnitTop]  // Y轴顶部显示GiB单位
-    });
+      });
+    }
   }
   
-  // 月累计柱形图 - 同样的优化
+  // 月累计柱形图
   if (traffic.monthly && traffic.monthly.length > 0) {
     const recentMonthly = traffic.monthly.slice(-12);
     const monthLabels = recentMonthly.map(function(item) { return item.month; });
     const vpsData = recentMonthly.map(function(item) { return (item.vps || 0) / GiB; });
     const resiData = recentMonthly.map(function(item) { return (item.resi || 0) / GiB; });
     
-    new Chart(document.getElementById('monthly-chart'), {
-      type: 'bar',
-      data: {
-        labels: monthLabels,
-        datasets: [
-          {
-            label: 'VPS出口',
-            data: vpsData,
-            backgroundColor: '#3b82f6',
-            borderColor: '#3b82f6',
-            borderWidth: 1,
-            stack: 'stack1'
-          },
-          {
-            label: '住宅出口',
-            data: resiData,
-            backgroundColor: '#f59e0b',
-            borderColor: '#f59e0b',
-            borderWidth: 1,
-            stack: 'stack1'
-          }
-        ]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          tooltip: {
-            callbacks: {
-              label: function(context) {
-                const label = context.dataset.label || '';
-                const value = context.parsed.y.toFixed(2);
-                return label + ': ' + value + ' GiB';
-              },
-              afterLabel: function(context) {
-                const dataIndex = context.dataIndex;
-                const vpsValue = vpsData[dataIndex] || 0;
-                const resiValue = resiData[dataIndex] || 0;
-                const total = (vpsValue + resiValue).toFixed(2);
-                return '总流量: ' + total + ' GiB';
+    const monthlyCanvas = document.getElementById('monthly-chart');
+    if (monthlyCanvas) {
+      _chartMonthly = new Chart(monthlyCanvas, {
+        type: 'bar',
+        data: {
+          labels: monthLabels,
+          datasets: [
+            {
+              label: 'VPS出口',
+              data: vpsData,
+              backgroundColor: '#3b82f6',
+              borderColor: '#3b82f6',
+              borderWidth: 1,
+              stack: 'stack1'
+            },
+            {
+              label: '住宅出口',
+              data: resiData,
+              backgroundColor: '#f59e0b',
+              borderColor: '#f59e0b',
+              borderWidth: 1,
+              stack: 'stack1'
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            tooltip: {
+              callbacks: {
+                label: function(context) {
+                  const label = context.dataset.label || '';
+                  const value = context.parsed.y.toFixed(2);
+                  return label + ': ' + value + ' GiB';
+                },
+                afterLabel: function(context) {
+                  const dataIndex = context.dataIndex;
+                  const vpsValue = vpsData[dataIndex] || 0;
+                  const resiValue = resiData[dataIndex] || 0;
+                  const total = (vpsValue + resiValue).toFixed(2);
+                  return '总流量: ' + total + ' GiB';
+                }
+              }
+            },
+            legend: {
+              display: true,
+              position: 'bottom',
+              labels: {
+                padding: 20,
+                usePointStyle: true
               }
             }
           },
-          legend: {
-            display: true,
-            position: 'bottom',
-            labels: {
-              padding: 20,
-              usePointStyle: true
-            }
-          }
-        },
-        scales: {
-          x: {
-            stacked: true,
-            grid: { display: false }
-          },
-          y: {
-            stacked: true,
-            grid: { display: true, color: '#f1f5f9' },
-            ticks: {
-              callback: function(value) {
-                return Math.round(value);
+          scales: {
+            x: {
+              stacked: true,
+              grid: { display: false }
+            },
+            y: {
+              stacked: true,
+              grid: { display: true, color: '#f1f5f9' },
+              ticks: {
+                callback: function(value) {
+                  return Math.round(value * 10) / 10;
+                }
               }
             }
+          },
+          layout: {
+            padding: { bottom: 28 }
+          },
+          interaction: {
+            mode: 'index',
+            intersect: false
           }
-        },
-        layout: {
-          padding: {
-            bottom: 28  // 确保图例不被遮挡
-          }
-        },
-        interaction: {
-          mode: 'index',
-          intersect: false
         }
-      },
-      plugins: [ebYAxisUnitTop]  // Y轴顶部显示GiB单位
-    });
+      });
+    }
   }
   
   // 更新本月进度条
@@ -2787,48 +3190,102 @@ function renderTraffic(traffic) {
 // 渲染通知中心
 function renderAlerts(alerts) {
   const alertCount = (alerts || []).length;
-  document.getElementById('notif-count').textContent = alertCount;
-  const bell = document.getElementById('notif-bell');
-  if (alertCount > 0) {
-    bell.classList.add('has-alerts');
-    bell.querySelector('span').textContent = alertCount + ' 条通知';
+  const notifCountEl = document.getElementById('notif-count');
+  const notifBell = document.getElementById('notif-bell');
+  
+  if (notifCountEl) notifCountEl.textContent = alertCount;
+  
+  if (notifBell && alertCount > 0) {
+    notifBell.classList.add('has-alerts');
+    const span = notifBell.querySelector('span');
+    if (span) span.textContent = alertCount + ' 条通知';
   }
   
   const notifList = document.getElementById('notif-list');
-  notifList.innerHTML = '';
-  if (alertCount > 0) {
-    alerts.slice(0, 10).forEach(function(a) {
-      const div = document.createElement('div');
-      div.className = 'notification-item';
-      div.textContent = (a.ts || '') + ' ' + (a.msg || '');
-      notifList.appendChild(div);
-    });
-  } else {
-    notifList.textContent = '暂无通知';
+  if (notifList) {
+    notifList.innerHTML = '';
+    if (alertCount > 0) {
+      alerts.slice(0, 10).forEach(function(a) {
+        const div = document.createElement('div');
+        div.className = 'notification-item';
+        div.textContent = (a.ts || '') + ' ' + (a.msg || '');
+        notifList.appendChild(div);
+      });
+    } else {
+      notifList.textContent = '暂无通知';
+    }
   }
 }
 
 // 复制订阅链接函数
 function copySub(type) {
   const input = document.getElementById('sub-' + type);
+  if (!input) return;
+  
   input.select();
   document.execCommand('copy');
   
   const btn = input.nextElementSibling;
-  const originalText = btn.textContent;
-  btn.textContent = '已复制';
-  btn.style.background = '#10b981';
-  btn.style.color = 'white';
-  setTimeout(function() {
-    btn.textContent = originalText;
-    btn.style.background = '';
-    btn.style.color = '';
-  }, 1000);
+  if (btn) {
+    const originalText = btn.textContent;
+    btn.textContent = '已复制';
+    btn.style.background = '#10b981';
+    btn.style.color = 'white';
+    setTimeout(function() {
+      btn.textContent = originalText;
+      btn.style.background = '';
+      btn.style.color = '';
+    }, 1000);
+  }
+}
+
+// 白名单展开/收起功能
+function toggleWhitelist() {
+  const content = document.getElementById('whitelist-content');
+  const toggle = document.getElementById('whitelist-toggle');
+  
+  if (content && toggle) {
+    content.classList.toggle('expanded');
+    toggle.textContent = content.classList.contains('expanded') ? '收起' : '查看全部';
+  }
+}
+
+// IP质量详情显示功能
+function showIPQDetails(type) {
+  // 这里可以实现显示IP质量检测详情的功能
+  alert('IP质量检测详情功能待实现 - ' + type);
+}
+
+// 白名单自动折叠功能
+function initWhitelistCollapse() {
+  document.querySelectorAll('.kv').forEach(function(kv){
+    const v = kv.querySelector('.v');
+    if(!v) return;
+    
+    // 检查内容是否超出3行高度
+    const lineHeight = parseFloat(getComputedStyle(v).lineHeight) || 20;
+    const maxHeight = lineHeight * 3;
+    
+    if(v.scrollHeight > maxHeight){
+      kv.classList.add('v-collapsed');
+      const btn = document.createElement('span');
+      btn.className = 'detail-toggle';
+      btn.innerText = '详情';
+      btn.addEventListener('click', function(){
+        kv.classList.toggle('v-collapsed');
+        btn.innerText = kv.classList.contains('v-collapsed') ? '详情' : '收起';
+      });
+      kv.appendChild(btn);
+    }
+  });
 }
 
 // 启动
 console.log('脚本开始执行');
-document.addEventListener('DOMContentLoaded', loadData);
+document.addEventListener('DOMContentLoaded', function() {
+  loadData();
+  initWhitelistCollapse();
+});
 
 // 定时刷新：每5分钟刷新一次数据，每小时刷新本月进度条
 setInterval(loadData, 300000);
@@ -2841,9 +3298,10 @@ HTML
 # 网站根目录映射 + 首次刷新
 mkdir -p "${TRAFFIC_DIR}" /var/www/html
 ln -sfn "${TRAFFIC_DIR}" /var/www/html/traffic
-# 先跑一次采集与面板生成
+
+# 首次出全量 JSON：traffic.json + dashboard.json/system.json
 "${SCRIPTS_DIR}/traffic-collector.sh" || true
-"${SCRIPTS_DIR}/panel-refresh.sh" || true
+"${SCRIPTS_DIR}/dashboard-backend.sh" --now || true
 
 log_success "流量监控系统设置完成：${TRAFFIC_DIR}/index.html"
 }
@@ -2879,11 +3337,10 @@ chmod 644 ${WEB_ROOT}/sub 2>/dev/null || true
 find ${TRAFFIC_DIR} -type f -exec chmod 644 {} \; 2>/dev/null || true
 
 # 设置定时任务
-# 设置定时任务
 setup_cron_jobs() {
   log_info "配置定时任务..."
 
-  # 1) 写入/覆盖 预警配置
+  # 预警配置
 cat > /etc/edgebox/traffic/alert.conf <<'CONF'
 # 月度预算（GiB）
 ALERT_MONTHLY_GIB=100
@@ -2896,7 +3353,6 @@ ALERT_TG_CHAT_ID=
 ALERT_DISCORD_WEBHOOK=
 
 # 微信（个人可用的 PushPlus 转发）
-# https://www.pushplus.plus/ 里获取 token
 ALERT_PUSHPLUS_TOKEN=
 
 # （可选）通用 Webhook（HTTPS 443），FORMAT=raw|slack|discord
@@ -2907,94 +3363,7 @@ ALERT_WEBHOOK_FORMAT=raw
 ALERT_STEPS=30,60,90
 CONF
 
-  # 2) 写入/覆盖 预警脚本（按当月 total 达到阈值去重告警）
-cat > /etc/edgebox/scripts/traffic-alert.sh <<'ALERT'
-#!/bin/bash
-set -euo pipefail
-TRAFFIC_DIR="/etc/edgebox/traffic"
-LOG_DIR="$TRAFFIC_DIR/logs"
-CONF="$TRAFFIC_DIR/alert.conf"
-STATE="$TRAFFIC_DIR/alert.state"
-LOG="/var/log/edgebox-traffic-alert.log"
-ALERTS_JSON="$TRAFFIC_DIR/alerts.json"   # 面板“通知中心”读取
-
-[[ -r "$CONF" ]] || { echo "[$(date -Is)] no alert.conf" >> "$LOG"; exit 0; }
-# shellcheck source=/dev/null
-. "$CONF"
-
-month="$(date +%Y-%m)"
-row="$(grep "^${month}," "$LOG_DIR/monthly.csv" 2>/dev/null || true)"
-[[ -z "$row" ]] && { echo "[$(date -Is)] monthly.csv no row for ${month}" >> "$LOG"; exit 0; }
-
-# CSV: month,vps,resi,total,tx,rx
-IFS=',' read -r _ vps resi total tx rx <<<"$row"
-budget_bytes=$(( ${ALERT_MONTHLY_GIB:-100} * 1024 * 1024 * 1024 ))
-used=$total
-pct=$(( budget_bytes>0 ? used * 100 / budget_bytes : 0 ))
-
-sent=""; [[ -f "$STATE" ]] && sent="$(cat "$STATE")"
-
-# 写本地通知（保留50条，最新在前）
-persist_local() {
-  local msg="$1" ts="$(date -Is)"
-  local cur; cur="$(cat "$ALERTS_JSON" 2>/dev/null || echo '[]')"
-  printf '%s' "$cur" | jq --arg ts "$ts" --arg m "$msg" \
-    '([{"ts":$ts,"msg":$m}] + .) | .[:50]' > "${ALERTS_JSON}.tmp" && mv "${ALERTS_JSON}.tmp" "$ALERTS_JSON"
-}
-
-# 并发广播：配置了哪个就发哪个；失败不影响其它
-notify() {
-  local msg="$1"
-  echo "[$(date -Is)] $msg" | tee -a "$LOG" >/dev/null
-  persist_local "$msg"
-
-  # Telegram
-  if [[ -n "${ALERT_TG_BOT_TOKEN:-}" && -n "${ALERT_TG_CHAT_ID:-}" ]]; then
-    curl -m 8 -sS "https://api.telegram.org/bot${ALERT_TG_BOT_TOKEN}/sendMessage" \
-      -d "chat_id=${ALERT_TG_CHAT_ID}" -d "text=${msg}" >/dev/null 2>&1 || true
-  fi
-
-  # Discord
-  if [[ -n "${ALERT_DISCORD_WEBHOOK:-}" ]]; then
-    curl -m 8 -sS -H 'Content-Type: application/json' -X POST \
-      -d "$(jq -n --arg t "$msg" '{content:$t}')" \
-      "$ALERT_DISCORD_WEBHOOK" >/dev/null 2>&1 || true
-  fi
-
-  # 微信 PushPlus
-  if [[ -n "${ALERT_PUSHPLUS_TOKEN:-}" ]]; then
-    curl -m 8 -sS -H 'Content-Type: application/json' -X POST \
-      -d "$(jq -n --arg tk "$ALERT_PUSHPLUS_TOKEN" --arg t "EdgeBox 预警" --arg c "$msg" \
-            '{token:$tk,title:$t,content:$c}')" \
-      "https://www.pushplus.plus/send" >/dev/null 2>&1 || true
-  fi
-
-  # 通用 Webhook
-  if [[ -n "${ALERT_WEBHOOK:-}" ]]; then
-    case "${ALERT_WEBHOOK_FORMAT:-raw}" in
-      discord) body="$(jq -n --arg t "$msg" '{content:$t}')" ;;
-      slack)   body="$(jq -n --arg t "$msg" '{text:$t}')" ;;
-      *)       body="$(jq -n --arg t "$msg" '{text:$t}')" ;;
-    esac
-    curl -m 8 -sS -H 'Content-Type: application/json' -X POST \
-      -d "$body" "$ALERT_WEBHOOK" >/dev/null 2>&1 || true
-  fi
-}
-
-# 阈值触发（去重）
-new_sent="$sent"
-IFS=',' read -ra STEPS <<<"${ALERT_STEPS:-30,60,90}"
-for s in "${STEPS[@]}"; do
-  if [[ "$pct" -ge "$s" ]] && ! grep -q "(^|,)$s(,|$)" <<<",$sent,"; then
-    human_used="$(awk -v b="$used" 'BEGIN{printf "%.2f GiB", b/1024/1024/1024}')"
-    human_budget="$(awk -v b="$budget_bytes" 'BEGIN{printf "%.0f GiB", b/1024/1024/1024}')"
-    notify "本月用量 ${human_used}（${pct}% / 预算 ${human_budget}），触达 ${s}% 阈值。"
-    new_sent="${new_sent:+${new_sent},}${s}"
-  fi
-done
-echo "$new_sent" > "$STATE"
-ALERT
-chmod +x /etc/edgebox/scripts/traffic-alert.sh
+  # 预警脚本已在 setup_traffic_monitoring 中创建
 
   # 仅保留采集与预警；面板刷新由 dashboard-backend 统一维护
   ( crontab -l 2>/dev/null | grep -vE '/etc/edgebox/scripts/(traffic-collector\.sh|traffic-alert\.sh)\b' ) | crontab - || true
@@ -3002,6 +3371,7 @@ chmod +x /etc/edgebox/scripts/traffic-alert.sh
     echo "0 * * * * /etc/edgebox/scripts/traffic-collector.sh"; \
     echo "7 * * * * /etc/edgebox/scripts/traffic-alert.sh" \
   ) | crontab -
+  
   # 确保面板刷新任务存在
   /etc/edgebox/scripts/dashboard-backend.sh --schedule
 
@@ -3124,16 +3494,23 @@ TRAFFIC_DIR="/etc/edgebox/traffic"
 SCRIPTS_DIR="/etc/edgebox/scripts"
 WHITELIST_DOMAINS="googlevideo.com,ytimg.com,ggpht.com,youtube.com,youtu.be,googleapis.com,gstatic.com"
 
-# 颜色定义（使用 ANSI C 风格的转义）
+# ===== 日志函数（完整）=====
 ESC=$'\033'
-RED="${ESC}[0;31m"; GREEN="${ESC}[0;32m"; YELLOW="${ESC}[1;33m"
-BLUE="${ESC}[0;34m"; CYAN="${ESC}[0;36m"; NC="${ESC}[0m"
+BLUE="${ESC}[0;34m"; PURPLE="${ESC}[0;35m"; CYAN="${ESC}[0;36m"
+YELLOW="${ESC}[1;33m"; GREEN="${ESC}[0;32m"; RED="${ESC}[0;31m"; NC="${ESC}[0m"
+LOG_FILE="/var/log/edgebox-install.log"
+LOG_LEVEL="${LOG_LEVEL:-info}"   # debug|info
 
-# 日志函数
-log_info(){ echo -e "${GREEN}[INFO]${NC} $1" | tee -a ${LOG_FILE} 2>/dev/null || echo -e "${GREEN}[INFO]${NC} $1"; }
-log_warn(){ echo -e "${YELLOW}[WARN]${NC} $1" | tee -a ${LOG_FILE} 2>/dev/null || echo -e "${YELLOW}[WARN]${NC} $1"; }
-log_error(){ echo -e "${RED}[ERROR]${NC} $1" | tee -a ${LOG_FILE} 2>/dev/null || echo -e "${RED}[ERROR]${NC} $1"; }
-log_success(){ echo -e "${GREEN}[SUCCESS]${NC} $1" | tee -a ${LOG_FILE} 2>/dev/null || echo -e "${GREEN}[SUCCESS]${NC} $1"; }
+log_info()    { echo -e "${GREEN}[INFO]${NC} $*"    | tee -a "$LOG_FILE"; }
+log_warn()    { echo -e "${YELLOW}[WARN]${NC} $*"   | tee -a "$LOG_FILE"; }
+log_error()   { echo -e "${RED}[ERROR]${NC} $*"     | tee -a "$LOG_FILE"; }
+log_success() { echo -e "${GREEN}[SUCCESS]${NC} $*" | tee -a "$LOG_FILE"; }
+log_debug()   { [[ "${LOG_LEVEL}" == debug ]] && echo -e "${YELLOW}[DEBUG]${NC} $*" | tee -a "$LOG_FILE" || true; }
+
+# 兼容别名
+log()      { log_info "$@"; }
+log_ok()   { log_success "$@"; }
+error()    { log_error "$@"; }
 
 # 工具函数
 get_current_cert_mode(){ [[ -f ${CONFIG_DIR}/cert_mode ]] && cat ${CONFIG_DIR}/cert_mode || echo "self-signed"; }
@@ -4514,11 +4891,11 @@ NFT
 # 启动 vnstat
 systemctl is-active --quiet vnstat || systemctl start vnstat
 
-# 预跑一次面板数据
-[[ -x /etc/edgebox/scripts/panel-refresh.sh ]] && /etc/edgebox/scripts/panel-refresh.sh >> $LOG_FILE 2>&1 || true
-
-# 预跑一次采集器，生成 JSON 和 CSV
+# 预跑一次采集器，生成 traffic.json / CSV
 [[ -x /etc/edgebox/scripts/traffic-collector.sh ]] && /etc/edgebox/scripts/traffic-collector.sh >> $LOG_FILE 2>&1 || true
+
+# 统一产出 dashboard.json / system.json
+[[ -x /etc/edgebox/scripts/dashboard-backend.sh ]] && /etc/edgebox/scripts/dashboard-backend.sh --now >> $LOG_FILE 2>&1 || true
 
 echo "[$(date)] EdgeBox 初始化完成" >> $LOG_FILE
 INIT_SCRIPT
@@ -4544,6 +4921,183 @@ INIT_SERVICE
     systemctl enable edgebox-init.service >/dev/null 2>&1
     log_success "初始化脚本创建完成"
 }
+
+install_ipq_stack() {
+  log_info "安装 IP 质量评分（IPQ）栈..."
+
+  # 目录：按文档口径，物理目录放 /var/www/edgebox/status；映射到站点根 /status
+  local WEB_STATUS_PHY="/var/www/edgebox/status"
+  local WEB_STATUS_LINK="${WEB_ROOT:-/var/www/html}/status"
+  mkdir -p "$WEB_STATUS_PHY" "${WEB_ROOT:-/var/www/html}"
+  ln -sfn "$WEB_STATUS_PHY" "$WEB_STATUS_LINK" 2>/dev/null || true
+
+  # 兜底依赖（dig 用于 rDNS）
+  if ! command -v dig >/dev/null 2>&1; then
+    if command -v apt >/dev/null 2>&1; then apt -y update && apt -y install dnsutils;
+    elif command -v yum >/dev/null 2>&1; then yum -y install bind-utils; fi
+  fi
+
+  # 写入评分脚本：/usr/local/bin/edgebox-ipq.sh
+  cat > /usr/local/bin/edgebox-ipq.sh <<'IPQ'
+#!/usr/bin/env bash
+set -euo pipefail; LANG=C
+STATUS_DIR="/var/www/edgebox/status"
+SHUNT_DIR="/etc/edgebox/config/shunt"
+mkdir -p "$STATUS_DIR"
+
+ts(){ date -Is; }
+jqget(){ jq -r "$1" 2>/dev/null || echo ""; }
+
+build_proxy_args(){ local u="${1:-}"; [[ -z "$u" || "$u" == "null" ]] && return 0
+  case "$u" in socks5://*|socks5h://*) echo "--socks5-hostname ${u#*://}";;
+           http://*|https://*) echo "--proxy $u";; *) :;; esac; }
+
+curl_json(){ # $1 proxy-args  $2 url
+  eval "curl -fsS --max-time 4 $1 \"$2\"" || return 1; }
+
+get_proxy_url(){ local s="${SHUNT_DIR}/state.json"
+  [[ -s "$s" ]] && jqget '.proxy_info' <"$s" || echo ""; }
+
+collect_one(){ # $1 vantage vps|proxy  $2 proxy-args
+  local V="$1" P="$2" J1="{}" J2="{}" J3="{}" ok1=false ok2=false ok3=false
+  if out=$(curl_json "$P" "https://ipinfo.io/json"); then J1="$out"; ok1=true; fi
+  if out=$(curl_json "$P" "https://ip.sb/api/json"); then J2="$out"; ok2=true; fi
+  if out=$(curl_json "$P" "http://ip-api.com/json/?fields=status,message,country,city,as,asname,reverse,hosting,proxy,mobile,query"); then J3="$out"; ok3=true; fi
+
+  local ip=""; for j in "$J2" "$J1" "$J3"; do ip="$(jq -r '(.ip // .query // empty)' <<<"$j")"; [[ -n "$ip" && "$ip" != "null" ]] && break; done
+  local rdns="$(jq -r '.reverse // empty' <<<"$J3")"
+  if [[ -z "$rdns" && -n "$ip" ]]; then rdns="$(dig +time=1 +tries=1 +short -x "$ip" 2>/dev/null | head -n1)"; fi
+  local asn="$(jq -r '(.asname // .as // empty)' <<<"$J3")"; [[ -z "$asn" || "$asn" == "null" ]] && asn="$(jq -r '(.org // empty)' <<<"$J1")"
+  local isp="$(jq -r '(.org // empty)' <<<"$J1")"; [[ -z "$isp" || "$isp" == "null" ]] && isp="$(jq -r '(.asname // .as // empty)' <<<"$J3")"
+  local country="$(jq -r '(.country // empty)' <<<"$J3")"; [[ -z "$country" || "$country" == "null" ]] && country="$(jq -r '(.country // empty)' <<<"$J1")"
+  local city="$(jq -r '(.city // empty)' <<<"$J3")"; [[ -z "$city" || "$city" == "null" ]] && city="$(jq -r '(.city // empty)' <<<"$J1")"
+  local f_host="$(jq -r '(.hosting // false)' <<<"$J3")"; local f_proxy="$(jq -r '(.proxy // false)' <<<"$J3")"; local f_mob="$(jq -r '(.mobile // false)' <<<"$J3")"
+
+  # DNSBL（轻量）
+  declare -a hits=(); if [[ -n "$ip" ]]; then IFS=. read -r a b c d <<<"$ip"; rip="${d}.${c}.${b}.${a}"
+    for bl in zen.spamhaus.org bl.spamcop.net dnsbl.sorbs.net b.barracudacentral.org; do
+      if dig +time=1 +tries=1 +short "${rip}.${bl}" A >/dev/null 2>&1; then hits+=("$bl"); fi
+    done
+  fi
+
+  # 延迟：vps→ping 1.1.1.1；proxy→TLS connect
+  local lat=999
+  if [[ "$V" == "vps" ]]; then
+    r=$(ping -n -c 3 -w 4 1.1.1.1 2>/dev/null | awk -F'/' '/^rtt/ {print int($5+0.5)}'); [[ -n "${r:-}" ]] && lat="$r"
+  else
+    r=$(eval "curl -o /dev/null -s $P -w '%{time_connect}' https://www.cloudflare.com/cdn-cgi/trace" 2>/dev/null)
+    [[ -n "${r:-}" ]] && lat=$(awk -v t="$r" 'BEGIN{printf("%d",(t*1000)+0.5)}')
+  fi
+
+  # 打分
+  local score=100; declare -a notes=()
+  [[ "$f_proxy" == "true"   ]] && score=$((score-50)) && notes+=("flag_proxy")
+  [[ "$f_host"  == "true"   ]] && score=$((score-10)) && notes+=("datacenter_ip")
+  (( ${#hits[@]} )) && score=$((score-20*${#hits[@]})) && notes+=("dnsbl")
+  (( lat>400 )) && score=$((score-20)) && notes+=("high_latency")
+  (( lat>200 && lat<=400 )) && score=$((score-10)) && notes+=("mid_latency")
+  if [[ "$asn" =~ (amazon|aws|google|gcp|microsoft|azure|alibaba|tencent|digitalocean|linode|vultr|hivelocity|ovh|hetzner|iij|ntt|leaseweb|contabo) ]]; then score=$((score-2)); fi
+  (( score<0 )) && score=0
+  local grade="D"; ((score>=80)) && grade="A" || { ((score>=60)) && grade="B" || { ((score>=40)) && grade="C"; }; }
+
+  jq -n --arg ts "$(ts)" --arg V "$V" --arg ip "${ip:-}" --arg c "${country:-}" --arg city "${city:-}" \
+        --arg asn "${asn:-}" --arg isp "${isp:-}" --arg rdns "${rdns:-}" \
+        --argjson flags "{\"ipinfo\":$ok1,\"ipsb\":$ok2,\"ipapi\":$ok3}" \
+        --argjson risk "$(printf '%s\n' "${hits[@]:-}" | jq -R -s 'split(\"\\n\")|map(select(length>0))' | jq -n --argjson bl @- \
+          --argjson p $([[ "$f_proxy" == "true" ]] && echo true || echo false) \
+          --argjson h $([[ "$f_host"  == "true" ]] && echo true || echo false) \
+          --argjson m $([[ "$f_mob"   == "true" ]] && echo true || echo false) \
+          '{proxy:$p,hosting:$h,mobile:$m,dnsbl_hits:$bl,tor:false}')" \
+        --argjson lat "${lat:-999}" --argjson score "$score" --arg grade "$grade" \
+        --arg notes "$(IFS=,; echo "${notes[*]:-}")" '
+  { detected_at:$ts,vantage:$V,ip:$ip,country:$c,city:$city,asn:$asn,isp:$isp,rdns:($rdns|select(.!="")),
+    source_flags:$flags,risk:$risk,latency_ms:$lat,score:$score,grade:$grade,
+    notes:( ($notes|length>0) and ($notes!="") ? ($notes|split(",")|map(select(length>0))) : [] ) }'
+}
+
+main(){
+  # vps + proxy 都测；无代理则输出 not_configured
+  collect_one "vps" "" | tee "${STATUS_DIR}/ipq_vps.json" >/dev/null
+  purl="$(get_proxy_url)"
+  if [[ -n "${purl:-}" && "$purl" != "null" ]]; then
+    pargs="$(build_proxy_args "$purl")"
+    collect_one "proxy" "$pargs" | tee "${STATUS_DIR}/ipq_proxy.json" >/dev/null
+  else
+    jq -n --arg ts "$(ts)" '{detected_at:$ts,vantage:"proxy",status:"not_configured"}' | tee "${STATUS_DIR}/ipq_proxy.json" >/dev/null
+  fi
+  jq -n --arg ts "$(ts)" --arg ver "ipq-1.0" '{last_run:$ts,version:$ver}' | tee "${STATUS_DIR}/ipq_meta.json" >/dev/null
+  chmod 644 "${STATUS_DIR}"/ipq_*.json 2>/dev/null || true
+}
+main "$@"
+IPQ
+  chmod +x /usr/local/bin/edgebox-ipq.sh
+
+  # systemd：监听分流状态变化触发 IPQ
+  cat > /etc/systemd/system/edgebox-ipq.service <<'UNIT'
+[Unit]
+Description=EdgeBox IP Quality (IPQ) refresh
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/edgebox-ipq.sh
+UNIT
+
+  cat > /etc/systemd/system/edgebox-ipq.path <<'PATHU'
+[Unit]
+Description=Watch shunt state.json to refresh IPQ
+[Path]
+PathChanged=/etc/edgebox/config/shunt/state.json
+Unit=edgebox-ipq.service
+[Install]
+WantedBy=multi-user.target
+PATHU
+
+  systemctl daemon-reload
+  systemctl enable --now edgebox-ipq.path >/dev/null 2>&1 || true
+
+  # Cron：每日 02:15 例行评分（与文档频次一致）
+  ( crontab -l 2>/dev/null | grep -v '/usr/local/bin/edgebox-ipq.sh' ) | crontab - || true
+  ( crontab -l 2>/dev/null; echo "15 2 * * * /usr/local/bin/edgebox-ipq.sh >/dev/null 2>&1" ) | crontab -
+
+  # 首次即跑，给前端可用数据
+  /usr/local/bin/edgebox-ipq.sh || true
+
+  log_success "IPQ 栈就绪：/status/ipq_vps.json /status/ipq_proxy.json"
+}
+
+# ===== 收尾：生成订阅、同步、首次生成 dashboard =====
+finalize_install() {
+  # 基础环境
+  export CONFIG_DIR="/etc/edgebox/config"
+  export TRAFFIC_DIR="/etc/edgebox/traffic"
+  export WEB_ROOT="/var/www/html"
+  export SCRIPTS_DIR="/etc/edgebox/scripts"
+  export SUB_CACHE="${TRAFFIC_DIR}/sub.txt"
+
+  log_info "收尾：生成订阅并同步..."
+  generate_subscription       || true
+  sync_subscription_files     || true
+
+  # 立即生成首版面板数据 + 写入定时
+  if [[ -x "${SCRIPTS_DIR}/dashboard-backend.sh" ]]; then
+    log_info "生成初始面板数据..."
+    "${SCRIPTS_DIR}/dashboard-backend.sh" --now      >/dev/null 2>&1 || log_warn "首刷失败，稍后由定时任务再试"
+    "${SCRIPTS_DIR}/dashboard-backend.sh" --schedule >/dev/null 2>&1 || true
+  fi
+
+  # 健康检查：若 subscription 仍为空，兜底再刷一次
+  if ! jq -e '.subscription.plain|length>0' "${TRAFFIC_DIR}/dashboard.json" >/dev/null 2>&1; then
+    install -m 0644 -T "${CONFIG_DIR}/subscription.txt" "${TRAFFIC_DIR}/sub.txt"
+    [[ -x "${SCRIPTS_DIR}/dashboard-backend.sh" ]] && "${SCRIPTS_DIR}/dashboard-backend.sh" --now >/dev/null 2>&1 || true
+  fi
+  
+  # 可选清理：下线旧版面板脚本，避免未来误调用
+rm -f /etc/edgebox/scripts/panel-refresh.sh 2>/dev/null || true
+rm -f /etc/edgebox/scripts/system-stats.sh 2>/dev/null || true
+}
+# ===== /finalize_install =====
+
 
 #############################################
 # 完整安装流程
@@ -4598,15 +5152,18 @@ show_installation_info() {
 
 # 清理函数
 cleanup() {
-    if [ "$?" -ne 0 ]; then
-        log_error "安装过程中出现错误，请检查日志: ${LOG_FILE}"
-        echo -e "${YELLOW}如需重新安装，请先运行: bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/refs/heads/main/ENV/uninstall.sh)${NC}"
-    fi
-    rm -f /tmp/Xray-linux-64.zip 2>/dev/null || true
-    rm -f /tmp/sing-box-*.tar.gz 2>/dev/null || true
+  local rc=$?
+  # 只有真错误（rc!=0）才报
+  if (( rc != 0 )); then
+    log_error "安装脚本异常退出，退出码: ${rc}。请查看日志：${LOG_FILE}"
+  fi
+  exit $rc
 }
+trap cleanup EXIT
+# --- /cleanup ---
 
 # 主安装流程
+# 在 main() 函数的开始部分添加版本号设置
 main() {
     clear
     print_separator
@@ -4614,9 +5171,12 @@ main() {
     echo -e "${CYAN}完整版：SNI定向 + 证书切换 + 出站分流 + 流量统计 + 流量预警 + 备份恢复${NC}"
     print_separator
     
+    # 设置版本号环境变量
+    export EDGEBOX_VER="3.0.0"
+    
     # 创建日志文件
-    mkdir -p $(dirname ${LOG_FILE})
-    touch ${LOG_FILE}
+    mkdir -p $(dirname "${LOG_FILE}")
+    touch "${LOG_FILE}"
     
     # 设置错误处理
     trap cleanup EXIT
@@ -4628,7 +5188,7 @@ main() {
     check_system  
     get_server_ip
     install_dependencies
-    generate_credentials
+    generate_credentials        # 确保在这里生成所有UUID和密码
     create_directories
     check_ports
     configure_firewall
@@ -4636,48 +5196,41 @@ main() {
     generate_self_signed_cert
     install_sing_box
     install_xray
-    generate_reality_keys
+    generate_reality_keys      # 生成Reality密钥
+    save_config_info          # 保存所有配置到JSON
     configure_nginx
     configure_xray
     configure_sing_box
-    save_config_info
-    start_services
-    generate_subscription
     
-    # 高级功能安装（模块3）
+    # 高级功能安装（模块3）- 先安装后台脚本
+    install_scheduled_dashboard_backend
     setup_traffic_monitoring
     setup_cron_jobs
     setup_email_system
-	create_enhanced_edgeboxctl
+    create_enhanced_edgeboxctl
     create_init_script
 
+    # 生成订阅并启动服务
+    generate_subscription     # 现在有完整的配置数据
+    start_services
+	install_ipq_stack
+	
     # 启动初始化服务
     systemctl start edgebox-init.service >/dev/null 2>&1 || true
     
     # 等待服务稳定
     sleep 3
     
-    # 生成初始图表和首页
-    if [[ -x "${SCRIPTS_DIR}/generate-charts.py" ]]; then
-        log_info "生成初始控制面板..."
-        "${SCRIPTS_DIR}/generate-charts.py" >/dev/null 2>&1 || log_warn "图表生成失败，请稍后访问控制面板"
-    fi
+# 运行一次数据初始化（统一由 dashboard-backend 生成 dashboard/system）
+/etc/edgebox/scripts/traffic-collector.sh || true
+/etc/edgebox/scripts/dashboard-backend.sh --now || true
     
-    # 运行一次流量采集初始化
-    if [[ -x "${SCRIPTS_DIR}/traffic-collector.sh" ]]; then
-        "${SCRIPTS_DIR}/traffic-collector.sh" >/dev/null 2>&1 || true
-    fi
-
-# 先产出最不依赖其它的 system.json
-${SCRIPTS_DIR}/system-stats.sh  || true
-# 再产出 traffic.json（daily/monthly）
-${SCRIPTS_DIR}/traffic-collector.sh || true
-# 最后产出 panel.json（会读取 shunt 与证书状态）
-${SCRIPTS_DIR}/panel-refresh.sh || true
-
-
-	# 在安装收尾输出总结信息（原来没调用）
+    # 收尾：订阅 + 首刷 + 定时
+    finalize_install
+    
+    # 显示安装信息
     show_installation_info
+    exit 0
 }
 
 # 执行主函数
