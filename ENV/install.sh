@@ -5163,11 +5163,13 @@ dashboardData = window.dashboardData = data;
   }
   
   // 更新服务状态
-  ['nginx', 'xray', 'sing-box'].forEach(service => {
-    if (data.services && data.services[service]) {
-      updateServiceStatus(service, data.services[service]);
-    }
-  });
+const svc2id = { 'nginx':'nginx', 'xray':'xray', 'sing-box':'singbox' };
+Object.keys(svc2id).forEach(svc => {
+  const domId = svc2id[svc];
+  if (data.services && data.services[svc]) {
+    updateServiceStatus(domId, data.services[svc]);
+  }
+});
   
   // 更新证书信息
   if (data.certificate) {
@@ -5218,14 +5220,15 @@ dashboardData = window.dashboardData = data;
 }
   
 function updateServiceStatus(service, status) {
-  const badge = document.getElementById(`${service}-status`);
+  const badge   = document.getElementById(`${service}-status`);
   const version = document.getElementById(`${service}-version`);
-  
-  if (status) {
-    badge.textContent = status.status === 'active' ? '运行中' : '已停止';
-    badge.className = status.status === 'active' ? 'status-badge status-running' : 'status-badge';
-    version.textContent = status.version || '';
+  if (!badge || !version) {
+    console.warn('[updateServiceStatus] elements missing for', service);
+    return;
   }
+  badge.textContent  = status.status === 'active' ? '运行中' : '已停止';
+  badge.className    = status.status === 'active' ? 'status-badge status-running' : 'status-badge';
+  version.textContent = status.version || '';
 }
 
 function attrEscape(s=''){
