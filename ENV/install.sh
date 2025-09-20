@@ -4515,7 +4515,7 @@ body, p, span, td, div {
 /* === 证书切换 === */
 .cert-modes {
   display: flex;
-  gap: 6px;
+  gap: 5px;
   margin-bottom: 2px;
 }
 
@@ -5145,86 +5145,72 @@ const ebYAxisUnitTop = {
 };
 Chart.register(ebYAxisUnitTop);
 
-// 更新系统概览
-async function updateSystemOverview() {
-  const data = await fetchJSON('/traffic/dashboard.json');
+//更新系统概览
+function updateDashboard(data) {
   if (!data) return;
   
-  dashboardData = data;
-  
-  // 服务器信息
+  // 更新服务器信息
   if (data.server) {
-    document.getElementById('server-name').textContent = data.server.nickname || '未设置';
-    document.getElementById('cloud-info').textContent = `${data.server.cloud_provider || '未知'} | ${data.server.cloud_region || '未知'}`;
+    document.getElementById('server-name').textContent = data.server.name || '—';
+    document.getElementById('cloud-info').textContent = 
+      `${data.server.cloud_provider || '—'} | ${data.server.cloud_region || '—'}`;
     document.getElementById('instance-id').textContent = data.server.instance_id || '—';
     document.getElementById('hostname').textContent = data.server.hostname || '—';
   }
   
-  // 系统资源
-  const sysData = await fetchJSON('/traffic/system.json');
-  if (sysData) {
-    // CPU
-    const cpuPct = sysData.cpu_usage || 0;
-    document.getElementById('cpu-progress').style.width = cpuPct + '%';
-    document.getElementById('cpu-progress').textContent = cpuPct + '%';
-    document.getElementById('cpu-info').textContent = data.server?.cpu_cores || '—';
-    
-    // 内存
-    const memPct = sysData.memory_usage || 0;
-    document.getElementById('mem-progress').style.width = memPct + '%';
-    document.getElementById('mem-progress').textContent = memPct + '%';
-    document.getElementById('mem-info').textContent = data.server?.memory || '—';
-    
-    // 磁盘
-    const diskPct = sysData.disk_usage || 0;
-    document.getElementById('disk-progress').style.width = diskPct + '%';
-    document.getElementById('disk-progress').textContent = diskPct + '%';
-    document.getElementById('disk-info').textContent = data.server?.disk || '—';
-    
-    // 更新时间
-    document.getElementById('update-time').textContent = sysData.current_time || '—';
-  }
+  // 更新服务状态
+  ['nginx', 'xray', 'sing-box'].forEach(service => {
+    if (data.services && data.services[service]) {
+      updateServiceStatus(service, data.services[service]);
+    }
+  });
   
-  // 服务状态
-  if (data.services) {
-    updateServiceStatus('nginx', data.services.nginx);
-    updateServiceStatus('xray', data.services.xray);
-    updateServiceStatus('singbox', data.services.sing_box);
-  }
-  
-  // 证书状态
+  // 更新证书信息
   if (data.certificate) {
-    const isCA = data.certificate.mode === 'domain';
-    document.getElementById('cert-self').classList.toggle('active', !isCA);
-    document.getElementById('cert-ca').classList.toggle('active', isCA);
-    document.getElementById('cert-type').textContent = data.certificate.type || '自签名';
+    document.getElementById('cert-self').classList.toggle('active', 
+      data.certificate.mode === 'self');
+    document.getElementById('cert-ca').classList.toggle('active', 
+      data.certificate.mode === 'ca');
+    document.getElementById('cert-type').textContent = data.certificate.type || '—';
     document.getElementById('cert-domain').textContent = data.certificate.domain || '(无)';
-    document.getElementById('cert-renewal').textContent = data.certificate.auto_renew ? '自动' : '手动';
+    document.getElementById('cert-renewal').textContent = 
+      data.certificate.renewal === 'auto' ? '自动' : '手动';
     document.getElementById('cert-expiry').textContent = data.certificate.expiry || '—';
   }
   
-  // 网络身份
+  // 更新网络身份
   if (data.shunt) {
     const mode = data.shunt.mode || 'vps';
     document.getElementById('net-vps').classList.toggle('active', mode === 'vps');
     document.getElementById('net-proxy').classList.toggle('active', mode === 'proxy');
     document.getElementById('net-shunt').classList.toggle('active', mode === 'shunt');
     
-    // VPS IP
     document.getElementById('vps-ip').textContent = data.server?.public_ip || '—';
-    document.getElementById('vps-geo').textContent = `${data.server?.country || '—'}-${data.server?.city || '—'}`;
+    document.getElementById('vps-geo').textContent = 
+      `${data.server?.country || '—'}-${data.server?.city || '—'}`;
     
-    // 代理IP
     if (data.shunt.proxy_ip) {
       document.getElementById('proxy-ip').textContent = data.shunt.proxy_ip;
       document.getElementById('proxy-geo').textContent = data.shunt.proxy_geo || '—';
     }
+    
+    if (data.shunt.whitelist) {
+      renderWhitelistPreview(data.shunt.whitelist);
+    }
   }
   
-  if (data.shunt && data.shunt.whitelist) { renderWhitelistPreview(data.shunt.whitelist); }
-
-  // 协议列表
-  updateProtocolTable(data.protocols);
+  // 更新协议列表
+  if (data.protocols) {
+    updateProtocolTable(data.protocols);
+  }
+  
+  // 更新订阅链接
+  if (data.subscription_url) {
+    const subElement = document.querySelector('[data-subscription-url]');
+    if (subElement) {
+      subElement.setAttribute('data-subscription-url', data.subscription_url);
+    }
+  }
 }
   
 function updateServiceStatus(service, status) {
@@ -5498,67 +5484,32 @@ function unlockScroll(){
   delete document.body.dataset.prevOverflow;
 }
 
-if (typeof showConfigModal !== 'function') {
-  // 如果原始函数不存在，定义一个基础版本
-  window.showConfigModal = function(key) {
-    const modal = document.getElementById('configModal');
-    const title = document.getElementById('configModalTitle');
-    const details = document.getElementById('configDetails');
-    
-    if (!modal || !title || !details) {
-      console.error('[Modal] Required DOM elements not found');
-      return;
-    }
-    
-    // 基础显示逻辑
-    modal.style.display = 'block';
-    title.textContent = `配置详情 - ${key}`;
-    details.innerHTML = '<p>加载配置中...</p>';
-    
-    // 处理具体的协议数据
-    if (key === '__SUBS__') {
-      title.textContent = '整包订阅链接 - 客户端配置详情';
-      // 订阅链接处理...
-    } else {
-      // 普通协议处理...
-      const protocols = window.dashboardData?.protocols || [];
-      const protocol = protocols.find(p => p.name === key);
-      if (protocol) {
-        title.textContent = `${protocol.name} - 客户端配置详情`;
-        // 显示协议详情...
-      }
-    }
-  };
-}
-
 function showConfigModal(key) {
-  const modal   = document.getElementById('configModal');
-  const title   = document.getElementById('configModalTitle');
+  const modal = document.getElementById('configModal');
+  const title = document.getElementById('configModalTitle');
   const details = document.getElementById('configDetails');
-
-  // 打开即锁定页面滚动
+  
+  if (!modal || !title || !details) {
+    console.error('[Modal] Required elements not found');
+    return;
+  }
+  
   lockScroll();
-
-  // —— 整包订阅链接 ——
+  
+  // 处理订阅链接
   if (key === '__SUBS__') {
     currentModalType = 'SUBS';
-    currentProtocol  = null;
-
-    const plainLink  = (window.dashboardData && dashboardData.subscription_url) || '';
-    const base64Link = plainLink
-      ? (plainLink.includes('?') ? `${plainLink}&format=base64` : `${plainLink}?format=base64`)
-      : '';
+    currentProtocol = null;
+    
+    const plainLink = dashboardData?.subscription_url || '';
+    const base64Link = plainLink ? 
+      (plainLink.includes('?') ? `${plainLink}&format=base64` : `${plainLink}?format=base64`) : '';
+    
     title.textContent = '整包订阅链接 - 客户端配置详情';
-
-    // 固定顺序：明文 → JSON(—) → Base64 → 二维码 → 使用说明
     details.innerHTML = `
       <div class="config-section">
         <h4>明文链接</h4>
         <div class="config-code" id="plain-link">${escapeHtml(plainLink || '—')}</div>
-      </div>
-      <div class="config-section">
-        <h4>JSON配置</h4>
-        <div class="config-code" id="json-code">—</div>
       </div>
       <div class="config-section">
         <h4>Base64链接</h4>
@@ -5578,88 +5529,85 @@ function showConfigModal(key) {
         </div>
       </div>
     `;
-
-    // 生成二维码（使用明文订阅链接）
+    
+    // 生成二维码
     const qr = document.getElementById('qrcode');
     if (plainLink && qr && window.QRCode) {
-      new QRCode(qr, { text: plainLink, width: 256, height: 256, colorDark: "#000", colorLight: "#fff", correctLevel: QRCode.CorrectLevel.H });
+      new QRCode(qr, {
+        text: plainLink,
+        width: 256,
+        height: 256,
+        colorDark: "#000",
+        colorLight: "#fff",
+        correctLevel: QRCode.CorrectLevel.H
+      });
     }
-
-    modal.style.display = 'block';
-    return;
   }
-
-  // —— 普通协议（key 为名称或索引）——
-  currentModalType = 'PROTOCOL';
-  const list = (window.dashboardData && dashboardData.protocols) || [];
-  let protocol = null;
-  if (typeof key === 'string') {
-    protocol = list.find(p => p && p.name === key) || list.find(p => p && (p.name||'').trim() === key.trim());
-  } else if (typeof key === 'number') {
-    protocol = list[key];
-  }
-  if (!protocol) { notify('未找到协议配置', 'warn'); return; }
-
-  currentProtocol   = protocol;
-  title.textContent = `${protocol.name} - 客户端配置详情`;
-
-  const plainText = protocol.plain || protocol.share_link || '';
-  const jsonText  = protocol.json
-    ? (typeof protocol.json === 'string' ? protocol.json : JSON.stringify(protocol.json, null, 2))
-    : '';
-  let base64Text  = protocol.base64 || '';
-  if (!base64Text && protocol.share_link) {
-    base64Text = protocol.share_link.startsWith('vmess://')
-      ? protocol.share_link.split('://')[1]
-      : (()=>{ try { return btoa(protocol.share_link); } catch(e){ return ''; } })();
-  }
-
-  // 固定顺序：明文 → JSON → Base64 → 二维码 → 使用说明（即使没有也显示"—"）
-  details.innerHTML = `
-    <div class="config-section">
-      <h4>明文链接</h4>
-      <div class="config-code" id="plain-link">${escapeHtml(plainText || '—')}</div>
-    </div>
-    <div class="config-section">
-      <h4>JSON配置</h4>
-      <div class="config-code" id="json-code">${escapeHtml(jsonText || '—')}</div>
-    </div>
-    <div class="config-section">
-      <h4>Base64链接</h4>
-      <div class="config-code" id="base64-link">${escapeHtml(base64Text || '—')}</div>
-    </div>
-    <div class="config-section">
-      <h4>二维码</h4>
-      <div class="qr-container"><div id="qrcode"></div></div>
-    </div>
-    <div class="config-section">
-      <h4>使用说明</h4>
-      <div class="config-help">
-        1. 复制订阅链接导入客户端<br>
-        2. 支持 V2rayN、Clash、Shadowrocket 等主流客户端<br>
-        3. 自签证书需在客户端开启"跳过证书验证"<br>
-        4. UDP协议（HY2/TUIC）固定走VPS直连
+  // 处理协议配置
+  else {
+    currentModalType = 'PROTOCOL';
+    const protocols = dashboardData?.protocols || [];
+    const protocol = protocols.find(p => p.name === key);
+    
+    if (!protocol) {
+      console.warn('[Modal] Protocol not found:', key);
+      notify('未找到协议配置', 'warn');
+      return;
+    }
+    
+    currentProtocol = protocol;
+    title.textContent = `${protocol.name} - 客户端配置详情`;
+    
+    const plainText = protocol.plain || protocol.share_link || '';
+    const jsonText = protocol.json ? 
+      (typeof protocol.json === 'string' ? protocol.json : JSON.stringify(protocol.json, null, 2)) : '';
+    const base64Text = protocol.base64 || '';
+    
+    details.innerHTML = `
+      <div class="config-section">
+        <h4>明文链接</h4>
+        <div class="config-code" id="plain-link">${escapeHtml(plainText || '—')}</div>
       </div>
-    </div>
-  `;
-
-  // 生成二维码（优先明文；否则 share_link）
-  const qr = document.getElementById('qrcode');
-  const qrText = plainText || protocol.share_link || '';
-  if (qrText && qr && window.QRCode) {
-    new QRCode(qr, { text: qrText, width: 256, height: 256, colorDark: "#000", colorLight: "#fff", correctLevel: QRCode.CorrectLevel.H });
+      <div class="config-section">
+        <h4>JSON配置</h4>
+        <div class="config-code" id="json-code">${escapeHtml(jsonText || '—')}</div>
+      </div>
+      <div class="config-section">
+        <h4>Base64链接</h4>
+        <div class="config-code" id="base64-link">${escapeHtml(base64Text || '—')}</div>
+      </div>
+      <div class="config-section">
+        <h4>二维码</h4>
+        <div class="qr-container"><div id="qrcode"></div></div>
+      </div>
+    `;
+    
+    // 生成二维码
+    const qr = document.getElementById('qrcode');
+    if (plainText && qr && window.QRCode) {
+      new QRCode(qr, {
+        text: plainText,
+        width: 256,
+        height: 256,
+        colorDark: "#000",
+        colorLight: "#fff",
+        correctLevel: QRCode.CorrectLevel.H
+      });
+    }
   }
-
+  
   modal.style.display = 'block';
 }
 
-
+// ===关闭函数 ===
 function closeConfigModal() {
-  const m = document.getElementById('configModal');
-  if (m) m.style.display = 'none';
-  const q = document.getElementById('qrcode');
-  if (q) q.innerHTML = '';
-  unlockScroll();  // 恢复页面滚动
+  const modal = document.getElementById('configModal');
+  if (modal) {
+    modal.style.display = 'none';
+    const qr = document.getElementById('qrcode');
+    if (qr) qr.innerHTML = '';
+  }
+  unlockScroll();
 }
 
 // 轻提示（toast），默认 1500ms；尽量渲染在弹窗里
@@ -5795,80 +5743,106 @@ async function copyQRImage(){
 let _overviewTimer = null;
 
 async function init() {
-  // 获取并保存dashboard数据
+  // 获取并保存dashboard数据到全局变量
   const data = await fetchJSON('/traffic/dashboard.json');
   if (data) {
-    window.dashboardData = data;  // 确保保存到全局
-    // 然后更新UI
-    updateSystemOverview();
+    window.dashboardData = data;
+    // 更新所有UI元素
+    updateDashboard(data);
   }
   
+  // 获取并渲染流量数据
   const trafficData = await fetchJSON('/traffic/traffic.json');
-  if (trafficData) renderTraffic(trafficData);
+  if (trafficData) {
+    renderTraffic(trafficData);
+  }
   
-  _overviewTimer = setInterval(updateSystemOverview, 30000);
+  // 启动定时更新
+  _overviewTimer = setInterval(async () => {
+    const newData = await fetchJSON('/traffic/dashboard.json');
+    if (newData) {
+      window.dashboardData = newData;
+      updateDashboard(newData);
+    }
+  }, 30000);
+  
   setInterval(updateProgressBar, 3600000);
 }
 
 // === 修复协议配置弹窗的事件委托绑定 ===
-(function bindProtocolViewHandler() {
-  // 等待 DOM 加载完成
+(function initEventDelegation() {
+  // 等待DOM加载完成
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', bindProtocolViewHandler);
-    return;
-  }
-
-  const tbody = document.getElementById('protocol-tbody');
-  if (!tbody) {
-    console.error('[bindProtocolViewHandler] tbody#protocol-tbody not found! Retrying in 1 second...');
-    // 如果找不到，1秒后重试一次（可能DOM还没渲染完）
-    setTimeout(bindProtocolViewHandler, 1000);
+    document.addEventListener('DOMContentLoaded', initEventDelegation);
     return;
   }
   
-  // 防止重复绑定
-  if (tbody.__viewBound) {
-    console.log('[bindProtocolViewHandler] Event handler already bound');
-    return;
-  }
-
-  // 使用事件委托监听按钮点击
-  tbody.addEventListener('click', function(e) {
-    // 查找最近的带有 data-protocol 属性的按钮
-    const btn = e.target.closest('button[data-protocol]');
-    if (!btn || !tbody.contains(btn)) return;
+  // 使用单一的事件委托处理器处理所有按钮点击
+  document.body.addEventListener('click', function(e) {
+    const target = e.target.closest('button[data-action], button[data-protocol], [data-modal]');
+    if (!target) return;
     
     e.preventDefault();
     e.stopPropagation();
     
-    const protocolName = btn.dataset.protocol;
-    if (!protocolName) {
-      console.warn('[bindProtocolViewHandler] Button missing data-protocol:', btn);
-      return;
+    // 处理协议配置按钮
+    if (target.dataset.protocol) {
+      console.log('[Event] Protocol config clicked:', target.dataset.protocol);
+      showConfigModal(target.dataset.protocol);
     }
     
-    console.log('[bindProtocolViewHandler] Button clicked, protocol:', protocolName);
-    
-    // 调用弹窗显示函数
-    try {
-      if (typeof showConfigModal === 'function') {
-        showConfigModal(protocolName);
-      } else {
-        console.error('[bindProtocolViewHandler] showConfigModal function not found');
-        if (typeof notify === 'function') {
-          notify('无法打开配置弹窗', 'warn');
-        }
+    // 处理其他操作按钮
+    else if (target.dataset.action) {
+      console.log('[Event] Action clicked:', target.dataset.action);
+      
+      switch(target.dataset.action) {
+        case 'copy-subscription':
+          const url = target.dataset.subscriptionUrl || dashboardData?.subscription_url;
+          if (url) copyToClipboard(url);
+          break;
+          
+        case 'view-subscription':
+          showConfigModal('__SUBS__');
+          break;
+          
+        case 'view-whitelist':
+          showWhitelistModal();
+          break;
+          
+        case 'view-ipq':
+          const type = target.dataset.ipqType;
+          if (type) showIPQDetails(type);
+          break;
+          
+        case 'close-modal':
+          const modalId = target.dataset.modalId;
+          if (modalId) {
+            document.getElementById(modalId).style.display = 'none';
+            unlockScroll();
+          }
+          break;
       }
-    } catch (error) {
-      console.error('[bindProtocolViewHandler] Error calling showConfigModal:', error);
-      if (typeof notify === 'function') {
-        notify('打开配置弹窗失败', 'warn');
+    }
+    
+    // 处理模态框触发器
+    else if (target.dataset.modal) {
+      const modal = document.getElementById(target.dataset.modal);
+      if (modal) {
+        modal.style.display = 'block';
+        lockScroll();
       }
     }
   });
-
-  tbody.__viewBound = true;
-  console.log('[bindProtocolViewHandler] Event delegation successfully bound to tbody#protocol-tbody');
+  
+  // 点击模态框背景关闭
+  document.addEventListener('click', function(e) {
+    if (e.target.classList.contains('modal')) {
+      e.target.style.display = 'none';
+      unlockScroll();
+    }
+  });
+  
+  console.log('[Event] Unified event delegation initialized');
 })();
 
 // 打开/关闭弹窗时控制刷新
@@ -5879,78 +5853,6 @@ function pauseOverviewOnce(ms=10000){
 
 // 页面加载完成后初始化
 window.addEventListener('DOMContentLoaded', init);
-
-// === 修复showConfigModal函数的错误处理 ===
-const originalShowConfigModal = window.showConfigModal;
-window.showConfigModal = function(key) {
-  console.log('showConfigModal called with:', key, typeof key);
-  
-  const modal = document.getElementById('configModal');
-  const title = document.getElementById('configModalTitle');
-  const details = document.getElementById('configDetails');
-  
-  // 检查必要的DOM元素
-  if (!modal) {
-    console.error('configModal element not found');
-    return;
-  }
-  if (!title) {
-    console.error('configModalTitle element not found');
-    return;
-  }
-  if (!details) {
-    console.error('configDetails element not found');
-    return;
-  }
-  
-  try {
-    // 调用原始函数
-    if (typeof originalShowConfigModal === 'function') {
-      originalShowConfigModal.call(this, key);
-    } else {
-      console.error('Original showConfigModal function not found');
-      // 提供基本的显示逻辑
-      modal.style.display = 'block';
-      title.textContent = `配置详情 - ${key}`;
-      details.innerHTML = '<p>配置信息加载中...</p>';
-    }
-  } catch (error) {
-    console.error('showConfigModal execution failed:', error);
-    modal.style.display = 'block';
-    title.textContent = '配置详情';
-    details.innerHTML = `<p style="color: #ef4444;">加载失败: ${error.message}</p>`;
-  }
-};
-
-// === 确保弹窗关闭功能正常 ===
-const originalCloseConfigModal = window.closeConfigModal;
-window.closeConfigModal = function() {
-  const modal = document.getElementById('configModal');
-  if (modal) {
-    modal.style.display = 'none';
-  }
-  
-  const qr = document.getElementById('qrcode');
-  if (qr) {
-    qr.innerHTML = '';
-  }
-  
-// 恢复页面滚动
-  if (typeof unlockScroll === 'function') {
-    unlockScroll();
-  } else {
-    document.body.style.overflow = '';
-    document.body.classList.remove('modal-open');
-  }
-  
-  if (typeof originalCloseConfigModal === 'function') {
-    try {
-      originalCloseConfigModal.call(this);
-    } catch (error) {
-      console.warn('Original closeConfigModal failed:', error);
-    }
-  }
-};
 
 // === 全局弹窗关闭事件优化 ===
 window.addEventListener('click', function(event) {
@@ -6001,21 +5903,25 @@ window.debugProtocolTable = function() {
   console.groupEnd();
 };
 
-// === [PATCH:APPJS_EXPORT_GLOBALS_BEGIN] ===
-// 供 HTML 内联 onclick 使用（不改你现有 HTML）
-window.showConfigModal   = showConfigModal;
-window.closeConfigModal  = closeConfigModal;
-window.copyPlain         = copyPlain;
-window.copyJSON          = copyJSON;
-window.copyBase64        = copyBase64;
-window.copyQRImage       = copyQRImage;
+// === 替换 [PATCH:APPJS_EXPORT_GLOBALS] 部分为： ===
+// 导出给HTML内联onclick使用的函数
+window.showConfigModal = showConfigModal;
+window.closeConfigModal = closeConfigModal;
+window.showWhitelistModal = showWhitelistModal;
+window.closeWhitelistModal = closeWhitelistModal;
+window.copyToClipboard = copyToClipboard;
+window.copyPlain = copyPlain;
+window.copyJSON = copyJSON;
+window.copyBase64 = copyBase64;
+window.copyQRImage = copyQRImage;
 
-// 如果页面上还有这些内联按钮，也一并导出（有就用，没有不影响）
-window.showIPQDetails        = typeof showIPQDetails        === 'function' ? showIPQDetails        : undefined;
-window.closeIPQModal         = typeof closeIPQModal         === 'function' ? closeIPQModal         : undefined;
-window.showWhitelistModal    = typeof showWhitelistModal    === 'function' ? showWhitelistModal    : undefined;
-window.closeWhitelistModal   = typeof closeWhitelistModal   === 'function' ? closeWhitelistModal   : undefined;
-// === [PATCH:APPJS_EXPORT_GLOBALS_END] ===
+// 这些函数如果存在就导出（保留判断）
+if (typeof showIPQDetails === 'function') {
+  window.showIPQDetails = showIPQDetails;
+}
+if (typeof closeIPQModal === 'function') {
+  window.closeIPQModal = closeIPQModal;
+}
 
 EXTERNAL_JS
 
