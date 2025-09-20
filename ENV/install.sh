@@ -5276,59 +5276,61 @@ function renderOverview() {
 }
 
 function renderCertificateAndNetwork() {
-    const cert = dashboardData.server?.cert || {};
-    const shunt = dashboardData.shunt || {};
+  const cert  = (dashboardData.server && dashboardData.server.cert) || {};
+  const shunt = dashboardData.shunt || {};
 
-    // Certificate
-    const certMode = safeGet(cert, 'mode', 'self-signed');
-    document.getElementById('cert-self').classList.toggle('active', certMode === 'self-signed');
-    document.getElementById('cert-ca').classList.toggle('active', certMode.startsWith('letsencrypt'));
-    document.getElementById('cert-type').textContent = certMode.startsWith('letsencrypt') ? "Let's Encrypt" : "自签名";
-    document.getElementById('cert-domain').textContent = safeGet(cert, 'domain', '(无)');
-    document.getElementById('cert-renewal').textContent = certMode.startsWith('letsencrypt') ? '自动' : '手动';
-    document.getElementById('cert-expiry').textContent = safeGet(cert, 'expires_at') ? new Date(cert.expires_at).toLocaleDateString() : '—';
+  // ---- 证书信息（保持原有显示，不改样式）----
+  const certMode = String(cert.mode || 'self-signed');
+  document.getElementById('cert-self')?.classList.toggle('active', certMode === 'self-signed');
+  document.getElementById('cert-ca')?.classList.toggle('active', certMode.startsWith('letsencrypt'));
+  document.getElementById('cert-type').textContent   = certMode.startsWith('letsencrypt') ? "Let's Encrypt" : "自签名";
+  document.getElementById('cert-domain').textContent = cert.domain || '(无)';
+  document.getElementById('cert-renewal').textContent = certMode.startsWith('letsencrypt') ? '自动' : '手动';
+  document.getElementById('cert-expiry').textContent  = cert.expires_at ? new Date(cert.expires_at).toLocaleDateString() : '—';
 
-    // Network Identity - 完全修复判断逻辑
-    const shuntMode = String(safeGet(shunt, 'mode', 'vps')).toLowerCase();
-    
-    // 清理所有active状态
-    ['net-vps', 'net-proxy', 'net-shunt'].forEach(id => {
-        document.getElementById(id).classList.remove('active');
-    });
-    
-    // 根据mode精确匹配并高亮
-    if (shuntMode === 'vps') {
-        document.getElementById('net-vps').classList.add('active');
-    } else if (shuntMode.includes('resi') && !shuntMode.includes('direct')) {
-        // resi 或 resi(xray-only)
-        document.getElementById('net-proxy').classList.add('active');
-    } else if (shuntMode.includes('direct')) {
-        // direct_resi 或 direct_resi(xray-only)
-        document.getElementById('net-shunt').classList.add('active');
+  // ---- 出站模式判定（修复版）----
+  const mode = String(shunt.mode || 'vps').toLowerCase();
+  const isVps   = (mode === 'vps');
+  const isProxy = (mode.includes('resi') && !mode.includes('direct'));  // resi / resi(xray-only)
+  const isShunt = (mode.includes('direct'));                            // direct_resi(…)
+
+  ['net-vps','net-proxy','net-shunt'].forEach(id => document.getElementById(id)?.classList.remove('active'));
+  if (isVps) {
+    document.getElementById('net-vps')?.classList.add('active');
+  } else if (isProxy) {
+    document.getElementById('net-proxy')?.classList.add('active');
+  } else if (isShunt) {
+    document.getElementById('net-shunt')?.classList.add('active');
+  } else {
+    // 异常/未知时回退到 VPS 高亮
+    document.getElementById('net-vps')?.classList.add('active');
+  }
+
+  // ---- 文本信息填充（保持原位，不改样式）----
+  const vpsIp = (dashboardData.server && (dashboardData.server.eip || dashboardData.server.server_ip)) || '—';
+  document.getElementById('vps-ip').textContent = vpsIp;
+  document.getElementById('vps-geo').textContent = (dashboardData.system && dashboardData.system.geo) || '—';
+
+  document.getElementById('proxy-ip').textContent  = shunt.proxy_info || '(未配置)';
+  document.getElementById('proxy-geo').textContent = shunt.proxy_geo || '—';
+
+  // IP 质量分数字段（如果你的 dashboard.json 里有就显示，没有保持“—”）
+  document.getElementById('vps-ipq-score').textContent   = (dashboardData.ipq && dashboardData.ipq.vps && dashboardData.ipq.vps.score) || '—';
+  document.getElementById('proxy-ipq-score').textContent = (dashboardData.ipq && dashboardData.ipq.proxy && dashboardData.ipq.proxy.score) || '—';
+
+  // 白名单预览
+  const wl = Array.isArray(shunt.whitelist) ? shunt.whitelist : [];
+  const previewEl = document.getElementById('whitelistPreview');
+  if (previewEl) {
+    if (wl.length === 0) {
+      previewEl.textContent = '（未配置）';
     } else {
-        // 默认高亮VPS
-        document.getElementById('net-vps').classList.add('active');
+      const head = wl.slice(0, 3).join(', ');
+      previewEl.textContent = wl.length > 3 ? `${head} 等 ${wl.length} 条` : head;
     }
-    
-    // 更新显示内容
-    document.getElementById('vps-ip').textContent = safeGet(dashboardData, 'server.eip') || safeGet(dashboardData, 'server.server_ip');
-    document.getElementById('proxy-ip').textContent = safeGet(shunt, 'proxy_info', '(未配置)');
-    
-    // Whitelist
-    const whitelist = shunt.whitelist || [];
-    const previewEl = document.getElementById('whitelistPreview');
-    if (previewEl) {
-        if (whitelist.length > 0) {
-            const displayList = whitelist.slice(0, 3).join(', ') + (whitelist.length > 3 ? '...' : '');
-            previewEl.innerHTML = `
-                <div class="whitelist-text">${displayList}</div>
-                <button class="whitelist-more btn btn-sm" data-action="open-modal" data-modal="whitelist">查看全部</button>
-            `;
-        } else {
-            previewEl.innerHTML = `<div class="whitelist-text">暂无白名单</div>`;
-        }
-    }
+  }
 }
+
 
 function renderProtocolTable() {
     const protocols = dashboardData.protocols || [];
@@ -5821,24 +5823,33 @@ function setupEventListeners() {
 }
 
 async function showIPQDetails(which) {
-  const modal = document.getElementById('ipqModal');
+  const modal   = document.getElementById('ipqModal');
   const titleEl = document.getElementById('ipqModalTitle');
-  const body = document.getElementById('ipqDetails');
+  const body    = document.getElementById('ipqDetails');
   if (!modal || !titleEl || !body) return;
 
   const titleMap = { vps: 'VPS IP质量检测详情', proxy: '代理 IP质量检测详情' };
   titleEl.textContent = titleMap[which] || 'IP质量检测详情';
   body.innerHTML = '<div class="config-section"><div class="config-code">加载中...</div></div>';
 
+  // 读取目标数据
   const data = await fetchJSON(`/status/ipq_${which}.json`);
-  if (data) {
-    body.innerHTML = '<pre class="config-code" style="white-space:pre-wrap">' + escapeHtml(JSON.stringify(data, null, 2)) + '</pre>';
+
+  if (data && Object.keys(data).length) {
+    body.innerHTML =
+      '<pre class="config-code" style="white-space:pre-wrap">' +
+      escapeHtml(JSON.stringify(data, null, 2)) +
+      '</pre>';
   } else {
-    body.innerHTML = '<div class="text-secondary">暂无数据</div>';
+    // 兜底：读元信息，至少给出“上次采集时间”的提示
+    const meta = await fetchJSON('/status/ipq_meta.json');
+    const hint = meta && meta.last_run ? `（上次采集：${new Date(meta.last_run).toLocaleString()}）` : '';
+    body.innerHTML = `<div class="text-secondary">暂无数据 ${hint}</div>`;
   }
 
   showModal('ipqModal');
 }
+
 
 // --- Initialization ---
 
