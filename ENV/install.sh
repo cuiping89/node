@@ -3297,6 +3297,7 @@ generate_dashboard_data() {
     # 合并所有数据生成dashboard.json
 jq -n \
     --arg timestamp "$timestamp" \
+    --arg subscription_url "https://${server_ip}/sub" \
     --argjson system "$system_info" \
     --argjson cert "$cert_info" \
     --argjson services "$services_info" \
@@ -3306,8 +3307,7 @@ jq -n \
     --argjson secrets "$secrets_info" \
     '{
         updated_at: $timestamp,
-        # 直接用 system.server_ip 拼接订阅地址（80端口走HTTP）
-        subscription_url: ("http://" + $system.server_ip + "/sub"),
+        subscription_url: $subscription_url,
         server: ($system + {cert: $cert}),
         services: $services,
         protocols: $protocols,
@@ -4058,7 +4058,6 @@ log_info "└─ show_traffic_stats()       # 查看流量统计"
 #############################################
 
 # 设置流量监控系统
-# 设置流量监控系统
 setup_traffic_monitoring() {
   log_info "设置流量采集与前端渲染（vnStat + nftables + CSV/JSON + Chart.js + 预警）..."
 
@@ -4068,9 +4067,6 @@ setup_traffic_monitoring() {
   LOG_DIR="${TRAFFIC_DIR}/logs"
   mkdir -p "$TRAFFIC_DIR" "$SCRIPTS_DIR" "$LOG_DIR" /var/www/html
   ln -sfn "$TRAFFIC_DIR" /var/www/html/traffic
-
-  # 创建CSS和JS目录
-  mkdir -p "${TRAFFIC_DIR}/assets"
 
   # nftables 计数器（若不存在则创建）
   nft list table inet edgebox >/dev/null 2>&1 || nft -f - <<'NFT'
@@ -4261,17 +4257,23 @@ echo "$new_sent" > "$STATE"
 ALERT
 chmod +x "${SCRIPTS_DIR}/traffic-alert.sh"
 
-  # 网站根目录映射 + 首次刷新
-  mkdir -p "${TRAFFIC_DIR}" /var/www/html
-  ln -sfn "${TRAFFIC_DIR}" /var/www/html/traffic
+# 网站根目录映射 + 首次刷新
+mkdir -p "${TRAFFIC_DIR}" /var/www/html
+ln -sfn "${TRAFFIC_DIR}" /var/www/html/traffic
 
-  # 首次出全量 JSON：traffic.json + dashboard.json/system.json
-  "${SCRIPTS_DIR}/traffic-collector.sh" || true
-  "${SCRIPTS_DIR}/dashboard-backend.sh" --now || true
+# 首次出全量 JSON：traffic.json + dashboard.json/system.json
+"${SCRIPTS_DIR}/traffic-collector.sh" || true
+"${SCRIPTS_DIR}/dashboard-backend.sh" --now || true
 
-  # ========== 创建外置的CSS文件 ==========
-  log_info "创建外置CSS文件..."
-  cat > "${TRAFFIC_DIR}/assets/edgebox-panel.css" <<'EXTERNAL_CSS'
+# 模块7 控制面板HTML
+cat > "$TRAFFIC_DIR/index.html" <<'HTML'
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EdgeBox Control Panel</title>
+<style>
 * {
   margin: 0;
   padding: 0;
@@ -4280,7 +4282,7 @@ chmod +x "${SCRIPTS_DIR}/traffic-alert.sh"
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  background: #f3f4f6;
+  background: #f3f4f6;  /* 从 #f5f5f5 改为 #f3f4f6 */
   min-height: 100vh;
   padding: 20px;
   color: #1f2937;
@@ -4291,7 +4293,7 @@ body {
   margin: 0 auto;
 }
 
-/* === 文字系统（严格遵循规范）=== */
+/* === 文字系统（严格遵循规范） === */
 h1 {
   font-size: 23px;
   font-weight: 700;
@@ -4335,12 +4337,12 @@ body, p, span, td, div {
   color: #4b5563;
 }
 
-/* === 卡片系统（增强层次感）=== */
+/* === 卡片系统（增强层次感） === */
 .main-card {
   background: #ffffff;
-  border: 1px solid #d1d5db;
+  border: 1px solid #d1d5db;  /* 从 #e5e7eb 改为 #d1d5db */
   border-radius: 10px;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08);  /* 从 0 1px 2px rgba(0,0,0,0.05) 改为更深的阴影 */
   overflow: hidden;
 }
 
@@ -4362,9 +4364,9 @@ body, p, span, td, div {
 
 .card {
   background: #ffffff;
-  border: 1px solid #d1d5db;
+  border: 1px solid #d1d5db;  /* 从 #e5e7eb 改为 #d1d5db */
   border-radius: 10px;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08);  /* 更深的阴影 */
   padding: 20px;
   margin-bottom: 20px;
   transition: box-shadow 0.2s;
@@ -4392,9 +4394,9 @@ body, p, span, td, div {
   font-weight: 400;
 }
 
-/* === 内层区块（更新背景色）=== */
+/* === 内层区块（更新背景色） === */
 .inner-block {
-  background: #f5f5f5;
+  background: #f5f5f5;  /* 从 #f9fafb 改为 #f5f5f5 */
   border: 1px solid #e5e7eb;
   border-radius: 6px;
   padding: 15px;
@@ -4516,13 +4518,13 @@ body, p, span, td, div {
 .cert-modes {
   display: flex;
   gap: 6px;
-  margin-bottom: 2px;
+  margin-bottom: 20px;
 }
 
 .cert-mode-tab {
   flex: 1;
   padding: 10px;
-  background: #f5f5f5;
+  background: #f5f5f5;  /* 从 #f9fafb 改为 #f5f5f5 */
   border: 1px solid #e5e7eb;
   color: #6b7280;
   text-align: center;
@@ -4544,7 +4546,7 @@ body, p, span, td, div {
 }
 
 .network-block {
-  background: #f5f5f5;
+  background: #f5f5f5;  /* 从 #f9fafb 改为 #f5f5f5 */
   border: 1px solid #e5e7eb;
   border-radius: 8px;
   padding: 12px;
@@ -4566,59 +4568,6 @@ body, p, span, td, div {
   color: white;
 }
 
-.note-udp{
-  font-size: 11px;
-  font-weight: 400;
-  color: #6b7280;
-  white-space: nowrap;
-  margin-left: 8px;
-}
-
-/* 白名单行内文本（与其它 value 一致） */
-.whitelist-inline{
-  color: #374151;
-  font-size: 13px;
-  line-height: 1.6;
-  word-break: break-all;   /* 遇到超长域名时允许断行 */
-  white-space: normal;     /* 自然换行 */
-}
-
-/* 白名单预览容器：紧跟标题显示，最多三行 */
-.whitelist-value{   /* 包裹 value，统一行高与其它区块 */
-  width: 100%;
-}
-.whitelist-preview{
-  --lh: 22px;          /* 每行行高 */
-  margin-top: 4px;     /* 与标题的间距——比原来更紧 */
-  position: relative;
-  padding-right: 72px; /* 右下角按钮预留 */
-  max-height: calc(var(--lh) * 3);
-  overflow: hidden;
-}
-.whitelist-text{
-  font-size: 13px;
-  line-height: var(--lh);
-  color: #374151;
-  white-space: normal;
-  word-break: break-word;
-}
-/* 右下角“查看全部”，保持在第三行末尾 */
-.whitelist-more{
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  height: var(--lh);
-  line-height: var(--lh);
-  padding: 0 10px;
-  border: 1px solid #d1d5db;
-  border-radius: 14px;
-  background: #ffffff;
-  font-size: 11px;
-  color: #2563eb;
-  cursor: pointer;
-}
-.whitelist-more:hover{ background:#f3f4f6; }
-
 /* === 表格 === */
 .data-table {
   width: 100%;
@@ -4626,7 +4575,7 @@ body, p, span, td, div {
 }
 
 .data-table th {
-  background: #f5f5f5;
+  background: #f5f5f5;  /* 从 #f9fafb 改为 #f5f5f5 */
   color: #4b5563;
   font-weight: 500;
   padding: 10px;
@@ -4642,9 +4591,9 @@ body, p, span, td, div {
 }
 
 /* 协议配置表格 - 使居中的列 */
-.data-table td:nth-child(4),
-.data-table td:nth-child(5),
-.data-table td:nth-child(6) {
+.data-table td:nth-child(4),  /* 伪装效果 */
+.data-table td:nth-child(5),  /* 运行状态 */
+.data-table td:nth-child(6) { /* 客户端配置 */
   text-align: center;
 }
 
@@ -4658,9 +4607,9 @@ body, p, span, td, div {
   background: #f5f5f5;
 }
 
-.data-table tr.subs-row td { background:#f5f5f5; }
+.data-table tr.subs-row td { background:#f5f5f5; }/* 整包订阅链接行灰底（可选） */
 
-/* === 流量统计（来自new5.txt）=== */
+/* === 流量统计（来自new5.txt） === */
 .traffic-card { 
   position: relative; 
 }
@@ -4735,7 +4684,7 @@ body, p, span, td, div {
   .traffic-progress-container { position: static; width: 100%; margin-bottom: 16px; }
 }
 
-/* === 运维管理（来自new5.txt）=== */
+/* === 运维管理（来自new5.txt） === */
 .commands-grid { 
   display: grid; 
   grid-template-columns: 1fr 1fr; 
@@ -4747,8 +4696,8 @@ body, p, span, td, div {
 }
 
 .command-section { 
-  background: #f5f5f5;
-  border: 1px solid #d1d5db;
+  background: #f5f5f5;  /* 从 var(--subtle) 改为 #f5f5f5 */
+  border: 1px solid #d1d5db;  /* 从 var(--border) 改为 #d1d5db */
   border-radius: 8px; 
   padding: 12px; 
 }
@@ -4841,9 +4790,9 @@ body, p, span, td, div {
   background-color: #fff;
   margin: 5% auto;
   padding: 0;
-  border: 1px solid #d1d5db;
+  border: 1px solid #d1d5db;  /* 从 #e5e7eb 改为 #d1d5db */
   border-radius: 12px;
-  width: min(720px, 92%);
+  width: 80%;
   max-width: 600px;
   box-shadow: 0 12px 24px rgba(0,0,0,0.14);
 }
@@ -4874,8 +4823,8 @@ body, p, span, td, div {
 
 .modal-body {
   padding: 20px;
-  max-height: min(70vh, 560px);
-  overflow: auto;
+  max-height: 60vh;
+  overflow-y: auto;
 }
 
 .modal-footer {
@@ -4912,7 +4861,7 @@ body, p, span, td, div {
 }
 
 .management-commands {
-  background: #f5f5f5;
+  background: #f5f5f5;  /* 从 #f9fafb 改为 #f5f5f5 */
   border: 1px solid #e5e7eb;
   border-radius: 6px;
   padding: 15px;
@@ -4942,7 +4891,7 @@ body, p, span, td, div {
 }
 
 .traffic-stat {
-  background: #f5f5f5;
+  background: #f5f5f5;  /* 从 #f9fafb 改为 #f5f5f5 */
   padding: 15px;
   border-radius: 8px;
   text-align: center;
@@ -4973,7 +4922,7 @@ body, p, span, td, div {
 }
 
 .config-code {
-  background: #f5f5f5;
+  background: #f5f5f5;  /* 从 #f9fafb 改为 #f5f5f5 */
   border: 1px solid #e5e7eb;
   border-radius: 6px;
   padding: 12px;
@@ -4985,7 +4934,7 @@ body, p, span, td, div {
 }
 
 .json-config {
-  background: #f5f5f5;
+  background: #f5f5f5;  /* 从 #f9fafb 改为 #f5f5f5 */
   border: 1px solid #e5e7eb;
   border-radius: 6px;
   padding: 12px;
@@ -5016,7 +4965,7 @@ body, p, span, td, div {
 .qr-container {
   text-align: center;
   padding: 20px;
-  background: #f5f5f5;
+  background: #f5f5f5;  /* 从 #f9fafb 改为 #f5f5f5 */
   border-radius: 6px;
 }
 
@@ -5056,43 +5005,387 @@ body, p, span, td, div {
     grid-template-columns: 1fr;
   }
 }
+</style>
+</head>
+<body>
 
-/* 弹窗内容区域只滚内部 */
-#configModal .modal-body{
-  max-height: min(70vh, 560px);
-  overflow: auto;
-}
+<div class="container">
+  <div class="main-card">
+    <!-- 主标题 -->
+    <div class="main-header">
+      <h1>🚀 EdgeBox - 企业级多协议节点管理系统 (Control Panel)</h1>
+    </div>
+    
+    <div class="main-content">
+      <!-- 系统概览 -->
+      <div class="card">
+        <div class="card-header">
+          <h2>📊 系统概览</h2>
+        </div>
+        <div class="grid grid-3">
+          <!-- 服务器信息 -->
+          <div class="inner-block">
+            <h3>服务器信息</h3>
+            <div class="info-item">
+              <label>用户备注名:</label>
+              <value id="server-name">加载中...</value>
+            </div>
+            <div class="info-item">
+              <label>云厂商/区域:</label>
+              <value id="cloud-info">加载中...</value>
+            </div>
+            <div class="info-item">
+              <label>Instance ID:</label>
+              <value id="instance-id">加载中...</value>
+            </div>
+            <div class="info-item">
+              <label>主机名:</label>
+              <value id="hostname">加载中...</value>
+            </div>
+          </div>
+          
+          <!-- 服务器配置 -->
+          <div class="inner-block">
+            <h3>服务器配置</h3>
+            <div class="progress-row">
+              <span class="progress-label">CPU:</span>
+              <div class="progress-bar">
+                <div class="progress-fill" id="cpu-progress" style="width: 0%">0%</div>
+              </div>
+              <span class="progress-info" id="cpu-info">0C / 0T</span>
+            </div>
+            <div class="progress-row">
+              <span class="progress-label">内存:</span>
+              <div class="progress-bar">
+                <div class="progress-fill" id="mem-progress" style="width: 0%">0%</div>
+              </div>
+              <span class="progress-info" id="mem-info">0G + 0G</span>
+            </div>
+            <div class="progress-row">
+              <span class="progress-label">磁盘:</span>
+              <div class="progress-bar">
+                <div class="progress-fill" id="disk-progress" style="width: 0%">0%</div>
+              </div>
+              <span class="progress-info" id="disk-info">0GiB</span>
+            </div>
+          </div>
+          
+          <!-- 核心服务 -->
+          <div class="inner-block">
+            <h3>核心服务</h3>
+            <div class="service-item">
+              <span>Nginx</span>
+              <div class="service-status">
+                <span class="status-badge" id="nginx-status">检查中</span>
+                <span class="version" id="nginx-version"></span>
+              </div>
+            </div>
+            <div class="service-item">
+              <span>Xray</span>
+              <div class="service-status">
+                <span class="status-badge" id="xray-status">检查中</span>
+                <span class="version" id="xray-version"></span>
+              </div>
+            </div>
+            <div class="service-item">
+              <span>Sing-box</span>
+              <div class="service-status">
+                <span class="status-badge" id="singbox-status">检查中</span>
+                <span class="version" id="singbox-version"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div style="text-align: center; padding-top: 15px; border-top: 1px solid #e5e7eb; margin-top: 15px;">
+          <span class="text-secondary">版本号: <span id="version">3.0.0</span> | 安装日期: <span id="install-date">2025-09-11</span> | 更新时间: <span id="update-time">加载中...</span></span>
+        </div>
+      </div>
 
-/* 锁屏（在 JS 里加了 body.modal-open）*/
-body.modal-open { overflow: hidden; }
+      <!-- 证书切换 + 网络身份配置 -->
+      <div class="grid grid-1-2">
+        <!-- 证书切换 -->
+        <div class="card">
+          <div class="card-header">
+            <h2>🔐 证书切换</h2>
+          </div>
+          <div class="cert-modes">
+            <div class="cert-mode-tab" id="cert-self">自签证书</div>
+            <div class="cert-mode-tab" id="cert-ca">CA证书</div>
+          </div>
+          <div class="inner-block">
+            <div class="info-item">
+              <label>证书类型:</label>
+              <value id="cert-type">自签名</value>
+            </div>
+            <div class="info-item">
+              <label>绑定域名:</label>
+              <value id="cert-domain">(无)</value>
+            </div>
+            <div class="info-item">
+              <label>续期方式:</label>
+              <value id="cert-renewal">手动</value>
+            </div>
+            <div class="info-item">
+              <label>到期日期:</label>
+              <value id="cert-expiry">—</value>
+            </div>
+          </div>
+        </div>
 
-/* 轻提示 toast */
-.toast{
-  position: absolute;
-  left: 50%;
-  bottom: 16px;
-  transform: translateX(-50%);
-  background: rgba(0,0,0,.75);
-  color: #fff;
-  padding: 8px 12px;
-  border-radius: 8px;
-  font-size: 12px;
-  opacity: 0;
-  transition: opacity .2s ease, transform .2s ease;
-  pointer-events: none;
-  z-index: 10;
-}
-.toast.show{
-  opacity: 1;
-  transform: translateX(-50%) translateY(0);
-}
-.toast-warn{ background: rgba(220, 38, 38, .9); }
-EXTERNAL_CSS
+        <!-- 网络身份配置 -->
+        <div class="card">
+          <div class="card-header">
+            <h2>🌐 网络身份配置</h2>
+          </div>
+          <div class="network-blocks">
+            <!-- VPS出站IP -->
+            <div class="network-block" id="net-vps">
+              <h3>📡 VPS出站IP</h3>
+              <div class="info-item">
+                <label>公网身份:</label>
+                <value>直连</value>
+              </div>
+              <div class="info-item">
+                <label>VPS出站IP:</label>
+                <value id="vps-ip">加载中...</value>
+              </div>
+              <div class="info-item">
+                <label>Geo:</label>
+                <value id="vps-geo">—</value>
+              </div>
+              <div class="info-item">
+                <label>IP质量:</label>
+                <value><span id="vps-ipq-score">—</span> <a href="#" class="ipq-link" onclick="showIPQDetails('vps')">详情</a></value>
+              </div>
+            </div>
 
-  # ========== 创建外置的JavaScript文件 ==========
-  log_info "创建外置JavaScript文件..."
-  # PATCH:WRITE_JS_PATH
-cat > "${TRAFFIC_DIR}/assets/edgebox-panel.js" <<'EXTERNAL_JS'
+            <!-- 代理出站IP -->
+            <div class="network-block" id="net-proxy">
+              <h3>🔄 代理出站IP</h3>
+              <div class="info-item">
+                <label>代理身份:</label>
+                <value>全代理</value>
+              </div>
+              <div class="info-item">
+                <label>代理IP:</label>
+                <value id="proxy-ip">—</value>
+              </div>
+              <div class="info-item">
+                <label>Geo:</label>
+                <value id="proxy-geo">—</value>
+              </div>
+              <div class="info-item">
+                <label>IP质量:</label>
+                <value><span id="proxy-ipq-score">—</span> <a href="#" class="ipq-link" onclick="showIPQDetails('proxy')">详情</a></value>
+              </div>
+            </div>
+
+            <!-- 分流出站 -->
+            <div class="network-block" id="net-shunt">
+              <h3>🔀 分流出站</h3>
+              <div class="info-item">
+                <label>混合身份:</label>
+                <value style="font-size: 11px;">白名单VPS直连+其它代理</value>
+              </div>
+              <div class="info-item">
+                <label>白名单:</label>
+                <value><a href="#" class="ipq-link" onclick="showWhitelistModal()">查看全部</a></value>
+              </div>
+              <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #e5e7eb;">
+                <span class="text-muted" style="font-size: 11px;">注：HY2/TUIC为UDP通道，VPS直连，不走代理分流</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 协议配置 -->
+      <div class="card">
+        <div class="card-header">
+          <h2>📡 协议配置</h2>
+        </div>
+        <table class="data-table">
+          <thead>
+<tr>
+  <th>协议名称</th>
+  <th>使用场景</th>
+  <th>伪装效果</th>
+  <th>运行状态</th>
+  <th>客户端配置</th>
+</tr>
+          </thead>
+          <tbody id="protocol-tbody">
+            <!-- 动态填充 -->
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 流量统计（来自new5.txt） -->
+      <div class="card traffic-card">
+        <h2>📊 流量统计
+          <div class="traffic-progress-container">
+            <span class="progress-label">本月进度</span>
+            <div class="progress-wrapper">
+              <div class="progress-bar">
+                <div class="progress-fill" id="progress-fill" style="width:0%">
+                  <span class="progress-percentage" id="progress-percentage">0%</span>
+                </div>
+              </div>
+            </div>
+            <span class="progress-budget" id="progress-budget">0/100GiB</span>
+          </div>
+        </h2>
+        <div class="traffic-charts">
+          <div class="chart-container">
+            <h4 style="text-align:center;margin:0 0 10px 0;color:#64748b">近30日出站流量</h4>
+            <canvas id="traffic" style="height:300px"></canvas>
+          </div>
+          <div class="chart-container">
+            <h4 style="text-align:center;margin:0 0 10px 0;color:#64748b">近12个月累计流量</h4>
+            <canvas id="monthly-chart" style="height:300px"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- 运维管理（来自new5.txt） -->
+      <div class="card">
+        <div class="card-header">
+          <h2>⚙️ 运维管理</h2>
+        </div>
+        <div class="commands-grid">
+          <div class="command-section">
+            <h4>🔧 基础操作</h4>
+            <div class="command-list">
+              <code>edgeboxctl sub</code> <span># 动态生成当前模式下的订阅链接</span><br>
+              <code>edgeboxctl logs &lt;svc&gt;</code> <span># 查看指定服务的实时日志</span><br>
+              <code>edgeboxctl status</code> <span># 查看所有核心服务运行状态</span><br>
+              <code>edgeboxctl restart</code> <span># 安全地重启所有服务</span><br>
+            </div>
+          </div>
+
+          <div class="command-section">
+            <h4>🌐 证书管理</h4>
+            <div class="command-list">
+              <code>edgeboxctl switch-to-domain &lt;your_domain&gt;</code> <span># 切换到域名模式，申请证书</span><br>
+              <code>edgeboxctl switch-to-ip</code> <span># 回退到IP模式，使用自签名证书</span><br>
+              <code>edgeboxctl cert status</code> <span># 检查当前证书的到期日期和类型</span><br>
+              <code>edgeboxctl cert renew</code> <span># 手动续期Let's Encrypt证书</span>
+            </div>
+          </div>
+
+          <div class="command-section">
+            <h4>🔀 出站分流</h4>
+            <div class="command-list">
+              <code>edgeboxctl shunt vps</code> <span># 切换至VPS全量出站</span><br>
+              <code>edgeboxctl shunt resi &lt;URL&gt;</code> <span># 配置并切换至住宅IP全量出站</span><br>
+              <code>edgeboxctl shunt direct-resi &lt;URL&gt;</code> <span># 配置并切换至白名单智能分流状态</span><br>
+              <code>edgeboxctl shunt whitelist &lt;add|remove|list&gt;</code> <span># 管理白名单域名</span><br>
+              <code>代理URL格式:</code><br>
+              <code>http://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;</code><br>
+              <code>https://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;?sni=</code><br>
+              <code>socks5://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;</code><br>
+              <code>socks5s://user:pass@&lt;域名&gt;:&lt;端口&gt;?sni=</code><br>
+              <code>示例：edgeboxctl shunt resi 'socks5://user:pass@111.222.333.444:11324'</code> <span># 全栈走住宅</span>
+            </div>
+          </div>
+
+          <div class="command-section">
+            <h4>📊 流量统计与预警</h4>
+            <div class="command-list">
+              <code>edgeboxctl traffic show</code> <span># 在终端中查看流量统计数据</span><br>
+              <code>edgeboxctl traffic reset</code> <span># 重置流量计数器</span><br>
+              <code>edgeboxctl alert &lt;command&gt;</code> <span># 管理流量预警设置</span><br>
+              <code>edgeboxctl alert monthly</code> <span># 设置月度阈值</span><br>
+              <code>edgeboxctl alert steps 30,60,90</code> <span># 设置预警阈值</span><br>
+              <code>edgeboxctl alert telegram &lt;bot_token&gt; &lt;chat_id&gt;</code> <span># 配置Telegram机器人</span><br>
+              <code>edgeboxctl alert discord &lt;webhook_url&gt;</code> <span># 配置Discord通知</span><br>
+              <code>edgeboxctl alert wechat &lt;pushplus_token&gt;</code> <span># 配置微信通知</span><br>
+              <code>edgeboxctl alert webhook [raw|slack|discord]</code> <span># 配置通用Webhook</span><br>
+              <code>edgeboxctl alert test</code> <span># 测试预警系统</span>
+            </div>
+          </div>
+
+          <div class="command-section">
+            <h4>⚙️ 配置管理</h4>
+            <div class="command-list">
+              <code>edgeboxctl config show</code> <span># 显示所有服务的核心配置信息</span><br>
+              <code>edgeboxctl config regenerate-uuid</code> <span># 为所有协议重新生成新的UUID</span><br>
+              <code>edgeboxctl test</code> <span># 测试所有协议的连接是否正常</span><br>
+              <code>edgeboxctl debug-ports</code> <span># 调试关键端口的监听状态</span>
+            </div>
+          </div>
+
+          <div class="command-section">
+            <h4>💾 系统维护</h4>
+            <div class="command-list">
+              <code>edgeboxctl update</code> <span># 自动更新EdgeBox脚本和核心组件</span><br>
+              <code>edgeboxctl backup create</code> <span># 手动创建一个系统备份</span><br>
+              <code>edgeboxctl backup list</code> <span># 列出所有可用的备份</span><br>
+              <code>edgeboxctl backup restore &lt;DATE&gt;</code> <span># 恢复到指定日期的备份状态</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- IP质量详情弹窗 -->
+<div id="ipqModal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3 id="ipqModalTitle">IP质量检测详情</h3>
+      <span class="close-btn" onclick="closeIPQModal()">&times;</span>
+    </div>
+    <div class="modal-body">
+      <div id="ipqDetails"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary" onclick="closeIPQModal()">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- 白名单弹窗 -->
+<div id="whitelistModal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3>白名单完整列表</h3>
+      <span class="close-btn" onclick="closeWhitelistModal()">&times;</span>
+    </div>
+    <div class="modal-body">
+      <div id="whitelistList"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary" onclick="closeWhitelistModal()">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- 客户端配置弹窗 -->
+<div id="configModal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3 id="configModalTitle">客户端配置详情</h3>
+      <span class="close-btn" onclick="closeConfigModal()">&times;</span>
+    </div>
+    <div class="modal-body">
+      <div id="configDetails"></div>
+    </div>
+<div class="modal-footer">
+  <button class="btn btn-sm" onclick="copyPlain()">复制明文链接</button>
+  <button class="btn btn-sm" onclick="copyJSON()">复制JSON配置</button>
+  <button class="btn btn-sm" onclick="copyBase64()">复制Base64链接</button>
+  <button class="btn btn-sm" onclick="copyQRImage()">复制二维码图片</button>
+</div>
+  </div>
+</div>
+
+<!-- Chart.js和QRCode库 -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+<script>
 // 全局变量
 let dashboardData = {};
 let currentShareLink = '';
@@ -5221,12 +5514,10 @@ async function updateSystemOverview() {
     }
   }
   
-  if (data.shunt && data.shunt.whitelist) { renderWhitelistPreview(data.shunt.whitelist); }
-
   // 协议列表
   updateProtocolTable(data.protocols);
 }
-  
+
 function updateServiceStatus(service, status) {
   const badge = document.getElementById(`${service}-status`);
   const version = document.getElementById(`${service}-version`);
@@ -5246,41 +5537,57 @@ function attrEscape(s=''){
     .replace(/>/g,'&gt;');
 }
 
-// new 7.txt 中的版本
 function updateProtocolTable(protocols) {
   if (!protocols) return;
 
   const tbody = document.getElementById('protocol-tbody');
-  if (!tbody) {
-    console.error('[updateProtocolTable] tbody#protocol-tbody not found!');
-    return;
-  }
 
-  // 普通协议行 - 使用 data-protocol 属性而不是 onclick
-  const rows = (protocols || []).map(p => `
+  const rows = (protocols || []).map((p, i) => `
     <tr>
-      <td>${p.name || '—'}</td>
-      <td>${p.scenario || '—'}</td>
-      <td>${p.camouflage || '—'}</td>
-      <td><span class="status-badge ${p.status === '运行中' ? 'status-running' : ''}">${p.status || '—'}</span></td>
-      <td><button class="btn btn-sm btn-link view-config" data-protocol="${(p.name || '').replace(/"/g, '&quot;')}">查看配置</button></td>
+      <td>${escapeHtml(p.name)}</td>
+      <td>${escapeHtml(p.scenario || '—')}</td>
+      <td>${escapeHtml(p.camouflage || '—')}</td>
+      <td><span class="status-badge ${p.status === '运行中' ? 'status-running' : ''}">${escapeHtml(p.status || '—')}</span></td>
+      <td>
+        <button class="btn btn-sm btn-link view-config"
+                data-key="${i}"
+                data-name="${attrEscape(p.name)}">查看配置</button>
+      </td>
     </tr>
   `);
 
-  // 追加"整包订阅链接"行（置于底部）
   rows.push(`
     <tr class="subs-row">
       <td style="background:#f5f5f5;font-weight:500;">整包订阅链接</td>
-      <td></td>
-      <td></td>
-      <td></td>
-      <td><button class="btn btn-sm btn-link view-config" data-protocol="__SUBS__">查看配置</button></td>
+      <td></td><td></td><td></td>
+      <td>
+        <button class="btn btn-sm btn-link view-config" data-key="__SUBS__">查看配置</button>
+      </td>
     </tr>
   `);
 
   tbody.innerHTML = rows.join('');
+
+  // 事件委托（只绑定一次）
+  if (!tbody._viewBind) {
+tbody.addEventListener('click', (e) => {
+  const btn = e.target.closest('.view-config');
+  if (!btn) return;
   
-  console.log('[updateProtocolTable] Table updated with', rows.length - 1, 'protocols + 1 subscription row');
+  const key = btn.dataset.key;
+  if (key === '__SUBS__') {
+    showConfigModal('__SUBS__');
+    return;
+  }
+  
+  // 直接使用索引
+  const idx = Number(key);
+  if (!Number.isNaN(idx)) {
+    showConfigModal(idx);
+  }
+});
+    tbody._viewBind = true;
+  }
 }
 
 // 流量统计（来自new5.txt）
@@ -5430,37 +5737,6 @@ function closeIPQModal() {
   document.getElementById('ipqModal').style.display = 'none';
 }
 
-function renderWhitelistInline(list){
-  const el = document.getElementById('whitelistInline');
-  if (!el) return;
-  const items = Array.isArray(list) ? list.filter(Boolean) : [];
-  // 用逗号和空格连接；与其它区块风格一致
-  el.textContent = items.join(', ');
-  // 允许换行自动换，不做 chips，不做按钮
-}
-
-function renderWhitelistPreview(list){
-  try{
-    const wrap = document.getElementById("whitelistPreview");
-    if(!wrap) return;
-    wrap.innerHTML = "";
-
-    const arr = Array.isArray(list) ? list.filter(Boolean) : [];
-    // 逗号 + 空格分隔，作为纯文本显示（自动换行）
-    const text = document.createElement("div");
-    text.className = "whitelist-text";
-    text.textContent = arr.join(", ");
-    wrap.appendChild(text);
-
-    // 右下角“查看全部”（保留新的这个按钮）
-    const more = document.createElement("div");
-    more.className = "whitelist-more";
-    more.textContent = "查看全部";
-    more.onclick = showWhitelistModal;
-    wrap.appendChild(more);
-  }catch(e){ console.error(e); }
-}
-
 function showWhitelistModal() {
   const modal = document.getElementById('whitelistModal');
   const list = document.getElementById('whitelistList');
@@ -5480,55 +5756,13 @@ function closeWhitelistModal() {
   document.getElementById('whitelistModal').style.display = 'none';
 }
 
-// 全局状态（若已存在可保留）
+// 全局状态（如已存在可保留）
 let currentProtocol = null;
-let currentModalType = 'PROTOCOL'; // 'PROTOCOL' | 'SUBS'
+let currentModalType = 'PROTOCOL';
 
-// 锁/解锁页面滚动（B 段 closeConfigModal 会调用 unlockScroll）
-function lockScroll(){
-  if (!document.body.classList.contains('modal-open')) {
-    document.body.dataset.prevOverflow = document.body.style.overflow || '';
-    document.body.style.overflow = 'hidden';
-    document.body.classList.add('modal-open');
-  }
-}
-function unlockScroll(){
-  document.body.style.overflow = document.body.dataset.prevOverflow || '';
-  document.body.classList.remove('modal-open');
-  delete document.body.dataset.prevOverflow;
-}
-
-if (typeof showConfigModal !== 'function') {
-  // 如果原始函数不存在，定义一个基础版本
-  window.showConfigModal = function(key) {
-    const modal = document.getElementById('configModal');
-    const title = document.getElementById('configModalTitle');
-    const details = document.getElementById('configDetails');
-    
-    if (!modal || !title || !details) {
-      console.error('[Modal] Required DOM elements not found');
-      return;
-    }
-    
-    // 基础显示逻辑
-    modal.style.display = 'block';
-    title.textContent = `配置详情 - ${key}`;
-    details.innerHTML = '<p>加载配置中...</p>';
-    
-    // 处理具体的协议数据
-    if (key === '__SUBS__') {
-      title.textContent = '整包订阅链接 - 客户端配置详情';
-      // 订阅链接处理...
-    } else {
-      // 普通协议处理...
-      const protocols = window.dashboardData?.protocols || [];
-      const protocol = protocols.find(p => p.name === key);
-      if (protocol) {
-        title.textContent = `${protocol.name} - 客户端配置详情`;
-        // 显示协议详情...
-      }
-    }
-  };
+// 工具：HTML 转义（如已有同名函数保留一个即可）
+function escapeHtml(s=''){
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
 function showConfigModal(key) {
@@ -5536,21 +5770,15 @@ function showConfigModal(key) {
   const title   = document.getElementById('configModalTitle');
   const details = document.getElementById('configDetails');
 
-  // 打开即锁定页面滚动
-  lockScroll();
-
   // —— 整包订阅链接 ——
   if (key === '__SUBS__') {
     currentModalType = 'SUBS';
     currentProtocol  = null;
 
     const plainLink  = (window.dashboardData && dashboardData.subscription_url) || '';
-    const base64Link = plainLink
-      ? (plainLink.includes('?') ? `${plainLink}&format=base64` : `${plainLink}?format=base64`)
-      : '';
-    title.textContent = '整包订阅链接 - 客户端配置详情';
+    const base64Link = plainLink ? (plainLink.includes('?') ? `${plainLink}&format=base64` : `${plainLink}?format=base64`) : '';
 
-    // 固定顺序：明文 → JSON(—) → Base64 → 二维码 → 使用说明
+    title.textContent = '整包订阅链接 - 客户端配置详情';
     details.innerHTML = `
       <div class="config-section">
         <h4>明文链接</h4>
@@ -5558,7 +5786,7 @@ function showConfigModal(key) {
       </div>
       <div class="config-section">
         <h4>JSON配置</h4>
-        <div class="config-code" id="json-code">—</div>
+        <div class="config-code">—</div>
       </div>
       <div class="config-section">
         <h4>Base64链接</h4>
@@ -5570,16 +5798,16 @@ function showConfigModal(key) {
       </div>
       <div class="config-section">
         <h4>使用说明</h4>
-        <div class="config-help">
+        <div style="font-size:12px;color:#6b7280;line-height:1.8;">
           1. 复制订阅链接导入客户端<br>
           2. 支持 V2rayN、Clash、Shadowrocket 等主流客户端<br>
-          3. 自签证书需在客户端开启"跳过证书验证"<br>
+          3. 自签证书需在客户端开启“跳过证书验证”<br>
           4. UDP协议（HY2/TUIC）固定走VPS直连
         </div>
       </div>
     `;
 
-    // 生成二维码（使用明文订阅链接）
+    // 生成二维码
     const qr = document.getElementById('qrcode');
     if (plainLink && qr && window.QRCode) {
       new QRCode(qr, { text: plainLink, width: 256, height: 256, colorDark: "#000", colorLight: "#fff", correctLevel: QRCode.CorrectLevel.H });
@@ -5589,16 +5817,24 @@ function showConfigModal(key) {
     return;
   }
 
-  // —— 普通协议（key 为名称或索引）——
-  currentModalType = 'PROTOCOL';
-  const list = (window.dashboardData && dashboardData.protocols) || [];
-  let protocol = null;
-  if (typeof key === 'string') {
-    protocol = list.find(p => p && p.name === key) || list.find(p => p && (p.name||'').trim() === key.trim());
-  } else if (typeof key === 'number') {
-    protocol = list[key];
-  }
-  if (!protocol) { notify('未找到协议配置', 'warn'); return; }
+// —— 普通协议（key 可能是名称或索引） ——
+currentModalType = 'PROTOCOL';
+const list = (window.dashboardData && dashboardData.protocols) || [];
+
+let protocol = null;
+if (typeof key === 'string') {
+  protocol = list.find(p => p && p.name === key);
+} else if (typeof key === 'number') {
+  protocol = list[key];
+}
+
+// 再兜底一次：如果 key 是字符串但没找到，尝试去空白后再比对
+if (!protocol && typeof key === 'string') {
+  const k = key.trim();
+  protocol = list.find(p => p && (p.name || '').trim() === k);
+}
+
+if (!protocol) { alert('未找到协议配置'); return; }
 
   currentProtocol   = protocol;
   title.textContent = `${protocol.name} - 客户端配置详情`;
@@ -5609,12 +5845,9 @@ function showConfigModal(key) {
     : '';
   let base64Text  = protocol.base64 || '';
   if (!base64Text && protocol.share_link) {
-    base64Text = protocol.share_link.startsWith('vmess://')
-      ? protocol.share_link.split('://')[1]
-      : (()=>{ try { return btoa(protocol.share_link); } catch(e){ return ''; } })();
+    base64Text = protocol.share_link.startsWith('vmess://') ? protocol.share_link.split('://')[1] : protocol.share_link;
   }
 
-  // 固定顺序：明文 → JSON → Base64 → 二维码 → 使用说明（即使没有也显示"—"）
   details.innerHTML = `
     <div class="config-section">
       <h4>明文链接</h4>
@@ -5634,16 +5867,15 @@ function showConfigModal(key) {
     </div>
     <div class="config-section">
       <h4>使用说明</h4>
-      <div class="config-help">
+      <div style="font-size:12px;color:#6b7280;line-height:1.8;">
         1. 复制订阅链接导入客户端<br>
         2. 支持 V2rayN、Clash、Shadowrocket 等主流客户端<br>
-        3. 自签证书需在客户端开启"跳过证书验证"<br>
+        3. 自签证书需在客户端开启“跳过证书验证”<br>
         4. UDP协议（HY2/TUIC）固定走VPS直连
       </div>
     </div>
   `;
 
-  // 生成二维码（优先明文；否则 share_link）
   const qr = document.getElementById('qrcode');
   const qrText = plainText || protocol.share_link || '';
   if (qrText && qr && window.QRCode) {
@@ -5653,51 +5885,22 @@ function showConfigModal(key) {
   modal.style.display = 'block';
 }
 
-
 function closeConfigModal() {
   const m = document.getElementById('configModal');
   if (m) m.style.display = 'none';
   const q = document.getElementById('qrcode');
   if (q) q.innerHTML = '';
-  unlockScroll();  // 恢复页面滚动
 }
 
-// 轻提示（toast），默认 1500ms；尽量渲染在弹窗里
-function notify(msg, type='ok', ms=1500){
-  const modalContent = document.querySelector('#configModal .modal-content');
-  const host = modalContent || document.body;
-
-  const tip = document.createElement('div');
-  tip.className = `toast toast-${type}`;
-  tip.textContent = msg;
-  host.appendChild(tip);
-
-  requestAnimationFrame(()=> tip.classList.add('show'));
-  setTimeout(()=>{
-    tip.classList.remove('show');
-    setTimeout(()=> tip.remove(), 300);
-  }, ms);
-}
-
-// 复制文本（优先 Clipboard API）
-async function copyToClipboard(text){
-  try{
-    if (navigator.clipboard && window.isSecureContext) {
-      await navigator.clipboard.writeText(text);
-    } else {
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      ta.style.position = 'fixed';
-      ta.style.left = '-9999px';
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand('copy');
-      ta.remove();
-    }
-    notify('已复制到剪贴板');
-  }catch(e){
-    notify('复制失败：' + (e.message||e), 'warn', 2000);
-  }
+// 复制功能
+function copyToClipboard(text) {
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand('copy');
+  document.body.removeChild(textarea);
+  alert('已复制到剪贴板');
 }
 
 function copyShareLink() {
@@ -5720,156 +5923,57 @@ function copyQRImage() {
   }
 }
 
-function copyPlain(){
+function copyPlain() {
   if (currentModalType === 'SUBS') {
-    const plain = (window.dashboardData && dashboardData.subscription_url) || '';
-    if (!plain) return notify('无可复制的明文链接','warn');
+    const plain = (dashboardData && dashboardData.subscription_url) || '';
+    if (!plain) return alert('无可复制的明文链接');
     return copyToClipboard(plain);
   }
   const p = currentProtocol || {};
   const val = p.plain || p.share_link || '';
-  if (!val) return notify('无可复制的明文链接','warn');
+  if (!val) return alert('无可复制的明文链接');
   copyToClipboard(val);
 }
 
-function copyJSON(){
-  if (currentModalType === 'SUBS') return notify('订阅链接无 JSON 配置可复制','warn');
+function copyJSON() {
+  if (currentModalType === 'SUBS') {
+    return alert('订阅链接无 JSON 配置可复制');
+  }
   const p = currentProtocol || {};
   const jsonText = p.json
     ? (typeof p.json === 'string' ? p.json : JSON.stringify(p.json, null, 2))
     : '';
-  if (!jsonText) return notify('无 JSON 配置可复制','warn');
+  if (!jsonText) return alert('无 JSON 配置可复制');
   copyToClipboard(jsonText);
 }
 
-function copyBase64(){
+function copyBase64() {
   if (currentModalType === 'SUBS') {
-    const plain = (window.dashboardData && dashboardData.subscription_url) || '';
+    const plain = (dashboardData && dashboardData.subscription_url) || '';
     const b64 = plain ? (plain.includes('?') ? `${plain}&format=base64` : `${plain}?format=base64`) : '';
-    if (!b64) return notify('无可复制的 Base64 链接','warn');
+    if (!b64) return alert('无可复制的 Base64 链接');
     return copyToClipboard(b64);
   }
   const p = currentProtocol || {};
   let val = p.base64 || '';
   if (!val && p.share_link) {
-    val = p.share_link.startsWith('vmess://') ? p.share_link.split('://')[1] : (()=>{ try {return btoa(p.share_link);} catch(e){ return p.share_link; }})();
+    val = p.share_link.startsWith('vmess://') ? p.share_link.split('://')[1] : p.share_link;
   }
-  if (!val) return notify('无可复制的 Base64 内容','warn');
+  if (!val) return alert('无可复制的 Base64 内容');
   copyToClipboard(val);
-}
-
-// 复制二维码图片（Canvas/IMG 兼容）
-async function copyQRImage(){
-  const box = document.getElementById('qrcode');
-  if (!box) return notify('未找到二维码','warn');
-
-  const canvas = box.querySelector('canvas');
-  const img = box.querySelector('img');
-
-  try{
-    if (canvas && canvas.toBlob && navigator.clipboard && window.ClipboardItem) {
-	const blob = await new Promise(res=> canvas.toBlob(res, 'image/png'));
-      await navigator.clipboard.write([new ClipboardItem({'image/png': blob})]);
-      return notify('二维码图片已复制');
-    }
-    if (img && navigator.clipboard && window.ClipboardItem) {
-      // 将 <img> 转为 blob
-      const data = await fetch(img.src);
-      const blob = await data.blob();
-      await navigator.clipboard.write([new ClipboardItem({[blob.type]: blob})]);
-      return notify('二维码图片已复制');
-    }
-    // 回退：触发下载
-    const dataURL = canvas ? canvas.toDataURL('image/png') : (img ? img.src : '');
-    if (!dataURL) return notify('无法导出二维码图片','warn');
-    const a = document.createElement('a');
-    a.href = dataURL; a.download = 'qrcode.png';
-    document.body.appendChild(a); a.click(); a.remove();
-    notify('已下载二维码图片');
-  }catch(e){
-    notify('复制失败：' + (e.message||e), 'warn', 2000);
-  }
 }
 
 // 初始化
 let _overviewTimer = null;
 
 async function init() {
-  // 获取并保存dashboard数据
-  const data = await fetchJSON('/traffic/dashboard.json');
-  if (data) {
-    window.dashboardData = data;  // 确保保存到全局
-    // 然后更新UI
-    updateSystemOverview();
-  }
-  
+  await updateSystemOverview();
   const trafficData = await fetchJSON('/traffic/traffic.json');
   if (trafficData) renderTraffic(trafficData);
-  
+
   _overviewTimer = setInterval(updateSystemOverview, 30000);
   setInterval(updateProgressBar, 3600000);
 }
-
-// === 修复协议配置弹窗的事件委托绑定 ===
-(function bindProtocolViewHandler() {
-  // 等待 DOM 加载完成
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', bindProtocolViewHandler);
-    return;
-  }
-
-  const tbody = document.getElementById('protocol-tbody');
-  if (!tbody) {
-    console.error('[bindProtocolViewHandler] tbody#protocol-tbody not found! Retrying in 1 second...');
-    // 如果找不到，1秒后重试一次（可能DOM还没渲染完）
-    setTimeout(bindProtocolViewHandler, 1000);
-    return;
-  }
-  
-  // 防止重复绑定
-  if (tbody.__viewBound) {
-    console.log('[bindProtocolViewHandler] Event handler already bound');
-    return;
-  }
-
-  // 使用事件委托监听按钮点击
-  tbody.addEventListener('click', function(e) {
-    // 查找最近的带有 data-protocol 属性的按钮
-    const btn = e.target.closest('button[data-protocol]');
-    if (!btn || !tbody.contains(btn)) return;
-    
-    e.preventDefault();
-    e.stopPropagation();
-    
-    const protocolName = btn.dataset.protocol;
-    if (!protocolName) {
-      console.warn('[bindProtocolViewHandler] Button missing data-protocol:', btn);
-      return;
-    }
-    
-    console.log('[bindProtocolViewHandler] Button clicked, protocol:', protocolName);
-    
-    // 调用弹窗显示函数
-    try {
-      if (typeof showConfigModal === 'function') {
-        showConfigModal(protocolName);
-      } else {
-        console.error('[bindProtocolViewHandler] showConfigModal function not found');
-        if (typeof notify === 'function') {
-          notify('无法打开配置弹窗', 'warn');
-        }
-      }
-    } catch (error) {
-      console.error('[bindProtocolViewHandler] Error calling showConfigModal:', error);
-      if (typeof notify === 'function') {
-        notify('打开配置弹窗失败', 'warn');
-      }
-    }
-  });
-
-  tbody.__viewBound = true;
-  console.log('[bindProtocolViewHandler] Event delegation successfully bound to tbody#protocol-tbody');
-})();
 
 // 打开/关闭弹窗时控制刷新
 function pauseOverviewOnce(ms=10000){
@@ -5880,556 +5984,38 @@ function pauseOverviewOnce(ms=10000){
 // 页面加载完成后初始化
 window.addEventListener('DOMContentLoaded', init);
 
-// === 修复showConfigModal函数的错误处理 ===
-const originalShowConfigModal = window.showConfigModal;
-window.showConfigModal = function(key) {
-  console.log('showConfigModal called with:', key, typeof key);
-  
-  const modal = document.getElementById('configModal');
-  const title = document.getElementById('configModalTitle');
-  const details = document.getElementById('configDetails');
-  
-  // 检查必要的DOM元素
-  if (!modal) {
-    console.error('configModal element not found');
-    return;
-  }
-  if (!title) {
-    console.error('configModalTitle element not found');
-    return;
-  }
-  if (!details) {
-    console.error('configDetails element not found');
-    return;
-  }
-  
-  try {
-    // 调用原始函数
-    if (typeof originalShowConfigModal === 'function') {
-      originalShowConfigModal.call(this, key);
-    } else {
-      console.error('Original showConfigModal function not found');
-      // 提供基本的显示逻辑
-      modal.style.display = 'block';
-      title.textContent = `配置详情 - ${key}`;
-      details.innerHTML = '<p>配置信息加载中...</p>';
-    }
-  } catch (error) {
-    console.error('showConfigModal execution failed:', error);
-    modal.style.display = 'block';
-    title.textContent = '配置详情';
-    details.innerHTML = `<p style="color: #ef4444;">加载失败: ${error.message}</p>`;
-  }
-};
-
-// === 确保弹窗关闭功能正常 ===
-const originalCloseConfigModal = window.closeConfigModal;
-window.closeConfigModal = function() {
-  const modal = document.getElementById('configModal');
-  if (modal) {
-    modal.style.display = 'none';
-  }
-  
-  const qr = document.getElementById('qrcode');
-  if (qr) {
-    qr.innerHTML = '';
-  }
-  
-// 恢复页面滚动
-  if (typeof unlockScroll === 'function') {
-    unlockScroll();
-  } else {
-    document.body.style.overflow = '';
-    document.body.classList.remove('modal-open');
-  }
-  
-  if (typeof originalCloseConfigModal === 'function') {
-    try {
-      originalCloseConfigModal.call(this);
-    } catch (error) {
-      console.warn('Original closeConfigModal failed:', error);
-    }
-  }
-};
-
-// === 全局弹窗关闭事件优化 ===
-window.addEventListener('click', function(event) {
-  if (event.target.classList.contains('modal')) {
+// 模态框关闭
+window.onclick = function(event) {
+  if (event.target.className === 'modal') {
     event.target.style.display = 'none';
-    // 恢复滚动
-    document.body.style.overflow = '';
-    document.body.classList.remove('modal-open');
   }
-});
-
-// === 调试辅助函数 ===
-window.debugProtocolTable = function() {
-  const tbody = document.getElementById('protocol-tbody');
-  
-  console.group('🔍 Protocol Table Debug Info');
-  
-  if (!tbody) {
-    console.error('❌ tbody#protocol-tbody NOT FOUND in DOM!');
-    console.log('Available elements with ID:', 
-      Array.from(document.querySelectorAll('[id]')).map(el => el.id)
-    );
-  } else {
-    console.log('✅ tbody element found:', tbody);
-    
-    const buttons = tbody.querySelectorAll('button[data-protocol]');
-    console.log(`📊 Found ${buttons.length} buttons with data-protocol:`);
-    
-    buttons.forEach((btn, index) => {
-      console.log(`  Button ${index + 1}:`, {
-        protocol: btn.dataset.protocol,
-        text: btn.textContent.trim(),
-        className: btn.className
-      });
-    });
-    
-    // 检查事件监听器
-    console.log('🎯 Event delegation bound?', tbody.__viewBound === true ? 'YES ✅' : 'NO ❌');
-  }
-  
-  // 检查全局数据
-  console.log('📦 Dashboard data:', {
-    hasData: !!window.dashboardData,
-    protocolCount: window.dashboardData?.protocols?.length || 0,
-    protocols: window.dashboardData?.protocols?.map(p => p.name) || []
-  });
-  
-  console.groupEnd();
-};
-
-// === [PATCH:APPJS_EXPORT_GLOBALS_BEGIN] ===
-// 供 HTML 内联 onclick 使用（不改你现有 HTML）
-window.showConfigModal   = showConfigModal;
-window.closeConfigModal  = closeConfigModal;
-window.copyPlain         = copyPlain;
-window.copyJSON          = copyJSON;
-window.copyBase64        = copyBase64;
-window.copyQRImage       = copyQRImage;
-
-// 如果页面上还有这些内联按钮，也一并导出（有就用，没有不影响）
-window.showIPQDetails        = typeof showIPQDetails        === 'function' ? showIPQDetails        : undefined;
-window.closeIPQModal         = typeof closeIPQModal         === 'function' ? closeIPQModal         : undefined;
-window.showWhitelistModal    = typeof showWhitelistModal    === 'function' ? showWhitelistModal    : undefined;
-window.closeWhitelistModal   = typeof closeWhitelistModal   === 'function' ? closeWhitelistModal   : undefined;
-// === [PATCH:APPJS_EXPORT_GLOBALS_END] ===
-
-EXTERNAL_JS
-
-# ======= 创建HTML文件（引用外置的CSS和JS）========
-  log_info "创建控制面板HTML文件..."
-  cat > "$TRAFFIC_DIR/index.html" <<'HTML'
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>EdgeBox Control Panel</title>
-<!-- PATCH:INDEX_HTML_HEAD_LINK -->
-<link rel="stylesheet" href="./assets/edgebox-panel.css">
-</head>
-<body>
-
-<div class="container">
-  <div class="main-card">
-    <!-- 主标题 -->
-    <div class="main-header">
-      <h1>🚀 EdgeBox - 企业级多协议节点管理系统 (Control Panel)</h1>
-    </div>
-    
-    <div class="main-content">
-      <!-- 系统概览 -->
-      <div class="card">
-        <div class="card-header">
-          <h2>📊 系统概览</h2>
-        </div>
-        <div class="grid grid-3">
-          <!-- 服务器信息 -->
-          <div class="inner-block">
-            <h3>服务器信息</h3>
-            <div class="info-item">
-              <label>用户备注名:</label>
-              <value id="server-name">加载中...</value>
-            </div>
-            <div class="info-item">
-              <label>云厂商/区域:</label>
-              <value id="cloud-info">加载中...</value>
-            </div>
-            <div class="info-item">
-              <label>Instance ID:</label>
-              <value id="instance-id">加载中...</value>
-            </div>
-            <div class="info-item">
-              <label>主机名:</label>
-              <value id="hostname">加载中...</value>
-            </div>
-          </div>
-          
-          <!-- 服务器配置 -->
-          <div class="inner-block">
-            <h3>服务器配置</h3>
-            <div class="progress-row">
-              <span class="progress-label">CPU:</span>
-              <div class="progress-bar">
-                <div class="progress-fill" id="cpu-progress" style="width: 0%">0%</div>
-              </div>
-              <span class="progress-info" id="cpu-info">0C / 0T</span>
-            </div>
-            <div class="progress-row">
-              <span class="progress-label">内存:</span>
-              <div class="progress-bar">
-                <div class="progress-fill" id="mem-progress" style="width: 0%">0%</div>
-              </div>
-              <span class="progress-info" id="mem-info">0G + 0G</span>
-            </div>
-            <div class="progress-row">
-              <span class="progress-label">磁盘:</span>
-              <div class="progress-bar">
-                <div class="progress-fill" id="disk-progress" style="width: 0%">0%</div>
-              </div>
-              <span class="progress-info" id="disk-info">0GiB</span>
-            </div>
-          </div>
-          
-          <!-- 核心服务 -->
-          <div class="inner-block">
-            <h3>核心服务</h3>
-            <div class="service-item">
-              <span>Nginx</span>
-              <div class="service-status">
-                <span class="status-badge" id="nginx-status">检查中</span>
-                <span class="version" id="nginx-version"></span>
-              </div>
-            </div>
-            <div class="service-item">
-              <span>Xray</span>
-              <div class="service-status">
-                <span class="status-badge" id="xray-status">检查中</span>
-                <span class="version" id="xray-version"></span>
-              </div>
-            </div>
-            <div class="service-item">
-              <span>Sing-box</span>
-              <div class="service-status">
-                <span class="status-badge" id="singbox-status">检查中</span>
-                <span class="version" id="singbox-version"></span>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div style="text-align: center; padding-top: 15px; border-top: 1px solid #e5e7eb; margin-top: 15px;">
-          <span class="text-secondary">版本号: <span id="version">3.0.0</span> | 安装日期: <span id="install-date">2025-09-11</span> | 更新时间: <span id="update-time">加载中...</span></span>
-        </div>
-      </div>
-
-      <!-- 证书切换 + 网络身份配置 -->
-      <div class="grid grid-1-2">
-        <!-- 证书切换 -->
-        <div class="card">
-          <div class="card-header">
-            <h2>🔒 证书切换</h2>
-          </div>
-          <div class="cert-modes">
-            <div class="cert-mode-tab" id="cert-self">自签证书</div>
-            <div class="cert-mode-tab" id="cert-ca">CA证书</div>
-          </div>
-          <div class="inner-block">
-            <div class="info-item">
-              <label>证书类型:</label>
-              <value id="cert-type">自签名</value>
-            </div>
-            <div class="info-item">
-              <label>绑定域名:</label>
-              <value id="cert-domain">(无)</value>
-            </div>
-            <div class="info-item">
-              <label>续期方式:</label>
-              <value id="cert-renewal">手动</value>
-            </div>
-            <div class="info-item">
-              <label>到期日期:</label>
-              <value id="cert-expiry">—</value>
-            </div>
-          </div>
-        </div>
-
-        <!-- 网络身份配置 -->
-        <div class="card">
-          <div class="card-header">
-            <h2>🌐 网络身份配置 <span class="note-udp">注：HY2/TUIC为UDP通道，VPS直连，不走代理分流. </span></h2>
-          </div>
-          <div class="network-blocks">
-            <!-- VPS出站IP -->
-            <div class="network-block" id="net-vps">
-              <h3>📡 VPS出站IP</h3>
-              <div class="info-item">
-                <label>公网身份:</label>
-                <value>直连</value>
-              </div>
-              <div class="info-item">
-                <label>VPS出站IP:</label>
-                <value id="vps-ip">加载中...</value>
-              </div>
-              <div class="info-item">
-                <label>Geo:</label>
-                <value id="vps-geo">—</value>
-              </div>
-              <div class="info-item">
-                <label>IP质量:</label>
-                <value><span id="vps-ipq-score">—</span> <a href="#" class="ipq-link" onclick="showIPQDetails('vps')">详情</a></value>
-              </div>
-            </div>
-
-            <!-- 代理出站IP -->
-            <div class="network-block" id="net-proxy">
-              <h3>🔄 代理出站IP</h3>
-              <div class="info-item">
-                <label>代理身份:</label>
-                <value>全代理</value>
-              </div>
-              <div class="info-item">
-                <label>代理IP:</label>
-                <value id="proxy-ip">—</value>
-              </div>
-              <div class="info-item">
-                <label>Geo:</label>
-                <value id="proxy-geo">—</value>
-              </div>
-              <div class="info-item">
-                <label>IP质量:</label>
-                <value><span id="proxy-ipq-score">—</span> <a href="#" class="ipq-link" onclick="showIPQDetails('proxy')">详情</a></value>
-              </div>
-            </div>
-
-            <!-- 分流出站 -->
-            <div class="network-block" id="net-shunt">
-              <h3>🔀 分流出站</h3>
-              <div class="info-item">
-                <label>混合身份:</label>
-                <value style="font-size: 11px;">白名单VPS直连+其它代理</value>
-              </div>
-<div class="info-item">
-  <label>白名单:</label>
-  <value class="whitelist-value">
-    <div class="whitelist-preview" id="whitelistPreview"></div>
-  </value>
-</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 协议配置 -->
-      <div class="card">
-        <div class="card-header">
-          <h2>📡 协议配置</h2>
-        </div>
-        <table class="data-table">
-          <thead>
-<tr>
-  <th>协议名称</th>
-  <th>使用场景</th>
-  <th>伪装效果</th>
-  <th>运行状态</th>
-  <th>客户端配置</th>
-</tr>
-          </thead>
-<tbody id="protocol-tbody">
-  <!-- 动态生成的协议行将在这里插入 -->
-  <!-- 示例行结构如下（由JavaScript动态生成）：
-  <tr>
-    <td>协议名称</td>
-    <td>TCP/UDP</td>
-    <td>端口</td>
-    <td>运行中</td>
-    <td><button class="btn btn-xs" data-protocol="协议名称">查看配置</button></td>
-  </tr>
-  -->
-</tbody>
-        </table>
-      </div>
-
-      <!-- 流量统计（来自new5.txt）-->
-      <div class="card traffic-card">
-        <h2>📊 流量统计
-          <div class="traffic-progress-container">
-            <span class="progress-label">本月进度</span>
-            <div class="progress-wrapper">
-              <div class="progress-bar">
-                <div class="progress-fill" id="progress-fill" style="width:0%">
-                  <span class="progress-percentage" id="progress-percentage">0%</span>
-                </div>
-              </div>
-            </div>
-            <span class="progress-budget" id="progress-budget">0/100GiB</span>
-          </div>
-        </h2>
-        <div class="traffic-charts">
-          <div class="chart-container">
-            <h4 style="text-align:center;margin:0 0 10px 0;color:#64748b">近30日出站流量</h4>
-            <canvas id="traffic" style="height:300px"></canvas>
-          </div>
-          <div class="chart-container">
-            <h4 style="text-align:center;margin:0 0 10px 0;color:#64748b">近12个月累计流量</h4>
-            <canvas id="monthly-chart" style="height:300px"></canvas>
-          </div>
-        </div>
-      </div>
-
-      <!-- 运维管理（来自new5.txt）-->
-      <div class="card">
-        <div class="card-header">
-          <h2>⚙️ 运维管理</h2>
-        </div>
-        <div class="commands-grid">
-          <div class="command-section">
-            <h4>🔧 基础操作</h4>
-            <div class="command-list">
-              <code>edgeboxctl sub</code> <span># 动态生成当前模式下的订阅链接</span><br>
-              <code>edgeboxctl logs &lt;svc&gt;</code> <span># 查看指定服务的实时日志</span><br>
-              <code>edgeboxctl status</code> <span># 查看所有核心服务运行状态</span><br>
-              <code>edgeboxctl restart</code> <span># 安全地重启所有服务</span><br>
-            </div>
-          </div>
-
-          <div class="command-section">
-            <h4>🌐 证书管理</h4>
-            <div class="command-list">
-              <code>edgeboxctl switch-to-domain &lt;your_domain&gt;</code> <span># 切换到域名模式，申请证书</span><br>
-              <code>edgeboxctl switch-to-ip</code> <span># 回退到IP模式，使用自签名证书</span><br>
-              <code>edgeboxctl cert status</code> <span># 检查当前证书的到期日期和类型</span><br>
-              <code>edgeboxctl cert renew</code> <span># 手动续期Let's Encrypt证书</span>
-            </div>
-          </div>
-
-          <div class="command-section">
-            <h4>🔀 出站分流</h4>
-            <div class="command-list">
-              <code>edgeboxctl shunt vps</code> <span># 切换至VPS全量出站</span><br>
-              <code>edgeboxctl shunt resi &lt;URL&gt;</code> <span># 配置并切换至住宅IP全量出站</span><br>
-              <code>edgeboxctl shunt direct-resi &lt;URL&gt;</code> <span># 配置并切换至白名单智能分流状态</span><br>
-              <code>edgeboxctl shunt whitelist &lt;add|remove|list&gt;</code> <span># 管理白名单域名</span><br>
-              <code>代理URL格式:</code><br>
-              <code>http://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;</code><br>
-              <code>https://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;?sni=</code><br>
-              <code>socks5://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;</code><br>
-              <code>socks5s://user:pass@&lt;域名&gt;:&lt;端口&gt;?sni=</code><br>
-              <code>示例：edgeboxctl shunt resi 'socks5://user:pass@111.222.333.444:11324'</code> <span># 全栈走住宅</span>
-            </div>
-          </div>
-
-          <div class="command-section">
-            <h4>📊 流量统计与预警</h4>
-            <div class="command-list">
-              <code>edgeboxctl traffic show</code> <span># 在终端中查看流量统计数据</span><br>
-              <code>edgeboxctl traffic reset</code> <span># 重置流量计数器</span><br>
-              <code>edgeboxctl alert &lt;command&gt;</code> <span># 管理流量预警设置</span><br>
-              <code>edgeboxctl alert monthly</code> <span># 设置月度阈值</span><br>
-              <code>edgeboxctl alert steps 30,60,90</code> <span># 设置预警阈值</span><br>
-              <code>edgeboxctl alert telegram &lt;bot_token&gt; &lt;chat_id&gt;</code> <span># 配置Telegram机器人</span><br>
-              <code>edgeboxctl alert discord &lt;webhook_url&gt;</code> <span># 配置Discord通知</span><br>
-              <code>edgeboxctl alert wechat &lt;pushplus_token&gt;</code> <span># 配置微信通知</span><br>
-              <code>edgeboxctl alert webhook [raw|slack|discord]</code> <span># 配置通用Webhook</span><br>
-              <code>edgeboxctl alert test</code> <span># 测试预警系统</span>
-            </div>
-          </div>
-
-          <div class="command-section">
-            <h4>⚙️ 配置管理</h4>
-            <div class="command-list">
-              <code>edgeboxctl config show</code> <span># 显示所有服务的核心配置信息</span><br>
-              <code>edgeboxctl config regenerate-uuid</code> <span># 为所有协议重新生成新的UUID</span><br>
-              <code>edgeboxctl test</code> <span># 测试所有协议的连接是否正常</span><br>
-              <code>edgeboxctl debug-ports</code> <span># 调试关键端口的监听状态</span>
-            </div>
-          </div>
-
-          <div class="command-section">
-            <h4>💾 系统维护</h4>
-            <div class="command-list">
-              <code>edgeboxctl update</code> <span># 自动更新EdgeBox脚本和核心组件</span><br>
-              <code>edgeboxctl backup create</code> <span># 手动创建一个系统备份</span><br>
-              <code>edgeboxctl backup list</code> <span># 列出所有可用的备份</span><br>
-              <code>edgeboxctl backup restore &lt;DATE&gt;</code> <span># 恢复到指定日期的备份状态</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- IP质量详情弹窗 -->
-<div id="ipqModal" class="modal">
-  <div class="modal-content">
-    <div class="modal-header">
-      <h3 id="ipqModalTitle">IP质量检测详情</h3>
-      <span class="close-btn" onclick="closeIPQModal()">&times;</span>
-    </div>
-    <div class="modal-body">
-      <div id="ipqDetails"></div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-primary" onclick="closeIPQModal()">关闭</button>
-    </div>
-  </div>
-</div>
-
-<!-- 白名单弹窗 -->
-<div id="whitelistModal" class="modal">
-  <div class="modal-content">
-    <div class="modal-header">
-      <h3>白名单完整列表</h3>
-      <span class="close-btn" onclick="closeWhitelistModal()">&times;</span>
-    </div>
-    <div class="modal-body">
-      <div id="whitelistList"></div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-primary" onclick="closeWhitelistModal()">关闭</button>
-    </div>
-  </div>
-</div>
-
-<!-- 客户端配置弹窗 -->
-<div id="configModal" class="modal">
-  <div class="modal-content">
-    <div class="modal-header">
-      <h3 id="configModalTitle">客户端配置详情</h3>
-      <span class="close-btn" onclick="closeConfigModal()">&times;</span>
-    </div>
-    <div class="modal-body">
-      <div id="configDetails"></div>
-    </div>
-<div class="modal-footer">
-  <button class="btn btn-sm" onclick="copyPlain()">复制明文链接</button>
-  <button class="btn btn-sm" onclick="copyJSON()">复制JSON配置</button>
-  <button class="btn btn-sm" onclick="copyBase64()">复制Base64链接</button>
-  <button class="btn btn-sm" onclick="copyQRImage()">复制二维码图片</button>
-</div>
-  </div>
-</div>
-
-<!-- Chart.js和QRCode库 -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-<script src="./assets/edgebox-panel.js"></script>
+}
+</script>
 
 </body>
 </html>
 HTML
 
-# 设置文件权限
-chmod 644 "${TRAFFIC_DIR}/assets/edgebox-panel.css"
-chmod 644 "${TRAFFIC_DIR}/assets/edgebox-panel.js"
-chmod 644 "$TRAFFIC_DIR/index.html"
+# 覆盖块：为控制面板加入 no-cache 元信息，避免浏览器缓存挡住新版
+{
+  build_tag="${EDGEBOX_VER:-3.0.0}-$(date +%Y%m%d%H%M%S)"
+  tmp="${TRAFFIC_DIR}/.index.inject.$$"
+  awk -v tag="$build_tag" '
+    BEGIN{done=0}
+    /<head>/ && !done {
+      print;
+      print "    <meta http-equiv=\"Cache-Control\" content=\"no-cache, no-store, must-revalidate\" />";
+      print "    <meta http-equiv=\"Pragma\" content=\"no-cache\" />";
+      print "    <meta http-equiv=\"Expires\" content=\"0\" />";
+      print "    <meta name=\"edgebox-build\" content=\"" tag "\" />";
+      done=1; next
+    }
+    {print}
+  ' "$TRAFFIC_DIR/index.html" > "$tmp" && mv -f "$tmp" "$TRAFFIC_DIR/index.html"
+} || true
 
-  log_success "流量监控系统设置完成（CSS和JS已外置）"
+log_success "流量监控系统设置完成：${TRAFFIC_DIR}/index.html"
 }
-
 
 # 设置定时任务
 setup_cron_jobs() {
