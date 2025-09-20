@@ -5095,6 +5095,9 @@ EXTERNAL_CSS
 cat > "${TRAFFIC_DIR}/assets/edgebox-panel.js" <<'EXTERNAL_JS'
 // 全局变量
 let dashboardData = {};
+function setDashboardData(data) {
+  setDashboardData(data);
+}
 let currentShareLink = '';
 const GiB = 1024 ** 3;
 
@@ -5449,7 +5452,8 @@ function renderWhitelistPreview(list){
     const more = document.createElement("div");
     more.className = "whitelist-more";
     more.textContent = "查看全部";
-    more.onclick = showWhitelistModal;
+    more.setAttribute('data-action', 'open-modal');
+	more.setAttribute('data-modal',  'whitelist');
     wrap.appendChild(more);
   }catch(e){ console.error(e); }
 }
@@ -5758,61 +5762,56 @@ async function init() {
   setInterval(updateProgressBar, 3600000);
 }
 
-// === 修复协议配置弹窗的事件委托绑定 ===
-(function bindProtocolViewHandler(){
-  const tbody = document.getElementById('protocol-tbody');
-  if (!tbody) {
-    console.error('protocol-tbody not found');
-    return;
-  }
-  
-  // 防止重复绑定
-  if (tbody.__viewBound) {
-    console.log('Protocol view handler already bound');
-    return;
-  }
+// === 全局 data-action 事件委托（统一入口） ===
+(function bindDelegatedEvents(){
+  if (document.__ebDelegatedBound) return;
+  document.__ebDelegatedBound = true;
 
-  tbody.addEventListener('click', (e) => {
-    // 查找最近的带有data-protocol属性的按钮
-    const btn = e.target.closest('button[data-protocol]');
-    if (!btn || !tbody.contains(btn)) return;
-    
-    e.preventDefault();
-    e.stopPropagation();
-    
-    const protocolName = btn.dataset.protocol;
-    if (!protocolName) {
-      console.warn('[protocol] missing data-protocol attribute', btn);
+  document.addEventListener('click', (e) => {
+    // 优先命中 data-action，其次兼容协议表的 button[data-protocol]
+    const el = e.target.closest('[data-action], button[data-protocol]');
+    if (!el) return;
+
+    // 避免 <a href="#"> 跳顶
+    if (el.tagName === 'A') e.preventDefault();
+
+    // 协议表“查看配置”按钮（兼容你现在生成的 data-protocol）
+    if (el.matches('button[data-protocol]')) {
+      const name = el.dataset.protocol;
+      if (name) showConfigModal(name);
       return;
     }
-    
-    console.log('[protocol] button clicked:', protocolName);
-    
-    // 调用弹窗显示函数
-    try {
-      showConfigModal(protocolName);
-    } catch (error) {
-      console.error('[protocol] showConfigModal failed:', error);
-      if (window.notify) {
-        notify('打开配置弹窗失败', 'warn');
-      } else {
-        alert('打开配置弹窗失败');
+
+    const action = el.dataset.action;
+    switch (action) {
+      case 'open-modal': {
+        const m = el.dataset.modal;
+        if (m === 'whitelist')      showWhitelistModal();
+        else if (m === 'ipq')       showIPQDetails(el.dataset.ipq || 'vps');
+        else if (m === 'config')    showConfigModal(el.dataset.protocol || (window.currentProtocol?.name || ''));
+        break;
       }
+      case 'close-modal': {
+        const m = el.dataset.modal;
+        if (m === 'whitelist')      closeWhitelistModal();
+        else if (m === 'ipq')       closeIPQModal();
+        else if (m === 'config')    closeConfigModal();
+        break;
+      }
+      case 'copy': {
+        const t = el.dataset.type;
+        if (t === 'plain')   copyPlain();
+        else if (t === 'json')    copyJSON();
+        else if (t === 'base64')  copyBase64();
+        else if (t === 'qr')      copyQRImage();
+        break;
+      }
+      default:
+        // no-op
+        break;
     }
   });
-
-  tbody.__viewBound = true;
-  console.log('Protocol view handler bound successfully');
 })();
-
-// 打开/关闭弹窗时控制刷新
-function pauseOverviewOnce(ms=10000){
-  if (_overviewTimer) { clearInterval(_overviewTimer); _overviewTimer = null; }
-  setTimeout(()=>{ if(!_overviewTimer) _overviewTimer = setInterval(updateSystemOverview, 30000); }, ms);
-}
-
-// 页面加载完成后初始化
-window.addEventListener('DOMContentLoaded', init);
 
 // === 全局弹窗关闭事件优化 ===
 window.addEventListener('click', function(event) {
@@ -6045,7 +6044,7 @@ EXTERNAL_JS
               </div>
               <div class="info-item">
                 <label>IP质量:</label>
-                <value><span id="vps-ipq-score">—</span> <a href="#" class="ipq-link" onclick="showIPQDetails('vps')">详情</a></value>
+                <value><span id="vps-ipq-score">—</span> <a href="#" class="ipq-link" data-action="open-modal" data-modal="ipq" data-ipq="vps">详情</a></value>
               </div>
             </div>
 
@@ -6066,7 +6065,7 @@ EXTERNAL_JS
               </div>
               <div class="info-item">
                 <label>IP质量:</label>
-                <value><span id="proxy-ipq-score">—</span> <a href="#" class="ipq-link" onclick="showIPQDetails('proxy')">详情</a></value>
+                <value><span id="proxy-ipq-score">—</span> <a href="#" class="ipq-link" data-action="open-modal" data-modal="ipq" data-ipq="proxy">详情</a></value>
               </div>
             </div>
 
@@ -6233,13 +6232,13 @@ EXTERNAL_JS
   <div class="modal-content">
     <div class="modal-header">
       <h3 id="ipqModalTitle">IP质量检测详情</h3>
-      <span class="close-btn" onclick="closeIPQModal()">&times;</span>
+      <span class="close-btn" data-action="close-modal" data-modal="ipq">&times;</span>
     </div>
     <div class="modal-body">
       <div id="ipqDetails"></div>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-primary" onclick="closeIPQModal()">关闭</button>
+      <button class="btn btn-primary" data-action="close-modal" data-modal="ipq">关闭</button>
     </div>
   </div>
 </div>
@@ -6249,13 +6248,13 @@ EXTERNAL_JS
   <div class="modal-content">
     <div class="modal-header">
       <h3>白名单完整列表</h3>
-      <span class="close-btn" onclick="closeWhitelistModal()">&times;</span>
+      <span class="close-btn" data-action="close-modal" data-modal="whitelist">&times;</span>
     </div>
     <div class="modal-body">
       <div id="whitelistList"></div>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-primary" onclick="closeWhitelistModal()">关闭</button>
+      <button class="btn btn-primary" data-action="close-modal" data-modal="whitelist">关闭</button>
     </div>
   </div>
 </div>
@@ -6265,16 +6264,16 @@ EXTERNAL_JS
   <div class="modal-content">
     <div class="modal-header">
       <h3 id="configModalTitle">客户端配置详情</h3>
-      <span class="close-btn" onclick="closeConfigModal()">&times;</span>
+      <span class="close-btn" data-action="close-modal" data-modal="config">&times;</span>
     </div>
     <div class="modal-body">
       <div id="configDetails"></div>
     </div>
 <div class="modal-footer">
-  <button class="btn btn-sm" onclick="copyPlain()">复制明文链接</button>
-  <button class="btn btn-sm" onclick="copyJSON()">复制JSON配置</button>
-  <button class="btn btn-sm" onclick="copyBase64()">复制Base64链接</button>
-  <button class="btn btn-sm" onclick="copyQRImage()">复制二维码图片</button>
+<button class="btn btn-sm" data-action="copy" data-type="plain">复制明文链接</button>
+<button class="btn btn-sm" data-action="copy" data-type="json">复制JSON配置</button>
+<button class="btn btn-sm" data-action="copy" data-type="base64">复制Base64链接</button>
+<button class="btn btn-sm" data-action="copy" data-type="qr">复制二维码图片</button>
 </div>
   </div>
 </div>
