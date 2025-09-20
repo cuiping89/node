@@ -5239,23 +5239,42 @@ function renderCertificateAndNetwork() {
     document.getElementById('cert-renewal').textContent = certMode.startsWith('letsencrypt') ? '自动' : '手动';
     document.getElementById('cert-expiry').textContent = safeGet(cert, 'expires_at') ? new Date(cert.expires_at).toLocaleDateString() : '—';
 
-    // Network Identity - 修复高亮逻辑
+    // Network Identity - 修复高亮逻辑，默认VPS模式
     const shuntMode = safeGet(shunt, 'mode', 'vps');
-    document.getElementById('net-vps').classList.toggle('active', shuntMode === 'vps');
-    document.getElementById('net-proxy').classList.toggle('active', shuntMode === 'resi' || shuntMode.includes('resi'));
-    document.getElementById('net-shunt').classList.toggle('active', shuntMode === 'direct_resi' || shuntMode.includes('direct'));
+    console.log('Shunt mode:', shuntMode); // 调试日志
+    
+    // 清除所有高亮
+    document.getElementById('net-vps').classList.remove('active');
+    document.getElementById('net-proxy').classList.remove('active');
+    document.getElementById('net-shunt').classList.remove('active');
+    
+    // 根据模式设置正确的高亮
+    if (shuntMode === 'vps' || shuntMode === '' || !shuntMode) {
+        document.getElementById('net-vps').classList.add('active');
+    } else if (shuntMode === 'resi' || shuntMode.includes('resi')) {
+        document.getElementById('net-proxy').classList.add('active');
+    } else if (shuntMode === 'direct_resi' || shuntMode.includes('direct')) {
+        document.getElementById('net-shunt').classList.add('active');
+    }
     
     document.getElementById('vps-ip').textContent = safeGet(dashboardData, 'server.eip') || safeGet(dashboardData, 'server.server_ip');
-    document.getElementById('proxy-ip').textContent = safeGet(shunt, 'proxy_info');
+    document.getElementById('proxy-ip').textContent = safeGet(shunt, 'proxy_info', '—');
     
     // Whitelist
     const whitelist = shunt.whitelist || [];
     const previewEl = document.getElementById('whitelistPreview');
     if (previewEl) {
-        previewEl.innerHTML = `
-            <div class="whitelist-text">${whitelist.join(', ')}</div>
-            <button class="whitelist-more btn btn-sm" data-action="open-modal" data-modal="whitelist">查看全部</button>
-        `;
+        if (whitelist.length > 0) {
+            previewEl.innerHTML = `
+                <div class="whitelist-text">${whitelist.join(', ')}</div>
+                <button class="whitelist-more" data-action="open-modal" data-modal="whitelist">查看全部</button>
+            `;
+        } else {
+            previewEl.innerHTML = `
+                <div class="whitelist-text">暂无白名单配置</div>
+                <button class="whitelist-more" data-action="open-modal" data-modal="whitelist">查看全部</button>
+            `;
+        }
     }
 }
 
@@ -5356,6 +5375,21 @@ window.addEventListener('click', (e)=>{
   const tgt = e.target;
   if (tgt && tgt.classList && tgt.classList.contains('modal')) {
     closeModal(tgt.id);
+  }
+});
+
+document.addEventListener('click', (e) => {
+  // 处理关闭按钮点击
+  if (e.target.matches('.close-btn, .close-btn *')) {
+    const closeBtn = e.target.closest('.close-btn');
+    if (closeBtn) {
+      const modalId = closeBtn.getAttribute('data-modal') || 
+                     closeBtn.closest('.modal')?.id;
+      if (modalId) {
+        closeModal(modalId);
+        return;
+      }
+    }
   }
 });
 
@@ -5542,11 +5576,16 @@ async function showIPQDetails(which) {
   titleEl.textContent = titleMap[which] || 'IP质量检测详情';
   body.innerHTML = '<div class="config-section"><div class="config-code">加载中...</div></div>';
 
-  const data = await fetchJSON(`/status/ipq_${which}.json`);
-  if (data) {
-    body.innerHTML = '<pre class="config-code" style="white-space:pre-wrap">' + escapeHtml(JSON.stringify(data, null, 2)) + '</pre>';
-  } else {
-    body.innerHTML = '<div class="text-secondary">暂无数据</div>';
+  try {
+    const data = await fetchJSON(`/status/ipq_${which}.json`);
+    if (data && Object.keys(data).length > 0) {
+      body.innerHTML = '<pre class="config-code" style="white-space:pre-wrap">' + escapeHtml(JSON.stringify(data, null, 2)) + '</pre>';
+    } else {
+      body.innerHTML = '<div class="config-section"><div class="config-code">暂无IP质量检测数据</div></div>';
+    }
+  } catch (error) {
+    console.error('Failed to fetch IPQ data:', error);
+    body.innerHTML = '<div class="config-section"><div class="config-code">数据加载失败</div></div>';
   }
 
   showModal('ipqModal');
@@ -5771,14 +5810,25 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
   </div>
 </div>
 
-<div id="whitelistModal" class="modal"><div class="modal-content"><div class="modal-header"><h3>白名单完整列表</h3><span class="close-btn" data-action="close-modal" data-modal="whitelist">&times;</span></div><div class="modal-body"><div id="whitelistList"></div></div></div></div>
+<!-- 白名单弹窗 -->
+<div id="whitelistModal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3>白名单完整列表</h3>
+      <span class="close-btn" data-modal="whitelistModal">&times;</span>
+    </div>
+    <div class="modal-body">
+      <div id="whitelistList"></div>
+    </div>
+  </div>
+</div>
 
 <!-- IP质量详情弹窗 -->
 <div id="ipqModal" class="modal">
   <div class="modal-content">
     <div class="modal-header">
       <h3 id="ipqModalTitle">IP质量检测详情</h3>
-      <button class="close-btn" data-action="close-modal" data-modal="ipqModal">×</button>
+      <button class="close-btn" data-modal="ipqModal">×</button>
     </div>
     <div class="modal-body">
       <div id="ipqDetails"></div>
@@ -5791,10 +5841,9 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
   <div class="modal-content">
     <div class="modal-header">
       <h3 id="configModalTitle">客户端配置详情</h3>
-      <button class="close-btn" data-action="close-modal" data-modal="configModal">×</button>
+      <button class="close-btn" data-modal="configModal">×</button>
     </div>
     <div class="modal-body">
-      <!-- 五块展示由 JS 动态填充到 configDetails & qrcode -->
       <div id="configDetails"></div>
       <div id="qrcode" class="qr-container"></div>
     </div>
