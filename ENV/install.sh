@@ -4574,27 +4574,28 @@ body, p, span, td, div {
   margin-left: 8px;
 }
 
-/* 白名单行内文本（与其它 value 一致） */
+/* 白名单相关样式 */
 .whitelist-inline{
   color: #374151;
   font-size: 13px;
   line-height: 1.6;
-  word-break: break-all;   /* 遇到超长域名时允许断行 */
-  white-space: normal;     /* 自然换行 */
+  word-break: break-all;
+  white-space: normal;
 }
 
-/* 白名单预览容器：紧跟标题显示，最多三行 */
-.whitelist-value{   /* 包裹 value，统一行高与其它区块 */
+.whitelist-value{
   width: 100%;
 }
+
 .whitelist-preview{
-  --lh: 22px;          /* 每行行高 */
-  margin-top: 4px;     /* 与标题的间距——比原来更紧 */
+  --lh: 22px;
+  margin-top: 4px;
   position: relative;
-  padding-right: 72px; /* 右下角按钮预留 */
+  padding-right: 72px;
   max-height: calc(var(--lh) * 3);
   overflow: hidden;
 }
+
 .whitelist-text{
   font-size: 13px;
   line-height: var(--lh);
@@ -4602,22 +4603,48 @@ body, p, span, td, div {
   white-space: normal;
   word-break: break-word;
 }
-/* 右下角“查看全部”，保持在第三行末尾 */
-.whitelist-more{
+
+/* === 统一的查看按钮样式（所有"查看详情/查看全部/查看配置"按钮） === */
+.whitelist-more,
+.btn-link,
+.link {
+  display: inline-block;
+  height: 28px;
+  line-height: 26px;  /* 减2px用于border */
+  padding: 0 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #ffffff;
+  font-size: 12px;
+  color: #2563eb;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.2s;
+}
+
+.whitelist-more:hover,
+.btn-link:hover,
+.link:hover {
+  background: #f3f4f6;
+  border-color: #9ca3af;
+  color: #1d4ed8;
+}
+
+/* 白名单查看全部按钮特殊定位 */
+.whitelist-more {
   position: absolute;
   right: 0;
   bottom: 0;
-  height: var(--lh);
-  line-height: var(--lh);
+  height: var(--lh, 22px);
+  line-height: calc(var(--lh, 22px) - 2px);
   padding: 0 10px;
-  border: 1px solid #d1d5db;
-  border-radius: 14px;
-  background: #ffffff;
   font-size: 11px;
-  color: #2563eb;
-  cursor: pointer;
 }
-.whitelist-more:hover{ background:#f3f4f6; }
+
+/* 表格中的按钮保持一致 */
+.data-table .btn-link {
+  margin: 0;
+}
 
 /* === 表格 === */
 .data-table {
@@ -4641,7 +4668,6 @@ body, p, span, td, div {
   font-size: 12px;
 }
 
-/* 协议配置表格 - 使居中的列 */
 .data-table td:nth-child(4),
 .data-table td:nth-child(5),
 .data-table td:nth-child(6) {
@@ -4658,9 +4684,11 @@ body, p, span, td, div {
   background: #f5f5f5;
 }
 
-.data-table tr.subs-row td { background:#f5f5f5; }
+.data-table tr.subs-row td { 
+  background:#f5f5f5; 
+}
 
-/* === 流量统计（来自new5.txt）=== */
+/* === 流量统计 === */
 .traffic-card { 
   position: relative; 
 }
@@ -4735,7 +4763,7 @@ body, p, span, td, div {
   .traffic-progress-container { position: static; width: 100%; margin-bottom: 16px; }
 }
 
-/* === 运维管理（来自new5.txt）=== */
+/* === 运维管理 === */
 .commands-grid { 
   display: grid; 
   grid-template-columns: 1fr 1fr; 
@@ -4782,7 +4810,7 @@ body, p, span, td, div {
   margin-left: 8px; 
 }
 
-/* === 按钮 === */
+/* === 按钮系统 === */
 .btn {
   padding: 8px 16px;
   border-radius: 6px;
@@ -4813,19 +4841,7 @@ body, p, span, td, div {
   background: #f3f4f6;
 }
 
-.btn-link {
-  background: none;
-  color: #3b82f6;
-  border: none;
-  padding: 0;
-}
-
-.btn-link:hover {
-  color: #2563eb;
-  text-decoration: underline;
-}
-
-/* === 弹窗 === */
+/* === 统一的弹窗样式 === */
 .modal {
   display: none;
   position: fixed;
@@ -4837,14 +4853,15 @@ body, p, span, td, div {
   background-color: rgba(0, 0, 0, 0.5);
 }
 
+/* 统一所有弹窗的大小和样式 */
 .modal-content {
   background-color: #fff;
   margin: 5% auto;
   padding: 0;
   border: 1px solid #d1d5db;
   border-radius: 12px;
-  width: min(720px, 92%);
-  max-width: 600px;
+  width: 720px;  /* 统一宽度 */
+  max-width: 92%;
   box-shadow: 0 12px 24px rgba(0,0,0,0.14);
 }
 
@@ -4862,28 +4879,31 @@ body, p, span, td, div {
   padding: 0;
 }
 
-/* 统一关闭按钮为正方形 */
-.close-btn{
-  font-size:16px;
-  color:#64748b;
-  cursor:pointer;
-  width:28px; height:28px; line-height:28px;
-  display:inline-flex; align-items:center; justify-content:center;
-  border-radius:6px; /* 轻微圆角的“正方形” */
-  border:1px solid #e5e7eb;
+/* 统一关闭按钮 */
+.close-btn {
+  font-size: 16px;
+  color: #64748b;
+  cursor: pointer;
+  width: 28px; 
+  height: 28px; 
+  line-height: 28px;
+  display: inline-flex; 
+  align-items: center; 
+  justify-content: center;
+  border-radius: 6px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  transition: all 0.2s;
 }
-.close-btn:hover{ background:#f8fafc; color:#0f172a; }
 
-/* 统一所有“查看详情/查看全部/查看配置”按钮视觉尺寸 */
-.btn-link{
-  background:#fff; border:1px solid #e5e7eb;
-  height:28px; line-height:28px; padding:0 10px;
+.close-btn:hover { 
+  background: #f8fafc; 
+  color: #0f172a; 
 }
-.btn-sm{ height:28px; line-height:28px; padding:0 10px; font-size:12px; }
 
 .modal-body {
   padding: 20px;
-  max-height: min(70vh, 560px);
+  max-height: 560px;  /* 统一最大高度 */
   overflow: auto;
 }
 
@@ -4891,6 +4911,30 @@ body, p, span, td, div {
   padding: 15px 20px;
   border-top: 1px solid #e5e7eb;
   text-align: right;
+}
+
+/* 弹窗内容区域滚动优化 */
+.modal-body::-webkit-scrollbar {
+  width: 8px;
+}
+
+.modal-body::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+.modal-body::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 4px;
+}
+
+.modal-body::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* 锁屏 */
+body.modal-open { 
+  overflow: hidden; 
 }
 
 /* === 其他组件 === */
@@ -4993,6 +5037,16 @@ body, p, span, td, div {
   line-height: 1.6;
 }
 
+.config-help {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 12px;
+  font-size: 12px;
+  line-height: 1.8;
+  color: #4b5563;
+}
+
 .json-config {
   background: #f5f5f5;
   border: 1px solid #e5e7eb;
@@ -5027,6 +5081,9 @@ body, p, span, td, div {
   padding: 20px;
   background: #f5f5f5;
   border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .qr-placeholder {
@@ -5041,7 +5098,31 @@ body, p, span, td, div {
   color: #6b7280;
 }
 
-.qr-container{ display:flex; align-items:center; justify-content:center; padding:8px 0; }
+/* 轻提示 toast */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 60px;
+  transform: translateX(-50%);
+  background: rgba(0,0,0,.75);
+  color: #fff;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  opacity: 0;
+  transition: opacity .2s ease, transform .2s ease;
+  pointer-events: none;
+  z-index: 2000;
+}
+
+.toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.toast-warn { 
+  background: rgba(220, 38, 38, .9); 
+}
 
 /* 响应式 */
 @media (max-width: 1024px) {
@@ -5066,38 +5147,12 @@ body, p, span, td, div {
   .management-grid {
     grid-template-columns: 1fr;
   }
+  
+  .modal-content {
+    width: 95%;
+    margin: 10px auto;
+  }
 }
-
-/* 弹窗内容区域只滚内部 */
-#configModal .modal-body{
-  max-height: min(70vh, 560px);
-  overflow: auto;
-}
-
-/* 锁屏（在 JS 里加了 body.modal-open）*/
-body.modal-open { overflow: hidden; }
-
-/* 轻提示 toast */
-.toast{
-  position: absolute;
-  left: 50%;
-  bottom: 16px;
-  transform: translateX(-50%);
-  background: rgba(0,0,0,.75);
-  color: #fff;
-  padding: 8px 12px;
-  border-radius: 8px;
-  font-size: 12px;
-  opacity: 0;
-  transition: opacity .2s ease, transform .2s ease;
-  pointer-events: none;
-  z-index: 10;
-}
-.toast.show{
-  opacity: 1;
-  transform: translateX(-50%) translateY(0);
-}
-.toast-warn{ background: rgba(220, 38, 38, .9); }
 EXTERNAL_CSS
 
   # ========== 创建外置的JavaScript文件 ==========
@@ -5864,20 +5919,33 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         <div class="card">
           <div class="card-header"><h2>🌐 网络身份配置 <span class="note-udp">注：HY2/TUIC为UDP通道，VPS直连，不走代理分流. </span></h2></div>
           <div class="network-blocks">
-            <div class="network-block" id="net-vps">
-              <h3>📡 VPS出站IP</h3>
-              <div class="info-item"><label>公网身份:</label><value>直连</value></div>
-              <div class="info-item"><label>VPS出站IP:</label><value id="vps-ip">—</value></div>
-              <div class="info-item"><label>Geo:</label><value id="vps-geo">—</value></div>
-              <div class="info-item"><label>IP质量:</label><value><span id="vps-ipq-score">—</span><a href="#" class="link" data-action="open-modal" data-modal="ipq" data-ipq="vps">查看详情</a></value></div>
-            </div>
-            <div class="network-block" id="net-proxy">
-              <h3>🔄 代理出站IP</h3>
-              <div class="info-item"><label>代理身份:</label><value>全代理</value></div>
-              <div class="info-item"><label>代理IP:</label><value id="proxy-ip">—</value></div>
-              <div class="info-item"><label>Geo:</label><value id="proxy-geo">—</value></div>
-              <div class="info-item"><label>IP质量:</label><value><span id="proxy-ipq-score">—</span><a href="#" class="link" data-action="open-modal" data-modal="ipq" data-ipq="proxy">查看详情</a></value></div>
-            </div>
+<div class="network-block" id="net-vps">
+  <h3>📡 VPS出站IP</h3>
+  <div class="info-item"><label>公网身份:</label><value>直连</value></div>
+  <div class="info-item"><label>VPS出站IP:</label><value id="vps-ip">—</value></div>
+  <div class="info-item"><label>Geo:</label><value id="vps-geo">—</value></div>
+  <div class="info-item">
+    <label>IP质量:</label>
+    <value>
+      <span id="vps-ipq-score">—</span>
+      <button class="btn-link" data-action="open-modal" data-modal="ipq" data-ipq="vps">查看详情</button>
+    </value>
+  </div>
+</div>
+
+<div class="network-block" id="net-proxy">
+  <h3>🔄 代理出站IP</h3>
+  <div class="info-item"><label>代理身份:</label><value>全代理</value></div>
+  <div class="info-item"><label>代理IP:</label><value id="proxy-ip">—</value></div>
+  <div class="info-item"><label>Geo:</label><value id="proxy-geo">—</value></div>
+  <div class="info-item">
+    <label>IP质量:</label>
+    <value>
+      <span id="proxy-ipq-score">—</span>
+      <button class="btn-link" data-action="open-modal" data-modal="ipq" data-ipq="proxy">查看详情</button>
+    </value>
+  </div>
+</div>
             <div class="network-block" id="net-shunt">
               <h3>🔀 分流出站</h3>
               <div class="info-item"><label>混合身份:</label><value style="font-size: 11px;">白名单VPS直连+其它代理</value></div>
@@ -6001,7 +6069,18 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
   </div>
 </div>
 
-<div id="whitelistModal" class="modal"><div class="modal-content"><div class="modal-header"><h3>白名单完整列表</h3><span class="close-btn" data-action="close-modal" data-modal="whitelist">&times;</span></div><div class="modal-body"><div id="whitelistList"></div></div></div></div>
+<!-- 白名单弹窗 -->
+<div id="whitelistModal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3>白名单完整列表</h3>
+      <button class="close-btn" data-action="close-modal" data-modal="whitelistModal">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="whitelistList"></div>
+    </div>
+  </div>
+</div>
 
 <!-- IP质量详情弹窗 -->
 <div id="ipqModal" class="modal">
@@ -6016,7 +6095,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
   </div>
 </div>
 
-<!-- 客户端配置弹窗（五块展示 + 四复制 + 右上角X） -->
+<!-- 配置弹窗保持不变 -->
 <div id="configModal" class="modal">
   <div class="modal-content">
     <div class="modal-header">
@@ -6024,15 +6103,13 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
       <button class="close-btn" data-action="close-modal" data-modal="configModal">×</button>
     </div>
     <div class="modal-body">
-      <!-- 五块展示由 JS 动态填充到 configDetails & qrcode -->
       <div id="configDetails"></div>
-      <div id="qrcode" class="qr-container"></div>
     </div>
     <div class="modal-footer">
+      <button class="btn btn-sm" data-action="copy" data-type="sub">复制订阅地址</button>
       <button class="btn btn-sm" data-action="copy" data-type="plain">复制明文链接</button>
       <button class="btn btn-sm" data-action="copy" data-type="json">复制JSON配置</button>
       <button class="btn btn-sm" data-action="copy" data-type="base64">复制Base64链接</button>
-      <button class="btn btn-sm" data-action="copy" data-type="qr">复制二维码图片</button>
     </div>
   </div>
 </div>
