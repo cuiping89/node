@@ -5322,39 +5322,65 @@ function showWhitelistModal() {
     showModal('whitelistModal');
 }
 
-function showConfigModal(protocolKey) {
-    const title = document.getElementById('configModalTitle');
-    const details = document.getElementById('configDetails');
-    const qrContainer = document.getElementById('qrcode');
-    if (!title || !details || !qrContainer) return;
-    
-    qrContainer.innerHTML = ''; // Clear previous QR code
-    let content = '', qrText = '';
+function showConfigModal(key) {
+  const modal   = document.getElementById('configModal');
+  const title   = document.getElementById('configModalTitle');
+  const details = document.getElementById('configDetails');
+  const qrWrap  = document.getElementById('qrcode');
+  if (!modal || !title || !details || !qrWrap) return;
 
-    if (protocolKey === '__SUBS__') {
-        title.textContent = '整包订阅链接配置';
-        const sub = dashboardData.subscription || {};
-        qrText = sub.plain || '';
-        content = `
-            <div class="config-section"><h4>明文订阅</h4><div class="config-code">${escapeHtml(sub.plain)}</div></div>
-            <div class="config-section"><h4>Base64 订阅</h4><div class="config-code">${escapeHtml(sub.base64)}</div></div>
-            <div class="config-section"><h4>Base64 (分行)</h4><div class="config-code" style="white-space: pre-wrap;">${escapeHtml(sub.b64_lines)}</div></div>
-        `;
-    } else {
-        const protocol = (dashboardData.protocols || []).find(p => p.name === protocolKey);
-        if (!protocol) return notify('未找到协议信息', 'warn');
-        title.textContent = `${protocol.name} 配置详情`;
-        qrText = protocol.share_link || '';
-        content = `<div class="config-section"><h4>分享链接</h4><div class="config-code">${escapeHtml(protocol.share_link)}</div></div>`;
-    }
+  // reset
+  details.innerHTML = '';
+  qrWrap.innerHTML = '';
 
-    details.innerHTML = content;
-    if (qrText && window.QRCode) {
-        new QRCode(qrContainer, { text: qrText, width: 256, height: 256 });
-    } else {
-        qrContainer.innerHTML = '<div class="qr-placeholder">无可用链接生成二维码</div>';
+  if (key === '__SUBS__') {
+    const sub = (dashboardData && dashboardData.subscription) || {};
+    const plain   = sub.plain   || (dashboardData && dashboardData.subscription_url) || '';
+    const base64  = sub.base64  || (plain ? (plain + (plain.includes('?') ? '&' : '?') + 'format=base64') : '');
+    const b64lines= sub.b64_lines || '';
+    title.textContent = '整包订阅链接 - 客户端配置详情';
+    details.innerHTML = `
+      <div class="config-section"><h4>明文链接</h4><div class="config-code" id="plain-link">${escapeHtml(plain || '—')}</div></div>
+      <div class="config-section"><h4>Base64链接</h4><div class="config-code" id="base64-link">${escapeHtml(base64 || '—')}</div></div>
+      <div class="config-section"><h4>Base64（分行）</h4><div class="config-code" id="base64-lines" style="white-space:pre-wrap">${escapeHtml(b64lines || '—')}</div></div>
+      <div class="config-section"><h4>二维码</h4><div class="qr-container"></div></div>
+      <div class="config-section"><h4>使用说明</h4><div class="config-help">
+        1. 复制订阅链接导入客户端<br>
+        2. 支持 V2rayN、Clash、Shadowrocket 等主流客户端<br>
+        3. 自签证书需在客户端开启“跳过证书验证”<br>
+        4. UDP 协议（HY2/TUIC）固定走 VPS 直连
+      </div></div>
+    `;
+    if (plain && window.QRCode) {
+      new QRCode(qrWrap, { text: plain, width: 256, height: 256, colorDark: "#000", colorLight: "#fff", correctLevel: QRCode.CorrectLevel.H });
     }
-    showModal('configModal');
+  } else {
+    const protocols = (dashboardData && dashboardData.protocols) || [];
+    const p = protocols.find(x => x.name === key);
+    if (!p) return notify('未找到该协议配置', 'warn');
+    title.textContent = `${p.name} - 客户端配置详情`;
+    const plain  = p.plain || p.share_link || '';
+    const json   = p.json ? JSON.stringify(p.json, null, 2) : (p.config_json ? JSON.stringify(p.config_json, null, 2) : '');
+    const base64 = p.base64 || '';
+    details.innerHTML = `
+      <div class="config-section"><h4>明文链接</h4><div class="config-code" id="plain-link">${escapeHtml(plain || '—')}</div></div>
+      <div class="config-section"><h4>JSON配置</h4><div class="config-code" id="json-code">${escapeHtml(json || '—')}</div></div>
+      <div class="config-section"><h4>Base64链接</h4><div class="config-code" id="base64-link">${escapeHtml(base64 || '—')}</div></div>
+      <div class="config-section"><h4>二维码</h4><div class="qr-container"></div></div>
+      <div class="config-section"><h4>使用说明</h4><div class="config-help">
+        1. 优先复制“明文链接”导入<br>
+        2. 无法导入时使用 JSON 或 Base64<br>
+        3. 二维码可用于移动端扫码导入<br>
+        4. 若连不上，请检查防火墙、端口与证书
+      </div></div>
+    `;
+    if (plain && window.QRCode) {
+      new QRCode(qrWrap, { text: plain, width: 256, height: 256, colorDark: "#000", colorLight: "#fff", correctLevel: QRCode.CorrectLevel.H });
+    }
+  }
+
+  // 显示弹窗
+  modal.style.display = 'block';
 }
 
 async function copyText(text) {
@@ -5392,42 +5418,72 @@ async function refreshAllData() {
 }
 
 function setupEventListeners() {
-    document.addEventListener('click', e => {
-        const target = e.target.closest('[data-action]');
-        if (!target) return;
+  document.addEventListener('click', (e) => {
+    const target = e.target.closest('[data-action]');
+    if (!target) return;
 
-        const { action, modal, protocol, ipq, type } = target.dataset;
+    const { action, modal, protocol, ipq, type } = target.dataset;
 
-        switch (action) {
-            case 'open-modal':
-                if (modal === 'whitelist') showWhitelistModal();
-                if (modal === 'config') showConfigModal(protocol);
-                // IPQ modal can be added here if needed
-                break;
-            case 'close-modal':
-                closeModal(modal);
-                break;
-            case 'copy':
-                 const configModal = document.getElementById('configModal');
-                 if(configModal.style.display !== 'block') return;
+    switch (action) {
+      case 'open-modal': {
+        if (modal === 'whitelist') return showWhitelistModal();
+        if (modal === 'config')    return showConfigModal(protocol || '__SUBS__');
+        if (modal === 'ipq')       return showIPQDetails(ipq || 'vps');
+        break;
+      }
+      case 'close-modal': {
+        if (modal) closeModal(modal); // modal 传入对应的 id
+        break;
+      }
+      case 'copy': {
+        // 从配置弹窗里的具体块复制
+        const plainEl  = document.getElementById('plain-link');
+        const jsonEl   = document.getElementById('json-code');
+        const base64El = document.getElementById('base64-link');
 
-                 const currentProtocolName = document.getElementById('configModalTitle').textContent.split(' ')[0];
-                 const isSub = currentProtocolName.includes('订阅');
-                 const sub = dashboardData.subscription || {};
-
-                 if (isSub) {
-                     if (type === 'plain') copyText(sub.plain);
-                     if (type === 'base64') copyText(sub.base64);
-                 } else {
-                     const p = (dashboardData.protocols || []).find(p => p.name === currentProtocolName);
-                     if (p) {
-                         if (type === 'plain' || type === 'base64') copyText(p.share_link);
-                         // JSON copy logic can be added here
-                     }
-                 }
-                break;
+        if (type === 'plain'  && plainEl)  return copyText(plainEl.textContent.trim());
+        if (type === 'json'   && jsonEl)   return copyText(jsonEl.textContent.trim());
+        if (type === 'base64' && base64El) return copyText(base64El.textContent.trim());
+        if (type === 'qr') {
+          const canvas = document.querySelector('#qrcode canvas');
+          if (canvas && canvas.toBlob) {
+            canvas.toBlob(async (blob) => {
+              try {
+                await navigator.clipboard.write([ new ClipboardItem({ [blob.type]: blob }) ]);
+                notify('二维码图片已复制', 'ok');
+              } catch {
+                notify('复制失败，请右键二维码另存为', 'warn');
+              }
+            });
+          } else {
+            notify('未找到二维码', 'warn');
+          }
+          return;
         }
-    });
+        break;
+      }
+    }
+  });
+}
+
+async function showIPQDetails(which) {
+  const modal   = document.getElementById('ipqModal');
+  const titleEl = document.getElementById('ipqModalTitle');
+  const body    = document.getElementById('ipqDetails');
+  if (!modal || !titleEl || !body) return;
+
+  const titleMap = { vps: 'VPS IP质量检测详情', proxy: '代理 IP质量检测详情' };
+  titleEl.textContent = titleMap[which] || 'IP质量检测详情';
+  body.innerHTML = '<div class="config-section"><div class="config-code">加载中...</div></div>';
+
+  const data = await fetchJSON(`/status/ipq_${which}.json`);
+  if (data) {
+    body.innerHTML = '<pre class="config-code" style="white-space:pre-wrap">' + escapeHtml(JSON.stringify(data, null, 2)) + '</pre>';
+  } else {
+    body.innerHTML = '<div class="text-secondary">暂无数据</div>';
+  }
+
+  modal.style.display = 'block';
 }
 
 // --- Initialization ---
@@ -5517,14 +5573,14 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
               <div class="info-item"><label>公网身份:</label><value>直连</value></div>
               <div class="info-item"><label>VPS出站IP:</label><value id="vps-ip">—</value></div>
               <div class="info-item"><label>Geo:</label><value id="vps-geo">—</value></div>
-              <div class="info-item"><label>IP质量:</label><value><span id="vps-ipq-score">—</span></value></div>
+              <div class="info-item"><label>IP质量:</label><value><span id="vps-ipq-score">—</span><a href="#" class="link" data-action="open-modal" data-modal="ipq" data-ipq="vps">详情</a></value></div>
             </div>
             <div class="network-block" id="net-proxy">
               <h3>🔄 代理出站IP</h3>
               <div class="info-item"><label>代理身份:</label><value>全代理</value></div>
               <div class="info-item"><label>代理IP:</label><value id="proxy-ip">—</value></div>
               <div class="info-item"><label>Geo:</label><value id="proxy-geo">—</value></div>
-              <div class="info-item"><label>IP质量:</label><value><span id="proxy-ipq-score">—</span></value></div>
+              <div class="info-item"><label>IP质量:</label><value><span id="proxy-ipq-score">—</span><a href="#" class="link" data-action="open-modal" data-modal="ipq" data-ipq="proxy">详情</a></value></div>
             </div>
             <div class="network-block" id="net-shunt">
               <h3>🔀 分流出站</h3>
@@ -5543,49 +5599,143 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         </table>
       </div>
 
-      <div class="card traffic-card">
-          <h2>📊 流量统计</h2>
-          <div class="traffic-charts">
-              <div class="chart-container"><canvas id="traffic"></canvas></div>
-              <div class="chart-container"><canvas id="monthly-chart"></canvas></div>
-          </div>
-      </div>
-
-      <div class="card">
-        <div class="card-header"><h2>⚙️ 运维管理</h2></div>
-        <div class="commands-grid">
-          <div class="command-section">
-            <h4>🔧 基础操作</h4>
-            <div class="command-list"><code>edgeboxctl sub</code> <span># 生成订阅链接</span><br><code>edgeboxctl logs &lt;svc&gt;</code> <span># 查看服务日志</span><br><code>edgeboxctl status</code> <span># 查看服务状态</span><br><code>edgeboxctl restart</code> <span># 重启所有服务</span></div>
-          </div>
-          <div class="command-section">
-            <h4>🌐 证书管理</h4>
-            <div class="command-list"><code>edgeboxctl switch-to-domain &lt;domain&gt;</code> <span># 切换为域名模式</span><br><code>edgeboxctl switch-to-ip</code> <span># 切换回IP模式</span><br><code>edgeboxctl cert status</code> <span># 查看证书状态</span><br><code>edgeboxctl cert renew</code> <span># 手动续期证书</span></div>
-          </div>
-          <div class="command-section">
-            <h4>🔀 出站分流</h4>
-            <div class="command-list"><code>edgeboxctl shunt vps</code> <span># VPS全量出站</span><br><code>edgeboxctl shunt resi &lt;URL&gt;</code> <span># 住宅IP全量出站</span><br><code>edgeboxctl shunt direct-resi &lt;URL&gt;</code> <span># 智能分流</span><br><code>edgeboxctl shunt whitelist &lt;...&gt;</code> <span># 管理白名单</span></div>
-          </div>
-          <div class="command-section">
-            <h4>📊 流量与预警</h4>
-            <div class="command-list"><code>edgeboxctl traffic show</code> <span># 查看流量统计</span><br><code>edgeboxctl alert monthly &lt;GiB&gt;</code> <span># 设置月度预算</span><br><code>edgeboxctl alert steps 30,60,90</code> <span># 设置预警阈值</span><br><code>edgeboxctl alert test</code> <span># 测试预警</span></div>
-          </div>
-          <div class="command-section">
-            <h4>⚙️ 配置管理</h4>
-            <div class="command-list"><code>edgeboxctl config show</code> <span># 显示核心配置</span><br><code>edgeboxctl config regenerate-uuid</code> <span># 重新生成凭据</span><br><code>edgeboxctl test</code> <span># 测试协议连通性</span><br><code>edgeboxctl debug-ports</code> <span># 调试端口占用</span></div>
-          </div>
-          <div class="command-section">
-            <h4>💾 系统维护</h4>
-            <div class="command-list"><code>edgeboxctl update</code> <span># 更新EdgeBox</span><br><code>edgeboxctl backup create</code> <span># 创建备份</span><br><code>edgeboxctl backup list</code> <span># 列出备份</span><br><code>edgeboxctl backup restore &lt;file&gt;</code> <span># 恢复备份</span></div>
+<!-- 流量统计（照搬原版布局） -->
+<div class="card traffic-card">
+  <h2>📊 流量统计
+    <div class="traffic-progress-container">
+      <span class="progress-label">本月进度</span>
+      <div class="progress-wrapper">
+        <div class="progress-bar">
+          <div class="progress-fill" id="progress-fill" style="width:0%">
+            <span class="progress-percentage" id="progress-percentage">0%</span>
           </div>
         </div>
+      </div>
+      <span class="progress-budget" id="progress-budget">0/100GiB</span>
+    </div>
+  </h2>
+  <div class="traffic-charts">
+    <div class="chart-container">
+      <h4 style="text-align:center;margin:0 0 10px 0;color:#64748b">近30日出站流量</h4>
+      <canvas id="traffic" style="height:300px"></canvas>
+    </div>
+    <div class="chart-container">
+      <h4 style="text-align:center;margin:0 0 10px 0;color:#64748b">近12个月累计流量</h4>
+      <canvas id="monthly-chart" style="height:300px"></canvas>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <h2>⚙️ 运维管理</h2>
+  </div>
+  <div class="commands-grid">
+    <div class="command-section">
+      <h4>🔧 基础操作</h4>
+      <div class="command-list">
+        <code>edgeboxctl sub</code> <span># 动态生成当前模式下的订阅链接</span><br>
+        <code>edgeboxctl logs &lt;svc&gt;</code> <span># 查看指定服务的实时日志</span><br>
+        <code>edgeboxctl status</code> <span># 查看所有核心服务运行状态</span><br>
+        <code>edgeboxctl restart</code> <span># 安全地重启所有服务</span><br>
+      </div>
+    </div>
+
+    <div class="command-section">
+      <h4>🌐 证书管理</h4>
+      <div class="command-list">
+        <code>edgeboxctl switch-to-domain &lt;your_domain&gt;</code> <span># 切换到域名模式，申请证书</span><br>
+        <code>edgeboxctl switch-to-ip</code> <span># 回退到IP模式，使用自签名证书</span><br>
+        <code>edgeboxctl cert status</code> <span># 检查当前证书的到期日期和类型</span><br>
+        <code>edgeboxctl cert renew</code> <span># 手动续期Let's Encrypt证书</span>
+      </div>
+    </div>
+
+    <div class="command-section">
+      <h4>🔀 出站分流</h4>
+      <div class="command-list">
+        <code>edgeboxctl shunt vps</code> <span># 切换至VPS全量出站</span><br>
+        <code>edgeboxctl shunt resi &lt;URL&gt;</code> <span># 配置并切换至住宅IP全量出站</span><br>
+        <code>edgeboxctl shunt direct-resi &lt;URL&gt;</code> <span># 配置并切换至白名单智能分流状态</span><br>
+        <code>edgeboxctl shunt whitelist &lt;add|remove|list&gt;</code> <span># 管理白名单域名</span><br>
+        <code>代理URL格式:</code><br>
+        <code>http://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;</code><br>
+        <code>https://user:pass@&lt;域名&gt;:&lt;端口&gt;?sni=</code><br>
+        <code>socks5://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;</code><br>
+        <code>socks5s://user:pass@&lt;域名&gt;:&lt;端口&gt;?sni=</code><br>
+        <code>示例：edgeboxctl shunt resi 'socks5://user:pass@111.222.333.444:11324'</code> <span># 全栈走住宅</span>
+      </div>
+    </div>
+
+    <div class="command-section">
+      <h4>📊 流量与预警</h4>
+      <div class="command-list">
+        <code>edgeboxctl traffic stat</code> <span># 查看近 30 天/12 个月累计流量</span><br>
+        <code>edgeboxctl alert budget &lt;GiB&gt;</code> <span># 设置月度预算</span><br>
+        <code>edgeboxctl alert telegram &lt;BOT:CHAT&gt;</code> <span># 配置 Telegram 预警</span><br>
+        <code>edgeboxctl alert discord &lt;WEBHOOK&gt;</code> <span># 配置 Discord 预警</span><br>
+        <code>edgeboxctl alert webhook [raw|slack|discord]</code> <span># 配置通用Webhook</span><br>
+        <code>edgeboxctl alert test</code> <span># 测试预警系统</span>
+      </div>
+    </div>
+
+    <div class="command-section">
+      <h4>⚙️ 配置管理</h4>
+      <div class="command-list">
+        <code>edgeboxctl config show</code> <span># 显示所有服务的核心配置信息</span><br>
+        <code>edgeboxctl config regenerate-uuid</code> <span># 为所有协议重新生成新的UUID</span><br>
+        <code>edgeboxctl test</code> <span># 测试所有协议的连接是否正常</span><br>
+        <code>edgeboxctl debug-ports</code> <span># 调试关键端口的监听状态</span>
+      </div>
+    </div>
+
+    <div class="command-section">
+      <h4>💾 系统维护</h4>
+      <div class="command-list">
+        <code>edgeboxctl update</code> <span># 自动更新EdgeBox脚本和核心组件</span><br>
+        <code>edgeboxctl backup create</code> <span># 手动创建一个系统备份</span><br>
+        <code>edgeboxctl backup list</code> <span># 列出所有可用的备份</span><br>
+        <code>edgeboxctl backup restore &lt;DATE&gt;</code> <span># 恢复到指定日期的备份状态</span>
       </div>
     </div>
   </div>
 </div>
 
 <div id="whitelistModal" class="modal"><div class="modal-content"><div class="modal-header"><h3>白名单完整列表</h3><span class="close-btn" data-action="close-modal" data-modal="whitelist">&times;</span></div><div class="modal-body"><div id="whitelistList"></div></div></div></div>
-<div id="configModal" class="modal"><div class="modal-content"><div class="modal-header"><h3 id="configModalTitle">配置详情</h3><span class="close-btn" data-action="close-modal" data-modal="config">&times;</span></div><div class="modal-body"><div id="configDetails"></div><div class="qr-container"><div id="qrcode"></div></div></div><div class="modal-footer"><button class="btn btn-sm btn-secondary" data-action="copy" data-type="plain">复制链接</button><button class="btn btn-sm btn-secondary" data-action="copy" data-type="base64">复制Base64</button><button class="btn btn-sm" data-action="copy" data-type="qr">复制二维码</button></div></div></div>
+
+<!-- IP质量详情弹窗 -->
+<div id="ipqModal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3 id="ipqModalTitle">IP质量检测详情</h3>
+      <button class="close-btn" data-action="close-modal" data-modal="ipqModal">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="ipqDetails"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 客户端配置弹窗（五块展示 + 四复制 + 右上角X） -->
+<div id="configModal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3 id="configModalTitle">客户端配置详情</h3>
+      <button class="close-btn" data-action="close-modal" data-modal="configModal">×</button>
+    </div>
+    <div class="modal-body">
+      <!-- 五块展示由 JS 动态填充到 configDetails & qrcode -->
+      <div id="configDetails"></div>
+      <div id="qrcode" class="qr-container"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-sm" data-action="copy" data-type="plain">复制明文链接</button>
+      <button class="btn btn-sm" data-action="copy" data-type="json">复制JSON配置</button>
+      <button class="btn btn-sm" data-action="copy" data-type="base64">复制Base64链接</button>
+      <button class="btn btn-sm" data-action="copy" data-type="qr">复制二维码图片</button>
+    </div>
+  </div>
+</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
