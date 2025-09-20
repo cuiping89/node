@@ -5758,6 +5758,9 @@ async function init() {
   const trafficData = await fetchJSON('/traffic/traffic.json');
   if (trafficData) renderTraffic(trafficData);
 
+// 页面加载完成后初始化
+window.addEventListener('DOMContentLoaded', init);
+
   _overviewTimer = setInterval(updateSystemOverview, 30000);  // 使用原函数名
   setInterval(updateProgressBar, 3600000);
 }
@@ -5826,20 +5829,19 @@ window.addEventListener('click', function(event) {
 // === 调试辅助函数 ===
 window.debugProtocolTable = function() {
   const tbody = document.getElementById('protocol-tbody');
-  
   console.group('🔍 Protocol Table Debug Info');
-  
+
   if (!tbody) {
     console.error('❌ tbody#protocol-tbody NOT FOUND in DOM!');
-    console.log('Available elements with ID:', 
+    console.log('Available elements with ID:',
       Array.from(document.querySelectorAll('[id]')).map(el => el.id)
     );
   } else {
     console.log('✅ tbody element found:', tbody);
-    
+
     const buttons = tbody.querySelectorAll('button[data-protocol]');
     console.log(`📊 Found ${buttons.length} buttons with data-protocol:`);
-    
+
     buttons.forEach((btn, index) => {
       console.log(`  Button ${index + 1}:`, {
         protocol: btn.dataset.protocol,
@@ -5847,18 +5849,19 @@ window.debugProtocolTable = function() {
         className: btn.className
       });
     });
-    
-    // 检查事件监听器
-    console.log('🎯 Event delegation bound?', tbody.__viewBound === true ? 'YES ✅' : 'NO ❌');
+
+    // ✅ 正确的事件委托检查：查看 document 上的标记
+    const delegated = document.__ebDelegatedBound === true;
+    console.log('🎯 Event delegation bound?', delegated ? 'YES ✅' : 'NO ❌');
   }
-  
+
   // 检查全局数据
   console.log('📦 Dashboard data:', {
     hasData: !!window.dashboardData,
     protocolCount: window.dashboardData?.protocols?.length || 0,
     protocols: window.dashboardData?.protocols?.map(p => p.name) || []
   });
-  
+
   console.groupEnd();
 };
 
@@ -5881,6 +5884,8 @@ if (typeof showIPQDetails === 'function') {
 if (typeof closeIPQModal === 'function') {
   window.closeIPQModal = closeIPQModal;
 }
+if (typeof showIPQDetails === 'function') window.showIPQDetails = showIPQDetails;
+if (typeof closeIPQModal === 'function') window.closeIPQModal = closeIPQModal;
 
 EXTERNAL_JS
 
