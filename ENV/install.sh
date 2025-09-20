@@ -4515,7 +4515,7 @@ body, p, span, td, div {
 /* === 证书切换 === */
 .cert-modes {
   display: flex;
-  gap: 5px;
+  gap: 6px;
   margin-bottom: 2px;
 }
 
@@ -4574,28 +4574,27 @@ body, p, span, td, div {
   margin-left: 8px;
 }
 
-/* 白名单相关样式 */
+/* 白名单行内文本（与其它 value 一致） */
 .whitelist-inline{
   color: #374151;
   font-size: 13px;
   line-height: 1.6;
-  word-break: break-all;
-  white-space: normal;
+  word-break: break-all;   /* 遇到超长域名时允许断行 */
+  white-space: normal;     /* 自然换行 */
 }
 
-.whitelist-value{
+/* 白名单预览容器：紧跟标题显示，最多三行 */
+.whitelist-value{   /* 包裹 value，统一行高与其它区块 */
   width: 100%;
 }
-
 .whitelist-preview{
-  --lh: 22px;
-  margin-top: 4px;
+  --lh: 22px;          /* 每行行高 */
+  margin-top: 4px;     /* 与标题的间距——比原来更紧 */
   position: relative;
-  padding-right: 72px;
+  padding-right: 72px; /* 右下角按钮预留 */
   max-height: calc(var(--lh) * 3);
   overflow: hidden;
 }
-
 .whitelist-text{
   font-size: 13px;
   line-height: var(--lh);
@@ -4603,48 +4602,22 @@ body, p, span, td, div {
   white-space: normal;
   word-break: break-word;
 }
-
-/* === 统一的查看按钮样式（所有"查看详情/查看全部/查看配置"按钮） === */
-.whitelist-more,
-.btn-link,
-.link {
-  display: inline-block;
-  height: 28px;
-  line-height: 26px;  /* 减2px用于border */
-  padding: 0 12px;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  background: #ffffff;
-  font-size: 12px;
-  color: #2563eb;
-  cursor: pointer;
-  text-decoration: none;
-  transition: all 0.2s;
-}
-
-.whitelist-more:hover,
-.btn-link:hover,
-.link:hover {
-  background: #f3f4f6;
-  border-color: #9ca3af;
-  color: #1d4ed8;
-}
-
-/* 白名单查看全部按钮特殊定位 */
-.whitelist-more {
+/* 右下角“查看全部”，保持在第三行末尾 */
+.whitelist-more{
   position: absolute;
   right: 0;
   bottom: 0;
-  height: var(--lh, 22px);
-  line-height: calc(var(--lh, 22px) - 2px);
+  height: var(--lh);
+  line-height: var(--lh);
   padding: 0 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 14px;
+  background: #ffffff;
   font-size: 11px;
+  color: #2563eb;
+  cursor: pointer;
 }
-
-/* 表格中的按钮保持一致 */
-.data-table .btn-link {
-  margin: 0;
-}
+.whitelist-more:hover{ background:#f3f4f6; }
 
 /* === 表格 === */
 .data-table {
@@ -4668,6 +4641,7 @@ body, p, span, td, div {
   font-size: 12px;
 }
 
+/* 协议配置表格 - 使居中的列 */
 .data-table td:nth-child(4),
 .data-table td:nth-child(5),
 .data-table td:nth-child(6) {
@@ -4684,11 +4658,9 @@ body, p, span, td, div {
   background: #f5f5f5;
 }
 
-.data-table tr.subs-row td { 
-  background:#f5f5f5; 
-}
+.data-table tr.subs-row td { background:#f5f5f5; }
 
-/* === 流量统计 === */
+/* === 流量统计（来自new5.txt）=== */
 .traffic-card { 
   position: relative; 
 }
@@ -4763,7 +4735,7 @@ body, p, span, td, div {
   .traffic-progress-container { position: static; width: 100%; margin-bottom: 16px; }
 }
 
-/* === 运维管理 === */
+/* === 运维管理（来自new5.txt）=== */
 .commands-grid { 
   display: grid; 
   grid-template-columns: 1fr 1fr; 
@@ -4810,7 +4782,7 @@ body, p, span, td, div {
   margin-left: 8px; 
 }
 
-/* === 按钮系统 === */
+/* === 按钮 === */
 .btn {
   padding: 8px 16px;
   border-radius: 6px;
@@ -4841,7 +4813,19 @@ body, p, span, td, div {
   background: #f3f4f6;
 }
 
-/* === 统一的弹窗样式 === */
+.btn-link {
+  background: none;
+  color: #3b82f6;
+  border: none;
+  padding: 0;
+}
+
+.btn-link:hover {
+  color: #2563eb;
+  text-decoration: underline;
+}
+
+/* === 弹窗 === */
 .modal {
   display: none;
   position: fixed;
@@ -4853,15 +4837,14 @@ body, p, span, td, div {
   background-color: rgba(0, 0, 0, 0.5);
 }
 
-/* 统一所有弹窗的大小和样式 */
 .modal-content {
   background-color: #fff;
   margin: 5% auto;
   padding: 0;
   border: 1px solid #d1d5db;
   border-radius: 12px;
-  width: 720px;  /* 统一宽度 */
-  max-width: 92%;
+  width: min(720px, 92%);
+  max-width: 600px;
   box-shadow: 0 12px 24px rgba(0,0,0,0.14);
 }
 
@@ -4879,31 +4862,19 @@ body, p, span, td, div {
   padding: 0;
 }
 
-/* 统一关闭按钮 */
 .close-btn {
-  font-size: 16px;
-  color: #64748b;
+  font-size: 24px;
   cursor: pointer;
-  width: 28px; 
-  height: 28px; 
-  line-height: 28px;
-  display: inline-flex; 
-  align-items: center; 
-  justify-content: center;
-  border-radius: 6px;
-  border: 1px solid #e5e7eb;
-  background: #fff;
-  transition: all 0.2s;
+  color: #6b7280;
 }
 
-.close-btn:hover { 
-  background: #f8fafc; 
-  color: #0f172a; 
+.close-btn:hover {
+  color: #1f2937;
 }
 
 .modal-body {
   padding: 20px;
-  max-height: 560px;  /* 统一最大高度 */
+  max-height: min(70vh, 560px);
   overflow: auto;
 }
 
@@ -4911,30 +4882,6 @@ body, p, span, td, div {
   padding: 15px 20px;
   border-top: 1px solid #e5e7eb;
   text-align: right;
-}
-
-/* 弹窗内容区域滚动优化 */
-.modal-body::-webkit-scrollbar {
-  width: 8px;
-}
-
-.modal-body::-webkit-scrollbar-track {
-  background: #f1f1f1;
-  border-radius: 4px;
-}
-
-.modal-body::-webkit-scrollbar-thumb {
-  background: #888;
-  border-radius: 4px;
-}
-
-.modal-body::-webkit-scrollbar-thumb:hover {
-  background: #555;
-}
-
-/* 锁屏 */
-body.modal-open { 
-  overflow: hidden; 
 }
 
 /* === 其他组件 === */
@@ -5037,16 +4984,6 @@ body.modal-open {
   line-height: 1.6;
 }
 
-.config-help {
-  background: #f9fafb;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
-  padding: 12px;
-  font-size: 12px;
-  line-height: 1.8;
-  color: #4b5563;
-}
-
 .json-config {
   background: #f5f5f5;
   border: 1px solid #e5e7eb;
@@ -5081,9 +5018,6 @@ body.modal-open {
   padding: 20px;
   background: #f5f5f5;
   border-radius: 6px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 
 .qr-placeholder {
@@ -5096,32 +5030,6 @@ body.modal-open {
   align-items: center;
   justify-content: center;
   color: #6b7280;
-}
-
-/* 轻提示 toast */
-.toast {
-  position: fixed;
-  left: 50%;
-  bottom: 60px;
-  transform: translateX(-50%);
-  background: rgba(0,0,0,.75);
-  color: #fff;
-  padding: 10px 16px;
-  border-radius: 8px;
-  font-size: 13px;
-  opacity: 0;
-  transition: opacity .2s ease, transform .2s ease;
-  pointer-events: none;
-  z-index: 2000;
-}
-
-.toast.show {
-  opacity: 1;
-  transform: translateX(-50%) translateY(0);
-}
-
-.toast-warn { 
-  background: rgba(220, 38, 38, .9); 
 }
 
 /* 响应式 */
@@ -5147,902 +5055,1273 @@ body.modal-open {
   .management-grid {
     grid-template-columns: 1fr;
   }
-  
-  .modal-content {
-    width: 95%;
-    margin: 10px auto;
-  }
 }
+
+/* 弹窗内容区域只滚内部 */
+#configModal .modal-body{
+  max-height: min(70vh, 560px);
+  overflow: auto;
+}
+
+/* 锁屏（在 JS 里加了 body.modal-open）*/
+body.modal-open { overflow: hidden; }
+
+/* 轻提示 toast */
+.toast{
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  background: rgba(0,0,0,.75);
+  color: #fff;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  opacity: 0;
+  transition: opacity .2s ease, transform .2s ease;
+  pointer-events: none;
+  z-index: 10;
+}
+.toast.show{
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+.toast-warn{ background: rgba(220, 38, 38, .9); }
 EXTERNAL_CSS
 
   # ========== 创建外置的JavaScript文件 ==========
   log_info "创建外置JavaScript文件..."
-
+  # PATCH:WRITE_JS_PATH
 cat > "${TRAFFIC_DIR}/assets/edgebox-panel.js" <<'EXTERNAL_JS'
-// =================================================================
-// EdgeBox Panel v3.0 - Fixed JavaScript 
-// =================================================================
-
-// --- Global State ---
+// 全局变量
 let dashboardData = {};
-let trafficData = {};
-let systemData = {};
-let overviewTimer = null;
+let currentShareLink = '';
 const GiB = 1024 ** 3;
 
-// --- Chart.js Y轴单位插件 ---
-const ebYAxisUnitTop = {
-  id: 'ebYAxisUnitTop',
-  afterDraw: (chart) => {
-    const ctx = chart.ctx;
-    const yAxis = chart.scales.y;
-    if (!yAxis) return;
-    
-    ctx.save();
-    ctx.font = '11px sans-serif';
-    ctx.fillStyle = '#6b7280';
-    ctx.textAlign = 'center';
-    ctx.fillText('GiB', yAxis.left / 2, yAxis.top - 5);
-    ctx.restore();
-  }
-};
-
-// --- Utility Functions ---
+// 工具函数
 async function fetchJSON(url) {
   try {
-    const response = await fetch(url, { cache: 'no-store' });
-    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    const response = await fetch(url, {cache: 'no-store'});
+    if (!response.ok) throw new Error('Network response was not ok');
     return await response.json();
   } catch (error) {
-    console.error(`Fetch error for ${url}:`, error);
+    console.error('Fetch error:', error);
     return null;
   }
 }
 
-function safeGet(obj, path, fallback = '—') {
-  const value = path.split('.').reduce((acc, part) => acc && acc[part], obj);
-  return value !== null && value !== undefined && value !== '' ? value : fallback;
+async function fetchText(url) {
+  try {
+    const response = await fetch(url, {cache: 'no-store'});
+    if (!response.ok) throw new Error('Network response was not ok');
+    return await response.text();
+  } catch (error) {
+    console.error('Fetch error:', error);
+    return '';
+  }
 }
 
-function escapeHtml(s = '') {
-  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+function escapeHtml(s=''){
+  return String(s)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;');
 }
 
-function notify(msg, type = 'ok', ms = 1500) {
-  const host = document.querySelector('#configModal.modal[style*="block"] .modal-content') || document.body;
+// Chart.js Y轴单位插件（来自new5.txt）
+const ebYAxisUnitTop = {
+  id:'ebYAxisUnitTop',
+  afterDraw(chart){
+    const y = chart.scales.y; 
+    if(!y) return;
+    const ctx = chart.ctx; 
+    ctx.save();
+    ctx.font='12px system-ui'; 
+    ctx.fillStyle='#64748b'; 
+    ctx.textAlign='center';
+    ctx.fillText('GiB', y.left + y.width/2, y.top - 8); 
+    ctx.restore();
+  }
+};
+Chart.register(ebYAxisUnitTop);
+
+// 更新系统概览
+async function updateSystemOverview() {
+  const data = await fetchJSON('/traffic/dashboard.json');
+  if (!data) return;
+  
+  dashboardData = data;
+  
+  // 服务器信息
+  if (data.server) {
+    document.getElementById('server-name').textContent = data.server.nickname || '未设置';
+    document.getElementById('cloud-info').textContent = `${data.server.cloud_provider || '未知'} | ${data.server.cloud_region || '未知'}`;
+    document.getElementById('instance-id').textContent = data.server.instance_id || '—';
+    document.getElementById('hostname').textContent = data.server.hostname || '—';
+  }
+  
+  // 系统资源
+  const sysData = await fetchJSON('/traffic/system.json');
+  if (sysData) {
+    // CPU
+    const cpuPct = sysData.cpu_usage || 0;
+    document.getElementById('cpu-progress').style.width = cpuPct + '%';
+    document.getElementById('cpu-progress').textContent = cpuPct + '%';
+    document.getElementById('cpu-info').textContent = data.server?.cpu_cores || '—';
+    
+    // 内存
+    const memPct = sysData.memory_usage || 0;
+    document.getElementById('mem-progress').style.width = memPct + '%';
+    document.getElementById('mem-progress').textContent = memPct + '%';
+    document.getElementById('mem-info').textContent = data.server?.memory || '—';
+    
+    // 磁盘
+    const diskPct = sysData.disk_usage || 0;
+    document.getElementById('disk-progress').style.width = diskPct + '%';
+    document.getElementById('disk-progress').textContent = diskPct + '%';
+    document.getElementById('disk-info').textContent = data.server?.disk || '—';
+    
+    // 更新时间
+    document.getElementById('update-time').textContent = sysData.current_time || '—';
+  }
+  
+  // 服务状态
+  if (data.services) {
+    updateServiceStatus('nginx', data.services.nginx);
+    updateServiceStatus('xray', data.services.xray);
+    updateServiceStatus('singbox', data.services.sing_box);
+  }
+  
+  // 证书状态
+  if (data.certificate) {
+    const isCA = data.certificate.mode === 'domain';
+    document.getElementById('cert-self').classList.toggle('active', !isCA);
+    document.getElementById('cert-ca').classList.toggle('active', isCA);
+    document.getElementById('cert-type').textContent = data.certificate.type || '自签名';
+    document.getElementById('cert-domain').textContent = data.certificate.domain || '(无)';
+    document.getElementById('cert-renewal').textContent = data.certificate.auto_renew ? '自动' : '手动';
+    document.getElementById('cert-expiry').textContent = data.certificate.expiry || '—';
+  }
+  
+  // 网络身份
+  if (data.shunt) {
+    const mode = data.shunt.mode || 'vps';
+    document.getElementById('net-vps').classList.toggle('active', mode === 'vps');
+    document.getElementById('net-proxy').classList.toggle('active', mode === 'proxy');
+    document.getElementById('net-shunt').classList.toggle('active', mode === 'shunt');
+    
+    // VPS IP
+    document.getElementById('vps-ip').textContent = data.server?.public_ip || '—';
+    document.getElementById('vps-geo').textContent = `${data.server?.country || '—'}-${data.server?.city || '—'}`;
+    
+    // 代理IP
+    if (data.shunt.proxy_ip) {
+      document.getElementById('proxy-ip').textContent = data.shunt.proxy_ip;
+      document.getElementById('proxy-geo').textContent = data.shunt.proxy_geo || '—';
+    }
+  }
+  
+  if (data.shunt && data.shunt.whitelist) { renderWhitelistPreview(data.shunt.whitelist); }
+
+  // 协议列表
+  updateProtocolTable(data.protocols);
+}
+  
+function updateServiceStatus(service, status) {
+  const badge = document.getElementById(`${service}-status`);
+  const version = document.getElementById(`${service}-version`);
+  
+  if (status) {
+    badge.textContent = status.status === 'active' ? '运行中' : '已停止';
+    badge.className = status.status === 'active' ? 'status-badge status-running' : 'status-badge';
+    version.textContent = status.version || '';
+  }
+}
+
+function attrEscape(s=''){
+  return String(s)
+    .replace(/&/g,'&amp;')
+    .replace(/"/g,'&quot;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;');
+}
+
+// new 7.txt 中的版本
+function updateProtocolTable(protocols) {
+  if (!protocols) return;
+
+  const tbody = document.getElementById('protocol-tbody');
+  if (!tbody) {
+    console.error('[updateProtocolTable] tbody#protocol-tbody not found!');
+    return;
+  }
+
+  // 普通协议行 - 使用 data-protocol 属性而不是 onclick
+  const rows = (protocols || []).map(p => `
+    <tr>
+      <td>${p.name || '—'}</td>
+      <td>${p.scenario || '—'}</td>
+      <td>${p.camouflage || '—'}</td>
+      <td><span class="status-badge ${p.status === '运行中' ? 'status-running' : ''}">${p.status || '—'}</span></td>
+      <td><button class="btn btn-sm btn-link view-config" data-protocol="${(p.name || '').replace(/"/g, '&quot;')}">查看配置</button></td>
+    </tr>
+  `);
+
+  // 追加"整包订阅链接"行（置于底部）
+  rows.push(`
+    <tr class="subs-row">
+      <td style="background:#f5f5f5;font-weight:500;">整包订阅链接</td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td><button class="btn btn-sm btn-link view-config" data-protocol="__SUBS__">查看配置</button></td>
+    </tr>
+  `);
+
+  tbody.innerHTML = rows.join('');
+  
+  console.log('[updateProtocolTable] Table updated with', rows.length - 1, 'protocols + 1 subscription row');
+}
+
+// 流量统计（来自new5.txt）
+async function updateProgressBar(){
+  try{
+    const [tj,conf] = await Promise.all([
+      fetch('/traffic/traffic.json',{cache:'no-store'}).then(r=>r.ok?r.json():null),
+      fetch('/traffic/alert.conf',{cache:'no-store'}).then(r=>r.ok?r.text(): '')
+    ]);
+    let budget = 100;
+    const m = String(conf||'').match(/ALERT_MONTHLY_GIB=(\d+)/); 
+    if(m) budget = parseInt(m[1]);
+    if(tj && Array.isArray(tj.monthly) && tj.monthly.length){
+      const cur = tj.monthly[tj.monthly.length-1];
+      const usedGiB = (cur.total||0) / GiB;
+      const pct = Math.min(100, Math.max(0, Math.round(usedGiB / budget * 100)));
+      document.getElementById('progress-fill').style.width = pct + '%';
+      document.getElementById('progress-percentage').textContent = pct + '%';
+      document.getElementById('progress-budget').textContent = usedGiB.toFixed(1) + '/' + budget + 'GiB';
+    }
+  }catch(e){ 
+    console.log('progress update failed', e); 
+  }
+}
+
+function renderTraffic(traffic){
+  if(!traffic) return;
+  
+  // 近30日
+  if(traffic.last30d && traffic.last30d.length){
+    const labels = traffic.last30d.map(x=>x.date);
+    new Chart(document.getElementById('traffic'), {
+      type:'line',
+      data:{
+        labels,
+        datasets:[
+          {label:'VPS 出口', data:traffic.last30d.map(x=>x.vps),  tension:.3, borderWidth:2, borderColor:'#3b82f6'},
+          {label:'住宅出口', data:traffic.last30d.map(x=>x.resi), tension:.3, borderWidth:2, borderColor:'#f59e0b'}
+        ]
+      },
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{display:true,position:'bottom',labels:{padding:20,usePointStyle:true}} },
+        scales:{ y:{ ticks:{ callback:v=>Math.round(v/GiB) } } },
+        layout:{ padding:{ bottom:28 } }
+      },
+      plugins:[ebYAxisUnitTop]
+    });
+  }
+  
+  // 近12月
+  if(traffic.monthly && traffic.monthly.length){
+    const rows = traffic.monthly.slice(-12);
+    new Chart(document.getElementById('monthly-chart'),{
+      type:'bar',
+      data:{
+        labels: rows.map(x=>x.month),
+        datasets:[
+          {label:'VPS出口',   data: rows.map(x=>(x.vps||0)/GiB),   backgroundColor:'#3b82f6', borderColor:'#3b82f6', borderWidth:1, stack:'stack1'},
+          {label:'住宅出口', data: rows.map(x=>(x.resi||0)/GiB),  backgroundColor:'#f59e0b', borderColor:'#f59e0b', borderWidth:1, stack:'stack1'}
+        ]
+      },
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        plugins:{
+          legend:{display:true,position:'bottom',labels:{padding:20,usePointStyle:true}},
+          tooltip:{callbacks:{
+            label:c=> (c.dataset.label||'')+': '+c.parsed.y.toFixed(2)+' GiB',
+            afterLabel:c=>{
+              const i=c.dataIndex, v1=rows[i]? (rows[i].vps||0)/GiB : 0, v2=rows[i]? (rows[i].resi||0)/GiB : 0;
+              return '总流量: '+(v1+v2).toFixed(2)+' GiB';
+            }
+          }}
+        },
+        scales:{ x:{stacked:true, grid:{display:false}}, y:{stacked:true, grid:{display:true, color:'#f1f5f9'}, ticks:{callback:v=>Math.round(v)}} },
+        layout:{ padding:{ bottom:28 } }, interaction:{ mode:'index', intersect:false }
+      },
+      plugins:[ebYAxisUnitTop]
+    });
+  }
+  updateProgressBar();
+}
+
+// 弹窗功能
+function showIPQDetails(type) {
+  const modal = document.getElementById('ipqModal');
+  const title = document.getElementById('ipqModalTitle');
+  const details = document.getElementById('ipqDetails');
+  
+  title.textContent = type === 'vps' ? 'VPS IP质量检测详情' : '代理IP质量检测详情';
+  
+  // 加载IP质量数据
+  fetchJSON(`/status/ipq_${type}.json`).then(data => {
+    if (data) {
+      details.innerHTML = `
+        <div class="config-section">
+          <h4>总览</h4>
+          <div class="info-item">
+            <label>分数:</label>
+            <value>${data.score || '—'} (${data.grade || '—'})</value>
+          </div>
+          <div class="info-item">
+            <label>检测时间:</label>
+            <value>${data.test_time || '—'}</value>
+          </div>
+        </div>
+        <div class="config-section">
+          <h4>身份信息</h4>
+          <div class="info-item">
+            <label>IP地址:</label>
+            <value>${data.ip || '—'}</value>
+          </div>
+          <div class="info-item">
+            <label>ASN/ISP:</label>
+            <value>${data.asn || '—'} / ${data.isp || '—'}</value>
+          </div>
+          <div class="info-item">
+            <label>位置:</label>
+            <value>${data.country || '—'}, ${data.city || '—'}</value>
+          </div>
+        </div>
+        <div class="config-section">
+          <h4>质量评估</h4>
+          <div class="info-item">
+            <label>网络类型:</label>
+            <value>${data.network_type || '—'}</value>
+          </div>
+          <div class="info-item">
+            <label>黑名单:</label>
+            <value>${data.blacklist_count || 0} 个命中</value>
+          </div>
+          <div class="info-item">
+            <label>延迟:</label>
+            <value>${data.latency || '—'} ms</value>
+          </div>
+        </div>
+      `;
+    } else {
+      details.innerHTML = '<p>暂无IP质量数据</p>';
+    }
+  });
+  
+  modal.style.display = 'block';
+}
+
+function closeIPQModal() {
+  document.getElementById('ipqModal').style.display = 'none';
+}
+
+function renderWhitelistInline(list){
+  const el = document.getElementById('whitelistInline');
+  if (!el) return;
+  const items = Array.isArray(list) ? list.filter(Boolean) : [];
+  // 用逗号和空格连接；与其它区块风格一致
+  el.textContent = items.join(', ');
+  // 允许换行自动换，不做 chips，不做按钮
+}
+
+function renderWhitelistPreview(list){
+  try{
+    const wrap = document.getElementById("whitelistPreview");
+    if(!wrap) return;
+    wrap.innerHTML = "";
+
+    const arr = Array.isArray(list) ? list.filter(Boolean) : [];
+    // 逗号 + 空格分隔，作为纯文本显示（自动换行）
+    const text = document.createElement("div");
+    text.className = "whitelist-text";
+    text.textContent = arr.join(", ");
+    wrap.appendChild(text);
+
+    // 右下角“查看全部”（保留新的这个按钮）
+    const more = document.createElement("div");
+    more.className = "whitelist-more";
+    more.textContent = "查看全部";
+    more.onclick = showWhitelistModal;
+    wrap.appendChild(more);
+  }catch(e){ console.error(e); }
+}
+
+function showWhitelistModal() {
+  const modal = document.getElementById('whitelistModal');
+  const list = document.getElementById('whitelistList');
+  
+  if (dashboardData.shunt && dashboardData.shunt.whitelist) {
+    list.innerHTML = dashboardData.shunt.whitelist.map(item => 
+      `<div class="whitelist-item">${item}</div>`
+    ).join('');
+  } else {
+    list.innerHTML = '<p>暂无白名单数据</p>';
+  }
+  
+  modal.style.display = 'block';
+}
+
+function closeWhitelistModal() {
+  document.getElementById('whitelistModal').style.display = 'none';
+}
+
+// 全局状态（若已存在可保留）
+let currentProtocol = null;
+let currentModalType = 'PROTOCOL'; // 'PROTOCOL' | 'SUBS'
+
+// 锁/解锁页面滚动（B 段 closeConfigModal 会调用 unlockScroll）
+function lockScroll(){
+  if (!document.body.classList.contains('modal-open')) {
+    document.body.dataset.prevOverflow = document.body.style.overflow || '';
+    document.body.style.overflow = 'hidden';
+    document.body.classList.add('modal-open');
+  }
+}
+function unlockScroll(){
+  document.body.style.overflow = document.body.dataset.prevOverflow || '';
+  document.body.classList.remove('modal-open');
+  delete document.body.dataset.prevOverflow;
+}
+
+if (typeof showConfigModal !== 'function') {
+  // 如果原始函数不存在，定义一个基础版本
+  window.showConfigModal = function(key) {
+    const modal = document.getElementById('configModal');
+    const title = document.getElementById('configModalTitle');
+    const details = document.getElementById('configDetails');
+    
+    if (!modal || !title || !details) {
+      console.error('[Modal] Required DOM elements not found');
+      return;
+    }
+    
+    // 基础显示逻辑
+    modal.style.display = 'block';
+    title.textContent = `配置详情 - ${key}`;
+    details.innerHTML = '<p>加载配置中...</p>';
+    
+    // 处理具体的协议数据
+    if (key === '__SUBS__') {
+      title.textContent = '整包订阅链接 - 客户端配置详情';
+      // 订阅链接处理...
+    } else {
+      // 普通协议处理...
+      const protocols = window.dashboardData?.protocols || [];
+      const protocol = protocols.find(p => p.name === key);
+      if (protocol) {
+        title.textContent = `${protocol.name} - 客户端配置详情`;
+        // 显示协议详情...
+      }
+    }
+  };
+}
+
+function showConfigModal(key) {
+  const modal   = document.getElementById('configModal');
+  const title   = document.getElementById('configModalTitle');
+  const details = document.getElementById('configDetails');
+
+  // 打开即锁定页面滚动
+  lockScroll();
+
+  // —— 整包订阅链接 ——
+  if (key === '__SUBS__') {
+    currentModalType = 'SUBS';
+    currentProtocol  = null;
+
+    const plainLink  = (window.dashboardData && dashboardData.subscription_url) || '';
+    const base64Link = plainLink
+      ? (plainLink.includes('?') ? `${plainLink}&format=base64` : `${plainLink}?format=base64`)
+      : '';
+    title.textContent = '整包订阅链接 - 客户端配置详情';
+
+    // 固定顺序：明文 → JSON(—) → Base64 → 二维码 → 使用说明
+    details.innerHTML = `
+      <div class="config-section">
+        <h4>明文链接</h4>
+        <div class="config-code" id="plain-link">${escapeHtml(plainLink || '—')}</div>
+      </div>
+      <div class="config-section">
+        <h4>JSON配置</h4>
+        <div class="config-code" id="json-code">—</div>
+      </div>
+      <div class="config-section">
+        <h4>Base64链接</h4>
+        <div class="config-code" id="base64-link">${escapeHtml(base64Link || '—')}</div>
+      </div>
+      <div class="config-section">
+        <h4>二维码</h4>
+        <div class="qr-container"><div id="qrcode"></div></div>
+      </div>
+      <div class="config-section">
+        <h4>使用说明</h4>
+        <div class="config-help">
+          1. 复制订阅链接导入客户端<br>
+          2. 支持 V2rayN、Clash、Shadowrocket 等主流客户端<br>
+          3. 自签证书需在客户端开启"跳过证书验证"<br>
+          4. UDP协议（HY2/TUIC）固定走VPS直连
+        </div>
+      </div>
+    `;
+
+    // 生成二维码（使用明文订阅链接）
+    const qr = document.getElementById('qrcode');
+    if (plainLink && qr && window.QRCode) {
+      new QRCode(qr, { text: plainLink, width: 256, height: 256, colorDark: "#000", colorLight: "#fff", correctLevel: QRCode.CorrectLevel.H });
+    }
+
+    modal.style.display = 'block';
+    return;
+  }
+
+  // —— 普通协议（key 为名称或索引）——
+  currentModalType = 'PROTOCOL';
+  const list = (window.dashboardData && dashboardData.protocols) || [];
+  let protocol = null;
+  if (typeof key === 'string') {
+    protocol = list.find(p => p && p.name === key) || list.find(p => p && (p.name||'').trim() === key.trim());
+  } else if (typeof key === 'number') {
+    protocol = list[key];
+  }
+  if (!protocol) { notify('未找到协议配置', 'warn'); return; }
+
+  currentProtocol   = protocol;
+  title.textContent = `${protocol.name} - 客户端配置详情`;
+
+  const plainText = protocol.plain || protocol.share_link || '';
+  const jsonText  = protocol.json
+    ? (typeof protocol.json === 'string' ? protocol.json : JSON.stringify(protocol.json, null, 2))
+    : '';
+  let base64Text  = protocol.base64 || '';
+  if (!base64Text && protocol.share_link) {
+    base64Text = protocol.share_link.startsWith('vmess://')
+      ? protocol.share_link.split('://')[1]
+      : (()=>{ try { return btoa(protocol.share_link); } catch(e){ return ''; } })();
+  }
+
+  // 固定顺序：明文 → JSON → Base64 → 二维码 → 使用说明（即使没有也显示"—"）
+  details.innerHTML = `
+    <div class="config-section">
+      <h4>明文链接</h4>
+      <div class="config-code" id="plain-link">${escapeHtml(plainText || '—')}</div>
+    </div>
+    <div class="config-section">
+      <h4>JSON配置</h4>
+      <div class="config-code" id="json-code">${escapeHtml(jsonText || '—')}</div>
+    </div>
+    <div class="config-section">
+      <h4>Base64链接</h4>
+      <div class="config-code" id="base64-link">${escapeHtml(base64Text || '—')}</div>
+    </div>
+    <div class="config-section">
+      <h4>二维码</h4>
+      <div class="qr-container"><div id="qrcode"></div></div>
+    </div>
+    <div class="config-section">
+      <h4>使用说明</h4>
+      <div class="config-help">
+        1. 复制订阅链接导入客户端<br>
+        2. 支持 V2rayN、Clash、Shadowrocket 等主流客户端<br>
+        3. 自签证书需在客户端开启"跳过证书验证"<br>
+        4. UDP协议（HY2/TUIC）固定走VPS直连
+      </div>
+    </div>
+  `;
+
+  // 生成二维码（优先明文；否则 share_link）
+  const qr = document.getElementById('qrcode');
+  const qrText = plainText || protocol.share_link || '';
+  if (qrText && qr && window.QRCode) {
+    new QRCode(qr, { text: qrText, width: 256, height: 256, colorDark: "#000", colorLight: "#fff", correctLevel: QRCode.CorrectLevel.H });
+  }
+
+  modal.style.display = 'block';
+}
+
+
+function closeConfigModal() {
+  const m = document.getElementById('configModal');
+  if (m) m.style.display = 'none';
+  const q = document.getElementById('qrcode');
+  if (q) q.innerHTML = '';
+  unlockScroll();  // 恢复页面滚动
+}
+
+// 轻提示（toast），默认 1500ms；尽量渲染在弹窗里
+function notify(msg, type='ok', ms=1500){
+  const modalContent = document.querySelector('#configModal .modal-content');
+  const host = modalContent || document.body;
+
   const tip = document.createElement('div');
   tip.className = `toast toast-${type}`;
   tip.textContent = msg;
   host.appendChild(tip);
-  requestAnimationFrame(() => tip.classList.add('show'));
-  setTimeout(() => {
+
+  requestAnimationFrame(()=> tip.classList.add('show'));
+  setTimeout(()=>{
     tip.classList.remove('show');
-    setTimeout(() => tip.remove(), 300);
+    setTimeout(()=> tip.remove(), 300);
   }, ms);
 }
 
-// --- UI Rendering Functions ---
-
-function renderOverview() {
-  const server = dashboardData.server || {};
-  const services = dashboardData.services || {};
-  
-  // Server Info
-  document.getElementById('server-name').textContent = safeGet(server, 'user_alias', '(未设置)');
-  document.getElementById('cloud-info').textContent = `${safeGet(server, 'cloud.provider')} | ${safeGet(server, 'cloud.region')}`;
-  document.getElementById('instance-id').textContent = safeGet(server, 'instance_id');
-  document.getElementById('hostname').textContent = safeGet(server, 'hostname');
-
-  // Server Spec & System Metrics
-  const spec = server.spec || {};
-  document.getElementById('cpu-info').textContent = safeGet(spec, 'cpu');
-  document.getElementById('mem-info').textContent = safeGet(spec, 'memory');
-  document.getElementById('disk-info').textContent = safeGet(spec, 'disk');
-  
-  const metrics = systemData || {};
-  const cpuPct = metrics.cpu || 0;
-  const memPct = metrics.memory || 0;
-  const diskPct = metrics.disk || 0;
-  document.getElementById('cpu-progress').style.width = `${cpuPct}%`;
-  document.getElementById('cpu-progress').textContent = `${cpuPct}%`;
-  document.getElementById('mem-progress').style.width = `${memPct}%`;
-  document.getElementById('mem-progress').textContent = `${memPct}%`;
-  document.getElementById('disk-progress').style.width = `${diskPct}%`;
-  document.getElementById('disk-progress').textContent = `${diskPct}%`;
-
-  // Services
-  ['nginx', 'xray', 'sing-box'].forEach(svc => {
-    const status = safeGet(services, `${svc}.status`, 'inactive');
-    const version = safeGet(services, `${svc}.version`, '');
-    const badge = document.getElementById(`${svc}-status`);
-    const versionEl = document.getElementById(`${svc}-version`);
-    
-    // 修复sing-box的ID映射
-    const elementId = svc === 'sing-box' ? 'singbox' : svc;
-    const actualBadge = document.getElementById(`${elementId}-status`);
-    const actualVersion = document.getElementById(`${elementId}-version`);
-    
-    if (actualBadge) {
-      actualBadge.textContent = status === 'active' ? '运行中' : '已停止';
-      actualBadge.className = status === 'active' ? 'status-badge status-running' : 'status-badge';
-    }
-    if (actualVersion) actualVersion.textContent = version;
-  });
-
-  // Footer Info
-  document.getElementById('version').textContent = safeGet(server, 'version');
-  document.getElementById('install-date').textContent = safeGet(server, 'install_date');
-  document.getElementById('update-time').textContent = new Date(dashboardData.updated_at || Date.now()).toLocaleString();
-}
-
-function renderCertificateAndNetwork() {
-  const cert  = (dashboardData.server && dashboardData.server.cert) || {};
-  const shunt = dashboardData.shunt || {};
-
-  // ---- 证书信息（保持原有显示，不改样式）----
-  const certMode = String(cert.mode || 'self-signed');
-  document.getElementById('cert-self')?.classList.toggle('active', certMode === 'self-signed');
-  document.getElementById('cert-ca')?.classList.toggle('active', certMode.startsWith('letsencrypt'));
-  document.getElementById('cert-type').textContent   = certMode.startsWith('letsencrypt') ? "Let's Encrypt" : "自签名";
-  document.getElementById('cert-domain').textContent = cert.domain || '(无)';
-  document.getElementById('cert-renewal').textContent = certMode.startsWith('letsencrypt') ? '自动' : '手动';
-  document.getElementById('cert-expiry').textContent  = cert.expires_at ? new Date(cert.expires_at).toLocaleDateString() : '—';
-
-  // ---- 出站模式判定（修复版）----
-  const mode = String(shunt.mode || 'vps').toLowerCase();
-  const isVps   = (mode === 'vps');
-  const isProxy = (mode.includes('resi') && !mode.includes('direct'));  // resi / resi(xray-only)
-  const isShunt = (mode.includes('direct'));                            // direct_resi(…)
-
-  ['net-vps','net-proxy','net-shunt'].forEach(id => document.getElementById(id)?.classList.remove('active'));
-  if (isVps) {
-    document.getElementById('net-vps')?.classList.add('active');
-  } else if (isProxy) {
-    document.getElementById('net-proxy')?.classList.add('active');
-  } else if (isShunt) {
-    document.getElementById('net-shunt')?.classList.add('active');
-  } else {
-    // 异常/未知时回退到 VPS 高亮
-    document.getElementById('net-vps')?.classList.add('active');
-  }
-
-  // ---- 文本信息填充（保持原位，不改样式）----
-  const vpsIp = (dashboardData.server && (dashboardData.server.eip || dashboardData.server.server_ip)) || '—';
-  document.getElementById('vps-ip').textContent = vpsIp;
-  document.getElementById('vps-geo').textContent = (dashboardData.system && dashboardData.system.geo) || '—';
-
-  document.getElementById('proxy-ip').textContent  = shunt.proxy_info || '(未配置)';
-  document.getElementById('proxy-geo').textContent = shunt.proxy_geo || '—';
-
-  // IP 质量分数字段（如果你的 dashboard.json 里有就显示，没有保持“—”）
-  document.getElementById('vps-ipq-score').textContent   = (dashboardData.ipq && dashboardData.ipq.vps && dashboardData.ipq.vps.score) || '—';
-  document.getElementById('proxy-ipq-score').textContent = (dashboardData.ipq && dashboardData.ipq.proxy && dashboardData.ipq.proxy.score) || '—';
-
-  // 白名单预览
-  const wl = Array.isArray(shunt.whitelist) ? shunt.whitelist : [];
-  const previewEl = document.getElementById('whitelistPreview');
-  if (previewEl) {
-    if (wl.length === 0) {
-      previewEl.textContent = '（未配置）';
+// 复制文本（优先 Clipboard API）
+async function copyToClipboard(text){
+  try{
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
     } else {
-      const head = wl.slice(0, 3).join(', ');
-      previewEl.textContent = wl.length > 3 ? `${head} 等 ${wl.length} 条` : head;
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      ta.remove();
     }
+    notify('已复制到剪贴板');
+  }catch(e){
+    notify('复制失败：' + (e.message||e), 'warn', 2000);
   }
 }
 
-
-function renderProtocolTable() {
-    const protocols = dashboardData.protocols || [];
-    const tbody = document.getElementById('protocol-tbody');
-    if (!tbody) return;
-
-    const rows = protocols.map(p => `
-        <tr>
-            <td>${escapeHtml(p.name)}</td>
-            <td>${escapeHtml(p.scenario)}</td>
-            <td>${escapeHtml(p.camouflage)}</td>
-            <td><span class="status-badge ${p.status === '运行中' ? 'status-running' : ''}">${p.status}</span></td>
-            <td><button class="btn btn-sm btn-link" data-action="open-modal" data-modal="config" data-protocol="${escapeHtml(p.name)}">查看配置</button></td>
-        </tr>
-    `).join('');
-
-    const subRow = `
-        <tr class="subs-row">
-            <td style="font-weight:500;">整包订阅链接</td>
-            <td>所有协议</td>
-            <td>通用</td>
-            <td></td>
-            <td><button class="btn btn-sm btn-link" data-action="open-modal" data-modal="config" data-protocol="__SUBS__">查看/复制</button></td>
-        </tr>
-    `;
-
-    tbody.innerHTML = rows + subRow;
+function copyShareLink() {
+  if (currentShareLink) {
+    copyToClipboard(currentShareLink);
+  }
 }
 
-function renderTrafficCharts() {
-    if (!trafficData || !window.Chart) return;
-    
-    // Traffic progress bar
-    const monthly = trafficData.monthly || [];
-    const currentMonth = new Date().toISOString().slice(0, 7);
-    const thisMonth = monthly.find(m => m.month === currentMonth);
-    
-    if (thisMonth) {
-        const budget = 100; // GiB
-        const used = (thisMonth.total || 0) / GiB;
-        const percentage = Math.min(100, Math.round((used / budget) * 100));
-        
-        const fillEl = document.getElementById('progress-fill');
-        const pctEl = document.getElementById('progress-percentage');
-        const budgetEl = document.getElementById('progress-budget');
-        
-        if (fillEl) {
-            fillEl.style.width = `${percentage}%`;
-            if (percentage >= 90) fillEl.style.background = '#ef4444';
-            else if (percentage >= 60) fillEl.style.background = '#f59e0b';
-            else fillEl.style.background = '#10b981';
-        }
-        if (pctEl) pctEl.textContent = `${percentage}%`;
-        if (budgetEl) budgetEl.textContent = `${used.toFixed(1)}/${budget}GiB`;
-    }
-    
-    // Clear existing charts
-    ['traffic', 'monthly-chart'].forEach(id => {
-        const chartInstance = Chart.getChart(id);
-        if (chartInstance) chartInstance.destroy();
+function copyQRImage() {
+  const canvas = document.querySelector('#qrcode canvas');
+  if (canvas) {
+    canvas.toBlob(blob => {
+      const item = new ClipboardItem({ 'image/png': blob });
+      navigator.clipboard.write([item]).then(() => {
+        alert('二维码图片已复制到剪贴板');
+      }).catch(() => {
+        alert('复制失败，请手动保存二维码');
+      });
     });
-
-    const daily = trafficData.last30d || [];
-
-    // 30-day Chart
-    if (daily.length) {
-        new Chart('traffic', {
-            type: 'line',
-            data: {
-                labels: daily.map(d => d.date.slice(5)),
-                datasets: [
-                    { label: 'VPS 出口', data: daily.map(d => d.vps / GiB), borderColor: '#3b82f6', tension: 0.3 },
-                    { label: '住宅出口', data: daily.map(d => d.resi / GiB), borderColor: '#f59e0b', tension: 0.3 }
-                ]
-            },
-            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } },
-            plugins: [ebYAxisUnitTop]
-        });
-    }
-
-    // 12-month Chart
-    if (monthly.length) {
-        const recentMonthly = monthly.slice(-12);
-        new Chart('monthly-chart', {
-            type: 'bar',
-            data: {
-                labels: recentMonthly.map(m => m.month),
-                datasets: [
-                    { label: 'VPS出口', data: recentMonthly.map(m => m.vps / GiB), backgroundColor: '#3b82f6', stack: 'a' },
-                    { label: '住宅出口', data: recentMonthly.map(m => m.resi / GiB), backgroundColor: '#f59e0b', stack: 'a' }
-                ]
-            },
-            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } }, scales: { x: { stacked: true }, y: { stacked: true } } },
-            plugins: [ebYAxisUnitTop]
-        });
-    }
-}
-
-// --- Modal and Interaction Logic ---
-
-function showModal(modalId) {
-    const modal = document.getElementById(modalId);
-    if (modal) {
-        modal.style.display = 'block';
-        document.body.classList.add('modal-open');
-    }
-}
-
-function closeModal(modalId) {
-    const modal = document.getElementById(modalId);
-    if (modal) {
-        modal.style.display = 'none';
-        document.body.classList.remove('modal-open');
-    }
-}
-
-// 点击遮罩关闭
-window.addEventListener('click', (e) => {
-  if (e.target && e.target.classList && e.target.classList.contains('modal')) {
-    closeModal(e.target.id);
   }
-});
-
-function showWhitelistModal() {
-    const list = document.getElementById('whitelistList');
-    const whitelist = dashboardData.shunt?.whitelist || [];
-    if (list) {
-        list.innerHTML = whitelist.length 
-            ? whitelist.map(item => `<div class="whitelist-item">${escapeHtml(item)}</div>`).join('')
-            : '<p>暂无白名单数据</p>';
-    }
-    showModal('whitelistModal');
 }
 
-// 完整修复的showConfigModal函数
-function showConfigModal(key) {
-  const modal = document.getElementById('configModal');
-  const title = document.getElementById('configModalTitle');
-  const details = document.getElementById('configDetails');
-  if (!modal || !title || !details) return;
+function copyPlain(){
+  if (currentModalType === 'SUBS') {
+    const plain = (window.dashboardData && dashboardData.subscription_url) || '';
+    if (!plain) return notify('无可复制的明文链接','warn');
+    return copyToClipboard(plain);
+  }
+  const p = currentProtocol || {};
+  const val = p.plain || p.share_link || '';
+  if (!val) return notify('无可复制的明文链接','warn');
+  copyToClipboard(val);
+}
 
-  // 清空内容
-  details.innerHTML = '';
+function copyJSON(){
+  if (currentModalType === 'SUBS') return notify('订阅链接无 JSON 配置可复制','warn');
+  const p = currentProtocol || {};
+  const jsonText = p.json
+    ? (typeof p.json === 'string' ? p.json : JSON.stringify(p.json, null, 2))
+    : '';
+  if (!jsonText) return notify('无 JSON 配置可复制','warn');
+  copyToClipboard(jsonText);
+}
 
-  if (key === '__SUBS__') {
-    // 整包订阅
-    const sub = dashboardData.subscription || {};
-    const plainLinks = sub.plain || '';
-    const base64All = sub.base64 || '';
-    const base64Lines = sub.b64_lines || '';
-    const subUrl = dashboardData.subscription_url || `http://${dashboardData.server?.server_ip}/sub`;
+function copyBase64(){
+  if (currentModalType === 'SUBS') {
+    const plain = (window.dashboardData && dashboardData.subscription_url) || '';
+    const b64 = plain ? (plain.includes('?') ? `${plain}&format=base64` : `${plain}?format=base64`) : '';
+    if (!b64) return notify('无可复制的 Base64 链接','warn');
+    return copyToClipboard(b64);
+  }
+  const p = currentProtocol || {};
+  let val = p.base64 || '';
+  if (!val && p.share_link) {
+    val = p.share_link.startsWith('vmess://') ? p.share_link.split('://')[1] : (()=>{ try {return btoa(p.share_link);} catch(e){ return p.share_link; }})();
+  }
+  if (!val) return notify('无可复制的 Base64 内容','warn');
+  copyToClipboard(val);
+}
+
+// 复制二维码图片（Canvas/IMG 兼容）
+async function copyQRImage(){
+  const box = document.getElementById('qrcode');
+  if (!box) return notify('未找到二维码','warn');
+
+  const canvas = box.querySelector('canvas');
+  const img = box.querySelector('img');
+
+  try{
+    if (canvas && canvas.toBlob && navigator.clipboard && window.ClipboardItem) {
+	const blob = await new Promise(res=> canvas.toBlob(res, 'image/png'));
+      await navigator.clipboard.write([new ClipboardItem({'image/png': blob})]);
+      return notify('二维码图片已复制');
+    }
+    if (img && navigator.clipboard && window.ClipboardItem) {
+      // 将 <img> 转为 blob
+      const data = await fetch(img.src);
+      const blob = await data.blob();
+      await navigator.clipboard.write([new ClipboardItem({[blob.type]: blob})]);
+      return notify('二维码图片已复制');
+    }
+    // 回退：触发下载
+    const dataURL = canvas ? canvas.toDataURL('image/png') : (img ? img.src : '');
+    if (!dataURL) return notify('无法导出二维码图片','warn');
+    const a = document.createElement('a');
+    a.href = dataURL; a.download = 'qrcode.png';
+    document.body.appendChild(a); a.click(); a.remove();
+    notify('已下载二维码图片');
+  }catch(e){
+    notify('复制失败：' + (e.message||e), 'warn', 2000);
+  }
+}
+
+// 初始化
+let _overviewTimer = null;
+
+async function init() {
+  // 获取并保存dashboard数据
+  const data = await fetchJSON('/traffic/dashboard.json');
+  if (data) {
+    window.dashboardData = data;  // 确保保存到全局
+    // 然后更新UI
+    updateSystemOverview();
+  }
+  
+  const trafficData = await fetchJSON('/traffic/traffic.json');
+  if (trafficData) renderTraffic(trafficData);
+  
+  _overviewTimer = setInterval(updateSystemOverview, 30000);
+  setInterval(updateProgressBar, 3600000);
+}
+
+// === 修复协议配置弹窗的事件委托绑定 ===
+(function bindProtocolViewHandler() {
+  // 等待 DOM 加载完成
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bindProtocolViewHandler);
+    return;
+  }
+
+  const tbody = document.getElementById('protocol-tbody');
+  if (!tbody) {
+    console.error('[bindProtocolViewHandler] tbody#protocol-tbody not found! Retrying in 1 second...');
+    // 如果找不到，1秒后重试一次（可能DOM还没渲染完）
+    setTimeout(bindProtocolViewHandler, 1000);
+    return;
+  }
+  
+  // 防止重复绑定
+  if (tbody.__viewBound) {
+    console.log('[bindProtocolViewHandler] Event handler already bound');
+    return;
+  }
+
+  // 使用事件委托监听按钮点击
+  tbody.addEventListener('click', function(e) {
+    // 查找最近的带有 data-protocol 属性的按钮
+    const btn = e.target.closest('button[data-protocol]');
+    if (!btn || !tbody.contains(btn)) return;
     
-    title.textContent = '整包订阅链接 - 客户端配置详情';
+    e.preventDefault();
+    e.stopPropagation();
     
-    details.innerHTML = `
-      <div class="config-section">
-        <h4>订阅地址</h4>
-        <div class="config-code" id="sub-url">${escapeHtml(subUrl)}</div>
-      </div>
-      
-      <div class="config-section">
-        <h4>明文链接（6个协议）</h4>
-        <div class="config-code" id="plain-link" style="white-space: pre-wrap;">${escapeHtml(plainLinks)}</div>
-      </div>
-
-      <div class="config-section">
-        <h4>Base64编码（整包）</h4>
-        <div class="config-code" id="base64-link" style="word-break: break-all;">${escapeHtml(base64All)}</div>
-      </div>
-
-      <div class="config-section">
-        <h4>Base64编码（逐行）</h4>
-        <div class="config-code" id="b64lines-link" style="white-space: pre-wrap;">${escapeHtml(base64Lines)}</div>
-      </div>
-
-      <div class="config-section">
-        <h4>二维码</h4>
-        <div class="qr-container" id="qrcode"></div>
-      </div>
-
-      <div class="config-section">
-        <h4>使用说明</h4>
-        <div class="config-help">
-          1. 推荐复制"订阅地址"到客户端订阅功能<br>
-          2. 或复制"明文链接"逐个导入<br>
-          3. 支持 V2rayN、Clash、Shadowrocket、Surge 等主流客户端<br>
-          4. 自签证书需在客户端开启"跳过证书验证"<br>
-          5. UDP协议（Hysteria2/TUIC）固定走VPS直连
-        </div>
-      </div>
-    `;
-    
-    // 生成订阅地址的二维码
-    setTimeout(() => {
-      const qrEl = document.getElementById('qrcode');
-      if (qrEl && subUrl && window.QRCode) {
-        qrEl.innerHTML = '';
-        new QRCode(qrEl, {
-          text: subUrl,
-          width: 256,
-          height: 256,
-          colorDark: "#000000",
-          colorLight: "#ffffff",
-          correctLevel: QRCode.CorrectLevel.H
-        });
-      }
-    }, 100);
-    
-  } else {
-    // 单个协议
-    const protocols = dashboardData.protocols || [];
-    const protocol = protocols.find(p => p.name === key);
-    if (!protocol) {
-      notify('未找到协议配置', 'warn');
+    const protocolName = btn.dataset.protocol;
+    if (!protocolName) {
+      console.warn('[bindProtocolViewHandler] Button missing data-protocol:', btn);
       return;
     }
     
-    title.textContent = `${protocol.name} - 客户端配置详情`;
+    console.log('[bindProtocolViewHandler] Button clicked, protocol:', protocolName);
     
-    const shareLink = protocol.share_link || '';
-    const jsonConfig = generateProtocolJSON(protocol);
-    const base64Link = shareLink ? btoa(shareLink) : '';
-    
-    details.innerHTML = `
-      <div class="config-section">
-        <h4>明文链接</h4>
-        <div class="config-code" id="plain-link" style="word-break: break-all;">${escapeHtml(shareLink)}</div>
-      </div>
-
-      <div class="config-section">
-        <h4>JSON配置（V2ray格式）</h4>
-        <div class="config-code" id="json-code" style="white-space: pre-wrap;">${escapeHtml(jsonConfig)}</div>
-      </div>
-
-      <div class="config-section">
-        <h4>Base64编码</h4>
-        <div class="config-code" id="base64-link" style="word-break: break-all;">${escapeHtml(base64Link)}</div>
-      </div>
-
-      <div class="config-section">
-        <h4>二维码</h4>
-        <div class="qr-container" id="qrcode"></div>
-      </div>
-
-      <div class="config-section">
-        <h4>使用说明</h4>
-        <div class="config-help">
-          协议: ${protocol.name}<br>
-          端口: ${protocol.port} (${protocol.network})<br>
-          场景: ${protocol.scenario}<br>
-          伪装: ${protocol.camouflage}<br>
-          <br>
-          1. 复制"明文链接"导入客户端<br>
-          2. 或使用JSON配置手动添加<br>
-          3. 移动端可扫描二维码导入
-        </div>
-      </div>
-    `;
-    
-    // 生成二维码
-    setTimeout(() => {
-      const qrEl = document.getElementById('qrcode');
-      if (qrEl && shareLink && window.QRCode) {
-        qrEl.innerHTML = '';
-        new QRCode(qrEl, {
-          text: shareLink,
-          width: 256,
-          height: 256,
-          colorDark: "#000000",
-          colorLight: "#ffffff",
-          correctLevel: QRCode.CorrectLevel.H
-        });
-      }
-    }, 100);
-  }
-
-  showModal('configModal');
-}
-
-// 生成协议JSON配置
-function generateProtocolJSON(protocol) {
-  const server = dashboardData.server || {};
-  const secrets = dashboardData.secrets || {};
-  const serverIp = server.server_ip || '127.0.0.1';
-  
-  try {
-    switch(protocol.name) {
-      case 'VLESS-Reality':
-        return JSON.stringify({
-          "v": "2",
-          "ps": "EdgeBox-REALITY",
-          "add": serverIp,
-          "port": 443,
-          "id": secrets.vless?.reality || '',
-          "aid": 0,
-          "net": "tcp",
-          "type": "none",
-          "tls": "reality",
-          "sni": "www.cloudflare.com",
-          "fp": "chrome",
-          "pbk": secrets.reality?.public_key || '',
-          "sid": secrets.reality?.short_id || '',
-          "flow": "xtls-rprx-vision"
-        }, null, 2);
-        
-      case 'VLESS-gRPC':
-        return JSON.stringify({
-          "v": "2",
-          "ps": "EdgeBox-gRPC",
-          "add": serverIp,
-          "port": 443,
-          "id": secrets.vless?.grpc || secrets.vless?.reality || '',
-          "aid": 0,
-          "net": "grpc",
-          "type": "none",
-          "tls": "tls",
-          "sni": server.cert?.domain || "grpc.edgebox.internal",
-          "alpn": "h2",
-          "path": "grpc"
-        }, null, 2);
-        
-      case 'VLESS-WebSocket':
-        return JSON.stringify({
-          "v": "2",
-          "ps": "EdgeBox-WS",
-          "add": serverIp,
-          "port": 443,
-          "id": secrets.vless?.ws || secrets.vless?.reality || '',
-          "aid": 0,
-          "net": "ws",
-          "type": "none",
-          "tls": "tls",
-          "sni": server.cert?.domain || "ws.edgebox.internal",
-          "path": "/ws"
-        }, null, 2);
-        
-      case 'Trojan-TLS':
-        return JSON.stringify({
-          "type": "trojan",
-          "tag": "EdgeBox-TROJAN",
-          "server": serverIp,
-          "server_port": 443,
-          "password": secrets.password?.trojan || '',
-          "tls": {
-            "enabled": true,
-            "server_name": server.cert?.domain || "trojan.edgebox.internal",
-            "insecure": true
-          }
-        }, null, 2);
-        
-      case 'Hysteria2':
-        return JSON.stringify({
-          "type": "hysteria2",
-          "tag": "EdgeBox-HYSTERIA2",
-          "server": serverIp,
-          "server_port": 443,
-          "password": secrets.password?.hysteria2 || '',
-          "tls": {
-            "enabled": true,
-            "server_name": server.cert?.domain || serverIp,
-            "insecure": true,
-            "alpn": ["h3"]
-          }
-        }, null, 2);
-        
-      case 'TUIC':
-        return JSON.stringify({
-          "type": "tuic",
-          "tag": "EdgeBox-TUIC",
-          "server": serverIp,
-          "server_port": 2053,
-          "uuid": secrets.tuic_uuid || '',
-          "password": secrets.password?.tuic || '',
-          "congestion_control": "bbr",
-          "tls": {
-            "enabled": true,
-            "server_name": server.cert?.domain || serverIp,
-            "insecure": true,
-            "alpn": ["h3"]
-          }
-        }, null, 2);
-        
-      default:
-        return '{}';
-    }
-  } catch (e) {
-    console.error('生成JSON配置失败:', e);
-    return '{}';
-  }
-}
-
-async function copyText(text) {
-    if (!text || text === '—') {
-        notify('没有可复制的内容', 'warn');
-        return;
-    }
-    
+    // 调用弹窗显示函数
     try {
-        await navigator.clipboard.writeText(text);
-        notify('已复制到剪贴板');
-    } catch (e) {
-        // Fallback方法
-        const textarea = document.createElement('textarea');
-        textarea.value = text;
-        textarea.style.position = 'fixed';
-        textarea.style.opacity = '0';
-        document.body.appendChild(textarea);
-        textarea.select();
-        try {
-            document.execCommand('copy');
-            notify('已复制到剪贴板');
-        } catch (err) {
-            notify('复制失败，请手动复制', 'warn');
+      if (typeof showConfigModal === 'function') {
+        showConfigModal(protocolName);
+      } else {
+        console.error('[bindProtocolViewHandler] showConfigModal function not found');
+        if (typeof notify === 'function') {
+          notify('无法打开配置弹窗', 'warn');
         }
-        document.body.removeChild(textarea);
-    }
-}
-
-// --- Main Application Logic ---
-
-async function refreshAllData() {
-    const [dash, sys, traf] = await Promise.all([
-        fetchJSON('/traffic/dashboard.json'),
-        fetchJSON('/traffic/system.json'),
-        fetchJSON('/traffic/traffic.json')
-    ]);
-
-    if (dash) dashboardData = dash;
-    if (sys) systemData = sys;
-    if (traf) trafficData = traf;
-    
-    window.dashboardData = dashboardData; // For debugging
-
-    renderOverview();
-    renderCertificateAndNetwork();
-    renderProtocolTable();
-    renderTrafficCharts();
-}
-
-function setupEventListeners() {
-  document.addEventListener('click', (e) => {
-    const target = e.target.closest('[data-action]');
-    if (!target) return;
-
-    const { action, modal, protocol, ipq, type } = target.dataset;
-
-    switch (action) {
-      case 'open-modal': {
-        if (modal === 'whitelist') return showWhitelistModal();
-        if (modal === 'config') return showConfigModal(protocol || '__SUBS__');
-        if (modal === 'ipq') return showIPQDetails(ipq || 'vps');
-        break;
       }
-      case 'close-modal': {
-        if (modal) closeModal(modal);
-        break;
-      }
-      case 'copy': {
-        const subUrlEl = document.getElementById('sub-url');
-        const plainEl = document.getElementById('plain-link');
-        const jsonEl = document.getElementById('json-code');
-        const base64El = document.getElementById('base64-link');
-        const b64linesEl = document.getElementById('b64lines-link');
-
-        if (type === 'sub' && subUrlEl) return copyText(subUrlEl.textContent.trim());
-        if (type === 'plain' && plainEl) return copyText(plainEl.textContent.trim());
-        if (type === 'json' && jsonEl) return copyText(jsonEl.textContent.trim());
-        if (type === 'base64' && base64El) return copyText(base64El.textContent.trim());
-        if (type === 'b64lines' && b64linesEl) return copyText(b64linesEl.textContent.trim());
-        if (type === 'qr') {
-          const canvas = document.querySelector('#qrcode canvas');
-          if (canvas && canvas.toBlob) {
-            canvas.toBlob(async (blob) => {
-              try {
-                await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
-                notify('二维码已复制');
-              } catch {
-                notify('请右键保存二维码', 'warn');
-              }
-            });
-          } else {
-            notify('未找到二维码', 'warn');
-          }
-          return;
-        }
-        break;
+    } catch (error) {
+      console.error('[bindProtocolViewHandler] Error calling showConfigModal:', error);
+      if (typeof notify === 'function') {
+        notify('打开配置弹窗失败', 'warn');
       }
     }
   });
+
+  tbody.__viewBound = true;
+  console.log('[bindProtocolViewHandler] Event delegation successfully bound to tbody#protocol-tbody');
+})();
+
+// 打开/关闭弹窗时控制刷新
+function pauseOverviewOnce(ms=10000){
+  if (_overviewTimer) { clearInterval(_overviewTimer); _overviewTimer = null; }
+  setTimeout(()=>{ if(!_overviewTimer) _overviewTimer = setInterval(updateSystemOverview, 30000); }, ms);
 }
 
-async function showIPQDetails(which) {
-  const modal   = document.getElementById('ipqModal');
-  const titleEl = document.getElementById('ipqModalTitle');
-  const body    = document.getElementById('ipqDetails');
-  if (!modal || !titleEl || !body) return;
+// 页面加载完成后初始化
+window.addEventListener('DOMContentLoaded', init);
 
-  const titleMap = { vps: 'VPS IP质量检测详情', proxy: '代理 IP质量检测详情' };
-  titleEl.textContent = titleMap[which] || 'IP质量检测详情';
-  body.innerHTML = '<div class="config-section"><div class="config-code">加载中...</div></div>';
-
-  // 读取目标数据
-  const data = await fetchJSON(`/status/ipq_${which}.json`);
-
-  if (data && Object.keys(data).length) {
-    body.innerHTML =
-      '<pre class="config-code" style="white-space:pre-wrap">' +
-      escapeHtml(JSON.stringify(data, null, 2)) +
-      '</pre>';
-  } else {
-    // 兜底：读元信息，至少给出“上次采集时间”的提示
-    const meta = await fetchJSON('/status/ipq_meta.json');
-    const hint = meta && meta.last_run ? `（上次采集：${new Date(meta.last_run).toLocaleString()}）` : '';
-    body.innerHTML = `<div class="text-secondary">暂无数据 ${hint}</div>`;
+// === 修复showConfigModal函数的错误处理 ===
+const originalShowConfigModal = window.showConfigModal;
+window.showConfigModal = function(key) {
+  console.log('showConfigModal called with:', key, typeof key);
+  
+  const modal = document.getElementById('configModal');
+  const title = document.getElementById('configModalTitle');
+  const details = document.getElementById('configDetails');
+  
+  // 检查必要的DOM元素
+  if (!modal) {
+    console.error('configModal element not found');
+    return;
   }
+  if (!title) {
+    console.error('configModalTitle element not found');
+    return;
+  }
+  if (!details) {
+    console.error('configDetails element not found');
+    return;
+  }
+  
+  try {
+    // 调用原始函数
+    if (typeof originalShowConfigModal === 'function') {
+      originalShowConfigModal.call(this, key);
+    } else {
+      console.error('Original showConfigModal function not found');
+      // 提供基本的显示逻辑
+      modal.style.display = 'block';
+      title.textContent = `配置详情 - ${key}`;
+      details.innerHTML = '<p>配置信息加载中...</p>';
+    }
+  } catch (error) {
+    console.error('showConfigModal execution failed:', error);
+    modal.style.display = 'block';
+    title.textContent = '配置详情';
+    details.innerHTML = `<p style="color: #ef4444;">加载失败: ${error.message}</p>`;
+  }
+};
 
-  showModal('ipqModal');
-}
+// === 确保弹窗关闭功能正常 ===
+const originalCloseConfigModal = window.closeConfigModal;
+window.closeConfigModal = function() {
+  const modal = document.getElementById('configModal');
+  if (modal) {
+    modal.style.display = 'none';
+  }
+  
+  const qr = document.getElementById('qrcode');
+  if (qr) {
+    qr.innerHTML = '';
+  }
+  
+// 恢复页面滚动
+  if (typeof unlockScroll === 'function') {
+    unlockScroll();
+  } else {
+    document.body.style.overflow = '';
+    document.body.classList.remove('modal-open');
+  }
+  
+  if (typeof originalCloseConfigModal === 'function') {
+    try {
+      originalCloseConfigModal.call(this);
+    } catch (error) {
+      console.warn('Original closeConfigModal failed:', error);
+    }
+  }
+};
 
-
-// --- Initialization ---
-
-document.addEventListener('DOMContentLoaded', () => {
-    refreshAllData();
-    
-    // Set up periodic refresh
-    overviewTimer = setInterval(refreshAllData, 30000); // 30 seconds
-    
-    // Set up event delegation
-    setupEventListeners();
+// === 全局弹窗关闭事件优化 ===
+window.addEventListener('click', function(event) {
+  if (event.target.classList.contains('modal')) {
+    event.target.style.display = 'none';
+    // 恢复滚动
+    document.body.style.overflow = '';
+    document.body.classList.remove('modal-open');
+  }
 });
-EXTERNAL_JS
 
+// === 调试辅助函数 ===
+window.debugProtocolTable = function() {
+  const tbody = document.getElementById('protocol-tbody');
+  
+  console.group('🔍 Protocol Table Debug Info');
+  
+  if (!tbody) {
+    console.error('❌ tbody#protocol-tbody NOT FOUND in DOM!');
+    console.log('Available elements with ID:', 
+      Array.from(document.querySelectorAll('[id]')).map(el => el.id)
+    );
+  } else {
+    console.log('✅ tbody element found:', tbody);
+    
+    const buttons = tbody.querySelectorAll('button[data-protocol]');
+    console.log(`📊 Found ${buttons.length} buttons with data-protocol:`);
+    
+    buttons.forEach((btn, index) => {
+      console.log(`  Button ${index + 1}:`, {
+        protocol: btn.dataset.protocol,
+        text: btn.textContent.trim(),
+        className: btn.className
+      });
+    });
+    
+    // 检查事件监听器
+    console.log('🎯 Event delegation bound?', tbody.__viewBound === true ? 'YES ✅' : 'NO ❌');
+  }
+  
+  // 检查全局数据
+  console.log('📦 Dashboard data:', {
+    hasData: !!window.dashboardData,
+    protocolCount: window.dashboardData?.protocols?.length || 0,
+    protocols: window.dashboardData?.protocols?.map(p => p.name) || []
+  });
+  
+  console.groupEnd();
+};
+
+// === [PATCH:APPJS_EXPORT_GLOBALS_BEGIN] ===
+// 供 HTML 内联 onclick 使用（不改你现有 HTML）
+window.showConfigModal   = showConfigModal;
+window.closeConfigModal  = closeConfigModal;
+window.copyPlain         = copyPlain;
+window.copyJSON          = copyJSON;
+window.copyBase64        = copyBase64;
+window.copyQRImage       = copyQRImage;
+
+// 如果页面上还有这些内联按钮，也一并导出（有就用，没有不影响）
+window.showIPQDetails        = typeof showIPQDetails        === 'function' ? showIPQDetails        : undefined;
+window.closeIPQModal         = typeof closeIPQModal         === 'function' ? closeIPQModal         : undefined;
+window.showWhitelistModal    = typeof showWhitelistModal    === 'function' ? showWhitelistModal    : undefined;
+window.closeWhitelistModal   = typeof closeWhitelistModal   === 'function' ? closeWhitelistModal   : undefined;
+// === [PATCH:APPJS_EXPORT_GLOBALS_END] ===
+
+EXTERNAL_JS
 
 # ======= 创建HTML文件（引用外置的CSS和JS）========
   log_info "创建控制面板HTML文件..."
-cat > "$TRAFFIC_DIR/index.html" <<'HTML'
+  cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>EdgeBox Control Panel</title>
+<!-- PATCH:INDEX_HTML_HEAD_LINK -->
 <link rel="stylesheet" href="./assets/edgebox-panel.css">
 </head>
 <body>
 
 <div class="container">
   <div class="main-card">
+    <!-- 主标题 -->
     <div class="main-header">
       <h1>🚀 EdgeBox - 企业级多协议节点管理系统 (Control Panel)</h1>
     </div>
     
     <div class="main-content">
+      <!-- 系统概览 -->
       <div class="card">
-        <div class="card-header"><h2>📊 系统概览</h2></div>
+        <div class="card-header">
+          <h2>📊 系统概览</h2>
+        </div>
         <div class="grid grid-3">
+          <!-- 服务器信息 -->
           <div class="inner-block">
             <h3>服务器信息</h3>
-            <div class="info-item"><label>用户备注名:</label><value id="server-name">—</value></div>
-            <div class="info-item"><label>云厂商/区域:</label><value id="cloud-info">—</value></div>
-            <div class="info-item"><label>Instance ID:</label><value id="instance-id">—</value></div>
-            <div class="info-item"><label>主机名:</label><value id="hostname">—</value></div>
+            <div class="info-item">
+              <label>用户备注名:</label>
+              <value id="server-name">加载中...</value>
+            </div>
+            <div class="info-item">
+              <label>云厂商/区域:</label>
+              <value id="cloud-info">加载中...</value>
+            </div>
+            <div class="info-item">
+              <label>Instance ID:</label>
+              <value id="instance-id">加载中...</value>
+            </div>
+            <div class="info-item">
+              <label>主机名:</label>
+              <value id="hostname">加载中...</value>
+            </div>
           </div>
+          
+          <!-- 服务器配置 -->
           <div class="inner-block">
             <h3>服务器配置</h3>
-            <div class="progress-row"><span class="progress-label">CPU:</span><div class="progress-bar"><div class="progress-fill" id="cpu-progress" style="width: 0%">0%</div></div><span class="progress-info" id="cpu-info">—</span></div>
-            <div class="progress-row"><span class="progress-label">内存:</span><div class="progress-bar"><div class="progress-fill" id="mem-progress" style="width: 0%">0%</div></div><span class="progress-info" id="mem-info">—</span></div>
-            <div class="progress-row"><span class="progress-label">磁盘:</span><div class="progress-bar"><div class="progress-fill" id="disk-progress" style="width: 0%">0%</div></div><span class="progress-info" id="disk-info">—</span></div>
+            <div class="progress-row">
+              <span class="progress-label">CPU:</span>
+              <div class="progress-bar">
+                <div class="progress-fill" id="cpu-progress" style="width: 0%">0%</div>
+              </div>
+              <span class="progress-info" id="cpu-info">0C / 0T</span>
+            </div>
+            <div class="progress-row">
+              <span class="progress-label">内存:</span>
+              <div class="progress-bar">
+                <div class="progress-fill" id="mem-progress" style="width: 0%">0%</div>
+              </div>
+              <span class="progress-info" id="mem-info">0G + 0G</span>
+            </div>
+            <div class="progress-row">
+              <span class="progress-label">磁盘:</span>
+              <div class="progress-bar">
+                <div class="progress-fill" id="disk-progress" style="width: 0%">0%</div>
+              </div>
+              <span class="progress-info" id="disk-info">0GiB</span>
+            </div>
           </div>
+          
+          <!-- 核心服务 -->
           <div class="inner-block">
             <h3>核心服务</h3>
-            <div class="service-item"><span>Nginx</span><div class="service-status"><span class="status-badge" id="nginx-status">—</span><span class="version" id="nginx-version"></span></div></div>
-            <div class="service-item"><span>Xray</span><div class="service-status"><span class="status-badge" id="xray-status">—</span><span class="version" id="xray-version"></span></div></div>
-            <div class="service-item"><span>Sing-box</span><div class="service-status"><span class="status-badge" id="singbox-status">—</span><span class="version" id="singbox-version"></span></div></div>
+            <div class="service-item">
+              <span>Nginx</span>
+              <div class="service-status">
+                <span class="status-badge" id="nginx-status">检查中</span>
+                <span class="version" id="nginx-version"></span>
+              </div>
+            </div>
+            <div class="service-item">
+              <span>Xray</span>
+              <div class="service-status">
+                <span class="status-badge" id="xray-status">检查中</span>
+                <span class="version" id="xray-version"></span>
+              </div>
+            </div>
+            <div class="service-item">
+              <span>Sing-box</span>
+              <div class="service-status">
+                <span class="status-badge" id="singbox-status">检查中</span>
+                <span class="version" id="singbox-version"></span>
+              </div>
+            </div>
           </div>
         </div>
         <div style="text-align: center; padding-top: 15px; border-top: 1px solid #e5e7eb; margin-top: 15px;">
-          <span class="text-secondary">版本号: <span id="version">—</span> | 安装日期: <span id="install-date">—</span> | 更新时间: <span id="update-time">—</span></span>
+          <span class="text-secondary">版本号: <span id="version">3.0.0</span> | 安装日期: <span id="install-date">2025-09-11</span> | 更新时间: <span id="update-time">加载中...</span></span>
         </div>
       </div>
 
+      <!-- 证书切换 + 网络身份配置 -->
       <div class="grid grid-1-2">
+        <!-- 证书切换 -->
         <div class="card">
-          <div class="card-header"><h2>🔒 证书切换</h2></div>
+          <div class="card-header">
+            <h2>🔒 证书切换</h2>
+          </div>
           <div class="cert-modes">
             <div class="cert-mode-tab" id="cert-self">自签证书</div>
             <div class="cert-mode-tab" id="cert-ca">CA证书</div>
           </div>
           <div class="inner-block">
-            <div class="info-item"><label>证书类型:</label><value id="cert-type">—</value></div>
-            <div class="info-item"><label>绑定域名:</label><value id="cert-domain">—</value></div>
-            <div class="info-item"><label>续期方式:</label><value id="cert-renewal">—</value></div>
-            <div class="info-item"><label>到期日期:</label><value id="cert-expiry">—</value></div>
+            <div class="info-item">
+              <label>证书类型:</label>
+              <value id="cert-type">自签名</value>
+            </div>
+            <div class="info-item">
+              <label>绑定域名:</label>
+              <value id="cert-domain">(无)</value>
+            </div>
+            <div class="info-item">
+              <label>续期方式:</label>
+              <value id="cert-renewal">手动</value>
+            </div>
+            <div class="info-item">
+              <label>到期日期:</label>
+              <value id="cert-expiry">—</value>
+            </div>
           </div>
         </div>
-        <div class="card">
-          <div class="card-header"><h2>🌐 网络身份配置 <span class="note-udp">注：HY2/TUIC为UDP通道，VPS直连，不走代理分流. </span></h2></div>
-          <div class="network-blocks">
-<div class="network-block" id="net-vps">
-  <h3>📡 VPS出站IP</h3>
-  <div class="info-item"><label>公网身份:</label><value>直连</value></div>
-  <div class="info-item"><label>VPS出站IP:</label><value id="vps-ip">—</value></div>
-  <div class="info-item"><label>Geo:</label><value id="vps-geo">—</value></div>
-  <div class="info-item">
-    <label>IP质量:</label>
-    <value>
-      <span id="vps-ipq-score">—</span>
-      <button class="btn-link" data-action="open-modal" data-modal="ipq" data-ipq="vps">查看详情</button>
-    </value>
-  </div>
-</div>
 
-<div class="network-block" id="net-proxy">
-  <h3>🔄 代理出站IP</h3>
-  <div class="info-item"><label>代理身份:</label><value>全代理</value></div>
-  <div class="info-item"><label>代理IP:</label><value id="proxy-ip">—</value></div>
-  <div class="info-item"><label>Geo:</label><value id="proxy-geo">—</value></div>
-  <div class="info-item">
-    <label>IP质量:</label>
-    <value>
-      <span id="proxy-ipq-score">—</span>
-      <button class="btn-link" data-action="open-modal" data-modal="ipq" data-ipq="proxy">查看详情</button>
-    </value>
-  </div>
-</div>
+        <!-- 网络身份配置 -->
+        <div class="card">
+          <div class="card-header">
+            <h2>🌐 网络身份配置 <span class="note-udp">注：HY2/TUIC为UDP通道，VPS直连，不走代理分流. </span></h2>
+          </div>
+          <div class="network-blocks">
+            <!-- VPS出站IP -->
+            <div class="network-block" id="net-vps">
+              <h3>📡 VPS出站IP</h3>
+              <div class="info-item">
+                <label>公网身份:</label>
+                <value>直连</value>
+              </div>
+              <div class="info-item">
+                <label>VPS出站IP:</label>
+                <value id="vps-ip">加载中...</value>
+              </div>
+              <div class="info-item">
+                <label>Geo:</label>
+                <value id="vps-geo">—</value>
+              </div>
+              <div class="info-item">
+                <label>IP质量:</label>
+                <value><span id="vps-ipq-score">—</span> <a href="#" class="ipq-link" onclick="showIPQDetails('vps')">详情</a></value>
+              </div>
+            </div>
+
+            <!-- 代理出站IP -->
+            <div class="network-block" id="net-proxy">
+              <h3>🔄 代理出站IP</h3>
+              <div class="info-item">
+                <label>代理身份:</label>
+                <value>全代理</value>
+              </div>
+              <div class="info-item">
+                <label>代理IP:</label>
+                <value id="proxy-ip">—</value>
+              </div>
+              <div class="info-item">
+                <label>Geo:</label>
+                <value id="proxy-geo">—</value>
+              </div>
+              <div class="info-item">
+                <label>IP质量:</label>
+                <value><span id="proxy-ipq-score">—</span> <a href="#" class="ipq-link" onclick="showIPQDetails('proxy')">详情</a></value>
+              </div>
+            </div>
+
+            <!-- 分流出站 -->
             <div class="network-block" id="net-shunt">
               <h3>🔀 分流出站</h3>
-              <div class="info-item"><label>混合身份:</label><value style="font-size: 11px;">白名单VPS直连+其它代理</value></div>
-              <div class="info-item"><label>白名单:</label><value class="whitelist-value"><div class="whitelist-preview" id="whitelistPreview"></div></value></div>
+              <div class="info-item">
+                <label>混合身份:</label>
+                <value style="font-size: 11px;">白名单VPS直连+其它代理</value>
+              </div>
+<div class="info-item">
+  <label>白名单:</label>
+  <value class="whitelist-value">
+    <div class="whitelist-preview" id="whitelistPreview"></div>
+  </value>
+</div>
             </div>
           </div>
         </div>
       </div>
 
+      <!-- 协议配置 -->
       <div class="card">
-        <div class="card-header"><h2>📡 协议配置</h2></div>
+        <div class="card-header">
+          <h2>📡 协议配置</h2>
+        </div>
         <table class="data-table">
-          <thead><tr><th>协议名称</th><th>使用场景</th><th>伪装效果</th><th>运行状态</th><th>客户端配置</th></tr></thead>
-          <tbody id="protocol-tbody"></tbody>
+          <thead>
+<tr>
+  <th>协议名称</th>
+  <th>使用场景</th>
+  <th>伪装效果</th>
+  <th>运行状态</th>
+  <th>客户端配置</th>
+</tr>
+          </thead>
+<tbody id="protocol-tbody">
+  <!-- 动态生成的协议行将在这里插入 -->
+  <!-- 示例行结构如下（由JavaScript动态生成）：
+  <tr>
+    <td>协议名称</td>
+    <td>TCP/UDP</td>
+    <td>端口</td>
+    <td>运行中</td>
+    <td><button class="btn btn-xs" data-protocol="协议名称">查看配置</button></td>
+  </tr>
+  -->
+</tbody>
         </table>
       </div>
 
-<!-- 流量统计（照搬原版布局） -->
-<div class="card traffic-card">
-  <h2>📊 流量统计
-    <div class="traffic-progress-container">
-      <span class="progress-label">本月进度</span>
-      <div class="progress-wrapper">
-        <div class="progress-bar">
-          <div class="progress-fill" id="progress-fill" style="width:0%">
-            <span class="progress-percentage" id="progress-percentage">0%</span>
+      <!-- 流量统计（来自new5.txt）-->
+      <div class="card traffic-card">
+        <h2>📊 流量统计
+          <div class="traffic-progress-container">
+            <span class="progress-label">本月进度</span>
+            <div class="progress-wrapper">
+              <div class="progress-bar">
+                <div class="progress-fill" id="progress-fill" style="width:0%">
+                  <span class="progress-percentage" id="progress-percentage">0%</span>
+                </div>
+              </div>
+            </div>
+            <span class="progress-budget" id="progress-budget">0/100GiB</span>
+          </div>
+        </h2>
+        <div class="traffic-charts">
+          <div class="chart-container">
+            <h4 style="text-align:center;margin:0 0 10px 0;color:#64748b">近30日出站流量</h4>
+            <canvas id="traffic" style="height:300px"></canvas>
+          </div>
+          <div class="chart-container">
+            <h4 style="text-align:center;margin:0 0 10px 0;color:#64748b">近12个月累计流量</h4>
+            <canvas id="monthly-chart" style="height:300px"></canvas>
           </div>
         </div>
       </div>
-      <span class="progress-budget" id="progress-budget">0/100GiB</span>
-    </div>
-  </h2>
-  <div class="traffic-charts">
-    <div class="chart-container">
-      <h4 style="text-align:center;margin:0 0 10px 0;color:#64748b">近30日出站流量</h4>
-      <canvas id="traffic" style="height:300px"></canvas>
-    </div>
-    <div class="chart-container">
-      <h4 style="text-align:center;margin:0 0 10px 0;color:#64748b">近12个月累计流量</h4>
-      <canvas id="monthly-chart" style="height:300px"></canvas>
-    </div>
-  </div>
-</div>
 
-<div class="card">
-  <div class="card-header">
-    <h2>⚙️ 运维管理</h2>
-  </div>
-  <div class="commands-grid">
-    <div class="command-section">
-      <h4>🔧 基础操作</h4>
-      <div class="command-list">
-        <code>edgeboxctl sub</code> <span># 动态生成当前模式下的订阅链接</span><br>
-        <code>edgeboxctl logs &lt;svc&gt;</code> <span># 查看指定服务的实时日志</span><br>
-        <code>edgeboxctl status</code> <span># 查看所有核心服务运行状态</span><br>
-        <code>edgeboxctl restart</code> <span># 安全地重启所有服务</span><br>
-      </div>
-    </div>
+      <!-- 运维管理（来自new5.txt）-->
+      <div class="card">
+        <div class="card-header">
+          <h2>⚙️ 运维管理</h2>
+        </div>
+        <div class="commands-grid">
+          <div class="command-section">
+            <h4>🔧 基础操作</h4>
+            <div class="command-list">
+              <code>edgeboxctl sub</code> <span># 动态生成当前模式下的订阅链接</span><br>
+              <code>edgeboxctl logs &lt;svc&gt;</code> <span># 查看指定服务的实时日志</span><br>
+              <code>edgeboxctl status</code> <span># 查看所有核心服务运行状态</span><br>
+              <code>edgeboxctl restart</code> <span># 安全地重启所有服务</span><br>
+            </div>
+          </div>
 
-    <div class="command-section">
-      <h4>🌐 证书管理</h4>
-      <div class="command-list">
-        <code>edgeboxctl switch-to-domain &lt;your_domain&gt;</code> <span># 切换到域名模式，申请证书</span><br>
-        <code>edgeboxctl switch-to-ip</code> <span># 回退到IP模式，使用自签名证书</span><br>
-        <code>edgeboxctl cert status</code> <span># 检查当前证书的到期日期和类型</span><br>
-        <code>edgeboxctl cert renew</code> <span># 手动续期Let's Encrypt证书</span>
-      </div>
-    </div>
+          <div class="command-section">
+            <h4>🌐 证书管理</h4>
+            <div class="command-list">
+              <code>edgeboxctl switch-to-domain &lt;your_domain&gt;</code> <span># 切换到域名模式，申请证书</span><br>
+              <code>edgeboxctl switch-to-ip</code> <span># 回退到IP模式，使用自签名证书</span><br>
+              <code>edgeboxctl cert status</code> <span># 检查当前证书的到期日期和类型</span><br>
+              <code>edgeboxctl cert renew</code> <span># 手动续期Let's Encrypt证书</span>
+            </div>
+          </div>
 
-    <div class="command-section">
-      <h4>🔀 出站分流</h4>
-      <div class="command-list">
-        <code>edgeboxctl shunt vps</code> <span># 切换至VPS全量出站</span><br>
-        <code>edgeboxctl shunt resi &lt;URL&gt;</code> <span># 配置并切换至住宅IP全量出站</span><br>
-        <code>edgeboxctl shunt direct-resi &lt;URL&gt;</code> <span># 配置并切换至白名单智能分流状态</span><br>
-        <code>edgeboxctl shunt whitelist &lt;add|remove|list&gt;</code> <span># 管理白名单域名</span><br>
-        <code>代理URL格式:</code><br>
-        <code>http://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;</code><br>
-        <code>https://user:pass@&lt;域名&gt;:&lt;端口&gt;?sni=</code><br>
-        <code>socks5://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;</code><br>
-        <code>socks5s://user:pass@&lt;域名&gt;:&lt;端口&gt;?sni=</code><br>
-        <code>示例：edgeboxctl shunt resi 'socks5://user:pass@111.222.333.444:11324'</code> <span># 全栈走住宅</span>
-      </div>
-    </div>
+          <div class="command-section">
+            <h4>🔀 出站分流</h4>
+            <div class="command-list">
+              <code>edgeboxctl shunt vps</code> <span># 切换至VPS全量出站</span><br>
+              <code>edgeboxctl shunt resi &lt;URL&gt;</code> <span># 配置并切换至住宅IP全量出站</span><br>
+              <code>edgeboxctl shunt direct-resi &lt;URL&gt;</code> <span># 配置并切换至白名单智能分流状态</span><br>
+              <code>edgeboxctl shunt whitelist &lt;add|remove|list&gt;</code> <span># 管理白名单域名</span><br>
+              <code>代理URL格式:</code><br>
+              <code>http://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;</code><br>
+              <code>https://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;?sni=</code><br>
+              <code>socks5://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;</code><br>
+              <code>socks5s://user:pass@&lt;域名&gt;:&lt;端口&gt;?sni=</code><br>
+              <code>示例：edgeboxctl shunt resi 'socks5://user:pass@111.222.333.444:11324'</code> <span># 全栈走住宅</span>
+            </div>
+          </div>
 
-         <div class="command-section">
+          <div class="command-section">
             <h4>📊 流量统计与预警</h4>
             <div class="command-list">
               <code>edgeboxctl traffic show</code> <span># 在终端中查看流量统计数据</span><br>
@@ -6058,37 +6337,27 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             </div>
           </div>
 
-    <div class="command-section">
-      <h4>⚙️ 配置管理</h4>
-      <div class="command-list">
-        <code>edgeboxctl config show</code> <span># 显示所有服务的核心配置信息</span><br>
-        <code>edgeboxctl config regenerate-uuid</code> <span># 为所有协议重新生成新的UUID</span><br>
-        <code>edgeboxctl test</code> <span># 测试所有协议的连接是否正常</span><br>
-        <code>edgeboxctl debug-ports</code> <span># 调试关键端口的监听状态</span>
-      </div>
-    </div>
+          <div class="command-section">
+            <h4>⚙️ 配置管理</h4>
+            <div class="command-list">
+              <code>edgeboxctl config show</code> <span># 显示所有服务的核心配置信息</span><br>
+              <code>edgeboxctl config regenerate-uuid</code> <span># 为所有协议重新生成新的UUID</span><br>
+              <code>edgeboxctl test</code> <span># 测试所有协议的连接是否正常</span><br>
+              <code>edgeboxctl debug-ports</code> <span># 调试关键端口的监听状态</span>
+            </div>
+          </div>
 
-    <div class="command-section">
-      <h4>💾 系统维护</h4>
-      <div class="command-list">
-        <code>edgeboxctl update</code> <span># 自动更新EdgeBox脚本和核心组件</span><br>
-        <code>edgeboxctl backup create</code> <span># 手动创建一个系统备份</span><br>
-        <code>edgeboxctl backup list</code> <span># 列出所有可用的备份</span><br>
-        <code>edgeboxctl backup restore &lt;DATE&gt;</code> <span># 恢复到指定日期的备份状态</span>
+          <div class="command-section">
+            <h4>💾 系统维护</h4>
+            <div class="command-list">
+              <code>edgeboxctl update</code> <span># 自动更新EdgeBox脚本和核心组件</span><br>
+              <code>edgeboxctl backup create</code> <span># 手动创建一个系统备份</span><br>
+              <code>edgeboxctl backup list</code> <span># 列出所有可用的备份</span><br>
+              <code>edgeboxctl backup restore &lt;DATE&gt;</code> <span># 恢复到指定日期的备份状态</span>
+            </div>
+          </div>
+        </div>
       </div>
-    </div>
-  </div>
-</div>
-
-<!-- 白名单弹窗 -->
-<div id="whitelistModal" class="modal">
-  <div class="modal-content">
-    <div class="modal-header">
-      <h3>白名单完整列表</h3>
-      <button class="close-btn" data-action="close-modal" data-modal="whitelistModal">×</button>
-    </div>
-    <div class="modal-body">
-      <div id="whitelistList"></div>
     </div>
   </div>
 </div>
@@ -6098,33 +6367,53 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
   <div class="modal-content">
     <div class="modal-header">
       <h3 id="ipqModalTitle">IP质量检测详情</h3>
-      <button class="close-btn" data-action="close-modal" data-modal="ipqModal">×</button>
+      <span class="close-btn" onclick="closeIPQModal()">&times;</span>
     </div>
     <div class="modal-body">
       <div id="ipqDetails"></div>
     </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary" onclick="closeIPQModal()">关闭</button>
+    </div>
   </div>
 </div>
 
-<!-- 配置弹窗保持不变 -->
+<!-- 白名单弹窗 -->
+<div id="whitelistModal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3>白名单完整列表</h3>
+      <span class="close-btn" onclick="closeWhitelistModal()">&times;</span>
+    </div>
+    <div class="modal-body">
+      <div id="whitelistList"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary" onclick="closeWhitelistModal()">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- 客户端配置弹窗 -->
 <div id="configModal" class="modal">
   <div class="modal-content">
     <div class="modal-header">
       <h3 id="configModalTitle">客户端配置详情</h3>
-      <button class="close-btn" data-action="close-modal" data-modal="configModal">×</button>
+      <span class="close-btn" onclick="closeConfigModal()">&times;</span>
     </div>
     <div class="modal-body">
       <div id="configDetails"></div>
     </div>
-    <div class="modal-footer">
-      <button class="btn btn-sm" data-action="copy" data-type="sub">复制订阅地址</button>
-      <button class="btn btn-sm" data-action="copy" data-type="plain">复制明文链接</button>
-      <button class="btn btn-sm" data-action="copy" data-type="json">复制JSON配置</button>
-      <button class="btn btn-sm" data-action="copy" data-type="base64">复制Base64链接</button>
-    </div>
+<div class="modal-footer">
+  <button class="btn btn-sm" onclick="copyPlain()">复制明文链接</button>
+  <button class="btn btn-sm" onclick="copyJSON()">复制JSON配置</button>
+  <button class="btn btn-sm" onclick="copyBase64()">复制Base64链接</button>
+  <button class="btn btn-sm" onclick="copyQRImage()">复制二维码图片</button>
+</div>
   </div>
 </div>
 
+<!-- Chart.js和QRCode库 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="./assets/edgebox-panel.js"></script>
@@ -6132,7 +6421,6 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 </body>
 </html>
 HTML
-
 
 # 设置文件权限
 chmod 644 "${TRAFFIC_DIR}/assets/edgebox-panel.css"
