@@ -5276,67 +5276,59 @@ function renderOverview() {
 }
 
 function renderCertificateAndNetwork() {
-  const cert  = dashboardData.server?.cert || {};
-  const shunt = dashboardData.shunt || {};
+    const cert = dashboardData.server?.cert || {};
+    const shunt = dashboardData.shunt || {};
 
-  // ===== 证书（保持既有结构/样式）=====
-  const certMode = String(cert.mode || 'self-signed').toLowerCase();
-  document.getElementById('cert-self')?.classList.toggle('active', certMode === 'self-signed');
-  document.getElementById('cert-ca')?.classList.toggle('active', certMode.startsWith('letsencrypt'));
-  document.getElementById('cert-type').textContent   = certMode.startsWith('letsencrypt') ? "Let's Encrypt" : "自签名";
-  document.getElementById('cert-domain').textContent = cert.domain || '(无)';
-  document.getElementById('cert-renewal').textContent = certMode.startsWith('letsencrypt') ? '自动' : '手动';
-  document.getElementById('cert-expiry').textContent  = cert.expires_at ? new Date(cert.expires_at).toLocaleDateString() : '—';
+    // Certificate
+    const certMode = safeGet(cert, 'mode', 'self-signed');
+    document.getElementById('cert-self').classList.toggle('active', certMode === 'self-signed');
+    document.getElementById('cert-ca').classList.toggle('active', certMode.startsWith('letsencrypt'));
+    document.getElementById('cert-type').textContent = certMode.startsWith('letsencrypt') ? "Let's Encrypt" : "自签名";
+    document.getElementById('cert-domain').textContent = safeGet(cert, 'domain', '(无)');
+    document.getElementById('cert-renewal').textContent = certMode.startsWith('letsencrypt') ? '自动' : '手动';
+    document.getElementById('cert-expiry').textContent = safeGet(cert, 'expires_at') ? new Date(cert.expires_at).toLocaleDateString() : '—';
 
-  // ===== 出站模式判定（兼容所有历史写法，不动布局样式）=====
-  const raw = String(shunt.mode || 'vps').toLowerCase();
-  // 兼容：vps / proxy / shunt / resi / resi(xray-only) / direct_resi / direct-resi / direct_resi(xray-only) 等
-  let mode = 'vps';
-  if (raw === 'vps' || raw === 'direct') {
-    mode = 'vps';
-  } else if (raw === 'proxy' || (raw.includes('resi') && !raw.includes('direct'))) {
-    mode = 'proxy';
-  } else if (raw === 'shunt' || raw.includes('direct')) {
-    mode = 'shunt';
-  }
-
-  ['net-vps','net-proxy','net-shunt'].forEach(id => document.getElementById(id)?.classList.remove('active'));
-  if (mode === 'vps') {
-    document.getElementById('net-vps')?.classList.add('active');
-  } else if (mode === 'proxy') {
-    document.getElementById('net-proxy')?.classList.add('active');
-  } else {
-    document.getElementById('net-shunt')?.classList.add('active');
-  }
-
-  // ===== 出站信息文本（保持原位，不改样式）=====
-  const vpsIp = dashboardData.server?.eip || dashboardData.server?.server_ip || '—';
-  document.getElementById('vps-ip')?.textContent   = vpsIp;
-  document.getElementById('vps-geo')?.textContent  = dashboardData.system?.geo || '—';
-  document.getElementById('proxy-ip')?.textContent = shunt.proxy_info || '(未配置)';
-  document.getElementById('proxy-geo')?.textContent = shunt.proxy_geo || '—';
-
-  // 这两个分数位如果后端没放到 dashboard.json，就保持“—”
-  document.getElementById('vps-ipq-score')?.textContent   = dashboardData.ipq?.vps?.score ?? '—';
-  document.getElementById('proxy-ipq-score')?.textContent = dashboardData.ipq?.proxy?.score ?? '—';
-
-  // ===== 白名单预览（保留“查看全部”按钮，不改容器/类名）=====
-  const wl = Array.isArray(shunt.whitelist) ? shunt.whitelist : [];
-  const previewEl = document.getElementById('whitelistPreview');
-  if (previewEl) {
-    if (wl.length) {
-      const head = wl.slice(0, 3).join(', ') + (wl.length > 3 ? '...' : '');
-      previewEl.innerHTML = `
-        <div class="whitelist-text">${head}</div>
-        <a href="#" class="ipq-link" data-action="open-modal" data-modal="whitelist">查看全部</a>
-      `;
+    // Network Identity - 完全修复判断逻辑
+    const shuntMode = String(safeGet(shunt, 'mode', 'vps')).toLowerCase();
+    
+    // 清理所有active状态
+    ['net-vps', 'net-proxy', 'net-shunt'].forEach(id => {
+        document.getElementById(id).classList.remove('active');
+    });
+    
+    // 根据mode精确匹配并高亮
+    if (shuntMode === 'vps') {
+        document.getElementById('net-vps').classList.add('active');
+    } else if (shuntMode.includes('resi') && !shuntMode.includes('direct')) {
+        // resi 或 resi(xray-only)
+        document.getElementById('net-proxy').classList.add('active');
+    } else if (shuntMode.includes('direct')) {
+        // direct_resi 或 direct_resi(xray-only)
+        document.getElementById('net-shunt').classList.add('active');
     } else {
-      previewEl.innerHTML = `<div class="whitelist-text">暂无白名单</div>
-        <a href="#" class="ipq-link" data-action="open-modal" data-modal="whitelist">查看全部</a>`;
+        // 默认高亮VPS
+        document.getElementById('net-vps').classList.add('active');
     }
-  }
+    
+    // 更新显示内容
+    document.getElementById('vps-ip').textContent = safeGet(dashboardData, 'server.eip') || safeGet(dashboardData, 'server.server_ip');
+    document.getElementById('proxy-ip').textContent = safeGet(shunt, 'proxy_info', '(未配置)');
+    
+    // Whitelist
+    const whitelist = shunt.whitelist || [];
+    const previewEl = document.getElementById('whitelistPreview');
+    if (previewEl) {
+        if (whitelist.length > 0) {
+            const displayList = whitelist.slice(0, 3).join(', ') + (whitelist.length > 3 ? '...' : '');
+            previewEl.innerHTML = `
+                <div class="whitelist-text">${displayList}</div>
+                <button class="whitelist-more btn btn-sm" data-action="open-modal" data-modal="whitelist">查看全部</button>
+            `;
+        } else {
+            previewEl.innerHTML = `<div class="whitelist-text">暂无白名单</div>`;
+        }
+    }
 }
-
 
 function renderProtocolTable() {
     const protocols = dashboardData.protocols || [];
@@ -5829,107 +5821,24 @@ function setupEventListeners() {
 }
 
 async function showIPQDetails(which) {
-  const modal   = document.getElementById('ipqModal');
+  const modal = document.getElementById('ipqModal');
   const titleEl = document.getElementById('ipqModalTitle');
-  const body    = document.getElementById('ipqDetails');
+  const body = document.getElementById('ipqDetails');
   if (!modal || !titleEl || !body) return;
 
-  const titleMap = { vps: 'VPS IP质量检测详情', proxy: '代理IP质量检测详情' };
+  const titleMap = { vps: 'VPS IP质量检测详情', proxy: '代理 IP质量检测详情' };
   titleEl.textContent = titleMap[which] || 'IP质量检测详情';
   body.innerHTML = '<div class="config-section"><div class="config-code">加载中...</div></div>';
 
-  // 读取目标数据（与 09-20 安装脚本的 edgebox-ipq.sh 对应：/status/ipq_vps.json / ipq_proxy.json）
   const data = await fetchJSON(`/status/ipq_${which}.json`);
-
-  if (data && typeof data === 'object') {
-    const score   = data.score ?? '—';
-    const grade   = data.grade ?? '—';
-    const when    = data.detected_at || data.test_time || '—';
-    const ip      = data.ip || '—';
-    const asn     = data.asn || '—';
-    const isp     = data.isp || '—';
-    const country = data.country || '—';
-    const city    = data.city || '—';
-    const rdns    = data.rdns || '—';
-    const latency = (data.latency !== undefined && data.latency !== null) ? `${data.latency} ms` : '—';
-
-    // 风险标志：兼容 {risk:{proxy,hosting,mobile,...}} 或 notes 数组
-    let riskFlags = [];
-    if (data.risk && typeof data.risk === 'object') {
-      for (const k of ['proxy','hosting','mobile','tor']) {
-        if (data.risk[k] === true) riskFlags.push(k);
-      }
-      if (Array.isArray(data.risk.dnsbl_hits) && data.risk.dnsbl_hits.length) {
-        riskFlags.push(`dnsbl:${data.risk.dnsbl_hits.length}`);
-      }
-    }
-    if (Array.isArray(data.notes) && data.notes.length) {
-      riskFlags = riskFlags.concat(data.notes);
-    }
-    const riskText = riskFlags.length ? riskFlags.join(', ') : '—';
-
-    // 网络类型（尽量还原旧版字段名；没有就从 vantage 推断）
-    const networkType = data.network_type || (data.vantage === 'vps' ? '数据中心 / 自建VPS' :
-                           data.vantage === 'proxy' ? '代理 / 住宅' : '—');
-
-    // 黑名单命中数：优先 risk.dnsbl_hits 长度
-    const blCount = (data.risk && Array.isArray(data.risk.dnsbl_hits)) ? data.risk.dnsbl_hits.length :
-                    (typeof data.blacklist_count === 'number' ? data.blacklist_count : 0);
-
-    body.innerHTML = `
-      <div class="config-section">
-        <h4>总览</h4>
-        <div class="info-item">
-          <label>分数:</label><value>${score} (${grade})</value>
-        </div>
-        <div class="info-item">
-          <label>检测时间:</label><value>${when}</value>
-        </div>
-        <div class="info-item">
-          <label>风险标志:</label><value>${escapeHtml(riskText)}</value>
-        </div>
-      </div>
-
-      <div class="config-section">
-        <h4>身份信息</h4>
-        <div class="info-item">
-          <label>IP地址:</label><value>${ip}</value>
-        </div>
-        <div class="info-item">
-          <label>ASN/ISP:</label><value>${escapeHtml(asn)} / ${escapeHtml(isp)}</value>
-        </div>
-        <div class="info-item">
-          <label>位置:</label><value>${escapeHtml(country)}, ${escapeHtml(city)}</value>
-        </div>
-        <div class="info-item">
-          <label>反向域名:</label><value>${escapeHtml(rdns)}</value>
-        </div>
-      </div>
-
-      <div class="config-section">
-        <h4>质量评估</h4>
-        <div class="info-item">
-          <label>网络类型:</label><value>${escapeHtml(networkType)}</value>
-        </div>
-        <div class="info-item">
-          <label>黑名单:</label><value>${blCount} 个命中</value>
-        </div>
-        <div class="info-item">
-          <label>延迟:</label><value>${latency}</value>
-        </div>
-      </div>
-    `;
+  if (data) {
+    body.innerHTML = '<pre class="config-code" style="white-space:pre-wrap">' + escapeHtml(JSON.stringify(data, null, 2)) + '</pre>';
   } else {
-    // 兜底：没有详情数据时，仍给出上次采集时间
-    const meta = await fetchJSON('/status/ipq_meta.json');
-    const hint = meta && meta.last_run ? `（上次采集：${new Date(meta.last_run).toLocaleString()}）` : '';
-    body.innerHTML = `<div class="config-section"><div class="info-item"><label>状态:</label><value>暂无IP质量数据 ${hint}</value></div></div>`;
+    body.innerHTML = '<div class="text-secondary">暂无数据</div>';
   }
 
   showModal('ipqModal');
 }
-
-
 
 // --- Initialization ---
 
