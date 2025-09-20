@@ -4862,15 +4862,24 @@ body, p, span, td, div {
   padding: 0;
 }
 
-.close-btn {
-  font-size: 24px;
-  cursor: pointer;
-  color: #6b7280;
+/* 统一关闭按钮为正方形 */
+.close-btn{
+  font-size:16px;
+  color:#64748b;
+  cursor:pointer;
+  width:28px; height:28px; line-height:28px;
+  display:inline-flex; align-items:center; justify-content:center;
+  border-radius:6px; /* 轻微圆角的“正方形” */
+  border:1px solid #e5e7eb;
 }
+.close-btn:hover{ background:#f8fafc; color:#0f172a; }
 
-.close-btn:hover {
-  color: #1f2937;
+/* 统一所有“查看详情/查看全部/查看配置”按钮视觉尺寸 */
+.btn-link{
+  background:#fff; border:1px solid #e5e7eb;
+  height:28px; line-height:28px; padding:0 10px;
 }
+.btn-sm{ height:28px; line-height:28px; padding:0 10px; font-size:12px; }
 
 .modal-body {
   padding: 20px;
@@ -5031,6 +5040,8 @@ body, p, span, td, div {
   justify-content: center;
   color: #6b7280;
 }
+
+.qr-container{ display:flex; align-items:center; justify-content:center; padding:8px 0; }
 
 /* 响应式 */
 @media (max-width: 1024px) {
@@ -5311,6 +5322,14 @@ function closeModal(modalId) {
     }
 }
 
+// 点击遮罩（modal 背景）关闭
+window.addEventListener('click', (e)=>{
+  const tgt = e.target;
+  if (tgt && tgt.classList && tgt.classList.contains('modal')) {
+    closeModal(tgt.id);
+  }
+});
+
 function showWhitelistModal() {
     const list = document.getElementById('whitelistList');
     const whitelist = dashboardData.shunt?.whitelist || [];
@@ -5339,18 +5358,38 @@ function showConfigModal(key) {
     const base64  = sub.base64  || (plain ? (plain + (plain.includes('?') ? '&' : '?') + 'format=base64') : '');
     const b64lines= sub.b64_lines || '';
     title.textContent = '整包订阅链接 - 客户端配置详情';
-    details.innerHTML = `
-      <div class="config-section"><h4>明文链接</h4><div class="config-code" id="plain-link">${escapeHtml(plain || '—')}</div></div>
-      <div class="config-section"><h4>Base64链接</h4><div class="config-code" id="base64-link">${escapeHtml(base64 || '—')}</div></div>
-      <div class="config-section"><h4>Base64（分行）</h4><div class="config-code" id="base64-lines" style="white-space:pre-wrap">${escapeHtml(b64lines || '—')}</div></div>
-      <div class="config-section"><h4>二维码</h4><div class="qr-container"></div></div>
-      <div class="config-section"><h4>使用说明</h4><div class="config-help">
-        1. 复制订阅链接导入客户端<br>
-        2. 支持 V2rayN、Clash、Shadowrocket 等主流客户端<br>
-        3. 自签证书需在客户端开启“跳过证书验证”<br>
-        4. UDP 协议（HY2/TUIC）固定走 VPS 直连
-      </div></div>
-    `;
+// 仅替换这个 details.innerHTML 构建块（其它代码都保留）
+details.innerHTML = `
+  <div class="config-section">
+    <h4>明文链接</h4>
+    <div class="config-code" id="plain-link">${escapeHtml(plainLink || '—')}</div>
+  </div>
+
+  <div class="config-section">
+    <h4>JSON配置</h4>
+    <div class="config-code" id="json-code">—</div>
+  </div>
+
+  <div class="config-section">
+    <h4>Base64链接</h4>
+    <div class="config-code" id="base64-link">${escapeHtml(base64Link || '—')}</div>
+  </div>
+
+  <div class="config-section">
+    <h4>二维码</h4>
+    <div class="qr-container"><div id="qrcode"></div></div>
+  </div>
+
+  <div class="config-section">
+    <h4>使用说明</h4>
+    <div class="config-help">
+      1. 复制订阅链接导入客户端<br>
+      2. 支持 V2rayN、Clash、Shadowrocket 等主流客户端<br>
+      3. 自签证书需在客户端开启“跳过证书验证”<br>
+      4. UDP 协议（HY2/TUIC）固定走 VPS 直连
+    </div>
+  </div>
+`;
     if (plain && window.QRCode) {
       new QRCode(qrWrap, { text: plain, width: 256, height: 256, colorDark: "#000", colorLight: "#fff", correctLevel: QRCode.CorrectLevel.H });
     }
@@ -5573,14 +5612,14 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
               <div class="info-item"><label>公网身份:</label><value>直连</value></div>
               <div class="info-item"><label>VPS出站IP:</label><value id="vps-ip">—</value></div>
               <div class="info-item"><label>Geo:</label><value id="vps-geo">—</value></div>
-              <div class="info-item"><label>IP质量:</label><value><span id="vps-ipq-score">—</span><a href="#" class="link" data-action="open-modal" data-modal="ipq" data-ipq="vps">详情</a></value></div>
+              <div class="info-item"><label>IP质量:</label><value><span id="vps-ipq-score">—</span><a href="#" class="link" data-action="open-modal" data-modal="ipq" data-ipq="vps">查看详情</a></value></div>
             </div>
             <div class="network-block" id="net-proxy">
               <h3>🔄 代理出站IP</h3>
               <div class="info-item"><label>代理身份:</label><value>全代理</value></div>
               <div class="info-item"><label>代理IP:</label><value id="proxy-ip">—</value></div>
               <div class="info-item"><label>Geo:</label><value id="proxy-geo">—</value></div>
-              <div class="info-item"><label>IP质量:</label><value><span id="proxy-ipq-score">—</span><a href="#" class="link" data-action="open-modal" data-modal="ipq" data-ipq="proxy">详情</a></value></div>
+              <div class="info-item"><label>IP质量:</label><value><span id="proxy-ipq-score">—</span><a href="#" class="link" data-action="open-modal" data-modal="ipq" data-ipq="proxy">查看详情</a></value></div>
             </div>
             <div class="network-block" id="net-shunt">
               <h3>🔀 分流出站</h3>
@@ -5667,17 +5706,21 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
       </div>
     </div>
 
-    <div class="command-section">
-      <h4>📊 流量与预警</h4>
-      <div class="command-list">
-        <code>edgeboxctl traffic stat</code> <span># 查看近 30 天/12 个月累计流量</span><br>
-        <code>edgeboxctl alert budget &lt;GiB&gt;</code> <span># 设置月度预算</span><br>
-        <code>edgeboxctl alert telegram &lt;BOT:CHAT&gt;</code> <span># 配置 Telegram 预警</span><br>
-        <code>edgeboxctl alert discord &lt;WEBHOOK&gt;</code> <span># 配置 Discord 预警</span><br>
-        <code>edgeboxctl alert webhook [raw|slack|discord]</code> <span># 配置通用Webhook</span><br>
-        <code>edgeboxctl alert test</code> <span># 测试预警系统</span>
-      </div>
-    </div>
+         <div class="command-section">
+            <h4>📊 流量统计与预警</h4>
+            <div class="command-list">
+              <code>edgeboxctl traffic show</code> <span># 在终端中查看流量统计数据</span><br>
+              <code>edgeboxctl traffic reset</code> <span># 重置流量计数器</span><br>
+              <code>edgeboxctl alert &lt;command&gt;</code> <span># 管理流量预警设置</span><br>
+              <code>edgeboxctl alert monthly</code> <span># 设置月度阈值</span><br>
+              <code>edgeboxctl alert steps 30,60,90</code> <span># 设置预警阈值</span><br>
+              <code>edgeboxctl alert telegram &lt;bot_token&gt; &lt;chat_id&gt;</code> <span># 配置Telegram机器人</span><br>
+              <code>edgeboxctl alert discord &lt;webhook_url&gt;</code> <span># 配置Discord通知</span><br>
+              <code>edgeboxctl alert wechat &lt;pushplus_token&gt;</code> <span># 配置微信通知</span><br>
+              <code>edgeboxctl alert webhook [raw|slack|discord]</code> <span># 配置通用Webhook</span><br>
+              <code>edgeboxctl alert test</code> <span># 测试预警系统</span>
+            </div>
+          </div>
 
     <div class="command-section">
       <h4>⚙️ 配置管理</h4>
