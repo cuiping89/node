@@ -5620,7 +5620,27 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 
 <div id="whitelistModal" class="modal"><div class="modal-content"><div class="modal-header"><h3>白名单完整列表</h3><span class="close-btn" data-action="close-modal" data-modal="whitelistModal">×</span></div><div class="modal-body"><div id="whitelistList"></div></div></div></div>
 <div id="ipqModal" class="modal"><div class="modal-content"><div class="modal-header"><h3 id="ipqModalTitle">IP质量检测详情</h3><span class="close-btn" data-action="close-modal" data-modal="ipqModal">×</span></div><div class="modal-body"><div id="ipqDetails"></div></div></div></div>
-<div id="configModal" class="modal"><div class="modal-content"><div class="modal-header"><h3 id="configModalTitle">配置详情</h3><span class="close-btn" data-action="close-modal" data-modal="configModal">×</span></div><div class="modal-body"><div id="configDetails"></div></div><div class="modal-footer"><button class="btn btn-sm btn-secondary" data-action="copy" data-type="sub">复制订阅地址</button><button class="btn btn-sm btn-secondary" data-action="copy" data-type="plain">复制明文</button><button class="btn btn-sm btn-secondary" data-action="copy" data-type="json">复制JSON</button><button class="btn btn-sm btn-secondary" data-action="copy" data-type="base64">复制Base64</button></div></div></div>
+
+<div id="configModal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3 id="configModalTitle">配置详情</h3>
+      <span class="close-btn" data-action="close-modal" data-modal="configModal">×</span>
+    </div>
+    <div class="modal-body">
+      <div id="configDetails"></div>
+      <div class="qr-container">
+        <div id="qrcode"></div>  <!-- 关键：添加QR码容器 -->
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-sm btn-secondary" data-action="copy" data-type="sub">复制订阅地址</button>
+      <button class="btn btn-sm btn-secondary" data-action="copy" data-type="plain">复制明文</button>
+      <button class="btn btn-sm btn-secondary" data-action="copy" data-type="json">复制JSON</button>
+      <button class="btn btn-sm btn-secondary" data-action="copy" data-type="base64">复制Base64</button>
+    </div>
+  </div>
+</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
