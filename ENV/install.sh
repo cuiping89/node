@@ -5105,7 +5105,7 @@ EXTERNAL_CSS
 
 cat > "${TRAFFIC_DIR}/assets/edgebox-panel.js" <<'EXTERNAL_JS'
 // =================================================================
-// EdgeBox Panel v3.0 - Refactored JavaScript with Event Delegation
+// EdgeBox Panel v3.0 - Fixed JavaScript 
 // =================================================================
 
 // --- Global State ---
@@ -5114,6 +5114,23 @@ let trafficData = {};
 let systemData = {};
 let overviewTimer = null;
 const GiB = 1024 ** 3;
+
+// --- Chart.js Y轴单位插件 ---
+const ebYAxisUnitTop = {
+  id: 'ebYAxisUnitTop',
+  afterDraw: (chart) => {
+    const ctx = chart.ctx;
+    const yAxis = chart.scales.y;
+    if (!yAxis) return;
+    
+    ctx.save();
+    ctx.font = '11px sans-serif';
+    ctx.fillStyle = '#6b7280';
+    ctx.textAlign = 'center';
+    ctx.fillText('GiB', yAxis.left / 2, yAxis.top - 5);
+    ctx.restore();
+  }
+};
 
 // --- Utility Functions ---
 async function fetchJSON(url) {
@@ -5184,11 +5201,17 @@ function renderOverview() {
     const version = safeGet(services, `${svc}.version`, '');
     const badge = document.getElementById(`${svc}-status`);
     const versionEl = document.getElementById(`${svc}-version`);
-    if (badge) {
-      badge.textContent = status === 'active' ? '运行中' : '已停止';
-      badge.className = status === 'active' ? 'status-badge status-running' : 'status-badge';
+    
+    // 修复sing-box的ID映射
+    const elementId = svc === 'sing-box' ? 'singbox' : svc;
+    const actualBadge = document.getElementById(`${elementId}-status`);
+    const actualVersion = document.getElementById(`${elementId}-version`);
+    
+    if (actualBadge) {
+      actualBadge.textContent = status === 'active' ? '运行中' : '已停止';
+      actualBadge.className = status === 'active' ? 'status-badge status-running' : 'status-badge';
     }
-    if (versionEl) versionEl.textContent = version;
+    if (actualVersion) actualVersion.textContent = version;
   });
 
   // Footer Info
@@ -5210,23 +5233,45 @@ function renderCertificateAndNetwork() {
     document.getElementById('cert-renewal').textContent = certMode.startsWith('letsencrypt') ? '自动' : '手动';
     document.getElementById('cert-expiry').textContent = safeGet(cert, 'expires_at') ? new Date(cert.expires_at).toLocaleDateString() : '—';
 
-    // Network Identity
-    const shuntMode = safeGet(shunt, 'mode', 'vps');
-    document.getElementById('net-vps').classList.toggle('active', shuntMode === 'vps');
-    document.getElementById('net-proxy').classList.toggle('active', shuntMode.includes('resi'));
-    document.getElementById('net-shunt').classList.toggle('active', shuntMode.includes('direct'));
+    // Network Identity - 完全修复判断逻辑
+    const shuntMode = String(safeGet(shunt, 'mode', 'vps')).toLowerCase();
     
+    // 清理所有active状态
+    ['net-vps', 'net-proxy', 'net-shunt'].forEach(id => {
+        document.getElementById(id).classList.remove('active');
+    });
+    
+    // 根据mode精确匹配并高亮
+    if (shuntMode === 'vps') {
+        document.getElementById('net-vps').classList.add('active');
+    } else if (shuntMode.includes('resi') && !shuntMode.includes('direct')) {
+        // resi 或 resi(xray-only)
+        document.getElementById('net-proxy').classList.add('active');
+    } else if (shuntMode.includes('direct')) {
+        // direct_resi 或 direct_resi(xray-only)
+        document.getElementById('net-shunt').classList.add('active');
+    } else {
+        // 默认高亮VPS
+        document.getElementById('net-vps').classList.add('active');
+    }
+    
+    // 更新显示内容
     document.getElementById('vps-ip').textContent = safeGet(dashboardData, 'server.eip') || safeGet(dashboardData, 'server.server_ip');
-    document.getElementById('proxy-ip').textContent = safeGet(shunt, 'proxy_info');
+    document.getElementById('proxy-ip').textContent = safeGet(shunt, 'proxy_info', '(未配置)');
     
     // Whitelist
     const whitelist = shunt.whitelist || [];
     const previewEl = document.getElementById('whitelistPreview');
     if (previewEl) {
-        previewEl.innerHTML = `
-            <div class="whitelist-text">${whitelist.join(', ')}</div>
-            <div class="whitelist-more" data-action="open-modal" data-modal="whitelist">查看全部</div>
-        `;
+        if (whitelist.length > 0) {
+            const displayList = whitelist.slice(0, 3).join(', ') + (whitelist.length > 3 ? '...' : '');
+            previewEl.innerHTML = `
+                <div class="whitelist-text">${displayList}</div>
+                <button class="whitelist-more btn btn-sm" data-action="open-modal" data-modal="whitelist">查看全部</button>
+            `;
+        } else {
+            previewEl.innerHTML = `<div class="whitelist-text">暂无白名单</div>`;
+        }
     }
 }
 
@@ -5261,6 +5306,30 @@ function renderProtocolTable() {
 function renderTrafficCharts() {
     if (!trafficData || !window.Chart) return;
     
+    // Traffic progress bar
+    const monthly = trafficData.monthly || [];
+    const currentMonth = new Date().toISOString().slice(0, 7);
+    const thisMonth = monthly.find(m => m.month === currentMonth);
+    
+    if (thisMonth) {
+        const budget = 100; // GiB
+        const used = (thisMonth.total || 0) / GiB;
+        const percentage = Math.min(100, Math.round((used / budget) * 100));
+        
+        const fillEl = document.getElementById('progress-fill');
+        const pctEl = document.getElementById('progress-percentage');
+        const budgetEl = document.getElementById('progress-budget');
+        
+        if (fillEl) {
+            fillEl.style.width = `${percentage}%`;
+            if (percentage >= 90) fillEl.style.background = '#ef4444';
+            else if (percentage >= 60) fillEl.style.background = '#f59e0b';
+            else fillEl.style.background = '#10b981';
+        }
+        if (pctEl) pctEl.textContent = `${percentage}%`;
+        if (budgetEl) budgetEl.textContent = `${used.toFixed(1)}/${budget}GiB`;
+    }
+    
     // Clear existing charts
     ['traffic', 'monthly-chart'].forEach(id => {
         const chartInstance = Chart.getChart(id);
@@ -5268,7 +5337,6 @@ function renderTrafficCharts() {
     });
 
     const daily = trafficData.last30d || [];
-    const monthly = trafficData.monthly || [];
 
     // 30-day Chart
     if (daily.length) {
@@ -5322,11 +5390,10 @@ function closeModal(modalId) {
     }
 }
 
-// 点击遮罩（modal 背景）关闭
-window.addEventListener('click', (e)=>{
-  const tgt = e.target;
-  if (tgt && tgt.classList && tgt.classList.contains('modal')) {
-    closeModal(tgt.id);
+// 点击遮罩关闭
+window.addEventListener('click', (e) => {
+  if (e.target && e.target.classList && e.target.classList.contains('modal')) {
+    closeModal(e.target.id);
   }
 });
 
@@ -5341,94 +5408,287 @@ function showWhitelistModal() {
     showModal('whitelistModal');
 }
 
+// 完整修复的showConfigModal函数
 function showConfigModal(key) {
-  const modal   = document.getElementById('configModal');
-  const title   = document.getElementById('configModalTitle');
+  const modal = document.getElementById('configModal');
+  const title = document.getElementById('configModalTitle');
   const details = document.getElementById('configDetails');
-  const qrWrap  = document.getElementById('qrcode');
-  if (!modal || !title || !details || !qrWrap) return;
+  if (!modal || !title || !details) return;
 
-  // reset
+  // 清空内容
   details.innerHTML = '';
-  qrWrap.innerHTML = '';
 
   if (key === '__SUBS__') {
-    const sub = (dashboardData && dashboardData.subscription) || {};
-    const plain   = sub.plain   || (dashboardData && dashboardData.subscription_url) || '';
-    const base64  = sub.base64  || (plain ? (plain + (plain.includes('?') ? '&' : '?') + 'format=base64') : '');
-    const b64lines= sub.b64_lines || '';
+    // 整包订阅
+    const sub = dashboardData.subscription || {};
+    const plainLinks = sub.plain || '';
+    const base64All = sub.base64 || '';
+    const base64Lines = sub.b64_lines || '';
+    const subUrl = dashboardData.subscription_url || `http://${dashboardData.server?.server_ip}/sub`;
+    
     title.textContent = '整包订阅链接 - 客户端配置详情';
-// 仅替换这个 details.innerHTML 构建块（其它代码都保留）
-details.innerHTML = `
-  <div class="config-section">
-    <h4>明文链接</h4>
-    <div class="config-code" id="plain-link">${escapeHtml(plainLink || '—')}</div>
-  </div>
-
-  <div class="config-section">
-    <h4>JSON配置</h4>
-    <div class="config-code" id="json-code">—</div>
-  </div>
-
-  <div class="config-section">
-    <h4>Base64链接</h4>
-    <div class="config-code" id="base64-link">${escapeHtml(base64Link || '—')}</div>
-  </div>
-
-  <div class="config-section">
-    <h4>二维码</h4>
-    <div class="qr-container"><div id="qrcode"></div></div>
-  </div>
-
-  <div class="config-section">
-    <h4>使用说明</h4>
-    <div class="config-help">
-      1. 复制订阅链接导入客户端<br>
-      2. 支持 V2rayN、Clash、Shadowrocket 等主流客户端<br>
-      3. 自签证书需在客户端开启“跳过证书验证”<br>
-      4. UDP 协议（HY2/TUIC）固定走 VPS 直连
-    </div>
-  </div>
-`;
-    if (plain && window.QRCode) {
-      new QRCode(qrWrap, { text: plain, width: 256, height: 256, colorDark: "#000", colorLight: "#fff", correctLevel: QRCode.CorrectLevel.H });
-    }
-  } else {
-    const protocols = (dashboardData && dashboardData.protocols) || [];
-    const p = protocols.find(x => x.name === key);
-    if (!p) return notify('未找到该协议配置', 'warn');
-    title.textContent = `${p.name} - 客户端配置详情`;
-    const plain  = p.plain || p.share_link || '';
-    const json   = p.json ? JSON.stringify(p.json, null, 2) : (p.config_json ? JSON.stringify(p.config_json, null, 2) : '');
-    const base64 = p.base64 || '';
+    
     details.innerHTML = `
-      <div class="config-section"><h4>明文链接</h4><div class="config-code" id="plain-link">${escapeHtml(plain || '—')}</div></div>
-      <div class="config-section"><h4>JSON配置</h4><div class="config-code" id="json-code">${escapeHtml(json || '—')}</div></div>
-      <div class="config-section"><h4>Base64链接</h4><div class="config-code" id="base64-link">${escapeHtml(base64 || '—')}</div></div>
-      <div class="config-section"><h4>二维码</h4><div class="qr-container"></div></div>
-      <div class="config-section"><h4>使用说明</h4><div class="config-help">
-        1. 优先复制“明文链接”导入<br>
-        2. 无法导入时使用 JSON 或 Base64<br>
-        3. 二维码可用于移动端扫码导入<br>
-        4. 若连不上，请检查防火墙、端口与证书
-      </div></div>
+      <div class="config-section">
+        <h4>订阅地址</h4>
+        <div class="config-code" id="sub-url">${escapeHtml(subUrl)}</div>
+      </div>
+      
+      <div class="config-section">
+        <h4>明文链接（6个协议）</h4>
+        <div class="config-code" id="plain-link" style="white-space: pre-wrap;">${escapeHtml(plainLinks)}</div>
+      </div>
+
+      <div class="config-section">
+        <h4>Base64编码（整包）</h4>
+        <div class="config-code" id="base64-link" style="word-break: break-all;">${escapeHtml(base64All)}</div>
+      </div>
+
+      <div class="config-section">
+        <h4>Base64编码（逐行）</h4>
+        <div class="config-code" id="b64lines-link" style="white-space: pre-wrap;">${escapeHtml(base64Lines)}</div>
+      </div>
+
+      <div class="config-section">
+        <h4>二维码</h4>
+        <div class="qr-container" id="qrcode"></div>
+      </div>
+
+      <div class="config-section">
+        <h4>使用说明</h4>
+        <div class="config-help">
+          1. 推荐复制"订阅地址"到客户端订阅功能<br>
+          2. 或复制"明文链接"逐个导入<br>
+          3. 支持 V2rayN、Clash、Shadowrocket、Surge 等主流客户端<br>
+          4. 自签证书需在客户端开启"跳过证书验证"<br>
+          5. UDP协议（Hysteria2/TUIC）固定走VPS直连
+        </div>
+      </div>
     `;
-    if (plain && window.QRCode) {
-      new QRCode(qrWrap, { text: plain, width: 256, height: 256, colorDark: "#000", colorLight: "#fff", correctLevel: QRCode.CorrectLevel.H });
+    
+    // 生成订阅地址的二维码
+    setTimeout(() => {
+      const qrEl = document.getElementById('qrcode');
+      if (qrEl && subUrl && window.QRCode) {
+        qrEl.innerHTML = '';
+        new QRCode(qrEl, {
+          text: subUrl,
+          width: 256,
+          height: 256,
+          colorDark: "#000000",
+          colorLight: "#ffffff",
+          correctLevel: QRCode.CorrectLevel.H
+        });
+      }
+    }, 100);
+    
+  } else {
+    // 单个协议
+    const protocols = dashboardData.protocols || [];
+    const protocol = protocols.find(p => p.name === key);
+    if (!protocol) {
+      notify('未找到协议配置', 'warn');
+      return;
     }
+    
+    title.textContent = `${protocol.name} - 客户端配置详情`;
+    
+    const shareLink = protocol.share_link || '';
+    const jsonConfig = generateProtocolJSON(protocol);
+    const base64Link = shareLink ? btoa(shareLink) : '';
+    
+    details.innerHTML = `
+      <div class="config-section">
+        <h4>明文链接</h4>
+        <div class="config-code" id="plain-link" style="word-break: break-all;">${escapeHtml(shareLink)}</div>
+      </div>
+
+      <div class="config-section">
+        <h4>JSON配置（V2ray格式）</h4>
+        <div class="config-code" id="json-code" style="white-space: pre-wrap;">${escapeHtml(jsonConfig)}</div>
+      </div>
+
+      <div class="config-section">
+        <h4>Base64编码</h4>
+        <div class="config-code" id="base64-link" style="word-break: break-all;">${escapeHtml(base64Link)}</div>
+      </div>
+
+      <div class="config-section">
+        <h4>二维码</h4>
+        <div class="qr-container" id="qrcode"></div>
+      </div>
+
+      <div class="config-section">
+        <h4>使用说明</h4>
+        <div class="config-help">
+          协议: ${protocol.name}<br>
+          端口: ${protocol.port} (${protocol.network})<br>
+          场景: ${protocol.scenario}<br>
+          伪装: ${protocol.camouflage}<br>
+          <br>
+          1. 复制"明文链接"导入客户端<br>
+          2. 或使用JSON配置手动添加<br>
+          3. 移动端可扫描二维码导入
+        </div>
+      </div>
+    `;
+    
+    // 生成二维码
+    setTimeout(() => {
+      const qrEl = document.getElementById('qrcode');
+      if (qrEl && shareLink && window.QRCode) {
+        qrEl.innerHTML = '';
+        new QRCode(qrEl, {
+          text: shareLink,
+          width: 256,
+          height: 256,
+          colorDark: "#000000",
+          colorLight: "#ffffff",
+          correctLevel: QRCode.CorrectLevel.H
+        });
+      }
+    }, 100);
   }
 
-  // 显示弹窗
-  modal.style.display = 'block';
+  showModal('configModal');
+}
+
+// 生成协议JSON配置
+function generateProtocolJSON(protocol) {
+  const server = dashboardData.server || {};
+  const secrets = dashboardData.secrets || {};
+  const serverIp = server.server_ip || '127.0.0.1';
+  
+  try {
+    switch(protocol.name) {
+      case 'VLESS-Reality':
+        return JSON.stringify({
+          "v": "2",
+          "ps": "EdgeBox-REALITY",
+          "add": serverIp,
+          "port": 443,
+          "id": secrets.vless?.reality || '',
+          "aid": 0,
+          "net": "tcp",
+          "type": "none",
+          "tls": "reality",
+          "sni": "www.cloudflare.com",
+          "fp": "chrome",
+          "pbk": secrets.reality?.public_key || '',
+          "sid": secrets.reality?.short_id || '',
+          "flow": "xtls-rprx-vision"
+        }, null, 2);
+        
+      case 'VLESS-gRPC':
+        return JSON.stringify({
+          "v": "2",
+          "ps": "EdgeBox-gRPC",
+          "add": serverIp,
+          "port": 443,
+          "id": secrets.vless?.grpc || secrets.vless?.reality || '',
+          "aid": 0,
+          "net": "grpc",
+          "type": "none",
+          "tls": "tls",
+          "sni": server.cert?.domain || "grpc.edgebox.internal",
+          "alpn": "h2",
+          "path": "grpc"
+        }, null, 2);
+        
+      case 'VLESS-WebSocket':
+        return JSON.stringify({
+          "v": "2",
+          "ps": "EdgeBox-WS",
+          "add": serverIp,
+          "port": 443,
+          "id": secrets.vless?.ws || secrets.vless?.reality || '',
+          "aid": 0,
+          "net": "ws",
+          "type": "none",
+          "tls": "tls",
+          "sni": server.cert?.domain || "ws.edgebox.internal",
+          "path": "/ws"
+        }, null, 2);
+        
+      case 'Trojan-TLS':
+        return JSON.stringify({
+          "type": "trojan",
+          "tag": "EdgeBox-TROJAN",
+          "server": serverIp,
+          "server_port": 443,
+          "password": secrets.password?.trojan || '',
+          "tls": {
+            "enabled": true,
+            "server_name": server.cert?.domain || "trojan.edgebox.internal",
+            "insecure": true
+          }
+        }, null, 2);
+        
+      case 'Hysteria2':
+        return JSON.stringify({
+          "type": "hysteria2",
+          "tag": "EdgeBox-HYSTERIA2",
+          "server": serverIp,
+          "server_port": 443,
+          "password": secrets.password?.hysteria2 || '',
+          "tls": {
+            "enabled": true,
+            "server_name": server.cert?.domain || serverIp,
+            "insecure": true,
+            "alpn": ["h3"]
+          }
+        }, null, 2);
+        
+      case 'TUIC':
+        return JSON.stringify({
+          "type": "tuic",
+          "tag": "EdgeBox-TUIC",
+          "server": serverIp,
+          "server_port": 2053,
+          "uuid": secrets.tuic_uuid || '',
+          "password": secrets.password?.tuic || '',
+          "congestion_control": "bbr",
+          "tls": {
+            "enabled": true,
+            "server_name": server.cert?.domain || serverIp,
+            "insecure": true,
+            "alpn": ["h3"]
+          }
+        }, null, 2);
+        
+      default:
+        return '{}';
+    }
+  } catch (e) {
+    console.error('生成JSON配置失败:', e);
+    return '{}';
+  }
 }
 
 async function copyText(text) {
-    if (!text) return notify('没有可复制的内容', 'warn');
+    if (!text || text === '—') {
+        notify('没有可复制的内容', 'warn');
+        return;
+    }
+    
     try {
         await navigator.clipboard.writeText(text);
         notify('已复制到剪贴板');
     } catch (e) {
-        notify('复制失败', 'warn');
+        // Fallback方法
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        try {
+            document.execCommand('copy');
+            notify('已复制到剪贴板');
+        } catch (err) {
+            notify('复制失败，请手动复制', 'warn');
+        }
+        document.body.removeChild(textarea);
     }
 }
 
@@ -5445,15 +5705,12 @@ async function refreshAllData() {
     if (sys) systemData = sys;
     if (traf) trafficData = traf;
     
-    window.dashboardData = dashboardData; // Expose for debugging
+    window.dashboardData = dashboardData; // For debugging
 
     renderOverview();
     renderCertificateAndNetwork();
     renderProtocolTable();
-    // Only render charts once on initial load to avoid flicker
-    if (!Chart.getChart('traffic') && !Chart.getChart('monthly-chart')) {
-        renderTrafficCharts();
-    }
+    renderTrafficCharts();
 }
 
 function setupEventListeners() {
@@ -5466,32 +5723,35 @@ function setupEventListeners() {
     switch (action) {
       case 'open-modal': {
         if (modal === 'whitelist') return showWhitelistModal();
-        if (modal === 'config')    return showConfigModal(protocol || '__SUBS__');
-        if (modal === 'ipq')       return showIPQDetails(ipq || 'vps');
+        if (modal === 'config') return showConfigModal(protocol || '__SUBS__');
+        if (modal === 'ipq') return showIPQDetails(ipq || 'vps');
         break;
       }
       case 'close-modal': {
-        if (modal) closeModal(modal); // modal 传入对应的 id
+        if (modal) closeModal(modal);
         break;
       }
       case 'copy': {
-        // 从配置弹窗里的具体块复制
-        const plainEl  = document.getElementById('plain-link');
-        const jsonEl   = document.getElementById('json-code');
+        const subUrlEl = document.getElementById('sub-url');
+        const plainEl = document.getElementById('plain-link');
+        const jsonEl = document.getElementById('json-code');
         const base64El = document.getElementById('base64-link');
+        const b64linesEl = document.getElementById('b64lines-link');
 
-        if (type === 'plain'  && plainEl)  return copyText(plainEl.textContent.trim());
-        if (type === 'json'   && jsonEl)   return copyText(jsonEl.textContent.trim());
+        if (type === 'sub' && subUrlEl) return copyText(subUrlEl.textContent.trim());
+        if (type === 'plain' && plainEl) return copyText(plainEl.textContent.trim());
+        if (type === 'json' && jsonEl) return copyText(jsonEl.textContent.trim());
         if (type === 'base64' && base64El) return copyText(base64El.textContent.trim());
+        if (type === 'b64lines' && b64linesEl) return copyText(b64linesEl.textContent.trim());
         if (type === 'qr') {
           const canvas = document.querySelector('#qrcode canvas');
           if (canvas && canvas.toBlob) {
             canvas.toBlob(async (blob) => {
               try {
-                await navigator.clipboard.write([ new ClipboardItem({ [blob.type]: blob }) ]);
-                notify('二维码图片已复制', 'ok');
+                await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
+                notify('二维码已复制');
               } catch {
-                notify('复制失败，请右键二维码另存为', 'warn');
+                notify('请右键保存二维码', 'warn');
               }
             });
           } else {
@@ -5506,9 +5766,9 @@ function setupEventListeners() {
 }
 
 async function showIPQDetails(which) {
-  const modal   = document.getElementById('ipqModal');
+  const modal = document.getElementById('ipqModal');
   const titleEl = document.getElementById('ipqModalTitle');
-  const body    = document.getElementById('ipqDetails');
+  const body = document.getElementById('ipqDetails');
   if (!modal || !titleEl || !body) return;
 
   const titleMap = { vps: 'VPS IP质量检测详情', proxy: '代理 IP质量检测详情' };
@@ -5522,16 +5782,13 @@ async function showIPQDetails(which) {
     body.innerHTML = '<div class="text-secondary">暂无数据</div>';
   }
 
-  modal.style.display = 'block';
+  showModal('ipqModal');
 }
 
 // --- Initialization ---
 
 document.addEventListener('DOMContentLoaded', () => {
-    refreshAllData().then(() => {
-        // Initial chart render after first data load
-        renderTrafficCharts();
-    });
+    refreshAllData();
     
     // Set up periodic refresh
     overviewTimer = setInterval(refreshAllData, 30000); // 30 seconds
