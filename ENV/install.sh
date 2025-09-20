@@ -5146,8 +5146,12 @@ const ebYAxisUnitTop = {
 Chart.register(ebYAxisUnitTop);
 
 //更新系统概览
-function updateDashboard(data) {
+async function updateSystemOverview() {
+  const data = await fetchJSON('/traffic/dashboard.json');
   if (!data) return;
+  
+  // 保存到全局变量（关键！）
+  window.dashboardData = data;
   
   // 更新服务器信息
   if (data.server) {
@@ -5743,106 +5747,59 @@ async function copyQRImage(){
 let _overviewTimer = null;
 
 async function init() {
-  // 获取并保存dashboard数据到全局变量
-  const data = await fetchJSON('/traffic/dashboard.json');
-  if (data) {
-    window.dashboardData = data;
-    // 更新所有UI元素
-    updateDashboard(data);
-  }
-  
-  // 获取并渲染流量数据
+  await updateSystemOverview();  // 调用原函数名
   const trafficData = await fetchJSON('/traffic/traffic.json');
-  if (trafficData) {
-    renderTraffic(trafficData);
-  }
-  
-  // 启动定时更新
-  _overviewTimer = setInterval(async () => {
-    const newData = await fetchJSON('/traffic/dashboard.json');
-    if (newData) {
-      window.dashboardData = newData;
-      updateDashboard(newData);
-    }
-  }, 30000);
-  
+  if (trafficData) renderTraffic(trafficData);
+
+  _overviewTimer = setInterval(updateSystemOverview, 30000);  // 使用原函数名
   setInterval(updateProgressBar, 3600000);
 }
 
 // === 修复协议配置弹窗的事件委托绑定 ===
-(function initEventDelegation() {
-  // 等待DOM加载完成
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initEventDelegation);
+(function bindProtocolViewHandler(){
+  const tbody = document.getElementById('protocol-tbody');
+  if (!tbody) {
+    console.error('protocol-tbody not found');
     return;
   }
   
-  // 使用单一的事件委托处理器处理所有按钮点击
-  document.body.addEventListener('click', function(e) {
-    const target = e.target.closest('button[data-action], button[data-protocol], [data-modal]');
-    if (!target) return;
+  // 防止重复绑定
+  if (tbody.__viewBound) {
+    console.log('Protocol view handler already bound');
+    return;
+  }
+
+  tbody.addEventListener('click', (e) => {
+    // 查找最近的带有data-protocol属性的按钮
+    const btn = e.target.closest('button[data-protocol]');
+    if (!btn || !tbody.contains(btn)) return;
     
     e.preventDefault();
     e.stopPropagation();
     
-    // 处理协议配置按钮
-    if (target.dataset.protocol) {
-      console.log('[Event] Protocol config clicked:', target.dataset.protocol);
-      showConfigModal(target.dataset.protocol);
+    const protocolName = btn.dataset.protocol;
+    if (!protocolName) {
+      console.warn('[protocol] missing data-protocol attribute', btn);
+      return;
     }
     
-    // 处理其他操作按钮
-    else if (target.dataset.action) {
-      console.log('[Event] Action clicked:', target.dataset.action);
-      
-      switch(target.dataset.action) {
-        case 'copy-subscription':
-          const url = target.dataset.subscriptionUrl || dashboardData?.subscription_url;
-          if (url) copyToClipboard(url);
-          break;
-          
-        case 'view-subscription':
-          showConfigModal('__SUBS__');
-          break;
-          
-        case 'view-whitelist':
-          showWhitelistModal();
-          break;
-          
-        case 'view-ipq':
-          const type = target.dataset.ipqType;
-          if (type) showIPQDetails(type);
-          break;
-          
-        case 'close-modal':
-          const modalId = target.dataset.modalId;
-          if (modalId) {
-            document.getElementById(modalId).style.display = 'none';
-            unlockScroll();
-          }
-          break;
-      }
-    }
+    console.log('[protocol] button clicked:', protocolName);
     
-    // 处理模态框触发器
-    else if (target.dataset.modal) {
-      const modal = document.getElementById(target.dataset.modal);
-      if (modal) {
-        modal.style.display = 'block';
-        lockScroll();
+    // 调用弹窗显示函数
+    try {
+      showConfigModal(protocolName);
+    } catch (error) {
+      console.error('[protocol] showConfigModal failed:', error);
+      if (window.notify) {
+        notify('打开配置弹窗失败', 'warn');
+      } else {
+        alert('打开配置弹窗失败');
       }
     }
   });
-  
-  // 点击模态框背景关闭
-  document.addEventListener('click', function(e) {
-    if (e.target.classList.contains('modal')) {
-      e.target.style.display = 'none';
-      unlockScroll();
-    }
-  });
-  
-  console.log('[Event] Unified event delegation initialized');
+
+  tbody.__viewBound = true;
+  console.log('Protocol view handler bound successfully');
 })();
 
 // 打开/关闭弹窗时控制刷新
