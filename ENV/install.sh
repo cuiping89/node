@@ -4588,10 +4588,10 @@ body, p, span, td, div {
   width: 100%;
 }
 .whitelist-preview{
-  --lh: 22px;          /* 每行行高 */
-  margin-top: 4px;     /* 与标题的间距——比原来更紧 */
+  --lh: 22px;
+  margin-top: 4px;
   position: relative;
-  padding-right: 72px; /* 右下角按钮预留 */
+  padding-right: 72px;
   max-height: calc(var(--lh) * 3);
   overflow: hidden;
 }
@@ -4618,6 +4618,25 @@ body, p, span, td, div {
   cursor: pointer;
 }
 .whitelist-more:hover{ background:#f3f4f6; }
+
+/* 统一所有弹窗按钮样式 */
+.whitelist-more, .btn-link, .btn-sm {
+  height: 28px;
+  line-height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  background: #fff;
+  color: #3b82f6;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.whitelist-more:hover, .btn-link:hover, .btn-sm:hover {
+  background: #f3f4f6;
+  color: #2563eb;
+}
 
 /* === 表格 === */
 .data-table {
@@ -4862,17 +4881,27 @@ body, p, span, td, div {
   padding: 0;
 }
 
-/* 统一关闭按钮为正方形 */
-.close-btn{
-  font-size:16px;
-  color:#64748b;
-  cursor:pointer;
-  width:28px; height:28px; line-height:28px;
-  display:inline-flex; align-items:center; justify-content:center;
-  border-radius:6px; /* 轻微圆角的“正方形” */
-  border:1px solid #e5e7eb;
+/* 统一关闭按钮样式 */
+.close-btn {
+  font-size: 16px;
+  color: #64748b;
+  cursor: pointer;
+  width: 28px;
+  height: 28px;
+  line-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  transition: all 0.2s;
 }
-.close-btn:hover{ background:#f8fafc; color:#0f172a; }
+
+.close-btn:hover {
+  background: #f8fafc;
+  color: #0f172a;
+}
 
 /* 统一所有“查看详情/查看全部/查看配置”按钮视觉尺寸 */
 .btn-link{
@@ -5210,11 +5239,11 @@ function renderCertificateAndNetwork() {
     document.getElementById('cert-renewal').textContent = certMode.startsWith('letsencrypt') ? '自动' : '手动';
     document.getElementById('cert-expiry').textContent = safeGet(cert, 'expires_at') ? new Date(cert.expires_at).toLocaleDateString() : '—';
 
-    // Network Identity
+    // Network Identity - 修复高亮逻辑
     const shuntMode = safeGet(shunt, 'mode', 'vps');
     document.getElementById('net-vps').classList.toggle('active', shuntMode === 'vps');
-    document.getElementById('net-proxy').classList.toggle('active', shuntMode.includes('resi'));
-    document.getElementById('net-shunt').classList.toggle('active', shuntMode.includes('direct'));
+    document.getElementById('net-proxy').classList.toggle('active', shuntMode === 'resi' || shuntMode.includes('resi'));
+    document.getElementById('net-shunt').classList.toggle('active', shuntMode === 'direct_resi' || shuntMode.includes('direct'));
     
     document.getElementById('vps-ip').textContent = safeGet(dashboardData, 'server.eip') || safeGet(dashboardData, 'server.server_ip');
     document.getElementById('proxy-ip').textContent = safeGet(shunt, 'proxy_info');
@@ -5225,7 +5254,7 @@ function renderCertificateAndNetwork() {
     if (previewEl) {
         previewEl.innerHTML = `
             <div class="whitelist-text">${whitelist.join(', ')}</div>
-            <div class="whitelist-more" data-action="open-modal" data-modal="whitelist">查看全部</div>
+            <button class="whitelist-more btn btn-sm" data-action="open-modal" data-modal="whitelist">查看全部</button>
         `;
     }
 }
@@ -5354,44 +5383,43 @@ function showConfigModal(key) {
 
   if (key === '__SUBS__') {
     const sub = (dashboardData && dashboardData.subscription) || {};
-    const plain   = sub.plain   || (dashboardData && dashboardData.subscription_url) || '';
-    const base64  = sub.base64  || (plain ? (plain + (plain.includes('?') ? '&' : '?') + 'format=base64') : '');
-    const b64lines= sub.b64_lines || '';
+    const plainLink = sub.plain || (dashboardData && dashboardData.subscription_url) || '';
+    const base64Link = sub.base64 || '';
+    
     title.textContent = '整包订阅链接 - 客户端配置详情';
-// 仅替换这个 details.innerHTML 构建块（其它代码都保留）
-details.innerHTML = `
-  <div class="config-section">
-    <h4>明文链接</h4>
-    <div class="config-code" id="plain-link">${escapeHtml(plainLink || '—')}</div>
-  </div>
+    details.innerHTML = `
+      <div class="config-section">
+        <h4>明文链接</h4>
+        <div class="config-code" id="plain-link">${escapeHtml(plainLink || '—')}</div>
+      </div>
 
-  <div class="config-section">
-    <h4>JSON配置</h4>
-    <div class="config-code" id="json-code">—</div>
-  </div>
+      <div class="config-section">
+        <h4>JSON配置</h4>
+        <div class="config-code" id="json-code">—</div>
+      </div>
 
-  <div class="config-section">
-    <h4>Base64链接</h4>
-    <div class="config-code" id="base64-link">${escapeHtml(base64Link || '—')}</div>
-  </div>
+      <div class="config-section">
+        <h4>Base64链接</h4>
+        <div class="config-code" id="base64-link">${escapeHtml(base64Link || '—')}</div>
+      </div>
 
-  <div class="config-section">
-    <h4>二维码</h4>
-    <div class="qr-container"><div id="qrcode"></div></div>
-  </div>
+      <div class="config-section">
+        <h4>二维码</h4>
+        <div class="qr-container"><div id="qrcode"></div></div>
+      </div>
 
-  <div class="config-section">
-    <h4>使用说明</h4>
-    <div class="config-help">
-      1. 复制订阅链接导入客户端<br>
-      2. 支持 V2rayN、Clash、Shadowrocket 等主流客户端<br>
-      3. 自签证书需在客户端开启“跳过证书验证”<br>
-      4. UDP 协议（HY2/TUIC）固定走 VPS 直连
-    </div>
-  </div>
-`;
-    if (plain && window.QRCode) {
-      new QRCode(qrWrap, { text: plain, width: 256, height: 256, colorDark: "#000", colorLight: "#fff", correctLevel: QRCode.CorrectLevel.H });
+      <div class="config-section">
+        <h4>使用说明</h4>
+        <div class="config-help">
+          1. 复制订阅链接导入客户端<br>
+          2. 支持 V2rayN、Clash、Shadowrocket 等主流客户端<br>
+          3. 自签证书需在客户端开启"跳过证书验证"<br>
+          4. UDP 协议（HY2/TUIC）固定走 VPS 直连
+        </div>
+      </div>
+    `;
+    if (plainLink && window.QRCode) {
+      new QRCode(qrWrap, { text: plainLink, width: 256, height: 256, colorDark: "#000", colorLight: "#fff", correctLevel: QRCode.CorrectLevel.H });
     }
   } else {
     const protocols = (dashboardData && dashboardData.protocols) || [];
@@ -5407,7 +5435,7 @@ details.innerHTML = `
       <div class="config-section"><h4>Base64链接</h4><div class="config-code" id="base64-link">${escapeHtml(base64 || '—')}</div></div>
       <div class="config-section"><h4>二维码</h4><div class="qr-container"></div></div>
       <div class="config-section"><h4>使用说明</h4><div class="config-help">
-        1. 优先复制“明文链接”导入<br>
+        1. 优先复制"明文链接"导入<br>
         2. 无法导入时使用 JSON 或 Base64<br>
         3. 二维码可用于移动端扫码导入<br>
         4. 若连不上，请检查防火墙、端口与证书
@@ -5419,7 +5447,7 @@ details.innerHTML = `
   }
 
   // 显示弹窗
-  modal.style.display = 'block';
+  showModal('configModal');
 }
 
 async function copyText(text) {
@@ -5471,11 +5499,10 @@ function setupEventListeners() {
         break;
       }
       case 'close-modal': {
-        if (modal) closeModal(modal); // modal 传入对应的 id
+        if (modal) closeModal(modal);
         break;
       }
       case 'copy': {
-        // 从配置弹窗里的具体块复制
         const plainEl  = document.getElementById('plain-link');
         const jsonEl   = document.getElementById('json-code');
         const base64El = document.getElementById('base64-link');
@@ -5522,7 +5549,7 @@ async function showIPQDetails(which) {
     body.innerHTML = '<div class="text-secondary">暂无数据</div>';
   }
 
-  modal.style.display = 'block';
+  showModal('ipqModal');
 }
 
 // --- Initialization ---
