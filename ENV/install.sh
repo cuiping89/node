@@ -5821,24 +5821,106 @@ function setupEventListeners() {
 }
 
 async function showIPQDetails(which) {
-  const modal = document.getElementById('ipqModal');
+  const modal   = document.getElementById('ipqModal');
   const titleEl = document.getElementById('ipqModalTitle');
-  const body = document.getElementById('ipqDetails');
+  const body    = document.getElementById('ipqDetails');
   if (!modal || !titleEl || !body) return;
 
-  const titleMap = { vps: 'VPS IP质量检测详情', proxy: '代理 IP质量检测详情' };
+  const titleMap = { vps: 'VPS IP质量检测详情', proxy: '代理IP质量检测详情' };
   titleEl.textContent = titleMap[which] || 'IP质量检测详情';
   body.innerHTML = '<div class="config-section"><div class="config-code">加载中...</div></div>';
 
+  // 读取目标数据（与 09-20 安装脚本的 edgebox-ipq.sh 对应：/status/ipq_vps.json / ipq_proxy.json）
   const data = await fetchJSON(`/status/ipq_${which}.json`);
-  if (data) {
-    body.innerHTML = '<pre class="config-code" style="white-space:pre-wrap">' + escapeHtml(JSON.stringify(data, null, 2)) + '</pre>';
+
+  if (data && typeof data === 'object') {
+    const score   = data.score ?? '—';
+    const grade   = data.grade ?? '—';
+    const when    = data.detected_at || data.test_time || '—';
+    const ip      = data.ip || '—';
+    const asn     = data.asn || '—';
+    const isp     = data.isp || '—';
+    const country = data.country || '—';
+    const city    = data.city || '—';
+    const rdns    = data.rdns || '—';
+    const latency = (data.latency !== undefined && data.latency !== null) ? `${data.latency} ms` : '—';
+
+    // 风险标志：兼容 {risk:{proxy,hosting,mobile,...}} 或 notes 数组
+    let riskFlags = [];
+    if (data.risk && typeof data.risk === 'object') {
+      for (const k of ['proxy','hosting','mobile','tor']) {
+        if (data.risk[k] === true) riskFlags.push(k);
+      }
+      if (Array.isArray(data.risk.dnsbl_hits) && data.risk.dnsbl_hits.length) {
+        riskFlags.push(`dnsbl:${data.risk.dnsbl_hits.length}`);
+      }
+    }
+    if (Array.isArray(data.notes) && data.notes.length) {
+      riskFlags = riskFlags.concat(data.notes);
+    }
+    const riskText = riskFlags.length ? riskFlags.join(', ') : '—';
+
+    // 网络类型（尽量还原旧版字段名；没有就从 vantage 推断）
+    const networkType = data.network_type || (data.vantage === 'vps' ? '数据中心 / 自建VPS' :
+                           data.vantage === 'proxy' ? '代理 / 住宅' : '—');
+
+    // 黑名单命中数：优先 risk.dnsbl_hits 长度
+    const blCount = (data.risk && Array.isArray(data.risk.dnsbl_hits)) ? data.risk.dnsbl_hits.length :
+                    (typeof data.blacklist_count === 'number' ? data.blacklist_count : 0);
+
+    body.innerHTML = `
+      <div class="config-section">
+        <h4>总览</h4>
+        <div class="info-item">
+          <label>分数:</label><value>${score} (${grade})</value>
+        </div>
+        <div class="info-item">
+          <label>检测时间:</label><value>${when}</value>
+        </div>
+        <div class="info-item">
+          <label>风险标志:</label><value>${escapeHtml(riskText)}</value>
+        </div>
+      </div>
+
+      <div class="config-section">
+        <h4>身份信息</h4>
+        <div class="info-item">
+          <label>IP地址:</label><value>${ip}</value>
+        </div>
+        <div class="info-item">
+          <label>ASN/ISP:</label><value>${escapeHtml(asn)} / ${escapeHtml(isp)}</value>
+        </div>
+        <div class="info-item">
+          <label>位置:</label><value>${escapeHtml(country)}, ${escapeHtml(city)}</value>
+        </div>
+        <div class="info-item">
+          <label>反向域名:</label><value>${escapeHtml(rdns)}</value>
+        </div>
+      </div>
+
+      <div class="config-section">
+        <h4>质量评估</h4>
+        <div class="info-item">
+          <label>网络类型:</label><value>${escapeHtml(networkType)}</value>
+        </div>
+        <div class="info-item">
+          <label>黑名单:</label><value>${blCount} 个命中</value>
+        </div>
+        <div class="info-item">
+          <label>延迟:</label><value>${latency}</value>
+        </div>
+      </div>
+    `;
   } else {
-    body.innerHTML = '<div class="text-secondary">暂无数据</div>';
+    // 兜底：没有详情数据时，仍给出上次采集时间
+    const meta = await fetchJSON('/status/ipq_meta.json');
+    const hint = meta && meta.last_run ? `（上次采集：${new Date(meta.last_run).toLocaleString()}）` : '';
+    body.innerHTML = `<div class="config-section"><div class="info-item"><label>状态:</label><value>暂无IP质量数据 ${hint}</value></div></div>`;
   }
 
   showModal('ipqModal');
 }
+
 
 // --- Initialization ---
 
