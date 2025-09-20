@@ -4588,10 +4588,10 @@ body, p, span, td, div {
   width: 100%;
 }
 .whitelist-preview{
-  --lh: 22px;
-  margin-top: 4px;
+  --lh: 22px;          /* 每行行高 */
+  margin-top: 4px;     /* 与标题的间距——比原来更紧 */
   position: relative;
-  padding-right: 72px;
+  padding-right: 72px; /* 右下角按钮预留 */
   max-height: calc(var(--lh) * 3);
   overflow: hidden;
 }
@@ -4618,25 +4618,6 @@ body, p, span, td, div {
   cursor: pointer;
 }
 .whitelist-more:hover{ background:#f3f4f6; }
-
-/* 统一所有弹窗按钮样式 */
-.whitelist-more, .btn-link, .btn-sm {
-  height: 28px;
-  line-height: 28px;
-  padding: 0 10px;
-  font-size: 12px;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
-  background: #fff;
-  color: #3b82f6;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.whitelist-more:hover, .btn-link:hover, .btn-sm:hover {
-  background: #f3f4f6;
-  color: #2563eb;
-}
 
 /* === 表格 === */
 .data-table {
@@ -4881,27 +4862,17 @@ body, p, span, td, div {
   padding: 0;
 }
 
-/* 统一关闭按钮样式 */
-.close-btn {
-  font-size: 16px;
-  color: #64748b;
-  cursor: pointer;
-  width: 28px;
-  height: 28px;
-  line-height: 28px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 6px;
-  border: 1px solid #e5e7eb;
-  background: #fff;
-  transition: all 0.2s;
+/* 统一关闭按钮为正方形 */
+.close-btn{
+  font-size:16px;
+  color:#64748b;
+  cursor:pointer;
+  width:28px; height:28px; line-height:28px;
+  display:inline-flex; align-items:center; justify-content:center;
+  border-radius:6px; /* 轻微圆角的“正方形” */
+  border:1px solid #e5e7eb;
 }
-
-.close-btn:hover {
-  background: #f8fafc;
-  color: #0f172a;
-}
+.close-btn:hover{ background:#f8fafc; color:#0f172a; }
 
 /* 统一所有“查看详情/查看全部/查看配置”按钮视觉尺寸 */
 .btn-link{
@@ -5226,7 +5197,6 @@ function renderOverview() {
   document.getElementById('update-time').textContent = new Date(dashboardData.updated_at || Date.now()).toLocaleString();
 }
 
-// 修复 renderCertificateAndNetwork 函数中的网络身份判断
 function renderCertificateAndNetwork() {
     const cert = dashboardData.server?.cert || {};
     const shunt = dashboardData.shunt || {};
@@ -5240,39 +5210,23 @@ function renderCertificateAndNetwork() {
     document.getElementById('cert-renewal').textContent = certMode.startsWith('letsencrypt') ? '自动' : '手动';
     document.getElementById('cert-expiry').textContent = safeGet(cert, 'expires_at') ? new Date(cert.expires_at).toLocaleDateString() : '—';
 
-    // Network Identity - 修复判断逻辑
+    // Network Identity
     const shuntMode = safeGet(shunt, 'mode', 'vps');
+    document.getElementById('net-vps').classList.toggle('active', shuntMode === 'vps');
+    document.getElementById('net-proxy').classList.toggle('active', shuntMode.includes('resi'));
+    document.getElementById('net-shunt').classList.toggle('active', shuntMode.includes('direct'));
     
-    // 清理所有active状态
-    document.getElementById('net-vps').classList.remove('active');
-    document.getElementById('net-proxy').classList.remove('active');
-    document.getElementById('net-shunt').classList.remove('active');
-    
-    // 根据mode精确匹配
-    if (shuntMode === 'vps') {
-        document.getElementById('net-vps').classList.add('active');
-    } else if (shuntMode === 'resi' || shuntMode === 'resi(xray-only)') {
-        document.getElementById('net-proxy').classList.add('active');
-    } else if (shuntMode === 'direct_resi' || shuntMode === 'direct_resi(xray-only)') {
-        document.getElementById('net-shunt').classList.add('active');
-    }
-    
-    // 更新显示内容
     document.getElementById('vps-ip').textContent = safeGet(dashboardData, 'server.eip') || safeGet(dashboardData, 'server.server_ip');
-    document.getElementById('proxy-ip').textContent = safeGet(shunt, 'proxy_info', '(未配置)');
+    document.getElementById('proxy-ip').textContent = safeGet(shunt, 'proxy_info');
     
     // Whitelist
     const whitelist = shunt.whitelist || [];
     const previewEl = document.getElementById('whitelistPreview');
     if (previewEl) {
-        if (whitelist.length > 0) {
-            previewEl.innerHTML = `
-                <div class="whitelist-text">${whitelist.slice(0, 5).join(', ')}${whitelist.length > 5 ? '...' : ''}</div>
-                <button class="whitelist-more btn btn-sm" data-action="open-modal" data-modal="whitelist">查看全部(${whitelist.length})</button>
-            `;
-        } else {
-            previewEl.innerHTML = `<div class="whitelist-text">暂无白名单</div>`;
-        }
+        previewEl.innerHTML = `
+            <div class="whitelist-text">${whitelist.join(', ')}</div>
+            <div class="whitelist-more" data-action="open-modal" data-modal="whitelist">查看全部</div>
+        `;
     }
 }
 
@@ -5376,21 +5330,6 @@ window.addEventListener('click', (e)=>{
   }
 });
 
-document.addEventListener('click', (e) => {
-  // 处理关闭按钮点击
-  if (e.target.matches('.close-btn, .close-btn *')) {
-    const closeBtn = e.target.closest('.close-btn');
-    if (closeBtn) {
-      const modalId = closeBtn.getAttribute('data-modal') || 
-                     closeBtn.closest('.modal')?.id;
-      if (modalId) {
-        closeModal(modalId);
-        return;
-      }
-    }
-  }
-});
-
 function showWhitelistModal() {
     const list = document.getElementById('whitelistList');
     const whitelist = dashboardData.shunt?.whitelist || [];
@@ -5402,7 +5341,6 @@ function showWhitelistModal() {
     showModal('whitelistModal');
 }
 
-// 修复 showConfigModal 函数，添加完整的5块展示内容
 function showConfigModal(key) {
   const modal   = document.getElementById('configModal');
   const title   = document.getElementById('configModalTitle');
@@ -5415,192 +5353,83 @@ function showConfigModal(key) {
   qrWrap.innerHTML = '';
 
   if (key === '__SUBS__') {
-    // 整包订阅链接
     const sub = (dashboardData && dashboardData.subscription) || {};
-    const plainLink = sub.plain || '';
-    const base64Link = sub.base64 || '';
-    const b64Lines = sub.b64_lines || '';
-    
+    const plain   = sub.plain   || (dashboardData && dashboardData.subscription_url) || '';
+    const base64  = sub.base64  || (plain ? (plain + (plain.includes('?') ? '&' : '?') + 'format=base64') : '');
+    const b64lines= sub.b64_lines || '';
     title.textContent = '整包订阅链接 - 客户端配置详情';
-    details.innerHTML = `
-      <div class="config-section">
-        <h4>明文链接（推荐）</h4>
-        <div class="config-code" id="plain-link">${escapeHtml(plainLink || '—')}</div>
-      </div>
+// 仅替换这个 details.innerHTML 构建块（其它代码都保留）
+details.innerHTML = `
+  <div class="config-section">
+    <h4>明文链接</h4>
+    <div class="config-code" id="plain-link">${escapeHtml(plainLink || '—')}</div>
+  </div>
 
-      <div class="config-section">
-        <h4>Base64链接（整包）</h4>
-        <div class="config-code" id="base64-link">${escapeHtml(base64Link || '—')}</div>
-      </div>
+  <div class="config-section">
+    <h4>JSON配置</h4>
+    <div class="config-code" id="json-code">—</div>
+  </div>
 
-      <div class="config-section">
-        <h4>Base64链接（逐行）</h4>
-        <div class="config-code" id="b64lines-link">${escapeHtml(b64Lines || '—')}</div>
-      </div>
+  <div class="config-section">
+    <h4>Base64链接</h4>
+    <div class="config-code" id="base64-link">${escapeHtml(base64Link || '—')}</div>
+  </div>
 
-      <div class="config-section">
-        <h4>二维码</h4>
-        <div class="qr-container"><div id="qrcode"></div></div>
-      </div>
+  <div class="config-section">
+    <h4>二维码</h4>
+    <div class="qr-container"><div id="qrcode"></div></div>
+  </div>
 
-      <div class="config-section">
-        <h4>使用说明</h4>
-        <div class="config-help">
-          1. 复制订阅链接导入客户端<br>
-          2. 支持 V2rayN、Clash、Shadowrocket 等主流客户端<br>
-          3. 自签证书需在客户端开启"跳过证书验证"<br>
-          4. UDP 协议（HY2/TUIC）固定走 VPS 直连
-        </div>
-      </div>
-    `;
-    if (plainLink && window.QRCode) {
-      new QRCode(qrWrap, { text: plainLink, width: 256, height: 256, colorDark: "#000", colorLight: "#fff", correctLevel: QRCode.CorrectLevel.H });
+  <div class="config-section">
+    <h4>使用说明</h4>
+    <div class="config-help">
+      1. 复制订阅链接导入客户端<br>
+      2. 支持 V2rayN、Clash、Shadowrocket 等主流客户端<br>
+      3. 自签证书需在客户端开启“跳过证书验证”<br>
+      4. UDP 协议（HY2/TUIC）固定走 VPS 直连
+    </div>
+  </div>
+`;
+    if (plain && window.QRCode) {
+      new QRCode(qrWrap, { text: plain, width: 256, height: 256, colorDark: "#000", colorLight: "#fff", correctLevel: QRCode.CorrectLevel.H });
     }
   } else {
-    // 单个协议配置
     const protocols = (dashboardData && dashboardData.protocols) || [];
     const p = protocols.find(x => x.name === key);
     if (!p) return notify('未找到该协议配置', 'warn');
-    
     title.textContent = `${p.name} - 客户端配置详情`;
-    const shareLink = p.share_link || '';
-    
-    // 根据协议生成JSON配置
-    const jsonConfig = generateProtocolJSON(p, shareLink);
-    const base64Link = shareLink ? btoa(shareLink) : '';
-    
+    const plain  = p.plain || p.share_link || '';
+    const json   = p.json ? JSON.stringify(p.json, null, 2) : (p.config_json ? JSON.stringify(p.config_json, null, 2) : '');
+    const base64 = p.base64 || '';
     details.innerHTML = `
-      <div class="config-section">
-        <h4>明文链接</h4>
-        <div class="config-code" id="plain-link">${escapeHtml(shareLink || '—')}</div>
-      </div>
-      
-      <div class="config-section">
-        <h4>JSON配置</h4>
-        <div class="config-code" id="json-code">${escapeHtml(jsonConfig || '—')}</div>
-      </div>
-      
-      <div class="config-section">
-        <h4>Base64链接</h4>
-        <div class="config-code" id="base64-link">${escapeHtml(base64Link || '—')}</div>
-      </div>
-      
-      <div class="config-section">
-        <h4>二维码</h4>
-        <div class="qr-container"></div>
-      </div>
-      
-      <div class="config-section">
-        <h4>使用说明</h4>
-        <div class="config-help">
-          1. 优先复制"明文链接"导入<br>
-          2. 无法导入时使用 JSON 或 Base64<br>
-          3. 二维码可用于移动端扫码导入<br>
-          4. 若连不上，请检查防火墙、端口与证书
-        </div>
-      </div>
+      <div class="config-section"><h4>明文链接</h4><div class="config-code" id="plain-link">${escapeHtml(plain || '—')}</div></div>
+      <div class="config-section"><h4>JSON配置</h4><div class="config-code" id="json-code">${escapeHtml(json || '—')}</div></div>
+      <div class="config-section"><h4>Base64链接</h4><div class="config-code" id="base64-link">${escapeHtml(base64 || '—')}</div></div>
+      <div class="config-section"><h4>二维码</h4><div class="qr-container"></div></div>
+      <div class="config-section"><h4>使用说明</h4><div class="config-help">
+        1. 优先复制“明文链接”导入<br>
+        2. 无法导入时使用 JSON 或 Base64<br>
+        3. 二维码可用于移动端扫码导入<br>
+        4. 若连不上，请检查防火墙、端口与证书
+      </div></div>
     `;
-    
-    if (shareLink && window.QRCode) {
-      new QRCode(qrWrap, { text: shareLink, width: 256, height: 256, colorDark: "#000", colorLight: "#fff", correctLevel: QRCode.CorrectLevel.H });
+    if (plain && window.QRCode) {
+      new QRCode(qrWrap, { text: plain, width: 256, height: 256, colorDark: "#000", colorLight: "#fff", correctLevel: QRCode.CorrectLevel.H });
     }
   }
 
   // 显示弹窗
-  showModal('configModal');
+  modal.style.display = 'block';
 }
 
-// 辅助函数：生成协议JSON配置
-function generateProtocolJSON(protocol, shareLink) {
-  if (!shareLink) return '{}';
-  
-  // 解析share_link生成对应的JSON配置
-  const server = dashboardData.server || {};
-  const secrets = dashboardData.secrets || {};
-  
-  switch(protocol.name) {
-    case 'VLESS-Reality':
-      return JSON.stringify({
-        "type": "vless",
-        "server": server.server_ip,
-        "port": 443,
-        "uuid": secrets.vless?.reality || '',
-        "flow": "xtls-rprx-vision",
-        "tls": {
-          "type": "reality",
-          "server_name": "www.cloudflare.com",
-          "public_key": secrets.reality?.public_key || '',
-          "short_id": secrets.reality?.short_id || ''
-        }
-      }, null, 2);
-      
-    case 'Hysteria2':
-      return JSON.stringify({
-        "type": "hysteria2",
-        "server": server.server_ip,
-        "port": 443,
-        "password": secrets.password?.hysteria2 || '',
-        "tls": {
-          "server_name": server.server_ip,
-          "insecure": true,
-          "alpn": ["h3"]
-        }
-      }, null, 2);
-      
-    // 添加其他协议的JSON生成逻辑...
-    default:
-      return '{}';
-  }
-}
-
-  // 显示弹窗
-  showModal('configModal');
-}
-
-// 优化复制功能，支持Base64逐行
 async function copyText(text) {
-    if (!text || text === '—') {
-        notify('没有可复制的内容', 'warn');
-        return;
-    }
-    
+    if (!text) return notify('没有可复制的内容', 'warn');
     try {
         await navigator.clipboard.writeText(text);
         notify('已复制到剪贴板');
     } catch (e) {
-        // 降级方案
-        const textarea = document.createElement('textarea');
-        textarea.value = text;
-        textarea.style.position = 'fixed';
-        textarea.style.opacity = '0';
-        document.body.appendChild(textarea);
-        textarea.select();
-        document.execCommand('copy');
-        document.body.removeChild(textarea);
-        notify('已复制到剪贴板');
+        notify('复制失败', 'warn');
     }
-}
-
-// 修改事件处理器中的copy部分
-case 'copy': {
-    const plainEl = document.getElementById('plain-link');
-    const jsonEl = document.getElementById('json-code');
-    const base64El = document.getElementById('base64-link');
-    const b64linesEl = document.getElementById('b64lines-link');
-    
-    if (type === 'plain' && plainEl) {
-        return copyText(plainEl.textContent.trim());
-    }
-    if (type === 'json' && jsonEl) {
-        return copyText(jsonEl.textContent.trim());
-    }
-    if (type === 'base64' && base64El) {
-        return copyText(base64El.textContent.trim());
-    }
-    if (type === 'b64lines' && b64linesEl) {
-        return copyText(b64linesEl.textContent.trim());
-    }
-    // ... QR code copy logic remains the same
 }
 
 // --- Main Application Logic ---
@@ -5642,10 +5471,11 @@ function setupEventListeners() {
         break;
       }
       case 'close-modal': {
-        if (modal) closeModal(modal);
+        if (modal) closeModal(modal); // modal 传入对应的 id
         break;
       }
       case 'copy': {
+        // 从配置弹窗里的具体块复制
         const plainEl  = document.getElementById('plain-link');
         const jsonEl   = document.getElementById('json-code');
         const base64El = document.getElementById('base64-link');
@@ -5685,19 +5515,14 @@ async function showIPQDetails(which) {
   titleEl.textContent = titleMap[which] || 'IP质量检测详情';
   body.innerHTML = '<div class="config-section"><div class="config-code">加载中...</div></div>';
 
-  try {
-    const data = await fetchJSON(`/status/ipq_${which}.json`);
-    if (data && Object.keys(data).length > 0) {
-      body.innerHTML = '<pre class="config-code" style="white-space:pre-wrap">' + escapeHtml(JSON.stringify(data, null, 2)) + '</pre>';
-    } else {
-      body.innerHTML = '<div class="config-section"><div class="config-code">暂无IP质量检测数据</div></div>';
-    }
-  } catch (error) {
-    console.error('Failed to fetch IPQ data:', error);
-    body.innerHTML = '<div class="config-section"><div class="config-code">数据加载失败</div></div>';
+  const data = await fetchJSON(`/status/ipq_${which}.json`);
+  if (data) {
+    body.innerHTML = '<pre class="config-code" style="white-space:pre-wrap">' + escapeHtml(JSON.stringify(data, null, 2)) + '</pre>';
+  } else {
+    body.innerHTML = '<div class="text-secondary">暂无数据</div>';
   }
 
-  showModal('ipqModal');
+  modal.style.display = 'block';
 }
 
 // --- Initialization ---
@@ -5919,25 +5744,14 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
   </div>
 </div>
 
-<!-- 白名单弹窗 -->
-<div id="whitelistModal" class="modal">
-  <div class="modal-content">
-    <div class="modal-header">
-      <h3>白名单完整列表</h3>
-      <span class="close-btn" data-modal="whitelistModal">&times;</span>
-    </div>
-    <div class="modal-body">
-      <div id="whitelistList"></div>
-    </div>
-  </div>
-</div>
+<div id="whitelistModal" class="modal"><div class="modal-content"><div class="modal-header"><h3>白名单完整列表</h3><span class="close-btn" data-action="close-modal" data-modal="whitelist">&times;</span></div><div class="modal-body"><div id="whitelistList"></div></div></div></div>
 
 <!-- IP质量详情弹窗 -->
 <div id="ipqModal" class="modal">
   <div class="modal-content">
     <div class="modal-header">
       <h3 id="ipqModalTitle">IP质量检测详情</h3>
-      <button class="close-btn" data-modal="ipqModal">×</button>
+      <button class="close-btn" data-action="close-modal" data-modal="ipqModal">×</button>
     </div>
     <div class="modal-body">
       <div id="ipqDetails"></div>
@@ -5950,9 +5764,10 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
   <div class="modal-content">
     <div class="modal-header">
       <h3 id="configModalTitle">客户端配置详情</h3>
-      <button class="close-btn" data-modal="configModal">×</button>
+      <button class="close-btn" data-action="close-modal" data-modal="configModal">×</button>
     </div>
     <div class="modal-body">
+      <!-- 五块展示由 JS 动态填充到 configDetails & qrcode -->
       <div id="configDetails"></div>
       <div id="qrcode" class="qr-container"></div>
     </div>
