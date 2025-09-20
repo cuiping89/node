@@ -5096,10 +5096,11 @@ cat > "${TRAFFIC_DIR}/assets/edgebox-panel.js" <<'EXTERNAL_JS'
 // 全局变量
 let dashboardData = {};
 function setDashboardData(data) {
-  setDashboardData(data);
+  // 允许外部/调试工具设置并落到全局
+  dashboardData = data || {};
+  window.dashboardData = dashboardData;
 }
 let currentShareLink = '';
-const GiB = 1024 ** 3;
 
 // 工具函数
 async function fetchJSON(url) {
@@ -5208,10 +5209,9 @@ Object.keys(svc2id).forEach(svc => {
     }
   }
   
-  // 更新协议列表
-  if (data.protocols) {
-    updateProtocolTable(data.protocols);
-  }
+  // 更新协议列表 —— 即使为空也要渲染订阅行（保证 tbody 至少有一行）
+  updateProtocolTable(Array.isArray(data.protocols) ? data.protocols : []);
+
   
   // 更新订阅链接
   if (data.subscription_url) {
@@ -5259,7 +5259,7 @@ function updateProtocolTable(protocols) {
       <td>${p.scenario || '—'}</td>
       <td>${p.camouflage || '—'}</td>
       <td><span class="status-badge ${p.status === '运行中' ? 'status-running' : ''}">${p.status || '—'}</span></td>
-      <td><button class="btn btn-sm btn-link view-config" data-protocol="${(p.name || '').replace(/"/g, '&quot;')}">查看配置</button></td>
+      <td><button class="btn btn-sm btn-link" data-action="open-modal" data-modal="config" data-protocol="${attrEscape(p.name || '')}">查看配置</button></td>
     </tr>
   `);
 
@@ -5270,7 +5270,7 @@ function updateProtocolTable(protocols) {
       <td></td>
       <td></td>
       <td></td>
-      <td><button class="btn btn-sm btn-link view-config" data-protocol="__SUBS__">查看配置</button></td>
+      <td><button class="btn btn-sm btn-link" data-action="open-modal" data-modal="config" data-protocol="__SUBS__">查看配置</button></td>
     </tr>
   `);
 
@@ -5864,18 +5864,6 @@ window.debugProtocolTable = function() {
 
   console.groupEnd();
 };
-
-// === 替换 [PATCH:APPJS_EXPORT_GLOBALS] 部分为： ===
-// 导出给HTML内联onclick使用的函数
-window.showConfigModal = showConfigModal;
-window.closeConfigModal = closeConfigModal;
-window.showWhitelistModal = showWhitelistModal;
-window.closeWhitelistModal = closeWhitelistModal;
-window.copyToClipboard = copyToClipboard;
-window.copyPlain = copyPlain;
-window.copyJSON = copyJSON;
-window.copyBase64 = copyBase64;
-window.copyQRImage = copyQRImage;
 
 // 这些函数如果存在就导出（保留判断）
 if (typeof showIPQDetails === 'function') {
