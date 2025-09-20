@@ -5315,73 +5315,49 @@ function renderOverview() {
   }
 }
 
-// 2. 修复 renderCertificateAndNetwork 函数
+// 1. 替换 renderCertificateAndNetwork 函数
 function renderCertificateAndNetwork() {
     const cert = dashboardData.server?.cert || {};
     const shunt = dashboardData.shunt || {};
 
     // Certificate
     const certMode = safeGet(cert, 'mode', 'self-signed');
-    
-    const certSelfEl = document.getElementById('cert-self');
-    const certCaEl = document.getElementById('cert-ca');
-    
-    if (certSelfEl) certSelfEl.classList.toggle('active', certMode === 'self-signed');
-    if (certCaEl) certCaEl.classList.toggle('active', certMode.startsWith('letsencrypt'));
-    
-    if (document.getElementById('cert-type')) {
-        document.getElementById('cert-type').textContent = certMode.startsWith('letsencrypt') ? "Let's Encrypt" : "自签名";
-    }
-    if (document.getElementById('cert-domain')) {
-        document.getElementById('cert-domain').textContent = safeGet(cert, 'domain', '(无)');
-    }
-    if (document.getElementById('cert-renewal')) {
-        document.getElementById('cert-renewal').textContent = certMode.startsWith('letsencrypt') ? '自动' : '手动';
-    }
-    if (document.getElementById('cert-expiry')) {
-        document.getElementById('cert-expiry').textContent = safeGet(cert, 'expires_at') ? new Date(cert.expires_at).toLocaleDateString() : '—';
-    }
+    document.getElementById('cert-self').classList.toggle('active', certMode === 'self-signed');
+    document.getElementById('cert-ca').classList.toggle('active', certMode.startsWith('letsencrypt'));
+    document.getElementById('cert-type').textContent = certMode.startsWith('letsencrypt') ? "Let's Encrypt" : "自签名";
+    document.getElementById('cert-domain').textContent = safeGet(cert, 'domain', '(无)');
+    document.getElementById('cert-renewal').textContent = certMode.startsWith('letsencrypt') ? '自动' : '手动';
+    document.getElementById('cert-expiry').textContent = safeGet(cert, 'expires_at') ? new Date(cert.expires_at).toLocaleDateString() : '—';
 
-    // Network Identity
+    // Network Identity - 修复判断逻辑
     const shuntMode = String(safeGet(shunt, 'mode', 'vps')).toLowerCase();
     
-    ['net-vps', 'net-proxy', 'net-shunt'].forEach(id => {
-        const elem = document.getElementById(id);
-        if (elem) elem.classList.remove('active');
-    });
+    document.getElementById('net-vps').classList.remove('active');
+    document.getElementById('net-proxy').classList.remove('active');
+    document.getElementById('net-shunt').classList.remove('active');
     
     if (shuntMode === 'vps') {
-        const elem = document.getElementById('net-vps');
-        if (elem) elem.classList.add('active');
+        document.getElementById('net-vps').classList.add('active');
     } else if (shuntMode.includes('resi') && !shuntMode.includes('direct')) {
-        const elem = document.getElementById('net-proxy');
-        if (elem) elem.classList.add('active');
+        document.getElementById('net-proxy').classList.add('active');
     } else if (shuntMode.includes('direct')) {
-        const elem = document.getElementById('net-shunt');
-        if (elem) elem.classList.add('active');
+        document.getElementById('net-shunt').classList.add('active');
     }
     
-    // 更新IP显示
-    if (document.getElementById('vps-ip')) {
-        document.getElementById('vps-ip').textContent = safeGet(dashboardData, 'server.eip') || safeGet(dashboardData, 'server.server_ip', '—');
-    }
-    if (document.getElementById('proxy-ip')) {
-        document.getElementById('proxy-ip').textContent = safeGet(shunt, 'proxy_info', '(未配置)');
-    }
+    document.getElementById('vps-ip').textContent = safeGet(dashboardData, 'server.eip') || safeGet(dashboardData, 'server.server_ip');
+    document.getElementById('proxy-ip').textContent = safeGet(shunt, 'proxy_info', '(未配置)');
     
-    // Whitelist - 简化版本，避免破坏布局
+    // Whitelist - 保持原样
     const whitelist = shunt.whitelist || [];
     const previewEl = document.getElementById('whitelistPreview');
-    
     if (previewEl) {
         if (whitelist.length > 0) {
-            const displayText = whitelist.slice(0, 3).join(', ') + (whitelist.length > 3 ? '...' : '');
             previewEl.innerHTML = `
-                <span class="whitelist-text">${escapeHtml(displayText)}</span>
-                <button class="btn-link" style="margin-left: 10px;" data-action="open-modal" data-modal="whitelist">查看全部</button>
+                <div class="whitelist-text">${whitelist.slice(0, 5).join(', ')}${whitelist.length > 5 ? '...' : ''}</div>
+                <button class="whitelist-more btn btn-sm" data-action="open-modal" data-modal="whitelist">查看全部(${whitelist.length})</button>
             `;
         } else {
-            previewEl.innerHTML = '<span class="whitelist-text">暂无白名单</span>';
+            previewEl.innerHTML = `<div class="whitelist-text">暂无白名单</div>`;
         }
     }
 }
@@ -5602,18 +5578,16 @@ function showWhitelistModal() {
     showModal('whitelistModal');
 }
 
-// 完整修复的showConfigModal函数
+// 2. 替换 showConfigModal 函数（修复查看详情弹窗）
 function showConfigModal(key) {
   const modal = document.getElementById('configModal');
   const title = document.getElementById('configModalTitle');
   const details = document.getElementById('configDetails');
   if (!modal || !title || !details) return;
 
-  // 清空内容
   details.innerHTML = '';
 
   if (key === '__SUBS__') {
-    // 整包订阅
     const sub = dashboardData.subscription || {};
     const plainLinks = sub.plain || '';
     const base64All = sub.base64 || '';
@@ -5660,7 +5634,6 @@ function showConfigModal(key) {
       </div>
     `;
     
-    // 生成订阅地址的二维码
     setTimeout(() => {
       const qrEl = document.getElementById('qrcode');
       if (qrEl && subUrl && window.QRCode) {
@@ -5677,7 +5650,6 @@ function showConfigModal(key) {
     }, 100);
     
   } else {
-    // 单个协议
     const protocols = dashboardData.protocols || [];
     const protocol = protocols.find(p => p.name === key);
     if (!protocol) {
@@ -5727,7 +5699,6 @@ function showConfigModal(key) {
       </div>
     `;
     
-    // 生成二维码
     setTimeout(() => {
       const qrEl = document.getElementById('qrcode');
       if (qrEl && shareLink && window.QRCode) {
