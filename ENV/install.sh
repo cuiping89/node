@@ -5168,7 +5168,7 @@ let dashboardData = {};
 let trafficData = {};
 let systemData = {};
 let overviewTimer = null;
-const GiB = 1024 ** 3;
+const GiB = 1024 * 1024 * 1024;
 
 // --- Chart.js Plugin ---
 const ebYAxisUnitTop = {
@@ -5209,7 +5209,7 @@ function escapeHtml(s = '') {
 }
 
 function notify(msg, type = 'ok', ms = 1500) {
-    const host = document.querySelector('#configModal.modal[style*="block"] .modal-content') || document.body;
+    const host = document.querySelector('.modal[style*="block"] .modal-content') || document.body;
     const tip = document.createElement('div');
     tip.className = `toast toast-${type}`;
     tip.textContent = msg;
@@ -5222,21 +5222,17 @@ function notify(msg, type = 'ok', ms = 1500) {
 }
 
 // --- UI Rendering Functions ---
-
 function renderOverview() {
   const server = dashboardData.server || {};
   const services = dashboardData.services || {};
-  
   document.getElementById('server-name').textContent = safeGet(server, 'user_alias', '(未设置)');
   document.getElementById('cloud-info').textContent = `${safeGet(server, 'cloud.provider')} | ${safeGet(server, 'cloud.region')}`;
   document.getElementById('instance-id').textContent = safeGet(server, 'instance_id');
   document.getElementById('hostname').textContent = safeGet(server, 'hostname');
-
   const spec = server.spec || {};
   document.getElementById('cpu-info').textContent = safeGet(spec, 'cpu');
   document.getElementById('mem-info').textContent = safeGet(spec, 'memory');
   document.getElementById('disk-info').textContent = safeGet(spec, 'disk');
-  
   const metrics = systemData || {};
   const cpuPct = metrics.cpu || 0;
   const memPct = metrics.memory || 0;
@@ -5247,7 +5243,6 @@ function renderOverview() {
   document.getElementById('mem-progress').textContent = `${memPct}%`;
   document.getElementById('disk-progress').style.width = `${diskPct}%`;
   document.getElementById('disk-progress').textContent = `${diskPct}%`;
-
   ['nginx', 'xray', 'sing-box'].forEach(svc => {
     const status = safeGet(services, `${svc}.status`, 'inactive');
     const version = safeGet(services, `${svc}.version`, '');
@@ -5260,7 +5255,6 @@ function renderOverview() {
     }
     if (versionEl) versionEl.textContent = version;
   });
-
   document.getElementById('version').textContent = safeGet(server, 'version');
   document.getElementById('install-date').textContent = safeGet(server, 'install_date');
   document.getElementById('update-time').textContent = new Date(dashboardData.updated_at || Date.now()).toLocaleString();
@@ -5269,7 +5263,6 @@ function renderOverview() {
 function renderCertificateAndNetwork() {
     const cert = dashboardData.server?.cert || {};
     const shunt = dashboardData.shunt || {};
-
     const certMode = safeGet(cert, 'mode', 'self-signed');
     document.getElementById('cert-self').classList.toggle('active', certMode === 'self-signed');
     document.getElementById('cert-ca').classList.toggle('active', certMode.startsWith('letsencrypt'));
@@ -5277,11 +5270,8 @@ function renderCertificateAndNetwork() {
     document.getElementById('cert-domain').textContent = safeGet(cert, 'domain', '(无)');
     document.getElementById('cert-renewal').textContent = certMode.startsWith('letsencrypt') ? '自动' : '手动';
     document.getElementById('cert-expiry').textContent = safeGet(cert, 'expires_at') ? new Date(cert.expires_at).toLocaleDateString() : '—';
-
-    // --- FIX: Correct Network Identity Highlighting Logic ---
     const shuntMode = String(safeGet(shunt, 'mode', 'vps')).toLowerCase();
     ['net-vps', 'net-proxy', 'net-shunt'].forEach(id => document.getElementById(id).classList.remove('active'));
-    
     if (shuntMode === 'vps') {
         document.getElementById('net-vps').classList.add('active');
     } else if (shuntMode.includes('direct')) {
@@ -5289,18 +5279,16 @@ function renderCertificateAndNetwork() {
     } else if (shuntMode.includes('resi')) {
         document.getElementById('net-proxy').classList.add('active');
     } else {
-        document.getElementById('net-vps').classList.add('active'); // Default fallback
+        document.getElementById('net-vps').classList.add('active');
     }
-    
     document.getElementById('vps-ip').textContent = safeGet(dashboardData, 'server.eip') || safeGet(dashboardData, 'server.server_ip');
     document.getElementById('proxy-ip').textContent = safeGet(shunt, 'proxy_info', '(未配置)');
-    
     const whitelist = shunt.whitelist || [];
     const previewEl = document.getElementById('whitelistPreview');
     if (previewEl) {
         if (whitelist.length > 0) {
             const displayList = whitelist.slice(0, 3).join(', ') + (whitelist.length > 3 ? '...' : '');
-            previewEl.innerHTML = `<div class="whitelist-text">${displayList}</div><button class="whitelist-more" data-action="open-modal" data-modal="whitelist">查看全部</button>`;
+            previewEl.innerHTML = `<div class="whitelist-text">${displayList}</div><button class="whitelist-more" data-action="open-modal" data-modal="whitelistModal">查看全部</button>`;
         } else {
             previewEl.innerHTML = `<div class="whitelist-text">暂无白名单</div>`;
         }
@@ -5311,54 +5299,41 @@ function renderProtocolTable() {
     const protocols = dashboardData.protocols || [];
     const tbody = document.getElementById('protocol-tbody');
     if (!tbody) return;
-
     const rows = protocols.map(p => `
         <tr>
             <td>${escapeHtml(p.name)}</td>
             <td>${escapeHtml(p.scenario)}</td>
             <td>${escapeHtml(p.camouflage)}</td>
             <td><span class="status-badge ${p.status === '运行中' ? 'status-running' : ''}">${p.status}</span></td>
-            <td><button class="btn btn-sm btn-link" data-action="open-modal" data-modal="config" data-protocol="${escapeHtml(p.name)}">查看配置</button></td>
-        </tr>
-    `).join('');
-
-    const subRow = `
-        <tr class="subs-row">
-            <td style="font-weight:500;">整包订阅链接</td><td>所有协议</td><td>通用</td><td></td>
-            <td><button class="btn btn-sm btn-link" data-action="open-modal" data-modal="config" data-protocol="__SUBS__">查看/复制</button></td>
-        </tr>
-    `;
+            <td><button class="btn btn-sm btn-link" data-action="open-modal" data-modal="configModal" data-protocol="${escapeHtml(p.name)}">查看配置</button></td>
+        </tr>`).join('');
+    const subRow = `<tr class="subs-row"><td style="font-weight:500;">整包订阅链接</td><td>所有协议</td><td>通用</td><td></td><td><button class="btn btn-sm btn-link" data-action="open-modal" data-modal="configModal" data-protocol="__SUBS__">查看/复制</button></td></tr>`;
     tbody.innerHTML = rows + subRow;
 }
 
 function renderTrafficCharts() {
     if (!trafficData || !window.Chart) return;
-    
     const monthly = trafficData.monthly || [];
     const currentMonthData = monthly.find(m => m.month === new Date().toISOString().slice(0, 7));
     if (currentMonthData) {
-        const budget = 100; // GiB
+        const budget = 100;
         const used = (currentMonthData.total || 0) / GiB;
         const percentage = Math.min(100, Math.round((used / budget) * 100));
         const fillEl = document.getElementById('progress-fill');
         const pctEl = document.getElementById('progress-percentage');
         const budgetEl = document.getElementById('progress-budget');
-        
         if (fillEl) fillEl.style.width = `${percentage}%`;
         if (pctEl) pctEl.textContent = `${percentage}%`;
         if (budgetEl) budgetEl.textContent = `${used.toFixed(1)}/${budget}GiB`;
     }
-    
     ['traffic', 'monthly-chart'].forEach(id => {
         const chartInstance = Chart.getChart(id);
         if (chartInstance) chartInstance.destroy();
     });
-
     const daily = trafficData.last30d || [];
     if (daily.length) {
         new Chart('traffic', { type: 'line', data: { labels: daily.map(d => d.date.slice(5)), datasets: [{ label: 'VPS', data: daily.map(d => d.vps / GiB), borderColor: '#3b82f6' }, { label: '住宅', data: daily.map(d => d.resi / GiB), borderColor: '#f59e0b' }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }, plugins: [ebYAxisUnitTop] });
     }
-
     if (monthly.length) {
         const recentMonthly = monthly.slice(-12);
         new Chart('monthly-chart', { type: 'bar', data: { labels: recentMonthly.map(m => m.month), datasets: [{ label: 'VPS', data: recentMonthly.map(m => m.vps / GiB), backgroundColor: '#3b82f6', stack: 'a' }, { label: '住宅', data: recentMonthly.map(m => m.resi / GiB), backgroundColor: '#f59e0b', stack: 'a' }] }, options: { responsive: true, maintainAspectRatio: false, scales: { x: { stacked: true }, y: { stacked: true } } }, plugins: [ebYAxisUnitTop] });
@@ -5366,7 +5341,6 @@ function renderTrafficCharts() {
 }
 
 // --- Modal and Interaction Logic ---
-
 function showModal(modalId) {
     const modal = document.getElementById(modalId);
     if (modal) {
@@ -5432,10 +5406,11 @@ async function showIPQDetails(which) {
     if (!titleEl || !bodyEl) return;
 
     titleEl.textContent = which === 'vps' ? 'VPS IP质量检测详情' : '代理IP质量检测详情';
-    
+    bodyEl.innerHTML = `<div class="config-section"><div class="config-code">加载中...</div></div>`;
+    showModal('ipqModal');
+
     const data = await fetchJSON(`/status/ipq_${which}.json`);
 
-    // --- FIX: Build structured HTML even when data is null ---
     const score   = safeGet(data, 'score');
     const grade   = safeGet(data, 'grade');
     const when    = safeGet(data, 'detected_at') !== '—' ? new Date(data.detected_at).toLocaleString() : '—';
@@ -5446,33 +5421,13 @@ async function showIPQDetails(which) {
     const city    = safeGet(data, 'city');
     const latency = safeGet(data, 'latency_ms') !== '—' ? `${data.latency_ms} ms` : '—';
     const blCount = (safeGet(data, 'risk.dnsbl_hits', [])).length;
-    const risk    = [
-        data?.risk?.proxy && 'Proxy',
-        data?.risk?.hosting && 'Hosting',
-        data?.risk?.mobile && 'Mobile'
-    ].filter(Boolean).join(', ') || '—';
+    const risk    = [data?.risk?.proxy && 'Proxy', data?.risk?.hosting && 'Hosting', data?.risk?.mobile && 'Mobile'].filter(Boolean).join(', ') || '—';
 
     bodyEl.innerHTML = `
-      <div class="config-section">
-        <h4>总览</h4>
-        <div class="info-item"><label>分数:</label><value>${score} (${grade})</value></div>
-        <div class="info-item"><label>检测时间:</label><value>${when}</value></div>
-      </div>
-      <div class="config-section">
-        <h4>身份信息</h4>
-        <div class="info-item"><label>IP地址:</label><value>${ip}</value></div>
-        <div class="info-item"><label>ASN/ISP:</label><value>${escapeHtml(asn)} / ${escapeHtml(isp)}</value></div>
-        <div class="info-item"><label>位置:</label><value>${escapeHtml(country)}, ${escapeHtml(city)}</value></div>
-      </div>
-      <div class="config-section">
-        <h4>质量评估</h4>
-        <div class="info-item"><label>风险类型:</label><value>${risk}</value></div>
-        <div class="info-item"><label>黑名单:</label><value>${blCount} 个命中</value></div>
-        <div class="info-item"><label>延迟:</label><value>${latency}</value></div>
-      </div>
+      <div class="config-section"><h4>总览</h4><div class="info-item"><label>分数:</label><value>${score} (${grade})</value></div><div class="info-item"><label>检测时间:</label><value>${when}</value></div></div>
+      <div class="config-section"><h4>身份信息</h4><div class="info-item"><label>IP地址:</label><value>${ip}</value></div><div class="info-item"><label>ASN/ISP:</label><value>${escapeHtml(asn)} / ${escapeHtml(isp)}</value></div><div class="info-item"><label>位置:</label><value>${escapeHtml(country)}, ${escapeHtml(city)}</value></div></div>
+      <div class="config-section"><h4>质量评估</h4><div class="info-item"><label>风险类型:</label><value>${risk}</value></div><div class="info-item"><label>黑名单:</label><value>${blCount} 个命中</value></div><div class="info-item"><label>延迟:</label><value>${latency}</value></div></div>
     `;
-
-    showModal('ipqModal');
 }
 
 async function copyText(text) {
@@ -5486,20 +5441,16 @@ async function copyText(text) {
 }
 
 // --- Main Application Logic ---
-
 async function refreshAllData() {
     const [dash, sys, traf] = await Promise.all([
         fetchJSON('/traffic/dashboard.json'),
         fetchJSON('/traffic/system.json'),
         fetchJSON('/traffic/traffic.json')
     ]);
-
     if (dash) dashboardData = dash;
     if (sys) systemData = sys;
     if (traf) trafficData = traf;
-    
     window.dashboardData = dashboardData; 
-
     renderOverview();
     renderCertificateAndNetwork();
     renderProtocolTable();
@@ -5515,9 +5466,10 @@ function setupEventListeners() {
 
         switch (action) {
             case 'open-modal':
-                if (modal === 'whitelist') showWhitelistModal();
-                if (modal === 'config') showConfigModal(protocol);
-                if (modal === 'ipq') showIPQDetails(ipq);
+                // ***** FIX: Use the full modal ID from the 'modal' dataset *****
+                if (modal === 'whitelistModal') showWhitelistModal();
+                if (modal === 'configModal') showConfigModal(protocol);
+                if (modal === 'ipqModal') showIPQDetails(ipq);
                 break;
             case 'close-modal':
                 closeModal(modal);
@@ -5525,13 +5477,11 @@ function setupEventListeners() {
             case 'copy':
                 const modalContent = target.closest('.modal-content');
                 if (!modalContent) return;
-                
                 let textToCopy = '';
                 if (type === 'sub') textToCopy = modalContent.querySelector('#sub-url')?.textContent;
                 if (type === 'plain') textToCopy = modalContent.querySelector('#plain-link')?.textContent;
                 if (type === 'json') textToCopy = modalContent.querySelector('#json-code')?.textContent;
                 if (type === 'base64') textToCopy = modalContent.querySelector('#base64-link')?.textContent;
-                
                 copyText(textToCopy);
                 break;
         }
@@ -5545,6 +5495,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupEventListeners();
 });
 EXTERNAL_JS
+
 
 # ======= 创建HTML文件（引用外置的CSS和JS）========
   log_info "创建控制面板HTML文件..."
@@ -5677,7 +5628,6 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 </body>
 </html>
 HTML
-
 
 # 设置文件权限
 chmod 644 "${TRAFFIC_DIR}/assets/edgebox-panel.css"
