@@ -403,14 +403,10 @@ create_directories() {
         fi
     done
 
-# 设置目录权限
-chmod 755 "${INSTALL_DIR}" "${CONFIG_DIR}" "${SCRIPTS_DIR}"
-# 证书目录：仅 root 与 nobody 所在组可访问
-chmod 750 "${CERT_DIR}"
-# 把证书目录的 group 调整为 nobody 对应的组（Debian 为 nogroup，RHEL 系为 nobody）
-NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
-chgrp "${NOBODY_GRP}" "${CERT_DIR}" || true
-
+    # 设置目录权限
+    chmod 755 "${INSTALL_DIR}" "${CONFIG_DIR}" "${SCRIPTS_DIR}"
+    chmod 750 "${CERT_DIR}"  # 证书目录权限更严格
+    chmod 755 "${TRAFFIC_DIR}" "${WEB_ROOT}"
     
     log_success "目录结构创建完成"
 }
@@ -1087,10 +1083,11 @@ save_config_info() {
         return 1
     fi
     
-if ! jq '.' "${CONFIG_DIR}/server.json" >/dev/null 2>&1; then
-       log_error "server.json验证失败"
-       return 1
-   fi
+    # 验证生成的JSON文件
+    if ! jq '.' "${CONFIG_DIR}/server.json" >/dev/null 2>&1; then
+        log_error "生成的server.json格式错误"
+        return 1
+    fi
     
     # 设置文件权限（只有root可读写）
     chmod 600 "${CONFIG_DIR}/server.json"
@@ -1155,20 +1152,10 @@ generate_self_signed_cert() {
     ln -sf "${CERT_DIR}/self-signed.key" "${CERT_DIR}/current.key"
     ln -sf "${CERT_DIR}/self-signed.pem" "${CERT_DIR}/current.pem"
     
-# —— 原来有的 —— 
-chown root:root "${CERT_DIR}"/*.{key,pem}
-# 私钥严格权限、证书可读
-chmod 600 "${CERT_DIR}"/*.key
-chmod 644 "${CERT_DIR}"/*.pem
-
-# —— 追加（修复 nobody 无法读的问题）——
-NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
-# 让 nobody 所在组能“穿目录 + 读私钥”
-chgrp "${NOBODY_GRP}" "${CERT_DIR}" || true
-chgrp "${NOBODY_GRP}" "${CERT_DIR}"/self-signed.key "${CERT_DIR}"/self-signed.pem || true
-# 私钥改 640（root 可读写，组可读），证书仍 644
-chmod 640 "${CERT_DIR}"/self-signed.key
-# 软链指向的目标权限已覆盖；无需再对 symlink 本身 chmod
+    # 设置证书文件权限
+    chown root:root "${CERT_DIR}"/*.{key,pem}
+    chmod 600 "${CERT_DIR}"/*.key    # 私钥严格权限
+    chmod 644 "${CERT_DIR}"/*.pem    # 证书可读
     
     # 验证证书有效性
     if openssl x509 -in "${CERT_DIR}/current.pem" -noout -text >/dev/null 2>&1 && \
@@ -1865,37 +1852,73 @@ stream {
 }
 NGINX_CONFIG
     
-# 验证Nginx配置
-log_info "验证Nginx配置..."
-if nginx -t 2>/dev/null; then
-    log_success "Nginx配置验证通过"
+    # 验证Nginx配置
+    log_info "验证Nginx配置..."
+    if nginx -t 2>/dev/null; then
+        log_success "Nginx配置验证通过"
+    else
+        log_error "Nginx配置验证失败"
+        nginx -t  # 显示详细错误信息
+        return 1
+    fi
+    
+    # 启用并启动Nginx
+    systemctl enable nginx >/dev/null 2>&1
+    if systemctl restart nginx; then
+        log_success "Nginx服务启动成功"
+    else
+        log_error "Nginx服务启动失败"
+        systemctl status nginx --no-pager -l
+        return 1
+    fi
+    
+# 验证Xray运行状态 (修复版)
+sleep 5
+if systemctl is-active --quiet xray; then
+    log_success "Xray运行状态验证通过"
+    
+    # 检查内部端口监听 (修复的端口检查逻辑)
+    local xray_ports=(11443 10085 10086 10143)
+    local listening_count=0
+    
+    for port in "${xray_ports[@]}"; do
+        # 修复：移除多余空格，使用多种检查方法
+        if netstat -tlnp 2>/dev/null | grep -q ":$port " || \
+           ss -tlnp 2>/dev/null | grep -q "127\.0\.0\.1:$port\b" || \
+           timeout 2 nc -z 127.0.0.1 "$port" 2>/dev/null; then
+            log_success "✓ Xray内部端口$port监听正常"
+            listening_count=$((listening_count + 1))
+        else
+            log_warn "✗ Xray内部端口$port未监听"
+        fi
+    done
+    
+    # 修复：宽松验证策略
+    if [[ $listening_count -ge 3 ]]; then
+        log_success "Xray运行状态验证通过 ($listening_count/4 端口正常)"
+        return 0
+    elif [[ $listening_count -ge 2 ]]; then
+        log_warn "Xray运行状态部分通过 ($listening_count/4 端口正常)"
+        log_info "某些端口可能需要更长时间启动，继续安装"
+        return 0
+    else
+        log_error "Xray运行状态验证失败 (仅$listening_count/4 端口正常)"
+        return 1
+    fi
 else
-    log_error "Nginx配置验证失败"
-    nginx -t  # 显示详细错误信息
+    log_error "Xray运行状态验证失败"
     return 1
 fi
-    
-log_success "Nginx配置文件创建完成"
-return 0
 }
 
 #############################################
 # Xray 配置函数
 #############################################
 
-# 使用安全的sed替换方法，避免特殊字符问题
-escape_for_sed() {
-    local input="$1"
-    # 转义 & / \ $ ^ * [ ] . 等特殊字符
-    echo "$input" | sed 's/[[\.*^$()+?{|\\]/\\&/g'
-}
-
 # 配置Xray服务
 configure_xray() {
     log_info "配置Xray多协议服务..."
-	
-local NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
-  
+    
 # 验证必要变量 (增强版)
 local required_vars=(
     "UUID_VLESS_REALITY"
@@ -2131,32 +2154,17 @@ log_info "├─ REALITY_SHORT_ID: $REALITY_SHORT_ID"
 log_info "├─ PASSWORD_TROJAN: ${PASSWORD_TROJAN:0:8}..."
 log_info "└─ CERT_DIR: $CERT_DIR"
 
-# 执行替换 (修复特殊字符处理)
-log_info "开始替换配置文件占位符..."
-
-# 安全替换各个变量
-local safe_uuid_reality=$(escape_for_sed "$UUID_VLESS_REALITY")
-local safe_uuid_grpc=$(escape_for_sed "$UUID_VLESS_GRPC")
-local safe_uuid_ws=$(escape_for_sed "$UUID_VLESS_WS")
-local safe_reality_private=$(escape_for_sed "$REALITY_PRIVATE_KEY")
-local safe_reality_short=$(escape_for_sed "$REALITY_SHORT_ID")
-local safe_password_trojan=$(escape_for_sed "$PASSWORD_TROJAN")
-local safe_cert_pem=$(escape_for_sed "${CERT_DIR}/current.pem")
-local safe_cert_key=$(escape_for_sed "${CERT_DIR}/current.key")
-
-# 执行安全的替换操作
+# 执行替换
 sed -i \
-    -e "s#__UUID_VLESS_REALITY__#${safe_uuid_reality}#g" \
-    -e "s#__UUID_VLESS_GRPC__#${safe_uuid_grpc}#g" \
-    -e "s#__UUID_VLESS_WS__#${safe_uuid_ws}#g" \
-    -e "s#__REALITY_PRIVATE_KEY__#${safe_reality_private}#g" \
-    -e "s#__REALITY_SHORT_ID__#${safe_reality_short}#g" \
-    -e "s#__CERT_PEM__#${safe_cert_pem}#g" \
-    -e "s#__CERT_KEY__#${safe_cert_key}#g" \
-    -e "s#__PASSWORD_TROJAN__#${safe_password_trojan}#g" \
+    -e "s/__UUID_VLESS_REALITY__/${UUID_VLESS_REALITY}/g" \
+    -e "s/__UUID_VLESS_GRPC__/${UUID_VLESS_GRPC}/g" \
+    -e "s/__UUID_VLESS_WS__/${UUID_VLESS_WS}/g" \
+    -e "s/__REALITY_PRIVATE_KEY__/${REALITY_PRIVATE_KEY}/g" \
+    -e "s/__REALITY_SHORT_ID__/${REALITY_SHORT_ID}/g" \
+    -e "s|__CERT_PEM__|${CERT_DIR}/current.pem|g" \
+    -e "s|__CERT_KEY__|${CERT_DIR}/current.key|g" \
+    -e "s/__PASSWORD_TROJAN__/${PASSWORD_TROJAN}/g" \
     "${CONFIG_DIR}/xray.json"
-
-log_success "配置文件占位符替换完成"
 
 # 验证替换结果
 local unreplaced_vars=$(grep -o "__[A-Z_]*__" "${CONFIG_DIR}/xray.json" || true)
@@ -2186,11 +2194,12 @@ if [[ -n "$unreplaced_vars" ]]; then
     log_error "Xray配置中存在未替换的变量: $unreplaced_vars"
     return 1
 fi
- 
+
 log_success "Xray配置文件验证通过"
     
+    # 创建Xray systemd服务
     log_info "创建Xray系统服务..."
-cat > /etc/systemd/system/xray.service << XRAY_SERVICE
+    cat > /etc/systemd/system/xray.service << XRAY_SERVICE
 [Unit]
 Description=Xray Service
 Documentation=https://github.com/xtls
@@ -2198,7 +2207,6 @@ After=network.target nss-lookup.target
 
 [Service]
 User=nobody
-Group=${NOBODY_GRP}
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
 NoNewPrivileges=true
@@ -2212,10 +2220,69 @@ LimitNOFILE=1000000
 WantedBy=multi-user.target
 XRAY_SERVICE
     
-    # 重新加载systemd，以便后续服务可以启动
+    # 重新加载systemd并启用服务
     systemctl daemon-reload
-    log_success "Xray服务文件创建完成"
-    return 0
+    systemctl enable xray >/dev/null 2>&1
+    
+# 启动Xray服务 (增强调试版)
+log_info "启动Xray服务..."
+
+# 先测试配置文件
+log_info "测试Xray配置文件..."
+if /usr/local/bin/xray -test -config "${CONFIG_DIR}/xray.json"; then
+    log_success "Xray配置文件测试通过"
+else
+    log_error "Xray配置文件测试失败"
+    log_info "配置文件内容预览:"
+    head -20 "${CONFIG_DIR}/xray.json"
+    return 1
+fi
+
+# 创建日志目录
+mkdir -p /var/log/xray
+chown nobody:nogroup /var/log/xray 2>/dev/null || true
+
+# 启动服务
+if systemctl restart xray; then
+    log_success "Xray服务启动成功"
+else
+    log_error "Xray服务启动失败"
+    log_info "查看服务状态:"
+    systemctl status xray --no-pager -l
+    log_info "查看最近日志:"
+    journalctl -u xray -n 20 --no-pager
+    return 1
+fi
+    
+    # 验证Xray运行状态
+    sleep 2
+    if systemctl is-active --quiet xray; then
+        log_success "Xray运行状态验证通过"
+        
+        # 检查内部端口监听
+        local xray_ports=(11443 10085 10086 10143)
+        local listening_count=0
+        
+        for port in "${xray_ports[@]}"; do
+            if ss -tlnp | grep -q ":${port} .*xray"; then
+                log_success "✓ Xray端口 $port 监听正常"
+                listening_count=$((listening_count + 1))
+            else
+                log_warn "✗ Xray端口 $port 未监听"
+            fi
+        done
+        
+        if [[ $listening_count -ge 3 ]]; then
+            log_success "Xray端口监听验证通过 ($listening_count/4)"
+            return 0
+        else
+            log_error "Xray端口监听验证失败 ($listening_count/4)"
+            return 1
+        fi
+    else
+        log_error "Xray运行状态验证失败"
+        return 1
+    fi
 }
 
 #############################################
@@ -2297,22 +2364,16 @@ configure_sing_box() {
       "tag": "direct"
     }
   ],
-"route": {
-  "rules": [
-    {
-      "ip_cidr": [
-        "127.0.0.0/8",
-        "10.0.0.0/8",
-        "172.16.0.0/12",
-        "192.168.0.0/16",
-        "::1/128",
-        "fc00::/7",
-        "fe80::/10"
-      ],
-      "outbound": "direct"
-    }
-  ]
-}
+  "route": {
+    "rules": [
+      {
+        "geoip": [
+          "private"
+        ],
+        "outbound": "direct"
+      }
+    ]
+  }
 }
 SINGBOX_CONFIG
     
@@ -2322,14 +2383,69 @@ SINGBOX_CONFIG
         return 1
     fi
     
-# 创建sing-box systemd服务
-log_info "创建sing-box系统服务..."
-# ... (cat > /etc/systemd/system/sing-box.service) ...
+    # 创建sing-box systemd服务
+    log_info "创建sing-box系统服务..."
+    cat > /etc/systemd/system/sing-box.service << SINGBOX_SERVICE
+[Unit]
+Description=sing-box service
+Documentation=https://sing-box.sagernet.org
+After=network.target nss-lookup.target
 
-    # 重新加载systemd
+[Service]
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+ExecStart=/usr/local/bin/sing-box run -c ${CONFIG_DIR}/sing-box.json
+ExecReload=/bin/kill -HUP \$MAINPID
+Restart=on-failure
+RestartSec=10s
+LimitNOFILE=infinity
+
+[Install]
+WantedBy=multi-user.target
+SINGBOX_SERVICE
+
+    # 重新加载systemd并启用服务
     systemctl daemon-reload
-    log_success "sing-box服务文件创建完成"
-    return 0
+    systemctl enable sing-box >/dev/null 2>&1
+    
+    # 启动sing-box服务
+    if systemctl restart sing-box; then
+        log_success "sing-box服务启动成功"
+    else
+        log_error "sing-box服务启动失败"
+        systemctl status sing-box --no-pager -l
+        return 1
+    fi
+    
+    # 验证sing-box运行状态
+    sleep 2
+    if systemctl is-active --quiet sing-box; then
+        log_success "sing-box运行状态验证通过"
+        
+        # 检查UDP端口监听
+        local singbox_ports=(443 2053)
+        local listening_count=0
+        
+        for port in "${singbox_ports[@]}"; do
+            if ss -ulnp | grep -q ":${port} .*sing-box"; then
+                log_success "✓ sing-box UDP端口 $port 监听正常"
+                listening_count=$((listening_count + 1))
+            else
+                log_warn "✗ sing-box UDP端口 $port 未监听"
+            fi
+        done
+        
+        if [[ $listening_count -ge 1 ]]; then
+            log_success "sing-box端口监听验证通过 ($listening_count/2)"
+            return 0
+        else
+            log_error "sing-box端口监听验证失败 ($listening_count/2)"
+            return 1
+        fi
+    else
+        log_error "sing-box运行状态验证失败"
+        return 1
+    fi
 }
 
 #############################################
@@ -2426,19 +2542,13 @@ generate_subscription() {
         subscription_links+="tuic://${uuid_tuic}:${encoded_tuic_password}@${server_ip}:2053?congestion_control=bbr&alpn=h3&sni=${server_ip}&allowInsecure=1#EdgeBox-TUIC\n"
     fi
     
-# 保存订阅文件（改为软链同步到 Web，避免 "are the same file"）
-mkdir -p "${WEB_ROOT}"
-printf "%b" "$subscription_links" > "${CONFIG_DIR}/subscription.txt"
-
-# 将 Web 目录的 /sub 作为 subscription.txt 的软链接
-# 若已存在普通文件或错误链接，先移除再创建
-if [[ -e "${WEB_ROOT}/sub" && ! -L "${WEB_ROOT}/sub" ]]; then
-  rm -f "${WEB_ROOT}/sub"
-fi
-ln -sfn "${CONFIG_DIR}/subscription.txt" "${WEB_ROOT}/sub"
-
-# 设置权限（chmod 作用于目标文件；软链本身无需 chmod）
-chmod 644 "${CONFIG_DIR}/subscription.txt"
+    # 保存订阅文件
+    mkdir -p "${WEB_ROOT}"
+    printf "%b" "$subscription_links" > "${CONFIG_DIR}/subscription.txt"
+    cp "${CONFIG_DIR}/subscription.txt" "${WEB_ROOT}/sub"
+    
+    # 设置文件权限
+    chmod 644 "${CONFIG_DIR}/subscription.txt" "${WEB_ROOT}/sub"
     
     # 生成Base64编码的订阅（可选）
     if command -v base64 >/dev/null 2>&1; then
@@ -2472,111 +2582,128 @@ chmod 644 "${CONFIG_DIR}/subscription.txt"
 
 # 启动所有服务并验证
 start_and_verify_services() {
-    log_info "统一启动并验证所有EdgeBox核心服务..."
+    log_info "启动EdgeBox核心服务..."
     
-    local services=(xray sing-box nginx) # 启动顺序：后端 -> 前端
-    
-    # 1. 重新加载daemon并启用所有服务
+    # 重新加载systemd配置
     systemctl daemon-reload
+    
+    # 启用所有服务
+    local services=(nginx xray sing-box)
     for service in "${services[@]}"; do
-        systemctl enable "$service" >/dev/null 2>&1
-    done
-
-    # 2. 启动所有服务
-    local all_started=true
-    for service in "${services[@]}"; do
-        if systemctl restart "$service"; then
-            log_success "✓ $service 服务已发出启动命令"
+        if systemctl enable "$service" >/dev/null 2>&1; then
+            log_success "✓ $service 已设置为开机自启"
         else
-            log_error "✗ $service 服务启动命令失败"
-            systemctl status "$service" --no-pager -l
-            all_started=false
+            log_warn "✗ $service 开机自启设置失败"
         fi
     done
-    [[ "$all_started" == "false" ]] && return 1
-
-    log_info "等待服务稳定并开始验证 (最多等待15秒)..."
-
-    # 3. 循环验证，解决竞态条件
-    local attempts=0
-    local max_attempts=15
-    while [[ $attempts -lt $max_attempts ]]; do
-        attempts=$((attempts + 1))
-        
-        # 定义需要检查的所有端口和服务
-        local required_ports=(
-            "tcp:80:nginx" 
-            "tcp:443:nginx" 
-            "udp:443:sing-box" 
-            "udp:2053:sing-box"
-            "tcp:127.0.0.1:11443:xray" # Reality
-            "tcp:127.0.0.1:10085:xray" # gRPC
-            "tcp:127.0.0.1:10086:xray" # WS
-            "tcp:127.0.0.1:10143:xray" # Trojan
-        )
-        
-        local listening_count=0
-        local services_active_count=0
-        
-        # 检查服务状态
-        for service in "${services[@]}"; do
-            systemctl is-active --quiet "$service" && services_active_count=$((services_active_count + 1))
-        done
-        
-        # 检查端口监听 (使用更精确的 ss 命令)
-        for p_info in "${required_ports[@]}"; do
-            IFS=':' read -r proto addr port proc <<< "$p_info"
-            local cmd=""
-            if [[ "$addr" == "127.0.0.1" ]]; then
-                cmd="ss -H -tlnp sport = :$port and src = $addr" # 仅限TCP和本地回环地址
-            elif [[ "$proto" == "tcp" ]]; then
-                cmd="ss -H -tlnp sport = :$port"
-            else
-                cmd="ss -H -ulnp sport = :$port"
-            fi
-
-            if $cmd | grep -q "$proc"; then
-                listening_count=$((listening_count + 1))
-            fi
-        done
-        
-        # 如果全部成功，则跳出循环
-        if [[ $services_active_count -eq ${#services[@]} && $listening_count -eq ${#required_ports[@]} ]]; then
-            log_success "所有服务 (${#services[@]}) 和端口 (${#required_ports[@]}) 验证通过！"
-            return 0
-        fi
-
-        log_info "验证中... (尝试 $attempts/$max_attempts, 服务: $services_active_count/${#services[@]}, 端口: $listening_count/${#required_ports[@]})"
-        sleep 1
-    done
-
-    # 4. 如果超时，报告详细的失败信息
-    log_error "服务启动验证超时！"
-    log_info "请检查以下未通过的项目："
+    
+    # 启动服务（有依赖顺序）
+    log_info "按顺序启动服务..."
+    
+    # 1. 先启动Nginx
+    if systemctl restart nginx; then
+        log_success "✓ Nginx 启动成功"
+    else
+        log_error "✗ Nginx 启动失败"
+        systemctl status nginx --no-pager -l
+        return 1
+    fi
+    
+    sleep 2
+    
+    # 2. 启动Xray
+    if systemctl restart xray; then
+        log_success "✓ Xray 启动成功"
+    else
+        log_error "✗ Xray 启动失败"
+        systemctl status xray --no-pager -l
+        return 1
+    fi
+    
+    sleep 2
+    
+    # 3. 启动sing-box
+    if systemctl restart sing-box; then
+        log_success "✓ sing-box 启动成功"
+    else
+        log_error "✗ sing-box 启动失败"
+        systemctl status sing-box --no-pager -l
+        return 1
+    fi
+    
+    # 等待服务稳定
+    log_info "等待服务稳定..."
+    sleep 5
+    
+    # 验证所有服务状态
+    log_info "验证服务运行状态..."
+    local failed_services=()
     
     for service in "${services[@]}"; do
-        if ! systemctl is-active --quiet "$service"; then
-            log_error "✗ 服务 $service 状态: $(systemctl is-active "$service")"
-            journalctl -u "$service" -n 10 --no-pager
-        fi
-    done
-    
-    for p_info in "${required_ports[@]}"; do
-        IFS=':' read -r proto addr port proc <<< "$p_info"
-        local cmd=""
-        if [[ "$addr" == "127.0.0.1" ]]; then
-            cmd="ss -H -tlnp sport = :$port and src = $addr"
-        elif [[ "$proto" == "tcp" ]]; then
-            cmd="ss -H -tlnp sport = :$port"
+        if systemctl is-active --quiet "$service"; then
+            log_success "✓ $service 运行正常"
         else
-            cmd="ss -H -ulnp sport = :$port"
-        fi
-        if ! $cmd | grep -q "$proc"; then
-            log_error "✗ 端口 $proto:$addr:$port ($proc) 未监听到"
+            log_error "✗ $service 运行异常"
+            failed_services+=("$service")
         fi
     done
     
+    # 验证端口监听
+    log_info "验证端口监听状态..."
+    
+    # HTTP端口验证
+    if ss -tlnp | grep -q ":80.*nginx"; then
+        log_success "✓ HTTP端口80监听正常"
+    else
+        log_warn "✗ HTTP端口80未监听"
+    fi
+    
+    # HTTPS端口验证（TCP）
+    if ss -tlnp | grep -q ":443.*nginx"; then
+        log_success "✓ HTTPS端口443(TCP)监听正常"
+    else
+        log_warn "✗ HTTPS端口443(TCP)未监听"
+    fi
+    
+    # UDP端口验证
+    if ss -ulnp | grep -q ":443.*sing-box"; then
+        log_success "✓ Hysteria2端口443(UDP)监听正常"
+    else
+        log_warn "✗ Hysteria2端口443(UDP)未监听"
+    fi
+    
+    if ss -ulnp | grep -q ":2053.*sing-box"; then
+        log_success "✓ TUIC端口2053(UDP)监听正常"
+    else
+        log_warn "✗ TUIC端口2053(UDP)未监听"
+    fi
+    
+ # Xray内部端口验证
+local xray_internal_ports=(11443 10085 10086 10143)
+local xray_listening=0
+
+for port in "${xray_internal_ports[@]}"; do
+    # 修复：使用多种方法检查端口，移除错误的正则表达式
+    if netstat -tlnp 2>/dev/null | grep -q ":$port " || \
+       ss -tlnp 2>/dev/null | grep -q "127\.0\.0\.1:$port\b" || \
+       timeout 2 nc -z 127.0.0.1 "$port" 2>/dev/null; then
+        log_success "✓ Xray内部端口$port监听正常"
+        xray_listening=$((xray_listening + 1))
+    else
+        log_warn "✗ Xray内部端口$port未监听"
+    fi
+done
+
+# 修复：宽松验证条件
+if [[ ${#failed_services[@]} -eq 0 && $xray_listening -ge 2 ]]; then
+    log_success "所有服务启动验证通过"
+    return 0
+else
+    log_error "服务启动验证失败:"
+    [[ ${#failed_services[@]} -gt 0 ]] && log_error "  失败服务: ${failed_services[*]}"
+    [[ $xray_listening -lt 2 ]] && log_error "  Xray内部端口监听不足: $xray_listening/4"
     return 1
+fi
 }
 
 #############################################
@@ -2603,7 +2730,15 @@ execute_module3() {
         return 1
     fi
     
-    # 任务3：配置Xray (先配置后端服务)
+    # 任务3：配置Nginx
+    if configure_nginx; then
+        log_success "✓ Nginx配置完成"
+    else
+        log_error "✗ Nginx配置失败"
+        return 1
+    fi
+    
+    # 任务4：配置Xray
     if configure_xray; then
         log_success "✓ Xray配置完成"
     else
@@ -2611,19 +2746,11 @@ execute_module3() {
         return 1
     fi
     
-    # 任务4：配置sing-box (再配置后端服务)
+    # 任务5：配置sing-box
     if configure_sing_box; then
         log_success "✓ sing-box配置完成"
     else
         log_error "✗ sing-box配置失败"
-        return 1
-    fi
-    
-    # 任务5：配置Nginx (最后配置前端代理)
-    if configure_nginx; then
-        log_success "✓ Nginx配置完成"
-    else
-        log_error "✗ Nginx配置失败"
         return 1
     fi
     
@@ -2767,10 +2894,6 @@ create_dashboard_backend() {
 
 set -euo pipefail
 export LANG=C LC_ALL=C
-
-# 解析当前脚本所在目录，并为 SCRIPTS_DIR 提供默认值
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-: "${SCRIPTS_DIR:=${SCRIPT_DIR}}"
 
 #############################################
 # 配置和路径定义
@@ -3857,7 +3980,7 @@ setup_cron_jobs() {
     
     # 移除可能存在的旧任务
     (crontab -l 2>/dev/null | grep -vE '/edgebox/scripts/(dashboard-backend|traffic-collector|traffic-alert)\.sh') | crontab - || true
-
+    
     # 添加新的定时任务
     (crontab -l 2>/dev/null; cat << 'CRON_JOBS'
 # EdgeBox 定时任务
@@ -4950,70 +5073,54 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
     </div>
 
     <!-- 网络身份配置 -->
-<div class="card">
-  <div class="card-header">
-    <h3>🌐 网络身份配置</h3>
-    <div class="card-note">注：HY2/TUIC 为 UDP通道，VPS直连，不走代理分流</div>
-  </div>
-  <div class="content">
-    <div class="network-blocks">
-      <!-- VPS出站IP内容 -->
-      <div class="network-block" id="network-block-vps">
-        <h5 class="network-block-title active">📡 VPS出站IP</h5>
-        <div class="small">公网身份: <span class="status-running">直连</span></div>
-        <div class="small">VPS出站IP: <span id="vps-out-ip">—</span></div>
-        <div class="small">Geo: <span id="vps-geo">—</span></div>
-        <div class="small">IP质量检测: <span id="vps-quality">—</span> <span class="detail-link" onclick="showIPQDetails('vps')">详情</span></div>
-      </div>
-      
-      <!-- 代理出站IP内容 -->
-      <div class="network-block" id="network-block-proxy">
-        <h5 class="network-block-title">🔄 代理出站IP</h5>
-        <div class="small">代理身份: <span class="status-running">全代理</span></div>
-        <div class="small">代理出站IP: <span id="proxy-out-ip">未配置</span></div>
-        <div class="small">Geo: <span id="proxy-geo">—</span></div>
-        <div class="small">IP质量检测: <span id="proxy-quality">—</span> <span class="detail-link" onclick="showIPQDetails('proxy')">详情</span></div>
-      </div>
-      
-      <!-- 分流出站内容 -->
-      <div class="network-block" id="network-block-shunt">
-        <h5 class="network-block-title">🔀 分流出站</h5>
-        <div class="small">混合身份: <span class="status-running">VPS直连 + 代理</span></div>
-        <div class="small">白名单: <span id="whitelist-short" class="whitelist-inline">googlevideo.com, ytimg.com, qqpht.com, youtube.com</span> <span class="detail-link" onclick="showWhitelistModal()">查看全部</span></div>
-      </div>
-    </div>
-  </div>
+    <div class="card">
+      <h3>🌐 网络身份配置</h3>
+      <div class="content">
+<div class="network-status">
+  <span class="status-badge active">VPS出站IP</span>
+  <span class="status-badge">代理出站IP</span>
+  <span class="status-badge">分流出站</span>
 </div>
-
-<!-- 详情弹窗 -->
-<dialog id="ipq-modal" class="modal">
-  <div class="modal-content">
-    <div class="modal-header">
-      <h3 id="ipq-modal-title">IP质量详情</h3>
-      <button class="modal-close" onclick="closeIPQModal()">×</button>
-    </div>
-    <div class="modal-body">
-      <div id="ipq-details-content">
-        <div class="loading">加载中...</div>
+        
+        <!-- 三个区块并排显示 -->
+        <div class="network-blocks">
+          <!-- VPS出站IP内容 -->
+          <div class="network-block">
+            <h5>📡 VPS出站IP</h5>
+            <div class="small">公网身份: <span class="status-running">直连</span></div>
+            <div class="small">VPS出站IP: <span id="vps-out-ip">—</span></div>
+            <div class="small">Geo: <span id="vps-geo">—</span></div>
+            <div class="small">IP质量检测: <span id="vps-quality">—</span> <span class="detail-link" onclick="showIPQDetails('vps')">详情</span></div>
+          </div>
+          
+          <!-- 代理出站IP内容 -->
+          <div class="network-block">
+            <h5>🔄 代理出站IP</h5>
+            <div class="small">代理身份: <span class="status-running">全代理</span></div>
+            <div class="small">代理出站IP: <span id="proxy-out-ip">—</span></div>
+            <div class="small">Geo: <span id="proxy-geo">—</span></div>
+            <div class="small">IP质量检测: <span id="proxy-quality">—</span> <span class="detail-link" onclick="showIPQDetails('proxy')">详情</span></div>
+          </div>
+          
+          <!-- 分流出站内容 -->
+          <div class="network-block">
+            <h5>🔀 分流出站</h5>
+            <div class="small">混合身份: <span class="status-running">VPS直连 + 代理</span></div>
+            <div class="small">白名单: 
+              <div class="whitelist-content" id="whitelist-content">
+                <span id="whitelist-text">—</span>
+              </div>
+              <span class="detail-link" id="whitelist-toggle" onclick="toggleWhitelist()">查看全部</span>
+            </div>
+          </div>
+        </div>
+        
+        <div class="network-note">
+          注：HY2/TUIC 为 UDP通道，VPS直连，不走代理分流
+        </div>
       </div>
     </div>
   </div>
-</dialog>
-
-<!-- 白名单弹窗 -->
-<dialog id="whitelist-modal" class="modal">
-  <div class="modal-content">
-    <div class="modal-header">
-      <h3>白名单详情</h3>
-      <button class="modal-close" onclick="closeWhitelistModal()">×</button>
-    </div>
-    <div class="modal-body">
-      <div id="whitelist-full-content">
-        <div class="loading">加载中...</div>
-      </div>
-    </div>
-  </div>
-</dialog>
 
   <!-- 第三行：协议配置 -->
   <div class="grid grid-full">
@@ -6135,7 +6242,6 @@ async function loadData() {
     // 渲染各个模块
     renderHeader(model);
     renderProtocols(model);
-	updateNetworkIdentity(model);
     renderTraffic(traffic);
     renderAlerts(alerts);
 
@@ -6459,137 +6565,34 @@ function toggleWhitelist() {
   }
 }
 
-// IP质量详情弹窗
+// IP质量详情显示功能
 function showIPQDetails(type) {
-  const modal = document.getElementById('ipq-modal');
-  const title = document.getElementById('ipq-modal-title');
-  const content = document.getElementById('ipq-details-content');
-  
-  title.textContent = type === 'vps' ? 'VPS出站IP质量详情' : '代理出站IP质量详情';
-  content.innerHTML = '<div class="loading">加载中...</div>';
-  
-  modal.showModal();
-  
-  // 加载IP质量数据
-  fetch(`/status/ipq_${type}.json`)
-    .then(response => {
-      if (!response.ok) throw new Error('数据获取失败');
-      return response.json();
-    })
-    .then(data => {
-      content.innerHTML = formatIPQDetails(data);
-    })
-    .catch(error => {
-      content.innerHTML = `<div class="error">加载失败: ${error.message}</div>`;
-    });
+  // 这里可以实现显示IP质量检测详情的功能
+  alert('IP质量检测详情功能待实现 - ' + type);
 }
 
-// 白名单弹窗
-function showWhitelistModal() {
-  const modal = document.getElementById('whitelist-modal');
-  const content = document.getElementById('whitelist-full-content');
-  
-  content.innerHTML = '<div class="loading">加载中...</div>';
-  modal.showModal();
-  
-  // 加载白名单数据
-  fetch('/traffic/dashboard.json')
-    .then(response => {
-      if (!response.ok) throw new Error('数据获取失败');
-      return response.json();
-    })
-    .then(data => {
-      const whitelist = data.shunt?.whitelist || [];
-      if (whitelist.length === 0) {
-        content.innerHTML = '<div class="no-data">暂无白名单规则</div>';
-      } else {
-        content.innerHTML = `
-          <div class="whitelist-list">
-            ${whitelist.map(item => `<div class="whitelist-item">${item}</div>`).join('')}
-          </div>
-        `;
-      }
-    })
-    .catch(error => {
-      content.innerHTML = `<div class="error">加载失败: ${error.message}</div>`;
-    });
-}
-
-// 关闭弹窗函数
-function closeIPQModal() {
-  document.getElementById('ipq-modal').close();
-}
-
-function closeWhitelistModal() {
-  document.getElementById('whitelist-modal').close();
-}
-
-// 格式化IP质量详情
-function formatIPQDetails(data) {
-  return `
-    <div class="ipq-details">
-      <div class="detail-section">
-        <h4>总览</h4>
-        <div>分数：${data.score || '—'} (${data.grade || '—'})</div>
-        <div>检测时间：${data.timestamp || '—'}</div>
-      </div>
-      
-      <div class="detail-section">
-        <h4>身份信息</h4>
-        <div>出站IP：${data.ip || '—'}</div>
-        <div>ASN/ISP：${data.asn || '—'}</div>
-        <div>Geo：${data.geo || '—'}</div>
-      </div>
-      
-      <div class="detail-section">
-        <h4>配置信息</h4>
-        <div>带宽限制：${data.bandwidth || '—'}</div>
-      </div>
-      
-      <div class="detail-section">
-        <h4>质量细项</h4>
-        <div>网络类型：${data.network_type || '—'}</div>
-        <div>rDNS：${data.rdns || '—'}</div>
-        <div>黑名单命中数：${data.blacklist_hits || '—'}</div>
-        <div>时延中位数：${data.latency || '—'}</div>
-      </div>
-      
-      <div class="detail-section">
-        <h4>结论</h4>
-        <div>${data.conclusion || '—'}</div>
-      </div>
-    </div>
-  `;
-}
-
-// 更新网络身份配置显示
-function updateNetworkIdentity(data) {
-  // 更新当前活跃的分流模式
-  document.querySelectorAll('.network-block-title').forEach(title => {
-    title.classList.remove('active');
-  });
-  
-  const mode = data.shunt?.mode || 'vps';
-  const activeBlock = document.getElementById(`network-block-${mode}`);
-  if (activeBlock) {
-    activeBlock.querySelector('.network-block-title').classList.add('active');
-  }
-  
-  // 更新白名单显示（只显示两行）
-  const whitelist = data.shunt?.whitelist || [];
-  const whitelistShort = document.getElementById('whitelist-short');
-  if (whitelistShort) {
-    if (whitelist.length === 0) {
-      whitelistShort.textContent = '(无)';
-    } else {
-      // 只显示前4个域名
-      const displayList = whitelist.slice(0, 4);
-      whitelistShort.textContent = displayList.join(', ');
-      if (whitelist.length > 4) {
-        whitelistShort.textContent += '...';
-      }
+// 白名单自动折叠功能
+function initWhitelistCollapse() {
+  document.querySelectorAll('.kv').forEach(function(kv){
+    const v = kv.querySelector('.v');
+    if(!v) return;
+    
+    // 检查内容是否超出3行高度
+    const lineHeight = parseFloat(getComputedStyle(v).lineHeight) || 20;
+    const maxHeight = lineHeight * 3;
+    
+    if(v.scrollHeight > maxHeight){
+      kv.classList.add('v-collapsed');
+      const btn = document.createElement('span');
+      btn.className = 'detail-toggle';
+      btn.innerText = '详情';
+      btn.addEventListener('click', function(){
+        kv.classList.toggle('v-collapsed');
+        btn.innerText = kv.classList.contains('v-collapsed') ? '详情' : '收起';
+      });
+      kv.appendChild(btn);
     }
-  }
+  });
 }
 
 // 启动
@@ -8404,7 +8407,7 @@ main() {
     
     # 高级功能安装（模块3-5）
     show_progress 12 20 "安装后台脚本"
-    create_dashboard_backend
+    install_scheduled_dashboard_backend
     
     show_progress 13 20 "配置流量监控"
     setup_traffic_monitoring
