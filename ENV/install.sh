@@ -5160,7 +5160,7 @@ EXTERNAL_CSS
 
 cat > "${TRAFFIC_DIR}/assets/edgebox-panel.js" <<'EXTERNAL_JS'
 // =================================================================
-// EdgeBox Panel v3.0 - Fixed JavaScript 
+// EdgeBox Panel v3.0 - Refactored JavaScript with Event Delegation
 // =================================================================
 
 // --- Global State ---
@@ -5170,14 +5170,13 @@ let systemData = {};
 let overviewTimer = null;
 const GiB = 1024 ** 3;
 
-// --- Chart.js Y轴单位插件 ---
+// --- Chart.js Plugin ---
 const ebYAxisUnitTop = {
   id: 'ebYAxisUnitTop',
   afterDraw: (chart) => {
     const ctx = chart.ctx;
     const yAxis = chart.scales.y;
     if (!yAxis) return;
-    
     ctx.save();
     ctx.font = '11px sans-serif';
     ctx.fillStyle = '#6b7280';
@@ -5186,6 +5185,7 @@ const ebYAxisUnitTop = {
     ctx.restore();
   }
 };
+Chart.register(ebYAxisUnitTop);
 
 // --- Utility Functions ---
 async function fetchJSON(url) {
@@ -5209,16 +5209,16 @@ function escapeHtml(s = '') {
 }
 
 function notify(msg, type = 'ok', ms = 1500) {
-  const host = document.querySelector('#configModal.modal[style*="block"] .modal-content') || document.body;
-  const tip = document.createElement('div');
-  tip.className = `toast toast-${type}`;
-  tip.textContent = msg;
-  host.appendChild(tip);
-  requestAnimationFrame(() => tip.classList.add('show'));
-  setTimeout(() => {
-    tip.classList.remove('show');
-    setTimeout(() => tip.remove(), 300);
-  }, ms);
+    const host = document.querySelector('#configModal.modal[style*="block"] .modal-content') || document.body;
+    const tip = document.createElement('div');
+    tip.className = `toast toast-${type}`;
+    tip.textContent = msg;
+    host.appendChild(tip);
+    requestAnimationFrame(() => tip.classList.add('show'));
+    setTimeout(() => {
+        tip.classList.remove('show');
+        setTimeout(() => tip.remove(), 300);
+    }, ms);
 }
 
 // --- UI Rendering Functions ---
@@ -5227,13 +5227,11 @@ function renderOverview() {
   const server = dashboardData.server || {};
   const services = dashboardData.services || {};
   
-  // Server Info
   document.getElementById('server-name').textContent = safeGet(server, 'user_alias', '(未设置)');
   document.getElementById('cloud-info').textContent = `${safeGet(server, 'cloud.provider')} | ${safeGet(server, 'cloud.region')}`;
   document.getElementById('instance-id').textContent = safeGet(server, 'instance_id');
   document.getElementById('hostname').textContent = safeGet(server, 'hostname');
 
-  // Server Spec & System Metrics
   const spec = server.spec || {};
   document.getElementById('cpu-info').textContent = safeGet(spec, 'cpu');
   document.getElementById('mem-info').textContent = safeGet(spec, 'memory');
@@ -5250,26 +5248,19 @@ function renderOverview() {
   document.getElementById('disk-progress').style.width = `${diskPct}%`;
   document.getElementById('disk-progress').textContent = `${diskPct}%`;
 
-  // Services
   ['nginx', 'xray', 'sing-box'].forEach(svc => {
     const status = safeGet(services, `${svc}.status`, 'inactive');
     const version = safeGet(services, `${svc}.version`, '');
-    const badge = document.getElementById(`${svc}-status`);
-    const versionEl = document.getElementById(`${svc}-version`);
-    
-    // 修复sing-box的ID映射
     const elementId = svc === 'sing-box' ? 'singbox' : svc;
-    const actualBadge = document.getElementById(`${elementId}-status`);
-    const actualVersion = document.getElementById(`${elementId}-version`);
-    
-    if (actualBadge) {
-      actualBadge.textContent = status === 'active' ? '运行中' : '已停止';
-      actualBadge.className = status === 'active' ? 'status-badge status-running' : 'status-badge';
+    const badge = document.getElementById(`${elementId}-status`);
+    const versionEl = document.getElementById(`${elementId}-version`);
+    if (badge) {
+      badge.textContent = status === 'active' ? '运行中' : '已停止';
+      badge.className = status === 'active' ? 'status-badge status-running' : 'status-badge';
     }
-    if (actualVersion) actualVersion.textContent = version;
+    if (versionEl) versionEl.textContent = version;
   });
 
-  // Footer Info
   document.getElementById('version').textContent = safeGet(server, 'version');
   document.getElementById('install-date').textContent = safeGet(server, 'install_date');
   document.getElementById('update-time').textContent = new Date(dashboardData.updated_at || Date.now()).toLocaleString();
@@ -5279,7 +5270,6 @@ function renderCertificateAndNetwork() {
     const cert = dashboardData.server?.cert || {};
     const shunt = dashboardData.shunt || {};
 
-    // Certificate
     const certMode = safeGet(cert, 'mode', 'self-signed');
     document.getElementById('cert-self').classList.toggle('active', certMode === 'self-signed');
     document.getElementById('cert-ca').classList.toggle('active', certMode.startsWith('letsencrypt'));
@@ -5288,42 +5278,29 @@ function renderCertificateAndNetwork() {
     document.getElementById('cert-renewal').textContent = certMode.startsWith('letsencrypt') ? '自动' : '手动';
     document.getElementById('cert-expiry').textContent = safeGet(cert, 'expires_at') ? new Date(cert.expires_at).toLocaleDateString() : '—';
 
-    // Network Identity - 完全修复判断逻辑
+    // --- FIX: Correct Network Identity Highlighting Logic ---
     const shuntMode = String(safeGet(shunt, 'mode', 'vps')).toLowerCase();
+    ['net-vps', 'net-proxy', 'net-shunt'].forEach(id => document.getElementById(id).classList.remove('active'));
     
-    // 清理所有active状态
-    ['net-vps', 'net-proxy', 'net-shunt'].forEach(id => {
-        document.getElementById(id).classList.remove('active');
-    });
-    
-    // 根据mode精确匹配并高亮
     if (shuntMode === 'vps') {
         document.getElementById('net-vps').classList.add('active');
-    } else if (shuntMode.includes('resi') && !shuntMode.includes('direct')) {
-        // resi 或 resi(xray-only)
-        document.getElementById('net-proxy').classList.add('active');
     } else if (shuntMode.includes('direct')) {
-        // direct_resi 或 direct_resi(xray-only)
         document.getElementById('net-shunt').classList.add('active');
+    } else if (shuntMode.includes('resi')) {
+        document.getElementById('net-proxy').classList.add('active');
     } else {
-        // 默认高亮VPS
-        document.getElementById('net-vps').classList.add('active');
+        document.getElementById('net-vps').classList.add('active'); // Default fallback
     }
     
-    // 更新显示内容
     document.getElementById('vps-ip').textContent = safeGet(dashboardData, 'server.eip') || safeGet(dashboardData, 'server.server_ip');
     document.getElementById('proxy-ip').textContent = safeGet(shunt, 'proxy_info', '(未配置)');
     
-    // Whitelist
     const whitelist = shunt.whitelist || [];
     const previewEl = document.getElementById('whitelistPreview');
     if (previewEl) {
         if (whitelist.length > 0) {
             const displayList = whitelist.slice(0, 3).join(', ') + (whitelist.length > 3 ? '...' : '');
-            previewEl.innerHTML = `
-                <div class="whitelist-text">${displayList}</div>
-                <button class="whitelist-more btn btn-sm" data-action="open-modal" data-modal="whitelist">查看全部</button>
-            `;
+            previewEl.innerHTML = `<div class="whitelist-text">${displayList}</div><button class="whitelist-more" data-action="open-modal" data-modal="whitelist">查看全部</button>`;
         } else {
             previewEl.innerHTML = `<div class="whitelist-text">暂无白名单</div>`;
         }
@@ -5347,83 +5324,44 @@ function renderProtocolTable() {
 
     const subRow = `
         <tr class="subs-row">
-            <td style="font-weight:500;">整包订阅链接</td>
-            <td>所有协议</td>
-            <td>通用</td>
-            <td></td>
+            <td style="font-weight:500;">整包订阅链接</td><td>所有协议</td><td>通用</td><td></td>
             <td><button class="btn btn-sm btn-link" data-action="open-modal" data-modal="config" data-protocol="__SUBS__">查看/复制</button></td>
         </tr>
     `;
-
     tbody.innerHTML = rows + subRow;
 }
 
 function renderTrafficCharts() {
     if (!trafficData || !window.Chart) return;
     
-    // Traffic progress bar
     const monthly = trafficData.monthly || [];
-    const currentMonth = new Date().toISOString().slice(0, 7);
-    const thisMonth = monthly.find(m => m.month === currentMonth);
-    
-    if (thisMonth) {
+    const currentMonthData = monthly.find(m => m.month === new Date().toISOString().slice(0, 7));
+    if (currentMonthData) {
         const budget = 100; // GiB
-        const used = (thisMonth.total || 0) / GiB;
+        const used = (currentMonthData.total || 0) / GiB;
         const percentage = Math.min(100, Math.round((used / budget) * 100));
-        
         const fillEl = document.getElementById('progress-fill');
         const pctEl = document.getElementById('progress-percentage');
         const budgetEl = document.getElementById('progress-budget');
         
-        if (fillEl) {
-            fillEl.style.width = `${percentage}%`;
-            if (percentage >= 90) fillEl.style.background = '#ef4444';
-            else if (percentage >= 60) fillEl.style.background = '#f59e0b';
-            else fillEl.style.background = '#10b981';
-        }
+        if (fillEl) fillEl.style.width = `${percentage}%`;
         if (pctEl) pctEl.textContent = `${percentage}%`;
         if (budgetEl) budgetEl.textContent = `${used.toFixed(1)}/${budget}GiB`;
     }
     
-    // Clear existing charts
     ['traffic', 'monthly-chart'].forEach(id => {
         const chartInstance = Chart.getChart(id);
         if (chartInstance) chartInstance.destroy();
     });
 
     const daily = trafficData.last30d || [];
-
-    // 30-day Chart
     if (daily.length) {
-        new Chart('traffic', {
-            type: 'line',
-            data: {
-                labels: daily.map(d => d.date.slice(5)),
-                datasets: [
-                    { label: 'VPS 出口', data: daily.map(d => d.vps / GiB), borderColor: '#3b82f6', tension: 0.3 },
-                    { label: '住宅出口', data: daily.map(d => d.resi / GiB), borderColor: '#f59e0b', tension: 0.3 }
-                ]
-            },
-            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } },
-            plugins: [ebYAxisUnitTop]
-        });
+        new Chart('traffic', { type: 'line', data: { labels: daily.map(d => d.date.slice(5)), datasets: [{ label: 'VPS', data: daily.map(d => d.vps / GiB), borderColor: '#3b82f6' }, { label: '住宅', data: daily.map(d => d.resi / GiB), borderColor: '#f59e0b' }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }, plugins: [ebYAxisUnitTop] });
     }
 
-    // 12-month Chart
     if (monthly.length) {
         const recentMonthly = monthly.slice(-12);
-        new Chart('monthly-chart', {
-            type: 'bar',
-            data: {
-                labels: recentMonthly.map(m => m.month),
-                datasets: [
-                    { label: 'VPS出口', data: recentMonthly.map(m => m.vps / GiB), backgroundColor: '#3b82f6', stack: 'a' },
-                    { label: '住宅出口', data: recentMonthly.map(m => m.resi / GiB), backgroundColor: '#f59e0b', stack: 'a' }
-                ]
-            },
-            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } }, scales: { x: { stacked: true }, y: { stacked: true } } },
-            plugins: [ebYAxisUnitTop]
-        });
+        new Chart('monthly-chart', { type: 'bar', data: { labels: recentMonthly.map(m => m.month), datasets: [{ label: 'VPS', data: recentMonthly.map(m => m.vps / GiB), backgroundColor: '#3b82f6', stack: 'a' }, { label: '住宅', data: recentMonthly.map(m => m.resi / GiB), backgroundColor: '#f59e0b', stack: 'a' }] }, options: { responsive: true, maintainAspectRatio: false, scales: { x: { stacked: true }, y: { stacked: true } } }, plugins: [ebYAxisUnitTop] });
     }
 }
 
@@ -5445,13 +5383,6 @@ function closeModal(modalId) {
     }
 }
 
-// 点击遮罩关闭
-window.addEventListener('click', (e) => {
-  if (e.target && e.target.classList && e.target.classList.contains('modal')) {
-    closeModal(e.target.id);
-  }
-});
-
 function showWhitelistModal() {
     const list = document.getElementById('whitelistList');
     const whitelist = dashboardData.shunt?.whitelist || [];
@@ -5463,287 +5394,94 @@ function showWhitelistModal() {
     showModal('whitelistModal');
 }
 
-// 完整修复的showConfigModal函数
-function showConfigModal(key) {
-  const modal = document.getElementById('configModal');
+function showConfigModal(protocolKey) {
   const title = document.getElementById('configModalTitle');
   const details = document.getElementById('configDetails');
-  if (!modal || !title || !details) return;
+  const qrContainer = document.getElementById('qrcode');
+  if (!title || !details || !qrContainer) return;
+  
+  qrContainer.innerHTML = ''; 
+  let content = '', qrText = '';
 
-  // 清空内容
-  details.innerHTML = '';
-
-  if (key === '__SUBS__') {
-    // 整包订阅
+  if (protocolKey === '__SUBS__') {
+    title.textContent = '整包订阅链接配置';
     const sub = dashboardData.subscription || {};
-    const plainLinks = sub.plain || '';
-    const base64All = sub.base64 || '';
-    const base64Lines = sub.b64_lines || '';
-    const subUrl = dashboardData.subscription_url || `http://${dashboardData.server?.server_ip}/sub`;
-    
-    title.textContent = '整包订阅链接 - 客户端配置详情';
-    
-    details.innerHTML = `
-      <div class="config-section">
-        <h4>订阅地址</h4>
-        <div class="config-code" id="sub-url">${escapeHtml(subUrl)}</div>
-      </div>
-      
-      <div class="config-section">
-        <h4>明文链接（6个协议）</h4>
-        <div class="config-code" id="plain-link" style="white-space: pre-wrap;">${escapeHtml(plainLinks)}</div>
-      </div>
-
-      <div class="config-section">
-        <h4>Base64编码（整包）</h4>
-        <div class="config-code" id="base64-link" style="word-break: break-all;">${escapeHtml(base64All)}</div>
-      </div>
-
-      <div class="config-section">
-        <h4>Base64编码（逐行）</h4>
-        <div class="config-code" id="b64lines-link" style="white-space: pre-wrap;">${escapeHtml(base64Lines)}</div>
-      </div>
-
-      <div class="config-section">
-        <h4>二维码</h4>
-        <div class="qr-container" id="qrcode"></div>
-      </div>
-
-      <div class="config-section">
-        <h4>使用说明</h4>
-        <div class="config-help">
-          1. 推荐复制"订阅地址"到客户端订阅功能<br>
-          2. 或复制"明文链接"逐个导入<br>
-          3. 支持 V2rayN、Clash、Shadowrocket、Surge 等主流客户端<br>
-          4. 自签证书需在客户端开启"跳过证书验证"<br>
-          5. UDP协议（Hysteria2/TUIC）固定走VPS直连
-        </div>
-      </div>
-    `;
-    
-    // 生成订阅地址的二维码
-    setTimeout(() => {
-      const qrEl = document.getElementById('qrcode');
-      if (qrEl && subUrl && window.QRCode) {
-        qrEl.innerHTML = '';
-        new QRCode(qrEl, {
-          text: subUrl,
-          width: 256,
-          height: 256,
-          colorDark: "#000000",
-          colorLight: "#ffffff",
-          correctLevel: QRCode.CorrectLevel.H
-        });
-      }
-    }, 100);
-    
+    qrText = dashboardData.subscription_url || `http://${dashboardData.server?.server_ip}/sub`;
+    content = `<div class="config-section"><h4>订阅地址</h4><div class="config-code" id="sub-url">${escapeHtml(qrText)}</div></div>` +
+              `<div class="config-section"><h4>明文链接 (6个)</h4><div class="config-code" id="plain-link" style="white-space: pre-wrap;">${escapeHtml(sub.plain)}</div></div>`;
   } else {
-    // 单个协议
-    const protocols = dashboardData.protocols || [];
-    const protocol = protocols.find(p => p.name === key);
-    if (!protocol) {
-      notify('未找到协议配置', 'warn');
-      return;
-    }
-    
-    title.textContent = `${protocol.name} - 客户端配置详情`;
-    
-    const shareLink = protocol.share_link || '';
-    const jsonConfig = generateProtocolJSON(protocol);
-    const base64Link = shareLink ? btoa(shareLink) : '';
-    
-    details.innerHTML = `
-      <div class="config-section">
-        <h4>明文链接</h4>
-        <div class="config-code" id="plain-link" style="word-break: break-all;">${escapeHtml(shareLink)}</div>
-      </div>
-
-      <div class="config-section">
-        <h4>JSON配置（V2ray格式）</h4>
-        <div class="config-code" id="json-code" style="white-space: pre-wrap;">${escapeHtml(jsonConfig)}</div>
-      </div>
-
-      <div class="config-section">
-        <h4>Base64编码</h4>
-        <div class="config-code" id="base64-link" style="word-break: break-all;">${escapeHtml(base64Link)}</div>
-      </div>
-
-      <div class="config-section">
-        <h4>二维码</h4>
-        <div class="qr-container" id="qrcode"></div>
-      </div>
-
-      <div class="config-section">
-        <h4>使用说明</h4>
-        <div class="config-help">
-          协议: ${protocol.name}<br>
-          端口: ${protocol.port} (${protocol.network})<br>
-          场景: ${protocol.scenario}<br>
-          伪装: ${protocol.camouflage}<br>
-          <br>
-          1. 复制"明文链接"导入客户端<br>
-          2. 或使用JSON配置手动添加<br>
-          3. 移动端可扫描二维码导入
-        </div>
-      </div>
-    `;
-    
-    // 生成二维码
-    setTimeout(() => {
-      const qrEl = document.getElementById('qrcode');
-      if (qrEl && shareLink && window.QRCode) {
-        qrEl.innerHTML = '';
-        new QRCode(qrEl, {
-          text: shareLink,
-          width: 256,
-          height: 256,
-          colorDark: "#000000",
-          colorLight: "#ffffff",
-          correctLevel: QRCode.CorrectLevel.H
-        });
-      }
-    }, 100);
+    const protocol = (dashboardData.protocols || []).find(p => p.name === protocolKey);
+    if (!protocol) return notify('未找到协议信息', 'warn');
+    title.textContent = `${protocol.name} 配置详情`;
+    qrText = protocol.share_link || '';
+    content = `<div class="config-section"><h4>分享链接</h4><div class="config-code" id="plain-link">${escapeHtml(protocol.share_link)}</div></div>`;
   }
 
+  details.innerHTML = content;
+  if (qrText && window.QRCode) {
+      new QRCode(qrContainer, { text: qrText, width: 256, height: 256 });
+  } else {
+      qrContainer.innerHTML = '<div class="qr-placeholder">无可用链接</div>';
+  }
   showModal('configModal');
 }
 
-// 生成协议JSON配置
-function generateProtocolJSON(protocol) {
-  const server = dashboardData.server || {};
-  const secrets = dashboardData.secrets || {};
-  const serverIp = server.server_ip || '127.0.0.1';
-  
-  try {
-    switch(protocol.name) {
-      case 'VLESS-Reality':
-        return JSON.stringify({
-          "v": "2",
-          "ps": "EdgeBox-REALITY",
-          "add": serverIp,
-          "port": 443,
-          "id": secrets.vless?.reality || '',
-          "aid": 0,
-          "net": "tcp",
-          "type": "none",
-          "tls": "reality",
-          "sni": "www.cloudflare.com",
-          "fp": "chrome",
-          "pbk": secrets.reality?.public_key || '',
-          "sid": secrets.reality?.short_id || '',
-          "flow": "xtls-rprx-vision"
-        }, null, 2);
-        
-      case 'VLESS-gRPC':
-        return JSON.stringify({
-          "v": "2",
-          "ps": "EdgeBox-gRPC",
-          "add": serverIp,
-          "port": 443,
-          "id": secrets.vless?.grpc || secrets.vless?.reality || '',
-          "aid": 0,
-          "net": "grpc",
-          "type": "none",
-          "tls": "tls",
-          "sni": server.cert?.domain || "grpc.edgebox.internal",
-          "alpn": "h2",
-          "path": "grpc"
-        }, null, 2);
-        
-      case 'VLESS-WebSocket':
-        return JSON.stringify({
-          "v": "2",
-          "ps": "EdgeBox-WS",
-          "add": serverIp,
-          "port": 443,
-          "id": secrets.vless?.ws || secrets.vless?.reality || '',
-          "aid": 0,
-          "net": "ws",
-          "type": "none",
-          "tls": "tls",
-          "sni": server.cert?.domain || "ws.edgebox.internal",
-          "path": "/ws"
-        }, null, 2);
-        
-      case 'Trojan-TLS':
-        return JSON.stringify({
-          "type": "trojan",
-          "tag": "EdgeBox-TROJAN",
-          "server": serverIp,
-          "server_port": 443,
-          "password": secrets.password?.trojan || '',
-          "tls": {
-            "enabled": true,
-            "server_name": server.cert?.domain || "trojan.edgebox.internal",
-            "insecure": true
-          }
-        }, null, 2);
-        
-      case 'Hysteria2':
-        return JSON.stringify({
-          "type": "hysteria2",
-          "tag": "EdgeBox-HYSTERIA2",
-          "server": serverIp,
-          "server_port": 443,
-          "password": secrets.password?.hysteria2 || '',
-          "tls": {
-            "enabled": true,
-            "server_name": server.cert?.domain || serverIp,
-            "insecure": true,
-            "alpn": ["h3"]
-          }
-        }, null, 2);
-        
-      case 'TUIC':
-        return JSON.stringify({
-          "type": "tuic",
-          "tag": "EdgeBox-TUIC",
-          "server": serverIp,
-          "server_port": 2053,
-          "uuid": secrets.tuic_uuid || '',
-          "password": secrets.password?.tuic || '',
-          "congestion_control": "bbr",
-          "tls": {
-            "enabled": true,
-            "server_name": server.cert?.domain || serverIp,
-            "insecure": true,
-            "alpn": ["h3"]
-          }
-        }, null, 2);
-        
-      default:
-        return '{}';
-    }
-  } catch (e) {
-    console.error('生成JSON配置失败:', e);
-    return '{}';
-  }
+async function showIPQDetails(which) {
+    const titleEl = document.getElementById('ipqModalTitle');
+    const bodyEl = document.getElementById('ipqDetails');
+    if (!titleEl || !bodyEl) return;
+
+    titleEl.textContent = which === 'vps' ? 'VPS IP质量检测详情' : '代理IP质量检测详情';
+    
+    const data = await fetchJSON(`/status/ipq_${which}.json`);
+
+    // --- FIX: Build structured HTML even when data is null ---
+    const score   = safeGet(data, 'score');
+    const grade   = safeGet(data, 'grade');
+    const when    = safeGet(data, 'detected_at') !== '—' ? new Date(data.detected_at).toLocaleString() : '—';
+    const ip      = safeGet(data, 'ip');
+    const asn     = safeGet(data, 'asn');
+    const isp     = safeGet(data, 'isp');
+    const country = safeGet(data, 'country');
+    const city    = safeGet(data, 'city');
+    const latency = safeGet(data, 'latency_ms') !== '—' ? `${data.latency_ms} ms` : '—';
+    const blCount = (safeGet(data, 'risk.dnsbl_hits', [])).length;
+    const risk    = [
+        data?.risk?.proxy && 'Proxy',
+        data?.risk?.hosting && 'Hosting',
+        data?.risk?.mobile && 'Mobile'
+    ].filter(Boolean).join(', ') || '—';
+
+    bodyEl.innerHTML = `
+      <div class="config-section">
+        <h4>总览</h4>
+        <div class="info-item"><label>分数:</label><value>${score} (${grade})</value></div>
+        <div class="info-item"><label>检测时间:</label><value>${when}</value></div>
+      </div>
+      <div class="config-section">
+        <h4>身份信息</h4>
+        <div class="info-item"><label>IP地址:</label><value>${ip}</value></div>
+        <div class="info-item"><label>ASN/ISP:</label><value>${escapeHtml(asn)} / ${escapeHtml(isp)}</value></div>
+        <div class="info-item"><label>位置:</label><value>${escapeHtml(country)}, ${escapeHtml(city)}</value></div>
+      </div>
+      <div class="config-section">
+        <h4>质量评估</h4>
+        <div class="info-item"><label>风险类型:</label><value>${risk}</value></div>
+        <div class="info-item"><label>黑名单:</label><value>${blCount} 个命中</value></div>
+        <div class="info-item"><label>延迟:</label><value>${latency}</value></div>
+      </div>
+    `;
+
+    showModal('ipqModal');
 }
 
 async function copyText(text) {
-    if (!text || text === '—') {
-        notify('没有可复制的内容', 'warn');
-        return;
-    }
-    
+    if (!text || text === '—') return notify('没有可复制的内容', 'warn');
     try {
         await navigator.clipboard.writeText(text);
         notify('已复制到剪贴板');
     } catch (e) {
-        // Fallback方法
-        const textarea = document.createElement('textarea');
-        textarea.value = text;
-        textarea.style.position = 'fixed';
-        textarea.style.opacity = '0';
-        document.body.appendChild(textarea);
-        textarea.select();
-        try {
-            document.execCommand('copy');
-            notify('已复制到剪贴板');
-        } catch (err) {
-            notify('复制失败，请手动复制', 'warn');
-        }
-        document.body.removeChild(textarea);
+        notify('复制失败', 'warn');
     }
 }
 
@@ -5760,7 +5498,7 @@ async function refreshAllData() {
     if (sys) systemData = sys;
     if (traf) trafficData = traf;
     
-    window.dashboardData = dashboardData; // For debugging
+    window.dashboardData = dashboardData; 
 
     renderOverview();
     renderCertificateAndNetwork();
@@ -5769,172 +5507,44 @@ async function refreshAllData() {
 }
 
 function setupEventListeners() {
-  document.addEventListener('click', (e) => {
-    const target = e.target.closest('[data-action]');
-    if (!target) return;
+    document.addEventListener('click', e => {
+        const target = e.target.closest('[data-action]');
+        if (!target) return;
 
-    const { action, modal, protocol, ipq, type } = target.dataset;
+        const { action, modal, protocol, ipq, type } = target.dataset;
 
-    switch (action) {
-      case 'open-modal': {
-        if (modal === 'whitelist') return showWhitelistModal();
-        if (modal === 'config') return showConfigModal(protocol || '__SUBS__');
-        if (modal === 'ipq') return showIPQDetails(ipq || 'vps');
-        break;
-      }
-      case 'close-modal': {
-        if (modal) closeModal(modal);
-        break;
-      }
-      case 'copy': {
-        const subUrlEl = document.getElementById('sub-url');
-        const plainEl = document.getElementById('plain-link');
-        const jsonEl = document.getElementById('json-code');
-        const base64El = document.getElementById('base64-link');
-        const b64linesEl = document.getElementById('b64lines-link');
-
-        if (type === 'sub' && subUrlEl) return copyText(subUrlEl.textContent.trim());
-        if (type === 'plain' && plainEl) return copyText(plainEl.textContent.trim());
-        if (type === 'json' && jsonEl) return copyText(jsonEl.textContent.trim());
-        if (type === 'base64' && base64El) return copyText(base64El.textContent.trim());
-        if (type === 'b64lines' && b64linesEl) return copyText(b64linesEl.textContent.trim());
-        if (type === 'qr') {
-          const canvas = document.querySelector('#qrcode canvas');
-          if (canvas && canvas.toBlob) {
-            canvas.toBlob(async (blob) => {
-              try {
-                await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
-                notify('二维码已复制');
-              } catch {
-                notify('请右键保存二维码', 'warn');
-              }
-            });
-          } else {
-            notify('未找到二维码', 'warn');
-          }
-          return;
+        switch (action) {
+            case 'open-modal':
+                if (modal === 'whitelist') showWhitelistModal();
+                if (modal === 'config') showConfigModal(protocol);
+                if (modal === 'ipq') showIPQDetails(ipq);
+                break;
+            case 'close-modal':
+                closeModal(modal);
+                break;
+            case 'copy':
+                const modalContent = target.closest('.modal-content');
+                if (!modalContent) return;
+                
+                let textToCopy = '';
+                if (type === 'sub') textToCopy = modalContent.querySelector('#sub-url')?.textContent;
+                if (type === 'plain') textToCopy = modalContent.querySelector('#plain-link')?.textContent;
+                if (type === 'json') textToCopy = modalContent.querySelector('#json-code')?.textContent;
+                if (type === 'base64') textToCopy = modalContent.querySelector('#base64-link')?.textContent;
+                
+                copyText(textToCopy);
+                break;
         }
-        break;
-      }
-    }
-  });
+    });
 }
-
-async function showIPQDetails(which) {
-  const modal   = document.getElementById('ipqModal');
-  const titleEl = document.getElementById('ipqModalTitle');
-  const body    = document.getElementById('ipqDetails');
-  if (!modal || !titleEl || !body) return;
-
-  const titleMap = { vps: 'VPS IP质量检测详情', proxy: '代理IP质量检测详情' };
-  titleEl.textContent = titleMap[which] || 'IP质量检测详情';
-  body.innerHTML = '<div class="config-section"><div class="config-code">加载中...</div></div>';
-
-  // 读取目标数据（与 09-20 安装脚本的 edgebox-ipq.sh 对应：/status/ipq_vps.json / ipq_proxy.json）
-  const data = await fetchJSON(`/status/ipq_${which}.json`);
-
-  if (data && typeof data === 'object') {
-    const score   = data.score ?? '—';
-    const grade   = data.grade ?? '—';
-    const when    = data.detected_at || data.test_time || '—';
-    const ip      = data.ip || '—';
-    const asn     = data.asn || '—';
-    const isp     = data.isp || '—';
-    const country = data.country || '—';
-    const city    = data.city || '—';
-    const rdns    = data.rdns || '—';
-    const latency = (data.latency !== undefined && data.latency !== null) ? `${data.latency} ms` : '—';
-
-    // 风险标志：兼容 {risk:{proxy,hosting,mobile,...}} 或 notes 数组
-    let riskFlags = [];
-    if (data.risk && typeof data.risk === 'object') {
-      for (const k of ['proxy','hosting','mobile','tor']) {
-        if (data.risk[k] === true) riskFlags.push(k);
-      }
-      if (Array.isArray(data.risk.dnsbl_hits) && data.risk.dnsbl_hits.length) {
-        riskFlags.push(`dnsbl:${data.risk.dnsbl_hits.length}`);
-      }
-    }
-    if (Array.isArray(data.notes) && data.notes.length) {
-      riskFlags = riskFlags.concat(data.notes);
-    }
-    const riskText = riskFlags.length ? riskFlags.join(', ') : '—';
-
-    // 网络类型（尽量还原旧版字段名；没有就从 vantage 推断）
-    const networkType = data.network_type || (data.vantage === 'vps' ? '数据中心 / 自建VPS' :
-                           data.vantage === 'proxy' ? '代理 / 住宅' : '—');
-
-    // 黑名单命中数：优先 risk.dnsbl_hits 长度
-    const blCount = (data.risk && Array.isArray(data.risk.dnsbl_hits)) ? data.risk.dnsbl_hits.length :
-                    (typeof data.blacklist_count === 'number' ? data.blacklist_count : 0);
-
-    body.innerHTML = `
-      <div class="config-section">
-        <h4>总览</h4>
-        <div class="info-item">
-          <label>分数:</label><value>${score} (${grade})</value>
-        </div>
-        <div class="info-item">
-          <label>检测时间:</label><value>${when}</value>
-        </div>
-        <div class="info-item">
-          <label>风险标志:</label><value>${escapeHtml(riskText)}</value>
-        </div>
-      </div>
-
-      <div class="config-section">
-        <h4>身份信息</h4>
-        <div class="info-item">
-          <label>IP地址:</label><value>${ip}</value>
-        </div>
-        <div class="info-item">
-          <label>ASN/ISP:</label><value>${escapeHtml(asn)} / ${escapeHtml(isp)}</value>
-        </div>
-        <div class="info-item">
-          <label>位置:</label><value>${escapeHtml(country)}, ${escapeHtml(city)}</value>
-        </div>
-        <div class="info-item">
-          <label>反向域名:</label><value>${escapeHtml(rdns)}</value>
-        </div>
-      </div>
-
-      <div class="config-section">
-        <h4>质量评估</h4>
-        <div class="info-item">
-          <label>网络类型:</label><value>${escapeHtml(networkType)}</value>
-        </div>
-        <div class="info-item">
-          <label>黑名单:</label><value>${blCount} 个命中</value>
-        </div>
-        <div class="info-item">
-          <label>延迟:</label><value>${latency}</value>
-        </div>
-      </div>
-    `;
-  } else {
-    // 兜底：没有详情数据时，仍给出上次采集时间
-    const meta = await fetchJSON('/status/ipq_meta.json');
-    const hint = meta && meta.last_run ? `（上次采集：${new Date(meta.last_run).toLocaleString()}）` : '';
-    body.innerHTML = `<div class="config-section"><div class="info-item"><label>状态:</label><value>暂无IP质量数据 ${hint}</value></div></div>`;
-  }
-
-  showModal('ipqModal');
-}
-
 
 // --- Initialization ---
-
 document.addEventListener('DOMContentLoaded', () => {
     refreshAllData();
-    
-    // Set up periodic refresh
-    overviewTimer = setInterval(refreshAllData, 30000); // 30 seconds
-    
-    // Set up event delegation
+    overviewTimer = setInterval(refreshAllData, 30000);
     setupEventListeners();
 });
 EXTERNAL_JS
-
 
 # ======= 创建HTML文件（引用外置的CSS和JS）========
   log_info "创建控制面板HTML文件..."
@@ -5951,10 +5561,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 
 <div class="container">
   <div class="main-card">
-    <div class="main-header">
-      <h1>🚀 EdgeBox - 企业级多协议节点管理系统 (Control Panel)</h1>
-    </div>
-    
+    <div class="main-header"><h1>🚀 EdgeBox - 企业级多协议节点管理系统</h1></div>
     <div class="main-content">
       <div class="card">
         <div class="card-header"><h2>📊 系统概览</h2></div>
@@ -5968,9 +5575,9 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
           </div>
           <div class="inner-block">
             <h3>服务器配置</h3>
-            <div class="progress-row"><span class="progress-label">CPU:</span><div class="progress-bar"><div class="progress-fill" id="cpu-progress" style="width: 0%">0%</div></div><span class="progress-info" id="cpu-info">—</span></div>
-            <div class="progress-row"><span class="progress-label">内存:</span><div class="progress-bar"><div class="progress-fill" id="mem-progress" style="width: 0%">0%</div></div><span class="progress-info" id="mem-info">—</span></div>
-            <div class="progress-row"><span class="progress-label">磁盘:</span><div class="progress-bar"><div class="progress-fill" id="disk-progress" style="width: 0%">0%</div></div><span class="progress-info" id="disk-info">—</span></div>
+            <div class="progress-row"><span class="progress-label">CPU:</span><div class="progress-bar"><div class="progress-fill" id="cpu-progress" style="width:0%">0%</div></div><span class="progress-info" id="cpu-info">—</span></div>
+            <div class="progress-row"><span class="progress-label">内存:</span><div class="progress-bar"><div class="progress-fill" id="mem-progress" style="width:0%">0%</div></div><span class="progress-info" id="mem-info">—</span></div>
+            <div class="progress-row"><span class="progress-label">磁盘:</span><div class="progress-bar"><div class="progress-fill" id="disk-progress" style="width:0%">0%</div></div><span class="progress-info" id="disk-info">—</span></div>
           </div>
           <div class="inner-block">
             <h3>核心服务</h3>
@@ -5979,7 +5586,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             <div class="service-item"><span>Sing-box</span><div class="service-status"><span class="status-badge" id="singbox-status">—</span><span class="version" id="singbox-version"></span></div></div>
           </div>
         </div>
-        <div style="text-align: center; padding-top: 15px; border-top: 1px solid #e5e7eb; margin-top: 15px;">
+        <div style="text-align:center;padding-top:15px;border-top:1px solid #e5e7eb;margin-top:15px;">
           <span class="text-secondary">版本号: <span id="version">—</span> | 安装日期: <span id="install-date">—</span> | 更新时间: <span id="update-time">—</span></span>
         </div>
       </div>
@@ -5999,38 +5606,23 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
           </div>
         </div>
         <div class="card">
-          <div class="card-header"><h2>🌐 网络身份配置 <span class="note-udp">注：HY2/TUIC为UDP通道，VPS直连，不走代理分流. </span></h2></div>
+          <div class="card-header"><h2>🌐 网络身份配置 <span class="note-udp">注：HY2/TUIC为UDP通道，VPS直连</span></h2></div>
           <div class="network-blocks">
-<div class="network-block" id="net-vps">
-  <h3>📡 VPS出站IP</h3>
-  <div class="info-item"><label>公网身份:</label><value>直连</value></div>
-  <div class="info-item"><label>VPS出站IP:</label><value id="vps-ip">—</value></div>
-  <div class="info-item"><label>Geo:</label><value id="vps-geo">—</value></div>
-  <div class="info-item">
-    <label>IP质量:</label>
-    <value>
-      <span id="vps-ipq-score">—</span>
-      <button class="btn-link" data-action="open-modal" data-modal="ipq" data-ipq="vps">查看详情</button>
-    </value>
-  </div>
-</div>
-
-<div class="network-block" id="net-proxy">
-  <h3>🔄 代理出站IP</h3>
-  <div class="info-item"><label>代理身份:</label><value>全代理</value></div>
-  <div class="info-item"><label>代理IP:</label><value id="proxy-ip">—</value></div>
-  <div class="info-item"><label>Geo:</label><value id="proxy-geo">—</value></div>
-  <div class="info-item">
-    <label>IP质量:</label>
-    <value>
-      <span id="proxy-ipq-score">—</span>
-      <button class="btn-link" data-action="open-modal" data-modal="ipq" data-ipq="proxy">查看详情</button>
-    </value>
-  </div>
-</div>
+            <div class="network-block" id="net-vps">
+              <h3>📡 VPS出站IP</h3>
+              <div class="info-item"><label>公网身份:</label><value>直连</value></div>
+              <div class="info-item"><label>出站IP:</label><value id="vps-ip">—</value></div>
+              <div class="info-item"><label>IP质量:</label><value><span id="vps-ipq-score"></span> <button class="btn-link" data-action="open-modal" data-modal="ipqModal" data-ipq="vps">详情</button></value></div>
+            </div>
+            <div class="network-block" id="net-proxy">
+              <h3>🔄 代理出站IP</h3>
+              <div class="info-item"><label>代理身份:</label><value>全代理</value></div>
+              <div class="info-item"><label>代理IP:</label><value id="proxy-ip">—</value></div>
+              <div class="info-item"><label>IP质量:</label><value><span id="proxy-ipq-score"></span> <button class="btn-link" data-action="open-modal" data-modal="ipqModal" data-ipq="proxy">详情</button></value></div>
+            </div>
             <div class="network-block" id="net-shunt">
               <h3>🔀 分流出站</h3>
-              <div class="info-item"><label>混合身份:</label><value style="font-size: 11px;">白名单VPS直连+其它代理</value></div>
+              <div class="info-item"><label>混合身份:</label><value style="font-size:11px;">白名单直连+代理</value></div>
               <div class="info-item"><label>白名单:</label><value class="whitelist-value"><div class="whitelist-preview" id="whitelistPreview"></div></value></div>
             </div>
           </div>
@@ -6045,161 +5637,43 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         </table>
       </div>
 
-<!-- 流量统计（照搬原版布局） -->
-<div class="card traffic-card">
-  <h2>📊 流量统计
-    <div class="traffic-progress-container">
-      <span class="progress-label">本月进度</span>
-      <div class="progress-wrapper">
-        <div class="progress-bar">
-          <div class="progress-fill" id="progress-fill" style="width:0%">
-            <span class="progress-percentage" id="progress-percentage">0%</span>
-          </div>
+      <div class="card traffic-card">
+        <div class="card-header">
+            <h2>📊 流量统计</h2>
+            <div class="traffic-progress-container">
+              <span class="progress-label">本月进度</span>
+              <div class="progress-wrapper"><div class="progress-bar"><div class="progress-fill" id="progress-fill" style="width:0%"><span class="progress-percentage" id="progress-percentage">0%</span></div></div></div>
+              <span class="progress-budget" id="progress-budget">0/100GiB</span>
+            </div>
+        </div>
+        <div class="traffic-charts">
+          <div class="chart-container"><canvas id="traffic"></canvas></div>
+          <div class="chart-container"><canvas id="monthly-chart"></canvas></div>
         </div>
       </div>
-      <span class="progress-budget" id="progress-budget">0/100GiB</span>
-    </div>
-  </h2>
-  <div class="traffic-charts">
-    <div class="chart-container">
-      <h4 style="text-align:center;margin:0 0 10px 0;color:#64748b">近30日出站流量</h4>
-      <canvas id="traffic" style="height:300px"></canvas>
-    </div>
-    <div class="chart-container">
-      <h4 style="text-align:center;margin:0 0 10px 0;color:#64748b">近12个月累计流量</h4>
-      <canvas id="monthly-chart" style="height:300px"></canvas>
-    </div>
-  </div>
-</div>
 
-<div class="card">
-  <div class="card-header">
-    <h2>⚙️ 运维管理</h2>
-  </div>
-  <div class="commands-grid">
-    <div class="command-section">
-      <h4>🔧 基础操作</h4>
-      <div class="command-list">
-        <code>edgeboxctl sub</code> <span># 动态生成当前模式下的订阅链接</span><br>
-        <code>edgeboxctl logs &lt;svc&gt;</code> <span># 查看指定服务的实时日志</span><br>
-        <code>edgeboxctl status</code> <span># 查看所有核心服务运行状态</span><br>
-        <code>edgeboxctl restart</code> <span># 安全地重启所有服务</span><br>
-      </div>
-    </div>
-
-    <div class="command-section">
-      <h4>🌐 证书管理</h4>
-      <div class="command-list">
-        <code>edgeboxctl switch-to-domain &lt;your_domain&gt;</code> <span># 切换到域名模式，申请证书</span><br>
-        <code>edgeboxctl switch-to-ip</code> <span># 回退到IP模式，使用自签名证书</span><br>
-        <code>edgeboxctl cert status</code> <span># 检查当前证书的到期日期和类型</span><br>
-        <code>edgeboxctl cert renew</code> <span># 手动续期Let's Encrypt证书</span>
-      </div>
-    </div>
-
-    <div class="command-section">
-      <h4>🔀 出站分流</h4>
-      <div class="command-list">
-        <code>edgeboxctl shunt vps</code> <span># 切换至VPS全量出站</span><br>
-        <code>edgeboxctl shunt resi &lt;URL&gt;</code> <span># 配置并切换至住宅IP全量出站</span><br>
-        <code>edgeboxctl shunt direct-resi &lt;URL&gt;</code> <span># 配置并切换至白名单智能分流状态</span><br>
-        <code>edgeboxctl shunt whitelist &lt;add|remove|list&gt;</code> <span># 管理白名单域名</span><br>
-        <code>代理URL格式:</code><br>
-        <code>http://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;</code><br>
-        <code>https://user:pass@&lt;域名&gt;:&lt;端口&gt;?sni=</code><br>
-        <code>socks5://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;</code><br>
-        <code>socks5s://user:pass@&lt;域名&gt;:&lt;端口&gt;?sni=</code><br>
-        <code>示例：edgeboxctl shunt resi 'socks5://user:pass@111.222.333.444:11324'</code> <span># 全栈走住宅</span>
-      </div>
-    </div>
-
-         <div class="command-section">
-            <h4>📊 流量统计与预警</h4>
-            <div class="command-list">
-              <code>edgeboxctl traffic show</code> <span># 在终端中查看流量统计数据</span><br>
-              <code>edgeboxctl traffic reset</code> <span># 重置流量计数器</span><br>
-              <code>edgeboxctl alert &lt;command&gt;</code> <span># 管理流量预警设置</span><br>
-              <code>edgeboxctl alert monthly</code> <span># 设置月度阈值</span><br>
-              <code>edgeboxctl alert steps 30,60,90</code> <span># 设置预警阈值</span><br>
-              <code>edgeboxctl alert telegram &lt;bot_token&gt; &lt;chat_id&gt;</code> <span># 配置Telegram机器人</span><br>
-              <code>edgeboxctl alert discord &lt;webhook_url&gt;</code> <span># 配置Discord通知</span><br>
-              <code>edgeboxctl alert wechat &lt;pushplus_token&gt;</code> <span># 配置微信通知</span><br>
-              <code>edgeboxctl alert webhook [raw|slack|discord]</code> <span># 配置通用Webhook</span><br>
-              <code>edgeboxctl alert test</code> <span># 测试预警系统</span>
-            </div>
-          </div>
-
-    <div class="command-section">
-      <h4>⚙️ 配置管理</h4>
-      <div class="command-list">
-        <code>edgeboxctl config show</code> <span># 显示所有服务的核心配置信息</span><br>
-        <code>edgeboxctl config regenerate-uuid</code> <span># 为所有协议重新生成新的UUID</span><br>
-        <code>edgeboxctl test</code> <span># 测试所有协议的连接是否正常</span><br>
-        <code>edgeboxctl debug-ports</code> <span># 调试关键端口的监听状态</span>
-      </div>
-    </div>
-
-    <div class="command-section">
-      <h4>💾 系统维护</h4>
-      <div class="command-list">
-        <code>edgeboxctl update</code> <span># 自动更新EdgeBox脚本和核心组件</span><br>
-        <code>edgeboxctl backup create</code> <span># 手动创建一个系统备份</span><br>
-        <code>edgeboxctl backup list</code> <span># 列出所有可用的备份</span><br>
-        <code>edgeboxctl backup restore &lt;DATE&gt;</code> <span># 恢复到指定日期的备份状态</span>
+      <div class="card">
+        <div class="card-header"><h2>⚙️ 运维管理</h2></div>
+        <div class="commands-grid">
+          <div class="command-section"><h4>🔧 基础操作</h4><div class="command-list"><code>edgeboxctl sub</code><span># 生成订阅链接</span><br><code>edgeboxctl logs &lt;svc&gt;</code><span># 查看服务日志</span><br><code>edgeboxctl status</code><span># 查看服务状态</span><br><code>edgeboxctl restart</code><span># 重启所有服务</span></div></div>
+          <div class="command-section"><h4>🌐 证书管理</h4><div class="command-list"><code>edgeboxctl switch-to-domain &lt;domain&gt;</code><span># 切换为域名模式</span><br><code>edgeboxctl switch-to-ip</code><span># 切换回IP模式</span><br><code>edgeboxctl cert status</code><span># 查看证书状态</span><br><code>edgeboxctl cert renew</code><span># 手动续期证书</span></div></div>
+          <div class="command-section"><h4>🔀 出站分流</h4><div class="command-list"><code>edgeboxctl shunt vps</code><span># VPS全量出站</span><br><code>edgeboxctl shunt resi &lt;URL&gt;</code><span># 住宅IP全量出站</span><br><code>edgeboxctl shunt direct-resi &lt;URL&gt;</code><span># 智能分流</span><br><code>edgeboxctl shunt whitelist &lt;...&gt;</code><span># 管理白名单</span></div></div>
+          <div class="command-section"><h4>📊 流量与预警</h4><div class="command-list"><code>edgeboxctl traffic show</code><span># 查看流量统计</span><br><code>edgeboxctl alert monthly &lt;GiB&gt;</code><span># 设置月度预算</span><br><code>edgeboxctl alert steps 30,60,90</code><span># 设置预警阈值</span><br><code>edgeboxctl alert test</code><span># 测试预警</span></div></div>
+          <div class="command-section"><h4>⚙️ 配置管理</h4><div class="command-list"><code>edgeboxctl config show</code><span># 显示核心配置</span><br><code>edgeboxctl config regenerate-uuid</code><span># 重新生成凭据</span><br><code>edgeboxctl test</code><span># 测试协议连通性</span><br><code>edgeboxctl debug-ports</code><span># 调试端口占用</span></div></div>
+          <div class="command-section"><h4>💾 系统维护</h4><div class="command-list"><code>edgeboxctl update</code><span># 更新EdgeBox</span><br><code>edgeboxctl backup create</code><span># 创建备份</span><br><code>edgeboxctl backup list</code><span># 列出备份</span><br><code>edgeboxctl backup restore &lt;file&gt;</code><span># 恢复备份</span></div></div>
+        </div>
       </div>
     </div>
   </div>
 </div>
 
-<!-- 白名单弹窗 -->
-<div id="whitelistModal" class="modal">
-  <div class="modal-content">
-    <div class="modal-header">
-      <h3>白名单完整列表</h3>
-      <button class="close-btn" data-action="close-modal" data-modal="whitelistModal">×</button>
-    </div>
-    <div class="modal-body">
-      <div id="whitelistList"></div>
-    </div>
-  </div>
-</div>
-
-<!-- IP质量详情弹窗 -->
-<div id="ipqModal" class="modal">
-  <div class="modal-content">
-    <div class="modal-header">
-      <h3 id="ipqModalTitle">IP质量检测详情</h3>
-      <button class="close-btn" data-action="close-modal" data-modal="ipqModal">×</button>
-    </div>
-    <div class="modal-body">
-      <div id="ipqDetails"></div>
-    </div>
-  </div>
-</div>
-
-<!-- 配置弹窗保持不变 -->
-<div id="configModal" class="modal">
-  <div class="modal-content">
-    <div class="modal-header">
-      <h3 id="configModalTitle">客户端配置详情</h3>
-      <button class="close-btn" data-action="close-modal" data-modal="configModal">×</button>
-    </div>
-    <div class="modal-body">
-      <div id="configDetails"></div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-sm" data-action="copy" data-type="sub">复制订阅地址</button>
-      <button class="btn btn-sm" data-action="copy" data-type="plain">复制明文链接</button>
-      <button class="btn btn-sm" data-action="copy" data-type="json">复制JSON配置</button>
-      <button class="btn btn-sm" data-action="copy" data-type="base64">复制Base64链接</button>
-    </div>
-  </div>
-</div>
+<div id="whitelistModal" class="modal"><div class="modal-content"><div class="modal-header"><h3>白名单完整列表</h3><span class="close-btn" data-action="close-modal" data-modal="whitelistModal">×</span></div><div class="modal-body"><div id="whitelistList"></div></div></div></div>
+<div id="ipqModal" class="modal"><div class="modal-content"><div class="modal-header"><h3 id="ipqModalTitle">IP质量检测详情</h3><span class="close-btn" data-action="close-modal" data-modal="ipqModal">×</span></div><div class="modal-body"><div id="ipqDetails"></div></div></div></div>
+<div id="configModal" class="modal"><div class="modal-content"><div class="modal-header"><h3 id="configModalTitle">配置详情</h3><span class="close-btn" data-action="close-modal" data-modal="configModal">×</span></div><div class="modal-body"><div id="configDetails"></div></div><div class="modal-footer"><button class="btn btn-sm btn-secondary" data-action="copy" data-type="sub">复制订阅地址</button><button class="btn btn-sm btn-secondary" data-action="copy" data-type="plain">复制明文</button><button class="btn btn-sm btn-secondary" data-action="copy" data-type="json">复制JSON</button><button class="btn btn-sm btn-secondary" data-action="copy" data-type="base64">复制Base64</button></div></div></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="./assets/edgebox-panel.js"></script>
-
 </body>
 </html>
 HTML
