@@ -5412,27 +5412,43 @@ function showWhitelistModal() {
 
 // 显示配置弹窗（按文档要求的内容和按钮顺序）
 function showConfigModal(protocolKey) {
+  const dd      = window.dashboardData || {};
   const title   = document.getElementById('configModalTitle');
   const details = document.getElementById('configDetails');
   const footer  = document.querySelector('#configModal .modal-footer');
   if (!title || !details || !footer) return;
 
-  let content = '', qrText = '';
+  // 简易转义（不依赖全局）
+  const eh = (s='') => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  // 生成“值后注释”的 JSON 展示串（JSON 本身不含注释，只是展示时加行尾注释）
+  function annotateJson(obj, comments = {}) {
+    const lines = JSON.stringify(obj, null, 2).split('\n');
+    return lines.map(line => {
+      const m = line.match(/^(\s*)"([^"]+)"\s*:\s*(.*?)(,?)$/);
+      if (m) {
+        const [, indent, key, val, comma] = m;
+        if (comments[key]) return `${indent}"${key}": ${val}${comma}  // ${comments[key]}`;
+      }
+      return line;
+    }).join('\n');
+  }
+
+  let qrText = '';
 
   if (protocolKey === '__SUBS__') {
-    // 查看/复制弹窗：明文 → Base64 → 二维码 → 使用说明
-    title.textContent = '订阅链接配置';
-    const sub = dashboardData.subscription || {};
-    qrText = dashboardData.subscription_url || `http://${dashboardData.server?.server_ip}/sub`;
+    // —— 整包订阅：明文 / Base64 / 二维码 / 说明 ——
+    const plain = dd.subscription_url || `http://${dd.server?.server_ip || ''}/sub`;
+    const b64   = dd.subscription?.base64 || (plain ? btoa(plain) : '');
 
-    content = `
+    title.textContent = '订阅链接配置';
+    details.innerHTML = `
       <div class="config-section">
         <h4>明文链接</h4>
-        <div class="config-code" id="plain-link">${escapeHtml(qrText)}</div>
+        <div class="config-code" id="plain-link">${eh(plain)}</div>
       </div>
       <div class="config-section">
         <h4>Base64</h4>
-        <div class="config-code" id="base64-link">${escapeHtml(sub.base64 || btoa(qrText))}</div>
+        <div class="config-code" id="base64-link">${eh(b64)}</div>
       </div>
       <div class="config-section">
         <h4>二维码</h4>
@@ -5440,45 +5456,58 @@ function showConfigModal(protocolKey) {
       </div>
       <div class="config-section">
         <h4>使用说明</h4>
-        <p style="font-size:12px;color:#6b7280;line-height:1.6;">将订阅地址导入支持的客户端（如 v2rayN、Clash 等），客户端会自动拉取节点配置。</p>
+        <p style="font-size:12px;color:#6b7280;line-height:1.6;">
+          将“明文链接”导入 v2rayN / Clash 等支持订阅的客户端，或复制 Base64/二维码根据客户端指引导入。
+        </p>
       </div>`;
     footer.innerHTML = `
       <button class="btn btn-sm btn-secondary" data-action="copy" data-type="plain">复制明文链接</button>
       <button class="btn btn-sm btn-secondary" data-action="copy" data-type="base64">复制Base64</button>
       <button class="btn btn-sm btn-secondary" data-action="copy-qr">复制二维码</button>`;
+    qrText = plain;
+
   } else {
-    // 单协议：JSON(带注释) → 明文 → Base64 → 二维码 → 使用说明
-    const protocol = (dashboardData.protocols || []).find(x => x.name === protocolKey);
-    if (!protocol) return;
+    // —— 单协议：JSON(注释) / 明文 / Base64 / 二维码 / 说明 ——
+    const p = (dd.protocols || []).find(x => x.name === protocolKey);
+    if (!p) return;
 
-    title.textContent = `${protocol.name} 配置`;
-    // 构造演示 JSON 并加注释（示例字段名可按你的后端契约再细化）
-    const json = {
-      protocol : protocol.name,
-      uuid     : dashboardData.server?.uuid?.[protocol.nameKey ?? 'vless'] ?? '',
-      host     : dashboardData.server?.server_ip ?? '',
-      port     : protocol.port ?? '',
-      sni      : protocol.sni ?? '',
-      alpn     : protocol.alpn ?? ''
+    // 组织展示 JSON（字段按你当前数据契约，可再细化）
+    const obj = {
+      protocol: p.name,
+      uuid    : dd.secrets?.vless?.reality || dd.secrets?.vless?.grpc || dd.secrets?.vless?.ws || '',
+      host    : dd.server?.server_ip || '',
+      port    : p.port || 443,
+      sni     : (dd.cert?.mode && dd.cert.mode.startsWith('letsencrypt') ? (dd.cert?.domain || '') : dd.server?.server_ip) || '',
+      alpn    : (p.name.includes('gRPC') ? 'h2' : (p.name.includes('WebSocket') ? 'http/1.1' : ''))
     };
-    let jsonStr = JSON.stringify(json, null, 2)
-      .replace(/"protocol"/, '"protocol"  // 协议类型')
-      .replace(/"uuid"/,     '"uuid"      // 认证UUID或密码');
+    const comments = {
+      protocol: '协议类型（例如 VLESS-Reality）',
+      uuid    : '认证 UUID / 密钥',
+      host    : '服务器地址（IP 或域名）',
+      port    : '端口',
+      sni     : 'TLS/SNI（域名模式下为域名）',
+      alpn    : 'ALPN（gRPC=h2，WS=http/1.1）'
+    };
+    const jsonWithComments = annotateJson(obj, comments);
 
-    qrText = protocol.share_link || '';
+    const plain = p.share_link || '';
+    const b64   = plain ? btoa(plain) : '';
 
-    content = `
+    title.textContent = `${p.name} 配置`;
+    details.innerHTML = `
       <div class="config-section">
         <h4>JSON配置</h4>
-        <div class="config-code" id="json-code" style="white-space:pre-wrap;font-family:monospace;font-size:12px;">${escapeHtml(jsonStr)}</div>
+        <div class="config-code" id="json-code" style="white-space:pre-wrap;font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;font-size:12px;">
+${eh(jsonWithComments)}
+        </div>
       </div>
       <div class="config-section">
         <h4>明文链接</h4>
-        <div class="config-code" id="plain-link">${escapeHtml(protocol.share_link || '暂无链接')}</div>
+        <div class="config-code" id="plain-link">${eh(plain)}</div>
       </div>
       <div class="config-section">
         <h4>Base64</h4>
-        <div class="config-code" id="base64-link">${escapeHtml(btoa(protocol.share_link || ''))}</div>
+        <div class="config-code" id="base64-link">${eh(b64)}</div>
       </div>
       <div class="config-section">
         <h4>二维码</h4>
@@ -5486,27 +5515,33 @@ function showConfigModal(protocolKey) {
       </div>
       <div class="config-section">
         <h4>使用说明</h4>
-        <p style="font-size:12px;color:#6b7280;line-height:1.6;">${protocol.usage || '请将配置导入到对应的客户端中使用。'}</p>
+        <p style="font-size:12px;color:#6b7280;line-height:1.6;">
+          复制明文/JSON 导入对应客户端；或扫描二维码快速添加。
+        </p>
       </div>`;
-
     footer.innerHTML = `
       <button class="btn btn-sm btn-secondary" data-action="copy" data-type="json">复制JSON</button>
       <button class="btn btn-sm btn-secondary" data-action="copy" data-type="plain">复制明文链接</button>
       <button class="btn btn-sm btn-secondary" data-action="copy" data-type="base64">复制Base64</button>
       <button class="btn btn-sm btn-secondary" data-action="copy-qr">复制二维码</button>`;
+    qrText = plain;
   }
 
-  details.innerHTML = content;
-
-  // 在内容区内生成二维码
+  // 生成二维码
   if (qrText && window.QRCode) {
-    const qrId = protocolKey === '__SUBS__' ? 'qrcode-sub' : 'qrcode-protocol';
-    const qrEl = document.getElementById(qrId);
-    if (qrEl) new QRCode(qrEl, { text: qrText, width: 200, height: 200 });
+    const id = protocolKey === '__SUBS__' ? 'qrcode-sub' : 'qrcode-protocol';
+    const holder = document.getElementById(id);
+    if (holder) new QRCode(holder, { text: qrText, width: 200, height: 200 });
   }
 
-  showModal('configModal');
+  // 打开弹窗（用你现有的 showModal/样式）
+  const modal = document.getElementById('configModal');
+  if (modal) {
+    modal.style.display = 'block';
+    document.body.classList.add('modal-open');
+  }
 }
+
 
 
 // [PATCH:IPQ_MODAL] —— 拉不到数据也渲染结构；字段名完全兼容
@@ -5689,15 +5724,14 @@ document.addEventListener('DOMContentLoaded', () => {
     setupEventListeners();
 });
 
-// ==== new11 事件委托（append-only，兼容你现有逻辑） ====
+// ==== new11 事件委托（append-only） ====
 (() => {
   if (window.__EDGEBOX_DELEGATED__) return;
   window.__EDGEBOX_DELEGATED__ = true;
 
-  const $  = s => document.querySelector(s);
-  const $$ = s => document.querySelectorAll(s);
+  const notify = window.notify || ((msg)=>console.log(msg));
+  const $ = s => document.querySelector(s);
 
-  // 若你的 showModal/closeModal 已存在，可删掉这两个兜底
   function showModal(id) {
     const m = document.getElementById(id);
     if (!m) return;
@@ -5711,44 +5745,34 @@ document.addEventListener('DOMContentLoaded', () => {
     document.body.classList.remove('modal-open');
   }
 
-  // 统一处理所有带 data-action 的按钮
   document.addEventListener('click', async (e) => {
     const btn = e.target.closest('[data-action]');
     if (!btn) return;
-
     const action   = btn.dataset.action;
     const modal    = btn.dataset.modal || '';
     const protocol = btn.dataset.protocol || '';
-    const ipq      = btn.dataset.ipq || '';
     const type     = btn.dataset.type || '';
 
     switch (action) {
       case 'open-modal': {
         if (modal === 'configModal') {
-          // 你已有 showConfigModal(protocolKey)；调用后如果没自己开窗，就兜底开一次
-          if (typeof showConfigModal === 'function') {
-            showConfigModal(protocol);
-          }
+          if (typeof showConfigModal === 'function') showConfigModal(protocol);
           const m = document.getElementById('configModal');
           if (m && m.style.display !== 'block') showModal('configModal');
         } else if (modal === 'whitelistModal') {
-          // 填充白名单列表（容器ID按你的 HTML：#whitelistList）
-          const box  = $('#whitelistList');
           const list = (window.dashboardData?.shunt?.whitelist) || [];
+          const box  = $('#whitelistList');
           if (box) box.innerHTML = list.map(d => `<div class="whitelist-item">${String(d)
             .replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}</div>`).join('');
           showModal('whitelistModal');
         } else if (modal === 'ipqModal') {
-          // IP 质量详情（容器ID：#ipqDetails）
           const body = $('#ipqDetails');
           if (body) {
             body.textContent = '加载中...';
             try {
-              const r = await fetch(`/status/ipq_${ipq}.json`, { cache: 'no-store' });
+              const r = await fetch(`/status/ipq_${btn.dataset.ipq || ''}.json`, { cache: 'no-store' });
               body.textContent = JSON.stringify(r.ok ? await r.json() : null, null, 2);
-            } catch {
-              body.textContent = '加载失败';
-            }
+            } catch { body.textContent = '加载失败'; }
           }
           showModal('ipqModal');
         }
@@ -5760,43 +5784,38 @@ document.addEventListener('DOMContentLoaded', () => {
         break;
       }
 
-      case 'copy': { // 复制明文 / JSON / Base64
+      case 'copy': { // 复制 JSON/明文/Base64
         const host = btn.closest('.modal-content');
         if (!host) break;
-        const map = { sub:'#sub-url', plain:'#plain-link', json:'#json-code', base64:'#base64-link' };
-        const el  = host.querySelector(map[type]);
+        const sel = { json:'#json-code', plain:'#plain-link', base64:'#base64-link' }[type];
+        if (!sel) { notify('未识别的复制类型','warn'); break; }
+        const el = host.querySelector(sel);
         const text = el ? (el.textContent || '').trim() : '';
-        if (!text) break;
-        try {
-          await navigator.clipboard.writeText(text);
-          // 可选：你有 notify() 就调一下
-          if (typeof notify === 'function') notify('已复制');
-        } catch {
-          if (typeof notify === 'function') notify('复制失败','warn');
-        }
+        if (!text) { notify('无可复制内容','warn'); break; }
+        try { await navigator.clipboard.writeText(text); notify('已复制'); }
+        catch { notify('复制失败','warn'); }
         break;
       }
 
-      case 'copy-qr': { // 复制二维码图片到剪贴板
+      case 'copy-qr': { // 复制二维码图片
         const host = btn.closest('.modal-content');
         const cvs  = host && host.querySelector('#qrcode-sub canvas, #qrcode-protocol canvas');
         if (cvs && cvs.toBlob && navigator.clipboard?.write) {
           cvs.toBlob(async blob => {
             try {
               await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-              if (typeof notify === 'function') notify('二维码已复制');
-            } catch {
-              if (typeof notify === 'function') notify('复制二维码失败','warn');
-            }
+              notify('二维码已复制');
+            } catch { notify('复制二维码失败','warn'); }
           });
         } else {
-          if (typeof notify === 'function') notify('浏览器不支持直接复制二维码，请右键/长按保存','warn', 2000);
+          notify('浏览器不支持直接复制二维码，请右键/长按保存','warn', 2000);
         }
         break;
       }
     }
   });
 })();
+
 
 EXTERNAL_JS
 
