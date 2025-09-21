@@ -4763,6 +4763,15 @@ body, p, span, td, div {
   .traffic-progress-container { position: static; width: 100%; margin-bottom: 16px; }
 }
 
+/* [PATCH:TRAFFIC_CSS] */
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+#monthly-usage{margin-bottom:12px}
+.usage-head{display:flex;justify-content:space-between;font-size:12px;color:#667085}
+.usage-bar{height:8px;background:#eef1f3;border-radius:999px;overflow:hidden}
+#monthly-usage-bar{height:8px;width:0;background:#3b82f6}
+.chart-wrap{position:relative;height:auto}
+
+
 /* === 运维管理 === */
 .commands-grid { 
   display: grid; 
@@ -5715,21 +5724,30 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         </table>
       </div>
 
-      <div class="card traffic-card">
-        <div class="card-header">
-            <h2>📊 流量统计</h2>
-            <div class="traffic-progress-container">
-              <span class="progress-label">本月进度</span>
-              <div class="progress-wrapper"><div class="progress-bar"><div class="progress-fill" id="progress-fill" style="width:0%"><span class="progress-percentage" id="progress-percentage">0%</span></div></div></div>
-              <span class="progress-budget" id="progress-budget">0/100GiB</span>
-            </div>
-        </div>
-        <div class="traffic-charts">
-          <div class="chart-container"><canvas id="traffic"></canvas></div>
-          <div class="chart-container"><canvas id="monthly-chart"></canvas></div>
-        </div>
+<!-- [PATCH:TRAFFIC_LAYOUT] -->
+<div class="card-content grid-2" id="traffic-grid">
+  <!-- 左列：本月进度条 + 近30日曲线 -->
+  <div class="col" id="traffic-col-left">
+    <div class="usage" id="monthly-usage">
+      <div class="usage-head">
+        <span>本月用量</span>
+        <span id="monthly-usage-label">0 / — GiB</span>
       </div>
+      <div class="usage-bar"><div id="monthly-usage-bar"></div></div>
+    </div>
+    <div class="chart-wrap">
+      <canvas id="chart-last30d" height="240"></canvas>
+    </div>
+  </div>
 
+  <!-- 右列：近12个月出站流量 -->
+  <div class="col" id="traffic-col-right">
+    <div class="chart-wrap">
+      <canvas id="chart-monthly" height="300"></canvas>
+    </div>
+  </div>
+</div>
+  
       <div class="card">
         <div class="card-header"><h2>⚙️ 运维管理</h2></div>
         <div class="commands-grid">
