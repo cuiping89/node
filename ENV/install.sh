@@ -5255,9 +5255,17 @@ function renderOverview() {
     }
     if (versionEl) versionEl.textContent = version;
   });
-  document.getElementById('version').textContent = safeGet(server, 'version');
-  document.getElementById('install-date').textContent = safeGet(server, 'install_date');
-  document.getElementById('update-time').textContent = new Date(dashboardData.updated_at || Date.now()).toLocaleString();
+const toYMD = (v) => {
+  if (!v) return '—';
+  const d = new Date(v);
+  return isNaN(d) ? String(v).slice(0,10) : d.toISOString().slice(0,10);
+};
+const ver = safeGet(server, 'version', '—');
+const ins = toYMD(safeGet(server, 'install_date'));
+const upd = toYMD(dashboardData.updated_at || Date.now());
+const meta = `版本号: ${ver} | 安装日期: ${ins} | 更新时间: ${upd}`;
+const metaEl = document.getElementById('sys-meta');
+if (metaEl) metaEl.textContent = meta;
 }
 
 function renderCertificateAndNetwork() {
@@ -5293,6 +5301,16 @@ function renderCertificateAndNetwork() {
             previewEl.innerHTML = `<div class="whitelist-text">暂无白名单</div>`;
         }
     }
+	fetchJSON('/status/ipq_vps.json').then(d=>{
+  const g = [d?.country, d?.city].filter(Boolean).join(' - ');
+  const el = document.getElementById('vps-geo');
+  if (el) el.textContent = g || '—';
+});
+fetchJSON('/status/ipq_proxy.json').then(d=>{
+  const g = [d?.country, d?.city].filter(Boolean).join(' - ');
+  const el = document.getElementById('proxy-geo');
+  if (el) el.textContent = g || '—';
+});
 }
 
 function renderProtocolTable() {
@@ -5302,8 +5320,8 @@ function renderProtocolTable() {
     const rows = protocols.map(p => `
         <tr>
             <td>${escapeHtml(p.name)}</td>
-            <td>${escapeHtml(p.scenario)}</td>
-            <td>${escapeHtml(p.camouflage)}</td>
+<td>${escapeHtml(p.fit || p.scenario || '—')}</td>
+<td>${escapeHtml(p.effect || p.camouflage || '—')}</td>
             <td><span class="status-badge ${p.status === '运行中' ? 'status-running' : ''}">${p.status}</span></td>
             <td><button class="btn btn-sm btn-link" data-action="open-modal" data-modal="configModal" data-protocol="${escapeHtml(p.name)}">查看配置</button></td>
         </tr>`).join('');
@@ -5400,34 +5418,119 @@ function showConfigModal(protocolKey) {
   showModal('configModal');
 }
 
+// [PATCH:IPQ_MODAL] —— 拉不到数据也渲染结构；字段名完全兼容
 async function showIPQDetails(which) {
-    const titleEl = document.getElementById('ipqModalTitle');
-    const bodyEl = document.getElementById('ipqDetails');
-    if (!titleEl || !bodyEl) return;
+  const titleEl = document.getElementById('ipqModalTitle');
+  const bodyEl  = document.getElementById('ipqDetails');
+  if (!titleEl || !bodyEl) return;
 
-    titleEl.textContent = which === 'vps' ? 'VPS IP质量检测详情' : '代理IP质量检测详情';
-    bodyEl.innerHTML = `<div class="config-section"><div class="config-code">加载中...</div></div>`;
-    showModal('ipqModal');
+  const file = which === 'vps' ? '/status/ipq_vps.json' : '/status/ipq_proxy.json';
+  titleEl.textContent = which === 'vps' ? 'VPS IP质量检测详情' : '代理 IP质量检测详情';
+  bodyEl.innerHTML = `<div class="config-section"><div class="config-code">加载中...</div></div>`;
+  showModal && showModal('ipqModal');
 
-    const data = await fetchJSON(`/status/ipq_${which}.json`);
+  let data = null;
+  try {
+    const r = await fetch(file, {cache:'no-store'});
+    if (r.ok) data = await r.json();
+  } catch {}
 
-    const score   = safeGet(data, 'score');
-    const grade   = safeGet(data, 'grade');
-    const when    = safeGet(data, 'detected_at') !== '—' ? new Date(data.detected_at).toLocaleString() : '—';
-    const ip      = safeGet(data, 'ip');
-    const asn     = safeGet(data, 'asn');
-    const isp     = safeGet(data, 'isp');
-    const country = safeGet(data, 'country');
-    const city    = safeGet(data, 'city');
-    const latency = safeGet(data, 'latency_ms') !== '—' ? `${data.latency_ms} ms` : '—';
-    const blCount = (safeGet(data, 'risk.dnsbl_hits', [])).length;
-    const risk    = [data?.risk?.proxy && 'Proxy', data?.risk?.hosting && 'Hosting', data?.risk?.mobile && 'Mobile'].filter(Boolean).join(', ') || '—';
+  // —— 兜底：没有数据也给出结构（从 dashboardData 拼一些非敏感项）
+  const dash = window.dashboardData || {};
+  const server = dash.server || {};
+  data = data || {
+    score: null, grade: null, detected_at: dash.updated_at,
+    ip: (which==='vps' ? server.server_ip : server.eip) || '',
+    asn: '', isp: '', country: '', city: '', rdns: '',
+    bandwidth: '', network_type: '', latency_p50: null,
+    risk: { proxy: (which==='proxy'), hosting: true, dnsbl_hits: [] },
+    conclusion: ''
+  };
 
-    bodyEl.innerHTML = `
-      <div class="config-section"><h4>总览</h4><div class="info-item"><label>分数:</label><value>${score} (${grade})</value></div><div class="info-item"><label>检测时间:</label><value>${when}</value></div></div>
-      <div class="config-section"><h4>身份信息</h4><div class="info-item"><label>IP地址:</label><value>${ip}</value></div><div class="info-item"><label>ASN/ISP:</label><value>${escapeHtml(asn)} / ${escapeHtml(isp)}</value></div><div class="info-item"><label>位置:</label><value>${escapeHtml(country)}, ${escapeHtml(city)}</value></div></div>
-      <div class="config-section"><h4>质量评估</h4><div class="info-item"><label>风险类型:</label><value>${risk}</value></div><div class="info-item"><label>黑名单:</label><value>${blCount} 个命中</value></div><div class="info-item"><label>延迟:</label><value>${latency}</value></div></div>
-    `;
+  // —— 兼容取值
+  const pick = (o, paths, d='—')=>{
+    for (const p of paths) {
+      const v = p.split('.').reduce((x,k)=> x&&x[k]!=null ? x[k] : undefined, o);
+      if (v!=null && v!=='') return v;
+    }
+    return d;
+  };
+
+  const score = pick(data,['score'], '—');
+  const grade = pick(data,['grade'], null);
+  const gradeStr = grade || (typeof score==='number'
+                    ? (score>=80?'A':score>=60?'B':score>=40?'C':'D') : '—');
+  const when = pick(data,['detected_at','updated_at','timestamp'], '—');
+
+  const ip   = pick(data,['ip'],'—');
+  const asn  = pick(data,['asn'],'');
+  const isp  = pick(data,['isp'],'');
+  const country = pick(data,['country','geo.country'],'');
+  const city    = pick(data,['city','geo.city'],'');
+  const rdns    = pick(data,['rdns','reverse_dns'],'—');
+
+  const bwUp   = pick(data,['bandwidth_up','config.bandwidth_up'], null);
+  const bwDown = pick(data,['bandwidth_down','config.bandwidth_down'], null);
+  const bandwidth = (bwUp || bwDown) ? `${bwUp||'—'} / ${bwDown||'—'}` : (pick(data,['bandwidth','config.bandwidth'],'未配置'));
+
+  const networkType = pick(data,['network_type','net_type'],'—');
+  const latency = (()=>{
+    const v = pick(data,['latency_p50','latency.median','latency_ms'], null);
+    return v ? `${v} ms` : '—';
+  })();
+
+  const riskObj = data.risk || {};
+  const flags = [
+    riskObj.proxy   ? '代理标记'  : null,
+    riskObj.hosting ? '数据中心'  : null,
+    riskObj.mobile  ? '移动网络'  : null,
+    riskObj.tor     ? 'Tor'      : null
+  ].filter(Boolean).join('、') || '—';
+  const hits = Array.isArray(riskObj.dnsbl_hits) ? riskObj.dnsbl_hits : [];
+  const blCount = hits.length;
+
+  const conclusion = pick(data,['conclusion'],'—');
+
+  const EH = s => String(s||'').replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]));
+
+  bodyEl.innerHTML = `
+    <div class="ipq-section">
+      <h5>总览</h5>
+      <div class="info-item"><label>分数:</label><value>${score} / 100</value></div>
+      <div class="info-item"><label>等级:</label><value><span class="grade-badge grade-${String(gradeStr).toLowerCase()}">${EH(gradeStr)}</span></value></div>
+      <div class="info-item"><label>最近检测时间:</label><value>${EH(when)}</value></div>
+    </div>
+    <div class="ipq-section">
+      <h5>身份信息</h5>
+      <div class="info-item"><label>出站IP:</label><value>${EH(ip)}</value></div>
+      <div class="info-item"><label>ASN / ISP:</label><value>${EH([asn, isp].filter(Boolean).join(' / ') || '—')}</value></div>
+      <div class="info-item"><label>Geo:</label><value>${EH([country, city].filter(Boolean).join(' / ') || '—')}</value></div>
+      <div class="info-item"><label>rDNS:</label><value>${EH(rdns)}</value></div>
+    </div>
+    <div class="ipq-section">
+      <h5>配置信息</h5>
+      <div class="info-item"><label>带宽限制:</label><value>${EH(bandwidth)}</value></div>
+    </div>
+    <div class="ipq-section">
+      <h5>质量细项</h5>
+      <div class="info-item"><label>网络类型:</label><value>${EH(networkType)}</value></div>
+      <div class="info-item"><label>时延中位数:</label><value>${EH(latency)}</value></div>
+    </div>
+    <div class="ipq-section">
+      <h5>风险与黑名单</h5>
+      <div class="info-item"><label>特征:</label><value>${EH(flags)}</value></div>
+      <div class="info-item"><label>黑名单命中数:</label><value>${blCount} 个</value></div>
+    </div>
+    <div class="ipq-conclusion">
+      <h5>结论与依据</h5>
+      <p>${EH(conclusion)}</p>
+      <ul style="margin-top:8px; font-size:12px; color:#6b7280; padding-left:18px; line-height:1.6;">
+        <li>基础分 100 分</li>
+        <li>“代理/数据中心/Tor”等标记会降低分数</li>
+        <li>每命中 1 个 DNSBL 黑名单会降低分数</li>
+        <li>高时延会降低分数</li>
+      </ul>
+    </div>`;
 }
 
 async function copyText(text) {
@@ -5515,7 +5618,12 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
     <div class="main-header"><h1>🚀 EdgeBox - 企业级多协议节点管理系统</h1></div>
     <div class="main-content">
       <div class="card">
-        <div class="card-header"><h2>📊 系统概览</h2></div>
+        <div class="card-header">
+  <h2>
+    📊 系统概览
+    <span class="card-note" id="sys-meta">版本号: — | 安装日期: — | 更新时间: —</span>
+  </h2>
+</div>
         <div class="grid grid-3">
           <div class="inner-block">
             <h3>服务器信息</h3>
@@ -5536,9 +5644,6 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             <div class="service-item"><span>Xray</span><div class="service-status"><span class="status-badge" id="xray-status">—</span><span class="version" id="xray-version"></span></div></div>
             <div class="service-item"><span>Sing-box</span><div class="service-status"><span class="status-badge" id="singbox-status">—</span><span class="version" id="singbox-version"></span></div></div>
           </div>
-        </div>
-        <div style="text-align:center;padding-top:15px;border-top:1px solid #e5e7eb;margin-top:15px;">
-          <span class="text-secondary">版本号: <span id="version">—</span> | 安装日期: <span id="install-date">—</span> | 更新时间: <span id="update-time">—</span></span>
         </div>
       </div>
 
@@ -5563,12 +5668,14 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
               <h3>📡 VPS出站IP</h3>
               <div class="info-item"><label>公网身份:</label><value>直连</value></div>
               <div class="info-item"><label>出站IP:</label><value id="vps-ip">—</value></div>
+			  <div class="info-item"><label>Geo:</label><value id="vps-geo">—</value></div>
               <div class="info-item"><label>IP质量:</label><value><span id="vps-ipq-score"></span> <button class="btn-link" data-action="open-modal" data-modal="ipqModal" data-ipq="vps">详情</button></value></div>
             </div>
             <div class="network-block" id="net-proxy">
               <h3>🔄 代理出站IP</h3>
               <div class="info-item"><label>代理身份:</label><value>全代理</value></div>
               <div class="info-item"><label>代理IP:</label><value id="proxy-ip">—</value></div>
+			  <div class="info-item"><label>Geo:</label><value id="proxy-geo">—</value></div>
               <div class="info-item"><label>IP质量:</label><value><span id="proxy-ipq-score"></span> <button class="btn-link" data-action="open-modal" data-modal="ipqModal" data-ipq="proxy">详情</button></value></div>
             </div>
             <div class="network-block" id="net-shunt">
