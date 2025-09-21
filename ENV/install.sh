@@ -4688,89 +4688,93 @@ body, p, span, td, div {
   background:#f5f5f5; 
 }
 
-/* === 流量统计 === */
-.traffic-card { 
-  position: relative; 
+/* === 流量统计（进度条在30日图表上方同列） === */
+.traffic-card {
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+  padding: 0;
+}
+
+.traffic-card .card-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.traffic-charts {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 20px;
+  padding: 20px;
+}
+
+.chart-column {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.chart-container {
+  flex: 1;
+  position: relative;
+  min-height: 200px;
 }
 
 .traffic-progress-container {
-  position: absolute; 
-  top: 16px; 
-  right: 16px; 
-  width: 320px;
-  font-size: .75rem; 
-  display: flex; 
-  align-items: center; 
-  gap: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
-.progress-label { 
-  color: #6b7280; 
-  white-space: nowrap; 
+.progress-label {
+  font-size: 13px;
+  color: #6b7280;
+  white-space: nowrap;
 }
 
-.progress-wrapper { 
-  flex: 1; 
-  position: relative; 
+.progress-wrapper {
+  flex: 1;
+  min-width: 120px;
 }
 
 .progress-bar {
-  width: 100%; 
-  height: 22px; 
-  background: #e2e8f0; 
-  border-radius: 8px; 
-  overflow: hidden; 
+  height: 20px;
+  background: #f3f4f6;
+  border-radius: 10px;
+  overflow: hidden;
+  position: relative;
 }
 
-.progress-fill { 
-  height: 100%; 
-  background: #10b981; 
-  border-radius: 8px; 
-  transition: width .3s; 
-  position: relative; 
-  display: flex; 
-  align-items: center; 
-  justify-content: center; 
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #10b981 0%, #059669 100%);
+  transition: width 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 8px;
 }
 
-.progress-percentage { 
-  position: absolute; 
-  color: #fff; 
-  font-size: .65rem; 
-  font-weight: 600; 
+.progress-fill.warning {
+  background: linear-gradient(90deg, #f59e0b 0%, #d97706 100%);
 }
 
-.progress-budget { 
-  color: #6b7280; 
-  white-space: nowrap; 
-  font-size: .7rem; 
+.progress-fill.critical {
+  background: linear-gradient(90deg, #ef4444 0%, #dc2626 100%);
 }
 
-.traffic-charts { 
-  display: grid; 
-  grid-template-columns: 7fr 3fr; 
-  gap: 16px; 
-  margin-top: 50px; 
+.progress-percentage {
+  color: white;
+  font-size: 11px;
+  font-weight: 600;
 }
 
-.chart-container { 
-  position: relative; 
-  height: 360px; 
+.progress-budget {
+  color: #6b7280;
+  font-size: 12px;
+  white-space: nowrap;
 }
-
-@media (max-width:980px){
-  .traffic-charts { grid-template-columns: 1fr; }
-  .traffic-progress-container { position: static; width: 100%; margin-bottom: 16px; }
-}
-
-/* [PATCH:TRAFFIC_CSS] */
-.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
-#monthly-usage{margin-bottom:12px}
-.usage-head{display:flex;justify-content:space-between;font-size:12px;color:#667085}
-.usage-bar{height:8px;background:#eef1f3;border-radius:999px;overflow:hidden}
-#monthly-usage-bar{height:8px;width:0;background:#3b82f6}
-.chart-wrap{position:relative;height:auto}
-
 
 /* === 运维管理 === */
 .commands-grid { 
@@ -5327,18 +5331,18 @@ function renderCertificateAndNetwork() {
   if (proxyEl) proxyEl.textContent = proxyFmt;
 
   // 白名单预览（保持你原有逻辑）
-  const whitelist = Array.isArray(shunt.whitelist) ? shunt.whitelist : [];
-  const previewEl = document.getElementById('whitelistPreview');
-  if (previewEl) {
-    if (whitelist.length) {
-      const display = whitelist.slice(0,3).join(', ') + (whitelist.length > 3 ? '...' : '');
-      previewEl.innerHTML = `
-        <div class="whitelist-text">${escapeHtml(display)}</div>
-        <button class="btn btn-xs" data-action="open-modal" data-modal="whitelistModal">查看全部</button>`;
-    } else {
-      previewEl.innerHTML = `<div class="whitelist-text">暂无白名单</div>`;
+const whitelist = dashboardData.shunt?.whitelist || [];
+    const preview = document.getElementById('whitelistPreview');
+    if (preview) {
+        if (!whitelist.length) {
+            preview.innerHTML = '<span class="whitelist-text">(无)</span>';
+        } else {
+            const fullText = whitelist.join(', ');
+            // 始终显示查看全部按钮
+            preview.innerHTML = `<span class="whitelist-text">${escapeHtml(fullText)}</span>` +
+                `<button class="whitelist-more" data-action="open-modal" data-modal="whitelistModal">查看全部</button>`;
+        }
     }
-  }
 }
 
 
