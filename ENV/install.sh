@@ -5415,35 +5415,114 @@ function showWhitelistModal() {
     showModal('whitelistModal');
 }
 
+// 显示配置弹窗（按文档要求的内容和按钮顺序）
 function showConfigModal(protocolKey) {
   const title = document.getElementById('configModalTitle');
   const details = document.getElementById('configDetails');
   const qrContainer = document.getElementById('qrcode');
+  const footer = document.querySelector('#configModal .modal-footer');
   if (!title || !details || !qrContainer) return;
   
   qrContainer.innerHTML = ''; 
   let content = '', qrText = '';
 
   if (protocolKey === '__SUBS__') {
-    title.textContent = '整包订阅链接配置';
+    // 查看/复制弹窗：明文链接 → Base64 → 二维码 → 使用说明
+    title.textContent = '订阅链接配置';
     const sub = dashboardData.subscription || {};
     qrText = dashboardData.subscription_url || `http://${dashboardData.server?.server_ip}/sub`;
-    content = `<div class="config-section"><h4>订阅地址</h4><div class="config-code" id="sub-url">${escapeHtml(qrText)}</div></div>` +
-              `<div class="config-section"><h4>明文链接 (6个)</h4><div class="config-code" id="plain-link" style="white-space: pre-wrap;">${escapeHtml(sub.plain)}</div></div>`;
+    
+    content = `
+      <div class="config-section">
+        <h4>明文链接</h4>
+        <div class="config-code" id="plain-link">${escapeHtml(qrText)}</div>
+      </div>
+      <div class="config-section">
+        <h4>Base64</h4>
+        <div class="config-code" id="base64-link">${escapeHtml(sub.base64 || btoa(qrText))}</div>
+      </div>
+      <div class="config-section">
+        <h4>使用说明</h4>
+        <p style="font-size:12px;color:#6b7280;line-height:1.6;">
+          将订阅地址导入支持的客户端（如v2rayN、Clash等），客户端将自动获取所有节点配置。
+        </p>
+      </div>`;
+    
+    // 查看/复制弹窗按钮顺序
+    footer.innerHTML = `
+      <button class="btn btn-sm btn-secondary" data-action="copy" data-type="plain">复制明文链接</button>
+      <button class="btn btn-sm btn-secondary" data-action="copy" data-type="base64">复制Base64</button>
+      <button class="btn btn-sm btn-secondary" data-action="copy-qr">复制二维码</button>
+    `;
   } else {
+    // 查看配置弹窗：JSON（逐项后紧跟注释）→ 明文链接 → Base64 → 二维码 → 使用说明
     const protocol = (dashboardData.protocols || []).find(p => p.name === protocolKey);
     if (!protocol) return notify('未找到协议信息', 'warn');
     title.textContent = `${protocol.name} 配置详情`;
     qrText = protocol.share_link || '';
-    content = `<div class="config-section"><h4>分享链接</h4><div class="config-code" id="plain-link">${escapeHtml(protocol.share_link)}</div></div>`;
+    
+    // 构造带注释的JSON配置
+    const jsonWithComments = {
+      "server": dashboardData.server?.server_ip || '服务器IP',
+      "_server_comment": "// 服务器地址",
+      "port": protocol.port || 443,
+      "_port_comment": "// 端口号",
+      "protocol": protocol.name,
+      "_protocol_comment": "// 协议类型",
+      "uuid": protocol.uuid || protocol.password || '认证凭据',
+      "_uuid_comment": "// 认证UUID或密码"
+    };
+    
+    // 格式化JSON并过滤注释字段用于显示
+    let jsonStr = JSON.stringify(jsonWithComments, null, 2);
+    jsonStr = jsonStr.replace(/"_\w+_comment":\s*"[^"]+",?\n/g, '');
+    jsonStr = jsonStr.replace(/",\n\s*"(\w+)":/g, ', // 上面是$1的说明\n  "$1":');
+    
+    content = `
+      <div class="config-section">
+        <h4>JSON配置</h4>
+        <div class="config-code" id="json-code" style="white-space:pre-wrap;font-family:monospace;font-size:12px;">${escapeHtml(jsonStr)}</div>
+      </div>
+      <div class="config-section">
+        <h4>明文链接</h4>
+        <div class="config-code" id="plain-link">${escapeHtml(protocol.share_link || '暂无链接')}</div>
+      </div>
+      <div class="config-section">
+        <h4>Base64</h4>
+        <div class="config-code" id="base64-link">${escapeHtml(btoa(protocol.share_link || ''))}</div>
+      </div>
+      <div class="config-section">
+        <h4>使用说明</h4>
+        <p style="font-size:12px;color:#6b7280;line-height:1.6;">
+          ${protocol.usage || '请将配置导入到对应的客户端中使用。'}
+        </p>
+      </div>`;
+    
+    // 查看配置弹窗按钮顺序
+    footer.innerHTML = `
+      <button class="btn btn-sm btn-secondary" data-action="copy" data-type="json">复制JSON</button>
+      <button class="btn btn-sm btn-secondary" data-action="copy" data-type="plain">复制明文链接</button>
+      <button class="btn btn-sm btn-secondary" data-action="copy" data-type="base64">复制Base64</button>
+      <button class="btn btn-sm btn-secondary" data-action="copy-qr">复制二维码</button>
+    `;
   }
 
   details.innerHTML = content;
+  
+  // 生成二维码
   if (qrText && window.QRCode) {
-      new QRCode(qrContainer, { text: qrText, width: 256, height: 256 });
+    setTimeout(() => {
+      new QRCode(qrContainer, { 
+        text: qrText, 
+        width: 256, 
+        height: 256,
+        correctLevel: QRCode.CorrectLevel.M
+      });
+    }, 100);
   } else {
-      qrContainer.innerHTML = '<div class="qr-placeholder">无可用链接</div>';
+    qrContainer.innerHTML = '<div class="qr-placeholder">无可用链接生成二维码</div>';
   }
+  
   showModal('configModal');
 }
 
@@ -5724,29 +5803,30 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         </table>
       </div>
 
-<!-- [PATCH:TRAFFIC_LAYOUT] -->
-<div class="card-content grid-2" id="traffic-grid">
-  <!-- 左列：本月进度条 + 近30日曲线 -->
-  <div class="col" id="traffic-col-left">
-    <div class="usage" id="monthly-usage">
-      <div class="usage-head">
-        <span>本月用量</span>
-        <span id="monthly-usage-label">0 / — GiB</span>
+<div class="card traffic-card">
+        <div class="card-header">
+            <h2>📊 流量统计</h2>
+        </div>
+        <div class="traffic-charts">
+          <div class="chart-column">
+            <div class="traffic-progress-container">
+              <span class="progress-label">本月进度</span>
+              <div class="progress-wrapper"><div class="progress-bar"><div class="progress-fill" id="progress-fill" style="width:0%"><span class="progress-percentage" id="progress-percentage">0%</span></div></div></div>
+              <span class="progress-budget" id="progress-budget">0/100GiB</span>
+            </div>
+            <div class="chart-container">
+              <h4 style="text-align:center; margin: 10px 0 5px 0; font-size: 13px; color: #6b7280;">近30日流量走势</h4>
+              <canvas id="traffic"></canvas>
+            </div>
+          </div>
+          <div class="chart-column">
+            <div class="chart-container" style="height: 100%;">
+              <h4 style="text-align:center; margin: 10px 0 5px 0; font-size: 13px; color: #6b7280;">近12月出站流量</h4>
+              <canvas id="monthly-chart"></canvas>
+            </div>
+          </div>
+        </div>
       </div>
-      <div class="usage-bar"><div id="monthly-usage-bar"></div></div>
-    </div>
-    <div class="chart-wrap">
-      <canvas id="chart-last30d" height="240"></canvas>
-    </div>
-  </div>
-
-  <!-- 右列：近12个月出站流量 -->
-  <div class="col" id="traffic-col-right">
-    <div class="chart-wrap">
-      <canvas id="chart-monthly" height="300"></canvas>
-    </div>
-  </div>
-</div>
   
       <div class="card">
         <div class="card-header"><h2>⚙️ 运维管理</h2></div>
