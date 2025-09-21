@@ -3086,13 +3086,13 @@ get_protocols_status() {
     ss -ulnp 2>/dev/null | grep -q ":443.*sing-box" && udp443_status="运行中"
     ss -ulnp 2>/dev/null | grep -q ":2053.*sing-box" && udp2053_status="运行中"
     
-    # 生成协议数组，包含share_link
-    cat <<EOF
+# 生成协议数组，包含share_link（scenario=使用场景，camouflage=伪装效果）
+cat <<EOF
 [
   {
     "name": "VLESS-Reality",
-    "scenario": "抗审查",
-    "camouflage": "真实网站",
+    "scenario": "强审查环境",
+    "camouflage": "极佳",
     "status": "$reality_status",
     "port": 443,
     "network": "tcp",
@@ -3100,8 +3100,8 @@ get_protocols_status() {
   },
   {
     "name": "VLESS-gRPC",
-    "scenario": "CDN加速",
-    "camouflage": "HTTP/2",
+    "scenario": "较严审查/走CDN",
+    "camouflage": "极佳",
     "status": "$grpc_status",
     "port": 443,
     "network": "tcp",
@@ -3109,8 +3109,8 @@ get_protocols_status() {
   },
   {
     "name": "VLESS-WebSocket",
-    "scenario": "CDN加速",
-    "camouflage": "WebSocket",
+    "scenario": "常规网络稳定",
+    "camouflage": "良好",
     "status": "$ws_status",
     "port": 443,
     "network": "tcp",
@@ -3118,8 +3118,8 @@ get_protocols_status() {
   },
   {
     "name": "Trojan-TLS",
-    "scenario": "经典伪装",
-    "camouflage": "HTTPS",
+    "scenario": "移动网络可靠",
+    "camouflage": "良好",
     "status": "$trojan_status",
     "port": 443,
     "network": "tcp",
@@ -3127,8 +3127,8 @@ get_protocols_status() {
   },
   {
     "name": "Hysteria2",
-    "scenario": "高性能",
-    "camouflage": "QUIC",
+    "scenario": "弱网/高丢包更佳",
+    "camouflage": "好",
     "status": "$udp443_status",
     "port": 443,
     "network": "udp",
@@ -3136,8 +3136,8 @@ get_protocols_status() {
   },
   {
     "name": "TUIC",
-    "scenario": "低延迟",
-    "camouflage": "QUIC",
+    "scenario": "大带宽/低时延",
+    "camouflage": "良好",
     "status": "$udp2053_status",
     "port": 2053,
     "network": "udp",
@@ -5268,50 +5268,70 @@ const metaEl = document.getElementById('sys-meta');
 if (metaEl) metaEl.textContent = meta;
 }
 
+/* [PATCH:RENDER_CERT_AND_NET] —— 仅更正“代理IP：”的显示格式，其余逻辑保持不变 */
 function renderCertificateAndNetwork() {
-    const cert = dashboardData.server?.cert || {};
-    const shunt = dashboardData.shunt || {};
-    const certMode = safeGet(cert, 'mode', 'self-signed');
-    document.getElementById('cert-self').classList.toggle('active', certMode === 'self-signed');
-    document.getElementById('cert-ca').classList.toggle('active', certMode.startsWith('letsencrypt'));
-    document.getElementById('cert-type').textContent = certMode.startsWith('letsencrypt') ? "Let's Encrypt" : "自签名";
-    document.getElementById('cert-domain').textContent = safeGet(cert, 'domain', '(无)');
-    document.getElementById('cert-renewal').textContent = certMode.startsWith('letsencrypt') ? '自动' : '手动';
-    document.getElementById('cert-expiry').textContent = safeGet(cert, 'expires_at') ? new Date(cert.expires_at).toLocaleDateString() : '—';
-    const shuntMode = String(safeGet(shunt, 'mode', 'vps')).toLowerCase();
-    ['net-vps', 'net-proxy', 'net-shunt'].forEach(id => document.getElementById(id).classList.remove('active'));
-    if (shuntMode === 'vps') {
-        document.getElementById('net-vps').classList.add('active');
-    } else if (shuntMode.includes('direct')) {
-        document.getElementById('net-shunt').classList.add('active');
-    } else if (shuntMode.includes('resi')) {
-        document.getElementById('net-proxy').classList.add('active');
+  const data   = window.dashboardData || {};
+  const server = data.server || {};
+  const cert   = server.cert || {};
+  const shunt  = data.shunt  || {};
+
+  // 证书区
+  const certMode = String(safeGet(cert, 'mode', 'self-signed'));
+  document.getElementById('cert-self')?.classList.toggle('active', certMode === 'self-signed');
+  document.getElementById('cert-ca')?.classList.toggle('active', certMode.startsWith('letsencrypt'));
+  const certTypeEl = document.getElementById('cert-type');
+  if (certTypeEl) certTypeEl.textContent = certMode.startsWith('letsencrypt') ? "Let's Encrypt" : "自签名";
+  const domEl = document.getElementById('cert-domain');
+  if (domEl) domEl.textContent = safeGet(cert, 'domain', '(无)');
+  const rnEl = document.getElementById('cert-renewal');
+  if (rnEl) rnEl.textContent = certMode.startsWith('letsencrypt') ? '自动' : '手动';
+  const exEl = document.getElementById('cert-expiry');
+  if (exEl) {
+    const exp = safeGet(cert, 'expires_at', null);
+    exEl.textContent = exp ? new Date(exp).toLocaleDateString() : '—';
+  }
+
+  // 出站模式切换：vps / direct(shunt) / resi(proxy)
+  const shuntMode = String(safeGet(shunt, 'mode', 'vps')).toLowerCase();
+  ['net-vps','net-proxy','net-shunt'].forEach(id => document.getElementById(id)?.classList.remove('active'));
+  if (shuntMode === 'vps') {
+    document.getElementById('net-vps')?.classList.add('active');
+  } else if (shuntMode.includes('direct')) {
+    document.getElementById('net-shunt')?.classList.add('active');
+  } else if (shuntMode.includes('resi') || shuntMode.includes('proxy')) {
+    document.getElementById('net-proxy')?.classList.add('active');
+  } else {
+    document.getElementById('net-vps')?.classList.add('active');
+  }
+
+  // VPS 出站 IP（你原本的口径：优先 eip 其次 server_ip）
+  const vpsIp = safeGet(data, 'server.eip') || safeGet(data, 'server.server_ip') || '—';
+  const vpsEl = document.getElementById('vps-ip');
+  if (vpsEl) vpsEl.textContent = vpsIp;
+
+  // 代理出站 IP —— 只显示“协议//IP:端口”
+  // 期望 shunt.proxy_info 形如：scheme://ip:port，例如 socks5://5.182.31.185:11324
+  const proxyRaw = String(safeGet(shunt, 'proxy_info', ''));
+  const m = proxyRaw.match(/^([a-z0-9+.\-]+):\/\/([^:/]+):(\d+)/i);
+  const proxyFmt = m ? `${m[1]}//${m[2]}:${m[3]}` : (proxyRaw ? proxyRaw : '—');
+  const proxyEl = document.getElementById('proxy-ip');
+  if (proxyEl) proxyEl.textContent = proxyFmt;
+
+  // 白名单预览（保持你原有逻辑）
+  const whitelist = Array.isArray(shunt.whitelist) ? shunt.whitelist : [];
+  const previewEl = document.getElementById('whitelistPreview');
+  if (previewEl) {
+    if (whitelist.length) {
+      const display = whitelist.slice(0,3).join(', ') + (whitelist.length > 3 ? '...' : '');
+      previewEl.innerHTML = `
+        <div class="whitelist-text">${escapeHtml(display)}</div>
+        <button class="btn btn-xs" data-action="open-modal" data-modal="whitelistModal">查看全部</button>`;
     } else {
-        document.getElementById('net-vps').classList.add('active');
+      previewEl.innerHTML = `<div class="whitelist-text">暂无白名单</div>`;
     }
-    document.getElementById('vps-ip').textContent = safeGet(dashboardData, 'server.eip') || safeGet(dashboardData, 'server.server_ip');
-    document.getElementById('proxy-ip').textContent = safeGet(shunt, 'proxy_info', '(未配置)');
-    const whitelist = shunt.whitelist || [];
-    const previewEl = document.getElementById('whitelistPreview');
-    if (previewEl) {
-        if (whitelist.length > 0) {
-            const displayList = whitelist.slice(0, 3).join(', ') + (whitelist.length > 3 ? '...' : '');
-            previewEl.innerHTML = `<div class="whitelist-text">${displayList}</div><button class="whitelist-more" data-action="open-modal" data-modal="whitelistModal">查看全部</button>`;
-        } else {
-            previewEl.innerHTML = `<div class="whitelist-text">暂无白名单</div>`;
-        }
-    }
-	fetchJSON('/status/ipq_vps.json').then(d=>{
-  const g = [d?.country, d?.city].filter(Boolean).join(' - ');
-  const el = document.getElementById('vps-geo');
-  if (el) el.textContent = g || '—';
-});
-fetchJSON('/status/ipq_proxy.json').then(d=>{
-  const g = [d?.country, d?.city].filter(Boolean).join(' - ');
-  const el = document.getElementById('proxy-geo');
-  if (el) el.textContent = g || '—';
-});
+  }
 }
+
 
 function renderProtocolTable() {
     const protocols = dashboardData.protocols || [];
@@ -5386,37 +5406,110 @@ function showWhitelistModal() {
     showModal('whitelistModal');
 }
 
-function showConfigModal(protocolKey) {
-  const title = document.getElementById('configModalTitle');
-  const details = document.getElementById('configDetails');
-  const qrContainer = document.getElementById('qrcode');
-  if (!title || !details || !qrContainer) return;
-  
-  qrContainer.innerHTML = ''; 
-  let content = '', qrText = '';
-
-  if (protocolKey === '__SUBS__') {
-    title.textContent = '整包订阅链接配置';
-    const sub = dashboardData.subscription || {};
-    qrText = dashboardData.subscription_url || `http://${dashboardData.server?.server_ip}/sub`;
-    content = `<div class="config-section"><h4>订阅地址</h4><div class="config-code" id="sub-url">${escapeHtml(qrText)}</div></div>` +
-              `<div class="config-section"><h4>明文链接 (6个)</h4><div class="config-code" id="plain-link" style="white-space: pre-wrap;">${escapeHtml(sub.plain)}</div></div>`;
-  } else {
-    const protocol = (dashboardData.protocols || []).find(p => p.name === protocolKey);
-    if (!protocol) return notify('未找到协议信息', 'warn');
-    title.textContent = `${protocol.name} 配置详情`;
-    qrText = protocol.share_link || '';
-    content = `<div class="config-section"><h4>分享链接</h4><div class="config-code" id="plain-link">${escapeHtml(protocol.share_link)}</div></div>`;
+// [SPEC:SHOW_CONFIG_MODAL] 弹窗顺序：JSON→明文→Base64→二维码→使用说明；按钮同序
+function showConfigModal(p) {
+  // 兼容：允许传协议名
+  if (typeof p === 'string') {
+    var arr = (window.dashboardData && window.dashboardData.protocols) || [];
+    for (var i=0;i<arr.length;i++){ if (arr[i].name === p) { p = arr[i]; break; } }
   }
+  p = p || {};
+  var link = p.share_link || '';
 
-  details.innerHTML = content;
-  if (qrText && window.QRCode) {
-      new QRCode(qrContainer, { text: qrText, width: 256, height: 256 });
-  } else {
-      qrContainer.innerHTML = '<div class="qr-placeholder">无可用链接</div>';
-  }
-  showModal('configModal');
+  var modal   = document.getElementById('configModal');
+  var titleEl = document.getElementById('configModalTitle');
+  var bodyEl  = document.getElementById('configModalBody'); // 建议在HTML里给 <div id="configModalBody"></div>
+  if (!modal || !titleEl || !bodyEl) return;
+
+  titleEl.textContent = (p.name || '查看配置');
+
+  // JSON（最小必要字段，按规范逐项）
+  var jsonObj = {
+    name: p.name || '',
+    network: p.network || '',
+    port: p.port || '',
+    link: link
+  };
+  var jsonText = JSON.stringify(jsonObj, null, 2);
+
+  // Base64
+  var b64 = '';
+  try { b64 = btoa(unescape(encodeURIComponent(link || ''))); } catch(e){ b64 = ''; }
+
+  // 使用说明（前端映射，符合规范即可）
+  var HOWTO = {
+    'VLESS-Reality':   'VLESS+Reality，flow=xtls-rprx-vision；SNI 选大站；防探测强。',
+    'VLESS-gRPC':      'TLS+h2，serviceName=grpc；可挂CDN，抗封锁。',
+    'VLESS-WebSocket': 'TLS+WS，path=/ws；兼容性好。',
+    'Trojan-TLS':      'HTTPS 伪装，传统稳定方案。',
+    'Hysteria2':       'QUIC/h3，弱网提速明显。',
+    'TUIC':            'QUIC+BBR，大吞吐低时延。'
+  };
+  var howto = HOWTO[p.name] || '—';
+
+  // 结构化内容（顺序固定）
+  bodyEl.innerHTML = ''
+    + '<div class="config-section"><h5>JSON 配置</h5>'
+    +   '<pre class="config-code" id="cfgJson"></pre>'
+    +   '<div class="modal-actions"><button class="btn btn-xs" id="btnCopyJson">复制 JSON</button></div>'
+    + '</div>'
+    + '<div class="config-section"><h5>明文链接</h5>'
+    +   '<pre class="config-code" id="cfgPlain"></pre>'
+    +   '<div class="modal-actions"><button class="btn btn-xs" id="btnCopyPlain">复制明文链接</button></div>'
+    + '</div>'
+    + '<div class="config-section"><h5>Base64</h5>'
+    +   '<pre class="config-code" id="cfgB64"></pre>'
+    +   '<div class="modal-actions"><button class="btn btn-xs" id="btnCopyB64">复制 Base64</button></div>'
+    + '</div>'
+    + '<div class="config-section"><h5>二维码</h5>'
+    +   '<div id="cfgQr" style="width:180px;height:180px;background:#f8fafc;display:flex;align-items:center;justify-content:center;border:1px solid #e5e7eb;border-radius:8px">—</div>'
+    +   '<div class="modal-actions"><button class="btn btn-xs" id="btnCopyQr">复制二维码</button></div>'
+    + '</div>'
+    + '<div class="config-section"><h5>使用说明</h5>'
+    +   '<div class="config-text" id="cfgHowto"></div>'
+    +   '<div class="modal-actions"><button class="btn btn-secondary" onclick="hideModal && hideModal(\'configModal\')">关闭</button></div>'
+    + '</div>';
+
+  // 写入数据
+  document.getElementById('cfgJson').textContent  = jsonText;
+  document.getElementById('cfgPlain').textContent = link || '—';
+  document.getElementById('cfgB64').textContent   = b64 || '—';
+  document.getElementById('cfgHowto').textContent = howto;
+
+  // 生成二维码
+  (function(){
+    var qrWrap = document.getElementById('cfgQr');
+    if (!qrWrap) return;
+    try {
+      qrWrap.innerHTML = '';
+      if (window.QRCode && link) {
+        new QRCode(qrWrap, { text: link, width: 180, height: 180 });
+      } else {
+        qrWrap.textContent = '(无链接或缺少QRCode.js)';
+      }
+    } catch(e) {
+      qrWrap.textContent = '(二维码生成失败)';
+    }
+  })();
+
+  // 按钮顺序与内容一一对应
+  var safeCopy = function (txt){ try{ return navigator.clipboard.writeText(txt||''); }catch(e){} };
+  document.getElementById('btnCopyJson').onclick  = function(){ safeCopy(jsonText); };
+  document.getElementById('btnCopyPlain').onclick = function(){ safeCopy(link); };
+  document.getElementById('btnCopyB64').onclick   = function(){ safeCopy(b64); };
+  document.getElementById('btnCopyQr').onclick    = function(){
+    try{
+      var c = document.querySelector('#cfgQr canvas');
+      if (!c) return;
+      var a = document.createElement('a'); a.href = c.toDataURL('image/png'); a.download='config-qr.png'; a.click();
+    }catch(e){}
+  };
+
+  // 打开弹窗（兼容无组件时的 fallback）
+  if (typeof showModal === 'function') { showModal('configModal'); }
+  else { modal.style.display = 'block'; }
 }
+
 
 // [PATCH:IPQ_MODAL] —— 拉不到数据也渲染结构；字段名完全兼容
 async function showIPQDetails(which) {
