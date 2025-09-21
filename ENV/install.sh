@@ -5215,32 +5215,21 @@ function notify(msg, type = 'ok', ms = 1500) {
 
 async function copyTextFallbackAware(text) {
   if (!text) throw new Error('empty');
-  // 1) 优先使用新 API（HTTPS/localhost）
   try {
-    if (navigator.clipboard && location.protocol === 'https:' || location.hostname === 'localhost') {
-      await navigator.clipboard.writeText(text);
-      return true;
+    if ((location.protocol === 'https:' || location.hostname === 'localhost') && navigator.clipboard) {
+      await navigator.clipboard.writeText(text); return true;
     }
     throw new Error('insecure');
-  } catch (_) {
-    // 2) 兜底：隐藏 textarea + execCommand
-    try {
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      ta.setAttribute('readonly', '');
-      ta.style.position = 'fixed';
-      ta.style.opacity = '0';
-      document.body.appendChild(ta);
-      ta.select();
-      const ok = document.execCommand('copy');
-      document.body.removeChild(ta);
-      if (!ok) throw new Error('execCommand failed');
-      return true;
-    } catch (e) {
-      throw e;
-    }
+  } catch {
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.readOnly = true;
+    ta.style.position='fixed'; ta.style.opacity='0';
+    document.body.appendChild(ta); ta.select();
+    const ok = document.execCommand('copy'); document.body.removeChild(ta);
+    if (!ok) throw new Error('execCommand failed'); return true;
   }
 }
+
 
 // --- UI Rendering Functions ---
 function renderOverview() {
@@ -5440,20 +5429,28 @@ function showWhitelistModal() {
 
 
 // 显示配置弹窗（按文档要求的内容和按钮顺序）
+// === 安全版：只负责渲染配置弹窗，不影响页面其它区域 ===
 function showConfigModal(protocolKey) {
-  const dd      = window.dashboardData || {};
+  const dd      = (window.dashboardData || {});
   const title   = document.getElementById('configModalTitle');
   const details = document.getElementById('configDetails');
   const footer  = document.querySelector('#configModal .modal-footer');
   if (!title || !details || !footer) return;
 
-  const eh = (s='') => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  // 小工具（本地作用域，避免污染全局）
+  const esc = (s='') => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const toB64 = (s='') => { try { return btoa(unescape(encodeURIComponent(String(s)))); } catch { return ''; } };
+  const get   = (obj, path, fb='') => path.split('.').reduce((a,p)=> (a && a[p] !== undefined ? a[p] : undefined), obj) ?? fb;
 
-  // 行尾注释对齐
-  function annotateJsonAligned(obj, comments = {}) {
-    const lines = JSON.stringify(obj, null, 2).split('\n');
+  // JSON 行尾注释对齐
+  function annotateAligned(obj, comments = {}) {
+    const json = JSON.stringify(obj, null, 2);
+    const lines = json.split('\n');
+
+    // 预扫描每行长度："  "key": value,
     const metas = lines.map(line => {
-      const m = line.match(/^(\s*)"([^"]+)"\s*:\s*(.*?)(,?)$/); if (!m) return null;
+      const m = line.match(/^(\s*)"([^"]+)"\s*:\s*(.*?)(,?)$/);
+      if (!m) return null;
       const [, indent, key, val, comma] = m;
       const baseLen = indent.length + 1 + key.length + 1 + 2 + 1 + String(val).length + (comma ? 1 : 0);
       return { indent, key, val, comma, baseLen };
@@ -5461,72 +5458,78 @@ function showConfigModal(protocolKey) {
     const maxLen = metas.length ? Math.max(...metas.map(x => x.baseLen)) : 0;
 
     return lines.map(line => {
-      const m = line.match(/^(\s*)"([^"]+)"\s*:\s*(.*?)(,?)$/); if (!m) return line;
+      const m = line.match(/^(\s*)"([^"]+)"\s*:\s*(.*?)(,?)$/);
+      if (!m) return line;
       const [, indent, key, val, comma] = m;
-      const base   = `${indent}"${key}": ${val}${comma}`;
-      const cm     = comments[key];
+      const base = `${indent}"${key}": ${val}${comma}`;
+      const cm   = comments[key];
       if (!cm) return base;
       const thisLen = indent.length + 1 + key.length + 1 + 2 + 1 + String(val).length + (comma ? 1 : 0);
-      const pad    = ' '.repeat(Math.max(1, maxLen - thisLen + 1));
+      const pad = ' '.repeat(Math.max(1, maxLen - thisLen + 1)); // 让 // 起始列统一
       return `${base}${pad}// ${cm}`;
     }).join('\n');
   }
 
-  // 统一生成“使用说明”块
-  function usageBlock(html) {
-    return `
-      <div class="config-section">
-        <h4>使用说明</h4>
-        <div class="config-help" style="font-size:12px;color:#6b7280;line-height:1.6;">${html}</div>
-      </div>`;
-  }
+  // 统一的“使用说明”区块
+  const usage = html => `
+    <div class="config-section">
+      <h4>使用说明</h4>
+      <div class="config-help" style="font-size:12px;color:#6b7280;line-height:1.6;">${html}</div>
+    </div>`;
 
   let qrText = '';
 
   if (protocolKey === '__SUBS__') {
-    // —— 整包订阅 ——（明文URL + 明文6协议 + Base64 + 二维码 + 使用说明）
-    const subsUrl = dd.subscription_url || `http://${dd.server?.server_ip || ''}/sub`;
-    const plain6  = dd.subscription?.plain  || '';
-    const base64  = dd.subscription?.base64 || (plain6 ? btoa(plain6) : '');
+    // ===== 整包订阅 =====
+    const subsUrl = get(dd, 'subscription_url', '') || (get(dd, 'server.server_ip', '') ? `http://${get(dd,'server.server_ip')}/sub` : '');
+    const plain6  = get(dd, 'subscription.plain', '');
+    const base64  = get(dd, 'subscription.base64', '') || (plain6 ? toB64(plain6) : '');
 
     title.textContent = '订阅（整包）';
     details.innerHTML = `
       <div class="config-section">
         <h4>明文链接（订阅 URL）</h4>
-        <div class="config-code" id="plain-link">${eh(subsUrl)}</div>
+        <div class="config-code" id="plain-link">${esc(subsUrl)}</div>
       </div>
       <div class="config-section">
         <h4>明文（6 协议）</h4>
-        <div class="config-code" id="plain-links-6" style="white-space:pre-wrap">${eh(plain6)}</div>
+        <div class="config-code" id="plain-links-6" style="white-space:pre-wrap">${esc(plain6)}</div>
       </div>
       <div class="config-section">
         <h4>Base64（整包）</h4>
-        <div class="config-code" id="base64-link">${eh(base64)}</div>
+        <div class="config-code" id="base64-link">${esc(base64)}</div>
       </div>
       <div class="config-section">
         <h4>二维码（订阅 URL）</h4>
         <div class="qr-container"><div id="qrcode-sub"></div></div>
       </div>
-      ${usageBlock('将“订阅 URL”导入 v2rayN、Clash 等支持订阅的客户端；部分客户端也支持直接粘贴 Base64 或扫码二维码。')}`;
+      ${usage('将“订阅 URL”导入 v2rayN、Clash 等支持订阅的客户端；部分客户端也支持直接粘贴 Base64 或扫码二维码。')}
+    `;
     footer.innerHTML = `
       <button class="btn btn-sm btn-secondary" data-action="copy" data-type="plain">复制订阅URL</button>
       <button class="btn btn-sm btn-secondary" data-action="copy" data-type="plain6">复制明文(6协议)</button>
       <button class="btn btn-sm btn-secondary" data-action="copy" data-type="base64">复制Base64</button>
-      <button class="btn btn-sm btn-secondary" data-action="copy-qr">复制二维码</button>`;
+      <button class="btn btn-sm btn-secondary" data-action="copy-qr">复制二维码</button>
+    `;
     qrText = subsUrl;
 
   } else {
-    // —— 单协议 ——（JSON+注释 对齐 + 明文 + Base64 + 二维码 + 使用说明）
-    const p = (dd.protocols || []).find(x => x.name === protocolKey);
+    // ===== 单协议 =====
+    const p = (get(dd, 'protocols', []) || []).find(x => x && x.name === protocolKey);
     if (!p) return;
+
+    // 注意：cert 在 server 下
+    const certMode = String(get(dd, 'server.cert.mode', 'self-signed'));
+    const isLE     = certMode.startsWith('letsencrypt');
+    const serverIp = get(dd, 'server.server_ip', '');
 
     const obj = {
       protocol: p.name,
-      host    : dd.server?.server_ip || '',
-      port    : p.port || 443,
-      uuid    : (dd.secrets?.vless?.reality || dd.secrets?.vless?.grpc || dd.secrets?.vless?.ws || ''),
-      sni     : (String(dd.cert?.mode || '').startsWith('letsencrypt') ? (dd.cert?.domain || '') : (dd.server?.server_ip || '')),
-      alpn    : (p.name.includes('gRPC') ? 'h2' : (p.name.includes('WebSocket') ? 'http/1.1' : ''))
+      host    : serverIp,
+      port    : p.port ?? 443,
+      uuid    : get(dd, 'secrets.vless.reality', '') || get(dd, 'secrets.vless.grpc', '') || get(dd, 'secrets.vless.ws', ''),
+      sni     : isLE ? get(dd, 'server.cert.domain', '') : serverIp,
+      alpn    : (p.name || '').toLowerCase().includes('grpc') ? 'h2' : ((p.name || '').toLowerCase().includes('ws') ? 'http/1.1' : '')
     };
     const comments = {
       protocol: '协议类型（例：VLESS-Reality）',
@@ -5536,45 +5539,48 @@ function showConfigModal(protocolKey) {
       sni     : 'TLS/SNI（域名模式用域名）',
       alpn    : 'ALPN（gRPC=h2，WS=http/1.1）'
     };
-    const jsonAligned = annotateJsonAligned(obj, comments);
+    const jsonAligned = annotateAligned(obj, comments);
+
     const plain  = p.share_link || '';
-    const base64 = plain ? btoa(plain) : '';
+    const base64 = plain ? toB64(plain) : '';
 
     title.textContent = `${p.name} 配置`;
     details.innerHTML = `
       <div class="config-section">
         <h4>JSON 配置</h4>
-        <div class="config-code" id="json-code" style="white-space:pre-wrap">${eh(jsonAligned)}</div>
+        <div class="config-code" id="json-code" style="white-space:pre-wrap">${esc(jsonAligned)}</div>
       </div>
       <div class="config-section">
         <h4>明文链接</h4>
-        <div class="config-code" id="plain-link">${eh(plain)}</div>
+        <div class="config-code" id="plain-link">${esc(plain)}</div>
       </div>
       <div class="config-section">
         <h4>Base64</h4>
-        <div class="config-code" id="base64-link">${eh(base64)}</div>
+        <div class="config-code" id="base64-link">${esc(base64)}</div>
       </div>
       <div class="config-section">
         <h4>二维码（明文链接）</h4>
         <div class="qr-container"><div id="qrcode-protocol"></div></div>
       </div>
-      ${usageBlock('复制明文或 JSON 导入客户端；若客户端支持扫码添加，也可直接扫描二维码。')}`;
+      ${usage('复制明文或 JSON 导入客户端；若客户端支持扫码添加，也可直接扫描二维码。')}
+    `;
     footer.innerHTML = `
       <button class="btn btn-sm btn-secondary" data-action="copy" data-type="json">复制 JSON</button>
       <button class="btn btn-sm btn-secondary" data-action="copy" data-type="plain">复制明文链接</button>
       <button class="btn btn-sm btn-secondary" data-action="copy" data-type="base64">复制 Base64</button>
-      <button class="btn btn-sm btn-secondary" data-action="copy-qr">复制二维码</button>`;
+      <button class="btn btn-sm btn-secondary" data-action="copy-qr">复制二维码</button>
+    `;
     qrText = plain;
   }
 
-  // 生成二维码
+  // 生成二维码（存在 QRCode 才生成，不报错）
   if (qrText && window.QRCode) {
     const id = (protocolKey === '__SUBS__') ? 'qrcode-sub' : 'qrcode-protocol';
     const holder = document.getElementById(id);
     if (holder) new QRCode(holder, { text: qrText, width: 200, height: 200 });
   }
 
-  // 打开弹窗
+  // 打开弹窗（只负责当前弹窗，不改其它 DOM）
   const modal = document.getElementById('configModal');
   if (modal) { modal.style.display = 'block'; document.body.classList.add('modal-open'); }
 }
@@ -5823,44 +5829,31 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
 // 事件委托中的复制分支（替换你现有的 copy 分支）
+// 复制文本（JSON/明文/6协议明文/Base64）
 case 'copy': {
   const host = btn.closest('.modal-content');
-  if (!host) break;
-  const map = {
-    json  : '#json-code',
-    plain : '#plain-link',
-    plain6: '#plain-links-6',
-    base64: '#base64-link'
-  };
-  const sel = map[type];
-  const el  = sel && host.querySelector(sel);
+  const map  = { json:'#json-code', plain:'#plain-link', plain6:'#plain-links-6', base64:'#base64-link' };
+  const el   = host && host.querySelector(map[btn.dataset.type]);
   const text = el ? (el.textContent || '').trim() : '';
-  try {
-    await copyTextFallbackAware(text);
-    if (typeof notify === 'function') notify('已复制');
-  } catch {
-    if (typeof notify === 'function') notify('复制失败','warn');
-  }
+  try { await copyTextFallbackAware(text); (window.notify||console.log)('已复制'); }
+  catch { (window.notify||console.warn)('复制失败'); }
   break;
 }
+// 复制二维码（受浏览器安全上下文限制）
 case 'copy-qr': {
-  // 警告：图片写剪贴板也要求安全上下文；这里在 HTTP 下给友好提示
   const host = btn.closest('.modal-content');
   const cvs  = host && host.querySelector('#qrcode-sub canvas, #qrcode-protocol canvas');
-  if (cvs && cvs.toBlob && navigator.clipboard?.write && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+  if (cvs && cvs.toBlob && navigator.clipboard?.write && (location.protocol==='https:' || location.hostname==='localhost')) {
     cvs.toBlob(async blob => {
-      try {
-        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-        if (typeof notify === 'function') notify('二维码已复制');
-      } catch {
-        if (typeof notify === 'function') notify('复制二维码失败','warn');
-      }
+      try { await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]); (window.notify||console.log)('二维码已复制'); }
+      catch { (window.notify||console.warn)('复制二维码失败'); }
     });
   } else {
-    if (typeof notify === 'function') notify('浏览器限制：HTTP 页面无法直接复制二维码，请右键/长按保存','warn', 2200);
+    (window.notify||console.warn)('HTTP 页面无法直接复制二维码，请右键/长按保存');
   }
   break;
 }
+
 
     }
   });
