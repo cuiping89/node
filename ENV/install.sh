@@ -5283,14 +5283,14 @@ const metaEl = document.getElementById('sys-meta');
 if (metaEl) metaEl.textContent = meta;
 }
 
-/* [PATCH:RENDER_CERT_AND_NET] —— 仅更正“代理IP：”的显示格式，其余逻辑保持不变 */
+// ✅ 单一权威版本：修正“代理IP显示格式”，保留其余逻辑；并改进模式高亮判断
 function renderCertificateAndNetwork() {
   const data   = window.dashboardData || {};
   const server = data.server || {};
   const cert   = server.cert || {};
   const shunt  = data.shunt  || {};
 
-  // 证书区
+  // —— 证书区（保持不变）——
   const certMode = String(safeGet(cert, 'mode', 'self-signed'));
   document.getElementById('cert-self')?.classList.toggle('active', certMode === 'self-signed');
   document.getElementById('cert-ca')?.classList.toggle('active', certMode.startsWith('letsencrypt'));
@@ -5306,12 +5306,10 @@ function renderCertificateAndNetwork() {
     exEl.textContent = exp ? new Date(exp).toLocaleDateString() : '—';
   }
 
-  // 出站模式切换：vps / direct(shunt) / resi(proxy)
+  // —— 出站模式高亮：改进判断（direct → 分流；resi/proxy → 代理；否则 VPS）——
   const shuntMode = String(safeGet(shunt, 'mode', 'vps')).toLowerCase();
   ['net-vps','net-proxy','net-shunt'].forEach(id => document.getElementById(id)?.classList.remove('active'));
-  if (shuntMode === 'vps') {
-    document.getElementById('net-vps')?.classList.add('active');
-  } else if (shuntMode.includes('direct')) {
+  if (shuntMode.includes('direct')) {
     document.getElementById('net-shunt')?.classList.add('active');
   } else if (shuntMode.includes('resi') || shuntMode.includes('proxy')) {
     document.getElementById('net-proxy')?.classList.add('active');
@@ -5319,32 +5317,31 @@ function renderCertificateAndNetwork() {
     document.getElementById('net-vps')?.classList.add('active');
   }
 
-  // VPS 出站 IP（你原本的口径：优先 eip 其次 server_ip）
+  // —— VPS 出站 IP：优先 eip，其次 server_ip，最后兜底为 '—'（保持不变）——
   const vpsIp = safeGet(data, 'server.eip') || safeGet(data, 'server.server_ip') || '—';
   const vpsEl = document.getElementById('vps-ip');
   if (vpsEl) vpsEl.textContent = vpsIp;
 
-  // 代理出站 IP —— 只显示“协议//IP:端口”
-  // 期望 shunt.proxy_info 形如：scheme://ip:port，例如 socks5://5.182.31.185:11324
+  // —— 代理出站 IP：仅显示 “协议//IP:端口” ——（你要求的唯一显示修正）
   const proxyRaw = String(safeGet(shunt, 'proxy_info', ''));
   const m = proxyRaw.match(/^([a-z0-9+.\-]+):\/\/([^:/]+):(\d+)/i);
   const proxyFmt = m ? `${m[1]}//${m[2]}:${m[3]}` : (proxyRaw ? proxyRaw : '—');
   const proxyEl = document.getElementById('proxy-ip');
   if (proxyEl) proxyEl.textContent = proxyFmt;
 
-  // 白名单预览（保持你原有逻辑）
-const whitelist = dashboardData.shunt?.whitelist || [];
-    const preview = document.getElementById('whitelistPreview');
-    if (preview) {
-        if (!whitelist.length) {
-            preview.innerHTML = '<span class="whitelist-text">(无)</span>';
-        } else {
-            const fullText = whitelist.join(', ');
-            // 始终显示查看全部按钮
-            preview.innerHTML = `<span class="whitelist-text">${escapeHtml(fullText)}</span>` +
-                `<button class="whitelist-more" data-action="open-modal" data-modal="whitelistModal">查看全部</button>`;
-        }
+  // —— 白名单预览：保留“始终显示【查看全部】”与转义（保持你的前版逻辑）——
+  const whitelist = data.shunt?.whitelist || [];
+  const preview = document.getElementById('whitelistPreview');
+  if (preview) {
+    if (!whitelist.length) {
+      preview.innerHTML = '<span class="whitelist-text">(无)</span>';
+    } else {
+      const fullText = whitelist.join(', ');
+      preview.innerHTML =
+        `<span class="whitelist-text">${escapeHtml(fullText)}</span>` +
+        `<button class="whitelist-more" data-action="open-modal" data-modal="whitelistModal">查看全部</button>`;
     }
+  }
 }
 
 
