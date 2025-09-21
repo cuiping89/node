@@ -5215,24 +5215,32 @@ function notify(msg, type = 'ok', ms = 1500) {
 
 async function copyTextFallbackAware(text) {
   if (!text) throw new Error('empty');
+  // 1) 优先使用新 API（HTTPS/localhost）
   try {
-    if ((location.protocol === 'https:' || location.hostname === 'localhost') && navigator.clipboard) {
+    if (navigator.clipboard && location.protocol === 'https:' || location.hostname === 'localhost') {
       await navigator.clipboard.writeText(text);
       return true;
     }
     throw new Error('insecure');
-  } catch {
-    const ta = document.createElement('textarea');
-    ta.value = text; ta.readOnly = true;
-    ta.style.position = 'fixed'; ta.style.opacity = '0';
-    document.body.appendChild(ta); ta.select();
-    const ok = document.execCommand('copy');
-    document.body.removeChild(ta);
-    if (!ok) throw new Error('execCommand failed');
-    return true;
+  } catch (_) {
+    // 2) 兜底：隐藏 textarea + execCommand
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      if (!ok) throw new Error('execCommand failed');
+      return true;
+    } catch (e) {
+      throw e;
+    }
   }
 }
-
 
 // --- UI Rendering Functions ---
 function renderOverview() {
@@ -5775,15 +5783,13 @@ document.addEventListener('DOMContentLoaded', () => {
     document.body.classList.remove('modal-open');
   }
 
-document.addEventListener('click', (e) => {
-  const btn = e.target.closest('[data-action]');
-  if (!btn) return;
-  const { action, modal, protocol, type } = btn.dataset;
-
-  if (action === 'open-modal' && modal === 'configModal') {
-    if (typeof showConfigModal === 'function') showConfigModal(protocol);
-    return; // ← 不要再写 details.innerHTML
-  }
+  document.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-action]');
+    if (!btn) return;
+    const action   = btn.dataset.action;
+    const modal    = btn.dataset.modal || '';
+    const protocol = btn.dataset.protocol || '';
+    const type     = btn.dataset.type || '';
 
     switch (action) {
       case 'open-modal': {
@@ -5819,27 +5825,42 @@ document.addEventListener('click', (e) => {
 // 事件委托中的复制分支（替换你现有的 copy 分支）
 case 'copy': {
   const host = btn.closest('.modal-content');
-  const map  = { json:'#json-code', plain:'#plain-link', plain6:'#plain-links-6', base64:'#base64-link' };
-  const el   = host && host.querySelector(map[type]);
+  if (!host) break;
+  const map = {
+    json  : '#json-code',
+    plain : '#plain-link',
+    plain6: '#plain-links-6',
+    base64: '#base64-link'
+  };
+  const sel = map[type];
+  const el  = sel && host.querySelector(sel);
   const text = el ? (el.textContent || '').trim() : '';
-  try { await copyTextFallbackAware(text); (window.notify||console.log)('已复制'); }
-  catch { (window.notify||console.warn)('复制失败'); }
+  try {
+    await copyTextFallbackAware(text);
+    if (typeof notify === 'function') notify('已复制');
+  } catch {
+    if (typeof notify === 'function') notify('复制失败','warn');
+  }
   break;
 }
 case 'copy-qr': {
+  // 警告：图片写剪贴板也要求安全上下文；这里在 HTTP 下给友好提示
   const host = btn.closest('.modal-content');
   const cvs  = host && host.querySelector('#qrcode-sub canvas, #qrcode-protocol canvas');
   if (cvs && cvs.toBlob && navigator.clipboard?.write && (location.protocol === 'https:' || location.hostname === 'localhost')) {
     cvs.toBlob(async blob => {
-      try { await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]); (window.notify||console.log)('二维码已复制'); }
-      catch { (window.notify||console.warn)('复制二维码失败'); }
+      try {
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+        if (typeof notify === 'function') notify('二维码已复制');
+      } catch {
+        if (typeof notify === 'function') notify('复制二维码失败','warn');
+      }
     });
   } else {
-    (window.notify||console.warn)('HTTP 环境无法直接复制二维码，请右键/长按保存');
+    if (typeof notify === 'function') notify('浏览器限制：HTTP 页面无法直接复制二维码，请右键/长按保存','warn', 2200);
   }
   break;
 }
-
 
     }
   });
