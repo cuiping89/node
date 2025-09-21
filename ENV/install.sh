@@ -3087,61 +3087,49 @@ get_protocols_status() {
     ss -ulnp 2>/dev/null | grep -q ":2053.*sing-box" && udp2053_status="运行中"
     
     # 生成协议数组，包含share_link
-    cat <<EOF
+ cat <<EOF
 [
   {
-    "name": "VLESS-Reality",
-    "scenario": "强审查环境",
-    "camouflage": "真实网站",
-    "status": "$reality_status",
-    "port": 443,
-    "network": "tcp",
-    "share_link": "vless://${uuid_vless}@${server_ip}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.microsoft.com&pbk=${reality_public_key}&sid=${reality_short_id}&type=tcp#EdgeBox-REALITY"
+    "name":"VLESS-Reality",
+    "fit":"强审查环境",               "effect":"极佳",
+    "scenario":"强审查环境",          "camouflage":"REALITY",
+    "status":"$reality_status",       "port":443, "network":"tcp",
+    "share_link":"$L_REALITY"
   },
   {
-    "name": "VLESS-gRPC",
-    "scenario": "较严审查/走CDN",
-    "camouflage": "HTTP/2",
-    "status": "$grpc_status",
-    "port": 443,
-    "network": "tcp",
-    "share_link": "vless://${uuid_vless}@${domain}:443?encryption=none&security=tls&sni=${domain}&alpn=h2&type=grpc&serviceName=grpc&fp=chrome#EdgeBox-gRPC"
+    "name":"VLESS-gRPC",
+    "fit":"较严审查/走CDN",           "effect":"极佳",
+    "scenario":"较严审查/走CDN",       "camouflage":"HTTP/2",
+    "status":"$grpc_status",          "port":443, "network":"tcp",
+    "share_link":"$L_GRPC"
   },
   {
-    "name": "VLESS-WebSocket",
-    "scenario": "CDN加速",
-    "camouflage": "WebSocket",
-    "status": "$ws_status",
-    "port": 443,
-    "network": "tcp",
-    "share_link": "vless://${uuid_vless}@${domain}:443?encryption=none&security=tls&sni=${domain}&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome#EdgeBox-WS"
+    "name":"VLESS-WebSocket",
+    "fit":"常规网络稳定",             "effect":"良好",
+    "scenario":"常规网络稳定",         "camouflage":"WebSocket",
+    "status":"$ws_status",            "port":443, "network":"tcp",
+    "share_link":"$L_WS"
   },
   {
-    "name": "Trojan-TLS",
-    "scenario": "经典伪装",
-    "camouflage": "HTTPS",
-    "status": "$trojan_status",
-    "port": 443,
-    "network": "tcp",
-    "share_link": "trojan://${trojan_pw_enc}@${domain}:443?security=tls&sni=trojan.${domain}&alpn=http%2F1.1&fp=chrome#EdgeBox-TROJAN"
+    "name":"Trojan-TLS",
+    "fit":"移动网络可靠",             "effect":"良好",
+    "scenario":"移动网络可靠",         "camouflage":"HTTPS",
+    "status":"$trojan_status",        "port":443, "network":"tcp",
+    "share_link":"$L_TROJAN"
   },
   {
-    "name": "Hysteria2",
-    "scenario": "高性能",
-    "camouflage": "QUIC",
-    "status": "$udp443_status",
-    "port": 443,
-    "network": "udp",
-    "share_link": "hysteria2://${hy2_pw_enc}@${domain}:443?sni=${domain}&alpn=h3#EdgeBox-HYSTERIA2"
+    "name":"TUIC",
+    "fit":"大带宽/低时延",             "effect":"良好",
+    "scenario":"大带宽/低时延",         "camouflage":"QUIC",
+    "status":"$udp2053_status",       "port":2053,"network":"udp",
+    "share_link":"$L_TUIC"
   },
   {
-    "name": "TUIC",
-    "scenario": "低延迟",
-    "camouflage": "QUIC",
-    "status": "$udp2053_status",
-    "port": 2053,
-    "network": "udp",
-    "share_link": "tuic://${uuid_tuic}:${tuic_pw_enc}@${domain}:2053?congestion_control=bbr&alpn=h3&sni=${domain}#EdgeBox-TUIC"
+    "name":"Hysteria2",
+    "fit":"弱网/高丢包更佳",           "effect":"好",
+    "scenario":"弱网/高丢包更佳",       "camouflage":"QUIC",
+    "status":"$udp443_status",        "port":443, "network":"udp",
+    "share_link":"$L_HY2"
   }
 ]
 EOF
@@ -5895,11 +5883,6 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
   <div class="main-card">
     <div class="main-header">
       <h1>🚀 EdgeBox - 企业级多协议节点管理系统</h1>
-      <div class="header-info">
-        版本号: 3.0.0<br>
-        安装日期: —<br>
-        更新时间: —
-      </div>
     </div>
     <div class="main-content">
       <div class="card">
