@@ -4719,6 +4719,8 @@ body, p, span, td, div {
   flex: 1;
   position: relative;
   min-height: 200px;
+  max-height: 300px;
+  height: 250px;
 }
 
 .traffic-progress-container {
@@ -5436,6 +5438,7 @@ function showConfigModal(protocolKey) {
     const sub = dashboardData.subscription || {};
     qrText = dashboardData.subscription_url || `http://${dashboardData.server?.server_ip}/sub`;
     
+    // 按文档要求顺序：明文链接 → Base64 → 二维码 → 使用说明
     content = `
       <div class="config-section">
         <h4>明文链接</h4>
@@ -5444,6 +5447,12 @@ function showConfigModal(protocolKey) {
       <div class="config-section">
         <h4>Base64</h4>
         <div class="config-code" id="base64-link">${escapeHtml(sub.base64 || btoa(qrText))}</div>
+      </div>
+      <div class="config-section">
+        <h4>二维码</h4>
+        <div class="qr-container" style="margin-top:10px;">
+          <div id="qrcode-sub"></div>
+        </div>
       </div>
       <div class="config-section">
         <h4>使用说明</h4>
@@ -5466,22 +5475,20 @@ function showConfigModal(protocolKey) {
     qrText = protocol.share_link || '';
     
     // 构造带注释的JSON配置
-    const jsonWithComments = {
-      "server": dashboardData.server?.server_ip || '服务器IP',
-      "_server_comment": "// 服务器地址",
+    const jsonConfig = {
+      "server": dashboardData.server?.server_ip || '服务器IP',  
       "port": protocol.port || 443,
-      "_port_comment": "// 端口号",
       "protocol": protocol.name,
-      "_protocol_comment": "// 协议类型",
-      "uuid": protocol.uuid || protocol.password || '认证凭据',
-      "_uuid_comment": "// 认证UUID或密码"
+      "uuid": protocol.uuid || protocol.password || '认证凭据'
     };
     
-    // 格式化JSON并过滤注释字段用于显示
-    let jsonStr = JSON.stringify(jsonWithComments, null, 2);
-    jsonStr = jsonStr.replace(/"_\w+_comment":\s*"[^"]+",?\n/g, '');
-    jsonStr = jsonStr.replace(/",\n\s*"(\w+)":/g, ', // 上面是$1的说明\n  "$1":');
+    const jsonStr = JSON.stringify(jsonConfig, null, 2)
+      .replace(/"server"/, '"server"    // 服务器地址\n  "server"')
+      .replace(/"port"/, '"port"      // 端口号\n  "port"')
+      .replace(/"protocol"/, '"protocol"  // 协议类型\n  "protocol"')
+      .replace(/"uuid"/, '"uuid"      // 认证UUID或密码\n  "uuid"');
     
+    // 按文档要求顺序：JSON → 明文链接 → Base64 → 二维码 → 使用说明
     content = `
       <div class="config-section">
         <h4>JSON配置</h4>
@@ -5494,6 +5501,12 @@ function showConfigModal(protocolKey) {
       <div class="config-section">
         <h4>Base64</h4>
         <div class="config-code" id="base64-link">${escapeHtml(btoa(protocol.share_link || ''))}</div>
+      </div>
+      <div class="config-section">
+        <h4>二维码</h4>
+        <div class="qr-container" style="margin-top:10px;">
+          <div id="qrcode-protocol"></div>
+        </div>
       </div>
       <div class="config-section">
         <h4>使用说明</h4>
@@ -5513,18 +5526,20 @@ function showConfigModal(protocolKey) {
 
   details.innerHTML = content;
   
-  // 生成二维码
+  // 生成二维码（移到内容区域内）
   if (qrText && window.QRCode) {
     setTimeout(() => {
-      new QRCode(qrContainer, { 
-        text: qrText, 
-        width: 256, 
-        height: 256,
-        correctLevel: QRCode.CorrectLevel.M
-      });
+      const qrId = protocolKey === '__SUBS__' ? 'qrcode-sub' : 'qrcode-protocol';
+      const qrEl = document.getElementById(qrId);
+      if (qrEl) {
+        new QRCode(qrEl, { 
+          text: qrText, 
+          width: 200, 
+          height: 200,
+          correctLevel: QRCode.CorrectLevel.M
+        });
+      }
     }, 100);
-  } else {
-    qrContainer.innerHTML = '<div class="qr-placeholder">无可用链接生成二维码</div>';
   }
   
   showModal('configModal');
@@ -5856,11 +5871,8 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
       <h3 id="configModalTitle">配置详情</h3>
       <span class="close-btn" data-action="close-modal" data-modal="configModal">×</span>
     </div>
-    <div class="modal-body">
+<div class="modal-body">
       <div id="configDetails"></div>
-      <div class="qr-container">
-        <div id="qrcode"></div>  <!-- 关键：添加QR码容器 -->
-      </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-sm btn-secondary" data-action="copy" data-type="sub">复制订阅地址</button>
