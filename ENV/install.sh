@@ -5406,109 +5406,97 @@ function showWhitelistModal() {
     showModal('whitelistModal');
 }
 
-// [SPEC:SHOW_CONFIG_MODAL] 弹窗顺序：JSON→明文→Base64→二维码→使用说明；按钮同序
-function showConfigModal(p) {
-  // 兼容：允许传协议名
-  if (typeof p === 'string') {
-    var arr = (window.dashboardData && window.dashboardData.protocols) || [];
-    for (var i=0;i<arr.length;i++){ if (arr[i].name === p) { p = arr[i]; break; } }
-  }
-  p = p || {};
-  var link = p.share_link || '';
+// === 查看配置弹窗（按原始规范：参数=协议名/或"__SUBS__"；容器ID= configModalTitle / configDetails / qrcode）===
+function showConfigModal(protocolKey) {
+  const title = document.getElementById('configModalTitle');
+  const details = document.getElementById('configDetails');
+  const qrContainer = document.getElementById('qrcode');
+  if (!title || !details || !qrContainer) return;  // 没节点就不弹，保持你原始的早退逻辑
 
-  var modal   = document.getElementById('configModal');
-  var titleEl = document.getElementById('configModalTitle');
-  var bodyEl  = document.getElementById('configModalBody'); // 建议在HTML里给 <div id="configModalBody"></div>
-  if (!modal || !titleEl || !bodyEl) return;
+  // 清空二维码
+  qrContainer.innerHTML = '';
 
-  titleEl.textContent = (p.name || '查看配置');
+  // 准备内容模板
+  let html = '';
+  let qrText = '';
 
-  // JSON（最小必要字段，按规范逐项）
-  var jsonObj = {
-    name: p.name || '',
-    network: p.network || '',
-    port: p.port || '',
-    link: link
-  };
-  var jsonText = JSON.stringify(jsonObj, null, 2);
+  // A) 整包订阅（protocolKey === "__SUBS__"）
+  if (protocolKey === '__SUBS__') {
+    const sub = (window.dashboardData && window.dashboardData.subscription) || {};
+    // 订阅地址来自 dashboardData.subscription_url（后端已拼好 http://<server_ip>/sub）
+    qrText = (window.dashboardData && window.dashboardData.subscription_url) 
+              || `http://${window.dashboardData?.server?.server_ip || ''}/sub`;
 
-  // Base64
-  var b64 = '';
-  try { b64 = btoa(unescape(encodeURIComponent(link || ''))); } catch(e){ b64 = ''; }
+    html = `
+      <div class="config-section">
+        <h4>订阅地址</h4>
+        <div class="config-code" id="sub-url">${escapeHtml(qrText)}</div>
+      </div>
+      <div class="config-section">
+        <h4>明文链接 (多条)</h4>
+        <div class="config-code" id="plain-link" style="white-space: pre-wrap;">${escapeHtml(sub.plain || '')}</div>
+      </div>
+      <div class="config-section">
+        <h4>Base64</h4>
+        <div class="config-code" id="base64-link" style="white-space: pre-wrap;">${escapeHtml(sub.base64 || '')}</div>
+      </div>
+      <div class="config-section">
+        <h4>按行分割的 Base64</h4>
+        <div class="config-code" id="base64-lines" style="white-space: pre-wrap;">${escapeHtml(sub.b64_lines || '')}</div>
+      </div>
+    `;
+    title.textContent = '整包订阅链接配置';
 
-  // 使用说明（前端映射，符合规范即可）
-  var HOWTO = {
-    'VLESS-Reality':   'VLESS+Reality，flow=xtls-rprx-vision；SNI 选大站；防探测强。',
-    'VLESS-gRPC':      'TLS+h2，serviceName=grpc；可挂CDN，抗封锁。',
-    'VLESS-WebSocket': 'TLS+WS，path=/ws；兼容性好。',
-    'Trojan-TLS':      'HTTPS 伪装，传统稳定方案。',
-    'Hysteria2':       'QUIC/h3，弱网提速明显。',
-    'TUIC':            'QUIC+BBR，大吞吐低时延。'
-  };
-  var howto = HOWTO[p.name] || '—';
-
-  // 结构化内容（顺序固定）
-  bodyEl.innerHTML = ''
-    + '<div class="config-section"><h5>JSON 配置</h5>'
-    +   '<pre class="config-code" id="cfgJson"></pre>'
-    +   '<div class="modal-actions"><button class="btn btn-xs" id="btnCopyJson">复制 JSON</button></div>'
-    + '</div>'
-    + '<div class="config-section"><h5>明文链接</h5>'
-    +   '<pre class="config-code" id="cfgPlain"></pre>'
-    +   '<div class="modal-actions"><button class="btn btn-xs" id="btnCopyPlain">复制明文链接</button></div>'
-    + '</div>'
-    + '<div class="config-section"><h5>Base64</h5>'
-    +   '<pre class="config-code" id="cfgB64"></pre>'
-    +   '<div class="modal-actions"><button class="btn btn-xs" id="btnCopyB64">复制 Base64</button></div>'
-    + '</div>'
-    + '<div class="config-section"><h5>二维码</h5>'
-    +   '<div id="cfgQr" style="width:180px;height:180px;background:#f8fafc;display:flex;align-items:center;justify-content:center;border:1px solid #e5e7eb;border-radius:8px">—</div>'
-    +   '<div class="modal-actions"><button class="btn btn-xs" id="btnCopyQr">复制二维码</button></div>'
-    + '</div>'
-    + '<div class="config-section"><h5>使用说明</h5>'
-    +   '<div class="config-text" id="cfgHowto"></div>'
-    +   '<div class="modal-actions"><button class="btn btn-secondary" onclick="hideModal && hideModal(\'configModal\')">关闭</button></div>'
-    + '</div>';
-
-  // 写入数据
-  document.getElementById('cfgJson').textContent  = jsonText;
-  document.getElementById('cfgPlain').textContent = link || '—';
-  document.getElementById('cfgB64').textContent   = b64 || '—';
-  document.getElementById('cfgHowto').textContent = howto;
-
-  // 生成二维码
-  (function(){
-    var qrWrap = document.getElementById('cfgQr');
-    if (!qrWrap) return;
-    try {
-      qrWrap.innerHTML = '';
-      if (window.QRCode && link) {
-        new QRCode(qrWrap, { text: link, width: 180, height: 180 });
-      } else {
-        qrWrap.textContent = '(无链接或缺少QRCode.js)';
-      }
-    } catch(e) {
-      qrWrap.textContent = '(二维码生成失败)';
+  // B) 单协议
+  } else {
+    const list = (window.dashboardData && window.dashboardData.protocols) || [];
+    const protocol = list.find(p => p && p.name === protocolKey);
+    if (!protocol) { 
+      // 和你原脚本一样：没找到就给个轻提示（没有 notify 也不报错）
+      try { notify && notify('未找到协议信息', 'warn'); } catch(e) {}
+      return;
     }
-  })();
 
-  // 按钮顺序与内容一一对应
-  var safeCopy = function (txt){ try{ return navigator.clipboard.writeText(txt||''); }catch(e){} };
-  document.getElementById('btnCopyJson').onclick  = function(){ safeCopy(jsonText); };
-  document.getElementById('btnCopyPlain').onclick = function(){ safeCopy(link); };
-  document.getElementById('btnCopyB64').onclick   = function(){ safeCopy(b64); };
-  document.getElementById('btnCopyQr').onclick    = function(){
-    try{
-      var c = document.querySelector('#cfgQr canvas');
-      if (!c) return;
-      var a = document.createElement('a'); a.href = c.toDataURL('image/png'); a.download='config-qr.png'; a.click();
-    }catch(e){}
-  };
+    qrText = protocol.share_link || '';
+    // 你原脚本是“主要展示分享链接”；保持一致，同时把 JSON 也给出来便于复制
+    const jsonObj = {
+      name: protocol.name || '',
+      network: protocol.network || '',
+      port: protocol.port || '',
+      link: protocol.share_link || ''
+    };
 
-  // 打开弹窗（兼容无组件时的 fallback）
-  if (typeof showModal === 'function') { showModal('configModal'); }
-  else { modal.style.display = 'block'; }
+    html = `
+      <div class="config-section">
+        <h4>分享链接</h4>
+        <div class="config-code" id="plain-link">${escapeHtml(protocol.share_link || '—')}</div>
+      </div>
+      <div class="config-section">
+        <h4>JSON</h4>
+        <pre class="config-code" id="json-code">${escapeHtml(JSON.stringify(jsonObj, null, 2))}</pre>
+      </div>
+    `;
+    title.textContent = \`\${protocol.name} 配置详情\`;
+  }
+
+  // 写入内容
+  details.innerHTML = html;
+
+  // 生成二维码（有链接且存在 QRCode 库时）
+  try {
+    if (qrText && window.QRCode) {
+      new QRCode(qrContainer, { text: qrText, width: 256, height: 256 });
+    } else {
+      qrContainer.innerHTML = '<div class="qr-placeholder">无可用链接</div>';
+    }
+  } catch (e) {
+    qrContainer.innerHTML = '<div class="qr-placeholder">二维码生成失败</div>';
+  }
+
+  // 打开弹窗（保持你原始 showModal 实现）
+  showModal('configModal');
 }
+
 
 
 // [PATCH:IPQ_MODAL] —— 拉不到数据也渲染结构；字段名完全兼容
