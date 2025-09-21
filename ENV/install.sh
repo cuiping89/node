@@ -5406,98 +5406,37 @@ function showWhitelistModal() {
     showModal('whitelistModal');
 }
 
-// === 查看配置弹窗（按原始规范：参数=协议名/或"__SUBS__"；容器ID= configModalTitle / configDetails / qrcode）===
 function showConfigModal(protocolKey) {
   const title = document.getElementById('configModalTitle');
   const details = document.getElementById('configDetails');
   const qrContainer = document.getElementById('qrcode');
-  if (!title || !details || !qrContainer) return;  // 没节点就不弹，保持你原始的早退逻辑
+  if (!title || !details || !qrContainer) return;
+  
+  qrContainer.innerHTML = ''; 
+  let content = '', qrText = '';
 
-  // 清空二维码
-  qrContainer.innerHTML = '';
-
-  // 准备内容模板
-  let html = '';
-  let qrText = '';
-
-  // A) 整包订阅（protocolKey === "__SUBS__"）
   if (protocolKey === '__SUBS__') {
-    const sub = (window.dashboardData && window.dashboardData.subscription) || {};
-    // 订阅地址来自 dashboardData.subscription_url（后端已拼好 http://<server_ip>/sub）
-    qrText = (window.dashboardData && window.dashboardData.subscription_url) 
-              || `http://${window.dashboardData?.server?.server_ip || ''}/sub`;
-
-    html = `
-      <div class="config-section">
-        <h4>订阅地址</h4>
-        <div class="config-code" id="sub-url">${escapeHtml(qrText)}</div>
-      </div>
-      <div class="config-section">
-        <h4>明文链接 (多条)</h4>
-        <div class="config-code" id="plain-link" style="white-space: pre-wrap;">${escapeHtml(sub.plain || '')}</div>
-      </div>
-      <div class="config-section">
-        <h4>Base64</h4>
-        <div class="config-code" id="base64-link" style="white-space: pre-wrap;">${escapeHtml(sub.base64 || '')}</div>
-      </div>
-      <div class="config-section">
-        <h4>按行分割的 Base64</h4>
-        <div class="config-code" id="base64-lines" style="white-space: pre-wrap;">${escapeHtml(sub.b64_lines || '')}</div>
-      </div>
-    `;
     title.textContent = '整包订阅链接配置';
-
-  // B) 单协议
+    const sub = dashboardData.subscription || {};
+    qrText = dashboardData.subscription_url || `http://${dashboardData.server?.server_ip}/sub`;
+    content = `<div class="config-section"><h4>订阅地址</h4><div class="config-code" id="sub-url">${escapeHtml(qrText)}</div></div>` +
+              `<div class="config-section"><h4>明文链接 (6个)</h4><div class="config-code" id="plain-link" style="white-space: pre-wrap;">${escapeHtml(sub.plain)}</div></div>`;
   } else {
-    const list = (window.dashboardData && window.dashboardData.protocols) || [];
-    const protocol = list.find(p => p && p.name === protocolKey);
-    if (!protocol) { 
-      // 和你原脚本一样：没找到就给个轻提示（没有 notify 也不报错）
-      try { notify && notify('未找到协议信息', 'warn'); } catch(e) {}
-      return;
-    }
-
+    const protocol = (dashboardData.protocols || []).find(p => p.name === protocolKey);
+    if (!protocol) return notify('未找到协议信息', 'warn');
+    title.textContent = `${protocol.name} 配置详情`;
     qrText = protocol.share_link || '';
-    // 你原脚本是“主要展示分享链接”；保持一致，同时把 JSON 也给出来便于复制
-    const jsonObj = {
-      name: protocol.name || '',
-      network: protocol.network || '',
-      port: protocol.port || '',
-      link: protocol.share_link || ''
-    };
-
-    html = `
-      <div class="config-section">
-        <h4>分享链接</h4>
-        <div class="config-code" id="plain-link">${escapeHtml(protocol.share_link || '—')}</div>
-      </div>
-      <div class="config-section">
-        <h4>JSON</h4>
-        <pre class="config-code" id="json-code">${escapeHtml(JSON.stringify(jsonObj, null, 2))}</pre>
-      </div>
-    `;
-    title.textContent = \`\${protocol.name} 配置详情\`;
+    content = `<div class="config-section"><h4>分享链接</h4><div class="config-code" id="plain-link">${escapeHtml(protocol.share_link)}</div></div>`;
   }
 
-  // 写入内容
-  details.innerHTML = html;
-
-  // 生成二维码（有链接且存在 QRCode 库时）
-  try {
-    if (qrText && window.QRCode) {
+  details.innerHTML = content;
+  if (qrText && window.QRCode) {
       new QRCode(qrContainer, { text: qrText, width: 256, height: 256 });
-    } else {
+  } else {
       qrContainer.innerHTML = '<div class="qr-placeholder">无可用链接</div>';
-    }
-  } catch (e) {
-    qrContainer.innerHTML = '<div class="qr-placeholder">二维码生成失败</div>';
   }
-
-  // 打开弹窗（保持你原始 showModal 实现）
   showModal('configModal');
 }
-
-
 
 // [PATCH:IPQ_MODAL] —— 拉不到数据也渲染结构；字段名完全兼容
 async function showIPQDetails(which) {
