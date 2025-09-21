@@ -6084,14 +6084,14 @@ CONF
   # 仅保留采集与预警；面板刷新由 dashboard-backend 统一维护
   ( crontab -l 2>/dev/null | grep -vE '/etc/edgebox/scripts/(traffic-collector\.sh|traffic-alert\.sh)\b' ) | crontab - || true
   ( crontab -l 2>/dev/null; \
-    echo "0 * * * * /etc/edgebox/scripts/traffic-collector.sh"; \
+    echo "15 * * * * /etc/edgebox/scripts/traffic-collector.sh"; \
     echo "7 * * * * /etc/edgebox/scripts/traffic-alert.sh" \
   ) | crontab -
   
-  # 确保面板刷新任务存在
+  # 确保面板刷新任务存在（每2分钟）
   /etc/edgebox/scripts/dashboard-backend.sh --schedule
 
-  log_success "cron 已配置（每小时采集 + 刷新面板 + 阈值预警）"
+  log_success "cron 已配置（每小时15分采集 + 每2分钟刷新面板 + 阈值预警）"
 }
 
 # 创建完整的edgeboxctl管理工具
