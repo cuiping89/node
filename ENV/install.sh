@@ -3087,49 +3087,61 @@ get_protocols_status() {
     ss -ulnp 2>/dev/null | grep -q ":2053.*sing-box" && udp2053_status="运行中"
     
     # 生成协议数组，包含share_link
- cat <<EOF
+    cat <<EOF
 [
   {
-    "name":"VLESS-Reality",
-    "fit":"强审查环境",               "effect":"极佳",
-    "scenario":"强审查环境",          "camouflage":"REALITY",
-    "status":"$reality_status",       "port":443, "network":"tcp",
-    "share_link":"$L_REALITY"
+    "name": "VLESS-Reality",
+    "scenario": "抗审查",
+    "camouflage": "真实网站",
+    "status": "$reality_status",
+    "port": 443,
+    "network": "tcp",
+    "share_link": "vless://${uuid_vless}@${server_ip}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.microsoft.com&pbk=${reality_public_key}&sid=${reality_short_id}&type=tcp#EdgeBox-REALITY"
   },
   {
-    "name":"VLESS-gRPC",
-    "fit":"较严审查/走CDN",           "effect":"极佳",
-    "scenario":"较严审查/走CDN",       "camouflage":"HTTP/2",
-    "status":"$grpc_status",          "port":443, "network":"tcp",
-    "share_link":"$L_GRPC"
+    "name": "VLESS-gRPC",
+    "scenario": "CDN加速",
+    "camouflage": "HTTP/2",
+    "status": "$grpc_status",
+    "port": 443,
+    "network": "tcp",
+    "share_link": "vless://${uuid_vless}@${domain}:443?encryption=none&security=tls&sni=${domain}&alpn=h2&type=grpc&serviceName=grpc&fp=chrome#EdgeBox-gRPC"
   },
   {
-    "name":"VLESS-WebSocket",
-    "fit":"常规网络稳定",             "effect":"良好",
-    "scenario":"常规网络稳定",         "camouflage":"WebSocket",
-    "status":"$ws_status",            "port":443, "network":"tcp",
-    "share_link":"$L_WS"
+    "name": "VLESS-WebSocket",
+    "scenario": "CDN加速",
+    "camouflage": "WebSocket",
+    "status": "$ws_status",
+    "port": 443,
+    "network": "tcp",
+    "share_link": "vless://${uuid_vless}@${domain}:443?encryption=none&security=tls&sni=${domain}&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome#EdgeBox-WS"
   },
   {
-    "name":"Trojan-TLS",
-    "fit":"移动网络可靠",             "effect":"良好",
-    "scenario":"移动网络可靠",         "camouflage":"HTTPS",
-    "status":"$trojan_status",        "port":443, "network":"tcp",
-    "share_link":"$L_TROJAN"
+    "name": "Trojan-TLS",
+    "scenario": "经典伪装",
+    "camouflage": "HTTPS",
+    "status": "$trojan_status",
+    "port": 443,
+    "network": "tcp",
+    "share_link": "trojan://${trojan_pw_enc}@${domain}:443?security=tls&sni=trojan.${domain}&alpn=http%2F1.1&fp=chrome#EdgeBox-TROJAN"
   },
   {
-    "name":"TUIC",
-    "fit":"大带宽/低时延",             "effect":"良好",
-    "scenario":"大带宽/低时延",         "camouflage":"QUIC",
-    "status":"$udp2053_status",       "port":2053,"network":"udp",
-    "share_link":"$L_TUIC"
+    "name": "Hysteria2",
+    "scenario": "高性能",
+    "camouflage": "QUIC",
+    "status": "$udp443_status",
+    "port": 443,
+    "network": "udp",
+    "share_link": "hysteria2://${hy2_pw_enc}@${domain}:443?sni=${domain}&alpn=h3#EdgeBox-HYSTERIA2"
   },
   {
-    "name":"Hysteria2",
-    "fit":"弱网/高丢包更佳",           "effect":"好",
-    "scenario":"弱网/高丢包更佳",       "camouflage":"QUIC",
-    "status":"$udp443_status",        "port":443, "network":"udp",
-    "share_link":"$L_HY2"
+    "name": "TUIC",
+    "scenario": "低延迟",
+    "camouflage": "QUIC",
+    "status": "$udp2053_status",
+    "port": 2053,
+    "network": "udp",
+    "share_link": "tuic://${uuid_tuic}:${tuic_pw_enc}@${domain}:2053?congestion_control=bbr&alpn=h3&sni=${domain}#EdgeBox-TUIC"
   }
 ]
 EOF
@@ -4279,12 +4291,6 @@ body {
   margin: 0 auto;
 }
 
-.sys-ver{
-  font-family: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;
-  font-size:.8rem; color:#667085; white-space:nowrap;
-  max-width:60ch; overflow:hidden; text-overflow:ellipsis;
-}
-
 /* === 文字系统（严格遵循规范）=== */
 h1 {
   font-size: 23px;
@@ -4445,6 +4451,19 @@ body, p, span, td, div {
 .info-item value {
   color: #1f2937;
   font-weight: 500;
+}
+
+/* === 订阅链接卡片特殊样式 === */
+.subscription-card {
+  position: relative;
+}
+
+.subscription-info {
+  position: absolute;
+  top: 16px;
+  right: 20px;
+  font-size: 11px;
+  color: #6b7280;
 }
 
 /* === 进度条及阈值标记 === */
@@ -5242,23 +5261,14 @@ function renderOverview() {
   const services = dashboardData.services || {};
   
   // 更新头部信息
-// [PATCH:SYS_VER_CHIP] —— 版本/安装/更新（到日）渲染到系统概览右上角
-(function updateSysVerChip(){
-  const chip = document.getElementById('sys-ver-chip');
-  if (!chip || !window.dashboardData) return;
-
-  const server = dashboardData.server || {};
-  const ver = server.version || '—';
-  const installed = server.install_date || '—';
-
-  const ts = dashboardData.updated_at ? new Date(dashboardData.updated_at) : new Date();
-  const y  = ts.getFullYear();
-  const m  = String(ts.getMonth() + 1).padStart(2, '0');
-  const d  = String(ts.getDate()).padStart(2, '0');
-  const updated = `${y}-${m}-${d}`;
-
-  chip.textContent = `版本号: ${ver} | 安装日期: ${installed} | 更新时间: ${updated}`;
-})();
+  const headerInfo = document.querySelector('.header-info');
+  if (headerInfo) {
+    headerInfo.innerHTML = `
+      版本号: ${safeGet(server, 'version', '3.0.0')}<br>
+      安装日期: ${safeGet(server, 'install_date', '—')}<br>
+      更新时间: ${new Date(dashboardData.updated_at || Date.now()).toLocaleString('zh-CN')}
+    `;
+  }
   
   document.getElementById('server-name').textContent = safeGet(server, 'user_alias', '(未设置)');
   document.getElementById('cloud-info').textContent = `${safeGet(server, 'cloud.provider')} | ${safeGet(server, 'cloud.region')}`;
@@ -5338,18 +5348,6 @@ function renderCertificateAndNetwork() {
   document.getElementById('vps-ip').textContent = safeGet(dashboardData, 'server.eip') || safeGet(dashboardData, 'server.server_ip');
   document.getElementById('proxy-ip').textContent = safeGet(shunt, 'proxy_info', '(未配置)');
   
-  // [PATCH:NET_GEO] 从 IPQ 文件补 Geo 行
-Promise.all([
-  fetchJSON('/status/ipq_vps.json').catch(()=>null),
-  fetchJSON('/status/ipq_proxy.json').catch(()=>null)
-]).then(([vps, proxy]) => {
-  const fmt = j => j ? [safeGet(j,'country',''), safeGet(j,'city','')].filter(Boolean).join(' / ') : '—';
-  const vg = document.getElementById('vps-geo');
-  const pg = document.getElementById('proxy-geo');
-  if (vg) vg.textContent = fmt(vps);
-  if (pg) pg.textContent = fmt(proxy);
-});
-
   const whitelist = shunt.whitelist || [];
   const previewEl = document.getElementById('whitelistPreview');
   if (previewEl) {
@@ -5370,8 +5368,8 @@ function renderProtocolTable() {
   const rows = protocols.map(p => `
     <tr>
       <td>${escapeHtml(p.name)}</td>
-<td>${escapeHtml(p.fit || p.scenario || '—')}</td>
-<td>${escapeHtml(p.effect || '—')}</td>
+      <td>${escapeHtml(p.scenario)}</td>
+      <td>${escapeHtml(p.camouflage)}</td>
       <td><span class="status-badge ${p.status === '运行中' ? 'status-running' : ''}">${p.status}</span></td>
       <td><button class="btn btn-sm btn-link" data-action="open-modal" data-modal="configModal" data-protocol="${escapeHtml(p.name)}">查看配置</button></td>
     </tr>`).join('');
@@ -5655,127 +5653,93 @@ function showConfigModal(protocolKey) {
   showModal('configModal');
 }
 
-// [PATCH:SHOW_IPQ_DETAILS] —— 与技术文档对齐，异步拉取 + 字段名兼容 + 分组渲染
 async function showIPQDetails(which) {
   const titleEl = document.getElementById('ipqModalTitle');
-  const bodyEl  = document.getElementById('ipqDetails');
+  const bodyEl = document.getElementById('ipqDetails');
   if (!titleEl || !bodyEl) return;
-
-  const U = (s)=> (s==null || s==='') ? '—' : String(s);
-  const EH = (s)=> String(s || '').replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]));
-  const pick = (obj, paths, def='—')=>{
-    for (const p of paths){
-      const v = p.split('.').reduce((o,k)=> (o && o[k]!=null) ? o[k] : undefined, obj);
-      if (v!=null && v!=='') return v;
-    }
-    return def;
-  };
 
   titleEl.textContent = which === 'vps' ? 'VPS IP质量检测详情' : '代理IP质量检测详情';
   bodyEl.innerHTML = `<div class="config-section"><div class="config-code">加载中...</div></div>`;
   showModal('ipqModal');
 
-  let data = null;
-  try {
-    data = await fetchJSON(`/status/ipq_${which}.json`);
-  } catch {}
+  const data = await fetchJSON(`/status/ipq_${which}.json`);
   if (!data) {
     bodyEl.innerHTML = '<div class="config-section"><div class="config-code">数据加载失败</div></div>';
     return;
   }
 
-  // —— 统一字段（对齐技术文档）
-  const score = pick(data, ['score'], '—');
-  const grade = pick(data, ['grade'], null);
-  const gradeStr = grade || (typeof score==='number'
-                   ? (score>=80?'A':score>=60?'B':score>=40?'C':'D') : '—');
-  const gradeClass = typeof gradeStr==='string' ? `grade-${gradeStr.toLowerCase()}` : '';
+  const score = safeGet(data, 'score', '—');
+  const grade = safeGet(data, 'grade', '—');
+  const when = safeGet(data, 'detected_at') !== '—' ? new Date(data.detected_at).toLocaleString() : '—';
+  const ip = safeGet(data, 'ip', '—');
+  const asn = safeGet(data, 'asn', '—');
+  const isp = safeGet(data, 'isp', '—');
+  const country = safeGet(data, 'country', '—');
+  const city = safeGet(data, 'city', '—');
+  const latency = safeGet(data, 'latency_ms') !== '—' ? `${data.latency_ms} ms` : '—';
+  const rdns = safeGet(data, 'rdns', '(无)');
+  const bandwidth = safeGet(data, 'bandwidth', '未测试');
+  const networkType = safeGet(data, 'network_type', '未知');
+  const blCount = (safeGet(data, 'risk.dnsbl_hits', [])).length;
+  const risk = [
+    data?.risk?.proxy && 'Proxy',
+    data?.risk?.hosting && 'Hosting',
+    data?.risk?.mobile && 'Mobile'
+  ].filter(Boolean).join(', ') || '—';
 
-  const whenRaw = pick(data, ['detected_at','updated_at','timestamp'], null);
-  const when = whenRaw ? new Date(whenRaw).toLocaleString('zh-CN') : '—';
+  // 生成结论
+  let conclusion = '';
+  let gradeClass = 'grade-d';
+  if (score >= 80) {
+    conclusion = '优质IP，适合所有用途';
+    gradeClass = 'grade-a';
+  } else if (score >= 60) {
+    conclusion = '良好IP，适合大部分场景';
+    gradeClass = 'grade-b';
+  } else if (score >= 40) {
+    conclusion = '一般IP，可能被部分服务限制';
+    gradeClass = 'grade-c';
+  } else {
+    conclusion = '低质量IP，不建议用于重要服务';
+    gradeClass = 'grade-d';
+  }
 
-  const ip   = pick(data, ['ip'], '—');
-  const asn  = pick(data, ['asn'], '');
-  const isp  = pick(data, ['isp'], '');
-  const country = pick(data, ['country','geo.country'], '');
-  const city    = pick(data, ['city','geo.city'], '');
-  const rdns    = pick(data, ['rdns','reverse_dns'], '—');
-
-  // 配置信息：带宽限制（上/下行）
-  const bwUp   = pick(data, ['bandwidth_up','config.bandwidth_up'], null);
-  const bwDown = pick(data, ['bandwidth_down','config.bandwidth_down'], null);
-  const bandwidth = (bwUp || bwDown) ? `${bwUp||'—'} / ${bwDown||'—'}` : (pick(data, ['bandwidth','config.bandwidth'], '未配置'));
-
-  // 质量细项
-  const networkType = pick(data, ['network_type','net_type'], '—');
-  const latency = (()=>{
-    const v = pick(data, ['latency_p50','latency.median','latency_ms'], null);
-    return v ? `${v} ms` : '—';
-  })();
-
-  // 风险与黑名单
-  const riskObj = data.risk || {};
-  const flags = [
-    riskObj.proxy   ? '代理标记'  : null,
-    riskObj.hosting ? '数据中心'  : null,
-    riskObj.mobile  ? '移动网络'  : null,
-    riskObj.tor     ? 'Tor'      : null
-  ].filter(Boolean).join('、') || '—';
-  const hits = Array.isArray(riskObj.dnsbl_hits) ? riskObj.dnsbl_hits : [];
-  const blCount = hits.length;
-
-  // 结论与依据（如果数据中没有，就给兜底文案）
-  const conclusion = pick(data, ['conclusion'], (()=> {
-    if (gradeStr==='A') return '该 IP 质量极佳，适合强审查或风控敏感环境。';
-    if (gradeStr==='B') return '该 IP 质量良好，适合常规网络环境与中等风控。';
-    if (gradeStr==='C') return '该 IP 质量一般，可能存在一定风控与识别风险。';
-    if (gradeStr==='D') return '该 IP 质量较差，建议更换或仅作低敏用途。';
-    return '—';
-  })());
-
-  // —— 渲染（分组与命名对齐技术文档）
   bodyEl.innerHTML = `
     <div class="ipq-section">
       <h5>总览</h5>
-      <div class="info-item"><label>分数:</label><value>${U(score)} / 100</value></div>
-      <div class="info-item"><label>等级:</label><value><span class="grade-badge ${gradeClass}">${U(gradeStr)}</span></value></div>
-      <div class="info-item"><label>最近检测时间:</label><value>${U(when)}</value></div>
+      <div class="info-item"><label>分数:</label><value>${score} / 100</value></div>
+      <div class="info-item"><label>等级:</label><value><span class="grade-badge ${gradeClass}">${grade}</span></value></div>
+      <div class="info-item"><label>检测时间:</label><value>${when}</value></div>
     </div>
-
+    
     <div class="ipq-section">
       <h5>身份信息</h5>
-      <div class="info-item"><label>出站IP:</label><value>${EH(ip)}</value></div>
-      <div class="info-item"><label>ASN / ISP:</label><value>${EH([asn, isp].filter(Boolean).join(' / ') || '—')}</value></div>
-      <div class="info-item"><label>Geo:</label><value>${EH([country, city].filter(Boolean).join(' / ') || '—')}</value></div>
-      <div class="info-item"><label>rDNS:</label><value>${EH(rdns)}</value></div>
+      <div class="info-item"><label>IP地址:</label><value>${ip}</value></div>
+      <div class="info-item"><label>ASN:</label><value>${escapeHtml(asn)}</value></div>
+      <div class="info-item"><label>ISP:</label><value>${escapeHtml(isp)}</value></div>
+      <div class="info-item"><label>位置:</label><value>${escapeHtml(country)}, ${escapeHtml(city)}</value></div>
+      <div class="info-item"><label>反向DNS:</label><value>${escapeHtml(rdns)}</value></div>
     </div>
-
+    
     <div class="ipq-section">
-      <h5>配置信息</h5>
-      <div class="info-item"><label>带宽限制:</label><value>${EH(bandwidth)}</value></div>
+      <h5>网络质量</h5>
+      <div class="info-item"><label>带宽测试:</label><value>${bandwidth}</value></div>
+      <div class="info-item"><label>网络类型:</label><value>${networkType}</value></div>
+      <div class="info-item"><label>延迟:</label><value>${latency}</value></div>
     </div>
-
+    
     <div class="ipq-section">
-      <h5>质量细项</h5>
-      <div class="info-item"><label>网络类型:</label><value>${EH(networkType)}</value></div>
-      <div class="info-item"><label>时延中位数:</label><value>${EH(latency)}</value></div>
+      <h5>风险评估</h5>
+      <div class="info-item"><label>风险类型:</label><value>${risk}</value></div>
+      <div class="info-item"><label>黑名单命中:</label><value>${blCount} 个</value></div>
     </div>
-
-    <div class="ipq-section">
-      <h5>风险与黑名单</h5>
-      <div class="info-item"><label>特征:</label><value>${EH(flags)}</value></div>
-      <div class="info-item"><label>黑名单命中数:</label><value>${blCount} 个</value></div>
-    </div>
-
+    
     <div class="ipq-conclusion">
       <h5>结论与依据</h5>
-      <p>${EH(conclusion)}</p>
-      <ul style="margin-top:8px; font-size:12px; color:#6b7280; padding-left:18px; line-height:1.6;">
-        <li>基础分 100 分</li>
-        <li>“代理/数据中心/Tor”等标记会降低分数</li>
-        <li>每命中 1 个 DNSBL 黑名单记分项会降低分数</li>
-        <li>高时延会降低分数</li>
-      </ul>
+      <p>${conclusion}</p>
+      <p style="margin-top: 8px; font-size: 11px; color: #6b7280;">
+        评分依据：基础分100分，代理标记-50分，数据中心-10分，每个黑名单-20分，高延迟-20分。
+      </p>
     </div>
   `;
 }
@@ -5883,13 +5847,15 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
   <div class="main-card">
     <div class="main-header">
       <h1>🚀 EdgeBox - 企业级多协议节点管理系统</h1>
+      <div class="header-info">
+        版本号: 3.0.0<br>
+        安装日期: —<br>
+        更新时间: —
+      </div>
     </div>
     <div class="main-content">
       <div class="card">
-<div class="card-header">
-  <h2>📊 系统概览</h2>
-  <div class="sys-ver" id="sys-ver-chip">—</div>
-</div>
+        <div class="card-header"><h2>📊 系统概览</h2></div>
         <div class="grid grid-3">
           <div class="inner-block">
             <h3>服务器信息</h3>
@@ -5934,15 +5900,13 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
               <h3>📡 VPS出站IP</h3>
               <div class="info-item"><label>公网身份:</label><value>直连</value></div>
               <div class="info-item"><label>出站IP:</label><value id="vps-ip">—</value></div>
-			    <div class="info-item"><label>Geo:</label><value id="vps-geo">—</value></div>
-              <div class="info-item"><label>IP质量:</label><value><span id="vps-ipq-score"></span> <button class="btn-link" data-action="open-modal" data-modal="ipqModal" data-ipq="vps">查看详情</button></value></div>
+              <div class="info-item"><label>IP质量:</label><value><span id="vps-ipq-score"></span> <button class="btn-link" data-action="open-modal" data-modal="ipqModal" data-ipq="vps">详情</button></value></div>
             </div>
             <div class="network-block" id="net-proxy">
               <h3>🔄 代理出站IP</h3>
               <div class="info-item"><label>代理身份:</label><value>全代理</value></div>
               <div class="info-item"><label>代理IP:</label><value id="proxy-ip">—</value></div>
-			    <div class="info-item"><label>Geo:</label><value id="proxy-geo">—</value></div>
-              <div class="info-item"><label>IP质量:</label><value><span id="proxy-ipq-score"></span> <button class="btn-link" data-action="open-modal" data-modal="ipqModal" data-ipq="proxy">查看详情</button></value></div>
+              <div class="info-item"><label>IP质量:</label><value><span id="proxy-ipq-score"></span> <button class="btn-link" data-action="open-modal" data-modal="ipqModal" data-ipq="proxy">详情</button></value></div>
             </div>
             <div class="network-block" id="net-shunt">
               <h3>🔀 分流出站</h3>
@@ -5959,6 +5923,33 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
           <thead><tr><th>协议名称</th><th>使用场景</th><th>伪装效果</th><th>运行状态</th><th>客户端配置</th></tr></thead>
           <tbody id="protocol-tbody"></tbody>
         </table>
+      </div>
+
+      <div class="card subscription-card">
+        <div class="card-header">
+          <h2>📋 订阅链接</h2>
+          <div class="subscription-info">
+            <span id="sub-updated">更新时间: —</span>
+          </div>
+        </div>
+        <div class="inner-block">
+          <div class="info-item">
+            <label>订阅地址:</label>
+            <value id="sub-url">—</value>
+          </div>
+          <div class="info-item">
+            <label>协议数量:</label>
+            <value id="sub-count">—</value>
+          </div>
+          <div class="info-item">
+            <label>更新周期:</label>
+            <value>24小时</value>
+          </div>
+          <div style="margin-top: 15px; text-align: center;">
+            <button class="btn btn-sm" onclick="copySubscription()">复制订阅链接</button>
+            <button class="btn btn-sm btn-secondary" onclick="showQRCode()">显示二维码</button>
+          </div>
+        </div>
       </div>
 
       <div class="card traffic-card">
