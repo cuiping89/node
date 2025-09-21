@@ -2842,6 +2842,23 @@ safe_jq() {
     fi
 }
 
+# 安全读取列表文件：去BOM/CR、去首尾空白、过滤空行与#注释，输出JSON数组
+jq_safe_list() {
+    local file="$1"
+    if [[ ! -f "$file" ]]; then
+        echo '[]'
+        return
+    fi
+    jq -n --rawfile RAW "$file" '
+        ($RAW
+         | gsub("^\uFEFF"; "")                     # 去 UTF-8 BOM
+         | split("\n")
+         | map(. | gsub("\r"; "")                  # 去 CR
+                   | gsub("^\s+|\s+$"; ""))        # 去首尾空白
+         | map(select(. != "" and (startswith("#") | not)))  # 过滤空行与注释
+        )'
+}
+
 # 获取系统负载信息
 get_system_metrics() {
     local cpu_percent=0
@@ -3153,7 +3170,7 @@ get_shunt_status() {
     local proxy_info=""
     local health="unknown"
     local whitelist_json='[]'
-    
+
     # 读取分流状态
     local state_file="${SHUNT_DIR}/state.json"
     if [[ -f "$state_file" ]]; then
@@ -3161,19 +3178,17 @@ get_shunt_status() {
         proxy_info=$(safe_jq '.proxy_info' "$state_file" "")
         health=$(safe_jq '.health' "$state_file" "unknown")
     fi
-    
-    # 读取白名单
+
+    # 读取白名单（new11 安全读写）
     local whitelist_file="${SHUNT_DIR}/whitelist.txt"
-    if [[ -f "$whitelist_file" ]]; then
-        whitelist_json=$(awk 'NF' "$whitelist_file" | jq -R -s 'split("\n")|map(select(length>0))' 2>/dev/null || echo '[]')
-    fi
-    
-    # 确保whitelist_json是有效JSON
+    whitelist_json="$(jq_safe_list "$whitelist_file")"
+
+    # 确保 whitelist_json 是有效 JSON（兜底）
     if ! echo "$whitelist_json" | jq . >/dev/null 2>&1; then
         whitelist_json='[]'
     fi
-    
-    # 输出分流状态JSON
+
+    # 输出分流状态JSON（口径不变）
     jq -n \
         --arg mode "$mode" \
         --arg proxy_info "$proxy_info" \
@@ -3186,6 +3201,7 @@ get_shunt_status() {
             whitelist: $whitelist
         }'
 }
+
 
 # 获取订阅信息
 get_subscription_info() {
@@ -3348,22 +3364,6 @@ generate_system_data() {
     fi
 }
 
-#############################################
-# 定时任务管理
-#############################################
-
-# 设置定时任务
-setup_cron_jobs() {
-    log_info "设置Dashboard定时任务..."
-    
-    # 移除可能存在的旧定时任务
-    (crontab -l 2>/dev/null | grep -vE '/dashboard-backend\.sh\b') | crontab - || true
-    
-    # 添加新的定时任务（每2分钟执行一次）
-    (crontab -l 2>/dev/null; echo "*/2 * * * * bash -lc '${SCRIPTS_DIR}/dashboard-backend.sh --now >/dev/null 2>&1'") | crontab -
-    
-    log_info "已设置定时任务：每2分钟刷新一次Dashboard数据"
-}
 
 #############################################
 # 主执行逻辑
@@ -3894,31 +3894,8 @@ echo "$(date '+%Y-%m'),2.1,1.5,3.6,1.8" >> "${log_dir}/monthly.csv"
     log_success "流量日志文件初始化完成"
 }
 
-#############################################
-# 定时任务设置
-#############################################
 
-# 设置所有定时任务
-setup_cron_jobs() {
-    log_info "设置定时任务..."
-    
-    # 移除可能存在的旧任务
-    (crontab -l 2>/dev/null | grep -vE '/edgebox/scripts/(dashboard-backend|traffic-collector|traffic-alert)\.sh') | crontab - || true
 
-    # 添加新的定时任务
-    (crontab -l 2>/dev/null; cat << 'CRON_JOBS'
-# EdgeBox 定时任务
-*/2 * * * * bash -lc '/etc/edgebox/scripts/dashboard-backend.sh --now >/dev/null 2>&1'
-0 * * * * bash -lc '/etc/edgebox/scripts/traffic-collector.sh >/dev/null 2>&1'
-7 * * * * bash -lc '/etc/edgebox/scripts/traffic-alert.sh >/dev/null 2>&1'
-CRON_JOBS
-    ) | crontab -
-    
-    log_success "定时任务设置完成："
-    log_info "├─ Dashboard数据刷新: 每2分钟"
-    log_info "├─ 流量数据采集: 每小时"
-    log_info "└─ 流量预警检查: 每小时"
-}
 
 #############################################
 # 模块4主执行函数
@@ -5735,6 +5712,161 @@ document.addEventListener('DOMContentLoaded', () => {
     overviewTimer = setInterval(refreshAllData, 30000);
     setupEventListeners();
 });
+
+
+// ==== EdgeBox new11 前端补丁（append-only，不改变原有500+行）====
+(() => {
+  if (window.__EDGEBOX_NEW11_PATCH__) return;
+  window.__EDGEBOX_NEW11_PATCH__ = true;
+
+  // 小工具：从全局 dashboardData 取值（沿用你原来的 safeGet 如存在）
+  const _safeGet = (obj, path, fb='—') => {
+    try {
+      const v = path.split('.').reduce((a,p) => (a && a[p] !== undefined ? a[p] : undefined), obj);
+      return (v !== undefined && v !== null && v !== '') ? v : fb;
+    } catch { return fb; }
+  };
+
+  // 修正“代理出站 IP”显示：proto://host[:port]（剥离 user:pass@，兼容无端口）
+  function formatProxy(raw) {
+    if (!raw) return '—';
+    const s = String(raw);
+    const m = s.match(/^([a-z0-9+.\-]+):\/\/(?:[^@]*@)?(\[[^\]]+\]|[^:/?#]+)(?::(\d+))?/i);
+    if (m) return `${m[1]}://${m[2]}${m[3] ? ':' + m[3] : ''}`;
+    return s; // 兜底：原样展示
+  }
+
+  // 包一层：在你现有 render/renderCertificateAndNetwork 执行后，修正代理IP文本
+  const tryPatchProxy = () => {
+    try {
+      const dd = window.dashboardData || {};
+      const raw = _safeGet(dd, 'shunt.proxy_info', '');
+      const el = document.getElementById('proxy-ip');
+      if (el) el.textContent = raw ? formatProxy(raw) : '(未配置)';
+    } catch (e) { /* 静默 */ }
+  };
+
+  // 包装已有渲染函数（不改变其内部实现）
+  const wrap = (name) => {
+    const fn = window[name];
+    if (typeof fn !== 'function') return;
+    window[name] = function(...args) {
+      const ret = fn.apply(this, args);
+      tryPatchProxy();
+      return ret;
+    };
+  };
+  wrap('render');
+  wrap('renderCertificateAndNetwork');
+
+  // 第一次进入也补一次
+  tryPatchProxy();
+
+  // === 事件委托：解决 innerHTML 重渲染后按钮失效（不改任何 HTML/CSS）===
+  if (!document.__EDGEBOX_DELEGATED__) {
+    document.__EDGEBOX_DELEGATED__ = true;
+
+    document.addEventListener('click', async (e) => {
+      const btn = e.target.closest('[data-action]');
+      if (!btn) return;
+      const { action, modal, protocol, ipq, type } = btn.dataset;
+
+      // 你面板里的模态框ID/元素ID可能是：whitelistModal / configModal / ipqModal
+      const $ = (sel) => document.querySelector(sel);
+
+      const showModal = async (id, setup) => {
+        const m = document.getElementById(id);
+        if (!m) return;
+        if (setup) await setup();
+        m.style.display = 'block';
+        document.body.classList.add('modal-open');
+      };
+      const closeModal = (id) => {
+        const m = document.getElementById(id);
+        if (!m) return;
+        m.style.display = 'none';
+        document.body.classList.remove('modal-open');
+      };
+      const fetchJSON = async (url) => {
+        try { const r = await fetch(url, {cache:'no-store'}); return r.ok ? r.json() : null; }
+        catch { return null; }
+      };
+      const escapeHtml = (s='') => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+      switch (action) {
+        case 'open-modal':
+          await showModal(modal, async () => {
+            if (modal === 'whitelistModal') {
+              // 注意：你的预览区ID可能是 whitelistPreview（不是 whitelist-preview）
+              const list = (window.dashboardData?.shunt?.whitelist) || [];
+              const box = $('#whitelistList') || document.getElementById('whitelistList');
+              if (box) box.innerHTML = list.map(d => `<div class="whitelist-item">${escapeHtml(d)}</div>`).join('');
+            } else if (modal === 'ipqModal') {
+              const body = $('#ipqDetails');
+              if (body) {
+                body.innerHTML = '加载中...';
+                const data = await fetchJSON(`/status/ipq_${ipq}.json`);
+                body.innerHTML = `<pre>${escapeHtml(JSON.stringify(data, null, 2))}</pre>`;
+              }
+            } else if (modal === 'configModal') {
+              const dd = window.dashboardData || {};
+              const title = document.getElementById('configModalTitle');
+              const details = document.getElementById('configDetails');
+              const qr = document.getElementById('qrcode');
+              if (qr) qr.innerHTML = '';
+
+              let qrText = '', html = '';
+              if (protocol === '__SUBS__') {
+                // 整包订阅
+                qrText = dd.subscription_url || '';
+                const sub = dd.subscription || {};
+                if (title) title.textContent = '整包订阅配置';
+                if (details) details.innerHTML = `
+                  <div class="config-section">
+                    <h4>订阅地址</h4>
+                    <div class="config-code" id="sub-url">${escapeHtml(qrText)}</div>
+                  </div>
+                  <div class="config-section">
+                    <h4>明文(6协议)</h4>
+                    <div class="config-code" id="plain-link" style="white-space:pre-wrap">${escapeHtml(sub.plain || '')}</div>
+                  </div>`;
+              } else {
+                // 单协议
+                const p = (dd.protocols || []).find(x => x.name === protocol);
+                if (!p) { return closeModal(modal); }
+                qrText = p.share_link || '';
+                if (title) title.textContent = `${p.name} 配置`;
+                if (details) details.innerHTML = `
+                  <div class="config-section">
+                    <h4>分享链接</h4>
+                    <div class="config-code" id="plain-link">${escapeHtml(qrText)}</div>
+                  </div>`;
+              }
+              if (qrText && typeof QRCode !== 'undefined' && qr) {
+                new QRCode(qr, { text: qrText, width: 200, height: 200 });
+              }
+            }
+          });
+          break;
+
+        case 'close-modal':
+          closeModal(modal);
+          break;
+
+        case 'copy': {
+          const host = btn.closest('.modal-content');
+          if (!host) break;
+          const map = { sub:'#sub-url', plain:'#plain-link', json:'#json-code', base64:'#base64-link' };
+          const el = host.querySelector(map[type]);
+          const text = el ? el.textContent : '';
+          try { await navigator.clipboard.writeText(text || ''); } catch {}
+          break;
+        }
+      }
+    });
+  }
+})();
+
 EXTERNAL_JS
 
 
@@ -5911,46 +6043,86 @@ chmod 644 "$TRAFFIC_DIR/index.html"
 
 
 # 设置定时任务
+# ========================== NEW11 replacement begin ==========================
 setup_cron_jobs() {
-  log_info "配置定时任务..."
+    log_info "设置定时任务（new11清理模式）..."
 
-  # 预警配置
-cat > /etc/edgebox/traffic/alert.conf <<'CONF'
-# 月度预算（GiB）
+    # ---- A) 预警配置兜底
+    # 会优先调用你现有的 ensure_alert_conf；然后用 patch 方式把缺的键补上
+    ensure_alert_conf_full_patch() {
+        local f="/etc/edgebox/traffic/alert.conf"
+        mkdir -p /etc/edgebox/traffic
+        [[ -f "$f" ]] || : > "$f"   # 保证文件存在
+
+        # 小工具：如缺失则追加默认值（不覆盖已有值）
+        ensure_key() {
+            local k="$1" v="$2"
+            grep -q "^${k}=" "$f" || echo "${k}=${v}" >> "$f"
+        }
+
+        # 8 个必备键（与您脚本口径一致）
+        ensure_key "ALERT_MONTHLY_GIB"     "100"
+        ensure_key "ALERT_TG_BOT_TOKEN"    ""
+        ensure_key "ALERT_TG_CHAT_ID"      ""
+        ensure_key "ALERT_DISCORD_WEBHOOK" ""
+        ensure_key "ALERT_PUSHPLUS_TOKEN"  ""
+        ensure_key "ALERT_WEBHOOK"         ""
+        ensure_key "ALERT_WEBHOOK_FORMAT"  "raw"
+        ensure_key "ALERT_STEPS"           "30,60,90"
+
+        # 兼容项（可选）：有的老段落默认写了 EMAIL，这里补上不影响你 8 项口径
+        ensure_key "ALERT_EMAIL"           ""
+    }
+
+    ensure_alert_conf_full() {
+        local f="/etc/edgebox/traffic/alert.conf"
+        mkdir -p /etc/edgebox/traffic
+        [[ -s "$f" ]] || cat >"$f" <<'CONF'
+# EdgeBox traffic alert thresholds & channels
+# 月度预算（单位 GiB）
 ALERT_MONTHLY_GIB=100
-
-# Telegram（@BotFather 获取 BotToken；ChatID 可用 @userinfobot）
+# 通知渠道（留空即不启用）
 ALERT_TG_BOT_TOKEN=
 ALERT_TG_CHAT_ID=
-
-# Discord（频道里添加 Incoming Webhook）
 ALERT_DISCORD_WEBHOOK=
-
-# 微信（个人可用的 PushPlus 转发）
 ALERT_PUSHPLUS_TOKEN=
-
-# （可选）通用 Webhook（HTTPS 443），FORMAT=raw|slack|discord
 ALERT_WEBHOOK=
 ALERT_WEBHOOK_FORMAT=raw
-
 # 阈值（百分比，逗号分隔）
 ALERT_STEPS=30,60,90
+# 可选：邮件（若 traffic-alert.sh 支持 mail 命令）
+ALERT_EMAIL=
 CONF
+    }
 
-  # 预警脚本已在 setup_traffic_monitoring 中创建
+    # 优先沿用你已有的 ensure_alert_conf；随后补齐缺失键
+    if type -t ensure_alert_conf >/dev/null 2>&1; then
+        ensure_alert_conf
+        ensure_alert_conf_full_patch
+    else
+        ensure_alert_conf_full
+    fi
 
-  # 仅保留采集与预警；面板刷新由 dashboard-backend 统一维护
-  ( crontab -l 2>/dev/null | grep -vE '/etc/edgebox/scripts/(traffic-collector\.sh|traffic-alert\.sh)\b' ) | crontab - || true
-  ( crontab -l 2>/dev/null; \
-    echo "0 * * * * /etc/edgebox/scripts/traffic-collector.sh"; \
-    echo "7 * * * * /etc/edgebox/scripts/traffic-alert.sh" \
-  ) | crontab -
-  
-  # 确保面板刷新任务存在
-  /etc/edgebox/scripts/dashboard-backend.sh --schedule
+    # ---- B) 备份现有 crontab（可回滚）----
+    crontab -l > ~/crontab.backup.$(date +%Y%m%d%H%M%S) 2>/dev/null || true
 
-  log_success "cron 已配置（每小时采集 + 刷新面板 + 阈值预警）"
+    # ---- C) 激进清理：删除所有 EdgeBox 相关的旧任务（路径/关键字双保险）----
+    ( crontab -l 2>/dev/null | grep -vE '(/etc/edgebox/|\bedgebox\b|\bEdgeBox\b)' ) | crontab - || true
+
+    # ---- D) 写入 new11 标准任务集（仅这一套）----
+    ( crontab -l 2>/dev/null || true; cat <<'CRON'
+# EdgeBox 定时任务 v3.0 (new11)
+*/2 * * * * bash -lc '/etc/edgebox/scripts/dashboard-backend.sh --now' >/dev/null 2>&1
+0  * * * * bash -lc '/etc/edgebox/scripts/traffic-collector.sh'        >/dev/null 2>&1
+7  * * * * bash -lc '/etc/edgebox/scripts/traffic-alert.sh'            >/dev/null 2>&1
+15 2 * * * bash -lc '/usr/local/bin/edgebox-ipq.sh'                    >/dev/null 2>&1
+CRON
+    ) | crontab -
+
+    log_success "定时任务设置完成（已清理旧任务并写入 new11 任务集；alert.conf 已补全 8 项）"
 }
+# =========================== NEW11 replacement end ===========================
+
 
 # 创建完整的edgeboxctl管理工具
 create_enhanced_edgeboxctl() {
