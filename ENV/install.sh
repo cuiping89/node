@@ -5283,30 +5283,35 @@ const metaEl = document.getElementById('sys-meta');
 if (metaEl) metaEl.textContent = meta;
 }
 
-// ✅ 单一权威版本：修正“代理IP显示格式”，保留其余逻辑；并改进模式高亮判断
+/*仅更正“代理IP：”的显示格式，其余逻辑保持不变 */
 function renderCertificateAndNetwork() {
   const data   = window.dashboardData || {};
   const server = data.server || {};
   const cert   = server.cert || {};
   const shunt  = data.shunt  || {};
 
-  // —— 证书区（带空值保护）——
+  // 证书区
   const certMode = String(safeGet(cert, 'mode', 'self-signed'));
   document.getElementById('cert-self')?.classList.toggle('active', certMode === 'self-signed');
   document.getElementById('cert-ca')?.classList.toggle('active', certMode.startsWith('letsencrypt'));
-  const certTypeEl = document.getElementById('cert-type');   if (certTypeEl) certTypeEl.textContent = certMode.startsWith('letsencrypt') ? "Let's Encrypt" : "自签名";
-  const domEl = document.getElementById('cert-domain');      if (domEl) domEl.textContent = safeGet(cert, 'domain', '(无)');
-  const rnEl  = document.getElementById('cert-renewal');     if (rnEl)  rnEl.textContent  = certMode.startsWith('letsencrypt') ? '自动' : '手动';
-  const exEl  = document.getElementById('cert-expiry');
+  const certTypeEl = document.getElementById('cert-type');
+  if (certTypeEl) certTypeEl.textContent = certMode.startsWith('letsencrypt') ? "Let's Encrypt" : "自签名";
+  const domEl = document.getElementById('cert-domain');
+  if (domEl) domEl.textContent = safeGet(cert, 'domain', '(无)');
+  const rnEl = document.getElementById('cert-renewal');
+  if (rnEl) rnEl.textContent = certMode.startsWith('letsencrypt') ? '自动' : '手动';
+  const exEl = document.getElementById('cert-expiry');
   if (exEl) {
     const exp = safeGet(cert, 'expires_at', null);
     exEl.textContent = exp ? new Date(exp).toLocaleDateString() : '—';
   }
 
-  // —— 出站模式高亮（采用你第二段的口径）——
+  // 出站模式切换：vps / direct(shunt) / resi(proxy)
   const shuntMode = String(safeGet(shunt, 'mode', 'vps')).toLowerCase();
   ['net-vps','net-proxy','net-shunt'].forEach(id => document.getElementById(id)?.classList.remove('active'));
-  if (shuntMode.includes('direct')) {
+  if (shuntMode === 'vps') {
+    document.getElementById('net-vps')?.classList.add('active');
+  } else if (shuntMode.includes('direct')) {
     document.getElementById('net-shunt')?.classList.add('active');
   } else if (shuntMode.includes('resi') || shuntMode.includes('proxy')) {
     document.getElementById('net-proxy')?.classList.add('active');
@@ -5314,64 +5319,32 @@ function renderCertificateAndNetwork() {
     document.getElementById('net-vps')?.classList.add('active');
   }
 
-  // —— VPS 出站 IP（带兜底）——
+  // VPS 出站 IP（你原本的口径：优先 eip 其次 server_ip）
   const vpsIp = safeGet(data, 'server.eip') || safeGet(data, 'server.server_ip') || '—';
-  const vpsEl = document.getElementById('vps-ip'); if (vpsEl) vpsEl.textContent = vpsIp;
+  const vpsEl = document.getElementById('vps-ip');
+  if (vpsEl) vpsEl.textContent = vpsIp;
 
-  // —— 代理出站 IP：仅显示 “协议//主机:端口”，自动剥离 user:pass@，兼容 IPv6 —— 
+  // 代理出站 IP —— 只显示“协议//IP:端口”
   const proxyRaw = String(safeGet(shunt, 'proxy_info', ''));
-  const proxyEl  = document.getElementById('proxy-ip');
+  const m = proxyRaw.match(/^([a-z0-9+.\-]+):\/\/([^:/]+):(\d+)/i);
+  const proxyFmt = m ? `${m[1]}//${m[2]}:${m[3]}` : (proxyRaw ? proxyRaw : '—');
+  const proxyEl = document.getElementById('proxy-ip');
+  if (proxyEl) proxyEl.textContent = proxyFmt;
 
-  function formatProxy(raw) {
-    if (!raw) return '—';
-    // 优先用 URL 解析
-    try {
-      // 确保有协议
-      const normalized = /^[a-z][a-z0-9+.\-]*:\/\//i.test(raw) ? raw : 'socks5://' + raw;
-      const u = new URL(normalized);
-      const proto = u.protocol.replace(/:$/,'');     // 'socks5'
-      const host  = u.hostname || '';                // 去掉了 user:pass@
-      const port  = u.port || '';                    // 可能为空
-      return (host && port) ? `${proto}//${host}:${port}` : (host ? `${proto}//${host}` : '—');
-    } catch (_) {
-      // 兜底正则：protocol://[user[:pass]@]host[:port]
-      const re = /^([a-z0-9+.\-]+):\/\/(?:[^@\/\s]+@)?(\[[^\]]+\]|[^:/?#]+)(?::(\d+))?/i;
-      const m = raw.match(re);
-      if (m) {
-        const proto = m[1];
-        const host  = m[2];
-        const port  = m[3] || '';
-        return port ? `${proto}//${host}:${port}` : `${proto}//${host}`;
-      }
-      // 再兜底一种 “proto host:port” 或 “host:port”
-      const re2 = /^(?:([a-z0-9+.\-]+)\s+)?(\[[^\]]+\]|[^:\/?#\s]+)(?::(\d+))?$/i;
-      const m2 = raw.match(re2);
-      if (m2) {
-        const proto = m2[1] || 'socks5';
-        const host  = m2[2];
-        const port  = m2[3] || '';
-        return port ? `${proto}//${host}:${port}` : `${proto}//${host}`;
-      }
-      return '—';
+  // 白名单预览（保持你原有逻辑）
+const whitelist = dashboardData.shunt?.whitelist || [];
+    const preview = document.getElementById('whitelistPreview');
+    if (preview) {
+        if (!whitelist.length) {
+            preview.innerHTML = '<span class="whitelist-text">(无)</span>';
+        } else {
+            const fullText = whitelist.join(', ');
+            // 始终显示查看全部按钮
+            preview.innerHTML = `<span class="whitelist-text">${escapeHtml(fullText)}</span>` +
+                `<button class="whitelist-more" data-action="open-modal" data-modal="whitelistModal">查看全部</button>`;
+        }
     }
-  }
-  if (proxyEl) proxyEl.textContent = formatProxy(proxyRaw);
-
-  // —— 白名单预览：保持你“始终显示查看全部 + 转义”的口径 —— 
-  const whitelist = data.shunt?.whitelist || [];
-  const preview = document.getElementById('whitelistPreview');
-  if (preview) {
-    if (!whitelist.length) {
-      preview.innerHTML = '<span class="whitelist-text">(无)</span>';
-    } else {
-      const fullText = whitelist.join(', ');
-      preview.innerHTML =
-        `<span class="whitelist-text">${escapeHtml(fullText)}</span>` +
-        `<button class="whitelist-more" data-action="open-modal" data-modal="whitelistModal">查看全部</button>`;
-    }
-  }
 }
-
 
 
 function renderProtocolTable() {
