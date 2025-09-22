@@ -5298,16 +5298,31 @@ function renderCertificateAndNetwork() {
     exEl.textContent = exp ? new Date(exp).toLocaleDateString() : '—';
   }
 
-  // —— 出站模式高亮（采用你第二段的口径）——
-  const shuntMode = String(safeGet(shunt, 'mode', 'vps')).toLowerCase();
-  ['net-vps','net-proxy','net-shunt'].forEach(id => document.getElementById(id)?.classList.remove('active'));
-  if (shuntMode.includes('direct')) {
-    document.getElementById('net-shunt')?.classList.add('active');
-  } else if (shuntMode.includes('resi') || shuntMode.includes('proxy')) {
-    document.getElementById('net-proxy')?.classList.add('active');
-  } else {
+// 出站模式高亮（处理带括号的模式名）
+const shuntMode = String(safeGet(shunt, 'mode', 'vps')).toLowerCase();
+// 提取基础模式名（去除括号部分）
+const baseMode = shuntMode.split('(')[0].trim();
+
+// 先清除所有active类
+['net-vps','net-proxy','net-shunt'].forEach(id => {
+    const element = document.getElementById(id);
+    if (element) element.classList.remove('active');
+});
+
+// 根据基础模式名设置高亮
+if (baseMode === 'vps' || baseMode === '') {
+    // VPS全量出站
     document.getElementById('net-vps')?.classList.add('active');
-  }
+} else if (baseMode === 'resi') {
+    // 住宅代理全量出站
+    document.getElementById('net-proxy')?.classList.add('active');
+} else if (baseMode === 'direct_resi' || baseMode.includes('direct')) {
+    // 智能分流（白名单直连+代理）
+    document.getElementById('net-shunt')?.classList.add('active');
+} else {
+    // 默认VPS
+    document.getElementById('net-vps')?.classList.add('active');
+}
 
   // —— VPS 出站 IP（带兜底）——
   const vpsIp = safeGet(data, 'server.eip') || safeGet(data, 'server.server_ip') || '—';
@@ -5845,30 +5860,34 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // 事件委托中的复制分支（替换你现有的 copy 分支）
 // 复制文本（JSON/明文/6协议明文/Base64）
-case 'copy': {
-  const host = btn.closest('.modal-content');
-  const map  = { json:'#json-code', plain:'#plain-link', plain6:'#plain-links-6', base64:'#base64-link' };
-  const el   = host && host.querySelector(map[btn.dataset.type]);
-  const text = el ? (el.textContent || '').trim() : '';
-  try { await copyTextFallbackAware(text); (window.notify||console.log)('已复制'); }
-  catch { (window.notify||console.warn)('复制失败'); }
-  break;
-}
-// 复制二维码（受浏览器安全上下文限制）
-case 'copy-qr': {
-  const host = btn.closest('.modal-content');
-  const cvs  = host && host.querySelector('#qrcode-sub canvas, #qrcode-protocol canvas');
-  if (cvs && cvs.toBlob && navigator.clipboard?.write && (location.protocol==='https:' || location.hostname==='localhost')) {
-    cvs.toBlob(async blob => {
-      try { await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]); (window.notify||console.log)('二维码已复制'); }
-      catch { (window.notify||console.warn)('复制二维码失败'); }
-    });
-  } else {
-    (window.notify||console.warn)('HTTP 页面无法直接复制二维码，请右键/长按保存');
-  }
-  break;
-}
+case 'copy':
+    const modalContent = target.closest('.modal-content');
+    if (!modalContent) return;
+    let textToCopy = '';
+    // 根据type获取对应内容
+    if (type === 'sub') {
+        // 订阅地址（从plain-link获取，因为sub-url元素不存在）
+        textToCopy = modalContent.querySelector('#plain-link')?.textContent;
+    } else if (type === 'plain') {
+        textToCopy = modalContent.querySelector('#plain-link')?.textContent;
+    } else if (type === 'json') {
+        textToCopy = modalContent.querySelector('#json-code')?.textContent;
+    } else if (type === 'base64') {
+        textToCopy = modalContent.querySelector('#base64-link')?.textContent;
+    }
+    copyText(textToCopy);
+    break;
 
+case 'copy-qr':
+    // 复制二维码内容（实际上是复制链接）
+    const configModal = document.getElementById('configModal');
+    if (configModal && configModal.style.display === 'block') {
+        const plainLink = configModal.querySelector('#plain-link')?.textContent;
+        if (plainLink) {
+            copyText(plainLink);
+        }
+    }
+    break;
 
     }
   });
