@@ -5938,7 +5938,6 @@ function setupEventListeners() {
 
         switch (action) {
             case 'open-modal':
-                // ***** FIX: Use the full modal ID from the 'modal' dataset *****
                 if (modal === 'whitelistModal') showWhitelistModal();
                 if (modal === 'configModal') showConfigModal(protocol);
                 if (modal === 'ipqModal') showIPQDetails(ipq);
@@ -5946,16 +5945,50 @@ function setupEventListeners() {
             case 'close-modal':
                 closeModal(modal);
                 break;
-            case 'copy':
+            case 'copy': { // 使用块作用域以避免变量冲突
                 const modalContent = target.closest('.modal-content');
                 if (!modalContent) return;
+
+                const titleText = modalContent.querySelector('#configModalTitle')?.textContent || '';
                 let textToCopy = '';
-                if (type === 'sub') textToCopy = modalContent.querySelector('#sub-url')?.textContent;
-                if (type === 'plain') textToCopy = modalContent.querySelector('#plain-link')?.textContent;
-                if (type === 'json') textToCopy = modalContent.querySelector('#json-code')?.textContent;
-                if (type === 'base64') textToCopy = modalContent.querySelector('#base64-link')?.textContent;
+
+                if (titleText.includes('订阅链接')) {
+                    // 这是订阅弹窗
+                    const sub = dashboardData.subscription || {};
+                    const subUrl = dashboardData.subscription_url || '';
+                    switch (type) {
+                        case 'sub':
+                            textToCopy = subUrl;
+                            break;
+                        case 'plain':
+                            textToCopy = sub.plain || '';
+                            break;
+                        case 'base64':
+                            textToCopy = sub.base64 || '';
+                            break;
+                    }
+                } else {
+                    // 这是单个协议的弹窗
+                    const protocolName = titleText.replace(' 配置详情', '');
+                    const p = (dashboardData.protocols || []).find(proto => proto.name === protocolName);
+                    if (p) {
+                        switch (type) {
+                            case 'plain':
+                                textToCopy = p.share_link || '';
+                                break;
+                            case 'json':
+                                textToCopy = generateProtocolJSON(p); // 复用生成JSON的函数
+                                break;
+                            case 'base64':
+                                textToCopy = p.share_link ? btoa(p.share_link) : '';
+                                break;
+                        }
+                    }
+                }
+                
                 copyText(textToCopy);
                 break;
+            }
         }
     });
 }
