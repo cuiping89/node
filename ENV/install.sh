@@ -5285,7 +5285,7 @@ function renderCertificateAndNetwork() {
   const cert   = server.cert || {};
   const shunt  = data.shunt  || {};
 
-  // 证书区（保留空值保护）
+  // —— 证书区（带空值保护）——
   const certMode = String(safeGet(cert, 'mode', 'self-signed'));
   document.getElementById('cert-self')?.classList.toggle('active', certMode === 'self-signed');
   document.getElementById('cert-ca')?.classList.toggle('active', certMode.startsWith('letsencrypt'));
@@ -5298,7 +5298,7 @@ function renderCertificateAndNetwork() {
     exEl.textContent = exp ? new Date(exp).toLocaleDateString() : '—';
   }
 
-  // 出站模式高亮（沿用第二段口径）
+  // —— 出站模式高亮（采用你第二段的口径）——
   const shuntMode = String(safeGet(shunt, 'mode', 'vps')).toLowerCase();
   ['net-vps','net-proxy','net-shunt'].forEach(id => document.getElementById(id)?.classList.remove('active'));
   if (shuntMode.includes('direct')) {
@@ -5309,35 +5309,50 @@ function renderCertificateAndNetwork() {
     document.getElementById('net-vps')?.classList.add('active');
   }
 
-  // VPS 出站 IP（保留兜底）
+  // —— VPS 出站 IP（带兜底）——
   const vpsIp = safeGet(data, 'server.eip') || safeGet(data, 'server.server_ip') || '—';
-  const vpsEl = document.getElementById('vps-ip');
-  if (vpsEl) vpsEl.textContent = vpsIp;
+  const vpsEl = document.getElementById('vps-ip'); if (vpsEl) vpsEl.textContent = vpsIp;
 
-  // 代理出站 IP：仅“协议//主机:端口”，剥离 user:pass@，兼容 IPv6
+  // —— 代理出站 IP：仅显示 “协议//主机:端口”，自动剥离 user:pass@，兼容 IPv6 —— 
+  const proxyRaw = String(safeGet(shunt, 'proxy_info', ''));
+  const proxyEl  = document.getElementById('proxy-ip');
+
   function formatProxy(raw) {
     if (!raw) return '—';
+    // 优先用 URL 解析
     try {
-      // 确保能被 URL 解析
+      // 确保有协议
       const normalized = /^[a-z][a-z0-9+.\-]*:\/\//i.test(raw) ? raw : 'socks5://' + raw;
       const u = new URL(normalized);
-      const proto = u.protocol.replace(/:$/,''); // e.g. 'socks5'
-      const host  = u.hostname || '';
-      const port  = u.port || '';
+      const proto = u.protocol.replace(/:$/,'');     // 'socks5'
+      const host  = u.hostname || '';                // 去掉了 user:pass@
+      const port  = u.port || '';                    // 可能为空
       return (host && port) ? `${proto}//${host}:${port}` : (host ? `${proto}//${host}` : '—');
-    } catch {
-      // 兜底：protocol://[user[:pass]@]host[:port]
+    } catch (_) {
+      // 兜底正则：protocol://[user[:pass]@]host[:port]
       const re = /^([a-z0-9+.\-]+):\/\/(?:[^@\/\s]+@)?(\[[^\]]+\]|[^:/?#]+)(?::(\d+))?/i;
-      const m = String(raw).match(re);
-      if (m) return m[3] ? `${m[1]}//${m[2]}:${m[3]}` : `${m[1]}//${m[2]}`;
+      const m = raw.match(re);
+      if (m) {
+        const proto = m[1];
+        const host  = m[2];
+        const port  = m[3] || '';
+        return port ? `${proto}//${host}:${port}` : `${proto}//${host}`;
+      }
+      // 再兜底一种 “proto host:port” 或 “host:port”
+      const re2 = /^(?:([a-z0-9+.\-]+)\s+)?(\[[^\]]+\]|[^:\/?#\s]+)(?::(\d+))?$/i;
+      const m2 = raw.match(re2);
+      if (m2) {
+        const proto = m2[1] || 'socks5';
+        const host  = m2[2];
+        const port  = m2[3] || '';
+        return port ? `${proto}//${host}:${port}` : `${proto}//${host}`;
+      }
       return '—';
     }
   }
-  const proxyRaw = String(safeGet(shunt, 'proxy_info', ''));
-  const proxyEl  = document.getElementById('proxy-ip');
   if (proxyEl) proxyEl.textContent = formatProxy(proxyRaw);
 
-  // 白名单预览（保留你原逻辑：始终有“查看全部”，并转义）
+  // —— 白名单预览：保持你“始终显示查看全部 + 转义”的口径 —— 
   const whitelist = data.shunt?.whitelist || [];
   const preview = document.getElementById('whitelistPreview');
   if (preview) {
