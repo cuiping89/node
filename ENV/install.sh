@@ -5391,22 +5391,31 @@ document.getElementById('mem-percent').textContent   = `${memPct}%`;
 document.getElementById('disk-percent').textContent  = `${diskPct}%`;
 
 // —— 核心服务 ——（版本号与状态）
-document.getElementById('nginx-version').textContent  = safeGet(versions,'nginx')  || '—';
-document.getElementById('xray-version').textContent   = safeGet(versions,'xray')   || '—';
-document.getElementById('singbox-version').textContent = safeGet(versions,'singbox')|| '—';
+// 1) 把版本号从 services 里安全取出，兼容 sing-box/singbox 两种键
+const versions = {
+  nginx:  safeGet(services, 'nginx.version'),
+  xray:   safeGet(services, 'xray.version'),
+  singbox: safeGet(services, 'sing-box.version') || safeGet(services, 'singbox.version')
+};
 
-// 若你有运行状态布尔值，可根据状态切换徽标类名/文字
-function setServiceStatus(selector, running){
-  const el = document.querySelector(selector);
-  if(!el) return;
-  el.textContent = running ? '运行中' : '已停止';
-  el.classList.toggle('status-running', !!running);
-  el.classList.toggle('status-stopped', !running);
-}
-// 示例：setServiceStatus('#system-overview .core-services .service-item:nth-child(2) .status-badge', xrayRunning);
+// 2) 写入三个版本号（同时写 title，鼠标可悬停看到完整值）
+const setVer = (id, v) => { const el = document.getElementById(id); if (el) { el.textContent = v || '—'; el.title = v || '—'; } };
+setVer('nginx-version',  versions.nginx);
+setVer('xray-version',   versions.xray);
+setVer('singbox-version', versions.singbox);
 
-    if (versionEl) versionEl.textContent = version;
-  });
+// （可选）你以后如果想根据运行状态切换徽标样式，可按需启用下面的模板：
+const toggleBadge = (sel, running) => {
+const el = document.querySelector(sel);
+if (!el) return;
+el.textContent = running ? '运行中' : '已停止';
+el.classList.toggle('status-running', !!running);
+el.classList.toggle('status-stopped', !running);
+};
+toggleBadge('#system-overview .core-services .service-item:nth-of-type(1) .status-badge', safeGet(services,'nginx.status')==='运行中');
+toggleBadge('#system-overview .core-services .service-item:nth-of-type(2) .status-badge', safeGet(services,'xray.status')==='运行中');
+toggleBadge('#system-overview .core-services .service-item:nth-of-type(3) .status-badge', (safeGet(services,'sing-box.status')||safeGet(services,'singbox.status'))==='运行中');
+
 const toYMD = (v) => {
   if (!v) return '—';
   const d = new Date(v);
