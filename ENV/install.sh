@@ -2817,6 +2817,8 @@ log_info() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] $*"; }
 log_warn() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WARN] $*"; }
 log_error() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] $*" >&2; }
 
+
+
 #############################################
 # 安全数据获取函数
 #############################################
@@ -2844,20 +2846,22 @@ safe_jq() {
 
 # 安全读取列表文件：去BOM/CR、去首尾空白、过滤空行与#注释，输出JSON数组
 jq_safe_list() {
-    local file="$1"
-    if [[ ! -f "$file" ]]; then
-        echo '[]'
-        return
-    fi
-    jq -n --rawfile RAW "$file" '
-        ($RAW
-         | gsub("^\uFEFF"; "")                     # 去 UTF-8 BOM
-         | split("\n")
-         | map(. | gsub("\r"; "")                  # 去 CR
-                   | gsub("^\s+|\s+$"; ""))        # 去首尾空白
-         | map(select(. != "" and (startswith("#") | not)))  # 过滤空行与注释
-        )'
+  local file="$1"
+  if [[ ! -f "$file" ]]; then
+    echo '[]'
+    return
+  fi
+  jq -n --rawfile RAW "$file" '
+    ($RAW
+     | gsub("^\uFEFF"; "")
+     | split("\n")
+     | map(. 
+         | gsub("\r"; "")
+         | gsub("(^[[:space:]]+|[[:space:]]+$)"; ""))   # 去首尾空白
+     | map(select(. != "" and (startswith("#") | not)))
+    )'
 }
+
 
 # 获取系统负载信息
 get_system_metrics() {
@@ -5235,7 +5239,7 @@ async function copyTextFallbackAware(text) {
 function renderOverview() {
   const server = dashboardData.server || {};
   const services = dashboardData.services || {};
-  document.getElementById('server-name').textContent = safeGet(server, 'user_alias', '(未设置)');
+  document.getElementById('server-name').textContent = safeGet(server, 'user_alias', '未备注');
   document.getElementById('cloud-info').textContent = `${safeGet(server, 'cloud.provider')} | ${safeGet(server, 'cloud.region')}`;
   document.getElementById('instance-id').textContent = safeGet(server, 'instance_id');
   document.getElementById('hostname').textContent = safeGet(server, 'hostname');
@@ -5906,7 +5910,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
           <div class="inner-block">
             <h3>服务器信息</h3>
             <div class="info-item"><label>用户备注名:</label><value id="server-name">—</value></div>
-            <div class="info-item"><label>云厂商/区域:</label><value id="cloud-info">—</value></div>
+            <div class="info-item"><label>云厂商|区域:</label><value id="cloud-info">—</value></div>
             <div class="info-item"><label>Instance ID:</label><value id="instance-id">—</value></div>
             <div class="info-item"><label>主机名:</label><value id="hostname">—</value></div>
           </div>
@@ -5918,9 +5922,9 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
           </div>
           <div class="inner-block">
             <h3>核心服务</h3>
-            <div class="service-item"><span>Nginx</span><div class="service-status"><span class="status-badge" id="nginx-status">—</span><span class="version" id="nginx-version"></span></div></div>
-            <div class="service-item"><span>Xray</span><div class="service-status"><span class="status-badge" id="xray-status">—</span><span class="version" id="xray-version"></span></div></div>
-            <div class="service-item"><span>Sing-box</span><div class="service-status"><span class="status-badge" id="singbox-status">—</span><span class="version" id="singbox-version"></span></div></div>
+            <div class="service-item"><span>Nginx:</span><div class="service-status"><span class="status-badge" id="nginx-status">—</span><span class="version" id="nginx-version"></span></div></div>
+            <div class="service-item"><span>Xray:</span><div class="service-status"><span class="status-badge" id="xray-status">—</span><span class="version" id="xray-version"></span></div></div>
+            <div class="service-item"><span>Sing-box:</span><div class="service-status"><span class="status-badge" id="singbox-status">—</span><span class="version" id="singbox-version"></span></div></div>
           </div>
         </div>
       </div>
@@ -5940,7 +5944,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
           </div>
         </div>
         <div class="card">
-          <div class="card-header"><h2>🌐 网络身份配置 <span class="note-udp">注：HY2/TUIC为UDP通道，VPS直连</span></h2></div>
+          <div class="card-header"><h2>🌐 网络身份配置 <span class="note-udp">注：HY2/TUIC为UDP通道，VPS直连，不参与分流配置</span></h2></div>
           <div class="network-blocks">
             <div class="network-block" id="net-vps">
               <h3>📡 VPS出站IP</h3>
@@ -5958,7 +5962,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             </div>
             <div class="network-block" id="net-shunt">
               <h3>🔀 分流出站</h3>
-              <div class="info-item"><label>混合身份:</label><value style="font-size:11px;">白名单直连+代理</value></div>
+              <div class="info-item"><label>混合身份:</label><value style="font-size:11px;">直连v代理</value></div>
               <div class="info-item"><label>白名单:</label><value class="whitelist-value"><div class="whitelist-preview" id="whitelistPreview"></div></value></div>
             </div>
           </div>
