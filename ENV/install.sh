@@ -4394,7 +4394,6 @@ body, p, span, td, div {
   border-radius: 6px;
   padding: 15px;
   margin-bottom: 15px;
-  min-height: 140px;  /* 添加这行，确保三个卡片高度一致 */
 }
 
 .inner-block:last-child {
@@ -5185,7 +5184,7 @@ body.modal-open {
   --h3-gap: 8px;
 
   /* 这三项决定进度条可用长度（下面“调整方法”就在改它们） */
-  --label-w: 80px;          /* 左侧键名列宽：72px */
+  --label-w: 50px;          /* 左侧键名列宽：72px */
   --percent-col: 33px;      /* 右侧百分比列宽：36px */
   --progress-gap: 2px;      /* 进度条两侧列的列间距：4px */
 
@@ -5291,6 +5290,25 @@ body.modal-open {
   }
 }
 
+/* 系统概览中的三个卡片统一高度 */
+.grid-3 .inner-block {
+  min-height: 150px;
+  display: flex;
+  flex-direction: column;
+}
+
+.grid-3 .inner-block h3 {
+  flex-shrink: 0;
+}
+
+/* 让服务列表填充剩余空间 */
+.service-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  flex: 1;  /* 添加这行 */
+}
 
 EXTERNAL_CSS
 
