@@ -5597,12 +5597,6 @@ function showConfigModal(protocolKey) {
       </div>
       ${usage('复制明文或 JSON 导入客户端；若客户端支持扫码添加，也可直接扫描二维码。')}
     `;
-    footer.innerHTML = `
-      <button class="btn btn-sm btn-secondary" data-action="copy" data-type="json">复制 JSON</button>
-      <button class="btn btn-sm btn-secondary" data-action="copy" data-type="plain">复制明文链接</button>
-      <button class="btn btn-sm btn-secondary" data-action="copy" data-type="base64">复制 Base64</button>
-      <button class="btn btn-sm btn-secondary" data-action="copy-qr">复制二维码</button>
-    `;
 	footer.innerHTML = `
 	<button class="btn-secondary" data-action="copy" data-type="json">复制JSON</button>
   <button class="btn-secondary" data-action="copy" data-type="plain">复制明文链接</button>
