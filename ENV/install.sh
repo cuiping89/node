@@ -6033,7 +6033,6 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
     <div class="main-content">
 	
 <div class="card" id="system-overview">	
-      <div class="card">
         <div class="card-header">
   <h2>
     📊 系统概览
@@ -6124,7 +6123,6 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
     <div class="version" id="singbox-version">—</div>
   </div>
 </div>
-        </div>
       </div>
 	  </div>
 	  
