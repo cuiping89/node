@@ -5172,138 +5172,90 @@ body.modal-open {
   }
 }
 
-/* 1) 统一三列（服务器信息/服务器配置/核心服务）的行高与内外边距 */
-#system-overview .inner-block .info-item,
-#system-overview .inner-block .progress-row,
-#system-overview .inner-block .service-item {
-  margin: 0;              /* 去掉多余的外边距 */
-  padding: 6px 0;         /* 统一上下内边距 */
-  min-height: 32px;       /* 统一视觉行高 */
-  align-items: center;    /* 垂直居中 */
-}
-
-/* 2) 进度条高度适中，避免把整行“撑高” */
-#system-overview .inner-block .progress-bar {
-  height: 12px;           /* 原 18px -> 12px */
-  overflow: hidden;       /* 结合圆角时更干净 */
-  border-radius: 999px;
-}
-
-/* 3) 让“服务器配置”的条中文本显示在进度条内并可省略 */
-#system-overview .inner-block .progress-fill {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;  /* 文本靠左 */
-  padding: 0 8px;               /* 条内左右留白 */
-  color: #fff;                  /* 条中文本使用白色 */
-  border-radius: 999px;         /* 小百分比时不露角 */
-}
-
-/* 条内真正承载文本的 span（你已在 HTML 中新增 .progress-text） */
-#system-overview .inner-block .progress-fill .progress-text {
-  font-size: 11px;
-  line-height: 1;
-  width: 100%;                 /* 触发省略的关键（需有宽度约束） */
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;     /* 未显示完用 … */
-}
-
-/* 4) 右侧百分比对齐与可读性 */
-#system-overview .inner-block .progress-info {
-  min-width: 48px;             /* 可按需调整 */
-  text-align: right;
-  font-variant-numeric: tabular-nums; /* 等宽数字，列更稳 */
-  color: #111827;
-}
-
-/* 5) 其它需要单行省略的字段（避免换行把行撑高） */
-#system-overview #cpu-info,
-#system-overview #mem-info,
-#system-overview #disk-info,
-#system-overview .core-services .version {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 /* ===========================
-   系统概览卡片·统一样式补丁
-   只影响 #system-overview 容器内元素
+   [最终版] 系统概览三列统一样式（仅作用于 #system-overview）
    =========================== */
-#system-overview .inner-block h3 {
-  margin: 0 0 8px;              /* 标题下间距统一为 8px */
-  line-height: 1.2;
+
+/* 可按需调整的配色与尺寸变量 */
+#system-overview{
+  --row-min-height: 32px;        /* 行高 */
+  --row-vpad: 6px;               /* 行内上下内边距 */
+  --gap: 8px;                    /* 列间距 */
+  --label-w: 88px;               /* 左侧键名固定宽度（窄屏会收窄） */
+
+  --meter-track: #d1d5db;        /* 进度条轨道（更深灰） */
+  --meter-fill-start: #059669;   /* 渐变起色 */
+  --meter-fill-end:   #10b981;   /* 渐变止色 */
+  --meter-text: #ffffff;         /* 条中文本白色 */
+  --percent-color: #111827;      /* 右侧百分比颜色 */
+  --label-color: #4b5563;        /* 键名颜色 */
+  --value-color: #111827;        /* 值颜色 */
+  --version-color:#6b7280;       /* 版本号颜色 */
 }
 
-/* 三列的每一行统一节奏（服务器信息 / 服务器配置 / 核心服务） */
+/* 标题紧凑，内容紧跟 */
+#system-overview .inner-block h3{margin:0 0 8px;line-height:1.2;}
+#system-overview .inner-block h3+*{margin-top:0 !important;}
+
+/* 三列行节奏统一：左键名 | 中内容 | 右状态/版本/百分比 */
 #system-overview .inner-block .info-item,
 #system-overview .inner-block .progress-row,
-#system-overview .inner-block .service-item {
-  margin: 0;
-  padding: 6px 0;
-  min-height: 32px;
-  display: grid;
-  grid-template-columns: auto 1fr auto; /* label | 内容 | 右侧值/状态 */
-  align-items: center;
-  gap: 8px;
+#system-overview .inner-block .service-item{
+  margin:0;
+  padding:var(--row-vpad) 0;
+  min-height:var(--row-min-height);
+  display:grid;
+  grid-template-columns: var(--label-w) 1fr auto;
+  align-items:center;
+  gap:var(--gap);
+  color:var(--value-color);
 }
 
-/* —— 服务器配置：进度条视觉 —— */
-#system-overview .progress-row .progress-bar {
-  position: relative;
-  height: 14px;                 /* 条更紧凑 */
-  background: #d1d5db;          /* 更深的灰色轨道 */
-  border-radius: 999px;
-  overflow: hidden;
+/* —— 服务器信息（两列：键名固定宽 + 值自适应省略） —— */
+#system-overview .server-info .info-item .label{color:var(--label-color);justify-self:start;}
+#system-overview .server-info .info-item .value{
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--value-color);
 }
 
-#system-overview .progress-row .progress-fill {
-  height: 100%;
-  background: linear-gradient(90deg, #059669, #10b981); /* 深一点的绿 */
-  border-radius: 999px;
-  transition: width .25s ease;
+/* —— 服务器配置（进度条在中列，条中文本在条里，省略 …） —— */
+#system-overview .progress-row .progress-label{color:var(--label-color);justify-self:start;}
+#system-overview .progress-row .progress-bar{
+  position:relative;height:14px;background:var(--meter-track);
+  border-radius:999px;overflow:hidden;
+}
+#system-overview .progress-row .progress-fill{
+  height:100%;border-radius:999px;transition:width .25s ease;
+  background:linear-gradient(90deg,var(--meter-fill-start),var(--meter-fill-end));
+}
+/* 文本绝对定位在条里，0% 时仍可见；超长 … */
+#system-overview .progress-row .progress-text{
+  position:absolute;left:8px;right:8px;top:50%;transform:translateY(-50%);
+  font-size:11px;line-height:1;color:var(--meter-text);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;
+}
+/* 右侧百分比 */
+#system-overview .progress-row .progress-info{
+  min-width:48px;text-align:right;color:var(--percent-color);
+  font-variant-numeric:tabular-nums;
 }
 
-/* 条内文本：白色，单行省略，始终可见（不随填充层宽度消失） */
-#system-overview .progress-row .progress-text {
-  position: absolute;
-  left: 8px; right: 8px; top: 50%;
-  transform: translateY(-50%);
-  font-size: 11px;
-  line-height: 1;
-  color: #fff;                  /* 你要求的白色文本 */
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  pointer-events: none;         /* 禁止选中影响拖拽 */
+/* —— 核心服务（三列：服务名 | 状态徽标 | 版本号右对齐省略） —— */
+#system-overview .core-services .service-item .label{color:var(--label-color);justify-self:start;}
+#system-overview .core-services .service-item .service-status{display:inline-flex;align-items:center;gap:8px;}
+#system-overview .core-services .service-item .status-badge{
+  padding:0 8px;height:20px;line-height:20px;border-radius:999px;font-size:11px;
+}
+#system-overview .core-services .service-item .version{
+  justify-self:end;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--version-color);font-size:12px;
 }
 
-/* 右侧百分比：靠右、等宽数字 */
-#system-overview .progress-row .progress-info {
-  min-width: 48px;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-  color: #111827;
-}
-
-/* “服务器信息/核心服务”内容单行省略，避免换行撑高 */
-#system-overview .info-item .value,
-#system-overview .service-item .version {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* 右侧“核心服务”卡片：行高与其他两列一致（去掉额外空隙） */
-#system-overview .core-services .service-item {
-  padding: 6px 0;
-  min-height: 32px;
-}
-
-/* 让标题下面的第一行不要再额外拉开距离（统一紧跟） */
-#system-overview .inner-block h3 + * {
-  margin-top: 0 !important;
+/* 窄屏收窄键名列，减少换行 */
+@media (max-width:640px){
+  #system-overview .inner-block .info-item,
+  #system-overview .inner-block .progress-row,
+  #system-overview .inner-block .service-item{
+    grid-template-columns:72px 1fr auto; /* 键名更窄 */
+  }
 }
 
 
@@ -5397,50 +5349,56 @@ async function copyTextFallbackAware(text) {
 function renderOverview() {
   const server = dashboardData.server || {};
   const services = dashboardData.services || {};
-  document.getElementById('server-name').textContent = safeGet(server, 'user_alias', '未备注');
-  document.getElementById('cloud-info').textContent = `${safeGet(server, 'cloud.provider')} | ${safeGet(server, 'cloud.region')}`;
-  document.getElementById('instance-id').textContent = safeGet(server, 'instance_id');
-  document.getElementById('hostname').textContent = safeGet(server, 'hostname');
-  
-// === 服务器配置（系统概览）数据绑定 ===
-const spec = server.spec || {};
-// 1) 条内文本：放入进度条内的新结构中（仍沿用 #cpu-info/#mem-info/#disk-info）
-const cpuText = safeGet(spec, 'cpu');
-const memText = safeGet(spec, 'memory');
-const diskText = safeGet(spec, 'disk');
 
-// 条内文本（完整值放 title，鼠标悬停可见）
-document.getElementById('cpu-info').textContent = cpuText || '—';
-document.getElementById('cpu-info').title       = cpuText || '—';
-document.getElementById('mem-info').textContent = memText || '—';
-document.getElementById('mem-info').title       = memText || '—';
-document.getElementById('disk-info').textContent = diskText || '—';
-document.getElementById('disk-info').title       = diskText || '—';
+/* ===========================
+   系统概览 · 数据绑定
+   =========================== */
 
-// 进度宽度 + 右侧百分比
+// —— 服务器信息 ——（保持你的变量/函数名，只演示写法）
+document.getElementById('user-remark').textContent = safeGet(server, 'remark') || '未备注';
+document.getElementById('cloud-region').textContent = safeGet(server, 'cloud_region') || 'Independent | Unknown';
+document.getElementById('instance-id').textContent = safeGet(server, 'instance_id') || 'Unknown';
+document.getElementById('hostname').textContent = safeGet(server, 'hostname') || '-';
+
+// —— 服务器配置 ——（条内文本 + 宽度 + 右侧百分比）
+const cpuText = safeGet(server, 'spec.cpu') || '—';
+const memText = safeGet(server, 'spec.memory') || '—';
+const diskText = safeGet(server, 'spec.disk') || '—';
+
+const cpuPct = Math.max(0, Math.min(100, Number(safeGet(systemData,'cpu'))||0));
+const memPct = Math.max(0, Math.min(100, Number(safeGet(systemData,'memory'))||0));
+const diskPct = Math.max(0, Math.min(100, Number(safeGet(systemData,'disk'))||0));
+
+// 条中文本（完整值放 title）
+['cpu','mem','disk'].forEach(k=>{
+  const text = (k==='cpu')?cpuText:(k==='mem')?memText:diskText;
+  const el = document.getElementById(`${k}-info`);
+  el.textContent = text; el.title = text;
+});
+
+// 进度宽度与右侧百分比
 document.getElementById('cpu-progress').style.width  = `${cpuPct}%`;
 document.getElementById('mem-progress').style.width  = `${memPct}%`;
 document.getElementById('disk-progress').style.width = `${diskPct}%`;
+document.getElementById('cpu-percent').textContent   = `${cpuPct}%`;
+document.getElementById('mem-percent').textContent   = `${memPct}%`;
+document.getElementById('disk-percent').textContent  = `${diskPct}%`;
 
-document.getElementById('cpu-percent').textContent  = `${cpuPct}%`;
-document.getElementById('mem-percent').textContent  = `${memPct}%`;
-document.getElementById('disk-percent').textContent = `${diskPct}%`;
+// —— 核心服务 ——（版本号与状态）
+document.getElementById('nginx-version').textContent  = safeGet(versions,'nginx')  || '—';
+document.getElementById('xray-version').textContent   = safeGet(versions,'xray')   || '—';
+document.getElementById('singbox-version').textContent = safeGet(versions,'singbox')|| '—';
 
+// 若你有运行状态布尔值，可根据状态切换徽标类名/文字
+function setServiceStatus(selector, running){
+  const el = document.querySelector(selector);
+  if(!el) return;
+  el.textContent = running ? '运行中' : '已停止';
+  el.classList.toggle('status-running', !!running);
+  el.classList.toggle('status-stopped', !running);
+}
+// 示例：setServiceStatus('#system-overview .core-services .service-item:nth-child(2) .status-badge', xrayRunning);
 
-document.getElementById('cpu-percent').textContent  = `${cpuPct}%`;
-document.getElementById('mem-percent').textContent  = `${memPct}%`;
-document.getElementById('disk-percent').textContent = `${diskPct}%`;
-
-  ['nginx', 'xray', 'sing-box'].forEach(svc => {
-    const status = safeGet(services, `${svc}.status`, 'inactive');
-    const version = safeGet(services, `${svc}.version`, '');
-    const elementId = svc === 'sing-box' ? 'singbox' : svc;
-    const badge = document.getElementById(`${elementId}-status`);
-    const versionEl = document.getElementById(`${elementId}-version`);
-    if (badge) {
-      badge.textContent = status === 'active' ? '运行中' : '已停止';
-      badge.className = status === 'active' ? 'status-badge status-running' : 'status-badge';
-    }
     if (versionEl) versionEl.textContent = version;
   });
 const toYMD = (v) => {
@@ -6073,59 +6031,66 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
   <div class="main-card">
     <div class="main-header"><h1>🚀 EdgeBox - 企业级多协议节点管理系统</h1></div>
     <div class="main-content">
-      <div class="card">
+	
+<div class="card" id="system-overview">	
         <div class="card-header">
   <h2>
     📊 系统概览
     <span class="card-note" id="sys-meta">版本号: — | 安装日期: — | 更新时间: —</span>
   </h2>
 </div>
-        <div class="grid grid-3">
-          <div class="inner-block">
-            <h3>服务器信息</h3>
-            <div class="info-item"><label>用户备注名:</label><value id="server-name">—</value></div>
-            <div class="info-item"><label>云厂商/区域:</label><value id="cloud-info">—</value></div>
-            <div class="info-item"><label>Instance ID:</label><value id="instance-id">—</value></div>
-            <div class="info-item"><label>主机名:</label><value id="hostname">—</value></div>
-          </div>
-		  
-<div class="inner-block">
-<h3>服务器配置</h3>
-<div class="progress-row" id="cpu-row">
-  <span class="progress-label">CPU:</span>
-  <div class="progress-bar">
-    <!-- 文本放在进度条容器内（绝对定位），不会被 0~5% 小宽度吃掉 -->
-    <span class="progress-text" id="cpu-info" title="—">—</span>
-    <div class="progress-fill" id="cpu-progress" style="width:0%"></div>
-  </div>
-  <span class="progress-info" id="cpu-percent">0%</span>
-</div>
+<div class="grid grid-3">
+		
+<!-- === 服务器信息（保持你的 h3 不变） === -->
+<div class="server-info inner-block">
+  <h3>服务器信息</h3>
 
-<div class="progress-row" id="mem-row">
-  <span class="progress-label">内存:</span>
-  <div class="progress-bar">
-    <span class="progress-text" id="mem-info" title="—">—</span>
-    <div class="progress-fill" id="mem-progress" style="width:0%"></div>
+  <div class="info-item">
+    <div class="label">用户备注名:</div>
+    <div class="value" id="user-remark">—</div>
   </div>
-  <span class="progress-info" id="mem-percent">0%</span>
-</div>
-
-<div class="progress-row" id="disk-row">
-  <span class="progress-label">磁盘:</span>
-  <div class="progress-bar">
-    <span class="progress-text" id="disk-info" title="—">—</span>
-    <div class="progress-fill" id="disk-progress" style="width:0%"></div>
+  <div class="info-item">
+    <div class="label">云厂商|区域:</div>
+    <div class="value" id="cloud-region">—</div>
   </div>
-  <span class="progress-info" id="disk-percent">0%</span>
+  <div class="info-item">
+    <div class="label">Instance ID:</div>
+    <div class="value" id="instance-id">—</div>
+  </div>
+  <div class="info-item">
+    <div class="label">主机名:</div>
+    <div class="value" id="hostname">—</div>
+  </div>
 </div>
-</div>
+	  
+<!-- === 核心服务 === -->
+<div class="core-services inner-block">
+  <h3>核心服务</h3>
 
-          <div class="inner-block">
-            <h3>核心服务</h3>
-            <div class="service-item"><span>Nginx</span><div class="service-status"><span class="status-badge" id="nginx-status">—</span><span class="version" id="nginx-version"></span></div></div>
-            <div class="service-item"><span>Xray</span><div class="service-status"><span class="status-badge" id="xray-status">—</span><span class="version" id="xray-version"></span></div></div>
-            <div class="service-item"><span>Sing-box</span><div class="service-status"><span class="status-badge" id="singbox-status">—</span><span class="version" id="singbox-version"></span></div></div>
-          </div>
+  <div class="service-item">
+    <div class="label">Nginx:</div>
+    <div class="service-status">
+      <span class="status-badge status-stopped">已停止</span>
+    </div>
+    <div class="version" id="nginx-version">—</div>
+  </div>
+
+  <div class="service-item">
+    <div class="label">Xray:</div>
+    <div class="service-status">
+      <span class="status-badge status-stopped">已停止</span>
+    </div>
+    <div class="version" id="xray-version">—</div>
+  </div>
+
+  <div class="service-item">
+    <div class="label">Sing-box:</div>
+    <div class="service-status">
+      <span class="status-badge status-stopped">已停止</span>
+    </div>
+    <div class="version" id="singbox-version">—</div>
+  </div>
+</div>
         </div>
       </div>
 	  
