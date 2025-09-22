@@ -4394,7 +4394,6 @@ body, p, span, td, div {
   border-radius: 6px;
   padding: 15px;
   margin-bottom: 15px;
-  min-height: 140px;  /* 添加这行，确保三个卡片高度一致 */
 }
 
 .inner-block:last-child {
@@ -5185,9 +5184,9 @@ body.modal-open {
   --h3-gap: 8px;
 
   /* 这三项决定进度条可用长度（下面“调整方法”就在改它们） */
-  --label-w: 72px;          /* 左侧键名列宽：72px */
+  --label-w: 50px;          /* 左侧键名列宽：72px */
   --percent-col: 33px;      /* 右侧百分比列宽：36px */
-  --progress-gap: 4px;      /* 进度条两侧列的列间距：4px */
+  --progress-gap: 2px;      /* 进度条两侧列的列间距：4px */
 
   --meter-height: 20px;     /* 进度条高度，与徽标一致 */
   --meter-track: #d1d5db;
@@ -5289,6 +5288,18 @@ body.modal-open {
     --percent-col: 32px;
     --progress-gap: 4px;
   }
+}
+
+/* —— 修复：系统概览里所有卡片标题强制单行、占满整行、水平书写 —— */
+#system-overview .inner-block > h3{
+  grid-column: 1 / -1;        /* 即使父级是 grid，也让标题独占一整行 */
+  display: flex;
+  align-items: center;
+  white-space: nowrap;         /* 不换行（中文默认可逐字换行，这里关掉） */
+  writing-mode: horizontal-tb; /* 强制水平书写，覆盖任何意外写字方向 */
+  -webkit-writing-mode: horizontal-tb;
+  width: auto;                 /* 防止被限制成很窄的列宽 */
+  margin: 0 0 8px;             /* 维持你现在的紧凑标题节奏 */
 }
 
 
