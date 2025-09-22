@@ -6063,6 +6063,38 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
     <div class="value" id="hostname">—</div>
   </div>
 </div>
+
+<!-- === 服务器配置 === -->
+<div class="inner-block" id="server-config">
+  <h3>服务器配置</h3>
+
+  <div class="progress-row" id="cpu-row">
+    <span class="progress-label">CPU:</span>
+    <div class="progress-bar">
+      <span class="progress-text" id="cpu-info" title="—">—</span>
+      <div class="progress-fill" id="cpu-progress" style="width:0%"></div>
+    </div>
+    <span class="progress-info" id="cpu-percent">0%</span>
+  </div>
+
+  <div class="progress-row" id="mem-row">
+    <span class="progress-label">内存:</span>
+    <div class="progress-bar">
+      <span class="progress-text" id="mem-info" title="—">—</span>
+      <div class="progress-fill" id="mem-progress" style="width:0%"></div>
+    </div>
+    <span class="progress-info" id="mem-percent">0%</span>
+  </div>
+
+  <div class="progress-row" id="disk-row">
+    <span class="progress-label">磁盘:</span>
+    <div class="progress-bar">
+      <span class="progress-text" id="disk-info" title="—">—</span>
+      <div class="progress-fill" id="disk-progress" style="width:0%"></div>
+    </div>
+    <span class="progress-info" id="disk-percent">0%</span>
+  </div>
+</div>
 	  
 <!-- === 核心服务 === -->
 <div class="core-services inner-block">
