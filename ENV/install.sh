@@ -6007,7 +6007,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             <div class="info-item"><label>主机名:</label><value id="hostname">—</value></div>
           </div>
           <div class="inner-block">
-<!-- 服务器配置：统一为“键名 | 进度条(内嵌文本) | 右侧百分比” -->
+		  <h3>服务器配置</h3>
 <div class="progress-row" id="cpu-row">
   <span class="progress-label">CPU:</span>
   <div class="progress-bar">
