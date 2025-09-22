@@ -5538,12 +5538,12 @@ function showConfigModal(protocolKey) {
       </div>
       ${usage('将“订阅 URL”导入 v2rayN、Clash 等支持订阅的客户端；部分客户端也支持直接粘贴 Base64 或扫码二维码。')}
     `;
-    footer.innerHTML = `
-      <button class="btn btn-sm btn-secondary" data-action="copy" data-type="plain">复制订阅URL</button>
-      <button class="btn btn-sm btn-secondary" data-action="copy" data-type="plain6">复制明文(6协议)</button>
-      <button class="btn btn-sm btn-secondary" data-action="copy" data-type="base64">复制Base64</button>
-      <button class="btn btn-sm btn-secondary" data-action="copy-qr">复制二维码</button>
-    `;
+footer.innerHTML = `
+  <button class="btn-secondary" data-action="copy" data-type="plain">复制订阅URL</button>
+  <button class="btn-secondary" data-action="copy" data-type="plain">复制明文链接</button>
+  <button class="btn-secondary" data-action="copy" data-type="base64">复制Base64</button>
+  <button class="btn-secondary" data-action="copy-qr">复制二维码</button>
+`;
     qrText = subsUrl;
 
   } else {
@@ -5597,8 +5597,8 @@ function showConfigModal(protocolKey) {
       </div>
       ${usage('复制明文或 JSON 导入客户端；若客户端支持扫码添加，也可直接扫描二维码。')}
     `;
-	footer.innerHTML = `
-	<button class="btn-secondary" data-action="copy" data-type="json">复制JSON</button>
+footer.innerHTML = `
+  <button class="btn-secondary" data-action="copy" data-type="json">复制JSON</button>
   <button class="btn-secondary" data-action="copy" data-type="plain">复制明文链接</button>
   <button class="btn-secondary" data-action="copy" data-type="base64">复制Base64</button>
   <button class="btn-secondary" data-action="copy-qr">复制二维码</button>
