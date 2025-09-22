@@ -5359,87 +5359,85 @@ async function copyTextFallbackAware(text) {
 
 // --- UI Rendering Functions ---
 function renderOverview() {
-  // 1) 取数据源（容错）
-  const server   = (dashboardData && dashboardData.server)   || {};
-  const services = (dashboardData && dashboardData.services) || {};
-  const sys      = (typeof systemData === 'object' && systemData) || {};
+  /* ========= 0) 兼容取数（优先闭包变量，取不到再用 window.*） ========= */
+  const dash = (typeof dashboardData !== 'undefined' && dashboardData) ||
+               (typeof window !== 'undefined' && window.dashboardData) || {};
+  const sys  = (typeof systemData   !== 'undefined' && systemData)   ||
+               (typeof window !== 'undefined' && window.systemData)   || {};
 
-  // 2) 核心服务版本号（只声明一次！）
-  const versions = {
-    nginx:   (services.nginx && services.nginx.version) || '',
-    xray:    (services.xray && services.xray.version)   || '',
-    singbox: ((services['sing-box'] && services['sing-box'].version) ||
-              (services.singbox    && services.singbox.version)      || '')
+  /* ========= 1) 拆数据 ========= */
+  const server   = dash.server   || {};
+  const services = dash.services || {};
+
+  /* ========= 2) 小工具 ========= */
+  const setText = (id, text, setTitle) => {
+    const el = document.getElementById(id); if (!el) return;
+    el.textContent = (text === undefined || text === null || text === '') ? '—' : String(text);
+    if (setTitle) el.title = el.textContent;
+  };
+  const setWidth = (id, pct) => { const el = document.getElementById(id); if (el) el.style.width = `${pct}%`; };
+  const clamp = v => Math.max(0, Math.min(100, Number(v) || 0));
+  const pick  = (...xs) => xs.find(v => v !== undefined && v !== null && v !== '') ?? 0;
+  const toYMD = (v) => { if (!v) return '—'; const d = new Date(v); return isNaN(d) ? String(v).slice(0,10) : d.toISOString().slice(0,10); };
+  const toggleBadge = (sel, running) => { const el = document.querySelector(sel); if (!el) return;
+    el.textContent = running ? '运行中' : '已停止';
+    el.classList.toggle('status-running', !!running);
+    el.classList.toggle('status-stopped', !running);
   };
 
-  // 3) 服务器信息
-  setText('user-remark',  server.user_alias || '未备注', true);
-  const prov = (server.cloud && server.cloud.provider) || 'Independent';
-  const regi = (server.cloud && server.cloud.region)   || 'Unknown';
-  setText('cloud-region', `${prov} | ${regi}`, true);
-  setText('instance-id',  server.instance_id || 'Unknown', true);
-  setText('hostname',     server.hostname    || '-', true);
+  /* ========= 3) 服务器信息 ========= */
+  const remark   = server.user_alias ?? server.remark ?? '未备注';
+  const provider = server.cloud?.provider ?? server.cloud_provider ?? 'Independent';
+  const region   = server.cloud?.region   ?? server.cloud_region   ?? 'Unknown';
+  setText('user-remark',  remark, true);
+  setText('cloud-region', `${provider} | ${region}`, true);
+  setText('instance-id',  server.instance_id ?? 'Unknown', true);
+  setText('hostname',     server.hostname    ?? '-', true);
 
-  // 4) 服务器配置（条中文本 + 百分比）
-  setText('cpu-info',  (server.spec && server.spec.cpu)    || '—', true);
-  setText('mem-info',  (server.spec && server.spec.memory) || '—', true);
-  setText('disk-info', (server.spec && server.spec.disk)   || '—', true);
+  /* ========= 4) 服务器配置（条中文本 + 百分比） ========= */
+  setText('cpu-info',  server.spec?.cpu  ?? '—', true);
+  setText('disk-info', server.spec?.disk ?? '—', true);
 
-  const clamp = v => Math.max(0, Math.min(100, Number(v) || 0));
-// 兼容多种命名（例如 cpu / cpu_usage / metrics.cpu 等）
-const pick = (...xs) => xs.find(v => v !== undefined && v !== null && v !== '') ?? 0;
-const cpuPct  = clamp(pick(sys.cpu, sys.cpu_usage, sys['cpu-percent'], sys.metrics?.cpu, dashboardData?.metrics?.cpu));
-const memPct  = clamp(pick(sys.memory, sys.mem, sys['memory-percent'], sys.metrics?.memory, dashboardData?.metrics?.memory));
-const diskPct = clamp(pick(sys.disk, sys.disk_usage, sys['disk-percent'], sys.metrics?.disk, dashboardData?.metrics?.disk));
+  // 内存条中文本（spec.memory 缺失或为 0 时，用 sys 组装）
+  const fmtGiB = (b) => { const n = Number(b); if (!Number.isFinite(n)) return null; return Math.round((n / (1024 ** 3)) * 10) / 10; };
+  let memText = server.spec?.memory ?? '';
+  if (!memText || /^0\s*GiB$/i.test(memText)) {
+    const totalB = pick(sys.mem_total, sys.total_mem, sys.memory_total, sys.mem?.total);
+    const usedB  = pick(sys.mem_used,  sys.used_mem,  sys.memory_used,  sys.mem?.used);
+    const freeB  = pick(sys.mem_free,  sys.free_mem,  sys.memory_free,  sys.mem?.free,
+                        (totalB != null && usedB != null) ? (totalB - usedB) : undefined);
+    const total = fmtGiB(totalB), used = fmtGiB(usedB), free = fmtGiB(freeB);
+    memText = (total != null) ? (used != null && free != null ? `${total}GiB（已用: ${used}GiB, 可用: ${free}GiB）` : `${total}GiB`) : '—';
+  }
+  setText('mem-info', memText, true);
 
-  setWidth('cpu-progress',  cpuPct);
-  setWidth('mem-progress',  memPct);
-  setWidth('disk-progress', diskPct);
-  setText('cpu-percent',  `${cpuPct}%`);
-  setText('mem-percent',  `${memPct}%`);
-  setText('disk-percent', `${diskPct}%`);
+  // 百分比（多字段名兼容）
+  const cpuPct  = clamp(pick(sys.cpu, sys.cpu_usage, sys['cpu-percent'], sys.metrics?.cpu, dash.metrics?.cpu));
+  const memPct  = clamp(pick(sys.memory, sys.mem, sys['memory-percent'], sys.metrics?.memory, dash.metrics?.memory));
+  const diskPct = clamp(pick(sys.disk, sys.disk_usage, sys['disk-percent'], sys.metrics?.disk, dash.metrics?.disk));
 
-  // 5) 核心服务版本号写入
+  setWidth('cpu-progress',  cpuPct);  setText('cpu-percent',  `${cpuPct}%`);
+  setWidth('mem-progress',  memPct);  setText('mem-percent',  `${memPct}%`);
+  setWidth('disk-progress', diskPct); setText('disk-percent', `${diskPct}%`);
+
+  /* ========= 5) 核心服务（版本 + 状态） ========= */
+  const versions = {
+    nginx:   services.nginx?.version || '',
+    xray:    services.xray?.version  || '',
+    singbox: (services['sing-box']?.version || services.singbox?.version || '')
+  };
   setText('nginx-version',   versions.nginx   || '—', true);
   setText('xray-version',    versions.xray    || '—', true);
   setText('singbox-version', versions.singbox || '—', true);
 
-  // 6) 服务状态徽标（存在才切）
-  toggleBadge('#system-overview .core-services .service-item:nth-of-type(1) .status-badge',
-              (services.nginx && services.nginx.status) === '运行中');
-  toggleBadge('#system-overview .core-services .service-item:nth-of-type(2) .status-badge',
-              (services.xray && services.xray.status) === '运行中');
+  toggleBadge('#system-overview .core-services .service-item:nth-of-type(1) .status-badge', services.nginx?.status === '运行中');
+  toggleBadge('#system-overview .core-services .service-item:nth-of-type(2) .status-badge', services.xray?.status  === '运行中');
   toggleBadge('#system-overview .core-services .service-item:nth-of-type(3) .status-badge',
-              ((services['sing-box'] && services['sing-box'].status) ||
-               (services.singbox && services.singbox.status)) === '运行中');
+              (services['sing-box']?.status || services.singbox?.status) === '运行中');
 
-  // 7) 顶部“版本/日期”摘要
-  const toYMD = (v) => {
-    if (!v) return '—';
-    const d = new Date(v);
-    return isNaN(d) ? String(v).slice(0,10) : d.toISOString().slice(0,10);
-  };
-  const meta = `版本号: ${server.version || '—'} | 安装日期: ${toYMD(server.install_date)} | 更新时间: ${toYMD(dashboardData.updated_at || Date.now())}`;
-  setText('sys-meta', meta);
-
-  // --- 小工具 ---
-  function setText(id, text, setTitle){
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.textContent = text;
-    if (setTitle) el.title = text;
-  }
-  function setWidth(id, pct){
-    const el = document.getElementById(id);
-    if (el) el.style.width = pct + '%';
-  }
-  function toggleBadge(sel, running){
-    const el = document.querySelector(sel);
-    if (!el) return;
-    el.textContent = running ? '运行中' : '已停止';
-    el.classList.toggle('status-running', !!running);
-    el.classList.toggle('status-stopped', !running);
-  }
+  /* ========= 6) 顶部“版本/日期”摘要 ========= */
+  const metaText = `版本号: ${server.version || '—'} | 安装日期: ${toYMD(server.install_date)} | 更新时间: ${toYMD(dash.updated_at || Date.now())}`;
+  setText('sys-meta', metaText);
 }
 
 
