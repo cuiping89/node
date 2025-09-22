@@ -5173,31 +5173,33 @@ body.modal-open {
 }
 
 /* ===========================
-   [最终版] 系统概览三列统一样式（仅作用于 #system-overview）
+   [最终合并版] 系统概览三列统一样式（仅作用于 #system-overview）
    =========================== */
 
-/* 可按需调整的配色与尺寸变量 */
+/* 可调配色与尺寸变量 */
 #system-overview{
-  --row-min-height: 32px;        /* 行高 */
-  --row-vpad: 6px;               /* 行内上下内边距 */
-  --gap: 8px;                    /* 列间距 */
-  --label-w: 88px;               /* 左侧键名固定宽度（窄屏会收窄） */
+  --row-min-height: 32px;          /* 行高 */
+  --row-vpad: 6px;                 /* 行内上下内边距 */
+  --gap: 8px;                      /* 基础列间距 */
+  --label-w: 80px;                 /* 左侧键名列宽（原 88px，收窄以拉长进度条） */
+  --percent-col: 44px;             /* 右侧百分比列宽，进一步拉长进度条 */
+  --meter-height: 20px;            /* 进度条高度 = 状态徽标高度 */
 
-  --meter-track: #d1d5db;        /* 进度条轨道（更深灰） */
-  --meter-fill-start: #059669;   /* 渐变起色 */
-  --meter-fill-end:   #10b981;   /* 渐变止色 */
-  --meter-text: #ffffff;         /* 条中文本白色 */
-  --percent-color: #111827;      /* 右侧百分比颜色 */
-  --label-color: #4b5563;        /* 键名颜色 */
-  --value-color: #111827;        /* 值颜色 */
-  --version-color:#6b7280;       /* 版本号颜色 */
+  --meter-track: #d1d5db;          /* 进度条轨道（更深灰） */
+  --meter-fill-start: #059669;     /* 渐变起色 */
+  --meter-fill-end:   #10b981;     /* 渐变止色 */
+  --meter-text: #ffffff;           /* 条中文本白色 */
+  --percent-color: #111827;        /* 右侧百分比颜色 */
+  --label-color: #4b5563;          /* 键名颜色 */
+  --value-color: #111827;          /* 值颜色 */
+  --version-color:#6b7280;         /* 版本号颜色 */
 }
 
-/* 标题紧凑，内容紧跟 */
-#system-overview .inner-block h3{margin:0 0 8px;line-height:1.2;}
-#system-overview .inner-block h3+*{margin-top:0 !important;}
+/* 标题更紧凑，内容紧跟 */
+#system-overview .inner-block h3{ margin:0 0 8px; line-height:1.2; }
+#system-overview .inner-block h3 + *{ margin-top:0 !important; }
 
-/* 三列行节奏统一：左键名 | 中内容 | 右状态/版本/百分比 */
+/* 三列统一行节奏：左键名 | 中内容 | 右状态/版本/百分比 */
 #system-overview .inner-block .info-item,
 #system-overview .inner-block .progress-row,
 #system-overview .inner-block .service-item{
@@ -5211,56 +5213,63 @@ body.modal-open {
   color:var(--value-color);
 }
 
-/* —— 服务器信息（两列：键名固定宽 + 值自适应省略） —— */
-#system-overview .server-info .info-item .label{color:var(--label-color);justify-self:start;}
+/* —— 服务器信息（键名固定宽 + 值单行省略） —— */
+#system-overview .server-info .info-item .label{ color:var(--label-color); justify-self:start; }
 #system-overview .server-info .info-item .value{
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--value-color);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--value-color);
 }
 
-/* —— 服务器配置（进度条在中列，条中文本在条里，省略 …） —— */
-#system-overview .progress-row .progress-label{color:var(--label-color);justify-self:start;}
+/* —— 服务器配置（进度条在中列，文本在条内） —— */
+#system-overview .progress-row{ grid-template-columns: var(--label-w) 1fr var(--percent-col); gap:6px; }
+#system-overview .progress-row .progress-label{ color:var(--label-color); justify-self:start; }
 #system-overview .progress-row .progress-bar{
-  position:relative;height:14px;background:var(--meter-track);
-  border-radius:999px;overflow:hidden;
+  position:relative; height:var(--meter-height); background:var(--meter-track);
+  border-radius:999px; overflow:hidden;
 }
 #system-overview .progress-row .progress-fill{
-  height:100%;border-radius:999px;transition:width .25s ease;
+  height:100%; border-radius:999px; transition:width .25s ease;
   background:linear-gradient(90deg,var(--meter-fill-start),var(--meter-fill-end));
+  z-index:0;
 }
-/* 文本绝对定位在条里，0% 时仍可见；超长 … */
+/* 文本绝对定位在条里，靠近两端些；0% 也可见；超长省略 */
 #system-overview .progress-row .progress-text{
-  position:absolute;left:8px;right:8px;top:50%;transform:translateY(-50%);
-  font-size:11px;line-height:1;color:var(--meter-text);
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;
+  position:absolute; z-index:1; left:6px; right:6px; top:50%; transform:translateY(-50%);
+  font-size:11px; line-height:1; color:var(--meter-text);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; pointer-events:none;
 }
-/* 右侧百分比 */
+/* 右侧百分比：更窄、等宽数字 */
 #system-overview .progress-row .progress-info{
-  min-width:48px;text-align:right;color:var(--percent-color);
+  min-width:var(--percent-col); text-align:right; color:var(--percent-color);
   font-variant-numeric:tabular-nums;
 }
 
-/* —— 核心服务（三列：服务名 | 状态徽标 | 版本号右对齐省略） —— */
-#system-overview .core-services .service-item .label{color:var(--label-color);justify-self:start;}
-#system-overview .core-services .service-item .service-status{display:inline-flex;align-items:center;gap:8px;}
+/* —— 核心服务（名称 | 状态徽标 | 版本号贴徽标） —— */
+#system-overview .core-services .service-item{
+  grid-template-columns: var(--label-w) auto auto;   /* 版本号不再单独占满右列 */
+  column-gap:6px;                                     /* 徽标与版本号更近 */
+  padding:var(--row-vpad) 0; min-height:var(--row-min-height);
+}
+#system-overview .core-services .service-item .label{ color:var(--label-color); justify-self:start; }
+#system-overview .core-services .service-item .service-status{
+  display:inline-flex; align-items:center; gap:8px;
+}
 #system-overview .core-services .service-item .status-badge{
-  padding:0 8px;height:20px;line-height:20px;border-radius:999px;font-size:11px;
+  height:20px; line-height:20px; padding:0 10px; border-radius:999px; font-size:11px;
 }
 #system-overview .core-services .service-item .version{
-  justify-self:end;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--version-color);font-size:12px;
+  justify-self:start; color:var(--version-color); font-size:12px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
 }
 
-/* 窄屏收窄键名列，减少换行 */
+/* 窄屏：键名列更窄以减少换行 */
 @media (max-width:640px){
   #system-overview .inner-block .info-item,
   #system-overview .inner-block .progress-row,
   #system-overview .inner-block .service-item{
-    grid-template-columns:72px 1fr auto; /* 键名更窄 */
+    grid-template-columns: 72px 1fr auto;
   }
 }
 
-/* 进度条文本置顶，防止被填充层遮挡 */
-#system-overview .progress-row .progress-text { z-index: 1; position: absolute; }
-#system-overview .progress-row .progress-fill  { z-index: 0; }
 
 EXTERNAL_CSS
 
@@ -5377,9 +5386,11 @@ function renderOverview() {
   setText('disk-info', (server.spec && server.spec.disk)   || '—', true);
 
   const clamp = v => Math.max(0, Math.min(100, Number(v) || 0));
-  const cpuPct  = clamp(sys.cpu);
-  const memPct  = clamp(sys.memory);
-  const diskPct = clamp(sys.disk);
+// 兼容多种命名（例如 cpu / cpu_usage / metrics.cpu 等）
+const pick = (...xs) => xs.find(v => v !== undefined && v !== null && v !== '') ?? 0;
+const cpuPct  = clamp(pick(sys.cpu, sys.cpu_usage, sys['cpu-percent'], sys.metrics?.cpu, dashboardData?.metrics?.cpu));
+const memPct  = clamp(pick(sys.memory, sys.mem, sys['memory-percent'], sys.metrics?.memory, dashboardData?.metrics?.memory));
+const diskPct = clamp(pick(sys.disk, sys.disk_usage, sys['disk-percent'], sys.metrics?.disk, dashboardData?.metrics?.disk));
 
   setWidth('cpu-progress',  cpuPct);
   setWidth('mem-progress',  memPct);
