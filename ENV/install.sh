@@ -5213,6 +5213,24 @@ function notify(msg, type = 'ok', ms = 1500) {
     }, ms);
 }
 
+async function copyTextFallbackAware(text) {
+  if (!text) throw new Error('empty');
+  try {
+    if ((location.protocol === 'https:' || location.hostname === 'localhost') && navigator.clipboard) {
+      await navigator.clipboard.writeText(text); return true;
+    }
+    throw new Error('insecure');
+  } catch {
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.readOnly = true;
+    ta.style.position='fixed'; ta.style.opacity='0';
+    document.body.appendChild(ta); ta.select();
+    const ok = document.execCommand('copy'); document.body.removeChild(ta);
+    if (!ok) throw new Error('execCommand failed'); return true;
+  }
+}
+
+
 // --- UI Rendering Functions ---
 function renderOverview() {
   const server = dashboardData.server || {};
@@ -5267,7 +5285,7 @@ function renderCertificateAndNetwork() {
   const cert   = server.cert || {};
   const shunt  = data.shunt  || {};
 
-  // 证书区（保留空值保护）
+  // —— 证书区（带空值保护）——
   const certMode = String(safeGet(cert, 'mode', 'self-signed'));
   document.getElementById('cert-self')?.classList.toggle('active', certMode === 'self-signed');
   document.getElementById('cert-ca')?.classList.toggle('active', certMode.startsWith('letsencrypt'));
@@ -5280,7 +5298,7 @@ function renderCertificateAndNetwork() {
     exEl.textContent = exp ? new Date(exp).toLocaleDateString() : '—';
   }
 
-  // 出站模式高亮（沿用第二段口径）
+  // —— 出站模式高亮（采用你第二段的口径）——
   const shuntMode = String(safeGet(shunt, 'mode', 'vps')).toLowerCase();
   ['net-vps','net-proxy','net-shunt'].forEach(id => document.getElementById(id)?.classList.remove('active'));
   if (shuntMode.includes('direct')) {
@@ -5291,35 +5309,50 @@ function renderCertificateAndNetwork() {
     document.getElementById('net-vps')?.classList.add('active');
   }
 
-  // VPS 出站 IP（保留兜底）
+  // —— VPS 出站 IP（带兜底）——
   const vpsIp = safeGet(data, 'server.eip') || safeGet(data, 'server.server_ip') || '—';
-  const vpsEl = document.getElementById('vps-ip');
-  if (vpsEl) vpsEl.textContent = vpsIp;
+  const vpsEl = document.getElementById('vps-ip'); if (vpsEl) vpsEl.textContent = vpsIp;
 
-  // 代理出站 IP：仅“协议//主机:端口”，剥离 user:pass@，兼容 IPv6
+  // —— 代理出站 IP：仅显示 “协议//主机:端口”，自动剥离 user:pass@，兼容 IPv6 —— 
+  const proxyRaw = String(safeGet(shunt, 'proxy_info', ''));
+  const proxyEl  = document.getElementById('proxy-ip');
+
   function formatProxy(raw) {
     if (!raw) return '—';
+    // 优先用 URL 解析
     try {
-      // 确保能被 URL 解析
+      // 确保有协议
       const normalized = /^[a-z][a-z0-9+.\-]*:\/\//i.test(raw) ? raw : 'socks5://' + raw;
       const u = new URL(normalized);
-      const proto = u.protocol.replace(/:$/,''); // e.g. 'socks5'
-      const host  = u.hostname || '';
-      const port  = u.port || '';
+      const proto = u.protocol.replace(/:$/,'');     // 'socks5'
+      const host  = u.hostname || '';                // 去掉了 user:pass@
+      const port  = u.port || '';                    // 可能为空
       return (host && port) ? `${proto}//${host}:${port}` : (host ? `${proto}//${host}` : '—');
-    } catch {
-      // 兜底：protocol://[user[:pass]@]host[:port]
+    } catch (_) {
+      // 兜底正则：protocol://[user[:pass]@]host[:port]
       const re = /^([a-z0-9+.\-]+):\/\/(?:[^@\/\s]+@)?(\[[^\]]+\]|[^:/?#]+)(?::(\d+))?/i;
-      const m = String(raw).match(re);
-      if (m) return m[3] ? `${m[1]}//${m[2]}:${m[3]}` : `${m[1]}//${m[2]}`;
+      const m = raw.match(re);
+      if (m) {
+        const proto = m[1];
+        const host  = m[2];
+        const port  = m[3] || '';
+        return port ? `${proto}//${host}:${port}` : `${proto}//${host}`;
+      }
+      // 再兜底一种 “proto host:port” 或 “host:port”
+      const re2 = /^(?:([a-z0-9+.\-]+)\s+)?(\[[^\]]+\]|[^:\/?#\s]+)(?::(\d+))?$/i;
+      const m2 = raw.match(re2);
+      if (m2) {
+        const proto = m2[1] || 'socks5';
+        const host  = m2[2];
+        const port  = m2[3] || '';
+        return port ? `${proto}//${host}:${port}` : `${proto}//${host}`;
+      }
       return '—';
     }
   }
-  const proxyRaw = String(safeGet(shunt, 'proxy_info', ''));
-  const proxyEl  = document.getElementById('proxy-ip');
   if (proxyEl) proxyEl.textContent = formatProxy(proxyRaw);
 
-  // 白名单预览（保留你原逻辑：始终有“查看全部”，并转义）
+  // —— 白名单预览：保持你“始终显示查看全部 + 转义”的口径 —— 
   const whitelist = data.shunt?.whitelist || [];
   const preview = document.getElementById('whitelistPreview');
   if (preview) {
@@ -5409,129 +5442,166 @@ function showWhitelistModal() {
     showModal('whitelistModal');
 }
 
+
 // 显示配置弹窗（按文档要求的内容和按钮顺序）
+// === 安全版：只负责渲染配置弹窗，不影响页面其它区域 ===
 function showConfigModal(protocolKey) {
-  const title = document.getElementById('configModalTitle');
+  const dd      = (window.dashboardData || {});
+  const title   = document.getElementById('configModalTitle');
   const details = document.getElementById('configDetails');
-  const qrContainer = document.getElementById('qrcode');
-  const footer = document.querySelector('#configModal .modal-footer');
-  if (!title || !details || !qrContainer) return;
-  
-  qrContainer.innerHTML = ''; 
-  let content = '', qrText = '';
+  const footer  = document.querySelector('#configModal .modal-footer');
+  if (!title || !details || !footer) return;
+
+  // 小工具（本地作用域，避免污染全局）
+  const esc = (s='') => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const toB64 = (s='') => { try { return btoa(unescape(encodeURIComponent(String(s)))); } catch { return ''; } };
+  const get   = (obj, path, fb='') => path.split('.').reduce((a,p)=> (a && a[p] !== undefined ? a[p] : undefined), obj) ?? fb;
+
+  // JSON 行尾注释对齐
+  function annotateAligned(obj, comments = {}) {
+    const json = JSON.stringify(obj, null, 2);
+    const lines = json.split('\n');
+
+    // 预扫描每行长度："  "key": value,
+    const metas = lines.map(line => {
+      const m = line.match(/^(\s*)"([^"]+)"\s*:\s*(.*?)(,?)$/);
+      if (!m) return null;
+      const [, indent, key, val, comma] = m;
+      const baseLen = indent.length + 1 + key.length + 1 + 2 + 1 + String(val).length + (comma ? 1 : 0);
+      return { indent, key, val, comma, baseLen };
+    }).filter(Boolean);
+    const maxLen = metas.length ? Math.max(...metas.map(x => x.baseLen)) : 0;
+
+    return lines.map(line => {
+      const m = line.match(/^(\s*)"([^"]+)"\s*:\s*(.*?)(,?)$/);
+      if (!m) return line;
+      const [, indent, key, val, comma] = m;
+      const base = `${indent}"${key}": ${val}${comma}`;
+      const cm   = comments[key];
+      if (!cm) return base;
+      const thisLen = indent.length + 1 + key.length + 1 + 2 + 1 + String(val).length + (comma ? 1 : 0);
+      const pad = ' '.repeat(Math.max(1, maxLen - thisLen + 1)); // 让 // 起始列统一
+      return `${base}${pad}// ${cm}`;
+    }).join('\n');
+  }
+
+  // 统一的“使用说明”区块
+  const usage = html => `
+    <div class="config-section">
+      <h4>使用说明</h4>
+      <div class="config-help" style="font-size:12px;color:#6b7280;line-height:1.6;">${html}</div>
+    </div>`;
+
+  let qrText = '';
 
   if (protocolKey === '__SUBS__') {
-    // 查看/复制弹窗：明文链接 → Base64 → 二维码 → 使用说明
-    title.textContent = '订阅链接配置';
-    const sub = dashboardData.subscription || {};
-    qrText = dashboardData.subscription_url || `http://${dashboardData.server?.server_ip}/sub`;
-    
-    // 按文档要求顺序：明文链接 → Base64 → 二维码 → 使用说明
-    content = `
+    // ===== 整包订阅 =====
+    const subsUrl = get(dd, 'subscription_url', '') || (get(dd, 'server.server_ip', '') ? `http://${get(dd,'server.server_ip')}/sub` : '');
+    const plain6  = get(dd, 'subscription.plain', '');
+    const base64  = get(dd, 'subscription.base64', '') || (plain6 ? toB64(plain6) : '');
+
+    title.textContent = '订阅（整包）';
+    details.innerHTML = `
       <div class="config-section">
-        <h4>明文链接</h4>
-        <div class="config-code" id="plain-link">${escapeHtml(qrText)}</div>
+        <h4>明文链接（订阅 URL）</h4>
+        <div class="config-code" id="plain-link">${esc(subsUrl)}</div>
       </div>
       <div class="config-section">
-        <h4>Base64</h4>
-        <div class="config-code" id="base64-link">${escapeHtml(sub.base64 || btoa(qrText))}</div>
+        <h4>明文（6 协议）</h4>
+        <div class="config-code" id="plain-links-6" style="white-space:pre-wrap">${esc(plain6)}</div>
       </div>
       <div class="config-section">
-        <h4>二维码</h4>
-        <div class="qr-container" style="margin-top:10px;">
-          <div id="qrcode-sub"></div>
-        </div>
+        <h4>Base64（整包）</h4>
+        <div class="config-code" id="base64-link">${esc(base64)}</div>
       </div>
       <div class="config-section">
-        <h4>使用说明</h4>
-        <p style="font-size:12px;color:#6b7280;line-height:1.6;">
-          将订阅地址导入支持的客户端（如v2rayN、Clash等），客户端将自动获取所有节点配置。
-        </p>
-      </div>`;
-    
-    // 查看/复制弹窗按钮顺序
+        <h4>二维码（订阅 URL）</h4>
+        <div class="qr-container"><div id="qrcode-sub"></div></div>
+      </div>
+      ${usage('将“订阅 URL”导入 v2rayN、Clash 等支持订阅的客户端；部分客户端也支持直接粘贴 Base64 或扫码二维码。')}
+    `;
     footer.innerHTML = `
-      <button class="btn btn-sm btn-secondary" data-action="copy" data-type="plain">复制明文链接</button>
+      <button class="btn btn-sm btn-secondary" data-action="copy" data-type="plain">复制订阅URL</button>
+      <button class="btn btn-sm btn-secondary" data-action="copy" data-type="plain6">复制明文(6协议)</button>
       <button class="btn btn-sm btn-secondary" data-action="copy" data-type="base64">复制Base64</button>
       <button class="btn btn-sm btn-secondary" data-action="copy-qr">复制二维码</button>
     `;
+    qrText = subsUrl;
+
   } else {
-    // 查看配置弹窗：JSON（逐项后紧跟注释）→ 明文链接 → Base64 → 二维码 → 使用说明
-    const protocol = (dashboardData.protocols || []).find(p => p.name === protocolKey);
-    if (!protocol) return notify('未找到协议信息', 'warn');
-    title.textContent = `${protocol.name} 配置详情`;
-    qrText = protocol.share_link || '';
-    
-    // 构造带注释的JSON配置
-    const jsonConfig = {
-      "server": dashboardData.server?.server_ip || '服务器IP',  
-      "port": protocol.port || 443,
-      "protocol": protocol.name,
-      "uuid": protocol.uuid || protocol.password || '认证凭据'
+    // ===== 单协议 =====
+    const p = (get(dd, 'protocols', []) || []).find(x => x && x.name === protocolKey);
+    if (!p) return;
+
+    // 注意：cert 在 server 下
+    const certMode = String(get(dd, 'server.cert.mode', 'self-signed'));
+    const isLE     = certMode.startsWith('letsencrypt');
+    const serverIp = get(dd, 'server.server_ip', '');
+
+    const obj = {
+      protocol: p.name,
+      host    : serverIp,
+      port    : p.port ?? 443,
+      uuid    : get(dd, 'secrets.vless.reality', '') || get(dd, 'secrets.vless.grpc', '') || get(dd, 'secrets.vless.ws', ''),
+      sni     : isLE ? get(dd, 'server.cert.domain', '') : serverIp,
+      alpn    : (p.name || '').toLowerCase().includes('grpc') ? 'h2' : ((p.name || '').toLowerCase().includes('ws') ? 'http/1.1' : '')
     };
-    
-    const jsonStr = JSON.stringify(jsonConfig, null, 2)
-      .replace(/"server"/, '"server"    // 服务器地址\n  "server"')
-      .replace(/"port"/, '"port"      // 端口号\n  "port"')
-      .replace(/"protocol"/, '"protocol"  // 协议类型\n  "protocol"')
-      .replace(/"uuid"/, '"uuid"      // 认证UUID或密码\n  "uuid"');
-    
-    // 按文档要求顺序：JSON → 明文链接 → Base64 → 二维码 → 使用说明
-    content = `
+    const comments = {
+      protocol: '协议类型（例：VLESS-Reality）',
+      host    : '服务器地址（IP/域名）',
+      port    : '端口',
+      uuid    : '认证 UUID / 密钥',
+      sni     : 'TLS/SNI（域名模式用域名）',
+      alpn    : 'ALPN（gRPC=h2，WS=http/1.1）'
+    };
+    const jsonAligned = annotateAligned(obj, comments);
+
+    const plain  = p.share_link || '';
+    const base64 = plain ? toB64(plain) : '';
+
+    title.textContent = `${p.name} 配置`;
+    details.innerHTML = `
       <div class="config-section">
-        <h4>JSON配置</h4>
-        <div class="config-code" id="json-code" style="white-space:pre-wrap;font-family:monospace;font-size:12px;">${escapeHtml(jsonStr)}</div>
+        <h4>JSON 配置</h4>
+        <div class="config-code" id="json-code" style="white-space:pre-wrap">${esc(jsonAligned)}</div>
       </div>
       <div class="config-section">
         <h4>明文链接</h4>
-        <div class="config-code" id="plain-link">${escapeHtml(protocol.share_link || '暂无链接')}</div>
+        <div class="config-code" id="plain-link">${esc(plain)}</div>
       </div>
       <div class="config-section">
         <h4>Base64</h4>
-        <div class="config-code" id="base64-link">${escapeHtml(btoa(protocol.share_link || ''))}</div>
+        <div class="config-code" id="base64-link">${esc(base64)}</div>
       </div>
       <div class="config-section">
-        <h4>二维码</h4>
-        <div class="qr-container" style="margin-top:10px;">
-          <div id="qrcode-protocol"></div>
-        </div>
+        <h4>二维码（明文链接）</h4>
+        <div class="qr-container"><div id="qrcode-protocol"></div></div>
       </div>
-      <div class="config-section">
-        <h4>使用说明</h4>
-        <p style="font-size:12px;color:#6b7280;line-height:1.6;">
-          ${protocol.usage || '请将配置导入到对应的客户端中使用。'}
-        </p>
-      </div>`;
-    
-    // 查看配置弹窗按钮顺序
+      ${usage('复制明文或 JSON 导入客户端；若客户端支持扫码添加，也可直接扫描二维码。')}
+    `;
     footer.innerHTML = `
-      <button class="btn btn-sm btn-secondary" data-action="copy" data-type="json">复制JSON</button>
+      <button class="btn btn-sm btn-secondary" data-action="copy" data-type="json">复制 JSON</button>
       <button class="btn btn-sm btn-secondary" data-action="copy" data-type="plain">复制明文链接</button>
-      <button class="btn btn-sm btn-secondary" data-action="copy" data-type="base64">复制Base64</button>
+      <button class="btn btn-sm btn-secondary" data-action="copy" data-type="base64">复制 Base64</button>
       <button class="btn btn-sm btn-secondary" data-action="copy-qr">复制二维码</button>
     `;
+    qrText = plain;
   }
 
-  details.innerHTML = content;
-  
-  // 生成二维码（移到内容区域内）
+  // 生成二维码（存在 QRCode 才生成，不报错）
   if (qrText && window.QRCode) {
-    setTimeout(() => {
-      const qrId = protocolKey === '__SUBS__' ? 'qrcode-sub' : 'qrcode-protocol';
-      const qrEl = document.getElementById(qrId);
-      if (qrEl) {
-        new QRCode(qrEl, { 
-          text: qrText, 
-          width: 200, 
-          height: 200,
-          correctLevel: QRCode.CorrectLevel.M
-        });
-      }
-    }, 100);
+    const id = (protocolKey === '__SUBS__') ? 'qrcode-sub' : 'qrcode-protocol';
+    const holder = document.getElementById(id);
+    if (holder) new QRCode(holder, { text: qrText, width: 200, height: 200 });
   }
-  
-  showModal('configModal');
+
+  // 打开弹窗（只负责当前弹窗，不改其它 DOM）
+  const modal = document.getElementById('configModal');
+  if (modal) { modal.style.display = 'block'; document.body.classList.add('modal-open'); }
 }
+
+
+
 
 // [PATCH:IPQ_MODAL] —— 拉不到数据也渲染结构；字段名完全兼容
 async function showIPQDetails(which) {
@@ -5713,159 +5783,97 @@ document.addEventListener('DOMContentLoaded', () => {
     setupEventListeners();
 });
 
-
-// ==== EdgeBox new11 前端补丁（append-only，不改变原有500+行）====
+// ==== new11 事件委托（append-only） ====
 (() => {
-  if (window.__EDGEBOX_NEW11_PATCH__) return;
-  window.__EDGEBOX_NEW11_PATCH__ = true;
+  if (window.__EDGEBOX_DELEGATED__) return;
+  window.__EDGEBOX_DELEGATED__ = true;
 
-  // 小工具：从全局 dashboardData 取值（沿用你原来的 safeGet 如存在）
-  const _safeGet = (obj, path, fb='—') => {
-    try {
-      const v = path.split('.').reduce((a,p) => (a && a[p] !== undefined ? a[p] : undefined), obj);
-      return (v !== undefined && v !== null && v !== '') ? v : fb;
-    } catch { return fb; }
-  };
+  const notify = window.notify || ((msg)=>console.log(msg));
+  const $ = s => document.querySelector(s);
 
-  // 修正“代理出站 IP”显示：proto://host[:port]（剥离 user:pass@，兼容无端口）
-  function formatProxy(raw) {
-    if (!raw) return '—';
-    const s = String(raw);
-    const m = s.match(/^([a-z0-9+.\-]+):\/\/(?:[^@]*@)?(\[[^\]]+\]|[^:/?#]+)(?::(\d+))?/i);
-    if (m) return `${m[1]}://${m[2]}${m[3] ? ':' + m[3] : ''}`;
-    return s; // 兜底：原样展示
+  function showModal(id) {
+    const m = document.getElementById(id);
+    if (!m) return;
+    m.style.display = 'block';
+    document.body.classList.add('modal-open');
+  }
+  function closeModal(id) {
+    const m = document.getElementById(id);
+    if (!m) return;
+    m.style.display = 'none';
+    document.body.classList.remove('modal-open');
   }
 
-  // 包一层：在你现有 render/renderCertificateAndNetwork 执行后，修正代理IP文本
-  const tryPatchProxy = () => {
-    try {
-      const dd = window.dashboardData || {};
-      const raw = _safeGet(dd, 'shunt.proxy_info', '');
-      const el = document.getElementById('proxy-ip');
-      if (el) el.textContent = raw ? formatProxy(raw) : '(未配置)';
-    } catch (e) { /* 静默 */ }
-  };
+  document.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-action]');
+    if (!btn) return;
+    const action   = btn.dataset.action;
+    const modal    = btn.dataset.modal || '';
+    const protocol = btn.dataset.protocol || '';
+    const type     = btn.dataset.type || '';
 
-  // 包装已有渲染函数（不改变其内部实现）
-  const wrap = (name) => {
-    const fn = window[name];
-    if (typeof fn !== 'function') return;
-    window[name] = function(...args) {
-      const ret = fn.apply(this, args);
-      tryPatchProxy();
-      return ret;
-    };
-  };
-  wrap('render');
-  wrap('renderCertificateAndNetwork');
-
-  // 第一次进入也补一次
-  tryPatchProxy();
-
-  // === 事件委托：解决 innerHTML 重渲染后按钮失效（不改任何 HTML/CSS）===
-  if (!document.__EDGEBOX_DELEGATED__) {
-    document.__EDGEBOX_DELEGATED__ = true;
-
-    document.addEventListener('click', async (e) => {
-      const btn = e.target.closest('[data-action]');
-      if (!btn) return;
-      const { action, modal, protocol, ipq, type } = btn.dataset;
-
-      // 你面板里的模态框ID/元素ID可能是：whitelistModal / configModal / ipqModal
-      const $ = (sel) => document.querySelector(sel);
-
-      const showModal = async (id, setup) => {
-        const m = document.getElementById(id);
-        if (!m) return;
-        if (setup) await setup();
-        m.style.display = 'block';
-        document.body.classList.add('modal-open');
-      };
-      const closeModal = (id) => {
-        const m = document.getElementById(id);
-        if (!m) return;
-        m.style.display = 'none';
-        document.body.classList.remove('modal-open');
-      };
-      const fetchJSON = async (url) => {
-        try { const r = await fetch(url, {cache:'no-store'}); return r.ok ? r.json() : null; }
-        catch { return null; }
-      };
-      const escapeHtml = (s='') => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-
-      switch (action) {
-        case 'open-modal':
-          await showModal(modal, async () => {
-            if (modal === 'whitelistModal') {
-              // 注意：你的预览区ID可能是 whitelistPreview（不是 whitelist-preview）
-              const list = (window.dashboardData?.shunt?.whitelist) || [];
-              const box = $('#whitelistList') || document.getElementById('whitelistList');
-              if (box) box.innerHTML = list.map(d => `<div class="whitelist-item">${escapeHtml(d)}</div>`).join('');
-            } else if (modal === 'ipqModal') {
-              const body = $('#ipqDetails');
-              if (body) {
-                body.innerHTML = '加载中...';
-                const data = await fetchJSON(`/status/ipq_${ipq}.json`);
-                body.innerHTML = `<pre>${escapeHtml(JSON.stringify(data, null, 2))}</pre>`;
-              }
-            } else if (modal === 'configModal') {
-              const dd = window.dashboardData || {};
-              const title = document.getElementById('configModalTitle');
-              const details = document.getElementById('configDetails');
-              const qr = document.getElementById('qrcode');
-              if (qr) qr.innerHTML = '';
-
-              let qrText = '', html = '';
-              if (protocol === '__SUBS__') {
-                // 整包订阅
-                qrText = dd.subscription_url || '';
-                const sub = dd.subscription || {};
-                if (title) title.textContent = '整包订阅配置';
-                if (details) details.innerHTML = `
-                  <div class="config-section">
-                    <h4>订阅地址</h4>
-                    <div class="config-code" id="sub-url">${escapeHtml(qrText)}</div>
-                  </div>
-                  <div class="config-section">
-                    <h4>明文(6协议)</h4>
-                    <div class="config-code" id="plain-link" style="white-space:pre-wrap">${escapeHtml(sub.plain || '')}</div>
-                  </div>`;
-              } else {
-                // 单协议
-                const p = (dd.protocols || []).find(x => x.name === protocol);
-                if (!p) { return closeModal(modal); }
-                qrText = p.share_link || '';
-                if (title) title.textContent = `${p.name} 配置`;
-                if (details) details.innerHTML = `
-                  <div class="config-section">
-                    <h4>分享链接</h4>
-                    <div class="config-code" id="plain-link">${escapeHtml(qrText)}</div>
-                  </div>`;
-              }
-              if (qrText && typeof QRCode !== 'undefined' && qr) {
-                new QRCode(qr, { text: qrText, width: 200, height: 200 });
-              }
-            }
-          });
-          break;
-
-        case 'close-modal':
-          closeModal(modal);
-          break;
-
-        case 'copy': {
-          const host = btn.closest('.modal-content');
-          if (!host) break;
-          const map = { sub:'#sub-url', plain:'#plain-link', json:'#json-code', base64:'#base64-link' };
-          const el = host.querySelector(map[type]);
-          const text = el ? el.textContent : '';
-          try { await navigator.clipboard.writeText(text || ''); } catch {}
-          break;
+    switch (action) {
+      case 'open-modal': {
+        if (modal === 'configModal') {
+          if (typeof showConfigModal === 'function') showConfigModal(protocol);
+          const m = document.getElementById('configModal');
+          if (m && m.style.display !== 'block') showModal('configModal');
+        } else if (modal === 'whitelistModal') {
+          const list = (window.dashboardData?.shunt?.whitelist) || [];
+          const box  = $('#whitelistList');
+          if (box) box.innerHTML = list.map(d => `<div class="whitelist-item">${String(d)
+            .replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}</div>`).join('');
+          showModal('whitelistModal');
+        } else if (modal === 'ipqModal') {
+          const body = $('#ipqDetails');
+          if (body) {
+            body.textContent = '加载中...';
+            try {
+              const r = await fetch(`/status/ipq_${btn.dataset.ipq || ''}.json`, { cache: 'no-store' });
+              body.textContent = JSON.stringify(r.ok ? await r.json() : null, null, 2);
+            } catch { body.textContent = '加载失败'; }
+          }
+          showModal('ipqModal');
         }
+        break;
       }
+
+      case 'close-modal': {
+        closeModal(modal);
+        break;
+      }
+
+// 事件委托中的复制分支（替换你现有的 copy 分支）
+// 复制文本（JSON/明文/6协议明文/Base64）
+case 'copy': {
+  const host = btn.closest('.modal-content');
+  const map  = { json:'#json-code', plain:'#plain-link', plain6:'#plain-links-6', base64:'#base64-link' };
+  const el   = host && host.querySelector(map[btn.dataset.type]);
+  const text = el ? (el.textContent || '').trim() : '';
+  try { await copyTextFallbackAware(text); (window.notify||console.log)('已复制'); }
+  catch { (window.notify||console.warn)('复制失败'); }
+  break;
+}
+// 复制二维码（受浏览器安全上下文限制）
+case 'copy-qr': {
+  const host = btn.closest('.modal-content');
+  const cvs  = host && host.querySelector('#qrcode-sub canvas, #qrcode-protocol canvas');
+  if (cvs && cvs.toBlob && navigator.clipboard?.write && (location.protocol==='https:' || location.hostname==='localhost')) {
+    cvs.toBlob(async blob => {
+      try { await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]); (window.notify||console.log)('二维码已复制'); }
+      catch { (window.notify||console.warn)('复制二维码失败'); }
     });
+  } else {
+    (window.notify||console.warn)('HTTP 页面无法直接复制二维码，请右键/长按保存');
   }
+  break;
+}
+
+
+    }
+  });
 })();
+
 
 EXTERNAL_JS
 
