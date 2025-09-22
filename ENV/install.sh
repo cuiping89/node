@@ -5172,74 +5172,95 @@ body.modal-open {
   }
 }
 
-/* ===== 系统概览：标题与行布局的稳固修复，仅作用于 #system-overview ===== */
+/* ===========================
+   [最终版] 系统概览三列统一样式（仅作用于 #system-overview）
+   =========================== */
 
-/* 标题：独占一整行、水平书写、单行不换 */
-#system-overview .inner-block { display:block !important; }
-#system-overview .inner-block > h3{
-  grid-column: 1 / -1 !important;
-  display:flex !important;
-  align-items:center !important;
-  white-space:nowrap !important;
-  writing-mode:horizontal-tb !important;
-  -webkit-writing-mode:horizontal-tb !important;
-  margin:0 0 8px !important; /* 你现在的节奏 */
+/* 可按需调整的配色与尺寸变量 */
+#system-overview{
+  --row-min-height: 32px;        /* 行高 */
+  --row-vpad: 6px;               /* 行内上下内边距 */
+  --gap: 8px;                    /* 列间距 */
+  --label-w: 88px;               /* 左侧键名固定宽度（窄屏会收窄） */
+
+  --meter-track: #d1d5db;        /* 进度条轨道（更深灰） */
+  --meter-fill-start: #059669;   /* 渐变起色 */
+  --meter-fill-end:   #10b981;   /* 渐变止色 */
+  --meter-text: #ffffff;         /* 条中文本白色 */
+  --percent-color: #111827;      /* 右侧百分比颜色 */
+  --label-color: #4b5563;        /* 键名颜色 */
+  --value-color: #111827;        /* 值颜色 */
+  --version-color:#6b7280;       /* 版本号颜色 */
 }
 
-/* 信息行/进度行/服务行：只对“行”生效，避免误伤标题 */
+/* 标题紧凑，内容紧跟 */
+#system-overview .inner-block h3{margin:0 0 8px;line-height:1.2;}
+#system-overview .inner-block h3+*{margin-top:0 !important;}
+
+/* 三列行节奏统一：左键名 | 中内容 | 右状态/版本/百分比 */
 #system-overview .inner-block .info-item,
 #system-overview .inner-block .progress-row,
 #system-overview .inner-block .service-item{
-  display:grid !important;
-  align-items:center !important;
+  margin:0;
+  padding:var(--row-vpad) 0;
+  min-height:var(--row-min-height);
+  display:grid;
+  grid-template-columns: var(--label-w) 1fr auto;
+  align-items:center;
+  gap:var(--gap);
+  color:var(--value-color);
 }
 
-/* —— 服务器配置：进度条列严格占满中间，并与两侧垂直居中 —— */
-#system-overview{
-  --label-w: 72px;            /* 左侧“CPU:”列宽 → 越小条越长 */
-  --percent-col: 36px;        /* 右侧百分比列宽 → 越小条越长 */
-  --progress-gap: 4px;        /* 中间列与两侧列的间距（再小条更长） */
-  --meter-height: 20px;
+/* —— 服务器信息（两列：键名固定宽 + 值自适应省略） —— */
+#system-overview .server-info .info-item .label{color:var(--label-color);justify-self:start;}
+#system-overview .server-info .info-item .value{
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--value-color);
 }
-#system-overview .progress-row{
-  grid-template-columns: var(--label-w) minmax(0,1fr) var(--percent-col) !important;
-  column-gap: var(--progress-gap) !important;
-}
-#system-overview .progress-row .progress-label,
-#system-overview .progress-row .progress-info,
-#system-overview .progress-row .progress-bar{ align-self:center !important; }
 
+/* —— 服务器配置（进度条在中列，条中文本在条里，省略 …） —— */
+#system-overview .progress-row .progress-label{color:var(--label-color);justify-self:start;}
 #system-overview .progress-row .progress-bar{
-  position:relative; height:var(--meter-height);
-  background:#d1d5db; border-radius:999px; overflow:hidden;
+  position:relative;height:14px;background:var(--meter-track);
+  border-radius:999px;overflow:hidden;
 }
 #system-overview .progress-row .progress-fill{
-  height:100%; border-radius:999px;
-  background:linear-gradient(90deg,#059669,#10b981);
-  transition:width .25s ease; z-index:0;
+  height:100%;border-radius:999px;transition:width .25s ease;
+  background:linear-gradient(90deg,var(--meter-fill-start),var(--meter-fill-end));
 }
+/* 文本绝对定位在条里，0% 时仍可见；超长 … */
 #system-overview .progress-row .progress-text{
-  position:absolute; z-index:1; left:4px; right:4px; top:50%; transform:translateY(-50%);
-  font-size:11px; line-height:1; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  position:absolute;left:8px;right:8px;top:50%;transform:translateY(-50%);
+  font-size:11px;line-height:1;color:var(--meter-text);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;
 }
+/* 右侧百分比 */
 #system-overview .progress-row .progress-info{
-  min-width:var(--percent-col); text-align:right; color:#111827;
+  min-width:48px;text-align:right;color:var(--percent-color);
   font-variant-numeric:tabular-nums;
 }
 
-/* —— 核心服务：三列（服务名 | 徽标 | 版本号），两侧等间距 —— */
-#system-overview{ --svc-gap: 8px; }
-#system-overview .core-services .service-item{
-  grid-template-columns: var(--label-w) max-content 1fr !important; /* 版本号占剩余，必要时省略 */
-  column-gap: var(--svc-gap) !important;
-}
-#system-overview .core-services .service-item .service-status{
-  display:inline-flex; align-items:center; gap:0; margin:0; white-space:nowrap;
+/* —— 核心服务（三列：服务名 | 状态徽标 | 版本号右对齐省略） —— */
+#system-overview .core-services .service-item .label{color:var(--label-color);justify-self:start;}
+#system-overview .core-services .service-item .service-status{display:inline-flex;align-items:center;gap:8px;}
+#system-overview .core-services .service-item .status-badge{
+  padding:0 8px;height:20px;line-height:20px;border-radius:999px;font-size:11px;
 }
 #system-overview .core-services .service-item .version{
-  justify-self:start; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  justify-self:end;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--version-color);font-size:12px;
 }
 
+/* 窄屏收窄键名列，减少换行 */
+@media (max-width:640px){
+  #system-overview .inner-block .info-item,
+  #system-overview .inner-block .progress-row,
+  #system-overview .inner-block .service-item{
+    grid-template-columns:72px 1fr auto; /* 键名更窄 */
+  }
+}
+
+/* 进度条文本置顶，防止被填充层遮挡 */
+#system-overview .progress-row .progress-text { z-index: 1; position: absolute; }
+#system-overview .progress-row .progress-fill  { z-index: 0; }
 
 EXTERNAL_CSS
 
