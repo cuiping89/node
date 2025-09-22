@@ -5385,7 +5385,6 @@ if (baseMode === 'vps' || baseMode === '') {
 }
 
 
-
 function renderProtocolTable() {
     const protocols = dashboardData.protocols || [];
     const tbody = document.getElementById('protocol-tbody');
@@ -5393,13 +5392,12 @@ function renderProtocolTable() {
     const rows = protocols.map(p => `
         <tr>
             <td>${escapeHtml(p.name)}</td>
-<td>${escapeHtml(p.fit || p.scenario || '—')}</td>
-<td>${escapeHtml(p.effect || p.camouflage || '—')}</td>
+            <td>${escapeHtml(p.fit || p.scenario || '—')}</td>
+            <td>${escapeHtml(p.effect || p.camouflage || '—')}</td>
             <td><span class="status-badge ${p.status === '运行中' ? 'status-running' : ''}">${p.status}</span></td>
-			<td><button class="btn-link" data-action="open-modal" data-modal="configModal" data-protocol="${escapeHtml(p.name)}">查看配置</button></td>
+            <td><button class="btn-link" data-action="open-modal" data-modal="configModal" data-protocol="${escapeHtml(p.name)}">查看配置</button></td>
         </tr>`).join('');
-    const subRow = `<tr class="subs-row"><td style="font-weight:500;">整包订阅链接</td><td>所有协议</td><td>通用</td><td></td>
-	<td><button class="btn-link" data-action="open-modal" data-modal="configModal" data-protocol="__SUBS__">查看订阅</button></td>
+    const subRow = `<tr class="subs-row"><td style="font-weight:500;">整包订阅链接</td><td>所有协议</td><td>通用</td><td></td><td><button class="btn-link" data-action="open-modal" data-modal="configModal" data-protocol="__SUBS__">查看/复制</button></td></tr>`;
     tbody.innerHTML = rows + subRow;
 }
 
