@@ -5172,122 +5172,72 @@ body.modal-open {
   }
 }
 
-/* ===========================
-   系统概览（仅 #system-overview）— 稳定整合版
-   =========================== */
+/* ===== 系统概览：标题与行布局的稳固修复，仅作用于 #system-overview ===== */
 
-/* 变量（给出默认值，避免“开关”式频繁改动） */
-#system-overview{
-  --row-min-height: 32px;
-  --row-vpad: 6px;
-  --gap: 8px;
-  --h3-gap: 8px;
-
-  /* 这三项决定进度条可用长度（下面“调整方法”就在改它们） */
-  --label-w: 50px;          /* 左侧键名列宽：72px */
-  --percent-col: 33px;      /* 右侧百分比列宽：36px */
-  --progress-gap: 2px;      /* 进度条两侧列的列间距：4px */
-
-  --meter-height: 20px;     /* 进度条高度，与徽标一致 */
-  --meter-track: #d1d5db;
-  --meter-fill-start:#059669;
-  --meter-fill-end:#10b981;
-  --meter-text:#fff;
-  --percent-color:#111827;
-  --label-color:#4b5563;
-  --value-color:#111827;
-  --version-color:#6b7280;
-
-  --svc-gap: 8px;           /* 核心服务：服务名↔徽标、徽标↔版本 的统一间距 */
+/* 标题：独占一整行、水平书写、单行不换 */
+#system-overview .inner-block { display:block !important; }
+#system-overview .inner-block > h3{
+  grid-column: 1 / -1 !important;
+  display:flex !important;
+  align-items:center !important;
+  white-space:nowrap !important;
+  writing-mode:horizontal-tb !important;
+  -webkit-writing-mode:horizontal-tb !important;
+  margin:0 0 8px !important; /* 你现在的节奏 */
 }
 
-/* 标题紧凑 */
-#system-overview .inner-block h3{ margin:0 0 var(--h3-gap); line-height:1.2; }
-#system-overview .inner-block h3 + *{ margin-top:0 !important; }
-
-/* 基础行（保持你的原样） */
+/* 信息行/进度行/服务行：只对“行”生效，避免误伤标题 */
 #system-overview .inner-block .info-item,
 #system-overview .inner-block .progress-row,
 #system-overview .inner-block .service-item{
-  margin:0;
-  padding:var(--row-vpad) 0;
-  min-height:var(--row-min-height);
-  display:grid;
-  align-items:center;
-  gap:var(--gap);
-  color:var(--value-color);
+  display:grid !important;
+  align-items:center !important;
 }
 
-/* —— 服务器信息：两列 —— */
-#system-overview .server-info .info-item{
-  grid-template-columns: var(--label-w) 1fr;
+/* —— 服务器配置：进度条列严格占满中间，并与两侧垂直居中 —— */
+#system-overview{
+  --label-w: 50px;            /* 左侧“CPU:”列宽 → 越小条越长 */
+  --percent-col: 36px;        /* 右侧百分比列宽 → 越小条越长 */
+  --progress-gap: 4px;        /* 中间列与两侧列的间距（再小条更长） */
+  --meter-height: 20px;
 }
-#system-overview .server-info .info-item .label{ color:var(--label-color); justify-self:start; }
-#system-overview .server-info .info-item .value{
-  min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-}
-
-/* —— 服务器配置：三列（键名 | 进度条 | 百分比）——
-   重点：minmax(0,1fr) 保证进度条“占满中间列”，并与两侧严格居中 */
 #system-overview .progress-row{
-  grid-template-columns: var(--label-w) minmax(0,1fr) var(--percent-col);
-  column-gap: var(--progress-gap);
+  grid-template-columns: var(--label-w) minmax(0,1fr) var(--percent-col) !important;
+  column-gap: var(--progress-gap) !important;
 }
 #system-overview .progress-row .progress-label,
-#system-overview .progress-row .progress-info { align-self: center; } /* 三个单元垂直对齐更稳 */
-
-#system-overview .progress-row .progress-label{ color:var(--label-color); justify-self:start; }
+#system-overview .progress-row .progress-info,
+#system-overview .progress-row .progress-bar{ align-self:center !important; }
 
 #system-overview .progress-row .progress-bar{
   position:relative; height:var(--meter-height);
-  background:var(--meter-track); border-radius:999px; overflow:hidden;
-  align-self:center; /* 进度条在行内垂直居中 */
+  background:#d1d5db; border-radius:999px; overflow:hidden;
 }
 #system-overview .progress-row .progress-fill{
   height:100%; border-radius:999px;
-  background:linear-gradient(90deg,var(--meter-fill-start),var(--meter-fill-end));
-  transition: width .25s ease; z-index:0;
+  background:linear-gradient(90deg,#059669,#10b981);
+  transition:width .25s ease; z-index:0;
 }
-/* 条中文本：靠近两端，0% 也可见 */
 #system-overview .progress-row .progress-text{
   position:absolute; z-index:1; left:4px; right:4px; top:50%; transform:translateY(-50%);
-  font-size:11px; line-height:1; color:var(--meter-text);
-  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; pointer-events:none;
+  font-size:11px; line-height:1; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
 }
-/* 右侧百分比 */
 #system-overview .progress-row .progress-info{
-  min-width:var(--percent-col);
-  text-align:right; color:var(--percent-color);
-  font-variant-numeric: tabular-nums;
+  min-width:var(--percent-col); text-align:right; color:#111827;
+  font-variant-numeric:tabular-nums;
 }
 
-/* —— 核心服务：三列（服务名 | 徽标 | 版本号），统一等间距 —— */
+/* —— 核心服务：三列（服务名 | 徽标 | 版本号），两侧等间距 —— */
+#system-overview{ --svc-gap: 8px; }
 #system-overview .core-services .service-item{
-  grid-template-columns: var(--label-w) max-content 1fr; /* 版本号占剩余空间，必要时省略 */
-  column-gap: var(--svc-gap);
-}
-#system-overview .core-services .service-item .label{
-  color:var(--label-color); justify-self:start;
+  grid-template-columns: var(--label-w) max-content 1fr !important; /* 版本号占剩余，必要时省略 */
+  column-gap: var(--svc-gap) !important;
 }
 #system-overview .core-services .service-item .service-status{
-  display:inline-flex; align-items:center;
-  gap:0; margin:0; white-space:nowrap; /* 间距交给 column-gap 管 */
-}
-#system-overview .core-services .service-item .status-badge{
-  height:20px; line-height:20px; padding:0 10px; border-radius:999px; font-size:11px;
+  display:inline-flex; align-items:center; gap:0; margin:0; white-space:nowrap;
 }
 #system-overview .core-services .service-item .version{
-  justify-self:start; color:var(--version-color); font-size:12px;
-  min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin:0;
-}
-
-/* 窄屏：键名更窄，减少换行 */
-@media (max-width:640px){
-  #system-overview{
-    --label-w: 68px;
-    --percent-col: 32px;
-    --progress-gap: 4px;
-  }
+  justify-self:start; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
 }
 
 
