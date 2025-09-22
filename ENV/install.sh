@@ -4581,13 +4581,12 @@ body, p, span, td, div {
   word-break: break-word;
 }
 
-/* === 统一的查看按钮样式（所有"查看详情/查看全部/查看配置"按钮） === */
-.whitelist-more,
+/* === 统一的查看按钮样式 === */
 .btn-link,
 .link {
   display: inline-block;
   height: 28px;
-  line-height: 26px;  /* 减2px用于border */
+  line-height: 26px;
   padding: 0 12px;
   border: 1px solid #d1d5db;
   border-radius: 6px;
@@ -4599,12 +4598,46 @@ body, p, span, td, div {
   transition: all 0.2s;
 }
 
-.whitelist-more:hover,
 .btn-link:hover,
 .link:hover {
   background: #f3f4f6;
   border-color: #9ca3af;
   color: #1d4ed8;
+}
+
+/* === 主操作按钮（绿色） === */
+.btn-primary {
+  display: inline-block;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.2s;
+  background: #10b981;
+  color: white;
+}
+
+.btn-primary:hover {
+  background: #0ea37a;
+}
+
+/* === 次要按钮（用于弹窗底部） === */
+.btn-secondary {
+  display: inline-block;
+  padding: 5px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  background: white;
+  color: #1f2937;
+  border: 1px solid #d1d5db;
+  transition: all 0.2s;
+}
+
+.btn-secondary:hover {
+  background: #f3f4f6;
+  border-color: #9ca3af;
 }
 
 /* 白名单查看全部按钮特殊定位 */
@@ -4800,37 +4833,6 @@ body, p, span, td, div {
 .command-list span { 
   color: #6b7280; 
   margin-left: 8px; 
-}
-
-/* === 按钮系统 === */
-.btn {
-  padding: 8px 16px;
-  border-radius: 6px;
-  font-size: 12px;
-  cursor: pointer;
-  border: 1px solid transparent;
-  transition: all 0.2s;
-  background: #10b981;
-  color: white;
-}
-
-.btn:hover {
-  background: #0ea37a;
-}
-
-.btn-sm {
-  padding: 5px 10px;
-  font-size: 11px;
-}
-
-.btn-secondary {
-  background: white;
-  color: #1f2937;
-  border-color: #d1d5db;
-}
-
-.btn-secondary:hover {
-  background: #f3f4f6;
 }
 
 /* === 统一的弹窗样式 === */
@@ -5394,9 +5396,10 @@ function renderProtocolTable() {
 <td>${escapeHtml(p.fit || p.scenario || '—')}</td>
 <td>${escapeHtml(p.effect || p.camouflage || '—')}</td>
             <td><span class="status-badge ${p.status === '运行中' ? 'status-running' : ''}">${p.status}</span></td>
-            <td><button class="btn btn-sm btn-link" data-action="open-modal" data-modal="configModal" data-protocol="${escapeHtml(p.name)}">查看配置</button></td>
+			<td><button class="btn-link" data-action="open-modal" data-modal="configModal" data-protocol="${escapeHtml(p.name)}">查看配置</button></td>
         </tr>`).join('');
-    const subRow = `<tr class="subs-row"><td style="font-weight:500;">整包订阅链接</td><td>所有协议</td><td>通用</td><td></td><td><button class="btn btn-sm btn-link" data-action="open-modal" data-modal="configModal" data-protocol="__SUBS__">查看/复制</button></td></tr>`;
+    const subRow = `<tr class="subs-row"><td style="font-weight:500;">整包订阅链接</td><td>所有协议</td><td>通用</td><td></td>
+	<td><button class="btn-link" data-action="open-modal" data-modal="configModal" data-protocol="__SUBS__">查看订阅</button></td>
     tbody.innerHTML = rows + subRow;
 }
 
@@ -5600,6 +5603,12 @@ function showConfigModal(protocolKey) {
       <button class="btn btn-sm btn-secondary" data-action="copy" data-type="base64">复制 Base64</button>
       <button class="btn btn-sm btn-secondary" data-action="copy-qr">复制二维码</button>
     `;
+	footer.innerHTML = `
+	<button class="btn-secondary" data-action="copy" data-type="json">复制JSON</button>
+  <button class="btn-secondary" data-action="copy" data-type="plain">复制明文链接</button>
+  <button class="btn-secondary" data-action="copy" data-type="base64">复制Base64</button>
+  <button class="btn-secondary" data-action="copy-qr">复制二维码</button>
+`;
     qrText = plain;
   }
 
