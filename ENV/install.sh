@@ -5269,6 +5269,35 @@ body.modal-open {
     grid-template-columns: 72px 1fr auto;
   }
 }
+/* === 核心服务：标题 ↔ 徽标 ↔ 版本号 等间距统一 === */
+
+/* 统一一个间距变量；不写则默认用 --gap 的值 */
+#system-overview { --svc-gap: var(--gap, 8px); }
+
+/* 每行三列：服务名 | 徽标 | 版本号；两侧间距一致 */
+#system-overview .core-services .service-item{
+  grid-template-columns: var(--label-w) auto auto; /* 保持你现有布局 */
+  column-gap: var(--svc-gap);                      /* 标题↔徽标 与 徽标↔版本号 用同一个间距 */
+}
+
+/* 徽标容器不要额外的内部间距/间隔，避免破坏等距效果 */
+#system-overview .core-services .service-item .service-status{
+  display: inline-flex;
+  align-items: center;
+  gap: 0;                 /* 取消内部 gap，交给 column-gap 控制整体间距 */
+  margin: 0;              /* 去掉潜在 margin */
+  white-space: nowrap;    /* 防止“运行中”被拆行 */
+}
+
+/* 版本号紧跟徽标显示，允许超长时省略 */
+#system-overview .core-services .service-item .version{
+  justify-self: start;              /* 紧挨徽标 */
+  margin: 0;                        /* 去掉潜在 margin */
+  white-space: nowrap;              /* 不换行 */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;                     /* 让省略号生效 */
+}
 
 
 EXTERNAL_CSS
@@ -5426,9 +5455,10 @@ function renderOverview() {
     xray:    services.xray?.version  || '',
     singbox: (services['sing-box']?.version || services.singbox?.version || '')
   };
-  setText('nginx-version',   versions.nginx   || '—', true);
-  setText('xray-version',    versions.xray    || '—', true);
-  setText('singbox-version', versions.singbox || '—', true);
+
+setText('nginx-version',   versions.nginx   ? `版本 ${versions.nginx}`   : '—', true);
+setText('xray-version',    versions.xray    ? `版本 ${versions.xray}`    : '—', true);
+setText('singbox-version', versions.singbox ? `版本 ${versions.singbox}` : '—', true);
 
   toggleBadge('#system-overview .core-services .service-item:nth-of-type(1) .status-badge', services.nginx?.status === '运行中');
   toggleBadge('#system-overview .core-services .service-item:nth-of-type(2) .status-badge', services.xray?.status  === '运行中');
