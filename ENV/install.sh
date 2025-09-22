@@ -5258,6 +5258,9 @@ body.modal-open {
   }
 }
 
+/* 进度条文本置顶，防止被填充层遮挡 */
+#system-overview .progress-row .progress-text { z-index: 1; position: absolute; }
+#system-overview .progress-row .progress-fill  { z-index: 0; }
 
 EXTERNAL_CSS
 
@@ -5350,9 +5353,12 @@ function renderOverview() {
   const server = dashboardData.server || {};
   const services = dashboardData.services || {};
 
-/* ===========================
-   系统概览 · 数据绑定
-   =========================== */
+// —— 核心服务版本映射（避免 versions 未定义导致中断）——
+const versions = {
+  nginx:   safeGet(services, 'nginx.version'),
+  xray:    safeGet(services, 'xray.version'),
+  singbox: safeGet(services, 'sing-box.version') || safeGet(services, 'singbox.version')
+};
 
 // —— 服务器信息 ——（保持你的变量/函数名，只演示写法）
 document.getElementById('user-remark').textContent = safeGet(server, 'remark') || '未备注';
