@@ -5477,24 +5477,19 @@ function showWhitelistModal() {
 }
 
 
-// 显示配置弹窗（按文档要求的内容和按钮顺序）
 function showConfigModal(protocolKey) {
   const title = document.getElementById('configModalTitle');
   const details = document.getElementById('configDetails');
-  const qrContainer = document.getElementById('qrcode');
   const footer = document.querySelector('#configModal .modal-footer');
-  if (!title || !details || !qrContainer) return;
+  if (!title || !details) return;
   
-  qrContainer.innerHTML = ''; 
   let content = '', qrText = '';
 
   if (protocolKey === '__SUBS__') {
-    // 查看/复制弹窗：明文链接 → Base64 → 二维码 → 使用说明
     title.textContent = '订阅链接配置';
     const sub = dashboardData.subscription || {};
     qrText = dashboardData.subscription_url || `http://${dashboardData.server?.server_ip}/sub`;
     
-    // 按文档要求顺序：明文链接 → Base64 → 二维码 → 使用说明
     content = `
       <div class="config-section">
         <h4>明文链接</h4>
@@ -5507,7 +5502,7 @@ function showConfigModal(protocolKey) {
       <div class="config-section">
         <h4>二维码</h4>
         <div class="qr-container" style="margin-top:10px;">
-          <div id="qrcode-sub"></div>
+          <div id="qrcode"></div>
         </div>
       </div>
       <div class="config-section">
@@ -5517,20 +5512,17 @@ function showConfigModal(protocolKey) {
         </p>
       </div>`;
     
-    // 查看/复制弹窗按钮顺序
     footer.innerHTML = `
       <button class="btn btn-sm btn-secondary" data-action="copy" data-type="plain">复制明文链接</button>
       <button class="btn btn-sm btn-secondary" data-action="copy" data-type="base64">复制Base64</button>
       <button class="btn btn-sm btn-secondary" data-action="copy-qr">复制二维码</button>
     `;
   } else {
-    // 查看配置弹窗：JSON（逐项后紧跟注释）→ 明文链接 → Base64 → 二维码 → 使用说明
     const protocol = (dashboardData.protocols || []).find(p => p.name === protocolKey);
     if (!protocol) return notify('未找到协议信息', 'warn');
     title.textContent = `${protocol.name} 配置详情`;
     qrText = protocol.share_link || '';
     
-    // 构造带注释的JSON配置
     const jsonConfig = {
       "server": dashboardData.server?.server_ip || '服务器IP',  
       "port": protocol.port || 443,
@@ -5544,7 +5536,6 @@ function showConfigModal(protocolKey) {
       .replace(/"protocol"/, '"protocol"  // 协议类型\n  "protocol"')
       .replace(/"uuid"/, '"uuid"      // 认证UUID或密码\n  "uuid"');
     
-    // 按文档要求顺序：JSON → 明文链接 → Base64 → 二维码 → 使用说明
     content = `
       <div class="config-section">
         <h4>JSON配置</h4>
@@ -5561,7 +5552,7 @@ function showConfigModal(protocolKey) {
       <div class="config-section">
         <h4>二维码</h4>
         <div class="qr-container" style="margin-top:10px;">
-          <div id="qrcode-protocol"></div>
+          <div id="qrcode"></div>
         </div>
       </div>
       <div class="config-section">
@@ -5571,7 +5562,6 @@ function showConfigModal(protocolKey) {
         </p>
       </div>`;
     
-    // 查看配置弹窗按钮顺序
     footer.innerHTML = `
       <button class="btn btn-sm btn-secondary" data-action="copy" data-type="json">复制JSON</button>
       <button class="btn btn-sm btn-secondary" data-action="copy" data-type="plain">复制明文链接</button>
@@ -5582,12 +5572,12 @@ function showConfigModal(protocolKey) {
 
   details.innerHTML = content;
   
-  // 生成二维码（移到内容区域内）
+  // 生成二维码
   if (qrText && window.QRCode) {
     setTimeout(() => {
-      const qrId = protocolKey === '__SUBS__' ? 'qrcode-sub' : 'qrcode-protocol';
-      const qrEl = document.getElementById(qrId);
+      const qrEl = document.getElementById('qrcode');
       if (qrEl) {
+        qrEl.innerHTML = '';  // 清空之前的内容
         new QRCode(qrEl, { 
           text: qrText, 
           width: 200, 
