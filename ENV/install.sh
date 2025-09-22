@@ -5350,84 +5350,87 @@ async function copyTextFallbackAware(text) {
 
 // --- UI Rendering Functions ---
 function renderOverview() {
-  const server = dashboardData.server || {};
-  const services = dashboardData.services || {};
+  // 1) 取数据源（容错）
+  const server   = (dashboardData && dashboardData.server)   || {};
+  const services = (dashboardData && dashboardData.services) || {};
+  const sys      = (typeof systemData === 'object' && systemData) || {};
 
-// —— 核心服务版本映射（避免 versions 未定义导致中断）——
-const versions = {
-  nginx:   safeGet(services, 'nginx.version'),
-  xray:    safeGet(services, 'xray.version'),
-  singbox: safeGet(services, 'sing-box.version') || safeGet(services, 'singbox.version')
-};
+  // 2) 核心服务版本号（只声明一次！）
+  const versions = {
+    nginx:   (services.nginx && services.nginx.version) || '',
+    xray:    (services.xray && services.xray.version)   || '',
+    singbox: ((services['sing-box'] && services['sing-box'].version) ||
+              (services.singbox    && services.singbox.version)      || '')
+  };
 
-// —— 服务器信息 ——（保持你的变量/函数名，只演示写法）
-document.getElementById('user-remark').textContent = safeGet(server, 'remark') || '未备注';
-document.getElementById('cloud-region').textContent = safeGet(server, 'cloud_region') || 'Independent | Unknown';
-document.getElementById('instance-id').textContent = safeGet(server, 'instance_id') || 'Unknown';
-document.getElementById('hostname').textContent = safeGet(server, 'hostname') || '-';
+  // 3) 服务器信息
+  setText('user-remark',  server.user_alias || '未备注', true);
+  const prov = (server.cloud && server.cloud.provider) || 'Independent';
+  const regi = (server.cloud && server.cloud.region)   || 'Unknown';
+  setText('cloud-region', `${prov} | ${regi}`, true);
+  setText('instance-id',  server.instance_id || 'Unknown', true);
+  setText('hostname',     server.hostname    || '-', true);
 
-// —— 服务器配置 ——（条内文本 + 宽度 + 右侧百分比）
-const cpuText = safeGet(server, 'spec.cpu') || '—';
-const memText = safeGet(server, 'spec.memory') || '—';
-const diskText = safeGet(server, 'spec.disk') || '—';
+  // 4) 服务器配置（条中文本 + 百分比）
+  setText('cpu-info',  (server.spec && server.spec.cpu)    || '—', true);
+  setText('mem-info',  (server.spec && server.spec.memory) || '—', true);
+  setText('disk-info', (server.spec && server.spec.disk)   || '—', true);
 
-const cpuPct = Math.max(0, Math.min(100, Number(safeGet(systemData,'cpu'))||0));
-const memPct = Math.max(0, Math.min(100, Number(safeGet(systemData,'memory'))||0));
-const diskPct = Math.max(0, Math.min(100, Number(safeGet(systemData,'disk'))||0));
+  const clamp = v => Math.max(0, Math.min(100, Number(v) || 0));
+  const cpuPct  = clamp(sys.cpu);
+  const memPct  = clamp(sys.memory);
+  const diskPct = clamp(sys.disk);
 
-// 条中文本（完整值放 title）
-['cpu','mem','disk'].forEach(k=>{
-  const text = (k==='cpu')?cpuText:(k==='mem')?memText:diskText;
-  const el = document.getElementById(`${k}-info`);
-  el.textContent = text; el.title = text;
-});
+  setWidth('cpu-progress',  cpuPct);
+  setWidth('mem-progress',  memPct);
+  setWidth('disk-progress', diskPct);
+  setText('cpu-percent',  `${cpuPct}%`);
+  setText('mem-percent',  `${memPct}%`);
+  setText('disk-percent', `${diskPct}%`);
 
-// 进度宽度与右侧百分比
-document.getElementById('cpu-progress').style.width  = `${cpuPct}%`;
-document.getElementById('mem-progress').style.width  = `${memPct}%`;
-document.getElementById('disk-progress').style.width = `${diskPct}%`;
-document.getElementById('cpu-percent').textContent   = `${cpuPct}%`;
-document.getElementById('mem-percent').textContent   = `${memPct}%`;
-document.getElementById('disk-percent').textContent  = `${diskPct}%`;
+  // 5) 核心服务版本号写入
+  setText('nginx-version',   versions.nginx   || '—', true);
+  setText('xray-version',    versions.xray    || '—', true);
+  setText('singbox-version', versions.singbox || '—', true);
 
-// —— 核心服务（版本号与状态）——【唯一声明，不要再在别处声明同名变量】
-const svc = (dashboardData && dashboardData.services) ? dashboardData.services : {};
-const versions = {
-  nginx:   (svc.nginx && svc.nginx.version) || '',
-  xray:    (svc.xray && svc.xray.version) || '',
-  singbox: ( (svc['sing-box'] && svc['sing-box'].version) || (svc.singbox && svc.singbox.version) || '' )
-};
+  // 6) 服务状态徽标（存在才切）
+  toggleBadge('#system-overview .core-services .service-item:nth-of-type(1) .status-badge',
+              (services.nginx && services.nginx.status) === '运行中');
+  toggleBadge('#system-overview .core-services .service-item:nth-of-type(2) .status-badge',
+              (services.xray && services.xray.status) === '运行中');
+  toggleBadge('#system-overview .core-services .service-item:nth-of-type(3) .status-badge',
+              ((services['sing-box'] && services['sing-box'].status) ||
+               (services.singbox && services.singbox.status)) === '运行中');
 
-// 写入三个版本号（顺带设置 title 方便悬停查看）
-const setVer = (id, v) => { const el = document.getElementById(id); if (el) { el.textContent = v || '—'; el.title = v || '—'; } };
-setVer('nginx-version',   versions.nginx);
-setVer('xray-version',    versions.xray);
-setVer('singbox-version', versions.singbox);
+  // 7) 顶部“版本/日期”摘要
+  const toYMD = (v) => {
+    if (!v) return '—';
+    const d = new Date(v);
+    return isNaN(d) ? String(v).slice(0,10) : d.toISOString().slice(0,10);
+  };
+  const meta = `版本号: ${server.version || '—'} | 安装日期: ${toYMD(server.install_date)} | 更新时间: ${toYMD(dashboardData.updated_at || Date.now())}`;
+  setText('sys-meta', meta);
 
-// （可选）你以后如果想根据运行状态切换徽标样式，可按需启用下面的模板：
-const toggleBadge = (sel, running) => {
-const el = document.querySelector(sel);
-if (!el) return;
-el.textContent = running ? '运行中' : '已停止';
-el.classList.toggle('status-running', !!running);
-el.classList.toggle('status-stopped', !running);
-};
-toggleBadge('#system-overview .core-services .service-item:nth-of-type(1) .status-badge', safeGet(services,'nginx.status')==='运行中');
-toggleBadge('#system-overview .core-services .service-item:nth-of-type(2) .status-badge', safeGet(services,'xray.status')==='运行中');
-toggleBadge('#system-overview .core-services .service-item:nth-of-type(3) .status-badge', (safeGet(services,'sing-box.status')||safeGet(services,'singbox.status'))==='运行中');
-
-const toYMD = (v) => {
-  if (!v) return '—';
-  const d = new Date(v);
-  return isNaN(d) ? String(v).slice(0,10) : d.toISOString().slice(0,10);
-};
-const ver = safeGet(server, 'version', '—');
-const ins = toYMD(safeGet(server, 'install_date'));
-const upd = toYMD(dashboardData.updated_at || Date.now());
-const meta = `版本号: ${ver} | 安装日期: ${ins} | 更新时间: ${upd}`;
-const metaEl = document.getElementById('sys-meta');
-if (metaEl) metaEl.textContent = meta;
+  // --- 小工具 ---
+  function setText(id, text, setTitle){
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = text;
+    if (setTitle) el.title = text;
+  }
+  function setWidth(id, pct){
+    const el = document.getElementById(id);
+    if (el) el.style.width = pct + '%';
+  }
+  function toggleBadge(sel, running){
+    const el = document.querySelector(sel);
+    if (!el) return;
+    el.textContent = running ? '运行中' : '已停止';
+    el.classList.toggle('status-running', !!running);
+    el.classList.toggle('status-stopped', !running);
+  }
 }
+
 
 /* 仅更正“代理IP：”的显示格式，其余逻辑保持不变 */
 function renderCertificateAndNetwork() {
