@@ -5173,103 +5173,128 @@ body.modal-open {
 }
 
 /* ===========================
-   [最终合并版] 系统概览三列统一样式（仅作用于 #system-overview）
+   系统概览 · 整合版样式（仅作用于 #system-overview）
    =========================== */
 
-/* 可调配色与尺寸变量 */
+/* 可调变量 */
 #system-overview{
-  --row-min-height: 32px;          /* 行高 */
-  --row-vpad: 6px;                 /* 行内上下内边距 */
-  --gap: 8px;                      /* 基础列间距 */
-  --label-w: 80px;                 /* 左侧键名列宽（原 88px，收窄以拉长进度条） */
-  --percent-col: 44px;             /* 右侧百分比列宽，进一步拉长进度条 */
-  --meter-height: 20px;            /* 进度条高度 = 状态徽标高度 */
+  --row-min-height: 32px;    /* 行高 */
+  --row-vpad: 6px;           /* 行内上下内边距 */
+  --gap: 8px;                /* 列间距 */
+  --label-w: 80px;           /* 左侧键名固定宽度（收窄以拉长进度条） */
+  --percent-col: 44px;       /* 右侧百分比列宽 */
+  --meter-height: 20px;      /* 进度条高度（与状态徽标一致） */
+  --svc-gap: 8px;            /* 核心服务：服务名↔徽标、徽标↔版本号 的统一间隔 */
 
-  --meter-track: #d1d5db;          /* 进度条轨道（更深灰） */
-  --meter-fill-start: #059669;     /* 渐变起色 */
-  --meter-fill-end:   #10b981;     /* 渐变止色 */
-  --meter-text: #ffffff;           /* 条中文本白色 */
-  --percent-color: #111827;        /* 右侧百分比颜色 */
-  --label-color: #4b5563;          /* 键名颜色 */
-  --value-color: #111827;          /* 值颜色 */
-  --version-color:#6b7280;         /* 版本号颜色 */
+  --meter-track: #d1d5db;    /* 进度条轨道 */
+  --meter-fill-start:#059669;/* 进度条渐变起色 */
+  --meter-fill-end:#10b981;  /* 进度条渐变止色 */
+  --meter-text:#ffffff;      /* 条中文本颜色 */
+  --percent-color:#111827;   /* 右侧百分比颜色 */
+  --label-color:#4b5563;     /* 键名颜色 */
+  --value-color:#111827;     /* 值颜色 */
+  --version-color:#6b7280;   /* 版本号颜色 */
 }
 
-/* 标题更紧凑，内容紧跟 */
+/* 容器用块级，避免 h3 被网格影响；标题更紧凑、内容紧跟 */
+#system-overview .inner-block{ display:block; }
 #system-overview .inner-block h3{ margin:0 0 8px; line-height:1.2; }
 #system-overview .inner-block h3 + *{ margin-top:0 !important; }
 
-/* 三列统一行节奏：左键名 | 中内容 | 右状态/版本/百分比 */
-#system-overview .inner-block .info-item,
-#system-overview .inner-block .progress-row,
-#system-overview .inner-block .service-item{
-  margin:0;
-  padding:var(--row-vpad) 0;
-  min-height:var(--row-min-height);
+/* === 服务器信息（两列：键名固定宽 + 值自适应单行省略） === */
+#system-overview .server-info .info-item{
   display:grid;
-  grid-template-columns: var(--label-w) 1fr auto;
+  grid-template-columns: var(--label-w) 1fr;
+  gap: var(--gap);
   align-items:center;
-  gap:var(--gap);
-  color:var(--value-color);
+  min-height: var(--row-min-height);
+  padding: var(--row-vpad) 0;
 }
-
-/* —— 服务器信息（键名固定宽 + 值单行省略） —— */
 #system-overview .server-info .info-item .label{ color:var(--label-color); justify-self:start; }
 #system-overview .server-info .info-item .value{
+  min-width:0;                 /* 让省略号生效 */
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--value-color);
 }
 
-/* —— 服务器配置（进度条在中列，文本在条内） —— */
-#system-overview .progress-row{ grid-template-columns: var(--label-w) 1fr var(--percent-col); gap:6px; }
+/* === 服务器配置（三列：键名 | 进度条 | 百分比） === */
+#system-overview .progress-row{
+  display:grid;
+  grid-template-columns: var(--label-w) 1fr var(--percent-col);
+  column-gap: 6px;             /* 比 info 更紧凑一点，让条更长 */
+  align-items:center;
+  min-height: var(--row-min-height);
+  padding: var(--row-vpad) 0;
+}
 #system-overview .progress-row .progress-label{ color:var(--label-color); justify-self:start; }
+
+/* 进度条本体 */
 #system-overview .progress-row .progress-bar{
-  position:relative; height:var(--meter-height); background:var(--meter-track);
-  border-radius:999px; overflow:hidden;
+  position:relative; height:var(--meter-height);
+  background:var(--meter-track); border-radius:999px; overflow:hidden;
 }
 #system-overview .progress-row .progress-fill{
-  height:100%; border-radius:999px; transition:width .25s ease;
+  height:100%; border-radius:999px;
   background:linear-gradient(90deg,var(--meter-fill-start),var(--meter-fill-end));
-  z-index:0;
+  transition: width .25s ease; z-index:0;
 }
-/* 文本绝对定位在条里，靠近两端些；0% 也可见；超长省略 */
+/* 条内文本（绝对定位，0% 也可见；靠近两端；单行省略） */
 #system-overview .progress-row .progress-text{
   position:absolute; z-index:1; left:6px; right:6px; top:50%; transform:translateY(-50%);
   font-size:11px; line-height:1; color:var(--meter-text);
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis; pointer-events:none;
 }
-/* 右侧百分比：更窄、等宽数字 */
+/* 百分比列 */
 #system-overview .progress-row .progress-info{
-  min-width:var(--percent-col); text-align:right; color:var(--percent-color);
-  font-variant-numeric:tabular-nums;
+  min-width:var(--percent-col);
+  text-align:right; color:var(--percent-color);
+  font-variant-numeric: tabular-nums;
 }
 
-/* —— 核心服务（名称 | 状态徽标 | 版本号贴徽标） —— */
+/* === 核心服务（三列：服务名 | 状态徽标 | 版本号紧挨徽标） === */
 #system-overview .core-services .service-item{
-  grid-template-columns: var(--label-w) auto auto;   /* 版本号不再单独占满右列 */
-  column-gap:6px;                                     /* 徽标与版本号更近 */
-  padding:var(--row-vpad) 0; min-height:var(--row-min-height);
+  display:grid;
+  grid-template-columns: var(--label-w) max-content 1fr; /* 版本号占剩余，能省略 */
+  column-gap: var(--svc-gap);
+  align-items:center;
+  min-height: var(--row-min-height);
+  padding: var(--row-vpad) 0;
 }
 #system-overview .core-services .service-item .label{ color:var(--label-color); justify-self:start; }
 #system-overview .core-services .service-item .service-status{
-  display:inline-flex; align-items:center; gap:8px;
+  display:inline-flex; align-items:center; gap:var(--svc-gap);
+  white-space:nowrap;            /* 徽标不换行 */
 }
 #system-overview .core-services .service-item .status-badge{
   height:20px; line-height:20px; padding:0 10px; border-radius:999px; font-size:11px;
 }
 #system-overview .core-services .service-item .version{
+  min-width:0;                   /* 让省略号生效 */
   justify-self:start; color:var(--version-color); font-size:12px;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
 }
-
-/* 窄屏：键名列更窄以减少换行 */
-@media (max-width:640px){
-  #system-overview .inner-block .info-item,
-  #system-overview .inner-block .progress-row,
-  #system-overview .inner-block .service-item{
-    grid-template-columns: 72px 1fr auto;
-  }
+/* 展示层：版本号前拼接“版本 ” */
+#system-overview .core-services .service-item .version::before{
+  content:"版本 "; color:var(--label-color);
 }
 
+/* === 三列等高（拉齐卡片高度） === */
+#system-overview .grid-3, #system-overview .grid{ align-items:stretch; }
+#system-overview .grid-3 > *, #system-overview .grid > *{ display:flex; }
+#system-overview .grid-3 > * > .inner-block,
+#system-overview .grid > * > .inner-block{ flex:1; }
+
+/* === 窄屏：键名列更窄以减少换行 === */
+@media (max-width: 640px){
+  #system-overview .server-info .info-item{
+    grid-template-columns: 72px 1fr;
+  }
+  #system-overview .progress-row{
+    grid-template-columns: 72px 1fr var(--percent-col);
+  }
+  #system-overview .core-services .service-item{
+    grid-template-columns: 72px max-content 1fr;
+  }
+}
 
 
 EXTERNAL_CSS
@@ -5360,108 +5385,88 @@ async function copyTextFallbackAware(text) {
 
 // --- UI Rendering Functions ---
 function renderOverview() {
-  /* ========= 基础数据（容错） ========= */
-  const server   = (window.dashboardData && window.dashboardData.server)   || {};
-  const services = (window.dashboardData && window.dashboardData.services) || {};
-  const sys      = (typeof window.systemData === 'object' && window.systemData) || {};
+  // 1) 取数据源（容错）
+  const server   = (dashboardData && dashboardData.server)   || {};
+  const services = (dashboardData && dashboardData.services) || {};
+  const sys      = (typeof systemData === 'object' && systemData) || {};
 
-  /* ========= 小工具 ========= */
-  const setText = (id, text, setTitle) => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.textContent = (text === undefined || text === null || text === '') ? '—' : String(text);
-    if (setTitle) el.title = el.textContent;
+  // 2) 核心服务版本号（只声明一次！）
+  const versions = {
+    nginx:   (services.nginx && services.nginx.version) || '',
+    xray:    (services.xray && services.xray.version)   || '',
+    singbox: ((services['sing-box'] && services['sing-box'].version) ||
+              (services.singbox    && services.singbox.version)      || '')
   };
-  const setWidth = (id, pct) => {
-    const el = document.getElementById(id);
-    if (el) el.style.width = `${pct}%`;
-  };
+
+  // 3) 服务器信息
+  setText('user-remark',  server.user_alias || '未备注', true);
+  const prov = (server.cloud && server.cloud.provider) || 'Independent';
+  const regi = (server.cloud && server.cloud.region)   || 'Unknown';
+  setText('cloud-region', `${prov} | ${regi}`, true);
+  setText('instance-id',  server.instance_id || 'Unknown', true);
+  setText('hostname',     server.hostname    || '-', true);
+
+  // 4) 服务器配置（条中文本 + 百分比）
+  setText('cpu-info',  (server.spec && server.spec.cpu)    || '—', true);
+  setText('mem-info',  (server.spec && server.spec.memory) || '—', true);
+  setText('disk-info', (server.spec && server.spec.disk)   || '—', true);
+
   const clamp = v => Math.max(0, Math.min(100, Number(v) || 0));
-  const pick  = (...xs) => xs.find(v => v !== undefined && v !== null && v !== '') ?? 0;
+// 兼容多种命名（例如 cpu / cpu_usage / metrics.cpu 等）
+const pick = (...xs) => xs.find(v => v !== undefined && v !== null && v !== '') ?? 0;
+const cpuPct  = clamp(pick(sys.cpu, sys.cpu_usage, sys['cpu-percent'], sys.metrics?.cpu, dashboardData?.metrics?.cpu));
+const memPct  = clamp(pick(sys.memory, sys.mem, sys['memory-percent'], sys.metrics?.memory, dashboardData?.metrics?.memory));
+const diskPct = clamp(pick(sys.disk, sys.disk_usage, sys['disk-percent'], sys.metrics?.disk, dashboardData?.metrics?.disk));
+
+  setWidth('cpu-progress',  cpuPct);
+  setWidth('mem-progress',  memPct);
+  setWidth('disk-progress', diskPct);
+  setText('cpu-percent',  `${cpuPct}%`);
+  setText('mem-percent',  `${memPct}%`);
+  setText('disk-percent', `${diskPct}%`);
+
+  // 5) 核心服务版本号写入
+  setText('nginx-version',   versions.nginx   || '—', true);
+  setText('xray-version',    versions.xray    || '—', true);
+  setText('singbox-version', versions.singbox || '—', true);
+
+  // 6) 服务状态徽标（存在才切）
+  toggleBadge('#system-overview .core-services .service-item:nth-of-type(1) .status-badge',
+              (services.nginx && services.nginx.status) === '运行中');
+  toggleBadge('#system-overview .core-services .service-item:nth-of-type(2) .status-badge',
+              (services.xray && services.xray.status) === '运行中');
+  toggleBadge('#system-overview .core-services .service-item:nth-of-type(3) .status-badge',
+              ((services['sing-box'] && services['sing-box'].status) ||
+               (services.singbox && services.singbox.status)) === '运行中');
+
+  // 7) 顶部“版本/日期”摘要
   const toYMD = (v) => {
     if (!v) return '—';
     const d = new Date(v);
-    return Number.isNaN(d.getTime()) ? String(v).slice(0,10) : d.toISOString().slice(0,10);
+    return isNaN(d) ? String(v).slice(0,10) : d.toISOString().slice(0,10);
   };
-  const toggleBadge = (sel, running) => {
+  const meta = `版本号: ${server.version || '—'} | 安装日期: ${toYMD(server.install_date)} | 更新时间: ${toYMD(dashboardData.updated_at || Date.now())}`;
+  setText('sys-meta', meta);
+
+  // --- 小工具 ---
+  function setText(id, text, setTitle){
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = text;
+    if (setTitle) el.title = text;
+  }
+  function setWidth(id, pct){
+    const el = document.getElementById(id);
+    if (el) el.style.width = pct + '%';
+  }
+  function toggleBadge(sel, running){
     const el = document.querySelector(sel);
     if (!el) return;
     el.textContent = running ? '运行中' : '已停止';
     el.classList.toggle('status-running', !!running);
     el.classList.toggle('status-stopped', !running);
-  };
-
-  /* ========= 1) 服务器信息 ========= */
-  const remark = server.user_alias ?? server.remark ?? '未备注';
-  const provider = server.cloud?.provider ?? server.cloud_provider ?? 'Independent';
-  const region   = server.cloud?.region   ?? server.cloud_region   ?? 'Unknown';
-  setText('user-remark',  remark, true);
-  setText('cloud-region', `${provider} | ${region}`, true);
-  setText('instance-id',  server.instance_id ?? 'Unknown', true);
-  setText('hostname',     server.hostname    ?? '-', true);
-
-  /* ========= 2) 服务器配置（条中文本 + 百分比） ========= */
-  // 条中文本：CPU/磁盘来自 spec；内存缺失时自动用 systemData 拼装
-  setText('cpu-info',  server.spec?.cpu  ?? '—', true);
-  setText('disk-info', server.spec?.disk ?? '—', true);
-
-  // 内存条中文本
-  const fmtGiB = (bytes) => {
-    const n = Number(bytes);
-    if (!Number.isFinite(n)) return null;
-    return Math.round((n / (1024 ** 3)) * 10) / 10; // GiB，保留 1 位小数
-  };
-  let memText = server.spec?.memory ?? '';
-  if (!memText || /^0\s*GiB$/i.test(memText)) {
-    const totalB = pick(sys.mem_total, sys.total_mem, sys.memory_total, sys.mem?.total);
-    const usedB  = pick(sys.mem_used,  sys.used_mem,  sys.memory_used,  sys.mem?.used);
-    const freeB  = pick(sys.mem_free,  sys.free_mem,  sys.memory_free,  sys.mem?.free,
-                        (totalB != null && usedB != null) ? (totalB - usedB) : undefined);
-    const total = fmtGiB(totalB), used = fmtGiB(usedB), free = fmtGiB(freeB);
-    if (total != null) {
-      memText = (used != null && free != null)
-        ? `${total}GiB（已用: ${used}GiB, 可用: ${free}GiB）`
-        : `${total}GiB`;
-    } else {
-      memText = '—';
-    }
   }
-  setText('mem-info', memText, true);
-
-  // 百分比（兼容多种命名）
-  const cpuPct  = clamp(pick(sys.cpu,  sys.cpu_usage,  sys['cpu-percent'],  sys.metrics?.cpu,  window.dashboardData?.metrics?.cpu));
-  const memPct  = clamp(pick(sys.memory, sys.mem,     sys['memory-percent'], sys.metrics?.memory, window.dashboardData?.metrics?.memory));
-  const diskPct = clamp(pick(sys.disk,   sys.disk_usage, sys['disk-percent'], sys.metrics?.disk,   window.dashboardData?.metrics?.disk));
-
-  // 进度宽度 + 右侧百分比
-  setWidth('cpu-progress',  cpuPct); setText('cpu-percent',  `${cpuPct}%`);
-  setWidth('mem-progress',  memPct); setText('mem-percent',  `${memPct}%`);
-  setWidth('disk-progress', diskPct); setText('disk-percent', `${diskPct}%`);
-
-  /* ========= 3) 核心服务（版本号 + 状态徽标） ========= */
-  // 版本号（只声明一次，兼容 sing-box/singbox）
-  const versions = {
-    nginx:   services.nginx?.version || '',
-    xray:    services.xray?.version  || '',
-    singbox: (services['sing-box']?.version || services.singbox?.version || '')
-  };
-  setText('nginx-version',   versions.nginx   || '—', true);
-  setText('xray-version',    versions.xray    || '—', true);
-  setText('singbox-version', versions.singbox || '—', true);
-
-  // 运行状态徽标（存在时再切）
-  toggleBadge('#system-overview .core-services .service-item:nth-of-type(1) .status-badge',
-              services.nginx?.status === '运行中');
-  toggleBadge('#system-overview .core-services .service-item:nth-of-type(2) .status-badge',
-              services.xray?.status === '运行中');
-  toggleBadge('#system-overview .core-services .service-item:nth-of-type(3) .status-badge',
-              (services['sing-box']?.status || services.singbox?.status) === '运行中');
-
-  /* ========= 4) 顶部“版本/日期”摘要 ========= */
-  const metaText = `版本号: ${server.version || '—'} | 安装日期: ${toYMD(server.install_date)} | 更新时间: ${toYMD(window.dashboardData?.updated_at || Date.now())}`;
-  setText('sys-meta', metaText);
 }
-
 
 
 /* 仅更正“代理IP：”的显示格式，其余逻辑保持不变 */
