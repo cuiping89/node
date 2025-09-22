@@ -3313,7 +3313,21 @@ generate_dashboard_data() {
     shunt_info=$(get_shunt_status)
     subscription_info=$(get_subscription_info)
     secrets_info=$(get_secrets_info)
-    
+
+# 统一生成 services_info（状态+版本号）
+services_info=$(
+  jq -n \
+    --arg nstat "$(systemctl is-active --quiet nginx    && echo 运行中 || echo 已停止)" \
+    --arg xstat "$(systemctl is-active --quiet xray     && echo 运行中 || echo 已停止)" \
+    --arg sstat "$(systemctl is-active --quiet sing-box && echo 运行中 || echo 已停止)" \
+    --arg nver  "$(nginx -v 2>&1 | grep -oE '[0-9]+(\.[0-9]+)+' | head -1)" \
+    --arg xver  "$((xray -version 2>/dev/null || xray version 2>/dev/null) | head -n1 | grep -Eo 'v?[0-9]+(\.[0-9]+)+' | head -1)" \
+    --arg sver  "$(sing-box version 2>/dev/null | head -n1 | grep -oE '[0-9]+(\.[0-9]+)+' | head -1)" \
+    '{nginx:{status:$nstat,version:$nver},
+      xray:{status:$xstat,version:$xver},
+      "sing-box":{status:$sstat,version:$sver}}'
+)
+
     # 合并所有数据生成dashboard.json
 jq -n \
     --arg timestamp "$timestamp" \
@@ -4493,6 +4507,14 @@ body, p, span, td, div {
   font-size: 11px;
 }
 
+.status-badge { line-height: 1; }
+
+.core-services .service-item{
+  justify-content: flex-start;  /* 左对齐一排 */
+  gap: 8px;                     /* 名称、徽标、版本之间的间距 */
+}
+
+
 /* === 证书切换 === */
 .cert-modes {
   display: flex;
@@ -5150,41 +5172,6 @@ body.modal-open {
   }
 }
 
-/* === Core Services: 让服务名与 CPU/内存的四级标题保持一致 === */
-
-/* 行容器统一布局与间距 */
-.core-services .service-item{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  padding:6px 0;            /* 与其他卡片行距一致 */
-}
-
-/* 服务名 → 四级标题风格（不改 DOM，用类或选择器都能命中） */
-.core-services .service-item .svc-title,
-.core-services .service-item > span:first-child{
-  margin:0;
-  font-size:14px;           /* 与 h4 卡片标题相同 */
-  font-weight:600;          /* 半粗 */
-  line-height:1.2;
-  color:#374151;            /* 与卡片标题同色 */
-  letter-spacing:.02em;
-}
-
-/* 右侧状态与版本：紧凑排布，不撑高行距 */
-.core-services .service-meta{
-  display:flex;
-  align-items:center;
-  gap:8px;                  /* 状态徽标与版本之间的距离 */
-}
-
-/* 徽标不撑高；提供运行/停止配色（若你已有，可忽略这两条） */
-.status-badge{ line-height:1; padding:2px 6px; border-radius:10px; font-size:11px; }
-.status-badge.status-running{ background:#E2F9F0; color:#10b981; }
-.status-badge.status-stopped{ background:#FDE2E7; color:#ef4444; }
-
-/* 版本号弱化为次级标签（你原来已正常显示，这里只是让风格统一） */
-.version, .version-tag{ color:#6b7280; font-size:11px; }
 
 EXTERNAL_CSS
 
@@ -5959,9 +5946,9 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
           </div>
           <div class="inner-block">
             <h3>核心服务</h3>
-            <div class="service-item"><span>Nginx:</span><div class="service-status"><span class="status-badge" id="nginx-status">—</span><span class="version" id="nginx-version"></span></div></div>
-            <div class="service-item"><span>Xray:</span><div class="service-status"><span class="status-badge" id="xray-status">—</span><span class="version" id="xray-version"></span></div></div>
-            <div class="service-item"><span>Sing-box:</span><div class="service-status"><span class="status-badge" id="singbox-status">—</span><span class="version" id="singbox-version"></span></div></div>
+            <div class="service-item"><span class="progress-label">Nginx:</span><div class="service-status"><span class="status-badge" id="nginx-status">—</span><span class="version" id="nginx-version"></span></div></div>
+            <div class="service-item"><span class="progress-label">Xray:</span><div class="service-status"><span class="status-badge" id="xray-status">—</span><span class="version" id="xray-version"></span></div></div>
+            <div class="service-item"><span class="progress-label">Sing-box:</span><div class="service-status"><span class="status-badge" id="singbox-status">—</span><span class="version" id="singbox-version"></span></div></div>
           </div>
         </div>
       </div>
