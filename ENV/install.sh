@@ -5149,6 +5149,43 @@ body.modal-open {
     margin: 10px auto;
   }
 }
+
+/* === Core Services: 让服务名与 CPU/内存的四级标题保持一致 === */
+
+/* 行容器统一布局与间距 */
+.core-services .service-item{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:6px 0;            /* 与其他卡片行距一致 */
+}
+
+/* 服务名 → 四级标题风格（不改 DOM，用类或选择器都能命中） */
+.core-services .service-item .svc-title,
+.core-services .service-item > span:first-child{
+  margin:0;
+  font-size:14px;           /* 与 h4 卡片标题相同 */
+  font-weight:600;          /* 半粗 */
+  line-height:1.2;
+  color:#374151;            /* 与卡片标题同色 */
+  letter-spacing:.02em;
+}
+
+/* 右侧状态与版本：紧凑排布，不撑高行距 */
+.core-services .service-meta{
+  display:flex;
+  align-items:center;
+  gap:8px;                  /* 状态徽标与版本之间的距离 */
+}
+
+/* 徽标不撑高；提供运行/停止配色（若你已有，可忽略这两条） */
+.status-badge{ line-height:1; padding:2px 6px; border-radius:10px; font-size:11px; }
+.status-badge.status-running{ background:#E2F9F0; color:#10b981; }
+.status-badge.status-stopped{ background:#FDE2E7; color:#ef4444; }
+
+/* 版本号弱化为次级标签（你原来已正常显示，这里只是让风格统一） */
+.version, .version-tag{ color:#6b7280; font-size:11px; }
+
 EXTERNAL_CSS
 
   # ========== 创建外置的JavaScript文件 ==========
