@@ -5172,6 +5172,60 @@ body.modal-open {
   }
 }
 
+/* 1) 统一三列（服务器信息/服务器配置/核心服务）的行高与内外边距 */
+#system-overview .inner-block .info-item,
+#system-overview .inner-block .progress-row,
+#system-overview .inner-block .service-item {
+  margin: 0;              /* 去掉多余的外边距 */
+  padding: 6px 0;         /* 统一上下内边距 */
+  min-height: 32px;       /* 统一视觉行高 */
+  align-items: center;    /* 垂直居中 */
+}
+
+/* 2) 进度条高度适中，避免把整行“撑高” */
+#system-overview .inner-block .progress-bar {
+  height: 12px;           /* 原 18px -> 12px */
+  overflow: hidden;       /* 结合圆角时更干净 */
+  border-radius: 999px;
+}
+
+/* 3) 让“服务器配置”的条中文本显示在进度条内并可省略 */
+#system-overview .inner-block .progress-fill {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;  /* 文本靠左 */
+  padding: 0 8px;               /* 条内左右留白 */
+  color: #fff;                  /* 条中文本使用白色 */
+  border-radius: 999px;         /* 小百分比时不露角 */
+}
+
+/* 条内真正承载文本的 span（你已在 HTML 中新增 .progress-text） */
+#system-overview .inner-block .progress-fill .progress-text {
+  font-size: 11px;
+  line-height: 1;
+  width: 100%;                 /* 触发省略的关键（需有宽度约束） */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;     /* 未显示完用 … */
+}
+
+/* 4) 右侧百分比对齐与可读性 */
+#system-overview .inner-block .progress-info {
+  min-width: 48px;             /* 可按需调整 */
+  text-align: right;
+  font-variant-numeric: tabular-nums; /* 等宽数字，列更稳 */
+  color: #111827;
+}
+
+/* 5) 其它需要单行省略的字段（避免换行把行撑高） */
+#system-overview #cpu-info,
+#system-overview #mem-info,
+#system-overview #disk-info,
+#system-overview .core-services .version {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 EXTERNAL_CSS
 
@@ -5267,20 +5321,34 @@ function renderOverview() {
   document.getElementById('cloud-info').textContent = `${safeGet(server, 'cloud.provider')} | ${safeGet(server, 'cloud.region')}`;
   document.getElementById('instance-id').textContent = safeGet(server, 'instance_id');
   document.getElementById('hostname').textContent = safeGet(server, 'hostname');
-  const spec = server.spec || {};
-  document.getElementById('cpu-info').textContent = safeGet(spec, 'cpu');
-  document.getElementById('mem-info').textContent = safeGet(spec, 'memory');
-  document.getElementById('disk-info').textContent = safeGet(spec, 'disk');
-  const metrics = systemData || {};
-  const cpuPct = metrics.cpu || 0;
-  const memPct = metrics.memory || 0;
-  const diskPct = metrics.disk || 0;
-  document.getElementById('cpu-progress').style.width = `${cpuPct}%`;
-  document.getElementById('cpu-progress').textContent = `${cpuPct}%`;
-  document.getElementById('mem-progress').style.width = `${memPct}%`;
-  document.getElementById('mem-progress').textContent = `${memPct}%`;
-  document.getElementById('disk-progress').style.width = `${diskPct}%`;
-  document.getElementById('disk-progress').textContent = `${diskPct}%`;
+  
+// === 服务器配置（系统概览）数据绑定 ===
+const spec = server.spec || {};
+// 1) 条内文本：放入进度条内的新结构中（仍沿用 #cpu-info/#mem-info/#disk-info）
+const cpuText = safeGet(spec, 'cpu');
+const memText = safeGet(spec, 'memory');
+const diskText = safeGet(spec, 'disk');
+document.getElementById('cpu-info').textContent = cpuText || '—';
+document.getElementById('cpu-info').title = cpuText || '—';
+document.getElementById('mem-info').textContent = memText || '—';
+document.getElementById('mem-info').title = memText || '—';
+document.getElementById('disk-info').textContent = diskText || '—';
+document.getElementById('disk-info').title = diskText || '—';
+
+// 2) 百分比：只控制进度与右侧百分比，不再把百分比写到条内
+const metrics = systemData || {};
+const cpuPct = Math.max(0, Math.min(100, Number(metrics.cpu)   || 0));
+const memPct = Math.max(0, Math.min(100, Number(metrics.memory)|| 0));
+const diskPct = Math.max(0, Math.min(100, Number(metrics.disk) || 0));
+
+document.getElementById('cpu-progress').style.width = `${cpuPct}%`;
+document.getElementById('mem-progress').style.width = `${memPct}%`;
+document.getElementById('disk-progress').style.width = `${diskPct}%`;
+
+document.getElementById('cpu-percent').textContent  = `${cpuPct}%`;
+document.getElementById('mem-percent').textContent  = `${memPct}%`;
+document.getElementById('disk-percent').textContent = `${diskPct}%`;
+
   ['nginx', 'xray', 'sing-box'].forEach(svc => {
     const status = safeGet(services, `${svc}.status`, 'inactive');
     const version = safeGet(services, `${svc}.version`, '');
@@ -5939,10 +6007,38 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             <div class="info-item"><label>主机名:</label><value id="hostname">—</value></div>
           </div>
           <div class="inner-block">
-            <h3>服务器配置</h3>
-            <div class="progress-row"><span class="progress-label">CPU:</span><div class="progress-bar"><div class="progress-fill" id="cpu-progress" style="width:0%">0%</div></div><span class="progress-info" id="cpu-info">—</span></div>
-            <div class="progress-row"><span class="progress-label">内存:</span><div class="progress-bar"><div class="progress-fill" id="mem-progress" style="width:0%">0%</div></div><span class="progress-info" id="mem-info">—</span></div>
-            <div class="progress-row"><span class="progress-label">磁盘:</span><div class="progress-bar"><div class="progress-fill" id="disk-progress" style="width:0%">0%</div></div><span class="progress-info" id="disk-info">—</span></div>
+<!-- 服务器配置：统一为“键名 | 进度条(内嵌文本) | 右侧百分比” -->
+<div class="progress-row" id="cpu-row">
+  <span class="progress-label">CPU:</span>
+  <div class="progress-bar">
+    <!-- 进度条填充：仍用原来的 #cpu-progress；条内显示文本用 #cpu-info（原本在条外） -->
+    <div class="progress-fill" id="cpu-progress" style="width:0%">
+      <span class="progress-text" id="cpu-info" title="—">—</span>
+    </div>
+  </div>
+  <!-- 右侧百分比（新增 ID） -->
+  <span class="progress-info" id="cpu-percent">0%</span>
+</div>
+
+<div class="progress-row" id="mem-row">
+  <span class="progress-label">内存:</span>
+  <div class="progress-bar">
+    <div class="progress-fill" id="mem-progress" style="width:0%">
+      <span class="progress-text" id="mem-info" title="—">—</span>
+    </div>
+  </div>
+  <span class="progress-info" id="mem-percent">0%</span>
+</div>
+
+<div class="progress-row" id="disk-row">
+  <span class="progress-label">磁盘:</span>
+  <div class="progress-bar">
+    <div class="progress-fill" id="disk-progress" style="width:0%">
+      <span class="progress-text" id="disk-info" title="—">—</span>
+    </div>
+  </div>
+  <span class="progress-info" id="disk-percent">0%</span>
+</div>
           </div>
           <div class="inner-block">
             <h3>核心服务</h3>
