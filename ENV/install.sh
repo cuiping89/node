@@ -5390,18 +5390,18 @@ document.getElementById('cpu-percent').textContent   = `${cpuPct}%`;
 document.getElementById('mem-percent').textContent   = `${memPct}%`;
 document.getElementById('disk-percent').textContent  = `${diskPct}%`;
 
-// —— 核心服务 ——（版本号与状态）
-// 1) 把版本号从 services 里安全取出，兼容 sing-box/singbox 两种键
+// —— 核心服务（版本号与状态）——【唯一声明，不要再在别处声明同名变量】
+const svc = (dashboardData && dashboardData.services) ? dashboardData.services : {};
 const versions = {
-  nginx:  safeGet(services, 'nginx.version'),
-  xray:   safeGet(services, 'xray.version'),
-  singbox: safeGet(services, 'sing-box.version') || safeGet(services, 'singbox.version')
+  nginx:   (svc.nginx && svc.nginx.version) || '',
+  xray:    (svc.xray && svc.xray.version) || '',
+  singbox: ( (svc['sing-box'] && svc['sing-box'].version) || (svc.singbox && svc.singbox.version) || '' )
 };
 
-// 2) 写入三个版本号（同时写 title，鼠标可悬停看到完整值）
+// 写入三个版本号（顺带设置 title 方便悬停查看）
 const setVer = (id, v) => { const el = document.getElementById(id); if (el) { el.textContent = v || '—'; el.title = v || '—'; } };
-setVer('nginx-version',  versions.nginx);
-setVer('xray-version',   versions.xray);
+setVer('nginx-version',   versions.nginx);
+setVer('xray-version',    versions.xray);
 setVer('singbox-version', versions.singbox);
 
 // （可选）你以后如果想根据运行状态切换徽标样式，可按需启用下面的模板：
