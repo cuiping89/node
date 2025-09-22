@@ -4581,7 +4581,18 @@ body, p, span, td, div {
   word-break: break-word;
 }
 
-/* === 统一的查看按钮样式 === */
+/* === 基础按钮框架（无样式） === */
+.btn {
+  display: inline-block;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-sm {
+  /* 小尺寸修饰符，保留但不添加样式 */
+}
+
+/* === 统一的查看按钮样式（用于表格和各处的查看链接） === */
 .btn-link,
 .link {
   display: inline-block;
@@ -4622,22 +4633,29 @@ body, p, span, td, div {
   background: #0ea37a;
 }
 
-/* === 次要按钮（用于弹窗底部） === */
-.btn-secondary {
+/* === 次要按钮（统一白底蓝字样式） === */
+.btn-secondary,
+.btn.btn-secondary,
+.btn.btn-sm.btn-secondary {  /* 覆盖所有可能的组合 */
   display: inline-block;
-  padding: 5px 10px;
+  height: 28px;
+  line-height: 18px;
+  padding: 0 12px;
   border-radius: 6px;
   font-size: 12px;
   cursor: pointer;
   background: white;
-  color: #1f2937;
+  color: #2563eb;
   border: 1px solid #d1d5db;
   transition: all 0.2s;
 }
 
-.btn-secondary:hover {
+.btn-secondary:hover,
+.btn.btn-secondary:hover,
+.btn.btn-sm.btn-secondary:hover {
   background: #f3f4f6;
   border-color: #9ca3af;
+  color: #1d4ed8;
 }
 
 /* 白名单查看全部按钮特殊定位 */
@@ -5471,10 +5489,12 @@ function showConfigModal(protocolKey) {
   let content = '', qrText = '';
 
   if (protocolKey === '__SUBS__') {
+    // 查看/复制弹窗：明文链接 → Base64 → 二维码 → 使用说明
     title.textContent = '订阅链接配置';
     const sub = dashboardData.subscription || {};
     qrText = dashboardData.subscription_url || `http://${dashboardData.server?.server_ip}/sub`;
     
+    // 按文档要求顺序：明文链接 → Base64 → 二维码 → 使用说明
     content = `
       <div class="config-section">
         <h4>明文链接</h4>
@@ -5497,17 +5517,20 @@ function showConfigModal(protocolKey) {
         </p>
       </div>`;
     
+    // 查看/复制弹窗按钮顺序
     footer.innerHTML = `
-      <button class="btn-secondary" data-action="copy" data-type="plain">复制明文链接</button>
-      <button class="btn-secondary" data-action="copy" data-type="base64">复制Base64</button>
-      <button class="btn-secondary" data-action="copy-qr">复制二维码</button>
+      <button class="btn btn-sm btn-secondary" data-action="copy" data-type="plain">复制明文链接</button>
+      <button class="btn btn-sm btn-secondary" data-action="copy" data-type="base64">复制Base64</button>
+      <button class="btn btn-sm btn-secondary" data-action="copy-qr">复制二维码</button>
     `;
   } else {
+    // 查看配置弹窗：JSON（逐项后紧跟注释）→ 明文链接 → Base64 → 二维码 → 使用说明
     const protocol = (dashboardData.protocols || []).find(p => p.name === protocolKey);
     if (!protocol) return notify('未找到协议信息', 'warn');
     title.textContent = `${protocol.name} 配置详情`;
     qrText = protocol.share_link || '';
     
+    // 构造带注释的JSON配置
     const jsonConfig = {
       "server": dashboardData.server?.server_ip || '服务器IP',  
       "port": protocol.port || 443,
@@ -5521,6 +5544,7 @@ function showConfigModal(protocolKey) {
       .replace(/"protocol"/, '"protocol"  // 协议类型\n  "protocol"')
       .replace(/"uuid"/, '"uuid"      // 认证UUID或密码\n  "uuid"');
     
+    // 按文档要求顺序：JSON → 明文链接 → Base64 → 二维码 → 使用说明
     content = `
       <div class="config-section">
         <h4>JSON配置</h4>
@@ -5547,16 +5571,18 @@ function showConfigModal(protocolKey) {
         </p>
       </div>`;
     
+    // 查看配置弹窗按钮顺序
     footer.innerHTML = `
-      <button class="btn-secondary" data-action="copy" data-type="json">复制JSON</button>
-      <button class="btn-secondary" data-action="copy" data-type="plain">复制明文链接</button>
-      <button class="btn-secondary" data-action="copy" data-type="base64">复制Base64</button>
-      <button class="btn-secondary" data-action="copy-qr">复制二维码</button>
+      <button class="btn btn-sm btn-secondary" data-action="copy" data-type="json">复制JSON</button>
+      <button class="btn btn-sm btn-secondary" data-action="copy" data-type="plain">复制明文链接</button>
+      <button class="btn btn-sm btn-secondary" data-action="copy" data-type="base64">复制Base64</button>
+      <button class="btn btn-sm btn-secondary" data-action="copy-qr">复制二维码</button>
     `;
   }
 
   details.innerHTML = content;
   
+  // 生成二维码（移到内容区域内）
   if (qrText && window.QRCode) {
     setTimeout(() => {
       const qrId = protocolKey === '__SUBS__' ? 'qrcode-sub' : 'qrcode-protocol';
