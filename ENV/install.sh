@@ -696,7 +696,7 @@ collect_system_info() {
             local total=$(echo $root_info | awk '{print $2}' | sed 's/G//')
             local used=$(echo $root_info | awk '{print $3}' | sed 's/G//')
             local available=$(echo $root_info | awk '{print $4}' | sed 's/G//')
-            echo "${total}GiB (已用: ${used}GiB, 可用: ${available}GiB)"
+            echo "${total}GiB (已用: ${used}GiB)"
         else
             echo "Unknown"
         fi
@@ -5290,25 +5290,6 @@ body.modal-open {
   }
 }
 
-/* 系统概览中的三个卡片统一高度 */
-.grid-3 .inner-block {
-  min-height: 150px;
-  display: flex;
-  flex-direction: column;
-}
-
-.grid-3 .inner-block h3 {
-  flex-shrink: 0;
-}
-
-/* 让服务列表填充剩余空间 */
-.service-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px 0;
-  flex: 1;  /* 添加这行 */
-}
 
 EXTERNAL_CSS
 
