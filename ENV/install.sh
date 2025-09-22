@@ -4394,7 +4394,6 @@ body, p, span, td, div {
   border-radius: 6px;
   padding: 15px;
   margin-bottom: 15px;
-  min-height: 140px;
 }
 
 .inner-block:last-child {
