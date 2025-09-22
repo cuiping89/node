@@ -6033,6 +6033,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
     <div class="main-content">
 	
 <div class="card" id="system-overview">	
+      <div class="card">
         <div class="card-header">
   <h2>
     📊 系统概览
@@ -6093,6 +6094,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 </div>
         </div>
       </div>
+	  </div>
 	  
       <div class="grid grid-1-2">
         <div class="card">
