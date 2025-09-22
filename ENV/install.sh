@@ -5178,28 +5178,29 @@ body.modal-open {
 
 /* 可调配色与尺寸变量 */
 #system-overview{
-  --row-min-height: 32px;          /* 行高 */
-  --row-vpad: 6px;                 /* 行内上下内边距 */
-  --gap: 8px;                      /* 基础列间距 */
-  --label-w: 80px;                 /* 左侧键名列宽（原 88px，收窄以拉长进度条） */
-  --percent-col: 44px;             /* 右侧百分比列宽，进一步拉长进度条 */
-  --meter-height: 20px;            /* 进度条高度 = 状态徽标高度 */
+  --row-min-height: 32px;       /* 行高 */
+  --row-vpad: 6px;              /* 行内上下内边距 */
+  --gap: 8px;                   /* 基础列间距 */
+  --label-w: 80px;              /* 左侧键名列宽（收窄以拉长进度条） */
+  --percent-col: 44px;          /* 右侧百分比列宽 */
+  --meter-height: 20px;         /* 进度条高度（与徽标一致） */
+  --svc-gap: 8px;               /* 服务名↔徽标、徽标↔版本 的统一间隔 */
 
-  --meter-track: #d1d5db;          /* 进度条轨道（更深灰） */
-  --meter-fill-start: #059669;     /* 渐变起色 */
-  --meter-fill-end:   #10b981;     /* 渐变止色 */
-  --meter-text: #ffffff;           /* 条中文本白色 */
-  --percent-color: #111827;        /* 右侧百分比颜色 */
-  --label-color: #4b5563;          /* 键名颜色 */
-  --value-color: #111827;          /* 值颜色 */
-  --version-color:#6b7280;         /* 版本号颜色 */
+  --meter-track: #d1d5db;       /* 进度条轨道（深灰） */
+  --meter-fill-start:#059669;   /* 渐变起色 */
+  --meter-fill-end:  #10b981;   /* 渐变止色 */
+  --meter-text:#fff;            /* 条中文本白色 */
+  --percent-color:#111827;      /* 右侧百分比颜色 */
+  --label-color:#4b5563;        /* 键名颜色 */
+  --value-color:#111827;        /* 值颜色 */
+  --version-color:#6b7280;      /* 版本号颜色 */
 }
 
 /* 标题更紧凑，内容紧跟 */
 #system-overview .inner-block h3{ margin:0 0 8px; line-height:1.2; }
 #system-overview .inner-block h3 + *{ margin-top:0 !important; }
 
-/* 三列统一行节奏：左键名 | 中内容 | 右状态/版本/百分比 */
+/* 三列行节奏统一：左键名 | 中内容 | 右状态/版本/百分比（基础） */
 #system-overview .inner-block .info-item,
 #system-overview .inner-block .progress-row,
 #system-overview .inner-block .service-item{
@@ -5213,10 +5214,10 @@ body.modal-open {
   color:var(--value-color);
 }
 
-/* —— 服务器信息（键名固定宽 + 值单行省略） —— */
+/* —— 服务器信息 —— */
 #system-overview .server-info .info-item .label{ color:var(--label-color); justify-self:start; }
 #system-overview .server-info .info-item .value{
-  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--value-color);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
 }
 
 /* —— 服务器配置（进度条在中列，文本在条内） —— */
@@ -5227,31 +5228,30 @@ body.modal-open {
   border-radius:999px; overflow:hidden;
 }
 #system-overview .progress-row .progress-fill{
-  height:100%; border-radius:999px; transition:width .25s ease;
+  height:100%; border-radius:999px;
   background:linear-gradient(90deg,var(--meter-fill-start),var(--meter-fill-end));
-  z-index:0;
+  transition:width .25s ease; z-index:0;
 }
-/* 文本绝对定位在条里，靠近两端些；0% 也可见；超长省略 */
+/* 文本绝对定位在条里，靠近两端；0% 也可见；超长省略 */
 #system-overview .progress-row .progress-text{
   position:absolute; z-index:1; left:6px; right:6px; top:50%; transform:translateY(-50%);
   font-size:11px; line-height:1; color:var(--meter-text);
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis; pointer-events:none;
 }
-/* 右侧百分比：更窄、等宽数字 */
+/* 右侧百分比 */
 #system-overview .progress-row .progress-info{
   min-width:var(--percent-col); text-align:right; color:var(--percent-color);
   font-variant-numeric:tabular-nums;
 }
 
-/* —— 核心服务（名称 | 状态徽标 | 版本号贴徽标） —— */
+/* —— 核心服务（名称 | 徽标 | 版本号紧挨徽标） —— */
 #system-overview .core-services .service-item{
-  grid-template-columns: var(--label-w) auto auto;   /* 版本号不再单独占满右列 */
-  column-gap:6px;                                     /* 徽标与版本号更近 */
-  padding:var(--row-vpad) 0; min-height:var(--row-min-height);
+  grid-template-columns: var(--label-w) auto auto;  /* 版本号不独占右列 */
+  column-gap:var(--svc-gap);
 }
 #system-overview .core-services .service-item .label{ color:var(--label-color); justify-self:start; }
 #system-overview .core-services .service-item .service-status{
-  display:inline-flex; align-items:center; gap:8px;
+  display:inline-flex; align-items:center; gap:var(--svc-gap);
 }
 #system-overview .core-services .service-item .status-badge{
   height:20px; line-height:20px; padding:0 10px; border-radius:999px; font-size:11px;
@@ -5260,47 +5260,26 @@ body.modal-open {
   justify-self:start; color:var(--version-color); font-size:12px;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
 }
+/* 版本号前加“版本 ”（仅展示层，不改数据） */
+#system-overview .core-services .service-item .version::before{
+  content:"版本 "; color:var(--label-color);
+}
+
+/* === 三列等高（拉齐卡片高度） === */
+#system-overview .grid-3, #system-overview .grid{ align-items:stretch; }
+#system-overview .grid-3 > *, #system-overview .grid > *{ display:flex; }
+#system-overview .grid-3 > * > .inner-block,
+#system-overview .grid > * > .inner-block{ flex:1; }
 
 /* 窄屏：键名列更窄以减少换行 */
 @media (max-width:640px){
   #system-overview .inner-block .info-item,
   #system-overview .inner-block .progress-row,
   #system-overview .inner-block .service-item{
-    grid-template-columns: 72px 1fr auto;
+    grid-template-columns:72px 1fr auto;
   }
 }
 
-/* === 系统概览：三列等高（拉齐卡片高度） === */
-#system-overview .grid-3,
-#system-overview .grid { align-items: stretch; }
-
-#system-overview .grid-3 > *,
-#system-overview .grid > * { display: flex; }
-
-#system-overview .grid-3 > * > .inner-block,
-#system-overview .grid > * > .inner-block { flex: 1; }  /* 三列等高 */
-
-/* === 核心服务：徽标与版本号的间隔统一，并在版本号前拼接“版本 ” === */
-#system-overview{
-  --svc-gap: 8px; /* 统一的左右间隔：服务名↔徽标、徽标↔版本号 都用它 */
-}
-
-/* 每行三列：服务名 | 徽标 | 版本号；两侧间隔一致 */
-#system-overview .core-services .service-item{
-  grid-template-columns: var(--label-w) auto auto;
-  column-gap: var(--svc-gap);
-}
-
-/* 版本号前加“版本 ”（不改数据，只是展示层） */
-#system-overview .core-services .service-item .version::before{
-  content: "版本 ";
-  color: var(--label-color); /* 用说明色，和“服务名”视觉一致 */
-}
-
-/* 如果你的徽标容器里还设置了 gap，就统一到同一个间隔 */
-#system-overview .core-services .service-item .service-status{
-  gap: var(--svc-gap);
-}
 
 
 EXTERNAL_CSS
