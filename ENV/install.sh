@@ -5196,7 +5196,7 @@ body.modal-open {
 
 /* —— 服务器配置：进度条列严格占满中间，并与两侧垂直居中 —— */
 #system-overview{
-  --label-w: 50px;            /* 左侧“CPU:”列宽 → 越小条越长 */
+  --label-w: 72px;            /* 左侧“CPU:”列宽 → 越小条越长 */
   --percent-col: 36px;        /* 右侧百分比列宽 → 越小条越长 */
   --progress-gap: 4px;        /* 中间列与两侧列的间距（再小条更长） */
   --meter-height: 20px;
