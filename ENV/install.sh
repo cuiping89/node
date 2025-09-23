@@ -4437,42 +4437,15 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   #system-overview .core-services { --label-w: 68px; }
 }
 
-/* =======================================================================
-   证书切换（仅 #cert-panel）——标题条分离 + 键名列/值列
-   ======================================================================= */
-#cert-panel{ --label-w:80px; --row-gap:10px; --h3-gap:8px; --label:#4b5563; --value:#111827; }
-#cert-panel .inner-block{ display:block; }
-#cert-panel .inner-block>h3{ margin:0 0 var(--h3-gap); }
-
-/* 顶部模式切换标签（无交互，仅样式） */
-#cert-panel .cert-modes{ display:flex; gap:5px; margin-bottom:6px; }
-#cert-panel .cert-mode-tab{
-  flex:1; padding:10px; background:#f5f5f5; border:1px solid #e5e7eb; color:#6b7280;
-  text-align:center; border-radius:8px; cursor:default;
-}
-#cert-panel .cert-mode-tab.active{ background:#10b981; color:#fff; border-color:#10b981; }
-
-/* 明细行：键名 | 值 */
-#cert-panel .cert__row,
-#cert-panel .inner-block .info-item{
-  display:grid; grid-template-columns:var(--label-w) 1fr; gap:var(--row-gap); align-items:center; padding:6px 0;
-}
-#cert-panel .cert__label,
-#cert-panel .inner-block .info-item label{ color:var(--label); justify-self:start; }
-#cert-panel .cert__value,
-#cert-panel .inner-block .info-item value{ min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--value); }
-
-
 
 /* =======================================================================
-   网络身份配置（仅 #netid-panel）—— 标签作为独立header显示
+   网络身份配置（仅 #netid-panel）—— 独立小标签贴在卡片上方
    ======================================================================= */
 #netid-panel{
   /* 可调变量 */
   --label-w: 60px;       /* 键名列宽 */
   --row-gap: 6px;        /* 键名列与值列的横向间距 */
   --line-vpad: 6px;      /* 每行上下内边距（行高） */
-  --tag-height: 32px;    /* 标签高度（与证书切换一致） */
   --label: #4b5563;
   --value: #111827;
   /* 标签颜色 */
@@ -4488,96 +4461,67 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   gap: 15px;
 }
 
-/* 卡片容器 */
+/* 卡片本体 */
 #netid-panel .network-block{
   position: relative;
-  background: transparent;
-  border: none;
+  background: #fff;
+  border: 1px solid #e5e7eb;
   border-radius: 8px;
-  overflow: hidden; /* 确保圆角正确显示 */
+  padding: 42px 12px 12px 12px; /* 顶部留出空间给标签 */
 }
 
-/* 标签样式 */
+/* 独立小标签 - 贴在卡片上方 */
 #netid-panel .network-block > h3{
-  position: relative !important;
-  margin: 0 0 0 0 !important; /* 标签与内容之间无间隙 */
-  padding: 0 !important;
-  width: 100% !important;
-  height: var(--tag-height) !important;
-  background: var(--tag-inactive-bg) !important; /* 默认灰色 */
-  color: var(--tag-inactive-color) !important;   /* 默认灰色文字 */
-  border: 1px solid #e5e7eb !important;
-  border-bottom: none !important;
-  border-radius: 8px 8px 0 0 !important; /* 只有上部圆角 */
-  font-size: 13px !important;
+  position: absolute !important;
+  top: 10px !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+  margin: 0 !important;
+  padding: 5px 16px !important;
+  background: var(--tag-inactive-bg) !important;
+  color: var(--tag-inactive-color) !important;
+  border: none !important;
+  border-radius: 6px !important;
+  font-size: 12px !important;
   font-weight: 500 !important;
-  line-height: var(--tag-height) !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  gap: 6px !important;
+  line-height: 1.2 !important;
   white-space: nowrap !important;
-  box-sizing: border-box !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 5px !important;
 }
 
-/* 当前激活模式的标签（需要JS添加.active类） */
+/* 激活状态的标签 */
 #netid-panel .network-block.active > h3{
   background: var(--tag-active-bg) !important;
   color: var(--tag-active-color) !important;
-  border-color: var(--tag-active-bg) !important;
 }
 
-/* 标签图标 */
+/* 标签小圆点图标 */
 #netid-panel .network-block > h3::before{
   content: '';
   display: inline-block;
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   background: currentColor;
   border-radius: 50%;
-  opacity: 0.7;
+  opacity: 0.8;
 }
 
-/* 卡片内容区域 */
-#netid-panel .network-block .block-content,
-#netid-panel .network-block > div:not(.network-block){
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-top: none;
-  border-radius: 0 0 8px 8px; /* 只有下部圆角 */
-  padding: 12px;
-  margin: 0;
-}
-
-/* 内容行：键名 | 值（两列自适应） */
-#netid-panel .nid__row,
+/* 内容行 */
 #netid-panel .network-block .info-item{
   display: grid;
   grid-template-columns: var(--label-w) 1fr;
   gap: var(--row-gap);
   align-items: center;
   padding: var(--line-vpad) 0;
-  margin: 0;
 }
 
-/* 第一个info-item不需要额外的顶部padding */
-#netid-panel .network-block .info-item:first-child{
-  padding-top: 0;
-}
-
-/* 最后一个info-item不需要额外的底部padding */
-#netid-panel .network-block .info-item:last-child{
-  padding-bottom: 0;
-}
-
-#netid-panel .nid__label,
 #netid-panel .network-block .info-item label{
   color: var(--label);
-  justify-self: start;
   font-size: 13px;
 }
 
-#netid-panel .nid__value,
 #netid-panel .network-block .info-item value{
   min-width: 0;
   white-space: nowrap;
@@ -4587,19 +4531,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   font-size: 14px;
 }
 
-/* 根据不同的出站模式设置激活状态（可选，由JS控制） */
-/* VPS出站IP激活 */
-#netid-panel[data-mode="vps"] .network-block:nth-child(1) > h3,
-/* 代理出站IP激活 */
-#netid-panel[data-mode="proxy"] .network-block:nth-child(2) > h3,
-/* 分流出站激活 */
-#netid-panel[data-mode="split"] .network-block:nth-child(3) > h3{
-  background: var(--tag-active-bg) !important;
-  color: var(--tag-active-color) !important;
-  border-color: var(--tag-active-bg) !important;
-}
-
-/* 窄屏自适应：堆叠为单列 */
+/* 窄屏自适应 */
 @media (max-width: 1024px){
   #netid-panel .network-blocks{ 
     grid-template-columns: 1fr; 
