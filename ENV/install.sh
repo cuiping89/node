@@ -3540,7 +3540,7 @@ get_current_stats() {
     echo "$tx_bytes $rx_bytes"
 }
 
-# 获取住宅代理流量（从nftables计数器）
+# 获取代理代理流量（从nftables计数器）
 get_residential_traffic() {
     if ! command -v nft >/dev/null 2>&1; then
         echo "0"
@@ -3591,7 +3591,7 @@ main() {
         delta_resi=0
     fi
     
-    # VPS出站 = 总出站 - 住宅出站
+    # VPS出站 = 总出站 - 代理出站
     delta_vps=$delta_tx
     if [[ $delta_resi -le $delta_tx ]]; then
         delta_vps=$((delta_tx - delta_resi))
@@ -4024,12 +4024,12 @@ show_traffic_stats() {
     
     # 显示今日流量
     local today_data
-    today_data=$(jq -r --arg today "$(date +%Y-%m-%d)" '.last30d[] | select(.date == $today) | "今日: VPS \(.vps)B, 住宅 \(.resi)B, 总计 \(.vps + .resi)B"' "$traffic_json" 2>/dev/null || echo "今日暂无数据")
+    today_data=$(jq -r --arg today "$(date +%Y-%m-%d)" '.last30d[] | select(.date == $today) | "今日: VPS \(.vps)B, 代理 \(.resi)B, 总计 \(.vps + .resi)B"' "$traffic_json" 2>/dev/null || echo "今日暂无数据")
     echo "  $today_data"
     
     # 显示本月流量
     local month_data
-    month_data=$(jq -r --arg month "$(date +%Y-%m)" '.monthly[] | select(.month == $month) | "本月: VPS \(.vps)B, 住宅 \(.resi)B, 总计 \(.total)B"' "$traffic_json" 2>/dev/null || echo "本月暂无数据")
+    month_data=$(jq -r --arg month "$(date +%Y-%m)" '.monthly[] | select(.month == $month) | "本月: VPS \(.vps)B, 代理 \(.resi)B, 总计 \(.total)B"' "$traffic_json" 2>/dev/null || echo "本月暂无数据")
     echo "  $month_data"
     
     return 0
@@ -4135,7 +4135,7 @@ IFACE="$(ip route | awk '/default/{print $5;exit}')"
 TX_CUR=$(cat /sys/class/net/$IFACE/statistics/tx_bytes 2>/dev/null || echo 0)
 RX_CUR=$(cat /sys/class/net/$IFACE/statistics/rx_bytes 2>/dev/null || echo 0)
 
-# 住宅出口计数（nftables 计数器 c_resi_out）
+# 代理出口计数（nftables 计数器 c_resi_out）
 get_resi_bytes() {
   if nft -j list counters table inet edgebox >/dev/null 2>&1; then
     nft -j list counters table inet edgebox \
@@ -4468,8 +4468,8 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 
 /* 核心服务：单独控制服务名那一列宽度与间距 */
 #system-overview .core-services {
-  --label-w: 60px;                 /* 这块自己设，不受上面的影响 */
-  --svc-gap: 60px;
+  --label-w: 70px;                 /* 这块自己设，不受上面的影响 */
+  --svc-gap: 70px;
 }
 
 /* 核心服务的标签文字大小调整 */
@@ -5515,7 +5515,7 @@ function renderProtocolTable() {
             <td><span class="status-badge ${p.status === '运行中' ? 'status-running' : ''}">${p.status}</span></td>
             <td><button class="btn btn-sm btn-link" data-action="open-modal" data-modal="configModal" data-protocol="${escapeHtml(p.name)}">查看配置</button></td>
         </tr>`).join('');
-    const subRow = `<tr class="subs-row"><td style="font-weight:500;">整包订阅链接</td><td>所有协议</td><td>通用</td><td></td><td><button class="btn btn-sm btn-link" data-action="open-modal" data-modal="configModal" data-protocol="__SUBS__">查看/复制</button></td></tr>`;
+    const subRow = `<tr class="subs-row"><td style="font-weight:500;">整包订阅链接</td><td>所有协议</td><td>通用</td><td></td><td><button class="btn btn-sm btn-link" data-action="open-modal" data-modal="configModal" data-protocol="__SUBS__">查看|订阅</button></td></tr>`;
     tbody.innerHTML = rows + subRow;
 }
 
@@ -5540,11 +5540,11 @@ function renderTrafficCharts() {
     });
     const daily = trafficData.last30d || [];
     if (daily.length) {
-        new Chart('traffic', { type: 'line', data: { labels: daily.map(d => d.date.slice(5)), datasets: [{ label: 'VPS', data: daily.map(d => d.vps / GiB), borderColor: '#3b82f6' }, { label: '住宅', data: daily.map(d => d.resi / GiB), borderColor: '#f59e0b' }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }, plugins: [ebYAxisUnitTop] });
+        new Chart('traffic', { type: 'line', data: { labels: daily.map(d => d.date.slice(5)), datasets: [{ label: 'VPS', data: daily.map(d => d.vps / GiB), borderColor: '#3b82f6' }, { label: '代理', data: daily.map(d => d.resi / GiB), borderColor: '#f59e0b' }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }, plugins: [ebYAxisUnitTop] });
     }
     if (monthly.length) {
         const recentMonthly = monthly.slice(-12);
-        new Chart('monthly-chart', { type: 'bar', data: { labels: recentMonthly.map(m => m.month), datasets: [{ label: 'VPS', data: recentMonthly.map(m => m.vps / GiB), backgroundColor: '#3b82f6', stack: 'a' }, { label: '住宅', data: recentMonthly.map(m => m.resi / GiB), backgroundColor: '#f59e0b', stack: 'a' }] }, options: { responsive: true, maintainAspectRatio: false, scales: { x: { stacked: true }, y: { stacked: true } } }, plugins: [ebYAxisUnitTop] });
+        new Chart('monthly-chart', { type: 'bar', data: { labels: recentMonthly.map(m => m.month), datasets: [{ label: 'VPS', data: recentMonthly.map(m => m.vps / GiB), backgroundColor: '#3b82f6', stack: 'a' }, { label: '代理', data: recentMonthly.map(m => m.resi / GiB), backgroundColor: '#f59e0b', stack: 'a' }] }, options: { responsive: true, maintainAspectRatio: false, scales: { x: { stacked: true }, y: { stacked: true } } }, plugins: [ebYAxisUnitTop] });
     }
 }
 
@@ -5704,11 +5704,11 @@ function showConfigModal(protocolKey) {
         <div class="config-code" id="plain-link">${esc(plain)}</div>
       </div>
       <div class="config-section">
-        <h4>Base64</h4>
+        <h4>Base64链接</h4>
         <div class="config-code" id="base64-link">${esc(base64)}</div>
       </div>
       <div class="config-section">
-        <h4>二维码（明文链接）</h4>
+        <h4>二维码</h4>
         <div class="qr-container"><div id="qrcode-protocol"></div></div>
       </div>
       ${usage('复制明文或 JSON 导入客户端；若客户端支持扫码添加，也可直接扫描二维码。')}
@@ -6219,7 +6219,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
           <label class="nid__label">IP质量:</label>
           <value class="nid__value">
             <span id="vps-ipq-score"></span>
-            <button class="btn-link" data-action="open-modal" data-modal="ipqModal" data-ipq="vps">详情</button>
+            <button class="btn-link" data-action="open-modal" data-modal="ipqModal" data-ipq="vps">查看详情</button>
           </value>
         </div>
       </div>
@@ -6243,7 +6243,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
           <label class="nid__label">IP质量:</label>
           <value class="nid__value">
             <span id="proxy-ipq-score"></span>
-            <button class="btn-link" data-action="open-modal" data-modal="ipqModal" data-ipq="proxy">详情</button>
+            <button class="btn-link" data-action="open-modal" data-modal="ipqModal" data-ipq="proxy">查看详情</button>
           </value>
         </div>
       </div>
@@ -6329,7 +6329,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             <h4>🔀 出站分流</h4>
             <div class="command-list">
               <code>edgeboxctl shunt vps</code> <span># 切换至VPS全量出站</span><br>
-              <code>edgeboxctl shunt resi &lt;URL&gt;</code> <span># 配置并切换至住宅IP全量出站</span><br>
+              <code>edgeboxctl shunt resi &lt;URL&gt;</code> <span># 配置并切换至代理IP全量出站</span><br>
               <code>edgeboxctl shunt direct-resi &lt;URL&gt;</code> <span># 配置并切换至白名单智能分流状态</span><br>
               <code>edgeboxctl shunt whitelist &lt;add|remove|list&gt;</code> <span># 管理白名单域名</span><br>
               <code>代理URL格式:</code><br>
@@ -6337,7 +6337,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
               <code>https://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;?sni=</code><br>
               <code>socks5://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;</code><br>
               <code>socks5s://user:pass@&lt;域名&gt;:&lt;端口&gt;?sni=</code><br>
-              <code>示例：edgeboxctl shunt resi 'socks5://user:pass@111.222.333.444:11324'</code> <span># 全栈走住宅</span>
+              <code>示例：edgeboxctl shunt resi 'socks5://user:pass@111.222.333.444:11324'</code> <span># 全栈走代理</span>
             </div>
           </div>
 
@@ -6877,13 +6877,13 @@ cert_status(){
 # 出站分流系统
 #############################################
 
-# 清空 nftables 的住宅采集集合（VPS 全量出站时用）
+# 清空 nftables 的代理采集集合（VPS 全量出站时用）
 flush_nft_resi_sets() {
   nft flush set inet edgebox resi_addr4 2>/dev/null || true
   nft flush set inet edgebox resi_addr6 2>/dev/null || true
 }
 
-# 解析住宅代理 URL => 导出全局变量：
+# 解析代理 URL => 导出全局变量：
 parse_proxy_url() {
   local url
   url="$(printf '%s' "$1" | tr -d '\r' | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')"
@@ -6930,7 +6930,7 @@ check_proxy_health_url() {
        http://www.gstatic.com/generate_204 >/dev/null
 }
 
-# 生成 Xray 的住宅代理 outbound JSON（单个）
+# 生成 Xray 的代理 outbound JSON（单个）
 build_xray_resi_outbound() {
   local users='' stream=''
   [[ -n "$PROXY_USER" ]] && users=", \"users\":[{\"user\":\"$PROXY_USER\",\"pass\":\"$PROXY_PASS\"}]"
@@ -6975,7 +6975,7 @@ show_shunt_status() {
         local health=$(jq -r '.health' "$SHUNT_CONFIG" 2>/dev/null || echo "unknown")
         case "$mode" in
             vps) echo -e "  当前模式: ${GREEN}VPS全量出${NC}";;
-            resi) echo -e "  当前模式: ${YELLOW}住宅IP全量出${NC}  代理: ${proxy_info}  健康: $health";;
+            resi) echo -e "  当前模式: ${YELLOW}代理IP全量出${NC}  代理: ${proxy_info}  健康: $health";;
             direct_resi) echo -e "  当前模式: ${BLUE}智能分流${NC}  代理: ${proxy_info}  健康: $health"
                 echo -e "  白名单域名数: $(wc -l < "${CONFIG_DIR}/shunt/whitelist.txt" 2>/dev/null || echo "0")";;
         esac
@@ -7016,17 +7016,17 @@ EOF
     flush_nft_resi_sets
 }
 
-# 住宅全量出站
+# 代理全量出站
 setup_outbound_resi() {
   local url="$1"
   [[ -z "$url" ]] && { echo "用法: edgeboxctl shunt resi '<URL>'"; return 1; }
 
-  log_info "配置住宅IP全量出站: ${url}"
+  log_info "配置代理IP全量出站: ${url}"
   if ! check_proxy_health_url "$url"; then log_error "代理不可用：$url"; return 1; fi
   get_server_info || return 1
   parse_proxy_url "$url"
 
-  # Xray: 所有 TCP/UDP 流量走住宅，53 直连
+  # Xray: 所有 TCP/UDP 流量走代理，53 直连
   local xob; xob="$(build_xray_resi_outbound)"
   jq --argjson ob "$xob" '
     .outbounds=[{"protocol":"freedom","tag":"direct"}, $ob] |
@@ -7055,7 +7055,7 @@ EOF
   echo "$url" > "${CONFIG_DIR}/shunt/resi.conf"
   setup_shunt_directories
   update_shunt_state "resi(xray-only)" "$url" "healthy"
-  systemctl restart xray sing-box && log_success "住宅全量出站已生效（Xray 分流，sing-box 直连）" || { log_error "失败"; return 1; }
+  systemctl restart xray sing-box && log_success "代理全量出站已生效（Xray 分流，sing-box 直连）" || { log_error "失败"; return 1; }
 }
 
 # 智能分流
@@ -7063,7 +7063,7 @@ setup_outbound_direct_resi() {
   local url="$1"
   [[ -z "$url" ]] && { echo "用法: edgeboxctl shunt direct-resi '<URL>'"; return 1; }
 
-  log_info "配置智能分流（白名单直连，其余住宅）: ${url}"
+  log_info "配置智能分流（白名单直连，其余代理）: ${url}"
   if ! check_proxy_health_url "$url"; then log_error "代理不可用：$url"; return 1; fi
   get_server_info || return 1; setup_shunt_directories
   parse_proxy_url "$url"
@@ -7484,8 +7484,8 @@ ${YELLOW}证书管理:${NC}
   edgeboxctl switch-to-ip                        切换到 IP 模式（自签证书）
 
 ${YELLOW}出站分流:${NC}
-  edgeboxctl shunt resi '<代理URL>'               全量走住宅（仅 Xray 分流）
-  edgeboxctl shunt direct-resi '<代理URL>'        智能分流（白名单直连，其余走住宅）
+  edgeboxctl shunt resi '<代理URL>'               全量走代理（仅 Xray 分流）
+  edgeboxctl shunt direct-resi '<代理URL>'        智能分流（白名单直连，其余走代理）
   edgeboxctl shunt vps                           VPS 全量出站
   edgeboxctl shunt whitelist [add|remove|list|reset] [domain]   管理白名单
   代理URL示例:
@@ -7493,7 +7493,7 @@ ${YELLOW}出站分流:${NC}
     https://user:pass@host:port?sni=example.com
     socks5://user:pass@host:port
     socks5s://user:pass@host:port?sni=example.com
-  示例（全栈走住宅）: edgeboxctl shunt resi 'socks5://u:p@111.222.333.444:11324'
+  示例（全栈走代理）: edgeboxctl shunt resi 'socks5://u:p@111.222.333.444:11324'
 
 ${YELLOW}流量统计和预警:${NC}
   edgeboxctl traffic show                        查看流量统计
@@ -8000,7 +8000,7 @@ show_installation_info() {
     
     echo -e "\n${CYAN}高级运维功能：${NC}"
     echo -e "  🔄 模式切换: IP模式 ⇋ 域名模式（Let's Encrypt证书）"
-    echo -e "  🌐 出站分流: 住宅IP全量 ⇋ VPS全量出 ⇋ 白名单智能分流"
+    echo -e "  🌐 出站分流: 代理IP全量 ⇋ VPS全量出 ⇋ 白名单智能分流"
     echo -e "  📊 流量监控: 实时流量统计、历史趋势图表、协议分析"
     echo -e "  🔔 预警通知: 流量阈值告警（30%/60%/90%）多渠道推送"
     echo -e "  💾 自动备份: 配置文件定期备份、一键故障恢复"
@@ -8017,7 +8017,7 @@ show_installation_info() {
     echo -e "  ${PURPLE}edgeboxctl help${NC}                          # 查看完整帮助"
     
     echo -e "\n${CYAN}智能分流示例：${NC}"
-    echo -e "  # 住宅代理全量出站"
+    echo -e "  # 代理代理全量出站"
     echo -e "  ${PURPLE}edgeboxctl shunt resi 'socks5://user:pass@proxy.example.com:1080'${NC}"
     echo -e "  "
     echo -e "  # 智能分流（白名单VPS直连，其他走代理）"
