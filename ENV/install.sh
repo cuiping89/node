@@ -4424,7 +4424,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 /* 核心服务：单独控制服务名那一列宽度与间距 */
 #system-overview .core-services {
   --label-w: 60px;                 /* 这块自己设，不受上面的影响 */
-  --svc-gap: 50px;
+  --svc-gap: 60px;
 }
 #system-overview .core-services .label { 
   white-space: nowrap; 
@@ -4440,7 +4440,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 /* =======================================================================
    证书切换（仅 #cert-panel）——标题条分离 + 键名列/值列
    ======================================================================= */
-#cert-panel{ --label-w:96px; --row-gap:10px; --h3-gap:8px; --label:#4b5563; --value:#111827; }
+#cert-panel{ --label-w:80px; --row-gap:10px; --h3-gap:8px; --label:#4b5563; --value:#111827; }
 #cert-panel .inner-block{ display:block; }
 #cert-panel .inner-block>h3{ margin:0 0 var(--h3-gap); }
 
@@ -4463,35 +4463,96 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 #cert-panel .inner-block .info-item value{ min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--value); }
 
 /* =======================================================================
-   网络身份配置（仅 #netid-panel）——标题条独立、内容“键名列/值列”
+   网络身份配置（仅 #netid-panel）
+   —— 标题做成“悬浮标签 chip”，与内容视觉分离
    ======================================================================= */
-#netid-panel{ --label-w:70px; --row-gap:5px; --label:#4b5563; --value:#111827; }
+#netid-panel{
+  /* 行内变量：可按需微调 */
+  --label-w: 60px;         /* 键名列宽 */
+  --row-gap: 6px;          /* 键名列与值列的横向间距 */
+  --line-vpad: 6px;        /* 每一行的上下内边距（行高） */
+  --title-offset: -12px;   /* 标签与卡片主体的垂直分离距离（越小越“悬”） */
+  --title-pad-y: 6px;      /* 标签垂直内边距（控制标签高度） */
+  --title-pad-x: 12px;     /* 标签水平内边距（控制标签宽度） */
 
-#netid-panel .network-blocks{ display:grid; grid-template-columns:repeat(3,1fr); gap:15px; }
+  --label: #4b5563;
+  --value: #111827;
+
+  /* 标签配色（chip） */
+  --tab-bg: #ffffff;
+  --tab-border: #e5e7eb;
+  --tab-color: #374151;
+  --tab-shadow: 0 1px 0 rgba(0,0,0,.03);
+}
+
+#netid-panel .network-blocks{
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 15px;
+}
+
+/* 卡片主体：顶部留出空间给“悬浮标签”，并允许绝对定位 */
 #netid-panel .network-block{
-  background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:12px;
+  position: relative;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 18px 12px 12px;            /* 顶部略加大，为标签让位 */
 }
 
-/* 头部条：完全分离于内容 */
+/* 标题做成“chip”：绝对定位到卡片上方，独立于内容 */
 #netid-panel .network-block > h3{
-  margin:-12px -12px 12px -12px !important;
-  padding:10px 12px !important;
-  background:#f3f4f6 !important;
-  border-bottom:1px solid #e5e7eb !important;
-  border-radius:8px 8px 0 0 !important;
-  color:#374151 !important; font-weight:600 !important;
-}
-#netid-panel .network-block > h3 + *{ margin-top:0 !important; }
+  position: absolute;
+  top: var(--title-offset);            /* 与卡片主体的垂直分离量 */
+  left: 12px;
+  z-index: 1;
 
-/* 内容行：键名 | 值 */
+  margin: 0 !important;               /* 清掉默认外边距 */
+  padding: var(--title-pad-y) var(--title-pad-x) !important;
+  background: var(--tab-bg) !important;
+  color: var(--tab-color) !important;
+  border: 1px solid var(--tab-border) !important;
+  border-radius: 8px !important;
+  box-shadow: var(--tab-shadow);
+  line-height: 1;                      /* 标签更紧凑 */
+  font-weight: 600 !important;
+}
+
+/* 标题后第一块内容不再额外顶开距离 */
+#netid-panel .network-block > h3 + *{
+  margin-top: 0 !important;
+}
+
+/* 内容行：键名 | 值（两列自适应） */
 #netid-panel .nid__row,
 #netid-panel .network-block .info-item{
-  display:grid; grid-template-columns:var(--label-w) 1fr; gap:var(--row-gap); align-items:center; padding:6px 0;
+  display: grid;
+  grid-template-columns: var(--label-w) 1fr;
+  gap: var(--row-gap);
+  align-items: center;
+  padding: var(--line-vpad) 0;
 }
+
 #netid-panel .nid__label,
-#netid-panel .network-block .info-item label{ color:#4b5563; justify-self:start; }
+#netid-panel .network-block .info-item label{
+  color: var(--label);
+  justify-self: start;
+}
+
 #netid-panel .nid__value,
-#netid-panel .network-block .info-item value{ min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--value); }
+#netid-panel .network-block .info-item value{
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--value);
+}
+
+/* 窄屏：自动堆叠为单列 */
+@media (max-width: 1024px){
+  #netid-panel .network-blocks{ grid-template-columns: 1fr; }
+}
+
 
 /* =======================================================================
    运维管理（无 id 版本）——灰卡分组 + 深灰代码块
@@ -4543,7 +4604,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 
 #ops-panel .command-list code,
 .commands-grid .command-list code {
-  margin-right: 10px;    /* ← 命令小胶囊 与 注释 的水平间距 */
+  margin-right: 8px;    /* ← 命令小胶囊 与 注释 的水平间距 */
   /* 可选：如果需要让 margin-bottom 生效，再打开下一行 */
   /* display: inline-block; */
 }
