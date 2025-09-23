@@ -4343,100 +4343,208 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 /* =======================================================================
    系统概览
    ======================================================================= */
-#system-overview{
-  --label-w:72px;           /* 左侧键名列宽 */
-  --percent-col:33px;       /* 右侧百分比列宽 */
-  --meter-height:20px;      /* 进度条高度 */
-  --svc-gap:12px;            /* 服务名/徽标/版本 间距 */
-  --h3-gap:8px;
-  --meter-track:#d1d5db; --meter-start:#059669; --meter-end:#10b981;
-  --label:#4b5563; --value:#111827; --muted:#6b7280;
+/* ========== 系统概览卡片 ========== */
+#system-overview .grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+  align-items: stretch; /* 确保子元素拉伸到相同高度 */
 }
 
-/* 标题紧跟 */
-#system-overview .inner-block{ display:block; }
-#system-overview .inner-block>h3{ display:flex; align-items:center; white-space:nowrap; margin:0 0 var(--h3-gap); }
-
-/* 服务器信息：两列 */
-#system-overview .server-info .info-item{
-  display:grid; grid-template-columns:var(--label-w) 1fr; gap:8px; align-items:center; padding:6px 0;
-}
-#system-overview .server-info .label{ color:var(--label); justify-self:start; }
-#system-overview .server-info .value{ min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--value); }
-
-/* 服务器配置：键名 | 进度条 | 百分比 */
-#system-overview .progress-row{
-  display:grid; grid-template-columns:var(--label-w) minmax(0,1fr) var(--percent-col);
-  column-gap:4px; align-items:center; padding:6px 0;
-}
-#system-overview .progress-label{ color:var(--label); justify-self:start; }
-#system-overview .progress-bar{
-  position:relative; height:var(--meter-height);
-  background:var(--meter-track); border-radius:999px; overflow:hidden; align-self:center;
-}
-#system-overview .progress-fill{
-  height:100%; border-radius:999px; background:linear-gradient(90deg,var(--meter-start),var(--meter-end));
-  transition:width .25s ease;
-}
-#system-overview .progress-text{
-  position:absolute; left:4px; right:4px; top:50%; transform:translateY(-50%);
-  font-size:11px; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; pointer-events:none;
-}
-#system-overview .progress-info{
-  min-width:var(--percent-col); text-align:right; color:var(--value);
-  font-variant-numeric:tabular-nums;
+#system-overview .inner-block {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  height: 100%; /* 确保占满网格高度 */
 }
 
-/* 核心服务：名称 | 徽标 | 版本号 */
-#system-overview .core-services .service-item{
-  display:grid; grid-template-columns:var(--label-w) max-content 1fr;
-  column-gap:var(--svc-gap); align-items:center; padding:6px 0;
-}
-#system-overview .core-services .version{
-  justify-self:start; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--muted); font-size:12px;
-}
-
-/* 窄屏收窄 */
-@media (max-width:640px){
-  #system-overview{ --label-w:68px; --percent-col:32px; }
-  #system-overview .server-info .info-item{ grid-template-columns:68px 1fr; }
-  #system-overview .progress-row{ grid-template-columns:68px minmax(0,1fr) var(--percent-col); }
-  #system-overview .core-services .service-item{ grid-template-columns:68px max-content 1fr; }
+#system-overview .inner-block h3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+  margin: 0 0 16px 0;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #f3f4f6;
+  flex-shrink: 0; /* 标题不压缩 */
 }
 
-/* —— 给三个区块各自的“标签列宽”开独立的开关 —— */
-
-/* 服务器信息：中文键名较长，单独设宽，并禁止换行 */
-#system-overview .server-info { 
-  --label-w: 80px;                 /* 这里按需改 */
-}
-#system-overview .server-info .label { 
-  white-space: nowrap;             /* 防止被压行 */
+/* 服务器信息样式 */
+.server-info .info-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px dashed #f3f4f6;
 }
 
-/* 服务器配置（进度条区）：只影响这一块的行 */
-#system-overview .progress-row { 
-  --label-w: 50px;                 /* 你想要的 50px 只作用在进度条这块 */
-  --percent-col: 33px;             /* 百分比列可一起调，避免太窄 */
+.server-info .info-item:last-child {
+  border-bottom: none;
 }
-#system-overview .progress-label { 
+
+.server-info .label {
+  font-size: 13px;
+  color: #6b7280;
+  flex-shrink: 0;
+}
+
+.server-info .value {
+  font-size: 13px;
+  color: #111827;
+  text-align: right;
+  word-break: break-all;
+  max-width: 60%;
+}
+
+/* 服务器配置（进度条）样式 */
+#server-config .progress-row {
+  margin-bottom: 12px;
+}
+
+#server-config .progress-row:last-child {
+  margin-bottom: 0;
+}
+
+.progress-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.progress-label {
+  font-size: 13px;
+  color: #6b7280;
+  min-width: 45px;
+}
+
+.progress-bar {
+  flex: 1;
+  height: 20px;
+  background: #f3f4f6;
+  border-radius: 10px;
+  overflow: hidden;
+  position: relative;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #10b981 0%, #059669 100%);
+  transition: width 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 8px;
+}
+
+.progress-fill.warning {
+  background: linear-gradient(90deg, #f59e0b 0%, #d97706 100%);
+}
+
+.progress-fill.critical {
+  background: linear-gradient(90deg, #ef4444 0%, #dc2626 100%);
+}
+
+.progress-percentage {
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.progress-info {
+  font-size: 12px;
+  color: #6b7280;
   white-space: nowrap;
+  min-width: fit-content;
 }
 
-/* 核心服务：单独控制服务名那一列宽度与间距 */
-#system-overview .core-services {
-  --label-w: 60px;                 /* 这块自己设，不受上面的影响 */
-  --svc-gap: 60px;
-}
-#system-overview .core-services .label { 
-  white-space: nowrap; 
+/* 核心服务样式 - 修改这部分让高度一致 */
+#core-services {
+  flex: 1; /* 让内容区域占满剩余空间 */
+  display: flex;
+  flex-direction: column;
 }
 
-/* 窄屏时也分别覆盖，避免全局一刀切 */
-@media (max-width: 640px){
-  #system-overview .server-info   { --label-w: 84px; }
-  #system-overview .progress-row  { --label-w: 60px; --percent-col: 34px; }
-  #system-overview .core-services { --label-w: 68px; }
+#core-services .service-list {
+  flex: 1; /* 占满剩余空间 */
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between; /* 均匀分布服务项 */
+}
+
+.service-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px dashed #f3f4f6;
+}
+
+.service-item:last-child {
+  border-bottom: none;
+}
+
+.service-name {
+  font-size: 13px;
+  color: #374151;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.service-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+.status-badge.status-running {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.status-badge.status-stopped {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.status-badge.status-error {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+.service-version {
+  font-size: 11px;
+  color: #9ca3af;
+}
+
+/* 响应式布局 */
+@media (max-width: 1024px) {
+  #system-overview .grid-3 {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  #system-overview .inner-block {
+    padding: 12px;
+  }
+  
+  .server-info .value {
+    max-width: 70%;
+  }
 }
 
 /* =======================================================================
