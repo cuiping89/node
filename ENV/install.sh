@@ -5594,67 +5594,73 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         </div>
       </div>
   
-<div class="card" id="ops-panel">
-  <div class="card-header"><h2>⚙️ 运维管理</h2></div>
+      <!-- 运维管理（来自new5.txt）-->
+      <div class="card">
+        <div class="card-header">
+          <h2>⚙️ 运维管理</h2>
+        </div>
+        <div class="commands-grid">
+          <div class="command-section">
+            <h4>🔧 基础操作</h4>
+            <div class="command-list">
+              <code>edgeboxctl sub</code> <span># 动态生成当前模式下的订阅链接</span><br>
+              <code>edgeboxctl logs &lt;svc&gt;</code> <span># 查看指定服务的实时日志</span><br>
+              <code>edgeboxctl status</code> <span># 查看所有核心服务运行状态</span><br>
+              <code>edgeboxctl restart</code> <span># 安全地重启所有服务</span><br>
+            </div>
+          </div>
 
-  <div class="inner-block">
-    <div class="commands-grid">
-      <!-- 🔧 基础操作 -->
-      <div class="command-section">
-        <h4>🔧 基础操作</h4>
-        <div class="ops__row"><div class="ops__label"><code>edgeboxctl sub</code></div><div class="ops__value"><span># 生成订阅链接</span></div></div>
-        <div class="ops__row"><div class="ops__label"><code>edgeboxctl logs &lt;svc&gt;</code></div><div class="ops__value"><span># 查看服务日志</span></div></div>
-        <div class="ops__row"><div class="ops__label"><code>edgeboxctl status</code></div><div class="ops__value"><span># 查看服务状态</span></div></div>
-        <div class="ops__row"><div class="ops__label"><code>edgeboxctl restart</code></div><div class="ops__value"><span># 重启所有服务</span></div></div>
-      </div>
+          <div class="command-section">
+            <h4>🌐 证书管理</h4>
+            <div class="command-list">
+              <code>edgeboxctl switch-to-domain &lt;your_domain&gt;</code> <span># 切换到域名模式，申请证书</span><br>
+              <code>edgeboxctl switch-to-ip</code> <span># 回退到IP模式，使用自签名证书</span><br>
+              <code>edgeboxctl cert status</code> <span># 检查当前证书的到期日期和类型</span><br>
+              <code>edgeboxctl cert renew</code> <span># 手动续期Let's Encrypt证书</span>
+            </div>
+          </div>
 
-      <!-- 🌐 证书管理 -->
-      <div class="command-section">
-        <h4>🌐 证书管理</h4>
-        <div class="ops__row"><div class="ops__label"><code>edgeboxctl switch-to-domain &lt;domain&gt;</code></div><div class="ops__value"><span># 切换为域名模式</span></div></div>
-        <div class="ops__row"><div class="ops__label"><code>edgeboxctl switch-to-ip</code></div><div class="ops__value"><span># 切换回IP模式</span></div></div>
-        <div class="ops__row"><div class="ops__label"><code>edgeboxctl cert status</code></div><div class="ops__value"><span># 查看证书状态</span></div></div>
-        <div class="ops__row"><div class="ops__label"><code>edgeboxctl cert renew</code></div><div class="ops__value"><span># 手动续期证书</span></div></div>
-      </div>
+          <div class="command-section">
+            <h4>🔀 出站分流</h4>
+            <div class="command-list">
+              <code>edgeboxctl shunt vps</code> <span># 切换至VPS全量出站</span><br>
+              <code>edgeboxctl shunt resi &lt;URL&gt;</code> <span># 配置并切换至住宅IP全量出站</span><br>
+              <code>edgeboxctl shunt direct-resi &lt;URL&gt;</code> <span># 配置并切换至白名单智能分流状态</span><br>
+              <code>edgeboxctl shunt whitelist &lt;add|remove|list&gt;</code> <span># 管理白名单域名</span><br>
+              <code>代理URL格式:</code><br>
+              <code>http://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;</code><br>
+              <code>https://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;?sni=</code><br>
+              <code>socks5://user:pass@&lt;IP或域名&gt;:&lt;端口&gt;</code><br>
+              <code>socks5s://user:pass@&lt;域名&gt;:&lt;端口&gt;?sni=</code><br>
+              <code>示例：edgeboxctl shunt resi 'socks5://user:pass@111.222.333.444:11324'</code> <span># 全栈走住宅</span>
+            </div>
+          </div>
 
-      <!-- 🔀 出站分流 -->
-      <div class="command-section">
-        <h4>🔀 出站分流</h4>
-        <div class="ops__row"><div class="ops__label"><code>edgeboxctl shunt vps</code></div><div class="ops__value"><span># VPS全量出站</span></div></div>
-        <div class="ops__row"><div class="ops__label"><code>edgeboxctl shunt resi &lt;URL&gt;</code></div><div class="ops__value"><span># 住宅IP全量出站</span></div></div>
-        <div class="ops__row"><div class="ops__label"><code>edgeboxctl shunt direct-resi &lt;URL&gt;</code></div><div class="ops__value"><span># 智能分流</span></div></div>
-        <div class="ops__row"><div class="ops__label"><code>edgeboxctl shunt whitelist &lt;...&gt;</code></div><div class="ops__value"><span># 管理白名单</span></div></div>
-      </div>
+          <div class="command-section">
+            <h4>📊 流量统计与预警</h4>
+            <div class="command-list">
+              <code>edgeboxctl traffic show</code> <span># 在终端中查看流量统计数据</span><br>
+              <code>edgeboxctl traffic reset</code> <span># 重置流量计数器</span><br>
+              <code>edgeboxctl alert &lt;command&gt;</code> <span># 管理流量预警设置</span><br>
+              <code>edgeboxctl alert monthly</code> <span># 设置月度阈值</span><br>
+              <code>edgeboxctl alert steps 30,60,90</code> <span># 设置预警阈值</span><br>
+              <code>edgeboxctl alert telegram &lt;bot_token&gt; &lt;chat_id&gt;</code> <span># 配置Telegram机器人</span><br>
+              <code>edgeboxctl alert discord &lt;webhook_url&gt;</code> <span># 配置Discord通知</span><br>
+              <code>edgeboxctl alert wechat &lt;pushplus_token&gt;</code> <span># 配置微信通知</span><br>
+              <code>edgeboxctl alert webhook [raw|slack|discord]</code> <span># 配置通用Webhook</span><br>
+              <code>edgeboxctl alert test</code> <span># 测试预警系统</span>
+            </div>
+          </div>
 
-      <!-- 📊 流量与预警 -->
-      <div class="command-section">
-        <h4>📊 流量与预警</h4>
-        <div class="ops__row"><div class="ops__label"><code>edgeboxctl traffic show</code></div><div class="ops__value"><span># 查看流量统计</span></div></div>
-        <div class="ops__row"><div class="ops__label"><code>edgeboxctl alert monthly &lt;GiB&gt;</code></div><div class="ops__value"><span># 设置月度预算</span></div></div>
-        <div class="ops__row"><div class="ops__label"><code>edgeboxctl alert steps 30,60,90</code></div><div class="ops__value"><span># 设置预警阈值</span></div></div>
-        <div class="ops__row"><div class="ops__label"><code>edgeboxctl alert test</code></div><div class="ops__value"><span># 测试预警</span></div></div>
-      </div>
-
-      <!-- ⚙️ 配置管理 -->
-      <div class="command-section">
-        <h4>⚙️ 配置管理</h4>
-        <div class="ops__row"><div class="ops__label"><code>edgeboxctl config show</code></div><div class="ops__value"><span># 显示核心配置</span></div></div>
-        <div class="ops__row"><div class="ops__label"><code>edgeboxctl config regenerate-uuid</code></div><div class="ops__value"><span># 重新生成凭据</span></div></div>
-        <div class="ops__row"><div class="ops__label"><code>edgeboxctl test</code></div><div class="ops__value"><span># 测试协议连通性</span></div></div>
-        <div class="ops__row"><div class="ops__label"><code>edgeboxctl debug-ports</code></div><div class="ops__value"><span># 调试端口占用</span></div></div>
-      </div>
-
-      <!-- 💾 系统维护 -->
-      <div class="command-section">
-        <h4>💾 系统维护</h4>
-        <div class="ops__row"><div class="ops__label"><code>edgeboxctl update</code></div><div class="ops__value"><span># 更新EdgeBox</span></div></div>
-        <div class="ops__row"><div class="ops__label"><code>edgeboxctl backup create</code></div><div class="ops__value"><span># 创建备份</span></div></div>
-        <div class="ops__row"><div class="ops__label"><code>edgeboxctl backup list</code></div><div class="ops__value"><span># 列出备份</span></div></div>
-        <div class="ops__row"><div class="ops__label"><code>edgeboxctl backup restore &lt;file&gt;</code></div><div class="ops__value"><span># 恢复备份</span></div></div>
-      </div>
-    </div>
-  </div>
-</div>
+          <div class="command-section">
+            <h4>⚙️ 配置管理</h4>
+            <div class="command-list">
+              <code>edgeboxctl config show</code> <span># 显示所有服务的核心配置信息</span><br>
+              <code>edgeboxctl config regenerate-uuid</code> <span># 为所有协议重新生成新的UUID</span><br>
+              <code>edgeboxctl test</code> <span># 测试所有协议的连接是否正常</span><br>
+              <code>edgeboxctl debug-ports</code> <span># 调试关键端口的监听状态</span>
+            </div>
+          </div>
 
 <div id="whitelistModal" class="modal"><div class="modal-content"><div class="modal-header"><h3>白名单完整列表</h3><span class="close-btn" data-action="close-modal" data-modal="whitelistModal">×</span></div><div class="modal-body"><div id="whitelistList"></div></div></div></div>
 <div id="ipqModal" class="modal"><div class="modal-content"><div class="modal-header"><h3 id="ipqModalTitle">IP质量检测详情</h3><span class="close-btn" data-action="close-modal" data-modal="ipqModal">×</span></div><div class="modal-body"><div id="ipqDetails"></div></div></div></div>
