@@ -4582,7 +4582,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 
 /* 在你现有 #netid-panel 样式后面追加这段“覆盖”即可 */
 #netid-panel{
-  --panel-top-gap: 10px;   /* ←想再远离横线就加大，比如 14/16 */
+  --panel-top-gap: 3px;   /* ←想再远离横线就加大，比如 14/16 */
 }
 #netid-panel .network-blocks{
   padding-top: var(--panel-top-gap);
