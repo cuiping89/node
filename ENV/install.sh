@@ -4771,133 +4771,179 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 /* =========================
    弹窗 Modal 统一样式补丁
    ========================= */
-/* =========================== Modal  =========================== */
-/* 尺寸稳定：避免从细长条拉伸成长框的观感 */
-.modal { display:none; position:fixed; inset:0; z-index:1000; background:rgba(0,0,0,.5); }
+/* =============== Modal 统一：居中 + 稳定大小 + 分割线 + 文本左对齐 =============== */
+
+/* 遮罩：仍由 JS 改 display，但一旦是 block 就改用 flex 居中 */
+.modal{
+  display: none;              /* JS 会把它设成 block */
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0,0,0,.50);
+  padding: 40px 16px;         /* 让小屏也有边距 */
+}
+
+/* 兼容：当 JS 把 display 设为 block 时，强制用 flex 居中 */
+.modal[style*="display: block"], 
+.modal.open, 
+.modal.is-open{
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 统一弹窗外壳：稳定尺寸、阴影、滚动 */
 .modal-content{
-  /* 固定一个舒适的宽高基线；小屏仍然自适应 */
-  width: 860px;
-  max-width: min(92%, 860px);
-  min-height: 520px;            /* 预留最小高度，避免“内容加载时跳动” */
-  background:#fff;
-  border:1px solid #e5e7eb;
-  border-radius:12px;
-  box-shadow:0 12px 24px rgba(0,0,0,.14);
-  overflow:hidden;              /* 防止内容瞬时撑破造成的拉伸感 */
+  width: min(880px, 92vw);       /* 统一的默认宽度 */
+  min-width: min(720px, 92vw);   /* 稳定初始框体，避免“长条→放大” */
+  min-height: 420px;             /* 稳定初始高度 */
+  max-height: calc(100vh - 120px);
+  margin: 0;                     /* 居中依赖 flex，不再用 margin */
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  box-shadow: 0 16px 32px rgba(0,0,0,.20);
+  overflow: hidden;              /* 让 header/footer 吸顶吸底更干净 */
 }
 
+/* 头/尾：吸顶吸底 + 分割线 */
 .modal-header{
-  padding:20px 24px;
-  border-bottom:1px solid #e5e7eb;
-  display:flex; align-items:center; justify-content:space-between;
-}
-.modal-header h3{ margin:0; font-size:16px; font-weight:600; }
-
-.modal-body{
-  padding:20px 24px;
-  min-height: 360px;            /* 给二维码/图片加载预留空间，避免高度跳变 */
-  overflow:auto;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #fff;
+  padding: 16px 20px;
+  border-bottom: 1px solid #e5e7eb;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 .modal-footer{
-  padding:14px 24px;
-  border-top:1px solid #e5e7eb;
-  text-align:right;
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  background: #fff;
+  padding: 12px 20px;
+  border-top: 1px solid #e5e7eb;
+  text-align: right;
 }
 
-/* 统一关闭按钮 */
+/* 关闭按钮一致化 */
 .close-btn{
-  font-size:16px; color:#64748b; cursor:pointer;
-  width:28px; height:28px; line-height:28px;
-  display:inline-flex; align-items:center; justify-content:center;
-  border-radius:6px; border:1px solid #e5e7eb; background:#fff;
-  transition:all .2s;
+  font-size: 16px;
+  color: #64748b;
+  cursor: pointer;
+  width: 28px;
+  height: 28px;
+  line-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  transition: all .2s;
 }
 .close-btn:hover{ background:#f8fafc; color:#0f172a; }
 
-/* ----------「详情」类弹窗：利用标题作为分区锚点自动出横线 ---------- */
-/* 你无需改 HTML：只要正文里使用 h4/h5 做小标题即可自动分区 */
-.modal-body h4, .modal-body h5{
-  margin: 0 0 8px;
+/* 正文：左对齐、分段留白 */
+.modal-body{
+  padding: 16px 20px;
+  overflow: auto;
+  text-align: left;
+}
+
+/* 标题/小节分割线（详情弹窗里的“总览/身份信息/质量项…”这类） */
+.modal-body h2,
+.modal-body h3,
+.modal-body h4{
+  margin: 14px 0 8px;
   font-weight: 600;
-  color: #111827;
 }
-/* 除了第一个标题，其余标题前自动加一条分割线 */
-.modal-body h4:not(:first-of-type),
-.modal-body h5:not(:first-of-type){
+.modal-body h2:not(:first-child),
+.modal-body h3:not(:first-child),
+.modal-body h4:not(:first-child){
+  padding-top: 10px;
   border-top: 1px solid #e5e7eb;
-  padding-top: 12px;
-  margin-top: 16px;
 }
 
-/* 标题后紧跟的说明（可选） */
-.modal-body .section-note{
-  color:#6b7280; font-size:12px; margin:2px 0 8px;
+/* 键值型布局（若详情里用到了 dl/dt/dd，会自动更整齐） */
+.modal-body dl{
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 12px;
+  row-gap: 8px;
+  margin: 8px 0;
+}
+.modal-body dt{ color:#6b7280; }
+.modal-body dd{ margin:0; color:#111827; }
+
+/* 表格统一（如果详情是表格） */
+.modal-body table{
+  width: 100%;
+  border-collapse: collapse;
+  margin: 6px 0 8px;
+}
+.modal-body th,
+.modal-body td{
+  border-bottom: 1px solid #f1f5f9;
+  padding: 8px 10px;
+  text-align: left;
 }
 
-/* 表格型 Key-Value（可选通用） */
-.modal-body .kv{
-  display:grid; grid-template-columns: 120px 1fr; gap:8px 16px;
-  font-size: 13px; line-height: 1.6;
-}
-.modal-body .kv .k{ color:#6b7280; }
-.modal-body .kv .v{ color:#111827; word-break: break-all; }
-
-/* ----------「配置/复制」类弹窗：JSON/明文链接等“白底+阴影”文本框 ---------- */
-/* 尽量覆盖常见写法：pre、.config-code、.json-config、.mono-block、code.block 等 */
+/* 明文/代码/长文本框：白底+细边+轻阴影（不再灰底） */
 .modal-body pre,
-.modal-body .config-code,
-.modal-body .json-config,
-.modal-body .mono-block,
-.modal-body code.block,
-.modal-body .raw-link {
-  background:#fff;                 /* 白底 */
-  border:1px solid #e5e7eb;
-  box-shadow: 0 1px 3px rgba(0,0,0,.06);  /* 轻阴影 */
-  border-radius:8px;
-  padding:12px 14px;
-  font-family: ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-  font-size:12px; line-height:1.65;
-  white-space:pre-wrap;            /* 自动换行 */
-  word-break: break-all;           /* URL/Key 自动断行 */
-  margin: 8px 0 12px;
-}
-/* 避免把普通内联 code 也变成大块 */
-.modal-body p > code,
-.modal-body li > code { 
-  background:#f8fafc; border:1px solid #e5e7eb; border-radius:4px; padding:0 4px;
-  box-shadow:none; white-space:normal; word-break:normal;
+.modal-body code,
+.modal-body textarea,
+.modal-body .plain-text-block{
+  display: block;
+  width: 100%;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  line-height: 1.5;
+  color: #111827;
+  box-shadow: 0 1px 3px rgba(0,0,0,.06);
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
-/* 二维码/图片在弹窗内的自适应（可选） */
-.modal-body img{ max-width: 100%; height: auto; }
-
-/* ---------- 两个尺寸可选（需要时给 .modal-content 加类） ---------- */
-.modal-content.modal--narrow{ width: 680px; max-width: min(92%,680px); }
-.modal-content.modal--wide  { width: 980px; max-width: min(96%,980px); }
-/* 针对纯“代码/配置”弹窗再加一点顶部留白（可选） */
-.modal-content.modal--code  .modal-body{ padding-top: 16px; }
-
-/* ---------- 统一按钮（你已有 .btn / .btn-secondary，可额外给弹窗底部按钮用） ---------- */
-.modal-footer .btn        { margin-left: 8px; }
-.modal-footer .btn-ghost  { 
-  background:#fff; color:#2563eb; border:1px solid #d1d5db;
+/* 多段明文（例如“明文链接/Base64”等）上下留白一致 */
+.modal-body .plain-text-block + .plain-text-block{
+  margin-top: 8px;
 }
-.modal-footer .btn-ghost:hover{ background:#f3f4f6; }
 
-/* “详情 / 查看全部”在正文中的轻按钮（若放在表格内） */
-.btn-ghost, .btn-link{
-  display:inline-flex; align-items:center; justify-content:center;
-  height: 30px; line-height: 28px;
-  padding: 0 12px;
-  border:1px solid #d1d5db; border-radius:6px;
-  background:#fff; color:#2563eb; font-size:12px;
-  transition: all .2s;
+/* 二维码：无论是 img 还是 canvas 都居中 */
+.modal-body .qr-container,
+.modal-body .qr-placeholder{
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
 }
-.btn-ghost:hover, .btn-link:hover{ background:#f3f4f6; }
+.modal-body .qr-container img,
+.modal-body .qr-container canvas,
+.modal-body img.qr,
+.modal-body canvas.qr{
+  display: block;
+  margin: 0 auto;
+}
 
-/* 焦点可见性（键盘可达性，非必须） */
-.modal-body .mono-block:focus,
-.modal-body pre:focus{ outline:2px solid #93c5fd; outline-offset: 2px; }
+/* 宽窄自适应：小屏不超边，仍然居中 */
+@media (max-width: 768px){
+  .modal{ padding: 20px 10px; }
+  .modal-content{
+    width: 96vw;
+    min-width: auto;
+    min-height: 340px;
+    max-height: calc(100vh - 80px);
+  }
+}
+
+/* 可选：按钮组间距（底部复制/关闭等） */
+.modal-footer .btn + .btn{ margin-left: 8px; }
 
 
 
