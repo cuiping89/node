@@ -4469,7 +4469,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
    ======================================================================= */
 #netid-panel{
   /* 文本与行布局 */
-  --label-w: 50px;
+  --label-w: 60px;
   --row-gap: 8px;
   --line-vpad: 6px;
 
@@ -4490,7 +4490,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   --card-br: #e5e7eb;
 
   /* 新增：让“三块”在标题下区域整体垂直居中的基准高度 */
-  --panel-min-h: 205px;     /* 想再“更靠中”就调大，比如 230/240 */
+  --panel-min-h: 200px;     /* 想再“更靠中”就调大，比如 230/240 */
 
   /* 防止外部给 #netid-panel 设 flex 影响布局 */
   display: block !important;
