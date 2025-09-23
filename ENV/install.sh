@@ -4769,174 +4769,136 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 /* =========================
-   弹窗 Modal
+   弹窗 Modal 统一样式补丁
    ========================= */
-
-/* 打开时给 .modal 加 open（或 show），这段只负责视觉，不约束 JS 名称 */
-.modal{
-  display:none;
-  position:fixed;
-  z-index:1000;
-  inset:0;                           /* left/top/right/bottom:0 */
-  background:rgba(0,0,0,.5);
-}
-.modal.open, .modal.show{ display:block; }
-
-/* 绝对居中 + 固定最小尺寸，不随内容“变高变宽” */
+/* =========================== Modal  =========================== */
+/* 尺寸稳定：避免从细长条拉伸成长框的观感 */
+.modal { display:none; position:fixed; inset:0; z-index:1000; background:rgba(0,0,0,.5); }
 .modal-content{
-  position:absolute;
-  left:50%;
-  top:50%;
-  transform:translate(-50%, -50%);
-
-  /* 统一尺寸变量：默认 md */
-  --modal-w: 720px;
-  --modal-h: 420px;
-
-  width: var(--modal-w);
-  max-width: 92vw;
-  min-height: var(--modal-h);        /* 关键：一开始就是“方框” */
-  max-height: 82vh;                  /* 顶部留一点，避免贴边 */
-  overflow: hidden;                  /* 滚动交给 body */
-  display:flex;
-  flex-direction:column;
-
+  /* 固定一个舒适的宽高基线；小屏仍然自适应 */
+  width: 860px;
+  max-width: min(92%, 860px);
+  min-height: 520px;            /* 预留最小高度，避免“内容加载时跳动” */
   background:#fff;
-  border:1px solid #d1d5db;
+  border:1px solid #e5e7eb;
   border-radius:12px;
   box-shadow:0 12px 24px rgba(0,0,0,.14);
-
-  /* 仅淡入，不做尺寸动画，避免“拉伸感” */
-  opacity:1;
+  overflow:hidden;              /* 防止内容瞬时撑破造成的拉伸感 */
 }
 
-/* 三种尺寸档：需要时在外层加 .modal--sm/.modal--md/.modal--lg */
-.modal--sm .modal-content{ --modal-w:520px; --modal-h:360px; }
-.modal--md .modal-content{ --modal-w:720px; --modal-h:420px; }
-.modal--lg .modal-content{ --modal-w:920px; --modal-h:520px; }
-
-/* 头、身、脚：保持固定高度的顶部与底部，内容区滚动 */
 .modal-header{
-  padding:16px 20px;
+  padding:20px 24px;
   border-bottom:1px solid #e5e7eb;
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
+  display:flex; align-items:center; justify-content:space-between;
 }
 .modal-header h3{ margin:0; font-size:16px; font-weight:600; }
+
+.modal-body{
+  padding:20px 24px;
+  min-height: 360px;            /* 给二维码/图片加载预留空间，避免高度跳变 */
+  overflow:auto;
+}
+.modal-footer{
+  padding:14px 24px;
+  border-top:1px solid #e5e7eb;
+  text-align:right;
+}
+
+/* 统一关闭按钮 */
 .close-btn{
   font-size:16px; color:#64748b; cursor:pointer;
-  width:28px; height:28px;
+  width:28px; height:28px; line-height:28px;
   display:inline-flex; align-items:center; justify-content:center;
   border-radius:6px; border:1px solid #e5e7eb; background:#fff;
   transition:all .2s;
 }
 .close-btn:hover{ background:#f8fafc; color:#0f172a; }
 
-/* 内容区滚动，不影响外层尺寸 */
-.modal-body{
-  padding:16px 20px;
-  overflow:auto;
-  flex:1 1 auto;                     /* 占据剩余高度 */
+/* ----------「详情」类弹窗：利用标题作为分区锚点自动出横线 ---------- */
+/* 你无需改 HTML：只要正文里使用 h4/h5 做小标题即可自动分区 */
+.modal-body h4, .modal-body h5{
+  margin: 0 0 8px;
+  font-weight: 600;
+  color: #111827;
+}
+/* 除了第一个标题，其余标题前自动加一条分割线 */
+.modal-body h4:not(:first-of-type),
+.modal-body h5:not(:first-of-type){
+  border-top: 1px solid #e5e7eb;
+  padding-top: 12px;
+  margin-top: 16px;
 }
 
-/* 底部按钮区固定 */
-.modal-footer{
-  padding:12px 20px;
-  border-top:1px solid #e5e7eb;
-  text-align:right;
+/* 标题后紧跟的说明（可选） */
+.modal-body .section-note{
+  color:#6b7280; font-size:12px; margin:2px 0 8px;
 }
 
-/* ==========语义分区与文本样式================ */
-
-/* 横线分割的内容分区 */
-.modal-section + .modal-section{
-  border-top:1px solid #e5e7eb;
-  margin-top:12px; padding-top:12px;
+/* 表格型 Key-Value（可选通用） */
+.modal-body .kv{
+  display:grid; grid-template-columns: 120px 1fr; gap:8px 16px;
+  font-size: 13px; line-height: 1.6;
 }
+.modal-body .kv .k{ color:#6b7280; }
+.modal-body .kv .v{ color:#111827; word-break: break-all; }
 
-/* 二级小标题 */
-.modal-subtitle{
-  font-size:13px; font-weight:600; color:#374151;
-  margin-bottom:8px;
-}
-
-/* 键值对列表（总览/身份信息等） */
-.kv-list{ --label-w:120px; }
-.kv-list .kv-row{
-  display:grid; grid-template-columns: var(--label-w) 1fr;
-  gap:10px; align-items:center; padding:6px 0;
-}
-.kv-list .kv-label{ color:#6b7280; }
-.kv-list .kv-value{
-  color:#111827; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-}
-
-/* 代码/明文块：白底 + 阴影（不再灰底） */
-.code-box{
-  background:#fff;
+/* ----------「配置/复制」类弹窗：JSON/明文链接等“白底+阴影”文本框 ---------- */
+/* 尽量覆盖常见写法：pre、.config-code、.json-config、.mono-block、code.block 等 */
+.modal-body pre,
+.modal-body .config-code,
+.modal-body .json-config,
+.modal-body .mono-block,
+.modal-body code.block,
+.modal-body .raw-link {
+  background:#fff;                 /* 白底 */
   border:1px solid #e5e7eb;
+  box-shadow: 0 1px 3px rgba(0,0,0,.06);  /* 轻阴影 */
   border-radius:8px;
-  box-shadow:0 2px 6px rgba(0,0,0,.08);
-  padding:12px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-  font-size:12px;
-  line-height:1.6;
-  white-space:pre-wrap;
-  word-break:break-all;
+  padding:12px 14px;
+  font-family: ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:12px; line-height:1.65;
+  white-space:pre-wrap;            /* 自动换行 */
+  word-break: break-all;           /* URL/Key 自动断行 */
+  margin: 8px 0 12px;
+}
+/* 避免把普通内联 code 也变成大块 */
+.modal-body p > code,
+.modal-body li > code { 
+  background:#f8fafc; border:1px solid #e5e7eb; border-radius:4px; padding:0 4px;
+  box-shadow:none; white-space:normal; word-break:normal;
 }
 
-/* 统一“查看配置 / 查看并复制”等大文本输入区域 */
-.textarea-plain,
-.modal textarea.input-plain{
-  width:100%;
-  min-height:160px;
-  background:#fff;                    /* 白底 */
-  border:1px solid #e5e7eb;
-  border-radius:8px;
-  box-shadow:0 2px 6px rgba(0,0,0,.08);/* 轻阴影 */
-  padding:10px 12px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-  font-size:12px; line-height:1.6;
-  resize: vertical;
-}
+/* 二维码/图片在弹窗内的自适应（可选） */
+.modal-body img{ max-width: 100%; height: auto; }
 
-/* 单行明文输入 */
-.input-plain,
-.modal input.input-plain[type="text"]{
-  width:100%;
-  height:36px;
-  background:#fff;
-  border:1px solid #e5e7eb;
-  border-radius:8px;
-  box-shadow:0 2px 6px rgba(0,0,0,.08);
-  padding:0 10px;
-  font-size:13px;
-}
+/* ---------- 两个尺寸可选（需要时给 .modal-content 加类） ---------- */
+.modal-content.modal--narrow{ width: 680px; max-width: min(92%,680px); }
+.modal-content.modal--wide  { width: 980px; max-width: min(96%,980px); }
+/* 针对纯“代码/配置”弹窗再加一点顶部留白（可选） */
+.modal-content.modal--code  .modal-body{ padding-top: 16px; }
 
-/* 只读模式的视觉（可选） */
-.readonly{
-  background:#fff !important;
-  color:#374151 !important;
+/* ---------- 统一按钮（你已有 .btn / .btn-secondary，可额外给弹窗底部按钮用） ---------- */
+.modal-footer .btn        { margin-left: 8px; }
+.modal-footer .btn-ghost  { 
+  background:#fff; color:#2563eb; border:1px solid #d1d5db;
 }
+.modal-footer .btn-ghost:hover{ background:#f3f4f6; }
 
-/* 按钮保留你原样式，这里仅补充“链接按钮”样式（如果要在弹窗里用） */
-.btn-link{
-  display:inline-block;
-  height:28px; line-height:26px;
-  padding:0 12px;
-  border:1px solid #d1d5db;
-  border-radius:6px;
-  background:#fff;
-  font-size:12px;
-  color:#2563eb;
-  cursor:pointer;
-  text-decoration:none;
-  transition:all .2s;
+/* “详情 / 查看全部”在正文中的轻按钮（若放在表格内） */
+.btn-ghost, .btn-link{
+  display:inline-flex; align-items:center; justify-content:center;
+  height: 30px; line-height: 28px;
+  padding: 0 12px;
+  border:1px solid #d1d5db; border-radius:6px;
+  background:#fff; color:#2563eb; font-size:12px;
+  transition: all .2s;
 }
-.btn-link:hover{ background:#f3f4f6; border-color:#9ca3af; color:#1d4ed8; }
+.btn-ghost:hover, .btn-link:hover{ background:#f3f4f6; }
 
-/* “详情/查看全部/查看配置/复制”都可复用 .btn-link 或 .btn-secondary */
+/* 焦点可见性（键盘可达性，非必须） */
+.modal-body .mono-block:focus,
+.modal-body pre:focus{ outline:2px solid #93c5fd; outline-offset: 2px; }
+
 
 
 /* =======================================================================
