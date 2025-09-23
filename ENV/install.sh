@@ -4404,12 +4404,14 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 /* ========== 核心服务：压缩布局 ========== */
+
+/* 核心服务：名称 | 徽标 | 版本号 */
 #system-overview .core-services .service-item{
   display:grid; 
   grid-template-columns:var(--label-w) max-content 1fr;
-  column-gap:8px !important;  /* 减小间距 */
+  column-gap:var(--svc-gap);  /* 保持使用变量，不要用 !important */
   align-items:center; 
-  padding:5px 0 !important;  /* 更紧凑的行高 */
+  padding:5px 0;  /* 调整行高 */
 }
 
 /* 新增：第一项和最后一项的微调 */
@@ -4429,10 +4431,13 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 #system-overview .core-services .version{
-  justify-self:start; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; 
+  justify-self:start; 
+  min-width:0; 
+  white-space:nowrap; 
+  overflow:hidden; 
+  text-overflow:ellipsis; 
   color:var(--muted); 
-  font-size:12px !important;  /* 减小版本号字体 */
-  line-height: 1.2 !important;
+  font-size:12px;
 }
 
 /* 窄屏收窄 */
