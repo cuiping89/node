@@ -4771,105 +4771,338 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 /* =========================
    弹窗 Modal 统一样式补丁
    ========================= */
-/* === EdgeBox 弹窗统一修正（只改样式，无 JS） === */
-
-/* 1) 弹窗容器：强制居中 + 尺寸 + 阴影（兼容多种实现） */
-dialog[open],
-.modal, .popup,
-.el-dialog, .ant-modal, .ant-modal .ant-modal-content {
-  position: fixed !important;
-  left: 50% !important;
-  top: 50% !important;
-  transform: translate(-50%, -50%) !important;
-  margin: 0 !important;
-  width: min(880px, calc(100vw - 32px)) !important;
-  max-height: 82vh !important;
-  background: #fff !important;
-  border: 0 !important;
-  border-radius: 14px !important;
-  box-shadow: 0 10px 30px rgba(17,24,39,.18) !important;
-  overflow: hidden !important;
-  text-align: left !important;
-  z-index: 9999 !important;
+/* ========== CSS变量定义 ========== */
+:root {
+  /* 弹窗尺寸定义 */
+  --modal-sm-w: 400px;
+  --modal-sm-h: 300px;
+  
+  --modal-md-w: 600px;
+  --modal-md-h: 500px;
+  
+  --modal-lg-w: 900px;
+  --modal-lg-h: 600px;
+  
+  /* 默认使用中等尺寸 */
+  --modal-w: var(--modal-md-w);
+  --modal-h: var(--modal-md-h);
+  
+  /* 其他样式变量 */
+  --modal-padding: 20px;
+  --modal-radius: 8px;
+  --modal-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+  --overlay-bg: rgba(0, 0, 0, 0.5);
+  --border-color: #e5e5e5;
+  --input-bg: #f5f5f5;
+  --code-bg: #f8f8f8;
 }
 
-/* 1.1) 内容滚动区 */
-.modal-body, .el-dialog__body, .ant-modal-body {
-  padding: 14px 16px 6px !important;
-  overflow: auto !important;
-  max-height: calc(82vh - 52px - 52px) !important; /* 估算减去头/尾 */
+/* ========== 遮罩层 ========== */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--overlay-bg);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s ease, visibility 0.2s ease;
 }
 
-/* 2) 标题 + 分割线 */
-.modal-header, .el-dialog__header, .ant-modal-header {
-  display: flex !important;
+.modal-overlay.active {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* ========== 弹窗容器 ========== */
+.modal {
+  position: relative;
+  width: var(--modal-w);
+  height: var(--modal-h);
+  min-height: var(--modal-h);
+  background: white;
+  border-radius: var(--modal-radius);
+  box-shadow: var(--modal-shadow);
+  display: flex;
+  flex-direction: column;
+  transform: scale(0.95);
+  transition: transform 0.2s ease;
+}
+
+.modal-overlay.active .modal {
+  transform: scale(1);
+}
+
+/* 尺寸变体 */
+.modal.modal-sm {
+  --modal-w: var(--modal-sm-w);
+  --modal-h: var(--modal-sm-h);
+}
+
+.modal.modal-md {
+  --modal-w: var(--modal-md-w);
+  --modal-h: var(--modal-md-h);
+}
+
+.modal.modal-lg {
+  --modal-w: var(--modal-lg-w);
+  --modal-h: var(--modal-lg-h);
+}
+
+/* ========== 弹窗头部 ========== */
+.modal-header {
+  padding: var(--modal-padding);
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+  display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 16px !important;
-  border-bottom: 1px solid #e5e7eb !important;
-  background: #fff !important;
-}
-.modal-title, .el-dialog__title, .ant-modal-title {
-  font-size: 15px !important;
-  font-weight: 600 !important;
-  color: #111827 !important;
 }
 
-/* 3) 键值行（兼容 table/dl/div） */
-.modal-body dl { display: grid; grid-template-columns: 144px 1fr; gap: 10px; }
-.modal-body dt { color:#6b7280; }
-.modal-body dd { color:#111827; word-break: break-word; }
-
-.modal-body table.kv { width: 100%; border-collapse: collapse; }
-.modal-body .kv-row {
-  display: grid; grid-template-columns: 144px 1fr; gap:10px;
-  padding:6px 0; border-bottom: 1px dashed #eef2f7;
-}
-.modal-body .kv-key { color:#6b7280; font-size: 13px; }
-.modal-body .kv-val { color:#111827; font-size: 13px; word-break: break-word; }
-
-/* 4) 文本框/代码块：浅灰背景 + 自动换行（JSON/明文链接/TUIC） */
-:root { --tf-bg:#f7f8fa; --tf-bd:#e5e7eb; }
-.modal-body textarea,
-.modal-body input[type="text"],
-.modal-body pre,
-.modal-body code,
-.modal-body .codebox,
-.modal-body .jsonbox,
-.modal-body .linkbox,
-.el-textarea__inner,
-.el-input__inner {
-  background: var(--tf-bg) !important;
-  border: 1px solid var(--tf-bd) !important;
-  border-radius: 8px !important;
-  padding: 10px 12px !important;
-  white-space: pre-wrap !important;
-  word-break: break-word !important;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace !important;
-  font-size: 12px !important;
+.modal-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #333;
 }
 
-/* 5) 二维码：水平居中，限制宽度 */
-.modal-body .qrcode-wrap,
-.modal-body .qrcode,
-.modal-body [data-role="qrcode"] {
-  display: flex !important;
-  justify-content: center !important;
-  margin: 12px 0 6px !important;
-}
-.modal-body .qrcode img,
-.modal-body [data-role="qrcode"] img,
-.modal-body .qrcode canvas,
-.modal-body [data-role="qrcode"] canvas {
-  max-width: 240px; height: auto;
-}
-
-/* 6) 关闭按钮外观（不改逻辑） */
-.modal-close, .el-dialog__headerbtn, .ant-modal-close {
-  color:#6b7280 !important;
-  opacity: 1 !important;
+.modal-close {
+  background: none;
+  border: none;
+  font-size: 24px;
+  color: #999;
+  cursor: pointer;
+  padding: 0;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.2s;
 }
 
+.modal-close:hover {
+  background: #f0f0f0;
+  color: #333;
+}
+
+/* ========== 弹窗主体（可滚动） ========== */
+.modal-body {
+  flex: 1;
+  padding: var(--modal-padding);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* 美化滚动条 */
+.modal-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.modal-body::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+
+.modal-body::-webkit-scrollbar-thumb {
+  background: #ccc;
+  border-radius: 3px;
+}
+
+.modal-body::-webkit-scrollbar-thumb:hover {
+  background: #999;
+}
+
+/* ========== 弹窗底部 ========== */
+.modal-footer {
+  padding: var(--modal-padding);
+  border-top: 1px solid var(--border-color);
+  flex-shrink: 0;
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+/* ========== 语义分区 ========== */
+.modal-section {
+  padding: 20px 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.modal-section:first-child {
+  padding-top: 0;
+}
+
+.modal-section:last-child {
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #666;
+  margin-bottom: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* ========== 键值对列表 ========== */
+.kv-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.kv-item {
+  display: flex;
+  align-items: flex-start;
+}
+
+.kv-key {
+  flex: 0 0 120px;
+  font-size: 14px;
+  color: #666;
+  padding-right: 12px;
+  text-align: right;
+}
+
+.kv-value {
+  flex: 1;
+  font-size: 14px;
+  color: #333;
+  word-break: break-word;
+}
+
+/* ========== 输入框样式 ========== */
+.input-plain,
+.textarea-plain {
+  width: 100%;
+  padding: 10px;
+  background: var(--input-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  font-size: 14px;
+  color: #333;
+  transition: all 0.2s;
+}
+
+.input-plain:focus,
+.textarea-plain:focus {
+  outline: none;
+  border-color: #4CAF50;
+  background: white;
+}
+
+.textarea-plain {
+  min-height: 100px;
+  resize: vertical;
+  font-family: inherit;
+}
+
+/* ========== 代码框样式 ========== */
+.code-box {
+  background: var(--code-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 12px;
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  color: #333;
+  white-space: pre-wrap;
+  word-break: break-all;
+  position: relative;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.code-box.selectable {
+  user-select: all;
+  cursor: text;
+}
+
+/* 复制按钮 */
+.copy-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 4px 8px;
+  background: white;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  font-size: 12px;
+  color: #666;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.copy-btn:hover {
+  background: #f0f0f0;
+  color: #333;
+}
+
+.copy-btn.copied {
+  background: #4CAF50;
+  color: white;
+  border-color: #4CAF50;
+}
+
+/* ========== 按钮样式 ========== */
+.btn {
+  padding: 8px 16px;
+  border-radius: 4px;
+  font-size: 14px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.btn-primary {
+  background: #4CAF50;
+  color: white;
+}
+
+.btn-primary:hover {
+  background: #45a049;
+}
+
+.btn-secondary {
+  background: white;
+  color: #666;
+  border-color: var(--border-color);
+}
+
+.btn-secondary:hover {
+  background: #f5f5f5;
+  color: #333;
+}
+
+/* ========== 响应式适配 ========== */
+@media (max-width: 768px) {
+  .modal {
+    width: calc(100vw - 32px);
+    max-width: var(--modal-w);
+    height: calc(100vh - 64px);
+    max-height: var(--modal-h);
+  }
+  
+  .kv-item {
+    flex-direction: column;
+  }
+  
+  .kv-key {
+    text-align: left;
+    padding-right: 0;
+    margin-bottom: 4px;
+  }
+}
 
 /* =======================================================================
  按钮（详情、查看全部、查看配置、查看订阅）：白底蓝字，hover 浅灰，active 灰底 
