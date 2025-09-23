@@ -4599,7 +4599,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 
 /* ====== 网络身份配置：收紧“标题横线 ↔ 组件组”的间距 ====== */
 #netid-panel{
-  --header-gap: 10px;     /* 标题横线到底部的间距（全局是 20px；越小越贴近） */
+  --header-gap: 12px;     /* 标题横线到底部的间距（全局是 20px；越小越贴近） */
   --panel-top-gap: 4px;  /* 组件组与横线的微调间距（0~8 随你调） */
 }
 
