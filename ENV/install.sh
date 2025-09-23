@@ -4437,6 +4437,32 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   #system-overview .core-services { --label-w: 68px; }
 }
 
+/* =======================================================================
+   证书切换（仅 #cert-panel）——标题条分离 + 键名列/值列
+   ======================================================================= */
+#cert-panel{ --label-w:80px; --row-gap:10px; --h3-gap:8px; --label:#4b5563; --value:#111827; }
+#cert-panel .inner-block{ display:block; }
+#cert-panel .inner-block>h3{ margin:0 0 var(--h3-gap); }
+
+/* 顶部模式切换标签（无交互，仅样式） */
+#cert-panel .cert-modes{ display:flex; gap:5px; margin-bottom:6px; }
+#cert-panel .cert-mode-tab{
+  flex:1; padding:10px; background:#f5f5f5; border:1px solid #e5e7eb; color:#6b7280;
+  text-align:center; border-radius:8px; cursor:default;
+}
+#cert-panel .cert-mode-tab.active{ background:#10b981; color:#fff; border-color:#10b981; }
+
+/* 明细行：键名 | 值 */
+#cert-panel .cert__row,
+#cert-panel .inner-block .info-item{
+  display:grid; grid-template-columns:var(--label-w) 1fr; gap:var(--row-gap); align-items:center; padding:6px 0;
+}
+#cert-panel .cert__label,
+#cert-panel .inner-block .info-item label{ color:var(--label); justify-self:start; }
+#cert-panel .cert__value,
+#cert-panel .inner-block .info-item value{ min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--value); }
+
+
 
 /* =======================================================================
    网络身份配置（仅 #netid-panel）— 小标签悬在卡片上方，和内容分离
@@ -4534,7 +4560,6 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 @media (max-width: 1024px){
   #netid-panel .network-blocks{ grid-template-columns: 1fr; }
 }
-
 
 
 /* =======================================================================
