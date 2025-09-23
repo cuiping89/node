@@ -4409,22 +4409,30 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   grid-template-columns:var(--label-w) max-content 1fr;
   column-gap:8px !important;  /* 减小间距 */
   align-items:center; 
-  padding:3px 0 !important;  /* 更紧凑的行高 */
+  padding:5px 0 !important;  /* 更紧凑的行高 */
+}
+
+/* 新增：第一项和最后一项的微调 */
+#system-overview .core-services .service-item:first-child {
+  padding-top: 6px !important;
+}
+#system-overview .core-services .service-item:last-child {
+  padding-bottom: 5px !important;
 }
 
 /* 覆盖全局状态徽章样式，减小尺寸 */
 #system-overview .core-services .status-badge {
-  height: 16px !important;  /* 减小高度 */
-  line-height: 16px !important;
-  padding: 0 6px !important;  /* 减小内边距 */
-  font-size: 10px !important;  /* 减小字体 */
+  height: 18px !important;  /* 减小高度 */
+  line-height: 18px !important;
+  padding: 0 8px !important;  /* 减小内边距 */
+  font-size: 11px !important;  /* 减小字体 */
 }
 
 #system-overview .core-services .version{
   justify-self:start; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; 
   color:var(--muted); 
-  font-size:11px !important;  /* 减小版本号字体 */
-  line-height: 1 !important;
+  font-size:12px !important;  /* 减小版本号字体 */
+  line-height: 1.2 !important;
 }
 
 /* 窄屏收窄 */
@@ -4458,8 +4466,11 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   --label-w: 60px;                 /* 这块自己设，不受上面的影响 */
   --svc-gap: 60px;
 }
-#system-overview .core-services .label { 
-  white-space: nowrap; 
+
+/* 核心服务的标签文字大小调整 */
+#system-overview .core-services .label {
+  font-size: 13px !important;  /* 与其他区块保持一致 */
+  line-height: 1.2 !important;
 }
 
 /* 窄屏时也分别覆盖，避免全局一刀切 */
