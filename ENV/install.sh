@@ -4597,6 +4597,30 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   }
 }
 
+/* ====== 网络身份配置：收紧“标题横线 ↔ 组件组”的间距 ====== */
+#netid-panel{
+  --header-gap: 8px;     /* 标题横线到底部的间距（全局是 20px；越小越贴近） */
+  --panel-top-gap: 4px;  /* 组件组与横线的微调间距（0~8 随你调） */
+}
+
+/* 把 #netid-panel 里的 card-header 的 20px 改小 */
+#netid-panel .card-header{
+  margin-bottom: var(--header-gap) !important;
+}
+
+/* 再给整组网格一个细微的上内边距微调 */
+#netid-panel .network-blocks{
+  padding-top: var(--panel-top-gap) !important;
+}
+
+/* 如果上面两条在你的 DOM 里仍然不生效，可用“拉上去”的兜底方案（选其一即可） */
+/*
+#netid-panel .network-blocks{
+  margin-top: -8px !important;   /\* ↑再紧一些改 -10/-12 \*/
+  padding-top: 0 !important;
+}
+*/
+
 
 
 /* =======================================================================
