@@ -4462,31 +4462,36 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 #cert-panel .cert__value,
 #cert-panel .inner-block .info-item value{ min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--value); }
 
+
 /* =======================================================================
-   网络身份配置（仅 #netid-panel）—— 标题条与卡片同宽，内容两列排列
+   网络身份配置（仅 #netid-panel）—— 标签独立悬浮在卡片上方
    ======================================================================= */
 #netid-panel{
   /* 可调变量 */
   --label-w: 60px;       /* 键名列宽 */
   --row-gap: 6px;        /* 键名列与值列的横向间距 */
   --line-vpad: 6px;      /* 每行上下内边距（行高） */
-  --head-pad-y: 10px;    /* 标题条上下内边距（控制标题高度） */
-  --head-pad-x: 12px;    /* 标题条左右内边距 */
-  --head-gap: 12px;      /* 标题条与下面内容的间距 */
-
+  --tag-height: 28px;    /* 标签高度 */
+  --tag-pad-x: 12px;     /* 标签左右内边距 */
+  --tag-gap: 8px;        /* 标签与卡片的间距 */
   --label: #4b5563;
   --value: #111827;
-
-  /* 标题条（header）的配色，与“证书切换”风格一致 */
-  --head-bg: #f3f4f6;
-  --head-color: #374151;
-  --head-border: #e5e7eb;
+  /* 独立标签的配色，与"证书切换"风格一致 */
+  --tag-bg: #10b981;     /* 绿色背景，与证书切换按钮一致 */
+  --tag-color: #ffffff;  /* 白色文字 */
+  --tag-radius: 6px;     /* 标签圆角 */
 }
 
 #netid-panel .network-blocks{
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 15px;
+}
+
+/* 每个网络块的容器（包含标签和卡片） */
+#netid-panel .network-block-wrapper{
+  position: relative;
+  padding-top: calc(var(--tag-height) + var(--tag-gap)); /* 为标签预留空间 */
 }
 
 /* 卡片本体 */
@@ -4498,21 +4503,37 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   padding: 12px;
 }
 
-/* 标题条：与卡片同宽（用负外边距把左右 padding 抵消），保持上圆角 */
+/* 独立的标签样式（悬浮在卡片上方） */
 #netid-panel .network-block > h3{
-  position: relative;          /* 取消绝对定位，变成条形 header */
-  margin: -12px -12px var(--head-gap) -12px !important; /* 让标题条铺满卡片内宽 */
-  padding: var(--head-pad-y) var(--head-pad-x) !important;
-  background: var(--head-bg) !important;
-  color: var(--head-color) !important;
-  border-bottom: 1px solid var(--head-border) !important;
-  border-radius: 8px 8px 0 0 !important;
-  line-height: 1.1;
-  font-weight: 600 !important;
+  position: absolute !important;
+  top: calc(-1 * (var(--tag-height) + var(--tag-gap))) !important; /* 定位到卡片上方 */
+  left: 0 !important;
+  margin: 0 !important;
+  padding: 0 var(--tag-pad-x) !important;
+  height: var(--tag-height) !important;
+  background: var(--tag-bg) !important;
+  color: var(--tag-color) !important;
+  border: none !important;
+  border-radius: var(--tag-radius) !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  line-height: var(--tag-height) !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  white-space: nowrap !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+}
 
-  display: flex;
-  align-items: center;
-  gap: 8px;                    /* 图标与文字的间距 */
+/* 如果标题中有图标 */
+#netid-panel .network-block > h3::before{
+  content: '';
+  display: inline-block;
+  width: 4px;
+  height: 4px;
+  background: currentColor;
+  border-radius: 50%;
+  opacity: 0.8;
 }
 
 /* 内容行：键名 | 值（两列自适应） */
@@ -4529,6 +4550,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 #netid-panel .network-block .info-item label{
   color: var(--label);
   justify-self: start;
+  font-size: 13px;
 }
 
 #netid-panel .nid__value,
@@ -4538,12 +4560,48 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--value);
+  font-size: 14px;
+}
+
+/* 为不同的标签设置不同的颜色（可选） */
+#netid-panel .network-block:nth-child(1) > h3{
+  background: #10b981 !important; /* VPS出站IP - 绿色 */
+}
+
+#netid-panel .network-block:nth-child(2) > h3{
+  background: #3b82f6 !important; /* 代理出站IP - 蓝色 */
+}
+
+#netid-panel .network-block:nth-child(3) > h3{
+  background: #8b5cf6 !important; /* 分流出站 - 紫色 */
+}
+
+/* 悬停效果（可选） */
+#netid-panel .network-block > h3:hover{
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+  transition: all 0.2s ease;
 }
 
 /* 窄屏自适应：堆叠为单列 */
 @media (max-width: 1024px){
-  #netid-panel .network-blocks{ grid-template-columns: 1fr; }
+  #netid-panel .network-blocks{ 
+    grid-template-columns: 1fr; 
+  }
 }
+
+/* 如果需要调整标签位置，可以使用以下替代样式 */
+/* 
+#netid-panel .network-block > h3{
+  position: absolute !important;
+  top: -14px !important;
+  left: 12px !important;
+  padding: 2px 10px !important;
+  background: #10b981 !important;
+  font-size: 12px !important;
+  z-index: 1;
+}
+*/
 
 
 /* =======================================================================
