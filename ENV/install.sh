@@ -4342,10 +4342,10 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
    系统概览（仅 #system-overview）
    ======================================================================= */
 #system-overview{
-  --label-w:72px;           /* 左侧键名列宽 */
-  --percent-col:36px;       /* 右侧百分比列宽 */
+  --label-w:50px;           /* 左侧键名列宽 */
+  --percent-col:33px;       /* 右侧百分比列宽 */
   --meter-height:20px;      /* 进度条高度 */
-  --svc-gap:8px;            /* 服务名/徽标/版本 间距 */
+  --svc-gap:12px;            /* 服务名/徽标/版本 间距 */
   --h3-gap:8px;
   --meter-track:#d1d5db; --meter-start:#059669; --meter-end:#10b981;
   --label:#4b5563; --value:#111827; --muted:#6b7280;
@@ -4489,8 +4489,8 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 .command-list{ font-size:.8rem; line-height:1.6; }
 /* 深灰代码块（命令） */
 .command-list code{
-  background:#1f2937;         /* 深灰 */
-  color:#10b981;              /* 品牌绿 */
+  background: #e2e8f0;          /* 改成你想要的灰，例如 newb 用的 #e2e8f0 */
+  color: #1f2937;
   padding:3px 8px;
   border-radius:4px;
   font-family:monospace;
