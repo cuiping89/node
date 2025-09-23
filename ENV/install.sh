@@ -4463,82 +4463,87 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 #cert-panel .inner-block .info-item value{ min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--value); }
 
 
-
 /* =======================================================================
    网络身份配置（仅 #netid-panel）
-   —— 标签=与卡片同宽；标签/卡片高度与证书切换一致；三块等高&整组垂直居中；卡片加阴影
+   —— 标签=与卡片同宽；与证书切换同节奏；三块等高&整组垂直居中；卡片加阴影
    ======================================================================= */
 #netid-panel{
-  /* 与证书切换保持一套行样式 */
-  --label-w: 80px;         /* 键名列宽，与 #cert-panel 匹配 */
-  --row-gap: 10px;         /* 键名列与值列横向间距 */
-  --line-vpad: 6px;        /* 每行上下内边距（行高节奏与证书切换一致） */
+  /* 行样式（与 #cert-panel 保持一致） */
+  --label-w: 80px;          /* 键名列宽 */
+  --row-gap: 10px;          /* 键名列与值列横向间距 */
+  --line-vpad: 6px;         /* 每行上下内边距（行高节奏） */
 
-  /* 标签（与证书切换一致：上下 10px） */
-  --tag-pad-y: 10px;       /* ← 改它=改标签高度（保持与证书切换一致） */
-  --tag-pad-x: 16px;
-  --tag-gap: 6px;          /* 标签与卡片的垂直间距 */
+  /* 悬浮标签（与证书切换一致） */
+  --tag-pad-y: 10px;        /* 标签上下 padding = 高度 */
+  --tag-pad-x: 16px;        /* 标签左右 padding = 视觉宽度 */
+  --tag-gap: 6px;           /* 标签与卡片的垂直间距 */
   --tag-radius: 8px;
   --tag-font: 13px;
 
   /* 颜色 */
   --label: #4b5563;
   --value: #111827;
-  --tag-active-bg: #10b981;    /* 激活：绿色 */
-  --tag-inactive-bg: #e2e8f0;  /* 默认：灰色 */
+  --tag-active-bg: #10b981;     /* 激活：绿色 */
+  --tag-inactive-bg: #e2e8f0;   /* 默认：灰色 */
   --tag-active-color: #ffffff;
   --tag-inactive-color: #64748b;
-
   --card-br: #e5e7eb;
 
-  /* 高度联动（用于等高 & 垂直居中） */
-  --tag-h: calc(var(--tag-pad-y)*2 + 20px);  /* 20px≈13px字高的可视行高 */
-  --block-min-h: 160px;    /* ← 与证书切换里那张卡“内容区”高度对齐可调 */
+  /* 高度联动（等高 & 垂直居中） */
+  --tag-h: calc(var(--tag-pad-y)*2 + 20px); /* 20px≈13px字高的可视行高 */
+  --block-min-h: 160px;     /* 小卡片内容区高度（与证书切换对齐） */
   --panel-min-h: calc(var(--block-min-h) + var(--tag-h) + var(--tag-gap) + 8px);
 
-  display:block !important;
+  /* 标题横线 ↔ 组件组 的间距（只影响本卡） */
+  --header-gap: 12px;       /* 原全局为 20px：越小越贴近 */
+  --panel-top-gap: 4px;     /* 组件组再向下的细微“下移” */
+
+  display: block !important; /* 防外部 flex 干扰 */
 }
 
-/* 容器：三列、等高、整组垂直居中 */
+/* 标题行与下方网格的距离（只作用本卡） */
+#netid-panel .card-header{
+  margin-bottom: var(--header-gap) !important;
+}
+
+/* 三块容器：三列、等高、整组垂直居中 */
 #netid-panel .network-blocks{
-  display:grid;
+  display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap:15px;
+  gap: 15px;
 
   min-height: var(--panel-min-h);
-  align-content: center;       /* 整组在标题下区域垂直居中 */
-  align-items: stretch;        /* 子项等高 */
+  align-content: center;        /* 整组在标题下区域垂直居中 */
+  align-items: stretch;         /* 子项等高 */
+  padding-top: var(--panel-top-gap); /* 与标题横线的微调间距 */
 }
 
-/* 卡片本体：为“悬浮标签”预留同高空间 + 陰影 */
+/* 小卡片：为“悬浮标签”预留位置 + 阴影 */
 #netid-panel .network-block{
-  position:relative;
-  background:#fff;
-  border:1px solid var(--card-br);
+  position: relative;
+  background: #fff;
+  border: 1px solid var(--card-br);
   border-radius: 10px;
-  padding:12px;
-  margin-top: calc(var(--tag-h) + var(--tag-gap));
+  padding: 12px;
+  margin-top: calc(var(--tag-h) + var(--tag-gap));  /* 预留标签高度 */
   min-height: var(--block-min-h);
-
-  /* 与页面 .card 阴影风格一致 */
   box-shadow: 0 2px 6px rgba(0,0,0,0.08);
 }
 
-/* 标签：与卡片同宽，悬在上方（分离感） */
+/* 悬浮标签：与卡片同宽，悬于上方（分离） */
 #netid-panel .network-block > h3{
-  position:absolute !important;
-  top:0 !important;
-
-  left:1px !important;
-  right:1px !important;
-  width:calc(100% - 2px) !important;  /* 与卡片等宽，扣掉左右边框 */
-
+  position: absolute !important;
+  top: 0 !important;
+  left: 1px !important;
+  right: 1px !important;
+  width: calc(100% - 2px) !important;   /* 等宽，扣左右边框 */
   transform: translateY(calc(-100% - var(--tag-gap))) !important;
-  margin:0 !important;
+
+  margin: 0 !important;
   padding: var(--tag-pad-y) var(--tag-pad-x) !important;
   background: var(--tag-inactive-bg) !important;
   color: var(--tag-inactive-color) !important;
-  border:1px solid var(--card-br) !important;
+  border: 1px solid var(--card-br) !important;
   border-radius: var(--tag-radius) !important;
 
   font-size: var(--tag-font) !important;
@@ -4546,25 +4551,25 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   line-height: 1.2 !important;
   white-space: nowrap !important;
 
-  display:flex !important;
-  align-items:center !important;
-  justify-content:center !important;
-  gap:6px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 6px !important;
 }
 
-/* 当前模式高亮（JS 给 .network-block 加 .active 即可） */
+/* 当前模式高亮（JS：给对应 .network-block 加 .active） */
 #netid-panel .network-block.active > h3{
   background: var(--tag-active-bg) !important;
   color: var(--tag-active-color) !important;
   border-color: var(--tag-active-bg) !important;
 }
 
-/* 内容行：与证书切换的节奏保持一致（13px + 6px 上下内边距） */
+/* 内容行：键名 | 值（与证书切换一致） */
 #netid-panel .network-block .info-item{
-  display:grid;
+  display: grid;
   grid-template-columns: var(--label-w) 1fr;
   gap: var(--row-gap);
-  align-items:center;
+  align-items: center;
   padding: var(--line-vpad) 0;
 }
 #netid-panel .network-block .info-item label{
@@ -4572,20 +4577,26 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   font-size: 13px;
 }
 #netid-panel .network-block .info-item value{
-  min-width:0;
-  white-space:nowrap;
-  overflow:hidden;
-  text-overflow:ellipsis;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--value);
-  font-size: 13px;   /* 与证书切换一致 */
+  font-size: 13px;
 }
 
-/* 在你现有 #netid-panel 样式后面追加这段“覆盖”即可 */
-#netid-panel{
-  --panel-top-gap: 3px;   /* ←想再远离横线就加大，比如 14/16 */
+/* 标题右侧“注：HY2/TUIC…”（颜色+对齐+右缩进，仅本卡） */
+#netid-panel .card-header h2{
+  display: flex;
+  align-items: flex-end;        /* 和标题下沿对齐 */
 }
-#netid-panel .network-blocks{
-  padding-top: var(--panel-top-gap);
+#netid-panel .card-header .note-udp{
+  color: #9ca3af !important;    /* 浅灰 */
+  font-weight: 400;
+  font-size: 12px;
+  line-height: 1;
+  margin-right: 2em;             /* 右缩进一个字宽（可改 1em） */
+  transform: translateY(3px);    /* 轻微下沉，更贴近底线 */
 }
 
 /* 窄屏：纵向堆叠，去掉强制高度避免留白 */
@@ -4594,61 +4605,9 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
     grid-template-columns: 1fr;
     min-height: initial;
     align-content: start;
+    padding-top: 0;
   }
 }
-
-/* ====== 网络身份配置：收紧“标题横线 ↔ 组件组”的间距 ====== */
-#netid-panel{
-  --header-gap: 12px;     /* 标题横线到底部的间距（全局是 20px；越小越贴近） */
-  --panel-top-gap: 4px;  /* 组件组与横线的微调间距（0~8 随你调） */
-}
-
-/* 把 #netid-panel 里的 card-header 的 20px 改小 */
-#netid-panel .card-header{
-  margin-bottom: var(--header-gap) !important;
-}
-
-/* 再给整组网格一个细微的上内边距微调 */
-#netid-panel .network-blocks{
-  padding-top: var(--panel-top-gap) !important;
-}
-
-/* 如果上面两条在你的 DOM 里仍然不生效，可用“拉上去”的兜底方案（选其一即可） */
-/*
-#netid-panel .network-blocks{
-  margin-top: -8px !important;   /\* ↑再紧一些改 -10/-12 \*/
-  padding-top: 0 !important;
-}
-*/
-/* === 网络身份配置：标题右侧“注释”样式微调（颜色+对齐+右缩进） === */
-/* 让标题行里的元素对齐到“下沿”，更贴近标题的下边缘线 */
-#netid-panel .card-header h2{
-  display: flex;
-  align-items: flex-end;   /* 下沿对齐 */
-}
-
-/* 注释本体（你右侧那句“HY2/TUIC…”），默认类名 note-udp */
-#netid-panel .card-header .note-udp{
-  color: #9ca3af !important;  /* 浅灰：gray-400 */
-  font-weight: 400;
-  font-size: 12px;            /* 比标题小一点，更像“注释” */
-  line-height: 1;             /* 紧凑 */
-  margin-right: 2em;          /* 右边缩进“一个字”宽（1em） */
-
-  /* 轻微下沉，贴近标题底线（需要更贴就把 1px 改为 2px） */
-  transform: translateY(2px);
-}
-
-/* 如果你用的是 .card-note 而不是 .note-udp，用这一条覆盖即可 */
-#netid-panel .card-header .card-note{
-  color: #9ca3af !important;
-  font-weight: 400;
-  font-size: 12px;
-  line-height: 1;
-  margin-right: 1em;
-  transform: translateY(1px);
-}
-
 
 
 /* =======================================================================
