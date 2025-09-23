@@ -4444,7 +4444,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
    ======================================================================= */
 #cert-panel{
   /* 与 NetID 标签一致的参数 */
-  --tag-pad-y: 9px;        /* ← 改它=改标签高度 */
+  --tag-pad-y: 8px;        /* ← 改它=改标签高度 */
   --tag-pad-x: 16px;
   --tag-radius: 8px;
   --tag-font: 13px;
@@ -4771,165 +4771,103 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 /* =========================
    弹窗 Modal 统一样式补丁
    ========================= */
-/* ========== Dialog / Modal 基础 ========== */
+/* === EdgeBox 弹窗统一修正（只改样式，无 JS） === */
+
+/* 1) 弹窗容器：强制居中 + 尺寸 + 阴影（兼容多种实现） */
 dialog[open],
-.modal,
-.popup {
-  position: fixed;
+.modal, .popup,
+.el-dialog, .ant-modal, .ant-modal .ant-modal-content {
+  position: fixed !important;
   left: 50% !important;
   top: 50% !important;
   transform: translate(-50%, -50%) !important;
-  width: min(880px, calc(100vw - 32px));
-  max-height: 82vh;
-  background: #fff;
-  border: 0;
-  border-radius: 14px;
-  box-shadow: 0 10px 30px rgba(17, 24, 39, .18);
-  overflow: hidden;
-  padding: 0;
-  text-align: left; /* 统一左对齐 */
-  z-index: 9999;
+  margin: 0 !important;
+  width: min(880px, calc(100vw - 32px)) !important;
+  max-height: 82vh !important;
+  background: #fff !important;
+  border: 0 !important;
+  border-radius: 14px !important;
+  box-shadow: 0 10px 30px rgba(17,24,39,.18) !important;
+  overflow: hidden !important;
+  text-align: left !important;
+  z-index: 9999 !important;
 }
 
-/* 背景遮罩 */
-dialog::backdrop {
-  background: rgba(0,0,0,.35);
+/* 1.1) 内容滚动区 */
+.modal-body, .el-dialog__body, .ant-modal-body {
+  padding: 14px 16px 6px !important;
+  overflow: auto !important;
+  max-height: calc(82vh - 52px - 52px) !important; /* 估算减去头/尾 */
 }
 
-/* 头部与关闭 */
-.modal-header {
-  display: flex;
+/* 2) 标题 + 分割线 */
+.modal-header, .el-dialog__header, .ant-modal-header {
+  display: flex !important;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 16px;
-  border-bottom: 1px solid #e5e7eb;
+  padding: 14px 16px !important;
+  border-bottom: 1px solid #e5e7eb !important;
+  background: #fff !important;
 }
-.modal-title {
-  font-size: 15px;
-  font-weight: 600;
-  color: #111827;
-}
-.modal-close {
-  width: 28px; height: 28px;
-  border-radius: 8px;
-  border: 1px solid #e5e7eb;
-  background: #fff;
-  color: #6b7280;
-  display:flex; align-items:center; justify-content:center;
-  cursor: pointer;
-}
-.modal-close:hover { background: #f9fafb; }
-
-/* 内容区域 */
-.modal-body {
-  padding: 14px 16px 6px;
-  overflow: auto;
+.modal-title, .el-dialog__title, .ant-modal-title {
+  font-size: 15px !important;
+  font-weight: 600 !important;
+  color: #111827 !important;
 }
 
-/* 分区小标题 + 分割线 */
-.section-title {
-  margin: 12px 0 6px;
-  font-size: 13px;
-  font-weight: 600;
-  color: #374151;
-  position: relative;
-}
-.section-title::after {
-  content:"";
-  display:block;
-  height:1px;
-  background:#eef2f7;
-  margin-top:6px;
-}
+/* 3) 键值行（兼容 table/dl/div） */
+.modal-body dl { display: grid; grid-template-columns: 144px 1fr; gap: 10px; }
+.modal-body dt { color:#6b7280; }
+.modal-body dd { color:#111827; word-break: break-word; }
 
-/* 详情键值布局（不强依赖结构：dl/table/ul都能受益） */
-.kv, .kv dl, .kv table {
-  width: 100%;
-  font-size: 13px;
-  line-height: 1.65;
-  color: #111827;
+.modal-body table.kv { width: 100%; border-collapse: collapse; }
+.modal-body .kv-row {
+  display: grid; grid-template-columns: 144px 1fr; gap:10px;
+  padding:6px 0; border-bottom: 1px dashed #eef2f7;
 }
-.kv-row {
-  display: grid;
-  grid-template-columns: 144px 1fr;
-  gap: 10px;
-  padding: 6px 0;
-  border-bottom: 1px dashed #eef2f7;
-}
-.kv-key { color:#6b7280; }
-.kv-val { color:#111827; word-break: break-word; }
+.modal-body .kv-key { color:#6b7280; font-size: 13px; }
+.modal-body .kv-val { color:#111827; font-size: 13px; word-break: break-word; }
 
-/* 按规范：弹窗按钮白底蓝字 */
-.btn,
-.modal-actions .btn {
-  padding: 8px 12px;
-  border-radius: 8px;
-  border: 1px solid #dbeafe;
-  background: #fff;
-  color: #2563eb;
-  font-size: 12px;
-  cursor: pointer;
-}
-.btn:hover { background: #f8fafc; }
-.btn-primary { background:#2563eb; color:#fff; border-color:#2563eb; }
-.btn-primary:hover { filter: brightness(0.96); }
-
-/* 操作区 */
-.modal-actions {
-  padding: 10px 16px 14px;
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  border-top: 1px solid #e5e7eb;
-}
-
-/* ========== 文本框 / 代码块（浅灰） ========== */
-:root { --tf-bg: #f7f8fa; --tf-border:#e5e7eb; }
+/* 4) 文本框/代码块：浅灰背景 + 自动换行（JSON/明文链接/TUIC） */
+:root { --tf-bg:#f7f8fa; --tf-bd:#e5e7eb; }
 .modal-body textarea,
 .modal-body input[type="text"],
-.codebox, .jsonbox, .linkbox, .qrcode-text {
-  width: 100%;
-  background: var(--tf-bg);
-  border: 1px solid var(--tf-border);
-  border-radius: 8px;
-  padding: 10px 12px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
-  font-size: 12px;
-  color: #111827;
-  resize: vertical;
-  white-space: pre-wrap;      /* 让TUIC/JSON自动换行 */
-  word-break: break-word;
-}
-.modal-body textarea { min-height: 140px; }
-
-/* 单行超长明文链接也能换行不溢出 */
-pre, code {
-  white-space: pre-wrap;
-  word-break: break-word;
+.modal-body pre,
+.modal-body code,
+.modal-body .codebox,
+.modal-body .jsonbox,
+.modal-body .linkbox,
+.el-textarea__inner,
+.el-input__inner {
+  background: var(--tf-bg) !important;
+  border: 1px solid var(--tf-bd) !important;
+  border-radius: 8px !important;
+  padding: 10px 12px !important;
+  white-space: pre-wrap !important;
+  word-break: break-word !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace !important;
+  font-size: 12px !important;
 }
 
-/* 二维码容器：强制居中 */
-.qrcode-wrap {
-  display: flex;
-  justify-content: center;
-  margin: 12px 0 6px;
+/* 5) 二维码：水平居中，限制宽度 */
+.modal-body .qrcode-wrap,
+.modal-body .qrcode,
+.modal-body [data-role="qrcode"] {
+  display: flex !important;
+  justify-content: center !important;
+  margin: 12px 0 6px !important;
 }
-.qrcode-wrap img { max-width: 240px; height: auto; }
-
-/* ========== 异步状态 ========== */
-.is-loading { opacity: .75; pointer-events: none; }
-.loading-row {
-  height: 18px; background: linear-gradient(90deg,#f3f4f6, #e5e7eb, #f3f4f6);
-  background-size: 200% 100%;
-  animation: shimmer 1.2s infinite;
-  border-radius: 6px; margin: 6px 0;
+.modal-body .qrcode img,
+.modal-body [data-role="qrcode"] img,
+.modal-body .qrcode canvas,
+.modal-body [data-role="qrcode"] canvas {
+  max-width: 240px; height: auto;
 }
-@keyframes shimmer { to { background-position: -200% 0; } }
 
-.state-info { font-size:12px; color:#6b7280; }
-.state-error {
-  background:#fef2f2; border:1px solid #fecaca; color:#b91c1c;
-  padding:8px 10px; border-radius:8px; margin:6px 0 2px;
+/* 6) 关闭按钮外观（不改逻辑） */
+.modal-close, .el-dialog__headerbtn, .ant-modal-close {
+  color:#6b7280 !important;
+  opacity: 1 !important;
 }
 
 
@@ -5503,6 +5441,7 @@ function showConfigModal(protocolKey) {
 
 
 // [PATCH:IPQ_MODAL] —— 拉不到数据也渲染结构；字段名完全兼容
+let __IPQ_REQ_SEQ__ = 0; // 并发守卫：只有最新一次请求才允许更新DOM
 async function showIPQDetails(which) {
   const titleEl = document.getElementById('ipqModalTitle');
   const bodyEl  = document.getElementById('ipqDetails');
@@ -5513,11 +5452,19 @@ async function showIPQDetails(which) {
   bodyEl.innerHTML = `<div class="config-section"><div class="config-code">加载中...</div></div>`;
   showModal && showModal('ipqModal');
 
-  let data = null;
-  try {
-    const r = await fetch(file, {cache:'no-store'});
-    if (r.ok) data = await r.json();
-  } catch {}
+let data = null;
+const __seq = ++__IPQ_REQ_SEQ__; // 记录本次请求序号
+
+try {
+  const r = await fetch(file, { cache: 'no-store' });
+  if (__seq !== __IPQ_REQ_SEQ__) return;           // 旧请求作废，防止“失败→内容”闪烁
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  data = await r.json();
+} catch (err) {
+  if (__seq !== __IPQ_REQ_SEQ__) return;           // 旧请求作废
+  // 不中断、不展示“失败”中间态；保持“加载中…”并走兜底数据渲染，用户只看到“加载中→内容”
+  data = null;
+}
 
   // —— 兜底：没有数据也给出结构（从 dashboardData 拼一些非敏感项）
   const dash = window.dashboardData || {};
@@ -5756,17 +5703,14 @@ document.addEventListener('DOMContentLoaded', () => {
           if (box) box.innerHTML = list.map(d => `<div class="whitelist-item">${String(d)
             .replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}</div>`).join('');
           showModal('whitelistModal');
-        } else if (modal === 'ipqModal') {
-          const body = $('#ipqDetails');
-          if (body) {
-            body.textContent = '加载中...';
-            try {
-              const r = await fetch(`/status/ipq_${btn.dataset.ipq || ''}.json`, { cache: 'no-store' });
-              body.textContent = JSON.stringify(r.ok ? await r.json() : null, null, 2);
-            } catch { body.textContent = '加载失败'; }
-          }
-          showModal('ipqModal');
-        }
+} else if (modal === 'ipqModal') {
+  // 统一走 showIPQDetails（内部自带并发守卫），彻底避免“加载失败→内容”的闪烁
+  if (typeof showIPQDetails === 'function') {
+    await showIPQDetails(btn.dataset.ipq || 'vps'); // 'vps' | 'proxy'
+  } else {
+    showModal('ipqModal'); // 极端兜底：函数不存在时至少打开弹窗
+  }
+}
         break;
       }
 
