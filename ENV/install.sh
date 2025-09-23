@@ -4268,58 +4268,244 @@ chmod +x "${SCRIPTS_DIR}/traffic-alert.sh"
   log_info "创建外置CSS文件..."
   cat > "${TRAFFIC_DIR}/assets/edgebox-panel.css" <<'EXTERNAL_CSS'
 /* =======================================================================
-   EdgeBox 控制面板 · 组件化样式（系统概览 / 证书切换 / 网络身份配置 / 运维管理）
-   协议配置与流量统计保持原样
+   EdgeBox 控制面板 · 组件化 + 运维管理恢复旧样式
    ======================================================================= */
 
-/* ========== 基础 Reset / 皮肤（保留） ========== */
+/* ========== Reset / 基础皮肤 ========== */
 * { margin:0; padding:0; box-sizing:border-box; }
-body {
-  font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
   background:#f3f4f6; min-height:100vh; padding:20px; color:#1f2937;
 }
-.container { max-width:1400px; margin:0 auto; }
+
+.container{ max-width:1400px; margin:0 auto; }
+
 h1{ font-size:23px; font-weight:700; color:#1f2937; line-height:32px; }
 h2{ font-size:18px; font-weight:600; color:#1f2937; line-height:26px; }
 h3{ font-size:15px; font-weight:600; color:#1f2937; line-height:22px; }
 h4{ font-size:14px; font-weight:500; color:#1f2937; line-height:20px; }
-body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:20px; }
-.text-muted{ color:#6b7280; } .text-secondary{ color:#4b5563; }
 
-.main-card{ background:#fff; border:1px solid #d1d5db; border-radius:10px; box-shadow:0 2px 6px rgba(0,0,0,.08); overflow:hidden; }
+body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:20px; }
+.text-muted{ color:#6b7280; }
+.text-secondary{ color:#4b5563; }
+
+/* ========== 卡片/区块 ========== */
+.main-card{
+  background:#fff; border:1px solid #d1d5db; border-radius:10px;
+  box-shadow:0 2px 6px rgba(0,0,0,.08); overflow:hidden;
+}
 .main-header{ background:linear-gradient(135deg,#5e72e4 0%,#825ee4 100%); color:#fff; padding:20px 30px; text-align:center; }
 .main-header h1{ color:#fff; margin:0; }
 .main-content{ padding:20px; }
 
-.card{ background:#fff; border:1px solid #d1d5db; border-radius:10px; box-shadow:0 2px 6px rgba(0,0,0,.08); padding:20px; margin-bottom:20px; transition:box-shadow .2s; }
+.card{
+  background:#fff; border:1px solid #d1d5db; border-radius:10px;
+  box-shadow:0 2px 6px rgba(0,0,0,.08); padding:20px; margin-bottom:20px;
+  transition:box-shadow .2s;
+}
 .card:hover{ box-shadow:0 4px 8px rgba(0,0,0,.08); }
 .card-header{ margin-bottom:20px; padding-bottom:12px; border-bottom:1px solid #e5e7eb; }
 .card-header h2{ display:flex; justify-content:space-between; align-items:center; }
 .card-note{ font-size:11px; color:#6b7280; font-weight:400; }
 
-.inner-block{ background:#f5f5f5; border:1px solid #e5e7eb; border-radius:6px; padding:15px; margin-bottom:15px; }
+/* 内层 */
+.inner-block{
+  background:#f5f5f5; border:1px solid #e5e7eb; border-radius:6px; padding:15px; margin-bottom:15px;
+}
 .inner-block:last-child{ margin-bottom:0; }
-.inner-block h3{ margin-bottom:12px; padding-bottom:8px; border-bottom:1px solid #e5e7eb; }
+.inner-block h3{
+  margin-bottom:12px; padding-bottom:8px; border-bottom:1px solid #e5e7eb;
+}
 
+/* 网格 */
 .grid{ display:grid; gap:20px; }
 .grid-3{ grid-template-columns:repeat(3,1fr); }
 .grid-1-2{ grid-template-columns:1fr 2fr; }
 
-/* =======（保留）表格/流量统计/弹窗/按钮/白名单/协议配置 等，原样复制 ======= */
+/* ========== 全局行（简单版，组件内会覆写） ========== */
+.info-item{ display:flex; justify-content:space-between; padding:6px 0; }
+.info-item label{ color:#6b7280; }
+.info-item value{ color:#1f2937; font-weight:500; }
+
+/* ========== 全局运行状态徽标（协议配置/系统概览通用） ========== */
+.status-badge{
+  display:inline-flex; align-items:center;
+  height:20px; line-height:20px; padding:0 10px;
+  border-radius:999px; font-size:11px;
+  background:#eafaf3; color:#059669; border:1px solid #c7f0df;
+}
+.status-running{ background:#d1fae5; color:#059669; border-color:#a7f3d0; }
+.status-stopped{ background:#fee2e2; color:#ef4444; border-color:#fecaca; }
+
+/* =======================================================================
+   系统概览（仅 #system-overview）
+   ======================================================================= */
+#system-overview{
+  --label-w:72px;           /* 左侧键名列宽 */
+  --percent-col:36px;       /* 右侧百分比列宽 */
+  --meter-height:20px;      /* 进度条高度 */
+  --svc-gap:8px;            /* 服务名/徽标/版本 间距 */
+  --h3-gap:8px;
+  --meter-track:#d1d5db; --meter-start:#059669; --meter-end:#10b981;
+  --label:#4b5563; --value:#111827; --muted:#6b7280;
+}
+
+/* 标题紧跟 */
+#system-overview .inner-block{ display:block; }
+#system-overview .inner-block>h3{ display:flex; align-items:center; white-space:nowrap; margin:0 0 var(--h3-gap); }
+
+/* 服务器信息：两列 */
+#system-overview .server-info .info-item{
+  display:grid; grid-template-columns:var(--label-w) 1fr; gap:8px; align-items:center; padding:6px 0;
+}
+#system-overview .server-info .label{ color:var(--label); justify-self:start; }
+#system-overview .server-info .value{ min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--value); }
+
+/* 服务器配置：键名 | 进度条 | 百分比 */
+#system-overview .progress-row{
+  display:grid; grid-template-columns:var(--label-w) minmax(0,1fr) var(--percent-col);
+  column-gap:4px; align-items:center; padding:6px 0;
+}
+#system-overview .progress-label{ color:var(--label); justify-self:start; }
+#system-overview .progress-bar{
+  position:relative; height:var(--meter-height);
+  background:var(--meter-track); border-radius:999px; overflow:hidden; align-self:center;
+}
+#system-overview .progress-fill{
+  height:100%; border-radius:999px; background:linear-gradient(90deg,var(--meter-start),var(--meter-end));
+  transition:width .25s ease;
+}
+#system-overview .progress-text{
+  position:absolute; left:4px; right:4px; top:50%; transform:translateY(-50%);
+  font-size:11px; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; pointer-events:none;
+}
+#system-overview .progress-info{
+  min-width:var(--percent-col); text-align:right; color:var(--value);
+  font-variant-numeric:tabular-nums;
+}
+
+/* 核心服务：名称 | 徽标 | 版本号 */
+#system-overview .core-services .service-item{
+  display:grid; grid-template-columns:var(--label-w) max-content 1fr;
+  column-gap:var(--svc-gap); align-items:center; padding:6px 0;
+}
+#system-overview .core-services .version{
+  justify-self:start; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--muted); font-size:12px;
+}
+
+/* 窄屏收窄 */
+@media (max-width:640px){
+  #system-overview{ --label-w:68px; --percent-col:32px; }
+  #system-overview .server-info .info-item{ grid-template-columns:68px 1fr; }
+  #system-overview .progress-row{ grid-template-columns:68px minmax(0,1fr) var(--percent-col); }
+  #system-overview .core-services .service-item{ grid-template-columns:68px max-content 1fr; }
+}
+
+/* =======================================================================
+   证书切换（仅 #cert-panel）
+   ======================================================================= */
+#cert-panel{ --label-w:96px; --row-gap:10px; --h3-gap:8px; --label:#4b5563; --value:#111827; }
+#cert-panel .inner-block{ display:block; }
+#cert-panel .inner-block>h3{ margin:0 0 var(--h3-gap); }
+
+/* 顶部模式切换按钮（无交互，仅样式） */
+#cert-panel .cert-modes{ display:flex; gap:5px; margin-bottom:6px; }
+#cert-panel .cert-mode-tab{
+  flex:1; padding:10px; background:#f5f5f5; border:1px solid #e5e7eb; color:#6b7280;
+  text-align:center; border-radius:8px; cursor:default;
+}
+#cert-panel .cert-mode-tab.active{ background:#10b981; color:#fff; border-color:#10b981; }
+
+/* 明细行：键名 | 值 */
+#cert-panel .cert__row{
+  display:grid; grid-template-columns:var(--label-w) 1fr; gap:var(--row-gap); align-items:center; padding:6px 0;
+}
+#cert-panel .cert__label{ color:var(--label); justify-self:start; }
+#cert-panel .cert__value{ min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--value); }
+
+/* =======================================================================
+   网络身份配置（仅 #netid-panel）——与证书切换一致的“头部条”
+   ======================================================================= */
+#netid-panel{ --label-w:88px; --row-gap:10px; --label:#4b5563; --value:#111827; }
+
+#netid-panel .network-blocks{ display:grid; grid-template-columns:repeat(3,1fr); gap:15px; }
+#netid-panel .network-block{
+  background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:12px;
+}
+
+/* 头部条：完全分离于内容 */
+#netid-panel .network-block > h3{
+  margin:-12px -12px 12px -12px !important;
+  padding:10px 12px !important;
+  background:#f3f4f6 !important;
+  border-bottom:1px solid #e5e7eb !important;
+  border-radius:8px 8px 0 0 !important;
+  color:#374151 !important; font-weight:600 !important;
+}
+#netid-panel .network-block > h3 + *{ margin-top:0 !important; }
+
+/* 内容行：键名 | 值 */
+#netid-panel .nid__row{
+  display:grid; grid-template-columns:var(--label-w) 1fr; gap:var(--row-gap); align-items:center; padding:6px 0;
+}
+#netid-panel .nid__label{ color:#4b5563; justify-self:start; }
+#netid-panel .nid__value{ min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--value); }
+
+/* =======================================================================
+   运维管理（仅 #ops-panel）——恢复旧样式（灰底容器 + 六个白卡 + 行内命令/注释）
+   ======================================================================= */
+#ops-panel .inner-block{
+  background:#f5f5f5; border:1px solid #e5e7eb; border-radius:6px; padding:15px;
+}
+#ops-panel .commands-grid{ display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+@media (max-width:768px){ #ops-panel .commands-grid{ grid-template-columns:1fr; } }
+
+#ops-panel .command-section{
+  background:#ffffff; border:1px solid #e5e7eb; border-radius:8px; padding:12px;
+}
+#ops-panel .command-section h4{
+  margin:0 0 8px; font-size:.9rem; font-weight:600; color:#1e293b;
+  display:flex; align-items:center; gap:6px;
+}
+
+/* 旧版“命令 + 注释”一行展示 */
+#ops-panel .command-list{ font-size:.85rem; line-height:1.9; }
+#ops-panel .command-list code{
+  background:#1f2937; color:#10b981; padding:2px 6px; border-radius:4px;
+  font-family:monospace; font-size:.8rem; display:inline-block; margin:2px 6px 2px 0;
+}
+#ops-panel .command-list span{ color:#6b7280; margin-left:6px; }
+
+/* =======================================================================
+   协议配置、表格、按钮、弹窗、流量统计（保持原样）
+   ======================================================================= */
 .data-table{ width:100%; border-collapse:collapse; }
-.data-table th{ background:#f5f5f5; color:#4b5563; font-weight:500; padding:10px; text-align:left; font-size:12px; border-bottom:1px solid #e5e7eb; }
+.data-table th{
+  background:#f5f5f5; color:#4b5563; font-weight:500; padding:10px; text-align:left;
+  font-size:12px; border-bottom:1px solid #e5e7eb;
+}
 .data-table td{ padding:10px; border-bottom:1px solid #f3f4f6; font-size:12px; }
 .data-table td:nth-child(4),.data-table td:nth-child(5),.data-table td:nth-child(6),
 .data-table th:nth-child(4),.data-table th:nth-child(5),.data-table th:nth-child(6){ text-align:center; }
 .data-table tr:hover td{ background:#f5f5f5; }
 .data-table tr.subs-row td{ background:#f5f5f5; }
 
-/* —— 流量统计块（保持不变） —— */
+/* 证书切换按钮（保留） */
+.cert-modes{ display:flex; gap:5px; margin-bottom:2px; }
+.cert-mode-tab{
+  flex:1; padding:10px; background:#f5f5f5; border:1px solid #e5e7eb;
+  color:#6b7280; text-align:center; border-radius:8px; cursor:default;
+}
+.cert-mode-tab.active{ background:#10b981; color:#fff; border-color:#10b981; }
+
+/* 流量统计（保留原样） */
 .traffic-card{ background:#fff; border:1px solid #d1d5db; border-radius:10px; box-shadow:0 2px 6px rgba(0,0,0,.08); padding:0; }
 .traffic-card .card-header{ padding:16px 20px; border-bottom:1px solid #e5e7eb; }
 .traffic-charts{ display:grid; grid-template-columns:1.2fr 1fr; gap:20px; padding:20px; }
 .chart-column{ display:flex; flex-direction:column; gap:12px; }
 .chart-container{ flex:1; position:relative; min-height:200px; max-height:300px; height:250px; }
+
 .traffic-progress-container{ display:flex; align-items:center; gap:10px; }
 .progress-label{ font-size:13px; color:#6b7280; white-space:nowrap; }
 .progress-wrapper{ flex:1; min-width:120px; }
@@ -4330,11 +4516,12 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 .progress-percentage{ color:#fff; font-size:11px; font-weight:600; }
 .progress-budget{ color:#6b7280; font-size:12px; white-space:nowrap; }
 
-/* —— 其他全局（按钮/弹窗/响应式等）照旧 —— */
+/* 按钮/弹窗（保留） */
 .btn{ padding:8px 16px; border-radius:6px; font-size:12px; cursor:pointer; border:1px solid transparent; transition:all .2s; background:#10b981; color:#fff; }
 .btn:hover{ background:#0ea37a; }
 .btn-sm{ padding:5px 10px; font-size:11px; }
-.btn-secondary{ background:#fff; color:#1f2937; border-color:#d1d5db; } .btn-secondary:hover{ background:#f3f4f6; }
+.btn-secondary{ background:#fff; color:#1f2937; border-color:#d1d5db; }
+.btn-secondary:hover{ background:#f3f4f6; }
 
 .modal{ display:none; position:fixed; z-index:1000; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,.5); }
 .modal-content{ background:#fff; margin:5% auto; padding:0; border:1px solid #d1d5db; border-radius:12px; width:720px; max-width:92%; box-shadow:0 12px 24px rgba(0,0,0,.14); }
@@ -4345,181 +4532,14 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 .modal-body{ padding:20px; max-height:560px; overflow:auto; }
 .modal-footer{ padding:15px 20px; border-top:1px solid #e5e7eb; text-align:right; }
 
-@media (max-width:1024px){ .grid-3,.grid-1-2{ grid-template-columns:1fr; } .traffic-charts{ grid-template-columns:1fr; } }
-@media (max-width:768px){ .traffic-summary{ grid-template-columns:repeat(2,1fr); } .modal-content{ width:95%; margin:10px auto; } }
-
-/* =======================================================================
-   组件化开始：系统概览 / 证书切换 / 网络身份配置 / 运维管理
-   ======================================================================= */
-
-/* ========== 系统概览（#system-overview） ========== */
-#system-overview{
-  --label-w:72px;            /* 左侧键名列宽（越小进度条越长） */
-  --percent-col:36px;        /* 右侧百分比列宽 */
-  --row-gap:8px;             /* 行内列间距 */
-  --meter-height:20px;       /* 进度条高度（与徽标一致） */
-  --svc-gap:8px;             /* 核心服务三者间距 */
-  --h3-gap:8px;
-  --meter-track:#d1d5db; --meter-start:#059669; --meter-end:#10b981;
-  --label:#4b5563; --value:#111827; --muted:#6b7280;
+/* 响应式（保留） */
+@media (max-width:1024px){
+  .grid-3,.grid-1-2{ grid-template-columns:1fr; }
+  .traffic-charts{ grid-template-columns:1fr; }
 }
-
-/* 标题独占整行、水平单行 */
-#system-overview .inner-block{ display:block; }
-#system-overview .inner-block>h3{ grid-column:1/-1; display:flex; align-items:center; white-space:nowrap; margin:0 0 var(--h3-gap); }
-
-/* 服务器信息：两列 */
-#system-overview .server-info .info-item{
-  display:grid; grid-template-columns: var(--label-w) 1fr; gap:var(--row-gap); align-items:center; padding:6px 0;
+@media (max-width:768px){
+  .modal-content{ width:95%; margin:10px auto; }
 }
-#system-overview .server-info .info-item .label{ color:var(--label); justify-self:start; }
-#system-overview .server-info .info-item .value{ min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--value); }
-
-/* 服务器配置：三列（键名 | 进度条 | 百分比） */
-#system-overview .progress-row{
-  display:grid; grid-template-columns: var(--label-w) minmax(0,1fr) var(--percent-col);
-  column-gap:4px; align-items:center; padding:6px 0;
-}
-#system-overview .progress-row .progress-label{ color:var(--label); justify-self:start; }
-#system-overview .progress-row .progress-bar{
-  position:relative; height:var(--meter-height); background:var(--meter-track); border-radius:999px; overflow:hidden; align-self:center;
-}
-#system-overview .progress-row .progress-fill{
-  height:100%; border-radius:999px; background:linear-gradient(90deg,var(--meter-start),var(--meter-end)); transition:width .25s ease;
-}
-#system-overview .progress-row .progress-text{
-  position:absolute; left:4px; right:4px; top:50%; transform:translateY(-50%); font-size:11px; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; pointer-events:none;
-}
-#system-overview .progress-row .progress-info{
-  min-width:var(--percent-col); text-align:right; color:var(--value); font-variant-numeric:tabular-nums;
-}
-
-/* 核心服务：三列（名称 | 徽标 | 版本号） */
-#system-overview .core-services .service-item{
-  display:grid; grid-template-columns: var(--label-w) max-content 1fr; column-gap:var(--svc-gap);
-  align-items:center; padding:6px 0;
-}
-#system-overview .core-services .service-item .service-status{ display:inline-flex; align-items:center; gap:0; white-space:nowrap; }
-#system-overview .core-services .service-item .status-badge{ height:20px; line-height:20px; padding:0 10px; border-radius:999px; font-size:11px; }
-#system-overview .core-services .service-item .version{ justify-self:start; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--muted); font-size:12px; }
-
-/* 窄屏自适应 */
-@media (max-width:640px){
-  #system-overview{ --label-w:68px; --percent-col:32px; }
-  #system-overview .server-info .info-item{ grid-template-columns: 68px 1fr; }
-  #system-overview .progress-row{ grid-template-columns: 68px minmax(0,1fr) var(--percent-col); }
-  #system-overview .core-services .service-item{ grid-template-columns: 68px max-content 1fr; }
-}
-
-/* ========== 证书切换（#cert-panel） ========== */
-/* 说明：证书区常见字段：证书类型/绑定域名/续期方式/到期日期 … */
-#cert-panel{
-  --label-w: 96px; --row-gap: 10px; --h3-gap:8px;
-  --label:#4b5563; --value:#111827; --muted:#6b7280;
-}
-#cert-panel .inner-block{ display:block; }
-#cert-panel .inner-block>h3{ margin:0 0 var(--h3-gap); }
-
-/* 顶部切换按钮保持你原有样式（复用 .cert-modes / .cert-mode-tab） */
-#cert-panel .cert-modes{ display:flex; gap:5px; margin-bottom:6px; }
-#cert-panel .cert-mode-tab{ flex:1; padding:10px; background:#f5f5f5; border:1px solid #e5e7eb; color:#6b7280; text-align:center; border-radius:8px; }
-#cert-panel .cert-mode-tab.active{ background:#10b981; color:#fff; border-color:#10b981; }
-
-/* 明细行：两列（键名 | 值） */
-#cert-panel .cert__row{
-  display:grid; grid-template-columns: var(--label-w) 1fr;
-  gap: var(--row-gap); align-items:center; padding:6px 0;
-}
-#cert-panel .cert__label{ color:var(--label); justify-self:start; }
-#cert-panel .cert__value{ min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--value); }
-
-/* ========== 网络身份配置（#netid-panel） ========== */
-/* 三块小卡（公网IP / 代理出站IP / 分流出站）保持你的三列布局，但每块内部行采用与系统概览一致的两列样式 */
-#netid-panel{ --label-w: 88px; --row-gap:10px; --h3-gap:8px; --label:#4b5563; --value:#111827; }
-#netid-panel .network-blocks{ display:grid; grid-template-columns:repeat(3,1fr); gap:15px; }
-#netid-panel .network-block{ background:#f5f5f5; border:1px solid #e5e7eb; border-radius:8px; padding:12px; }
-#netid-panel .network-block h3{ margin:-12px -12px 12px -12px; padding:10px; background:#f3f4f6; color:#6b7280; border-radius:8px 8px 0 0; text-align:center; border:none; }
-#netid-panel .network-block.active h3{ background:#10b981; color:#fff; }
-
-/* 块内行：两列 */
-#netid-panel .nid__row{
-  display:grid; grid-template-columns: var(--label-w) 1fr;
-  gap: var(--row-gap); align-items:center; padding:6px 0;
-}
-#netid-panel .nid__label{ color:var(--label); justify-self:start; }
-#netid-panel .nid__value{ min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--value); }
-
-/* ========== 运维管理（#ops-panel） ========== */
-/* 两列网格 + 每组一个小卡，组内行两列 */
-#ops-panel{ --label-w:110px; --row-gap:10px; --h3-gap:8px; --label:#4b5563; --value:#111827; }
-#ops-panel .commands-grid{ display:grid; grid-template-columns:1fr 1fr; gap:20px; }
-@media (max-width:768px){ #ops-panel .commands-grid{ grid-template-columns:1fr; } }
-
-#ops-panel .command-section{ background:#f5f5f5; border:1px solid #e5e7eb; border-radius:8px; padding:12px; }
-#ops-panel .command-section h4{ margin:0 0 8px; font-size:.9rem; font-weight:600; color:#1e293b; display:flex; align-items:center; gap:6px; }
-
-/* 组内行：键名 | 值（可放命令/说明/按钮） */
-#ops-panel .ops__row{
-  display:grid; grid-template-columns: var(--label-w) 1fr;
-  gap: var(--row-gap); align-items:center; padding:6px 0;
-}
-#ops-panel .ops__label{ color:var(--label); }
-#ops-panel .ops__value{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--value); }
-
-/* ======================================================================= */
-/* 结束：协议配置、流量统计等其它板块沿用你原有样式，不做变动 */
-/* ======================================================================= */
-
-/* ======================
-   A) 全局状态徽标（协议配置也生效）
-   ====================== */
-.status-badge{
-  display:inline-flex; align-items:center;
-  height:20px; line-height:20px; padding:0 10px;
-  border-radius:999px; font-size:11px;
-  background:#eafaf3; color:#059669; border:1px solid #c7f0df;
-}
-.status-running{ background:#d1fae5; color:#059669; border-color:#a7f3d0; }
-.status-stopped{ background:#fee2e2; color:#ef4444; border-color:#fecaca; }
-
-/* ======================
-   B) 运维管理：保持灰底容器 + 六个白卡 + 行内“命令+注释”
-   ====================== */
-#ops-panel .inner-block{
-  background:#f5f5f5; border:1px solid #e5e7eb; border-radius:6px; padding:15px;
-}
-#ops-panel .command-section{
-  background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:12px;
-}
-#ops-panel .command-list{ font-size:.85rem; line-height:1.9; }
-#ops-panel .command-list code{
-  background:#1f2937; color:#10b981; padding:2px 6px; border-radius:4px;
-  font-family:monospace; font-size:.8rem; display:inline-block; margin:2px 6px 2px 0;
-}
-#ops-panel .command-list span{ color:#6b7280; margin-left:6px; }
-
-/* ======================
-   C) 网络身份配置：三块小卡的 <h3> 强制变“头部条”
-      —— 和“证书切换”风格一致（独立头部、下方内容）
-   ====================== */
-#netid-panel .network-block{
-  background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:12px;
-}
-#netid-panel .network-block > h3{
-  /* 强覆盖 .inner-block h3 的旧样式 */
-  margin:-12px -12px 12px -12px !important; /* 顶到白卡边缘 */
-  padding:10px 12px !important;
-  background:#f3f4f6 !important;
-  border-bottom:1px solid #e5e7eb !important;
-  border-radius:8px 8px 0 0 !important;
-  color:#374151 !important; font-weight:600 !important;
-  line-height:1.2;
-}
-#netid-panel .network-block > h3 + *{ margin-top:0 !important; } /* 头部条下方不再多余上间距 */
-
-/* 如果需要让头部条里的图标与文字有间距，可加： */
-#netid-panel .network-block > h3 .icon{ margin-right:6px; }
-
 
 
 EXTERNAL_CSS
