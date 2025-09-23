@@ -4439,73 +4439,83 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 
 
 /* =======================================================================
-   网络身份配置（仅 #netid-panel）—— 标签与卡片同宽，默认灰色，active 变绿色
+   网络身份配置（仅 #netid-panel）— 小标签悬在卡片上方，和内容分离
    ======================================================================= */
 #netid-panel{
-  /* 行列与颜色 */
-  --label-w: 72px;                 /* 键名列宽（需要更窄/更宽自行调整） */
-  --row-gap: 8px;                  /* 键名↔值 横向间距 */
-  --h3-gap: 10px;                  /* 标题条与内容的竖向间距 */
+  /* 文本与行布局 */
+  --label-w: 72px;
+  --row-gap: 8px;
+  --line-vpad: 6px;
+
+  /* 标签（与“证书切换”一致的高度/圆角） */
+  --tag-pad-y: 10px;                 /* ← 改它=改标签高度（与证书切换一致） */
+  --tag-pad-x: 12px;
+  --tag-gap: 8px;                    /* 标签与卡片的垂直间距 */
+  --tag-radius: 8px;
+
+  /* 颜色 */
   --label: #4b5563;
   --value: #111827;
-
-  /* 标签（与证书切换一致的高度感） */
-  --tag-vpad: 10px;                /* ↑↓ 内边距：改它=改标签高度 */
-  --tag-hpad: 12px;                /* ←→ 内边距 */
-  --tag-active-bg: #10b981;        /* 绿色高亮 */
-  --tag-inactive-bg: #e2e8f0;      /* 默认灰色 */
+  --tag-active-bg: #10b981;          /* 激活：绿色 */
+  --tag-inactive-bg: #e2e8f0;        /* 默认：灰色 */
   --tag-active-color: #ffffff;
   --tag-inactive-color: #64748b;
 
-  /* 边框与圆角 */
   --card-br: #e5e7eb;
-  --head-radius: 8px;
 }
 
 #netid-panel .network-blocks{
-  display: grid;
+  display:grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 15px;
+  gap:15px;
 }
 
-/* 卡片本体 */
+/* 卡片本体：上方留出空间给“悬浮小标签” */
 #netid-panel .network-block{
-  position: relative;
-  background: #fff;
-  border: 1px solid var(--card-br);
-  border-radius: 8px;
-  padding: 12px;
+  position:relative;
+  background:#fff;
+  border:1px solid var(--card-br);
+  border-radius:8px;
+  padding:12px;
+  /* 让标签真正“悬在”卡片上方，而不会顶到上一行内容 */
+  margin-top: calc(var(--tag-pad-y) * 2 + var(--tag-gap));
 }
 
-/* 顶部标签：与卡片同宽（注意负外边距把 header 铺到卡片边缘） */
+/* 小标签：居中、与卡片分离（不铺满卡片） */
 #netid-panel .network-block > h3{
-  display: block;
-  margin: -12px -12px var(--h3-gap) -12px;  /* 铺满卡片内宽 */
-  padding: var(--tag-vpad) var(--tag-hpad);
-  background: var(--tag-inactive-bg);
-  color: var(--tag-inactive-color);
-  border-radius: var(--head-radius) var(--head-radius) 0 0;
-  font-size: 13px;                 /* 与证书切换视觉一致 */
-  font-weight: 600;
-  line-height: 1.2;
+  position:absolute !important;
+  top:0 !important;
+  left:50% !important;
+  transform: translate(-50%, calc(-100% - var(--tag-gap))) !important; /* 悬到卡片上方 */
+  margin:0 !important;
+  padding: var(--tag-pad-y) var(--tag-pad-x) !important;
+  background: var(--tag-inactive-bg) !important;
+  color: var(--tag-inactive-color) !important;
+  border-radius: var(--tag-radius) !important;
+  border: 1px solid var(--card-br) !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  line-height: 1.2 !important;
+  white-space: nowrap !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
 }
 
-/* JS 给对应 .network-block 加 .active 时变为绿色高亮 */
+/* 激活状态：JS 给对应 .network-block 加 .active 即可变绿 */
 #netid-panel .network-block.active > h3{
-  background: var(--tag-active-bg);
-  color: var(--tag-active-color);
+  background: var(--tag-active-bg) !important;
+  color: var(--tag-active-color) !important;
+  border-color: var(--tag-active-bg) !important;
 }
-
-/* 第一行内容不要额外上边距 */
-#netid-panel .network-block > h3 + *{ margin-top: 0; }
 
 /* 内容行：键名 | 值 */
 #netid-panel .network-block .info-item{
-  display: grid;
+  display:grid;
   grid-template-columns: var(--label-w) 1fr;
   gap: var(--row-gap);
-  align-items: center;
-  padding: 6px 0;
+  align-items:center;
+  padding: var(--line-vpad) 0;
 }
 #netid-panel .network-block .info-item label{
   color: var(--label);
