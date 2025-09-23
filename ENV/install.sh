@@ -4406,7 +4406,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 
 /* 服务器信息：中文键名较长，单独设宽，并禁止换行 */
 #system-overview .server-info { 
-  --label-w: 88px;                 /* 这里按需改 */
+  --label-w: 80px;                 /* 这里按需改 */
 }
 #system-overview .server-info .label { 
   white-space: nowrap;             /* 防止被压行 */
@@ -4423,7 +4423,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 
 /* 核心服务：单独控制服务名那一列宽度与间距 */
 #system-overview .core-services {
-  --label-w: 70px;                 /* 这块自己设，不受上面的影响 */
+  --label-w: 60px;                 /* 这块自己设，不受上面的影响 */
   --svc-gap: 50px;
 }
 #system-overview .core-services .label { 
@@ -4465,7 +4465,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 /* =======================================================================
    网络身份配置（仅 #netid-panel）——标题条独立、内容“键名列/值列”
    ======================================================================= */
-#netid-panel{ --label-w:88px; --row-gap:10px; --label:#4b5563; --value:#111827; }
+#netid-panel{ --label-w:70px; --row-gap:5px; --label:#4b5563; --value:#111827; }
 
 #netid-panel .network-blocks{ display:grid; grid-template-columns:repeat(3,1fr); gap:15px; }
 #netid-panel .network-block{
@@ -4530,7 +4530,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   border-radius:4px;
   font-family:monospace;
   font-size:.78rem;
-  line-height:1.05;
+  line-height:1.1;
   display:inline-block;
 }
 .command-list span{ color:#6b7280; margin-left:8px; }
@@ -4552,7 +4552,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 .commands-grid .command-list code {
   display: inline-block;
   margin-right: 8px;
-  margin-bottom: 3px;   /* 轻微增加行间距 */
+  margin-bottom: 2px;   /* 轻微增加行间距 */
 }
 
 /* =======================================================================
