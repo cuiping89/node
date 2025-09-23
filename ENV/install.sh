@@ -4466,18 +4466,18 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 
 /* =======================================================================
    网络身份配置（仅 #netid-panel）
-   —— 小标签“悬浮+与卡片同宽”、标签/卡片高度可调、三块整组垂直居中
+   —— 标签=与卡片同宽；标签/卡片高度与证书切换一致；三块等高&整组垂直居中；卡片加阴影
    ======================================================================= */
 #netid-panel{
-  /* 文本与行布局 */
-  --label-w: 60px;
-  --row-gap: 8px;
-  --line-vpad: 6px;
+  /* 与证书切换保持一套行样式 */
+  --label-w: 80px;         /* 键名列宽，与 #cert-panel 匹配 */
+  --row-gap: 10px;         /* 键名列与值列横向间距 */
+  --line-vpad: 6px;        /* 每行上下内边距（行高节奏与证书切换一致） */
 
-  /* 标签（高度与证书切换保持一致：改 padY 即可） */
-  --tag-pad-y: 10px;          /* ← 改它=改标签高度（和证书切换一致） */
-  --tag-pad-x: 16px;          /* 左右留白 */
-  --tag-gap: 6px;             /* 标签与卡片的垂直间距 */
+  /* 标签（与证书切换一致：上下 10px） */
+  --tag-pad-y: 10px;       /* ← 改它=改标签高度（保持与证书切换一致） */
+  --tag-pad-x: 16px;
+  --tag-gap: 6px;          /* 标签与卡片的垂直间距 */
   --tag-radius: 8px;
   --tag-font: 13px;
 
@@ -4491,89 +4491,80 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 
   --card-br: #e5e7eb;
 
-  /* === 高度联动（整组垂直居中用）===
-     说明：
-     - --tag-h 估算标签整体高度（垂直内边距*2 + 文字行高）
-     - --block-min-h 控制每个卡片“标签下的内容区域高度”，调它≈证书切换卡片的高度
-     - --panel-min-h 让三块在标题下方“整体垂直居中”的容器基准高度
-  */
-  --tag-h: calc(var(--tag-pad-y)*2 + 20px);
-  --block-min-h: 180px;       /* ← 调到和证书切换卡片高度一致 */
+  /* 高度联动（用于等高 & 垂直居中） */
+  --tag-h: calc(var(--tag-pad-y)*2 + 20px);  /* 20px≈13px字高的可视行高 */
+  --block-min-h: 180px;    /* ← 与证书切换里那张卡“内容区”高度对齐可调 */
   --panel-min-h: calc(var(--block-min-h) + var(--tag-h) + var(--tag-gap) + 8px);
 
-  display: block !important;  /* 防外部 flex 干扰 */
+  display:block !important;
 }
 
-/* 三块容器：三列 + 在可用高度里把“整组”垂直居中 */
+/* 容器：三列、等高、整组垂直居中 */
 #netid-panel .network-blocks{
-  display: grid;
+  display:grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 15px;
+  gap:15px;
 
-  /* 关键：给容器一个最小高度，并让网格内容在其中垂直居中 */
   min-height: var(--panel-min-h);
-  align-content: center;        /* 整组垂直居中 */
+  align-content: center;       /* 整组在标题下区域垂直居中 */
+  align-items: stretch;        /* 子项等高 */
 }
 
-/* 卡片本体：上方留出空间给“悬浮小标签” */
+/* 卡片本体：为“悬浮标签”预留同高空间 + 陰影 */
 #netid-panel .network-block{
-  position: relative;
-  background: #fff;
-  border: 1px solid var(--card-br);
-  border-radius: 8px;
-  padding: 12px;
-
-  /* 为悬浮标签预留位置（标签高 + 标签与卡片间距） */
+  position:relative;
+  background:#fff;
+  border:1px solid var(--card-br);
+  border-radius: 10px;
+  padding:12px;
   margin-top: calc(var(--tag-h) + var(--tag-gap));
-
-  /* 卡片内容高度（与证书切换卡片保持一致靠它） */
   min-height: var(--block-min-h);
+
+  /* 与页面 .card 阴影风格一致 */
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
 }
 
-/* 小标签：与下方卡片“等宽”，且悬浮在卡片上方（分离） */
+/* 标签：与卡片同宽，悬在上方（分离感） */
 #netid-panel .network-block > h3{
-  position: absolute !important;
-  top: 0 !important;
+  position:absolute !important;
+  top:0 !important;
 
-  /* 同宽：左右各缩进 1px，和卡片边框对齐 */
-  left: 1px !important;
-  right: 1px !important;
-  width: calc(100% - 2px) !important;
+  left:1px !important;
+  right:1px !important;
+  width:calc(100% - 2px) !important;  /* 与卡片等宽，扣掉左右边框 */
 
-  transform: translateY(calc(-100% - var(--tag-gap))) !important; /* 悬到卡片上方 */
-  margin: 0 !important;
-
-  /* 高度用上下内边距控制，与你的证书切换一致 */
+  transform: translateY(calc(-100% - var(--tag-gap))) !important;
+  margin:0 !important;
   padding: var(--tag-pad-y) var(--tag-pad-x) !important;
   background: var(--tag-inactive-bg) !important;
   color: var(--tag-inactive-color) !important;
+  border:1px solid var(--card-br) !important;
   border-radius: var(--tag-radius) !important;
-  border: 1px solid var(--card-br) !important;
 
   font-size: var(--tag-font) !important;
   font-weight: 600 !important;
   line-height: 1.2 !important;
-
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
   white-space: nowrap !important;
-  gap: 6px !important;
+
+  display:flex !important;
+  align-items:center !important;
+  justify-content:center !important;
+  gap:6px !important;
 }
 
-/* 激活状态：JS 给对应 .network-block 加 .active 即可变绿 */
+/* 当前模式高亮（JS 给 .network-block 加 .active 即可） */
 #netid-panel .network-block.active > h3{
   background: var(--tag-active-bg) !important;
   color: var(--tag-active-color) !important;
   border-color: var(--tag-active-bg) !important;
 }
 
-/* 内容行：键名 | 值 */
+/* 内容行：与证书切换的节奏保持一致（13px + 6px 上下内边距） */
 #netid-panel .network-block .info-item{
-  display: grid;
+  display:grid;
   grid-template-columns: var(--label-w) 1fr;
   gap: var(--row-gap);
-  align-items: center;
+  align-items:center;
   padding: var(--line-vpad) 0;
 }
 #netid-panel .network-block .info-item label{
@@ -4581,15 +4572,15 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   font-size: 13px;
 }
 #netid-panel .network-block .info-item value{
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  min-width:0;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
   color: var(--value);
-  font-size: 14px;
+  font-size: 13px;   /* 与证书切换一致 */
 }
 
-/* 窄屏堆叠：去掉强制的最小高度，避免留白过大 */
+/* 窄屏：纵向堆叠，去掉强制高度避免留白 */
 @media (max-width: 1024px){
   #netid-panel .network-blocks{
     grid-template-columns: 1fr;
@@ -4597,7 +4588,6 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
     align-content: start;
   }
 }
-
 
 
 
