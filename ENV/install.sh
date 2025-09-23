@@ -4541,6 +4541,61 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   .modal-content{ width:95%; margin:10px auto; }
 }
 
+/* === Ops Panel: 恢复为“六个灰卡分组 + 行内命令/注释” === */
+
+/* 去掉那层大灰底容器，只保留分组灰卡 */
+#ops-panel .inner-block{
+  background: transparent !important;
+  border: 0 !important;
+  padding: 0 !important;
+}
+
+/* 两列栅格不变 */
+#ops-panel .commands-grid{
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+@media (max-width: 768px){
+  #ops-panel .commands-grid{ grid-template-columns: 1fr; }
+}
+
+/* 关键：分组改回“灰卡”，不是白底 */
+#ops-panel .command-section{
+  background: #f5f5f5 !important;         /* 灰卡 */
+  border: 1px solid #e5e7eb !important;
+  border-radius: 8px !important;
+  padding: 12px !important;
+}
+
+/* 分组标题保持原来的细节 */
+#ops-panel .command-section h4{
+  margin: 0 0 8px 0;
+  font-size: .9rem;
+  font-weight: 600;
+  color: #1e293b;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 命令 + 注释同一行，命令是深灰代码块 */
+#ops-panel .command-list{ font-size: .85rem; line-height: 1.9; }
+#ops-panel .command-list code{
+  background: #1f2937;          /* 深灰底 */
+  color: #10b981;               /* 绿色字 */
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: .8rem;
+  display: inline-block;
+  margin: 2px 6px 2px 0;
+}
+#ops-panel .command-list span{
+  color: #6b7280;               /* 注释浅灰 */
+  margin-left: 6px;
+}
+
 
 EXTERNAL_CSS
 
