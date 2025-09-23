@@ -4465,7 +4465,8 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 
 
 /* =======================================================================
-   网络身份配置（仅 #netid-panel）— 小标签悬在卡片上方，和内容分离 + 三块整组垂直居中
+   网络身份配置（仅 #netid-panel）
+   —— 小标签“悬浮+与卡片同宽”、标签/卡片高度可调、三块整组垂直居中
    ======================================================================= */
 #netid-panel{
   /* 文本与行布局 */
@@ -4473,30 +4474,37 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   --row-gap: 8px;
   --line-vpad: 6px;
 
-  /* 标签（与“证书切换”一致的高度/圆角） */
-  --tag-pad-y: 10px;        /* ← 改它=改标签高度 */
-  --tag-pad-x: 28px;
-  --tag-gap: 5px;           /* 标签与卡片的垂直间距 */
+  /* 标签（高度与证书切换保持一致：改 padY 即可） */
+  --tag-pad-y: 10px;          /* ← 改它=改标签高度（和证书切换一致） */
+  --tag-pad-x: 16px;          /* 左右留白 */
+  --tag-gap: 6px;             /* 标签与卡片的垂直间距 */
   --tag-radius: 8px;
+  --tag-font: 13px;
 
   /* 颜色 */
   --label: #4b5563;
   --value: #111827;
-  --tag-active-bg: #10b981;     /* 激活：绿色 */
-  --tag-inactive-bg: #e2e8f0;   /* 默认：灰色 */
+  --tag-active-bg: #10b981;    /* 激活：绿色 */
+  --tag-inactive-bg: #e2e8f0;  /* 默认：灰色 */
   --tag-active-color: #ffffff;
   --tag-inactive-color: #64748b;
 
   --card-br: #e5e7eb;
 
-  /* 新增：让“三块”在标题下区域整体垂直居中的基准高度 */
-  --panel-min-h: 200px;     /* 想再“更靠中”就调大，比如 230/240 */
+  /* === 高度联动（整组垂直居中用）===
+     说明：
+     - --tag-h 估算标签整体高度（垂直内边距*2 + 文字行高）
+     - --block-min-h 控制每个卡片“标签下的内容区域高度”，调它≈证书切换卡片的高度
+     - --panel-min-h 让三块在标题下方“整体垂直居中”的容器基准高度
+  */
+  --tag-h: calc(var(--tag-pad-y)*2 + 20px);
+  --block-min-h: 180px;       /* ← 调到和证书切换卡片高度一致 */
+  --panel-min-h: calc(var(--block-min-h) + var(--tag-h) + var(--tag-gap) + 8px);
 
-  /* 防止外部给 #netid-panel 设 flex 影响布局 */
-  display: block !important;
+  display: block !important;  /* 防外部 flex 干扰 */
 }
 
-/* 三块容器：保持三列 + 在可用高度里把“整组”垂直居中 */
+/* 三块容器：三列 + 在可用高度里把“整组”垂直居中 */
 #netid-panel .network-blocks{
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -4504,9 +4512,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 
   /* 关键：给容器一个最小高度，并让网格内容在其中垂直居中 */
   min-height: var(--panel-min-h);
-  align-content: center;    /* 整组垂直居中 */
-  /* 可选微调：上下各加一点内边距 */
-  /* padding: 6px 0 8px; */
+  align-content: center;        /* 整组垂直居中 */
 }
 
 /* 卡片本体：上方留出空间给“悬浮小标签” */
@@ -4516,28 +4522,42 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   border: 1px solid var(--card-br);
   border-radius: 8px;
   padding: 12px;
-  /* 让标签真正“悬在”卡片上方，而不会顶到上一行内容 */
-  margin-top: calc(var(--tag-pad-y) * 2 + var(--tag-gap));
+
+  /* 为悬浮标签预留位置（标签高 + 标签与卡片间距） */
+  margin-top: calc(var(--tag-h) + var(--tag-gap));
+
+  /* 卡片内容高度（与证书切换卡片保持一致靠它） */
+  min-height: var(--block-min-h);
 }
 
-/* 小标签：居中、与卡片分离（不铺满卡片） */
+/* 小标签：与下方卡片“等宽”，且悬浮在卡片上方（分离） */
 #netid-panel .network-block > h3{
   position: absolute !important;
   top: 0 !important;
-  left: 50% !important;
-  transform: translate(-50%, calc(-100% - var(--tag-gap))) !important; /* 悬到卡片上方 */
+
+  /* 同宽：左右各缩进 1px，和卡片边框对齐 */
+  left: 1px !important;
+  right: 1px !important;
+  width: calc(100% - 2px) !important;
+
+  transform: translateY(calc(-100% - var(--tag-gap))) !important; /* 悬到卡片上方 */
   margin: 0 !important;
+
+  /* 高度用上下内边距控制，与你的证书切换一致 */
   padding: var(--tag-pad-y) var(--tag-pad-x) !important;
   background: var(--tag-inactive-bg) !important;
   color: var(--tag-inactive-color) !important;
   border-radius: var(--tag-radius) !important;
   border: 1px solid var(--card-br) !important;
-  font-size: 13px !important;
+
+  font-size: var(--tag-font) !important;
   font-weight: 600 !important;
   line-height: 1.2 !important;
-  white-space: nowrap !important;
-  display: inline-flex !important;
+
+  display: flex !important;
   align-items: center !important;
+  justify-content: center !important;
+  white-space: nowrap !important;
   gap: 6px !important;
 }
 
