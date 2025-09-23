@@ -5172,60 +5172,75 @@ body.modal-open {
   }
 }
 
-/* 1) 统一三列（服务器信息/服务器配置/核心服务）的行高与内外边距 */
+/* ===== 系统概览：标题与行布局的稳固修复，仅作用于 #system-overview ===== */
+
+/* 标题：独占一整行、水平书写、单行不换 */
+#system-overview .inner-block { display:block !important; }
+#system-overview .inner-block > h3{
+  grid-column: 1 / -1 !important;
+  display:flex !important;
+  align-items:center !important;
+  white-space:nowrap !important;
+  writing-mode:horizontal-tb !important;
+  -webkit-writing-mode:horizontal-tb !important;
+  margin:0 0 8px !important; /* 你现在的节奏 */
+}
+
+/* 信息行/进度行/服务行：只对“行”生效，避免误伤标题 */
 #system-overview .inner-block .info-item,
 #system-overview .inner-block .progress-row,
-#system-overview .inner-block .service-item {
-  margin: 0;              /* 去掉多余的外边距 */
-  padding: 6px 0;         /* 统一上下内边距 */
-  min-height: 32px;       /* 统一视觉行高 */
-  align-items: center;    /* 垂直居中 */
+#system-overview .inner-block .service-item{
+  display:grid !important;
+  align-items:center !important;
 }
 
-/* 2) 进度条高度适中，避免把整行“撑高” */
-#system-overview .inner-block .progress-bar {
-  height: 12px;           /* 原 18px -> 12px */
-  overflow: hidden;       /* 结合圆角时更干净 */
-  border-radius: 999px;
+/* —— 服务器配置：进度条列严格占满中间，并与两侧垂直居中 —— */
+#system-overview{
+  --label-w: 50px;            /* 左侧“CPU:”列宽 → 越小条越长 */
+  --percent-col: 36px;        /* 右侧百分比列宽 → 越小条越长 */
+  --progress-gap: 4px;        /* 中间列与两侧列的间距（再小条更长） */
+  --meter-height: 20px;
+}
+#system-overview .progress-row{
+  grid-template-columns: var(--label-w) minmax(0,1fr) var(--percent-col) !important;
+  column-gap: var(--progress-gap) !important;
+}
+#system-overview .progress-row .progress-label,
+#system-overview .progress-row .progress-info,
+#system-overview .progress-row .progress-bar{ align-self:center !important; }
+
+#system-overview .progress-row .progress-bar{
+  position:relative; height:var(--meter-height);
+  background:#d1d5db; border-radius:999px; overflow:hidden;
+}
+#system-overview .progress-row .progress-fill{
+  height:100%; border-radius:999px;
+  background:linear-gradient(90deg,#059669,#10b981);
+  transition:width .25s ease; z-index:0;
+}
+#system-overview .progress-row .progress-text{
+  position:absolute; z-index:1; left:4px; right:4px; top:50%; transform:translateY(-50%);
+  font-size:11px; line-height:1; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+#system-overview .progress-row .progress-info{
+  min-width:var(--percent-col); text-align:right; color:#111827;
+  font-variant-numeric:tabular-nums;
 }
 
-/* 3) 让“服务器配置”的条中文本显示在进度条内并可省略 */
-#system-overview .inner-block .progress-fill {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;  /* 文本靠左 */
-  padding: 0 8px;               /* 条内左右留白 */
-  color: #fff;                  /* 条中文本使用白色 */
-  border-radius: 999px;         /* 小百分比时不露角 */
+/* —— 核心服务：三列（服务名 | 徽标 | 版本号），两侧等间距 —— */
+#system-overview{ --svc-gap: 8px; }
+#system-overview .core-services .service-item{
+  grid-template-columns: var(--label-w) max-content 1fr !important; /* 版本号占剩余，必要时省略 */
+  column-gap: var(--svc-gap) !important;
+}
+#system-overview .core-services .service-item .service-status{
+  display:inline-flex; align-items:center; gap:0; margin:0; white-space:nowrap;
+}
+#system-overview .core-services .service-item .version{
+  justify-self:start; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
 }
 
-/* 条内真正承载文本的 span（你已在 HTML 中新增 .progress-text） */
-#system-overview .inner-block .progress-fill .progress-text {
-  font-size: 11px;
-  line-height: 1;
-  width: 100%;                 /* 触发省略的关键（需有宽度约束） */
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;     /* 未显示完用 … */
-}
 
-/* 4) 右侧百分比对齐与可读性 */
-#system-overview .inner-block .progress-info {
-  min-width: 48px;             /* 可按需调整 */
-  text-align: right;
-  font-variant-numeric: tabular-nums; /* 等宽数字，列更稳 */
-  color: #111827;
-}
-
-/* 5) 其它需要单行省略的字段（避免换行把行撑高） */
-#system-overview #cpu-info,
-#system-overview #mem-info,
-#system-overview #disk-info,
-#system-overview .core-services .version {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 EXTERNAL_CSS
 
   # ========== 创建外置的JavaScript文件 ==========
