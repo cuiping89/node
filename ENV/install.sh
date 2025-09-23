@@ -4470,6 +4470,59 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 /* 结束：协议配置、流量统计等其它板块沿用你原有样式，不做变动 */
 /* ======================================================================= */
 
+/* ===========================
+   修复补丁：徽标 / 运维管理行样式 / 网络身份块标题
+   =========================== */
+
+/* 1) 核心服务：恢复浅绿色状态徽标 */
+#system-overview .core-services .status-badge{
+  height:20px; line-height:20px; padding:0 10px;
+  border-radius:999px; font-size:11px;
+  background:#eafaf3; color:#059669; border:1px solid #c7f0df;
+}
+#system-overview .core-services .status-running{
+  background:#d1fae5; color:#059669; border-color:#a7f3d0;
+}
+#system-overview .core-services .status-stopped{
+  background:#fee2e2; color:#ef4444; border-color:#fecaca;
+}
+
+/* 2) 运维管理：去掉内层灰底 + 恢复“命令 与 注释”同一行展示 */
+#ops-panel .inner-block{
+  background: transparent; border: 0; padding: 0;  /* 去掉整块灰底 */
+}
+/* 小分组仍然是独立白卡（保留原样） */
+#ops-panel .command-section{
+  background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:12px;
+}
+/* 行：不用两列，改回“行内” */
+#ops-panel .ops__row{ display:block; margin:3px 0; }
+#ops-panel .ops__row .ops__label,
+#ops-panel .ops__row .ops__value{ display:inline; }
+/* 命令块（等宽深底） */
+#ops-panel .ops__row .ops__label code{
+  background:#1f2937; color:#10b981; padding:2px 6px; border-radius:4px;
+  font-family:monospace; font-size:.8rem;
+}
+/* 注释（浅灰小字，紧跟命令） */
+#ops-panel .ops__row .ops__value span{
+  color:#6b7280; margin-left:8px; font-size:.8rem;
+}
+
+/* 3) 网络身份配置：三块标题做成“头部条”样式，与内容明显分开 */
+#netid-panel .network-block{
+  background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:12px;
+}
+#netid-panel .network-block h3{
+  margin:-12px -12px 12px -12px;      /* 让头部条顶到卡片边缘 */
+  padding:10px 12px;
+  background:#f3f4f6;
+  border-bottom:1px solid #e5e7eb;
+  border-radius:8px 8px 0 0;
+  color:#374151; font-weight:600;
+}
+/* 块内行仍按之前两列排版（已在你的组件化样式里） */
+
 
 EXTERNAL_CSS
 
