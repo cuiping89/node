@@ -4444,7 +4444,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
    ======================================================================= */
 #cert-panel{
   /* 与 NetID 标签一致的参数 */
-  --tag-pad-y: 10px;        /* ← 改它=改标签高度 */
+  --tag-pad-y: 9px;        /* ← 改它=改标签高度 */
   --tag-pad-x: 16px;
   --tag-radius: 8px;
   --tag-font: 13px;
@@ -4771,180 +4771,166 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 /* =========================
    弹窗 Modal 统一样式补丁
    ========================= */
-/* =============== Modal 统一：居中 + 稳定大小 + 分割线 + 文本左对齐 =============== */
-
-/* 遮罩：仍由 JS 改 display，但一旦是 block 就改用 flex 居中 */
-.modal{
-  display: none;              /* JS 会把它设成 block */
+/* ========== Dialog / Modal 基础 ========== */
+dialog[open],
+.modal,
+.popup {
   position: fixed;
-  inset: 0;
-  z-index: 1000;
-  background: rgba(0,0,0,.50);
-  padding: 40px 16px;         /* 让小屏也有边距 */
-}
-
-/* 兼容：当 JS 把 display 设为 block 时，强制用 flex 居中 */
-.modal[style*="display: block"], 
-.modal.open, 
-.modal.is-open{
-  display: flex !important;
-  align-items: center;
-  justify-content: center;
-}
-
-/* 统一弹窗外壳：稳定尺寸、阴影、滚动 */
-.modal-content{
-  width: min(880px, 92vw);       /* 统一的默认宽度 */
-  min-width: min(720px, 92vw);   /* 稳定初始框体，避免“长条→放大” */
-  min-height: 420px;             /* 稳定初始高度 */
-  max-height: calc(100vh - 120px);
-  margin: 0;                     /* 居中依赖 flex，不再用 margin */
+  left: 50% !important;
+  top: 50% !important;
+  transform: translate(-50%, -50%) !important;
+  width: min(880px, calc(100vw - 32px));
+  max-height: 82vh;
   background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
-  box-shadow: 0 16px 32px rgba(0,0,0,.20);
-  overflow: hidden;              /* 让 header/footer 吸顶吸底更干净 */
+  border: 0;
+  border-radius: 14px;
+  box-shadow: 0 10px 30px rgba(17, 24, 39, .18);
+  overflow: hidden;
+  padding: 0;
+  text-align: left; /* 统一左对齐 */
+  z-index: 9999;
 }
 
-/* 头/尾：吸顶吸底 + 分割线 */
-.modal-header{
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  background: #fff;
-  padding: 16px 20px;
-  border-bottom: 1px solid #e5e7eb;
+/* 背景遮罩 */
+dialog::backdrop {
+  background: rgba(0,0,0,.35);
+}
+
+/* 头部与关闭 */
+.modal-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid #e5e7eb;
 }
-.modal-footer{
-  position: sticky;
-  bottom: 0;
-  z-index: 2;
-  background: #fff;
-  padding: 12px 20px;
-  border-top: 1px solid #e5e7eb;
-  text-align: right;
-}
-
-/* 关闭按钮一致化 */
-.close-btn{
-  font-size: 16px;
-  color: #64748b;
-  cursor: pointer;
-  width: 28px;
-  height: 28px;
-  line-height: 28px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 6px;
-  border: 1px solid #e5e7eb;
-  background: #fff;
-  transition: all .2s;
-}
-.close-btn:hover{ background:#f8fafc; color:#0f172a; }
-
-/* 正文：左对齐、分段留白 */
-.modal-body{
-  padding: 16px 20px;
-  overflow: auto;
-  text-align: left;
-}
-
-/* 标题/小节分割线（详情弹窗里的“总览/身份信息/质量项…”这类） */
-.modal-body h2,
-.modal-body h3,
-.modal-body h4{
-  margin: 14px 0 8px;
+.modal-title {
+  font-size: 15px;
   font-weight: 600;
+  color: #111827;
 }
-.modal-body h2:not(:first-child),
-.modal-body h3:not(:first-child),
-.modal-body h4:not(:first-child){
-  padding-top: 10px;
+.modal-close {
+  width: 28px; height: 28px;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  color: #6b7280;
+  display:flex; align-items:center; justify-content:center;
+  cursor: pointer;
+}
+.modal-close:hover { background: #f9fafb; }
+
+/* 内容区域 */
+.modal-body {
+  padding: 14px 16px 6px;
+  overflow: auto;
+}
+
+/* 分区小标题 + 分割线 */
+.section-title {
+  margin: 12px 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+  position: relative;
+}
+.section-title::after {
+  content:"";
+  display:block;
+  height:1px;
+  background:#eef2f7;
+  margin-top:6px;
+}
+
+/* 详情键值布局（不强依赖结构：dl/table/ul都能受益） */
+.kv, .kv dl, .kv table {
+  width: 100%;
+  font-size: 13px;
+  line-height: 1.65;
+  color: #111827;
+}
+.kv-row {
+  display: grid;
+  grid-template-columns: 144px 1fr;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px dashed #eef2f7;
+}
+.kv-key { color:#6b7280; }
+.kv-val { color:#111827; word-break: break-word; }
+
+/* 按规范：弹窗按钮白底蓝字 */
+.btn,
+.modal-actions .btn {
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid #dbeafe;
+  background: #fff;
+  color: #2563eb;
+  font-size: 12px;
+  cursor: pointer;
+}
+.btn:hover { background: #f8fafc; }
+.btn-primary { background:#2563eb; color:#fff; border-color:#2563eb; }
+.btn-primary:hover { filter: brightness(0.96); }
+
+/* 操作区 */
+.modal-actions {
+  padding: 10px 16px 14px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
   border-top: 1px solid #e5e7eb;
 }
 
-/* 键值型布局（若详情里用到了 dl/dt/dd，会自动更整齐） */
-.modal-body dl{
-  display: grid;
-  grid-template-columns: auto 1fr;
-  column-gap: 12px;
-  row-gap: 8px;
-  margin: 8px 0;
-}
-.modal-body dt{ color:#6b7280; }
-.modal-body dd{ margin:0; color:#111827; }
-
-/* 表格统一（如果详情是表格） */
-.modal-body table{
-  width: 100%;
-  border-collapse: collapse;
-  margin: 6px 0 8px;
-}
-.modal-body th,
-.modal-body td{
-  border-bottom: 1px solid #f1f5f9;
-  padding: 8px 10px;
-  text-align: left;
-}
-
-/* 明文/代码/长文本框：白底+细边+轻阴影（不再灰底） */
-.modal-body pre,
-.modal-body code,
+/* ========== 文本框 / 代码块（浅灰） ========== */
+:root { --tf-bg: #f7f8fa; --tf-border:#e5e7eb; }
 .modal-body textarea,
-.modal-body .plain-text-block{
-  display: block;
+.modal-body input[type="text"],
+.codebox, .jsonbox, .linkbox, .qrcode-text {
   width: 100%;
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
-  padding: 12px;
+  background: var(--tf-bg);
+  border: 1px solid var(--tf-border);
+  border-radius: 8px;
+  padding: 10px 12px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
-  line-height: 1.5;
+  font-size: 12px;
   color: #111827;
-  box-shadow: 0 1px 3px rgba(0,0,0,.06);
+  resize: vertical;
+  white-space: pre-wrap;      /* 让TUIC/JSON自动换行 */
+  word-break: break-word;
+}
+.modal-body textarea { min-height: 140px; }
+
+/* 单行超长明文链接也能换行不溢出 */
+pre, code {
   white-space: pre-wrap;
-  word-break: break-all;
+  word-break: break-word;
 }
 
-/* 多段明文（例如“明文链接/Base64”等）上下留白一致 */
-.modal-body .plain-text-block + .plain-text-block{
-  margin-top: 8px;
-}
-
-/* 二维码：无论是 img 还是 canvas 都居中 */
-.modal-body .qr-container,
-.modal-body .qr-placeholder{
+/* 二维码容器：强制居中 */
+.qrcode-wrap {
   display: flex;
-  align-items: center;
   justify-content: center;
-  padding: 8px;
+  margin: 12px 0 6px;
 }
-.modal-body .qr-container img,
-.modal-body .qr-container canvas,
-.modal-body img.qr,
-.modal-body canvas.qr{
-  display: block;
-  margin: 0 auto;
+.qrcode-wrap img { max-width: 240px; height: auto; }
+
+/* ========== 异步状态 ========== */
+.is-loading { opacity: .75; pointer-events: none; }
+.loading-row {
+  height: 18px; background: linear-gradient(90deg,#f3f4f6, #e5e7eb, #f3f4f6);
+  background-size: 200% 100%;
+  animation: shimmer 1.2s infinite;
+  border-radius: 6px; margin: 6px 0;
 }
+@keyframes shimmer { to { background-position: -200% 0; } }
 
-/* 宽窄自适应：小屏不超边，仍然居中 */
-@media (max-width: 768px){
-  .modal{ padding: 20px 10px; }
-  .modal-content{
-    width: 96vw;
-    min-width: auto;
-    min-height: 340px;
-    max-height: calc(100vh - 80px);
-  }
+.state-info { font-size:12px; color:#6b7280; }
+.state-error {
+  background:#fef2f2; border:1px solid #fecaca; color:#b91c1c;
+  padding:8px 10px; border-radius:8px; margin:6px 0 2px;
 }
-
-/* 可选：按钮组间距（底部复制/关闭等） */
-.modal-footer .btn + .btn{ margin-left: 8px; }
-
 
 
 /* =======================================================================
