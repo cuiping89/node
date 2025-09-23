@@ -4776,7 +4776,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 /* =======================================================================
-   协议配置、表格、流量统计
+   协议配置、表格
    ======================================================================= */
 .data-table{ width:100%; border-collapse:collapse; }
 .data-table th{
@@ -4812,6 +4812,44 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 @media (max-width:768px){
   .modal-content{ width:95%; margin:10px auto; }
+}
+
+/* =======================================================================
+   流量统计
+   ======================================================================= */
+/* 假设容器为 .traffic-stats，子项为 .stat（保持你现有布局，不改 DOM） */
+.traffic-stats{
+  display:grid; grid-template-columns:repeat(3,1fr); gap:0;  /* 布局保持不变 */
+  align-items:stretch; background:transparent;
+  --hair:#e5e7eb;      /* 分隔线颜色（与你灰阶规范一致） */
+  --pad:16px;          /* 每块内边距 */
+}
+
+.traffic-stats .stat{
+  padding: var(--pad);
+  position: relative;  /* 用来放伪元素画线 */
+  min-height: 96px;    /* 视情况可去掉，只是让视觉更均衡 */
+}
+
+/* 竖向分隔线：仅给前两项画右侧细线（第3项不画） */
+.traffic-stats .stat:nth-child(-n+2)::after{
+  content:""; position:absolute; top:12%; bottom:12%; right:0;
+  width:1px; background:var(--hair);
+  pointer-events:none;  /* 避免遮挡交互 */
+}
+
+/* 移动端改为单列 + 横向分隔线 */
+@media (max-width: 768px){
+  .traffic-stats{ grid-template-columns:1fr; }
+  .traffic-stats .stat::after{ display:none; }
+  .traffic-stats .stat + .stat{
+    border-top:1px solid var(--hair);
+  }
+}
+
+/* 轻微悬停反馈（可选） */
+.traffic-stats .stat:hover{
+  background:rgba(17,24,39,0.015); /* 极轻微底色，保持克制 */
 }
 
 /* =========================
@@ -6306,7 +6344,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         </div>
         <div class="commands-grid">
           <div class="command-section">
-            <h4>🔧 基础操作</h4>
+            <h3>🔧 基础操作</h3>
             <div class="command-list">
               <code>edgeboxctl sub</code> <span># 动态生成当前模式下的订阅链接</span><br>
               <code>edgeboxctl logs &lt;svc&gt;</code> <span># 查看指定服务的实时日志</span><br>
@@ -6316,7 +6354,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
           </div>
 
           <div class="command-section">
-            <h4>🌐 证书管理</h4>
+            <h3>🌐 证书管理</h3>
             <div class="command-list">
               <code>edgeboxctl switch-to-domain &lt;your_domain&gt;</code> <span># 切换到域名模式，申请证书</span><br>
               <code>edgeboxctl switch-to-ip</code> <span># 回退到IP模式，使用自签名证书</span><br>
@@ -6326,7 +6364,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
           </div>
 
           <div class="command-section">
-            <h4>🔀 出站分流</h4>
+            <h3>🔀 出站分流</h3>
             <div class="command-list">
               <code>edgeboxctl shunt vps</code> <span># 切换至VPS全量出站</span><br>
               <code>edgeboxctl shunt resi &lt;URL&gt;</code> <span># 配置并切换至代理IP全量出站</span><br>
@@ -6342,7 +6380,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
           </div>
 
           <div class="command-section">
-            <h4>📊 流量统计与预警</h4>
+            <h3>📊 流量统计与预警</h3>
             <div class="command-list">
               <code>edgeboxctl traffic show</code> <span># 在终端中查看流量统计数据</span><br>
               <code>edgeboxctl traffic reset</code> <span># 重置流量计数器</span><br>
@@ -6357,15 +6395,15 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             </div>
           </div>
 
-          <div class="command-section">
-            <h4>⚙️ 配置管理</h4>
-            <div class="command-list">
+<div class="command-section">
+  <h3>🧩 配置管理</h3>
+  <div class="command-list">
               <code>edgeboxctl config show</code> <span># 显示所有服务的核心配置信息</span><br>
               <code>edgeboxctl config regenerate-uuid</code> <span># 为所有协议重新生成新的UUID</span><br>
               <code>edgeboxctl test</code> <span># 测试所有协议的连接是否正常</span><br>
               <code>edgeboxctl debug-ports</code> <span># 调试关键端口的监听状态</span>
-            </div>
-          </div>
+  </div>
+</div>
 
 <div id="whitelistModal" class="modal"><div class="modal-content"><div class="modal-header"><h3>白名单完整列表</h3><span class="close-btn" data-action="close-modal" data-modal="whitelistModal">×</span></div><div class="modal-body"><div id="whitelistList"></div></div></div></div>
 <div id="ipqModal" class="modal"><div class="modal-content"><div class="modal-header"><h3 id="ipqModalTitle">IP质量检测详情</h3><span class="close-btn" data-action="close-modal" data-modal="ipqModal">×</span></div><div class="modal-body"><div id="ipqDetails"></div></div></div></div>
