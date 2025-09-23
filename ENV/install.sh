@@ -4493,7 +4493,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 
   /* 高度联动（用于等高 & 垂直居中） */
   --tag-h: calc(var(--tag-pad-y)*2 + 20px);  /* 20px≈13px字高的可视行高 */
-  --block-min-h: 180px;    /* ← 与证书切换里那张卡“内容区”高度对齐可调 */
+  --block-min-h: 160px;    /* ← 与证书切换里那张卡“内容区”高度对齐可调 */
   --panel-min-h: calc(var(--block-min-h) + var(--tag-h) + var(--tag-gap) + 8px);
 
   display:block !important;
@@ -4578,6 +4578,14 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   text-overflow:ellipsis;
   color: var(--value);
   font-size: 13px;   /* 与证书切换一致 */
+}
+
+/* 在你现有 #netid-panel 样式后面追加这段“覆盖”即可 */
+#netid-panel{
+  --panel-top-gap: 10px;   /* ←想再远离横线就加大，比如 14/16 */
+}
+#netid-panel .network-blocks{
+  padding-top: var(--panel-top-gap);
 }
 
 /* 窄屏：纵向堆叠，去掉强制高度避免留白 */
