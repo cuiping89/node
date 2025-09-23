@@ -4620,6 +4620,34 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   padding-top: 0 !important;
 }
 */
+/* === 网络身份配置：标题右侧“注释”样式微调（颜色+对齐+右缩进） === */
+/* 让标题行里的元素对齐到“下沿”，更贴近标题的下边缘线 */
+#netid-panel .card-header h2{
+  display: flex;
+  align-items: flex-end;   /* 下沿对齐 */
+}
+
+/* 注释本体（你右侧那句“HY2/TUIC…”），默认类名 note-udp */
+#netid-panel .card-header .note-udp{
+  color: #9ca3af !important;  /* 浅灰：gray-400 */
+  font-weight: 400;
+  font-size: 12px;            /* 比标题小一点，更像“注释” */
+  line-height: 1;             /* 紧凑 */
+  margin-right: 1em;          /* 右边缩进“一个字”宽（1em） */
+
+  /* 轻微下沉，贴近标题底线（需要更贴就把 1px 改为 2px） */
+  transform: translateY(1px);
+}
+
+/* 如果你用的是 .card-note 而不是 .note-udp，用这一条覆盖即可 */
+#netid-panel .card-header .card-note{
+  color: #9ca3af !important;
+  font-weight: 400;
+  font-size: 12px;
+  line-height: 1;
+  margin-right: 1em;
+  transform: translateY(1px);
+}
 
 
 
