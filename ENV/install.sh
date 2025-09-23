@@ -5540,11 +5540,11 @@ function renderTrafficCharts() {
     });
     const daily = trafficData.last30d || [];
     if (daily.length) {
-        new Chart('traffic', { type: 'line', data: { labels: daily.map(d => d.date.slice(5)), datasets: [{ label: 'VPS', data: daily.map(d => d.vps / GiB), borderColor: '#f59e0b' }, { label: '代理', data: daily.map(d => d.resi / GiB), borderColor: '#f59e0b' }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }, plugins: [ebYAxisUnitTop] });
+        new Chart('traffic', { type: 'line', data: { labels: daily.map(d => d.date.slice(5)), datasets: [{ label: 'VPS', data: daily.map(d => d.vps / GiB), borderColor: '#f59e0b' }, { label: '代理', data: daily.map(d => d.resi / GiB), borderColor: '#10b981' }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }, plugins: [ebYAxisUnitTop] });
     }
     if (monthly.length) {
         const recentMonthly = monthly.slice(-12);
-        new Chart('monthly-chart', { type: 'bar', data: { labels: recentMonthly.map(m => m.month), datasets: [{ label: 'VPS', data: recentMonthly.map(m => m.vps / GiB), backgroundColor: '#f59e0b', stack: 'a' }, { label: '代理', data: recentMonthly.map(m => m.resi / GiB), backgroundColor: '#f59e0b', stack: 'a' }] }, options: { responsive: true, maintainAspectRatio: false, scales: { x: { stacked: true }, y: { stacked: true } } }, plugins: [ebYAxisUnitTop] });
+        new Chart('monthly-chart', { type: 'bar', data: { labels: recentMonthly.map(m => m.month), datasets: [{ label: 'VPS', data: recentMonthly.map(m => m.vps / GiB), backgroundColor: '#f59e0b', stack: 'a' }, { label: '代理', data: recentMonthly.map(m => m.resi / GiB), backgroundColor: '#10b981', stack: 'a' }] }, options: { responsive: true, maintainAspectRatio: false, scales: { x: { stacked: true }, y: { stacked: true } } }, plugins: [ebYAxisUnitTop] });
     }
 }
 
