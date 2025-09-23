@@ -4342,7 +4342,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
    系统概览（仅 #system-overview）
    ======================================================================= */
 #system-overview{
-  --label-w:50px;           /* 左侧键名列宽 */
+  --label-w:72px;           /* 左侧键名列宽 */
   --percent-col:33px;       /* 右侧百分比列宽 */
   --meter-height:20px;      /* 进度条高度 */
   --svc-gap:12px;            /* 服务名/徽标/版本 间距 */
@@ -4498,6 +4498,19 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   display:inline-block;
 }
 .command-list span{ color:#6b7280; margin-left:8px; }
+
+/* 运维管理：行距 & 命令与注释的间距 */
+#ops-panel .command-list,
+.commands-grid .command-list {
+  line-height: 1.6;    /* ← 行与行的垂直距离，1.6~1.9 自行调 */
+}
+
+#ops-panel .command-list code,
+.commands-grid .command-list code {
+  margin-right: 12px;    /* ← 命令小胶囊 与 注释 的水平间距 */
+  /* 可选：如果需要让 margin-bottom 生效，再打开下一行 */
+  /* display: inline-block; */
+}
 
 /* =======================================================================
    协议配置、表格、按钮、弹窗、流量统计（保持原样）
