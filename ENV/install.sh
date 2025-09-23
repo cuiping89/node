@@ -6169,8 +6169,8 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
     <div class="card-header"><h2>🔒 证书切换</h2></div>
 
     <div class="cert-modes">
-      <div class="cert-mode-tab" id="cert-self">自签证书</div>
-      <div class="cert-mode-tab" id="cert-ca">CA证书</div>
+      <div class="cert-mode-tab" id="cert-self"><h3>自签证书</h3></div>
+      <div class="cert-mode-tab" id="cert-ca"><h3>CA证书</h3></div>
     </div>
 
     <div class="inner-block">
@@ -6269,7 +6269,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
       <div class="card">
         <div class="card-header"><h2>📡 协议配置</h2></div>
         <table class="data-table">
-          <thead><tr><th>协议名称</th><th>使用场景</th><th>伪装效果</th><th>运行状态</th><th>客户端配置</th></tr></thead>
+          <thead><tr><th><h3>协议名称</h3></th><th><h3>使用场景</h3></th><th><h3>伪装效果</h3></th><th><h3>运行状态</h3></th><th><h3>客户端配置</h3></th></tr></thead>
           <tbody id="protocol-tbody"></tbody>
         </table>
       </div>
@@ -6281,18 +6281,18 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         <div class="traffic-charts">
           <div class="chart-column">
             <div class="traffic-progress-container">
-              <span class="progress-label">本月进度</span>
+              <span class="progress-label"><h3>本月进度</h3></span>
               <div class="progress-wrapper"><div class="progress-bar"><div class="progress-fill" id="progress-fill" style="width:0%"><span class="progress-percentage" id="progress-percentage">0%</span></div></div></div>
               <span class="progress-budget" id="progress-budget">0/100GiB</span>
             </div>
             <div class="chart-container">
-              <h4 style="text-align:center; margin: 10px 0 5px 0; font-size: 13px; color: #6b7280;">近30日流量走势</h4>
+              <h3 style="text-align:center; margin: 10px 0 5px 0; font-size: 13px; color: #6b7280;">近30日流量走势</h3>
               <canvas id="traffic"></canvas>
             </div>
           </div>
           <div class="chart-column">
             <div class="chart-container" style="height: 100%;">
-              <h4 style="text-align:center; margin: 10px 0 5px 0; font-size: 13px; color: #6b7280;">近12月出站流量</h4>
+              <h3 style="text-align:center; margin: 10px 0 5px 0; font-size: 13px; color: #6b7280;">近12月出站流量</h3>
               <canvas id="monthly-chart"></canvas>
             </div>
           </div>
