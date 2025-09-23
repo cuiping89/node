@@ -4406,7 +4406,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 
 /* 服务器信息：中文键名较长，单独设宽，并禁止换行 */
 #system-overview .server-info { 
-  --label-w: 96px;                 /* 这里按需改 */
+  --label-w: 88px;                 /* 这里按需改 */
 }
 #system-overview .server-info .label { 
   white-space: nowrap;             /* 防止被压行 */
@@ -4423,8 +4423,8 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 
 /* 核心服务：单独控制服务名那一列宽度与间距 */
 #system-overview .core-services {
-  --label-w: 72px;                 /* 这块自己设，不受上面的影响 */
-  --svc-gap: 33px;
+  --label-w: 70px;                 /* 这块自己设，不受上面的影响 */
+  --svc-gap: 50px;
 }
 #system-overview .core-services .label { 
   white-space: nowrap; 
@@ -4521,15 +4521,16 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   gap:6px;
 }
 
-.command-list{ font-size:.8rem; line-height:1.6; }
+.command-list{ font-size:.8rem; line-height:1.5; }
 /* 深灰代码块（命令） */
 .command-list code{
   background: #e2e8f0;          /* 改成你想要的灰，例如 newb 用的 #e2e8f0 */
   color: #1f2937;
-  padding:3px 8px;
+  padding:1px 6px;
   border-radius:4px;
   font-family:monospace;
   font-size:.78rem;
+  line-height:1.05;
   display:inline-block;
 }
 .command-list span{ color:#6b7280; margin-left:8px; }
@@ -4542,7 +4543,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 
 #ops-panel .command-list code,
 .commands-grid .command-list code {
-  margin-right: 12px;    /* ← 命令小胶囊 与 注释 的水平间距 */
+  margin-right: 10px;    /* ← 命令小胶囊 与 注释 的水平间距 */
   /* 可选：如果需要让 margin-bottom 生效，再打开下一行 */
   /* display: inline-block; */
 }
@@ -4551,7 +4552,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 .commands-grid .command-list code {
   display: inline-block;
   margin-right: 8px;
-  margin-bottom: 2px;   /* 轻微增加行间距 */
+  margin-bottom: 3px;   /* 轻微增加行间距 */
 }
 
 /* =======================================================================
