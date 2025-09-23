@@ -4814,6 +4814,224 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   .modal-content{ width:95%; margin:10px auto; }
 }
 
+
+/* =======================================================================
+   流量统计
+   ======================================================================= */
+.traffic-card {
+  background: #fff;
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  box-shadow: 0 2px 6px rgba(0,0,0,.08);
+  padding: 0;
+  overflow: hidden;
+}
+
+.traffic-card .card-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid #e5e7eb;
+  background: #fff;
+}
+
+/* 流量图表容器：三栏布局 */
+.traffic-charts {
+  display: grid;
+  grid-template-columns: 1fr 1px 1.2fr 1px 1fr;  /* 添加分隔线列 */
+  gap: 0;
+  padding: 20px 15px;
+  align-items: stretch;
+  min-height: 320px;
+}
+
+/* 分隔线样式 */
+.traffic-divider {
+  width: 1px;
+  background: #e5e7eb;
+  margin: 0 15px;
+  align-self: stretch;
+}
+
+/* 各个图表区块 */
+.chart-column {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 10px;
+  height: 100%;
+}
+
+/* 第一列：本月进度 */
+.chart-column:nth-child(1) {
+  justify-content: center;  /* 垂直居中 */
+}
+
+/* 本月进度条容器 */
+.traffic-progress-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 10px 0;
+}
+
+.progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+}
+
+.progress-label {
+  color: #4b5563;
+  font-weight: 500;
+}
+
+.progress-budget {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+/* 进度条 */
+.progress-wrapper {
+  width: 100%;
+}
+
+.progress-bar {
+  height: 24px;
+  background: #f3f4f6;
+  border-radius: 12px;
+  overflow: hidden;
+  position: relative;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #10b981 0%, #059669 100%);
+  transition: width .3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 8px;
+}
+
+.progress-fill.warning {
+  background: linear-gradient(90deg, #f59e0b 0%, #d97706 100%);
+}
+
+.progress-fill.critical {
+  background: linear-gradient(90deg, #ef4444 0%, #dc2626 100%);
+}
+
+.progress-percentage {
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* 图表容器基础样式 */
+.chart-container {
+  flex: 1;
+  position: relative;
+  min-height: 200px;
+  max-height: 280px;
+  display: flex;
+  flex-direction: column;
+  padding: 5px;
+}
+
+/* 图表标题 */
+.chart-container h4 {
+  text-align: center;
+  margin: 0 0 10px 0;
+  font-size: 13px;
+  color: #4b5563;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+/* Canvas 容器 */
+.chart-container canvas {
+  flex: 1;
+  max-width: 100%;
+  max-height: 100%;
+}
+
+/* 图例样式 - 放在图表下方 */
+.chart-legend {
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #f3f4f6;
+  font-size: 12px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend-color {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+}
+
+.legend-color.vps {
+  background: #f59e0b;  /* 橙色 */
+}
+
+.legend-color.proxy {
+  background: #10b981;  /* 绿色 */
+}
+
+.legend-label {
+  color: #4b5563;
+}
+
+/* 响应式布局 */
+@media (max-width: 1200px) {
+  .traffic-charts {
+    grid-template-columns: 1fr;  /* 单列 */
+    gap: 20px;
+    padding: 20px;
+  }
+  
+  .traffic-divider {
+    display: none;
+  }
+  
+  .chart-column {
+    padding: 20px 0;
+    border-bottom: 1px solid #e5e7eb;
+  }
+  
+  .chart-column:last-child {
+    border-bottom: none;
+  }
+  
+  .chart-column:nth-child(1) {
+    justify-content: flex-start;  /* 恢复顶部对齐 */
+  }
+}
+
+@media (max-width: 768px) {
+  .traffic-charts {
+    padding: 15px;
+  }
+  
+  .chart-container {
+    min-height: 180px;
+  }
+}
+
+/* Chart.js 覆盖样式 - 确保图例在底部 */
+.traffic-card .chartjs-legend {
+  margin-top: 10px !important;
+}
+
+
 /* =========================
    弹窗 Modal 统一样式补丁
    ========================= */
@@ -5540,7 +5758,7 @@ function renderTrafficCharts() {
     });
     const daily = trafficData.last30d || [];
     if (daily.length) {
-        new Chart('traffic', { type: 'line', data: { labels: daily.map(d => d.date.slice(5)), datasets: [{ label: 'VPS', data: daily.map(d => d.vps / GiB), borderColor: '#3b82f6' }, { label: '代理', data: daily.map(d => d.resi / GiB), borderColor: '#f59e0b' }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }, plugins: [ebYAxisUnitTop] });
+        new Chart('traffic', { type: 'line', data: { labels: daily.map(d => d.date.slice(5)), datasets: [{ label: 'VPS', data: daily.map(d => d.vps / GiB), borderColor: '#f59e0b' }, { label: '代理', data: daily.map(d => d.resi / GiB), borderColor: '#10b981' }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }, plugins: [ebYAxisUnitTop] });
     }
     if (monthly.length) {
         const recentMonthly = monthly.slice(-12);
@@ -6274,30 +6492,46 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         </table>
       </div>
 
-<div class="card traffic-card">
-        <div class="card-header">
-            <h2>📊 流量统计</h2>
-        </div>
-        <div class="traffic-charts">
-          <div class="chart-column">
-            <div class="traffic-progress-container">
-              <span class="progress-label">本月进度</span>
-              <div class="progress-wrapper"><div class="progress-bar"><div class="progress-fill" id="progress-fill" style="width:0%"><span class="progress-percentage" id="progress-percentage">0%</span></div></div></div>
-              <span class="progress-budget" id="progress-budget">0/100GiB</span>
-            </div>
-            <div class="chart-container">
-              <h4 style="text-align:center; margin: 10px 0 5px 0; font-size: 13px; color: #6b7280;">近30日流量走势</h4>
-              <canvas id="traffic"></canvas>
-            </div>
-          </div>
-          <div class="chart-column">
-            <div class="chart-container" style="height: 100%;">
-              <h4 style="text-align:center; margin: 10px 0 5px 0; font-size: 13px; color: #6b7280;">近12月出站流量</h4>
-              <canvas id="monthly-chart"></canvas>
-            </div>
+<div class="traffic-charts">
+  <!-- 本月进度 -->
+  <div class="chart-column">
+    <div class="traffic-progress-container">
+      <div class="progress-header">
+        <span class="progress-label">本月进度</span>
+        <span class="progress-budget" id="progress-budget">30.2/100GiB</span>
+      </div>
+      <div class="progress-wrapper">
+        <div class="progress-bar">
+          <div class="progress-fill" id="progress-fill" style="width:30%">
+            <span class="progress-percentage" id="progress-percentage">30%</span>
           </div>
         </div>
       </div>
+    </div>
+  </div>
+  
+  <!-- 分隔线 -->
+  <div class="traffic-divider"></div>
+  
+  <!-- 近30日流量走势 -->
+  <div class="chart-column">
+    <div class="chart-container">
+      <h4>近30日流量走势</h4>
+      <canvas id="traffic"></canvas>
+    </div>
+  </div>
+  
+  <!-- 分隔线 -->
+  <div class="traffic-divider"></div>
+  
+  <!-- 近12月出站流量 -->
+  <div class="chart-column">
+    <div class="chart-container">
+      <h4>近12月出站流量</h4>
+      <canvas id="monthly-chart"></canvas>
+    </div>
+  </div>
+</div>
   
       <!-- 运维管理（来自new5.txt）-->
       <div class="card">
