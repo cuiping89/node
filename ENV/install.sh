@@ -4272,6 +4272,7 @@ chmod +x "${SCRIPTS_DIR}/traffic-alert.sh"
    ======================================================================= */
 
 /* ========== Reset / 基础皮肤 ========== */
+
 * { margin:0; padding:0; box-sizing:border-box; }
 
 body{
@@ -4290,7 +4291,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 .text-muted{ color:#6b7280; }
 .text-secondary{ color:#4b5563; }
 
-/* ========== 卡片/区块 ========== */
+/* ================ 卡片/区块 ================ */
 .main-card{
   background:#fff; border:1px solid #d1d5db; border-radius:10px;
   box-shadow:0 2px 6px rgba(0,0,0,.08); overflow:hidden;
@@ -4309,7 +4310,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 .card-header h2{ display:flex; justify-content:space-between; align-items:center; }
 .card-note{ font-size:11px; color:#6b7280; font-weight:400; }
 
-/* 内层 */
+/* =========内层 =========*/
 .inner-block{
   background:#f5f5f5; border:1px solid #e5e7eb; border-radius:6px; padding:15px; margin-bottom:15px;
 }
@@ -4318,17 +4319,17 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   margin-bottom:12px; padding-bottom:8px; border-bottom:1px solid #e5e7eb;
 }
 
-/* 网格 */
+/*========= 网格 =========*/
 .grid{ display:grid; gap:20px; }
 .grid-3{ grid-template-columns:repeat(3,1fr); }
 .grid-1-2{ grid-template-columns:1fr 2fr; }
 
-/* ========== 全局行（简单版，组件内会覆写） ========== */
+/* ============= 全局行（简单版，组件内会覆写） ============= */
 .info-item{ display:flex; justify-content:space-between; padding:6px 0; }
 .info-item label{ color:#6b7280; }
 .info-item value{ color:#1f2937; font-weight:500; }
 
-/* ========== 全局运行状态徽标（协议配置/系统概览通用） ========== */
+/* ========= 全局运行状态徽标（协议配置/系统概览通用） ========= */
 .status-badge{
   display:inline-flex; align-items:center;
   height:20px; line-height:20px; padding:0 10px;
@@ -4338,8 +4339,9 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 .status-running{ background:#d1fae5; color:#059669; border-color:#a7f3d0; }
 .status-stopped{ background:#fee2e2; color:#ef4444; border-color:#fecaca; }
 
+
 /* =======================================================================
-   系统概览（仅 #system-overview）
+   系统概览
    ======================================================================= */
 #system-overview{
   --label-w:72px;           /* 左侧键名列宽 */
@@ -4438,34 +4440,89 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 /* =======================================================================
-   证书切换（仅 #cert-panel）——标题条分离 + 键名列/值列
+   证书切换
    ======================================================================= */
-#cert-panel{ --label-w:80px; --row-gap:10px; --h3-gap:8px; --label:#4b5563; --value:#111827; }
-#cert-panel .inner-block{ display:block; }
-#cert-panel .inner-block>h3{ margin:0 0 var(--h3-gap); }
+#cert-panel{
+  /* 与 NetID 标签一致的参数 */
+  --tag-pad-y: 10px;        /* ← 改它=改标签高度 */
+  --tag-pad-x: 16px;
+  --tag-radius: 8px;
+  --tag-font: 13px;
+  --tag-gap: 6px;
 
-/* 顶部模式切换标签（无交互，仅样式） */
-#cert-panel .cert-modes{ display:flex; gap:5px; margin-bottom:6px; }
+  --label-w: 80px;          /* 行布局与原来保持一致 */
+  --row-gap: 10px;
+  --h3-gap: 8px;
+
+  /* 颜色 */
+  --label: #4b5563;
+  --value: #111827;
+  --tag-active-bg: #10b981;     /* 激活：绿色 */
+  --tag-inactive-bg: #e2e8f0;   /* 非当前：灰底 */
+  --tag-active-color: #ffffff;
+  --tag-inactive-color: #64748b;
+  --card-br: #e5e7eb;
+}
+
+/* 顶部模式标签（两枚） */
+#cert-panel .cert-modes{
+  display:flex;
+  gap:5px;
+  margin-bottom: var(--tag-gap);  /* 与下方内容的间距 */
+}
 #cert-panel .cert-mode-tab{
-  flex:1; padding:10px; background:#f5f5f5; border:1px solid #e5e7eb; color:#6b7280;
-  text-align:center; border-radius:8px; cursor:default;
+  flex:1;
+  padding: var(--tag-pad-y) var(--tag-pad-x);
+  border: 1px solid var(--card-br);
+  border-radius: var(--tag-radius);
+  background: var(--tag-inactive-bg);       /* 非当前：#e2e8f0 */
+  color: var(--tag-inactive-color);
+  font-size: var(--tag-font);
+  font-weight: 600;
+  text-align:center;
+  cursor: default;
 }
-#cert-panel .cert-mode-tab.active{ background:#10b981; color:#fff; border-color:#10b981; }
+#cert-panel .cert-mode-tab.active{
+  background: var(--tag-active-bg);
+  color: var(--tag-active-color);
+  border-color: var(--tag-active-bg);
+}
 
-/* 明细行：键名 | 值 */
-#cert-panel .cert__row,
+/* 内容卡片：白底 + 边框 + 阴影（去掉灰底） */
+#cert-panel .inner-block{
+  display:block;
+  background:#fff;                         /* ← 替换掉原来的灰底 */
+  border:1px solid var(--card-br);
+  border-radius:10px;
+  padding:15px;
+  box-shadow:0 2px 6px rgba(0,0,0,.08);    /* 阴影 */
+}
+#cert-panel .inner-block>h3{
+  margin:0 0 var(--h3-gap);
+}
+
+/* 明细行：键名 | 值（保持原有行节奏） */
 #cert-panel .inner-block .info-item{
-  display:grid; grid-template-columns:var(--label-w) 1fr; gap:var(--row-gap); align-items:center; padding:6px 0;
+  display:grid;
+  grid-template-columns: var(--label-w) 1fr;
+  gap: var(--row-gap);
+  align-items:center;
+  padding:6px 0;
 }
-#cert-panel .cert__label,
-#cert-panel .inner-block .info-item label{ color:var(--label); justify-self:start; }
-#cert-panel .cert__value,
-#cert-panel .inner-block .info-item value{ min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--value); }
-
+#cert-panel .inner-block .info-item label{
+  color: var(--label);
+  justify-self:start;
+}
+#cert-panel .inner-block .info-item value{
+  min-width:0;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  color: var(--value);
+}
 
 /* =======================================================================
-   网络身份配置（仅 #netid-panel）
-   —— 标签=与卡片同宽；与证书切换同节奏；三块等高&整组垂直居中；卡片加阴影
+   网络身份配置
    ======================================================================= */
 #netid-panel{
   /* 行样式（与 #cert-panel 保持一致） */
@@ -4611,7 +4668,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 
 
 /* =======================================================================
-   运维管理（无 id 版本）——灰卡分组 + 深灰代码块
+   运维管理
    ======================================================================= */
 .commands-grid{
   display:grid;
@@ -4673,7 +4730,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 /* =======================================================================
-   协议配置、表格、按钮、弹窗、流量统计（保持原样）
+   协议配置、表格、流量统计
    ======================================================================= */
 .data-table{ width:100%; border-collapse:collapse; }
 .data-table th{
@@ -4702,23 +4759,189 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 .progress-percentage{ color:#fff; font-size:11px; font-weight:600; }
 .progress-budget{ color:#6b7280; font-size:12px; white-space:nowrap; }
 
-/* 按钮/弹窗（保留） */
-.btn{ padding:8px 16px; border-radius:6px; font-size:12px; cursor:pointer; border:1px solid transparent; transition:all .2s; background:#10b981; color:#fff; }
-.btn:hover{ background:#0ea37a; }
-.btn-sm{ padding:5px 10px; font-size:11px; }
-.btn-secondary{ background:#fff; color:#1f2937; border-color:#d1d5db; }
-.btn-secondary:hover{ background:#f3f4f6; }
+/* 响应式（卡片网格/流量图保持不变） */
+@media (max-width:1024px){
+  .grid-3,.grid-1-2{ grid-template-columns:1fr; }
+  .traffic-charts{ grid-template-columns:1fr; }
+}
+@media (max-width:768px){
+  .modal-content{ width:95%; margin:10px auto; }
+}
 
-.modal{ display:none; position:fixed; z-index:1000; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,.5); }
-.modal-content{ background:#fff; margin:5% auto; padding:0; border:1px solid #d1d5db; border-radius:12px; width:720px; max-width:92%; box-shadow:0 12px 24px rgba(0,0,0,.14); }
-.modal-header{ padding:20px; border-bottom:1px solid #e5e7eb; display:flex; justify-content:space-between; align-items:center; }
-.modal-header h3{ margin:0; border:none; padding:0; }
-.close-btn{ font-size:16px; color:#64748b; cursor:pointer; width:28px; height:28px; line-height:28px; display:inline-flex; align-items:center; justify-content:center; border-radius:6px; border:1px solid #e5e7eb; background:#fff; transition:all .2s; }
+/* =========================
+   弹窗 Modal
+   ========================= */
+
+/* 打开时给 .modal 加 open（或 show），这段只负责视觉，不约束 JS 名称 */
+.modal{
+  display:none;
+  position:fixed;
+  z-index:1000;
+  inset:0;                           /* left/top/right/bottom:0 */
+  background:rgba(0,0,0,.5);
+}
+.modal.open, .modal.show{ display:block; }
+
+/* 绝对居中 + 固定最小尺寸，不随内容“变高变宽” */
+.modal-content{
+  position:absolute;
+  left:50%;
+  top:50%;
+  transform:translate(-50%, -50%);
+
+  /* 统一尺寸变量：默认 md */
+  --modal-w: 720px;
+  --modal-h: 420px;
+
+  width: var(--modal-w);
+  max-width: 92vw;
+  min-height: var(--modal-h);        /* 关键：一开始就是“方框” */
+  max-height: 82vh;                  /* 顶部留一点，避免贴边 */
+  overflow: hidden;                  /* 滚动交给 body */
+  display:flex;
+  flex-direction:column;
+
+  background:#fff;
+  border:1px solid #d1d5db;
+  border-radius:12px;
+  box-shadow:0 12px 24px rgba(0,0,0,.14);
+
+  /* 仅淡入，不做尺寸动画，避免“拉伸感” */
+  opacity:1;
+}
+
+/* 三种尺寸档：需要时在外层加 .modal--sm/.modal--md/.modal--lg */
+.modal--sm .modal-content{ --modal-w:520px; --modal-h:360px; }
+.modal--md .modal-content{ --modal-w:720px; --modal-h:420px; }
+.modal--lg .modal-content{ --modal-w:920px; --modal-h:520px; }
+
+/* 头、身、脚：保持固定高度的顶部与底部，内容区滚动 */
+.modal-header{
+  padding:16px 20px;
+  border-bottom:1px solid #e5e7eb;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+}
+.modal-header h3{ margin:0; font-size:16px; font-weight:600; }
+.close-btn{
+  font-size:16px; color:#64748b; cursor:pointer;
+  width:28px; height:28px;
+  display:inline-flex; align-items:center; justify-content:center;
+  border-radius:6px; border:1px solid #e5e7eb; background:#fff;
+  transition:all .2s;
+}
 .close-btn:hover{ background:#f8fafc; color:#0f172a; }
-.modal-body{ padding:20px; max-height:560px; overflow:auto; }
-.modal-footer{ padding:15px 20px; border-top:1px solid #e5e7eb; text-align:right; }
 
-/* 详情 / 查看全部：白底蓝字，hover 浅灰，active 灰底 */
+/* 内容区滚动，不影响外层尺寸 */
+.modal-body{
+  padding:16px 20px;
+  overflow:auto;
+  flex:1 1 auto;                     /* 占据剩余高度 */
+}
+
+/* 底部按钮区固定 */
+.modal-footer{
+  padding:12px 20px;
+  border-top:1px solid #e5e7eb;
+  text-align:right;
+}
+
+/* ==========语义分区与文本样式================ */
+
+/* 横线分割的内容分区 */
+.modal-section + .modal-section{
+  border-top:1px solid #e5e7eb;
+  margin-top:12px; padding-top:12px;
+}
+
+/* 二级小标题 */
+.modal-subtitle{
+  font-size:13px; font-weight:600; color:#374151;
+  margin-bottom:8px;
+}
+
+/* 键值对列表（总览/身份信息等） */
+.kv-list{ --label-w:120px; }
+.kv-list .kv-row{
+  display:grid; grid-template-columns: var(--label-w) 1fr;
+  gap:10px; align-items:center; padding:6px 0;
+}
+.kv-list .kv-label{ color:#6b7280; }
+.kv-list .kv-value{
+  color:#111827; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+
+/* 代码/明文块：白底 + 阴影（不再灰底） */
+.code-box{
+  background:#fff;
+  border:1px solid #e5e7eb;
+  border-radius:8px;
+  box-shadow:0 2px 6px rgba(0,0,0,.08);
+  padding:12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size:12px;
+  line-height:1.6;
+  white-space:pre-wrap;
+  word-break:break-all;
+}
+
+/* 统一“查看配置 / 查看并复制”等大文本输入区域 */
+.textarea-plain,
+.modal textarea.input-plain{
+  width:100%;
+  min-height:160px;
+  background:#fff;                    /* 白底 */
+  border:1px solid #e5e7eb;
+  border-radius:8px;
+  box-shadow:0 2px 6px rgba(0,0,0,.08);/* 轻阴影 */
+  padding:10px 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size:12px; line-height:1.6;
+  resize: vertical;
+}
+
+/* 单行明文输入 */
+.input-plain,
+.modal input.input-plain[type="text"]{
+  width:100%;
+  height:36px;
+  background:#fff;
+  border:1px solid #e5e7eb;
+  border-radius:8px;
+  box-shadow:0 2px 6px rgba(0,0,0,.08);
+  padding:0 10px;
+  font-size:13px;
+}
+
+/* 只读模式的视觉（可选） */
+.readonly{
+  background:#fff !important;
+  color:#374151 !important;
+}
+
+/* 按钮保留你原样式，这里仅补充“链接按钮”样式（如果要在弹窗里用） */
+.btn-link{
+  display:inline-block;
+  height:28px; line-height:26px;
+  padding:0 12px;
+  border:1px solid #d1d5db;
+  border-radius:6px;
+  background:#fff;
+  font-size:12px;
+  color:#2563eb;
+  cursor:pointer;
+  text-decoration:none;
+  transition:all .2s;
+}
+.btn-link:hover{ background:#f3f4f6; border-color:#9ca3af; color:#1d4ed8; }
+
+/* “详情/查看全部/查看配置/复制”都可复用 .btn-link 或 .btn-secondary */
+
+
+/* =======================================================================
+ 按钮（详情、查看全部、查看配置、查看订阅）：白底蓝字，hover 浅灰，active 灰底 
+ ======================================================================= */
 .btn-detail,
 .btn-viewall,
 .btn-link,
@@ -4787,16 +5010,6 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   opacity: .5;
   pointer-events: none;
 }
-
-/* 响应式（卡片网格/流量图保持不变） */
-@media (max-width:1024px){
-  .grid-3,.grid-1-2{ grid-template-columns:1fr; }
-  .traffic-charts{ grid-template-columns:1fr; }
-}
-@media (max-width:768px){
-  .modal-content{ width:95%; margin:10px auto; }
-}
-
 
 
 EXTERNAL_CSS
