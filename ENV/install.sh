@@ -4347,19 +4347,48 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   --label-w:72px;           /* 左侧键名列宽 */
   --percent-col:33px;       /* 右侧百分比列宽 */
   --meter-height:20px;      /* 进度条高度 */
-  --svc-gap:12px;            /* 服务名/徽标/版本 间距 */
+  --svc-gap:12px;           /* 服务名/徽标/版本 间距 */
   --h3-gap:8px;
   --meter-track:#d1d5db; --meter-start:#059669; --meter-end:#10b981;
   --label:#4b5563; --value:#111827; --muted:#6b7280;
 }
 
+/* ========== 关键修改：强制网格等高 ========== */
+#system-overview .grid-3 {
+  display: grid !important;
+  grid-template-columns: repeat(3, 1fr) !important;
+  gap: 20px !important;
+  align-items: start !important;  /* 顶部对齐，不拉伸 */
+}
+
+/* ========== 关键修改：限制核心服务区块的最大高度 ========== */
+#system-overview .inner-block {
+  display: block;
+  overflow: hidden;  /* 防止内容溢出 */
+}
+
+/* 设置统一的内容区高度（不含标题） */
+#system-overview .server-info,
+#system-overview #server-config,
+#system-overview .core-services {
+  max-height: 120px;  /* 限制内容区最大高度 */
+  overflow: hidden;   /* 超出部分隐藏 */
+}
+
 /* 标题紧跟 */
-#system-overview .inner-block{ display:block; }
-#system-overview .inner-block>h3{ display:flex; align-items:center; white-space:nowrap; margin:0 0 var(--h3-gap); }
+#system-overview .inner-block>h3{ 
+  display:flex; 
+  align-items:center; 
+  white-space:nowrap; 
+  margin:0 0 var(--h3-gap);
+  height: 24px;  /* 固定标题高度 */
+  line-height: 24px;
+}
 
 /* 服务器信息：两列 */
 #system-overview .server-info .info-item{
-  display:grid; grid-template-columns:var(--label-w) 1fr; gap:8px; align-items:center; padding:6px 0;
+  display:grid; grid-template-columns:var(--label-w) 1fr; gap:8px; align-items:center; 
+  padding:5px 0;  /* 统一padding */
 }
 #system-overview .server-info .label{ color:var(--label); justify-self:start; }
 #system-overview .server-info .value{ min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--value); }
@@ -4367,7 +4396,8 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 /* 服务器配置：键名 | 进度条 | 百分比 */
 #system-overview .progress-row{
   display:grid; grid-template-columns:var(--label-w) minmax(0,1fr) var(--percent-col);
-  column-gap:4px; align-items:center; padding:6px 0;
+  column-gap:4px; align-items:center; 
+  padding:5px 0;  /* 统一padding */
 }
 #system-overview .progress-label{ color:var(--label); justify-self:start; }
 #system-overview .progress-bar{
@@ -4387,21 +4417,25 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   font-variant-numeric:tabular-nums;
 }
 
-/* 核心服务：名称 | 徽标 | 版本号 */
-/* ========== 修改：压缩服务项间距以匹配其他区块高度 ========== */
+/* 核心服务：名称 | 徽标 | 版本号 - 压缩间距 */
 #system-overview .core-services .service-item{
   display:grid; grid-template-columns:var(--label-w) max-content 1fr;
   column-gap:var(--svc-gap); align-items:center; 
-  padding:4px 0;  /* 从 6px 改为 4px，压缩垂直间距 */
+  padding:3px 0 !important;  /* 更小的padding，用!important确保生效 */
+  min-height: auto !important;  /* 取消任何最小高度限制 */
 }
-#system-overview .core-services .service-item:first-child {
-  padding-top: 6px;  /* 第一项保持原有上边距 */
+
+/* 特别处理服务状态徽章，减小其占用空间 */
+#system-overview .core-services .status-badge {
+  padding: 2px 6px !important;  /* 减小徽章内边距 */
+  font-size: 11px !important;
+  line-height: 1.2 !important;
 }
-#system-overview .core-services .service-item:last-child {
-  padding-bottom: 6px;  /* 最后一项保持原有下边距 */
-}
+
 #system-overview .core-services .version{
-  justify-self:start; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--muted); font-size:12px;
+  justify-self:start; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--muted); 
+  font-size:11px;  /* 稍微缩小版本号字体 */
+  line-height: 1.2;
 }
 
 /* 窄屏收窄 */
@@ -4444,6 +4478,18 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   #system-overview .server-info   { --label-w: 84px; }
   #system-overview .progress-row  { --label-w: 60px; --percent-col: 34px; }
   #system-overview .core-services { --label-w: 68px; }
+  
+  /* 移动端改为单列 */
+  #system-overview .grid-3 {
+    grid-template-columns: 1fr !important;
+  }
+  
+  /* 移动端取消高度限制 */
+  #system-overview .server-info,
+  #system-overview #server-config,
+  #system-overview .core-services {
+    max-height: none;
+  }
 }
 
 
