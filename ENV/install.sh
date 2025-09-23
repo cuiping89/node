@@ -4469,14 +4469,14 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
    ======================================================================= */
 #netid-panel{
   /* 文本与行布局 */
-  --label-w: 72px;
+  --label-w: 50px;
   --row-gap: 8px;
   --line-vpad: 6px;
 
   /* 标签（与“证书切换”一致的高度/圆角） */
   --tag-pad-y: 10px;        /* ← 改它=改标签高度 */
-  --tag-pad-x: 12px;
-  --tag-gap: 8px;           /* 标签与卡片的垂直间距 */
+  --tag-pad-x: 28px;
+  --tag-gap: 5px;           /* 标签与卡片的垂直间距 */
   --tag-radius: 8px;
 
   /* 颜色 */
@@ -4490,7 +4490,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   --card-br: #e5e7eb;
 
   /* 新增：让“三块”在标题下区域整体垂直居中的基准高度 */
-  --panel-min-h: 210px;     /* 想再“更靠中”就调大，比如 230/240 */
+  --panel-min-h: 205px;     /* 想再“更靠中”就调大，比如 230/240 */
 
   /* 防止外部给 #netid-panel 设 flex 影响布局 */
   display: block !important;
