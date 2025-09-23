@@ -4268,421 +4268,279 @@ chmod +x "${SCRIPTS_DIR}/traffic-alert.sh"
   log_info "创建外置CSS文件..."
   cat > "${TRAFFIC_DIR}/assets/edgebox-panel.css" <<'EXTERNAL_CSS'
 /* =======================================================================
-   EdgeBox Panel CSS（整版）
-   说明：
-   1) 保留你现有的基础样式、卡片、表格、流量统计、运维管理等。
-   2) 系统概览已是组件化；本版把「证书切换(#cert-panel)」「网络身份配置(#netid-panel)」
-      也改成与系统概览一致的“左固定键名 + 右自适应值（单行省略）”行布局。
+   EdgeBox 控制面板 · 组件化 +（ops-panel 使用 newb 的样式）
    ======================================================================= */
 
-/* === Reset === */
-* { margin: 0; padding: 0; box-sizing: border-box; }
+/* ========== Reset / 基础皮肤 ========== */
+* { margin:0; padding:0; box-sizing:border-box; }
 
-body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  background: #f3f4f6;
-  min-height: 100vh;
-  padding: 20px;
-  color: #1f2937;
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  background:#f3f4f6; min-height:100vh; padding:20px; color:#1f2937;
 }
 
-.container { max-width: 1400px; margin: 0 auto; }
+.container{ max-width:1400px; margin:0 auto; }
 
-/* === 字体系统 === */
-h1 { font-size: 23px; font-weight: 700; color: #1f2937; line-height: 32px; }
-h2 { font-size: 18px; font-weight: 600; color: #1f2937; line-height: 26px; }
-h3 { font-size: 15px; font-weight: 600; color: #1f2937; line-height: 22px; }
-h4 { font-size: 14px; font-weight: 500; color: #1f2937; line-height: 20px; }
+h1{ font-size:23px; font-weight:700; color:#1f2937; line-height:32px; }
+h2{ font-size:18px; font-weight:600; color:#1f2937; line-height:26px; }
+h3{ font-size:15px; font-weight:600; color:#1f2937; line-height:22px; }
+h4{ font-size:14px; font-weight:500; color:#1f2937; line-height:20px; }
 
-body, p, span, td, div { font-size: 13px; font-weight: 500; color: #1f2937; line-height: 20px; }
-.text-muted { color: #6b7280; }
-.text-secondary { color: #4b5563; }
+body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:20px; }
+.text-muted{ color:#6b7280; }
+.text-secondary{ color:#4b5563; }
 
-/* === 卡片系统 === */
-.main-card {
-  background: #ffffff;
-  border: 1px solid #d1d5db;
-  border-radius: 10px;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
-  overflow: hidden;
+/* ========== 卡片/区块 ========== */
+.main-card{
+  background:#fff; border:1px solid #d1d5db; border-radius:10px;
+  box-shadow:0 2px 6px rgba(0,0,0,.08); overflow:hidden;
 }
-.main-header {
-  background: linear-gradient(135deg, #5e72e4 0%, #825ee4 100%);
-  color: white;
-  padding: 20px 30px;
-  text-align: center;
+.main-header{ background:linear-gradient(135deg,#5e72e4 0%,#825ee4 100%); color:#fff; padding:20px 30px; text-align:center; }
+.main-header h1{ color:#fff; margin:0; }
+.main-content{ padding:20px; }
+
+.card{
+  background:#fff; border:1px solid #d1d5db; border-radius:10px;
+  box-shadow:0 2px 6px rgba(0,0,0,.08); padding:20px; margin-bottom:20px;
+  transition:box-shadow .2s;
 }
-.main-header h1 { color: white; margin: 0; }
-.main-content { padding: 20px; }
+.card:hover{ box-shadow:0 4px 8px rgba(0,0,0,.08); }
+.card-header{ margin-bottom:20px; padding-bottom:12px; border-bottom:1px solid #e5e7eb; }
+.card-header h2{ display:flex; justify-content:space-between; align-items:center; }
+.card-note{ font-size:11px; color:#6b7280; font-weight:400; }
 
-.card {
-  background: #ffffff;
-  border: 1px solid #d1d5db;
-  border-radius: 10px;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
-  padding: 20px;
-  margin-bottom: 20px;
-  transition: box-shadow 0.2s;
+/* 内层 */
+.inner-block{
+  background:#f5f5f5; border:1px solid #e5e7eb; border-radius:6px; padding:15px; margin-bottom:15px;
 }
-.card:hover { box-shadow: 0 4px 8px rgba(0,0,0,0.08); }
-.card-header { margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid #e5e7eb; }
-.card-header h2 { display: flex; justify-content: space-between; align-items: center; }
-.card-note { font-size: 11px; color: #6b7280; font-weight: 400; }
-
-/* === 内层区块 === */
-.inner-block {
-  background: #f5f5f5;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
-  padding: 15px;
-  margin-bottom: 15px;
-}
-.inner-block:last-child { margin-bottom: 0; }
-.inner-block h3 { margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid #e5e7eb; }
-
-/* === 网格系统 === */
-.grid { display: grid; gap: 20px; }
-.grid-3 { grid-template-columns: repeat(3, 1fr); }
-.grid-1-2 { grid-template-columns: 1fr 2fr; }
-
-/* === 信息行（全局默认：flex，组件化处会局部覆盖为 grid） === */
-.info-item { display: flex; justify-content: space-between; padding: 6px 0; }
-.info-item label { color: #6b7280; }
-.info-item value { color: #1f2937; font-weight: 500; }
-
-/* === 进度条（全局默认） === */
-.progress-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
-.progress-label { min-width: 40px; color: #4b5563; }
-.progress-bar { flex: 1; height: 18px; background: #e5e7eb; border-radius: 9px; overflow: hidden; }
-.progress-fill {
-  height: 100%;
-  background: #10b981;
-  display: flex; align-items: center; justify-content: center;
-  color: white; font-size: 11px; transition: width 0.3s;
-}
-.progress-info { min-width: 80px; text-align: right; color: #6b7280; font-size: 12px; }
-
-/* === 服务状态（全局） === */
-.service-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; }
-.service-status { display: flex; align-items: center; gap: 8px; }
-.status-badge { padding: 2px 8px; border-radius: 10px; font-size: 11px; background: #f3f4f6; color: #6b7280; line-height: 1; }
-.status-running { background: #d1fae5; color: #10b981; }
-.version { color: #6b7280; font-size: 11px; }
-
-/* 系统概览的“核心服务”横向布局 */
-.core-services .service-item{
-  justify-content: flex-start;
-  gap: 8px;
+.inner-block:last-child{ margin-bottom:0; }
+.inner-block h3{
+  margin-bottom:12px; padding-bottom:8px; border-bottom:1px solid #e5e7eb;
 }
 
-/* === 证书切换（原有） === */
-.cert-modes { display: flex; gap: 5px; margin-bottom: 2px; }
-.cert-mode-tab {
-  flex: 1; padding: 10px; background: #f5f5f5; border: 1px solid #e5e7eb;
-  color: #6b7280; text-align: center; border-radius: 8px; cursor: default;
-}
-.cert-mode-tab.active { background: #10b981; color: white; border-color: #10b981; }
+/* 网格 */
+.grid{ display:grid; gap:20px; }
+.grid-3{ grid-template-columns:repeat(3,1fr); }
+.grid-1-2{ grid-template-columns:1fr 2fr; }
 
-/* === 网络身份配置（原有基础） === */
-.network-blocks { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; }
-.network-block {
-  background: #f5f5f5; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; position: relative;
-}
-.network-block h3 {
-  margin: -12px -12px 12px -12px; padding: 10px;
-  background: #f3f4f6; color: #6b7280; border-radius: 8px 8px 0 0;
-  text-align: center; border: none;
-}
-.network-block.active h3 { background: #10b981; color: white; }
+/* ========== 全局行（简单版，组件内会覆写） ========== */
+.info-item{ display:flex; justify-content:space-between; padding:6px 0; }
+.info-item label{ color:#6b7280; }
+.info-item value{ color:#1f2937; font-weight:500; }
 
-.note-udp{ font-size: 11px; font-weight: 400; color: #6b7280; white-space: nowrap; margin-left: 8px; }
-
-/* 白名单相关样式 */
-.whitelist-inline{ color: #374151; font-size: 13px; line-height: 1.6; word-break: break-all; white-space: normal; }
-.whitelist-value{ width: 100%; }
-.whitelist-preview{ --lh: 22px; margin-top: 4px; position: relative; padding-right: 72px; max-height: calc(var(--lh) * 3); overflow: hidden; }
-.whitelist-text{ font-size: 13px; line-height: var(--lh); color: #374151; white-space: normal; word-break: break-word; }
-
-/* 统一“查看按钮” */
-.whitelist-more, .btn-link, .link {
-  display: inline-block; height: 28px; line-height: 26px; padding: 0 12px;
-  border: 1px solid #d1d5db; border-radius: 6px; background: #ffffff;
-  font-size: 12px; color: #2563eb; cursor: pointer; text-decoration: none; transition: all 0.2s;
+/* ========== 全局运行状态徽标（协议配置/系统概览通用） ========== */
+.status-badge{
+  display:inline-flex; align-items:center;
+  height:20px; line-height:20px; padding:0 10px;
+  border-radius:999px; font-size:11px;
+  background:#eafaf3; color:#059669; border:1px solid #c7f0df;
 }
-.whitelist-more:hover, .btn-link:hover, .link:hover { background: #f3f4f6; border-color: #9ca3af; color: #1d4ed8; }
-.whitelist-more { position: absolute; right: 0; bottom: 0; height: var(--lh, 22px); line-height: calc(var(--lh, 22px) - 2px); padding: 0 10px; font-size: 11px; }
-.data-table .btn-link { margin: 0; }
-
-/* === 表格 === */
-.data-table { width: 100%; border-collapse: collapse; }
-.data-table th {
-  background: #f5f5f5; color: #4b5563; font-weight: 500; padding: 10px; text-align: left;
-  font-size: 12px; border-bottom: 1px solid #e5e7eb;
-}
-.data-table td { padding: 10px; border-bottom: 1px solid #f3f4f6; font-size: 12px; }
-.data-table td:nth-child(4), .data-table td:nth-child(5), .data-table td:nth-child(6){ text-align: center; }
-.data-table th:nth-child(4), .data-table th:nth-child(5), .data-table th:nth-child(6){ text-align: center; }
-.data-table tr:hover td { background: #f5f5f5; }
-.data-table tr.subs-row td { background:#f5f5f5; }
-
-/* === 流量统计 === */
-.traffic-card {
-  background: #ffffff; border: 1px solid #d1d5db; border-radius: 10px;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.08); padding: 0;
-}
-.traffic-card .card-header { padding: 16px 20px; border-bottom: 1px solid #e5e7eb; }
-.traffic-charts { display: grid; grid-template-columns: 1.2fr 1fr; gap: 20px; padding: 20px; }
-.chart-column { display: flex; flex-direction: column; gap: 12px; }
-.chart-container { flex: 1; position: relative; min-height: 200px; max-height: 300px; height: 250px; }
-
-.traffic-progress-container { display: flex; align-items: center; gap: 10px; }
-.progress-label { font-size: 13px; color: #6b7280; white-space: nowrap; }
-.progress-wrapper { flex: 1; min-width: 120px; }
-.progress-bar { height: 20px; background: #f3f4f6; border-radius: 10px; overflow: hidden; position: relative; }
-.progress-fill {
-  height: 100%; background: linear-gradient(90deg, #10b981 0%, #059669 100%);
-  transition: width 0.3s ease; display: flex; align-items: center; justify-content: flex-end; padding-right: 8px;
-}
-.progress-fill.warning { background: linear-gradient(90deg, #f59e0b 0%, #d97706 100%); }
-.progress-fill.critical { background: linear-gradient(90deg, #ef4444 0%, #dc2626 100%); }
-.progress-percentage { color: white; font-size: 11px; font-weight: 600; }
-.progress-budget { color: #6b7280; font-size: 12px; white-space: nowrap; }
-
-/* === 运维管理（保持你现在的样式） === */
-.commands-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-@media (max-width:768px){ .commands-grid { grid-template-columns: 1fr; } }
-.command-section { background: #f5f5f5; border: 1px solid #d1d5db; border-radius: 8px; padding: 12px; }
-.command-section h4 {
-  margin: 0 0 8px 0; font-size: .9rem; font-weight: 600; color: #1e293b;
-  display: flex; align-items: center; gap: 6px;
-}
-.command-list { font-size: .8rem; line-height: 1.6; }
-.command-list code {
-  background: #e2e8f0; padding: 2px 6px; border-radius: 4px;
-  font-family: monospace; font-size: .75rem; color: #1e293b;
-}
-.command-list span { color: #6b7280; margin-left: 8px; }
-
-/* === 按钮 / 弹窗 === */
-.btn { padding: 8px 16px; border-radius: 6px; font-size: 12px; cursor: pointer; border: 1px solid transparent; transition: all 0.2s; background: #10b981; color: white; }
-.btn:hover { background: #0ea37a; }
-.btn-sm { padding: 5px 10px; font-size: 11px; }
-.btn-secondary { background: white; color: #1f2937; border-color: #d1d5db; }
-.btn-secondary:hover { background: #f3f4f6; }
-
-.modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.5); }
-.modal-content {
-  background-color: #fff; margin: 5% auto; padding: 0; border: 1px solid #d1d5db; border-radius: 12px;
-  width: 720px; max-width: 92%; box-shadow: 0 12px 24px rgba(0,0,0,0.14);
-}
-.modal-header { padding: 20px; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center; }
-.modal-header h3 { margin: 0; border: none; padding: 0; }
-.close-btn {
-  font-size: 16px; color: #64748b; cursor: pointer; width: 28px; height: 28px; line-height: 28px;
-  display: inline-flex; align-items: center; justify-content: center; border-radius: 6px;
-  border: 1px solid #e5e7eb; background: #fff; transition: all 0.2s;
-}
-.close-btn:hover { background: #f8fafc; color: #0f172a; }
-.modal-body { padding: 20px; max-height: 560px; overflow: auto; }
-.modal-footer { padding: 15px 20px; border-top: 1px solid #e5e7eb; text-align: right; }
-
-.modal-body::-webkit-scrollbar { width: 8px; }
-.modal-body::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 4px; }
-.modal-body::-webkit-scrollbar-thumb { background: #888; border-radius: 4px; }
-.modal-body::-webkit-scrollbar-thumb:hover { background: #555; }
-
-body.modal-open { overflow: hidden; }
-
-/* 其他组件 */
-.ipq-link { color: #3b82f6; cursor: pointer; margin-left: 10px; }
-.ipq-link:hover { text-decoration: underline; }
-.whitelist-item {
-  background: white; padding: 5px 10px; margin: 2px 0; border-radius: 4px;
-  font-family: monospace; font-size: 12px;
-}
-
-/* 流量统计 - 指标小卡 */
-.traffic-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px; }
-.traffic-stat { background: #f5f5f5; padding: 15px; border-radius: 8px; text-align: center; }
-.traffic-stat h4 { margin-bottom: 8px; }
-.traffic-stat .value { font-size: 24px; font-weight: bold; color: #1f2937; }
-.traffic-stat .unit { font-size: 14px; color: #6b7280; }
-
-/* 配置详情 */
-.config-section { margin-bottom: 20px; }
-.config-section h4 { margin-bottom: 12px; }
-.config-code {
-  background: #f5f5f5; border: 1px solid #e5e7eb; border-radius: 6px; padding: 12px;
-  font-family: monospace; font-size: 12px; color: #1f2937; word-break: break-all; line-height: 1.6;
-}
-.config-help {
-  background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 12px;
-  font-size: 12px; line-height: 1.8; color: #4b5563;
-}
-.json-config { background: #f5f5f5; border: 1px solid #e5e7eb; border-radius: 6px; padding: 12px; }
-.json-line {
-  font-family: monospace; font-size: 12px; line-height: 1.8;
-  display: flex; justify-content: space-between; padding: 2px 0;
-}
-.json-key { color: #3b82f6; }
-.json-value { color: #10b981; }
-.json-comment { color: #6b7280; font-style: italic; }
-
-.qr-container { text-align: center; padding: 20px; background: #f5f5f5; border-radius: 6px; display: flex; align-items: center; justify-content: center; }
-.qr-placeholder {
-  width: 256px; height: 256px; margin: 0 auto; background: white; border: 1px solid #e5e7eb;
-  display: flex; align-items: center; justify-content: center; color: #6b7280;
-}
-
-/* 轻提示 */
-.toast {
-  position: fixed; left: 50%; bottom: 60px; transform: translateX(-50%);
-  background: rgba(0,0,0,.75); color: #fff; padding: 10px 16px; border-radius: 8px;
-  font-size: 13px; opacity: 0; transition: opacity .2s ease, transform .2s ease;
-  pointer-events: none; z-index: 2000;
-}
-.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-.toast-warn { background: rgba(220, 38, 38, .9); }
-
-/* 响应式 */
-@media (max-width: 1024px) {
-  .grid-3, .grid-1-2 { grid-template-columns: 1fr; }
-  .network-blocks { grid-template-columns: 1fr; }
-  .traffic-charts { grid-template-columns: 1fr; }
-}
-@media (max-width: 768px) {
-  .traffic-summary { grid-template-columns: repeat(2, 1fr); }
-  .management-grid { grid-template-columns: 1fr; }
-  .modal-content { width: 95%; margin: 10px auto; }
-}
+.status-running{ background:#d1fae5; color:#059669; border-color:#a7f3d0; }
+.status-stopped{ background:#fee2e2; color:#ef4444; border-color:#fecaca; }
 
 /* =======================================================================
-   系统概览：标题与行布局的稳固修复（仅 #system-overview）
+   系统概览（仅 #system-overview）
    ======================================================================= */
-
-/* 标题：独占一整行、水平书写、单行不换 */
-#system-overview .inner-block { display:block !important; }
-#system-overview .inner-block > h3{
-  grid-column: 1 / -1 !important;
-  display:flex !important;
-  align-items:center !important;
-  white-space:nowrap !important;
-  writing-mode:horizontal-tb !important;
-  -webkit-writing-mode:horizontal-tb !important;
-  margin:0 0 8px !important;
-}
-
-/* 行：仅行元素设置为 grid，避免误伤标题 */
-#system-overview .inner-block .info-item,
-#system-overview .inner-block .progress-row,
-#system-overview .inner-block .service-item{
-  display:grid !important;
-  align-items:center !important;
-}
-
-/* —— 服务器配置：进度条列占满中间 —— */
 #system-overview{
-  --label-w: 72px;
-  --percent-col: 36px;
-  --progress-gap: 4px;
-  --meter-height: 20px;
+  --label-w:72px;           /* 左侧键名列宽 */
+  --percent-col:36px;       /* 右侧百分比列宽 */
+  --meter-height:20px;      /* 进度条高度 */
+  --svc-gap:8px;            /* 服务名/徽标/版本 间距 */
+  --h3-gap:8px;
+  --meter-track:#d1d5db; --meter-start:#059669; --meter-end:#10b981;
+  --label:#4b5563; --value:#111827; --muted:#6b7280;
 }
-#system-overview .progress-row{
-  grid-template-columns: var(--label-w) minmax(0,1fr) var(--percent-col) !important;
-  column-gap: var(--progress-gap) !important;
-}
-#system-overview .progress-row .progress-label,
-#system-overview .progress-row .progress-info,
-#system-overview .progress-row .progress-bar{ align-self:center !important; }
 
-#system-overview .progress-row .progress-bar{
+/* 标题紧跟 */
+#system-overview .inner-block{ display:block; }
+#system-overview .inner-block>h3{ display:flex; align-items:center; white-space:nowrap; margin:0 0 var(--h3-gap); }
+
+/* 服务器信息：两列 */
+#system-overview .server-info .info-item{
+  display:grid; grid-template-columns:var(--label-w) 1fr; gap:8px; align-items:center; padding:6px 0;
+}
+#system-overview .server-info .label{ color:var(--label); justify-self:start; }
+#system-overview .server-info .value{ min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--value); }
+
+/* 服务器配置：键名 | 进度条 | 百分比 */
+#system-overview .progress-row{
+  display:grid; grid-template-columns:var(--label-w) minmax(0,1fr) var(--percent-col);
+  column-gap:4px; align-items:center; padding:6px 0;
+}
+#system-overview .progress-label{ color:var(--label); justify-self:start; }
+#system-overview .progress-bar{
   position:relative; height:var(--meter-height);
-  background:#d1d5db; border-radius:999px; overflow:hidden;
+  background:var(--meter-track); border-radius:999px; overflow:hidden; align-self:center;
 }
-#system-overview .progress-row .progress-fill{
-  height:100%; border-radius:999px;
-  background:linear-gradient(90deg,#059669,#10b981);
-  transition:width .25s ease; z-index:0;
+#system-overview .progress-fill{
+  height:100%; border-radius:999px; background:linear-gradient(90deg,var(--meter-start),var(--meter-end));
+  transition:width .25s ease;
 }
-#system-overview .progress-row .progress-text{
-  position:absolute; z-index:1; left:4px; right:4px; top:50%; transform:translateY(-50%);
-  font-size:11px; line-height:1; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+#system-overview .progress-text{
+  position:absolute; left:4px; right:4px; top:50%; transform:translateY(-50%);
+  font-size:11px; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; pointer-events:none;
 }
-#system-overview .progress-row .progress-info{
-  min-width:var(--percent-col); text-align:right; color:#111827;
+#system-overview .progress-info{
+  min-width:var(--percent-col); text-align:right; color:var(--value);
   font-variant-numeric:tabular-nums;
 }
 
-/* —— 核心服务：三列（服务名 | 徽标 | 版本号） —— */
-#system-overview{ --svc-gap: 8px; }
+/* 核心服务：名称 | 徽标 | 版本号 */
 #system-overview .core-services .service-item{
-  grid-template-columns: var(--label-w) max-content 1fr !important;
-  column-gap: var(--svc-gap) !important;
+  display:grid; grid-template-columns:var(--label-w) max-content 1fr;
+  column-gap:var(--svc-gap); align-items:center; padding:6px 0;
 }
-#system-overview .core-services .service-item .service-status{
-  display:inline-flex; align-items:center; gap:0; margin:0; white-space:nowrap;
+#system-overview .core-services .version{
+  justify-self:start; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--muted); font-size:12px;
 }
-#system-overview .core-services .service-item .version{
-  justify-self:start; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+
+/* 窄屏收窄 */
+@media (max-width:640px){
+  #system-overview{ --label-w:68px; --percent-col:32px; }
+  #system-overview .server-info .info-item{ grid-template-columns:68px 1fr; }
+  #system-overview .progress-row{ grid-template-columns:68px minmax(0,1fr) var(--percent-col); }
+  #system-overview .core-services .service-item{ grid-template-columns:68px max-content 1fr; }
 }
 
 /* =======================================================================
-   证书切换：组件化行布局（仅 #cert-panel）
+   证书切换（仅 #cert-panel）——与系统概览相同的“键名列 + 值列”布局
    ======================================================================= */
-#cert-panel{
-  --label-w: 96px;           /* 左侧键名列宽 */
-  --row-vpad: 6px;           /* 行上下内边距 */
-  --row-min-height: 32px;    /* 行高 */
+#cert-panel{ --label-w:96px; --row-gap:10px; --h3-gap:8px; --label:#4b5563; --value:#111827; }
+#cert-panel .inner-block{ display:block; }
+#cert-panel .inner-block>h3{ margin:0 0 var(--h3-gap); }
+
+/* 顶部模式切换标签（无交互，仅样式） */
+#cert-panel .cert-modes{ display:flex; gap:5px; margin-bottom:6px; }
+#cert-panel .cert-mode-tab{
+  flex:1; padding:10px; background:#f5f5f5; border:1px solid #e5e7eb; color:#6b7280;
+  text-align:center; border-radius:8px; cursor:default;
 }
+#cert-panel .cert-mode-tab.active{ background:#10b981; color:#fff; border-color:#10b981; }
 
-/* 标题与内容紧贴 */
-#cert-panel .inner-block > h3{ margin: 0 0 8px; line-height: 1.2; }
-#cert-panel .inner-block h3 + *{ margin-top: 0 !important; }
-
-/* 行：左键名 | 右值（单行省略） */
+/* 明细行：键名 | 值 */
+#cert-panel .cert__row,
 #cert-panel .inner-block .info-item{
-  display: grid !important;          /* 覆盖默认 flex */
-  grid-template-columns: var(--label-w) 1fr;
-  gap: 8px;
-  align-items: center;
-  padding: var(--row-vpad) 0;
-  min-height: var(--row-min-height);
+  display:grid; grid-template-columns:var(--label-w) 1fr; gap:var(--row-gap); align-items:center; padding:6px 0;
 }
-#cert-panel .inner-block .info-item label{
-  color: #4b5563; justify-self: start;
-}
-#cert-panel .inner-block .info-item value{
-  min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color:#111827;
-}
+#cert-panel .cert__label,
+#cert-panel .inner-block .info-item label{ color:var(--label); justify-self:start; }
+#cert-panel .cert__value,
+#cert-panel .inner-block .info-item value{ min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--value); }
 
 /* =======================================================================
-   网络身份配置：组件化行布局（仅 #netid-panel）
+   网络身份配置（仅 #netid-panel）——标题条独立、内容为“键名列 + 值列”
    ======================================================================= */
-#netid-panel{
-  --label-w: 88px;
-  --row-vpad: 6px;
-  --row-min-height: 32px;
+#netid-panel{ --label-w:88px; --row-gap:10px; --label:#4b5563; --value:#111827; }
+
+#netid-panel .network-blocks{ display:grid; grid-template-columns:repeat(3,1fr); gap:15px; }
+#netid-panel .network-block{
+  background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:12px;
 }
 
-/* 头部条下方不留额外空隙 */
-#netid-panel .network-block > h3 + *{ margin-top: 0 !important; }
+/* 头部条：完全分离于内容 */
+#netid-panel .network-block > h3{
+  margin:-12px -12px 12px -12px !important;
+  padding:10px 12px !important;
+  background:#f3f4f6 !important;
+  border-bottom:1px solid #e5e7eb !important;
+  border-radius:8px 8px 0 0 !important;
+  color:#374151 !important; font-weight:600 !important;
+}
+#netid-panel .network-block > h3 + *{ margin-top:0 !important; }
 
-/* 行：左键名 | 右值（单行省略） */
+/* 内容行：键名 | 值 */
+#netid-panel .nid__row,
 #netid-panel .network-block .info-item{
-  display: grid !important;          /* 覆盖默认 flex */
-  grid-template-columns: var(--label-w) 1fr;
-  gap: 8px;
-  align-items: center;
-  padding: var(--row-vpad) 0;
-  min-height: var(--row-min-height);
+  display:grid; grid-template-columns:var(--label-w) 1fr; gap:var(--row-gap); align-items:center; padding:6px 0;
 }
-#netid-panel .network-block .info-item label{
-  color:#4b5563; justify-self:start;
-}
-#netid-panel .network-block .info-item value{
-  min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:#111827;
-}
+#netid-panel .nid__label,
+#netid-panel .network-block .info-item label{ color:#4b5563; justify-self:start; }
+#netid-panel .nid__value,
+#netid-panel .network-block .info-item value{ min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--value); }
 
+/* =======================================================================
+   运维管理（仅 #ops-panel）——使用 newb 的样式（灰卡 + 浅灰代码块）
+   ======================================================================= */
+#ops-panel .commands-grid{ display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+@media (max-width:768px){ #ops-panel .commands-grid{ grid-template-columns:1fr; } }
+
+#ops-panel .command-section{
+  background:#f5f5f5; border:1px solid #d1d5db; border-radius:8px; padding:12px;
+}
+#ops-panel .command-section h4{
+  margin:0 0 8px; font-size:.9rem; font-weight:600; color:#1e293b;
+  display:flex; align-items:center; gap:6px;
+}
+#ops-panel .command-list{ font-size:.8rem; line-height:1.6; }
+#ops-panel .command-list code{
+  background:#e2e8f0; padding:2px 6px; border-radius:4px;
+  font-family:monospace; font-size:.75rem; color:#1e293b;
+}
+#ops-panel .command-list span{ color:#6b7280; margin-left:8px; }
+
+/* =======================================================================
+   协议配置、表格、按钮、弹窗、流量统计（保持 newa 原样）
+   ======================================================================= */
+.data-table{ width:100%; border-collapse:collapse; }
+.data-table th{
+  background:#f5f5f5; color:#4b5563; font-weight:500; padding:10px; text-align:left;
+  font-size:12px; border-bottom:1px solid #e5e7eb;
+}
+.data-table td{ padding:10px; border-bottom:1px solid #f3f4f6; font-size:12px; }
+.data-table td:nth-child(4),.data-table td:nth-child(5),.data-table td:nth-child(6),
+.data-table th:nth-child(4),.data-table th:nth-child(5),.data-table th:nth-child(6){ text-align:center; }
+.data-table tr:hover td{ background:#f5f5f5; }
+.data-table tr.subs-row td{ background:#f5f5f5; }
+
+/* 证书切换按钮（保留全局版本，供其它处复用） */
+.cert-modes{ display:flex; gap:5px; margin-bottom:2px; }
+.cert-mode-tab{
+  flex:1; padding:10px; background:#f5f5f5; border:1px solid #e5e7eb;
+  color:#6b7280; text-align:center; border-radius:8px; cursor:default;
+}
+.cert-mode-tab.active{ background:#10b981; color:#fff; border-color:#10b981; }
+
+/* 流量统计（保留） */
+.traffic-card{ background:#fff; border:1px solid #d1d5db; border-radius:10px; box-shadow:0 2px 6px rgba(0,0,0,.08); padding:0; }
+.traffic-card .card-header{ padding:16px 20px; border-bottom:1px solid #e5e7eb; }
+.traffic-charts{ display:grid; grid-template-columns:1.2fr 1fr; gap:20px; padding:20px; }
+.chart-column{ display:flex; flex-direction:column; gap:12px; }
+.chart-container{ flex:1; position:relative; min-height:200px; max-height:300px; height:250px; }
+
+.traffic-progress-container{ display:flex; align-items:center; gap:10px; }
+.progress-label{ font-size:13px; color:#6b7280; white-space:nowrap; }
+.progress-wrapper{ flex:1; min-width:120px; }
+.progress-bar{ height:20px; background:#f3f4f6; border-radius:10px; overflow:hidden; position:relative; }
+.progress-fill{ height:100%; background:linear-gradient(90deg,#10b981 0%,#059669 100%); transition:width .3s ease; display:flex; align-items:center; justify-content:flex-end; padding-right:8px; }
+.progress-fill.warning{ background:linear-gradient(90deg,#f59e0b 0%,#d97706 100%); }
+.progress-fill.critical{ background:linear-gradient(90deg,#ef4444 0%,#dc2626 100%); }
+.progress-percentage{ color:#fff; font-size:11px; font-weight:600; }
+.progress-budget{ color:#6b7280; font-size:12px; white-space:nowrap; }
+
+/* 按钮/弹窗（保留） */
+.btn{ padding:8px 16px; border-radius:6px; font-size:12px; cursor:pointer; border:1px solid transparent; transition:all .2s; background:#10b981; color:#fff; }
+.btn:hover{ background:#0ea37a; }
+.btn-sm{ padding:5px 10px; font-size:11px; }
+.btn-secondary{ background:#fff; color:#1f2937; border-color:#d1d5db; }
+.btn-secondary:hover{ background:#f3f4f6; }
+
+.modal{ display:none; position:fixed; z-index:1000; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,.5); }
+.modal-content{ background:#fff; margin:5% auto; padding:0; border:1px solid #d1d5db; border-radius:12px; width:720px; max-width:92%; box-shadow:0 12px 24px rgba(0,0,0,.14); }
+.modal-header{ padding:20px; border-bottom:1px solid #e5e7eb; display:flex; justify-content:space-between; align-items:center; }
+.modal-header h3{ margin:0; border:none; padding:0; }
+.close-btn{ font-size:16px; color:#64748b; cursor:pointer; width:28px; height:28px; line-height:28px; display:inline-flex; align-items:center; justify-content:center; border-radius:6px; border:1px solid #e5e7eb; background:#fff; transition:all .2s; }
+.close-btn:hover{ background:#f8fafc; color:#0f172a; }
+.modal-body{ padding:20px; max-height:560px; overflow:auto; }
+.modal-footer{ padding:15px 20px; border-top:1px solid #e5e7eb; text-align:right; }
+
+/* 响应式（保留） */
+@media (max-width:1024px){
+  .grid-3,.grid-1-2{ grid-template-columns:1fr; }
+  .traffic-charts{ grid-template-columns:1fr; }
+}
+@media (max-width:768px){
+  .modal-content{ width:95%; margin:10px auto; }
+}
 
 
 EXTERNAL_CSS
