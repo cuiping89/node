@@ -4463,26 +4463,24 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 #cert-panel .inner-block .info-item value{ min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--value); }
 
 /* =======================================================================
-   网络身份配置（仅 #netid-panel）
-   —— 标题做成“悬浮标签 chip”，与内容视觉分离
+   网络身份配置（仅 #netid-panel）—— 标题条与卡片同宽，内容两列排列
    ======================================================================= */
 #netid-panel{
-  /* 行内变量：可按需微调 */
-  --label-w: 60px;         /* 键名列宽 */
-  --row-gap: 6px;          /* 键名列与值列的横向间距 */
-  --line-vpad: 6px;        /* 每一行的上下内边距（行高） */
-  --title-offset: -12px;   /* 标签与卡片主体的垂直分离距离（越小越“悬”） */
-  --title-pad-y: 6px;      /* 标签垂直内边距（控制标签高度） */
-  --title-pad-x: 12px;     /* 标签水平内边距（控制标签宽度） */
+  /* 可调变量 */
+  --label-w: 60px;       /* 键名列宽 */
+  --row-gap: 6px;        /* 键名列与值列的横向间距 */
+  --line-vpad: 6px;      /* 每行上下内边距（行高） */
+  --head-pad-y: 10px;    /* 标题条上下内边距（控制标题高度） */
+  --head-pad-x: 12px;    /* 标题条左右内边距 */
+  --head-gap: 12px;      /* 标题条与下面内容的间距 */
 
   --label: #4b5563;
   --value: #111827;
 
-  /* 标签配色（chip） */
-  --tab-bg: #ffffff;
-  --tab-border: #e5e7eb;
-  --tab-color: #374151;
-  --tab-shadow: 0 1px 0 rgba(0,0,0,.03);
+  /* 标题条（header）的配色，与“证书切换”风格一致 */
+  --head-bg: #f3f4f6;
+  --head-color: #374151;
+  --head-border: #e5e7eb;
 }
 
 #netid-panel .network-blocks{
@@ -4491,36 +4489,30 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   gap: 15px;
 }
 
-/* 卡片主体：顶部留出空间给“悬浮标签”，并允许绝对定位 */
+/* 卡片本体 */
 #netid-panel .network-block{
   position: relative;
   background: #fff;
   border: 1px solid #e5e7eb;
   border-radius: 8px;
-  padding: 18px 12px 12px;            /* 顶部略加大，为标签让位 */
+  padding: 12px;
 }
 
-/* 标题做成“chip”：绝对定位到卡片上方，独立于内容 */
+/* 标题条：与卡片同宽（用负外边距把左右 padding 抵消），保持上圆角 */
 #netid-panel .network-block > h3{
-  position: absolute;
-  top: var(--title-offset);            /* 与卡片主体的垂直分离量 */
-  left: 12px;
-  z-index: 1;
-
-  margin: 0 !important;               /* 清掉默认外边距 */
-  padding: var(--title-pad-y) var(--title-pad-x) !important;
-  background: var(--tab-bg) !important;
-  color: var(--tab-color) !important;
-  border: 1px solid var(--tab-border) !important;
-  border-radius: 8px !important;
-  box-shadow: var(--tab-shadow);
-  line-height: 1;                      /* 标签更紧凑 */
+  position: relative;          /* 取消绝对定位，变成条形 header */
+  margin: -12px -12px var(--head-gap) -12px !important; /* 让标题条铺满卡片内宽 */
+  padding: var(--head-pad-y) var(--head-pad-x) !important;
+  background: var(--head-bg) !important;
+  color: var(--head-color) !important;
+  border-bottom: 1px solid var(--head-border) !important;
+  border-radius: 8px 8px 0 0 !important;
+  line-height: 1.1;
   font-weight: 600 !important;
-}
 
-/* 标题后第一块内容不再额外顶开距离 */
-#netid-panel .network-block > h3 + *{
-  margin-top: 0 !important;
+  display: flex;
+  align-items: center;
+  gap: 8px;                    /* 图标与文字的间距 */
 }
 
 /* 内容行：键名 | 值（两列自适应） */
@@ -4548,7 +4540,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   color: var(--value);
 }
 
-/* 窄屏：自动堆叠为单列 */
+/* 窄屏自适应：堆叠为单列 */
 @media (max-width: 1024px){
   #netid-panel .network-blocks{ grid-template-columns: 1fr; }
 }
