@@ -4402,6 +4402,41 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   #system-overview .core-services .service-item{ grid-template-columns:68px max-content 1fr; }
 }
 
+/* —— 给三个区块各自的“标签列宽”开独立的开关 —— */
+
+/* 服务器信息：中文键名较长，单独设宽，并禁止换行 */
+#system-overview .server-info { 
+  --label-w: 96px;                 /* 这里按需改 */
+}
+#system-overview .server-info .label { 
+  white-space: nowrap;             /* 防止被压行 */
+}
+
+/* 服务器配置（进度条区）：只影响这一块的行 */
+#system-overview .progress-row { 
+  --label-w: 50px;                 /* 你想要的 50px 只作用在进度条这块 */
+  --percent-col: 33px;             /* 百分比列可一起调，避免太窄 */
+}
+#system-overview .progress-label { 
+  white-space: nowrap;
+}
+
+/* 核心服务：单独控制服务名那一列宽度与间距 */
+#system-overview .core-services {
+  --label-w: 72px;                 /* 这块自己设，不受上面的影响 */
+  --svc-gap: 33px;
+}
+#system-overview .core-services .label { 
+  white-space: nowrap; 
+}
+
+/* 窄屏时也分别覆盖，避免全局一刀切 */
+@media (max-width: 640px){
+  #system-overview .server-info   { --label-w: 84px; }
+  #system-overview .progress-row  { --label-w: 60px; --percent-col: 34px; }
+  #system-overview .core-services { --label-w: 68px; }
+}
+
 /* =======================================================================
    证书切换（仅 #cert-panel）——标题条分离 + 键名列/值列
    ======================================================================= */
@@ -4510,6 +4545,13 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   margin-right: 12px;    /* ← 命令小胶囊 与 注释 的水平间距 */
   /* 可选：如果需要让 margin-bottom 生效，再打开下一行 */
   /* display: inline-block; */
+}
+
+#ops-panel .command-list code,
+.commands-grid .command-list code {
+  display: inline-block;
+  margin-right: 8px;
+  margin-bottom: 2px;   /* 轻微增加行间距 */
 }
 
 /* =======================================================================
