@@ -4268,7 +4268,7 @@ chmod +x "${SCRIPTS_DIR}/traffic-alert.sh"
   log_info "创建外置CSS文件..."
   cat > "${TRAFFIC_DIR}/assets/edgebox-panel.css" <<'EXTERNAL_CSS'
 /* =======================================================================
-   EdgeBox 控制面板 · 组件化 +（ops-panel 使用 newb 的样式）
+   EdgeBox 控制面板 · 组件化（ops-panel 无 id 也生效）
    ======================================================================= */
 
 /* ========== Reset / 基础皮肤 ========== */
@@ -4403,7 +4403,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 /* =======================================================================
-   证书切换（仅 #cert-panel）——与系统概览相同的“键名列 + 值列”布局
+   证书切换（仅 #cert-panel）——标题条分离 + 键名列/值列
    ======================================================================= */
 #cert-panel{ --label-w:96px; --row-gap:10px; --h3-gap:8px; --label:#4b5563; --value:#111827; }
 #cert-panel .inner-block{ display:block; }
@@ -4428,7 +4428,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 #cert-panel .inner-block .info-item value{ min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--value); }
 
 /* =======================================================================
-   网络身份配置（仅 #netid-panel）——标题条独立、内容为“键名列 + 值列”
+   网络身份配置（仅 #netid-panel）——标题条独立、内容“键名列/值列”
    ======================================================================= */
 #netid-panel{ --label-w:88px; --row-gap:10px; --label:#4b5563; --value:#111827; }
 
@@ -4459,27 +4459,48 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 #netid-panel .network-block .info-item value{ min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--value); }
 
 /* =======================================================================
-   运维管理（仅 #ops-panel）——使用 newb 的样式（灰卡 + 浅灰代码块）
+   运维管理（无 id 版本）——灰卡分组 + 深灰代码块
    ======================================================================= */
-#ops-panel .commands-grid{ display:grid; grid-template-columns:1fr 1fr; gap:20px; }
-@media (max-width:768px){ #ops-panel .commands-grid{ grid-template-columns:1fr; } }
+.commands-grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:20px;
+}
+@media (max-width:768px){
+  .commands-grid{ grid-template-columns:1fr; }
+}
 
-#ops-panel .command-section{
-  background:#f5f5f5; border:1px solid #d1d5db; border-radius:8px; padding:12px;
+.command-section{
+  background:#f5f5f5;
+  border:1px solid #d1d5db;
+  border-radius:8px;
+  padding:12px;
 }
-#ops-panel .command-section h4{
-  margin:0 0 8px; font-size:.9rem; font-weight:600; color:#1e293b;
-  display:flex; align-items:center; gap:6px;
+.command-section h4{
+  margin:0 0 8px;
+  font-size:.9rem;
+  font-weight:600;
+  color:#1e293b;
+  display:flex;
+  align-items:center;
+  gap:6px;
 }
-#ops-panel .command-list{ font-size:.8rem; line-height:1.6; }
-#ops-panel .command-list code{
-  background:#e2e8f0; padding:2px 6px; border-radius:4px;
-  font-family:monospace; font-size:.75rem; color:#1e293b;
+
+.command-list{ font-size:.8rem; line-height:1.6; }
+/* 深灰代码块（命令） */
+.command-list code{
+  background:#1f2937;         /* 深灰 */
+  color:#10b981;              /* 品牌绿 */
+  padding:3px 8px;
+  border-radius:4px;
+  font-family:monospace;
+  font-size:.78rem;
+  display:inline-block;
 }
-#ops-panel .command-list span{ color:#6b7280; margin-left:8px; }
+.command-list span{ color:#6b7280; margin-left:8px; }
 
 /* =======================================================================
-   协议配置、表格、按钮、弹窗、流量统计（保持 newa 原样）
+   协议配置、表格、按钮、弹窗、流量统计（保持原样）
    ======================================================================= */
 .data-table{ width:100%; border-collapse:collapse; }
 .data-table th{
@@ -4492,15 +4513,6 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 .data-table tr:hover td{ background:#f5f5f5; }
 .data-table tr.subs-row td{ background:#f5f5f5; }
 
-/* 证书切换按钮（保留全局版本，供其它处复用） */
-.cert-modes{ display:flex; gap:5px; margin-bottom:2px; }
-.cert-mode-tab{
-  flex:1; padding:10px; background:#f5f5f5; border:1px solid #e5e7eb;
-  color:#6b7280; text-align:center; border-radius:8px; cursor:default;
-}
-.cert-mode-tab.active{ background:#10b981; color:#fff; border-color:#10b981; }
-
-/* 流量统计（保留） */
 .traffic-card{ background:#fff; border:1px solid #d1d5db; border-radius:10px; box-shadow:0 2px 6px rgba(0,0,0,.08); padding:0; }
 .traffic-card .card-header{ padding:16px 20px; border-bottom:1px solid #e5e7eb; }
 .traffic-charts{ display:grid; grid-template-columns:1.2fr 1fr; gap:20px; padding:20px; }
@@ -4533,7 +4545,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 .modal-body{ padding:20px; max-height:560px; overflow:auto; }
 .modal-footer{ padding:15px 20px; border-top:1px solid #e5e7eb; text-align:right; }
 
-/* 响应式（保留） */
+/* 响应式（卡片网格/流量图保持不变） */
 @media (max-width:1024px){
   .grid-3,.grid-1-2{ grid-template-columns:1fr; }
   .traffic-charts{ grid-template-columns:1fr; }
@@ -4541,6 +4553,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 @media (max-width:768px){
   .modal-content{ width:95%; margin:10px auto; }
 }
+
 
 
 EXTERNAL_CSS
