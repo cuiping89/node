@@ -4633,10 +4633,10 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   font-weight: 400;
   font-size: 12px;            /* 比标题小一点，更像“注释” */
   line-height: 1;             /* 紧凑 */
-  margin-right: 1em;          /* 右边缩进“一个字”宽（1em） */
+  margin-right: 2em;          /* 右边缩进“一个字”宽（1em） */
 
   /* 轻微下沉，贴近标题底线（需要更贴就把 1px 改为 2px） */
-  transform: translateY(1px);
+  transform: translateY(2px);
 }
 
 /* 如果你用的是 .card-note 而不是 .note-udp，用这一条覆盖即可 */
@@ -4758,6 +4758,76 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 .close-btn:hover{ background:#f8fafc; color:#0f172a; }
 .modal-body{ padding:20px; max-height:560px; overflow:auto; }
 .modal-footer{ padding:15px 20px; border-top:1px solid #e5e7eb; text-align:right; }
+
+/* 详情 / 查看全部：白底蓝字，hover 浅灰，active 灰底 */
+.btn-detail,
+.btn-viewall,
+.btn-link,
+.link,
+.whitelist-more{
+  --btn-h: 28px;
+  --btn-pad-x: 12px;
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--btn-h);
+  line-height: calc(var(--btn-h) - 2px); /* 扣掉边框 */
+  padding: 0 var(--btn-pad-x);
+
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  color: #2563eb;                /* 蓝字 */
+  font-size: 12px;
+  text-decoration: none;
+  cursor: pointer;
+
+  transition: background .15s ease, color .15s ease, border-color .15s ease, box-shadow .15s ease;
+}
+
+/* hover：浅灰底、蓝更深一点 */
+.btn-detail:hover,
+.btn-viewall:hover,
+.btn-link:hover,
+.link:hover,
+.whitelist-more:hover{
+  background: #f3f4f6;           /* 浅灰 */
+  border-color: #9ca3af;
+  color: #1d4ed8;                /* 深一点的蓝 */
+}
+
+/* active：按下时更深的灰底 */
+.btn-detail:active,
+.btn-viewall:active,
+.btn-link:active,
+.link:active,
+.whitelist-more:active{
+  background: #e5e7eb;           /* 灰底（按下态） */
+  border-color: #9ca3af;
+  color: #1d4ed8;
+}
+
+/* 可访问性：键盘聚焦高亮 */
+.btn-detail:focus-visible,
+.btn-viewall:focus-visible,
+.btn-link:focus-visible,
+.link:focus-visible,
+.whitelist-more:focus-visible{
+  outline: 0;
+  box-shadow: 0 0 0 2px #93c5fd; /* 浅蓝描边 */
+  border-color: #60a5fa;
+}
+
+/* 禁用态（如果有需要） */
+.btn-detail[disabled],
+.btn-viewall[disabled],
+.btn-link[disabled],
+.link[disabled],
+.whitelist-more[disabled]{
+  opacity: .5;
+  pointer-events: none;
+}
 
 /* 响应式（卡片网格/流量图保持不变） */
 @media (max-width:1024px){
