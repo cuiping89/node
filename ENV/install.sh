@@ -696,7 +696,7 @@ collect_system_info() {
             local total=$(echo $root_info | awk '{print $2}' | sed 's/G//')
             local used=$(echo $root_info | awk '{print $3}' | sed 's/G//')
             local available=$(echo $root_info | awk '{print $4}' | sed 's/G//')
-            echo "${total}GiB (已用: ${used}GiB, 可用: ${available}GiB)"
+            echo "${total}GiB (已用: ${used}GiB)"
         else
             echo "Unknown"
         fi
@@ -5172,96 +5172,60 @@ body.modal-open {
   }
 }
 
-/* ===========================
-   [最终版] 系统概览三列统一样式（仅作用于 #system-overview）
-   =========================== */
-
-/* 可按需调整的配色与尺寸变量 */
-#system-overview{
-  --row-min-height: 32px;        /* 行高 */
-  --row-vpad: 6px;               /* 行内上下内边距 */
-  --gap: 8px;                    /* 列间距 */
-  --label-w: 88px;               /* 左侧键名固定宽度（窄屏会收窄） */
-
-  --meter-track: #d1d5db;        /* 进度条轨道（更深灰） */
-  --meter-fill-start: #059669;   /* 渐变起色 */
-  --meter-fill-end:   #10b981;   /* 渐变止色 */
-  --meter-text: #ffffff;         /* 条中文本白色 */
-  --percent-color: #111827;      /* 右侧百分比颜色 */
-  --label-color: #4b5563;        /* 键名颜色 */
-  --value-color: #111827;        /* 值颜色 */
-  --version-color:#6b7280;       /* 版本号颜色 */
-}
-
-/* 标题紧凑，内容紧跟 */
-#system-overview .inner-block h3{margin:0 0 8px;line-height:1.2;}
-#system-overview .inner-block h3+*{margin-top:0 !important;}
-
-/* 三列行节奏统一：左键名 | 中内容 | 右状态/版本/百分比 */
+/* 1) 统一三列（服务器信息/服务器配置/核心服务）的行高与内外边距 */
 #system-overview .inner-block .info-item,
 #system-overview .inner-block .progress-row,
-#system-overview .inner-block .service-item{
-  margin:0;
-  padding:var(--row-vpad) 0;
-  min-height:var(--row-min-height);
-  display:grid;
-  grid-template-columns: var(--label-w) 1fr auto;
-  align-items:center;
-  gap:var(--gap);
-  color:var(--value-color);
+#system-overview .inner-block .service-item {
+  margin: 0;              /* 去掉多余的外边距 */
+  padding: 6px 0;         /* 统一上下内边距 */
+  min-height: 32px;       /* 统一视觉行高 */
+  align-items: center;    /* 垂直居中 */
 }
 
-/* —— 服务器信息（两列：键名固定宽 + 值自适应省略） —— */
-#system-overview .server-info .info-item .label{color:var(--label-color);justify-self:start;}
-#system-overview .server-info .info-item .value{
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--value-color);
+/* 2) 进度条高度适中，避免把整行“撑高” */
+#system-overview .inner-block .progress-bar {
+  height: 12px;           /* 原 18px -> 12px */
+  overflow: hidden;       /* 结合圆角时更干净 */
+  border-radius: 999px;
 }
 
-/* —— 服务器配置（进度条在中列，条中文本在条里，省略 …） —— */
-#system-overview .progress-row .progress-label{color:var(--label-color);justify-self:start;}
-#system-overview .progress-row .progress-bar{
-  position:relative;height:14px;background:var(--meter-track);
-  border-radius:999px;overflow:hidden;
-}
-#system-overview .progress-row .progress-fill{
-  height:100%;border-radius:999px;transition:width .25s ease;
-  background:linear-gradient(90deg,var(--meter-fill-start),var(--meter-fill-end));
-}
-/* 文本绝对定位在条里，0% 时仍可见；超长 … */
-#system-overview .progress-row .progress-text{
-  position:absolute;left:8px;right:8px;top:50%;transform:translateY(-50%);
-  font-size:11px;line-height:1;color:var(--meter-text);
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;
-}
-/* 右侧百分比 */
-#system-overview .progress-row .progress-info{
-  min-width:48px;text-align:right;color:var(--percent-color);
-  font-variant-numeric:tabular-nums;
+/* 3) 让“服务器配置”的条中文本显示在进度条内并可省略 */
+#system-overview .inner-block .progress-fill {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;  /* 文本靠左 */
+  padding: 0 8px;               /* 条内左右留白 */
+  color: #fff;                  /* 条中文本使用白色 */
+  border-radius: 999px;         /* 小百分比时不露角 */
 }
 
-/* —— 核心服务（三列：服务名 | 状态徽标 | 版本号右对齐省略） —— */
-#system-overview .core-services .service-item .label{color:var(--label-color);justify-self:start;}
-#system-overview .core-services .service-item .service-status{display:inline-flex;align-items:center;gap:8px;}
-#system-overview .core-services .service-item .status-badge{
-  padding:0 8px;height:20px;line-height:20px;border-radius:999px;font-size:11px;
-}
-#system-overview .core-services .service-item .version{
-  justify-self:end;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--version-color);font-size:12px;
-}
-
-/* 窄屏收窄键名列，减少换行 */
-@media (max-width:640px){
-  #system-overview .inner-block .info-item,
-  #system-overview .inner-block .progress-row,
-  #system-overview .inner-block .service-item{
-    grid-template-columns:72px 1fr auto; /* 键名更窄 */
-  }
+/* 条内真正承载文本的 span（你已在 HTML 中新增 .progress-text） */
+#system-overview .inner-block .progress-fill .progress-text {
+  font-size: 11px;
+  line-height: 1;
+  width: 100%;                 /* 触发省略的关键（需有宽度约束） */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;     /* 未显示完用 … */
 }
 
-/* 进度条文本置顶，防止被填充层遮挡 */
-#system-overview .progress-row .progress-text { z-index: 1; position: absolute; }
-#system-overview .progress-row .progress-fill  { z-index: 0; }
+/* 4) 右侧百分比对齐与可读性 */
+#system-overview .inner-block .progress-info {
+  min-width: 48px;             /* 可按需调整 */
+  text-align: right;
+  font-variant-numeric: tabular-nums; /* 等宽数字，列更稳 */
+  color: #111827;
+}
 
+/* 5) 其它需要单行省略的字段（避免换行把行撑高） */
+#system-overview #cpu-info,
+#system-overview #mem-info,
+#system-overview #disk-info,
+#system-overview .core-services .version {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 EXTERNAL_CSS
 
   # ========== 创建外置的JavaScript文件 ==========
@@ -5350,84 +5314,88 @@ async function copyTextFallbackAware(text) {
 
 // --- UI Rendering Functions ---
 function renderOverview() {
-  const server = dashboardData.server || {};
-  const services = dashboardData.services || {};
+  /* ========= 0) 兼容取数（优先闭包变量，取不到再用 window.*） ========= */
+  const dash = (typeof dashboardData !== 'undefined' && dashboardData) ||
+               (typeof window !== 'undefined' && window.dashboardData) || {};
+  const sys  = (typeof systemData   !== 'undefined' && systemData)   ||
+               (typeof window !== 'undefined' && window.systemData)   || {};
 
-// —— 核心服务版本映射（避免 versions 未定义导致中断）——
-const versions = {
-  nginx:   safeGet(services, 'nginx.version'),
-  xray:    safeGet(services, 'xray.version'),
-  singbox: safeGet(services, 'sing-box.version') || safeGet(services, 'singbox.version')
-};
+  /* ========= 1) 拆数据 ========= */
+  const server   = dash.server   || {};
+  const services = dash.services || {};
 
-// —— 服务器信息 ——（保持你的变量/函数名，只演示写法）
-document.getElementById('user-remark').textContent = safeGet(server, 'remark') || '未备注';
-document.getElementById('cloud-region').textContent = safeGet(server, 'cloud_region') || 'Independent | Unknown';
-document.getElementById('instance-id').textContent = safeGet(server, 'instance_id') || 'Unknown';
-document.getElementById('hostname').textContent = safeGet(server, 'hostname') || '-';
+  /* ========= 2) 小工具 ========= */
+  const setText = (id, text, setTitle) => {
+    const el = document.getElementById(id); if (!el) return;
+    el.textContent = (text === undefined || text === null || text === '') ? '—' : String(text);
+    if (setTitle) el.title = el.textContent;
+  };
+  const setWidth = (id, pct) => { const el = document.getElementById(id); if (el) el.style.width = `${pct}%`; };
+  const clamp = v => Math.max(0, Math.min(100, Number(v) || 0));
+  const pick  = (...xs) => xs.find(v => v !== undefined && v !== null && v !== '') ?? 0;
+  const toYMD = (v) => { if (!v) return '—'; const d = new Date(v); return isNaN(d) ? String(v).slice(0,10) : d.toISOString().slice(0,10); };
+  const toggleBadge = (sel, running) => { const el = document.querySelector(sel); if (!el) return;
+    el.textContent = running ? '运行中' : '已停止';
+    el.classList.toggle('status-running', !!running);
+    el.classList.toggle('status-stopped', !running);
+  };
 
-// —— 服务器配置 ——（条内文本 + 宽度 + 右侧百分比）
-const cpuText = safeGet(server, 'spec.cpu') || '—';
-const memText = safeGet(server, 'spec.memory') || '—';
-const diskText = safeGet(server, 'spec.disk') || '—';
+  /* ========= 3) 服务器信息 ========= */
+  const remark   = server.user_alias ?? server.remark ?? '未备注';
+  const provider = server.cloud?.provider ?? server.cloud_provider ?? 'Independent';
+  const region   = server.cloud?.region   ?? server.cloud_region   ?? 'Unknown';
+  setText('user-remark',  remark, true);
+  setText('cloud-region', `${provider} | ${region}`, true);
+  setText('instance-id',  server.instance_id ?? 'Unknown', true);
+  setText('hostname',     server.hostname    ?? '-', true);
 
-const cpuPct = Math.max(0, Math.min(100, Number(safeGet(systemData,'cpu'))||0));
-const memPct = Math.max(0, Math.min(100, Number(safeGet(systemData,'memory'))||0));
-const diskPct = Math.max(0, Math.min(100, Number(safeGet(systemData,'disk'))||0));
+  /* ========= 4) 服务器配置（条中文本 + 百分比） ========= */
+  setText('cpu-info',  server.spec?.cpu  ?? '—', true);
+  setText('disk-info', server.spec?.disk ?? '—', true);
 
-// 条中文本（完整值放 title）
-['cpu','mem','disk'].forEach(k=>{
-  const text = (k==='cpu')?cpuText:(k==='mem')?memText:diskText;
-  const el = document.getElementById(`${k}-info`);
-  el.textContent = text; el.title = text;
-});
+  // 内存条中文本（spec.memory 缺失或为 0 时，用 sys 组装）
+  const fmtGiB = (b) => { const n = Number(b); if (!Number.isFinite(n)) return null; return Math.round((n / (1024 ** 3)) * 10) / 10; };
+  let memText = server.spec?.memory ?? '';
+  if (!memText || /^0\s*GiB$/i.test(memText)) {
+    const totalB = pick(sys.mem_total, sys.total_mem, sys.memory_total, sys.mem?.total);
+    const usedB  = pick(sys.mem_used,  sys.used_mem,  sys.memory_used,  sys.mem?.used);
+    const freeB  = pick(sys.mem_free,  sys.free_mem,  sys.memory_free,  sys.mem?.free,
+                        (totalB != null && usedB != null) ? (totalB - usedB) : undefined);
+    const total = fmtGiB(totalB), used = fmtGiB(usedB), free = fmtGiB(freeB);
+    memText = (total != null) ? (used != null && free != null ? `${total}GiB（已用: ${used}GiB, 可用: ${free}GiB）` : `${total}GiB`) : '—';
+  }
+  setText('mem-info', memText, true);
 
-// 进度宽度与右侧百分比
-document.getElementById('cpu-progress').style.width  = `${cpuPct}%`;
-document.getElementById('mem-progress').style.width  = `${memPct}%`;
-document.getElementById('disk-progress').style.width = `${diskPct}%`;
-document.getElementById('cpu-percent').textContent   = `${cpuPct}%`;
-document.getElementById('mem-percent').textContent   = `${memPct}%`;
-document.getElementById('disk-percent').textContent  = `${diskPct}%`;
+  // 百分比（多字段名兼容）
+  const cpuPct  = clamp(pick(sys.cpu, sys.cpu_usage, sys['cpu-percent'], sys.metrics?.cpu, dash.metrics?.cpu));
+  const memPct  = clamp(pick(sys.memory, sys.mem, sys['memory-percent'], sys.metrics?.memory, dash.metrics?.memory));
+  const diskPct = clamp(pick(sys.disk, sys.disk_usage, sys['disk-percent'], sys.metrics?.disk, dash.metrics?.disk));
 
-// —— 核心服务（版本号与状态）——【唯一声明，不要再在别处声明同名变量】
-const svc = (dashboardData && dashboardData.services) ? dashboardData.services : {};
-const versions = {
-  nginx:   (svc.nginx && svc.nginx.version) || '',
-  xray:    (svc.xray && svc.xray.version) || '',
-  singbox: ( (svc['sing-box'] && svc['sing-box'].version) || (svc.singbox && svc.singbox.version) || '' )
-};
+  setWidth('cpu-progress',  cpuPct);  setText('cpu-percent',  `${cpuPct}%`);
+  setWidth('mem-progress',  memPct);  setText('mem-percent',  `${memPct}%`);
+  setWidth('disk-progress', diskPct); setText('disk-percent', `${diskPct}%`);
 
-// 写入三个版本号（顺带设置 title 方便悬停查看）
-const setVer = (id, v) => { const el = document.getElementById(id); if (el) { el.textContent = v || '—'; el.title = v || '—'; } };
-setVer('nginx-version',   versions.nginx);
-setVer('xray-version',    versions.xray);
-setVer('singbox-version', versions.singbox);
+  /* ========= 5) 核心服务（版本 + 状态） ========= */
+  const versions = {
+    nginx:   services.nginx?.version || '',
+    xray:    services.xray?.version  || '',
+    singbox: (services['sing-box']?.version || services.singbox?.version || '')
+  };
 
-// （可选）你以后如果想根据运行状态切换徽标样式，可按需启用下面的模板：
-const toggleBadge = (sel, running) => {
-const el = document.querySelector(sel);
-if (!el) return;
-el.textContent = running ? '运行中' : '已停止';
-el.classList.toggle('status-running', !!running);
-el.classList.toggle('status-stopped', !running);
-};
-toggleBadge('#system-overview .core-services .service-item:nth-of-type(1) .status-badge', safeGet(services,'nginx.status')==='运行中');
-toggleBadge('#system-overview .core-services .service-item:nth-of-type(2) .status-badge', safeGet(services,'xray.status')==='运行中');
-toggleBadge('#system-overview .core-services .service-item:nth-of-type(3) .status-badge', (safeGet(services,'sing-box.status')||safeGet(services,'singbox.status'))==='运行中');
+setText('nginx-version',   versions.nginx   ? `版本 ${versions.nginx}`   : '—', true);
+setText('xray-version',    versions.xray    ? `版本 ${versions.xray}`    : '—', true);
+setText('singbox-version', versions.singbox ? `版本 ${versions.singbox}` : '—', true);
 
-const toYMD = (v) => {
-  if (!v) return '—';
-  const d = new Date(v);
-  return isNaN(d) ? String(v).slice(0,10) : d.toISOString().slice(0,10);
-};
-const ver = safeGet(server, 'version', '—');
-const ins = toYMD(safeGet(server, 'install_date'));
-const upd = toYMD(dashboardData.updated_at || Date.now());
-const meta = `版本号: ${ver} | 安装日期: ${ins} | 更新时间: ${upd}`;
-const metaEl = document.getElementById('sys-meta');
-if (metaEl) metaEl.textContent = meta;
+  toggleBadge('#system-overview .core-services .service-item:nth-of-type(1) .status-badge', services.nginx?.status === '运行中');
+  toggleBadge('#system-overview .core-services .service-item:nth-of-type(2) .status-badge', services.xray?.status  === '运行中');
+  toggleBadge('#system-overview .core-services .service-item:nth-of-type(3) .status-badge',
+              (services['sing-box']?.status || services.singbox?.status) === '运行中');
+
+  /* ========= 6) 顶部“版本/日期”摘要 ========= */
+  const metaText = `版本号: ${server.version || '—'} | 安装日期: ${toYMD(server.install_date)} | 更新时间: ${toYMD(dash.updated_at || Date.now())}`;
+  setText('sys-meta', metaText);
 }
+
 
 /* 仅更正“代理IP：”的显示格式，其余逻辑保持不变 */
 function renderCertificateAndNetwork() {
@@ -5905,7 +5873,6 @@ function setupEventListeners() {
 
         switch (action) {
             case 'open-modal':
-                // ***** FIX: Use the full modal ID from the 'modal' dataset *****
                 if (modal === 'whitelistModal') showWhitelistModal();
                 if (modal === 'configModal') showConfigModal(protocol);
                 if (modal === 'ipqModal') showIPQDetails(ipq);
@@ -5913,16 +5880,50 @@ function setupEventListeners() {
             case 'close-modal':
                 closeModal(modal);
                 break;
-            case 'copy':
+            case 'copy': { // 使用块作用域以避免变量冲突
                 const modalContent = target.closest('.modal-content');
                 if (!modalContent) return;
+
+                const titleText = modalContent.querySelector('#configModalTitle')?.textContent || '';
                 let textToCopy = '';
-                if (type === 'sub') textToCopy = modalContent.querySelector('#sub-url')?.textContent;
-                if (type === 'plain') textToCopy = modalContent.querySelector('#plain-link')?.textContent;
-                if (type === 'json') textToCopy = modalContent.querySelector('#json-code')?.textContent;
-                if (type === 'base64') textToCopy = modalContent.querySelector('#base64-link')?.textContent;
+
+                if (titleText.includes('订阅链接')) {
+                    // 这是订阅弹窗
+                    const sub = dashboardData.subscription || {};
+                    const subUrl = dashboardData.subscription_url || '';
+                    switch (type) {
+                        case 'sub':
+                            textToCopy = subUrl;
+                            break;
+                        case 'plain':
+                            textToCopy = sub.plain || '';
+                            break;
+                        case 'base64':
+                            textToCopy = sub.base64 || '';
+                            break;
+                    }
+                } else {
+                    // 这是单个协议的弹窗
+                    const protocolName = titleText.replace(' 配置详情', '');
+                    const p = (dashboardData.protocols || []).find(proto => proto.name === protocolName);
+                    if (p) {
+                        switch (type) {
+                            case 'plain':
+                                textToCopy = p.share_link || '';
+                                break;
+                            case 'json':
+                                textToCopy = generateProtocolJSON(p); // 复用生成JSON的函数
+                                break;
+                            case 'base64':
+                                textToCopy = p.share_link ? btoa(p.share_link) : '';
+                                break;
+                        }
+                    }
+                }
+                
                 copyText(textToCopy);
                 break;
+            }
         }
     });
 }
