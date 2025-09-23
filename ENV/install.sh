@@ -4471,57 +4471,83 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 /* ======================================================================= */
 
 /* ===========================
-   修复补丁：徽标 / 运维管理行样式 / 网络身份块标题
+   补丁：全局徽标 / 运维管理恢复旧样式 / 网络身份标题条
    =========================== */
 
-/* 1) 核心服务：恢复浅绿色状态徽标 */
-#system-overview .core-services .status-badge{
-  height:20px; line-height:20px; padding:0 10px;
-  border-radius:999px; font-size:11px;
-  background:#eafaf3; color:#059669; border:1px solid #c7f0df;
+/* 1) 全局“运行中/已停止”等徽标（协议配置也能用） */
+.status-badge{
+  display:inline-flex; align-items:center;
+  height:20px; line-height:20px;
+  padding:0 10px;
+  border-radius:999px;
+  font-size:11px;
+  background:#eafaf3;               /* 默认浅绿底 */
+  color:#059669;                     /* 默认绿字 */
+  border:1px solid #c7f0df;
 }
-#system-overview .core-services .status-running{
-  background:#d1fae5; color:#059669; border-color:#a7f3d0;
+.status-running{
+  background:#d1fae5;                /* 运行中 更显眼 */
+  color:#059669;
+  border-color:#a7f3d0;
 }
-#system-overview .core-services .status-stopped{
-  background:#fee2e2; color:#ef4444; border-color:#fecaca;
+.status-stopped{
+  background:#fee2e2;                /* 已停止 红系 */
+  color:#ef4444;
+  border-color:#fecaca;
 }
+/* 若有“未知/未启用”等状态，可按需扩展：
+.status-idle{ background:#f3f4f6; color:#6b7280; border-color:#e5e7eb; }
+*/
 
-/* 2) 运维管理：去掉内层灰底 + 恢复“命令 与 注释”同一行展示 */
+/* 2) 运维管理：保持六个灰底分组 + 命令与注释同一行（还原旧观感） */
 #ops-panel .inner-block{
-  background: transparent; border: 0; padding: 0;  /* 去掉整块灰底 */
+  background:#f5f5f5;                /* 恢复灰底 */
+  border:1px solid #e5e7eb;
+  border-radius:6px;
+  padding:15px;
 }
-/* 小分组仍然是独立白卡（保留原样） */
-#ops-panel .command-section{
-  background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:12px;
+#ops-panel .command-section{         /* 分组仍是独立白卡（和全站一致）*/
+  background:#ffffff;
+  border:1px solid #e5e7eb;
+  border-radius:8px;
+  padding:12px;
 }
-/* 行：不用两列，改回“行内” */
-#ops-panel .ops__row{ display:block; margin:3px 0; }
-#ops-panel .ops__row .ops__label,
-#ops-panel .ops__row .ops__value{ display:inline; }
-/* 命令块（等宽深底） */
-#ops-panel .ops__row .ops__label code{
-  background:#1f2937; color:#10b981; padding:2px 6px; border-radius:4px;
-  font-family:monospace; font-size:.8rem;
+/* 行内呈现：命令 + 注释紧跟其后 */
+#ops-panel .command-list{ font-size:.8rem; line-height:1.8; }
+#ops-panel .command-list code{
+  background:#1f2937;                /* 深灰底代码块 */
+  color:#10b981;                     /* 绿色字 */
+  padding:2px 6px;
+  border-radius:4px;
+  font-family:monospace;
+  font-size:.8rem;
+  display:inline-block;
+  margin:2px 6px 2px 0;
 }
-/* 注释（浅灰小字，紧跟命令） */
-#ops-panel .ops__row .ops__value span{
-  color:#6b7280; margin-left:8px; font-size:.8rem;
+#ops-panel .command-list span{
+  color:#6b7280;                     /* 注释浅灰 */
+  margin-left:6px;
 }
 
-/* 3) 网络身份配置：三块标题做成“头部条”样式，与内容明显分开 */
+/* 3) 网络身份配置：三个小块标题做“头部条”，与内容明显分开（风格与证书切换一致） */
 #netid-panel .network-block{
-  background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:12px;
+  background:#ffffff;
+  border:1px solid #e5e7eb;
+  border-radius:8px;
+  padding:12px;
 }
 #netid-panel .network-block h3{
-  margin:-12px -12px 12px -12px;      /* 让头部条顶到卡片边缘 */
+  margin:-12px -12px 12px -12px;     /* 头部条拉满到边缘 */
   padding:10px 12px;
   background:#f3f4f6;
   border-bottom:1px solid #e5e7eb;
   border-radius:8px 8px 0 0;
-  color:#374151; font-weight:600;
+  color:#374151;
+  font-weight:600;
 }
-/* 块内行仍按之前两列排版（已在你的组件化样式里） */
+/* 标题下内容不要再额外拉开间距 */
+#netid-panel .network-block h3 + *{ margin-top:0 !important; }
+
 
 
 EXTERNAL_CSS
