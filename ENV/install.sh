@@ -4353,36 +4353,9 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   --label:#4b5563; --value:#111827; --muted:#6b7280;
 }
 
-/* ========== 添加：网格容器等高布局 ========== */
-#system-overview .grid-3 {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 20px;
-  align-items: stretch;  /* 确保子元素拉伸到相同高度 */
-}
-
-/* ========== 修改：让三个区块等高 ========== */
 /* 标题紧跟 */
-#system-overview .inner-block{ 
-  display: flex;          /* 改为flex布局 */
-  flex-direction: column; /* 垂直排列 */
-  height: 100%;          /* 占满网格高度 */
-}
-#system-overview .inner-block>h3{ 
-  display:flex; 
-  align-items:center; 
-  white-space:nowrap; 
-  margin:0 0 var(--h3-gap); 
-  flex-shrink: 0;       /* 标题不压缩 */
-}
-
-/* ========== 添加：核心服务区域占满剩余高度 ========== */
-#system-overview .core-services {
-  flex: 1;              /* 占满剩余空间 */
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between; /* 服务项均匀分布 */
-}
+#system-overview .inner-block{ display:block; }
+#system-overview .inner-block>h3{ display:flex; align-items:center; white-space:nowrap; margin:0 0 var(--h3-gap); }
 
 /* 服务器信息：两列 */
 #system-overview .server-info .info-item{
@@ -4415,9 +4388,17 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 /* 核心服务：名称 | 徽标 | 版本号 */
+/* ========== 修改：压缩服务项间距以匹配其他区块高度 ========== */
 #system-overview .core-services .service-item{
   display:grid; grid-template-columns:var(--label-w) max-content 1fr;
-  column-gap:var(--svc-gap); align-items:center; padding:6px 0;
+  column-gap:var(--svc-gap); align-items:center; 
+  padding:4px 0;  /* 从 6px 改为 4px，压缩垂直间距 */
+}
+#system-overview .core-services .service-item:first-child {
+  padding-top: 6px;  /* 第一项保持原有上边距 */
+}
+#system-overview .core-services .service-item:last-child {
+  padding-bottom: 6px;  /* 最后一项保持原有下边距 */
 }
 #system-overview .core-services .version{
   justify-self:start; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--muted); font-size:12px;
@@ -4453,7 +4434,6 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 #system-overview .core-services {
   --label-w: 60px;                 /* 这块自己设，不受上面的影响 */
   --svc-gap: 60px;
-  /* ========== 添加的等高样式已在上面 ========== */
 }
 #system-overview .core-services .label { 
   white-space: nowrap; 
@@ -4466,12 +4446,6 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   #system-overview .core-services { --label-w: 68px; }
 }
 
-/* ========== 响应式：单列布局时取消等高要求 ========== */
-@media (max-width: 1024px) {
-  #system-overview .grid-3 {
-    grid-template-columns: 1fr; /* 单列布局 */
-  }
-}
 
 /* =======================================================================
    证书切换
