@@ -4789,12 +4789,6 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 .data-table tr:hover td{ background:#f5f5f5; }
 .data-table tr.subs-row td{ background:#f5f5f5; }
 
-.traffic-card{ background:#fff; border:1px solid #d1d5db; border-radius:10px; box-shadow:0 2px 6px rgba(0,0,0,.08); padding:0; }
-.traffic-card .card-header{ padding:16px 20px; border-bottom:1px solid #e5e7eb; }
-.traffic-charts{ display:grid; grid-template-columns:1.2fr 1fr; gap:20px; padding:20px; }
-.chart-column{ display:flex; flex-direction:column; gap:12px; }
-.chart-container{ flex:1; position:relative; min-height:200px; max-height:300px; height:250px; }
-
 .traffic-progress-container{ display:flex; align-items:center; gap:10px; }
 .progress-label{ font-size:13px; color:#6b7280; white-space:nowrap; }
 .progress-wrapper{ flex:1; min-width:120px; }
@@ -4814,82 +4808,69 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   .modal-content{ width:95%; margin:10px auto; }
 }
 
+
 /* =======================================================================
-   流量统计（整段替换 v3）
-   不改 DOM：统一边界、修正标题居中、避免双边框、优化高度配比
+   流量统计（整段替换 v3.2）
    ======================================================================= */
 
-/* 外层卡片与高度口径（卡片稍低、图表稍高） */
+/* 外层卡片高度与图表高度配比：卡片略降、图表略升，减少底部留白 */
 .traffic-card{
-  background:#fff;
-  border:1px solid #d1d5db;
-  border-radius:10px;
-  box-shadow:0 2px 6px rgba(0,0,0,.08);
-  padding:0;
-  min-height: 520px;           /* ↓ 比之前略小 */
-  --chart-h: 380px;            /* ↑ 图表更高，减少底部留白 */
+  min-height: 500px;        /* 原 520 → 500，更紧凑 */
+  --chart-h: 400px;         /* 原 380 → 400，图更“撑满” */
 }
-.traffic-card .card-header{ padding:16px 20px; border-bottom:1px solid #e5e7eb; }
 
-/* 两列布局：7 / 3 */
-.traffic-charts{ display:grid; grid-template-columns:7fr 3fr; gap:20px; padding:20px; }
+/* 两列 7/3；标题横线与组件组的间距更小 */
+.traffic-charts{
+  display:grid; grid-template-columns:7fr 3fr;
+  gap:20px; padding:10px 20px 16px;  /* 原 20 → 上 10，下 16 */
+}
 
-/* 左列：默认用横线分隔（启用迷你卡片后会移除） */
+/* 左列内部默认用横线分隔（B 方案下会被移除） */
 .chart-column{ display:flex; flex-direction:column; gap:12px; }
 .chart-column > * + *{ border-top:1px solid #e5e7eb; padding-top:12px; margin-top:12px; }
 
-/* 旧的两列竖向分割线 —— 仅在未启用 B 方案时生效 */
+/* 竖向分割线：只有未启用 B 方案时显示 */
 .traffic-charts:not(.traffic--subcards) > :first-child{ border-right:1px solid #e5e7eb; padding-right:20px; }
 .traffic-charts:not(.traffic--subcards) > :last-child{ padding-left:20px; }
 
-/* 统一的图表容器高度 */
+/* 统一图表容器高度；右侧柱图额外 +16px 用来对齐两列底边 */
 .chart-container{
-  position:relative;
-  height: var(--chart-h);
-  min-height: var(--chart-h);
-  overflow:hidden;
-  box-sizing:border-box;
+  position:relative; height:var(--chart-h); min-height:var(--chart-h);
+  overflow:hidden; box-sizing:border-box;
 }
+.traffic-charts > :last-child .chart-container{ height:calc(var(--chart-h) + 16px); }
 
-/* 标题：两张图居中；“本月进度”保持左对齐 */
-.traffic-card .traffic-charts h3{ text-align:center; margin:0 0 10px; font-weight:600; }
-.traffic-card .traffic-progress-container h3{ text-align:left; }
+/* 两张图的标题强制居中；“本月进度”保留左对齐 */
+.traffic-card .traffic-charts h3{ text-align:center !important; margin:0 0 8px; font-weight:600; }
+.traffic-card .traffic-progress-container h3{ text-align:left !important; }
 
-/* 进度条（与 CPU 同口径，底色 #e2e8f0） */
-.traffic-card .traffic-progress-container{ display:flex; align-items:center; gap:10px; }
-.traffic-card .progress-label{ font-size:13px; color:#6b7280; white-space:nowrap; }
-.traffic-card .progress-wrapper{ flex:1; min-width:120px; }
-.traffic-card .progress-bar{
-  height: var(--meter-height, 18px);
-  background:#e2e8f0;
-  border-radius:999px;
-  overflow:hidden;
-  position:relative;
-}
-
-/* B 方案：迷你卡片外观（只包“内容块”，避免右列双边框） */
+/* B 方案：迷你卡片（只包内容块，避免右列“双层卡片”），并加强阴影 */
 .traffic-charts.traffic--subcards{ gap:12px; }
 .traffic-charts.traffic--subcards .traffic-progress-container,
 .traffic-charts.traffic--subcards .chart-container{
   padding:12px 12px 10px;
-  border:1px solid #e5e7eb;
-  border-radius:12px;
-  background:#fff;
-  box-shadow:0 1px 2px rgba(0,0,0,.04);
+  border:1px solid #e5e7eb; border-radius:12px;
+  background:#fff; box-shadow:0 2px 8px rgba(17,24,39,.08);
 }
 /* 启用 B 方案时，移除左列内部横线 & 两列竖线 */
 .traffic-charts.traffic--subcards .chart-column > * + *{ border-top:0; padding-top:0; margin-top:0; }
 .traffic-charts.traffic--subcards > :first-child{ border-right:0; padding-right:0; }
 .traffic-charts.traffic--subcards > :last-child{ padding-left:0; }
 
-/* 响应式：窄屏单列，同时去掉分割线 */
+/* 进度条（与 CPU 一致，底色 #e2e8f0） */
+.traffic-card .traffic-progress-container{ display:flex; align-items:center; gap:10px; }
+.traffic-card .progress-bar{ height:var(--meter-height,18px); background:#e2e8f0; border-radius:999px; overflow:hidden; position:relative; }
+.traffic-card .progress-label{ font-size:13px; color:#6b7280; white-space:nowrap; }
+.traffic-card .progress-wrapper{ flex:1; min-width:120px; }
+
+/* 窄屏：单列并取消分割线 */
 @media (max-width:1024px){
   .traffic-charts{ grid-template-columns:1fr; }
   .traffic-charts:not(.traffic--subcards) > :first-child{ border-right:0; padding-right:0; }
   .traffic-charts:not(.traffic--subcards) > :last-child{ padding-left:0; }
 }
 
-/* 可选：单位小字 */
+/* 单位小字 */
 .unit-note{ margin-left:8px; font-size:12px; color:#6b7280; font-weight:500; }
 
 
@@ -5352,7 +5333,8 @@ const ebYAxisUnitTop = {
     ctx.restore();
   }
 };
-Chart.register(ebYAxisUnitTop);
+// Chart.register(ebYAxisUnitTop); // 取消全局注册
+try { Chart.unregister(ebYAxisUnitTop); } catch(e) {}
 
 // --- Utility Functions ---
 async function fetchJSON(url) {
