@@ -4809,7 +4809,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 /* =======================================================================
-   流量统计（正确的高度调整）
+   流量统计（增加高度版本）
    ======================================= */
 
 .traffic-card{
@@ -4826,12 +4826,12 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   border-bottom:1px solid #e5e7eb; 
 }
 
-/* 主布局：7:3 比例 */
+/* 主布局：增加顶部padding来加大间距 */
 .traffic-charts{ 
   display:grid; 
   grid-template-columns:7fr 3fr; 
   gap:20px; 
-  padding:20px;
+  padding:35px 20px 20px;  /* 增加顶部padding从20px到35px */
   align-items: stretch;
 }
 
@@ -4859,13 +4859,14 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   padding-left:20px; 
 }
 
-/* 进度条容器 */
+/* 进度条容器 - 增加高度 */
 .traffic-card .traffic-progress-container{ 
   display:flex; 
   align-items:center; 
   gap:10px;
-  height: 50px;
+  height: 65px;  /* 从50px增加到65px */
   flex-shrink: 0;
+  padding: 10px 0;  /* 增加内边距 */
 }
 
 .traffic-card .progress-label{ 
@@ -4886,7 +4887,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 .traffic-card .progress-bar{ 
-  height:18px; 
+  height:20px;  /* 稍微增加进度条高度 */
   background:#e2e8f0; 
   border-radius:999px; 
   overflow:hidden; 
@@ -4931,23 +4932,23 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   flex-direction: column;
 }
 
-/* 左列图表：保持原有大小 */
+/* 左列图表：增加高度 */
 .chart-column:first-child .chart-container {
-  height: 320px;  /* 充足的高度展示图表 */
-  min-height: 320px;
+  height: 350px;  /* 从320px增加到350px */
+  min-height: 350px;
 }
 
-/* 右列图表：调整高度以匹配左列总高度 */
+/* 右列图表：相应增加以保持对齐 */
 .chart-column:last-child .chart-container {
-  height: 382px;  /* 50(进度) + 12(间隙) + 320(图表) = 382px */
-  min-height: 382px;
-  max-height: 382px;
+  height: 427px;  /* 65(进度) + 12(间隙) + 350(图表) = 427px */
+  min-height: 427px;
+  max-height: 427px;
 }
 
-/* 图表标题 */
+/* 图表标题 - 增加上下边距 */
 .traffic-card .chart-container h3{ 
   text-align:center !important; 
-  margin:0 0 8px; 
+  margin:10px 0 15px;  /* 增加标题的上下间距 */
   font-weight:600;
   font-size: 14px;
   line-height: 20px;
@@ -4959,12 +4960,13 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   display: block !important;
   width: 100% !important;
   height: auto !important;
-  max-height: calc(100% - 35px) !important;  /* 减去标题和间距 */
+  max-height: calc(100% - 45px) !important;  /* 调整以适应增加的标题间距 */
 }
 
 /* B方案：迷你卡片样式 */
 .traffic-charts.traffic--subcards{ 
   gap:15px;
+  padding: 30px 15px 15px;  /* subcards模式也增加顶部间距 */
 }
 
 .traffic-charts.traffic--subcards > :first-child{ 
@@ -4977,20 +4979,22 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 .traffic-charts.traffic--subcards .traffic-progress-container{
-  padding:12px;
+  padding:15px;
   border:1px solid #e5e7eb; 
   border-radius:12px;
   background:#fff; 
   box-shadow:0 2px 8px rgba(17,24,39,.08);
+  height: auto;
+  min-height: 70px;  /* 增加最小高度 */
 }
 
 .traffic-charts.traffic--subcards .chart-container{
-  padding:12px;
+  padding:15px;
   border:1px solid #e5e7eb; 
   border-radius:12px;
   background:#fff; 
   box-shadow:0 2px 8px rgba(17,24,39,.08);
-  height: 320px;  /* subcards模式统一高度 */
+  height: 340px;  /* subcards模式也相应增加高度 */
 }
 
 /* B方案时移除左列内部横线 */
@@ -5012,6 +5016,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 @media (max-width:1024px){
   .traffic-charts{ 
     grid-template-columns:1fr;
+    padding: 25px 20px 20px;  /* 单列时也保持顶部间距 */
   }
   
   .traffic-charts:not(.traffic--subcards) > :first-child{ 
@@ -5028,21 +5033,22 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   
   .chart-column:first-child .chart-container,
   .chart-column:last-child .chart-container {
-    height: 280px;
-    min-height: 280px;
+    height: 300px;
+    min-height: 300px;
   }
 }
 
 @media (max-width:768px) {
   .traffic-charts {
-    padding: 10px;
+    padding: 20px 15px 15px;
   }
   
   .chart-column:first-child .chart-container,
   .chart-column:last-child .chart-container {
-    height: 240px;
-    min-height: 240px;
+    height: 260px;
+    min-height: 260px;
   }
+}
 }
 
 /* =========================
