@@ -4732,56 +4732,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   }
 }
 
-/* ====白名单/查看全部按钮==== */
-/* ===== 完全重置白名单样式 ===== */
 
-/* 步骤1：先清理所有可能的污染 */
-#net-shunt .whitelist-value,
-#net-shunt .whitelist-text,
-#net-shunt #whitelistText,
-#net-shunt .whitelist-more,
-#net-shunt .whitelist-preview {
-  /* 重置所有属性到初始值 */
-  all: revert;
-}
-
-/* 步骤2：只添加最少必要的样式 */
-
-/* 白名单的值容器 - 什么都不设置，使用默认grid子项行为 */
-#net-shunt .whitelist-value {
-  /* 故意留空，让它继承父级grid的布局 */
-}
-
-/* 白名单文本 - 只设置颜色 */
-#net-shunt #whitelistText {
-  color: inherit;
-}
-
-/* 查看全部按钮 - 只复用全局按钮样式 */
-#net-shunt .whitelist-more {
-  /* 使用已有的 .btn-viewall 样式，不需要重新定义 */
-}
-
-/* 步骤3：如果上面不够，只添加这个最小修复 */
-@supports (display: grid) {
-  #net-shunt .whitelist-value {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-  
-  #net-shunt #whitelistText {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  
-  #net-shunt .whitelist-more {
-    flex-shrink: 0;
-  }
-}
 
 /* =======================================================================
    运维管理
@@ -5651,52 +5602,6 @@ h4 { font-size: var(--h4-size); line-height: 1.4; font-weight: 600; }
 .text-h4-muted { font-size: var(--h4-size); line-height: 1.4; color: var(--muted-color); }
 
 
-/* 统一行模型（<value> 默认是 inline，改成块级，和左/中卡一致） */
-#net-shunt .nid__row .nid__value { display:block; }
-
-/* 白名单值容器：建立定位上下文 + 为按钮预留右侧空间 */
-#net-shunt .whitelist-value { position: relative; }
-#net-shunt .whitelist-preview {
-  /* 与左/中卡单行高度对齐：22px；你那边若是 24px 就同步改 */
-  height: 22px;
-  line-height: 22px;
-  padding-right: 96px;         /* 预留按钮宽度，避免文字被覆盖 */
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* 多行需求时（如果你改回 2~3 行）：把上一段的 nowrap 改成正常换行并使用 clamp
-   #net-shunt .whitelist-preview{
-     height:auto; line-height:22px; padding-right:96px;
-   }
-   #net-shunt .whitelist-preview .whitelist-text{
-     display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:3;
-     overflow:hidden;
-   }
-*/
-
-/* 右下角固定“查看全部” */
-#net-shunt .whitelist-more{
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  height: 28px;
-  line-height: 26px;
-  padding: 0 12px;
-  font-size: 12px;
-}
-
-/* 纠正你之前用 :has() 改过的行：避免把这一行拉崩布局 */
-#net-shunt .info-item:has(.whitelist-value){
-  align-items: center;         /* 回到与其它行一致的垂直对齐 */
-  min-height: unset;           /* 让高度跟随内容（已由行高控制） */
-  padding-top: 0; padding-bottom: 0;
-}
-
-/* 如果仍需“白名单行”跟其它行完全等高： */
-#net-shunt .whitelist-value,
-#net-shunt .whitelist-value .whitelist-preview { height: 22px; line-height: 22px; }
 
 EXTERNAL_CSS
 
