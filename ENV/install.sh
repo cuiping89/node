@@ -4815,42 +4815,45 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 /* =======================================================================
-   流量统计
+   流量统计（替换整段）
+   说明：不改 DOM，只增强边界与容错，修复 legend 越界观感
    ======================================================================= */
-/* 假设容器为 .traffic-stats，子项为 .stat（保持你现有布局，不改 DOM） */
-.traffic-stats{
-  display:grid; grid-template-columns:repeat(3,1fr); gap:0;  /* 布局保持不变 */
-  align-items:stretch; background:transparent;
-  --hair:#e5e7eb;      /* 分隔线颜色（与你灰阶规范一致） */
-  --pad:16px;          /* 每块内边距 */
+
+.traffic-card{ background:#fff; border:1px solid #d1d5db; border-radius:10px; box-shadow:0 2px 6px rgba(0,0,0,.08); padding:0; }
+.traffic-card .card-header{ padding:16px 20px; border-bottom:1px solid #e5e7eb; }
+
+/* 两列布局：左列(进度+30天折线)，右列(月度柱状) */
+.traffic-charts{ display:grid; grid-template-columns:1.2fr 1fr; gap:20px; padding:20px; }
+
+/* 左列：内部两块之间用横线分隔，保持模组边界清晰 */
+.chart-column{ display:flex; flex-direction:column; gap:12px; }
+.chart-column > * + *{ border-top:1px solid #e5e7eb; padding-top:12px; margin-top:12px; }
+
+/* 左右两列之间加一条竖线（右列不加外边框，视觉更轻） */
+.traffic-charts > :first-child{ border-right:1px solid #e5e7eb; padding-right:20px; }
+.traffic-charts > :last-child{ padding-left:20px; }
+
+/* 图表容器：给足高度并裁切，避免 legend/tooltip 视觉“探出卡片” */
+.chart-container{ flex:1; position:relative; min-height:220px; height:260px; max-height:300px; overflow:hidden; box-sizing:border-box; }
+
+/* 进度条区域维持原样 */
+.traffic-progress-container{ display:flex; align-items:center; gap:10px; }
+.progress-label{ font-size:13px; color:#6b7280; white-space:nowrap; }
+.progress-wrapper{ flex:1; min-width:120px; }
+.progress-bar{ height:20px; background:#f3f4f6; border-radius:10px; overflow:hidden; position:relative; }
+.progress-fill{ height:100%; background:linear-gradient(90deg,#10b981 0%,#059669 100%); transition:width .3s ease; display:flex; align-items:center; justify-content:flex-end; padding-right:8px; }
+.progress-fill.warning{ background:linear-gradient(90deg,#f59e0b 0%,#d97706 100%); }
+.progress-fill.critical{ background:linear-gradient(90deg,#ef4444 0%,#dc2626 100%); }
+.progress-percentage{ color:#fff; font-size:11px; font-weight:600; }
+.progress-budget{ color:#6b7280; font-size:12px; white-space:nowrap; }
+
+/* 响应式：窄屏改单列，移除左右分隔线，保留内部横线 */
+@media (max-width:1024px){
+  .traffic-charts{ grid-template-columns:1fr; }
+  .traffic-charts > :first-child{ border-right:0; padding-right:0; }
+  .traffic-charts > :last-child{ padding-left:0; }
 }
 
-.traffic-stats .stat{
-  padding: var(--pad);
-  position: relative;  /* 用来放伪元素画线 */
-  min-height: 96px;    /* 视情况可去掉，只是让视觉更均衡 */
-}
-
-/* 竖向分隔线：仅给前两项画右侧细线（第3项不画） */
-.traffic-stats .stat:nth-child(-n+2)::after{
-  content:""; position:absolute; top:12%; bottom:12%; right:0;
-  width:1px; background:var(--hair);
-  pointer-events:none;  /* 避免遮挡交互 */
-}
-
-/* 移动端改为单列 + 横向分隔线 */
-@media (max-width: 768px){
-  .traffic-stats{ grid-template-columns:1fr; }
-  .traffic-stats .stat::after{ display:none; }
-  .traffic-stats .stat + .stat{
-    border-top:1px solid var(--hair);
-  }
-}
-
-/* 轻微悬停反馈（可选） */
-.traffic-stats .stat:hover{
-  background:rgba(17,24,39,0.015); /* 极轻微底色，保持克制 */
-}
 
 /* =========================
    弹窗 Modal 统一样式补丁
@@ -5578,11 +5581,32 @@ function renderTrafficCharts() {
     });
     const daily = trafficData.last30d || [];
     if (daily.length) {
-        new Chart('traffic', { type: 'line', data: { labels: daily.map(d => d.date.slice(5)), datasets: [{ label: 'VPS', data: daily.map(d => d.vps / GiB), borderColor: '#f59e0b' }, { label: '代理', data: daily.map(d => d.resi / GiB), borderColor: '#10b981' }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }, plugins: [ebYAxisUnitTop] });
+        // 折线图：legend 固定底部，并给布局留点 padding
+new Chart('traffic', {
+  type:'line',
+  data:{ /* 原样 */ },
+  options:{
+    responsive:true, maintainAspectRatio:false,
+    layout:{ padding:{ bottom:8 } },
+    plugins:{ legend:{ position:'bottom', labels:{ boxWidth:12, padding:12 } } }
+  },
+  plugins:[ebYAxisUnitTop]
+});
     }
     if (monthly.length) {
         const recentMonthly = monthly.slice(-12);
-        new Chart('monthly-chart', { type: 'bar', data: { labels: recentMonthly.map(m => m.month), datasets: [{ label: 'VPS', data: recentMonthly.map(m => m.vps / GiB), backgroundColor: '#f59e0b', stack: 'a' }, { label: '代理', data: recentMonthly.map(m => m.resi / GiB), backgroundColor: '#10b981', stack: 'a' }] }, options: { responsive: true, maintainAspectRatio: false, scales: { x: { stacked: true }, y: { stacked: true } } }, plugins: [ebYAxisUnitTop] });
+ // 柱状图：统一 legend、保持堆叠
+new Chart('monthly-chart', {
+  type:'bar',
+  data:{ /* 原样 */ },
+  options:{
+    responsive:true, maintainAspectRatio:false,
+    layout:{ padding:{ bottom:6 } },
+    scales:{ x:{ stacked:true }, y:{ stacked:true } },
+    plugins:{ legend:{ position:'top', labels:{ boxWidth:12, padding:8 } } }
+  },
+  plugins:[ebYAxisUnitTop]
+});
     }
 }
 
@@ -6405,6 +6429,8 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
   </div>
 </div>
 
+          <div class="command-section"><h4>💾 系统维护</h4><div class="command-list"><code>edgeboxctl update</code><span># 更新EdgeBox</span><br><code>edgeboxctl backup create</code><span># 创建备份</span><br><code>edgeboxctl backup list</code><span># 列出备份</span><br><code>edgeboxctl backup restore &lt;file&gt;</code><span># 恢复备份</span></div></div>
+		  
 <div id="whitelistModal" class="modal"><div class="modal-content"><div class="modal-header"><h3>白名单完整列表</h3><span class="close-btn" data-action="close-modal" data-modal="whitelistModal">×</span></div><div class="modal-body"><div id="whitelistList"></div></div></div></div>
 <div id="ipqModal" class="modal"><div class="modal-content"><div class="modal-header"><h3 id="ipqModalTitle">IP质量检测详情</h3><span class="close-btn" data-action="close-modal" data-modal="ipqModal">×</span></div><div class="modal-body"><div id="ipqDetails"></div></div></div></div>
 
