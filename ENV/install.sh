@@ -4732,132 +4732,81 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   }
 }
 
-/* ======== 网络身份配置 - 白名单查看全部按钮专用CSS =========== */
 /* =======================================================================
-   网络身份配置 - 白名单区域等于三行高度版
+   网络身份配置 - 白名单区块布局修复
    ======================================================================= */
 
-/* 关键修复：覆盖分流出站区块中白名单值的限制性样式 */
-#net-shunt .whitelist-value,
+/* 1. 强制白名单的值容器允许内容换行，并为内部绝对定位提供参照 */
 #net-shunt .info-item .whitelist-value {
+  /* 覆盖通用样式，允许内容正常换行和显示 */
   white-space: normal !important;
-  overflow: hidden !important;  /* 超出部分隐藏，确保不破坏布局 */
+  overflow: visible !important;
   text-overflow: initial !important;
-  
+
+  /* 成为内部 absolutely positioned 元素的定位基准 */
   position: relative;
-  width: 100%;
   
-  /* 关键：设置高度等于其他区块三行的总高度 */
-  height: calc(var(--line-vpad) * 6 + 1.2em * 3);  /* 6倍行内边距 + 3行文字高度 */
-  min-height: calc(var(--line-vpad) * 6 + 1.2em * 3);
-  max-height: calc(var(--line-vpad) * 6 + 1.2em * 3);
-  
-  /* 为按钮预留右下角空间 */
-  padding-right: 75px;
-  padding-bottom: 25px;
+  /* 确保此行与其他行在垂直方向上顶部对齐 */
+  align-self: start; 
 }
 
-/* 白名单预览容器 */
-.whitelist-preview {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  display: block;
-  overflow: hidden;  /* 确保内容不超出容器 */
+/* 2. 定义白名单预览容器的布局 */
+#net-shunt .whitelist-preview {
+  position: relative; /* 再次确认，为按钮定位 */
+  min-height: 64px;   /* 预设约3行的高度，确保容器有足够空间 */
 }
 
-/* 白名单文本内容 - 填充整个可用空间 */
-.whitelist-text {
+/* 3. 核心：限制文本最多显示3行，并处理溢出 */
+#net-shunt .whitelist-preview .whitelist-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3; /* 核心：限制为3行 */
+  overflow: hidden;
+  text-overflow: ellipsis; /* 文本溢出时在结尾显示省略号 */
+  
+  /* 样式与对齐调整 */
+  line-height: 1.6; /* 确保行高与相邻区块一致 */
+  word-break: break-all; /* 处理长域名不断行的问题 */
   color: #111827;
   font-size: 13px;
-  line-height: 1.2;  /* 与其他区块保持一致 */
-  word-wrap: break-word;
-  word-break: break-all;
   
-  /* 填充整个容器，但为按钮预留空间 */
-  display: block;
-  height: 100%;
-  overflow: hidden;
-  
-  /* 使用CSS让文本自然填充，超出部分隐藏 */
-  padding-right: 0;
-  margin-right: 0;
+  /* 在右侧为按钮留出空间，防止文本与按钮重叠 */
+  padding-right: 90px; 
 }
 
-/* 查看全部按钮 - 绝对定位固定在右下角 */
-.whitelist-more {
-  --btn-h: 22px;
-  --btn-pad-x: 8px;   
-
-  display: inline-flex !important;
-  align-items: center;
-  justify-content: center;
-  height: var(--btn-h);
-  line-height: calc(var(--btn-h) - 2px);
-  padding: 0 var(--btn-pad-x);
-  
-  /* 关键：绝对定位固定在右下角 */
-  position: absolute !important;
-  right: 0;
+/* 4. 将“查看全部”按钮绝对定位于右下角 */
+#net-shunt .whitelist-preview .whitelist-more {
+  position: absolute;
   bottom: 0;
-  z-index: 2;
-
+  right: 0;
+  
+  /* 按钮基础样式 (您可以根据需要调整) */
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 10px;
   border: 1px solid #d1d5db;
-  border-radius: 4px;
+  border-radius: 6px;
   background: #fff;
   color: #2563eb;
   font-size: 11px;
   font-weight: 500;
-  text-decoration: none;
   cursor: pointer;
+  text-decoration: none;
   white-space: nowrap;
-
-  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
   transition: all 0.15s ease;
 }
 
-/* hover效果 */
-.whitelist-more:hover {
+#net-shunt .whitelist-preview .whitelist-more:hover {
   background: #f3f4f6;
   border-color: #9ca3af;
-  color: #1d4ed8;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.12);
 }
 
-/* active效果 */
-.whitelist-more:active {
-  background: #e5e7eb;
-  border-color: #9ca3af;
-  color: #1d4ed8;
-  transform: translateY(1px);
-}
-
-/* 确保分流出站区块的最后一行（白名单行）使用特殊高度 */
-#net-shunt .info-item.nid__row:last-child {
-  align-items: stretch;  /* 拉伸对齐 */
-  /* 移除min-height，让白名单容器的高度生效 */
-}
-
-/* 其他行保持原有高度 */
-#net-shunt .info-item.nid__row:not(:last-child) {
-  /* 保持与其他区块一致的行高 */
-  padding: var(--line-vpad) 0;
-}
-
-/* 响应式调整 */
-@media (max-width: 1024px) {
-  .whitelist-more {
-    --btn-h: 20px;
-    --btn-pad-x: 6px;
-    font-size: 10px;
-  }
-  
-  #net-shunt .whitelist-value {
-    padding-right: 65px;
-    padding-bottom: 22px;
-    /* 响应式下也要保持三行高度 */
-    height: calc(var(--line-vpad) * 6 + 1.2em * 3);
-  }
+/* 5. 调整包含白名单的整行布局，使其能更好地容纳多行内容 */
+#net-shunt .info-item:has(.whitelist-value) {
+  /* 覆盖网格布局的垂直居中，改为顶部对齐 */
+  align-items: start;
+  padding-top: 8px; /* 增加一点顶部空间，视觉更协调 */
 }
 
 /* =======================================================================
