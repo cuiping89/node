@@ -4732,155 +4732,64 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   }
 }
 
-/* ======== 网络身份配置 - 白名单查看全部按钮专用CSS =========== */
-/* =======================================================================
-   网络身份配置 - 基于您脚本结构的白名单CSS修改
-   ======================================================================= */
-
-/* 1. 修复白名单行的高度，与其他区块对齐 */
-#net-shunt .info-item:has(.whitelist-value),
-#net-shunt .info-item.nid__row:last-child {
-    /* 改为顶部对齐，而不是默认的垂直居中 */
-    align-items: flex-start !important;
-    /* 设置固定高度，与其他区块的3行高度保持一致 */
-    min-height: 78px !important;
-    max-height: 78px !important;
-    /* 统一垂直内边距 */
-    padding-top: var(--line-vpad) !important;
-    padding-bottom: var(--line-vpad) !important;
+/* ====白名单查看全部按钮==== */
+#net-shunt .whitelist-value {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  width: 100%;
+  
+  /* 覆盖默认的单行限制 */
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
 }
 
-/* 2. 覆盖 .whitelist-value 的默认样式，允许内容换行和显示 */
-#net-shunt .info-item .whitelist-value {
-    white-space: normal !important;
-    overflow: visible !important;
-    text-overflow: initial !important;
-    
-    /* 设置相对定位，为按钮的绝对定位提供参考 */
-    position: relative !important;
-    width: 100% !important;
-    height: 100% !important;
-    
-    /* 为右下角按钮预留空间 */
-    padding-right: 75px !important;
-    padding-bottom: 5px !important;
+/* 白名单文本 - 主体内容，超出显示省略号 */
+#net-shunt .whitelist-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #111827;
+  font-size: 13px;
+  margin-right: 8px;
 }
 
-/* 3. 白名单预览容器 */
-#net-shunt .whitelist-preview {
-    position: relative;
-    width: 100%;
-    height: 100%;
-    overflow: hidden; /* 确保内容不会撑大容器 */
+/* 查看全部按钮 - 固定在右侧，不会被压缩 */
+#net-shunt .whitelist-more {
+  flex-shrink: 0;
+  
+  height: 28px;
+  line-height: 26px;
+  padding: 0 12px;
+  font-size: 12px;
+  
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  color: #2563eb;
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+  
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  
+  transition: all 0.15s ease;
 }
 
-/* 4. 白名单文本 - 限制3行显示 */
-#net-shunt .whitelist-preview .whitelist-text {
-    /* 使用webkit-line-clamp精确控制3行显示 */
-    display: -webkit-box !important;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 3;
-    overflow: hidden;
-    
-    /* 行高与其他区块保持一致 */
-    line-height: 1.35 !important;
-    word-break: break-all;
-    font-size: 13px;
-    color: #111827;
-    
-    /* 确保文本不会影响按钮位置 */
-    margin: 0;
-    padding: 0;
+#net-shunt .whitelist-more:hover {
+  background: #f3f4f6;
+  border-color: #9ca3af;
+  color: #1d4ed8;
 }
 
-/* 5. 查看全部按钮 - 绝对定位到右下角 */
-#net-shunt .whitelist-preview .whitelist-more {
-    /* 绝对定位固定在右下角 */
-    position: absolute !important;
-    right: 0 !important;
-    bottom: 0 !important;
-    z-index: 2 !important;
-    
-    /* 按钮样式，与其他按钮保持一致 */
-    height: 28px !important;
-    line-height: 26px !important;
-    padding: 0 12px !important;
-    font-size: 12px !important;
-    
-    /* 确保按钮不会被挤变形 */
-    flex-shrink: 0 !important;
-    white-space: nowrap !important;
-    
-    /* 继承全局按钮样式 */
-    display: inline-flex !important;
-    align-items: center;
-    justify-content: center;
-    border: 1px solid #d1d5db;
-    border-radius: 6px;
-    background: #fff;
-    color: #2563eb;
-    text-decoration: none;
-    cursor: pointer;
-    
-    /* 轻微阴影确保可见性 */
-    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-    transition: all 0.15s ease;
-}
-
-/* 6. 按钮hover效果 */
-#net-shunt .whitelist-preview .whitelist-more:hover {
-    background: #f3f4f6;
-    border-color: #9ca3af;
-    color: #1d4ed8;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.12);
-}
-
-/* 7. 按钮active效果 */
-#net-shunt .whitelist-preview .whitelist-more:active {
-    background: #e5e7eb;
-    border-color: #9ca3af;
-    color: #1d4ed8;
-    transform: translateY(1px);
-}
-
-/* 8. 移除可能导致高度变化的CSS类效果 */
-#net-shunt .whitelist-preview.has-overflow,
-#net-shunt .whitelist-preview.has-long-content {
-    height: 100% !important;
-    overflow: hidden !important;
-}
-
-#net-shunt .whitelist-preview.has-overflow .whitelist-text,
-#net-shunt .whitelist-preview.has-long-content .whitelist-text {
-    -webkit-line-clamp: 3 !important;
-    overflow: hidden !important;
-}
-
-#net-shunt .whitelist-preview.has-overflow .whitelist-more,
-#net-shunt .whitelist-preview.has-long-content .whitelist-more {
-    position: absolute !important;
-    right: 0 !important;
-    bottom: 0 !important;
-}
-
-/* 9. 响应式调整 */
-@media (max-width: 1024px) {
-    #net-shunt .info-item:has(.whitelist-value),
-    #net-shunt .info-item.nid__row:last-child {
-        min-height: 72px !important;
-        max-height: 72px !important;
-    }
-    
-    #net-shunt .info-item .whitelist-value {
-        padding-right: 65px !important;
-    }
-    
-    #net-shunt .whitelist-preview .whitelist-more {
-        height: 24px !important;
-        line-height: 22px !important;
-        padding: 0 8px !important;
-        font-size: 11px !important;
-    }
+#net-shunt .whitelist-more:active {
+  background: #e5e7eb;
+  border-color: #9ca3af;
+  color: #1d4ed8;
 }
 
 /* =======================================================================
@@ -5054,6 +4963,18 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 .data-table tbody tr:nth-child(even):not(.subs-row):hover td {
   background-color: #f3f4f6;
+}
+
+/* 订阅行分割线变细（覆盖前面的设置） */
+.data-table tr.subs-row td{
+  border-top: 1px solid rgba(203,213,225,0.6); /* 更轻的#cbd5e1 */
+  box-shadow: inset 0 1px 0 rgba(0,0,0,0.04);  /* 去掉 3px 模糊，避免“增厚感” */
+}
+
+/* 悬停时也保持细线，不再显粗 */
+.data-table tr.subs-row:hover td{
+  background:#e3e9f2;
+  box-shadow: inset 0 1px 0 rgba(0,0,0,0.06), 0 2px 6px rgba(0,0,0,0.10);
 }
 
 
@@ -5982,24 +5903,21 @@ function renderCertificateAndNetwork() {
   }
   if (proxyEl) proxyEl.textContent = formatProxy(proxyRaw);
 
-  // —— 白名单预览：保持你“始终显示查看全部 + 转义”的口径 —— 
+// —— 白名单处理 ——
   const whitelist = data.shunt?.whitelist || [];
-  const preview = document.getElementById('whitelistPreview');
-// 在 renderCertificateAndNetwork() 函数的白名单处理部分添加：
-if (preview) {
-  if (!whitelist.length) {
-    preview.innerHTML = '<span class="whitelist-text">(无)</span>';
-  } else {
-    const fullText = whitelist.join(', ');
-    // 估算是否会超过3行（可以根据实际情况调整这个阈值）
-    const willOverflow = fullText.length > 120; // 大约3行的字符数
-    
-    preview.className = `whitelist-preview${willOverflow ? ' has-overflow' : ''}`;
-    preview.innerHTML =
-      `<span class="whitelist-text">${escapeHtml(fullText)}</span>` +
-      `<button class="whitelist-more" data-action="open-modal" data-modal="whitelistModal">查看全部</button>`;
+  const whitelistTextEl = document.getElementById('whitelistText');
+  
+  if (whitelistTextEl) {
+    if (!whitelist.length) {
+      whitelistTextEl.textContent = '(无)';
+      whitelistTextEl.style.color = '#9ca3af';
+    } else {
+      const fullText = whitelist.join(', ');
+      whitelistTextEl.textContent = fullText;
+      whitelistTextEl.style.color = '#111827';
+      whitelistTextEl.title = fullText;  // 悬停显示完整内容
+    }
   }
-}
 }
 
 
@@ -6757,7 +6675,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
     </div>
 
     <div class="network-blocks">
-      <!-- 📡 VPS出站IP -->
+
       <div class="network-block" id="net-vps">
         <h3>📡 VPS出站IP</h3>
         <div class="info-item nid__row">
@@ -6781,7 +6699,6 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         </div>
       </div>
 
-      <!-- 🔄 代理出站IP -->
       <div class="network-block" id="net-proxy">
         <h3>🔄 代理出站IP</h3>
         <div class="info-item nid__row">
@@ -6805,21 +6722,26 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         </div>
       </div>
 
-      <!-- 🔀 分流出站 -->
-      <div class="network-block" id="net-shunt">
-        <h3>🔀 分流出站</h3>
-        <div class="info-item nid__row">
-          <label class="nid__label">混合身份:</label>
-          <value class="nid__value">直连v代理</value>
-        </div>
-        <div class="info-item nid__row">
-          <label class="nid__label">白名单:</label>
-          <value class="nid__value whitelist-value">
-            <div class="whitelist-preview" id="whitelistPreview"></div>
-          </value>
-        </div>
-      </div>
-    </div>
+<div class="network-block" id="net-shunt">
+  <h3>🔀 分流出站</h3>
+  <div class="info-item nid__row">
+    <label class="nid__label">混合身份:</label>
+    <value class="nid__value">直连v代理</value>
+  </div>
+  <div class="info-item nid__row">
+    <label class="nid__label">VPS-IP:</label>
+    <value class="nid__value">同左</value>
+  </div>
+  <div class="info-item nid__row">
+    <label class="nid__label">代理IP:</label>
+    <value class="nid__value">同左</value>
+  </div>
+  <div class="info-item nid__row">
+    <label class="nid__label">白名单:</label>
+    <value class="nid__value whitelist-value">
+      <span class="whitelist-text" id="whitelistText">—</span>
+      <button class="whitelist-more" data-action="open-modal" data-modal="whitelistModal">查看全部</button>
+    </value>
   </div>
 </div>
 
