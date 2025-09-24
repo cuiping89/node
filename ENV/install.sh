@@ -4734,56 +4734,55 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 
 /* ======== 网络身份配置 - 白名单查看全部按钮专用CSS =========== */
 
-/* 分流出站区块中的白名单值容器 */
-#net-shunt .whitelist-value {
+/* 关键修复：覆盖分流出站区块中白名单值的限制性样式 */
+#net-shunt .whitelist-value,
+#net-shunt .info-item .whitelist-value {
+  /* 覆盖父级的 white-space: nowrap 和 overflow: hidden */
+  white-space: normal !important;  /* 允许换行 */
+  overflow: visible !important;    /* 显示溢出内容 */
+  text-overflow: initial !important;  /* 取消省略号 */
+  
   position: relative;
   width: 100%;
   min-height: 60px;
 }
 
-/* 白名单预览容器 - 关键：使用块级布局 */
+/* 白名单预览容器 */
 .whitelist-preview {
   position: relative;
   width: 100%;
-  display: block;  /* 改为块级布局 */
+  display: block;
   line-height: 1.4;
   font-size: 13px;
 }
 
-/* 白名单文本内容 - 关键修改：让文本和按钮形成流式布局 */
+/* 白名单文本内容 */
 .whitelist-text {
   color: #111827;
   font-size: 13px;
   line-height: 1.4;
   word-wrap: break-word;
   word-break: break-all;
-  
-  /* 移除 webkit-line-clamp，改用其他方式控制 */
-  display: inline;  /* 内联显示，让按钮可以跟在文本后面 */
-  
-  /* 计算3行的最大高度并截断 */
+  display: inline;
   max-height: calc(1.4em * 3);
   overflow: hidden;
 }
 
-/* 查看全部按钮 - 关键：改为内联块级元素，跟在文本流中 */
+/* 查看全部按钮 - 默认跟在文本后面 */
 .whitelist-more {
-  /* 按钮基础样式 */
-  --btn-h: 20px;      /* 更小的按钮适配行内 */
+  --btn-h: 20px;
   --btn-pad-x: 6px;   
 
-  display: inline-flex !important;  /* 内联flex */
+  display: inline-flex !important;
   align-items: center;
   justify-content: center;
   height: var(--btn-h);
   line-height: calc(var(--btn-h) - 2px);
   padding: 0 var(--btn-pad-x);
 
-  /* 位置：不再绝对定位，而是跟在文本后面 */
-  margin-left: 6px;   /* 与前面文本的间距 */
-  vertical-align: baseline;  /* 与文本基线对齐 */
+  margin-left: 6px;
+  vertical-align: baseline;
   
-  /* 样式 */
   border: 1px solid #d1d5db;
   border-radius: 4px;
   background: #fff;
@@ -4792,32 +4791,22 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   font-weight: 500;
   text-decoration: none;
   cursor: pointer;
-  white-space: nowrap;  /* 防止按钮文字换行 */
+  white-space: nowrap;
 
-  /* 轻微阴影提升可见性 */
   box-shadow: 0 1px 2px rgba(0,0,0,0.1);
-  
   transition: all 0.15s ease;
 }
 
-/* 创建一个CSS技巧：通过伪元素在第三行后插入按钮 */
-.whitelist-preview::after {
-  content: '';
-  display: block;
-  clear: both;
-}
-
-/* 另一种方案：使用JavaScript控制的CSS类 */
+/* 当内容超过3行时，按钮定位到第三行末尾 */
 .whitelist-preview.has-overflow .whitelist-text {
-  /* 当内容超过3行时，在第三行末尾留出按钮空间 */
-  margin-right: 70px;  /* 为按钮预留空间 */
+  margin-right: 70px;
   position: relative;
 }
 
 .whitelist-preview.has-overflow .whitelist-more {
   position: absolute;
   right: 0;
-  top: calc(1.4em * 2.2);  /* 大概在第三行的位置 */
+  top: calc(1.4em * 2.2);
   margin-left: 0;
 }
 
@@ -4837,13 +4826,13 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   transform: translateY(1px);
 }
 
-/* 确保在小卡片中白名单区域有足够空间 */
+/* 确保白名单行有足够空间 */
 #net-shunt .info-item.nid__row:last-child {
   align-items: flex-start;
   min-height: 64px;
 }
 
-/* 响应式：窄屏时调整 */
+/* 响应式调整 */
 @media (max-width: 1024px) {
   .whitelist-more {
     --btn-h: 18px;
