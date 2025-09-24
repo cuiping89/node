@@ -4510,7 +4510,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
    ======================================================================= */
 #cert-panel{
   /* 与 NetID 标签一致的参数 */
-  --tag-pad-y: 8px;        /* ← 改它=改标签高度 */
+  --tag-pad-y: 6px;        /* ← 改它=改标签高度 */
   --tag-pad-x: 16px;
   --tag-radius: 8px;
   --tag-font: 13px;
@@ -4733,83 +4733,117 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 /* ======== 网络身份配置 - 白名单查看全部按钮专用CSS =========== */
-/* =======================================================================
-   网络身份配置 - 白名单（两行域名 + 第三行按钮，严格对齐版）
-   说明：
-   --line-h 为与左侧“代理IP/Geo/IP质量”一致的单行行高（这里用 22px）
-   ======================================================================= */
 
-#net-shunt{ --line-h:22px; }  /* 如你的实际单行高不同，改这里即可 */
-
-/* 仅对白名单这一行做顶对齐，避免其它行标题位移 */
-#net-shunt .info-item:has(.whitelist-preview){
-  align-items: flex-start;
-  padding-top: 8px;
-  padding-bottom: 8px;
-}
-
-/* 容器：第3行放按钮 */
-#net-shunt .whitelist-preview{
-  position: relative;                           /* 给按钮提供定位参照 */
-  min-height: calc(var(--line-h) * 3);          /* 2 行文本 + 1 行按钮的高度 */
+/* 关键修复：覆盖分流出站区块中白名单值的限制性样式 */
+#net-shunt .whitelist-value,
+#net-shunt .info-item .whitelist-value {
+  /* 覆盖父级的 white-space: nowrap 和 overflow: hidden */
+  white-space: normal !important;  /* 允许换行 */
+  overflow: visible !important;    /* 显示溢出内容 */
+  text-overflow: initial !important;  /* 取消省略号 */
+  
+  position: relative;
   width: 100%;
+  min-height: 60px;
 }
 
-/* “查看全部”固定在右下，与“查看详情”对齐（必要时把 right 改 8px/12px） */
-#net-shunt .whitelist-preview .whitelist-more{
-  position: absolute;
-  right: 8px;                                   /* 视你卡片内边距微调 0/8/12px */
-  bottom: 0;
-  height: 28px;
-  line-height: 26px;
-  padding: 0 12px;
-  font-size: 12px;
-}
-
-/* ===== 方案 A：域名为多个子元素（推荐） ===== */
-#net-shunt .whitelist-preview .whitelist-text:has(*){
-  display: grid;
-  grid-template-rows: repeat(2, var(--line-h));  /* 只给两行文本空间 */
-  align-content: start;
-  gap: 0;
+/* 白名单预览容器 */
+.whitelist-preview {
+  position: relative;
+  width: 100%;
+  display: block;
+  line-height: 1.4;
   font-size: 13px;
-  color: #111827;
 }
 
-/* 每个域名一行，超长省略号；第 3 个及之后直接隐藏 */
-#net-shunt .whitelist-preview .whitelist-text:has(*) > *{
+/* 白名单文本内容 */
+.whitelist-text {
+  color: #111827;
+  font-size: 13px;
+  line-height: 1.4;
+  word-wrap: break-word;
+  word-break: break-all;
+  display: inline;
+  max-height: calc(1.4em * 3);
   overflow: hidden;
+}
+
+/* 查看全部按钮 - 默认跟在文本后面 */
+.whitelist-more {
+  --btn-h: 20px;
+  --btn-pad-x: 6px;   
+
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  height: var(--btn-h);
+  line-height: calc(var(--btn-h) - 2px);
+  padding: 0 var(--btn-pad-x);
+
+  margin-left: 6px;
+  vertical-align: baseline;
+  
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  background: #fff;
+  color: #2563eb;
+  font-size: 10px;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
   white-space: nowrap;
-  text-overflow: ellipsis;
-}
-#net-shunt .whitelist-preview .whitelist-text:has(*) > *:nth-child(n+3){
-  display: none;                                 /* 仅显示前两条 */
-}
 
-/* ===== 方案 B：整串逗号+空格的纯文本 =====
-   不改 DOM 的情况下，限制为“严格两行”，并尽量只在空格处换行 */
-#net-shunt .whitelist-preview .whitelist-text:not(:has(*)){
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;                         /* 严格两行 */
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-size: 13px;
-  line-height: var(--line-h);
-  color: #111827;
-
-  white-space: normal;
-  word-break: keep-all;                          /* 尽量不在域名中间断开 */
-  overflow-wrap: normal;                         /* 只在逗号后的空格处换行 */
+  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+  transition: all 0.15s ease;
 }
 
-/* 兜底：值容器允许换行，避免旧样式的强制单行干扰 */
-#net-shunt .info-item .whitelist-value{
-  white-space: normal !important;
-  overflow: visible !important;
+/* 当内容超过3行时，按钮定位到第三行末尾 */
+.whitelist-preview.has-overflow .whitelist-text {
+  margin-right: 70px;
+  position: relative;
 }
 
+.whitelist-preview.has-overflow .whitelist-more {
+  position: absolute;
+  right: 0;
+  top: calc(1.4em * 2.2);
+  margin-left: 0;
+}
 
+/* hover效果 */
+.whitelist-more:hover {
+  background: #f3f4f6;
+  border-color: #9ca3af;
+  color: #1d4ed8;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.12);
+}
+
+/* active效果 */
+.whitelist-more:active {
+  background: #e5e7eb;
+  border-color: #9ca3af;
+  color: #1d4ed8;
+  transform: translateY(1px);
+}
+
+/* 确保白名单行有足够空间 */
+#net-shunt .info-item.nid__row:last-child {
+  align-items: flex-start;
+  min-height: 64px;
+}
+
+/* 响应式调整 */
+@media (max-width: 1024px) {
+  .whitelist-more {
+    --btn-h: 18px;
+    --btn-pad-x: 4px;
+    font-size: 9px;
+  }
+  
+  .whitelist-preview.has-overflow .whitelist-text {
+    margin-right: 60px;
+  }
+}
 
 /* =======================================================================
    运维管理
@@ -6688,7 +6722,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
           <value class="nid__value">直连</value>
         </div>
         <div class="info-item nid__row">
-          <label class="nid__label">VPS-IP:</label>
+          <label class="nid__label">出站IP:</label>
           <value class="nid__value" id="vps-ip">—</value>
         </div>
         <div class="info-item nid__row">
