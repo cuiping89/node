@@ -4485,6 +4485,23 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   #system-overview .core-services { --label-w: 68px; }
 }
 
+/* ===== 系统概览：标题右侧“版本/安装/更新时间”内联备注 ===== */
+#system-overview .card-header h2{
+  display:flex;
+  align-items:flex-end;        /* 与标题下沿对齐 */
+}
+
+#system-overview .card-header .note-meta{
+  color:#9ca3af !important;   /* 浅灰，和 netid-panel 一致 */
+  font-weight:400;
+  font-size:12px;
+  line-height:1;
+  margin-left:auto;            /* 把备注推到右侧 */
+  margin-right:1em;            /* 右缩进一个字宽（按需改） */
+  transform:translateY(2px);   /* 轻微下沉，更贴近底线 */
+}
+
+
 /* =======================================================================
    证书切换
    ======================================================================= */
@@ -4698,8 +4715,8 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   font-weight: 400;
   font-size: 12px;
   line-height: 1;
-  margin-right: 2em;             /* 右缩进一个字宽（可改 1em） */
-  transform: translateY(3px);    /* 轻微下沉，更贴近底线 */
+  margin-right: 1em;             /* 右缩进一个字宽（可改 1em） */
+  transform: translateY(2px);    /* 轻微下沉，更贴近底线 */
 }
 
 /* 窄屏：纵向堆叠，去掉强制高度避免留白 */
@@ -4776,7 +4793,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 /* =======================================================================
-   协议配置、表格
+   协议配置
    ======================================================================= */
 .data-table{ width:100%; border-collapse:collapse; }
 .data-table th{
@@ -4815,7 +4832,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 
 /* —— 全局口径：这里一处改数值，全卡片同步 —— */
 :root{
-  --charts-pad-y: 20px;   /* 图表组“上下内边距”与其它卡片保持一致；想更贴就调成 12/8 */
+  --charts-pad-y: 10px;   /* 图表组“上下内边距”与其它卡片保持一致；想更贴就调成 12/8 */
   --charts-pad-x: 20px;   /* 左右内边距 */
   --gap-v: 12px;          /* 左列 进度 与 折线图 的间距 */
   --h-progress: 50px;     /* 本月进度内容高度 */
@@ -5631,6 +5648,7 @@ function renderTrafficCharts() {
     if (fillEl)   fillEl.style.width = `${percentage}%`;
     if (pctEl)    pctEl.textContent  = `${percentage}%`;
 	if (budgetEl) budgetEl.textContent = `阈值(${budget}GiB)`;
+	if (pctEl) pctEl.title = `已用 ${used.toFixed(1)}GiB / 阈值 ${budget}GiB`;
   }
 
   // —— 图表销毁（避免重复实例）——
@@ -6347,7 +6365,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
   <!-- 🌐 网络身份配置 -->
   <div class="card" id="netid-panel">
     <div class="card-header">
-      <h2>🌐 网络身份配置 <span class="note-udp">注：HY2/TUIC为UDP通道，VPS直连，不参与分流配置</span></h2>
+      <h2>🌐 网络身份配置 <span class="note-udp">注：HY2/TUIC为UDP通道，VPS直连，不参与分流配置.</span></h2>
     </div>
 
     <div class="network-blocks">
