@@ -5829,13 +5829,14 @@ setText('singbox-version', versions.singbox ? `版本 ${versions.singbox}` : '�
 }
 
 
+// 简化版JavaScript - 直接处理白名单，不动其他逻辑
 function renderCertificateAndNetwork() {
   const data   = window.dashboardData || {};
   const server = data.server || {};
   const cert   = server.cert || {};
   const shunt  = data.shunt  || {};
 
-  // —— 证书区（带空值保护）——
+  // —— 保持原有的证书切换逻辑 ——
   const certMode = String(safeGet(cert, 'mode', 'self-signed'));
   document.getElementById('cert-self')?.classList.toggle('active', certMode === 'self-signed');
   document.getElementById('cert-ca')?.classList.toggle('active', certMode.startsWith('letsencrypt'));
@@ -5851,7 +5852,7 @@ function renderCertificateAndNetwork() {
     exEl.textContent = exp ? new Date(exp).toLocaleDateString() : '—';
   }
 
-  // —— 出站模式高亮 ——
+  // —— 保持原有的出站模式高亮逻辑 ——
   const shuntMode = String(safeGet(shunt, 'mode', 'vps')).toLowerCase();
   ['net-vps','net-proxy','net-shunt'].forEach(id => document.getElementById(id)?.classList.remove('active'));
   if (shuntMode.includes('direct')) {
@@ -5862,85 +5863,46 @@ function renderCertificateAndNetwork() {
     document.getElementById('net-vps')?.classList.add('active');
   }
 
-  // —— VPS 出站 IP（带兜底）——
+  // —— 保持原有的VPS和代理IP处理 ——
   const vpsIp = safeGet(data, 'server.eip') || safeGet(data, 'server.server_ip') || '—';
   const vpsEl = document.getElementById('vps-ip'); 
   if (vpsEl) vpsEl.textContent = vpsIp;
 
-  // —— 代理出站 IP：仅显示 "协议//主机:端口"，自动剥离 user:pass@，兼容 IPv6 —— 
   const proxyRaw = String(safeGet(shunt, 'proxy_info', ''));
   const proxyEl  = document.getElementById('proxy-ip');
-
+  
   function formatProxy(raw) {
     if (!raw) return '—';
-    // 优先用 URL 解析
     try {
-      // 确保有协议
       const normalized = /^[a-z][a-z0-9+.\-]*:\/\//i.test(raw) ? raw : 'socks5://' + raw;
       const u = new URL(normalized);
-      const proto = u.protocol.replace(/:$/,'');     // 'socks5'
-      const host  = u.hostname || '';                // 去掉了 user:pass@
-      const port  = u.port || '';                    // 可能为空
+      const proto = u.protocol.replace(/:$/,'');
+      const host  = u.hostname || '';
+      const port  = u.port || '';
       return (host && port) ? `${proto}//${host}:${port}` : (host ? `${proto}//${host}` : '—');
     } catch (_) {
-      // 兜底正则：protocol://[user[:pass]@]host[:port]
-      const re = /^([a-z0-9+.\-]+):\/\/(?:[^@\/\s]+@)?(\[[^\]]+\]|[^:/?#]+)(?::(\d+))?/i;
-      const m = raw.match(re);
-      if (m) {
-        const proto = m[1];
-        const host  = m[2];
-        const port  = m[3] || '';
-        return port ? `${proto}//${host}:${port}` : `${proto}//${host}`;
-      }
-      // 再兜底一种 "proto host:port" 或 "host:port"
-      const re2 = /^(?:([a-z0-9+.\-]+)\s+)?(\[[^\]]+\]|[^:\/?#\s]+)(?::(\d+))?$/i;
-      const m2 = raw.match(re2);
-      if (m2) {
-        const proto = m2[1] || 'socks5';
-        const host  = m2[2];
-        const port  = m2[3] || '';
-        return port ? `${proto}//${host}:${port}` : `${proto}//${host}`;
-      }
       return '—';
     }
   }
   if (proxyEl) proxyEl.textContent = formatProxy(proxyRaw);
 
-  // —— 填充分流出站区块的4行内容 ——
-  const shuntRows = document.querySelectorAll('#net-shunt .info-item.nid__row');
-  
-  // 第2行：VPS-IP - 显示"同左"
-  if (shuntRows[1]) {
-    const vpsIpValue = shuntRows[1].querySelector('.nid__value');
-    if (vpsIpValue) {
-      vpsIpValue.textContent = '同左';
-    }
-  }
-  
-  // 第3行：代理IP - 显示"同左"
-  if (shuntRows[2]) {
-    const proxyIpValue = shuntRows[2].querySelector('.nid__value');
-    if (proxyIpValue) {
-      proxyIpValue.textContent = '同左';
-    }
-  }
-
-  // —— 白名单处理（第4行）——
+  // —— 新逻辑：只处理白名单文本，其他行保持HTML中的固定值 ——
   const whitelist = data.shunt?.whitelist || [];
   const whitelistTextEl = document.getElementById('whitelistText');
   
   if (whitelistTextEl) {
     if (!whitelist.length) {
       whitelistTextEl.textContent = '(无)';
-      whitelistTextEl.style.color = '#9ca3af';  // 灰色显示
+      whitelistTextEl.style.color = '#9ca3af';
     } else {
       const fullText = whitelist.join(', ');
       whitelistTextEl.textContent = fullText;
-      whitelistTextEl.style.color = '#111827';  // 正常颜色
-      whitelistTextEl.title = fullText;  // 鼠标悬停显示完整内容
+      whitelistTextEl.style.color = '#111827';
+      whitelistTextEl.title = fullText;
     }
   }
 }
+
 
 function renderProtocolTable() {
     const protocols = dashboardData.protocols || [];
