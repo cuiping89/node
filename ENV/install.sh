@@ -4510,7 +4510,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
    ======================================================================= */
 #cert-panel{
   /* 与 NetID 标签一致的参数 */
-  --tag-pad-y: 8px;        /* ← 改它=改标签高度 */
+  --tag-pad-y: 6px;        /* ← 改它=改标签高度 */
   --tag-pad-x: 16px;
   --tag-radius: 8px;
   --tag-font: 13px;
@@ -4732,41 +4732,15 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   }
 }
 
-/* ======== 网络身份配置 - 白名单查看全部按钮专用CSS =========== */
-/* 与左侧行高保持一致（你当前是 22px，如不同改这里） */
-#net-shunt{ --row-h:22px; }
-
-/* 仅影响白名单这一行的排版 */
-#net-shunt .info-item.whitelist-row .whitelist-preview{
-  position: relative;
-  height: var(--row-h);
-  line-height: var(--row-h);
-  padding-right: 96px;                 /* 给按钮预留空间，按按钮宽度调 88~112 都可 */
+#net-shunt .whitelist-value { position: relative; }
+#net-shunt .whitelist-preview {
+  height: 22px; line-height: 22px;   /* 与左侧行高一致，按需改 */
+  padding-right: 96px;               /* 给按钮预留空间 */
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-
-#net-shunt .info-item.whitelist-row .whitelist-text{
-  display: block;
-  white-space: nowrap;                  /* 单行显示 */
-  overflow: hidden;
-  text-overflow: ellipsis;              /* 不够显示用省略号 */
-  font-size: 13px;
-  color: #111827;
-}
-
-#net-shunt .info-item.whitelist-row .whitelist-more{
-  position: absolute;
-  right: 0;                             /* 与“查看详情”右边距统一可改 8px/12px */
-  bottom: 0;                            /* 放到该区块右下角 */
-  height: 28px;
-  line-height: 26px;
-  padding: 0 12px;
-  font-size: 12px;
-}
-
-/* 防止旧样式把值容器设成单行 */
-#net-shunt .info-item .value{
-  white-space: normal !important;
-  overflow: visible !important;
+#net-shunt .whitelist-more {
+  position: absolute; right: 0; bottom: 0;
+  height: 28px; line-height: 26px; padding: 0 12px; font-size: 12px;
 }
 
 
@@ -5864,16 +5838,6 @@ function renderCertificateAndNetwork() {
   }
   if (proxyEl) proxyEl.textContent = formatProxy(proxyRaw);
 
-// 同步右侧分流卡片里的 VPS-IP / 代理IP 值
-(function(){
-  const vps = document.getElementById('vps-ip')?.textContent?.trim() || '—';
-  const pro = document.getElementById('proxy-ip')?.textContent?.trim() || '同左';
-  const a = document.getElementById('shunt-vps-ip');
-  const b = document.getElementById('shunt-proxy-ip');
-  if (a) a.textContent = vps;
-  if (b) b.textContent = pro;
-})();
-
   // —— 白名单预览：保持你“始终显示查看全部 + 转义”的口径 —— 
   const whitelist = data.shunt?.whitelist || [];
   const preview = document.getElementById('whitelistPreview');
@@ -6657,7 +6621,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
           <value class="nid__value">直连</value>
         </div>
         <div class="info-item nid__row">
-          <label class="nid__label">VPS-IP:</label>
+          <label class="nid__label">出站IP:</label>
           <value class="nid__value" id="vps-ip">—</value>
         </div>
         <div class="info-item nid__row">
@@ -6697,9 +6661,8 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         </div>
       </div>
 
-<div class="network-block" id="net-shunt">
   <h3>🔀 分流出站</h3>
-
+<div class="network-block" id="net-shunt">
   <!-- 第1行：混合身份（保留原值） -->
   <div class="info-item nid__row">
     <label class="nid__label">混合身份:</label>
@@ -6730,6 +6693,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
     </value>
   </div>
 </div>
+
 
       <div class="card">
         <div class="card-header"><h2>📡 协议配置</h2></div>
