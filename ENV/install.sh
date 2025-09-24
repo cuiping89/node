@@ -4835,8 +4835,12 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 
 /* 统一图表容器高度；右侧柱图额外 +16px 用来对齐两列底边 */
 .chart-container{
-  position:relative; height:var(--chart-h); min-height:var(--chart-h);
-  overflow:hidden; box-sizing:border-box;
+  position: relative;
+  height: 400px;         /* 你要的更“撑满”高度；要再高就改这里 */
+  min-height: 400px;
+  overflow: hidden;
+  box-sizing: border-box;
+  /* 关键：不要再给它 flex:1; 也不要用 height:auto/100% */
 }
 .traffic-charts > :last-child .chart-container{ height:calc(var(--chart-h) + 16px); }
 
@@ -5333,8 +5337,6 @@ const ebYAxisUnitTop = {
     ctx.restore();
   }
 };
-// Chart.register(ebYAxisUnitTop); // 取消全局注册
-try { Chart.unregister(ebYAxisUnitTop); } catch(e) {}
 
 // --- Utility Functions ---
 async function fetchJSON(url) {
