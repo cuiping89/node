@@ -4733,44 +4733,113 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 /* ====白名单/查看全部按钮==== */
-/* 只修分流出站卡 (#net-shunt) 里的“白名单”这一行 */
-#net-shunt .nid__row .nid__value.whitelist-value{
-  position: relative;         /* 给按钮的定位上下文 */
-  display: block;             /* 自定义 <value> 统一成块级 */
-  min-height: 28px;           /* 行高与左/中卡一致（你的按钮高28px）*/
+/* ===== ANCHOR: WHITELIST-BUTTON-FIX ===== */
+/* 修复分流出站卡片中白名单"查看全部"按钮的布局问题 */
+
+/* 1. 白名单行的基础容器 */
+#net-shunt .whitelist-value {
+  display: flex;              /* 使用flex布局而不是position */
+  align-items: center;        /* 垂直居中对齐 */
+  justify-content: space-between; /* 文本和按钮分开两端 */
+  gap: 10px;                  /* 文本和按钮之间的间距 */
+  width: 100%;
+  min-height: 28px;           /* 保持与其他行一致的高度 */
 }
 
-/* 白名单文本：单行省略，和左/中卡行高对齐 */
-#net-shunt .nid__row .whitelist-preview{
-  height: 28px;
-  line-height: 28px;
-  padding-right: 96px;        /* 预留“查看全部”按钮宽度 */
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+/* 2. 白名单文本部分 */
+#net-shunt .whitelist-text,
+#whitelistText {
+  flex: 1;                    /* 占据剩余空间 */
+  white-space: nowrap;        /* 单行显示 */
+  overflow: hidden;           /* 隐藏溢出 */
+  text-overflow: ellipsis;    /* 省略号 */
+  color: #111827;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
-/* “查看全部”固定到右下角；把旧的 float/clear 全部压制 */
-#net-shunt .nid__row .whitelist-more{
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  height: 28px;
-  line-height: 26px;
-  padding: 0 12px;
+/* 3. 查看全部按钮 - 简化样式 */
+#net-shunt .whitelist-more {
+  flex-shrink: 0;             /* 按钮不被压缩 */
+  height: 26px;               /* 固定高度 */
+  line-height: 24px;          /* 扣掉边框的行高 */
+  padding: 0 12px;            /* 水平内边距 */
+  
+  /* 按钮样式 */
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  color: #2563eb;
   font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  
+  /* 移除所有定位相关的样式 */
+  position: static !important;
   float: none !important;
   clear: none !important;
   margin: 0 !important;
+  
+  transition: all 0.15s ease;
 }
 
-/* 把你之前针对白名单行改过的纵向对齐/高度恢复，避免这一行“跳拍” */
-#net-shunt .info-item:has(.whitelist-value){
-  align-items: center !important;
-  padding-top: 0 !important;
-  padding-bottom: 0 !important;
-  min-height: unset !important;
+/* 4. 按钮hover状态 */
+#net-shunt .whitelist-more:hover {
+  background: #f3f4f6;
+  border-color: #9ca3af;
+  color: #1d4ed8;
 }
+
+/* 5. 按钮active状态 */
+#net-shunt .whitelist-more:active {
+  background: #e5e7eb;
+  border-color: #9ca3af;
+  color: #1d4ed8;
+}
+
+/* 6. 确保父容器不被破坏 */
+#net-shunt .info-item,
+#net-shunt .nid__row {
+  display: grid;
+  grid-template-columns: 75px 1fr;  /* 标签宽度75px，值占剩余空间 */
+  gap: 12px;
+  align-items: center;
+  padding: 5px 0;
+  min-height: unset !important;
+  height: auto !important;
+}
+
+/* 7. 当白名单为空时的样式 */
+#net-shunt .whitelist-text:empty::before,
+#net-shunt .whitelist-text.empty::before {
+  content: '(无)';
+  color: #9ca3af;
+}
+
+/* 8. 响应式：窄屏优化 */
+@media (max-width: 768px) {
+  #net-shunt .whitelist-value {
+    flex-direction: column;     /* 垂直排列 */
+    align-items: flex-start;    /* 左对齐 */
+    gap: 8px;
+  }
+  
+  #net-shunt .whitelist-text {
+    width: 100%;                /* 文本占满宽度 */
+    max-width: none;
+  }
+  
+  #net-shunt .whitelist-more {
+    align-self: flex-start;      /* 按钮左对齐 */
+  }
+}
+
+/* 9. 移除旧的冲突样式 */
+/* 删除或注释掉这些旧规则：
+   - #net-shunt .nid__row .whitelist-preview
+   - 任何使用 position: absolute 的白名单相关样式
+   - 带有 padding-right: 96px 的规则
+*/
 
 
 /* =======================================================================
