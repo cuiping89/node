@@ -4510,7 +4510,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
    ======================================================================= */
 #cert-panel{
   /* 与 NetID 标签一致的参数 */
-  --tag-pad-y: 6px;        /* ← 改它=改标签高度 */
+  --tag-pad-y: 8px;        /* ← 改它=改标签高度 */
   --tag-pad-x: 16px;
   --tag-radius: 8px;
   --tag-font: 13px;
@@ -4732,16 +4732,83 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   }
 }
 
-#net-shunt .whitelist-value { position: relative; }
-#net-shunt .whitelist-preview {
-  height: 22px; line-height: 22px;   /* 与左侧行高一致，按需改 */
-  padding-right: 96px;               /* 给按钮预留空间 */
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+/* ======== 网络身份配置 - 白名单查看全部按钮专用CSS =========== */
+/* =======================================================================
+   网络身份配置 - 白名单（两行域名 + 第三行按钮，严格对齐版）
+   说明：
+   --line-h 为与左侧“代理IP/Geo/IP质量”一致的单行行高（这里用 22px）
+   ======================================================================= */
+
+#net-shunt{ --line-h:22px; }  /* 如你的实际单行高不同，改这里即可 */
+
+/* 仅对白名单这一行做顶对齐，避免其它行标题位移 */
+#net-shunt .info-item:has(.whitelist-preview){
+  align-items: flex-start;
+  padding-top: 8px;
+  padding-bottom: 8px;
 }
-#net-shunt .whitelist-more {
-  position: absolute; right: 0; bottom: 0;
-  height: 28px; line-height: 26px; padding: 0 12px; font-size: 12px;
+
+/* 容器：第3行放按钮 */
+#net-shunt .whitelist-preview{
+  position: relative;                           /* 给按钮提供定位参照 */
+  min-height: calc(var(--line-h) * 3);          /* 2 行文本 + 1 行按钮的高度 */
+  width: 100%;
 }
+
+/* “查看全部”固定在右下，与“查看详情”对齐（必要时把 right 改 8px/12px） */
+#net-shunt .whitelist-preview .whitelist-more{
+  position: absolute;
+  right: 8px;                                   /* 视你卡片内边距微调 0/8/12px */
+  bottom: 0;
+  height: 28px;
+  line-height: 26px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+
+/* ===== 方案 A：域名为多个子元素（推荐） ===== */
+#net-shunt .whitelist-preview .whitelist-text:has(*){
+  display: grid;
+  grid-template-rows: repeat(2, var(--line-h));  /* 只给两行文本空间 */
+  align-content: start;
+  gap: 0;
+  font-size: 13px;
+  color: #111827;
+}
+
+/* 每个域名一行，超长省略号；第 3 个及之后直接隐藏 */
+#net-shunt .whitelist-preview .whitelist-text:has(*) > *{
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+#net-shunt .whitelist-preview .whitelist-text:has(*) > *:nth-child(n+3){
+  display: none;                                 /* 仅显示前两条 */
+}
+
+/* ===== 方案 B：整串逗号+空格的纯文本 =====
+   不改 DOM 的情况下，限制为“严格两行”，并尽量只在空格处换行 */
+#net-shunt .whitelist-preview .whitelist-text:not(:has(*)){
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;                         /* 严格两行 */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 13px;
+  line-height: var(--line-h);
+  color: #111827;
+
+  white-space: normal;
+  word-break: keep-all;                          /* 尽量不在域名中间断开 */
+  overflow-wrap: normal;                         /* 只在逗号后的空格处换行 */
+}
+
+/* 兜底：值容器允许换行，避免旧样式的强制单行干扰 */
+#net-shunt .info-item .whitelist-value{
+  white-space: normal !important;
+  overflow: visible !important;
+}
+
 
 
 /* =======================================================================
@@ -6621,7 +6688,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
           <value class="nid__value">直连</value>
         </div>
         <div class="info-item nid__row">
-          <label class="nid__label">出站IP:</label>
+          <label class="nid__label">VPS-IP:</label>
           <value class="nid__value" id="vps-ip">—</value>
         </div>
         <div class="info-item nid__row">
@@ -6661,39 +6728,23 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         </div>
       </div>
 
-  <h3>🔀 分流出站</h3>
-<div class="network-block" id="net-shunt">
-  <!-- 第1行：混合身份（保留原值） -->
-  <div class="info-item nid__row">
-    <label class="nid__label">混合身份:</label>
-    <value class="nid__value">直连v代理</value>
-  </div>
-
-  <!-- 第2行：VPS-IP（值来自 #vps-ip） -->
-  <div class="info-item nid__row">
-    <label class="nid__label">VPS-IP:</label>
-    <value class="nid__value" id="shunt-vps-ip"><!-- 运行时填充 #vps-ip 的文本 --></value>
-  </div>
-
-  <!-- 第3行：代理IP（值来自 #proxy-ip） -->
-  <div class="info-item nid__row">
-    <label class="nid__label">代理IP:</label>
-    <value class="nid__value" id="shunt-proxy-ip"><!-- 运行时填充 #proxy-ip 的文本 --></value>
-  </div>
-
-  <!-- 第4行：白名单 + 右下角“查看全部” -->
-  <div class="info-item nid__row">
-    <label class="nid__label">白名单:</label>
-    <value class="nid__value whitelist-value">
-      <div class="whitelist-preview" id="whitelistPreview"></div>
-      <button type="button"
-              class="btn-link whitelist-more"
-              data-action="open-modal"
-              data-modal="whitelistModal">查看全部</button>
-    </value>
+      <!-- 🔀 分流出站 -->
+      <div class="network-block" id="net-shunt">
+        <h3>🔀 分流出站</h3>
+        <div class="info-item nid__row">
+          <label class="nid__label">混合身份:</label>
+          <value class="nid__value">直连v代理</value>
+        </div>
+        <div class="info-item nid__row">
+          <label class="nid__label">白名单:</label>
+          <value class="nid__value whitelist-value">
+            <div class="whitelist-preview" id="whitelistPreview"></div>
+          </value>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
-
 
       <div class="card">
         <div class="card-header"><h2>📡 协议配置</h2></div>
