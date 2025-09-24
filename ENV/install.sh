@@ -4732,64 +4732,32 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   }
 }
 
-/* ====白名单查看全部按钮==== */
-#net-shunt .whitelist-value {
-  display: flex !important;
-  align-items: center !important;
-  justify-content: space-between !important;
-  width: 100%;
-  
-  /* 覆盖默认的单行限制 */
-  white-space: nowrap !important;
-  overflow: hidden !important;
-  text-overflow: ellipsis !important;
+/* ====白名单/查看全部按钮==== */
+/* 仅限：分流出站卡片(#net-shunt) 的白名单值容器 */
+#net-shunt .nid__value.whitelist-value{
+  position: relative;              /* 给按钮提供定位上下文 */
+  display: block;                  /* 让值容器成为块级，行高可控 */
 }
 
-/* 白名单文本 - 主体内容，超出显示省略号 */
-#net-shunt .whitelist-text {
-  flex: 1;
+/* 白名单文字：单行省略，行高与左/中卡一致（22px 如不同自行改） */
+#net-shunt .whitelist-value .whitelist-preview{
+  height: 22px;
+  line-height: 22px;
+  padding-right: 96px;             /* 预留按钮宽度，避免文字被盖住 */
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
-  color: #111827;
-  font-size: 13px;
-  margin-right: 8px;
 }
 
-/* 查看全部按钮 - 固定在右侧，不会被压缩 */
-#net-shunt .whitelist-more {
-  flex-shrink: 0;
-  
+/* “查看全部”固定在该区块右下角，不受文本换行影响 */
+#net-shunt .whitelist-value .whitelist-more{
+  position: absolute;
+  right: 0;
+  bottom: 0;
   height: 28px;
   line-height: 26px;
   padding: 0 12px;
   font-size: 12px;
-  
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  background: #fff;
-  color: #2563eb;
-  text-decoration: none;
-  cursor: pointer;
-  white-space: nowrap;
-  
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  
-  transition: all 0.15s ease;
-}
-
-#net-shunt .whitelist-more:hover {
-  background: #f3f4f6;
-  border-color: #9ca3af;
-  color: #1d4ed8;
-}
-
-#net-shunt .whitelist-more:active {
-  background: #e5e7eb;
-  border-color: #9ca3af;
-  color: #1d4ed8;
 }
 
 /* =======================================================================
@@ -5901,6 +5869,44 @@ function renderCertificateAndNetwork() {
       whitelistTextEl.title = fullText;
     }
   }
+
+// === 右侧分流卡：在白名单前插入“VPS-IP / 代理IP”两行（不会重复插） ===
+(function injectShuntRows(){
+  const shunt = document.getElementById('net-shunt');
+  if (!shunt) return;
+
+  // 找白名单这一行，作为插入锚点
+  const wlRow = shunt.querySelector('.whitelist-value')?.closest('.nid__row');
+  if (!wlRow) return;
+
+  // 取左/中卡的现有值
+  const vpsIP   = document.getElementById('vps-ip')?.textContent?.trim()   || '—';
+  const proxyIP = document.getElementById('proxy-ip')?.textContent?.trim() || '同左';
+
+  // 工具：避免重复插入（按标签精确匹配）
+  const pickRow = (lab) => Array.from(shunt.querySelectorAll('.nid__row')).find(r=>{
+    const t = (r.querySelector('.nid__label')||r.children[0])?.textContent?.replace(/[：:]/g,'').trim();
+    return t === lab;
+  });
+
+  const mkRow = (lab,val)=>{
+    const d = document.createElement('div');
+    d.className = 'info-item nid__row';
+    d.innerHTML = `<label class="nid__label">${lab}：</label><value class="nid__value">${val}</value>`;
+    return d;
+  };
+
+  // VPS-IP
+  let r1 = pickRow('VPS-IP');
+  if (!r1) { r1 = mkRow('VPS-IP', vpsIP); wlRow.before(r1); }
+  else { r1.querySelector('.nid__value').textContent = vpsIP; }
+
+  // 代理IP
+  let r2 = pickRow('代理IP');
+  if (!r2) { r2 = mkRow('代理IP', proxyIP); wlRow.before(r2); }
+  else { r2.querySelector('.nid__value').textContent = proxyIP; }
+})();
+
 }
 
 
