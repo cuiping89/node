@@ -4734,20 +4734,26 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 
 /* ======== 网络身份配置 - 白名单查看全部按钮专用CSS =========== */
 /* =======================================================================
-   网络身份配置 - 白名单查看全部按钮专用CSS（固定右下角版）
+   网络身份配置 - 白名单区域等于三行高度版
    ======================================================================= */
 
 /* 关键修复：覆盖分流出站区块中白名单值的限制性样式 */
 #net-shunt .whitelist-value,
 #net-shunt .info-item .whitelist-value {
   white-space: normal !important;
-  overflow: visible !important;  
+  overflow: hidden !important;  /* 超出部分隐藏，确保不破坏布局 */
   text-overflow: initial !important;
   
   position: relative;
   width: 100%;
+  
+  /* 关键：设置高度等于其他区块三行的总高度 */
+  height: calc(var(--line-vpad) * 6 + 1.2em * 3);  /* 6倍行内边距 + 3行文字高度 */
+  min-height: calc(var(--line-vpad) * 6 + 1.2em * 3);
+  max-height: calc(var(--line-vpad) * 6 + 1.2em * 3);
+  
   /* 为按钮预留右下角空间 */
-  padding-right: 80px;
+  padding-right: 75px;
   padding-bottom: 25px;
 }
 
@@ -4755,19 +4761,27 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 .whitelist-preview {
   position: relative;
   width: 100%;
+  height: 100%;
   display: block;
+  overflow: hidden;  /* 确保内容不超出容器 */
 }
 
-/* 白名单文本内容 - 保持当前正确的显示效果，只调整行高 */
+/* 白名单文本内容 - 填充整个可用空间 */
 .whitelist-text {
   color: #111827;
   font-size: 13px;
-  line-height: 1.2;  /* 调整为与其他区块一致的紧凑行高 */
+  line-height: 1.2;  /* 与其他区块保持一致 */
   word-wrap: break-word;
   word-break: break-all;
   
-  /* 保持当前的自然换行效果 */
+  /* 填充整个容器，但为按钮预留空间 */
   display: block;
+  height: 100%;
+  overflow: hidden;
+  
+  /* 使用CSS让文本自然填充，超出部分隐藏 */
+  padding-right: 0;
+  margin-right: 0;
 }
 
 /* 查看全部按钮 - 绝对定位固定在右下角 */
@@ -4818,23 +4832,16 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   transform: translateY(1px);
 }
 
-/* 确保分流出站区块与其他区块行高一致 */
-#net-shunt .info-item {
-  /* 覆盖默认的行内边距，与其他区块保持一致 */
-  padding: 5px 0 !important;  /* 与 VPS出站IP 和 代理出站IP 区块的行高一致 */
-}
-
+/* 确保分流出站区块的最后一行（白名单行）使用特殊高度 */
 #net-shunt .info-item.nid__row:last-child {
-  align-items: flex-start;
-  /* 与其他区块保持相同的最小行高 */
-  min-height: 32px;
+  align-items: stretch;  /* 拉伸对齐 */
+  /* 移除min-height，让白名单容器的高度生效 */
 }
 
-/* 移除JavaScript控制的类，简化逻辑 */
-.whitelist-preview.has-overflow .whitelist-text,
-.whitelist-preview.has-long-content .whitelist-text {
-  /* 保持统一样式 */
-  line-height: 1.2;
+/* 其他行保持原有高度 */
+#net-shunt .info-item.nid__row:not(:last-child) {
+  /* 保持与其他区块一致的行高 */
+  padding: var(--line-vpad) 0;
 }
 
 /* 响应式调整 */
@@ -4846,8 +4853,10 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   }
   
   #net-shunt .whitelist-value {
-    padding-right: 70px;
+    padding-right: 65px;
     padding-bottom: 22px;
+    /* 响应式下也要保持三行高度 */
+    height: calc(var(--line-vpad) * 6 + 1.2em * 3);
   }
 }
 
