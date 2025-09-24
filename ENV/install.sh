@@ -4809,7 +4809,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 /* =======================================================================
-   流量统计（修复无限拉伸问题）
+   流量统计（修复自适应和对齐问题）
    ======================================= */
 
 .traffic-card{
@@ -4818,8 +4818,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   border-radius:10px;
   box-shadow:0 2px 6px rgba(0,0,0,.08); 
   padding:0;
-  min-height:480px;
-  overflow: hidden;  /* 防止内容溢出 */
+  overflow: hidden;
 }
 
 .traffic-card .card-header{ 
@@ -4827,30 +4826,31 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   border-bottom:1px solid #e5e7eb; 
 }
 
-/* 布局：7/3；组与标题横线的间距缩小 */
+/* 主布局：7:3 比例 */
 .traffic-charts{ 
   display:grid; 
   grid-template-columns:7fr 3fr; 
   gap:20px; 
-  padding:10px 20px 12px;
-  overflow: hidden;  /* 防止溢出 */
+  padding:20px;
+  align-items: stretch;  /* 确保两列等高 */
 }
 
-/* 左列默认内部横线（B 方案下自动去掉） */
+/* 列容器 */
 .chart-column{ 
   display:flex; 
   flex-direction:column; 
   gap:12px;
-  overflow: hidden;  /* 防止列溢出 */
+  height: 100%;  /* 占满父容器高度 */
 }
 
+/* 左列内部分隔线 */
 .chart-column > * + *{ 
   border-top:1px solid #e5e7eb; 
   padding-top:12px; 
   margin-top:12px; 
 }
 
-/* 非 B 方案时才显示两列竖线 */
+/* 两列之间的竖线（非subcards模式） */
 .traffic-charts:not(.traffic--subcards) > :first-child{ 
   border-right:1px solid #e5e7eb; 
   padding-right:20px; 
@@ -4860,85 +4860,13 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   padding-left:20px; 
 }
 
-/* 图表容器：固定高度，防止无限拉伸 */
-.chart-container{
-  position: relative;
-  height: 300px !important;  /* 固定高度，不使用变量 */
-  max-height: 300px !important;
-  min-height: 300px !important;
-  overflow: hidden;
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-}
-
-/* Canvas 元素：限制在容器内 */
-.traffic-card .chart-container > canvas{ 
-  position: absolute !important;  /* 使用绝对定位 */
-  top: 40px !important;  /* 留出标题空间 */
-  left: 0 !important;
-  right: 0 !important;
-  bottom: 0 !important;
-  width: auto !important;  /* 自动宽度 */
-  height: auto !important;  /* 自动高度 */
-  max-width: 100% !important;
-  max-height: calc(100% - 40px) !important;  /* 减去标题高度 */
-}
-
-/* 标题样式 */
-.traffic-card .traffic-charts h3{ 
-  text-align:center !important; 
-  margin:0 0 8px; 
-  font-weight:600;
-  font-size: 14px;
-  line-height: 20px;
-  height: 20px;
-  flex-shrink: 0;  /* 防止标题被压缩 */
-  position: relative;
-  z-index: 1;  /* 确保标题在canvas上方 */
-}
-
-.traffic-card .traffic-progress-container h3{ 
-  text-align:left !important; 
-}
-
-/* B 方案：迷你卡片 */
-.traffic-charts.traffic--subcards{ 
-  gap:12px; 
-}
-
-.traffic-charts.traffic--subcards > :first-child{ 
-  border-right:0; 
-  padding-right:0; 
-}
-
-.traffic-charts.traffic--subcards > :last-child{  
-  padding-left:0; 
-}
-
-.traffic-charts.traffic--subcards .traffic-progress-container,
-.traffic-charts.traffic--subcards .chart-container{
-  padding:12px 12px 10px;
-  border:1px solid #e5e7eb; 
-  border-radius:12px;
-  background:#fff; 
-  box-shadow:0 2px 8px rgba(17,24,39,.08);
-}
-
-/* 启用 B 方案时，移除左列内部横线 */
-.traffic-charts.traffic--subcards .chart-column > * + *{ 
-  border-top:0; 
-  padding-top:0; 
-  margin-top:0; 
-}
-
-/* 进度条样式 */
+/* 进度条容器 */
 .traffic-card .traffic-progress-container{ 
   display:flex; 
   align-items:center; 
   gap:10px;
-  height: auto;  /* 自动高度 */
-  min-height: 60px;
+  flex-shrink: 0;  /* 不压缩 */
+  padding: 10px 0;
 }
 
 .traffic-card .progress-label{ 
@@ -4990,6 +4918,91 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   white-space:nowrap; 
 }
 
+/* 图表容器：自适应高度 */
+.chart-container{
+  position: relative;
+  flex: 1;  /* 占满剩余空间 */
+  min-height: 250px;  /* 最小高度 */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 左列第二个图表（近30日）占满剩余空间 */
+.chart-column:first-child .chart-container {
+  flex: 1;
+}
+
+/* 右列图表（近12月）占满整个高度 */
+.chart-column:last-child .chart-container {
+  flex: 1;
+  min-height: 0;  /* 允许收缩 */
+}
+
+/* 图表标题 */
+.traffic-card .chart-container h3{ 
+  text-align:center !important; 
+  margin:0 0 10px; 
+  font-weight:600;
+  font-size: 14px;
+  line-height: 20px;
+  flex-shrink: 0;
+}
+
+/* 进度条标题左对齐 */
+.traffic-card .traffic-progress-container h3{ 
+  text-align:left !important;
+  margin: 0;
+  font-size: 14px;
+}
+
+/* Canvas容器包装 */
+.traffic-card .chart-container > canvas{ 
+  flex: 1;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100%;
+  max-height: 100%;
+  display: block;
+}
+
+/* B方案：迷你卡片样式 */
+.traffic-charts.traffic--subcards{ 
+  gap:15px; 
+}
+
+.traffic-charts.traffic--subcards > :first-child{ 
+  border-right:0; 
+  padding-right:0; 
+}
+
+.traffic-charts.traffic--subcards > :last-child{  
+  padding-left:0; 
+}
+
+.traffic-charts.traffic--subcards .traffic-progress-container,
+.traffic-charts.traffic--subcards .chart-container{
+  padding:15px;
+  border:1px solid #e5e7eb; 
+  border-radius:12px;
+  background:#fff; 
+  box-shadow:0 2px 8px rgba(17,24,39,.08);
+  min-height: auto;  /* subcards模式下自动高度 */
+}
+
+/* subcards模式下的图表容器 */
+.traffic-charts.traffic--subcards .chart-container {
+  min-height: 200px;  /* subcards模式下的最小高度 */
+  height: 250px;  /* 固定高度 */
+}
+
+/* B方案时移除左列内部横线 */
+.traffic-charts.traffic--subcards .chart-column > * + *{ 
+  border-top:0; 
+  padding-top:0; 
+  margin-top:0; 
+}
+
 /* 单位小字 */
 .unit-note{ 
   margin-left:8px; 
@@ -4998,10 +5011,11 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   font-weight:500; 
 }
 
-/* 响应式：窄屏单列并取消分隔线 */
+/* 响应式 */
 @media (max-width:1024px){
   .traffic-charts{ 
-    grid-template-columns:1fr; 
+    grid-template-columns:1fr;  /* 单列 */
+    gap: 20px;
   }
   
   .traffic-charts:not(.traffic--subcards) > :first-child{ 
@@ -5010,25 +5024,25 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   }
   
   .traffic-charts:not(.traffic--subcards) > :last-child{  
-    padding-left:0; 
+    padding-left:0;
+    border-top: 1px solid #e5e7eb;
+    padding-top: 20px;
+    margin-top: 20px;
   }
   
   .chart-container {
-    height: 250px !important;
-    min-height: 250px !important;
-    max-height: 250px !important;
+    min-height: 200px;
+    height: auto;
   }
   
-  .traffic-card .chart-container > canvas {
-    max-height: calc(100% - 40px) !important;
+  .traffic-charts.traffic--subcards .chart-container {
+    height: 200px;
   }
 }
 
 @media (max-width:768px) {
-  .chart-container {
-    height: 200px !important;
-    min-height: 200px !important;
-    max-height: 200px !important;
+  .traffic-charts {
+    padding: 15px;
   }
 }
 
