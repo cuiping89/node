@@ -4733,24 +4733,25 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 /* ====白名单/查看全部按钮==== */
-/* 仅限：分流出站卡片(#net-shunt) 的白名单值容器 */
-#net-shunt .nid__value.whitelist-value{
-  position: relative;              /* 给按钮提供定位上下文 */
-  display: block;                  /* 让值容器成为块级，行高可控 */
+/* 只修分流出站卡 (#net-shunt) 里的“白名单”这一行 */
+#net-shunt .nid__row .nid__value.whitelist-value{
+  position: relative;         /* 给按钮的定位上下文 */
+  display: block;             /* 自定义 <value> 统一成块级 */
+  min-height: 28px;           /* 行高与左/中卡一致（你的按钮高28px）*/
 }
 
-/* 白名单文字：单行省略，行高与左/中卡一致（22px 如不同自行改） */
-#net-shunt .whitelist-value .whitelist-preview{
-  height: 22px;
-  line-height: 22px;
-  padding-right: 96px;             /* 预留按钮宽度，避免文字被盖住 */
+/* 白名单文本：单行省略，和左/中卡行高对齐 */
+#net-shunt .nid__row .whitelist-preview{
+  height: 28px;
+  line-height: 28px;
+  padding-right: 96px;        /* 预留“查看全部”按钮宽度 */
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-/* “查看全部”固定在该区块右下角，不受文本换行影响 */
-#net-shunt .whitelist-value .whitelist-more{
+/* “查看全部”固定到右下角；把旧的 float/clear 全部压制 */
+#net-shunt .nid__row .whitelist-more{
   position: absolute;
   right: 0;
   bottom: 0;
@@ -4758,7 +4759,19 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   line-height: 26px;
   padding: 0 12px;
   font-size: 12px;
+  float: none !important;
+  clear: none !important;
+  margin: 0 !important;
 }
+
+/* 把你之前针对白名单行改过的纵向对齐/高度恢复，避免这一行“跳拍” */
+#net-shunt .info-item:has(.whitelist-value){
+  align-items: center !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  min-height: unset !important;
+}
+
 
 /* =======================================================================
    运维管理
