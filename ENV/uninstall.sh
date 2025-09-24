@@ -4946,18 +4946,6 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   background-color: #f3f4f6;
 }
 
-/* 订阅行分割线变细（覆盖前面的设置） */
-.data-table tr.subs-row td{
-  border-top: 1px solid rgba(203,213,225,0.6); /* 更轻的#cbd5e1 */
-  box-shadow: inset 0 1px 0 rgba(0,0,0,0.04);  /* 去掉 3px 模糊，避免“增厚感” */
-}
-
-/* 悬停时也保持细线，不再显粗 */
-.data-table tr.subs-row:hover td{
-  background:#e3e9f2;
-  box-shadow: inset 0 1px 0 rgba(0,0,0,0.06), 0 2px 6px rgba(0,0,0,0.10);
-}
-
 
 /* =======================================================================
    流量统计 - 修复垂直居中问题
@@ -5572,74 +5560,6 @@ dialog[open],
   opacity: .5;
   pointer-events: none;
 }
-
-/* ===== ANCHOR: HEADINGS-COLOR-FIX ===== */
-/* 统一面板内 h3 的标题色为纯黑（与其它卡片 h3 同色） */
-:root{ --heading-color: #111827; }  /* 需要更黑/更浅就改这里 */
-
-/* 1) 流量统计卡片内的图表标题（含 “📡 VPS出站IP / 🔄 代理出站IP / 🔀 分流出站”） */
-.traffic-card .chart-container h3{
-  color: var(--heading-color);
-}
-
-/* 2) 如果这些标题刚好放在 .progress-label 里，父级默认是灰色——在子级 h3 上强制还原为标题色 */
-.traffic-card .progress-label h3{
-  color: var(--heading-color);
-}
-
-/* 3) 兜底：其他卡片内 h3 也统一为标题色，避免被 note/muted 容器继承成灰 */
-.card h3,
-#system-overview h3,
-#netid-panel h3{
-  color: var(--heading-color);
-}
-
-/* 可选：只让“小字说明”保持灰，不再影响 h3（若你有 .note/.muted/.desc 之类父级） */
-.note h3, .muted h3, .desc h3{ color: var(--heading-color); }
-
-/* ===== 标题与内容层级统一（H1–H4 黑；内容用 H4 字号且灰） ===== */
-
-/* 全局口径变量（按需改） */
-:root{
-  --heading-color: #111827;   /* h1–h4 标题色（黑） */
-  --muted-color:   #6b7280;   /* 内容灰 */
-  --h4-size:       14px;      /* h4 字号口径（用于内容的字号基准） */
-}
-
-/* 标题统一：h1–h4 都用黑色；h4 的字号固定为 --h4-size */
-h1, h2, h3, h4 { color: var(--heading-color); }
-h4 { font-size: var(--h4-size); line-height: 1.4; font-weight: 600; }
-
-/* —— 系统概览里 CPU/内存/磁盘等：标签用 h4（黑），值/说明用 h4 字号（灰） —— */
-/* 标签（标题） */
-.system-overview .progress-label h4,
-.system-overview .meter-title h4,
-.system-overview .metric-label h4{
-  color: var(--heading-color);       /* 防被父级灰色继承 */
-  font-size: var(--h4-size);
-  line-height: 1.4;
-  font-weight: 600;
-  margin: 0;
-}
-
-/* 值/说明（内容）——用与 h4 相同的字号，但颜色灰 */
-.system-overview .meter-value,
-.system-overview .metric-desc,
-.system-overview .progress-extra,
-.system-overview .progress-budget{
-  font-size: var(--h4-size);
-  line-height: 1.4;
-  color: var(--muted-color);
-  font-weight: 500;                  /* 可按需 400/500 */
-}
-
-/* 兜底：任何 “.progress-label” 容器若本身是灰色，也不影响其内 h4 的黑色 */
-.progress-label { color: var(--muted-color); }
-.progress-label h4 { color: var(--heading-color); }
-
-/* 实用类：如果你在别处也要“内容=H4 字号 + 灰”，可直接加这个类 */
-.text-h4-muted { font-size: var(--h4-size); line-height: 1.4; color: var(--muted-color); }
-
 
 
 EXTERNAL_CSS
