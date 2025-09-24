@@ -4733,44 +4733,55 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 /* ====白名单/查看全部按钮==== */
-/* 只修：分流出站卡(#net-shunt) 的白名单这一行 */
-#net-shunt .nid__value.whitelist-value{
-  position: relative;   /* 作为按钮的定位上下文 */
-  display: block;       /* <value> 默认是 inline，这里统一为块级 */
+/* ===== 完全重置白名单样式 ===== */
+
+/* 步骤1：先清理所有可能的污染 */
+#net-shunt .whitelist-value,
+#net-shunt .whitelist-text,
+#net-shunt #whitelistText,
+#net-shunt .whitelist-more,
+#net-shunt .whitelist-preview {
+  /* 重置所有属性到初始值 */
+  all: revert;
 }
 
-/* 把原来写成 .whitelist-preview 的改到真实节点 .whitelist-text / #whitelistText */
-#net-shunt .whitelist-value .whitelist-text,
-#net-shunt #whitelistText{
-  display: block;
-  line-height: 22px;    /* 与左/中两卡单行行高一致；你要是用 28px 就同步改 */
-  height: 22px;         /* 单行效果 */
-  padding-right: 96px;  /* 为“查看全部”按钮预留空间，避免被盖或挤 */
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+/* 步骤2：只添加最少必要的样式 */
+
+/* 白名单的值容器 - 什么都不设置，使用默认grid子项行为 */
+#net-shunt .whitelist-value {
+  /* 故意留空，让它继承父级grid的布局 */
 }
 
-/* “查看全部”固定在白名单区块的右下角 */
-#net-shunt .whitelist-value .whitelist-more{
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  height: 28px;
-  line-height: 26px;
-  padding: 0 12px;
-  font-size: 12px;
+/* 白名单文本 - 只设置颜色 */
+#net-shunt #whitelistText {
+  color: inherit;
 }
 
-/* 若你之前给白名单行写过 :has(.whitelist-value){ align-items:start/min-height… }，会把这行拉乱；
-   只在本卡片把它恢复即可（不动全局）。*/
-#net-shunt .info-item:has(.whitelist-value){
-  align-items: center !important;
-  min-height: unset !important;
-  padding-top: 0 !important;
-  padding-bottom: 0 !important;
+/* 查看全部按钮 - 只复用全局按钮样式 */
+#net-shunt .whitelist-more {
+  /* 使用已有的 .btn-viewall 样式，不需要重新定义 */
 }
 
+/* 步骤3：如果上面不够，只添加这个最小修复 */
+@supports (display: grid) {
+  #net-shunt .whitelist-value {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  
+  #net-shunt #whitelistText {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  
+  #net-shunt .whitelist-more {
+    flex-shrink: 0;
+  }
+}
 
 /* =======================================================================
    运维管理
@@ -6521,50 +6532,6 @@ case 'copy-qr': {
     }
   });
 })();
-
-
-/* 安装：只修 #net-shunt 白名单行；其它任何样式不动 */
-function installWhitelistPatch(){
-  const css = `
-  /* 作用范围仅限右侧分流卡片的白名单值容器 */
-  #net-shunt .nid__value.whitelist-value{ position:relative; display:block; }
-
-  /* 文本是真实节点：#whitelistText / .whitelist-text */
-  #net-shunt .whitelist-value #whitelistText,
-  #net-shunt .whitelist-value .whitelist-text{
-    display:block;
-    line-height:22px; height:22px;            /* 按你面板行高设，22/24/28px 自行改 */
-    padding-right:96px;                        /* 预留按钮宽度 */
-    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-  }
-
-  /* 查看全部固定右下角，彻底压制旧的 float/clear 规则 */
-  #net-shunt .whitelist-value .whitelist-more{
-    all: unset;                                 /* 清掉遗留污染（可保留按钮文字） */
-    position:absolute; right:0; bottom:0;
-    display:inline-block; height:28px; line-height:26px; padding:0 12px; font-size:12px;
-    cursor:pointer;                              /* 你有 btn-link 外观的话可再加 class */
-  }
-
-  /* 恢复这一行的垂直节奏（只限白名单行） */
-  #net-shunt .info-item:has(.whitelist-value){
-    align-items:center; padding-top:0; padding-bottom:0; min-height:auto;
-  }`;
-  if (!document.getElementById('netid-whitelist-style')) {
-    const s = document.createElement('style');
-    s.id = 'netid-whitelist-style';
-    s.textContent = css;
-    document.head.appendChild(s);
-  }
-}
-
-/* 卸载：一键还原现场（移除补丁，不碰其它样式） */
-function uninstallWhitelistPatch(){
-  document.getElementById('netid-whitelist-style')?.remove();
-}
-
-/* 建议：渲染网络身份配置后调用一次 */
-installWhitelistPatch();
 
 
 EXTERNAL_JS
