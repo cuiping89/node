@@ -4485,20 +4485,18 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   #system-overview .core-services { --label-w: 68px; }
 }
 
-/* ===== 系统概览：标题右侧“版本/安装/更新时间”内联备注 ===== */
+/* 系统概览：标题右侧“版本号/安装日期/更新时间”内联备注（同 netid-panel 风格） */
 #system-overview .card-header h2{
-  display:flex;
-  align-items:flex-end;        /* 与标题下沿对齐 */
+  display:flex;             /* 覆盖全局 .card-header h2 已是 flex 的对齐方式 */
+  align-items:flex-end;     /* 与标题下沿对齐（覆盖全局 align-items:center） */
 }
-
-#system-overview .card-header .note-meta{
-  color:#9ca3af !important;   /* 浅灰，和 netid-panel 一致 */
+#system-overview .card-header #sys-meta{
+  color:#9ca3af !important; /* 浅灰：同 .note-udp */
   font-weight:400;
   font-size:12px;
   line-height:1;
-  margin-left:auto;            /* 把备注推到右侧 */
-  margin-right:1em;            /* 右缩进一个字宽（按需改） */
-  transform:translateY(2px);   /* 轻微下沉，更贴近底线 */
+  margin-right:1em;         /* 右侧留出一个字宽 */
+  transform:translateY(2px);/* 轻微下沉，贴近标题底线 */
 }
 
 
@@ -4507,7 +4505,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
    ======================================================================= */
 #cert-panel{
   /* 与 NetID 标签一致的参数 */
-  --tag-pad-y: 8px;        /* ← 改它=改标签高度 */
+  --tag-pad-y: 7px;        /* ← 改它=改标签高度 */
   --tag-pad-x: 16px;
   --tag-radius: 8px;
   --tag-font: 13px;
@@ -4935,8 +4933,8 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 /* CSS变量定义 */
 :root {
   /* 统一弹窗尺寸 */
-  --modal-w: 720px;
-  --modal-h: 540px;
+  --modal-w: 660px;
+  --modal-h: 720px;
   
   /* 样式变量 */
   --modal-radius: 14px;
