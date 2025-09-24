@@ -4733,116 +4733,60 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 /* ======== 网络身份配置 - 白名单查看全部按钮专用CSS =========== */
+/* =======================================================================
+   网络身份配置 - 白名单区块布局精修 (最终对齐版)
+   ======================================================================= */
 
-/* 关键修复：覆盖分流出站区块中白名单值的限制性样式 */
-#net-shunt .whitelist-value,
+/* 1. 调整包含白名单的整行，使其能正确容纳和对齐多行内容 */
+#net-shunt .info-item:has(.whitelist-value) {
+    /* 改为顶部对齐，而不是默认的垂直居中 */
+    align-items: start;
+    /* 统一垂直内边距，与其他单行内容的行高节奏保持一致 */
+    padding-top: 8px;
+    padding-bottom: 8px;
+    min-height: 94px; /* 给予一个最小高度，确保整个卡片底部能对齐 */
+}
+
+/* 2. 覆盖白名单值容器的默认样式，允许内容换行 */
 #net-shunt .info-item .whitelist-value {
-  /* 覆盖父级的 white-space: nowrap 和 overflow: hidden */
-  white-space: normal !important;  /* 允许换行 */
-  overflow: visible !important;    /* 显示溢出内容 */
-  text-overflow: initial !important;  /* 取消省略号 */
-  
-  position: relative;
-  width: 100%;
-  min-height: 60px;
+    white-space: normal !important;
+    overflow: visible !important;
 }
 
-/* 白名单预览容器 */
-.whitelist-preview {
-  position: relative;
-  width: 100%;
-  display: block;
-  line-height: 1.4;
-  font-size: 13px;
+/* 3. 使用浮动布局来定位“查看全部”按钮，使其环绕文本 */
+#net-shunt .whitelist-preview .whitelist-more {
+    float: right; /* 核心：按钮向右浮动，文本将自然环绕 */
+    clear: both;  /* 防止影响容器外的元素 */
+    margin-left: 10px; /* 按钮与左侧文本的间距 */
+    margin-top: 5px;   /* 按钮与上方文本的垂直微调，使其底部对齐 */
+
+    /* 按钮样式，确保与“查看详情”按钮视觉统一 */
+    height: 28px;
+    line-height: 26px; /* 高度 - 2px边框 */
+    padding: 0 12px;
+    font-size: 12px;
+    /* 继承您现有的 .btn-link 或 .link 样式... */
 }
 
-/* 白名单文本内容 */
-.whitelist-text {
-  color: #111827;
-  font-size: 13px;
-  line-height: 1.4;
-  word-wrap: break-word;
-  word-break: break-all;
-  display: inline;
-  max-height: calc(1.4em * 3);
-  overflow: hidden;
+/* 4. 设置白名单文本样式，实现3行截断和统一的行高 */
+#net-shunt .whitelist-preview .whitelist-text {
+    /* 核心：实现最多显示3行，超出部分显示省略号 */
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    overflow: hidden;
+    text-overflow: ellipsis;
+
+    /* 关键：设置明确的行高，使其与其它区块单行文本的视觉行高完全一致 */
+    line-height: 1.8;
+    word-break: break-all; /* 确保长域名可以被强制换行 */
+    font-size: 13px;
+    color: #111827;
 }
 
-/* 查看全部按钮 - 默认跟在文本后面 */
-.whitelist-more {
-  --btn-h: 20px;
-  --btn-pad-x: 6px;   
-
-  display: inline-flex !important;
-  align-items: center;
-  justify-content: center;
-  height: var(--btn-h);
-  line-height: calc(var(--btn-h) - 2px);
-  padding: 0 var(--btn-pad-x);
-
-  margin-left: 6px;
-  vertical-align: baseline;
-  
-  border: 1px solid #d1d5db;
-  border-radius: 4px;
-  background: #fff;
-  color: #2563eb;
-  font-size: 10px;
-  font-weight: 500;
-  text-decoration: none;
-  cursor: pointer;
-  white-space: nowrap;
-
-  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
-  transition: all 0.15s ease;
-}
-
-/* 当内容超过3行时，按钮定位到第三行末尾 */
-.whitelist-preview.has-overflow .whitelist-text {
-  margin-right: 70px;
-  position: relative;
-}
-
-.whitelist-preview.has-overflow .whitelist-more {
-  position: absolute;
-  right: 0;
-  top: calc(1.4em * 2.2);
-  margin-left: 0;
-}
-
-/* hover效果 */
-.whitelist-more:hover {
-  background: #f3f4f6;
-  border-color: #9ca3af;
-  color: #1d4ed8;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.12);
-}
-
-/* active效果 */
-.whitelist-more:active {
-  background: #e5e7eb;
-  border-color: #9ca3af;
-  color: #1d4ed8;
-  transform: translateY(1px);
-}
-
-/* 确保白名单行有足够空间 */
-#net-shunt .info-item.nid__row:last-child {
-  align-items: flex-start;
-  min-height: 64px;
-}
-
-/* 响应式调整 */
-@media (max-width: 1024px) {
-  .whitelist-more {
-    --btn-h: 18px;
-    --btn-pad-x: 4px;
-    font-size: 9px;
-  }
-  
-  .whitelist-preview.has-overflow .whitelist-text {
-    margin-right: 60px;
-  }
+/* 5. 使用 overflow 清除浮动，确保父容器(.whitelist-preview)高度被正确计算 */
+#net-shunt .whitelist-preview {
+    overflow: hidden;
 }
 
 /* =======================================================================
@@ -4987,7 +4931,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 /* 订阅行特殊样式 */
 .data-table tr.subs-row td{ 
   background:#f1f5f9;  /* 订阅行使用更明显的背景色 */
-  border-top: 2px solid #cbd5e1;  /* 订阅行顶部添加更粗的分隔线 */
+  border-top: 1px solid #cbd5e1;  /* 订阅行顶部添加更粗的分隔线 */
   box-shadow: inset 0 1px 3px rgba(0,0,0,0.08);  /* 订阅行内阴影 */
 }
 
