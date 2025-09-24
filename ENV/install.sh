@@ -4809,132 +4809,107 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 /* =======================================================================
-   流量统计（newd 对齐版 · 上下等距=20px · 两列等高）
+   流量统计（统一上下间距口径 + 两列等高 + 迷你卡片不改高）
+   把你旧的 .traffic-charts / .traffic-charts.traffic--subcards 相关段落整段替换为此版本
    ======================================================================= */
 
+/* —— 全局口径：这里一处改数值，全卡片同步 —— */
+:root{
+  --charts-pad-y: 20px;   /* 图表组“上下内边距”与其它卡片保持一致；想更贴就调成 12/8 */
+  --charts-pad-x: 20px;   /* 左右内边距 */
+  --gap-v: 12px;          /* 左列 进度 与 折线图 的间距 */
+  --h-progress: 50px;     /* 本月进度内容高度 */
+  --h-left-chart: 320px;  /* 左列折线图内容高度 */
+  --mini-pad: 12px;       /* 迷你卡片内边距（B 方案） */
+  --meter-height: 18px;   /* 进度条高度（与 CPU 一致）——改这里 */
+}
+
+/* 卡片外框 */
 .traffic-card{
   background:#fff; border:1px solid #d1d5db; border-radius:10px;
   box-shadow:0 2px 6px rgba(0,0,0,.08); padding:0; overflow:hidden;
-  display:block; /* 不用外层 flex，避免额外竖向拉伸 */
 }
 
-/* 标题行 —— 与其他卡片一致 */
-.traffic-card .card-header{
-  padding:16px 20px; border-bottom:1px solid #e5e7eb;
-}
+/* 标题行保持不变 */
+.traffic-card .card-header{ padding:16px 20px; border-bottom:1px solid #e5e7eb; }
 .traffic-card .card-header > *{ margin:0; }
 
-/* 图表组 —— 与“协议配置”等卡片保持上下 20px 内边距（等距） */
-.traffic-charts{
+/* —— 图表组：上下间距“唯一口径” —— */
+.traffic-charts,
+.traffic-charts.traffic--subcards{
   display:grid; grid-template-columns:7fr 3fr; gap:20px;
-  padding:10px;                  /* ← 关键：上 20 / 下 20 */
-  align-items:stretch;
+  padding-block: var(--charts-pad-y) !important;   /* 上下内边距用变量，强制覆盖 */
+  padding-inline: var(--charts-pad-x);
+  margin-block: 0 !important;                      /* 取消任何垂直居中残留 */
+  align-items: stretch;
 }
 
 /* 左列容器与默认分隔线（B 方案下移除） */
-.chart-column{ display:flex; flex-direction:column; gap:12px; }
+.chart-column{ display:flex; flex-direction:column; gap:var(--gap-v); }
 .chart-column > * + *{ border-top:1px solid #e5e7eb; padding-top:12px; margin-top:12px; }
 
-/* 非 B 方案时才显示两列竖线 */
+/* 仅非 B 方案显示两列竖线 */
 .traffic-charts:not(.traffic--subcards) > :first-child{ border-right:1px solid #e5e7eb; padding-right:20px; }
 .traffic-charts:not(.traffic--subcards) > :last-child{  padding-left:20px; }
 
-/* 进度条块（保留你现在的视觉） */
-.traffic-card .traffic-progress-container{
-  display:flex; align-items:center; gap:10px; height:50px; flex-shrink:0;
-}
-.traffic-card .progress-label{ font-size:13px; color:#6b7280; white-space:nowrap; }
-.traffic-card .progress-label h3{ margin:0; font-size:14px; font-weight:600; }
+/* —— 进度条（高度与 CPU 一致） —— */
+.traffic-card .traffic-progress-container{ display:flex; align-items:center; gap:10px; height:var(--h-progress); flex-shrink:0; }
 .traffic-card .progress-wrapper{ flex:1; min-width:120px; }
-.traffic-card .progress-bar{ height:20px; background:#e2e8f0; border-radius:999px; overflow:hidden; position:relative; }
+.traffic-card .progress-bar{ height:var(--meter-height); background:#e2e8f0; border-radius:999px; overflow:hidden; position:relative; }
 .traffic-card .progress-fill{ height:100%; background:linear-gradient(90deg,#10b981 0%,#059669 100%); transition:width .3s ease; display:flex; align-items:center; justify-content:flex-end; padding-right:8px; }
 .traffic-card .progress-percentage{ color:#fff; font-size:11px; font-weight:600; }
-.traffic-card .progress-budget{ color:#6b7280; font-size:12px; white-space:nowrap; }
+.traffic-card .progress-budget{ color:#6b7280; font-size:12px; white-space:nowrap; } /* “阈值：”文本就在这里 */
 
-/* 图表容器：标题居中 + canvas 填充满卡片 */
+/* —— 图表容器：标题居中 + canvas 填满 —— */
 .chart-container{ position:relative; display:flex; flex-direction:column; overflow:hidden; }
-.traffic-card .chart-container h3{ text-align:center !important; margin:0 0 8px; font-weight:600; font-size:14px; line-height:20px; flex:0 0 auto; }
-.traffic-card .chart-container > canvas{ display:block !important; width:100% !important; height:100% !important; flex:1 1 auto; }
+.traffic-card .chart-container h3{ text-align:center; margin:0 0 8px; font-weight:600; font-size:14px; line-height:20px; flex:0 0 auto; }
+.traffic-card .chart-container > canvas{ display:block; width:100% !important; height:100% !important; flex:1 1 auto; }
 
-/* ========= 等高口径（两列下边框对齐） ========= */
-/* 左列折线图内容高 */
+/* —— 等高口径：两列下边框对齐 —— */
+/* 非 B 方案：右列 = 进度 + gap + 左图 */
 .traffic-charts:not(.traffic--subcards) .chart-column:first-child .chart-container{
-  height:320px; min-height:320px;
+  height: var(--h-left-chart); min-height: var(--h-left-chart);
 }
-/* 右列柱图 = 进度(50) + 间隙(12) + 左图(320) */
 .traffic-charts:not(.traffic--subcards) .chart-column:last-child .chart-container{
-  height:calc(50px + 12px + 320px); min-height:calc(50px + 12px + 320px);
+  height: calc(var(--h-progress) + var(--gap-v) + var(--h-left-chart));
+  min-height: calc(var(--h-progress) + var(--gap-v) + var(--h-left-chart));
 }
 
-/* ========= B 方案（迷你卡片） ========= */
-/* B 方案下也保持上下 20px，与其他卡片一致 */
-.traffic-charts.traffic--subcards{
-  gap:15px;
-  padding:20px;                /* ← 仍旧 20 / 20 */
-}
+/* B 方案：考虑迷你卡片 padding 差额（左列两块=4*mini-pad；右列一块=2*mini-pad） */
 .traffic-charts.traffic--subcards > :first-child{ border-right:0; padding-right:0; }
 .traffic-charts.traffic--subcards > :last-child{  padding-left:0; }
-
-/* 只给内容块套卡片外观，不覆盖高度 */
 .traffic-charts.traffic--subcards .traffic-progress-container,
 .traffic-charts.traffic--subcards .chart-container{
-  padding:12px; border:1px solid #e5e7eb; border-radius:12px;
+  padding:var(--mini-pad);
+  border:1px solid #e5e7eb; border-radius:12px;
   background:#fff; box-shadow:0 2px 8px rgba(17,24,39,.08);
 }
-/* B 方案去掉左列内部横线（用 gap 即可） */
 .traffic-charts.traffic--subcards .chart-column > * + *{ border-top:0; padding-top:0; margin-top:0; }
 
-/* B 方案的等高计算：考虑迷你卡片自身上下 padding 的差额（左列两块=4*12；右列一块=2*12） */
 .traffic-charts.traffic--subcards .chart-column:first-child .chart-container{
-  height:calc(320px + 24px); min-height:calc(320px + 24px);           /* 320 + 2*12 */
+  height: calc(var(--h-left-chart) + 2*var(--mini-pad));
+  min-height: calc(var(--h-left-chart) + 2*var(--mini-pad));
 }
 .traffic-charts.traffic--subcards .chart-column:last-child .chart-container{
-  height:calc(50px + 12px + 320px + 24px); min-height:calc(50px + 12px + 320px + 24px);
+  height: calc(var(--h-progress) + var(--gap-v) + var(--h-left-chart) + 2*var(--mini-pad));
+  min-height: calc(var(--h-progress) + var(--gap-v) + var(--h-left-chart) + 2*var(--mini-pad));
 }
 
-/* 单位小字 */
+/* 单位小字（如果还在用） */
 .unit-note{ margin-left:8px; font-size:12px; color:#6b7280; font-weight:500; }
 
-/* 响应式：单列时统一高度，仍保持上下 20px 间距 */
+/* 响应式 */
 @media (max-width:1024px){
   .traffic-charts{ grid-template-columns:1fr; }
   .traffic-charts:not(.traffic--subcards) > :first-child{ border-right:0; padding-right:0; }
   .traffic-charts:not(.traffic--subcards) > :last-child{  padding-left:0; }
-
   .chart-column:first-child .chart-container,
   .chart-column:last-child  .chart-container{
     height:280px; min-height:280px;
   }
 }
-@media (max-width:768px){
-  .traffic-charts{ padding:20px; } /* 依旧 20/20，保持与其他卡片一致 */
-  .chart-column:first-child .chart-container,
-  .chart-column:last-child  .chart-container{
-    height:240px; min-height:240px;
-  }
-}
 
-/* ===== ANCHOR: HTML-LEGEND-CSS ===== */
-/* 让“单位：GiB”与图例并排、同一行显示 */
-.legend-row{
-  display:flex; align-items:center; gap:16px;
-  justify-content:center;                 /* 居中，与标题视觉一致 */
-  margin-top:8px;
-  font-size:13px; color:#6b7280;
-}
-.legend-row .unit-note{ white-space:nowrap; font-weight:500; }
 
-/* HTML 图例容器 */
-.legend-row .legend-list{ display:flex; gap:16px; flex-wrap:wrap; align-items:center; }
-.legend-row .legend-item{
-  display:flex; align-items:center; gap:6px; cursor:pointer; user-select:none;
-}
-.legend-row .box{
-  width:12px; height:12px; border-radius:2px; background:#9ca3af; /* 兜底 */
-}
-
-/* （可选）隐藏默认 Canvas 图例时的底部空白 */
-.chartjs-legend-space{ display:none; }
 
 /* =========================
    弹窗 Modal 统一样式补丁
@@ -5655,7 +5630,7 @@ function renderTrafficCharts() {
     const budgetEl = document.getElementById('progress-budget');
     if (fillEl)   fillEl.style.width = `${percentage}%`;
     if (pctEl)    pctEl.textContent  = `${percentage}%`;
-    if (budgetEl) budgetEl.textContent = `阈值：${budget}GiB`;
+	if (budgetEl) budgetEl.textContent = `阈值(${budget}GiB)`;
   }
 
   // —— 图表销毁（避免重复实例）——
@@ -5682,14 +5657,11 @@ function renderTrafficCharts() {
             { label: '代理', data: daily.map(d => d.resi / GiB), borderColor: proxyColor, backgroundColor: proxyColor, tension: 0.3, pointRadius: 0, fill: false },
           ]
         },
-options:{
-  responsive:true, maintainAspectRatio:false, resizeDelay:120,
-  plugins:{
-    legend:{ display:false },                 // 关闭内置 Canvas 图例
-    htmlLegendWithUnit:{ unitText:'单位：GiB' } // 与图例并排显示
-  },
-  layout:{ padding:{ bottom:8 } },
+options: {
+  responsive:true, maintainAspectRatio:false,
   interaction:{ mode:'index', intersect:false },
+  layout:{ padding:{ bottom:8 } },
+  plugins:{ legend:{ position:'bottom', labels:{ boxWidth:12, padding:12 } } },
   scales:{
     x:{ grid:{ display:false }, ticks:{ maxRotation:0, padding:6 } },
     y:{ beginAtZero:true, ticks:{ padding:6 } }
@@ -5713,13 +5685,10 @@ options:{
             { label: '代理', data: arr.map(m => m.resi / GiB), backgroundColor: proxyColor, stack: 'a' },
           ]
         },
-options:{
-  responsive:true, maintainAspectRatio:false, resizeDelay:120,
-  plugins:{
-    legend:{ display:false },
-    htmlLegendWithUnit:{ unitText:'单位：GiB' }
-  },
+options: {
+  responsive:true, maintainAspectRatio:false,
   layout:{ padding:{ bottom:8 } },
+  plugins:{ legend:{ position:'bottom', labels:{ boxWidth:12, padding:12 } } },
   scales:{
     x:{ stacked:true, grid:{ display:false }, ticks:{ maxRotation:0, padding:6 } },
     y:{ stacked:true, beginAtZero:true, ticks:{ padding:6 } }
@@ -5729,48 +5698,6 @@ options:{
     }
   }
 }
-
-/* ===== ANCHOR: HTML-LEGEND-PLUGIN ===== */
-const htmlLegendWithUnit = {
-  id: 'htmlLegendWithUnit',
-  afterUpdate(chart, args, opts){
-    const parent = chart.canvas.parentNode;                    // .chart-container
-    let row = parent.querySelector('.legend-row');
-    if(!row){
-      row = document.createElement('div');
-      row.className = 'legend-row';
-      row.innerHTML = `<span class="unit-note"></span><div class="legend-list"></div>`;
-      parent.appendChild(row);
-    }
-    // 设置单位文本
-    row.querySelector('.unit-note').textContent = opts?.unitText || '';
-
-    const list = row.querySelector('.legend-list');
-    list.innerHTML = '';
-
-    // 用内置逻辑生成图例项
-    const items = chart.options.plugins.legend.labels.generateLabels(chart);
-    items.forEach((it, idx) => {
-      const item = document.createElement('div');
-      item.className = 'legend-item';
-      item.onclick = () => {
-        chart.toggleDataVisibility(it.datasetIndex);
-        chart.update();
-      };
-      const box = document.createElement('span');
-      box.className = 'box';
-      box.style.background = it.fillStyle || it.strokeStyle;
-      const label = document.createElement('span');
-      label.textContent = it.text;
-      if (chart.isDatasetVisible(it.datasetIndex) === false) {
-        label.style.opacity = .4; box.style.opacity = .4;
-      }
-      item.appendChild(box); item.appendChild(label);
-      list.appendChild(item);
-    });
-  }
-};
-try{ Chart.register(htmlLegendWithUnit); }catch(e){}
 
 // --- Modal and Interaction Logic ---
 function showModal(modalId) {
