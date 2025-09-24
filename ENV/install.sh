@@ -4795,68 +4795,45 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   margin-bottom: 2px;   /* 轻微增加行间距 */
 }
 
-/* ===================================================================
-   协议配置 · 正确的表头处理（h3 标题；表格 th 透明）
-   =================================================================== */
-#netid-panel .card-header h3{
-  margin: 0;
-  color: #111827;         /* 与全站 h1~h3 一致的黑色 */
-  font-weight: 600;
+/* =======================================================================
+   协议配置（最小改动：表头透明+深色；行距略紧）
+   —— 完全沿用你原来的选择器（.data-table ...），不引入新类
+   ======================================================================= */
+.data-table{ width:100%; border-collapse:collapse; }
+
+/* 列标题：透明背景 + 深色文字；其余不变 */
+.data-table th{
+  background: transparent;         /* 原：#f5f5f5 */
+  color: #111827;                  /* 原：#4b5563 */
+  font-weight: 600;                /* 原：500 */
+  padding: 8px;                    /* 原：10px（行距略紧）*/
+  text-align: left;
+  font-size: 12px;
+  border-bottom: 1px solid #e5e7eb;
+  white-space: nowrap;
 }
 
-/* 表格主体 */
-#netid-panel .data-table{
-  width:100%;
-  border-collapse:collapse;
-  border-spacing:0;
-  table-layout:auto;
+/* 表体：行距略紧（8px），其余保持原样 */
+.data-table td{
+  padding: 8px;                    /* 原：10px */
+  border-bottom: 1px solid #f3f4f6;
+  font-size: 12px;
 }
 
-/* 列标题（th）：去浅灰底，保持细线分隔与深色文字 */
-#netid-panel .data-table th{
-  background: transparent;              /* ← 不要浅灰底 */
-  color:#111827;                        /* 与标题体系一致的深色 */
-  font-weight:600;
-  font-size:12px;
-  padding:10px 12px;                    /* 你原口径；想紧凑可改 8px */
-  line-height:1.35;
-  text-align:left;
-  border-bottom:1px solid #e5e7eb;      /* 只保留底部分隔线 */
-  white-space:nowrap;
+/* 第 4~6 列居中（与你原始版一致） */
+.data-table td:nth-child(4),
+.data-table td:nth-child(5),
+.data-table td:nth-child(6),
+.data-table th:nth-child(4),
+.data-table th:nth-child(5),
+.data-table th:nth-child(6){
+  text-align: center;
 }
 
-/* 表体 */
-#netid-panel .data-table td{
-  color:#374151;
-  font-size:12px;
-  padding:10px 12px;
-  line-height:1.5;
-  border-bottom:1px solid #f3f4f6;
-  vertical-align:middle;
-}
+/* 悬停与订阅行底色（保持你原来的视觉） */
+.data-table tr:hover td{ background:#f5f5f5; }
+.data-table tr.subs-row td{ background:#f5f5f5; }
 
-/* 第 4~6 列居中（伪装效果/运行状态/客户端配置） */
-#netid-panel .data-table td:nth-child(4),
-#netid-panel .data-table td:nth-child(5),
-#netid-panel .data-table td:nth-child(6),
-#netid-panel .data-table th:nth-child(4),
-#netid-panel .data-table th:nth-child(5),
-#netid-panel .data-table th:nth-child(6){
-  text-align:center;
-}
-
-/* 悬停与订阅行底色（保持原样） */
-#netid-panel .data-table tr:hover td{ background:#f5f5f5; }
-#netid-panel .data-table tr.subs-row td{ background:#f5f5f5; }
-
-/* 保护按钮/徽章外观 */
-#netid-panel .data-table td .btn,
-#netid-panel .data-table td .badge,
-#netid-panel .data-table td .tag{
-  line-height:1;
-  font-size:inherit;
-}
-#netid-panel .data-table td:last-child{ white-space:nowrap; }
 
 
 /* =======================================================================
