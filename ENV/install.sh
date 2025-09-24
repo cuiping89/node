@@ -5035,7 +5035,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 
 @media (max-width:768px) {
   .traffic-charts {
-    padding: 15px;
+    padding: 10px;
   }
   
   .chart-column:first-child .chart-container,
