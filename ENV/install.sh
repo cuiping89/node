@@ -4808,6 +4808,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   .modal-content{ width:95%; margin:10px auto; }
 }
 
+
 /* =======================================================================
    流量统计（在你现有样式基础上的高度与间距修正 v3.7）
    目标：三块图表组更贴近标题横线；两列下边框线对齐；图表铺满迷你卡片
@@ -4893,6 +4894,26 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
     height:calc(260px + 2*var(--pad-card));
     min-height:calc(260px + 2*var(--pad-card));
   }
+}
+
+/* === 让三块图表组在卡片内垂直居中（桌面端） === */
+.traffic-card{ 
+  display:flex;            /* 让标题+图表组形成上下两块 */
+  flex-direction:column;
+}
+.traffic-card .card-header{ 
+  flex:0 0 auto;           /* 标题高度由内容决定 */
+}
+.traffic-charts{
+  /* 关键：不拉伸、不占满，用内容高度即可，然后用上下 auto margin 居中 */
+  align-self:stretch;      /* 宽度占满 */
+  margin-block:auto;       /* 上下等距 => 垂直居中 */
+  /* 你的原 padding 不用改；它若被其它规则覆盖，这里依然能居中 */
+}
+
+/* 窄屏时取消居中，按正常从上往下排（避免出现上下大留白） */
+@media (max-width:1024px){
+  .traffic-charts{ margin-block: 12px; }
 }
 
 
