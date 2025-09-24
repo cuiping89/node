@@ -4795,36 +4795,47 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   margin-bottom: 2px;   /* 轻微增加行间距 */
 }
 
-/* =======================================================================
-   协议配置（仅作用于 #netid-panel；行距更紧凑）
-   ======================================================================= */
+/* ===================================================================
+   协议配置 · 正确的表头处理（h3 标题；表格 th 透明）
+   =================================================================== */
+#netid-panel .card-header h3{
+  margin: 0;
+  color: #111827;         /* 与全站 h1~h3 一致的黑色 */
+  font-weight: 600;
+}
+
+/* 表格主体 */
 #netid-panel .data-table{
   width:100%;
   border-collapse:collapse;
-  table-layout:auto; /* 如列很多可改为 fixed */
+  border-spacing:0;
+  table-layout:auto;
 }
 
-/* 表头：浅灰底，字色中灰，行距略紧 */
+/* 列标题（th）：去浅灰底，保持细线分隔与深色文字 */
 #netid-panel .data-table th{
-  background:#f5f5f5;
-  color:#4b5563;
-  font-weight:500;
+  background: transparent;              /* ← 不要浅灰底 */
+  color:#111827;                        /* 与标题体系一致的深色 */
+  font-weight:600;
   font-size:12px;
-  padding:8px 10px;          /* 10px -> 8px：行距稍微缩小 */
-  line-height:1.35;          /* 略紧凑 */
+  padding:10px 12px;                    /* 你原口径；想紧凑可改 8px */
+  line-height:1.35;
   text-align:left;
-  border-bottom:1px solid #e5e7eb;
+  border-bottom:1px solid #e5e7eb;      /* 只保留底部分隔线 */
+  white-space:nowrap;
 }
 
-/* 表体：同样收紧行距 */
+/* 表体 */
 #netid-panel .data-table td{
+  color:#374151;
   font-size:12px;
-  padding:8px 10px;          /* 10px -> 8px */
+  padding:10px 12px;
   line-height:1.5;
   border-bottom:1px solid #f3f4f6;
+  vertical-align:middle;
 }
 
-/* 居中列（第 4~6 列），保持原对齐需求 */
+/* 第 4~6 列居中（伪装效果/运行状态/客户端配置） */
 #netid-panel .data-table td:nth-child(4),
 #netid-panel .data-table td:nth-child(5),
 #netid-panel .data-table td:nth-child(6),
@@ -4834,9 +4845,18 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   text-align:center;
 }
 
-/* 行悬停与“订阅记录”行的底色（延续你原来的） */
+/* 悬停与订阅行底色（保持原样） */
 #netid-panel .data-table tr:hover td{ background:#f5f5f5; }
 #netid-panel .data-table tr.subs-row td{ background:#f5f5f5; }
+
+/* 保护按钮/徽章外观 */
+#netid-panel .data-table td .btn,
+#netid-panel .data-table td .badge,
+#netid-panel .data-table td .tag{
+  line-height:1;
+  font-size:inherit;
+}
+#netid-panel .data-table td:last-child{ white-space:nowrap; }
 
 
 /* =======================================================================
@@ -6515,7 +6535,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         <h3>🔀 分流出站</h3>
         <div class="info-item nid__row">
           <label class="nid__label">混合身份:</label>
-          <value class="nid__value" style="font-size:11px;">直连v代理</value>
+          <value class="nid__value">直连v代理</value>
         </div>
         <div class="info-item nid__row">
           <label class="nid__label">白名单:</label>
