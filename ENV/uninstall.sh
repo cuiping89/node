@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 # ===========================================================
-# EdgeBox Uninstall (idempotent, verbose)
-# - Keeps original uninstall flow, plus cleans recent install assets
-# - Safe to run multiple times
+# EdgeBox Uninstall (idempotent, verbose)  —  with cache-busting rollback
 # ===========================================================
 set -Eeuo pipefail
 
@@ -14,38 +12,10 @@ info() { echo -e "${CYAN}[INFO]${NC} $*"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
 err()  { echo -e "${RED}[ERROR]${NC} $*"; }
 hr()   { echo -e "${CYAN}------------------------------------------------------------${NC}"; }
+
 title(){ echo -e "\n${CYAN}==> $*${NC}"; }
+
 has_cmd(){ command -v "$1" >/dev/null 2>&1; }
-
-need_root() {
-  if [[ ${EUID:-0} -ne 0 ]]; then
-    err "请用 root 运行：sudo bash $0"
-    exit 1
-  fi
-}
-
-# ---------- Paths (aligned with install) ----------
-INSTALL_DIR="/etc/edgebox"
-CONFIG_DIR="${INSTALL_DIR}/config"
-SCRIPTS_DIR="${INSTALL_DIR}/scripts"
-CERT_DIR="${INSTALL_DIR}/cert"
-TRAFFIC_DIR="${INSTALL_DIR}/traffic"
-WEB_ROOT="/var/www/html"
-WEB_STATUS_PHY="/var/www/edgebox/status"
-WEB_STATUS_LINK="${WEB_ROOT}/status"
-TRAFFIC_LINK="${WEB_ROOT}/traffic"
-LOG_DIR="/var/log/edgebox"
-INSTALL_LOG="/var/log/edgebox-install.log"
-
-# one-shot init unit from latest installer
-INIT_SVC="/etc/systemd/system/edgebox-init.service"
-INIT_SCRIPT="${SCRIPTS_DIR}/edgebox-init.sh"
-
-# IP quality scoring helper
-IPQ_BIN="/usr/local/bin/edgebox-ipq.sh"
-
-# nginx main conf (for restore)
-NGX_MAIN="/etc/nginx/nginx.conf"
 
 # ---------- Small utils ----------
 systemd_safe(){
@@ -65,9 +35,15 @@ kill_listeners(){
   local ports="443 2053 11443 10085 10086"
   for p in $ports; do
     # tcp
-    if ss -lntup 2>/dev/null | awk -v P=":$p" '$4 ~ P {print $NF}' | sed 's/.*pid=\([0-9]\+\).*/\1/' | sort -u | xargs -r kill -9 2>/dev/null; then :; fi
+    ss -lntup 2>/dev/null \
+      | awk -v P=":$p" '$4 ~ P {print $NF}' \
+      | sed -E 's#.*/([0-9]+)\).*/\1#\1#' \
+      | sort -u | xargs -r kill -9 2>/dev/null || true
     # udp
-    if ss -lnuap 2>/dev/null | awk -v P=":$p" '$5 ~ P {print $NF}' | sed 's/.*pid=\([0-9]\+\).*/\1/' | sort -u | xargs -r kill -9 2>/dev/null; then :; fi
+    ss -lnuap 2>/dev/null \
+      | awk -v P=":$p" '$5 ~ P {print $NF}' \
+      | sed -E 's#.*/([0-9]+)\).*/\1#\1#' \
+      | sort -u | xargs -r kill -9 2>/dev/null || true
   done
 }
 
@@ -76,48 +52,15 @@ remove_paths(){
   for p in "$@"; do
     [[ -z "${p}" ]] && continue
     if [[ -e "$p" || -L "$p" ]]; then
-      rm -rf --one-file-system "$p" 2>/dev/null || rm -rf "$p" 2>/dev/null || true
-      ok "已删除 $p"; any=1
+      rm -rf -- "$p" && ok "已删除：$p" && any=1
     else
       skip "不存在：$p"
     fi
   done
-  return $any
-}
-
-restore_nginx() {
-  title "回退 nginx（若有备份）"
-  local cand latest
-  if [[ -f "$NGX_MAIN" ]]; then
-    cp -f "$NGX_MAIN" "${NGX_MAIN}.uninstall.bak.$(date +%s)" || true
-  fi
-  mapfile -t cand < <(ls -1t \
-      /etc/nginx/nginx.conf.bak* \
-      /etc/nginx/nginx.conf.*.bak 2>/dev/null || true)
-  if [[ -n "${cand[*]:-}" ]]; then
-    latest="${cand[0]}"
-    info "发现备份：$latest，执行回滚..."
-    if install -m 0644 -T "$latest" "$NGX_MAIN"; then
-      ok "已回滚到：$latest"
-      if has_cmd nginx && nginx -t >/dev/null 2>&1; then
-        systemd_safe restart nginx
-      fi
-    else
-      warn "回滚失败：$latest"
-    fi
-  else
-    skip "未发现可用的 nginx.conf 备份，跳过回滚"
-  fi
-}
-
-purge_cron_mark(){
-  # 兼容旧逻辑：清理旧证书续期标记任务
-  local CRON_MARK="cert-renewal.sh"
-  crontab -l 2>/dev/null | sed "/${CRON_MARK//\//\\/}/d" | crontab - 2>/dev/null || true
+  ((any==0)) && true
 }
 
 purge_cron_edgebox(){
-  # 清理 EdgeBox 创建的 cron
   crontab -l 2>/dev/null \
     | sed -e '/edgebox\/scripts\/dashboard-backend\.sh/d' \
           -e '/edgebox\/scripts\/traffic-collector\.sh/d' \
@@ -139,99 +82,135 @@ nft_cleanup(){
 }
 
 restore_kernel_tuning(){
-  # 若存在备份则回滚 sysctl / limits
   local SCTL="/etc/sysctl.conf" LIMS="/etc/security/limits.conf"
   local SCTL_BAK="${SCTL}.bak" LIMS_BAK="${LIMS}.bak"
   [[ -f "$SCTL_BAK" ]] && install -m 0644 -T "$SCTL_BAK" "$SCTL" && ok "已回滚 $SCTL" || true
   [[ -f "$LIMS_BAK" ]] && install -m 0644 -T "$LIMS_BAK" "$LIMS" && ok "已回滚 $LIMS" || true
+  has_cmd sysctl && sysctl -p >/dev/null 2>&1 || true
+}
+
+restore_nginx(){
+  if has_cmd nginx; then
+    # 恢复站点/配置备份（若存在）
+    for f in /etc/nginx/nginx.conf /etc/nginx/conf.d/edgebox.conf; do
+      [[ -f "${f}.bak" ]] && install -m 0644 -T "${f}.bak" "$f" && ok "已回滚 $f"
+    done
+    nginx -t && systemd_safe reload nginx || true
+  else
+    skip "未安装 nginx"
+  fi
+}
+
+# ---------- Cache-busting rollback (HTML ?v=VERSION 清理) ----------
+# 你的前端根目录（如有环境变量 WEB_ROOT 将优先使用）
+PANEL_ROOT="${WEB_ROOT:-/var/www/html}"
+
+# 入口页（有 <link>/<script> 的页面）；按需追加更多路径
+HTML_FILES=(
+  "${PANEL_ROOT}/index.html"
+  "${PANEL_ROOT}/panel/index.html"
+)
+
+# 要剥离 ?v= 的资源（正则，包含常见路径）
+ASSETS_REGEX='(app\.css|app\.js|assets/[A-Za-z0-9._-]+\.css|assets/[A-Za-z0-9._-]+\.js|static/[A-Za-z0-9/_.-]+\.css|static/[A-Za-z0-9/_.-]+\.js)'
+
+strip_file_version_from_html() {
+  local f="$1"
+  [[ -f "$f" ]] || { skip "HTML 不存在：$f"; return 0; }
+
+  # 1) 清理目标资源后的 ?v=xxx
+  sed -E -i "s#(${ASSETS_REGEX})\\?v=[^\"')]+#\\1#g" "$f"
+
+  # 2) 移除我们可能注入过的热点修复样式（如 id="hotfix-whitelist-*"）
+  sed -E -i '/<style[^>]*id="hotfix-whitelist[^"]*"[^>]*>/I,/<\/style>/Id' "$f"
+
+  ok "已剥离版本号/热修样式：$f"
+}
+
+uninstall_cache_busting() {
+  title "回滚前端 cache-busting（移除 ?v=VERSION）"
+  local found=0
+  for f in "${HTML_FILES[@]}"; do
+    if [[ -f "${f}.bak" ]]; then
+      install -m 0644 -T "${f}.bak" "$f" && ok "已还原备份：${f}.bak -> ${f}"
+      found=1
+    elif [[ -f "$f" ]]; then
+      strip_file_version_from_html "$f"
+      found=1
+    fi
+  done
+  ((found==0)) && skip "未发现入口 HTML，跳过 cache-busting 回滚"
+}
+
+# 可选：卸载时顺带删静态目录，重装再铺（防旧文件残留）
+clean_static_dirs(){
+  local root="${PANEL_ROOT}"
+  remove_paths "${root}/assets" "${root}/static"
 }
 
 # ---------- Main ----------
 main(){
-  need_root
-  echo -e "${CYAN}============================================================${NC}"
-  echo "EdgeBox 卸载程序（幂等）"
-  echo -n "  系统："; (lsb_release -ds 2>/dev/null || grep -hs ^PRETTY_NAME= /etc/os-release | sed -n 's/^PRETTY_NAME=//p' | tr -d '"') || echo "Unknown"
-  echo -n "  内核："; uname -r
-  echo -n "  systemd："; if has_cmd systemctl; then systemctl --version | sed -n '1p'; else echo "不可用（可能是容器或最小系统）"; fi
+  title "停止并禁用相关服务"
+  for s in xray sing-box nginx; do
+    systemd_safe stop "$s"
+    systemd_safe disable "$s"
+  done
   hr
 
-  title "卸载前监听端口快照"
+  title "强制释放端口（443/2053/11443/10085/10086）"
   list_listeners || true
-  hr
-
-  title "停止与禁用服务（xray / sing-box / edgebox-init）"
-  if has_cmd systemctl; then
-    for s in xray sing-box edgebox-init; do
-      state="$(systemctl is-active "$s" 2>/dev/null || echo unknown)"
-      printf "  %s: 当前状态 %s，执行 stop/disable ... " "$s" "$state"
-      systemd_safe stop "$s"; systemd_safe disable "$s"; echo -e "${GREEN}完成${NC}"
-    done
-    systemctl daemon-reload >/dev/null 2>&1 || true
-  else
-    skip "systemd 不可用，跳过 stop/disable"
-  fi
-  hr
-
-  title "结束残留监听进程（443/2053/11443/10085/10086）"
   kill_listeners || true
   hr
 
-  title "清理 crontab（安装与评分相关）"
-  purge_cron_mark
-  purge_cron_edgebox
+  title "删除程序/配置/数据文件"
+  # 按你的实际安装路径增减
+  remove_paths \
+    /usr/local/bin/edgebox-ipq.sh \
+    /usr/local/bin/edgeboxctl \
+    /etc/edgebox \
+    /etc/xray /usr/local/etc/xray \
+    /etc/sing-box /usr/local/etc/sing-box \
+    /var/log/edgebox \
+    /var/lib/edgebox
   hr
 
   title "删除 Web 资源与链接（/status, /traffic, 日志）"
+  WEB_ROOT="${PANEL_ROOT}"
+  WEB_STATUS_LINK="${WEB_ROOT}/status"
+  WEB_STATUS_PHY="/var/www/edgebox-status"
+  TRAFFIC_LINK="${WEB_ROOT}/traffic"
+  TRAFFIC_DIR="/var/www/edgebox-traffic"
+  LOG_DIR="${WEB_ROOT}/logs"
+  INSTALL_LOG="/var/log/edgebox-install.log"
   remove_paths "$WEB_STATUS_LINK" "$WEB_STATUS_PHY" "$TRAFFIC_LINK" "$TRAFFIC_DIR" "$LOG_DIR" "$INSTALL_LOG"
   hr
 
-  title "删除 IPQ 评分脚本与一次性初始化服务/脚本"
-  remove_paths "$IPQ_BIN" "$INIT_SCRIPT" "$INIT_SVC"
-  has_cmd systemctl && systemctl daemon-reload >/dev/null 2>&1 || true
+  # ★★ 版本号清理（HTML 中去除 ?v=...） ★★
+  uninstall_cache_busting
+  # ★★ 如要更干净，顺带删除静态目录（可注释） ★★
+  clean_static_dirs
   hr
 
-  title "删除 EdgeBox 目录（/etc/edgebox）"
-  remove_paths "$INSTALL_DIR"
-  hr
-
-  title "清理 nftables（inet edgebox）"
+  title "清理 crontab / nftables / 内核参数 回滚"
+  purge_cron_edgebox
   nft_cleanup
-  hr
-
-  title "回退内核/limits 调优（若存在备份）"
   restore_kernel_tuning
   hr
 
+  title "回滚 nginx 配置并重载"
   restore_nginx
-
-  hr
-  title "卸载后监听端口快照"
-  list_listeners || true
   hr
 
-  # 状态汇总
-  local bad=0
-  if has_cmd systemctl; then
-    for s in xray sing-box; do
-      if systemctl is-active --quiet "$s"; then
-        warn "$s 仍在运行"
-        bad=1
-      fi
-    done
-  fi
-
-  # Web 残留检查
+  title "残留检查"
   local leftovers=()
-  for p in "$WEB_STATUS_LINK" "$WEB_STATUS_PHY" "$TRAFFIC_LINK" "$TRAFFIC_DIR" "$INSTALL_DIR" "$IPQ_BIN"; do
-    [[ -e "$p" || -L "$p" ]] && leftovers+=("$p")
+  for p in /etc/edgebox /etc/xray /usr/local/etc/xray /etc/sing-box /usr/local/etc/sing-box /var/www/edgebox-*; do
+    [[ -e "$p" ]] && leftovers+=("$p")
   done
-
-  if [[ $bad -eq 0 && ${#leftovers[@]} -eq 0 ]]; then
-    echo -e "\n${GREEN}✅ 卸载完成。${NC}"
+  if ((${#leftovers[@]}==0)); then
+    ok "系统已清理完成。"
   else
     echo -e "\n${YELLOW}⚠️ 卸载完成（存在残留或运行中的服务）。${NC}"
-    ((${#leftovers[@]})) && printf '  残留路径：\n    - %s\n' "${leftovers[@]}"
+    printf '  残留路径：\n'; printf '    - %s\n' "${leftovers[@]}"
   fi
 
   echo "下一步建议："
