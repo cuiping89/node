@@ -4827,7 +4827,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 /* 图表组 —— 与“协议配置”等卡片保持上下 20px 内边距（等距） */
 .traffic-charts{
   display:grid; grid-template-columns:7fr 3fr; gap:20px;
-  padding:20px;                  /* ← 关键：上 20 / 下 20 */
+  padding:15px;                  /* ← 关键：上 20 / 下 20 */
   align-items:stretch;
 }
 
@@ -6438,16 +6438,16 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             <div class="traffic-progress-container">
               <span class="progress-label"><h3>本月进度</h3></span>
               <div class="progress-wrapper"><div class="progress-bar"><div class="progress-fill" id="progress-fill" style="width:0%"><span class="progress-percentage" id="progress-percentage">0%</span></div></div></div>
-              <span class="progress-budget" id="progress-budget">0/100GiB</span>
+              <span class="progress-budget" id="progress-budget">阈值:0/100GiB</span>
             </div>
             <div class="chart-container">
-              <h3>近30日出站流量走势<small class="unit-note">单位：GiB</small></h3>
+              <h3>近30日出站流量走势<small class="unit-note">GiB</small></h3>
               <canvas id="traffic"></canvas>
             </div>
           </div>
           <div class="chart-column">
             <div class="chart-container">
-              <h3>近12月出站流量 <small class="unit-note">单位：GiB</small></h3>
+              <h3>近12月出站流量 <small class="unit-note">GiB</small></h3>
               <canvas id="monthly-chart"></canvas>
             </div>
           </div>
