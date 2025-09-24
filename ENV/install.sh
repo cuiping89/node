@@ -5650,6 +5650,54 @@ h4 { font-size: var(--h4-size); line-height: 1.4; font-weight: 600; }
 /* 实用类：如果你在别处也要“内容=H4 字号 + 灰”，可直接加这个类 */
 .text-h4-muted { font-size: var(--h4-size); line-height: 1.4; color: var(--muted-color); }
 
+
+/* 统一行模型（<value> 默认是 inline，改成块级，和左/中卡一致） */
+#net-shunt .nid__row .nid__value { display:block; }
+
+/* 白名单值容器：建立定位上下文 + 为按钮预留右侧空间 */
+#net-shunt .whitelist-value { position: relative; }
+#net-shunt .whitelist-preview {
+  /* 与左/中卡单行高度对齐：22px；你那边若是 24px 就同步改 */
+  height: 22px;
+  line-height: 22px;
+  padding-right: 96px;         /* 预留按钮宽度，避免文字被覆盖 */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 多行需求时（如果你改回 2~3 行）：把上一段的 nowrap 改成正常换行并使用 clamp
+   #net-shunt .whitelist-preview{
+     height:auto; line-height:22px; padding-right:96px;
+   }
+   #net-shunt .whitelist-preview .whitelist-text{
+     display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:3;
+     overflow:hidden;
+   }
+*/
+
+/* 右下角固定“查看全部” */
+#net-shunt .whitelist-more{
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  height: 28px;
+  line-height: 26px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+
+/* 纠正你之前用 :has() 改过的行：避免把这一行拉崩布局 */
+#net-shunt .info-item:has(.whitelist-value){
+  align-items: center;         /* 回到与其它行一致的垂直对齐 */
+  min-height: unset;           /* 让高度跟随内容（已由行高控制） */
+  padding-top: 0; padding-bottom: 0;
+}
+
+/* 如果仍需“白名单行”跟其它行完全等高： */
+#net-shunt .whitelist-value,
+#net-shunt .whitelist-value .whitelist-preview { height: 22px; line-height: 22px; }
+
 EXTERNAL_CSS
 
   # ========== 创建外置的JavaScript文件 ==========
