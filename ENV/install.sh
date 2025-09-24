@@ -4796,45 +4796,37 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 /* =======================================================================
-   协议配置（最小改动：表头透明+深色；行距略紧）
-   —— 完全沿用你原来的选择器（.data-table ...），不引入新类
+   协议配置
    ======================================================================= */
 .data-table{ width:100%; border-collapse:collapse; }
-
-/* 列标题：透明背景 + 深色文字；其余不变 */
 .data-table th{
-  background: transparent;         /* 原：#f5f5f5 */
-  color: #111827;                  /* 原：#4b5563 */
-  font-weight: 600;                /* 原：500 */
-  padding: 8px;                    /* 原：10px（行距略紧）*/
-  text-align: left;
-  font-size: 12px;
-  border-bottom: 1px solid #e5e7eb;
-  white-space: nowrap;
+  background:#f5f5f5; color:#4b5563; font-weight:500; padding:10px; text-align:left;
+  font-size:12px; border-bottom:1px solid #e5e7eb;
 }
-
-/* 表体：行距略紧（8px），其余保持原样 */
-.data-table td{
-  padding: 8px;                    /* 原：10px */
-  border-bottom: 1px solid #f3f4f6;
-  font-size: 12px;
-}
-
-/* 第 4~6 列居中（与你原始版一致） */
-.data-table td:nth-child(4),
-.data-table td:nth-child(5),
-.data-table td:nth-child(6),
-.data-table th:nth-child(4),
-.data-table th:nth-child(5),
-.data-table th:nth-child(6){
-  text-align: center;
-}
-
-/* 悬停与订阅行底色（保持你原来的视觉） */
+.data-table td{ padding:10px; border-bottom:1px solid #f3f4f6; font-size:12px; }
+.data-table td:nth-child(4),.data-table td:nth-child(5),.data-table td:nth-child(6),
+.data-table th:nth-child(4),.data-table th:nth-child(5),.data-table th:nth-child(6){ text-align:center; }
 .data-table tr:hover td{ background:#f5f5f5; }
 .data-table tr.subs-row td{ background:#f5f5f5; }
 
+.traffic-progress-container{ display:flex; align-items:center; gap:10px; }
+.progress-label{ font-size:13px; color:#6b7280; white-space:nowrap; }
+.progress-wrapper{ flex:1; min-width:120px; }
+.progress-bar{ height:20px; background:#f3f4f6; border-radius:10px; overflow:hidden; position:relative; }
+.progress-fill{ height:100%; background:linear-gradient(90deg,#10b981 0%,#059669 100%); transition:width .3s ease; display:flex; align-items:center; justify-content:flex-end; padding-right:8px; }
+.progress-fill.warning{ background:linear-gradient(90deg,#f59e0b 0%,#d97706 100%); }
+.progress-fill.critical{ background:linear-gradient(90deg,#ef4444 0%,#dc2626 100%); }
+.progress-percentage{ color:#fff; font-size:11px; font-weight:600; }
+.progress-budget{ color:#6b7280; font-size:12px; white-space:nowrap; }
 
+/* 响应式（卡片网格/流量图保持不变） */
+@media (max-width:1024px){
+  .grid-3,.grid-1-2{ grid-template-columns:1fr; }
+  .traffic-charts{ grid-template-columns:1fr; }
+}
+@media (max-width:768px){
+  .modal-content{ width:95%; margin:10px auto; }
+}
 
 /* =======================================================================
    流量统计（统一上下间距口径 + 两列等高 + 迷你卡片不改高）
@@ -6512,7 +6504,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         <h3>🔀 分流出站</h3>
         <div class="info-item nid__row">
           <label class="nid__label">混合身份:</label>
-          <value class="nid__value">直连v代理</value>
+          <value class="nid__value" style="font-size:11px;">直连v代理</value>
         </div>
         <div class="info-item nid__row">
           <label class="nid__label">白名单:</label>
