@@ -4732,6 +4732,133 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   }
 }
 
+/* ======== 网络身份配置 - 白名单查看全部按钮专用CSS =========== */
+
+/* 分流出站区块中的白名单值容器 */
+#net-shunt .whitelist-value {
+  position: relative;
+  width: 100%;
+  min-height: 60px;  /* 确保至少3行的高度空间 */
+}
+
+/* 白名单预览容器 */
+.whitelist-preview {
+  position: relative;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* 白名单文本内容 */
+.whitelist-text {
+  color: #111827;
+  font-size: 13px;
+  line-height: 1.4;
+  word-wrap: break-word;
+  word-break: break-all;
+  
+  /* 限制最多显示3行 */
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  
+  /* 兜底方案（非webkit浏览器） */
+  max-height: calc(1.4em * 3);  /* 3行的高度 */
+}
+
+/* 查看全部按钮 */
+.whitelist-more {
+  /* 继承全局按钮样式 */
+  --btn-h: 26px;      /* 稍微小一点适配小区块 */
+  --btn-pad-x: 10px;  /* 稍微紧凑一点 */
+
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  height: var(--btn-h);
+  line-height: calc(var(--btn-h) - 2px);
+  padding: 0 var(--btn-pad-x);
+
+  /* 定位：固定在右下角 */
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  
+  /* 样式 */
+  border: 1px solid #d1d5db;
+  border-radius: 5px;
+  background: #fff;
+  color: #2563eb;
+  font-size: 11px;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+  z-index: 2;
+
+  /* 确保按钮可见 */
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  
+  transition: all 0.15s ease;
+}
+
+/* hover效果 */
+.whitelist-more:hover {
+  background: #f3f4f6;
+  border-color: #9ca3af;
+  color: #1d4ed8;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.12);
+}
+
+/* active效果 */
+.whitelist-more:active {
+  background: #e5e7eb;
+  border-color: #9ca3af;
+  color: #1d4ed8;
+  transform: translateY(1px);
+}
+
+/* 无白名单时的样式 */
+.whitelist-text:empty::after {
+  content: "(无)";
+  color: #9ca3af;
+  font-style: italic;
+}
+
+/* 确保在小卡片中白名单区域有足够空间 */
+#net-shunt .info-item.nid__row:last-child {
+  align-items: flex-start;  /* 顶部对齐，给查看全部按钮留空间 */
+  min-height: 64px;         /* 保证最小高度 */
+}
+
+/* 如果白名单内容很短，确保查看全部按钮仍然显示 */
+.whitelist-preview:not(:empty) .whitelist-more {
+  display: inline-flex !important;
+}
+
+/* 响应式：窄屏时调整 */
+@media (max-width: 1024px) {
+  .whitelist-more {
+    --btn-h: 24px;
+    --btn-pad-x: 8px;
+    font-size: 10px;
+  }
+  
+  #net-shunt .info-item.nid__row:last-child {
+    min-height: 58px;
+  }
+}
+
+/* 调试用（开发时可开启，生产时注释掉） */
+/* 
+.whitelist-preview {
+  border: 1px dashed #ccc;
+}
+.whitelist-more {
+  border: 2px solid red !important;
+}
+*/
 
 /* =======================================================================
    运维管理
@@ -4887,7 +5014,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 
 /* 表格整体外边框和阴影 */
 .data-table {
-  border: 1px solid #e5e7eb;
+  border: 2px solid #d1d5db;
   border-radius: 8px;
   overflow: hidden;  /* 确保圆角效果 */
   box-shadow: 0 2px 8px rgba(0,0,0,0.08);
