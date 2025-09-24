@@ -4733,104 +4733,44 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 /* ====白名单/查看全部按钮==== */
-/* ===== ANCHOR: WHITELIST-REAL-FIX ===== */
-/* 完全替换白名单相关的所有CSS规则 */
-
-/* 1. 删除所有错误的规则 */
-/* 删除这些：
-   - #net-shunt .nid__row .nid__value.whitelist-value
-   - #net-shunt .nid__row .whitelist-preview  
-   - #net-shunt .nid__row .whitelist-more 的 position:absolute 规则
-   - #net-shunt .info-item:has(.whitelist-value)
-*/
-
-/* 2. 正确的白名单容器样式 */
-#net-shunt .whitelist-value {
-  display: inline-block;  /* 保持内联块 */
-  width: 100%;           /* 占满可用宽度 */
+/* 只修：分流出站卡(#net-shunt) 的白名单这一行 */
+#net-shunt .nid__value.whitelist-value{
+  position: relative;   /* 作为按钮的定位上下文 */
+  display: block;       /* <value> 默认是 inline，这里统一为块级 */
 }
 
-/* 3. 白名单文本 - 保持简单内联 */
-#net-shunt .whitelist-text,
-#net-shunt #whitelistText {
-  display: inline;        /* 内联显示 */
-  margin-right: 10px;     /* 与按钮的间距 */
-  color: #111827;
-  font-size: 13px;
-}
-
-/* 4. 查看全部按钮 - 简单内联块 */
-#net-shunt .whitelist-more {
-  display: inline-block;
-  height: 26px;
-  line-height: 24px;
-  padding: 0 12px;
-  margin-left: 5px;      /* 左边距 */
-  
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  background: #fff;
-  color: #2563eb;
-  font-size: 12px;
-  cursor: pointer;
+/* 把原来写成 .whitelist-preview 的改到真实节点 .whitelist-text / #whitelistText */
+#net-shunt .whitelist-value .whitelist-text,
+#net-shunt #whitelistText{
+  display: block;
+  line-height: 22px;    /* 与左/中两卡单行行高一致；你要是用 28px 就同步改 */
+  height: 22px;         /* 单行效果 */
+  padding-right: 96px;  /* 为“查看全部”按钮预留空间，避免被盖或挤 */
   white-space: nowrap;
-  vertical-align: middle;  /* 垂直对齐 */
-  
-  transition: all 0.15s ease;
-}
-
-/* 5. 按钮hover效果 */
-#net-shunt .whitelist-more:hover {
-  background: #f3f4f6;
-  border-color: #9ca3af;
-  color: #1d4ed8;
-}
-
-/* 6. 按钮active效果 */
-#net-shunt .whitelist-more:active {
-  background: #e5e7eb;
-  color: #1d4ed8;
-}
-
-/* 7. 确保info-item行的基本布局不被破坏 */
-#net-shunt .info-item,
-#net-shunt .nid__row {
-  display: grid;
-  grid-template-columns: 75px 1fr;  /* 标签75px，值占剩余 */
-  gap: 12px;
-  align-items: center;
-  padding: 5px 0;
-}
-
-/* 8. 确保标签样式正确 */
-#net-shunt .nid__label {
-  color: #6b7280;
-  font-size: 13px;
-  font-weight: 500;
-}
-
-/* 9. 确保值样式正确 */
-#net-shunt .nid__value {
-  color: #111827;
-  font-size: 13px;
-  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-/* 10. 响应式处理 */
-@media (max-width: 768px) {
-  #net-shunt .whitelist-text {
-    display: block;         /* 窄屏换行 */
-    margin-bottom: 8px;
-  }
-  
-  #net-shunt .whitelist-more {
-    display: block;
-    width: auto;
-    margin-left: 0;
-  }
+/* “查看全部”固定在白名单区块的右下角 */
+#net-shunt .whitelist-value .whitelist-more{
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  height: 28px;
+  line-height: 26px;
+  padding: 0 12px;
+  font-size: 12px;
 }
+
+/* 若你之前给白名单行写过 :has(.whitelist-value){ align-items:start/min-height… }，会把这行拉乱；
+   只在本卡片把它恢复即可（不动全局）。*/
+#net-shunt .info-item:has(.whitelist-value){
+  align-items: center !important;
+  min-height: unset !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+}
+
 
 /* =======================================================================
    运维管理
