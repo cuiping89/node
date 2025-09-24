@@ -4828,7 +4828,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   .modal-content{ width:95%; margin:10px auto; }
 }
 /* =======================================================================
-   协议配置 - 优化版本（缩小行距，增加行线阴影和灰色效果）
+   协议配置 - 优化版本（缩小行距，增加行线灰色效果）
    ======================================================================= */
 .data-table{ 
   width:100%; 
@@ -4843,16 +4843,12 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   text-align:left;
   font-size:12px; 
   border-bottom:1px solid #e5e7eb;
-  /* 为表头添加轻微阴影 */
-  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
 }
 
 .data-table td{ 
   padding:7px 10px;  /* 缩小了上下padding从10px到7px */
   border-bottom:1px solid #d1d5db;  /* 改为更明显的灰色边框 */
   font-size:12px; 
-  /* 为每一行添加轻微的内阴影效果 */
-  box-shadow: inset 0 -1px 0 rgba(0,0,0,0.05);
 }
 
 /* 第4、5、6列（伪装效果、运行状态、客户端配置）居中对齐 */
@@ -4865,48 +4861,15 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   text-align:center; 
 }
 
-/* hover效果：鼠标悬停时背景变灰，同时增强阴影 */
+/* hover效果：鼠标悬停时背景变灰 */
 .data-table tr:hover td{ 
-  background:#f8f9fa;  /* 更柔和的灰色背景 */
-  box-shadow: inset 0 -1px 0 rgba(0,0,0,0.1), 0 1px 3px rgba(0,0,0,0.1);
-  transition: all 0.2s ease;  /* 添加过渡效果 */
+  background:#f5f5f5; 
 }
 
 /* 订阅行特殊样式 */
 .data-table tr.subs-row td{ 
-  background:#f1f5f9;  /* 订阅行使用更明显的背景色 */
-  border-top: 2px solid #cbd5e1;  /* 订阅行顶部添加更粗的分隔线 */
-  box-shadow: inset 0 1px 3px rgba(0,0,0,0.08);  /* 订阅行内阴影 */
+  background:#f5f5f5; 
 }
-
-/* 订阅行hover效果 */
-.data-table tr.subs-row:hover td{
-  background:#e2e8f0;
-  box-shadow: inset 0 1px 3px rgba(0,0,0,0.12), 0 2px 4px rgba(0,0,0,0.1);
-}
-
-/* 表格整体外边框和阴影 */
-.data-table {
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  overflow: hidden;  /* 确保圆角效果 */
-  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-}
-
-/* 最后一行去除底部边框，避免双重边框 */
-.data-table tr:last-child td {
-  border-bottom: none;
-}
-
-/* 表格行的交替颜色效果（可选） */
-.data-table tbody tr:nth-child(even):not(.subs-row) td {
-  background-color: rgba(249,250,251,0.5);
-}
-
-.data-table tbody tr:nth-child(even):not(.subs-row):hover td {
-  background-color: #f3f4f6;
-}
-
 
 /* =======================================================================
    流量统计（统一上下间距口径 + 两列等高 + 迷你卡片不改高）
