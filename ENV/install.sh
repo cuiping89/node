@@ -4827,7 +4827,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 /* 图表组 —— 与“协议配置”等卡片保持上下 20px 内边距（等距） */
 .traffic-charts{
   display:grid; grid-template-columns:7fr 3fr; gap:20px;
-  padding:15px;                  /* ← 关键：上 20 / 下 20 */
+  padding:10px;                  /* ← 关键：上 20 / 下 20 */
   align-items:stretch;
 }
 
@@ -4846,7 +4846,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 .traffic-card .progress-label{ font-size:13px; color:#6b7280; white-space:nowrap; }
 .traffic-card .progress-label h3{ margin:0; font-size:14px; font-weight:600; }
 .traffic-card .progress-wrapper{ flex:1; min-width:120px; }
-.traffic-card .progress-bar{ height:18px; background:#e2e8f0; border-radius:999px; overflow:hidden; position:relative; }
+.traffic-card .progress-bar{ height:20px; background:#e2e8f0; border-radius:999px; overflow:hidden; position:relative; }
 .traffic-card .progress-fill{ height:100%; background:linear-gradient(90deg,#10b981 0%,#059669 100%); transition:width .3s ease; display:flex; align-items:center; justify-content:flex-end; padding-right:8px; }
 .traffic-card .progress-percentage{ color:#fff; font-size:11px; font-weight:600; }
 .traffic-card .progress-budget{ color:#6b7280; font-size:12px; white-space:nowrap; }
@@ -4914,6 +4914,27 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   }
 }
 
+/* ===== ANCHOR: HTML-LEGEND-CSS ===== */
+/* 让“单位：GiB”与图例并排、同一行显示 */
+.legend-row{
+  display:flex; align-items:center; gap:16px;
+  justify-content:center;                 /* 居中，与标题视觉一致 */
+  margin-top:8px;
+  font-size:13px; color:#6b7280;
+}
+.legend-row .unit-note{ white-space:nowrap; font-weight:500; }
+
+/* HTML 图例容器 */
+.legend-row .legend-list{ display:flex; gap:16px; flex-wrap:wrap; align-items:center; }
+.legend-row .legend-item{
+  display:flex; align-items:center; gap:6px; cursor:pointer; user-select:none;
+}
+.legend-row .box{
+  width:12px; height:12px; border-radius:2px; background:#9ca3af; /* 兜底 */
+}
+
+/* （可选）隐藏默认 Canvas 图例时的底部空白 */
+.chartjs-legend-space{ display:none; }
 
 /* =========================
    弹窗 Modal 统一样式补丁
@@ -5634,7 +5655,7 @@ function renderTrafficCharts() {
     const budgetEl = document.getElementById('progress-budget');
     if (fillEl)   fillEl.style.width = `${percentage}%`;
     if (pctEl)    pctEl.textContent  = `${percentage}%`;
-    if (budgetEl) budgetEl.textContent = `${used.toFixed(1)}/${budget}GiB`;
+    if (budgetEl) budgetEl.textContent = `阈值：${budget}GiB`;
   }
 
   // —— 图表销毁（避免重复实例）——
@@ -5661,11 +5682,14 @@ function renderTrafficCharts() {
             { label: '代理', data: daily.map(d => d.resi / GiB), borderColor: proxyColor, backgroundColor: proxyColor, tension: 0.3, pointRadius: 0, fill: false },
           ]
         },
-options: {
-  responsive:true, maintainAspectRatio:false,
-  interaction:{ mode:'index', intersect:false },
+options:{
+  responsive:true, maintainAspectRatio:false, resizeDelay:120,
+  plugins:{
+    legend:{ display:false },                 // 关闭内置 Canvas 图例
+    htmlLegendWithUnit:{ unitText:'单位：GiB' } // 与图例并排显示
+  },
   layout:{ padding:{ bottom:8 } },
-  plugins:{ legend:{ position:'bottom', labels:{ boxWidth:12, padding:12 } } },
+  interaction:{ mode:'index', intersect:false },
   scales:{
     x:{ grid:{ display:false }, ticks:{ maxRotation:0, padding:6 } },
     y:{ beginAtZero:true, ticks:{ padding:6 } }
@@ -5689,10 +5713,13 @@ options: {
             { label: '代理', data: arr.map(m => m.resi / GiB), backgroundColor: proxyColor, stack: 'a' },
           ]
         },
-options: {
-  responsive:true, maintainAspectRatio:false,
+options:{
+  responsive:true, maintainAspectRatio:false, resizeDelay:120,
+  plugins:{
+    legend:{ display:false },
+    htmlLegendWithUnit:{ unitText:'单位：GiB' }
+  },
   layout:{ padding:{ bottom:8 } },
-  plugins:{ legend:{ position:'bottom', labels:{ boxWidth:12, padding:12 } } },
   scales:{
     x:{ stacked:true, grid:{ display:false }, ticks:{ maxRotation:0, padding:6 } },
     y:{ stacked:true, beginAtZero:true, ticks:{ padding:6 } }
@@ -5702,6 +5729,48 @@ options: {
     }
   }
 }
+
+/* ===== ANCHOR: HTML-LEGEND-PLUGIN ===== */
+const htmlLegendWithUnit = {
+  id: 'htmlLegendWithUnit',
+  afterUpdate(chart, args, opts){
+    const parent = chart.canvas.parentNode;                    // .chart-container
+    let row = parent.querySelector('.legend-row');
+    if(!row){
+      row = document.createElement('div');
+      row.className = 'legend-row';
+      row.innerHTML = `<span class="unit-note"></span><div class="legend-list"></div>`;
+      parent.appendChild(row);
+    }
+    // 设置单位文本
+    row.querySelector('.unit-note').textContent = opts?.unitText || '';
+
+    const list = row.querySelector('.legend-list');
+    list.innerHTML = '';
+
+    // 用内置逻辑生成图例项
+    const items = chart.options.plugins.legend.labels.generateLabels(chart);
+    items.forEach((it, idx) => {
+      const item = document.createElement('div');
+      item.className = 'legend-item';
+      item.onclick = () => {
+        chart.toggleDataVisibility(it.datasetIndex);
+        chart.update();
+      };
+      const box = document.createElement('span');
+      box.className = 'box';
+      box.style.background = it.fillStyle || it.strokeStyle;
+      const label = document.createElement('span');
+      label.textContent = it.text;
+      if (chart.isDatasetVisible(it.datasetIndex) === false) {
+        label.style.opacity = .4; box.style.opacity = .4;
+      }
+      item.appendChild(box); item.appendChild(label);
+      list.appendChild(item);
+    });
+  }
+};
+try{ Chart.register(htmlLegendWithUnit); }catch(e){}
 
 // --- Modal and Interaction Logic ---
 function showModal(modalId) {
@@ -6438,7 +6507,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             <div class="traffic-progress-container">
               <span class="progress-label"><h3>本月进度</h3></span>
               <div class="progress-wrapper"><div class="progress-bar"><div class="progress-fill" id="progress-fill" style="width:0%"><span class="progress-percentage" id="progress-percentage">0%</span></div></div></div>
-              <span class="progress-budget" id="progress-budget">阈值:0/100GiB</span>
+              <span class="progress-budget" id="progress-budget">0/100GiB</span>
             </div>
             <div class="chart-container">
               <h3>近30日出站流量走势<small class="unit-note">GiB</small></h3>
