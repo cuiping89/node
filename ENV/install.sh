@@ -4904,6 +4904,34 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   overflow:hidden; position:relative;
 }
 
+/* ==== TRAFFIC PATCH v2 ==== */
+
+/* A) 卡片整体高度口径（与“协议配置”一致，可按需调高/调低） */
+.traffic-card{ min-height: 600px; }
+
+/* B) 两列比例 7:3（你已设置过，这里兜底覆盖一次） */
+.traffic-charts{ grid-template-columns: 7fr 3fr; }
+
+/* C) 统一图表容器高度，确保左右零刻度对齐 */
+.traffic-card{ --chart-h: 320px; }               /* 想更高就改这个变量 */
+.chart-container{ height: var(--chart-h); min-height: var(--chart-h); overflow: hidden; }
+
+/* D) 两个图表标题居中；“本月进度”保持左对齐 */
+.traffic-charts h3{ text-align:center; margin: 0 0 8px; }
+.chart-column .traffic-progress-container h3{ text-align:left; }
+
+/* E) 方案B：迷你卡片（父容器加类 .traffic--subcards 即启用） */
+.traffic-charts.traffic--subcards{ gap:12px; }
+.traffic-charts.traffic--subcards .chart-column > *,
+.traffic-charts.traffic--subcards > .chart-column:last-child > .chart-container{
+  padding:12px 12px 10px;
+  border:1px solid #e5e7eb; border-radius:12px;
+  background:#fff; box-shadow:0 1px 2px rgba(0,0,0,.04);
+}
+
+/* F) 进度条底色（你要求的 #e2e8f0），高度沿用 CPU 的 --meter-height */
+.traffic-card .progress-bar{ background:#e2e8f0; height:var(--meter-height, 18px); }
+
 /* =========================
    弹窗 Modal 统一样式补丁
    ========================= */
@@ -5652,17 +5680,13 @@ function renderTrafficCharts() {
           ]
         },
 options: {
-  responsive: true,
-  maintainAspectRatio: false,
-  interaction: { mode:'index', intersect:false },
-  layout: { padding: { bottom: 8 } },     // 与右图一致，保证零刻度对齐
-  plugins: {
-    legend: { position:'bottom', labels:{ boxWidth:12, padding:12 } },
-    tooltip:{ mode:'index', intersect:false }
-  },
-  scales: {
-    x: { grid:{ display:false }, ticks:{ maxRotation:0, padding:6 } },
-    y: { beginAtZero:true, ticks:{ padding:6 } }
+  responsive:true, maintainAspectRatio:false,
+  interaction:{ mode:'index', intersect:false },
+  layout:{ padding:{ bottom:8 } },
+  plugins:{ legend:{ position:'bottom', labels:{ boxWidth:12, padding:12 } } },
+  scales:{
+    x:{ grid:{ display:false }, ticks:{ maxRotation:0, padding:6 } },
+    y:{ beginAtZero:true, ticks:{ padding:6 } }
   }
 }
       });
@@ -5684,22 +5708,18 @@ options: {
           ]
         },
 options: {
-  responsive: true,
-  maintainAspectRatio: false,
-  layout: { padding: { bottom: 8 } },     // 与左图一致
-  plugins: {
-    legend: { position:'bottom', labels:{ boxWidth:12, padding:12 } }
-  },
-  scales: {
-    x: { stacked:true, grid:{ display:false }, ticks:{ maxRotation:0, padding:6 } },
-    y: { stacked:true, beginAtZero:true, ticks:{ padding:6 } }
+  responsive:true, maintainAspectRatio:false,
+  layout:{ padding:{ bottom:8 } },
+  plugins:{ legend:{ position:'bottom', labels:{ boxWidth:12, padding:12 } } },
+  scales:{
+    x:{ stacked:true, grid:{ display:false }, ticks:{ maxRotation:0, padding:6 } },
+    y:{ stacked:true, beginAtZero:true, ticks:{ padding:6 } }
   }
 }
       });
     }
   }
 }
-
 
 // --- Modal and Interaction Logic ---
 function showModal(modalId) {
@@ -6431,7 +6451,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         <div class="card-header">
             <h2>📊 流量统计</h2>
         </div>
-        <div class="traffic-charts">
+        <div class="traffic-charts traffic--subcards">
           <div class="chart-column">
             <div class="traffic-progress-container">
               <span class="progress-label"><h3>本月进度</h3></span>
