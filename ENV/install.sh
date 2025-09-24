@@ -4809,7 +4809,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 /* =======================================================================
-   流量统计（固定高度，确保对齐）
+   流量统计（正确的高度调整）
    ======================================= */
 
 .traffic-card{
@@ -4832,16 +4832,14 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   grid-template-columns:7fr 3fr; 
   gap:20px; 
   padding:20px;
-  min-height: 360px;
   align-items: stretch;
 }
 
-/* 列容器 - 确保两列等高 */
+/* 列容器 */
 .chart-column{ 
   display:flex; 
   flex-direction:column; 
   gap:12px;
-  min-height: 320px;  /* 最小高度 */
 }
 
 /* 左列内部分隔线 */
@@ -4925,7 +4923,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   white-space:nowrap; 
 }
 
-/* 图表容器 - 统一高度处理 */
+/* 图表容器 */
 .chart-container{
   position: relative;
   overflow: hidden;
@@ -4933,18 +4931,17 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   flex-direction: column;
 }
 
-/* 左列图表：填充剩余空间 */
+/* 左列图表：保持原有大小 */
 .chart-column:first-child .chart-container {
-  flex: 1;
-  min-height: 230px;
-  max-height: 260px;
+  height: 320px;  /* 充足的高度展示图表 */
+  min-height: 320px;
 }
 
-/* 右列图表：固定高度，与左列总高度匹配 */
+/* 右列图表：调整高度以匹配左列总高度 */
 .chart-column:last-child .chart-container {
-  height: 320px;  /* 50(进度) + 12(间隙) + 258(图表) = 320px */
-  min-height: 320px;
-  max-height: 320px;
+  height: 382px;  /* 50(进度) + 12(间隙) + 320(图表) = 382px */
+  min-height: 382px;
+  max-height: 382px;
 }
 
 /* 图表标题 */
@@ -4957,13 +4954,12 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   flex-shrink: 0;
 }
 
-/* Canvas直接样式 - 限制在容器内 */
+/* Canvas样式 */
 .traffic-card .chart-container canvas{ 
   display: block !important;
-  position: relative !important;
   width: 100% !important;
   height: auto !important;
-  max-height: calc(100% - 30px) !important;  /* 减去标题高度 */
+  max-height: calc(100% - 35px) !important;  /* 减去标题和间距 */
 }
 
 /* B方案：迷你卡片样式 */
@@ -4986,7 +4982,6 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   border-radius:12px;
   background:#fff; 
   box-shadow:0 2px 8px rgba(17,24,39,.08);
-  height: auto;
 }
 
 .traffic-charts.traffic--subcards .chart-container{
@@ -4995,18 +4990,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   border-radius:12px;
   background:#fff; 
   box-shadow:0 2px 8px rgba(17,24,39,.08);
-}
-
-/* subcards模式的图表高度 */
-.traffic-charts.traffic--subcards .chart-column:first-child .chart-container {
-  height: 220px;
-  min-height: 220px;
-  max-height: 220px;
-}
-
-.traffic-charts.traffic--subcards .chart-column:last-child .chart-container {
-  height: auto;
-  min-height: 280px;
+  height: 320px;  /* subcards模式统一高度 */
 }
 
 /* B方案时移除左列内部横线 */
@@ -5028,7 +5012,6 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 @media (max-width:1024px){
   .traffic-charts{ 
     grid-template-columns:1fr;
-    min-height: auto;
   }
   
   .traffic-charts:not(.traffic--subcards) > :first-child{ 
@@ -5043,15 +5026,10 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
     margin-top: 20px;
   }
   
-  .chart-column {
-    min-height: auto;
-  }
-  
   .chart-column:first-child .chart-container,
   .chart-column:last-child .chart-container {
-    height: 240px;
-    min-height: 240px;
-    max-height: 240px;
+    height: 280px;
+    min-height: 280px;
   }
 }
 
@@ -5062,9 +5040,8 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   
   .chart-column:first-child .chart-container,
   .chart-column:last-child .chart-container {
-    height: 200px;
-    min-height: 200px;
-    max-height: 200px;
+    height: 240px;
+    min-height: 240px;
   }
 }
 
