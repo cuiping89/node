@@ -6522,7 +6522,7 @@ case 'copy-qr': {
   });
 })();
 
-<script>
+
 /* 安装：只修 #net-shunt 白名单行；其它任何样式不动 */
 function installWhitelistPatch(){
   const css = `
@@ -6565,7 +6565,6 @@ function uninstallWhitelistPatch(){
 
 /* 建议：渲染网络身份配置后调用一次 */
 installWhitelistPatch();
-</script>
 
 
 EXTERNAL_JS
