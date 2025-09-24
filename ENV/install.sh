@@ -4738,37 +4738,49 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 #net-shunt .whitelist-value,
 #net-shunt .info-item .whitelist-value {
   /* 覆盖父级的 white-space: nowrap 和 overflow: hidden */
-  white-space: normal !important;  /* 允许换行 */
-  overflow: visible !important;    /* 显示溢出内容 */
-  text-overflow: initial !important;  /* 取消省略号 */
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: initial !important;
   
   position: relative;
   width: 100%;
-  min-height: 60px;
+  /* 关键：限制白名单区域的最大高度，与其他区块保持一致 */
+  max-height: 52px;  /* 大约3行的高度，与其他区块匹配 */
+  overflow: hidden;  /* 超出部分隐藏 */
 }
 
 /* 白名单预览容器 */
 .whitelist-preview {
   position: relative;
   width: 100%;
+  height: 100%;
   display: block;
-  line-height: 1.4;
+  line-height: 1.3;  /* 稍微紧凑的行高，与其他区块匹配 */
   font-size: 13px;
 }
 
-/* 白名单文本内容 */
+/* 白名单文本内容 - 限制显示行数 */
 .whitelist-text {
   color: #111827;
   font-size: 13px;
-  line-height: 1.4;
+  line-height: 1.3;  /* 与其他区块保持一致的行高 */
   word-wrap: break-word;
   word-break: break-all;
-  display: inline;
-  max-height: calc(1.4em * 3);
+  
+  /* 使用webkit-line-clamp精确控制显示行数 */
+  display: -webkit-box;
+  -webkit-line-clamp: 3;  /* 严格限制3行 */
+  -webkit-box-orient: vertical;
   overflow: hidden;
+  
+  /* 为按钮预留右侧空间 */
+  padding-right: 75px;
+  
+  /* 兜底：非webkit浏览器 */
+  max-height: calc(1.3em * 3);
 }
 
-/* 查看全部按钮 - 默认跟在文本后面 */
+/* 查看全部按钮 - 固定在右下角 */
 .whitelist-more {
   --btn-h: 20px;
   --btn-pad-x: 6px;   
@@ -4780,8 +4792,10 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   line-height: calc(var(--btn-h) - 2px);
   padding: 0 var(--btn-pad-x);
 
-  margin-left: 6px;
-  vertical-align: baseline;
+  /* 关键：绝对定位到右下角 */
+  position: absolute !important;
+  right: 0;
+  bottom: 0;
   
   border: 1px solid #d1d5db;
   border-radius: 4px;
@@ -4792,22 +4806,23 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   text-decoration: none;
   cursor: pointer;
   white-space: nowrap;
+  z-index: 2;
 
   box-shadow: 0 1px 2px rgba(0,0,0,0.1);
   transition: all 0.15s ease;
 }
 
-/* 当内容超过3行时，按钮定位到第三行末尾 */
+/* 移除之前的overflow相关样式，简化逻辑 */
 .whitelist-preview.has-overflow .whitelist-text {
-  margin-right: 70px;
-  position: relative;
+  /* 保持一致的样式 */
+  padding-right: 75px;
 }
 
 .whitelist-preview.has-overflow .whitelist-more {
-  position: absolute;
+  /* 保持相同的定位 */
+  position: absolute !important;
   right: 0;
-  top: calc(1.4em * 2.2);
-  margin-left: 0;
+  bottom: 0;
 }
 
 /* hover效果 */
@@ -4826,10 +4841,12 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   transform: translateY(1px);
 }
 
-/* 确保白名单行有足够空间 */
+/* 确保分流出站区块与其他区块高度一致 */
 #net-shunt .info-item.nid__row:last-child {
   align-items: flex-start;
-  min-height: 64px;
+  /* 关键：与其他区块的行高保持一致 */
+  min-height: 32px;  /* 与其他info-item行高匹配 */
+  max-height: 60px;  /* 限制最大高度 */
 }
 
 /* 响应式调整 */
@@ -4840,8 +4857,12 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
     font-size: 9px;
   }
   
-  .whitelist-preview.has-overflow .whitelist-text {
-    margin-right: 60px;
+  .whitelist-text {
+    padding-right: 65px;
+  }
+  
+  #net-shunt .whitelist-value {
+    max-height: 48px;
   }
 }
 
