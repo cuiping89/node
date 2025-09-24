@@ -4732,81 +4732,61 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   }
 }
 
+/* ======== 网络身份配置 - 白名单查看全部按钮专用CSS =========== */
 /* =======================================================================
-   网络身份配置 - 白名单区块布局修复
+   网络身份配置 - 白名单区块布局精修 (最终对齐版)
    ======================================================================= */
 
-/* 1. 强制白名单的值容器允许内容换行，并为内部绝对定位提供参照 */
-#net-shunt .info-item .whitelist-value {
-  /* 覆盖通用样式，允许内容正常换行和显示 */
-  white-space: normal !important;
-  overflow: visible !important;
-  text-overflow: initial !important;
-
-  /* 成为内部 absolutely positioned 元素的定位基准 */
-  position: relative;
-  
-  /* 确保此行与其他行在垂直方向上顶部对齐 */
-  align-self: start; 
-}
-
-/* 2. 定义白名单预览容器的布局 */
-#net-shunt .whitelist-preview {
-  position: relative; /* 再次确认，为按钮定位 */
-  min-height: 64px;   /* 预设约3行的高度，确保容器有足够空间 */
-}
-
-/* 3. 核心：限制文本最多显示3行，并处理溢出 */
-#net-shunt .whitelist-preview .whitelist-text {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3; /* 核心：限制为3行 */
-  overflow: hidden;
-  text-overflow: ellipsis; /* 文本溢出时在结尾显示省略号 */
-  
-  /* 样式与对齐调整 */
-  line-height: 1.6; /* 确保行高与相邻区块一致 */
-  word-break: break-all; /* 处理长域名不断行的问题 */
-  color: #111827;
-  font-size: 13px;
-  
-  /* 在右侧为按钮留出空间，防止文本与按钮重叠 */
-  padding-right: 90px; 
-}
-
-/* 4. 将“查看全部”按钮绝对定位于右下角 */
-#net-shunt .whitelist-preview .whitelist-more {
-  position: absolute;
-  bottom: 0;
-  right: 0;
-  
-  /* 按钮基础样式 (您可以根据需要调整) */
-  display: inline-flex;
-  align-items: center;
-  height: 24px;
-  padding: 0 10px;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  background: #fff;
-  color: #2563eb;
-  font-size: 11px;
-  font-weight: 500;
-  cursor: pointer;
-  text-decoration: none;
-  white-space: nowrap;
-  transition: all 0.15s ease;
-}
-
-#net-shunt .whitelist-preview .whitelist-more:hover {
-  background: #f3f4f6;
-  border-color: #9ca3af;
-}
-
-/* 5. 调整包含白名单的整行布局，使其能更好地容纳多行内容 */
+/* 1. 调整包含白名单的整行，使其能正确容纳和对齐多行内容 */
 #net-shunt .info-item:has(.whitelist-value) {
-  /* 覆盖网格布局的垂直居中，改为顶部对齐 */
-  align-items: start;
-  padding-top: 8px; /* 增加一点顶部空间，视觉更协调 */
+    /* 改为顶部对齐，而不是默认的垂直居中 */
+    align-items: start;
+    /* 统一垂直内边距，与其他单行内容的行高节奏保持一致 */
+    padding-top: 8px;
+    padding-bottom: 8px;
+    min-height: 94px; /* 给予一个最小高度，确保整个卡片底部能对齐 */
+}
+
+/* 2. 覆盖白名单值容器的默认样式，允许内容换行 */
+#net-shunt .info-item .whitelist-value {
+    white-space: normal !important;
+    overflow: visible !important;
+}
+
+/* 3. 使用浮动布局来定位“查看全部”按钮，使其环绕文本 */
+#net-shunt .whitelist-preview .whitelist-more {
+    float: right; /* 核心：按钮向右浮动，文本将自然环绕 */
+    clear: both;  /* 防止影响容器外的元素 */
+    margin-left: 10px; /* 按钮与左侧文本的间距 */
+    margin-top: 5px;   /* 按钮与上方文本的垂直微调，使其底部对齐 */
+
+    /* 按钮样式，确保与“查看详情”按钮视觉统一 */
+    height: 28px;
+    line-height: 26px; /* 高度 - 2px边框 */
+    padding: 0 12px;
+    font-size: 12px;
+    /* 继承您现有的 .btn-link 或 .link 样式... */
+}
+
+/* 4. 设置白名单文本样式，实现3行截断和统一的行高 */
+#net-shunt .whitelist-preview .whitelist-text {
+    /* 核心：实现最多显示3行，超出部分显示省略号 */
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    overflow: hidden;
+    text-overflow: ellipsis;
+
+    /* 关键：设置明确的行高，使其与其它区块单行文本的视觉行高完全一致 */
+    line-height: 1.8;
+    word-break: break-all; /* 确保长域名可以被强制换行 */
+    font-size: 13px;
+    color: #111827;
+}
+
+/* 5. 使用 overflow 清除浮动，确保父容器(.whitelist-preview)高度被正确计算 */
+#net-shunt .whitelist-preview {
+    overflow: hidden;
 }
 
 /* =======================================================================
