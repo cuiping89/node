@@ -4738,19 +4738,19 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 #net-shunt .whitelist-value {
   position: relative;
   width: 100%;
-  min-height: 60px;  /* 确保至少3行的高度空间 */
+  min-height: 60px;
 }
 
-/* 白名单预览容器 */
+/* 白名单预览容器 - 关键：使用块级布局 */
 .whitelist-preview {
   position: relative;
   width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  display: block;  /* 改为块级布局 */
+  line-height: 1.4;
+  font-size: 13px;
 }
 
-/* 白名单文本内容 */
+/* 白名单文本内容 - 关键修改：让文本和按钮形成流式布局 */
 .whitelist-text {
   color: #111827;
   font-size: 13px;
@@ -4758,49 +4758,67 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   word-wrap: break-word;
   word-break: break-all;
   
-  /* 限制最多显示3行 */
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  /* 移除 webkit-line-clamp，改用其他方式控制 */
+  display: inline;  /* 内联显示，让按钮可以跟在文本后面 */
   
-  /* 兜底方案（非webkit浏览器） */
-  max-height: calc(1.4em * 3);  /* 3行的高度 */
+  /* 计算3行的最大高度并截断 */
+  max-height: calc(1.4em * 3);
+  overflow: hidden;
 }
 
-/* 查看全部按钮 */
+/* 查看全部按钮 - 关键：改为内联块级元素，跟在文本流中 */
 .whitelist-more {
-  /* 继承全局按钮样式 */
-  --btn-h: 26px;      /* 稍微小一点适配小区块 */
-  --btn-pad-x: 10px;  /* 稍微紧凑一点 */
+  /* 按钮基础样式 */
+  --btn-h: 20px;      /* 更小的按钮适配行内 */
+  --btn-pad-x: 6px;   
 
-  display: inline-flex !important;
+  display: inline-flex !important;  /* 内联flex */
   align-items: center;
   justify-content: center;
   height: var(--btn-h);
   line-height: calc(var(--btn-h) - 2px);
   padding: 0 var(--btn-pad-x);
 
-  /* 定位：固定在右下角 */
-  position: absolute;
-  bottom: 0;
-  right: 0;
+  /* 位置：不再绝对定位，而是跟在文本后面 */
+  margin-left: 6px;   /* 与前面文本的间距 */
+  vertical-align: baseline;  /* 与文本基线对齐 */
   
   /* 样式 */
   border: 1px solid #d1d5db;
-  border-radius: 5px;
+  border-radius: 4px;
   background: #fff;
   color: #2563eb;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 500;
   text-decoration: none;
   cursor: pointer;
-  z-index: 2;
+  white-space: nowrap;  /* 防止按钮文字换行 */
 
-  /* 确保按钮可见 */
-  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  /* 轻微阴影提升可见性 */
+  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
   
   transition: all 0.15s ease;
+}
+
+/* 创建一个CSS技巧：通过伪元素在第三行后插入按钮 */
+.whitelist-preview::after {
+  content: '';
+  display: block;
+  clear: both;
+}
+
+/* 另一种方案：使用JavaScript控制的CSS类 */
+.whitelist-preview.has-overflow .whitelist-text {
+  /* 当内容超过3行时，在第三行末尾留出按钮空间 */
+  margin-right: 70px;  /* 为按钮预留空间 */
+  position: relative;
+}
+
+.whitelist-preview.has-overflow .whitelist-more {
+  position: absolute;
+  right: 0;
+  top: calc(1.4em * 2.2);  /* 大概在第三行的位置 */
+  margin-left: 0;
 }
 
 /* hover效果 */
@@ -4819,46 +4837,24 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   transform: translateY(1px);
 }
 
-/* 无白名单时的样式 */
-.whitelist-text:empty::after {
-  content: "(无)";
-  color: #9ca3af;
-  font-style: italic;
-}
-
 /* 确保在小卡片中白名单区域有足够空间 */
 #net-shunt .info-item.nid__row:last-child {
-  align-items: flex-start;  /* 顶部对齐，给查看全部按钮留空间 */
-  min-height: 64px;         /* 保证最小高度 */
-}
-
-/* 如果白名单内容很短，确保查看全部按钮仍然显示 */
-.whitelist-preview:not(:empty) .whitelist-more {
-  display: inline-flex !important;
+  align-items: flex-start;
+  min-height: 64px;
 }
 
 /* 响应式：窄屏时调整 */
 @media (max-width: 1024px) {
   .whitelist-more {
-    --btn-h: 24px;
-    --btn-pad-x: 8px;
-    font-size: 10px;
+    --btn-h: 18px;
+    --btn-pad-x: 4px;
+    font-size: 9px;
   }
   
-  #net-shunt .info-item.nid__row:last-child {
-    min-height: 58px;
+  .whitelist-preview.has-overflow .whitelist-text {
+    margin-right: 60px;
   }
 }
-
-/* 调试用（开发时可开启，生产时注释掉） */
-/* 
-.whitelist-preview {
-  border: 1px dashed #ccc;
-}
-.whitelist-more {
-  border: 2px solid red !important;
-}
-*/
 
 /* =======================================================================
    运维管理
@@ -5014,7 +5010,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 
 /* 表格整体外边框和阴影 */
 .data-table {
-  border: 2px solid #d1d5db;
+  border: 1px solid #9ca3af;
   border-radius: 8px;
   overflow: hidden;  /* 确保圆角效果 */
   box-shadow: 0 2px 8px rgba(0,0,0,0.08);
@@ -5957,16 +5953,21 @@ function renderCertificateAndNetwork() {
   // —— 白名单预览：保持你“始终显示查看全部 + 转义”的口径 —— 
   const whitelist = data.shunt?.whitelist || [];
   const preview = document.getElementById('whitelistPreview');
-  if (preview) {
-    if (!whitelist.length) {
-      preview.innerHTML = '<span class="whitelist-text">(无)</span>';
-    } else {
-      const fullText = whitelist.join(', ');
-      preview.innerHTML =
-        `<span class="whitelist-text">${escapeHtml(fullText)}</span>` +
-        `<button class="whitelist-more" data-action="open-modal" data-modal="whitelistModal">查看全部</button>`;
-    }
+// 在 renderCertificateAndNetwork() 函数的白名单处理部分添加：
+if (preview) {
+  if (!whitelist.length) {
+    preview.innerHTML = '<span class="whitelist-text">(无)</span>';
+  } else {
+    const fullText = whitelist.join(', ');
+    // 估算是否会超过3行（可以根据实际情况调整这个阈值）
+    const willOverflow = fullText.length > 120; // 大约3行的字符数
+    
+    preview.className = `whitelist-preview${willOverflow ? ' has-overflow' : ''}`;
+    preview.innerHTML =
+      `<span class="whitelist-text">${escapeHtml(fullText)}</span>` +
+      `<button class="whitelist-more" data-action="open-modal" data-modal="whitelistModal">查看全部</button>`;
   }
+}
 }
 
 
