@@ -4809,7 +4809,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 /* =======================================================================
-   流量统计（增加高度版本）
+   流量统计（增加图表高度以减小顶部空白）
    ======================================= */
 
 .traffic-card{
@@ -4826,12 +4826,12 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   border-bottom:1px solid #e5e7eb; 
 }
 
-/* 主布局：增加顶部padding来加大间距 */
+/* 主布局：减小顶部padding */
 .traffic-charts{ 
   display:grid; 
   grid-template-columns:7fr 3fr; 
   gap:20px; 
-  padding:35px 20px 20px;  /* 增加顶部padding从20px到35px */
+  padding:15px 20px 20px;  /* 顶部padding从20px减小到15px */
   align-items: stretch;
 }
 
@@ -4859,14 +4859,13 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   padding-left:20px; 
 }
 
-/* 进度条容器 - 增加高度 */
+/* 进度条容器 */
 .traffic-card .traffic-progress-container{ 
   display:flex; 
   align-items:center; 
   gap:10px;
-  height: 65px;  /* 从50px增加到65px */
+  height: 55px;  /* 从50px略增到55px */
   flex-shrink: 0;
-  padding: 10px 0;  /* 增加内边距 */
 }
 
 .traffic-card .progress-label{ 
@@ -4887,7 +4886,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 .traffic-card .progress-bar{ 
-  height:20px;  /* 稍微增加进度条高度 */
+  height:18px; 
   background:#e2e8f0; 
   border-radius:999px; 
   overflow:hidden; 
@@ -4934,21 +4933,21 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 
 /* 左列图表：增加高度 */
 .chart-column:first-child .chart-container {
-  height: 350px;  /* 从320px增加到350px */
-  min-height: 350px;
+  height: 360px;  /* 从320px增加到360px */
+  min-height: 360px;
 }
 
-/* 右列图表：相应增加以保持对齐 */
+/* 右列图表：调整高度以匹配左列总高度 */
 .chart-column:last-child .chart-container {
-  height: 427px;  /* 65(进度) + 12(间隙) + 350(图表) = 427px */
+  height: 427px;  /* 55(进度) + 12(间隙) + 360(图表) = 427px */
   min-height: 427px;
   max-height: 427px;
 }
 
-/* 图表标题 - 增加上下边距 */
+/* 图表标题 */
 .traffic-card .chart-container h3{ 
   text-align:center !important; 
-  margin:10px 0 15px;  /* 增加标题的上下间距 */
+  margin:0 0 8px; 
   font-weight:600;
   font-size: 14px;
   line-height: 20px;
@@ -4960,13 +4959,13 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   display: block !important;
   width: 100% !important;
   height: auto !important;
-  max-height: calc(100% - 45px) !important;  /* 调整以适应增加的标题间距 */
+  max-height: calc(100% - 35px) !important;  /* 减去标题和间距 */
 }
 
 /* B方案：迷你卡片样式 */
 .traffic-charts.traffic--subcards{ 
   gap:15px;
-  padding: 30px 15px 15px;  /* subcards模式也增加顶部间距 */
+  padding: 12px 15px 15px;  /* subcards模式顶部间距更小 */
 }
 
 .traffic-charts.traffic--subcards > :first-child{ 
@@ -4979,22 +4978,20 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 .traffic-charts.traffic--subcards .traffic-progress-container{
-  padding:15px;
+  padding:12px;
   border:1px solid #e5e7eb; 
   border-radius:12px;
   background:#fff; 
   box-shadow:0 2px 8px rgba(17,24,39,.08);
-  height: auto;
-  min-height: 70px;  /* 增加最小高度 */
 }
 
 .traffic-charts.traffic--subcards .chart-container{
-  padding:15px;
+  padding:12px;
   border:1px solid #e5e7eb; 
   border-radius:12px;
   background:#fff; 
   box-shadow:0 2px 8px rgba(17,24,39,.08);
-  height: 340px;  /* subcards模式也相应增加高度 */
+  height: 350px;  /* subcards模式增加高度 */
 }
 
 /* B方案时移除左列内部横线 */
@@ -5016,7 +5013,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 @media (max-width:1024px){
   .traffic-charts{ 
     grid-template-columns:1fr;
-    padding: 25px 20px 20px;  /* 单列时也保持顶部间距 */
+    padding: 15px 20px 20px;  /* 保持较小的顶部间距 */
   }
   
   .traffic-charts:not(.traffic--subcards) > :first-child{ 
@@ -5040,7 +5037,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 
 @media (max-width:768px) {
   .traffic-charts {
-    padding: 20px 15px 15px;
+    padding: 12px 15px 15px;
   }
   
   .chart-column:first-child .chart-container,
@@ -5048,7 +5045,6 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
     height: 260px;
     min-height: 260px;
   }
-}
 }
 
 /* =========================
