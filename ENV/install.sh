@@ -4877,6 +4877,29 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 /* 单位小字 */
 .unit-note{ margin-left:8px; font-size:12px; color:#6b7280; font-weight:500; }
 
+/* === Traffic: 高度与标题口径 === */
+.traffic-card{ 
+  min-height: 520px;       /* 卡片略低，减少大留白 */
+  --chart-h: 380px;        /* 图表更高，左右两端零刻度自然对齐 */
+}
+.chart-container{
+  height: var(--chart-h);
+  min-height: var(--chart-h);
+  overflow: hidden;
+}
+/* 两张图标题居中，“本月进度”标题不动 */
+.traffic-card .traffic-charts h3{ text-align:center; margin:0 0 10px; }
+
+/* B 方案下去掉两列之间的分隔线，避免“双层卡片” */
+.traffic-charts.traffic--subcards > :first-child{ border-right:0; padding-right:0; }
+.traffic-charts.traffic--subcards > :last-child{  padding-left:0; }
+
+/* 迷你卡片阴影加强（与你现有的 B 方案一致） */
+.traffic-charts.traffic--subcards .traffic-progress-container,
+.traffic-charts.traffic--subcards .chart-container{
+  box-shadow:0 2px 8px rgba(17,24,39,.08);
+}
+
 
 /* =========================
    弹窗 Modal 统一样式补丁
@@ -6409,7 +6432,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
             </div>
           </div>
           <div class="chart-column">
-            <div class="chart-container" style="height: 100%;">
+            <div class="chart-container">
               <h3>近12月出站流量 <small class="unit-note">单位：GiB</small></h3>
               <canvas id="monthly-chart"></canvas>
             </div>
