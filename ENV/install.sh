@@ -4826,7 +4826,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 
 /* 标题横线与图表组的距离：从 20px 改为更紧的 12px */
 .traffic-card .card-header{ padding:16px 20px; border-bottom:1px solid #e5e7eb; }
-.traffic-charts{ display:grid; grid-template-columns:7fr 3fr; gap:20px; padding:12px 20px 12px; align-items:stretch; }
+.traffic-charts{ display:grid; grid-template-columns:7fr 3fr; gap:20px; padding:8px 20px 10px; align-items:stretch; }
 
 /* 左列容器与分隔线（保持你的写法；B 方案下会移除横线） */
 .chart-column{ display:flex; flex-direction:column; gap:var(--gap-v); }
