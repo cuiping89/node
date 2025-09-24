@@ -4734,59 +4734,153 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 
 /* ======== 网络身份配置 - 白名单查看全部按钮专用CSS =========== */
 /* =======================================================================
-   网络身份配置 - 白名单区块布局精修 (最终对齐版)
+   网络身份配置 - 基于您脚本结构的白名单CSS修改
    ======================================================================= */
 
-/* 1. 调整包含白名单的整行，使其能正确容纳和对齐多行内容 */
-#net-shunt .info-item:has(.whitelist-value) {
+/* 1. 修复白名单行的高度，与其他区块对齐 */
+#net-shunt .info-item:has(.whitelist-value),
+#net-shunt .info-item.nid__row:last-child {
     /* 改为顶部对齐，而不是默认的垂直居中 */
-    align-items: start;
-    /* 统一垂直内边距，与其他单行内容的行高节奏保持一致 */
-    padding-top: 8px;
-    padding-bottom: 8px;
-    min-height: 94px; /* 给予一个最小高度，确保整个卡片底部能对齐 */
+    align-items: flex-start !important;
+    /* 设置固定高度，与其他区块的3行高度保持一致 */
+    min-height: 78px !important;
+    max-height: 78px !important;
+    /* 统一垂直内边距 */
+    padding-top: var(--line-vpad) !important;
+    padding-bottom: var(--line-vpad) !important;
 }
 
-/* 2. 覆盖白名单值容器的默认样式，允许内容换行 */
+/* 2. 覆盖 .whitelist-value 的默认样式，允许内容换行和显示 */
 #net-shunt .info-item .whitelist-value {
     white-space: normal !important;
     overflow: visible !important;
+    text-overflow: initial !important;
+    
+    /* 设置相对定位，为按钮的绝对定位提供参考 */
+    position: relative !important;
+    width: 100% !important;
+    height: 100% !important;
+    
+    /* 为右下角按钮预留空间 */
+    padding-right: 75px !important;
+    padding-bottom: 5px !important;
 }
 
-/* 3. 使用浮动布局来定位“查看全部”按钮，使其环绕文本 */
-#net-shunt .whitelist-preview .whitelist-more {
-    float: right; /* 核心：按钮向右浮动，文本将自然环绕 */
-    clear: both;  /* 防止影响容器外的元素 */
-    margin-left: 10px; /* 按钮与左侧文本的间距 */
-    margin-top: 5px;   /* 按钮与上方文本的垂直微调，使其底部对齐 */
-
-    /* 按钮样式，确保与“查看详情”按钮视觉统一 */
-    height: 28px;
-    line-height: 26px; /* 高度 - 2px边框 */
-    padding: 0 12px;
-    font-size: 12px;
-    /* 继承您现有的 .btn-link 或 .link 样式... */
+/* 3. 白名单预览容器 */
+#net-shunt .whitelist-preview {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden; /* 确保内容不会撑大容器 */
 }
 
-/* 4. 设置白名单文本样式，实现3行截断和统一的行高 */
+/* 4. 白名单文本 - 限制3行显示 */
 #net-shunt .whitelist-preview .whitelist-text {
-    /* 核心：实现最多显示3行，超出部分显示省略号 */
-    display: -webkit-box;
+    /* 使用webkit-line-clamp精确控制3行显示 */
+    display: -webkit-box !important;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 3;
     overflow: hidden;
-    text-overflow: ellipsis;
-
-    /* 关键：设置明确的行高，使其与其它区块单行文本的视觉行高完全一致 */
-    line-height: 1.8;
-    word-break: break-all; /* 确保长域名可以被强制换行 */
+    
+    /* 行高与其他区块保持一致 */
+    line-height: 1.35 !important;
+    word-break: break-all;
     font-size: 13px;
     color: #111827;
+    
+    /* 确保文本不会影响按钮位置 */
+    margin: 0;
+    padding: 0;
 }
 
-/* 5. 使用 overflow 清除浮动，确保父容器(.whitelist-preview)高度被正确计算 */
-#net-shunt .whitelist-preview {
-    overflow: hidden;
+/* 5. 查看全部按钮 - 绝对定位到右下角 */
+#net-shunt .whitelist-preview .whitelist-more {
+    /* 绝对定位固定在右下角 */
+    position: absolute !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    z-index: 2 !important;
+    
+    /* 按钮样式，与其他按钮保持一致 */
+    height: 28px !important;
+    line-height: 26px !important;
+    padding: 0 12px !important;
+    font-size: 12px !important;
+    
+    /* 确保按钮不会被挤变形 */
+    flex-shrink: 0 !important;
+    white-space: nowrap !important;
+    
+    /* 继承全局按钮样式 */
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    background: #fff;
+    color: #2563eb;
+    text-decoration: none;
+    cursor: pointer;
+    
+    /* 轻微阴影确保可见性 */
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    transition: all 0.15s ease;
+}
+
+/* 6. 按钮hover效果 */
+#net-shunt .whitelist-preview .whitelist-more:hover {
+    background: #f3f4f6;
+    border-color: #9ca3af;
+    color: #1d4ed8;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.12);
+}
+
+/* 7. 按钮active效果 */
+#net-shunt .whitelist-preview .whitelist-more:active {
+    background: #e5e7eb;
+    border-color: #9ca3af;
+    color: #1d4ed8;
+    transform: translateY(1px);
+}
+
+/* 8. 移除可能导致高度变化的CSS类效果 */
+#net-shunt .whitelist-preview.has-overflow,
+#net-shunt .whitelist-preview.has-long-content {
+    height: 100% !important;
+    overflow: hidden !important;
+}
+
+#net-shunt .whitelist-preview.has-overflow .whitelist-text,
+#net-shunt .whitelist-preview.has-long-content .whitelist-text {
+    -webkit-line-clamp: 3 !important;
+    overflow: hidden !important;
+}
+
+#net-shunt .whitelist-preview.has-overflow .whitelist-more,
+#net-shunt .whitelist-preview.has-long-content .whitelist-more {
+    position: absolute !important;
+    right: 0 !important;
+    bottom: 0 !important;
+}
+
+/* 9. 响应式调整 */
+@media (max-width: 1024px) {
+    #net-shunt .info-item:has(.whitelist-value),
+    #net-shunt .info-item.nid__row:last-child {
+        min-height: 72px !important;
+        max-height: 72px !important;
+    }
+    
+    #net-shunt .info-item .whitelist-value {
+        padding-right: 65px !important;
+    }
+    
+    #net-shunt .whitelist-preview .whitelist-more {
+        height: 24px !important;
+        line-height: 22px !important;
+        padding: 0 8px !important;
+        font-size: 11px !important;
+    }
 }
 
 /* =======================================================================
@@ -4883,35 +4977,39 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 @media (max-width:768px){
   .modal-content{ width:95%; margin:10px auto; }
 }
+
+
 /* =======================================================================
-   协议配置
+   协议配置（边框与阴影加强版）
    ======================================================================= */
 .data-table{ 
   width:100%; 
   border-collapse:collapse; 
 }
 
+/* 表头 */
 .data-table th{
   background:#f5f5f5; 
   color:#4b5563; 
   font-weight:500; 
-  padding:8px 10px;  /* 缩小了上下padding从10px到8px */
+  padding:8px 10px;  /* 上下 8px */
   text-align:left;
   font-size:12px; 
   border-bottom:1px solid #e5e7eb;
-  /* 为表头添加轻微阴影 */
-  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  /* 阴影稍加强，边缘更清晰 */
+  box-shadow: 0 1px 4px rgba(0,0,0,0.10);
 }
 
+/* 单元格 */
 .data-table td{ 
-  padding:7px 10px;  /* 缩小了上下padding从10px到7px */
-  border-bottom:1px solid #f3f4f6;  /* 改为更明显的灰色边框 */
+  padding:7px 10px;  /* 上下 7px */
+  border-bottom:1px solid #e5e7eb;  /* 分隔线略加深 */
   font-size:12px; 
-  /* 为每一行添加轻微的内阴影效果 */
-  box-shadow: inset 0 -1px 0 rgba(0,0,0,0.05);
+  /* 细分隔的内阴影，行与行之间更清楚 */
+  box-shadow: inset 0 -1px 0 rgba(0,0,0,0.06);
 }
 
-/* 第4、5、6列（伪装效果、运行状态、客户端配置）居中对齐 */
+/* 第4、5、6列居中 */
 .data-table td:nth-child(4),
 .data-table td:nth-child(5),
 .data-table td:nth-child(6),
@@ -4921,42 +5019,43 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   text-align:center; 
 }
 
-/* hover效果：鼠标悬停时背景变灰，同时增强阴影 */
-.data-table tr:hover td{ 
-  background:#f8f9fa;  /* 更柔和的灰色背景 */
-  box-shadow: inset 0 -1px 0 rgba(0,0,0,0.1), 0 1px 3px rgba(0,0,0,0.1);
-  transition: all 0.2s ease;  /* 添加过渡效果 */
+/* hover：背景略亮、阴影更饱满，突出悬停行 */
+.data-table tbody tr:hover td{ 
+  background:#f8f9fa;
+  box-shadow: inset 0 -1px 0 rgba(0,0,0,0.12), 0 2px 6px rgba(0,0,0,0.12);
+  transition: box-shadow 0.2s ease, background 0.2s ease;
 }
 
-/* 订阅行特殊样式 */
+/* 订阅行（强调对比） */
 .data-table tr.subs-row td{ 
-  background:#f1f5f9;  /* 订阅行使用更明显的背景色 */
-  border-top: 1px solid #cbd5e1;  /* 订阅行顶部添加更粗的分隔线 */
-  box-shadow: inset 0 1px 3px rgba(0,0,0,0.08);  /* 订阅行内阴影 */
+  background:#eef2f7;
+  border-top: 1px solid #cbd5e1;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,0.10);
 }
-
-/* 订阅行hover效果 */
 .data-table tr.subs-row:hover td{
-  background:#e2e8f0;
-  box-shadow: inset 0 1px 3px rgba(0,0,0,0.12), 0 2px 4px rgba(0,0,0,0.1);
+  background:#e3e9f2;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,0.14), 0 3px 8px rgba(0,0,0,0.12);
 }
 
-/* 表格整体外边框和阴影 */
+/* 表格整体外边框与主体阴影（更明显但不突兀） */
 .data-table {
-  border: 1px solid #9ca3af;
+  border: 1px solid #6b7280;                /* 边框由 #9ca3af 加深到 #6b7280 */
   border-radius: 8px;
-  overflow: hidden;  /* 确保圆角效果 */
-  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  overflow: hidden;
+  /* 立体感增强：一层柔和外阴影 + 一层贴边描边光 */
+  box-shadow:
+      0 6px 16px rgba(0,0,0,0.12),          /* 外层阴影 */
+      0 0 0 1px rgba(0,0,0,0.06);           /* 贴边描边，边缘更锐利 */
 }
 
-/* 表格行的交替颜色效果（可选） */
+/* 交替行（保留轻度层次） */
 .data-table tbody tr:nth-child(even):not(.subs-row) td {
-  background-color: rgba(249,250,251,0.5);
+  background-color: rgba(249,250,251,0.65);
 }
-
 .data-table tbody tr:nth-child(even):not(.subs-row):hover td {
   background-color: #f3f4f6;
 }
+
 
 /* =======================================================================
    流量统计 - 修复垂直居中问题
