@@ -4732,45 +4732,118 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   }
 }
 
-/* ====白名单/查看全部按钮==== */
-/* 只修：分流出站卡(#net-shunt) 的白名单这一行 */
-#net-shunt .nid__value.whitelist-value{
-  position: relative;   /* 作为按钮的定位上下文 */
-  display: block;       /* <value> 默认是 inline，这里统一为块级 */
+/* ======== 网络身份配置 - 白名单查看全部按钮专用CSS =========== */
+
+/* 关键修复：覆盖分流出站区块中白名单值的限制性样式 */
+#net-shunt .whitelist-value,
+#net-shunt .info-item .whitelist-value {
+  /* 覆盖父级的 white-space: nowrap 和 overflow: hidden */
+  white-space: normal !important;  /* 允许换行 */
+  overflow: visible !important;    /* 显示溢出内容 */
+  text-overflow: initial !important;  /* 取消省略号 */
+  
+  position: relative;
+  width: 100%;
+  min-height: 60px;
 }
 
-/* 把原来写成 .whitelist-preview 的改到真实节点 .whitelist-text / #whitelistText */
-#net-shunt .whitelist-value .whitelist-text,
-#net-shunt #whitelistText{
+/* 白名单预览容器 */
+.whitelist-preview {
+  position: relative;
+  width: 100%;
   display: block;
-  line-height: 22px;    /* 与左/中两卡单行行高一致；你要是用 28px 就同步改 */
-  height: 22px;         /* 单行效果 */
-  padding-right: 96px;  /* 为“查看全部”按钮预留空间，避免被盖或挤 */
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.4;
+  font-size: 13px;
 }
 
-/* “查看全部”固定在白名单区块的右下角 */
-#net-shunt .whitelist-value .whitelist-more{
+/* 白名单文本内容 */
+.whitelist-text {
+  color: #111827;
+  font-size: 13px;
+  line-height: 1.4;
+  word-wrap: break-word;
+  word-break: break-all;
+  display: inline;
+  max-height: calc(1.4em * 3);
+  overflow: hidden;
+}
+
+/* 查看全部按钮 - 默认跟在文本后面 */
+.whitelist-more {
+  --btn-h: 20px;
+  --btn-pad-x: 6px;   
+
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  height: var(--btn-h);
+  line-height: calc(var(--btn-h) - 2px);
+  padding: 0 var(--btn-pad-x);
+
+  margin-left: 6px;
+  vertical-align: baseline;
+  
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  background: #fff;
+  color: #2563eb;
+  font-size: 10px;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+
+  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+  transition: all 0.15s ease;
+}
+
+/* 当内容超过3行时，按钮定位到第三行末尾 */
+.whitelist-preview.has-overflow .whitelist-text {
+  margin-right: 70px;
+  position: relative;
+}
+
+.whitelist-preview.has-overflow .whitelist-more {
   position: absolute;
   right: 0;
-  bottom: 0;
-  height: 28px;
-  line-height: 26px;
-  padding: 0 12px;
-  font-size: 12px;
+  top: calc(1.4em * 2.2);
+  margin-left: 0;
 }
 
-/* 若你之前给白名单行写过 :has(.whitelist-value){ align-items:start/min-height… }，会把这行拉乱；
-   只在本卡片把它恢复即可（不动全局）。*/
-#net-shunt .info-item:has(.whitelist-value){
-  align-items: center !important;
-  min-height: unset !important;
-  padding-top: 0 !important;
-  padding-bottom: 0 !important;
+/* hover效果 */
+.whitelist-more:hover {
+  background: #f3f4f6;
+  border-color: #9ca3af;
+  color: #1d4ed8;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.12);
 }
 
+/* active效果 */
+.whitelist-more:active {
+  background: #e5e7eb;
+  border-color: #9ca3af;
+  color: #1d4ed8;
+  transform: translateY(1px);
+}
+
+/* 确保白名单行有足够空间 */
+#net-shunt .info-item.nid__row:last-child {
+  align-items: flex-start;
+  min-height: 64px;
+}
+
+/* 响应式调整 */
+@media (max-width: 1024px) {
+  .whitelist-more {
+    --btn-h: 18px;
+    --btn-pad-x: 4px;
+    font-size: 9px;
+  }
+  
+  .whitelist-preview.has-overflow .whitelist-text {
+    margin-right: 60px;
+  }
+}
 
 /* =======================================================================
    运维管理
@@ -4866,39 +4939,35 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 @media (max-width:768px){
   .modal-content{ width:95%; margin:10px auto; }
 }
-
-
 /* =======================================================================
-   协议配置（边框与阴影加强版）
+   协议配置
    ======================================================================= */
 .data-table{ 
   width:100%; 
   border-collapse:collapse; 
 }
 
-/* 表头 */
 .data-table th{
   background:#f5f5f5; 
   color:#4b5563; 
   font-weight:500; 
-  padding:8px 10px;  /* 上下 8px */
+  padding:8px 10px;  /* 缩小了上下padding从10px到8px */
   text-align:left;
   font-size:12px; 
   border-bottom:1px solid #e5e7eb;
-  /* 阴影稍加强，边缘更清晰 */
-  box-shadow: 0 1px 4px rgba(0,0,0,0.10);
+  /* 为表头添加轻微阴影 */
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
 }
 
-/* 单元格 */
 .data-table td{ 
-  padding:7px 10px;  /* 上下 7px */
-  border-bottom:1px solid #e5e7eb;  /* 分隔线略加深 */
+  padding:7px 10px;  /* 缩小了上下padding从10px到7px */
+  border-bottom:1px solid #f3f4f6;  /* 改为更明显的灰色边框 */
   font-size:12px; 
-  /* 细分隔的内阴影，行与行之间更清楚 */
-  box-shadow: inset 0 -1px 0 rgba(0,0,0,0.06);
+  /* 为每一行添加轻微的内阴影效果 */
+  box-shadow: inset 0 -1px 0 rgba(0,0,0,0.05);
 }
 
-/* 第4、5、6列居中 */
+/* 第4、5、6列（伪装效果、运行状态、客户端配置）居中对齐 */
 .data-table td:nth-child(4),
 .data-table td:nth-child(5),
 .data-table td:nth-child(6),
@@ -4908,55 +4977,42 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   text-align:center; 
 }
 
-/* hover：背景略亮、阴影更饱满，突出悬停行 */
-.data-table tbody tr:hover td{ 
-  background:#f8f9fa;
-  box-shadow: inset 0 -1px 0 rgba(0,0,0,0.12), 0 2px 6px rgba(0,0,0,0.12);
-  transition: box-shadow 0.2s ease, background 0.2s ease;
+/* hover效果：鼠标悬停时背景变灰，同时增强阴影 */
+.data-table tr:hover td{ 
+  background:#f8f9fa;  /* 更柔和的灰色背景 */
+  box-shadow: inset 0 -1px 0 rgba(0,0,0,0.1), 0 1px 3px rgba(0,0,0,0.1);
+  transition: all 0.2s ease;  /* 添加过渡效果 */
 }
 
-/* 订阅行（强调对比） */
+/* 订阅行特殊样式 */
 .data-table tr.subs-row td{ 
-  background:#eef2f7;
-  border-top: 1px solid #cbd5e1;
-  box-shadow: inset 0 1px 3px rgba(0,0,0,0.10);
+  background:#f1f5f9;  /* 订阅行使用更明显的背景色 */
+  border-top: 2px solid #cbd5e1;  /* 订阅行顶部添加更粗的分隔线 */
+  box-shadow: inset 0 1px 3px rgba(0,0,0,0.08);  /* 订阅行内阴影 */
 }
+
+/* 订阅行hover效果 */
 .data-table tr.subs-row:hover td{
-  background:#e3e9f2;
-  box-shadow: inset 0 1px 3px rgba(0,0,0,0.14), 0 3px 8px rgba(0,0,0,0.12);
+  background:#e2e8f0;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,0.12), 0 2px 4px rgba(0,0,0,0.1);
 }
 
-/* 表格整体外边框与主体阴影（更明显但不突兀） */
+/* 表格整体外边框和阴影 */
 .data-table {
-  border: 1px solid #6b7280;                /* 边框由 #9ca3af 加深到 #6b7280 */
+  border: 1px solid #9ca3af;
   border-radius: 8px;
-  overflow: hidden;
-  /* 立体感增强：一层柔和外阴影 + 一层贴边描边光 */
-  box-shadow:
-      0 6px 16px rgba(0,0,0,0.12),          /* 外层阴影 */
-      0 0 0 1px rgba(0,0,0,0.06);           /* 贴边描边，边缘更锐利 */
+  overflow: hidden;  /* 确保圆角效果 */
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
 }
 
-/* 交替行（保留轻度层次） */
+/* 表格行的交替颜色效果（可选） */
 .data-table tbody tr:nth-child(even):not(.subs-row) td {
-  background-color: rgba(249,250,251,0.65);
+  background-color: rgba(249,250,251,0.5);
 }
+
 .data-table tbody tr:nth-child(even):not(.subs-row):hover td {
   background-color: #f3f4f6;
 }
-
-/* 订阅行分割线变细（覆盖前面的设置） */
-.data-table tr.subs-row td{
-  border-top: 1px solid rgba(203,213,225,0.6); /* 更轻的#cbd5e1 */
-  box-shadow: inset 0 1px 0 rgba(0,0,0,0.04);  /* 去掉 3px 模糊，避免“增厚感” */
-}
-
-/* 悬停时也保持细线，不再显粗 */
-.data-table tr.subs-row:hover td{
-  background:#e3e9f2;
-  box-shadow: inset 0 1px 0 rgba(0,0,0,0.06), 0 2px 6px rgba(0,0,0,0.10);
-}
-
 
 /* =======================================================================
    流量统计 - 修复垂直居中问题
@@ -5809,30 +5865,27 @@ setText('singbox-version', versions.singbox ? `版本 ${versions.singbox}` : '�
 }
 
 
-// 简化版JavaScript - 直接处理白名单，不动其他逻辑
+/* 仅更正“代理IP：”的显示格式，其余逻辑保持不变 */
 function renderCertificateAndNetwork() {
   const data   = window.dashboardData || {};
   const server = data.server || {};
   const cert   = server.cert || {};
   const shunt  = data.shunt  || {};
 
-  // —— 保持原有的证书切换逻辑 ——
+  // —— 证书区（带空值保护）——
   const certMode = String(safeGet(cert, 'mode', 'self-signed'));
   document.getElementById('cert-self')?.classList.toggle('active', certMode === 'self-signed');
   document.getElementById('cert-ca')?.classList.toggle('active', certMode.startsWith('letsencrypt'));
-  const certTypeEl = document.getElementById('cert-type');   
-  if (certTypeEl) certTypeEl.textContent = certMode.startsWith('letsencrypt') ? "Let's Encrypt" : "自签名";
-  const domEl = document.getElementById('cert-domain');      
-  if (domEl) domEl.textContent = safeGet(cert, 'domain', '(无)');
-  const rnEl  = document.getElementById('cert-renewal');     
-  if (rnEl)  rnEl.textContent  = certMode.startsWith('letsencrypt') ? '自动' : '手动';
+  const certTypeEl = document.getElementById('cert-type');   if (certTypeEl) certTypeEl.textContent = certMode.startsWith('letsencrypt') ? "Let's Encrypt" : "自签名";
+  const domEl = document.getElementById('cert-domain');      if (domEl) domEl.textContent = safeGet(cert, 'domain', '(无)');
+  const rnEl  = document.getElementById('cert-renewal');     if (rnEl)  rnEl.textContent  = certMode.startsWith('letsencrypt') ? '自动' : '手动';
   const exEl  = document.getElementById('cert-expiry');
   if (exEl) {
     const exp = safeGet(cert, 'expires_at', null);
     exEl.textContent = exp ? new Date(exp).toLocaleDateString() : '—';
   }
 
-  // —— 保持原有的出站模式高亮逻辑 ——
+  // —— 出站模式高亮（采用你第二段的口径）——
   const shuntMode = String(safeGet(shunt, 'mode', 'vps')).toLowerCase();
   ['net-vps','net-proxy','net-shunt'].forEach(id => document.getElementById(id)?.classList.remove('active'));
   if (shuntMode.includes('direct')) {
@@ -5843,83 +5896,69 @@ function renderCertificateAndNetwork() {
     document.getElementById('net-vps')?.classList.add('active');
   }
 
-  // —— 保持原有的VPS和代理IP处理 ——
+  // —— VPS 出站 IP（带兜底）——
   const vpsIp = safeGet(data, 'server.eip') || safeGet(data, 'server.server_ip') || '—';
-  const vpsEl = document.getElementById('vps-ip'); 
-  if (vpsEl) vpsEl.textContent = vpsIp;
+  const vpsEl = document.getElementById('vps-ip'); if (vpsEl) vpsEl.textContent = vpsIp;
 
+  // —— 代理出站 IP：仅显示 “协议//主机:端口”，自动剥离 user:pass@，兼容 IPv6 —— 
   const proxyRaw = String(safeGet(shunt, 'proxy_info', ''));
   const proxyEl  = document.getElementById('proxy-ip');
-  
+
   function formatProxy(raw) {
     if (!raw) return '—';
+    // 优先用 URL 解析
     try {
+      // 确保有协议
       const normalized = /^[a-z][a-z0-9+.\-]*:\/\//i.test(raw) ? raw : 'socks5://' + raw;
       const u = new URL(normalized);
-      const proto = u.protocol.replace(/:$/,'');
-      const host  = u.hostname || '';
-      const port  = u.port || '';
+      const proto = u.protocol.replace(/:$/,'');     // 'socks5'
+      const host  = u.hostname || '';                // 去掉了 user:pass@
+      const port  = u.port || '';                    // 可能为空
       return (host && port) ? `${proto}//${host}:${port}` : (host ? `${proto}//${host}` : '—');
     } catch (_) {
+      // 兜底正则：protocol://[user[:pass]@]host[:port]
+      const re = /^([a-z0-9+.\-]+):\/\/(?:[^@\/\s]+@)?(\[[^\]]+\]|[^:/?#]+)(?::(\d+))?/i;
+      const m = raw.match(re);
+      if (m) {
+        const proto = m[1];
+        const host  = m[2];
+        const port  = m[3] || '';
+        return port ? `${proto}//${host}:${port}` : `${proto}//${host}`;
+      }
+      // 再兜底一种 “proto host:port” 或 “host:port”
+      const re2 = /^(?:([a-z0-9+.\-]+)\s+)?(\[[^\]]+\]|[^:\/?#\s]+)(?::(\d+))?$/i;
+      const m2 = raw.match(re2);
+      if (m2) {
+        const proto = m2[1] || 'socks5';
+        const host  = m2[2];
+        const port  = m2[3] || '';
+        return port ? `${proto}//${host}:${port}` : `${proto}//${host}`;
+      }
       return '—';
     }
   }
   if (proxyEl) proxyEl.textContent = formatProxy(proxyRaw);
 
-  // —— 新逻辑：只处理白名单文本，其他行保持HTML中的固定值 ——
+  // —— 白名单预览：保持你“始终显示查看全部 + 转义”的口径 —— 
   const whitelist = data.shunt?.whitelist || [];
-  const whitelistTextEl = document.getElementById('whitelistText');
-  
-  if (whitelistTextEl) {
-    if (!whitelist.length) {
-      whitelistTextEl.textContent = '(无)';
-      whitelistTextEl.style.color = '#9ca3af';
-    } else {
-      const fullText = whitelist.join(', ');
-      whitelistTextEl.textContent = fullText;
-      whitelistTextEl.style.color = '#111827';
-      whitelistTextEl.title = fullText;
-    }
+  const preview = document.getElementById('whitelistPreview');
+// 在 renderCertificateAndNetwork() 函数的白名单处理部分添加：
+if (preview) {
+  if (!whitelist.length) {
+    preview.innerHTML = '<span class="whitelist-text">(无)</span>';
+  } else {
+    const fullText = whitelist.join(', ');
+    // 估算是否会超过3行（可以根据实际情况调整这个阈值）
+    const willOverflow = fullText.length > 120; // 大约3行的字符数
+    
+    preview.className = `whitelist-preview${willOverflow ? ' has-overflow' : ''}`;
+    preview.innerHTML =
+      `<span class="whitelist-text">${escapeHtml(fullText)}</span>` +
+      `<button class="whitelist-more" data-action="open-modal" data-modal="whitelistModal">查看全部</button>`;
   }
-
-// === 右侧分流卡：在白名单前插入“VPS-IP / 代理IP”两行（不会重复插） ===
-(function injectShuntRows(){
-  const shunt = document.getElementById('net-shunt');
-  if (!shunt) return;
-
-  // 找白名单这一行，作为插入锚点
-  const wlRow = shunt.querySelector('.whitelist-value')?.closest('.nid__row');
-  if (!wlRow) return;
-
-  // 取左/中卡的现有值
-  const vpsIP   = document.getElementById('vps-ip')?.textContent?.trim()   || '—';
-  const proxyIP = document.getElementById('proxy-ip')?.textContent?.trim() || '同左';
-
-  // 工具：避免重复插入（按标签精确匹配）
-  const pickRow = (lab) => Array.from(shunt.querySelectorAll('.nid__row')).find(r=>{
-    const t = (r.querySelector('.nid__label')||r.children[0])?.textContent?.replace(/[：:]/g,'').trim();
-    return t === lab;
-  });
-
-  const mkRow = (lab,val)=>{
-    const d = document.createElement('div');
-    d.className = 'info-item nid__row';
-    d.innerHTML = `<label class="nid__label">${lab}：</label><value class="nid__value">${val}</value>`;
-    return d;
-  };
-
-  // VPS-IP
-  let r1 = pickRow('VPS-IP');
-  if (!r1) { r1 = mkRow('VPS-IP', vpsIP); wlRow.before(r1); }
-  else { r1.querySelector('.nid__value').textContent = vpsIP; }
-
-  // 代理IP
-  let r2 = pickRow('代理IP');
-  if (!r2) { r2 = mkRow('代理IP', proxyIP); wlRow.before(r2); }
-  else { r2.querySelector('.nid__value').textContent = proxyIP; }
-})();
-
 }
+}
+
 
 
 function renderProtocolTable() {
@@ -6675,7 +6714,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
     </div>
 
     <div class="network-blocks">
-
+      <!-- 📡 VPS出站IP -->
       <div class="network-block" id="net-vps">
         <h3>📡 VPS出站IP</h3>
         <div class="info-item nid__row">
@@ -6699,6 +6738,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         </div>
       </div>
 
+      <!-- 🔄 代理出站IP -->
       <div class="network-block" id="net-proxy">
         <h3>🔄 代理出站IP</h3>
         <div class="info-item nid__row">
@@ -6722,26 +6762,21 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         </div>
       </div>
 
-<div class="network-block" id="net-shunt">
-  <h3>🔀 分流出站</h3>
-  <div class="info-item nid__row">
-    <label class="nid__label">混合身份:</label>
-    <value class="nid__value">直连v代理</value>
-  </div>
-  <div class="info-item nid__row">
-    <label class="nid__label">VPS-IP:</label>
-    <value class="nid__value">同左</value>
-  </div>
-  <div class="info-item nid__row">
-    <label class="nid__label">代理IP:</label>
-    <value class="nid__value">同左</value>
-  </div>
-  <div class="info-item nid__row">
-    <label class="nid__label">白名单:</label>
-    <value class="nid__value whitelist-value">
-      <span class="whitelist-text" id="whitelistText">—</span>
-      <button class="whitelist-more" data-action="open-modal" data-modal="whitelistModal">查看全部</button>
-    </value>
+      <!-- 🔀 分流出站 -->
+      <div class="network-block" id="net-shunt">
+        <h3>🔀 分流出站</h3>
+        <div class="info-item nid__row">
+          <label class="nid__label">混合身份:</label>
+          <value class="nid__value">直连v代理</value>
+        </div>
+        <div class="info-item nid__row">
+          <label class="nid__label">白名单:</label>
+          <value class="nid__value whitelist-value">
+            <div class="whitelist-preview" id="whitelistPreview"></div>
+          </value>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
