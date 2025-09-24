@@ -4734,52 +4734,65 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 
 /* ======== 网络身份配置 - 白名单查看全部按钮专用CSS =========== */
 /* =======================================================================
-   网络身份配置 - 白名单区块布局精修（最终对齐+固定按钮版）
+   网络身份配置 - 白名单区块布局（标题不位移 + 按钮右下固定）
    ======================================================================= */
 
-/* 1) 白名单这一行改为顶部对齐，行高节奏一致 */
-#net-shunt .info-item {
-  /* 其它 info-item 不受影响时可保留原样；若仅作用于白名单这行可加选择器 .whitelist-value 父级 */
-  align-items: flex-start;
+/* 0) 先把被误改为“顶对齐”的 info-item 恢复为居中（避免其它行标题位移） */
+#net-shunt .info-item{
+  align-items: center;                 /* 恢复默认的垂直居中 */
+}
+
+/* 1) 仅对白名单这一行做顶部对齐（需要 :has 支持；Chrome/Edge/新内核OK） */
+#net-shunt .info-item:has(.whitelist-preview){
+  align-items: flex-start;             /* 标题跟随文本顶对齐 */
   padding-top: 8px;
   padding-bottom: 8px;
 }
 
-/* 2) 预览容器：用于放文本+右下角按钮 */
-#net-shunt .whitelist-preview{
-  position: relative;           /* 让按钮能绝对定位在本容器右下 */
-  width: 100%;
-  min-height: 72px;             /* ≈ 3 行 * 22px 行高（按需微调） */
+/* 微调标签(左列)与首行文本的对齐感（可按需±1~2px） */
+#net-shunt .info-item:has(.whitelist-preview) > *:first-child{
+  padding-top: 2px;
 }
 
-/* 3) 文本：3 行截断、逗号自动换行，行高与其它字段一致 */
+/* 2) 白名单值容器：作为“查看全部”的定位参照 */
+#net-shunt .whitelist-preview{
+  position: relative;                  /* 让按钮能定位在此容器右下 */
+  width: 100%;
+  min-height: 66px;                    /* 3 行 * 22px 行高 = 66px（保持与其它项一致） */
+  /* 如果你把行高改了，这里同步改：min-height = 行高 * 3 */
+}
+
+/* 3) 文本：严格显示 3 行；给右侧按钮预留空间，避免被文本挤走 */
 #net-shunt .whitelist-preview .whitelist-text{
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;        /* 改成 2 即严格两行 */
+  -webkit-line-clamp: 3;               /* 改成 2 可切两行 */
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: normal;          /* 允许正常换行 */
-  word-break: break-word;       /* 超长域名可断行 */
+
+  white-space: normal;
+  word-break: break-word;              /* 超长域名可断行 */
   font-size: 13px;
-  line-height: 22px;            /* 与“代理IP / Geo”行高对齐 */
+  line-height: 22px;                   /* 与 “代理IP / Geo” 的行高一致 */
   color: #111827;
-  padding-right: 96px;          /* 为右下角按钮预留位置（按钮宽度+间距） */
+
+  padding-right: 96px;                 /* 预留按钮宽度(按钮宽+间距)，不足就加大到 104~112px */
 }
 
-/* 4) “查看全部”按钮：固定右下角，不再被文本挤走 */
+/* 4) “查看全部”固定在右下角，尺寸与“查看详情”统一 */
 #net-shunt .whitelist-preview .whitelist-more{
   position: absolute;
-  right: 0;                     /* 也可改成 8px 与内容边距一致 */
+  right: 0;                            /* 如需与内容左右内边距对齐，可改为 8px 或 12px */
   bottom: 0;
+
   height: 28px;
-  line-height: 26px;
+  line-height: 26px;                   /* 高度-2px边框 */
   padding: 0 12px;
   font-size: 12px;
-  /* 可继承你的 .btn-link / .link 视觉样式 */
+  /* 这里可叠加你的 .btn-link/.link 统一视觉 */
 }
 
-/* 5) 值容器允许换行（兼容以前可能写死的样式） */
+/* 5) 兜底：确保值容器允许换行（覆盖以前可能的强制单行） */
 #net-shunt .info-item .whitelist-value{
   white-space: normal !important;
   overflow: visible !important;
