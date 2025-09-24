@@ -4822,8 +4822,8 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 .traffic-card{ background:#fff; border:1px solid #d1d5db; border-radius:10px; box-shadow:0 2px 6px rgba(0,0,0,.08); padding:0; }
 .traffic-card .card-header{ padding:16px 20px; border-bottom:1px solid #e5e7eb; }
 
-/* 两列布局：左列(进度+30天折线)，右列(月度柱状) */
-.traffic-charts{ display:grid; grid-template-columns:1.2fr 1fr; gap:20px; padding:20px; }
+/* 流量统计：两列布局 */
+.traffic-charts{ display:grid; grid-template-columns:7fr 3fr; gap:20px; padding:20px; }
 
 /* 左列：内部两块之间用横线分隔，保持模组边界清晰 */
 .chart-column{ display:flex; flex-direction:column; gap:12px; }
@@ -4852,6 +4852,17 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   .traffic-charts{ grid-template-columns:1fr; }
   .traffic-charts > :first-child{ border-right:0; padding-right:0; }
   .traffic-charts > :last-child{ padding-left:0; }
+}
+
+.unit-note{ margin-left:8px; font-size:12px; color:#6b7280; font-weight:500; }
+
+/* 流量统计卡片内的进度条外观（高度对齐 CPU；底色 #e2e8f0） */
+.traffic-card .progress-bar{
+  height: var(--meter-height, 18px);
+  background: #e2e8f0;              /* 你原来这里是 #f3f4f6，我已替换。:contentReference[oaicite:6]{index=6} */
+  border-radius: 999px;
+  overflow: hidden;
+  position: relative;
 }
 
 
@@ -5561,54 +5572,89 @@ function renderProtocolTable() {
 }
 
 function renderTrafficCharts() {
-    if (!trafficData || !window.Chart) return;
-    const monthly = trafficData.monthly || [];
-    const currentMonthData = monthly.find(m => m.month === new Date().toISOString().slice(0, 7));
-    if (currentMonthData) {
-        const budget = 100;
-        const used = (currentMonthData.total || 0) / GiB;
-        const percentage = Math.min(100, Math.round((used / budget) * 100));
-        const fillEl = document.getElementById('progress-fill');
-        const pctEl = document.getElementById('progress-percentage');
-        const budgetEl = document.getElementById('progress-budget');
-        if (fillEl) fillEl.style.width = `${percentage}%`;
-        if (pctEl) pctEl.textContent = `${percentage}%`;
-        if (budgetEl) budgetEl.textContent = `${used.toFixed(1)}/${budget}GiB`;
+  if (!trafficData || !window.Chart) return;
+
+  // —— 进度条（本月使用）——
+  const monthly = trafficData.monthly || [];
+  const currentMonthData = monthly.find(m => m.month === new Date().toISOString().slice(0, 7));
+  if (currentMonthData) {
+    const budget = 100; // GiB，总预算（保持你原逻辑）
+    const used = (currentMonthData.total || 0) / GiB;
+    const percentage = Math.min(100, Math.round((used / budget) * 100));
+    const fillEl   = document.getElementById('progress-fill');
+    const pctEl    = document.getElementById('progress-percentage');
+    const budgetEl = document.getElementById('progress-budget');
+    if (fillEl)   fillEl.style.width = `${percentage}%`;
+    if (pctEl)    pctEl.textContent  = `${percentage}%`;
+    if (budgetEl) budgetEl.textContent = `${used.toFixed(1)}/${budget}GiB`;
+  }
+
+  // —— 图表销毁（避免重复实例）——
+  ['traffic', 'monthly-chart'].forEach(id => {
+    const inst = Chart.getChart(id);
+    if (inst) inst.destroy();
+  });
+
+  // —— 颜色：将原“橙色”改为“蓝色”，更贴近面板基调；绿色保留给“代理” —— 
+  const vpsColor   = '#3b82f6';  // 蓝（替换原来的 #f59e0b）
+  const proxyColor = '#10b981';  // 绿（保留）
+  
+  // —— 近30日折线 ——（去掉 y 轴顶部 GiB 插件）
+  const daily = trafficData.last30d || [];
+  if (daily.length) {
+    const ctx = document.getElementById('traffic');
+    if (ctx) {
+      new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: daily.map(d => d.date.slice(5)),
+          datasets: [
+            { label: 'VPS',  data: daily.map(d => d.vps  / GiB), borderColor: vpsColor,   backgroundColor: vpsColor,   tension: 0.3, pointRadius: 0, fill: false },
+            { label: '代理', data: daily.map(d => d.resi / GiB), borderColor: proxyColor, backgroundColor: proxyColor, tension: 0.3, pointRadius: 0, fill: false },
+          ]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          interaction: { mode:'index', intersect:false },
+          plugins: {
+            legend:  { position: 'bottom', labels: { boxWidth: 12, padding: 12 } },
+            tooltip: { mode:'index', intersect:false }
+          },
+          layout: { padding: { bottom: 8 } },
+          scales: {
+            x: { grid: { display: false } },
+            y: { beginAtZero: true }   // 不再显示“GiB”单位；标题后用小注说明
+          }
+        }
+      });
     }
-    ['traffic', 'monthly-chart'].forEach(id => {
-        const chartInstance = Chart.getChart(id);
-        if (chartInstance) chartInstance.destroy();
-    });
-    const daily = trafficData.last30d || [];
-    if (daily.length) {
-        // 折线图：legend 固定底部，并给布局留点 padding
-new Chart('traffic', {
-  type:'line',
-  data:{ /* 原样 */ },
-  options:{
-    responsive:true, maintainAspectRatio:false,
-    layout:{ padding:{ bottom:8 } },
-    plugins:{ legend:{ position:'bottom', labels:{ boxWidth:12, padding:12 } } }
-  },
-  plugins:[ebYAxisUnitTop]
-});
+  }
+
+  // —— 近12个月堆叠柱 ——（同样不再用 GiB 顶部单位）
+  if (monthly.length) {
+    const arr = monthly.slice(-12);
+    const ctx = document.getElementById('monthly-chart');
+    if (ctx) {
+      new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: arr.map(m => m.month),
+          datasets: [
+            { label: 'VPS',  data: arr.map(m => m.vps  / GiB), backgroundColor: vpsColor,   stack: 'a' },
+            { label: '代理', data: arr.map(m => m.resi / GiB), backgroundColor: proxyColor, stack: 'a' },
+          ]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { position: 'top', labels: { boxWidth: 12, padding: 8 } } },
+          layout: { padding: { bottom: 6 } },
+          scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } }
+        }
+      });
     }
-    if (monthly.length) {
-        const recentMonthly = monthly.slice(-12);
- // 柱状图：统一 legend、保持堆叠
-new Chart('monthly-chart', {
-  type:'bar',
-  data:{ /* 原样 */ },
-  options:{
-    responsive:true, maintainAspectRatio:false,
-    layout:{ padding:{ bottom:6 } },
-    scales:{ x:{ stacked:true }, y:{ stacked:true } },
-    plugins:{ legend:{ position:'top', labels:{ boxWidth:12, padding:8 } } }
-  },
-  plugins:[ebYAxisUnitTop]
-});
-    }
+  }
 }
+
 
 // --- Modal and Interaction Logic ---
 function showModal(modalId) {
@@ -6348,13 +6394,13 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
               <span class="progress-budget" id="progress-budget">0/100GiB</span>
             </div>
             <div class="chart-container">
-              <h3 style="text-align:center; margin: 10px 0 5px 0; font-size: 13px; color: #6b7280;">近30日流量走势</h3>
+              <h3>近30日出站流量走势<small class="unit-note">单位：GiB</small></h3>
               <canvas id="traffic"></canvas>
             </div>
           </div>
           <div class="chart-column">
             <div class="chart-container" style="height: 100%;">
-              <h3 style="text-align:center; margin: 10px 0 5px 0; font-size: 13px; color: #6b7280;">近12月出站流量</h3>
+              <h3>近12月出站流量 <small class="unit-note">单位：GiB</small></h3>
               <canvas id="monthly-chart"></canvas>
             </div>
           </div>
