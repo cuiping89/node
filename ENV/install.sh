@@ -4339,6 +4339,11 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 .status-running{ background:#d1fae5; color:#059669; border-color:#a7f3d0; }
 .status-stopped{ background:#fee2e2; color:#ef4444; border-color:#fecaca; }
 
+/* ===== 全局栅格（如果这是你全局用的） ===== */
+.grid-3,.grid-1-2{ display:grid; gap:20px; }
+.grid-3{ grid-template-columns:repeat(3,1fr); }
+.grid-1-2{ grid-template-columns:1fr 2fr; }
+
 
 /* =======================================================================
    系统概览
@@ -4505,7 +4510,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
    ======================================================================= */
 #cert-panel{
   /* 与 NetID 标签一致的参数 */
-  --tag-pad-y: 7px;        /* ← 改它=改标签高度 */
+  --tag-pad-y: 6px;        /* ← 改它=改标签高度 */
   --tag-pad-x: 16px;
   --tag-radius: 8px;
   --tag-font: 13px;
@@ -4791,37 +4796,48 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 /* =======================================================================
-   协议配置
+   协议配置（仅作用于 #netid-panel；行距更紧凑）
    ======================================================================= */
-.data-table{ width:100%; border-collapse:collapse; }
-.data-table th{
-  background:#f5f5f5; color:#4b5563; font-weight:500; padding:10px; text-align:left;
-  font-size:12px; border-bottom:1px solid #e5e7eb;
+#netid-panel .data-table{
+  width:100%;
+  border-collapse:collapse;
+  table-layout:auto; /* 如列很多可改为 fixed */
 }
-.data-table td{ padding:10px; border-bottom:1px solid #f3f4f6; font-size:12px; }
-.data-table td:nth-child(4),.data-table td:nth-child(5),.data-table td:nth-child(6),
-.data-table th:nth-child(4),.data-table th:nth-child(5),.data-table th:nth-child(6){ text-align:center; }
-.data-table tr:hover td{ background:#f5f5f5; }
-.data-table tr.subs-row td{ background:#f5f5f5; }
 
-.traffic-progress-container{ display:flex; align-items:center; gap:10px; }
-.progress-label{ font-size:13px; color:#6b7280; white-space:nowrap; }
-.progress-wrapper{ flex:1; min-width:120px; }
-.progress-bar{ height:20px; background:#f3f4f6; border-radius:10px; overflow:hidden; position:relative; }
-.progress-fill{ height:100%; background:linear-gradient(90deg,#10b981 0%,#059669 100%); transition:width .3s ease; display:flex; align-items:center; justify-content:flex-end; padding-right:8px; }
-.progress-fill.warning{ background:linear-gradient(90deg,#f59e0b 0%,#d97706 100%); }
-.progress-fill.critical{ background:linear-gradient(90deg,#ef4444 0%,#dc2626 100%); }
-.progress-percentage{ color:#fff; font-size:11px; font-weight:600; }
-.progress-budget{ color:#6b7280; font-size:12px; white-space:nowrap; }
+/* 表头：浅灰底，字色中灰，行距略紧 */
+#netid-panel .data-table th{
+  background:#f5f5f5;
+  color:#4b5563;
+  font-weight:500;
+  font-size:12px;
+  padding:8px 10px;          /* 10px -> 8px：行距稍微缩小 */
+  line-height:1.35;          /* 略紧凑 */
+  text-align:left;
+  border-bottom:1px solid #e5e7eb;
+}
 
-/* 响应式（卡片网格/流量图保持不变） */
-@media (max-width:1024px){
-  .grid-3,.grid-1-2{ grid-template-columns:1fr; }
-  .traffic-charts{ grid-template-columns:1fr; }
+/* 表体：同样收紧行距 */
+#netid-panel .data-table td{
+  font-size:12px;
+  padding:8px 10px;          /* 10px -> 8px */
+  line-height:1.5;
+  border-bottom:1px solid #f3f4f6;
 }
-@media (max-width:768px){
-  .modal-content{ width:95%; margin:10px auto; }
+
+/* 居中列（第 4~6 列），保持原对齐需求 */
+#netid-panel .data-table td:nth-child(4),
+#netid-panel .data-table td:nth-child(5),
+#netid-panel .data-table td:nth-child(6),
+#netid-panel .data-table th:nth-child(4),
+#netid-panel .data-table th:nth-child(5),
+#netid-panel .data-table th:nth-child(6){
+  text-align:center;
 }
+
+/* 行悬停与“订阅记录”行的底色（延续你原来的） */
+#netid-panel .data-table tr:hover td{ background:#f5f5f5; }
+#netid-panel .data-table tr.subs-row td{ background:#f5f5f5; }
+
 
 /* =======================================================================
    流量统计（统一上下间距口径 + 两列等高 + 迷你卡片不改高）
@@ -4924,6 +4940,19 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   }
 }
 
+/* ===== 流量统计/进度条 ===== */
+.traffic-progress-container{ display:flex; align-items:center; gap:10px; }
+.progress-label{ font-size:13px; color:#6b7280; white-space:nowrap; }
+.progress-wrapper{ flex:1; min-width:120px; }
+.progress-bar{ height:var(--meter-height,18px); background:#e2e8f0; border-radius:10px; overflow:hidden; position:relative; }
+.progress-fill{ height:100%; background:linear-gradient(90deg,#10b981 0%,#059669 100%); transition:width .3s ease; display:flex; align-items:center; justify-content:flex-end; padding-right:8px; }
+.progress-fill.warning{ background:linear-gradient(90deg,#f59e0b 0%,#d97706 100%); }
+.progress-fill.critical{ background:linear-gradient(90deg,#ef4444 0%,#dc2626 100%); }
+.progress-percentage{ color:#fff; font-size:11px; font-weight:600; }
+.progress-budget{ color:#6b7280; font-size:12px; white-space:nowrap; }
+
+/* ===== 流量统计图表布局 ===== */
+.traffic-charts{ display:grid; grid-template-columns:7fr 3fr; gap:20px; }
 
 
 /* =========================
@@ -5352,6 +5381,72 @@ dialog[open],
   pointer-events: none;
 }
 
+/* ===== ANCHOR: HEADINGS-COLOR-FIX ===== */
+/* 统一面板内 h3 的标题色为纯黑（与其它卡片 h3 同色） */
+:root{ --heading-color: #111827; }  /* 需要更黑/更浅就改这里 */
+
+/* 1) 流量统计卡片内的图表标题（含 “📡 VPS出站IP / 🔄 代理出站IP / 🔀 分流出站”） */
+.traffic-card .chart-container h3{
+  color: var(--heading-color);
+}
+
+/* 2) 如果这些标题刚好放在 .progress-label 里，父级默认是灰色——在子级 h3 上强制还原为标题色 */
+.traffic-card .progress-label h3{
+  color: var(--heading-color);
+}
+
+/* 3) 兜底：其他卡片内 h3 也统一为标题色，避免被 note/muted 容器继承成灰 */
+.card h3,
+#system-overview h3,
+#netid-panel h3{
+  color: var(--heading-color);
+}
+
+/* 可选：只让“小字说明”保持灰，不再影响 h3（若你有 .note/.muted/.desc 之类父级） */
+.note h3, .muted h3, .desc h3{ color: var(--heading-color); }
+
+/* ===== 标题与内容层级统一（H1–H4 黑；内容用 H4 字号且灰） ===== */
+
+/* 全局口径变量（按需改） */
+:root{
+  --heading-color: #111827;   /* h1–h4 标题色（黑） */
+  --muted-color:   #6b7280;   /* 内容灰 */
+  --h4-size:       14px;      /* h4 字号口径（用于内容的字号基准） */
+}
+
+/* 标题统一：h1–h4 都用黑色；h4 的字号固定为 --h4-size */
+h1, h2, h3, h4 { color: var(--heading-color); }
+h4 { font-size: var(--h4-size); line-height: 1.4; font-weight: 600; }
+
+/* —— 系统概览里 CPU/内存/磁盘等：标签用 h4（黑），值/说明用 h4 字号（灰） —— */
+/* 标签（标题） */
+.system-overview .progress-label h4,
+.system-overview .meter-title h4,
+.system-overview .metric-label h4{
+  color: var(--heading-color);       /* 防被父级灰色继承 */
+  font-size: var(--h4-size);
+  line-height: 1.4;
+  font-weight: 600;
+  margin: 0;
+}
+
+/* 值/说明（内容）——用与 h4 相同的字号，但颜色灰 */
+.system-overview .meter-value,
+.system-overview .metric-desc,
+.system-overview .progress-extra,
+.system-overview .progress-budget{
+  font-size: var(--h4-size);
+  line-height: 1.4;
+  color: var(--muted-color);
+  font-weight: 500;                  /* 可按需 400/500 */
+}
+
+/* 兜底：任何 “.progress-label” 容器若本身是灰色，也不影响其内 h4 的黑色 */
+.progress-label { color: var(--muted-color); }
+.progress-label h4 { color: var(--heading-color); }
+
+/* 实用类：如果你在别处也要“内容=H4 字号 + 灰”，可直接加这个类 */
+.text-h4-muted { font-size: var(--h4-size); line-height: 1.4; color: var(--muted-color); }
 
 EXTERNAL_CSS
 
