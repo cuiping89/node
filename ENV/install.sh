@@ -4510,7 +4510,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
    ======================================================================= */
 #cert-panel{
   /* 与 NetID 标签一致的参数 */
-  --tag-pad-y: 6px;        /* ← 改它=改标签高度 */
+  --tag-pad-y: 8px;        /* ← 改它=改标签高度 */
   --tag-pad-x: 16px;
   --tag-radius: 8px;
   --tag-font: 13px;
@@ -4734,69 +4734,81 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 
 /* ======== 网络身份配置 - 白名单查看全部按钮专用CSS =========== */
 /* =======================================================================
-   网络身份配置 - 白名单区块布局（标题不位移 + 按钮右下固定）
+   网络身份配置 - 白名单（两行域名 + 第三行按钮，严格对齐版）
+   说明：
+   --line-h 为与左侧“代理IP/Geo/IP质量”一致的单行行高（这里用 22px）
    ======================================================================= */
 
-/* 0) 先把被误改为“顶对齐”的 info-item 恢复为居中（避免其它行标题位移） */
-#net-shunt .info-item{
-  align-items: center;                 /* 恢复默认的垂直居中 */
-}
+#net-shunt{ --line-h:22px; }  /* 如你的实际单行高不同，改这里即可 */
 
-/* 1) 仅对白名单这一行做顶部对齐（需要 :has 支持；Chrome/Edge/新内核OK） */
+/* 仅对白名单这一行做顶对齐，避免其它行标题位移 */
 #net-shunt .info-item:has(.whitelist-preview){
-  align-items: flex-start;             /* 标题跟随文本顶对齐 */
+  align-items: flex-start;
   padding-top: 8px;
   padding-bottom: 8px;
 }
 
-/* 微调标签(左列)与首行文本的对齐感（可按需±1~2px） */
-#net-shunt .info-item:has(.whitelist-preview) > *:first-child{
-  padding-top: 2px;
-}
-
-/* 2) 白名单值容器：作为“查看全部”的定位参照 */
+/* 容器：第3行放按钮 */
 #net-shunt .whitelist-preview{
-  position: relative;                  /* 让按钮能定位在此容器右下 */
+  position: relative;                           /* 给按钮提供定位参照 */
+  min-height: calc(var(--line-h) * 3);          /* 2 行文本 + 1 行按钮的高度 */
   width: 100%;
-  min-height: 66px;                    /* 3 行 * 22px 行高 = 66px（保持与其它项一致） */
-  /* 如果你把行高改了，这里同步改：min-height = 行高 * 3 */
 }
 
-/* 3) 文本：严格显示 3 行；给右侧按钮预留空间，避免被文本挤走 */
-#net-shunt .whitelist-preview .whitelist-text{
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;               /* 改成 2 可切两行 */
-  overflow: hidden;
-  text-overflow: ellipsis;
-
-  white-space: normal;
-  word-break: break-word;              /* 超长域名可断行 */
-  font-size: 13px;
-  line-height: 22px;                   /* 与 “代理IP / Geo” 的行高一致 */
-  color: #111827;
-
-  padding-right: 96px;                 /* 预留按钮宽度(按钮宽+间距)，不足就加大到 104~112px */
-}
-
-/* 4) “查看全部”固定在右下角，尺寸与“查看详情”统一 */
+/* “查看全部”固定在右下，与“查看详情”对齐（必要时把 right 改 8px/12px） */
 #net-shunt .whitelist-preview .whitelist-more{
   position: absolute;
-  right: 0;                            /* 如需与内容左右内边距对齐，可改为 8px 或 12px */
+  right: 8px;                                   /* 视你卡片内边距微调 0/8/12px */
   bottom: 0;
-
   height: 28px;
-  line-height: 26px;                   /* 高度-2px边框 */
+  line-height: 26px;
   padding: 0 12px;
   font-size: 12px;
-  /* 这里可叠加你的 .btn-link/.link 统一视觉 */
 }
 
-/* 5) 兜底：确保值容器允许换行（覆盖以前可能的强制单行） */
+/* ===== 方案 A：域名为多个子元素（推荐） ===== */
+#net-shunt .whitelist-preview .whitelist-text:has(*){
+  display: grid;
+  grid-template-rows: repeat(2, var(--line-h));  /* 只给两行文本空间 */
+  align-content: start;
+  gap: 0;
+  font-size: 13px;
+  color: #111827;
+}
+
+/* 每个域名一行，超长省略号；第 3 个及之后直接隐藏 */
+#net-shunt .whitelist-preview .whitelist-text:has(*) > *{
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+#net-shunt .whitelist-preview .whitelist-text:has(*) > *:nth-child(n+3){
+  display: none;                                 /* 仅显示前两条 */
+}
+
+/* ===== 方案 B：整串逗号+空格的纯文本 =====
+   不改 DOM 的情况下，限制为“严格两行”，并尽量只在空格处换行 */
+#net-shunt .whitelist-preview .whitelist-text:not(:has(*)){
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;                         /* 严格两行 */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 13px;
+  line-height: var(--line-h);
+  color: #111827;
+
+  white-space: normal;
+  word-break: keep-all;                          /* 尽量不在域名中间断开 */
+  overflow-wrap: normal;                         /* 只在逗号后的空格处换行 */
+}
+
+/* 兜底：值容器允许换行，避免旧样式的强制单行干扰 */
 #net-shunt .info-item .whitelist-value{
   white-space: normal !important;
   overflow: visible !important;
 }
+
 
 
 /* =======================================================================
