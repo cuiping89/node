@@ -4815,122 +4815,83 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 /* =======================================================================
-   流量统计（替换整段）
-   说明：不改 DOM，只增强边界与容错，修复 legend 越界观感
+   流量统计（整段替换 v3）
+   不改 DOM：统一边界、修正标题居中、避免双边框、优化高度配比
    ======================================================================= */
 
-.traffic-card{ background:#fff; border:1px solid #d1d5db; border-radius:10px; box-shadow:0 2px 6px rgba(0,0,0,.08); padding:0; }
+/* 外层卡片与高度口径（卡片稍低、图表稍高） */
+.traffic-card{
+  background:#fff;
+  border:1px solid #d1d5db;
+  border-radius:10px;
+  box-shadow:0 2px 6px rgba(0,0,0,.08);
+  padding:0;
+  min-height: 520px;           /* ↓ 比之前略小 */
+  --chart-h: 380px;            /* ↑ 图表更高，减少底部留白 */
+}
 .traffic-card .card-header{ padding:16px 20px; border-bottom:1px solid #e5e7eb; }
 
-/* 流量统计：两列布局 */
+/* 两列布局：7 / 3 */
 .traffic-charts{ display:grid; grid-template-columns:7fr 3fr; gap:20px; padding:20px; }
 
-/* 左列：内部两块之间用横线分隔，保持模组边界清晰 */
+/* 左列：默认用横线分隔（启用迷你卡片后会移除） */
 .chart-column{ display:flex; flex-direction:column; gap:12px; }
 .chart-column > * + *{ border-top:1px solid #e5e7eb; padding-top:12px; margin-top:12px; }
 
-/* 左右两列之间加一条竖线（右列不加外边框，视觉更轻） */
-.traffic-charts > :first-child{ border-right:1px solid #e5e7eb; padding-right:20px; }
-.traffic-charts > :last-child{ padding-left:20px; }
+/* 旧的两列竖向分割线 —— 仅在未启用 B 方案时生效 */
+.traffic-charts:not(.traffic--subcards) > :first-child{ border-right:1px solid #e5e7eb; padding-right:20px; }
+.traffic-charts:not(.traffic--subcards) > :last-child{ padding-left:20px; }
 
-/* 图表容器：给足高度并裁切，避免 legend/tooltip 视觉“探出卡片” */
-.chart-container{ flex:1; position:relative; min-height:220px; height:260px; max-height:300px; overflow:hidden; box-sizing:border-box; }
-
-/* 进度条区域维持原样 */
-.traffic-progress-container{ display:flex; align-items:center; gap:10px; }
-.progress-label{ font-size:13px; color:#6b7280; white-space:nowrap; }
-.progress-wrapper{ flex:1; min-width:120px; }
-.progress-bar{ height:20px; background:#f3f4f6; border-radius:10px; overflow:hidden; position:relative; }
-.progress-fill{ height:100%; background:linear-gradient(90deg,#10b981 0%,#059669 100%); transition:width .3s ease; display:flex; align-items:center; justify-content:flex-end; padding-right:8px; }
-.progress-fill.warning{ background:linear-gradient(90deg,#f59e0b 0%,#d97706 100%); }
-.progress-fill.critical{ background:linear-gradient(90deg,#ef4444 0%,#dc2626 100%); }
-.progress-percentage{ color:#fff; font-size:11px; font-weight:600; }
-.progress-budget{ color:#6b7280; font-size:12px; white-space:nowrap; }
-
-/* 响应式：窄屏改单列，移除左右分隔线，保留内部横线 */
-@media (max-width:1024px){
-  .traffic-charts{ grid-template-columns:1fr; }
-  .traffic-charts > :first-child{ border-right:0; padding-right:0; }
-  .traffic-charts > :last-child{ padding-left:0; }
+/* 统一的图表容器高度 */
+.chart-container{
+  position:relative;
+  height: var(--chart-h);
+  min-height: var(--chart-h);
+  overflow:hidden;
+  box-sizing:border-box;
 }
 
-.unit-note{ margin-left:8px; font-size:12px; color:#6b7280; font-weight:500; }
+/* 标题：两张图居中；“本月进度”保持左对齐 */
+.traffic-card .traffic-charts h3{ text-align:center; margin:0 0 10px; font-weight:600; }
+.traffic-card .traffic-progress-container h3{ text-align:left; }
 
-/* 流量统计卡片内的进度条外观（高度对齐 CPU；底色 #e2e8f0） */
+/* 进度条（与 CPU 同口径，底色 #e2e8f0） */
+.traffic-card .traffic-progress-container{ display:flex; align-items:center; gap:10px; }
+.traffic-card .progress-label{ font-size:13px; color:#6b7280; white-space:nowrap; }
+.traffic-card .progress-wrapper{ flex:1; min-width:120px; }
 .traffic-card .progress-bar{
   height: var(--meter-height, 18px);
-  background: #e2e8f0;              /* 你原来这里是 #f3f4f6，我已替换。:contentReference[oaicite:6]{index=6} */
-  border-radius: 999px;
-  overflow: hidden;
-  position: relative;
+  background:#e2e8f0;
+  border-radius:999px;
+  overflow:hidden;
+  position:relative;
 }
 
-/* ===== 流量统计：布局与高度口径 ===== */
-.traffic-card{
-  /* 整卡最小高度：对齐“协议配置”卡（可按需调，比如 560px/600px） */
-  min-height: 560px;
-  /* 图表统一高度变量（左右两图一致，保证零刻度对齐） */
-  --chart-h: 320px;
-}
-.traffic-charts{ display:grid; grid-template-columns:7fr 3fr; gap:20px; padding:20px; }
-
-/* 图表容器统一高度，避免某一边看起来没撑满 */
-.chart-container{ height: var(--chart-h); min-height: var(--chart-h); overflow:hidden; }
-
-/* 本月进度仍左对齐；其余两个图表标题居中 */
-.traffic-charts h3{ text-align:center; margin: 0 0 8px; }
-.chart-column h3:first-of-type{ text-align:left; }
-
-/* ===== 方案B：迷你卡片（只需给父容器加类 .traffic--subcards） ===== */
+/* B 方案：迷你卡片外观（只包“内容块”，避免右列双边框） */
 .traffic-charts.traffic--subcards{ gap:12px; }
-.traffic-charts.traffic--subcards .chart-column > *,
-.traffic-charts.traffic--subcards > :last-child{
+.traffic-charts.traffic--subcards .traffic-progress-container,
+.traffic-charts.traffic--subcards .chart-container{
   padding:12px 12px 10px;
   border:1px solid #e5e7eb;
   border-radius:12px;
   background:#fff;
   box-shadow:0 1px 2px rgba(0,0,0,.04);
 }
-/* 启用迷你卡片时，去掉左列内部的分隔线（避免重复边界） */
-.traffic-charts.traffic--subcards .chart-column > * + *{
-  border-top:0; padding-top:0; margin-top:0;
+/* 启用 B 方案时，移除左列内部横线 & 两列竖线 */
+.traffic-charts.traffic--subcards .chart-column > * + *{ border-top:0; padding-top:0; margin-top:0; }
+.traffic-charts.traffic--subcards > :first-child{ border-right:0; padding-right:0; }
+.traffic-charts.traffic--subcards > :last-child{ padding-left:0; }
+
+/* 响应式：窄屏单列，同时去掉分割线 */
+@media (max-width:1024px){
+  .traffic-charts{ grid-template-columns:1fr; }
+  .traffic-charts:not(.traffic--subcards) > :first-child{ border-right:0; padding-right:0; }
+  .traffic-charts:not(.traffic--subcards) > :last-child{ padding-left:0; }
 }
 
-/* 进度条外观（与你的CPU条一致 & 背景 #e2e8f0） */
-.traffic-card .progress-bar{
-  height: var(--meter-height, 18px);
-  background:#e2e8f0;
-  border-radius:999px;
-  overflow:hidden; position:relative;
-}
+/* 可选：单位小字 */
+.unit-note{ margin-left:8px; font-size:12px; color:#6b7280; font-weight:500; }
 
-/* ==== TRAFFIC PATCH v2 ==== */
-
-/* A) 卡片整体高度口径（与“协议配置”一致，可按需调高/调低） */
-.traffic-card{ min-height: 600px; }
-
-/* B) 两列比例 7:3（你已设置过，这里兜底覆盖一次） */
-.traffic-charts{ grid-template-columns: 7fr 3fr; }
-
-/* C) 统一图表容器高度，确保左右零刻度对齐 */
-.traffic-card{ --chart-h: 320px; }               /* 想更高就改这个变量 */
-.chart-container{ height: var(--chart-h); min-height: var(--chart-h); overflow: hidden; }
-
-/* D) 两个图表标题居中；“本月进度”保持左对齐 */
-.traffic-charts h3{ text-align:center; margin: 0 0 8px; }
-.chart-column .traffic-progress-container h3{ text-align:left; }
-
-/* E) 方案B：迷你卡片（父容器加类 .traffic--subcards 即启用） */
-.traffic-charts.traffic--subcards{ gap:12px; }
-.traffic-charts.traffic--subcards .chart-column > *,
-.traffic-charts.traffic--subcards > .chart-column:last-child > .chart-container{
-  padding:12px 12px 10px;
-  border:1px solid #e5e7eb; border-radius:12px;
-  background:#fff; box-shadow:0 1px 2px rgba(0,0,0,.04);
-}
-
-/* F) 进度条底色（你要求的 #e2e8f0），高度沿用 CPU 的 --meter-height */
-.traffic-card .progress-bar{ background:#e2e8f0; height:var(--meter-height, 18px); }
 
 /* =========================
    弹窗 Modal 统一样式补丁
