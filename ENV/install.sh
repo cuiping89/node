@@ -4849,7 +4849,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 
 .data-table td{ 
   padding:7px 10px;  /* 缩小了上下padding从10px到7px */
-  border-bottom:1px solid #d1d5db;  /* 改为更明显的灰色边框 */
+  border-bottom:1px solid #f3f4f6;  /* 改为更明显的灰色边框 */
   font-size:12px; 
   /* 为每一行添加轻微的内阴影效果 */
   box-shadow: inset 0 -1px 0 rgba(0,0,0,0.05);
@@ -4903,82 +4903,164 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 /* =======================================================================
-   流量统计（统一上下间距口径 + 两列等高 + 迷你卡片不改高）
-   把你旧的 .traffic-charts / .traffic-charts.traffic--subcards 相关段落整段替换为此版本
+   流量统计 - 修复垂直居中问题
    ======================================================================= */
 
-/* —— 全局口径：这里一处改数值，全卡片同步 —— */
+/* —— 全局口径：保持原有变量 —— */
 :root{
-  --charts-pad-y: 10px;   /* 图表组“上下内边距”与其它卡片保持一致；想更贴就调成 12/8 */
-  --charts-pad-x: 20px;   /* 左右内边距 */
-  --gap-v: 12px;          /* 左列 进度 与 折线图 的间距 */
-  --h-progress: 50px;     /* 本月进度内容高度 */
-  --h-left-chart: 320px;  /* 左列折线图内容高度 */
-  --mini-pad: 12px;       /* 迷你卡片内边距（B 方案） */
-  --meter-height: 18px;   /* 进度条高度（与 CPU 一致）——改这里 */
+  --charts-pad-y: 10px;   
+  --charts-pad-x: 20px;   
+  --gap-v: 12px;          
+  --h-progress: 50px;     
+  --h-left-chart: 320px;  
+  --mini-pad: 12px;       
+  --meter-height: 18px;   
 }
 
-/* 卡片外框 */
+/* 卡片外框 - 修复关键问题：使用统一的内边距体系 */
 .traffic-card{
-  background:#fff; border:1px solid #d1d5db; border-radius:10px;
-  box-shadow:0 2px 6px rgba(0,0,0,.08); padding:0; overflow:hidden;
+  background:#fff; 
+  border:1px solid #d1d5db; 
+  border-radius:10px;
+  box-shadow:0 2px 6px rgba(0,0,0,.08); 
+  padding:20px;  /* ← 关键修复：恢复与其他卡片一致的20px内边距 */
+  overflow:hidden;
 }
 
-/* 标题行保持不变 */
-.traffic-card .card-header{ padding:16px 20px; border-bottom:1px solid #e5e7eb; }
+/* 标题行 - 修复：使用与其他卡片一致的标题样式 */
+.traffic-card .card-header{ 
+  margin-bottom:20px;  /* ← 关键修复：与其他卡片保持一致的20px间距 */
+  padding-bottom:12px; 
+  border-bottom:1px solid #e5e7eb; 
+}
 .traffic-card .card-header > *{ margin:0; }
 
-/* —— 图表组：上下间距“唯一口径” —— */
+/* —— 图表组：修复垂直居中 —— */
 .traffic-charts,
 .traffic-charts.traffic--subcards{
-  display:grid; grid-template-columns:7fr 3fr; gap:20px;
-  padding-block: var(--charts-pad-y) !important;   /* 上下内边距用变量，强制覆盖 */
-  padding-inline: var(--charts-pad-x);
-  margin-block: 0 !important;                      /* 取消任何垂直居中残留 */
+  display:grid; 
+  grid-template-columns:7fr 3fr; 
+  gap:20px;
+  padding:0;  /* ← 关键修复：去掉额外的padding，让外层卡片的20px生效 */
+  margin:0;   /* ← 关键修复：去掉任何margin */
   align-items: stretch;
 }
 
 /* 左列容器与默认分隔线（B 方案下移除） */
-.chart-column{ display:flex; flex-direction:column; gap:var(--gap-v); }
-.chart-column > * + *{ border-top:1px solid #e5e7eb; padding-top:12px; margin-top:12px; }
+.chart-column{ 
+  display:flex; 
+  flex-direction:column; 
+  gap:var(--gap-v); 
+}
+.chart-column > * + *{ 
+  border-top:1px solid #e5e7eb; 
+  padding-top:12px; 
+  margin-top:12px; 
+}
 
 /* 仅非 B 方案显示两列竖线 */
-.traffic-charts:not(.traffic--subcards) > :first-child{ border-right:1px solid #e5e7eb; padding-right:20px; }
-.traffic-charts:not(.traffic--subcards) > :last-child{  padding-left:20px; }
+.traffic-charts:not(.traffic--subcards) > :first-child{ 
+  border-right:1px solid #e5e7eb; 
+  padding-right:20px; 
+}
+.traffic-charts:not(.traffic--subcards) > :last-child{  
+  padding-left:20px; 
+}
 
 /* —— 进度条（高度与 CPU 一致） —— */
-.traffic-card .traffic-progress-container{ display:flex; align-items:center; gap:10px; height:var(--h-progress); flex-shrink:0; }
-.traffic-card .progress-wrapper{ flex:1; min-width:120px; }
-.traffic-card .progress-bar{ height:var(--meter-height); background:#e2e8f0; border-radius:999px; overflow:hidden; position:relative; }
-.traffic-card .progress-fill{ height:100%; background:linear-gradient(90deg,#10b981 0%,#059669 100%); transition:width .3s ease; display:flex; align-items:center; justify-content:flex-end; padding-right:8px; }
-.traffic-card .progress-percentage{ color:#fff; font-size:11px; font-weight:600; }
-.traffic-card .progress-budget{ color:#6b7280; font-size:12px; white-space:nowrap; } /* “阈值：”文本就在这里 */
+.traffic-card .traffic-progress-container{ 
+  display:flex; 
+  align-items:center; 
+  gap:10px; 
+  height:var(--h-progress); 
+  flex-shrink:0; 
+}
+.traffic-card .progress-wrapper{ 
+  flex:1; 
+  min-width:120px; 
+}
+.traffic-card .progress-bar{ 
+  height:var(--meter-height); 
+  background:#e2e8f0; 
+  border-radius:999px; 
+  overflow:hidden; 
+  position:relative; 
+}
+.traffic-card .progress-fill{ 
+  height:100%; 
+  background:linear-gradient(90deg,#10b981 0%,#059669 100%); 
+  transition:width .3s ease; 
+  display:flex; 
+  align-items:center; 
+  justify-content:flex-end; 
+  padding-right:8px; 
+}
+.traffic-card .progress-percentage{ 
+  color:#fff; 
+  font-size:11px; 
+  font-weight:600; 
+}
+.traffic-card .progress-budget{ 
+  color:#6b7280; 
+  font-size:12px; 
+  white-space:nowrap; 
+}
 
 /* —— 图表容器：标题居中 + canvas 填满 —— */
-.chart-container{ position:relative; display:flex; flex-direction:column; overflow:hidden; }
-.traffic-card .chart-container h3{ text-align:center; margin:0 0 8px; font-weight:600; font-size:14px; line-height:20px; flex:0 0 auto; }
-.traffic-card .chart-container > canvas{ display:block; width:100% !important; height:100% !important; flex:1 1 auto; }
+.chart-container{ 
+  position:relative; 
+  display:flex; 
+  flex-direction:column; 
+  overflow:hidden; 
+}
+.traffic-card .chart-container h3{ 
+  text-align:center; 
+  margin:0 0 8px; 
+  font-weight:600; 
+  font-size:14px; 
+  line-height:20px; 
+  flex:0 0 auto; 
+}
+.traffic-card .chart-container > canvas{ 
+  display:block; 
+  width:100% !important; 
+  height:100% !important; 
+  flex:1 1 auto; 
+}
 
 /* —— 等高口径：两列下边框对齐 —— */
 /* 非 B 方案：右列 = 进度 + gap + 左图 */
 .traffic-charts:not(.traffic--subcards) .chart-column:first-child .chart-container{
-  height: var(--h-left-chart); min-height: var(--h-left-chart);
+  height: var(--h-left-chart); 
+  min-height: var(--h-left-chart);
 }
 .traffic-charts:not(.traffic--subcards) .chart-column:last-child .chart-container{
   height: calc(var(--h-progress) + var(--gap-v) + var(--h-left-chart));
   min-height: calc(var(--h-progress) + var(--gap-v) + var(--h-left-chart));
 }
 
-/* B 方案：考虑迷你卡片 padding 差额（左列两块=4*mini-pad；右列一块=2*mini-pad） */
-.traffic-charts.traffic--subcards > :first-child{ border-right:0; padding-right:0; }
-.traffic-charts.traffic--subcards > :last-child{  padding-left:0; }
+/* B 方案：考虑迷你卡片 padding 差额 */
+.traffic-charts.traffic--subcards > :first-child{ 
+  border-right:0; 
+  padding-right:0; 
+}
+.traffic-charts.traffic--subcards > :last-child{  
+  padding-left:0; 
+}
+
 .traffic-charts.traffic--subcards .traffic-progress-container,
 .traffic-charts.traffic--subcards .chart-container{
   padding:var(--mini-pad);
-  border:1px solid #e5e7eb; border-radius:12px;
-  background:#fff; box-shadow:0 2px 8px rgba(17,24,39,.08);
+  border:1px solid #e5e7eb; 
+  border-radius:12px;
+  background:#fff; 
+  box-shadow:0 2px 8px rgba(17,24,39,.08);
 }
-.traffic-charts.traffic--subcards .chart-column > * + *{ border-top:0; padding-top:0; margin-top:0; }
+.traffic-charts.traffic--subcards .chart-column > * + *{ 
+  border-top:0; 
+  padding-top:0; 
+  margin-top:0; 
+}
 
 .traffic-charts.traffic--subcards .chart-column:first-child .chart-container{
   height: calc(var(--h-left-chart) + 2*var(--mini-pad));
@@ -4989,34 +5071,24 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   min-height: calc(var(--h-progress) + var(--gap-v) + var(--h-left-chart) + 2*var(--mini-pad));
 }
 
-/* 单位小字（如果还在用） */
-.unit-note{ margin-left:8px; font-size:12px; color:#6b7280; font-weight:500; }
-
 /* 响应式 */
 @media (max-width:1024px){
-  .traffic-charts{ grid-template-columns:1fr; }
-  .traffic-charts:not(.traffic--subcards) > :first-child{ border-right:0; padding-right:0; }
-  .traffic-charts:not(.traffic--subcards) > :last-child{  padding-left:0; }
+  .traffic-charts{ 
+    grid-template-columns:1fr; 
+  }
+  .traffic-charts:not(.traffic--subcards) > :first-child{ 
+    border-right:0; 
+    padding-right:0; 
+  }
+  .traffic-charts:not(.traffic--subcards) > :last-child{  
+    padding-left:0; 
+  }
   .chart-column:first-child .chart-container,
   .chart-column:last-child  .chart-container{
-    height:280px; min-height:280px;
+    height:280px; 
+    min-height:280px;
   }
 }
-
-/* ===== 流量统计/进度条 ===== */
-.traffic-progress-container{ display:flex; align-items:center; gap:10px; }
-.progress-label{ font-size:13px; color:#6b7280; white-space:nowrap; }
-.progress-wrapper{ flex:1; min-width:120px; }
-.progress-bar{ height:var(--meter-height,18px); background:#e2e8f0; border-radius:10px; overflow:hidden; position:relative; }
-.progress-fill{ height:100%; background:linear-gradient(90deg,#10b981 0%,#059669 100%); transition:width .3s ease; display:flex; align-items:center; justify-content:flex-end; padding-right:8px; }
-.progress-fill.warning{ background:linear-gradient(90deg,#f59e0b 0%,#d97706 100%); }
-.progress-fill.critical{ background:linear-gradient(90deg,#ef4444 0%,#dc2626 100%); }
-.progress-percentage{ color:#fff; font-size:11px; font-weight:600; }
-.progress-budget{ color:#6b7280; font-size:12px; white-space:nowrap; }
-
-/* ===== 流量统计图表布局 ===== */
-.traffic-charts{ display:grid; grid-template-columns:7fr 3fr; gap:20px; }
-
 
 /* =========================
    弹窗 Modal 统一样式补丁
