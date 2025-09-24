@@ -4865,6 +4865,44 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   position: relative;
 }
 
+/* ===== 流量统计：布局与高度口径 ===== */
+.traffic-card{
+  /* 整卡最小高度：对齐“协议配置”卡（可按需调，比如 560px/600px） */
+  min-height: 560px;
+  /* 图表统一高度变量（左右两图一致，保证零刻度对齐） */
+  --chart-h: 320px;
+}
+.traffic-charts{ display:grid; grid-template-columns:7fr 3fr; gap:20px; padding:20px; }
+
+/* 图表容器统一高度，避免某一边看起来没撑满 */
+.chart-container{ height: var(--chart-h); min-height: var(--chart-h); overflow:hidden; }
+
+/* 本月进度仍左对齐；其余两个图表标题居中 */
+.traffic-charts h3{ text-align:center; margin: 0 0 8px; }
+.chart-column h3:first-of-type{ text-align:left; }
+
+/* ===== 方案B：迷你卡片（只需给父容器加类 .traffic--subcards） ===== */
+.traffic-charts.traffic--subcards{ gap:12px; }
+.traffic-charts.traffic--subcards .chart-column > *,
+.traffic-charts.traffic--subcards > :last-child{
+  padding:12px 12px 10px;
+  border:1px solid #e5e7eb;
+  border-radius:12px;
+  background:#fff;
+  box-shadow:0 1px 2px rgba(0,0,0,.04);
+}
+/* 启用迷你卡片时，去掉左列内部的分隔线（避免重复边界） */
+.traffic-charts.traffic--subcards .chart-column > * + *{
+  border-top:0; padding-top:0; margin-top:0;
+}
+
+/* 进度条外观（与你的CPU条一致 & 背景 #e2e8f0） */
+.traffic-card .progress-bar{
+  height: var(--meter-height, 18px);
+  background:#e2e8f0;
+  border-radius:999px;
+  overflow:hidden; position:relative;
+}
 
 /* =========================
    弹窗 Modal 统一样式补丁
@@ -5613,19 +5651,20 @@ function renderTrafficCharts() {
             { label: '代理', data: daily.map(d => d.resi / GiB), borderColor: proxyColor, backgroundColor: proxyColor, tension: 0.3, pointRadius: 0, fill: false },
           ]
         },
-        options: {
-          responsive: true, maintainAspectRatio: false,
-          interaction: { mode:'index', intersect:false },
-          plugins: {
-            legend:  { position: 'bottom', labels: { boxWidth: 12, padding: 12 } },
-            tooltip: { mode:'index', intersect:false }
-          },
-          layout: { padding: { bottom: 8 } },
-          scales: {
-            x: { grid: { display: false } },
-            y: { beginAtZero: true }   // 不再显示“GiB”单位；标题后用小注说明
-          }
-        }
+options: {
+  responsive: true,
+  maintainAspectRatio: false,
+  interaction: { mode:'index', intersect:false },
+  layout: { padding: { bottom: 8 } },     // 与右图一致，保证零刻度对齐
+  plugins: {
+    legend: { position:'bottom', labels:{ boxWidth:12, padding:12 } },
+    tooltip:{ mode:'index', intersect:false }
+  },
+  scales: {
+    x: { grid:{ display:false }, ticks:{ maxRotation:0, padding:6 } },
+    y: { beginAtZero:true, ticks:{ padding:6 } }
+  }
+}
       });
     }
   }
@@ -5644,12 +5683,18 @@ function renderTrafficCharts() {
             { label: '代理', data: arr.map(m => m.resi / GiB), backgroundColor: proxyColor, stack: 'a' },
           ]
         },
-        options: {
-          responsive: true, maintainAspectRatio: false,
-          plugins: { legend: { position: 'top', labels: { boxWidth: 12, padding: 8 } } },
-          layout: { padding: { bottom: 6 } },
-          scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } }
-        }
+options: {
+  responsive: true,
+  maintainAspectRatio: false,
+  layout: { padding: { bottom: 8 } },     // 与左图一致
+  plugins: {
+    legend: { position:'bottom', labels:{ boxWidth:12, padding:12 } }
+  },
+  scales: {
+    x: { stacked:true, grid:{ display:false }, ticks:{ maxRotation:0, padding:6 } },
+    y: { stacked:true, beginAtZero:true, ticks:{ padding:6 } }
+  }
+}
       });
     }
   }
