@@ -4733,57 +4733,47 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 /* ======== 网络身份配置 - 白名单查看全部按钮专用CSS =========== */
+/* =======================================================================
+   网络身份配置 - 白名单查看全部按钮专用CSS（固定右下角版）
+   ======================================================================= */
 
 /* 关键修复：覆盖分流出站区块中白名单值的限制性样式 */
 #net-shunt .whitelist-value,
 #net-shunt .info-item .whitelist-value {
-  /* 覆盖父级的 white-space: nowrap 和 overflow: hidden */
   white-space: normal !important;
-  overflow: visible !important;
+  overflow: visible !important;  
   text-overflow: initial !important;
   
   position: relative;
   width: 100%;
-  /* 关键：限制白名单区域的最大高度，与其他区块保持一致 */
-  max-height: 52px;  /* 大约3行的高度，与其他区块匹配 */
-  overflow: hidden;  /* 超出部分隐藏 */
+  /* 为按钮预留右下角空间 */
+  padding-right: 80px;
+  padding-bottom: 25px;
 }
 
 /* 白名单预览容器 */
 .whitelist-preview {
   position: relative;
   width: 100%;
-  height: 100%;
   display: block;
-  line-height: 1.3;  /* 稍微紧凑的行高，与其他区块匹配 */
-  font-size: 13px;
 }
 
-/* 白名单文本内容 - 限制显示行数 */
+/* 白名单文本内容 - 保持当前正确的显示效果，只调整行高 */
 .whitelist-text {
   color: #111827;
   font-size: 13px;
-  line-height: 1.3;  /* 与其他区块保持一致的行高 */
+  line-height: 1.2;  /* 调整为与其他区块一致的紧凑行高 */
   word-wrap: break-word;
   word-break: break-all;
   
-  /* 使用webkit-line-clamp精确控制显示行数 */
-  display: -webkit-box;
-  -webkit-line-clamp: 3;  /* 严格限制3行 */
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  
-  /* 为按钮预留右侧空间 */
-  padding-right: 75px;
-  
-  /* 兜底：非webkit浏览器 */
-  max-height: calc(1.3em * 3);
+  /* 保持当前的自然换行效果 */
+  display: block;
 }
 
-/* 查看全部按钮 - 固定在右下角 */
+/* 查看全部按钮 - 绝对定位固定在右下角 */
 .whitelist-more {
-  --btn-h: 20px;
-  --btn-pad-x: 6px;   
+  --btn-h: 22px;
+  --btn-pad-x: 8px;   
 
   display: inline-flex !important;
   align-items: center;
@@ -4791,38 +4781,25 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   height: var(--btn-h);
   line-height: calc(var(--btn-h) - 2px);
   padding: 0 var(--btn-pad-x);
-
-  /* 关键：绝对定位到右下角 */
+  
+  /* 关键：绝对定位固定在右下角 */
   position: absolute !important;
   right: 0;
   bottom: 0;
-  
+  z-index: 2;
+
   border: 1px solid #d1d5db;
   border-radius: 4px;
   background: #fff;
   color: #2563eb;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 500;
   text-decoration: none;
   cursor: pointer;
   white-space: nowrap;
-  z-index: 2;
 
-  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
   transition: all 0.15s ease;
-}
-
-/* 移除之前的overflow相关样式，简化逻辑 */
-.whitelist-preview.has-overflow .whitelist-text {
-  /* 保持一致的样式 */
-  padding-right: 75px;
-}
-
-.whitelist-preview.has-overflow .whitelist-more {
-  /* 保持相同的定位 */
-  position: absolute !important;
-  right: 0;
-  bottom: 0;
 }
 
 /* hover效果 */
@@ -4841,28 +4818,36 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   transform: translateY(1px);
 }
 
-/* 确保分流出站区块与其他区块高度一致 */
+/* 确保分流出站区块与其他区块行高一致 */
+#net-shunt .info-item {
+  /* 覆盖默认的行内边距，与其他区块保持一致 */
+  padding: 5px 0 !important;  /* 与 VPS出站IP 和 代理出站IP 区块的行高一致 */
+}
+
 #net-shunt .info-item.nid__row:last-child {
   align-items: flex-start;
-  /* 关键：与其他区块的行高保持一致 */
-  min-height: 32px;  /* 与其他info-item行高匹配 */
-  max-height: 60px;  /* 限制最大高度 */
+  /* 与其他区块保持相同的最小行高 */
+  min-height: 32px;
+}
+
+/* 移除JavaScript控制的类，简化逻辑 */
+.whitelist-preview.has-overflow .whitelist-text,
+.whitelist-preview.has-long-content .whitelist-text {
+  /* 保持统一样式 */
+  line-height: 1.2;
 }
 
 /* 响应式调整 */
 @media (max-width: 1024px) {
   .whitelist-more {
-    --btn-h: 18px;
-    --btn-pad-x: 4px;
-    font-size: 9px;
-  }
-  
-  .whitelist-text {
-    padding-right: 65px;
+    --btn-h: 20px;
+    --btn-pad-x: 6px;
+    font-size: 10px;
   }
   
   #net-shunt .whitelist-value {
-    max-height: 48px;
+    padding-right: 70px;
+    padding-bottom: 22px;
   }
 }
 
