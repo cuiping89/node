@@ -6645,10 +6645,11 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
           <value class="nid__value">直连</value>
         </div>
         <div class="info-item nid__row">
-          <label class="nid__label">出站IP:</label>
+          <label class="nid__label">VPS-IP:</label>
           <value class="nid__value" id="vps-ip">—</value>
         </div>
         <div class="info-item nid__row">
+
           <label class="nid__label">Geo:</label>
           <value class="nid__value" id="vps-geo">—</value>
         </div>
@@ -8065,8 +8066,25 @@ build_proxy_args(){ local u="${1:-}"; [[ -z "$u" || "$u" == "null" ]] && return 
   case "$u" in socks5://*|socks5h://*) echo "--socks5-hostname ${u#*://}";;
            http://*|https://*) echo "--proxy $u";; *) :;; esac; }
 
-curl_json(){ # $1 proxy-args  $2 url
-  eval "curl -fL -A 'Mozilla/5.0' -sS --max-time 4 $1 \"$2\"" || return 1; }
+# [PATCH:IPQ_CURL_SILENT_RETRY]
+# 统一的 curl JSON 抓取：静默、短超时、少量重试，并吞掉错误输出
+CURL_UA="Mozilla/5.0 (EdgeBox IPQ)"
+CURL_CONN_TIMEOUT="${CURL_CONN_TIMEOUT:-2}"   # TCP 连接超时
+CURL_MAX_TIME="${CURL_MAX_TIME:-4}"          # 单次请求总超时（看到你日志是 4001ms）
+CURL_RETRY="${CURL_RETRY:-1}"                # 轻量重试 1 次
+CURL_RETRY_DELAY="${CURL_RETRY_DELAY:-1}"
+
+curl_json() { # $1: curl 代理参数或空  $2: url
+  local p="$1" u="$2"
+  # 注意：不用 -S，否则会在 -s 下仍打印错误；统一 2>/dev/null 吞掉报错
+  curl -fsL -s \
+       --connect-timeout "$CURL_CONN_TIMEOUT" \
+       --max-time "$CURL_MAX_TIME" \
+       --retry "$CURL_RETRY" \
+       --retry-delay "$CURL_RETRY_DELAY" \
+       -A "$CURL_UA" $p "$u" 2>/dev/null \
+  | jq -c . 2>/dev/null
+}
 
 get_proxy_url(){ local s="${SHUNT_DIR}/state.json"
   [[ -s "$s" ]] && jqget '.proxy_info' <"$s" || echo ""; }
@@ -8075,7 +8093,7 @@ collect_one(){ # $1 vantage vps|proxy  $2 proxy-args
   local V="$1" P="$2" J1="{}" J2="{}" J3="{}" ok1=false ok2=false ok3=false
   if out=$(curl_json "$P" "https://ipinfo.io/json"); then J1="$out"; ok1=true; fi
   
-  i# [PATCH:IPSB_ENDPOINT_PLUS] 主用 + 备选端点，避免单点波动
+# [PATCH:IPSB_ENDPOINT_PLUS] 主用 + 备选端点，避免单点波动与超时报错
 if out=$(curl_json "$P" "https://api.ip.sb/geoip"); then
   J2="$out"; ok2=true
 else
@@ -8088,7 +8106,13 @@ else
   done
 fi
 
-  if out=$(curl_json "$P" "http://ip-api.com/json/?fields=status,message,country,city,as,asname,reverse,hosting,proxy,mobile,query"); then J3="$out"; ok3=true; fi
+if out=$(curl_json "$P" "http://ip-api.com/json/?fields=status,message,continent,country,regionName,city,lat,lon,isp,org,as,reverse,query"); then
+  J3="$out"; ok3=true
+else
+  if out=$(curl_json "$P" "https://ipwho.is/?lang=en"); then
+    J3="$out"; ok3=true
+  fi
+fi
 
   local ip=""; for j in "$J2" "$J1" "$J3"; do ip="$(jq -r '(.ip // .query // empty)' <<<"$j")"; [[ -n "$ip" && "$ip" != "null" ]] && break; done
   local rdns="$(jq -r '.reverse // empty' <<<"$J3")"
