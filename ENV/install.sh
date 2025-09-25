@@ -5441,12 +5441,12 @@ h4 {
   }
 }
 
-/* 临时方案：隐藏Chart.js图例，手动添加 */
-.traffic-card canvas + * {
+/* 隐藏 Chart.js 生成的 HTML 图例（若有）——不要再用 canvas + * 误伤 */
+.traffic-card .chartjs-legend {
   display: none !important;
 }
 
-/* 在标题后添加静态图例（默认圆点版） */
+/* 标题后的默认“圆点版”自定义图例（其它卡片都用这个） */
 .traffic-card .chart-container h3::after {
   content: " 🔵 VPS 🟢 代理";
   font-size: 11px;
@@ -5454,9 +5454,19 @@ h4 {
   margin-left: 8px;
 }
 
-/* 覆盖近12月柱状图：改成方块版 */
-.traffic-card:has(#monthly-chart) .chart-container h3::after {
-  content: " 🟦 VPS 🟩 代理";  /* 🔵/🟢 → 🟦/🟩 */
+/* 仅“近12月柱状图”使用“方块版”图例
+   要求：这张卡片里包含 id="monthly-chart" 的 <canvas> */
+@supports selector(.x:has(#monthly-chart)) {
+  .traffic-card:has(#monthly-chart) .chart-container h3::after {
+    content: " 🟦 VPS 🟩 代理"; /* 圆点 → 方块（emoji 方块） */
+  }
+}
+
+/* 兼容不支持 :has() 的旧环境（如果“近12月”是第2张卡片就用 2；否则改成实际序号） */
+@supports not selector(.x:has(#monthly-chart)) {
+  .traffic-grid .traffic-card:nth-of-type(2) .chart-container h3::after {
+    content: " 🟦 VPS 🟩 代理";
+  }
 }
 
 
@@ -6197,15 +6207,20 @@ function renderTrafficCharts() {
           ]
         },
 options: {
-  responsive:true, maintainAspectRatio:false,
-  interaction:{ mode:'index', intersect:false },
-layout:{ padding:0 },
-plugins:{ legend:{ display:false } },
-  scales:{
-    x:{ grid:{ display:false }, ticks:{ maxRotation:0, padding:6 } },
-    y:{ beginAtZero:true, ticks:{ padding:6 } }
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: {
+    legend: { display: false } // 隐藏底部内置图例
+  },
+  layout: {
+    padding: { bottom: 20 }    // 恢复底部留白，保证日期不被裁掉
+  },
+  scales: {
+    x: { ticks: { padding: 6 } },
+    y: { ticks: { padding: 6 } }
   }
 }
+
       });
     }
   }
@@ -6225,14 +6240,20 @@ plugins:{ legend:{ display:false } },
           ]
         },
 options: {
-  responsive:true, maintainAspectRatio:false,
-layout:{ padding:0 },
-plugins:{ legend:{ display:false } },
-  scales:{
-    x:{ stacked:true, grid:{ display:false }, ticks:{ maxRotation:0, padding:6 } },
-    y:{ stacked:true, beginAtZero:true, ticks:{ padding:6 } }
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: {
+    legend: { display: false } // 仍隐藏底部内置图例
+  },
+  layout: {
+    padding: { bottom: 20 }    // 给 x 轴刻度留空间
+  },
+  scales: {
+    x: { ticks: { padding: 6 } },
+    y: { ticks: { padding: 6 } }
   }
 }
+
       });
     }
   }
