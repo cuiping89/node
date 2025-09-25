@@ -4344,6 +4344,20 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 .grid-3{ grid-template-columns:repeat(3,1fr); }
 .grid-1-2{ grid-template-columns:1fr 2fr; }
 
+/* ===== 文字样式统一：标题h3色+h4字号，内容灰色+h4字号 ===== */
+:root {
+  --heading-color: #111827;   /* 标题颜色（h3的黑色） */
+  --content-color: #6b7280;   /* 内容颜色（灰色） */
+  --h4-size: 14px;            /* h4字体大小 */
+}
+
+/* h4基础样式统一 */
+h4 { 
+  font-size: var(--h4-size); 
+  line-height: 1.4; 
+  font-weight: 600; 
+  color: var(--heading-color);
+}
 
 /* =======================================================================
    系统概览
@@ -4354,8 +4368,12 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   --meter-height:20px;      /* 进度条高度 */
   --svc-gap:12px;           /* 服务名/徽标/版本 间距 */
   --h3-gap:8px;
-  --meter-track:#d1d5db; --meter-start:#059669; --meter-end:#10b981;
-  --label:#4b5563; --value:#111827; --muted:#6b7280;
+  --meter-track:#d1d5db; 
+  --meter-start:#059669; 
+  --meter-end:#10b981;
+    --label: var(--heading-color); 
+  --value: var(--content-color); 
+  --muted: #6b7280;
 }
 
 /* ========== 覆盖全局 inner-block 样式，统一高度 ========== */
@@ -4381,8 +4399,29 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   display:grid; grid-template-columns:var(--label-w) 1fr; gap:8px; align-items:center; 
   padding:5px 0;  /* 统一行高 */
 }
-#system-overview .server-info .label{ color:var(--label); justify-self:start; }
-#system-overview .server-info .value{ min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--value); }
+
+/* 系统概览标题统一样式 */
+#system-overview .server-info .label,
+#system-overview .progress-row .label,
+#system-overview .core-services .label { 
+  color: var(--heading-color) !important; 
+  font-size: var(--h4-size) !important; 
+  font-weight: 600 !important;
+  justify-self: start; 
+}
+
+/* 系统概览内容统一样式 */
+#system-overview .server-info .value,
+#system-overview .progress-row .value,
+#system-overview .core-services .value { 
+  color: var(--content-color) !important; 
+  font-size: var(--h4-size) !important; 
+  font-weight: 500 !important;
+  min-width: 0; 
+  white-space: nowrap; 
+  overflow: hidden; 
+  text-overflow: ellipsis; 
+}
 
 /* 服务器配置：键名 | 进度条 | 百分比 */
 #system-overview .progress-row{
@@ -4521,8 +4560,8 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   --h3-gap: 8px;
 
   /* 颜色 */
-  --label: #4b5563;
-  --value: #111827;
+  --label: var(--heading-color);
+  --value: var(--content-color);
   --tag-active-bg: #10b981;     /* 激活：绿色 */
   --tag-inactive-bg: #e2e8f0;   /* 非当前：灰底 */
   --tag-active-color: #ffffff;
@@ -4575,16 +4614,24 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   align-items:center;
   padding:6px 0;
 }
+
+/* 证书切换标题统一样式 */
 #cert-panel .inner-block .info-item label{
-  color: var(--label);
-  justify-self:start;
+  color: var(--heading-color) !important;
+  font-size: var(--h4-size) !important;
+  font-weight: 600 !important;
+  justify-self: start;
 }
+
+/* 证书切换内容统一样式 */
 #cert-panel .inner-block .info-item value{
-  min-width:0;
-  white-space:nowrap;
-  overflow:hidden;
-  text-overflow:ellipsis;
-  color: var(--value);
+  color: var(--content-color) !important;
+  font-size: var(--h4-size) !important;
+  font-weight: 500 !important;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* =======================================================================
@@ -4604,8 +4651,8 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   --tag-font: 13px;
 
   /* 颜色 */
-  --label: #4b5563;
-  --value: #111827;
+  --label: var(--heading-color);
+  --value: var(--content-color);
   --tag-active-bg: #10b981;     /* 激活：绿色 */
   --tag-inactive-bg: #e2e8f0;   /* 默认：灰色 */
   --tag-active-color: #ffffff;
@@ -4694,17 +4741,31 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   align-items: center;
   padding: var(--line-vpad) 0;
 }
+
+/* 网络身份配置标题统一样式 */
 #netid-panel .network-block .info-item label{
-  color: var(--label);
-  font-size: 13px;
+  color: var(--heading-color) !important;
+  font-size: var(--h4-size) !important;
+  font-weight: 600 !important;
 }
+
+/* 网络身份配置内容统一样式 */
 #netid-panel .network-block .info-item value{
+  color: var(--content-color) !important;
+  font-size: var(--h4-size) !important;
+  font-weight: 500 !important;
   min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: var(--value);
-  font-size: 13px;
+}
+
+/* 特殊处理：白名单文本保持统一样式 */
+#netid-panel .whitelist-text {
+  color: var(--content-color) !important;
+  font-size: var(--h4-size) !important;
+  font-weight: 500 !important;
+  flex-shrink: 0;
 }
 
 /* 标题右侧“注：HY2/TUIC…”（颜色+对齐+右缩进，仅本卡） */
@@ -6008,7 +6069,7 @@ function renderTrafficCharts() {
 options: {
   responsive:true, maintainAspectRatio:false,
   interaction:{ mode:'index', intersect:false },
-  layout:{ padding:{ bottom:8 } },
+  layout:{ padding:{ bottom:24 } },  /* 增加底部留白给图例 */
   plugins:{ legend:{ 
     position:'bottom', 
     labels:{ 
@@ -6043,8 +6104,14 @@ options: {
         },
 options: {
   responsive:true, maintainAspectRatio:false,
-  layout:{ padding:{ bottom:8 } },
-  plugins:{ legend:{ position:'bottom', labels:{ boxWidth:12, padding:12 } } },
+  layout:{ padding:{ bottom:24 } },  /* 增加底部留白给图例 */
+  plugins:{ legend:{ 
+    position:'bottom', 
+    labels:{ 
+      boxWidth:12, 
+      padding:12 
+    } 
+  }},
   scales:{
     x:{ stacked:true, grid:{ display:false }, ticks:{ maxRotation:0, padding:6 } },
     y:{ stacked:true, beginAtZero:true, ticks:{ padding:6 } }
