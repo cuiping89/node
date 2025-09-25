@@ -3113,7 +3113,7 @@ cat <<EOF
   {
     "name": "VLESS-Reality",
     "scenario": "强审查环境",
-    "camouflage": "极佳",
+    "camouflage": "极佳★★★★★",
     "status": "$reality_status",
     "port": 443,
     "network": "tcp",
@@ -3122,7 +3122,7 @@ cat <<EOF
   {
     "name": "VLESS-gRPC",
     "scenario": "较严审查/走CDN",
-    "camouflage": "极佳",
+    "camouflage": "极佳★★★★★",
     "status": "$grpc_status",
     "port": 443,
     "network": "tcp",
@@ -3131,7 +3131,7 @@ cat <<EOF
   {
     "name": "VLESS-WebSocket",
     "scenario": "常规网络稳定",
-    "camouflage": "良好",
+    "camouflage": "良好★★★★☆",
     "status": "$ws_status",
     "port": 443,
     "network": "tcp",
@@ -3140,7 +3140,7 @@ cat <<EOF
   {
     "name": "Trojan-TLS",
     "scenario": "移动网络可靠",
-    "camouflage": "良好",
+    "camouflage": "良好★★★★☆",
     "status": "$trojan_status",
     "port": 443,
     "network": "tcp",
@@ -3149,7 +3149,7 @@ cat <<EOF
   {
     "name": "Hysteria2",
     "scenario": "弱网/高丢包更佳",
-    "camouflage": "好",
+    "camouflage": " 好★★★☆☆",
     "status": "$udp443_status",
     "port": 443,
     "network": "udp",
@@ -3158,7 +3158,7 @@ cat <<EOF
   {
     "name": "TUIC",
     "scenario": "大带宽/低时延",
-    "camouflage": "良好",
+    "camouflage": "良好★★★★☆",
     "status": "$udp2053_status",
     "port": 2053,
     "network": "udp",
@@ -4322,43 +4322,6 @@ h4 {
   box-shadow:0 2px 6px rgba(0,0,0,.08); overflow:hidden;
 }
 
-/* =========标题 =========*/
-
-/* 修复主标题居中问题 */
-.main-header {
-  text-align: center; /* 让整个标题区域居中对齐 */
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
-  padding: 10px 14px 10px 12px;
-  position: relative;
-}
-
-.main-header h1 {
-  text-align: center !important; /* 强制标题文字居中 */
-  margin: 0 auto;
-  display: block;
-  width: 100%;
-  font-size: 23px;
-  font-weight: 700;
-  color: #1f2937;
-  line-height: 32px;
-}
-
-/* 如果有装饰性的左边框线，也要调整 */
-.main-header::before {
-  content: "";
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  top: 8px;
-  bottom: 8px;
-  width: 4px;
-  background: #6366f1;
-  border-radius: 4px;
-  opacity: 0.35;
-}
-
 .card{
   background:#fff; border:1px solid #d1d5db; border-radius:10px;
   box-shadow:0 2px 6px rgba(0,0,0,.08); padding:20px; margin-bottom:20px;
@@ -4368,6 +4331,110 @@ h4 {
 .card-header{ margin-bottom:20px; padding-bottom:12px; border-bottom:1px solid #e5e7eb; }
 .card-header h2{ display:flex; justify-content:space-between; align-items:center; }
 .card-note{ font-size:11px; color:#6b7280; font-weight:400; }
+
+
+/* =========标题 =========*/
+
+/* 1. 恢复标题作为大卡片的一部分 */
+.main-card {
+  background: #fff; 
+  border: 1px solid #d1d5db; 
+  border-radius: 10px;
+  box-shadow: 0 2px 6px rgba(0,0,0,.08); 
+  overflow: hidden;
+  margin-bottom: 20px;
+  /* 去掉整体padding，让标题可以占满宽度 */
+  padding: 0 !important;
+}
+
+/* 2. 标题样式：从深灰到浅灰的渐变 + 圆角只在顶部 */
+.main-header {
+  text-align: center;
+  /* 修正渐变：从深灰到浅灰 */
+  background: linear-gradient(135deg, #e2e8f0 0%, #f1f5f9 50%, #f8fafc 100%);
+  border: none; /* 去掉单独边框，融入大卡片 */
+  border-radius: 0; /* 去掉独立圆角 */
+  border-top-left-radius: 9px; /* 只保留顶部圆角，配合大卡片 */
+  border-top-right-radius: 9px;
+  padding: 16px 20px;
+  position: relative;
+  margin: 0; /* 重要：去掉margin让标题贴合大卡片边缘 */
+  /* 调整阴影：内阴影营造嵌入效果 */
+  box-shadow: 
+    inset 0 -1px 0 rgba(0,0,0,0.1),
+    inset 0 1px 0 rgba(255,255,255,0.9);
+}
+
+/* 3. 大卡片内容区域恢复padding */
+.main-content {
+  padding: 20px !important;
+  margin: 0 !important;
+}
+
+/* 4. 标题文字样式 */
+.main-header h1 {
+  text-align: center !important;
+  margin: 0 auto;
+  display: block;
+  width: 100%;
+  font-size: 24px;
+  font-weight: 700;
+  color: #1f2937;
+  line-height: 1.3;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.1);
+}
+
+/* 5. 去掉紫色竖杠 */
+.main-header::before {
+  display: none !important;
+}
+
+/* 6. 可选：底部装饰线 */
+.main-header::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  transform: translateX(-50%);
+  width: 60px;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #10b981, transparent);
+  border-radius: 2px;
+  opacity: 0.6;
+}
+
+/* 7. 确保内部卡片间距正确 */
+.main-content .card {
+  margin-bottom: 20px !important;
+}
+
+.main-content .card:last-child {
+  margin-bottom: 0 !important;
+}
+
+/* 8. grid布局特殊处理 */
+.main-content .grid .card {
+  margin-bottom: 0 !important;
+}
+
+/* 9. 可选：鼠标悬停效果（整个标题区域） */
+.main-header:hover {
+  background: linear-gradient(135deg, #d1d5db 0%, #e2e8f0 50%, #f1f5f9 100%);
+  box-shadow: 
+    inset 0 -1px 0 rgba(0,0,0,0.15),
+    inset 0 1px 0 rgba(255,255,255,0.8);
+  transition: all 0.3s ease;
+}
+
+/* 10. 备选方案：如果想要更明显的深浅对比 */
+.main-header.dark-to-light {
+  background: linear-gradient(135deg, #94a3b8 0%, #cbd5e1 50%, #e2e8f0 100%);
+}
+
+.main-header.dark-to-light:hover {
+  background: linear-gradient(135deg, #64748b 0%, #94a3b8 50%, #cbd5e1 100%);
+}
+
 
 /* =========内层 =========*/
 .inner-block{
@@ -5101,6 +5168,83 @@ h4 {
   background-color: #f3f4f6;
 }
 
+/* 修复协议配置卡片与上方卡片边框贴着的问题 */
+
+/* 1. 修复grid布局中的卡片间距问题 */
+.main-content .grid .card {
+  margin-bottom: 0 !important; /* grid内的卡片不使用margin，完全依赖gap */
+}
+
+/* 2. 确保grid布局有正确的gap */
+.main-content .grid {
+  display: grid; 
+  gap: 20px !important; /* 强制使用20px间距 */
+  margin: 0;
+}
+
+/* 3. 特别处理1-2网格布局（证书切换和网络身份配置这一行） */
+.main-content .grid-1-2 {
+  display: grid; 
+  grid-template-columns: 1fr 2fr;
+  gap: 20px !important;
+  margin-bottom: 20px !important; /* 这一行与下方协议配置卡片的间距 */
+}
+
+/* 4. 协议配置卡片确保有正确的上边距 */
+.card[id*="protocol"],
+.card:has(.data-table),
+.card:has(h2:contains("协议配置")) {
+  margin-top: 20px !important; /* 确保与上方有间距 */
+}
+
+/* 5. 如果协议配置卡片有特定的类名或ID，直接指定 */
+#protocol-panel,
+#protocols-panel,
+.protocol-card {
+  margin-top: 20px !important;
+  margin-bottom: 20px !important;
+}
+
+/* 6. 通用解决方案：确保所有非grid内的卡片有正确间距 */
+.main-content > .card:not(.grid .card) {
+  margin-bottom: 20px !important;
+}
+
+.main-content > .card:not(.grid .card):not(:first-child) {
+  margin-top: 20px !important;
+}
+
+/* 7. 特殊情况：如果协议配置在grid后面，强制添加上边距 */
+.main-content .grid + .card,
+.main-content .grid-1-2 + .card {
+  margin-top: 20px !important;
+}
+
+/* 8. 响应式处理：窄屏时确保间距一致 */
+@media (max-width: 1024px) {
+  .main-content .grid-1-2 {
+    grid-template-columns: 1fr;
+    gap: 20px !important;
+  }
+  
+  .main-content .grid + .card,
+  .main-content .grid-1-2 + .card {
+    margin-top: 20px !important;
+  }
+}
+
+/* 9. 确保协议配置表格卡片的边框正常显示 */
+.card:has(.data-table) {
+  border: 1px solid #d1d5db !important;
+  box-shadow: 0 2px 6px rgba(0,0,0,.08) !important;
+}
+
+/* 10. 调试用：如果需要临时高亮协议配置卡片 */
+/*
+.card:has(.data-table) {
+  border: 2px solid red !important;
+}
+*/
 
 /* =======================================================================
    流量统计 - 修复垂直居中问题
@@ -5297,6 +5441,18 @@ h4 {
   }
 }
 
+/* 临时方案：隐藏Chart.js图例，手动添加 */
+.traffic-card canvas + * {
+  display: none !important;
+}
+
+/* 在标题后添加静态图例 */
+.traffic-card .chart-container h3::after {
+  content: " 🔵 VPS 🟢 代理";
+  font-size: 11px;
+  color: #6b7280;
+  margin-left: 8px;
+}
 
 /* =========================
    弹窗 Modal 统一样式补丁（按您要求修正）
