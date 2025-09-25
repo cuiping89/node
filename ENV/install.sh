@@ -5995,8 +5995,6 @@ function showWhitelistModal() {
 }
 
 
-// 显示配置弹窗（按文档要求的内容和按钮顺序）
-// 修复后的 showConfigModal 函数
 // [PATCH:SHOW_CONFIG_MODAL_SAFE] —— 精准、谨慎、只改一处
 function showConfigModal(protocolKey) {
   const dd = window.dashboardData;
@@ -6134,7 +6132,7 @@ function showConfigModal(protocolKey) {
     const base64 = plain ? toB64(plain) : '';
 
     title.textContent = `${p.name} 配置`;
-    // 单协议配置的HTML - 包含二维码容器
+    // 单协议配置的HTML - 包含二维码容器  
     details.innerHTML = `
       <div class="config-section">
         <h4>JSON 配置</h4>
@@ -6339,6 +6337,8 @@ async function refreshAllData() {
     renderTrafficCharts();
 }
 
+
+// 同时修改 setupEventListeners 函数，避免重复调用：
 function setupEventListeners() {
     document.addEventListener('click', e => {
         const target = e.target.closest('[data-action]');
@@ -6349,28 +6349,31 @@ function setupEventListeners() {
         switch (action) {
             case 'open-modal':
                 if (modal === 'whitelistModal') showWhitelistModal();
-                if (modal === 'configModal') showConfigModal(protocol);
+                if (modal === 'configModal') {
+                    showConfigModal(protocol);
+                    // 不需要再手动调用 showModal，showConfigModal 内部已经处理了
+                }
                 if (modal === 'ipqModal') showIPQDetails(ipq);
                 break;
             case 'close-modal':
                 closeModal(modal);
                 break;
-            case 'copy': { // 使用块作用域以避免变量冲突
+            case 'copy': {
                 const modalContent = target.closest('.modal-content');
                 if (!modalContent) return;
 
                 const titleText = modalContent.querySelector('#configModalTitle')?.textContent || '';
                 let textToCopy = '';
 
-                if (titleText.includes('订阅链接')) {
+                if (titleText.includes('订阅')) {
                     // 这是订阅弹窗
                     const sub = dashboardData.subscription || {};
                     const subUrl = dashboardData.subscription_url || '';
                     switch (type) {
-                        case 'sub':
+                        case 'plain':
                             textToCopy = subUrl;
                             break;
-                        case 'plain':
+                        case 'plain6':
                             textToCopy = sub.plain || '';
                             break;
                         case 'base64':
@@ -6379,7 +6382,7 @@ function setupEventListeners() {
                     }
                 } else {
                     // 这是单个协议的弹窗
-                    const protocolName = titleText.replace(' 配置详情', '');
+                    const protocolName = titleText.replace(' 配置', '');
                     const p = (dashboardData.protocols || []).find(proto => proto.name === protocolName);
                     if (p) {
                         switch (type) {
@@ -6387,10 +6390,25 @@ function setupEventListeners() {
                                 textToCopy = p.share_link || '';
                                 break;
                             case 'json':
-                                textToCopy = generateProtocolJSON(p); // 复用生成JSON的函数
+                                // 生成 JSON
+                                const certMode = String(dashboardData.server?.cert?.mode || 'self-signed');
+                                const isLE = certMode.startsWith('letsencrypt');
+                                const serverIp = dashboardData.server?.server_ip || '';
+                                const obj = {
+                                    protocol: p.name,
+                                    host: serverIp,
+                                    port: p.port ?? 443,
+                                    uuid: dashboardData.secrets?.vless?.reality || 
+                                          dashboardData.secrets?.vless?.grpc ||
+                                          dashboardData.secrets?.vless?.ws || '',
+                                    sni: isLE ? dashboardData.server?.cert?.domain || '' : serverIp,
+                                    alpn: (p.name || '').toLowerCase().includes('grpc') ? 'h2'
+                                        : ((p.name || '').toLowerCase().includes('ws') ? 'http/1.1' : '')
+                                };
+                                textToCopy = JSON.stringify(obj, null, 2);
                                 break;
                             case 'base64':
-                                textToCopy = p.share_link ? btoa(p.share_link) : '';
+                                textToCopy = p.share_link ? btoa(unescape(encodeURIComponent(p.share_link))) : '';
                                 break;
                         }
                     }
@@ -6402,6 +6420,7 @@ function setupEventListeners() {
         }
     });
 }
+
 
 // --- Initialization ---
 document.addEventListener('DOMContentLoaded', () => {
