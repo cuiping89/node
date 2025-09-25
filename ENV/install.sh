@@ -5930,21 +5930,19 @@ function renderCertificateAndNetwork() {
   }
   if (proxyEl) proxyEl.textContent = formatProxy(proxyRaw);
 
-  // —— 白名单预览：保持你“始终显示查看全部 + 转义”的口径 —— 
-  const whitelist = data.shunt?.whitelist || [];
-  const preview = document.getElementById('whitelistPreview');
-// 在 renderCertificateAndNetwork() 函数的白名单处理部分添加：
+// —— 白名单预览：只显示第一个域名的前5-6个字符 —— 
+const whitelist = data.shunt?.whitelist || [];
+const preview = document.getElementById('whitelistPreview');
 if (preview) {
   if (!whitelist.length) {
     preview.innerHTML = '<span class="whitelist-text">(无)</span>';
   } else {
-    const fullText = whitelist.join(', ');
-    // 估算是否会超过3行（可以根据实际情况调整这个阈值）
-    const willOverflow = fullText.length > 120; // 大约3行的字符数
+    // 取第一个域名，显示前6个字符
+    const firstDomain = whitelist[0] || '';
+    const shortText = firstDomain.length > 6 ? firstDomain.substring(0, 6) + '...' : firstDomain;
     
-    preview.className = `whitelist-preview${willOverflow ? ' has-overflow' : ''}`;
     preview.innerHTML =
-      `<span class="whitelist-text">${escapeHtml(fullText)}</span>` +
+      `<span class="whitelist-text">${escapeHtml(shortText)}</span>` +
       `<button class="whitelist-more" data-action="open-modal" data-modal="whitelistModal">查看全部</button>`;
   }
 }
