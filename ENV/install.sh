@@ -4313,14 +4313,17 @@ h4 {
 }
 
 /* =========标题 =========*/
-.main-header{
-  background:#e2e8f0;   /* 改成柔和灰底 */
-  color:#111827;        /* 深灰字，保证对比度 */
-  padding:20px 30px;
-  text-align:center;
+.header-bar{
+  background:#fff;
+  border:1px solid #e5e7eb;
+  border-radius:10px;
+  padding:10px 14px 10px 12px;
+  position:relative;
 }
-.main-header h1{ color:#111827; margin:0; }
-.main-content{ padding:20px; }
+.header-bar::before{
+  content:""; position:absolute; left:0; top:8px; bottom:8px; width:4px;
+  background:#6366f1; border-radius:4px; opacity:.35; /* 低饱和“紫”提示 */
+}
 
 .card{
   background:#fff; border:1px solid #d1d5db; border-radius:10px;
@@ -5343,9 +5346,7 @@ dialog[open],
   background:#fff !important;
 }
 
-/* =========================
-   仅“查看详情/质量”有分隔横线（深灰）；“查看配置”不加线
-   ========================= */
+/* =====“查看详情/质量”有分隔横线（深灰）；“查看配置”不加线====== */
 #detailModal .modal-section,
 #detailModal .detail-section,
 #ipqModal   .ipq-section{
@@ -5377,9 +5378,7 @@ dialog[open],
 .kv-key{ color:#6b7280; font-size:13px; text-align:right; padding-right:8px; line-height:1.6; }
 .kv-val, .kv-value{ color:#111827; font-size:13px; word-break:break-word; }
 
-/* =========================
-   输入/代码框（避免误命中二维码容器）
-   ========================= */
+/* ===========输入/代码框（避免误命中二维码容器）============= */
 .input-plain, .textarea-plain, .code-box, .config-code,
 #json-code, #plain-link, #plain-links-6, #base64-link,
 .modal-body textarea, .modal-body input[type="text"],
@@ -5399,9 +5398,7 @@ dialog[open],
 .textarea-plain, .modal-body textarea{ min-height:100px; resize:vertical; }
 .input-plain[readonly], .modal-body input[readonly]{ cursor:default; background:var(--input-bg) !important; }
 
-/* =========================
-   二维码：正方形 + 居中
-   ========================= */
+/* ===========二维码：正方形 + 居中============== */
 /* 不改 #qrcode-sub / #qrcode-protocol 的 display，避免“出现第二个” */
 .modal-body .qrcode,
 .modal-body [data-role="qrcode"]{
@@ -5415,9 +5412,7 @@ dialog[open],
   display:block !important; margin:12px auto !important; image-rendering:pixelated;
 }
 
-/* =========================
-   复制按钮：白底灰字圆角（强覆盖常见库的默认灰底）
-   ========================= */
+/* ========复制按钮：白底灰字圆角（强覆盖常见库的默认灰底）========== */
 .modal .copy-btn,
 .modal .btn-copy,
 .modal [data-role="copy"],
@@ -5444,9 +5439,7 @@ dialog[open],
   border-color:#cbd5e1 !important;
 }
 
-/* =========================
-   关闭按钮：圆角方形细描边 + 轻阴影（显眼可点）
-   ========================= */
+/* ============关闭按钮：圆角方形细描边 + 轻阴影（显眼可点）============= */
 .ant-modal-close, .el-dialog__headerbtn, .modal .modal-close{
   position:absolute !important; right:12px; top:12px;
   width:28px !important; height:24px !important;
@@ -5465,9 +5458,7 @@ dialog[open],
   color:#6b7280 !important; font-size:16px !important; line-height:1 !important;
 }
 
-/* =========================
-   复制成功轻提示（居中 Toast）
-   ========================= */
+/* ==========复制成功轻提示（居中 Toast）=========== */
 .modal .modal-toast{
   position:absolute; left:50%; top:50%;
   transform:translate(-50%, -50%) scale(.98);
