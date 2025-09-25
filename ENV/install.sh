@@ -4732,45 +4732,68 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   }
 }
 
-/* ====白名单/查看全部按钮==== */
-/* 只修分流出站卡 (#net-shunt) 里的“白名单”这一行 */
-#net-shunt .nid__row .nid__value.whitelist-value{
-  position: relative;         /* 给按钮的定位上下文 */
-  display: block;             /* 自定义 <value> 统一成块级 */
-  min-height: 28px;           /* 行高与左/中卡一致（你的按钮高28px）*/
+
+/* ======== 网络身份配置 - 白名单查看全部按钮专用CSS =========== */
+/* 仅作用于分流出站卡片，避免全局污染 */
+#net-shunt .whitelist-row{
+  align-items: flex-start;             /* 标题顶对齐 */
+  min-height: 64px;                    /* 给预览留出空间 */
 }
 
-/* 白名单文本：单行省略，和左/中卡行高对齐 */
-#net-shunt .nid__row .whitelist-preview{
-  height: 28px;
-  line-height: 28px;
-  padding-right: 96px;        /* 预留“查看全部”按钮宽度 */
-  white-space: nowrap;
+/* 预览容器：两列布局 = 文本(自适应) + 按钮(固定) */
+#net-shunt .whitelist-preview{
+  display: grid;
+  grid-template-columns: 1fr auto;     /* 文本占满，按钮贴右 */
+  align-items: end;                     /* 按钮贴底 */
+  gap: 8px;
+  width: 100%;
+}
+
+/* 三行截断，行高与左侧“代理IP/Geo/IP质量”一致（1.8 更肉眼对齐） */
+#net-shunt .whitelist-text{
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;               /* 想要两行就把 3 改 2 */
   overflow: hidden;
   text-overflow: ellipsis;
+  line-height: 1.8;
+  word-break: break-all;
+  font-size: 13px;
+  color: #111827;
 }
 
-/* “查看全部”固定到右下角；把旧的 float/clear 全部压制 */
-#net-shunt .nid__row .whitelist-more{
-  position: absolute;
-  right: 0;
-  bottom: 0;
+/* 按钮固定在右下角（随容器高度自动贴底，不再绝对定位） */
+#net-shunt .whitelist-more{
+  justify-self: end;
+  align-self: end;
   height: 28px;
   line-height: 26px;
   padding: 0 12px;
   font-size: 12px;
-  float: none !important;
-  clear: none !important;
-  margin: 0 !important;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  background: #fff;
+  color: #2563eb;
+  white-space: nowrap;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+  transition: all .15s ease;
+}
+#net-shunt .whitelist-more:hover{
+  background:#f3f4f6; border-color:#9ca3af; color:#1d4ed8;
 }
 
-/* 把你之前针对白名单行改过的纵向对齐/高度恢复，避免这一行“跳拍” */
-#net-shunt .info-item:has(.whitelist-value){
-  align-items: center !important;
-  padding-top: 0 !important;
-  padding-bottom: 0 !important;
-  min-height: unset !important;
+/* 兜底：确保白名单值容器可换行 */
+#net-shunt .whitelist-value{
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: initial !important;
 }
+
+/* 移除旧实现里依赖 :last-child + absolute 的定位效果（若仍在其他处保留，请删掉旧选择器） */
+/* （旧）#net-shunt .info-item.nid__row:last-child {...}
+   （旧）.whitelist-preview.has-overflow .whitelist-text {...}
+   （旧）.whitelist-preview.has-overflow .whitelist-more {...} */
+
 
 
 /* =======================================================================
@@ -5789,58 +5812,21 @@ function renderCertificateAndNetwork() {
   }
   if (proxyEl) proxyEl.textContent = formatProxy(proxyRaw);
 
-  // —— 新逻辑：只处理白名单文本，其他行保持HTML中的固定值 ——
-  const whitelist = data.shunt?.whitelist || [];
-  const whitelistTextEl = document.getElementById('whitelistText');
-  
-  if (whitelistTextEl) {
-    if (!whitelist.length) {
-      whitelistTextEl.textContent = '(无)';
-      whitelistTextEl.style.color = '#9ca3af';
-    } else {
-      const fullText = whitelist.join(', ');
-      whitelistTextEl.textContent = fullText;
-      whitelistTextEl.style.color = '#111827';
-      whitelistTextEl.title = fullText;
-    }
-  }
+// —— 白名单预览（专用类 + 网格布局，稳定不漂移） ——
+const whitelist = data.shunt?.whitelist || [];
+const preview   = document.getElementById('whitelistPreview');
 
-// === 右侧分流卡：在白名单前插入“VPS-IP / 代理IP”两行（不会重复插） ===
-(function injectShuntRows(){
-  const shunt = document.getElementById('net-shunt');
-  if (!shunt) return;
+if (preview) {
+  const htmlText = whitelist.length ? escapeHtml(whitelist.join(', ')) : '(无)';
+  preview.className = 'whitelist-preview';
+  preview.innerHTML =
+    `<span class="whitelist-text">${htmlText}</span>` +
+    `<button class="whitelist-more" data-action="open-modal" data-modal="whitelistModal">查看全部</button>`;
 
-  // 找白名单这一行，作为插入锚点
-  const wlRow = shunt.querySelector('.whitelist-value')?.closest('.nid__row');
-  if (!wlRow) return;
-
-  // 取左/中卡的现有值
-  const vpsIP   = document.getElementById('vps-ip')?.textContent?.trim()   || '—';
-  const proxyIP = document.getElementById('proxy-ip')?.textContent?.trim() || '同左';
-
-  // 工具：避免重复插入（按标签精确匹配）
-  const pickRow = (lab) => Array.from(shunt.querySelectorAll('.nid__row')).find(r=>{
-    const t = (r.querySelector('.nid__label')||r.children[0])?.textContent?.replace(/[：:]/g,'').trim();
-    return t === lab;
-  });
-
-  const mkRow = (lab,val)=>{
-    const d = document.createElement('div');
-    d.className = 'info-item nid__row';
-    d.innerHTML = `<label class="nid__label">${lab}：</label><value class="nid__value">${val}</value>`;
-    return d;
-  };
-
-  // VPS-IP
-  let r1 = pickRow('VPS-IP');
-  if (!r1) { r1 = mkRow('VPS-IP', vpsIP); wlRow.before(r1); }
-  else { r1.querySelector('.nid__value').textContent = vpsIP; }
-
-  // 代理IP
-  let r2 = pickRow('代理IP');
-  if (!r2) { r2 = mkRow('代理IP', proxyIP); wlRow.before(r2); }
-  else { r2.querySelector('.nid__value').textContent = proxyIP; }
-})();
+  // 给“白名单”所在那一行打标（避免再用 :last-child）
+  const row = preview.closest('.info-item.nid__row');
+  if (row) row.classList.add('whitelist-row');
+}
 
 }
 
