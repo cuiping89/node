@@ -5250,16 +5250,20 @@ h4 {
   }
 }
 
+
 /* =========================
    弹窗 Modal 统一样式补丁
    ========================= */
 
-/* CSS变量定义 */
-:root {
-  /* 统一弹窗尺寸 */
+/* 变量：挂在弹窗容器上，所有后代均可读到 */
+.modal,
+dialog[open],
+.el-dialog,
+.ant-modal {
+  /* 统一弹窗尺寸（与原值一致） */
   --modal-w: 680px;
   --modal-h: 7800px;
-  
+
   /* 样式变量 */
   --modal-radius: 14px;
   --modal-shadow: 0 10px 30px rgba(17,24,39,.18);
@@ -5267,6 +5271,14 @@ h4 {
   --section-border: #e5e7eb;
   --input-bg: #f7f8fa;
   --code-bg: #f8f9fb;
+
+  /* 复制按钮色系 */
+  --btn-border: #d1d5db;
+  --btn-text: #4b5563;
+  --btn-text-hover: #111827;
+  --btn-bg: #ffffff;
+  --btn-bg-hover: #f9fafb;
+  --btn-bg-active: #f3f4f6;
 }
 
 /* 弹窗容器：固定尺寸 + 绝对居中 */
@@ -5299,10 +5311,7 @@ dialog[open],
 .modal {
   display: none;
   position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
+  inset: 0;
   background: rgba(0, 0, 0, 0.5);
   z-index: 9998;
 }
@@ -5343,23 +5352,10 @@ dialog[open],
 }
 
 /* 美化滚动条 */
-.modal-body::-webkit-scrollbar {
-  width: 6px;
-}
-
-.modal-body::-webkit-scrollbar-track {
-  background: #f1f1f1;
-  border-radius: 3px;
-}
-
-.modal-body::-webkit-scrollbar-thumb {
-  background: #ccc;
-  border-radius: 3px;
-}
-
-.modal-body::-webkit-scrollbar-thumb:hover {
-  background: #999;
-}
+.modal-body::-webkit-scrollbar { width: 6px; }
+.modal-body::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 3px; }
+.modal-body::-webkit-scrollbar-thumb { background: #ccc; border-radius: 3px; }
+.modal-body::-webkit-scrollbar-thumb:hover { background: #999; }
 
 /* 弹窗底部 */
 .modal-footer {
@@ -5372,26 +5368,33 @@ dialog[open],
   background: #fff !important;
 }
 
-/* 语义分区 */
+/* 语义分区：常规 + 详情弹窗专用（补横线） */
 .modal-section,
-.config-section {
+.config-section,
+.detail-section,        /* ← 新增：详情弹窗的分区容器 */
+#ipqModal .ipq-section  /* ← 新增：IP质量详情每段加分隔线 */
+{
   padding: 20px 0;
   border-bottom: 1px solid var(--section-border);
 }
-
 .modal-section:first-child,
-.config-section:first-child {
+.config-section:first-child,
+.detail-section:first-child,
+#ipqModal .ipq-section:first-child {
   padding-top: 0;
 }
-
 .modal-section:last-child,
-.config-section:last-child {
+.config-section:last-child,
+.detail-section:last-child,
+#ipqModal .ipq-section:last-child {
   padding-bottom: 0;
   border-bottom: none;
 }
 
 .section-title,
-.config-section h4 {
+.config-section h4,
+.detail-section h4,
+#ipqModal .ipq-section h5 {
   font-size: 14px !important;
   font-weight: 600 !important;
   color: #666 !important;
@@ -5399,39 +5402,20 @@ dialog[open],
 }
 
 /* 键值对列表 */
-.kv-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.kv-row {
+.kv-list { display: flex; flex-direction: column; gap: 10px; }
+.kv-row  {
   display: grid;
   grid-template-columns: 144px 1fr;
   gap: 12px;
   padding: 8px 0;
   border-bottom: 1px dashed #eef2f7;
 }
-
-.kv-row:last-child {
-  border-bottom: none;
-}
-
-.kv-key {
-  color: #6b7280;
-  font-size: 13px;
-  text-align: right;
-  padding-right: 8px;
-}
-
+.kv-row:last-child { border-bottom: none; }
+.kv-key   { color: #6b7280; font-size: 13px; text-align: right; padding-right: 8px; line-height: 1.6; }
 .kv-val,
-.kv-value {
-  color: #111827;
-  font-size: 13px;
-  word-break: break-word;
-}
+.kv-value { color: #111827; font-size: 13px; word-break: break-word; }
 
-/* 输入框/文本域/代码框：浅灰背景 */
+/* 输入框/文本域/代码框：浅灰背景（收紧选择器，避免把“二维码”容器当输入框） */
 .input-plain,
 .textarea-plain,
 .code-box,
@@ -5444,9 +5428,12 @@ dialog[open],
 .modal-body input[type="text"],
 .modal-body pre,
 .modal-body code,
-.modal-body .codebox,
-.modal-body .jsonbox,
-.modal-body .linkbox {
+.modal-body .codebox pre,
+.modal-body .codebox code,
+.modal-body .jsonbox pre,
+.modal-body .jsonbox code,
+.modal-body .linkbox input,
+.modal-body .linkbox textarea {
   background: var(--input-bg) !important;
   border: 1px solid var(--section-border) !important;
   border-radius: 8px !important;
@@ -5484,7 +5471,7 @@ dialog[open],
   background: var(--input-bg) !important;
 }
 
-/* 二维码居中 */
+/* 二维码容器：明确不是输入框，避免被上面的“输入样式”覆盖 */
 .qr-container,
 #qrcode-sub,
 #qrcode-protocol,
@@ -5495,6 +5482,10 @@ dialog[open],
   align-items: center !important;
   margin: 16px auto !important;
   text-align: center !important;
+
+  background: transparent !important;   /* ← 关键：不当输入框 */
+  border: 0 !important;
+  padding: 0 !important;
 }
 
 .qr-container canvas,
@@ -5517,85 +5508,68 @@ dialog[open],
   word-break: break-all;
 }
 
+/* 复制按钮：白底灰字圆角 */
+.copy-btn,
+.btn-copy,
+[data-role="copy"] {
+  appearance: none;
+  border: 1px solid var(--btn-border);
+  background: var(--btn-bg);
+  color: var(--btn-text);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+.copy-btn:hover,
+.btn-copy:hover,
+[data-role="copy"]:hover {
+  background: var(--btn-bg-hover);
+  color: var(--btn-text-hover);
+  border-color: #cbd5e1;
+}
+.copy-btn:active,
+.btn-copy:active,
+[data-role="copy"]:active {
+  background: var(--btn-bg-active);
+  transform: translateY(1px);
+}
+
 /* 关闭按钮 */
 .close-btn,
 .modal-close {
   color: #6b7280 !important;
-  cursor: pointer !important;
+  cursor: pointer !(!);
   font-size: 24px !important;
   line-height: 1 !important;
   opacity: 1 !important;
   transition: color 0.2s !important;
 }
-
 .close-btn:hover,
-.modal-close:hover {
-  color: #111827 !important;
-}
+.modal-close:hover { color: #111827 !important; }
 
 /* IP质量详情样式 */
-.ipq-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 20px;
-  margin: 20px 0;
-}
-
-.ipq-section h5 {
-  font-size: 13px;
-  font-weight: 600;
-  color: #666;
-  margin-bottom: 10px;
-}
-
-.ipq-kv {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.ipq-item {
-  display: grid;
-  grid-template-columns: 100px 1fr;
-  gap: 8px;
-  font-size: 12px;
-}
-
-.ipq-key {
-  color: #6b7280;
-}
-
-.ipq-value {
-  color: #111827;
-  word-break: break-word;
-}
-
-.ipq-conclusion {
-  margin-top: 20px;
-  padding-top: 20px;
-  border-top: 1px solid var(--section-border);
-}
+.ipq-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; margin: 20px 0; }
+.ipq-section h5 { font-size: 13px; font-weight: 600; color: #666; margin-bottom: 10px; }
+.ipq-kv { display: flex; flex-direction: column; gap: 8px; }
+.ipq-item { display: grid; grid-template-columns: 100px 1fr; gap: 8px; font-size: 12px; }
+.ipq-key { color: #6b7280; }
+.ipq-value { color: #111827; word-break: break-word; }
+.ipq-conclusion { margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--section-border); }
 
 /* 响应式 */
 @media (max-width: 768px) {
-  :root {
+  .modal,
+  dialog[open],
+  .el-dialog,
+  .ant-modal {
     --modal-w: calc(100vw - 20px);
     --modal-h: calc(100vh - 40px);
   }
-  
-  .kv-row {
-    grid-template-columns: 1fr;
-  }
-  
-  .kv-key {
-    text-align: left;
-    padding-right: 0;
-    margin-bottom: 4px;
-  }
-  
-  .ipq-grid {
-    grid-template-columns: 1fr;
-  }
+  .kv-row { grid-template-columns: 1fr; }
+  .kv-key { text-align: left; padding-right: 0; margin-bottom: 4px; }
+  .ipq-grid { grid-template-columns: 1fr; }
 }
 
 /* 确保弹窗立即以固定大小显示 */
@@ -5604,8 +5578,9 @@ dialog[open],
   transition: none !important;
 }
 
+
 /* =======================================================================
- 按钮（详情、查看全部、查看配置、查看订阅）：白底蓝字，hover 浅灰，active 灰底 
+ 按钮（查看详情、查看全部、查看配置、查看订阅）：白底蓝字，hover 浅灰，active 灰底 
  ======================================================================= */
 .btn-detail,
 .btn-viewall,
@@ -6019,7 +5994,7 @@ function renderProtocolTable() {
             <td><span class="status-badge ${p.status === '运行中' ? 'status-running' : ''}">${p.status}</span></td>
             <td><button class="btn btn-sm btn-link" data-action="open-modal" data-modal="configModal" data-protocol="${escapeHtml(p.name)}">查看配置</button></td>
         </tr>`).join('');
-    const subRow = `<tr class="subs-row"><td style="font-weight:500;">整包订阅链接</td><td>所有协议</td><td>通用</td><td></td><td><button class="btn btn-sm btn-link" data-action="open-modal" data-modal="configModal" data-protocol="__SUBS__">查看|订阅</button></td></tr>`;
+    const subRow = `<tr class="subs-row"><td style="font-weight:500;">整包订阅链接</td><td>所有协议</td><td>通用</td><td></td><td><button class="btn btn-sm btn-link" data-action="open-modal" data-modal="configModal" data-protocol="__SUBS__">查看订阅</button></td></tr>`;
     tbody.innerHTML = rows + subRow;
 }
 
