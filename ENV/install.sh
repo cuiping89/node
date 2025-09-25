@@ -6173,30 +6173,19 @@ function showConfigModal(protocolKey) {
 
   // 生成二维码（使用 setTimeout 确保 DOM 已更新）
   setTimeout(() => {
-    if (qrText && window.QRCode) {
-      const holderId = (protocolKey === '__SUBS__') ? 'qrcode-sub' : 'qrcode-protocol';
-      const holder = document.getElementById(holderId);
-      if (holder) {
-        // 彻底清空容器，移除所有子元素
-        while (holder.firstChild) {
-          holder.removeChild(holder.firstChild);
-        }
-        
-        // 创建新的二维码
-        try {
-          new QRCode(holder, {
-            text: qrText,
-            width: 200,
-            height: 200,
-            colorDark: "#000000",
-            colorLight: "#ffffff",
-            correctLevel: QRCode.CorrectLevel.M
-          });
-        } catch (e) {
-          console.error('生成二维码失败:', e);
-        }
-      }
-    }
+// —— 生成二维码（先清空再画，防止重复）——
+if (qrText && window.QRCode) {
+  const holderId = (protocolKey === '__SUBS__') ? 'qrcode-sub' : 'qrcode-protocol';
+  const holder = document.getElementById(holderId);
+  if (holder) {
+    holder.innerHTML = '';                // ✅ 关键：先清空
+    new QRCode(holder, {
+      text: qrText,
+      width: 200,
+      height: 200
+    });
+  }
+}
   }, 10);
 }
 
@@ -6391,11 +6380,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     switch (action) {
       case 'open-modal': {
-        if (modal === 'configModal') {
-          if (typeof showConfigModal === 'function') showConfigModal(protocol);
-          const m = document.getElementById('configModal');
-          if (m && m.style.display !== 'block') showModal('configModal');
-        } else if (modal === 'whitelistModal') {
+if (modal === 'configModal') {
+  // 避免与 setupEventListeners 重复渲染
+  const m = document.getElementById('configModal');
+  if (m && m.style.display !== 'block') showModal('configModal'); // 只负责打开
+  // 渲染交给 setupEventListeners 那一份
+} else if (modal === 'whitelistModal') {
           const list = (window.dashboardData?.shunt?.whitelist) || [];
           const box  = $('#whitelistList');
           if (box) box.innerHTML = list.map(d => `<div class="whitelist-item">${String(d)
