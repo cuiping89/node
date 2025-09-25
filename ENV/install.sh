@@ -4359,6 +4359,21 @@ h4 {
   color: var(--heading-color);
 }
 
+/* ===== 标题：企业级多协议节点管理系统 ===== */
+
+.header-bar{
+  background:#fff;
+  border:1px solid #e5e7eb;
+  border-radius:10px;
+  padding:10px 14px 10px 12px;
+  position:relative;
+}
+.header-bar::before{
+  content:""; position:absolute; left:0; top:8px; bottom:8px; width:4px;
+  background:#6366f1; border-radius:4px; opacity:.35; /* 低饱和“紫”提示 */
+}
+
+
 /* =======================================================================
    系统概览
    ======================================================================= */
@@ -5262,7 +5277,7 @@ dialog[open],
 .ant-modal {
   /* 统一弹窗尺寸（与原值一致） */
   --modal-w: 680px;
-  --modal-h: 7800px;
+  --modal-h: 780px;
 
   /* 样式变量 */
   --modal-radius: 14px;
