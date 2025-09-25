@@ -4612,10 +4612,9 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   --tag-inactive-color: #64748b;
   --card-br: #e5e7eb;
 
-  /* 高度联动（等高 & 垂直居中） */
+  /* 高度联动（自适应高度） */
   --tag-h: calc(var(--tag-pad-y)*2 + 20px); /* 20px≈13px字高的可视行高 */
-  --block-min-h: 160px;     /* 小卡片内容区高度（与证书切换对齐） */
-  --panel-min-h: calc(var(--block-min-h) + var(--tag-h) + var(--tag-gap) + 8px);
+  --block-min-h: 140px;     /* 减少最小高度，让内容决定 */
 
   /* 标题横线 ↔ 组件组 的间距（只影响本卡） */
   --header-gap: 12px;       /* 原全局为 20px：越小越贴近 */
@@ -4630,14 +4629,14 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 /* 三块容器：三列、等高、整组垂直居中 */
+/* 三块容器：三列、自适应高度、顶部对齐 */
 #netid-panel .network-blocks{
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 15px;
 
-  min-height: var(--panel-min-h);
-  align-content: center;        /* 整组在标题下区域垂直居中 */
-  align-items: stretch;         /* 子项等高 */
+  align-content: start;         /* 从顶部开始排列 */
+  align-items: start;           /* 子项顶部对齐，不强制等高 */
   padding-top: var(--panel-top-gap); /* 与标题横线的微调间距 */
 }
 
@@ -4649,7 +4648,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   border-radius: 10px;
   padding: 12px;
   margin-top: calc(var(--tag-h) + var(--tag-gap));  /* 预留标签高度 */
-  min-height: var(--block-min-h);
+  min-height: 140px;  /* 减少固定高度，让内容决定高度 */
   box-shadow: 0 2px 6px rgba(0,0,0,0.08);
 }
 
@@ -4743,6 +4742,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   
   position: relative;
   width: 100%;
+  min-height: auto;  /* 移除固定最小高度 */
 }
 
 /* 白名单预览容器 */
@@ -4945,7 +4945,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   font-size:12px; 
   border-bottom:1px solid #e5e7eb;
   /* 阴影稍加强，边缘更清晰 */
-  box-shadow: 0 1px 4px rgba(0,0,0,0.10);
+  box-shadow: none;                  /* ← 原 0 1px 4px ... 去掉 */
 }
 
 /* 单元格 */
@@ -4974,11 +4974,11 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   transition: box-shadow 0.2s ease, background 0.2s ease;
 }
 
-/* 订阅行（强调对比） */
-.data-table tr.subs-row td{ 
+/* 3) 订阅行上边线：用 1px 边框，取消顶部方向的阴影，避免变粗 */
+.data-table tr.subs-row td{
   background:#eef2f7;
-  border-top: 1px solid #cbd5e1;
-  box-shadow: inset 0 1px 3px rgba(0,0,0,0.10);
+  border-top:1px solid #cbd5e1;
+  box-shadow: none;                  /* ← 删掉 inset 0 1px 3px ... */
 }
 .data-table tr.subs-row:hover td{
   background:#e3e9f2;
@@ -5939,7 +5939,7 @@ if (preview) {
   } else {
     // 取第一个域名，显示前6个字符
     const firstDomain = whitelist[0] || '';
-    const shortText = firstDomain.length > 6 ? firstDomain.substring(0, 6) + '...' : firstDomain;
+    const shortText = firstDomain.length > 8 ? firstDomain.substring(0, 8) + '...' : firstDomain;
     
     preview.innerHTML =
       `<span class="whitelist-text">${escapeHtml(shortText)}</span>` +
