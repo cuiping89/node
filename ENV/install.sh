@@ -2999,12 +2999,24 @@ get_certificate_info() {
         cert_domain="${cert_mode#letsencrypt:}"
         cert_renewal_type="auto"
         
-        # 获取证书到期时间
-        local cert_file="/etc/letsencrypt/live/${cert_domain}/cert.pem"
-        if [[ -f "$cert_file" ]] && command -v openssl >/dev/null 2>&1; then
-            cert_expires_at=$(openssl x509 -enddate -noout -in "$cert_file" 2>/dev/null | \
-                            cut -d= -f2 | xargs -I {} date -d "{}" -Is 2>/dev/null || echo "")
-        fi
+# 优先 cert.pem；若不存在，用 fullchain.pem
+local cert_file="/etc/letsencrypt/live/${cert_domain}/cert.pem"
+[[ ! -f "$cert_file" ]] && cert_file="/etc/letsencrypt/live/${cert_domain}/fullchain.pem"
+
+if [[ -f "$cert_file" ]] && command -v openssl >/dev/null 2>&1; then
+  local endline endraw
+  endline="$(openssl x509 -enddate -noout -in "$cert_file" 2>/dev/null || true)"
+  endraw="${endline#notAfter=}"
+
+  if date -d "$endraw" -Is >/dev/null 2>&1; then
+    cert_expires_at="$(date -d "$endraw" -Is)"
+  elif date -u -d "$endraw" +%Y-%m-%dT%H:%M:%SZ >/dev/null 2>&1; then
+    cert_expires_at="$(date -u -d "$endraw" +%Y-%m-%dT%H:%M:%SZ)"
+  else
+    cert_expires_at="$endraw"
+  fi
+fi
+
     fi
     
     # 输出证书信息JSON
@@ -5813,6 +5825,36 @@ function renderCertificateAndNetwork() {
     }
   }
   if (proxyEl) proxyEl.textContent = formatProxy(proxyRaw);
+  
+ /* === PATCH: 填充 Geo 与 IP质量主行分数 === */
+(async () => {
+  const setText = (id, val) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = (val ?? '—') || '—';
+  };
+
+  // VPS 侧
+  try {
+    const r = await fetch('/status/ipq_vps.json', { cache: 'no-store' });
+    if (r.ok) {
+      const j = await r.json();
+      const geo = [j.country, j.city].filter(Boolean).join(' · ');
+      setText('vps-geo', geo || '—');
+      setText('vps-ipq-score', (j.score != null) ? String(j.score) : (j.grade || '—'));
+    }
+  } catch (_) {}
+
+  // 代理侧
+  try {
+    const r = await fetch('/status/ipq_proxy.json', { cache: 'no-store' });
+    if (r.ok) {
+      const j = await r.json();
+      const geo = [j.country, j.city].filter(Boolean).join(' · ');
+      setText('proxy-geo', geo || '—');
+      setText('proxy-ipq-score', (j.score != null) ? String(j.score) : (j.grade || '—'));
+    }
+  } catch (_) {}
+})();
 
 // —— 白名单预览：只显示第一个域名的前9个字符 —— 
 const whitelist = data.shunt?.whitelist || [];
@@ -6427,8 +6469,7 @@ document.addEventListener('DOMContentLoaded', () => {
       case 'open-modal': {
         if (modal === 'configModal') {
           if (typeof showConfigModal === 'function') showConfigModal(protocol);
-          const m = document.getElementById('configModal');
-          if (m && m.style.display !== 'block') showModal('configModal');
+
         } else if (modal === 'whitelistModal') {
           const list = (window.dashboardData?.shunt?.whitelist) || [];
           const box  = $('#whitelistList');
