@@ -5441,7 +5441,8 @@ h4 {
   }
 }
 
-/* 本月进度条刻度（由 ALERT_STEPS 驱动） */
+
+/* 本月流量进度条刻度层（由 ALERT_STEPS 驱动）——不改变原有进度条样式 */
 .traffic-card .progress-bar { position: relative; }
 .traffic-card .progress-ticks { position: absolute; inset: 0; pointer-events: none; }
 .traffic-card .progress-ticks .tick {
@@ -5452,6 +5453,8 @@ h4 {
   position: absolute; top: -14px; transform: translateX(-50%);
   font-size: 10px; color: #94a3b8; white-space: nowrap;
 }
+/* 如果想把数字放进度条下方：改成 bottom:-14px; top:auto; */
+
 
 /* 仅隐藏 Chart.js 生成的 HTML 图例（如有）——避免误伤轴刻度 */
 .traffic-card .chartjs-legend {
@@ -6208,52 +6211,61 @@ function renderTrafficCharts() {
   const monthly = trafficData.monthly || [];
   const currentMonthData = monthly.find(m => m.month === new Date().toISOString().slice(0, 7));
   if (currentMonthData) {
-const conf = window.alertConf || {};
-const budget = Number(conf.ALERT_MONTHLY_GIB) > 0 ? Number(conf.ALERT_MONTHLY_GIB) : 100; // GiB
-const used = (currentMonthData.total || 0) / GiB;
-const percentage = Math.min(100, Math.round((used / budget) * 100));
+{
+  // —— 本月进度条（由 alert.conf 驱动）——
+  const conf = window.alertConf || {};
+  const GiB = 1024 * 1024 * 1024;
 
-const fillEl   = document.getElementById('progress-fill');
-const pctEl    = document.getElementById('progress-percentage');
-const budgetEl = document.getElementById('progress-budget');
+  // 你的原始“本月总用量”数据对象：保持你原逻辑
+  // 例如：const currentMonthData = trafficData?.monthly?.[trafficData.monthIndex] || {};
+  // 这里只使用它的 total 字段（Bytes）
+  const usedGiB = (currentMonthData?.total || 0) / GiB;
 
-if (fillEl)   fillEl.style.width = `${percentage}%`;
-if (pctEl)    pctEl.textContent  = `${percentage}%`;
-if (budgetEl) budgetEl.textContent = `阈值(${budget}GiB)`;
+  // 阈值：优先用 ALERT_MONTHLY_GIB，否则默认 100
+  const budgetGiB = Number(conf.ALERT_MONTHLY_GIB) > 0 ? Number(conf.ALERT_MONTHLY_GIB) : 100;
 
-// --- 绘制 ALERT_STEPS 刻度 ---
-const steps = String(conf.ALERT_STEPS || '30,60,90')
-  .split(',')
-  .map(s => parseInt(s.trim(), 10))
-  .filter(n => Number.isFinite(n) && n >= 0 && n <= 100)
-  .sort((a, b) => a - b);
+  const percentage = Math.min(100, Math.round((usedGiB / budgetGiB) * 100));
 
-const barEl = document.querySelector('.traffic-progress-container .progress-bar');
-if (barEl) {
-  let layer = barEl.querySelector('.progress-ticks');
-  if (!layer) {
-    layer = document.createElement('div');
-    layer.className = 'progress-ticks';
-    barEl.appendChild(layer);
-  }
-  layer.innerHTML = ''; // 重绘
+  const fillEl   = document.getElementById('progress-fill');
+  const pctEl    = document.getElementById('progress-percentage');
+  const budgetEl = document.getElementById('progress-budget');
 
-  for (const p of steps) {
-    const t = document.createElement('div');
-    t.className = 'tick';
-    t.style.left = p + '%';
+  if (fillEl)   fillEl.style.width = `${percentage}%`;
+  if (pctEl)    pctEl.textContent  = `${percentage}%`;
+  if (budgetEl) budgetEl.textContent = `阈值(${budgetGiB}GiB)`;
 
-    const lbl = document.createElement('span');
-    lbl.className = 'tick-label';
-    lbl.textContent = p + '%';
+  // —— 绘制 ALERT_STEPS 刻度（默认 30,60,90）——
+  const steps = String(conf.ALERT_STEPS || '30,60,90')
+    .split(',')
+    .map(s => parseInt(s.trim(), 10))
+    .filter(n => Number.isFinite(n) && n >= 0 && n <= 100)
+    .sort((a, b) => a - b);
 
-    t.appendChild(lbl);
-    layer.appendChild(t);
+  const barEl = document.querySelector('.traffic-progress-container .progress-bar');
+  if (barEl) {
+    let layer = barEl.querySelector('.progress-ticks');
+    if (!layer) {
+      layer = document.createElement('div');
+      layer.className = 'progress-ticks';
+      barEl.appendChild(layer);
+    }
+    layer.innerHTML = '';
+
+    for (const p of steps) {
+      const tick = document.createElement('div');
+      tick.className = 'tick';
+      tick.style.left = p + '%';
+
+      const lbl = document.createElement('span');
+      lbl.className = 'tick-label';
+      lbl.textContent = p + '%';
+
+      tick.appendChild(lbl);
+      layer.appendChild(tick);
+    }
   }
 }
 
-	if (pctEl) pctEl.title = `已用 ${used.toFixed(1)}GiB / 阈值 ${budget}GiB`;
-  }
 
   // —— 图表销毁（避免重复实例）——
   ['traffic', 'monthly-chart'].forEach(id => {
@@ -6655,26 +6667,59 @@ async function copyText(text) {
     }
 }
 
-// --- Main Application Logic ---
+// 刷新全部数据：dashboard/system/traffic + alert.conf（阈值/刻度）
 async function refreshAllData() {
-const [dash, sys, traf, alertTxt] = await Promise.all([
-  fetchJSON('/traffic/dashboard.json'),
-  fetchJSON('/traffic/system.json'),
-  fetchJSON('/traffic/traffic.json'),
-  fetch('/traffic/alert.conf', { cache: 'no-store' })
-    .then(r => r.ok ? r.text() : null)
-    .catch(() => null)
-]);
-if (dash) dashboardData = dash;
-if (sys) systemData = sys;
-if (traf) trafficData = traf;
-// 全局保存解析好的 alert 配置
-window.alertConf = alertTxt ? parseKvConf(alertTxt) : (window.alertConf || null);
-    renderOverview();
-    renderCertificateAndNetwork();
-    renderProtocolTable();
-    renderTrafficCharts();
+  // 兜底 JSON 拉取（如果不存在你自己的 fetchJSON，就用这个）
+  const fetchJSONSafe = (typeof fetchJSON === 'function')
+    ? fetchJSON
+    : (url) => fetch(url, { cache: 'no-store' })
+        .then(r => r.ok ? r.json() : null)
+        .catch(() => null);
+
+  // 本地兜底的 KEY=VALUE 解析器（优先用你项目里已存在的 parseKvConf）
+  const parseKVLocal = (text) => {
+    const conf = {};
+    if (!text) return conf;
+    text.split(/\n+/).forEach(line => {
+      line = line.trim();
+      if (!line || line.startsWith('#')) return;
+      const m = line.match(/^([A-Z0-9_]+)=(.*)$/);
+      if (m) conf[m[1]] = m[2].trim();
+    });
+    return conf;
+  };
+
+  try {
+    const [dash, sys, traf, alertTxt] = await Promise.all([
+      fetchJSONSafe('/traffic/dashboard.json'),
+      fetchJSONSafe('/traffic/system.json'),
+      fetchJSONSafe('/traffic/traffic.json'),
+      fetch('/traffic/alert.conf', { cache: 'no-store' })
+        .then(r => (r.ok ? r.text() : null))
+        .catch(() => null)
+    ]);
+
+    if (dash) window.dashboardData = dash; else window.dashboardData = window.dashboardData || {};
+    if (sys)  window.systemData    = sys;  else window.systemData    = window.systemData    || {};
+    if (traf) window.trafficData   = traf; else window.trafficData   = window.trafficData   || {};
+
+    const parse = (typeof parseKvConf === 'function') ? parseKvConf : parseKVLocal;
+    window.alertConf = alertTxt ? parse(alertTxt) : (window.alertConf || null);
+
+    // 渲染（存在才调用，避免报错）
+    if (typeof renderTrafficCharts === 'function') renderTrafficCharts();
+    if (typeof renderSystemMeters  === 'function') renderSystemMeters();
+    if (typeof renderOverviewCards === 'function') renderOverviewCards();
+    if (typeof afterRefreshAllData === 'function') afterRefreshAllData();
+
+    // 可选更新时间戳
+    const ts = document.getElementById('last-updated');
+    if (ts) ts.textContent = new Date().toLocaleString();
+  } catch (err) {
+    console.error('[refreshAllData] failed:', err);
+  }
 }
+
 
 function setupEventListeners() {
     document.addEventListener('click', e => {
