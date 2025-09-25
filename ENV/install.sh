@@ -5228,39 +5228,11 @@ dialog[open],
   text-align: center !important;
 }
 
-/* 彻底删除所有可能的左对齐二维码 */
-.modal-body .qr-left,
-.modal-body .qrcode-left,
-.modal-body .qr-side,
-.modal-body .qrcode-side,
-.qr-left,
-.qrcode-left {
-  display: none !important;
-}
-
 /* 确保二维码容器不被其他样式影响 */
 .modal-body .qr-container div,
 .modal-body .qrcode div {
   text-align: center !important;
 }
-
-/* 隐藏 QRCode 库生成的 table 元素，只显示 canvas */
-.modal-body .qr-container table,
-.modal-body .qrcode table,
-#qrcode-sub table,
-#qrcode-protocol table {
-  display: none !important;
-}
-
-/* 确保 canvas 元素正常显示并居中 */
-.modal-body .qr-container canvas,
-.modal-body .qrcode canvas,
-#qrcode-sub canvas,
-#qrcode-protocol canvas {
-  display: block !important;
-  margin: 12px auto !important;
-}
-
 
 /* ===== 复制按钮：白底圆角灰字 ===== */
 .modal .copy-btn,
@@ -6024,22 +5996,22 @@ function showWhitelistModal() {
 
 
 // 显示配置弹窗（按文档要求的内容和按钮顺序）
-
+// 修复后的 showConfigModal 函数
+// [PATCH:SHOW_CONFIG_MODAL_SAFE] —— 精准、谨慎、只改一处
 function showConfigModal(protocolKey) {
-  const dd      = (window.dashboardData || {});
-  const title   = document.getElementById('configModalTitle');
-  const details = document.getElementById('configDetails');
-  const footer  = document.querySelector('#configModal .modal-footer');
-  const modal   = document.getElementById('configModal');
-  if (!title || !details || !footer || !modal) return;
+  const dd = window.dashboardData;
+  const modal = document.getElementById('configModal');
+  if (!modal || !dd) return;
 
-  // —— 小工具（局部作用域，不污染全局）——
-  const esc = (s = '') => String(s).replace(/[&<>"']/g, c =>
-    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])
-  );
-  const toB64 = (s = '') => { try { return btoa(unescape(encodeURIComponent(String(s)))); } catch { return ''; } };
-  const get   = (obj, path, fb = '') =>
-    path.split('.').reduce((a, p) => (a && a[p] !== undefined ? a[p] : undefined), obj) ?? fb;
+  const title = document.getElementById('configModalTitle');
+  const details = document.getElementById('configDetails');
+  const footer = modal.querySelector('.modal-footer');
+  if (!title || !details || !footer) return;
+
+  // 工具函数
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const toB64 = s => btoa(unescape(encodeURIComponent(s)));
+  const get = (o, p, fb = '') => p.split('.').reduce((a, k) => (a && a[k] !== undefined ? a[k] : undefined), o) ?? fb;
 
   // JSON 行尾注释对齐（仅用于 UI 展示）
   function annotateAligned(obj, comments = {}) {
@@ -6058,10 +6030,10 @@ function showConfigModal(protocolKey) {
       if (!m) return line;
       const [, indent, key, val, comma] = m;
       const base = `${indent}"${key}": ${val}${comma}`;
-      const cm   = comments[key];
+      const cm = comments[key];
       if (!cm) return base;
       const thisLen = indent.length + 1 + key.length + 1 + 2 + 1 + String(val).length + (comma ? 1 : 0);
-      const pad = ' '.repeat(Math.max(1, maxLen - thisLen + 1)); // 让“//”起始列统一
+      const pad = ' '.repeat(Math.max(1, maxLen - thisLen + 1));
       return `${base}${pad}// ${cm}`;
     }).join('\n');
   }
@@ -6073,7 +6045,7 @@ function showConfigModal(protocolKey) {
      </div>`
   );
 
-  // —— 打开弹窗并给出加载态，避免“空白错觉” ——
+  // 打开弹窗并给出加载态
   details.innerHTML = '<div class="loading">正在加载配置…</div>';
   modal.style.display = 'block';
   document.body.classList.add('modal-open');
@@ -6084,26 +6056,32 @@ function showConfigModal(protocolKey) {
   if (protocolKey === '__SUBS__') {
     const subsUrl = get(dd, 'subscription_url', '') ||
                     (get(dd, 'server.server_ip', '') ? `http://${get(dd, 'server.server_ip')}/sub` : '');
-    const plain6  = get(dd, 'subscription.plain', '');
-    const base64  = get(dd, 'subscription.base64', '') || (plain6 ? toB64(plain6) : '');
+    const plain6 = get(dd, 'subscription.plain', '');
+    const base64 = get(dd, 'subscription.base64', '') || (plain6 ? toB64(plain6) : '');
 
     title.textContent = '订阅（整包）';
-// 订阅配置的details.innerHTML部分  
-details.innerHTML = `
-  <div class="config-section">
-    <h4>订阅 URL</h4>
-    <div class="config-code" id="plain-link">${esc(subsUrl)}</div>
-  </div>
-  <div class="config-section">
-    <h4>明文链接（6协议）</h4>
-    <div class="config-code" id="plain-links-6" style="white-space:pre-wrap">${esc(plain6)}</div>
-  </div>
-  <div class="config-section">
-    <h4>Base64整包链接</h4>
-    <div class="config-code" id="base64-link">${esc(base64)}</div>
-  </div>
-  ${usage('将"订阅 URL"导入 v2rayN、Clash 等支持订阅的客户端；部分客户端也支持直接粘贴 Base64 或扫码二维码。')}
-`;
+    // 订阅配置的HTML - 包含二维码容器
+    details.innerHTML = `
+      <div class="config-section">
+        <h4>订阅 URL</h4>
+        <div class="config-code" id="plain-link">${esc(subsUrl)}</div>
+      </div>
+      <div class="config-section">
+        <h4>明文链接（6协议）</h4>
+        <div class="config-code" id="plain-links-6" style="white-space:pre-wrap">${esc(plain6)}</div>
+      </div>
+      <div class="config-section">
+        <h4>Base64整包链接</h4>
+        <div class="config-code" id="base64-link">${esc(base64)}</div>
+      </div>
+      <div class="config-section">
+        <h4>二维码</h4>
+        <div class="qr-container">
+          <div id="qrcode-sub"></div>
+        </div>
+      </div>
+      ${usage('将"订阅 URL"导入 v2rayN、Clash 等支持订阅的客户端；部分客户端也支持直接粘贴 Base64 或扫码二维码。')}
+    `;
     footer.innerHTML = `
       <button class="btn btn-sm btn-secondary" data-action="copy" data-type="plain">复制订阅URL</button>
       <button class="btn btn-sm btn-secondary" data-action="copy" data-type="plain6">复制明文(6协议)</button>
@@ -6122,56 +6100,62 @@ details.innerHTML = `
     if (!p) {
       title.textContent = '配置详情';
       details.innerHTML = `<div class="empty">未找到协议：<code>${esc(String(protocolKey))}</code></div>`;
-      footer.innerHTML  = `<button class="btn btn-sm" data-action="close-config-modal">关闭</button>`;
+      footer.innerHTML = `<button class="btn btn-sm" data-action="close-config-modal">关闭</button>`;
       return;
     }
 
     const certMode = String(get(dd, 'server.cert.mode', 'self-signed'));
-    const isLE     = certMode.startsWith('letsencrypt');
+    const isLE = certMode.startsWith('letsencrypt');
     const serverIp = get(dd, 'server.server_ip', '');
 
     const obj = {
       protocol: p.name,
-      host    : serverIp,
-      port    : p.port ?? 443,
-      uuid    : get(dd, 'secrets.vless.reality', '') ||
-                get(dd, 'secrets.vless.grpc', '') ||
-                get(dd, 'secrets.vless.ws', ''),
-      sni     : isLE ? get(dd, 'server.cert.domain', '') : serverIp,
-      alpn    : (p.name || '').toLowerCase().includes('grpc') ? 'h2'
-              : ((p.name || '').toLowerCase().includes('ws')   ? 'http/1.1' : '')
+      host: serverIp,
+      port: p.port ?? 443,
+      uuid: get(dd, 'secrets.vless.reality', '') ||
+            get(dd, 'secrets.vless.grpc', '') ||
+            get(dd, 'secrets.vless.ws', ''),
+      sni: isLE ? get(dd, 'server.cert.domain', '') : serverIp,
+      alpn: (p.name || '').toLowerCase().includes('grpc') ? 'h2'
+            : ((p.name || '').toLowerCase().includes('ws') ? 'http/1.1' : '')
     };
 
     const comments = {
       protocol: '协议类型（例：VLESS-Reality）',
-      host    : '服务器地址（IP/域名）',
-      port    : '端口',
-      uuid    : '认证 UUID / 密钥',
-      sni     : 'TLS/SNI（域名模式用域名）',
-      alpn    : 'ALPN（gRPC=h2，WS=http/1.1）'
+      host: '服务器地址（IP/域名）',
+      port: '端口',
+      uuid: '认证 UUID / 密钥',
+      sni: 'TLS/SNI（域名模式用域名）',
+      alpn: 'ALPN（gRPC=h2，WS=http/1.1）'
     };
     const jsonAligned = annotateAligned(obj, comments);
 
-    const plain  = p.share_link || '';
+    const plain = p.share_link || '';
     const base64 = plain ? toB64(plain) : '';
 
     title.textContent = `${p.name} 配置`;
-// 单协议配置的details.innerHTML部分
-details.innerHTML = `
-  <div class="config-section">
-    <h4>JSON 配置</h4>
-    <div class="config-code" id="json-code" style="white-space:pre-wrap">${esc(jsonAligned)}</div>
-  </div>
-  <div class="config-section">
-    <h4>明文链接</h4>
-    <div class="config-code" id="plain-link">${esc(plain)}</div>
-  </div>
-  <div class="config-section">
-    <h4>Base64链接</h4>
-    <div class="config-code" id="base64-link">${esc(base64)}</div>
-  </div>
-  ${usage('复制明文或 JSON 导入客户端；若客户端支持扫码添加，也可直接扫描二维码。')}
-`;
+    // 单协议配置的HTML - 包含二维码容器
+    details.innerHTML = `
+      <div class="config-section">
+        <h4>JSON 配置</h4>
+        <div class="config-code" id="json-code" style="white-space:pre-wrap">${esc(jsonAligned)}</div>
+      </div>
+      <div class="config-section">
+        <h4>明文链接</h4>
+        <div class="config-code" id="plain-link">${esc(plain)}</div>
+      </div>
+      <div class="config-section">
+        <h4>Base64链接</h4>
+        <div class="config-code" id="base64-link">${esc(base64)}</div>
+      </div>
+      <div class="config-section">
+        <h4>二维码</h4>
+        <div class="qr-container">
+          <div id="qrcode-protocol"></div>
+        </div>
+      </div>
+      ${usage('复制明文或 JSON 导入客户端；若客户端支持扫码添加，也可直接扫描二维码。')}
+    `;
     footer.innerHTML = `
       <button class="btn btn-sm btn-secondary" data-action="copy" data-type="json">复制 JSON</button>
       <button class="btn btn-sm btn-secondary" data-action="copy" data-type="plain">复制明文链接</button>
@@ -6181,40 +6165,24 @@ details.innerHTML = `
     qrText = plain;
   }
 
-// —— 生成二维码（动态创建容器）——
-if (qrText && window.QRCode) {
-  // 先创建二维码section
-  const qrSection = document.createElement('div');
-  qrSection.className = 'config-section';
-  qrSection.innerHTML = `
-    <h4>二维码</h4>
-    <div class="qr-container">
-      <div id="${(protocolKey === '__SUBS__') ? 'qrcode-sub' : 'qrcode-protocol'}"></div>
-    </div>
-  `;
-  
-  // 插入到details的最后（在usage说明之前）
-  const usageEl = details.querySelector('.config-help')?.parentElement;
-  if (usageEl) {
-    details.insertBefore(qrSection, usageEl);
-  } else {
-    details.appendChild(qrSection);
+  // —— 生成二维码（直接使用已有的容器，不再动态创建）——
+  if (qrText && window.QRCode) {
+    const holderId = (protocolKey === '__SUBS__') ? 'qrcode-sub' : 'qrcode-protocol';
+    const holder = document.getElementById(holderId);
+    if (holder) {
+      // 清空之前的二维码（如果有）
+      holder.innerHTML = '';
+      // 生成新的二维码
+      new QRCode(holder, {
+        text: qrText,
+        width: 200,
+        height: 200,
+        colorDark: "#000000",
+        colorLight: "#ffffff",
+        correctLevel: QRCode.CorrectLevel.M
+      });
+    }
   }
-  
-  // 生成二维码
-  const holderId = (protocolKey === '__SUBS__') ? 'qrcode-sub' : 'qrcode-protocol';
-  const holder = document.getElementById(holderId);
-  if (holder) {
-    new QRCode(holder, { 
-      text: qrText, 
-      width: 200, 
-      height: 200,
-      colorDark: "#000000",
-      colorLight: "#ffffff",
-      correctLevel: QRCode.CorrectLevel.M
-    });
-  }
-}
 }
 // [PATCH:SHOW_CONFIG_MODAL_SAFE_END]
 
