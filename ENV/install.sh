@@ -4664,7 +4664,7 @@ h4 {
    ======================================================================= */
 #cert-panel{
   /* 与 NetID 标签一致的参数 */
-  --tag-pad-y: 6px;        /* ← 改它=改标签高度 */
+  --tag-pad-y: 8px;        /* ← 改它=改标签高度 */
   --tag-pad-x: 16px;
   --tag-radius: 8px;
   --tag-font: 13px;
@@ -5457,8 +5457,18 @@ h4 {
 /* =========================
    弹窗 Modal 统一样式补丁（按您要求修正）
    ========================= */
+/* ===== 遮罩层（自研/通用） ===== */
+.modal{
+  display:none;
+  position:fixed;
+  inset:0;
+  background:rgba(0,0,0,.5);
+  z-index:9998;
+}
+/* 打开弹窗时禁用页面滚动（可选） */
+body.modal-open{ overflow:hidden; }
 
-/* 变量 */
+/* ===== 弹窗变量（自研/Ant/Element 兼容） ===== */
 .modal, dialog[open], .el-dialog, .ant-modal{
   --modal-w: 630px;
   --modal-h: 720px;
@@ -5478,7 +5488,7 @@ h4 {
   --btn-bg-active: #f3f4f6;
 }
 
-/* —— 固定大小 + 居中出现 —— */
+/* ===== 固定大小 + 居中出现（禁掉拉伸动画） ===== */
 .modal .modal-content,
 dialog[open],
 .el-dialog,
@@ -5505,55 +5515,46 @@ dialog[open],
   transition: none !important;
 }
 
-/* 遮罩 */
-.modal{ 
-  display:none; 
-  position:fixed; 
-  inset:0; 
-  background:rgba(0,0,0,.5); 
-  z-index:9998; 
-}
-
-/* 头部 */
+/* ===== 头部 ===== */
 .modal-header, .el-dialog__header, .ant-modal-header{
   flex-shrink:0 !important;
-  display:flex !important; 
-  align-items:center !important; 
+  display:flex !important;
+  align-items:center !important;
   justify-content:space-between !important;
   padding:var(--modal-padding) !important;
   border-bottom:1px solid var(--section-border) !important;
   background:#fff !important;
 }
-
-.modal-title, .el-dialog__title, .ant-modal-title, #configModalTitle, #ipqModalTitle{
-  font-size:15px !important; 
-  font-weight:600 !important; 
-  color:#111827 !important; 
+.modal-title, .el-dialog__title, .ant-modal-title,
+#configModalTitle, #ipqModalTitle{
+  font-size:15px !important;
+  font-weight:600 !important;
+  color:#111827 !important;
   margin:0 !important;
-  text-align: left !important; /* 标题左对齐 */
+  text-align:left !important; /* 标题左对齐 */
 }
 
-/* 主体滚动区 */
+/* ===== 主体（可滚动） ===== */
 .modal-body, .el-dialog__body, .ant-modal-body{
   flex:1 !important;
   padding:var(--modal-padding) !important;
-  overflow-y:auto !important; 
+  overflow-y:auto !important;
   overflow-x:hidden !important;
   min-height:0 !important;
 }
 
-/* 底部 */
+/* ===== 底部 ===== */
 .modal-footer{
   flex-shrink:0 !important;
   padding:var(--modal-padding) !important;
   border-top:1px solid var(--section-border) !important;
-  display:flex !important; 
-  gap:10px !important; 
+  display:flex !important;
+  gap:10px !important;
   justify-content:flex-end !important;
   background:#fff !important;
 }
 
-/* ===== 查看详情弹窗分隔线和左对齐 ===== */
+/* ===== 分区（查看详情/配置/质量） ===== */
 #detailModal .modal-section,
 #detailModal .detail-section,
 #ipqModal .ipq-section{
@@ -5562,90 +5563,43 @@ dialog[open],
 }
 #detailModal .modal-section:first-child,
 #detailModal .detail-section:first-child,
-#ipqModal .ipq-section:first-child{ 
-  padding-top:0; 
-}
+#ipqModal .ipq-section:first-child{ padding-top:0; }
 #detailModal .modal-section:last-child,
 #detailModal .detail-section:last-child,
 #ipqModal .ipq-section:last-child{
-  padding-bottom:0; 
+  padding-bottom:0;
+  border-bottom:none;
+}
+#configModal .modal-section,
+#configModal .config-section{
+  padding:16px 0;
   border-bottom:none;
 }
 
-#configModal .modal-section,
-#configModal .config-section{ 
-  padding:16px 0; 
-  border-bottom:none; 
+/* ===== 键值对与左对齐 ===== */
+.kv-list{ display:flex; flex-direction:column; gap:10px; }
+.kv-row{ display:grid; grid-template-columns:144px 1fr; gap:12px;
+  padding:8px 0; border-bottom:1px dashed #eef2f7; }
+.kv-row:last-child{ border-bottom:none; }
+.kv-key{
+  color:#6b7280; font-size:13px; text-align:left !important;
+  padding-right:8px; line-height:1.6;
 }
+.kv-val, .kv-value{ color:#111827; font-size:13px; word-break:break-word; }
 
-/* 查看详情弹窗内容左对齐 */
-#detailModal .kv-key, 
-#ipqModal .kv-key { 
-  text-align:left !important; 
-  padding-right:8px;
-  padding-left:0 !important;
-}
-#detailModal .kv-value,
-#ipqModal .kv-value { 
-  text-align:left !important; 
-}
+/* “查看详情/质量”强制左对齐 */
+#detailModal .kv-key, #ipqModal .kv-key{ text-align:left !important; padding-right:8px; padding-left:0 !important; }
+#detailModal .kv-value, #ipqModal .kv-value{ text-align:left !important; }
 
-/* IP质量弹窗所有信息项左对齐 */
-#ipqModal .info-item {
-  display: grid;
-  grid-template-columns: 120px 1fr;
-  gap: 12px;
-  text-align: left !important;
-  padding: 6px 0;
+/* IP质量信息项（两列栅格，左对齐） */
+#ipqModal .info-item{
+  display:grid; grid-template-columns:120px 1fr; gap:12px;
+  text-align:left !important; padding:6px 0;
 }
+#ipqModal .info-item label{ text-align:left !important; color:#6b7280; font-size:13px; font-weight:500; }
+#ipqModal .info-item value{ text-align:left !important; color:#111827; font-size:13px; word-break:break-word; }
 
-#ipqModal .info-item label {
-  text-align: left !important;
-  color: #6b7280;
-  font-size: 13px;
-  font-weight: 500;
-}
-
-#ipqModal .info-item value {
-  text-align: left !important;
-  color: #111827;
-  font-size: 13px;
-  word-break: break-word;
-}
-
-/* 键值对通用 */
-.kv-list{ 
-  display:flex; 
-  flex-direction:column; 
-  gap:10px; 
-}
-
-.kv-row{
-  display:grid; 
-  grid-template-columns:144px 1fr; 
-  gap:12px;
-  padding:8px 0; 
-  border-bottom:1px dashed #eef2f7;
-}
-.kv-row:last-child{ 
-  border-bottom:none; 
-}
-
-.kv-key{ 
-  color:#6b7280; 
-  font-size:13px; 
-  text-align:left !important; /* 全部改为左对齐 */
-  padding-right:8px; 
-  line-height:1.6; 
-}
-
-.kv-val, .kv-value{ 
-  color:#111827; 
-  font-size:13px; 
-  word-break:break-word; 
-}
-
-/* ===== 输入/代码框 ===== */
+/* ===== 代码/输入块 ===== */
 .input-plain, .textarea-plain, .code-box, .config-code,
 #json-code, #plain-link, #plain-links-6, #base64-link,
 .modal-body textarea, .modal-body input[type="text"],
@@ -5658,78 +5612,44 @@ dialog[open],
   border-radius:8px !important;
   padding:10px 12px !important;
   font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace !important;
-  font-size:12px !important; 
-  color:#333 !important;
-  width:100%; 
-  box-sizing:border-box; 
-  white-space:pre-wrap !important; 
-  word-break:break-word !important; 
-  line-height:1.5;
+  font-size:12px !important; color:#333 !important;
+  width:100%; box-sizing:border-box;
+  white-space:pre-wrap !important; word-break:break-word !important; line-height:1.5;
+}
+.code-box, .config-code{
+  background:var(--code-bg) !important;
+  max-height:200px; overflow-y:auto; position:relative;
 }
 
-.code-box, .config-code{ 
-  background:var(--code-bg) !important; 
-  max-height:200px; 
-  overflow-y:auto; 
-  position:relative; 
-}
-
-.textarea-plain, .modal-body textarea{ 
-  min-height:100px; 
-  resize:vertical; 
-}
-
-.input-plain[readonly], .modal-body input[readonly]{ 
-  cursor:default; 
-  background:var(--input-bg) !important; 
-}
-
-/* ===== 二维码：只保留居中的，隐藏其他位置的 ===== */
+/* ===== 二维码：居中且只保留一个 ===== */
 .modal-body .qr-container,
 .modal-body .qrcode,
 .modal-body [data-role="qrcode"]{
-  text-align:center !important;
-  margin: 16px auto !important;
+  text-align:center !important; margin:16px auto !important;
 }
-
 .modal-body .qr-container canvas,
 .modal-body .qrcode canvas,
 .modal-body [data-role="qrcode"] canvas,
 #qrcode-sub canvas,
 #qrcode-protocol canvas{
-  width:180px !important; 
-  height:180px !important; 
-  aspect-ratio:1/1 !important;
-  display:block !important; 
-  margin:12px auto !important; 
-  image-rendering:pixelated;
+  width:180px !important; height:180px !important; aspect-ratio:1/1 !important;
+  display:block !important; margin:12px auto !important; image-rendering:pixelated;
 }
-
-/* 隐藏多余的二维码容器 - 只保留第一个居中的 */
+/* 隐藏额外的二维码（只显示第一个居中的） */
 .modal-body .qr-container:not(:first-of-type),
 .modal-body .qrcode:not(:first-of-type),
 .config-section .qr-container ~ .qr-container,
 .config-section #qrcode-protocol ~ div,
-.modal-body div:has(> #qrcode-protocol) ~ div:has(canvas) {
-  display: none !important;
+.modal-body div:has(> #qrcode-protocol) ~ div:has(canvas){
+  display:none !important;
+}
+/* 侧栏类二维码强制隐藏 */
+.qr-left, .qrcode-left, .qr-side, .qrcode-side,
+.modal-body > div:first-child:has(canvas):not(.qr-container):not(.qrcode){
+  display:none !important;
 }
 
-/* 如果有左侧二维码容器，直接隐藏 */
-.qr-left,
-.qrcode-left,
-.qr-side,
-.qrcode-side,
-.modal-body > div:first-child:has(canvas):not(.qr-container):not(.qrcode) {
-  display: none !important;
-}
-
-/* 确保二维码section只显示一个二维码 */
-.config-section:has(#qrcode-protocol) > div:not(.qr-container):has(canvas),
-.config-section:has(#qrcode-sub) > div:not(.qr-container):has(canvas) {
-  display: none !important;
-}
-
-/* ===== 复制按钮：白底圆角灰字 ===== */
+/* ===== 复制按钮（白底圆角灰字） ===== */
 .modal .copy-btn,
 .modal .btn-copy,
 .modal .btn-secondary,
@@ -5743,13 +5663,10 @@ dialog[open],
   border:1px solid var(--btn-border) !important;
   border-radius:8px !important;
   padding:8px 12px !important;
-  font-size:12px !important;
-  line-height:1.2 !important;
-  cursor:pointer !important;
+  font-size:12px !important; line-height:1.2 !important; cursor:pointer !important;
   box-shadow:0 1px 2px rgba(0,0,0,.04) !important;
-  transition: all 0.15s ease !important;
+  transition:all .15s ease !important;
 }
-
 .modal .copy-btn:hover,
 .modal .btn-copy:hover,
 .modal .btn-secondary:hover,
@@ -5762,7 +5679,6 @@ dialog[open],
   border-color:#cbd5e1 !important;
   box-shadow:0 2px 4px rgba(0,0,0,.08) !important;
 }
-
 .modal .copy-btn:active,
 .modal .btn-copy:active,
 .modal .btn-secondary:active,
@@ -5772,132 +5688,42 @@ dialog[open],
   transform: translateY(1px);
 }
 
-/* ===== 关闭按钮：外包圆角小方框 ===== */
+/* ===== 关闭按钮（小方框圆角+阴影） ===== */
 .modal .close-btn,
 .modal .modal-close,
-.ant-modal-close, 
+.ant-modal-close,
 .el-dialog__headerbtn{
-  position:absolute !important; 
-  right:12px !important; 
-  top:12px !important;
-  width:32px !important; 
-  height:28px !important;
+  position:absolute !important;
+  right:12px !important; top:12px !important;
+  width:32px !important; height:28px !important;
   border:1px solid #e5e7eb !important;
-  border-radius:8px !important;
-  background:#fff !important;
-  display:flex !important; 
-  align-items:center !important; 
-  justify-content:center !important;
-  cursor:pointer !important;
-  box-shadow:0 1px 3px rgba(0,0,0,.1) !important;
-  z-index:1;
-  transition: all 0.15s ease !important;
+  border-radius:8px !important; background:#fff !important;
+  display:flex !important; align-items:center !important; justify-content:center !important;
+  cursor:pointer !important; box-shadow:0 1px 3px rgba(0,0,0,.1) !important;
+  z-index:1; transition:all .15s ease !important;
 }
-
 .modal .close-btn:hover,
 .modal .modal-close:hover,
-.ant-modal-close:hover, 
+.ant-modal-close:hover,
 .el-dialog__headerbtn:hover{
-  background:#f9fafb !important; 
-  border-color:#d1d5db !important;
-  box-shadow:0 2px 4px rgba(0,0,0,.12) !important;
+  background:#f9fafb !important; border-color:#d1d5db !important; box-shadow:0 2px 4px rgba(0,0,0,.12) !important;
 }
-
 .modal .close-btn svg,
 .modal .modal-close svg,
-.ant-modal-close svg, 
-.el-dialog__close,
 .ant-modal-close .anticon,
 .el-dialog__headerbtn .el-icon{
-  color:#6b7280 !important; 
-  font-size:16px !important; 
-  line-height:1 !important;
+  color:#6b7280 !important; font-size:16px !important; line-height:1 !important;
 }
 
-/* ===== 白名单弹窗：加上行表格样式 ===== */
-#whitelistModal .modal-body {
-  padding: var(--modal-padding) !important;
-}
-
-#whitelistList {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  background: #f3f4f6;
-  border-radius: 8px;
-  overflow: hidden;
-  border: 1px solid #e5e7eb;
-}
-
-.whitelist-item {
-  padding: 12px 16px;
-  background: #ffffff;
-  font-size: 13px;
-  color: #374151;
-  word-break: break-all;
-  border-bottom: 1px solid #f3f4f6;
-  transition: background-color 0.15s ease;
-}
-
-.whitelist-item:hover {
-  background: #f8fafc;
-}
-
-.whitelist-item:last-child {
-  border-bottom: none;
-}
-
-/* 如果白名单为空的提示 */
-#whitelistList p {
-  padding: 20px;
-  text-align: center;
-  color: #9ca3af;
-  font-size: 14px;
-  margin: 0;
-  background: #ffffff;
-}
-
-/* ===== 复制成功轻提示 ===== */
+/* ===== 弹窗内轻提示（复制成功等） ===== */
 .modal .modal-toast{
-  position:absolute; 
-  left:50%; 
-  top:50%;
-  transform:translate(-50%, -50%) scale(.98);
-  background:rgba(17,24,39,.92); 
-  color:#fff;
-  padding:10px 14px; 
-  border-radius:10px; 
-  font-size:12px;
-  box-shadow:0 8px 24px rgba(0,0,0,.2);
-  opacity:0; 
-  pointer-events:none; 
-  transition:opacity .18s, transform .18s;
-  z-index:10000;
+  position:absolute; right:12px; bottom:12px;
+  padding:6px 10px; border-radius:8px; background:rgba(17,24,39,.85);
+  color:#fff; font-size:12px; opacity:0; transform:translateY(4px);
+  transition:opacity .15s ease, transform .15s ease;
+  pointer-events:none;
 }
-
-.modal .modal-toast.show{ 
-  opacity:1; 
-  pointer-events:auto; 
-  transform:translate(-50%, -50%) scale(1); 
-}
-
-/* 响应式 */
-@media (max-width:768px){
-  .modal, dialog[open], .el-dialog, .ant-modal{
-    --modal-w: calc(100vw - 20px);
-    --modal-h: calc(100vh - 40px);
-  }
-  
-  .kv-row{ 
-    grid-template-columns:1fr; 
-  }
-  
-  .kv-key{ 
-    text-align:left; 
-    padding-right:0; 
-    margin-bottom:4px; 
-  }
-}
+.modal .modal-toast.show{ opacity:1; transform:translateY(0); }
 
 
 
