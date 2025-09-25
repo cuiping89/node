@@ -5989,25 +5989,26 @@ function showWhitelistModal() {
 
 
 // 显示配置弹窗（按文档要求的内容和按钮顺序）
-// === 安全版：只负责渲染配置弹窗，不影响页面其它区域 ===
+
 function showConfigModal(protocolKey) {
   const dd      = (window.dashboardData || {});
   const title   = document.getElementById('configModalTitle');
   const details = document.getElementById('configDetails');
   const footer  = document.querySelector('#configModal .modal-footer');
-  if (!title || !details || !footer) return;
+  const modal   = document.getElementById('configModal');
+  if (!title || !details || !footer || !modal) return;
 
-  // 小工具（本地作用域，避免污染全局）
-  const esc = (s='') => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const toB64 = (s='') => { try { return btoa(unescape(encodeURIComponent(String(s)))); } catch { return ''; } };
-  const get   = (obj, path, fb='') => path.split('.').reduce((a,p)=> (a && a[p] !== undefined ? a[p] : undefined), obj) ?? fb;
+  // —— 小工具（局部作用域，不污染全局）——
+  const esc = (s = '') => String(s).replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])
+  );
+  const toB64 = (s = '') => { try { return btoa(unescape(encodeURIComponent(String(s)))); } catch { return ''; } };
+  const get   = (obj, path, fb = '') =>
+    path.split('.').reduce((a, p) => (a && a[p] !== undefined ? a[p] : undefined), obj) ?? fb;
 
-  // JSON 行尾注释对齐
+  // JSON 行尾注释对齐（仅用于 UI 展示）
   function annotateAligned(obj, comments = {}) {
-    const json = JSON.stringify(obj, null, 2);
-    const lines = json.split('\n');
-
-    // 预扫描每行长度："  "key": value,
+    const lines = JSON.stringify(obj, null, 2).split('\n');
     const metas = lines.map(line => {
       const m = line.match(/^(\s*)"([^"]+)"\s*:\s*(.*?)(,?)$/);
       if (!m) return null;
@@ -6025,23 +6026,29 @@ function showConfigModal(protocolKey) {
       const cm   = comments[key];
       if (!cm) return base;
       const thisLen = indent.length + 1 + key.length + 1 + 2 + 1 + String(val).length + (comma ? 1 : 0);
-      const pad = ' '.repeat(Math.max(1, maxLen - thisLen + 1)); // 让 // 起始列统一
+      const pad = ' '.repeat(Math.max(1, maxLen - thisLen + 1)); // 让“//”起始列统一
       return `${base}${pad}// ${cm}`;
     }).join('\n');
   }
 
-  // 统一的“使用说明”区块
-  const usage = html => `
-    <div class="config-section">
-      <h4>使用说明</h4>
-      <div class="config-help" style="font-size:12px;color:#6b7280;line-height:1.6;">${html}</div>
-    </div>`;
+  const usage = html => (
+    `<div class="config-section">
+       <h4>使用说明</h4>
+       <div class="config-help" style="font-size:12px;color:#6b7280;line-height:1.6;">${html}</div>
+     </div>`
+  );
+
+  // —— 打开弹窗并给出加载态，避免“空白错觉” ——
+  details.innerHTML = '<div class="loading">正在加载配置…</div>';
+  modal.style.display = 'block';
+  document.body.classList.add('modal-open');
 
   let qrText = '';
 
+  // ===== 整包订阅 =====
   if (protocolKey === '__SUBS__') {
-    // ===== 整包订阅 =====
-    const subsUrl = get(dd, 'subscription_url', '') || (get(dd, 'server.server_ip', '') ? `http://${get(dd,'server.server_ip')}/sub` : '');
+    const subsUrl = get(dd, 'subscription_url', '') ||
+                    (get(dd, 'server.server_ip', '') ? `http://${get(dd, 'server.server_ip')}/sub` : '');
     const plain6  = get(dd, 'subscription.plain', '');
     const base64  = get(dd, 'subscription.base64', '') || (plain6 ? toB64(plain6) : '');
 
@@ -6073,12 +6080,20 @@ function showConfigModal(protocolKey) {
     `;
     qrText = subsUrl;
 
+  // ===== 单协议 =====
   } else {
-    // ===== 单协议 =====
-    const p = (get(dd, 'protocols', []) || []).find(x => x && x.name === protocolKey);
-    if (!p) return;
+    const protocols = Array.isArray(dd.protocols) ? dd.protocols : [];
+    const p = protocols.find(x =>
+      x && (x.name === protocolKey || x.key === protocolKey || x.id === protocolKey || x.type === protocolKey)
+    );
 
-    // 注意：cert 在 server 下
+    if (!p) {
+      title.textContent = '配置详情';
+      details.innerHTML = `<div class="empty">未找到协议：<code>${esc(String(protocolKey))}</code></div>`;
+      footer.innerHTML  = `<button class="btn btn-sm" data-action="close-config-modal">关闭</button>`;
+      return;
+    }
+
     const certMode = String(get(dd, 'server.cert.mode', 'self-signed'));
     const isLE     = certMode.startsWith('letsencrypt');
     const serverIp = get(dd, 'server.server_ip', '');
@@ -6087,10 +6102,14 @@ function showConfigModal(protocolKey) {
       protocol: p.name,
       host    : serverIp,
       port    : p.port ?? 443,
-      uuid    : get(dd, 'secrets.vless.reality', '') || get(dd, 'secrets.vless.grpc', '') || get(dd, 'secrets.vless.ws', ''),
+      uuid    : get(dd, 'secrets.vless.reality', '') ||
+                get(dd, 'secrets.vless.grpc', '') ||
+                get(dd, 'secrets.vless.ws', ''),
       sni     : isLE ? get(dd, 'server.cert.domain', '') : serverIp,
-      alpn    : (p.name || '').toLowerCase().includes('grpc') ? 'h2' : ((p.name || '').toLowerCase().includes('ws') ? 'http/1.1' : '')
+      alpn    : (p.name || '').toLowerCase().includes('grpc') ? 'h2'
+              : ((p.name || '').toLowerCase().includes('ws')   ? 'http/1.1' : '')
     };
+
     const comments = {
       protocol: '协议类型（例：VLESS-Reality）',
       host    : '服务器地址（IP/域名）',
@@ -6133,18 +6152,14 @@ function showConfigModal(protocolKey) {
     qrText = plain;
   }
 
-  // 生成二维码（存在 QRCode 才生成，不报错）
+  // —— 生成二维码（若提供 QRCode 库才渲染）——
   if (qrText && window.QRCode) {
-    const id = (protocolKey === '__SUBS__') ? 'qrcode-sub' : 'qrcode-protocol';
-    const holder = document.getElementById(id);
+    const holderId = (protocolKey === '__SUBS__') ? 'qrcode-sub' : 'qrcode-protocol';
+    const holder   = document.getElementById(holderId);
     if (holder) new QRCode(holder, { text: qrText, width: 200, height: 200 });
   }
-
-  // 打开弹窗（只负责当前弹窗，不改其它 DOM）
-  const modal = document.getElementById('configModal');
-  if (modal) { modal.style.display = 'block'; document.body.classList.add('modal-open'); }
 }
-
+// [PATCH:SHOW_CONFIG_MODAL_SAFE_END]
 
 
 
@@ -6691,7 +6706,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         <h3>🔀 分流出站</h3>
         <div class="info-item nid__row">
           <label class="nid__label">混合身份:</label>
-          <value class="nid__value">直连v代理</value>
+          <value class="nid__value">直连&代理</value>
         </div>
         <div class="info-item nid__row">
           <label class="nid__label">VPS-IP:</label>
