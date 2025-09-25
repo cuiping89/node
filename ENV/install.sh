@@ -4734,37 +4734,18 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 
 
 /* ======== 网络身份配置 - 白名单查看全部按钮专用CSS =========== */
-/* —— 白名单单行样式（与 IP/Geo/质量对齐） —— */
-:root { --row-h: 32px; }           /* 如你已有全局行高变量，可删掉本行 */
-#net-shunt .nid__row { min-height: var(--row-h, 32px); }
+#net-shunt .nid__row { min-height: 32px; }
 #net-shunt .nid__row .nid__label,
-#net-shunt .nid__row .nid__value { line-height: var(--row-h, 32px); }
+#net-shunt .nid__row .nid__value { line-height: 32px; }
 
-#net-shunt .nid__value.one-line{
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
+#net-shunt .nid__value.one-line{ display:flex; align-items:center; gap:8px; }
 #net-shunt .nid__value.one-line .truncate{
-  flex: 1 1 auto;
-  min-width: 0;                   /* 允许省略号生效 */
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  flex:1 1 auto; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
 }
-
 #net-shunt .nid__value.one-line .link-btn{
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  padding: 0;
-  font-size: 12px;
-  text-decoration: underline;
-  /* 颜色跟随你现有主题色，如果有变量就用变量 */
-  color: var(--link, #3b82f6);
+  margin-left:auto; border:0; background:none; cursor:pointer; padding:0;
+  font-size:12px; text-decoration:underline; color:var(--link, #3b82f6);
 }
-
 
 
 /* =======================================================================
@@ -6641,12 +6622,12 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
     <value class="nid__value" id="shunt-vps-ip">—</value>
   </div>
 
-  <div class="info-item nid__row">
-    <label class="nid__label">代理IP:</label>
-    <value class="nid__value" id="shunt-proxy-ip">—</value>
-  </div>
+<div class="info-item nid__row">
+  <label class="nid__label">代理IP:</label>
+  <value class="nid__value" id="shunt-proxy-ip">—</value>
+</div>
 
-<!-- 白名单（单行展示版） -->
+<!-- 白名单（单行展示，和 VPS/代理行一致） -->
 <div class="info-item nid__row" id="row-whitelist">
   <label class="nid__label">白名单:</label>
   <div class="nid__value one-line">
