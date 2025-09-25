@@ -5189,8 +5189,8 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 /* CSS变量定义 */
 :root {
   /* 统一弹窗尺寸 */
-  --modal-w: 660px;
-  --modal-h: 720px;
+  --modal-w: 680px;
+  --modal-h: 7800px;
   
   /* 样式变量 */
   --modal-radius: 14px;
@@ -5919,7 +5919,7 @@ function renderCertificateAndNetwork() {
   }
   if (proxyEl) proxyEl.textContent = formatProxy(proxyRaw);
 
-// —— 白名单预览：只显示第一个域名的前5-6个字符 —— 
+// —— 白名单预览：只显示第一个域名的前9个字符 —— 
 const whitelist = data.shunt?.whitelist || [];
 const preview = document.getElementById('whitelistPreview');
 if (preview) {
@@ -5928,7 +5928,7 @@ if (preview) {
   } else {
     // 取第一个域名，显示前6个字符
     const firstDomain = whitelist[0] || '';
-    const shortText = firstDomain.length > 8 ? firstDomain.substring(0, 8) + '...' : firstDomain;
+    const shortText = firstDomain.length > 9 ? firstDomain.substring(0, 9) + '...' : firstDomain;
     
     preview.innerHTML =
       `<span class="whitelist-text">${escapeHtml(shortText)}</span>` +
