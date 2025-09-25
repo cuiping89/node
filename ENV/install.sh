@@ -5204,6 +5204,7 @@ dialog[open],
 }
 
 /* ===== 二维码：保留居中，移除左对齐 ===== */
+
 .modal-body .qr-container,
 .modal-body .qrcode,
 .modal-body [data-role="qrcode"]{
@@ -5222,12 +5223,25 @@ dialog[open],
   display:block !important; 
   margin:12px auto !important; 
   image-rendering:pixelated;
+  /* 强制移除任何左对齐样式 */
+  float: none !important;
+  text-align: center !important;
 }
 
-/* 移除左对齐二维码（如果存在的话，隐藏掉） */
+/* 彻底删除所有可能的左对齐二维码 */
 .modal-body .qr-left,
-.modal-body .qrcode-left {
+.modal-body .qrcode-left,
+.modal-body .qr-side,
+.modal-body .qrcode-side,
+.qr-left,
+.qrcode-left {
   display: none !important;
+}
+
+/* 确保二维码容器不被其他样式影响 */
+.modal-body .qr-container div,
+.modal-body .qrcode div {
+  text-align: center !important;
 }
 
 /* ===== 复制按钮：白底圆角灰字 ===== */
@@ -5595,16 +5609,32 @@ function escapeHtml(s = '') {
 }
 
 function notify(msg, type = 'ok', ms = 1500) {
-    const host = document.querySelector('.modal[style*="block"] .modal-content') || document.body;
-    const tip = document.createElement('div');
-    tip.className = `toast toast-${type}`;
-    tip.textContent = msg;
-    host.appendChild(tip);
-    requestAnimationFrame(() => tip.classList.add('show'));
-    setTimeout(() => {
-        tip.classList.remove('show');
-        setTimeout(() => tip.remove(), 300);
-    }, ms);
+    // 优先在打开的弹窗内显示，否则在页面中央显示
+    const modal = document.querySelector('.modal[style*="block"] .modal-content');
+    
+    if (modal) {
+        // 弹窗内居中轻提示
+        let toast = modal.querySelector('.modal-toast');
+        if (!toast) {
+            toast = document.createElement('div');
+            toast.className = 'modal-toast';
+            modal.appendChild(toast);
+        }
+        toast.textContent = msg;
+        toast.classList.add('show');
+        setTimeout(() => toast.classList.remove('show'), 1200);
+    } else {
+        // 页面级提示（保持原有逻辑）
+        const tip = document.createElement('div');
+        tip.className = `toast toast-${type}`;
+        tip.textContent = msg;
+        document.body.appendChild(tip);
+        requestAnimationFrame(() => tip.classList.add('show'));
+        setTimeout(() => {
+            tip.classList.remove('show');
+            setTimeout(() => tip.remove(), 300);
+        }, ms);
+    }
 }
 
 async function copyTextFallbackAware(text) {
@@ -6010,25 +6040,22 @@ function showConfigModal(protocolKey) {
     const base64  = get(dd, 'subscription.base64', '') || (plain6 ? toB64(plain6) : '');
 
     title.textContent = '订阅（整包）';
-    details.innerHTML = `
-      <div class="config-section">
-        <h4>订阅 URL</h4>
-        <div class="config-code" id="plain-link">${esc(subsUrl)}</div>
-      </div>
-      <div class="config-section">
-        <h4>明文链接（6协议）</h4>
-        <div class="config-code" id="plain-links-6" style="white-space:pre-wrap">${esc(plain6)}</div>
-      </div>
-      <div class="config-section">
-        <h4>Base64整包链接</h4>
-        <div class="config-code" id="base64-link">${esc(base64)}</div>
-      </div>
-      <div class="config-section">
-        <h4>二维码</h4>
-        <div class="qr-container"><div id="qrcode-sub"></div></div>
-      </div>
-      ${usage('将“订阅 URL”导入 v2rayN、Clash 等支持订阅的客户端；部分客户端也支持直接粘贴 Base64 或扫码二维码。')}
-    `;
+// 订阅配置的details.innerHTML部分  
+details.innerHTML = `
+  <div class="config-section">
+    <h4>订阅 URL</h4>
+    <div class="config-code" id="plain-link">${esc(subsUrl)}</div>
+  </div>
+  <div class="config-section">
+    <h4>明文链接（6协议）</h4>
+    <div class="config-code" id="plain-links-6" style="white-space:pre-wrap">${esc(plain6)}</div>
+  </div>
+  <div class="config-section">
+    <h4>Base64整包链接</h4>
+    <div class="config-code" id="base64-link">${esc(base64)}</div>
+  </div>
+  ${usage('将"订阅 URL"导入 v2rayN、Clash 等支持订阅的客户端；部分客户端也支持直接粘贴 Base64 或扫码二维码。')}
+`;
     footer.innerHTML = `
       <button class="btn btn-sm btn-secondary" data-action="copy" data-type="plain">复制订阅URL</button>
       <button class="btn btn-sm btn-secondary" data-action="copy" data-type="plain6">复制明文(6协议)</button>
@@ -6081,25 +6108,22 @@ function showConfigModal(protocolKey) {
     const base64 = plain ? toB64(plain) : '';
 
     title.textContent = `${p.name} 配置`;
-    details.innerHTML = `
-      <div class="config-section">
-        <h4>JSON 配置</h4>
-        <div class="config-code" id="json-code" style="white-space:pre-wrap">${esc(jsonAligned)}</div>
-      </div>
-      <div class="config-section">
-        <h4>明文链接</h4>
-        <div class="config-code" id="plain-link">${esc(plain)}</div>
-      </div>
-      <div class="config-section">
-        <h4>Base64链接</h4>
-        <div class="config-code" id="base64-link">${esc(base64)}</div>
-      </div>
-      <div class="config-section">
-        <h4>二维码</h4>
-        <div class="qr-container"><div id="qrcode-protocol"></div></div>
-      </div>
-      ${usage('复制明文或 JSON 导入客户端；若客户端支持扫码添加，也可直接扫描二维码。')}
-    `;
+// 单协议配置的details.innerHTML部分
+details.innerHTML = `
+  <div class="config-section">
+    <h4>JSON 配置</h4>
+    <div class="config-code" id="json-code" style="white-space:pre-wrap">${esc(jsonAligned)}</div>
+  </div>
+  <div class="config-section">
+    <h4>明文链接</h4>
+    <div class="config-code" id="plain-link">${esc(plain)}</div>
+  </div>
+  <div class="config-section">
+    <h4>Base64链接</h4>
+    <div class="config-code" id="base64-link">${esc(base64)}</div>
+  </div>
+  ${usage('复制明文或 JSON 导入客户端；若客户端支持扫码添加，也可直接扫描二维码。')}
+`;
     footer.innerHTML = `
       <button class="btn btn-sm btn-secondary" data-action="copy" data-type="json">复制 JSON</button>
       <button class="btn btn-sm btn-secondary" data-action="copy" data-type="plain">复制明文链接</button>
@@ -6109,12 +6133,40 @@ function showConfigModal(protocolKey) {
     qrText = plain;
   }
 
-  // —— 生成二维码（若提供 QRCode 库才渲染）——
-  if (qrText && window.QRCode) {
-    const holderId = (protocolKey === '__SUBS__') ? 'qrcode-sub' : 'qrcode-protocol';
-    const holder   = document.getElementById(holderId);
-    if (holder) new QRCode(holder, { text: qrText, width: 200, height: 200 });
+// —— 生成二维码（动态创建容器）——
+if (qrText && window.QRCode) {
+  // 先创建二维码section
+  const qrSection = document.createElement('div');
+  qrSection.className = 'config-section';
+  qrSection.innerHTML = `
+    <h4>二维码</h4>
+    <div class="qr-container">
+      <div id="${(protocolKey === '__SUBS__') ? 'qrcode-sub' : 'qrcode-protocol'}"></div>
+    </div>
+  `;
+  
+  // 插入到details的最后（在usage说明之前）
+  const usageEl = details.querySelector('.config-help')?.parentElement;
+  if (usageEl) {
+    details.insertBefore(qrSection, usageEl);
+  } else {
+    details.appendChild(qrSection);
   }
+  
+  // 生成二维码
+  const holderId = (protocolKey === '__SUBS__') ? 'qrcode-sub' : 'qrcode-protocol';
+  const holder = document.getElementById(holderId);
+  if (holder) {
+    new QRCode(holder, { 
+      text: qrText, 
+      width: 200, 
+      height: 200,
+      colorDark: "#000000",
+      colorLight: "#ffffff",
+      correctLevel: QRCode.CorrectLevel.M
+    });
+  }
+}
 }
 // [PATCH:SHOW_CONFIG_MODAL_SAFE_END]
 
@@ -6410,21 +6462,54 @@ case 'copy': {
   catch { (window.notify||console.warn)('复制失败'); }
   break;
 }
+
 // 复制二维码（受浏览器安全上下文限制）
 case 'copy-qr': {
   const host = btn.closest('.modal-content');
   const cvs  = host && host.querySelector('#qrcode-sub canvas, #qrcode-protocol canvas');
-  if (cvs && cvs.toBlob && navigator.clipboard?.write && (location.protocol==='https:' || location.hostname==='localhost')) {
-    cvs.toBlob(async blob => {
-      try { await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]); (window.notify||console.log)('二维码已复制'); }
-      catch { (window.notify||console.warn)('复制二维码失败'); }
-    });
-  } else {
-    (window.notify||console.warn)('HTTP 页面无法直接复制二维码，请右键/长按保存');
+  
+  if (!cvs) {
+    notify('未找到二维码', 'warn');
+    break;
   }
+  
+  // 检查浏览器支持
+  if (!cvs.toBlob) {
+    notify('浏览器不支持二维码复制', 'warn');
+    break;
+  }
+  
+  if (!navigator.clipboard?.write) {
+    notify('浏览器不支持剪贴板操作，请右键保存二维码', 'warn');
+    break;
+  }
+  
+  // 检查安全上下文
+  if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+    notify('需要 HTTPS 环境才能复制二维码', 'warn');
+    break;
+  }
+  
+  // 执行复制
+  cvs.toBlob(async blob => {
+    if (!blob) {
+      notify('二维码转换失败', 'warn');
+      return;
+    }
+    
+    try {
+      await navigator.clipboard.write([
+        new ClipboardItem({ 'image/png': blob })
+      ]);
+      notify('二维码已复制到剪贴板');
+    } catch (error) {
+      console.error('复制二维码失败:', error);
+      notify('复制二维码失败，请右键保存', 'warn');
+    }
+  }, 'image/png');
+  
   break;
 }
-
 
     }
   });
@@ -6628,7 +6713,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         <div class="info-item nid__row">
           <label class="nid__label">IP质量:</label>
           <value class="nid__value">
-            <span id="vps-ipq-score"></span>
+            <span id="vps-ipq-score">—</span>
             <button class="btn-link" data-action="open-modal" data-modal="ipqModal" data-ipq="vps">查看详情</button>
           </value>
         </div>
@@ -6652,7 +6737,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         <div class="info-item nid__row">
           <label class="nid__label">IP质量:</label>
           <value class="nid__value">
-            <span id="proxy-ipq-score"></span>
+            <span id="proxy-ipq-score">—</span>
             <button class="btn-link" data-action="open-modal" data-modal="ipqModal" data-ipq="proxy">查看详情</button>
           </value>
         </div>
