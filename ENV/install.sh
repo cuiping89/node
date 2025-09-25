@@ -5631,7 +5631,8 @@ async function copyTextFallbackAware(text) {
   if (!text) throw new Error('empty');
   try {
     if ((location.protocol === 'https:' || location.hostname === 'localhost') && navigator.clipboard) {
-      await navigator.clipboard.writeText(text); return true;
+      await navigator.clipboard.writeText(text); 
+      return true;
     }
     throw new Error('insecure');
   } catch {
@@ -5640,9 +5641,11 @@ async function copyTextFallbackAware(text) {
     ta.style.position='fixed'; ta.style.opacity='0';
     document.body.appendChild(ta); ta.select();
     const ok = document.execCommand('copy'); document.body.removeChild(ta);
-    if (!ok) throw new Error('execCommand failed'); return true;
+    if (!ok) throw new Error('execCommand failed'); 
+    return true;
   }
 }
+
 
 
 // --- UI Rendering Functions ---
@@ -6017,7 +6020,9 @@ function showConfigModal(protocolKey) {
   if (!title || !details || !footer) return;
 
   // 工具函数
-  const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const esc = s => String(s).replace(/[&<>"']/g, c => ({
+  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+}[c]));
   const toB64 = s => btoa(unescape(encodeURIComponent(s)));
   const get = (o, p, fb = '') => p.split('.').reduce((a, k) => (a && a[k] !== undefined ? a[k] : undefined), o) ?? fb;
 
