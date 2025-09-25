@@ -5261,10 +5261,10 @@ h4 {
 
 
 /* =========================
-   弹窗 Modal 统一样式补丁（修复定位+外观细化）
+   弹窗 Modal 统一样式补丁（固定大小 + 外观细化）
    ========================= */
 
-/* 变量：挂在弹窗容器上，所有后代可读 */
+/* 变量挂在弹窗容器 */
 .modal,
 dialog[open],
 .el-dialog,
@@ -5288,20 +5288,22 @@ dialog[open],
   --btn-bg-active: #f3f4f6;
 }
 
-/* —— 仅自研 .modal / 原生 <dialog> 使用 fixed 居中 —— */
+/* —— 恢复为“固定大小直接出现”的打开方式 —— */
 .modal .modal-content,
-dialog[open] {
+dialog[open],
+.el-dialog,
+.ant-modal .ant-modal-content {
   position: fixed !important;
   left: 50% !important;
   top: 50% !important;
   transform: translate(-50%, -50%) !important;
   margin: 0 !important;
+
   width: var(--modal-w) !important;
-  /* 避免被撑成“白柱”：不强制固定高度，仅设置上限 */
-  height: auto !important;
-  min-height: 0 !important;
+  height: var(--modal-h) !important;        /* 固定高度 */
+  min-height: var(--modal-h) !important;
   max-width: calc(100vw - 32px) !important;
-  max-height: min(85vh, var(--modal-h)) !important;
+  max-height: 85vh !important;
 
   background: #fff !important;
   border: 0 !important;
@@ -5311,27 +5313,8 @@ dialog[open] {
   flex-direction: column !important;
   overflow: hidden !important;
   z-index: 9999 !important;
-  box-sizing: border-box !important;
-  transition: none !important;
-}
-
-/* —— Element/Ant 交给各自 wrapper 居中；不强加 fixed —— */
-.el-dialog,
-.ant-modal .ant-modal-content {
-  width: var(--modal-w) !important;
-  height: auto !important;
-  min-height: 0 !important;
-  max-height: min(85vh, var(--modal-h)) !important;
-  overflow: hidden !important;
-  border-radius: var(--modal-radius) !important;
-  box-shadow: var(--modal-shadow) !important;
-  box-sizing: border-box !important;
-}
-.el-dialog__wrapper,
-.ant-modal {
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
+  animation: none !important;
+  transition: none !important;              /* 不从“长条”拉伸 */
 }
 
 /* 遮罩层 */
@@ -5366,7 +5349,7 @@ dialog[open] {
   margin: 0 !important;
 }
 
-/* 主体（可滚动） */
+/* 主体滚动区 */
 .modal-body,
 .el-dialog__body,
 .ant-modal-body {
@@ -5377,7 +5360,7 @@ dialog[open] {
   min-height: 0 !important;
 }
 
-/* 滚动条美化 */
+/* 滚动条 */
 .modal-body::-webkit-scrollbar { width: 6px; }
 .modal-body::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 3px; }
 .modal-body::-webkit-scrollbar-thumb { background: #ccc; border-radius: 3px; }
@@ -5395,25 +5378,25 @@ dialog[open] {
 }
 
 /* =========================
-   分区：仅“查看详情/质量”弹窗加深灰横线
+   仅“查看详情/质量”弹窗有分隔横线（深灰）
    ========================= */
 #detailModal .modal-section,
 #detailModal .detail-section,
-#ipqModal .ipq-section {
+#ipqModal   .ipq-section {
   padding: 20px 0;
   border-bottom: 1px solid #374151; /* 深灰 */
 }
 #detailModal .modal-section:first-child,
 #detailModal .detail-section:first-child,
-#ipqModal .ipq-section:first-child { padding-top: 0; }
+#ipqModal   .ipq-section:first-child { padding-top: 0; }
 #detailModal .modal-section:last-child,
 #detailModal .detail-section:last-child,
-#ipqModal .ipq-section:last-child {
+#ipqModal   .ipq-section:last-child {
   padding-bottom: 0;
   border-bottom: none;
 }
 
-/* “查看配置”弹窗：不加横线，保留留白 */
+/* “查看配置”弹窗不加横线 */
 #configModal .modal-section,
 #configModal .config-section {
   padding: 16px 0;
@@ -5421,7 +5404,7 @@ dialog[open] {
 }
 
 /* 详情内容左对齐 */
-#detailModal .kv-key { text-align: left; padding-right: 0; }
+#detailModal .kv-key   { text-align: left; padding-right: 0; }
 #detailModal .kv-value { text-align: left; }
 
 /* 键值对通用 */
@@ -5438,7 +5421,9 @@ dialog[open] {
 .kv-val,
 .kv-value { color: #111827; font-size: 13px; word-break: break-word; }
 
-/* 输入/代码框（避免误命中二维码容器） */
+/* =========================
+   输入/代码框（避免误命中二维码容器）
+   ========================= */
 .input-plain,
 .textarea-plain,
 .code-box,
@@ -5471,29 +5456,15 @@ dialog[open] {
   line-height: 1.5;
 }
 .code-box,
-.config-code {
-  background: var(--code-bg) !important;
-  max-height: 200px;
-  overflow-y: auto;
-  position: relative;
-}
+.config-code { background: var(--code-bg) !important; max-height: 200px; overflow-y: auto; position: relative; }
 .textarea-plain,
-.modal-body textarea {
-  min-height: 100px;
-  resize: vertical;
-}
+.modal-body textarea { min-height: 100px; resize: vertical; }
 .input-plain[readonly],
-.modal-body input[readonly] {
-  cursor: default;
-  background: var(--input-bg) !important;
-}
+.modal-body input[readonly] { cursor: default; background: var(--input-bg) !important; }
 
 /* =========================
-   二维码：固定正方形，避免拉扁
+   二维码：只作用于通用容器，避免“两个二维码”
    ========================= */
-.qr-container,
-#qrcode-sub,
-#qrcode-protocol,
 .modal-body .qrcode,
 .modal-body [data-role="qrcode"] {
   display: flex !important;
@@ -5505,10 +5476,9 @@ dialog[open] {
   border: 0 !important;
   padding: 0 !important;
 }
-.qr-container canvas,
-#qrcode-sub canvas,
-#qrcode-protocol canvas,
-.modal-body .qrcode canvas {
+/* 只给通用容器里的 canvas 定尺寸；不动 #qrcode-sub/#qrcode-protocol */
+.modal-body .qrcode canvas,
+.modal-body [data-role="qrcode"] canvas {
   width: 180px !important;
   height: 180px !important;
   aspect-ratio: 1 / 1 !important;
@@ -5563,41 +5533,34 @@ dialog[open] {
 .modal .modal-close,
 .el-dialog__headerbtn,
 .ant-modal-close {
+  position: absolute !important;
+  right: 12px; top: 12px;
   width: 28px !important;
   height: 24px !important;
   border: 1px solid #e5e7eb !important;
-  border-radius: 8px !important;   /* 圆角方形 */
+  border-radius: 8px !important;  /* 圆角方形 */
   background: #fff !important;
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
   cursor: pointer !important;
   transition: background .15s ease, border-color .15s ease, color .15s ease;
+  z-index: 1;
 }
 .modal .modal-close:hover,
 .el-dialog__headerbtn:hover,
-.ant-modal-close:hover {
-  background: #f9fafb !important;
-  border-color: #d1d5db !important;
-}
+.ant-modal-close:hover { background: #f9fafb !important; border-color: #d1d5db !important; }
 .modal .modal-close,
 .el-dialog__close,
 .ant-modal-close-x,
-.ant-modal-close svg {
-  color: #6b7280 !important;
-  font-size: 16px !important;
-  line-height: 1 !important;
-}
+.ant-modal-close svg { color: #6b7280 !important; font-size: 16px !important; line-height: 1 !important; }
 .el-dialog__headerbtn .el-dialog__close:hover,
 .ant-modal-close:hover .ant-modal-close-x,
-.ant-modal-close:hover svg {
-  color: #111827 !important;
-}
+.ant-modal-close:hover svg { color: #111827 !important; }
 
 /* =========================
    复制成功轻提示（居中 Toast）
    ========================= */
-/* 放在弹窗内部，默认隐藏 */
 .modal .modal-toast {
   position: absolute;
   left: 50%; top: 50%;
@@ -5610,9 +5573,8 @@ dialog[open] {
   box-shadow: 0 8px 24px rgba(0,0,0,.2);
   opacity: 0; pointer-events: none;
   transition: opacity .18s ease, transform .18s ease;
-  z-index: 10000; /* 高于内容 */
+  z-index: 10000;
 }
-/* 通过给 .modal 加 .toast-show 或给 .modal-toast 加 .show 显示 */
 .modal.toast-show .modal-toast,
 .modal .modal-toast.show {
   opacity: 1; pointer-events: auto;
