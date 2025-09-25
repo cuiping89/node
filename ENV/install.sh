@@ -4481,7 +4481,7 @@ h4 {
   --meter-height:20px;      /* 进度条高度 */
   --svc-gap:12px;           /* 服务名/徽标/版本 间距 */
   --h3-gap:8px;
-  --meter-track:#d1d5db; 
+  --meter-track:#e2e8f0; 
   --meter-start:#059669; 
   --meter-end:#10b981;
     --label: var(--heading-color); 
@@ -4664,7 +4664,7 @@ h4 {
    ======================================================================= */
 #cert-panel{
   /* 与 NetID 标签一致的参数 */
-  --tag-pad-y: 8px;        /* ← 改它=改标签高度 */
+  --tag-pad-y: 10px;        /* ← 改它=改标签高度 */
   --tag-pad-x: 16px;
   --tag-radius: 8px;
   --tag-font: 13px;
@@ -5446,13 +5446,19 @@ h4 {
   display: none !important;
 }
 
-/* 在标题后添加静态图例 */
+/* 在标题后添加静态图例（默认圆点版） */
 .traffic-card .chart-container h3::after {
   content: " 🔵 VPS 🟢 代理";
   font-size: 11px;
   color: #6b7280;
   margin-left: 8px;
 }
+
+/* 覆盖近12月柱状图：改成方块版 */
+.traffic-card:has(#monthly-chart) .chart-container h3::after {
+  content: " 🟦 VPS 🟩 代理";  /* 🔵/🟢 → 🟦/🟩 */
+}
+
 
 /* =========================
    弹窗 Modal 统一样式补丁（按您要求修正）
@@ -5726,85 +5732,6 @@ dialog[open],
 .modal .modal-toast.show{ opacity:1; transform:translateY(0); }
 
 
-
-/* ===============================
-   修复①：查看配置弹窗“没有值”仅可见性兜底
-   —— 不改你的配色/间距/布局 —— 
-   =============================== */
-
-/* 这些就是脚本里填值用的 ID（JSON/明文/Base64/6协议明文） */
-#configModal #json-code,
-#configModal #plain-link,
-#configModal #plain-links-6,
-#configModal #base64-link {
-  color: inherit !important;          /* 防止被设成透明/与背景同色 */
-  visibility: visible !important;     /* 防止被隐藏 */
-  opacity: 1 !important;              /* 防止被设为 0 */
-  display: block !important;          /* 防止被 display:none */
-  white-space: pre-wrap !important;   /* 保留换行（JSON/多行文本） */
-  word-break: break-word !important;  /* 超长安全换行 */
-}
-
-/* 某些主题会把 code/pre 设成 0 字号或透明时的兜底 */
-#configModal pre,
-#configModal code {
-  font-size: inherit !important;
-  color: inherit !important;
-  visibility: visible !important;
-  opacity: 1 !important;
-}
-
-/* 防止“只保留第一个二维码”的规则误伤到文本区块（你的隐藏规则只应命中含 canvas 的容器） */
-#configModal .config-section:not(:has(canvas)) {
-  display: block !important;
-}
-
-/* ===============================
-   修复②：查看全部（白名单）弹窗“行表格”样式恢复
-   —— 仅作用于 #whitelistModal，不影响其它表格 —— 
-   =============================== */
-
-#whitelistModal .modal-body {
-  padding: var(--modal-padding, 16px) !important;
-}
-
-/* 容器有边框与圆角，像表格一样分隔 */
-#whitelistList {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  background: #f3f4f6;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-/* 单行条目：恢复成“行表格”的一行一行 */
-#whitelistList .whitelist-item {
-  padding: 12px 16px;
-  background: #fff;
-  font-size: 13px;
-  color: #374151;
-  word-break: break-all;
-  border-bottom: 1px solid #f3f4f6;
-  transition: background-color .15s ease;
-}
-#whitelistList .whitelist-item:hover {
-  background: #f8fafc;
-}
-#whitelistList .whitelist-item:last-child {
-  border-bottom: none;
-}
-
-/* 白名单为空时的提示（仅在该弹窗内） */
-#whitelistList p {
-  padding: 20px;
-  text-align: center;
-  color: #9ca3af;
-  font-size: 14px;
-  margin: 0;
-  background: #fff;
-}
 
 
 /* =======================================================================
@@ -6272,16 +6199,8 @@ function renderTrafficCharts() {
 options: {
   responsive:true, maintainAspectRatio:false,
   interaction:{ mode:'index', intersect:false },
-  layout:{ padding:{ bottom:24 } },  /* 增加底部留白给图例 */
-  plugins:{ legend:{ 
-    position:'bottom', 
-    labels:{ 
-      usePointStyle: true,  // 使用圆形图例
-      pointStyle: 'circle', // 明确指定为圆形
-      boxWidth:12, 
-      padding:12 
-    } 
-  }},
+layout:{ padding:0 },
+plugins:{ legend:{ display:false } },
   scales:{
     x:{ grid:{ display:false }, ticks:{ maxRotation:0, padding:6 } },
     y:{ beginAtZero:true, ticks:{ padding:6 } }
@@ -6307,14 +6226,8 @@ options: {
         },
 options: {
   responsive:true, maintainAspectRatio:false,
-  layout:{ padding:{ bottom:24 } },  /* 增加底部留白给图例 */
-  plugins:{ legend:{ 
-    position:'bottom', 
-    labels:{ 
-      boxWidth:12, 
-      padding:12 
-    } 
-  }},
+layout:{ padding:0 },
+plugins:{ legend:{ display:false } },
   scales:{
     x:{ stacked:true, grid:{ display:false }, ticks:{ maxRotation:0, padding:6 } },
     y:{ stacked:true, beginAtZero:true, ticks:{ padding:6 } }
