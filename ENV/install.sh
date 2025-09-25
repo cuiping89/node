@@ -5261,140 +5261,312 @@ h4 {
 
 
 /* =========================
-   弹窗
+   弹窗 Modal 统一样式补丁（修复定位+外观细化）
    ========================= */
 
-/* —— 仅“查看详情”弹窗使用分隔横线 —— */
-/* 你若使用了其它ID，可把 #detailModal 替换为实际的详情弹窗ID；IP质量详情同理 */
+/* 变量：挂在弹窗容器上，所有后代可读 */
+.modal,
+dialog[open],
+.el-dialog,
+.ant-modal {
+  --modal-w: 680px;
+  --modal-h: 780px;
+
+  --modal-radius: 14px;
+  --modal-shadow: 0 10px 30px rgba(17,24,39,.18);
+  --modal-padding: 16px;
+  --section-border: #e5e7eb;
+  --input-bg: #f7f8fa;
+  --code-bg: #f8f9fb;
+
+  /* 复制按钮色系 */
+  --btn-border: #d1d5db;
+  --btn-text: #4b5563;
+  --btn-text-hover: #111827;
+  --btn-bg: #ffffff;
+  --btn-bg-hover: #f9fafb;
+  --btn-bg-active: #f3f4f6;
+}
+
+/* —— 仅自研 .modal / 原生 <dialog> 使用 fixed 居中 —— */
+.modal .modal-content,
+dialog[open] {
+  position: fixed !important;
+  left: 50% !important;
+  top: 50% !important;
+  transform: translate(-50%, -50%) !important;
+  margin: 0 !important;
+  width: var(--modal-w) !important;
+  /* 避免被撑成“白柱”：不强制固定高度，仅设置上限 */
+  height: auto !important;
+  min-height: 0 !important;
+  max-width: calc(100vw - 32px) !important;
+  max-height: min(85vh, var(--modal-h)) !important;
+
+  background: #fff !important;
+  border: 0 !important;
+  border-radius: var(--modal-radius) !important;
+  box-shadow: var(--modal-shadow) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+  z-index: 9999 !important;
+  box-sizing: border-box !important;
+  transition: none !important;
+}
+
+/* —— Element/Ant 交给各自 wrapper 居中；不强加 fixed —— */
+.el-dialog,
+.ant-modal .ant-modal-content {
+  width: var(--modal-w) !important;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: min(85vh, var(--modal-h)) !important;
+  overflow: hidden !important;
+  border-radius: var(--modal-radius) !important;
+  box-shadow: var(--modal-shadow) !important;
+  box-sizing: border-box !important;
+}
+.el-dialog__wrapper,
+.ant-modal {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+/* 遮罩层 */
+.modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.5);
+  z-index: 9998;
+}
+
+/* 头部 */
+.modal-header,
+.el-dialog__header,
+.ant-modal-header {
+  flex-shrink: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding: var(--modal-padding) !important;
+  border-bottom: 1px solid var(--section-border) !important;
+  background: #fff !important;
+}
+.modal-title,
+.el-dialog__title,
+.ant-modal-title,
+#configModalTitle,
+#ipqModalTitle {
+  font-size: 15px !important;
+  font-weight: 600 !important;
+  color: #111827 !important;
+  margin: 0 !important;
+}
+
+/* 主体（可滚动） */
+.modal-body,
+.el-dialog__body,
+.ant-modal-body {
+  flex: 1 !important;
+  padding: var(--modal-padding) !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  min-height: 0 !important;
+}
+
+/* 滚动条美化 */
+.modal-body::-webkit-scrollbar { width: 6px; }
+.modal-body::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 3px; }
+.modal-body::-webkit-scrollbar-thumb { background: #ccc; border-radius: 3px; }
+.modal-body::-webkit-scrollbar-thumb:hover { background: #999; }
+
+/* 底部 */
+.modal-footer {
+  flex-shrink: 0 !important;
+  padding: var(--modal-padding) !important;
+  border-top: 1px solid var(--section-border) !important;
+  display: flex !important;
+  gap: 10px !important;
+  justify-content: flex-end !important;
+  background: #fff !important;
+}
+
+/* =========================
+   分区：仅“查看详情/质量”弹窗加深灰横线
+   ========================= */
 #detailModal .modal-section,
-#ipqModal   .modal-section,
 #detailModal .detail-section,
-#ipqModal   .ipq-section {
+#ipqModal .ipq-section {
   padding: 20px 0;
-  border-bottom: 1px solid #6b7280; /* 深灰 */
+  border-bottom: 1px solid #374151; /* 深灰 */
 }
 #detailModal .modal-section:first-child,
-#ipqModal   .modal-section:first-child,
 #detailModal .detail-section:first-child,
-#ipqModal   .ipq-section:first-child {
-  padding-top: 0;
-}
+#ipqModal .ipq-section:first-child { padding-top: 0; }
 #detailModal .modal-section:last-child,
-#ipqModal   .modal-section:last-child,
 #detailModal .detail-section:last-child,
-#ipqModal   .ipq-section:last-child {
+#ipqModal .ipq-section:last-child {
   padding-bottom: 0;
   border-bottom: none;
 }
 
-/* —— “查看配置”弹窗：不加横线，保留原有留白 —— */
+/* “查看配置”弹窗：不加横线，保留留白 */
 #configModal .modal-section,
 #configModal .config-section {
   padding: 16px 0;
   border-bottom: none;
 }
 
-/* —— 详情布局：左对齐 —— */
-#detailModal .kv-key,
-#ipqModal   .ipq-key { text-align: left; }
-#detailModal .kv-value,
-#ipqModal   .ipq-value { text-align: left; }
+/* 详情内容左对齐 */
+#detailModal .kv-key { text-align: left; padding-right: 0; }
+#detailModal .kv-value { text-align: left; }
 
-/* ========二维码：缩小为正方形，不再被拉扁=========== */
-#configModal .qr-container,
-#configModal #qrcode-sub,
-#configModal #qrcode-protocol,
-#configModal .qrcode,
-#configModal [data-role="qrcode"],
-#detailModal .qr-container,
-#detailModal .qrcode,
-#ipqModal   .qrcode {
+/* 键值对通用 */
+.kv-list { display: flex; flex-direction: column; gap: 10px; }
+.kv-row  {
+  display: grid;
+  grid-template-columns: 144px 1fr;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px dashed #eef2f7;
+}
+.kv-row:last-child { border-bottom: none; }
+.kv-key   { color: #6b7280; font-size: 13px; text-align: right; padding-right: 8px; line-height: 1.6; }
+.kv-val,
+.kv-value { color: #111827; font-size: 13px; word-break: break-word; }
+
+/* 输入/代码框（避免误命中二维码容器） */
+.input-plain,
+.textarea-plain,
+.code-box,
+.config-code,
+#json-code,
+#plain-link,
+#plain-links-6,
+#base64-link,
+.modal-body textarea,
+.modal-body input[type="text"],
+.modal-body pre,
+.modal-body code,
+.modal-body .codebox pre,
+.modal-body .codebox code,
+.modal-body .jsonbox pre,
+.modal-body .jsonbox code,
+.modal-body .linkbox input,
+.modal-body .linkbox textarea {
+  background: var(--input-bg) !important;
+  border: 1px solid var(--section-border) !important;
+  border-radius: 8px !important;
+  padding: 10px 12px !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
+  font-size: 12px !important;
+  color: #333 !important;
+  width: 100%;
+  box-sizing: border-box;
+  white-space: pre-wrap !important;
+  word-break: break-word !important;
+  line-height: 1.5;
+}
+.code-box,
+.config-code {
+  background: var(--code-bg) !important;
+  max-height: 200px;
+  overflow-y: auto;
+  position: relative;
+}
+.textarea-plain,
+.modal-body textarea {
+  min-height: 100px;
+  resize: vertical;
+}
+.input-plain[readonly],
+.modal-body input[readonly] {
+  cursor: default;
+  background: var(--input-bg) !important;
+}
+
+/* =========================
+   二维码：固定正方形，避免拉扁
+   ========================= */
+.qr-container,
+#qrcode-sub,
+#qrcode-protocol,
+.modal-body .qrcode,
+.modal-body [data-role="qrcode"] {
   display: flex !important;
   justify-content: center !important;
   align-items: center !important;
-  margin: 12px auto !important;
+  margin: 16px auto !important;
   text-align: center !important;
   background: transparent !important;
   border: 0 !important;
   padding: 0 !important;
 }
-
-#configModal .qrcode canvas,
-#configModal #qrcode-sub canvas,
-#configModal #qrcode-protocol canvas,
-#detailModal .qrcode canvas,
-#ipqModal   .qrcode canvas {
-  width: 180px !important;       /* 缩小 */
-  height: 180px !important;      /* 保持正方形 */
+.qr-container canvas,
+#qrcode-sub canvas,
+#qrcode-protocol canvas,
+.modal-body .qrcode canvas {
+  width: 180px !important;
+  height: 180px !important;
   aspect-ratio: 1 / 1 !important;
-  image-rendering: pixelated;    /* 二维码更清晰 */
+  image-rendering: pixelated;
   display: block !important;
 }
 
-/* =======复制按钮：白底灰字圆角（强制覆盖）============== */
-#configModal  .copy-btn,
-#configModal  .btn-copy,
-#configModal  [data-role="copy"],
-#detailModal  .copy-btn,
-#detailModal  .btn-copy,
-#detailModal  [data-role="copy"],
-#ipqModal     .copy-btn,
-#ipqModal     .btn-copy,
-#ipqModal     [data-role="copy"],
-.modal .copy-btn,
-.modal .btn-copy,
-.modal [data-role="copy"] {
+/* 白名单项 */
+.whitelist-item {
+  padding: 8px 12px;
+  background: var(--input-bg);
+  border-radius: 6px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: #333;
+  word-break: break-all;
+}
+
+/* =========================
+   复制按钮：白底灰字圆角（强覆盖）
+   ========================= */
+.copy-btn,
+.btn-copy,
+[data-role="copy"] {
   appearance: none !important;
-  background: #ffffff !important;
-  color: #4b5563 !important;
-  border: 1px solid #d1d5db !important;
+  border: 1px solid var(--btn-border) !important;
+  background: var(--btn-bg) !important;
+  color: var(--btn-text) !important;
   border-radius: 8px !important;
   padding: 6px 10px !important;
   font-size: 12px !important;
   line-height: 1 !important;
   cursor: pointer !important;
 }
-#configModal  .copy-btn:hover,
-#configModal  .btn-copy:hover,
-#configModal  [data-role="copy"]:hover,
-#detailModal  .copy-btn:hover,
-#detailModal  .btn-copy:hover,
-#detailModal  [data-role="copy"]:hover,
-#ipqModal     .copy-btn:hover,
-#ipqModal     .btn-copy:hover,
-#ipqModal     [data-role="copy"]:hover,
-.modal .copy-btn:hover,
-.modal .btn-copy:hover,
-.modal [data-role="copy"]:hover {
-  background: #f9fafb !important;
-  color: #111827 !important;
+.copy-btn:hover,
+.btn-copy:hover,
+[data-role="copy"]:hover {
+  background: var(--btn-bg-hover) !important;
+  color: var(--btn-text-hover) !important;
   border-color: #cbd5e1 !important;
 }
-#configModal  .copy-btn:active,
-#configModal  .btn-copy:active,
-#configModal  [data-role="copy"]:active,
-#detailModal  .copy-btn:active,
-#detailModal  .btn-copy:active,
-#detailModal  [data-role="copy"]:active,
-#ipqModal     .copy-btn:active,
-#ipqModal     .btn-copy:active,
-#ipqModal     [data-role="copy"]:active,
-.modal .copy-btn:active,
-.modal .btn-copy:active,
-.modal [data-role="copy"]:active {
-  background: #f3f4f6 !important;
+.copy-btn:active,
+.btn-copy:active,
+[data-role="copy"]:active {
+  background: var(--btn-bg-active) !important;
   transform: translateY(1px);
 }
 
-/* =======关闭按钮：圆形细描边样式======== */
-/* 兼容原生、Element、Ant 的关闭按钮容器 */
+/* =========================
+   关闭按钮：圆角方形细描边
+   ========================= */
 .modal .modal-close,
 .el-dialog__headerbtn,
 .ant-modal-close {
   width: 28px !important;
-  height: 28px !important;
+  height: 24px !important;
   border: 1px solid #e5e7eb !important;
-  border-radius: 9999px !important;
+  border-radius: 8px !important;   /* 圆角方形 */
   background: #fff !important;
   display: flex !important;
   align-items: center !important;
@@ -5408,8 +5580,6 @@ h4 {
   background: #f9fafb !important;
   border-color: #d1d5db !important;
 }
-
-/* 关闭图标本身（X） */
 .modal .modal-close,
 .el-dialog__close,
 .ant-modal-close-x,
@@ -5424,14 +5594,42 @@ h4 {
   color: #111827 !important;
 }
 
-/* =========响应式（保持不变）=========== */
+/* =========================
+   复制成功轻提示（居中 Toast）
+   ========================= */
+/* 放在弹窗内部，默认隐藏 */
+.modal .modal-toast {
+  position: absolute;
+  left: 50%; top: 50%;
+  transform: translate(-50%, -50%) scale(.98);
+  background: rgba(17,24,39,.92);
+  color: #fff;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 12px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.2);
+  opacity: 0; pointer-events: none;
+  transition: opacity .18s ease, transform .18s ease;
+  z-index: 10000; /* 高于内容 */
+}
+/* 通过给 .modal 加 .toast-show 或给 .modal-toast 加 .show 显示 */
+.modal.toast-show .modal-toast,
+.modal .modal-toast.show {
+  opacity: 1; pointer-events: auto;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+/* 响应式 */
 @media (max-width: 768px) {
-  #configModal .qrcode canvas,
-  #detailModal .qrcode canvas,
-  #ipqModal   .qrcode canvas {
-    width: 160px !important;
-    height: 160px !important;
+  .modal,
+  dialog[open],
+  .el-dialog,
+  .ant-modal {
+    --modal-w: calc(100vw - 20px);
+    --modal-h: calc(100vh - 40px);
   }
+  .kv-row { grid-template-columns: 1fr; }
+  .kv-key { text-align: left; padding-right: 0; margin-bottom: 4px; }
 }
 
 
