@@ -4734,65 +4734,36 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 
 
 /* ======== 网络身份配置 - 白名单查看全部按钮专用CSS =========== */
-/* 仅作用于分流出站卡片，避免全局污染 */
-#net-shunt .whitelist-row{
-  align-items: flex-start;             /* 标题顶对齐 */
-  min-height: 64px;                    /* 给预览留出空间 */
-}
+/* —— 白名单单行样式（与 IP/Geo/质量对齐） —— */
+:root { --row-h: 32px; }           /* 如你已有全局行高变量，可删掉本行 */
+#net-shunt .nid__row { min-height: var(--row-h, 32px); }
+#net-shunt .nid__row .nid__label,
+#net-shunt .nid__row .nid__value { line-height: var(--row-h, 32px); }
 
-/* 预览容器：两列布局 = 文本(自适应) + 按钮(固定) */
-#net-shunt .whitelist-preview{
-  display: grid;
-  grid-template-columns: 1fr auto;     /* 文本占满，按钮贴右 */
-  align-items: end;                     /* 按钮贴底 */
+#net-shunt .nid__value.one-line{
+  display: flex;
+  align-items: center;
   gap: 8px;
-  width: 100%;
 }
 
-/* 三行截断，行高与左侧“代理IP/Geo/IP质量”一致（1.8 更肉眼对齐） */
-#net-shunt .whitelist-text{
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;               /* 想要两行就把 3 改 2 */
+#net-shunt .nid__value.one-line .truncate{
+  flex: 1 1 auto;
+  min-width: 0;                   /* 允许省略号生效 */
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  line-height: 1.8;
-  word-break: break-all;
-  font-size: 13px;
-  color: #111827;
 }
 
-/* 按钮固定在右下角（随容器高度自动贴底，不再绝对定位） */
-#net-shunt .whitelist-more{
-  justify-self: end;
-  align-self: end;
-  height: 28px;
-  line-height: 26px;
-  padding: 0 12px;
+#net-shunt .nid__value.one-line .link-btn{
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
   font-size: 12px;
-  border: 1px solid #d1d5db;
-  border-radius: 4px;
-  background: #fff;
-  color: #2563eb;
-  white-space: nowrap;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
-  transition: all .15s ease;
+  text-decoration: underline;
+  /* 颜色跟随你现有主题色，如果有变量就用变量 */
+  color: var(--link, #3b82f6);
 }
-#net-shunt .whitelist-more:hover{
-  background:#f3f4f6; border-color:#9ca3af; color:#1d4ed8;
-}
-
-/* 兜底：确保白名单值容器可换行 */
-#net-shunt .whitelist-value{
-  white-space: normal !important;
-  overflow: visible !important;
-  text-overflow: initial !important;
-}
-
-/* 移除旧实现里依赖 :last-child + absolute 的定位效果（若仍在其他处保留，请删掉旧选择器） */
-/* （旧）#net-shunt .info-item.nid__row:last-child {...}
-   （旧）.whitelist-preview.has-overflow .whitelist-text {...}
-   （旧）.whitelist-preview.has-overflow .whitelist-more {...} */
 
 
 
@@ -5789,46 +5760,62 @@ function renderCertificateAndNetwork() {
     document.getElementById('net-vps')?.classList.add('active');
   }
 
-  // —— 保持原有的VPS和代理IP处理 ——
-  const vpsIp = safeGet(data, 'server.eip') || safeGet(data, 'server.server_ip') || '—';
-  const vpsEl = document.getElementById('vps-ip'); 
-  if (vpsEl) vpsEl.textContent = vpsIp;
+  // —— VPS 与代理的 IP ——（依赖你已有的 vpsIp / proxyRaw / formatProxy）
+  const shuntVpsEl   = document.getElementById('shunt-vps-ip');
+  if (shuntVpsEl)    shuntVpsEl.textContent = typeof vpsIp !== 'undefined' ? vpsIp : '—';
 
-  const proxyRaw = String(safeGet(shunt, 'proxy_info', ''));
-  const proxyEl  = document.getElementById('proxy-ip');
-  
-  function formatProxy(raw) {
-    if (!raw) return '—';
-    try {
-      const normalized = /^[a-z][a-z0-9+.\-]*:\/\//i.test(raw) ? raw : 'socks5://' + raw;
-      const u = new URL(normalized);
-      const proto = u.protocol.replace(/:$/,'');
-      const host  = u.hostname || '';
-      const port  = u.port || '';
-      return (host && port) ? `${proto}//${host}:${port}` : (host ? `${proto}//${host}` : '—');
-    } catch (_) {
-      return '—';
+  const shuntProxyEl = document.getElementById('shunt-proxy-ip');
+  if (shuntProxyEl)  shuntProxyEl.textContent = (typeof formatProxy === 'function' && typeof proxyRaw !== 'undefined')
+    ? formatProxy(proxyRaw)
+    : '—';
+
+  // —— 混合身份文案（规范：白名单VPS直连 + 其它代理 / 全代理 / 直连）——
+  const shuntModeEl  = document.getElementById('shunt-mode');
+  if (shuntModeEl) {
+    let modeText = '直连';
+    if (shuntMode.includes('direct')) {
+      modeText = '白名单VPS直连 + 其它代理';
+    } else if (shuntMode.includes('resi') || shuntMode.includes('proxy')) {
+      modeText = '全代理';
     }
+    shuntModeEl.textContent = modeText;
   }
-  if (proxyEl) proxyEl.textContent = formatProxy(proxyRaw);
 
-// —— 白名单预览（专用类 + 网格布局，稳定不漂移） ——
-const whitelist = data.shunt?.whitelist || [];
-const preview   = document.getElementById('whitelistPreview');
+  // —— 白名单：单行展示 + 省略号 + 右侧“查看全部” ——（与 VPS/代理行高对齐）
+  // 期望 HTML:
+  // <div class="info-item nid__row" id="row-whitelist">
+  //   <label class="nid__label">白名单:</label>
+  //   <div class="nid__value one-line">
+  //     <span id="whitelistOneLine" class="truncate" title="—">—</span>
+  //     <button id="whitelistViewAll" class="link-btn" data-action="open-modal" data-modal="whitelistModal">查看全部</button>
+  //   </div>
+  // </div>
+  const wlSpan = document.getElementById('whitelistOneLine');
+  const wlBtn  = document.getElementById('whitelistViewAll');
+  let wl = safeGet(data, 'shunt.whitelist', []);
 
-if (preview) {
-  const htmlText = whitelist.length ? escapeHtml(whitelist.join(', ')) : '(无)';
-  preview.className = 'whitelist-preview';
-  preview.innerHTML =
-    `<span class="whitelist-text">${htmlText}</span>` +
-    `<button class="whitelist-more" data-action="open-modal" data-modal="whitelistModal">查看全部</button>`;
+  if (typeof wl === 'string') {
+    wl = wl.split(/[,\s]+/).filter(Boolean);
+  } else if (!Array.isArray(wl)) {
+    wl = [];
+  }
 
-  // 给“白名单”所在那一行打标（避免再用 :last-child）
-  const row = preview.closest('.info-item.nid__row');
-  if (row) row.classList.add('whitelist-row');
+  const wlText = wl.length ? wl.join(', ') : '—';
+  if (wlSpan) {
+    // 使用 textContent 防 XSS；完整值放到 title，hover 可见
+    wlSpan.textContent = wlText;
+    wlSpan.setAttribute('title', wlText);
+  }
+  if (wlBtn) {
+    // 若你已有统一的 data-action 代理，这里可省略绑定
+    wlBtn.onclick = () => {
+      if (typeof openModal === 'function') {
+        openModal('whitelistModal');
+      }
+    };
+  }
 }
 
-}
 
 
 function renderProtocolTable() {
@@ -6633,25 +6620,31 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 
 <div class="network-block" id="net-shunt">
   <h3>🔀 分流出站</h3>
+
   <div class="info-item nid__row">
     <label class="nid__label">混合身份:</label>
-    <value class="nid__value">直连v代理</value>
+    <value class="nid__value" id="shunt-mode">白名单VPS直连 + 其它代理</value>
   </div>
+
   <div class="info-item nid__row">
     <label class="nid__label">VPS-IP:</label>
-    <value class="nid__value">同左</value>
+    <value class="nid__value" id="shunt-vps-ip">—</value>
   </div>
+
   <div class="info-item nid__row">
     <label class="nid__label">代理IP:</label>
-    <value class="nid__value">同左</value>
+    <value class="nid__value" id="shunt-proxy-ip">—</value>
   </div>
-  <div class="info-item nid__row">
-    <label class="nid__label">白名单:</label>
-    <value class="nid__value whitelist-value">
-      <span class="whitelist-text" id="whitelistText">—</span>
-      <button class="whitelist-more" data-action="open-modal" data-modal="whitelistModal">查看全部</button>
-    </value>
+
+<!-- 白名单（单行展示版） -->
+<div class="info-item nid__row" id="row-whitelist">
+  <label class="nid__label">白名单:</label>
+  <div class="nid__value one-line">
+    <span id="whitelistOneLine" class="truncate" title="—">—</span>
+    <button id="whitelistViewAll" class="link-btn" data-action="open-modal" data-modal="whitelistModal">查看全部</button>
   </div>
+</div>
+
 </div>
 
       <div class="card">
