@@ -8075,8 +8075,18 @@ collect_one(){ # $1 vantage vps|proxy  $2 proxy-args
   local V="$1" P="$2" J1="{}" J2="{}" J3="{}" ok1=false ok2=false ok3=false
   if out=$(curl_json "$P" "https://ipinfo.io/json"); then J1="$out"; ok1=true; fi
   
-# [PATCH:IPSB_ENDPOINT] ip.sb 旧端点已 404 → 改用新端点
-if out=$(curl_json "$P" "https://api.ip.sb/geoip"); then J2="$out"; ok2=true; fi
+  i# [PATCH:IPSB_ENDPOINT_PLUS] 主用 + 备选端点，避免单点波动
+if out=$(curl_json "$P" "https://api.ip.sb/geoip"); then
+  J2="$out"; ok2=true
+else
+  for alt in \
+    "https://ifconfig.co/json" \
+    "https://api.myip.com" \
+    "https://ipapi.co/json/"
+  do
+    if out=$(curl_json "$P" "$alt"); then J2="$out"; ok2=true; break; fi
+  done
+fi
 
   if out=$(curl_json "$P" "http://ip-api.com/json/?fields=status,message,country,city,as,asname,reverse,hosting,proxy,mobile,query"); then J3="$out"; ok3=true; fi
 
