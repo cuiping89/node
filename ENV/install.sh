@@ -2999,24 +2999,12 @@ get_certificate_info() {
         cert_domain="${cert_mode#letsencrypt:}"
         cert_renewal_type="auto"
         
-# 优先 cert.pem；若不存在，用 fullchain.pem
-local cert_file="/etc/letsencrypt/live/${cert_domain}/cert.pem"
-[[ ! -f "$cert_file" ]] && cert_file="/etc/letsencrypt/live/${cert_domain}/fullchain.pem"
-
-if [[ -f "$cert_file" ]] && command -v openssl >/dev/null 2>&1; then
-  local endline endraw
-  endline="$(openssl x509 -enddate -noout -in "$cert_file" 2>/dev/null || true)"
-  endraw="${endline#notAfter=}"
-
-  if date -d "$endraw" -Is >/dev/null 2>&1; then
-    cert_expires_at="$(date -d "$endraw" -Is)"
-  elif date -u -d "$endraw" +%Y-%m-%dT%H:%M:%SZ >/dev/null 2>&1; then
-    cert_expires_at="$(date -u -d "$endraw" +%Y-%m-%dT%H:%M:%SZ)"
-  else
-    cert_expires_at="$endraw"
-  fi
-fi
-
+        # 获取证书到期时间
+        local cert_file="/etc/letsencrypt/live/${cert_domain}/cert.pem"
+        if [[ -f "$cert_file" ]] && command -v openssl >/dev/null 2>&1; then
+            cert_expires_at=$(openssl x509 -enddate -noout -in "$cert_file" 2>/dev/null | \
+                            cut -d= -f2 | xargs -I {} date -d "{}" -Is 2>/dev/null || echo "")
+        fi
     fi
     
     # 输出证书信息JSON
@@ -5272,6 +5260,7 @@ dialog[open],
   display: block !important;
   margin: 12px auto !important;
 }
+
 
 /* ===== 复制按钮：白底圆角灰字 ===== */
 .modal .copy-btn,
