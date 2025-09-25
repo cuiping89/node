@@ -5995,8 +5995,18 @@ function showWhitelistModal() {
 }
 
 
-// [PATCH:SHOW_CONFIG_MODAL_SAFE] —— 精准、谨慎、只改一处
+// 1. 添加防重复执行标记
+let isConfigModalOpening = false;
+
+// 2. 修复后的 showConfigModal 函数（增加防重复执行机制）
 function showConfigModal(protocolKey) {
+  // 防止重复执行
+  if (isConfigModalOpening) return;
+  isConfigModalOpening = true;
+  
+  // 延迟重置标记，确保不会立即重复执行
+  setTimeout(() => { isConfigModalOpening = false; }, 100);
+
   const dd = window.dashboardData;
   const modal = document.getElementById('configModal');
   if (!modal || !dd) return;
@@ -6011,7 +6021,7 @@ function showConfigModal(protocolKey) {
   const toB64 = s => btoa(unescape(encodeURIComponent(s)));
   const get = (o, p, fb = '') => p.split('.').reduce((a, k) => (a && a[k] !== undefined ? a[k] : undefined), o) ?? fb;
 
-  // JSON 行尾注释对齐（仅用于 UI 展示）
+  // JSON 行尾注释对齐
   function annotateAligned(obj, comments = {}) {
     const lines = JSON.stringify(obj, null, 2).split('\n');
     const metas = lines.map(line => {
@@ -6058,7 +6068,6 @@ function showConfigModal(protocolKey) {
     const base64 = get(dd, 'subscription.base64', '') || (plain6 ? toB64(plain6) : '');
 
     title.textContent = '订阅（整包）';
-    // 订阅配置的HTML - 包含二维码容器
     details.innerHTML = `
       <div class="config-section">
         <h4>订阅 URL</h4>
@@ -6132,7 +6141,6 @@ function showConfigModal(protocolKey) {
     const base64 = plain ? toB64(plain) : '';
 
     title.textContent = `${p.name} 配置`;
-    // 单协议配置的HTML - 包含二维码容器  
     details.innerHTML = `
       <div class="config-section">
         <h4>JSON 配置</h4>
@@ -6149,7 +6157,7 @@ function showConfigModal(protocolKey) {
       <div class="config-section">
         <h4>二维码</h4>
         <div class="qr-container">
-          <div id="qrcode-protocol"></div>
+          <div id="qrcode-sub"></div>
         </div>
       </div>
       ${usage('复制明文或 JSON 导入客户端；若客户端支持扫码添加，也可直接扫描二维码。')}
@@ -6163,26 +6171,34 @@ function showConfigModal(protocolKey) {
     qrText = plain;
   }
 
-  // —— 生成二维码（直接使用已有的容器，不再动态创建）——
-  if (qrText && window.QRCode) {
-    const holderId = (protocolKey === '__SUBS__') ? 'qrcode-sub' : 'qrcode-protocol';
-    const holder = document.getElementById(holderId);
-    if (holder) {
-      // 清空之前的二维码（如果有）
-      holder.innerHTML = '';
-      // 生成新的二维码
-      new QRCode(holder, {
-        text: qrText,
-        width: 200,
-        height: 200,
-        colorDark: "#000000",
-        colorLight: "#ffffff",
-        correctLevel: QRCode.CorrectLevel.M
-      });
+  // 生成二维码（使用 setTimeout 确保 DOM 已更新）
+  setTimeout(() => {
+    if (qrText && window.QRCode) {
+      const holderId = (protocolKey === '__SUBS__') ? 'qrcode-sub' : 'qrcode-protocol';
+      const holder = document.getElementById(holderId);
+      if (holder) {
+        // 彻底清空容器，移除所有子元素
+        while (holder.firstChild) {
+          holder.removeChild(holder.firstChild);
+        }
+        
+        // 创建新的二维码
+        try {
+          new QRCode(holder, {
+            text: qrText,
+            width: 200,
+            height: 200,
+            colorDark: "#000000",
+            colorLight: "#ffffff",
+            correctLevel: QRCode.CorrectLevel.M
+          });
+        } catch (e) {
+          console.error('生成二维码失败:', e);
+        }
+      }
     }
-  }
+  }, 10);
 }
-// [PATCH:SHOW_CONFIG_MODAL_SAFE_END]
 
 
 
@@ -6338,95 +6354,10 @@ async function refreshAllData() {
 }
 
 
-// 同时修改 setupEventListeners 函数，避免重复调用：
-function setupEventListeners() {
-    document.addEventListener('click', e => {
-        const target = e.target.closest('[data-action]');
-        if (!target) return;
-
-        const { action, modal, protocol, ipq, type } = target.dataset;
-
-        switch (action) {
-            case 'open-modal':
-                if (modal === 'whitelistModal') showWhitelistModal();
-                if (modal === 'configModal') {
-                    showConfigModal(protocol);
-                    // 不需要再手动调用 showModal，showConfigModal 内部已经处理了
-                }
-                if (modal === 'ipqModal') showIPQDetails(ipq);
-                break;
-            case 'close-modal':
-                closeModal(modal);
-                break;
-            case 'copy': {
-                const modalContent = target.closest('.modal-content');
-                if (!modalContent) return;
-
-                const titleText = modalContent.querySelector('#configModalTitle')?.textContent || '';
-                let textToCopy = '';
-
-                if (titleText.includes('订阅')) {
-                    // 这是订阅弹窗
-                    const sub = dashboardData.subscription || {};
-                    const subUrl = dashboardData.subscription_url || '';
-                    switch (type) {
-                        case 'plain':
-                            textToCopy = subUrl;
-                            break;
-                        case 'plain6':
-                            textToCopy = sub.plain || '';
-                            break;
-                        case 'base64':
-                            textToCopy = sub.base64 || '';
-                            break;
-                    }
-                } else {
-                    // 这是单个协议的弹窗
-                    const protocolName = titleText.replace(' 配置', '');
-                    const p = (dashboardData.protocols || []).find(proto => proto.name === protocolName);
-                    if (p) {
-                        switch (type) {
-                            case 'plain':
-                                textToCopy = p.share_link || '';
-                                break;
-                            case 'json':
-                                // 生成 JSON
-                                const certMode = String(dashboardData.server?.cert?.mode || 'self-signed');
-                                const isLE = certMode.startsWith('letsencrypt');
-                                const serverIp = dashboardData.server?.server_ip || '';
-                                const obj = {
-                                    protocol: p.name,
-                                    host: serverIp,
-                                    port: p.port ?? 443,
-                                    uuid: dashboardData.secrets?.vless?.reality || 
-                                          dashboardData.secrets?.vless?.grpc ||
-                                          dashboardData.secrets?.vless?.ws || '',
-                                    sni: isLE ? dashboardData.server?.cert?.domain || '' : serverIp,
-                                    alpn: (p.name || '').toLowerCase().includes('grpc') ? 'h2'
-                                        : ((p.name || '').toLowerCase().includes('ws') ? 'http/1.1' : '')
-                                };
-                                textToCopy = JSON.stringify(obj, null, 2);
-                                break;
-                            case 'base64':
-                                textToCopy = p.share_link ? btoa(unescape(encodeURIComponent(p.share_link))) : '';
-                                break;
-                        }
-                    }
-                }
-                
-                copyText(textToCopy);
-                break;
-            }
-        }
-    });
-}
-
-
 // --- Initialization ---
 document.addEventListener('DOMContentLoaded', () => {
     refreshAllData();
     overviewTimer = setInterval(refreshAllData, 30000);
-    setupEventListeners();
 });
 
 // ==== new11 事件委托（append-only） ====
