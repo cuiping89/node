@@ -4323,16 +4323,40 @@ h4 {
 }
 
 /* =========标题 =========*/
-.main-header{
-  background:#fff;
-  border:1px solid #e5e7eb;
-  border-radius:10px;
-  padding:10px 14px 10px 12px;
-  position:relative;
+
+/* 修复主标题居中问题 */
+.main-header {
+  text-align: center; /* 让整个标题区域居中对齐 */
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 10px 14px 10px 12px;
+  position: relative;
 }
-.main-header h1{ 
-  content:""; position:absolute; left:0; top:8px; bottom:8px; width:4px;
-  background:#6366f1; border-radius:4px; opacity:.35; /* 低饱和“紫”提示 */
+
+.main-header h1 {
+  text-align: center !important; /* 强制标题文字居中 */
+  margin: 0 auto;
+  display: block;
+  width: 100%;
+  font-size: 23px;
+  font-weight: 700;
+  color: #1f2937;
+  line-height: 32px;
+}
+
+/* 如果有装饰性的左边框线，也要调整 */
+.main-header::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  top: 8px;
+  bottom: 8px;
+  width: 4px;
+  background: #6366f1;
+  border-radius: 4px;
+  opacity: 0.35;
 }
 
 .card{
@@ -4530,6 +4554,7 @@ h4 {
   --percent-col: 33px;             /* 百分比列可一起调，避免太窄 */
 }
 #system-overview .progress-label { 
+  color: var(--subheading-color) !important;  /* 设置为灰色 */
   white-space: nowrap;
 }
 
@@ -5503,7 +5528,7 @@ dialog[open],
   background:var(--input-bg) !important; 
 }
 
-/* ===== 二维码：保留居中，移除左对齐 ===== */
+/* ===== 二维码：只保留居中的，隐藏其他位置的 ===== */
 .modal-body .qr-container,
 .modal-body .qrcode,
 .modal-body [data-role="qrcode"]{
@@ -5524,9 +5549,27 @@ dialog[open],
   image-rendering:pixelated;
 }
 
-/* 移除左对齐二维码（如果存在的话，隐藏掉） */
-.modal-body .qr-left,
-.modal-body .qrcode-left {
+/* 隐藏多余的二维码容器 - 只保留第一个居中的 */
+.modal-body .qr-container:not(:first-of-type),
+.modal-body .qrcode:not(:first-of-type),
+.config-section .qr-container ~ .qr-container,
+.config-section #qrcode-protocol ~ div,
+.modal-body div:has(> #qrcode-protocol) ~ div:has(canvas) {
+  display: none !important;
+}
+
+/* 如果有左侧二维码容器，直接隐藏 */
+.qr-left,
+.qrcode-left,
+.qr-side,
+.qrcode-side,
+.modal-body > div:first-child:has(canvas):not(.qr-container):not(.qrcode) {
+  display: none !important;
+}
+
+/* 确保二维码section只显示一个二维码 */
+.config-section:has(#qrcode-protocol) > div:not(.qr-container):has(canvas),
+.config-section:has(#qrcode-sub) > div:not(.qr-container):has(canvas) {
   display: none !important;
 }
 
