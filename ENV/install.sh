@@ -49,6 +49,8 @@ YELLOW="${ESC}[1;33m"
 GREEN="${ESC}[0;32m"
 RED="${ESC}[0;31m"
 NC="${ESC}[0m"  # No Color
+# 统一兜底版本，可被环境变量覆盖：DEFAULT_SING_BOX_VERSION=1.12.5 bash install.sh
+DEFAULT_SING_BOX_VERSION="${DEFAULT_SING_BOX_VERSION:-1.12.4}"
 
 #############################################
 # 目录结构定义
@@ -1554,30 +1556,32 @@ case "$arch" in
 esac
 
 # 版本优先级：
-# 1) 若传入 SING_BOX_VERSION（可带/不带 v），则用它
-# 2) 否则 GitHub API releases/latest -> tag_name
-# 3) API 不通则解析 releases/latest 页面
-# 4) 仍失败回退到保守版本
+# 1) 显式 SING_BOX_VERSION（可带或不带 v）
+# 2) GitHub API /releases/latest 取 tag_name
+# 3) 跟随跳转读取 releases/latest 的最终 URL，解析 tag
+# 4) 仍失败 → 统一回落到 DEFAULT_SINGBOX_VERSION
 local ver_raw=""
 if [[ -n "${SING_BOX_VERSION:-}" ]]; then
   ver_raw="${SING_BOX_VERSION#v}"
 else
+  # 尝试 API
   ver_raw="$(
-    curl -fsSL \
-      -H 'Accept: application/vnd.github+json' \
-      -H 'User-Agent: EdgeBox/3.0 (installer)' \
-      'https://api.github.com/repos/SagerNet/sing-box/releases/latest' \
-      2>/dev/null | jq -r '.tag_name' 2>/dev/null | sed 's/^v//'
+    curl -fsSL -H 'User-Agent: EdgeBox' \
+      'https://api.github.com/repos/SagerNet/sing-box/releases/latest' 2>/dev/null \
+    | jq -r '.tag_name' 2>/dev/null | sed 's/^v//'
   )"
+
+  # API 拿不到时：不解析 HTML，直接跟随跳转拿最终 URL
   if [[ -z "$ver_raw" || "$ver_raw" == "null" ]]; then
     ver_raw="$(
-      curl -fsSL -H 'User-Agent: Mozilla/5.0 (EdgeBox)' \
-        'https://github.com/SagerNet/sing-box/releases/latest' 2>/dev/null \
-      | grep -oE 'sing-box-[0-9][0-9.]*-linux-' \
-      | head -1 | sed -E 's/sing-box-([0-9.]+)-linux-.*/\1/'
+      curl -fsSLI -o /dev/null -w '%{url_effective}' \
+        'https://github.com/SagerNet/sing-box/releases/latest' \
+      | sed -nE 's#.*/tag/v([0-9.]+).*#\1#p'
     )"
   fi
-  [[ -z "$ver_raw" ]] && ver_raw="1.8.10"
+
+  # 统一回落
+  [[ -z "$ver_raw" ]] && ver_raw="${DEFAULT_SING_BOX_VERSION}"
 fi
 local version="$ver_raw"
 
