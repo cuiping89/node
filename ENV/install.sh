@@ -5441,6 +5441,18 @@ h4 {
   }
 }
 
+/* 本月进度条刻度（由 ALERT_STEPS 驱动） */
+.traffic-card .progress-bar { position: relative; }
+.traffic-card .progress-ticks { position: absolute; inset: 0; pointer-events: none; }
+.traffic-card .progress-ticks .tick {
+  position: absolute; top: 2px; bottom: 2px; width: 0;
+  border-left: 1px dashed #94a3b8; opacity: .7;
+}
+.traffic-card .progress-ticks .tick-label {
+  position: absolute; top: -14px; transform: translateX(-50%);
+  font-size: 10px; color: #94a3b8; white-space: nowrap;
+}
+
 /* 仅隐藏 Chart.js 生成的 HTML 图例（如有）——避免误伤轴刻度 */
 .traffic-card .chartjs-legend {
   display: none !important;
@@ -5941,6 +5953,19 @@ async function fetchJSON(url) {
   }
 }
 
+// 解析 alert.conf（KEY=VALUE 的简单行格式）
+function parseKvConf(text) {
+  const conf = {};
+  if (!text) return conf;
+  text.split(/\n+/).forEach(line => {
+    line = line.trim();
+    if (!line || line.startsWith('#')) return;
+    const m = line.match(/^([A-Z0-9_]+)=(.*)$/);
+    if (m) conf[m[1]] = m[2].trim();
+  });
+  return conf;
+}
+
 function safeGet(obj, path, fallback = '—') {
   const value = path.split('.').reduce((acc, part) => acc && acc[part], obj);
   return value !== null && value !== undefined && value !== '' ? value : fallback;
@@ -6183,15 +6208,50 @@ function renderTrafficCharts() {
   const monthly = trafficData.monthly || [];
   const currentMonthData = monthly.find(m => m.month === new Date().toISOString().slice(0, 7));
   if (currentMonthData) {
-    const budget = 100; // GiB，总预算（保持你原逻辑）
-    const used = (currentMonthData.total || 0) / GiB;
-    const percentage = Math.min(100, Math.round((used / budget) * 100));
-    const fillEl   = document.getElementById('progress-fill');
-    const pctEl    = document.getElementById('progress-percentage');
-    const budgetEl = document.getElementById('progress-budget');
-    if (fillEl)   fillEl.style.width = `${percentage}%`;
-    if (pctEl)    pctEl.textContent  = `${percentage}%`;
-	if (budgetEl) budgetEl.textContent = `阈值(${budget}GiB)`;
+const conf = window.alertConf || {};
+const budget = Number(conf.ALERT_MONTHLY_GIB) > 0 ? Number(conf.ALERT_MONTHLY_GIB) : 100; // GiB
+const used = (currentMonthData.total || 0) / GiB;
+const percentage = Math.min(100, Math.round((used / budget) * 100));
+
+const fillEl   = document.getElementById('progress-fill');
+const pctEl    = document.getElementById('progress-percentage');
+const budgetEl = document.getElementById('progress-budget');
+
+if (fillEl)   fillEl.style.width = `${percentage}%`;
+if (pctEl)    pctEl.textContent  = `${percentage}%`;
+if (budgetEl) budgetEl.textContent = `阈值(${budget}GiB)`;
+
+// --- 绘制 ALERT_STEPS 刻度 ---
+const steps = String(conf.ALERT_STEPS || '30,60,90')
+  .split(',')
+  .map(s => parseInt(s.trim(), 10))
+  .filter(n => Number.isFinite(n) && n >= 0 && n <= 100)
+  .sort((a, b) => a - b);
+
+const barEl = document.querySelector('.traffic-progress-container .progress-bar');
+if (barEl) {
+  let layer = barEl.querySelector('.progress-ticks');
+  if (!layer) {
+    layer = document.createElement('div');
+    layer.className = 'progress-ticks';
+    barEl.appendChild(layer);
+  }
+  layer.innerHTML = ''; // 重绘
+
+  for (const p of steps) {
+    const t = document.createElement('div');
+    t.className = 'tick';
+    t.style.left = p + '%';
+
+    const lbl = document.createElement('span');
+    lbl.className = 'tick-label';
+    lbl.textContent = p + '%';
+
+    t.appendChild(lbl);
+    layer.appendChild(t);
+  }
+}
+
 	if (pctEl) pctEl.title = `已用 ${used.toFixed(1)}GiB / 阈值 ${budget}GiB`;
   }
 
@@ -6226,7 +6286,7 @@ options: {
     legend: { display: false } // 隐藏底部内置图例
   },
   layout: {
-    padding: { bottom: 20 }    // 恢复底部留白，保证日期不被裁掉
+    padding: { bottom: 21 }    // 恢复底部留白，保证日期不被裁掉
   },
   scales: {
     x: { ticks: { padding: 6 } },
@@ -6259,7 +6319,7 @@ options: {
     legend: { display: false } // 仍隐藏底部内置图例
   },
   layout: {
-    padding: { bottom: 20 }    // 给 x 轴刻度留空间
+    padding: { bottom: 21 }    // 给 x 轴刻度留空间
   },
   scales: {
     x: { ticks: { padding: 6 } },
@@ -6597,15 +6657,19 @@ async function copyText(text) {
 
 // --- Main Application Logic ---
 async function refreshAllData() {
-    const [dash, sys, traf] = await Promise.all([
-        fetchJSON('/traffic/dashboard.json'),
-        fetchJSON('/traffic/system.json'),
-        fetchJSON('/traffic/traffic.json')
-    ]);
-    if (dash) dashboardData = dash;
-    if (sys) systemData = sys;
-    if (traf) trafficData = traf;
-    window.dashboardData = dashboardData; 
+const [dash, sys, traf, alertTxt] = await Promise.all([
+  fetchJSON('/traffic/dashboard.json'),
+  fetchJSON('/traffic/system.json'),
+  fetchJSON('/traffic/traffic.json'),
+  fetch('/traffic/alert.conf', { cache: 'no-store' })
+    .then(r => r.ok ? r.text() : null)
+    .catch(() => null)
+]);
+if (dash) dashboardData = dash;
+if (sys) systemData = sys;
+if (traf) trafficData = traf;
+// 全局保存解析好的 alert 配置
+window.alertConf = alertTxt ? parseKvConf(alertTxt) : (window.alertConf || null);
     renderOverview();
     renderCertificateAndNetwork();
     renderProtocolTable();
@@ -6816,7 +6880,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 
 <div class="container">
   <div class="main-card">
-    <div class="main-header"><h1>🚀 EdgeBox - 企业级多协议节点管理系统</h1></div>
+    <div class="main-header"><h1>🚀 EdgeBox - 企业级多协议节点管理系统 🚀</h1></div>
     <div class="main-content">
 	
 <div class="card" id="system-overview">	
@@ -8441,7 +8505,7 @@ rm -f "$hits_file"
 
 # [PATCH:JQ_NOTES_SAFE] —— 先把 notes 文本安全转为 JSON 数组
 # 假设 bash 变量：$ts $vantage $ip $country $city $asn $isp $rdns 以及 $notes
-notes_json="$(printf '%s\n' "${notes:-}" | tr ',' '\n' | awk 'NF' | jq -R -s 'split("\n")|map(select(length>0))' 2>/dev/null || echo '[]')"
+notes_json="$(printf '%s\n' "${notes[@]:-}" | tr ',' '\n' | awk 'NF' | jq -R -s 'split("\n")|map(select(length>0))' 2>/dev/null || echo '[]')"
 
 # 统一用 --arg（字符串）和 --argjson（已经是 JSON 的）传参，避免引号嵌套地狱
 jq -n \
