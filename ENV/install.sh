@@ -5163,6 +5163,13 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   min-height: calc(var(--h-progress) + var(--gap-v) + var(--h-left-chart) + 2*var(--mini-pad));
 }
 
+/* 单位标注样式 - 小字灰色 */
+.unit-note {
+  font-size: 11px !important;
+  font-weight: 400 !important;
+  color: #9ca3af !important;
+  margin-left: 4px;
+}
 /* 响应式 */
 @media (max-width:1024px){
   .traffic-charts{ 
@@ -6002,7 +6009,15 @@ options: {
   responsive:true, maintainAspectRatio:false,
   interaction:{ mode:'index', intersect:false },
   layout:{ padding:{ bottom:8 } },
-  plugins:{ legend:{ position:'bottom', labels:{ boxWidth:12, padding:12 } } },
+  plugins:{ legend:{ 
+    position:'bottom', 
+    labels:{ 
+      usePointStyle: true,  // 使用圆形图例
+      pointStyle: 'circle', // 明确指定为圆形
+      boxWidth:12, 
+      padding:12 
+    } 
+  }},
   scales:{
     x:{ grid:{ display:false }, ticks:{ maxRotation:0, padding:6 } },
     y:{ beginAtZero:true, ticks:{ padding:6 } }
