@@ -4291,19 +4291,29 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 .text-muted{ color:#6b7280; }
 .text-secondary{ color:#4b5563; }
 
-/* ===== 文字样式统一：标题h3色+h4字号，内容灰色+h4字号 ===== */
+/* ===== 文字样式统一：h3黑色大字，h4灰色中字，内容灰色中字 ===== */
 :root {
-  --heading-color: #111827;   /* 标题颜色（h3的黑色） */
+  --heading-color: #111827;   /* h3标题颜色（黑色） */
+  --subheading-color: #6b7280; /* h4标题颜色（灰色） */
   --content-color: #6b7280;   /* 内容颜色（灰色） */
+  --h3-size: 15px;            /* h3字体大小 */
   --h4-size: 14px;            /* h4字体大小 */
 }
 
-/* h4基础样式统一 */
+/* h3基础样式：黑色大字 */
+h3 { 
+  font-size: var(--h3-size); 
+  line-height: 1.4; 
+  font-weight: 600; 
+  color: var(--heading-color);
+}
+
+/* h4基础样式：灰色中字 */
 h4 { 
   font-size: var(--h4-size); 
   line-height: 1.4; 
   font-weight: 600; 
-  color: var(--heading-color);
+  color: var(--subheading-color);
 }
 
 /* ================ 卡片/区块 ================ */
@@ -4401,9 +4411,10 @@ h4 {
   align-items:center; 
   white-space:nowrap; 
   margin:0 0 var(--h3-gap);
-  font-size: 14px !important;  /* 统一标题大小 */
-  line-height: 20px !important;
-  height: 20px !important;
+  font-size: var(--h3-size) !important;  /* 使用h3标准大小 */
+  line-height: 22px !important;
+  height: 22px !important;
+  color: var(--heading-color) !important;
 }
 
 /* 服务器信息：两列 */
@@ -4416,7 +4427,7 @@ h4 {
 #system-overview .server-info .label,
 #system-overview .progress-row .label,
 #system-overview .core-services .label { 
-  color: var(--heading-color) !important; 
+  color: var(--subheading-color) !important;  /* h4级别用灰色 */
   font-size: var(--h4-size) !important; 
   font-weight: 600 !important;
   justify-self: start; 
@@ -4629,7 +4640,7 @@ h4 {
 
 /* 证书切换标题统一样式 */
 #cert-panel .inner-block .info-item label{
-  color: var(--heading-color) !important;
+  color: var(--subheading-color) !important;  /* h4级别用灰色 */
   font-size: var(--h4-size) !important;
   font-weight: 600 !important;
   justify-self: start;
@@ -4711,23 +4722,22 @@ h4 {
   box-shadow: 0 2px 6px rgba(0,0,0,0.08);
 }
 
-/* 悬浮标签：与卡片同宽，悬于上方（分离） */
 #netid-panel .network-block > h3{
   position: absolute !important;
   top: 0 !important;
   left: 1px !important;
   right: 1px !important;
-  width: calc(100% - 2px) !important;   /* 等宽，扣左右边框 */
+  width: calc(100% - 2px) !important;
   transform: translateY(calc(-100% - var(--tag-gap))) !important;
 
   margin: 0 !important;
   padding: var(--tag-pad-y) var(--tag-pad-x) !important;
   background: var(--tag-inactive-bg) !important;
-  color: var(--tag-inactive-color) !important;
+  color: var(--heading-color) !important;  /* 改为h3的黑色 */
   border: 1px solid var(--card-br) !important;
   border-radius: var(--tag-radius) !important;
 
-  font-size: var(--tag-font) !important;
+  font-size: var(--h3-size) !important;  /* 使用h3大小 */
   font-weight: 600 !important;
   line-height: 1.2 !important;
   white-space: nowrap !important;
@@ -4756,7 +4766,7 @@ h4 {
 
 /* 网络身份配置标题统一样式 */
 #netid-panel .network-block .info-item label{
-  color: var(--heading-color) !important;
+  color: var(--subheading-color) !important;  /* h4级别用灰色 */
   font-size: var(--h4-size) !important;
   font-weight: 600 !important;
 }
