@@ -4784,12 +4784,6 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   flex-shrink: 0;
 }
 
-/* 当内容超过3行时，按钮定位到第三行末尾 */
-.whitelist-preview.has-overflow .whitelist-text {
-  margin-right: 70px;
-  position: relative;
-}
-
 .whitelist-preview.has-overflow .whitelist-more {
   position: absolute;
   right: 0;
@@ -4813,10 +4807,10 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   transform: translateY(1px);
 }
 
-/* 确保白名单行有足够空间 */
+/* 白名单行自适应高度 */
 #net-shunt .info-item.nid__row:last-child {
-  align-items: flex-start;
-  min-height: 64px;
+  align-items: center;  /* 改回居中对齐，与其他行保持一致 */
+  /* 移除 min-height: 64px; */
 }
 
 /* 响应式调整 */
@@ -4825,10 +4819,6 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
     --btn-h: 18px;
     --btn-pad-x: 4px;
     font-size: 9px;
-  }
-  
-  .whitelist-preview.has-overflow .whitelist-text {
-    margin-right: 60px;
   }
 }
 
@@ -4948,13 +4938,12 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   box-shadow: none;                  /* ← 原 0 1px 4px ... 去掉 */
 }
 
-/* 单元格 */
-.data-table td{ 
-  padding:7px 10px;  /* 上下 7px */
-  border-bottom:1px solid #e5e7eb;  /* 分隔线略加深 */
-  font-size:12px; 
-  /* 细分隔的内阴影，行与行之间更清楚 */
-  box-shadow: inset 0 -1px 0 rgba(0,0,0,0.06);
+/* 1) 普通单元格：只用 border-bottom，取消底部内阴影 */
+.data-table td{
+  padding:7px 10px;
+  border-bottom:1px solid #e5e7eb;
+  font-size:12px;
+  box-shadow: none;                  /* ← 删掉 inset 0 -1px 0 ... */
 }
 
 /* 第4、5、6列居中 */
@@ -4967,11 +4956,11 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   text-align:center; 
 }
 
-/* hover：背景略亮、阴影更饱满，突出悬停行 */
-.data-table tbody tr:hover td{ 
+/* 2) hover 行：不要再叠加内阴影的“分隔线” */
+.data-table tbody tr:hover td{
   background:#f8f9fa;
-  box-shadow: inset 0 -1px 0 rgba(0,0,0,0.12), 0 2px 6px rgba(0,0,0,0.12);
-  transition: box-shadow 0.2s ease, background 0.2s ease;
+  /* 仅保留外部柔和投影，去掉 inset 0 -1px 0 ... */
+  box-shadow: 0 2px 6px rgba(0,0,0,0.12);
 }
 
 /* 3) 订阅行上边线：用 1px 边框，取消顶部方向的阴影，避免变粗 */
