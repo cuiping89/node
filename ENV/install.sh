@@ -5441,13 +5441,13 @@ h4 {
   }
 }
 
-/* 隐藏 Chart.js 生成的 HTML 图例（若有）——不要再用 canvas + * 误伤 */
+/* 仅隐藏 Chart.js 生成的 HTML 图例（如有）——避免误伤轴刻度 */
 .traffic-card .chartjs-legend {
   display: none !important;
 }
 
-/* 标题后的默认“圆点版”自定义图例（其它卡片都用这个） */
-.traffic-card .chart-container h3::after {
+/* 标题后的默认“圆点版”自定义图例（其它图表都用这个） */
+.traffic-card .chart-container > h3::after {
   content: " 🔵 VPS 🟢 代理";
   font-size: 11px;
   color: #6b7280;
@@ -5455,19 +5455,32 @@ h4 {
 }
 
 /* 仅“近12月柱状图”使用“方块版”图例
-   要求：这张卡片里包含 id="monthly-chart" 的 <canvas> */
+   精确到：同一个 .chart-container 里含有 <canvas id="monthly-chart"> 才生效 */
 @supports selector(.x:has(#monthly-chart)) {
-  .traffic-card:has(#monthly-chart) .chart-container h3::after {
-    content: " 🟦 VPS 🟩 代理"; /* 圆点 → 方块（emoji 方块） */
-  }
-}
-
-/* 兼容不支持 :has() 的旧环境（如果“近12月”是第2张卡片就用 2；否则改成实际序号） */
-@supports not selector(.x:has(#monthly-chart)) {
-  .traffic-grid .traffic-card:nth-of-type(2) .chart-container h3::after {
+  .chart-container:has(> canvas#monthly-chart) > h3::after {
     content: " 🟦 VPS 🟩 代理";
   }
 }
+
+/* —— 可选：旧浏览器 fallback（如果不支持 :has()）——
+   若“近12月柱状图”的容器能加类名，请在 HTML 给该容器加 .is-monthly，
+   然后启用下面这条，更稳更准确。 */
+
+/*
+.traffic-card .chart-container.is-monthly > h3::after {
+  content: " 🟦 VPS 🟩 代理";
+}
+*/
+
+/* —— 如果暂时不能加类名，只能按位置兜底（请把 2 改成实际序号）—— */
+/*
+@supports not selector(.x:has(#monthly-chart)) {
+  .traffic-grid .traffic-card:nth-of-type(2) .chart-container > h3::after {
+    content: " 🟦 VPS 🟩 代理";
+  }
+}
+*/
+
 
 
 /* =========================
