@@ -5726,30 +5726,43 @@ setText('singbox-version', versions.singbox ? `版本 ${versions.singbox}` : '�
 }
 
 
-// 简化版JavaScript - 直接处理白名单，不动其他逻辑
+/** 安全取值 */
+function safeGet(obj, path, fallback='—') {
+  try {
+    return path.split('.').reduce((o,k)=>o?.[k], obj) ?? fallback;
+  } catch (_) { return fallback; }
+}
+/** 文本转义 */
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m])); }
+
+/** 统一渲染（证书 + 网络身份 + 白名单单行预览） */
 function renderCertificateAndNetwork() {
   const data   = window.dashboardData || {};
   const server = data.server || {};
   const cert   = server.cert || {};
   const shunt  = data.shunt  || {};
 
-  // —— 保持原有的证书切换逻辑 ——
+  /* —— 证书切换（保持原逻辑） —— */
   const certMode = String(safeGet(cert, 'mode', 'self-signed'));
   document.getElementById('cert-self')?.classList.toggle('active', certMode === 'self-signed');
   document.getElementById('cert-ca')?.classList.toggle('active', certMode.startsWith('letsencrypt'));
-  const certTypeEl = document.getElementById('cert-type');   
+
+  const certTypeEl = document.getElementById('cert-type');
   if (certTypeEl) certTypeEl.textContent = certMode.startsWith('letsencrypt') ? "Let's Encrypt" : "自签名";
-  const domEl = document.getElementById('cert-domain');      
+
+  const domEl = document.getElementById('cert-domain');
   if (domEl) domEl.textContent = safeGet(cert, 'domain', '(无)');
-  const rnEl  = document.getElementById('cert-renewal');     
-  if (rnEl)  rnEl.textContent  = certMode.startsWith('letsencrypt') ? '自动' : '手动';
-  const exEl  = document.getElementById('cert-expiry');
+
+  const rnEl = document.getElementById('cert-renewal');
+  if (rnEl) rnEl.textContent = certMode.startsWith('letsencrypt') ? '自动' : '手动';
+
+  const exEl = document.getElementById('cert-expiry');
   if (exEl) {
     const exp = safeGet(cert, 'expires_at', null);
     exEl.textContent = exp ? new Date(exp).toLocaleDateString() : '—';
   }
 
-  // —— 保持原有的出站模式高亮逻辑 ——
+  /* —— 出站模式高亮（vps / resi|proxy / direct_*） —— */
   const shuntMode = String(safeGet(shunt, 'mode', 'vps')).toLowerCase();
   ['net-vps','net-proxy','net-shunt'].forEach(id => document.getElementById(id)?.classList.remove('active'));
   if (shuntMode.includes('direct')) {
@@ -5760,17 +5773,26 @@ function renderCertificateAndNetwork() {
     document.getElementById('net-vps')?.classList.add('active');
   }
 
-  // —— VPS 与代理的 IP ——（依赖你已有的 vpsIp / proxyRaw / formatProxy）
-  const shuntVpsEl   = document.getElementById('shunt-vps-ip');
-  if (shuntVpsEl)    shuntVpsEl.textContent = typeof vpsIp !== 'undefined' ? vpsIp : '—';
+  /* —— VPS 与代理 IP —— */
+  const vpsIp = safeGet(data, 'server.eip') || safeGet(data, 'server.server_ip') || '—';
+  document.getElementById('shunt-vps-ip')?.textContent = vpsIp;
 
-  const shuntProxyEl = document.getElementById('shunt-proxy-ip');
-  if (shuntProxyEl)  shuntProxyEl.textContent = (typeof formatProxy === 'function' && typeof proxyRaw !== 'undefined')
-    ? formatProxy(proxyRaw)
-    : '—';
+  const proxyRaw = String(safeGet(shunt, 'proxy_info', ''));
+  function formatProxy(raw) {
+    if (!raw) return '—';
+    try {
+      const normalized = /^[a-z][a-z0-9+.\-]*:\/\//i.test(raw) ? raw : 'socks5://' + raw;
+      const u = new URL(normalized);
+      const proto = u.protocol.replace(/:$/,'');
+      const host  = u.hostname || '';
+      const port  = u.port || '';
+      return (host && port) ? `${proto}//${host}:${port}` : (host ? `${proto}//${host}` : '—');
+    } catch { return '—'; }
+  }
+  document.getElementById('shunt-proxy-ip')?.textContent = formatProxy(proxyRaw);
 
-  // —— 混合身份文案（规范：白名单VPS直连 + 其它代理 / 全代理 / 直连）——
-  const shuntModeEl  = document.getElementById('shunt-mode');
+  /* —— 混合身份文案 —— */
+  const shuntModeEl = document.getElementById('shunt-mode');
   if (shuntModeEl) {
     let modeText = '直连';
     if (shuntMode.includes('direct')) {
@@ -5781,15 +5803,7 @@ function renderCertificateAndNetwork() {
     shuntModeEl.textContent = modeText;
   }
 
-  // —— 白名单：单行展示 + 省略号 + 右侧“查看全部” ——（与 VPS/代理行高对齐）
-  // 期望 HTML:
-  // <div class="info-item nid__row" id="row-whitelist">
-  //   <label class="nid__label">白名单:</label>
-  //   <div class="nid__value one-line">
-  //     <span id="whitelistOneLine" class="truncate" title="—">—</span>
-  //     <button id="whitelistViewAll" class="link-btn" data-action="open-modal" data-modal="whitelistModal">查看全部</button>
-  //   </div>
-  // </div>
+  /* —— 白名单：单行 + 省略号 + 右侧“查看全部” —— */
   const wlSpan = document.getElementById('whitelistOneLine');
   const wlBtn  = document.getElementById('whitelistViewAll');
   let wl = safeGet(data, 'shunt.whitelist', []);
@@ -5802,20 +5816,16 @@ function renderCertificateAndNetwork() {
 
   const wlText = wl.length ? wl.join(', ') : '—';
   if (wlSpan) {
-    // 使用 textContent 防 XSS；完整值放到 title，hover 可见
-    wlSpan.textContent = wlText;
-    wlSpan.setAttribute('title', wlText);
+    wlSpan.textContent = wlText;   // 一行显示；CSS 负责省略号
+    wlSpan.setAttribute('title', wlText); // hover 看全量
   }
   if (wlBtn) {
-    // 若你已有统一的 data-action 代理，这里可省略绑定
+    // 若你已用 data-action 统一事件代理，可以删掉下面的绑定
     wlBtn.onclick = () => {
-      if (typeof openModal === 'function') {
-        openModal('whitelistModal');
-      }
+      if (typeof openModal === 'function') openModal('whitelistModal');
     };
   }
 }
-
 
 
 function renderProtocolTable() {
