@@ -5256,6 +5256,23 @@ dialog[open],
   text-align: center !important;
 }
 
+/* 隐藏 QRCode 库生成的 table 元素，只显示 canvas */
+.modal-body .qr-container table,
+.modal-body .qrcode table,
+#qrcode-sub table,
+#qrcode-protocol table {
+  display: none !important;
+}
+
+/* 确保 canvas 元素正常显示并居中 */
+.modal-body .qr-container canvas,
+.modal-body .qrcode canvas,
+#qrcode-sub canvas,
+#qrcode-protocol canvas {
+  display: block !important;
+  margin: 12px auto !important;
+}
+
 /* ===== 复制按钮：白底圆角灰字 ===== */
 .modal .copy-btn,
 .modal .btn-copy,
@@ -6195,30 +6212,20 @@ if (qrText && window.QRCode) {
     details.appendChild(qrSection);
   }
   
-// 生成二维码
-const holderId = (protocolKey === '__SUBS__') ? 'qrcode-sub' : 'qrcode-protocol';
-const holder = document.getElementById(holderId);
-if (holder) {
-  // 清空容器
-  holder.innerHTML = '';
-  
-  // 创建QRCode实例
-  const qr = new QRCode(holder, { 
-    text: qrText, 
-    width: 200, 
-    height: 200,
-    colorDark: "#000000",
-    colorLight: "#ffffff",
-    correctLevel: QRCode.CorrectLevel.M
-  });
-  
-  // 等待QRCode生成完毕，然后删除table元素，只保留canvas
-  setTimeout(() => {
-    const table = holder.querySelector('table');
-    if (table) {
-      table.remove();
-    }
-  }, 100);
+  // 生成二维码
+  const holderId = (protocolKey === '__SUBS__') ? 'qrcode-sub' : 'qrcode-protocol';
+  const holder = document.getElementById(holderId);
+  if (holder) {
+    new QRCode(holder, { 
+      text: qrText, 
+      width: 200, 
+      height: 200,
+      colorDark: "#000000",
+      colorLight: "#ffffff",
+      correctLevel: QRCode.CorrectLevel.M
+    });
+  }
+}
 }
 // [PATCH:SHOW_CONFIG_MODAL_SAFE_END]
 
