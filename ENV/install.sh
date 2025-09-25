@@ -5004,7 +5004,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   --charts-pad-x: 20px;   
   --gap-v: 12px;          
   --h-progress: 50px;     
-  --h-left-chart: 320px;  
+  --h-left-chart: 300px;  
   --mini-pad: 12px;       
   --meter-height: 18px;   
 }
@@ -5170,7 +5170,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   color: #9ca3af !important;
   margin-left: 4px;
 }
-/* 响应式 */
+
 @media (max-width:1024px){
   .traffic-charts{ 
     grid-template-columns:1fr; 
@@ -5184,8 +5184,8 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   }
   .chart-column:first-child .chart-container,
   .chart-column:last-child  .chart-container{
-    height:280px; 
-    min-height:280px;
+    height:250px;  /* 减少高度，确保图例不被截断 */
+    min-height:250px;
   }
 }
 
