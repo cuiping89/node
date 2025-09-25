@@ -5483,24 +5483,11 @@ h4 {
 
 
 /* =========================
-   弹窗 Modal 完整原版样式（基于您的原脚本）
+   弹窗 Modal 统一样式补丁（按您要求修正）
    ========================= */
 
-/* ===== 遮罩层 ===== */
-.modal {
-  display: none;
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,.5);
-  z-index: 9998;
-}
-
-body.modal-open { 
-  overflow: hidden; 
-}
-
-/* ===== 弹窗变量 ===== */
-.modal {
+/* 变量 */
+.modal, dialog[open], .el-dialog, .ant-modal{
   --modal-w: 630px;
   --modal-h: 720px;
   --modal-radius: 14px;
@@ -5509,6 +5496,8 @@ body.modal-open {
   --section-border: #e5e7eb;
   --input-bg: #f7f8fa;
   --code-bg: #f8f9fb;
+
+  /* 复制按钮色系（白底灰字） */
   --btn-border: #d1d5db;
   --btn-text: #6b7280;
   --btn-text-hover: #374151;
@@ -5517,8 +5506,11 @@ body.modal-open {
   --btn-bg-active: #f3f4f6;
 }
 
-/* ===== 弹窗主体 ===== */
-.modal .modal-content {
+/* —— 固定大小 + 居中出现 —— */
+.modal .modal-content,
+dialog[open],
+.el-dialog,
+.ant-modal .ant-modal-content{
   position: fixed !important;
   left: 50% !important;
   top: 50% !important;
@@ -5537,287 +5529,401 @@ body.modal-open {
   flex-direction: column !important;
   overflow: hidden !important;
   z-index: 9999 !important;
+  animation: none !important;
+  transition: none !important;
 }
 
-/* ===== 弹窗头部 ===== */
-.modal .modal-header {
-  padding: var(--modal-padding) var(--modal-padding) 12px var(--modal-padding) !important;
-  border-bottom: 1px solid var(--section-border) !important;
-  display: flex !important;
-  justify-content: space-between !important;
-  align-items: center !important;
-  flex-shrink: 0 !important;
+/* 遮罩 */
+.modal{ 
+  display:none; 
+  position:fixed; 
+  inset:0; 
+  background:rgba(0,0,0,.5); 
+  z-index:9998; 
 }
 
-.modal .modal-title {
-  font-size: 16px !important;
-  font-weight: 600 !important;
-  color: #111827 !important;
-  margin: 0 !important;
+/* 头部 */
+.modal-header, .el-dialog__header, .ant-modal-header{
+  flex-shrink:0 !important;
+  display:flex !important; 
+  align-items:center !important; 
+  justify-content:space-between !important;
+  padding:var(--modal-padding) !important;
+  border-bottom:1px solid var(--section-border) !important;
+  background:#fff !important;
 }
 
-/* ===== 弹窗内容区 ===== */
-.modal .modal-body {
-  flex: 1 !important;
-  overflow-y: auto !important;
-  padding: var(--modal-padding) !important;
-  background: #fff !important;
+.modal-title, .el-dialog__title, .ant-modal-title, #configModalTitle, #ipqModalTitle{
+  font-size:15px !important; 
+  font-weight:600 !important; 
+  color:#111827 !important; 
+  margin:0 !important;
+  text-align: left !important; /* 标题左对齐 */
 }
 
-/* ===== 弹窗底部 ===== */
-.modal .modal-footer {
-  padding: 12px var(--modal-padding) var(--modal-padding) var(--modal-padding) !important;
-  border-top: 1px solid var(--section-border) !important;
-  display: flex !important;
-  justify-content: flex-end !important;
-  gap: 8px !important;
-  flex-shrink: 0 !important;
+/* 主体滚动区 */
+.modal-body, .el-dialog__body, .ant-modal-body{
+  flex:1 !important;
+  padding:var(--modal-padding) !important;
+  overflow-y:auto !important; 
+  overflow-x:hidden !important;
+  min-height:0 !important;
 }
 
-/* ===== 配置区块 ===== */
-.config-section {
-  margin-bottom: 20px !important;
-  border: 1px solid var(--section-border) !important;
-  border-radius: 10px !important;
-  overflow: hidden !important;
+/* 底部 */
+.modal-footer{
+  flex-shrink:0 !important;
+  padding:var(--modal-padding) !important;
+  border-top:1px solid var(--section-border) !important;
+  display:flex !important; 
+  gap:10px !important; 
+  justify-content:flex-end !important;
+  background:#fff !important;
 }
 
-.config-section h3 {
-  background: #f8f9fa !important;
-  margin: 0 !important;
-  padding: 12px 16px !important;
-  font-size: 14px !important;
-  font-weight: 600 !important;
-  color: #374151 !important;
-  border-bottom: 1px solid var(--section-border) !important;
+/* ===== 查看详情弹窗分隔线和左对齐 ===== */
+#detailModal .modal-section,
+#detailModal .detail-section,
+#ipqModal .ipq-section{
+  padding:20px 0;
+  border-bottom:1px solid #374151;
+}
+#detailModal .modal-section:first-child,
+#detailModal .detail-section:first-child,
+#ipqModal .ipq-section:first-child{ 
+  padding-top:0; 
+}
+#detailModal .modal-section:last-child,
+#detailModal .detail-section:last-child,
+#ipqModal .ipq-section:last-child{
+  padding-bottom:0; 
+  border-bottom:none;
 }
 
-.config-section .section-content {
-  padding: 16px !important;
+#configModal .modal-section,
+#configModal .config-section{ 
+  padding:16px 0; 
+  border-bottom:none; 
 }
 
-/* ===== 键值对布局 ===== */
-.kv-row {
-  display: grid !important;
-  grid-template-columns: 120px 1fr !important;
-  gap: 12px !important;
-  padding: 8px 0 !important;
-  align-items: start !important;
+/* 查看详情弹窗内容左对齐 */
+#detailModal .kv-key, 
+#ipqModal .kv-key { 
+  text-align:left !important; 
+  padding-right:8px;
+  padding-left:0 !important;
+}
+#detailModal .kv-value,
+#ipqModal .kv-value { 
+  text-align:left !important; 
 }
 
-.kv-key {
-  color: #6b7280 !important;
-  font-size: 13px !important;
-  font-weight: 500 !important;
-  text-align: right !important;
-  padding-right: 8px !important;
-}
-
-.kv-value {
-  color: #111827 !important;
-  font-size: 13px !important;
-  word-break: break-word !important;
+/* IP质量弹窗所有信息项左对齐 */
+#ipqModal .info-item {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 12px;
   text-align: left !important;
+  padding: 6px 0;
 }
 
-/* ===== 代码和文本框 ===== */
+#ipqModal .info-item label {
+  text-align: left !important;
+  color: #6b7280;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+#ipqModal .info-item value {
+  text-align: left !important;
+  color: #111827;
+  font-size: 13px;
+  word-break: break-word;
+}
+
+/* 键值对通用 */
+.kv-list{ 
+  display:flex; 
+  flex-direction:column; 
+  gap:10px; 
+}
+
+.kv-row{
+  display:grid; 
+  grid-template-columns:144px 1fr; 
+  gap:12px;
+  padding:8px 0; 
+  border-bottom:1px dashed #eef2f7;
+}
+.kv-row:last-child{ 
+  border-bottom:none; 
+}
+
+.kv-key{ 
+  color:#6b7280; 
+  font-size:13px; 
+  text-align:left !important; /* 全部改为左对齐 */
+  padding-right:8px; 
+  line-height:1.6; 
+}
+
+.kv-val, .kv-value{ 
+  color:#111827; 
+  font-size:13px; 
+  word-break:break-word; 
+}
+
+/* ===== 输入/代码框 ===== */
 .input-plain, .textarea-plain, .code-box, .config-code,
 #json-code, #plain-link, #plain-links-6, #base64-link,
 .modal-body textarea, .modal-body input[type="text"],
-.modal-body pre, .modal-body code {
-  display: block !important;
-  background: var(--input-bg) !important;
-  border: 1px solid var(--section-border) !important;
-  border-radius: 8px !important;
-  padding: 10px 12px !important;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
-  font-size: 12px !important;
-  color: #333 !important;
-  width: 100% !important;
-  box-sizing: border-box !important;
-  white-space: pre-wrap !important;
-  word-break: break-word !important;
-  line-height: 1.5 !important;
-  max-height: 200px !important;
-  overflow-y: auto !important;
-  resize: vertical !important;
+.modal-body pre, .modal-body code,
+.modal-body .codebox pre, .modal-body .codebox code,
+.modal-body .jsonbox pre, .modal-body .jsonbox code,
+.modal-body .linkbox input, .modal-body .linkbox textarea{
+  background:var(--input-bg) !important;
+  border:1px solid var(--section-border) !important;
+  border-radius:8px !important;
+  padding:10px 12px !important;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace !important;
+  font-size:12px !important; 
+  color:#333 !important;
+  width:100%; 
+  box-sizing:border-box; 
+  white-space:pre-wrap !important; 
+  word-break:break-word !important; 
+  line-height:1.5;
 }
 
-.code-box, .config-code {
-  background: var(--code-bg) !important;
+.code-box, .config-code{ 
+  background:var(--code-bg) !important; 
+  max-height:200px; 
+  overflow-y:auto; 
+  position:relative; 
 }
 
-/* ===== 二维码 ===== */
+.textarea-plain, .modal-body textarea{ 
+  min-height:100px; 
+  resize:vertical; 
+}
+
+.input-plain[readonly], .modal-body input[readonly]{ 
+  cursor:default; 
+  background:var(--input-bg) !important; 
+}
+
+/* ===== 二维码：只保留居中的，隐藏其他位置的 ===== */
 .modal-body .qr-container,
 .modal-body .qrcode,
-.modal-body [data-role="qrcode"] {
-  text-align: center !important;
+.modal-body [data-role="qrcode"]{
+  text-align:center !important;
   margin: 16px auto !important;
 }
 
 .modal-body .qr-container canvas,
 .modal-body .qrcode canvas,
+.modal-body [data-role="qrcode"] canvas,
 #qrcode-sub canvas,
-#qrcode-protocol canvas {
-  width: 180px !important;
-  height: 180px !important;
-  display: block !important;
-  margin: 12px auto !important;
-  image-rendering: pixelated !important;
+#qrcode-protocol canvas{
+  width:180px !important; 
+  height:180px !important; 
+  aspect-ratio:1/1 !important;
+  display:block !important; 
+  margin:12px auto !important; 
+  image-rendering:pixelated;
 }
 
-/* ===== 复制按钮 ===== */
+/* 隐藏多余的二维码容器 - 只保留第一个居中的 */
+.modal-body .qr-container:not(:first-of-type),
+.modal-body .qrcode:not(:first-of-type),
+.config-section .qr-container ~ .qr-container,
+.config-section #qrcode-protocol ~ div,
+.modal-body div:has(> #qrcode-protocol) ~ div:has(canvas) {
+  display: none !important;
+}
+
+/* 如果有左侧二维码容器，直接隐藏 */
+.qr-left,
+.qrcode-left,
+.qr-side,
+.qrcode-side,
+.modal-body > div:first-child:has(canvas):not(.qr-container):not(.qrcode) {
+  display: none !important;
+}
+
+/* 确保二维码section只显示一个二维码 */
+.config-section:has(#qrcode-protocol) > div:not(.qr-container):has(canvas),
+.config-section:has(#qrcode-sub) > div:not(.qr-container):has(canvas) {
+  display: none !important;
+}
+
+/* ===== 复制按钮：白底圆角灰字 ===== */
 .modal .copy-btn,
 .modal .btn-copy,
 .modal .btn-secondary,
 .modal [data-action="copy"],
-.modal [data-action="copy-qr"] {
-  appearance: none !important;
-  background: var(--btn-bg) !important;
-  color: var(--btn-text) !important;
-  border: 1px solid var(--btn-border) !important;
-  border-radius: 8px !important;
-  padding: 8px 12px !important;
-  font-size: 12px !important;
-  line-height: 1.2 !important;
-  cursor: pointer !important;
-  box-shadow: 0 1px 2px rgba(0,0,0,.04) !important;
-  transition: all .15s ease !important;
-  text-decoration: none !important;
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
+.modal [data-action="copy-qr"],
+.ant-modal .ant-btn[data-role="copy"],
+.el-dialog .el-button[data-role="copy"]{
+  appearance:none !important;
+  background:var(--btn-bg) !important;
+  color:var(--btn-text) !important;
+  border:1px solid var(--btn-border) !important;
+  border-radius:8px !important;
+  padding:8px 12px !important;
+  font-size:12px !important;
+  line-height:1.2 !important;
+  cursor:pointer !important;
+  box-shadow:0 1px 2px rgba(0,0,0,.04) !important;
+  transition: all 0.15s ease !important;
 }
 
 .modal .copy-btn:hover,
 .modal .btn-copy:hover,
 .modal .btn-secondary:hover,
 .modal [data-action="copy"]:hover,
-.modal [data-action="copy-qr"]:hover {
-  background: var(--btn-bg-hover) !important;
-  color: var(--btn-text-hover) !important;
-  border-color: #cbd5e1 !important;
-  box-shadow: 0 2px 4px rgba(0,0,0,.08) !important;
+.modal [data-action="copy-qr"]:hover,
+.ant-modal .ant-btn[data-role="copy"]:hover,
+.el-dialog .el-button[data-role="copy"]:hover{
+  background:var(--btn-bg-hover) !important;
+  color:var(--btn-text-hover) !important;
+  border-color:#cbd5e1 !important;
+  box-shadow:0 2px 4px rgba(0,0,0,.08) !important;
 }
 
 .modal .copy-btn:active,
 .modal .btn-copy:active,
 .modal .btn-secondary:active,
 .modal [data-action="copy"]:active,
-.modal [data-action="copy-qr"]:active {
-  background: var(--btn-bg-active) !important;
-  transform: translateY(1px) !important;
+.modal [data-action="copy-qr"]:active{
+  background:var(--btn-bg-active) !important;
+  transform: translateY(1px);
 }
 
-/* ===== 关闭按钮 ===== */
+/* ===== 关闭按钮：外包圆角小方框 ===== */
 .modal .close-btn,
-.modal .modal-close {
-  position: absolute !important;
-  right: 12px !important;
-  top: 12px !important;
-  width: 32px !important;
-  height: 28px !important;
-  border: 1px solid #e5e7eb !important;
-  border-radius: 8px !important;
-  background: #fff !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  cursor: pointer !important;
-  box-shadow: 0 1px 3px rgba(0,0,0,.1) !important;
-  z-index: 1 !important;
-  transition: all .15s ease !important;
+.modal .modal-close,
+.ant-modal-close, 
+.el-dialog__headerbtn{
+  position:absolute !important; 
+  right:12px !important; 
+  top:12px !important;
+  width:32px !important; 
+  height:28px !important;
+  border:1px solid #e5e7eb !important;
+  border-radius:8px !important;
+  background:#fff !important;
+  display:flex !important; 
+  align-items:center !important; 
+  justify-content:center !important;
+  cursor:pointer !important;
+  box-shadow:0 1px 3px rgba(0,0,0,.1) !important;
+  z-index:1;
+  transition: all 0.15s ease !important;
 }
 
 .modal .close-btn:hover,
-.modal .modal-close:hover {
-  background: #f9fafb !important;
-  border-color: #d1d5db !important;
-  box-shadow: 0 2px 4px rgba(0,0,0,.12) !important;
+.modal .modal-close:hover,
+.ant-modal-close:hover, 
+.el-dialog__headerbtn:hover{
+  background:#f9fafb !important; 
+  border-color:#d1d5db !important;
+  box-shadow:0 2px 4px rgba(0,0,0,.12) !important;
 }
 
-/* ===== 白名单弹窗特殊样式 ===== */
+.modal .close-btn svg,
+.modal .modal-close svg,
+.ant-modal-close svg, 
+.el-dialog__close,
+.ant-modal-close .anticon,
+.el-dialog__headerbtn .el-icon{
+  color:#6b7280 !important; 
+  font-size:16px !important; 
+  line-height:1 !important;
+}
+
+/* ===== 白名单弹窗：加上行表格样式 ===== */
 #whitelistModal .modal-body {
   padding: var(--modal-padding) !important;
 }
 
 #whitelistList {
-  display: flex !important;
-  flex-direction: column !important;
-  gap: 1px !important;
-  background: #f3f4f6 !important;
-  border-radius: 8px !important;
-  overflow: hidden !important;
-  border: 1px solid #e5e7eb !important;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  background: #f3f4f6;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid #e5e7eb;
 }
 
 .whitelist-item {
-  display: block !important;
-  padding: 12px 16px !important;
-  background: #ffffff !important;
-  font-size: 13px !important;
-  color: #374151 !important;
-  word-break: break-all !important;
-  border-bottom: 1px solid #f3f4f6 !important;
-  transition: background-color 0.15s ease !important;
+  padding: 12px 16px;
+  background: #ffffff;
+  font-size: 13px;
+  color: #374151;
+  word-break: break-all;
+  border-bottom: 1px solid #f3f4f6;
+  transition: background-color 0.15s ease;
 }
 
 .whitelist-item:hover {
-  background: #f8fafc !important;
+  background: #f8fafc;
 }
 
 .whitelist-item:last-child {
-  border-bottom: none !important;
+  border-bottom: none;
 }
 
+/* 如果白名单为空的提示 */
 #whitelistList p {
-  padding: 20px !important;
-  text-align: center !important;
-  color: #9ca3af !important;
-  font-size: 14px !important;
-  margin: 0 !important;
-  background: #ffffff !important;
+  padding: 20px;
+  text-align: center;
+  color: #9ca3af;
+  font-size: 14px;
+  margin: 0;
+  background: #ffffff;
 }
 
-/* ===== 复制成功提示 ===== */
-.modal .modal-toast {
-  position: absolute !important;
-  right: 12px !important;
-  bottom: 12px !important;
-  padding: 6px 10px !important;
-  border-radius: 8px !important;
-  background: rgba(17,24,39,.85) !important;
-  color: #fff !important;
-  font-size: 12px !important;
-  opacity: 0 !important;
-  transform: translateY(4px) !important;
-  transition: opacity .15s ease, transform .15s ease !important;
-  pointer-events: none !important;
-  z-index: 10000 !important;
+/* ===== 复制成功轻提示 ===== */
+.modal .modal-toast{
+  position:absolute; 
+  left:50%; 
+  top:50%;
+  transform:translate(-50%, -50%) scale(.98);
+  background:rgba(17,24,39,.92); 
+  color:#fff;
+  padding:10px 14px; 
+  border-radius:10px; 
+  font-size:12px;
+  box-shadow:0 8px 24px rgba(0,0,0,.2);
+  opacity:0; 
+  pointer-events:none; 
+  transition:opacity .18s, transform .18s;
+  z-index:10000;
 }
 
-.modal .modal-toast.show {
-  opacity: 1 !important;
-  transform: translateY(0) !important;
+.modal .modal-toast.show{ 
+  opacity:1; 
+  pointer-events:auto; 
+  transform:translate(-50%, -50%) scale(1); 
 }
 
-/* ===== 响应式 ===== */
-@media (max-width: 768px) {
-  .modal .modal-content {
-    width: calc(100vw - 20px) !important;
-    height: calc(100vh - 40px) !important;
-    max-width: calc(100vw - 20px) !important;
-    max-height: calc(100vh - 40px) !important;
+/* 响应式 */
+@media (max-width:768px){
+  .modal, dialog[open], .el-dialog, .ant-modal{
+    --modal-w: calc(100vw - 20px);
+    --modal-h: calc(100vh - 40px);
   }
   
-  .kv-row {
-    grid-template-columns: 1fr !important;
+  .kv-row{ 
+    grid-template-columns:1fr; 
   }
   
-  .kv-key {
-    text-align: left !important;
-    padding-right: 0 !important;
-    margin-bottom: 4px !important;
+  .kv-key{ 
+    text-align:left; 
+    padding-right:0; 
+    margin-bottom:4px; 
   }
 }
 
