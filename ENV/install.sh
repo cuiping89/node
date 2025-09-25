@@ -5125,35 +5125,11 @@ dialog[open],
 #detailModal .kv-key, 
 #ipqModal .kv-key { 
   text-align:left !important; 
-  padding-right:8px;
-  padding-left:0 !important;
+  padding-right:0; 
 }
 #detailModal .kv-value,
 #ipqModal .kv-value { 
   text-align:left !important; 
-}
-
-/* IP质量弹窗所有信息项左对齐 */
-#ipqModal .info-item {
-  display: grid;
-  grid-template-columns: 120px 1fr;
-  gap: 12px;
-  text-align: left !important;
-  padding: 6px 0;
-}
-
-#ipqModal .info-item label {
-  text-align: left !important;
-  color: #6b7280;
-  font-size: 13px;
-  font-weight: 500;
-}
-
-#ipqModal .info-item value {
-  text-align: left !important;
-  color: #111827;
-  font-size: 13px;
-  word-break: break-word;
 }
 
 /* 键值对通用 */
@@ -5177,7 +5153,7 @@ dialog[open],
 .kv-key{ 
   color:#6b7280; 
   font-size:13px; 
-  text-align:left !important; /* 全部改为左对齐 */
+  text-align:right; 
   padding-right:8px; 
   line-height:1.6; 
 }
@@ -5227,7 +5203,7 @@ dialog[open],
   background:var(--input-bg) !important; 
 }
 
-/* ===== 二维码：只保留居中的，隐藏其他位置的 ===== */
+/* ===== 二维码：保留居中，移除左对齐 ===== */
 .modal-body .qr-container,
 .modal-body .qrcode,
 .modal-body [data-role="qrcode"]{
@@ -5248,27 +5224,9 @@ dialog[open],
   image-rendering:pixelated;
 }
 
-/* 隐藏多余的二维码容器 - 只保留第一个居中的 */
-.modal-body .qr-container:not(:first-of-type),
-.modal-body .qrcode:not(:first-of-type),
-.config-section .qr-container ~ .qr-container,
-.config-section #qrcode-protocol ~ div,
-.modal-body div:has(> #qrcode-protocol) ~ div:has(canvas) {
-  display: none !important;
-}
-
-/* 如果有左侧二维码容器，直接隐藏 */
-.qr-left,
-.qrcode-left,
-.qr-side,
-.qrcode-side,
-.modal-body > div:first-child:has(canvas):not(.qr-container):not(.qrcode) {
-  display: none !important;
-}
-
-/* 确保二维码section只显示一个二维码 */
-.config-section:has(#qrcode-protocol) > div:not(.qr-container):has(canvas),
-.config-section:has(#qrcode-sub) > div:not(.qr-container):has(canvas) {
+/* 移除左对齐二维码（如果存在的话，隐藏掉） */
+.modal-body .qr-left,
+.modal-body .qrcode-left {
   display: none !important;
 }
 
@@ -5441,7 +5399,6 @@ dialog[open],
     margin-bottom:4px; 
   }
 }
-
 
 
 /* =======================================================================
