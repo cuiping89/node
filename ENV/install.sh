@@ -5727,6 +5727,86 @@ dialog[open],
 
 
 
+/* ===============================
+   修复①：查看配置弹窗“没有值”仅可见性兜底
+   —— 不改你的配色/间距/布局 —— 
+   =============================== */
+
+/* 这些就是脚本里填值用的 ID（JSON/明文/Base64/6协议明文） */
+#configModal #json-code,
+#configModal #plain-link,
+#configModal #plain-links-6,
+#configModal #base64-link {
+  color: inherit !important;          /* 防止被设成透明/与背景同色 */
+  visibility: visible !important;     /* 防止被隐藏 */
+  opacity: 1 !important;              /* 防止被设为 0 */
+  display: block !important;          /* 防止被 display:none */
+  white-space: pre-wrap !important;   /* 保留换行（JSON/多行文本） */
+  word-break: break-word !important;  /* 超长安全换行 */
+}
+
+/* 某些主题会把 code/pre 设成 0 字号或透明时的兜底 */
+#configModal pre,
+#configModal code {
+  font-size: inherit !important;
+  color: inherit !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+
+/* 防止“只保留第一个二维码”的规则误伤到文本区块（你的隐藏规则只应命中含 canvas 的容器） */
+#configModal .config-section:not(:has(canvas)) {
+  display: block !important;
+}
+
+/* ===============================
+   修复②：查看全部（白名单）弹窗“行表格”样式恢复
+   —— 仅作用于 #whitelistModal，不影响其它表格 —— 
+   =============================== */
+
+#whitelistModal .modal-body {
+  padding: var(--modal-padding, 16px) !important;
+}
+
+/* 容器有边框与圆角，像表格一样分隔 */
+#whitelistList {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* 单行条目：恢复成“行表格”的一行一行 */
+#whitelistList .whitelist-item {
+  padding: 12px 16px;
+  background: #fff;
+  font-size: 13px;
+  color: #374151;
+  word-break: break-all;
+  border-bottom: 1px solid #f3f4f6;
+  transition: background-color .15s ease;
+}
+#whitelistList .whitelist-item:hover {
+  background: #f8fafc;
+}
+#whitelistList .whitelist-item:last-child {
+  border-bottom: none;
+}
+
+/* 白名单为空时的提示（仅在该弹窗内） */
+#whitelistList p {
+  padding: 20px;
+  text-align: center;
+  color: #9ca3af;
+  font-size: 14px;
+  margin: 0;
+  background: #fff;
+}
+
+
 /* =======================================================================
  按钮（查看详情、查看全部、查看配置、查看订阅）：白底蓝字，hover 浅灰，active 灰底 
  ======================================================================= */
