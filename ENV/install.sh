@@ -3428,10 +3428,6 @@ DASHBOARD_BACKEND_SCRIPT
     return 0
 }
 
-#############################################
-# 流量监控系统设置
-#############################################
-
 
 
 #############################################
@@ -8078,7 +8074,10 @@ get_proxy_url(){ local s="${SHUNT_DIR}/state.json"
 collect_one(){ # $1 vantage vps|proxy  $2 proxy-args
   local V="$1" P="$2" J1="{}" J2="{}" J3="{}" ok1=false ok2=false ok3=false
   if out=$(curl_json "$P" "https://ipinfo.io/json"); then J1="$out"; ok1=true; fi
-  if out=$(curl_json "$P" "https://ip.sb/api/json"); then J2="$out"; ok2=true; fi
+  
+# [PATCH:IPSB_ENDPOINT] ip.sb 旧端点已 404 → 改用新端点
+if out=$(curl_json "$P" "https://api.ip.sb/geoip"); then J2="$out"; ok2=true; fi
+
   if out=$(curl_json "$P" "http://ip-api.com/json/?fields=status,message,country,city,as,asname,reverse,hosting,proxy,mobile,query"); then J3="$out"; ok3=true; fi
 
   local ip=""; for j in "$J2" "$J1" "$J3"; do ip="$(jq -r '(.ip // .query // empty)' <<<"$j")"; [[ -n "$ip" && "$ip" != "null" ]] && break; done
