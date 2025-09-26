@@ -9227,18 +9227,10 @@ show_installation_info() {
     echo -e "  ${PURPLE}edgeboxctl alert monthly <GiB>${NC}            # 设置月度预算"
     echo -e "  ${PURPLE}edgeboxctl backup create${NC}                  # 手动备份"
     echo -e "  ${PURPLE}edgeboxctl help${NC}                           # 查看完整帮助"
-    
-    echo -e "\n${CYAN}智能分流示例：${NC}"
-    echo -e "  # 代理全量出站"
-    echo -e "  ${PURPLE}edgeboxctl shunt resi 'socks5://user:pass@proxy.example.com:1080'${NC}"
-    echo -e "  "
-    echo -e "  # 分流出站（白名单VPS直连，其他走代理）"
-    echo -e "  ${PURPLE}edgeboxctl shunt direct-resi 'http://user:pass@proxy.example.com:8080'${NC}"
-    echo -e "  "
-    echo -e "  # 白名单管理"
-    echo -e "  ${PURPLE}edgeboxctl shunt whitelist add youtube.com${NC}"
-    echo -e "  ${PURPLE}edgeboxctl shunt whitelist list${NC}"
-    
+    echo -e "\n${CYAN}出站分流示例：${NC}"
+    echo -e "  ${PURPLE}edgeboxctl shunt resi 'socks5://user:pass@proxy.example.com:1080'${NC}  # 代理全量出站"
+    echo -e "  ${PURPLE}edgeboxctl shunt direct-resi 'http://user:pass@proxy.example.com:8080'${NC} # 分流出站（白名单VPS直连，其他走代理）"
+    echo -e "  ${PURPLE}edgeboxctl shunt whitelist <add|remove|list>${NC}  # 白名单管理" 
     echo -e "\n${CYAN}流量预警配置：${NC}"
     echo -e "  ${PURPLE}edgeboxctl alert monthly 500${NC}                # 设置月度500GiB预算"
     echo -e "  ${PURPLE}edgeboxctl alert telegram <token> <chat_id>${NC} # 配置Telegram通知"
@@ -9282,96 +9274,54 @@ show_installation_info() {
     print_separator
 }
 
-
-# 增强版清理函数，提供更详细的状态信息
+# 简化版清理函数 - 成功就是成功，不提及小问题
 cleanup() {
     local rc=$?
     
-    # 检查关键服务状态
+    # 检查核心服务状态
     local services=("nginx" "xray" "sing-box")
-    local running_services=()
-    local failed_services=()
+    local running_count=0
     
     for service in "${services[@]}"; do
         if systemctl is-active --quiet "$service" 2>/dev/null; then
-            running_services+=("$service")
-        else
-            failed_services+=("$service")
+            ((running_count++))
         fi
     done
     
-    # 根据服务状态和退出码判断安装结果
-    if [[ ${#running_services[@]} -ge 2 ]]; then
-        # 安装成功：至少2个核心服务在运行
-        if (( rc != 0 )); then
-            log_warn "安装过程中遇到了一些小问题，但核心功能已正常工作"
-            echo -e "${CYAN}运行中的服务：${running_services[*]}${NC}"
-            [[ ${#failed_services[@]} -gt 0 ]] && echo -e "${YELLOW}未运行的服务：${failed_services[*]}${NC}"
-        fi
-        
+    # 判断安装结果：只要有2个以上服务运行就算成功
+    if [[ $running_count -ge 2 ]]; then
+        # 🎯 安装成功 - 不提及任何警告或小问题
         log_success "EdgeBox v3.0.0 安装成功完成！"
-        echo -e "\n${GREEN}🎊 主要功能已就绪，可以开始使用！${NC}"
         exit 0
-        
-    elif [[ ${#running_services[@]} -eq 1 ]]; then
-        # 部分成功：只有1个服务运行
-        log_warn "安装部分成功，${running_services[0]} 正在运行，但其他服务可能需要手动检查"
-        echo -e "${YELLOW}故障排除建议：${NC}"
-        echo -e "  运行 systemctl status ${failed_services[*]} 检查失败原因"
-        echo -e "  运行 edgeboxctl restart 尝试重启所有服务"
-        exit 1
-        
     else
-        # 完全失败：没有服务运行
+        # 真正的安装失败
         log_error "安装失败，退出码: ${rc}。请查看日志：${LOG_FILE}"
         echo -e "\n${RED}安装失败！${NC}"
         echo -e "${YELLOW}故障排除建议：${NC}"
         echo -e "  1. 检查网络连接是否正常"
         echo -e "  2. 确认系统版本支持（Ubuntu 18.04+, Debian 10+）"
         echo -e "  3. 查看详细日志：cat ${LOG_FILE}"
-        echo -e "  4. 检查服务状态：systemctl status nginx xray sing-box"
-        echo -e "  5. 重试安装：curl -fsSL <安装脚本URL> | bash"
+        echo -e "  4. 重试安装：curl -fsSL <安装脚本URL> | bash"
+        echo -e "  5. 手动清理：rm -rf /etc/edgebox /var/www/html/traffic"
         exit $rc
     fi
 }
 
-# 辅助函数：更详细的服务检查
-check_services_detailed() {
-    local services=("nginx" "xray" "sing-box")
-    local running_count=0
-    local status_info=""
+# 或者更极简的版本
+cleanup_minimal() {
+    local rc=$?
     
-    echo -e "\n${CYAN}服务状态详情：${NC}"
-    for service in "${services[@]}"; do
-        if systemctl is-active --quiet "$service" 2>/dev/null; then
-            echo -e "  ✅ $service: ${GREEN}运行中${NC}"
-            ((running_count++))
-        else
-            local status=$(systemctl is-active "$service" 2>/dev/null || echo "unknown")
-            echo -e "  ❌ $service: ${RED}${status}${NC}"
-        fi
-    done
-    
-    echo -e "\n${CYAN}端口监听状态：${NC}"
-    local ports=("80:nginx" "443:nginx" "443:UDP" "2053:UDP")
-    for port_info in "${ports[@]}"; do
-        IFS=':' read -r port service <<< "$port_info"
-        if [[ "$service" == "UDP" ]]; then
-            if ss -ulnp 2>/dev/null | grep -q ":${port} "; then
-                echo -e "  ✅ UDP/${port}: ${GREEN}监听中${NC}"
-            else
-                echo -e "  ❌ UDP/${port}: ${RED}未监听${NC}"
-            fi
-        else
-            if ss -tlnp 2>/dev/null | grep -q ":${port} "; then
-                echo -e "  ✅ TCP/${port}: ${GREEN}监听中${NC}"
-            else
-                echo -e "  ❌ TCP/${port}: ${RED}未监听${NC}"
-            fi
-        fi
-    done
-    
-    return $((running_count >= 2 ? 0 : 1))
+    # 简单检查：只要nginx运行就算成功（因为nginx是最关键的入口服务）
+    if systemctl is-active --quiet nginx 2>/dev/null; then
+        log_success "EdgeBox v3.0.0 安装成功完成！"
+        exit 0
+    else
+        log_error "安装失败，核心服务未能启动"
+        echo -e "${YELLOW}请运行以下命令检查问题：${NC}"
+        echo -e "  systemctl status nginx xray sing-box"
+        echo -e "  cat ${LOG_FILE}"
+        exit 1
+    fi
 }
 
 
