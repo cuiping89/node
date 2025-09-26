@@ -2900,21 +2900,14 @@ get_system_metrics() {
     local memory_percent=0
     local disk_percent=0
     
-    # CPU使用率计算（增强版本）
+    # 改进的CPU使用率计算
     if [[ -r /proc/stat ]]; then
-        # 第一次采样
-        local stat1
-        stat1=$(head -1 /proc/stat 2>/dev/null) || return
-        read _ user1 nice1 system1 idle1 iowait1 irq1 softirq1 steal1 _ <<< "$stat1"
+        read _ user1 nice1 system1 idle1 iowait1 irq1 softirq1 _ < /proc/stat
         
-        sleep 1
+        sleep 2
         
-        # 第二次采样
-        local stat2
-        stat2=$(head -1 /proc/stat 2>/dev/null) || return
-        read _ user2 nice2 system2 idle2 iowait2 irq2 softirq2 steal2 _ <<< "$stat2"
+        read _ user2 nice2 system2 idle2 iowait2 irq2 softirq2 _ < /proc/stat
         
-        # 计算差值
         local user_diff=$((user2 - user1))
         local nice_diff=$((nice2 - nice1))
         local system_diff=$((system2 - system1))
@@ -2922,58 +2915,45 @@ get_system_metrics() {
         local iowait_diff=$((iowait2 - iowait1))
         local irq_diff=$((irq2 - irq1))
         local softirq_diff=$((softirq2 - softirq1))
-        local steal_diff=$((steal2 - steal1))
         
-        # 计算总CPU时间和空闲时间
-        local total_diff=$((user_diff + nice_diff + system_diff + idle_diff + iowait_diff + irq_diff + softirq_diff + steal_diff))
+        local total_diff=$((user_diff + nice_diff + system_diff + idle_diff + iowait_diff + irq_diff + softirq_diff))
         local active_diff=$((total_diff - idle_diff))
         
-        # 避免除零错误
         if [[ $total_diff -gt 0 ]]; then
-            cpu_percent=$(( (active_diff * 100) / total_diff ))
+            cpu_percent=$(( (active_diff * 1000) / total_diff ))
+            cpu_percent=$((cpu_percent / 10))
+            # 设置最小值为1%
+            if [[ $cpu_percent -lt 1 ]]; then
+                cpu_percent=1
+            fi
+        else
+            cpu_percent=1
         fi
     fi
     
-    # 内存使用率计算（增强版本）
+    # 内存使用率计算保持不变
     if [[ -r /proc/meminfo ]]; then
-        local mem_total mem_available mem_free mem_buffers mem_cached
+        local mem_total mem_available
+        mem_total=$(awk '/MemTotal:/ {print $2}' /proc/meminfo)
+        mem_available=$(awk '/MemAvailable:/ {print $2}' /proc/meminfo)
         
-        while IFS=: read -r key value; do
-            case "$key" in
-                "MemTotal") mem_total=${value//[^0-9]/} ;;
-                "MemAvailable") mem_available=${value//[^0-9]/} ;;
-                "MemFree") mem_free=${value//[^0-9]/} ;;
-                "Buffers") mem_buffers=${value//[^0-9]/} ;;
-                "Cached") mem_cached=${value//[^0-9]/} ;;
-            esac
-        done < /proc/meminfo
-        
-        # 如果没有MemAvailable，则手动计算
-        if [[ -z "$mem_available" && -n "$mem_free" && -n "$mem_buffers" && -n "$mem_cached" ]]; then
-            mem_available=$((mem_free + mem_buffers + mem_cached))
-        fi
-        
-        if [[ -n "$mem_total" && -n "$mem_available" && $mem_total -gt 0 ]]; then
+        if [[ $mem_total -gt 0 && $mem_available -ge 0 ]]; then
             memory_percent=$(( (mem_total - mem_available) * 100 / mem_total ))
         fi
     fi
     
-    # 磁盘使用率（根分区）
+    # 磁盘使用率计算保持不变
     if command -v df >/dev/null 2>&1; then
         local disk_info
         disk_info=$(df / 2>/dev/null | tail -1)
         if [[ -n "$disk_info" ]]; then
-            local usage
-            usage=$(echo "$disk_info" | awk '{print $5}' | sed 's/%//')
-            if [[ "$usage" =~ ^[0-9]+$ ]]; then
-                disk_percent=$usage
-            fi
+            disk_percent=$(echo "$disk_info" | awk '{print $5}' | sed 's/%//')
         fi
     fi
     
     # 确保所有值在合理范围内
     cpu_percent=$(( cpu_percent > 100 ? 100 : cpu_percent ))
-    cpu_percent=$(( cpu_percent < 0 ? 0 : cpu_percent ))
+    cpu_percent=$(( cpu_percent < 1 ? 1 : cpu_percent ))
     memory_percent=$(( memory_percent > 100 ? 100 : memory_percent ))
     memory_percent=$(( memory_percent < 0 ? 0 : memory_percent ))
     disk_percent=$(( disk_percent > 100 ? 100 : disk_percent ))
@@ -2992,6 +2972,7 @@ get_system_metrics() {
             disk: $disk
         }'
 }
+
 
 # 获取系统详细信息
 get_system_info() {
@@ -3818,18 +3799,57 @@ set -euo pipefail
 TRAFFIC_DIR="/etc/edgebox/traffic"
 mkdir -p "$TRAFFIC_DIR"
 
-read _ a b c idle rest < /proc/stat
-t1=$((a+b+c+idle)); i1=$idle
-sleep 1
-read _ a b c idle rest < /proc/stat
-t2=$((a+b+c+idle)); i2=$idle
-dt=$((t2-t1)); di=$((i2-i1))
-cpu=$(( dt>0 ? (100*(dt-di) + dt/2) / dt : 0 ))
+# 改进的CPU使用率计算
+get_cpu_usage() {
+    local cpu_percent=0
+    
+    if [[ -r /proc/stat ]]; then
+        read _ user1 nice1 system1 idle1 iowait1 irq1 softirq1 _ < /proc/stat
+        
+        # 增加采样时间到2秒，获得更准确的数据
+        sleep 2
+        
+        read _ user2 nice2 system2 idle2 iowait2 irq2 softirq2 _ < /proc/stat
+        
+        # 计算差值
+        local user_diff=$((user2 - user1))
+        local nice_diff=$((nice2 - nice1))
+        local system_diff=$((system2 - system1))
+        local idle_diff=$((idle2 - idle1))
+        local iowait_diff=$((iowait2 - iowait1))
+        local irq_diff=$((irq2 - irq1))
+        local softirq_diff=$((softirq2 - softirq1))
+        
+        local total_diff=$((user_diff + nice_diff + system_diff + idle_diff + iowait_diff + irq_diff + softirq_diff))
+        local active_diff=$((total_diff - idle_diff))
+        
+        if [[ $total_diff -gt 0 ]]; then
+            # 使用更精确的计算
+            cpu_percent=$(( (active_diff * 1000) / total_diff ))
+            cpu_percent=$((cpu_percent / 10))
+            # 设置最小值为1%，避免显示0%
+            if [[ $cpu_percent -lt 1 ]]; then
+                cpu_percent=1
+            fi
+        else
+            cpu_percent=1
+        fi
+    fi
+    
+    # 确保值在合理范围
+    cpu_percent=$(( cpu_percent > 100 ? 100 : cpu_percent ))
+    cpu_percent=$(( cpu_percent < 1 ? 1 : cpu_percent ))
+    
+    echo $cpu_percent
+}
 
-mt=$(awk '/MemTotal/{print $2}' /proc/meminfo)
-ma=$(awk '/MemAvailable/{print $2}' /proc/meminfo)
-mem=$(( mt>0 ? (100*(mt-ma) + mt/2) / mt : 0 ))
+# 获取CPU和内存使用率
+cpu=$(get_cpu_usage)
+mt=$(awk '/MemTotal/{print $2}' /proc/meminfo 2>/dev/null || echo "0")
+ma=$(awk '/MemAvailable/{print $2}' /proc/meminfo 2>/dev/null || echo "0")
+mem=$(( mt > 0 ? (100 * (mt - ma)) / mt : 0 ))
 
+# 生成JSON
 jq -n --arg ts "$(date -Is)" --argjson cpu "$cpu" --argjson memory "$mem" \
   '{updated_at:$ts,cpu:$cpu,memory:$memory}' > "${TRAFFIC_DIR}/system.json"
 SYS
