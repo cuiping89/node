@@ -6640,12 +6640,14 @@ function showConfigModal(protocolKey) {
     qrText = plain;
   }
 
-// —— 生成二维码（先清空容器，立即生成）——
+// —— 生成二维码（强制“仅一份”产物）——
 if (qrText && window.QRCode) {
   const holderId = (protocolKey === '__SUBS__') ? 'qrcode-sub' : 'qrcode-protocol';
   const holder = document.getElementById(holderId);
   if (holder) {
-    holder.innerHTML = ''; // 一步清空所有子节点
+    // 1) 彻底清空
+    holder.replaceChildren();
+    // 2) 生成
     new QRCode(holder, {
       text: qrText,
       width: 200,
@@ -6654,6 +6656,12 @@ if (qrText && window.QRCode) {
       colorLight: "#ffffff",
       correctLevel: QRCode.CorrectLevel.M
     });
+    // 3) 只保留一个可见产物（优先保留 canvas）
+    const kids = Array.from(holder.children);
+    const keep = holder.querySelector('canvas') || kids[0] || null;
+    if (keep) {
+      kids.forEach(node => { if (node !== keep) node.remove(); });
+    }
   }
 }
 }
@@ -9144,7 +9152,6 @@ show_installation_info() {
     echo -e "  ${PURPLE}edgeboxctl switch-to-domain <域名>${NC}         # 切换证书"
     echo -e "  ${PURPLE}edgeboxctl shunt direct-resi '<代理URL>'${NC}  # 配置分流出站"
     echo -e "  ${PURPLE}edgeboxctl traffic show${NC}                   # 查看流量统计"
-    echo -e "  ${PURPLE}edgeboxctl alert monthly <GiB>${NC}            # 设置月度预算"
     echo -e "  ${PURPLE}edgeboxctl backup create${NC}                  # 手动备份"
 	echo -e "  ${PURPLE}edgeboxctl name <自定义名>${NC}                 # 服务器名备注"
     echo -e "  ${PURPLE}edgeboxctl help${NC}                           # 查看完整帮助"
@@ -9165,13 +9172,6 @@ show_installation_info() {
     echo -e "  🔔 预警通知: 流量阈值告警（30%/60%/90%）多渠道推送"
     echo -e "  💾 自动备份: 配置文件定期备份、一键故障恢复"
     echo -e "  🔍 IP质量: 实时出口IP质量评分、黑名单检测"
-	
-    echo -e "\n${YELLOW}重要提醒：${NC}"
-    echo -e "  1. 当前为IP模式，VLESS/Trojan协议需在客户端开启'跳过证书验证'"
-    echo -e "  2. 使用 switch-to-domain 可获得受信任的Let's Encrypt证书"
-    echo -e "  3. 流量预警配置文件: ${TRAFFIC_DIR}/alert.conf"
-    echo -e "  4. 完整安装日志: ${LOG_FILE}"
-    echo -e "  5. 系统备份位置: /root/edgebox-backup/"
     echo -e " "
     
     # 显示服务状态摘要
