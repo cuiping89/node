@@ -6356,7 +6356,7 @@ function setupEventListeners() {
         switch (action) {
             case 'open-modal':
                 if (modal === 'whitelistModal') showWhitelistModal();
-                // 移除 configModal 处理，让事件委托处理
+                // ✅ 完全删除 configModal 处理，让事件委托统一处理
                 if (modal === 'ipqModal') showIPQDetails(ipq);
                 break;
             case 'close-modal':
@@ -6419,7 +6419,6 @@ function setupEventListeners() {
         }
     });
 }
-
 
 // --- Initialization ---
 document.addEventListener('DOMContentLoaded', () => {
