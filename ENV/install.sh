@@ -3001,70 +3001,89 @@ get_system_info() {
         }'
 }
 
-# 获取证书信息
+# 获取证书信息（Let’s Encrypt 与 自签名均可解析，expires_at => yyyy-mm-dd）
 get_certificate_info() {
     local cert_mode="self-signed"
     local cert_domain=""
     local cert_expires_at=""
     local cert_renewal_type="manual"
-    
+
+    # 避免本地化影响 openssl 的英文月份解析
+    export LC_ALL=C
+
     # 读取证书模式
     if [[ -f "${CONFIG_DIR}/cert_mode" ]]; then
         cert_mode=$(cat "${CONFIG_DIR}/cert_mode")
     fi
-    
-    # 获取证书到期时间
+
+    # 统一的解析函数：把 notAfter 转成 yyyy-mm-dd
+    _parse_expire_date() {
+        local pem="$1"
+        [[ -f "$pem" ]] || return 1
+        local raw_end
+        raw_end=$(openssl x509 -enddate -noout -in "$pem" 2>/dev/null | sed 's/^notAfter=//') || return 1
+        [[ -n "$raw_end" ]] || return 1
+        # GNU date 解析并转成 yyyy-mm-dd；失败则返回 1
+        local iso_end
+        iso_end=$(date -u -d "$raw_end" '+%Y-%m-%d' 2>/dev/null) || return 1
+        printf '%s' "$iso_end"
+        return 0
+    }
+
+    # 确定证书文件路径（两类都处理好）
     local cert_file=""
-    
+
     if [[ "$cert_mode" =~ ^letsencrypt ]]; then
-        # Let's Encrypt证书
+        # ---- Let's Encrypt ----
         cert_domain="${cert_mode#letsencrypt:}"
         cert_renewal_type="auto"
-        cert_file="/etc/letsencrypt/live/${cert_domain}/cert.pem"
-    else
-        # 自签名证书
-        cert_file="${CERT_DIR}/current.pem"
-        if [[ ! -f "$cert_file" ]]; then
-            cert_file="${CERT_DIR}/self-signed.pem"
+
+        # 1) 首选 live/{domain}/cert.pem；2) 退化到 fullchain.pem；3) 跟随符号链接
+        if [[ -n "$cert_domain" ]]; then
+            if [[ -f "/etc/letsencrypt/live/${cert_domain}/cert.pem" ]]; then
+                cert_file="/etc/letsencrypt/live/${cert_domain}/cert.pem"
+            elif [[ -f "/etc/letsencrypt/live/${cert_domain}/fullchain.pem" ]]; then
+                cert_file="/etc/letsencrypt/live/${cert_domain}/fullchain.pem"
+            fi
         fi
-    fi
-    
-# 获取证书到期时间
-    local cert_file=""
-    
-    if [[ "$cert_mode" =~ ^letsencrypt ]]; then
-        # Let's Encrypt证书
-        cert_domain="${cert_mode#letsencrypt:}"
-        cert_renewal_type="auto"
-        cert_file="/etc/letsencrypt/live/${cert_domain}/cert.pem"
-    else
-        # 自签名证书
-        cert_file="${CERT_DIR}/current.pem"
-        if [[ ! -f "$cert_file" ]]; then
-            cert_file="${CERT_DIR}/self-signed.pem"
+        # 如果没指定域但系统存在 LE live 目录，尝试取第一个目录作为当前证书（可选）
+        if [[ -z "$cert_file" && -d /etc/letsencrypt/live ]]; then
+            local first_live
+            first_live=$(find /etc/letsencrypt/live -maxdepth 1 -mindepth 1 -type d | head -n1)
+            if [[ -n "$first_live" ]]; then
+                cert_domain="${first_live##*/}"
+                if [[ -f "${first_live}/cert.pem" ]]; then
+                    cert_file="${first_live}/cert.pem"
+                elif [[ -f "${first_live}/fullchain.pem" ]]; then
+                    cert_file="${first_live}/fullchain.pem"
+                fi
+            fi
         fi
+    else
+        # ---- 自签名 ----
+        cert_file="${CERT_DIR}/current.pem"
+        [[ -f "$cert_file" ]] || cert_file="${CERT_DIR}/self-signed.pem"
     fi
-    
-    # 获取证书到期时间（支持所有证书类型，格式化为 yyyy-mm-dd）
-    if [[ -f "$cert_file" ]] && command -v openssl >/dev/null 2>&1; then
-        cert_expires_at=$(openssl x509 -enddate -noout -in "$cert_file" 2>/dev/null | \
-                         sed 's/notAfter=//' | \
-                         xargs -I {} date -d "{}" "+%Y-%m-%d" 2>/dev/null || echo "")
+
+    # 解析到期时间（两类证书都统一走这里）
+    if [[ -n "$cert_file" ]]; then
+        cert_expires_at="$(_parse_expire_date "$cert_file")" || cert_expires_at=""
     fi
-    
-    # 输出证书信息JSON
+
+    # 输出 JSON（空串转 null）
     jq -n \
-        --arg mode "$cert_mode" \
-        --arg domain "$cert_domain" \
-        --arg expires_at "$cert_expires_at" \
-        --arg renewal_type "$cert_renewal_type" \
-        '{
-            mode: $mode,
-            domain: (if $domain == "" then null else $domain end),
-            expires_at: (if $expires_at == "" then null else $expires_at end),
-            renewal_type: $renewal_type
-        }'
+      --arg mode "$cert_mode" \
+      --arg domain "$cert_domain" \
+      --arg expires_at "$cert_expires_at" \
+      --arg renewal_type "$cert_renewal_type" \
+      '{
+          mode: $mode,
+          domain: (if $domain == "" then null else $domain end),
+          expires_at: (if $expires_at == "" then null else $expires_at end),
+          renewal_type: $renewal_type
+      }'
 }
+
 
 # 获取服务状态
 get_services_status() {
@@ -5239,27 +5258,51 @@ h4 {
 /* 通知中心容器 */
 .notification-center {
     position: relative;
-    display: inline-block;
-	margin-right: 30px;  /* ← 32px 约等于两个中文字符的宽度 */
+    display: inline-flex;
+    width: 44px;              /* ← 调大/调小按钮外框尺寸改这里 */
+    height: 44px;
+    margin-right: 30px;       /* 保持你原来的间距 */
+    align-items: center;
+    justify-content: center;
 }
 
 /* 通知触发按钮 - 增强版 */
 .notification-trigger {
-    position: relative;
+    width: 100%;
+    height: 100%;
+    display: grid;
+    place-items: center;
     background: none;
     border: none;
-    font-size: 22px;        /* 大图标 */
+    border-radius: 8px;
     cursor: pointer;
-    padding: 18px;          /* 增加padding */
-    border-radius: 8px;     /* 稍微圆润 */
-    transition: all 0.3s ease;
     color: #6b7280;
+    padding: 0;               /* 关键：不再用 padding 放大 */
+    line-height: 1;           /* 避免文字行高影响外框 */
+    transition: background-color .2s ease, color .2s ease;
 }
 
+/* 放大图标而不是放大按钮外框：不影响标题行高度 */
+.notification-trigger > svg,
+.notification-trigger > i,
+.notification-trigger > span {
+    font-size: 22px;          /* ← 调大/调小图标尺寸改这里 */
+    width: 1em;
+    height: 1em;
+    display: inline-block;
+    transition: transform .2s ease, color .2s ease;
+}
+
+/* 悬停态：背景与颜色变化，图标轻微放大 */
 .notification-trigger:hover {
-    background-color: rgba(16, 185, 129, 0.1);  /* 绿色hover效果 */
+    background-color: rgba(16, 185, 129, 0.1);
     color: #10b981;
-    transform: scale(1.1);  /* 鼠标悬停时稍微放大 */
+}
+
+.notification-trigger:hover > svg,
+.notification-trigger:hover > i,
+.notification-trigger:hover > span {
+    transform: scale(1.15);
 }
 
 /* 通知数量徽章 */
