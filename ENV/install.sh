@@ -6335,13 +6335,13 @@ function renderTrafficProgressThresholds(thresholds) {
         top: 0;
         bottom: 0;
         width: 2px;
-        background: #374151;
+        background: #9ca3af;    /* ← 改为灰色 */
         z-index: 10;
         transform: translateX(-50%);
         border-radius: 1px;
       `;
       
-      // 标签（白色字体，无背景，放在进度条内部）
+      // 标签（黄色字体，无背景，放在进度条内部）
       const label = document.createElement('div');
       label.className = 'traffic-threshold-label';
       label.textContent = `${threshold}%`;
@@ -6351,11 +6351,12 @@ function renderTrafficProgressThresholds(thresholds) {
         top: 50%;
         transform: translate(-50%, -50%);
         font-size: 9px;
-        color: #ffffff;
+        color: #fbbf24;         /* ← 改为黄色（预警色） */
         white-space: nowrap;
         font-weight: 600;
         pointer-events: none;
         z-index: 11;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);  /* ← 添加阴影增强可读性 */
       `;
       
       trafficProgressBar.appendChild(marker);
