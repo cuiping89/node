@@ -657,20 +657,30 @@ collect_system_info() {
     log_info "收集系统详细信息..."
     
     # 获取CPU详细信息
-    get_cpu_info() {
-        # CPU核心数和线程数
-        local physical_cores=$(nproc --all 2>/dev/null || echo "1")
-        local logical_threads=$(grep -c ^processor /proc/cpuinfo 2>/dev/null || echo "1")
-        
-        # CPU型号信息
-        local cpu_model=$(grep "model name" /proc/cpuinfo | head -1 | cut -d: -f2 | sed 's/^[[:space:]]*//' 2>/dev/null || echo "Unknown CPU")
-        
-        # CPU架构
-        local cpu_arch=$(uname -m 2>/dev/null || echo "unknown")
-        
-        # 组合CPU信息：核心数/线程数 型号
-        echo "${physical_cores}C/${logical_threads}T ${cpu_model} (${cpu_arch})"
-    }
+get_cpu_info() {
+    # CPU核心数和线程数
+    local physical_cores=$(nproc --all 2>/dev/null || echo "1")
+    local logical_threads=$(grep -c ^processor /proc/cpuinfo 2>/dev/null || echo "1")
+    
+    # CPU型号信息 - 修复版本
+    local cpu_model
+    if [[ -f /proc/cpuinfo ]]; then
+        cpu_model=$(grep "model name" /proc/cpuinfo | head -1 | cut -d: -f2 | sed 's/^[[:space:]]*//' 2>/dev/null)
+        if [[ -z "$cpu_model" ]]; then
+            # 尝试其他字段
+            cpu_model=$(grep -E "cpu model|cpu type|processor" /proc/cpuinfo | head -1 | cut -d: -f2 | sed 's/^[[:space:]]*//' 2>/dev/null)
+        fi
+    fi
+    
+    # 如果仍然为空，使用默认值
+    cpu_model=${cpu_model:-"Unknown CPU"}
+    
+    # CPU架构
+    local cpu_arch=$(uname -m 2>/dev/null || echo "unknown")
+    
+    # 组合CPU信息：核心数/线程数 型号 架构
+    echo "${physical_cores}C/${logical_threads}T ${cpu_model} (${cpu_arch})"
+}
     
     # 获取内存详细信息
     get_memory_info() {
@@ -2890,29 +2900,60 @@ get_system_metrics() {
     local memory_percent=0
     local disk_percent=0
     
-    # CPU使用率计算（两次采样）
+    # CPU使用率计算（增强版本）
     if [[ -r /proc/stat ]]; then
-        read _ user1 nice1 system1 idle1 _ < /proc/stat
+        # 第一次采样
+        local stat1
+        stat1=$(head -1 /proc/stat 2>/dev/null) || return
+        read _ user1 nice1 system1 idle1 iowait1 irq1 softirq1 steal1 _ <<< "$stat1"
+        
         sleep 1
-        read _ user2 nice2 system2 idle2 _ < /proc/stat
         
-        local total1=$((user1 + nice1 + system1 + idle1))
-        local total2=$((user2 + nice2 + system2 + idle2))
+        # 第二次采样
+        local stat2
+        stat2=$(head -1 /proc/stat 2>/dev/null) || return
+        read _ user2 nice2 system2 idle2 iowait2 irq2 softirq2 steal2 _ <<< "$stat2"
+        
+        # 计算差值
+        local user_diff=$((user2 - user1))
+        local nice_diff=$((nice2 - nice1))
+        local system_diff=$((system2 - system1))
         local idle_diff=$((idle2 - idle1))
-        local total_diff=$((total2 - total1))
+        local iowait_diff=$((iowait2 - iowait1))
+        local irq_diff=$((irq2 - irq1))
+        local softirq_diff=$((softirq2 - softirq1))
+        local steal_diff=$((steal2 - steal1))
         
+        # 计算总CPU时间和空闲时间
+        local total_diff=$((user_diff + nice_diff + system_diff + idle_diff + iowait_diff + irq_diff + softirq_diff + steal_diff))
+        local active_diff=$((total_diff - idle_diff))
+        
+        # 避免除零错误
         if [[ $total_diff -gt 0 ]]; then
-            cpu_percent=$(( (total_diff - idle_diff) * 100 / total_diff ))
+            cpu_percent=$(( (active_diff * 100) / total_diff ))
         fi
     fi
     
-    # 内存使用率
+    # 内存使用率计算（增强版本）
     if [[ -r /proc/meminfo ]]; then
-        local mem_total mem_available
-        mem_total=$(awk '/MemTotal:/ {print $2}' /proc/meminfo)
-        mem_available=$(awk '/MemAvailable:/ {print $2}' /proc/meminfo)
+        local mem_total mem_available mem_free mem_buffers mem_cached
         
-        if [[ $mem_total -gt 0 && $mem_available -ge 0 ]]; then
+        while IFS=: read -r key value; do
+            case "$key" in
+                "MemTotal") mem_total=${value//[^0-9]/} ;;
+                "MemAvailable") mem_available=${value//[^0-9]/} ;;
+                "MemFree") mem_free=${value//[^0-9]/} ;;
+                "Buffers") mem_buffers=${value//[^0-9]/} ;;
+                "Cached") mem_cached=${value//[^0-9]/} ;;
+            esac
+        done < /proc/meminfo
+        
+        # 如果没有MemAvailable，则手动计算
+        if [[ -z "$mem_available" && -n "$mem_free" && -n "$mem_buffers" && -n "$mem_cached" ]]; then
+            mem_available=$((mem_free + mem_buffers + mem_cached))
+        fi
+        
+        if [[ -n "$mem_total" && -n "$mem_available" && $mem_total -gt 0 ]]; then
             memory_percent=$(( (mem_total - mem_available) * 100 / mem_total ))
         fi
     fi
@@ -2922,9 +2963,21 @@ get_system_metrics() {
         local disk_info
         disk_info=$(df / 2>/dev/null | tail -1)
         if [[ -n "$disk_info" ]]; then
-            disk_percent=$(echo "$disk_info" | awk '{print $5}' | sed 's/%//')
+            local usage
+            usage=$(echo "$disk_info" | awk '{print $5}' | sed 's/%//')
+            if [[ "$usage" =~ ^[0-9]+$ ]]; then
+                disk_percent=$usage
+            fi
         fi
     fi
+    
+    # 确保所有值在合理范围内
+    cpu_percent=$(( cpu_percent > 100 ? 100 : cpu_percent ))
+    cpu_percent=$(( cpu_percent < 0 ? 0 : cpu_percent ))
+    memory_percent=$(( memory_percent > 100 ? 100 : memory_percent ))
+    memory_percent=$(( memory_percent < 0 ? 0 : memory_percent ))
+    disk_percent=$(( disk_percent > 100 ? 100 : disk_percent ))
+    disk_percent=$(( disk_percent < 0 ? 0 : disk_percent ))
     
     # 输出JSON格式
     jq -n \
