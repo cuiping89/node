@@ -5940,7 +5940,7 @@ function renderTrafficCharts() {
       renderTrafficProgressThresholds([30, 60, 90]); // 使用默认阈值
     });
   }
-
+  
 // 渲染流量统计进度条的阈值刻度线（只针对流量统计，不影响CPU/内存/磁盘进度条）
 function renderTrafficProgressThresholds(thresholds) {
   // 特别注意：只选择流量统计卡片中的进度条
@@ -5971,7 +5971,7 @@ function renderTrafficProgressThresholds(thresholds) {
         border-radius: 1px;
       `;
       
-      // 标签（白底字，放在进度条内部）
+      // 标签（白色字体，无背景，放在进度条内部）
       const label = document.createElement('div');
       label.className = 'traffic-threshold-label';
       label.textContent = `${threshold}%`;
@@ -5981,15 +5981,11 @@ function renderTrafficProgressThresholds(thresholds) {
         top: 50%;
         transform: translate(-50%, -50%);
         font-size: 9px;
-        color: #374151;
-        background: rgba(255, 255, 255, 0.9);
-        padding: 1px 3px;
-        border-radius: 2px;
+        color: #ffffff;
         white-space: nowrap;
         font-weight: 600;
         pointer-events: none;
         z-index: 11;
-        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
       `;
       
       trafficProgressBar.appendChild(marker);
