@@ -3029,13 +3029,27 @@ get_certificate_info() {
         fi
     fi
     
-    # 获取证书到期时间（支持所有证书类型）
+# 获取证书到期时间
+    local cert_file=""
+    
+    if [[ "$cert_mode" =~ ^letsencrypt ]]; then
+        # Let's Encrypt证书
+        cert_domain="${cert_mode#letsencrypt:}"
+        cert_renewal_type="auto"
+        cert_file="/etc/letsencrypt/live/${cert_domain}/cert.pem"
+    else
+        # 自签名证书
+        cert_file="${CERT_DIR}/current.pem"
+        if [[ ! -f "$cert_file" ]]; then
+            cert_file="${CERT_DIR}/self-signed.pem"
+        fi
+    fi
+    
+    # 获取证书到期时间（支持所有证书类型，格式化为 yyyy-mm-dd）
     if [[ -f "$cert_file" ]] && command -v openssl >/dev/null 2>&1; then
         cert_expires_at=$(openssl x509 -enddate -noout -in "$cert_file" 2>/dev/null | \
                          sed 's/notAfter=//' | \
-                         xargs -I {} date -d "{}" -Iseconds 2>/dev/null || \
-                         openssl x509 -enddate -noout -in "$cert_file" 2>/dev/null | \
-                         sed 's/notAfter=//' || echo "")
+                         xargs -I {} date -d "{}" "+%Y-%m-%d" 2>/dev/null || echo "")
     fi
     
     # 输出证书信息JSON
@@ -5234,9 +5248,9 @@ h4 {
     position: relative;
     background: none;
     border: none;
-    font-size: 32px;        /* 大图标 */
+    font-size: 22px;        /* 大图标 */
     cursor: pointer;
-    padding: 12px;          /* 增加padding */
+    padding: 18px;          /* 增加padding */
     border-radius: 8px;     /* 稍微圆润 */
     transition: all 0.3s ease;
     color: #6b7280;
