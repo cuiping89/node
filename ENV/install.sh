@@ -6640,29 +6640,20 @@ function showConfigModal(protocolKey) {
     qrText = plain;
   }
 
-  // —— 生成二维码（直接使用已有的容器，不再动态创建）——
+// —— 生成二维码（先清空容器，立即生成）——
 if (qrText && window.QRCode) {
   const holderId = (protocolKey === '__SUBS__') ? 'qrcode-sub' : 'qrcode-protocol';
   const holder = document.getElementById(holderId);
   if (holder) {
-    // ⚠️ 关键修复：彻底清空容器，移除所有子元素
-    while (holder.firstChild) {
-      holder.removeChild(holder.firstChild);
-    }
-    
-    // 延迟生成，确保DOM更新完毕
-    setTimeout(() => {
-      if (holder.children.length === 0) { // 二次检查，确保容器为空
-        new QRCode(holder, {
-          text: qrText,
-          width: 200,
-          height: 200,
-          colorDark: "#000000",
-          colorLight: "#ffffff",
-          correctLevel: QRCode.CorrectLevel.M
-        });
-      }
-    }, 10);
+    holder.innerHTML = ''; // 一步清空所有子节点
+    new QRCode(holder, {
+      text: qrText,
+      width: 200,
+      height: 200,
+      colorDark: "#000000",
+      colorLight: "#ffffff",
+      correctLevel: QRCode.CorrectLevel.M
+    });
   }
 }
 }
@@ -6822,88 +6813,17 @@ async function refreshAllData() {
 }
 
 
-// 同时修改 setupEventListeners 函数，避免重复调用：
-function setupEventListeners() {
-    document.addEventListener('click', e => {
-        const target = e.target.closest('[data-action]');
-        if (!target) return;
-
-        const { action, modal, protocol, ipq, type } = target.dataset;
-
-        switch (action) {
-            case 'open-modal':
-                if (modal === 'whitelistModal') showWhitelistModal();
-                // ✅ 完全删除 configModal 处理，让事件委托统一处理
-                if (modal === 'ipqModal') showIPQDetails(ipq);
-                break;
-            case 'close-modal':
-                closeModal(modal);
-                break;
-            case 'copy': {
-                const modalContent = target.closest('.modal-content');
-                if (!modalContent) return;
-
-                let textToCopy = '';
-                
-                if (protocol === '__SUBS__') {
-                    switch (type) {
-                        case 'sub':
-                            textToCopy = dashboardData.subscription_url || '';
-                            break;
-                        case 'plain':
-                            textToCopy = dashboardData.subscription?.plain || '';
-                            break;
-                        case 'base64':
-                            textToCopy = dashboardData.subscription?.base64 || '';
-                            break;
-                    }
-                } else {
-                    const p = dashboardData.protocols?.find(p => 
-                        p.name === protocol || p.key === protocol
-                    );
-                    if (p) {
-                        switch (type) {
-                            case 'plain':
-                                textToCopy = p.share_link || '';
-                                break;
-                            case 'json':
-                                const serverIp = dashboardData.server?.server_ip || '';
-                                const certMode = dashboardData.server?.cert?.mode || 'self-signed';
-                                const isLE = certMode.startsWith('letsencrypt');
-                                const obj = {
-                                    protocol: p.name,
-                                    host: serverIp,
-                                    port: p.port ?? 443,
-                                    uuid: dashboardData.secrets?.vless?.reality || 
-                                          dashboardData.secrets?.vless?.grpc || 
-                                          dashboardData.secrets?.vless?.ws || '',
-                                    sni: isLE ? dashboardData.server?.cert?.domain || '' : serverIp,
-                                    alpn: (p.name || '').toLowerCase().includes('grpc') ? 'h2'
-                                        : ((p.name || '').toLowerCase().includes('ws') ? 'http/1.1' : '')
-                                };
-                                textToCopy = JSON.stringify(obj, null, 2);
-                                break;
-                            case 'base64':
-                                textToCopy = p.share_link ? btoa(unescape(encodeURIComponent(p.share_link))) : '';
-                                break;
-                        }
-                    }
-                }
-                
-                copyText(textToCopy);
-                break;
-            }
-        }
-    });
-}
-
-// --- Initialization ---
 document.addEventListener('DOMContentLoaded', () => {
-    refreshAllData();
-    overviewTimer = setInterval(refreshAllData, 30000);
-    setupEventListeners();
-    setupNotificationCenter(); // 新增通知中心初始化
+  // 首次刷新
+  refreshAllData();
+  // 定时刷新
+  overviewTimer = setInterval(refreshAllData, 30000);
+  // ❌ 不再调用 setupEventListeners()
+  // setupEventListeners();
+  // 保留通知中心初始化
+  setupNotificationCenter();
 });
+
 
 // ==== new11 事件委托（append-only） ====
 (() => {
@@ -9206,7 +9126,7 @@ show_installation_info() {
     echo -e  "  IP地址: ${PURPLE}${server_ip}${NC}"
     echo -e  "  控制面板: ${PURPLE}http://${server_ip}/traffic/${NC}" 
 
-    echo -e\n"${CYAN}默认模式：${NC}"
+    echo -e  "\n${CYAN}默认模式：${NC}"
     echo -e  "  证书模式: ${PURPLE}IP模式（自签名证书）${NC}"
 	echo -e  "  网络身份: ${PURPLE}VPS出站IP（自签名证书）${NC}"
 	
