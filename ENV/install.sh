@@ -3013,17 +3013,29 @@ get_certificate_info() {
         cert_mode=$(cat "${CONFIG_DIR}/cert_mode")
     fi
     
-    # 如果是Let's Encrypt证书
+    # 获取证书到期时间
+    local cert_file=""
+    
     if [[ "$cert_mode" =~ ^letsencrypt ]]; then
+        # Let's Encrypt证书
         cert_domain="${cert_mode#letsencrypt:}"
         cert_renewal_type="auto"
-        
-        # 获取证书到期时间
-        local cert_file="/etc/letsencrypt/live/${cert_domain}/cert.pem"
-        if [[ -f "$cert_file" ]] && command -v openssl >/dev/null 2>&1; then
-            cert_expires_at=$(openssl x509 -enddate -noout -in "$cert_file" 2>/dev/null | \
-                            cut -d= -f2 | xargs -I {} date -d "{}" -Is 2>/dev/null || echo "")
+        cert_file="/etc/letsencrypt/live/${cert_domain}/cert.pem"
+    else
+        # 自签名证书
+        cert_file="${CERT_DIR}/current.pem"
+        if [[ ! -f "$cert_file" ]]; then
+            cert_file="${CERT_DIR}/self-signed.pem"
         fi
+    fi
+    
+    # 获取证书到期时间（支持所有证书类型）
+    if [[ -f "$cert_file" ]] && command -v openssl >/dev/null 2>&1; then
+        cert_expires_at=$(openssl x509 -enddate -noout -in "$cert_file" 2>/dev/null | \
+                         sed 's/notAfter=//' | \
+                         xargs -I {} date -d "{}" -Iseconds 2>/dev/null || \
+                         openssl x509 -enddate -noout -in "$cert_file" 2>/dev/null | \
+                         sed 's/notAfter=//' || echo "")
     fi
     
     # 输出证书信息JSON
@@ -5217,21 +5229,23 @@ h4 {
 	margin-right: 30px;  /* ← 32px 约等于两个中文字符的宽度 */
 }
 
-/* 通知触发按钮 */
+/* 通知触发按钮 - 增强版 */
 .notification-trigger {
     position: relative;
     background: none;
     border: none;
-    font-size: 20px;
+    font-size: 32px;        /* 大图标 */
     cursor: pointer;
-    padding: 8px;
-    border-radius: 6px;
-    transition: background-color 0.2s ease;
+    padding: 12px;          /* 增加padding */
+    border-radius: 8px;     /* 稍微圆润 */
+    transition: all 0.3s ease;
     color: #6b7280;
 }
 
 .notification-trigger:hover {
-    background-color: rgba(0, 0, 0, 0.05);
+    background-color: rgba(16, 185, 129, 0.1);  /* 绿色hover效果 */
+    color: #10b981;
+    transform: scale(1.1);  /* 鼠标悬停时稍微放大 */
 }
 
 /* 通知数量徽章 */
