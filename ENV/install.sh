@@ -3391,6 +3391,11 @@ generate_system_data() {
 
 # 主函数
 main() {
+    if [[ "${1:-}" == "--notifications-only" ]]; then
+        collect_notifications
+        exit 0
+    fi
+	
     case "${1:-}" in
         --now|--once|update)
             # 立即执行数据生成
@@ -3414,6 +3419,8 @@ main() {
             generate_system_data
             ;;
     esac
+	# 在最后添加通知收集
+    collect_notifications
 }
 
 # 执行主函数
@@ -3701,6 +3708,113 @@ MONTHLY_JSON="$(tail -n 12 "$LOG_DIR/monthly.csv" | grep -v '^month,' \
   | awk -F, '{printf("{\"month\":\"%s\",\"vps\":%s,\"resi\":%s,\"total\":%s,\"tx\":%s,\"rx\":%s}\n",$1,$2,$3,$4,$5,$6)}' | jq -s '.')"
 jq -n --arg updated "$(date -Is)" --argjson last30d "$LAST30D_JSON" --argjson monthly "$MONTHLY_JSON" \
   '{updated_at:$updated,last30d:$last30d,monthly:$monthly}' > "$TRAFFIC_DIR/traffic.json"
+
+# 7) 收集系统通知数据
+collect_notifications() {
+    local notifications_json="$TRAFFIC_DIR/notifications.json"
+    local temp_notifications="[]"
+    local alert_log="/var/log/edgebox-traffic-alert.log"
+    
+    # 收集预警通知（最近10条）
+    if [[ -f "$alert_log" ]]; then
+        local alert_notifications
+        alert_notifications=$(tail -n 10 "$alert_log" 2>/dev/null | grep -E '^\[.*\]' | \
+        awk 'BEGIN{print "["} 
+        {
+            if(match($0, /^\[([^\]]+)\]\s+(.*)/, arr)) {
+                if(NR>1) print ","
+                gsub(/"/, "\\\"", arr[2])  # 转义双引号
+                printf "{\"id\":\"%s_%s\",\"type\":\"alert\",\"level\":\"warning\",\"time\":\"%s\",\"message\":\"%s\",\"read\":false}", 
+                       "alert", NR, arr[1], arr[2]
+            }
+        } 
+        END{print "]"}' 2>/dev/null || echo "[]")
+        temp_notifications="$alert_notifications"
+    fi
+    
+    # 收集系统状态通知
+    local system_notifications="[]"
+    local nginx_status=$(systemctl is-active nginx 2>/dev/null || echo "inactive")
+    local xray_status=$(systemctl is-active xray 2>/dev/null || echo "inactive")
+    local singbox_status=$(systemctl is-active sing-box 2>/dev/null || echo "inactive")
+    
+    # 生成系统状态通知
+    local sys_notifs="["
+    local has_notif=false
+    
+    if [[ "$nginx_status" != "active" ]]; then
+        if [[ "$has_notif" == "true" ]]; then sys_notifs+=","; fi
+        sys_notifs+='{
+            "id":"sys_nginx_'$(date +%s)'",
+            "type":"system",
+            "level":"error", 
+            "time":"'$(date -Is)'",
+            "message":"Nginx 服务已停止运行",
+            "action":"systemctl start nginx",
+            "read":false
+        }'
+        has_notif=true
+    fi
+    
+    if [[ "$xray_status" != "active" ]]; then
+        if [[ "$has_notif" == "true" ]]; then sys_notifs+=","; fi
+        sys_notifs+='{
+            "id":"sys_xray_'$(date +%s)'",
+            "type":"system",
+            "level":"error",
+            "time":"'$(date -Is)'", 
+            "message":"Xray 服务已停止运行",
+            "action":"systemctl start xray",
+            "read":false
+        }'
+        has_notif=true
+    fi
+    
+    if [[ "$singbox_status" != "active" ]]; then
+        if [[ "$has_notif" == "true" ]]; then sys_notifs+=","; fi
+        sys_notifs+='{
+            "id":"sys_singbox_'$(date +%s)'",
+            "type":"system",
+            "level":"error",
+            "time":"'$(date -Is)'",
+            "message":"sing-box 服务已停止运行", 
+            "action":"systemctl start sing-box",
+            "read":false
+        }'
+        has_notif=true
+    fi
+    
+    sys_notifs+="]"
+    system_notifications="$sys_notifs"
+    
+    # 读取已有通知并合并
+    local existing_notifications="[]"
+    if [[ -f "$notifications_json" ]]; then
+        existing_notifications=$(jq '.notifications // []' "$notifications_json" 2>/dev/null || echo "[]")
+    fi
+    
+    # 合并所有通知，去重并限制数量
+    jq -n \
+        --argjson existing "$existing_notifications" \
+        --argjson alerts "$temp_notifications" \
+        --argjson systems "$system_notifications" \
+        --arg updated "$(date -Is)" \
+        --arg cutoff "$(date -d '7 days ago' -Is)" \
+        '{
+            updated_at: $updated,
+            notifications: ([$alerts[], $systems[], $existing[]] | 
+                           unique_by(.id) |
+                           map(select(.time > $cutoff)) |
+                           sort_by(.time) | 
+                           reverse | 
+                           .[0:50])
+        }' > "$notifications_json"
+    
+    chmod 644 "$notifications_json" 2>/dev/null || true
+}
+
+# 在主函数最后调用通知收集
+collect_notifications
 
 # 7) 确保 alert.conf 可通过 Web 访问（前端需要读取阈值配置）
 if [[ -r "$TRAFFIC_DIR/alert.conf" ]]; then
@@ -5002,6 +5116,262 @@ h4 {
   }
 }
 */
+
+
+/* =======================================================================
+   通知中心样式
+   ======================================================================= */
+
+/* 主标题区域调整 */
+.main-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 16px;
+}
+
+.main-header h1 {
+    flex: 1;
+    margin: 0;
+}
+
+/* 通知中心容器 */
+.notification-center {
+    position: relative;
+    display: inline-block;
+}
+
+/* 通知触发按钮 */
+.notification-trigger {
+    position: relative;
+    background: none;
+    border: none;
+    font-size: 20px;
+    cursor: pointer;
+    padding: 8px;
+    border-radius: 6px;
+    transition: background-color 0.2s ease;
+    color: #6b7280;
+}
+
+.notification-trigger:hover {
+    background-color: rgba(0, 0, 0, 0.05);
+}
+
+/* 通知数量徽章 */
+.notification-badge {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    background: #ef4444;
+    color: white;
+    border-radius: 10px;
+    padding: 1px 6px;
+    font-size: 11px;
+    font-weight: 600;
+    min-width: 18px;
+    text-align: center;
+    animation: notification-pulse 2s infinite;
+}
+
+@keyframes notification-pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+}
+
+/* 通知面板 */
+.notification-panel {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    width: 320px;
+    max-height: 400px;
+    background: white;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.15);
+    display: none;
+    z-index: 1000;
+    overflow: hidden;
+}
+
+.notification-panel.show {
+    display: block;
+    animation: notification-slide-in 0.2s ease-out;
+}
+
+@keyframes notification-slide-in {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* 通知面板头部 */
+.notification-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid #e5e7eb;
+    background: #f9fafb;
+}
+
+.notification-header h3 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: #374151;
+}
+
+.notification-clear {
+    background: none;
+    border: none;
+    color: #6b7280;
+    font-size: 12px;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: background-color 0.2s ease;
+}
+
+.notification-clear:hover {
+    background-color: rgba(0, 0, 0, 0.05);
+    color: #374151;
+}
+
+/* 通知列表 */
+.notification-list {
+    max-height: 300px;
+    overflow-y: auto;
+    padding: 0;
+}
+
+/* 通知项目 */
+.notification-item {
+    display: flex;
+    align-items: flex-start;
+    padding: 12px 16px;
+    border-bottom: 1px solid #f3f4f6;
+    transition: background-color 0.2s ease;
+    cursor: pointer;
+}
+
+.notification-item:hover {
+    background-color: #f9fafb;
+}
+
+.notification-item:last-child {
+    border-bottom: none;
+}
+
+.notification-item.unread {
+    background-color: #fef3c7;
+    border-left: 3px solid #f59e0b;
+}
+
+/* 通知图标 */
+.notification-item-icon {
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 12px;
+    font-size: 14px;
+}
+
+.notification-item-icon.alert {
+    background: #fef3c7;
+    color: #d97706;
+}
+
+.notification-item-icon.system {
+    background: #dbeafe;
+    color: #2563eb;
+}
+
+.notification-item-icon.error {
+    background: #fee2e2;
+    color: #dc2626;
+}
+
+/* 通知内容 */
+.notification-item-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.notification-item-message {
+    font-size: 13px;
+    color: #374151;
+    line-height: 1.4;
+    margin-bottom: 4px;
+}
+
+.notification-item-time {
+    font-size: 11px;
+    color: #6b7280;
+}
+
+.notification-item-action {
+    font-size: 11px;
+    color: #2563eb;
+    margin-top: 4px;
+    cursor: pointer;
+    font-family: monospace;
+    background: #f3f4f6;
+    padding: 2px 4px;
+    border-radius: 2px;
+}
+
+/* 通知面板底部 */
+.notification-footer {
+    padding: 8px 16px;
+    background: #f9fafb;
+    border-top: 1px solid #e5e7eb;
+    text-align: center;
+}
+
+.notification-footer small {
+    color: #6b7280;
+    font-size: 11px;
+}
+
+/* 空状态和加载状态 */
+.notification-empty,
+.notification-loading {
+    padding: 40px 20px;
+    text-align: center;
+    color: #6b7280;
+    font-size: 13px;
+}
+
+.notification-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+}
+
+/* 响应式调整 */
+@media (max-width: 768px) {
+    .notification-panel {
+        width: 280px;
+        right: -20px;
+    }
+    
+    .main-header h1 {
+        font-size: 1.3rem;
+    }
+}
 
 
 /* =========================
@@ -6434,6 +6804,7 @@ async function copyText(text) {
 
 // --- Main Application Logic ---
 async function refreshAllData() {
+
     const [dash, sys, traf] = await Promise.all([
         fetchJSON('/traffic/dashboard.json'),
         fetchJSON('/traffic/system.json'),
@@ -6442,6 +6813,23 @@ async function refreshAllData() {
     if (dash) dashboardData = dash;
     if (sys) systemData = sys;
     if (traf) trafficData = traf;
+    window.dashboardData = dashboardData; 
+    renderOverview();
+    renderCertificateAndNetwork();
+    renderProtocolTable();
+    renderTrafficCharts();
+	
+	    const [dash, sys, traf, notif] = await Promise.all([
+        fetchJSON('/traffic/dashboard.json'),
+        fetchJSON('/traffic/system.json'),
+        fetchJSON('/traffic/traffic.json'),
+        fetchJSON('/traffic/notifications.json')
+    ]);
+    if (dash) dashboardData = dash;
+    if (sys) systemData = sys;
+    if (traf) trafficData = traf;
+    if (notif) updateNotificationCenter(notif);
+    
     window.dashboardData = dashboardData; 
     renderOverview();
     renderCertificateAndNetwork();
@@ -6530,6 +6918,7 @@ document.addEventListener('DOMContentLoaded', () => {
     refreshAllData();
     overviewTimer = setInterval(refreshAllData, 30000);
     setupEventListeners();
+    setupNotificationCenter(); // 新增通知中心初始化
 });
 
 // ==== new11 事件委托（append-only） ====
@@ -6680,6 +7069,155 @@ document.addEventListener('click', async (ev) => {
 });
 
 
+// =================================================================
+// 通知中心功能
+// =================================================================
+
+let notificationData = { notifications: [] };
+
+// 更新通知中心
+function updateNotificationCenter(data) {
+    notificationData = data || { notifications: [] };
+    renderNotifications();
+}
+
+// 渲染通知列表
+function renderNotifications() {
+    const listEl = document.getElementById('notificationList');
+    const badgeEl = document.getElementById('notificationBadge');
+    
+    if (!notificationData.notifications || notificationData.notifications.length === 0) {
+        if (listEl) {
+            listEl.innerHTML = `
+                
+                    🔔
+                    暂无通知
+                
+            `;
+        }
+        if (badgeEl) badgeEl.style.display = 'none';
+        return;
+    }
+    
+    // 计算未读数量
+    const unreadCount = notificationData.notifications.filter(n => !n.read).length;
+    
+    if (badgeEl) {
+        if (unreadCount > 0) {
+            badgeEl.textContent = unreadCount > 99 ? '99+' : unreadCount;
+            badgeEl.style.display = 'inline-block';
+        } else {
+            badgeEl.style.display = 'none';
+        }
+    }
+    
+    // 渲染通知项
+    if (listEl) {
+        const html = notificationData.notifications.slice(0, 20).map(notification => {
+            const iconMap = {
+                alert: '⚠️',
+                system: '⚙️', 
+                error: '❌'
+            };
+            
+            const timeAgo = getTimeAgo(notification.time);
+            const icon = iconMap[notification.type] || iconMap[notification.level] || '📋';
+            
+            return `
+                
+                    
+                        ${icon}
+                    
+                    
+                        ${escapeHtml(notification.message)}
+                        ${timeAgo}
+                        ${notification.action ? `${escapeHtml(notification.action)}` : ''}
+                    
+                
+            `;
+        }).join('');
+        
+        listEl.innerHTML = html;
+    }
+}
+
+// 时间格式化
+function getTimeAgo(timeStr) {
+    try {
+        const time = new Date(timeStr);
+        const now = new Date();
+        const diff = now - time;
+        
+        const minutes = Math.floor(diff / 60000);
+        const hours = Math.floor(diff / 3600000);
+        const days = Math.floor(diff / 86400000);
+        
+        if (days > 0) return `${days}天前`;
+        if (hours > 0) return `${hours}小时前`;
+        if (minutes > 0) return `${minutes}分钟前`;
+        return '刚刚';
+    } catch (e) {
+        return '未知时间';
+    }
+}
+
+// 设置通知中心事件监听
+function setupNotificationCenter() {
+    const trigger = document.getElementById('notificationTrigger');
+    const panel = document.getElementById('notificationPanel');
+    
+    if (!trigger || !panel) return;
+    
+    // 点击触发按钮
+    trigger.addEventListener('click', (e) => {
+        e.stopPropagation();
+        panel.classList.toggle('show');
+        
+        if (panel.classList.contains('show')) {
+            // 面板打开时延迟标记为已读
+            setTimeout(markAllAsRead, 1000);
+        }
+    });
+    
+    // 点击文档其他地方关闭面板
+    document.addEventListener('click', (e) => {
+        if (!panel.contains(e.target) && !trigger.contains(e.target)) {
+            panel.classList.remove('show');
+        }
+    });
+    
+    // 阻止面板内部点击冒泡
+    panel.addEventListener('click', (e) => {
+        e.stopPropagation();
+    });
+}
+
+// 标记所有通知为已读
+function markAllAsRead() {
+    if (notificationData.notifications) {
+        notificationData.notifications = notificationData.notifications.map(n => ({ ...n, read: true }));
+        renderNotifications();
+    }
+}
+
+// 清空通知
+function clearNotifications() {
+    if (confirm('确定要清空所有通知吗？')) {
+        notificationData.notifications = [];
+        renderNotifications();
+        notify('已清空所有通知', 'ok');
+    }
+}
+
+// 在现有事件委托中添加通知相关处理
+document.addEventListener('click', (e) => {
+    const action = e.target.closest('[data-action]')?.dataset.action;
+    
+    if (action === 'clear-notifications') {
+        clearNotifications();
+    }
+});
+
 EXTERNAL_JS
 
 
@@ -6698,7 +7236,27 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 
 <div class="container">
   <div class="main-card">
-    <div class="main-header"><h1>🚀 EdgeBox - 企业级多协议节点管理系统 🚀</h1></div>
+        <div class="main-header">
+        <h1>🚀 EdgeBox - 企业级多协议节点管理系统 🚀</h1>
+        <div class="notification-center">
+            <button class="notification-trigger" id="notificationTrigger" data-action="toggle-notifications">
+                <span class="notification-icon">🔔</span>
+                <span class="notification-badge" id="notificationBadge" style="display:none;">0</span>
+            </button>
+            <div class="notification-panel" id="notificationPanel">
+                <div class="notification-header">
+                    <h3>通知中心</h3>
+                    <button class="notification-clear" data-action="clear-notifications">清空</button>
+                </div>
+                <div class="notification-list" id="notificationList">
+                    <div class="notification-loading">加载中...</div>
+                </div>
+                <div class="notification-footer">
+                    <small>自动清理7天前的通知</small>
+                </div>
+            </div>
+        </div>
+    </div>
     <div class="main-content">
 	
 <div class="card" id="system-overview">	
@@ -7120,6 +7678,7 @@ CONF
 */2 * * * * bash -lc '/etc/edgebox/scripts/dashboard-backend.sh --now' >/dev/null 2>&1
 0  * * * * bash -lc '/etc/edgebox/scripts/traffic-collector.sh'        >/dev/null 2>&1
 7  * * * * bash -lc '/etc/edgebox/scripts/traffic-alert.sh'            >/dev/null 2>&1
+*/5 * * * * bash -lc '/etc/edgebox/scripts/dashboard-backend.sh --notifications-only' >/dev/null 2>&1
 15 2 * * * bash -lc '/usr/local/bin/edgebox-ipq.sh'                    >/dev/null 2>&1
 CRON
     ) | crontab -
