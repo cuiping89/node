@@ -49,8 +49,6 @@ YELLOW="${ESC}[1;33m"
 GREEN="${ESC}[0;32m"
 RED="${ESC}[0;31m"
 NC="${ESC}[0m"  # No Color
-# 统一兜底版本，可被环境变量覆盖：DEFAULT_SING_BOX_VERSION=1.12.5 bash install.sh
-DEFAULT_SING_BOX_VERSION="${DEFAULT_SING_BOX_VERSION:-1.12.4}"
 
 #############################################
 # 目录结构定义
@@ -1541,6 +1539,8 @@ install_sing_box() {
         log_info "检测到已安装的sing-box版本: ${current_version:-未知}"
         log_info "跳过sing-box重新安装，使用现有版本"
     else
+        # 从GitHub下载sing-box
+        local version="${SING_BOX_VERSION:-1.12.4}"
 # 解析架构 → sing-box 资产名
 local arch="$(uname -m)"
 local arch_tag=""
@@ -1554,32 +1554,30 @@ case "$arch" in
 esac
 
 # 版本优先级：
-# 1) 显式 SING_BOX_VERSION（可带或不带 v）
-# 2) GitHub API /releases/latest 取 tag_name
-# 3) 跟随跳转读取 releases/latest 的最终 URL，解析 tag
-# 4) 仍失败 → 统一回落到 DEFAULT_SINGBOX_VERSION
+# 1) 若传入 SING_BOX_VERSION（可带/不带 v），则用它
+# 2) 否则 GitHub API releases/latest -> tag_name
+# 3) API 不通则解析 releases/latest 页面
+# 4) 仍失败回退到保守版本
 local ver_raw=""
 if [[ -n "${SING_BOX_VERSION:-}" ]]; then
   ver_raw="${SING_BOX_VERSION#v}"
 else
-  # 尝试 API
   ver_raw="$(
-    curl -fsSL -H 'User-Agent: EdgeBox' \
-      'https://api.github.com/repos/SagerNet/sing-box/releases/latest' 2>/dev/null \
-    | jq -r '.tag_name' 2>/dev/null | sed 's/^v//'
+    curl -fsSL \
+      -H 'Accept: application/vnd.github+json' \
+      -H 'User-Agent: EdgeBox/3.0 (installer)' \
+      'https://api.github.com/repos/SagerNet/sing-box/releases/latest' \
+      2>/dev/null | jq -r '.tag_name' 2>/dev/null | sed 's/^v//'
   )"
-
-  # API 拿不到时：不解析 HTML，直接跟随跳转拿最终 URL
   if [[ -z "$ver_raw" || "$ver_raw" == "null" ]]; then
     ver_raw="$(
-      curl -fsSLI -o /dev/null -w '%{url_effective}' \
-        'https://github.com/SagerNet/sing-box/releases/latest' \
-      | sed -nE 's#.*/tag/v([0-9.]+).*#\1#p'
+      curl -fsSL -H 'User-Agent: Mozilla/5.0 (EdgeBox)' \
+        'https://github.com/SagerNet/sing-box/releases/latest' 2>/dev/null \
+      | grep -oE 'sing-box-[0-9][0-9.]*-linux-' \
+      | head -1 | sed -E 's/sing-box-([0-9.]+)-linux-.*/\1/'
     )"
   fi
-
-  # 统一回落
-  [[ -z "$ver_raw" ]] && ver_raw="${DEFAULT_SING_BOX_VERSION}"
+  [[ -z "$ver_raw" ]] && ver_raw="1.8.10"
 fi
 local version="$ver_raw"
 
@@ -3115,7 +3113,7 @@ cat <<EOF
   {
     "name": "VLESS-Reality",
     "scenario": "强审查环境",
-    "camouflage": "极佳★★★★★",
+    "camouflage": "极佳",
     "status": "$reality_status",
     "port": 443,
     "network": "tcp",
@@ -3124,7 +3122,7 @@ cat <<EOF
   {
     "name": "VLESS-gRPC",
     "scenario": "较严审查/走CDN",
-    "camouflage": "极佳★★★★★",
+    "camouflage": "极佳",
     "status": "$grpc_status",
     "port": 443,
     "network": "tcp",
@@ -3133,7 +3131,7 @@ cat <<EOF
   {
     "name": "VLESS-WebSocket",
     "scenario": "常规网络稳定",
-    "camouflage": "良好★★★★☆",
+    "camouflage": "良好",
     "status": "$ws_status",
     "port": 443,
     "network": "tcp",
@@ -3142,7 +3140,7 @@ cat <<EOF
   {
     "name": "Trojan-TLS",
     "scenario": "移动网络可靠",
-    "camouflage": "良好★★★★☆",
+    "camouflage": "良好",
     "status": "$trojan_status",
     "port": 443,
     "network": "tcp",
@@ -3151,7 +3149,7 @@ cat <<EOF
   {
     "name": "Hysteria2",
     "scenario": "弱网/高丢包更佳",
-    "camouflage": " 好★★★☆☆",
+    "camouflage": "好",
     "status": "$udp443_status",
     "port": 443,
     "network": "udp",
@@ -3160,7 +3158,7 @@ cat <<EOF
   {
     "name": "TUIC",
     "scenario": "大带宽/低时延",
-    "camouflage": "良好★★★★☆",
+    "camouflage": "良好",
     "status": "$udp2053_status",
     "port": 2053,
     "network": "udp",
@@ -3427,6 +3425,493 @@ DASHBOARD_BACKEND_SCRIPT
     
     return 0
 }
+
+#############################################
+# 流量监控系统设置
+#############################################
+
+# 设置流量采集和监控系统
+setup_traffic_monitoring() {
+    log_info "设置流量监控系统..."
+    
+    # 确保目录存在
+    mkdir -p "${TRAFFIC_DIR}/logs"
+    mkdir -p /var/www/edgebox/status
+    
+    # 创建软链接供Web访问
+    ln -sfn "${TRAFFIC_DIR}" /var/www/html/traffic 2>/dev/null || true
+    ln -sfn /var/www/edgebox/status /var/www/html/status 2>/dev/null || true
+    
+    # 初始化nftables计数器
+    setup_nftables_counters
+    
+    # 生成流量采集脚本
+    create_traffic_collector
+    
+    # 生成预警脚本
+    create_traffic_alert_system
+    
+    # 初始化CSV文件
+    initialize_traffic_logs
+	
+# 创建favicon.ico避免404错误
+touch "${WEB_ROOT:-/var/www/html}/favicon.ico"
+    
+    log_success "流量监控系统设置完成"
+}
+
+# 设置nftables计数器
+setup_nftables_counters() {
+    log_info "配置nftables流量计数器..."
+    
+    # 检查nftables是否可用
+    if ! command -v nft >/dev/null 2>&1; then
+        log_warn "nftables未安装，跳过计数器设置"
+        return 0
+    fi
+    
+    # 创建nftables规则
+    nft -f - << 'NFT_RULES' || true
+table inet edgebox {
+    counter c_tcp443 {}
+    counter c_udp443 {}
+    counter c_udp2053 {}
+    counter c_resi_out {}
+
+    set resi_addr4 {
+        type ipv4_addr
+        flags interval
+    }
+
+    set resi_addr6 {
+        type ipv6_addr
+        flags interval
+    }
+
+    chain output {
+        type filter hook output priority 0; policy accept;
+        tcp dport 443 counter name c_tcp443
+        udp dport 443 counter name c_udp443
+        udp dport 2053 counter name c_udp2053
+        ip daddr @resi_addr4 counter name c_resi_out
+        ip6 daddr @resi_addr6 counter name c_resi_out
+    }
+}
+NFT_RULES
+
+    log_success "nftables计数器配置完成"
+}
+
+# 创建流量采集脚本
+create_traffic_collector() {
+    log_info "生成流量采集脚本..."
+    
+    cat > "${SCRIPTS_DIR}/traffic-collector.sh" << 'TRAFFIC_COLLECTOR'
+#!/usr/bin/env bash
+set -euo pipefail
+
+TRAFFIC_DIR="/etc/edgebox/traffic"
+LOG_DIR="${TRAFFIC_DIR}/logs"
+STATE_FILE="${TRAFFIC_DIR}/.state"
+
+# 确保目录存在
+mkdir -p "$LOG_DIR"
+
+# 识别主要网卡
+get_main_interface() {
+    ip route | awk '/default/ {print $5; exit}' || \
+    ip -o -4 addr show scope global | awk '{print $2; exit}' || \
+    echo "eth0"
+}
+
+# 获取当前流量统计
+get_current_stats() {
+    local interface="$1"
+    local tx_bytes rx_bytes
+    
+    if [[ -f "/sys/class/net/$interface/statistics/tx_bytes" ]]; then
+        tx_bytes=$(cat "/sys/class/net/$interface/statistics/tx_bytes")
+        rx_bytes=$(cat "/sys/class/net/$interface/statistics/rx_bytes")
+    else
+        tx_bytes=0
+        rx_bytes=0
+    fi
+    
+    echo "$tx_bytes $rx_bytes"
+}
+
+# 获取代理代理流量（从nftables计数器）
+get_residential_traffic() {
+    if ! command -v nft >/dev/null 2>&1; then
+        echo "0"
+        return
+    fi
+    
+    local resi_bytes
+    resi_bytes=$(nft list counter inet edgebox c_resi_out 2>/dev/null | \
+                awk '/bytes/ {print $2; exit}' || echo "0")
+    echo "${resi_bytes:-0}"
+}
+
+# 主执行函数
+main() {
+    local interface today
+    interface=$(get_main_interface)
+    today=$(date +%Y-%m-%d)
+    
+    # 获取当前统计
+    read current_tx current_rx < <(get_current_stats "$interface")
+    local current_resi
+    current_resi=$(get_residential_traffic)
+    
+    # 读取上次状态
+    local prev_tx=0 prev_rx=0 prev_resi=0
+    if [[ -f "$STATE_FILE" ]]; then
+        source "$STATE_FILE"
+    fi
+    
+    # 计算增量
+    local delta_tx delta_rx delta_resi delta_vps
+    
+    if [[ $current_tx -ge $prev_tx ]]; then
+        delta_tx=$((current_tx - prev_tx))
+    else
+        delta_tx=0  # 处理计数器重置情况
+    fi
+    
+    if [[ $current_rx -ge $prev_rx ]]; then
+        delta_rx=$((current_rx - prev_rx))
+    else
+        delta_rx=0
+    fi
+    
+    if [[ $current_resi -ge $prev_resi ]]; then
+        delta_resi=$((current_resi - prev_resi))
+    else
+        delta_resi=0
+    fi
+    
+    # VPS出站 = 总出站 - 代理出站
+    delta_vps=$delta_tx
+    if [[ $delta_resi -le $delta_tx ]]; then
+        delta_vps=$((delta_tx - delta_resi))
+    fi
+    
+    # 更新日志文件
+    update_daily_log "$today" "$delta_vps" "$delta_resi" "$delta_tx" "$delta_rx"
+    
+    # 生成月度统计
+    generate_monthly_stats
+    
+    # 生成traffic.json
+    generate_traffic_json
+    
+    # 保存当前状态
+    cat > "$STATE_FILE" << EOF
+prev_tx=$current_tx
+prev_rx=$current_rx
+prev_resi=$current_resi
+EOF
+}
+
+# 更新日志文件
+update_daily_log() {
+    local date="$1" vps="$2" resi="$3" tx="$4" rx="$5"
+    local daily_csv="${LOG_DIR}/daily.csv"
+    
+    # 确保CSV头存在
+    if [[ ! -f "$daily_csv" ]]; then
+        echo "date,vps,resi,tx,rx" > "$daily_csv"
+    fi
+    
+    # 更新或添加今日数据
+    local temp_file
+    temp_file=$(mktemp)
+    
+    awk -F',' -v d="$date" -v v="$vps" -v r="$resi" -v t="$tx" -v x="$rx" '
+        BEGIN { OFS=","; updated=0 }
+        NR==1 { print; next }
+        $1==d { $2+= v; $3+= r; $4+= t; $5+= x; updated=1 }
+        { print }
+        END { if (!updated) print d,v,r,t,x }
+    ' "$daily_csv" > "$temp_file"
+    
+    mv "$temp_file" "$daily_csv"
+    
+    # 保留最近90天数据
+    if [[ $(wc -l < "$daily_csv") -gt 91 ]]; then
+        local header_and_recent
+        header_and_recent=$(mktemp)
+        head -n1 "$daily_csv" > "$header_and_recent"
+        tail -n90 "$daily_csv" | grep -v '^date,' >> "$header_and_recent"
+        mv "$header_and_recent" "$daily_csv"
+    fi
+}
+
+# 生成月度统计
+generate_monthly_stats() {
+    local daily_csv="${LOG_DIR}/daily.csv"
+    local monthly_csv="${LOG_DIR}/monthly.csv"
+    
+    if [[ ! -f "$daily_csv" ]]; then
+        return
+    fi
+    
+    # 生成月度统计
+    awk -F',' '
+        NR > 1 {
+            month = substr($1, 1, 7)
+            vps[month] += $2
+            resi[month] += $3
+            tx[month] += $4
+            rx[month] += $5
+        }
+        END {
+            print "month,vps,resi,total,tx,rx"
+            for (m in vps) {
+                total = vps[m] + resi[m]
+                print m "," vps[m] "," resi[m] "," total "," tx[m] "," rx[m]
+            }
+        }
+    ' "$daily_csv" | sort -t',' -k1,1 > "$monthly_csv"
+}
+
+# 生成traffic.json
+generate_traffic_json() {
+    local daily_csv="${LOG_DIR}/daily.csv"
+    local monthly_csv="${LOG_DIR}/monthly.csv"
+    local traffic_json="${TRAFFIC_DIR}/traffic.json"
+    
+    # 读取最近30天数据
+    local last30d_json="[]"
+    if [[ -f "$daily_csv" ]]; then
+        last30d_json=$(tail -n30 "$daily_csv" | grep -v '^date,' | \
+            awk -F',' '{printf("{\"date\":\"%s\",\"vps\":%s,\"resi\":%s,\"tx\":%s,\"rx\":%s}\n", $1,$2,$3,$4,$5)}' | \
+            jq -s '.')
+    fi
+    
+    # 读取月度数据
+    local monthly_json="[]"
+    if [[ -f "$monthly_csv" ]]; then
+        monthly_json=$(tail -n12 "$monthly_csv" | grep -v '^month,' | \
+            awk -F',' '{printf("{\"month\":\"%s\",\"vps\":%s,\"resi\":%s,\"total\":%s,\"tx\":%s,\"rx\":%s}\n", $1,$2,$3,$4,$5,$6)}' | \
+            jq -s '.')
+    fi
+    
+    # 生成完整的traffic.json
+    jq -n \
+        --arg updated_at "$(date -Is)" \
+        --argjson last30d "$last30d_json" \
+        --argjson monthly "$monthly_json" \
+        '{
+            updated_at: $updated_at,
+            last30d: $last30d,
+            monthly: $monthly
+        }' > "$traffic_json"
+}
+
+# 执行主函数
+main "$@"
+TRAFFIC_COLLECTOR
+
+    chmod +x "${SCRIPTS_DIR}/traffic-collector.sh"
+    log_success "流量采集脚本生成完成"
+}
+
+# 创建流量预警系统
+create_traffic_alert_system() {
+    log_info "生成流量预警系统..."
+    
+    # 创建预警配置文件
+    cat > "${TRAFFIC_DIR}/alert.conf" << 'ALERT_CONFIG'
+# EdgeBox 流量预警配置
+# 月度预算（GiB）
+ALERT_MONTHLY_GIB=100
+
+# Telegram Bot配置
+ALERT_TG_BOT_TOKEN=
+ALERT_TG_CHAT_ID=
+
+# Discord Webhook
+ALERT_DISCORD_WEBHOOK=
+
+# 微信推送（PushPlus）
+ALERT_PUSHPLUS_TOKEN=
+
+# 通用Webhook
+ALERT_WEBHOOK=
+ALERT_WEBHOOK_FORMAT=raw
+
+# 预警阈值（百分比，逗号分隔）
+ALERT_STEPS=30,60,90
+ALERT_CONFIG
+
+    # 创建预警脚本
+    cat > "${SCRIPTS_DIR}/traffic-alert.sh" << 'TRAFFIC_ALERT'
+#!/usr/bin/env bash
+set -euo pipefail
+
+TRAFFIC_DIR="/etc/edgebox/traffic"
+LOG_DIR="${TRAFFIC_DIR}/logs"
+CONF_FILE="${TRAFFIC_DIR}/alert.conf"
+STATE_FILE="${TRAFFIC_DIR}/alert.state"
+LOG_FILE="/var/log/edgebox-traffic-alert.log"
+
+# 读取配置
+if [[ ! -f "$CONF_FILE" ]]; then
+    echo "配置文件不存在: $CONF_FILE"
+    exit 1
+fi
+
+source "$CONF_FILE"
+
+# 获取当前月份和用量
+current_month=$(date +%Y-%m)
+monthly_csv="${LOG_DIR}/monthly.csv"
+
+if [[ ! -f "$monthly_csv" ]]; then
+    echo "月度统计文件不存在: $monthly_csv"
+    exit 0
+fi
+
+# 读取当前月份数据
+month_data=$(grep "^${current_month}," "$monthly_csv" 2>/dev/null || echo "")
+
+if [[ -z "$month_data" ]]; then
+    echo "当前月份无数据: $current_month"
+    exit 0
+fi
+
+# 解析数据（格式：month,vps,resi,total,tx,rx）
+IFS=',' read -r _ vps_bytes resi_bytes total_bytes tx_bytes rx_bytes <<< "$month_data"
+
+# 计算预算和使用率
+budget_bytes=$(( ${ALERT_MONTHLY_GIB:-100} * 1024 * 1024 * 1024 ))
+used_bytes=$total_bytes
+usage_percent=$(( used_bytes * 100 / budget_bytes ))
+
+# 读取已发送的预警
+sent_alerts=""
+if [[ -f "$STATE_FILE" ]]; then
+    sent_alerts=$(cat "$STATE_FILE")
+fi
+
+# 发送通知函数
+send_notification() {
+    local message="$1"
+    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    
+    # 记录日志
+    echo "[$timestamp] $message" >> "$LOG_FILE"
+    
+    # Telegram通知
+    if [[ -n "${ALERT_TG_BOT_TOKEN:-}" && -n "${ALERT_TG_CHAT_ID:-}" ]]; then
+        curl -s -X POST "https://api.telegram.org/bot${ALERT_TG_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${ALERT_TG_CHAT_ID}" \
+            -d "text=EdgeBox流量预警: $message" >/dev/null 2>&1 || true
+    fi
+    
+    # Discord通知
+    if [[ -n "${ALERT_DISCORD_WEBHOOK:-}" ]]; then
+        local payload
+        payload=$(jq -n --arg content "EdgeBox流量预警: $message" '{content: $content}')
+        curl -s -X POST "${ALERT_DISCORD_WEBHOOK}" \
+            -H "Content-Type: application/json" \
+            -d "$payload" >/dev/null 2>&1 || true
+    fi
+    
+    # 微信PushPlus通知
+    if [[ -n "${ALERT_PUSHPLUS_TOKEN:-}" ]]; then
+        curl -s -X POST "http://www.pushplus.plus/send" \
+            -H "Content-Type: application/json" \
+            -d "{\"token\":\"${ALERT_PUSHPLUS_TOKEN}\",\"title\":\"EdgeBox流量预警\",\"content\":\"$message\"}" >/dev/null 2>&1 || true
+    fi
+    
+    # 通用Webhook通知
+    if [[ -n "${ALERT_WEBHOOK:-}" ]]; then
+        local webhook_payload
+        case "${ALERT_WEBHOOK_FORMAT:-raw}" in
+            "slack")
+                webhook_payload=$(jq -n --arg text "EdgeBox流量预警: $message" '{text: $text}')
+                ;;
+            "discord")
+                webhook_payload=$(jq -n --arg content "EdgeBox流量预警: $message" '{content: $content}')
+                ;;
+            *)
+                webhook_payload=$(jq -n --arg message "$message" '{message: $message}')
+                ;;
+        esac
+        
+        curl -s -X POST "${ALERT_WEBHOOK}" \
+            -H "Content-Type: application/json" \
+            -d "$webhook_payload" >/dev/null 2>&1 || true
+    fi
+}
+
+# 检查预警阈值
+IFS=',' read -ra alert_steps <<< "${ALERT_STEPS:-30,60,90}"
+new_sent_alerts="$sent_alerts"
+
+for step in "${alert_steps[@]}"; do
+    step=$(echo "$step" | tr -d ' ')  # 去除空格
+    
+    # 检查是否达到阈值且未发送过
+    if [[ $usage_percent -ge $step ]] && [[ "$sent_alerts" != *"$step"* ]]; then
+        local used_gib rx_gib
+        used_gib=$(echo "scale=2; $used_bytes / 1024 / 1024 / 1024" | bc)
+        rx_gib=$(echo "scale=2; $rx_bytes / 1024 / 1024 / 1024" | bc)
+        
+        local alert_message
+        alert_message="本月流量已达 ${usage_percent}%（${used_gib}GB/${ALERT_MONTHLY_GIB}GB），触发 ${step}% 预警阈值。下载流量：${rx_gib}GB"
+        
+        send_notification "$alert_message"
+        
+        # 更新已发送状态
+        if [[ -z "$new_sent_alerts" ]]; then
+            new_sent_alerts="$step"
+        else
+            new_sent_alerts="${new_sent_alerts},$step"
+        fi
+    fi
+done
+
+# 保存已发送状态
+echo "$new_sent_alerts" > "$STATE_FILE"
+TRAFFIC_ALERT
+
+    chmod +x "${SCRIPTS_DIR}/traffic-alert.sh"
+    log_success "流量预警系统生成完成"
+}
+
+# 初始化流量日志文件
+initialize_traffic_logs() {
+    log_info "初始化流量日志文件..."
+    
+    local log_dir="${TRAFFIC_DIR}/logs"
+    mkdir -p "$log_dir"
+    
+    # 初始化daily.csv
+    if [[ ! -f "${log_dir}/daily.csv" ]]; then
+        echo "date,vps,resi,tx,rx" > "${log_dir}/daily.csv"
+    fi
+    
+    # 初始化monthly.csv
+    if [[ ! -f "${log_dir}/monthly.csv" ]]; then
+        echo "month,vps,resi,total,tx,rx" > "${log_dir}/monthly.csv"
+    fi
+	
+	# 添加示例数据避免图表空白
+for i in {6..0}; do
+    echo "$(date -d "$i days ago" '+%Y-%m-%d'),0.1,0.05,0.15,0.08" >> "${log_dir}/daily.csv"
+done
+echo "$(date '+%Y-%m'),2.1,1.5,3.6,1.8" >> "${log_dir}/monthly.csv"
+    
+    # 设置权限
+    chmod 644 "${log_dir}"/*.csv
+    
+    log_success "流量日志文件初始化完成"
+}
+
 
 
 
@@ -3806,36 +4291,14 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 .text-muted{ color:#6b7280; }
 .text-secondary{ color:#4b5563; }
 
-/* ===== 文字样式统一：h3黑色大字，h4灰色中字，内容灰色中字 ===== */
-:root {
-  --heading-color: #111827;   /* h3标题颜色（黑色） */
-  --subheading-color: #6b7280; /* h4标题颜色（灰色） */
-  --content-color: #6b7280;   /* 内容颜色（灰色） */
-  --h3-size: 15px;            /* h3字体大小 */
-  --h4-size: 14px;            /* h4字体大小 */
-}
-
-/* h3基础样式：黑色大字 */
-h3 { 
-  font-size: var(--h3-size); 
-  line-height: 1.4; 
-  font-weight: 600; 
-  color: var(--heading-color);
-}
-
-/* h4基础样式：灰色中字 */
-h4 { 
-  font-size: var(--h4-size); 
-  line-height: 1.4; 
-  font-weight: 600; 
-  color: var(--subheading-color);
-}
-
 /* ================ 卡片/区块 ================ */
 .main-card{
   background:#fff; border:1px solid #d1d5db; border-radius:10px;
   box-shadow:0 2px 6px rgba(0,0,0,.08); overflow:hidden;
 }
+.main-header{ background:linear-gradient(135deg,#5e72e4 0%,#825ee4 100%); color:#fff; padding:20px 30px; text-align:center; }
+.main-header h1{ color:#fff; margin:0; }
+.main-content{ padding:20px; }
 
 .card{
   background:#fff; border:1px solid #d1d5db; border-radius:10px;
@@ -3846,110 +4309,6 @@ h4 {
 .card-header{ margin-bottom:20px; padding-bottom:12px; border-bottom:1px solid #e5e7eb; }
 .card-header h2{ display:flex; justify-content:space-between; align-items:center; }
 .card-note{ font-size:11px; color:#6b7280; font-weight:400; }
-
-
-/* =========标题 =========*/
-
-/* 1. 恢复标题作为大卡片的一部分 */
-.main-card {
-  background: #fff; 
-  border: 1px solid #d1d5db; 
-  border-radius: 10px;
-  box-shadow: 0 2px 6px rgba(0,0,0,.08); 
-  overflow: hidden;
-  margin-bottom: 20px;
-  /* 去掉整体padding，让标题可以占满宽度 */
-  padding: 0 !important;
-}
-
-/* 2. 标题样式：从深灰到浅灰的渐变 + 圆角只在顶部 */
-.main-header {
-  text-align: center;
-  /* 修正渐变：从深灰到浅灰 */
-  background: linear-gradient(135deg, #e2e8f0 0%, #f1f5f9 50%, #f8fafc 100%);
-  border: none; /* 去掉单独边框，融入大卡片 */
-  border-radius: 0; /* 去掉独立圆角 */
-  border-top-left-radius: 9px; /* 只保留顶部圆角，配合大卡片 */
-  border-top-right-radius: 9px;
-  padding: 16px 20px;
-  position: relative;
-  margin: 0; /* 重要：去掉margin让标题贴合大卡片边缘 */
-  /* 调整阴影：内阴影营造嵌入效果 */
-  box-shadow: 
-    inset 0 -1px 0 rgba(0,0,0,0.1),
-    inset 0 1px 0 rgba(255,255,255,0.9);
-}
-
-/* 3. 大卡片内容区域恢复padding */
-.main-content {
-  padding: 20px !important;
-  margin: 0 !important;
-}
-
-/* 4. 标题文字样式 */
-.main-header h1 {
-  text-align: center !important;
-  margin: 0 auto;
-  display: block;
-  width: 100%;
-  font-size: 24px;
-  font-weight: 700;
-  color: #1f2937;
-  line-height: 1.3;
-  text-shadow: 0 1px 2px rgba(0,0,0,0.1);
-}
-
-/* 5. 去掉紫色竖杠 */
-.main-header::before {
-  display: none !important;
-}
-
-/* 6. 可选：底部装饰线 */
-.main-header::after {
-  content: "";
-  position: absolute;
-  left: 50%;
-  bottom: 0;
-  transform: translateX(-50%);
-  width: 60px;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, #10b981, transparent);
-  border-radius: 2px;
-  opacity: 0.6;
-}
-
-/* 7. 确保内部卡片间距正确 */
-.main-content .card {
-  margin-bottom: 20px !important;
-}
-
-.main-content .card:last-child {
-  margin-bottom: 0 !important;
-}
-
-/* 8. grid布局特殊处理 */
-.main-content .grid .card {
-  margin-bottom: 0 !important;
-}
-
-/* 9. 可选：鼠标悬停效果（整个标题区域） */
-.main-header:hover {
-  background: linear-gradient(135deg, #d1d5db 0%, #e2e8f0 50%, #f1f5f9 100%);
-  box-shadow: 
-    inset 0 -1px 0 rgba(0,0,0,0.15),
-    inset 0 1px 0 rgba(255,255,255,0.8);
-  transition: all 0.3s ease;
-}
-
-/* 10. 备选方案：如果想要更明显的深浅对比 */
-.main-header.dark-to-light {
-  background: linear-gradient(135deg, #94a3b8 0%, #cbd5e1 50%, #e2e8f0 100%);
-}
-
-.main-header.dark-to-light:hover {
-  background: linear-gradient(135deg, #64748b 0%, #94a3b8 50%, #cbd5e1 100%);
-}
-
 
 /* =========内层 =========*/
 .inner-block{
@@ -3986,7 +4345,6 @@ h4 {
 .grid-1-2{ grid-template-columns:1fr 2fr; }
 
 
-
 /* =======================================================================
    系统概览
    ======================================================================= */
@@ -3996,12 +4354,8 @@ h4 {
   --meter-height:20px;      /* 进度条高度 */
   --svc-gap:12px;           /* 服务名/徽标/版本 间距 */
   --h3-gap:8px;
-  --meter-track:#e2e8f0; 
-  --meter-start:#059669; 
-  --meter-end:#10b981;
-    --label: var(--heading-color); 
-  --value: var(--content-color); 
-  --muted: #6b7280;
+  --meter-track:#d1d5db; --meter-start:#059669; --meter-end:#10b981;
+  --label:#4b5563; --value:#111827; --muted:#6b7280;
 }
 
 /* ========== 覆盖全局 inner-block 样式，统一高度 ========== */
@@ -4017,10 +4371,9 @@ h4 {
   align-items:center; 
   white-space:nowrap; 
   margin:0 0 var(--h3-gap);
-  font-size: var(--h3-size) !important;  /* 使用h3标准大小 */
-  line-height: 22px !important;
-  height: 22px !important;
-  color: var(--heading-color) !important;
+  font-size: 14px !important;  /* 统一标题大小 */
+  line-height: 20px !important;
+  height: 20px !important;
 }
 
 /* 服务器信息：两列 */
@@ -4028,29 +4381,8 @@ h4 {
   display:grid; grid-template-columns:var(--label-w) 1fr; gap:8px; align-items:center; 
   padding:5px 0;  /* 统一行高 */
 }
-
-/* 系统概览标题统一样式 */
-#system-overview .server-info .label,
-#system-overview .progress-row .label,
-#system-overview .core-services .label { 
-  color: var(--subheading-color) !important;  /* h4级别用灰色 */
-  font-size: var(--h4-size) !important; 
-  font-weight: 600 !important;
-  justify-self: start; 
-}
-
-/* 系统概览内容统一样式 */
-#system-overview .server-info .value,
-#system-overview .progress-row .value,
-#system-overview .core-services .value { 
-  color: var(--content-color) !important; 
-  font-size: var(--h4-size) !important; 
-  font-weight: 500 !important;
-  min-width: 0; 
-  white-space: nowrap; 
-  overflow: hidden; 
-  text-overflow: ellipsis; 
-}
+#system-overview .server-info .label{ color:var(--label); justify-self:start; }
+#system-overview .server-info .value{ min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--value); }
 
 /* 服务器配置：键名 | 进度条 | 百分比 */
 #system-overview .progress-row{
@@ -4136,7 +4468,6 @@ h4 {
   --percent-col: 33px;             /* 百分比列可一起调，避免太窄 */
 }
 #system-overview .progress-label { 
-  color: var(--subheading-color) !important;  /* 设置为灰色 */
   white-space: nowrap;
 }
 
@@ -4179,7 +4510,7 @@ h4 {
    ======================================================================= */
 #cert-panel{
   /* 与 NetID 标签一致的参数 */
-  --tag-pad-y: 9px;        /* ← 改它=改标签高度 */
+  --tag-pad-y: 6px;        /* ← 改它=改标签高度 */
   --tag-pad-x: 16px;
   --tag-radius: 8px;
   --tag-font: 13px;
@@ -4190,8 +4521,8 @@ h4 {
   --h3-gap: 8px;
 
   /* 颜色 */
-  --label: var(--heading-color);
-  --value: var(--content-color);
+  --label: #4b5563;
+  --value: #111827;
   --tag-active-bg: #10b981;     /* 激活：绿色 */
   --tag-inactive-bg: #e2e8f0;   /* 非当前：灰底 */
   --tag-active-color: #ffffff;
@@ -4244,24 +4575,16 @@ h4 {
   align-items:center;
   padding:6px 0;
 }
-
-/* 证书切换标题统一样式 */
 #cert-panel .inner-block .info-item label{
-  color: var(--subheading-color) !important;  /* h4级别用灰色 */
-  font-size: var(--h4-size) !important;
-  font-weight: 600 !important;
-  justify-self: start;
+  color: var(--label);
+  justify-self:start;
 }
-
-/* 证书切换内容统一样式 */
 #cert-panel .inner-block .info-item value{
-  color: var(--content-color) !important;
-  font-size: var(--h4-size) !important;
-  font-weight: 500 !important;
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  min-width:0;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  color: var(--value);
 }
 
 /* =======================================================================
@@ -4281,17 +4604,18 @@ h4 {
   --tag-font: 13px;
 
   /* 颜色 */
-  --label: var(--heading-color);
-  --value: var(--content-color);
+  --label: #4b5563;
+  --value: #111827;
   --tag-active-bg: #10b981;     /* 激活：绿色 */
   --tag-inactive-bg: #e2e8f0;   /* 默认：灰色 */
   --tag-active-color: #ffffff;
   --tag-inactive-color: #64748b;
   --card-br: #e5e7eb;
 
-  /* 高度联动（自适应高度） */
+  /* 高度联动（等高 & 垂直居中） */
   --tag-h: calc(var(--tag-pad-y)*2 + 20px); /* 20px≈13px字高的可视行高 */
-  --block-min-h: 140px;     /* 减少最小高度，让内容决定 */
+  --block-min-h: 160px;     /* 小卡片内容区高度（与证书切换对齐） */
+  --panel-min-h: calc(var(--block-min-h) + var(--tag-h) + var(--tag-gap) + 8px);
 
   /* 标题横线 ↔ 组件组 的间距（只影响本卡） */
   --header-gap: 12px;       /* 原全局为 20px：越小越贴近 */
@@ -4306,14 +4630,14 @@ h4 {
 }
 
 /* 三块容器：三列、等高、整组垂直居中 */
-/* 三块容器：三列、自适应高度、顶部对齐 */
 #netid-panel .network-blocks{
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 15px;
 
-  align-content: start;         /* 从顶部开始排列 */
-  align-items: start;           /* 子项顶部对齐，不强制等高 */
+  min-height: var(--panel-min-h);
+  align-content: center;        /* 整组在标题下区域垂直居中 */
+  align-items: stretch;         /* 子项等高 */
   padding-top: var(--panel-top-gap); /* 与标题横线的微调间距 */
 }
 
@@ -4325,26 +4649,27 @@ h4 {
   border-radius: 10px;
   padding: 12px;
   margin-top: calc(var(--tag-h) + var(--tag-gap));  /* 预留标签高度 */
-  min-height: 140px;  /* 减少固定高度，让内容决定高度 */
+  min-height: var(--block-min-h);
   box-shadow: 0 2px 6px rgba(0,0,0,0.08);
 }
 
+/* 悬浮标签：与卡片同宽，悬于上方（分离） */
 #netid-panel .network-block > h3{
   position: absolute !important;
   top: 0 !important;
   left: 1px !important;
   right: 1px !important;
-  width: calc(100% - 2px) !important;
+  width: calc(100% - 2px) !important;   /* 等宽，扣左右边框 */
   transform: translateY(calc(-100% - var(--tag-gap))) !important;
 
   margin: 0 !important;
   padding: var(--tag-pad-y) var(--tag-pad-x) !important;
   background: var(--tag-inactive-bg) !important;
-  color: var(--heading-color) !important;  /* 改为h3的黑色 */
+  color: var(--tag-inactive-color) !important;
   border: 1px solid var(--card-br) !important;
   border-radius: var(--tag-radius) !important;
 
-  font-size: var(--h3-size) !important;  /* 使用h3大小 */
+  font-size: var(--tag-font) !important;
   font-weight: 600 !important;
   line-height: 1.2 !important;
   white-space: nowrap !important;
@@ -4370,31 +4695,17 @@ h4 {
   align-items: center;
   padding: var(--line-vpad) 0;
 }
-
-/* 网络身份配置标题统一样式 */
 #netid-panel .network-block .info-item label{
-  color: var(--subheading-color) !important;  /* h4级别用灰色 */
-  font-size: var(--h4-size) !important;
-  font-weight: 600 !important;
+  color: var(--label);
+  font-size: 13px;
 }
-
-/* 网络身份配置内容统一样式 */
 #netid-panel .network-block .info-item value{
-  color: var(--content-color) !important;
-  font-size: var(--h4-size) !important;
-  font-weight: 500 !important;
   min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-/* 特殊处理：白名单文本保持统一样式 */
-#netid-panel .whitelist-text {
-  color: var(--content-color) !important;
-  font-size: var(--h4-size) !important;
-  font-weight: 500 !important;
-  flex-shrink: 0;
+  color: var(--value);
+  font-size: 13px;
 }
 
 /* 标题右侧“注：HY2/TUIC…”（颜色+对齐+右缩进，仅本卡） */
@@ -4423,6 +4734,7 @@ h4 {
 
 /* ======== 网络身份配置 - 白名单查看全部按钮专用CSS =========== */
 
+/* 关键修复：覆盖分流出站区块中白名单值的限制性样式 */
 #net-shunt .whitelist-value,
 #net-shunt .info-item .whitelist-value {
   /* 覆盖父级的 white-space: nowrap 和 overflow: hidden */
@@ -4432,46 +4744,63 @@ h4 {
   
   position: relative;
   width: 100%;
-  min-height: auto;  /* 移除固定最小高度 */
+  min-height: 60px;
 }
 
 /* 白名单预览容器 */
 .whitelist-preview {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
+  position: relative;
+  width: 100%;
+  display: block;
   line-height: 1.4;
+  font-size: 13px;
 }
 
 /* 白名单文本内容 */
 .whitelist-text {
   color: #111827;
   font-size: 13px;
-  flex-shrink: 0;
+  line-height: 1.4;
+  word-wrap: break-word;
+  word-break: break-all;
+  display: inline;
+  max-height: calc(1.4em * 3);
+  overflow: hidden;
 }
 
 /* 查看全部按钮 - 默认跟在文本后面 */
 .whitelist-more {
-  --btn-h: 22px;
-  --btn-pad-x: 8px;
-  display: inline-flex;
+  --btn-h: 20px;
+  --btn-pad-x: 6px;   
+
+  display: inline-flex !important;
   align-items: center;
   justify-content: center;
   height: var(--btn-h);
+  line-height: calc(var(--btn-h) - 2px);
   padding: 0 var(--btn-pad-x);
+
+  margin-left: 6px;
+  vertical-align: baseline;
+  
   border: 1px solid #d1d5db;
   border-radius: 4px;
   background: #fff;
   color: #2563eb;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 500;
   text-decoration: none;
   cursor: pointer;
   white-space: nowrap;
+
   box-shadow: 0 1px 2px rgba(0,0,0,0.1);
   transition: all 0.15s ease;
-  flex-shrink: 0;
+}
+
+/* 当内容超过3行时，按钮定位到第三行末尾 */
+.whitelist-preview.has-overflow .whitelist-text {
+  margin-right: 70px;
+  position: relative;
 }
 
 .whitelist-preview.has-overflow .whitelist-more {
@@ -4497,10 +4826,10 @@ h4 {
   transform: translateY(1px);
 }
 
-/* 白名单行自适应高度 */
+/* 确保白名单行有足够空间 */
 #net-shunt .info-item.nid__row:last-child {
-  align-items: center;  /* 改回居中对齐，与其他行保持一致 */
-  /* 移除 min-height: 64px; */
+  align-items: flex-start;
+  min-height: 64px;
 }
 
 /* 响应式调整 */
@@ -4509,6 +4838,10 @@ h4 {
     --btn-h: 18px;
     --btn-pad-x: 4px;
     font-size: 9px;
+  }
+  
+  .whitelist-preview.has-overflow .whitelist-text {
+    margin-right: 60px;
   }
 }
 
@@ -4606,37 +4939,35 @@ h4 {
 @media (max-width:768px){
   .modal-content{ width:95%; margin:10px auto; }
 }
-
 /* =======================================================================
-   协议配置（边框与阴影加强版）
+   协议配置
    ======================================================================= */
 .data-table{ 
   width:100%; 
   border-collapse:collapse; 
 }
 
-/* 表头 */
 .data-table th{
   background:#f5f5f5; 
   color:#4b5563; 
   font-weight:500; 
-  padding:8px 10px;  /* 上下 8px */
+  padding:8px 10px;  /* 缩小了上下padding从10px到8px */
   text-align:left;
   font-size:12px; 
   border-bottom:1px solid #e5e7eb;
-  /* 阴影稍加强，边缘更清晰 */
-  box-shadow: none;                  /* ← 原 0 1px 4px ... 去掉 */
+  /* 为表头添加轻微阴影 */
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
 }
 
-/* 1) 普通单元格：只用 border-bottom，取消底部内阴影 */
-.data-table td{
-  padding:7px 10px;
-  border-bottom:1px solid #e5e7eb;
-  font-size:12px;
-  box-shadow: none;                  /* ← 删掉 inset 0 -1px 0 ... */
+.data-table td{ 
+  padding:7px 10px;  /* 缩小了上下padding从10px到7px */
+  border-bottom:1px solid #f3f4f6;  /* 改为更明显的灰色边框 */
+  font-size:12px; 
+  /* 为每一行添加轻微的内阴影效果 */
+  box-shadow: inset 0 -1px 0 rgba(0,0,0,0.05);
 }
 
-/* 第4、5、6列居中 */
+/* 第4、5、6列（伪装效果、运行状态、客户端配置）居中对齐 */
 .data-table td:nth-child(4),
 .data-table td:nth-child(5),
 .data-table td:nth-child(6),
@@ -4646,120 +4977,42 @@ h4 {
   text-align:center; 
 }
 
-/* 2) hover 行：不要再叠加内阴影的“分隔线” */
-.data-table tbody tr:hover td{
-  background:#f8f9fa;
-  /* 仅保留外部柔和投影，去掉 inset 0 -1px 0 ... */
-  box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+/* hover效果：鼠标悬停时背景变灰，同时增强阴影 */
+.data-table tr:hover td{ 
+  background:#f8f9fa;  /* 更柔和的灰色背景 */
+  box-shadow: inset 0 -1px 0 rgba(0,0,0,0.1), 0 1px 3px rgba(0,0,0,0.1);
+  transition: all 0.2s ease;  /* 添加过渡效果 */
 }
 
-/* 3) 订阅行上边线：用 1px 边框，取消顶部方向的阴影，避免变粗 */
-.data-table tr.subs-row td{
-  background:#eef2f7;
-  border-top:1px solid #cbd5e1;
-  box-shadow: none;                  /* ← 删掉 inset 0 1px 3px ... */
+/* 订阅行特殊样式 */
+.data-table tr.subs-row td{ 
+  background:#f1f5f9;  /* 订阅行使用更明显的背景色 */
+  border-top: 2px solid #cbd5e1;  /* 订阅行顶部添加更粗的分隔线 */
+  box-shadow: inset 0 1px 3px rgba(0,0,0,0.08);  /* 订阅行内阴影 */
 }
+
+/* 订阅行hover效果 */
 .data-table tr.subs-row:hover td{
-  background:#e3e9f2;
-  box-shadow: inset 0 1px 3px rgba(0,0,0,0.14), 0 3px 8px rgba(0,0,0,0.12);
+  background:#e2e8f0;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,0.12), 0 2px 4px rgba(0,0,0,0.1);
 }
 
-/* 表格整体外边框与主体阴影（更明显但不突兀） */
+/* 表格整体外边框和阴影 */
 .data-table {
-  border: 1px solid #6b7280;                /* 边框由 #9ca3af 加深到 #6b7280 */
+  border: 1px solid #9ca3af;
   border-radius: 8px;
-  overflow: hidden;
-  /* 立体感增强：一层柔和外阴影 + 一层贴边描边光 */
-  box-shadow:
-      0 6px 16px rgba(0,0,0,0.12),          /* 外层阴影 */
-      0 0 0 1px rgba(0,0,0,0.06);           /* 贴边描边，边缘更锐利 */
+  overflow: hidden;  /* 确保圆角效果 */
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
 }
 
-/* 交替行（保留轻度层次） */
+/* 表格行的交替颜色效果（可选） */
 .data-table tbody tr:nth-child(even):not(.subs-row) td {
-  background-color: rgba(249,250,251,0.65);
+  background-color: rgba(249,250,251,0.5);
 }
+
 .data-table tbody tr:nth-child(even):not(.subs-row):hover td {
   background-color: #f3f4f6;
 }
-
-/* 修复协议配置卡片与上方卡片边框贴着的问题 */
-
-/* 1. 修复grid布局中的卡片间距问题 */
-.main-content .grid .card {
-  margin-bottom: 0 !important; /* grid内的卡片不使用margin，完全依赖gap */
-}
-
-/* 2. 确保grid布局有正确的gap */
-.main-content .grid {
-  display: grid; 
-  gap: 20px !important; /* 强制使用20px间距 */
-  margin: 0;
-}
-
-/* 3. 特别处理1-2网格布局（证书切换和网络身份配置这一行） */
-.main-content .grid-1-2 {
-  display: grid; 
-  grid-template-columns: 1fr 2fr;
-  gap: 20px !important;
-  margin-bottom: 20px !important; /* 这一行与下方协议配置卡片的间距 */
-}
-
-/* 4. 协议配置卡片确保有正确的上边距 */
-.card[id*="protocol"],
-.card:has(.data-table),
-.card:has(h2:contains("协议配置")) {
-  margin-top: 20px !important; /* 确保与上方有间距 */
-}
-
-/* 5. 如果协议配置卡片有特定的类名或ID，直接指定 */
-#protocol-panel,
-#protocols-panel,
-.protocol-card {
-  margin-top: 20px !important;
-  margin-bottom: 20px !important;
-}
-
-/* 6. 通用解决方案：确保所有非grid内的卡片有正确间距 */
-.main-content > .card:not(.grid .card) {
-  margin-bottom: 20px !important;
-}
-
-.main-content > .card:not(.grid .card):not(:first-child) {
-  margin-top: 20px !important;
-}
-
-/* 7. 特殊情况：如果协议配置在grid后面，强制添加上边距 */
-.main-content .grid + .card,
-.main-content .grid-1-2 + .card {
-  margin-top: 20px !important;
-}
-
-/* 8. 响应式处理：窄屏时确保间距一致 */
-@media (max-width: 1024px) {
-  .main-content .grid-1-2 {
-    grid-template-columns: 1fr;
-    gap: 20px !important;
-  }
-  
-  .main-content .grid + .card,
-  .main-content .grid-1-2 + .card {
-    margin-top: 20px !important;
-  }
-}
-
-/* 9. 确保协议配置表格卡片的边框正常显示 */
-.card:has(.data-table) {
-  border: 1px solid #d1d5db !important;
-  box-shadow: 0 2px 6px rgba(0,0,0,.08) !important;
-}
-
-/* 10. 调试用：如果需要临时高亮协议配置卡片 */
-/*
-.card:has(.data-table) {
-  border: 2px solid red !important;
-}
-*/
 
 /* =======================================================================
    流量统计 - 修复垂直居中问题
@@ -4771,7 +5024,7 @@ h4 {
   --charts-pad-x: 20px;   
   --gap-v: 12px;          
   --h-progress: 50px;     
-  --h-left-chart: 300px;  
+  --h-left-chart: 320px;  
   --mini-pad: 12px;       
   --meter-height: 18px;   
 }
@@ -4930,14 +5183,7 @@ h4 {
   min-height: calc(var(--h-progress) + var(--gap-v) + var(--h-left-chart) + 2*var(--mini-pad));
 }
 
-/* 单位标注样式 - 小字灰色 */
-.unit-note {
-  font-size: 11px !important;
-  font-weight: 400 !important;
-  color: #9ca3af !important;
-  margin-left: 4px;
-}
-
+/* 响应式 */
 @media (max-width:1024px){
   .traffic-charts{ 
     grid-template-columns:1fr; 
@@ -4951,85 +5197,39 @@ h4 {
   }
   .chart-column:first-child .chart-container,
   .chart-column:last-child  .chart-container{
-    height:250px;  /* 减少高度，确保图例不被截断 */
-    min-height:250px;
+    height:280px; 
+    min-height:280px;
   }
 }
-
-/* 仅隐藏 Chart.js 生成的 HTML 图例（如有）——避免误伤轴刻度 */
-.traffic-card .chartjs-legend {
-  display: none !important;
-}
-
-/* 标题后的默认“圆点版”自定义图例（其它图表都用这个） */
-.traffic-card .chart-container > h3::after {
-  content: " 🔵 VPS 🟢 代理";
-  font-size: 11px;
-  color: #6b7280;
-  margin-left: 8px;
-}
-
-/* 仅“近12月柱状图”使用“方块版”图例
-   精确到：同一个 .chart-container 里含有 <canvas id="monthly-chart"> 才生效 */
-@supports selector(.x:has(#monthly-chart)) {
-  .chart-container:has(> canvas#monthly-chart) > h3::after {
-    content: " 🟦 VPS 🟩 代理";
-  }
-}
-
-/* —— 可选：旧浏览器 fallback（如果不支持 :has()）——
-   若“近12月柱状图”的容器能加类名，请在 HTML 给该容器加 .is-monthly，
-   然后启用下面这条，更稳更准确。 */
-
-/*
-.traffic-card .chart-container.is-monthly > h3::after {
-  content: " 🟦 VPS 🟩 代理";
-}
-*/
-
-/* —— 如果暂时不能加类名，只能按位置兜底（请把 2 改成实际序号）—— */
-/*
-@supports not selector(.x:has(#monthly-chart)) {
-  .traffic-grid .traffic-card:nth-of-type(2) .chart-container > h3::after {
-    content: " 🟦 VPS 🟩 代理";
-  }
-}
-*/
-
 
 /* =========================
-   弹窗 Modal 统一样式补丁（按您要求修正）
+   弹窗 Modal 统一样式补丁
    ========================= */
 
-/* 变量 */
-.modal, dialog[open], .el-dialog, .ant-modal{
-  --modal-w: 630px;
+/* CSS变量定义 */
+:root {
+  /* 统一弹窗尺寸 */
+  --modal-w: 660px;
   --modal-h: 720px;
+  
+  /* 样式变量 */
   --modal-radius: 14px;
   --modal-shadow: 0 10px 30px rgba(17,24,39,.18);
   --modal-padding: 16px;
   --section-border: #e5e7eb;
   --input-bg: #f7f8fa;
   --code-bg: #f8f9fb;
-
-  /* 复制按钮色系（白底灰字） */
-  --btn-border: #d1d5db;
-  --btn-text: #6b7280;
-  --btn-text-hover: #374151;
-  --btn-bg: #ffffff;
-  --btn-bg-hover: #f9fafb;
-  --btn-bg-active: #f3f4f6;
 }
 
-/* —— 固定大小 + 居中出现 —— */
+/* 弹窗容器：固定尺寸 + 绝对居中 */
 .modal .modal-content,
 dialog[open],
 .el-dialog,
-.ant-modal .ant-modal-content{
+.ant-modal .ant-modal-content {
   position: fixed !important;
   left: 50% !important;
   top: 50% !important;
-  transform: translate(-50%, -50%) !important;
+  transform: translate(-50%, -50%) scale(1) !important;
   margin: 0 !important;
   width: var(--modal-w) !important;
   height: var(--modal-h) !important;
@@ -5044,369 +5244,320 @@ dialog[open],
   flex-direction: column !important;
   overflow: hidden !important;
   z-index: 9999 !important;
-  animation: none !important;
-  transition: none !important;
+  transition: none !important; /* 禁用动画避免拉伸 */
 }
 
-/* 遮罩 */
-.modal{ 
-  display:none; 
-  position:fixed; 
-  inset:0; 
-  background:rgba(0,0,0,.5); 
-  z-index:9998; 
+/* 弹窗遮罩层 */
+.modal {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 9998;
 }
 
-/* 头部 */
-.modal-header, .el-dialog__header, .ant-modal-header{
-  flex-shrink:0 !important;
-  display:flex !important; 
-  align-items:center !important; 
-  justify-content:space-between !important;
-  padding:var(--modal-padding) !important;
-  border-bottom:1px solid var(--section-border) !important;
-  background:#fff !important;
-}
-
-.modal-title, .el-dialog__title, .ant-modal-title, #configModalTitle, #ipqModalTitle{
-  font-size:15px !important; 
-  font-weight:600 !important; 
-  color:#111827 !important; 
-  margin:0 !important;
-  text-align: left !important; /* 标题左对齐 */
-}
-
-/* 主体滚动区 */
-.modal-body, .el-dialog__body, .ant-modal-body{
-  flex:1 !important;
-  padding:var(--modal-padding) !important;
-  overflow-y:auto !important; 
-  overflow-x:hidden !important;
-  min-height:0 !important;
-}
-
-/* 底部 */
-.modal-footer{
-  flex-shrink:0 !important;
-  padding:var(--modal-padding) !important;
-  border-top:1px solid var(--section-border) !important;
-  display:flex !important; 
-  gap:10px !important; 
-  justify-content:flex-end !important;
-  background:#fff !important;
-}
-
-/* ===== 查看详情弹窗分隔线和左对齐 ===== */
-#detailModal .modal-section,
-#detailModal .detail-section,
-#ipqModal .ipq-section{
-  padding:20px 0;
-  border-bottom:1px solid #374151;
-}
-#detailModal .modal-section:first-child,
-#detailModal .detail-section:first-child,
-#ipqModal .ipq-section:first-child{ 
-  padding-top:0; 
-}
-#detailModal .modal-section:last-child,
-#detailModal .detail-section:last-child,
-#ipqModal .ipq-section:last-child{
-  padding-bottom:0; 
-  border-bottom:none;
-}
-
-#configModal .modal-section,
-#configModal .config-section{ 
-  padding:16px 0; 
-  border-bottom:none; 
-}
-
-/* 查看详情弹窗内容左对齐 */
-#detailModal .kv-key, 
-#ipqModal .kv-key { 
-  text-align:left !important; 
-  padding-right:0; 
-}
-#detailModal .kv-value,
-#ipqModal .kv-value { 
-  text-align:left !important; 
-}
-
-/* 键值对通用 */
-.kv-list{ 
-  display:flex; 
-  flex-direction:column; 
-  gap:10px; 
-}
-
-.kv-row{
-  display:grid; 
-  grid-template-columns:144px 1fr; 
-  gap:12px;
-  padding:8px 0; 
-  border-bottom:1px dashed #eef2f7;
-}
-.kv-row:last-child{ 
-  border-bottom:none; 
-}
-
-.kv-key{ 
-  color:#6b7280; 
-  font-size:13px; 
-  text-align:right; 
-  padding-right:8px; 
-  line-height:1.6; 
-}
-
-.kv-val, .kv-value{ 
-  color:#111827; 
-  font-size:13px; 
-  word-break:break-word; 
-}
-
-/* ===== 输入/代码框 ===== */
-.input-plain, .textarea-plain, .code-box, .config-code,
-#json-code, #plain-link, #plain-links-6, #base64-link,
-.modal-body textarea, .modal-body input[type="text"],
-.modal-body pre, .modal-body code,
-.modal-body .codebox pre, .modal-body .codebox code,
-.modal-body .jsonbox pre, .modal-body .jsonbox code,
-.modal-body .linkbox input, .modal-body .linkbox textarea{
-  background:var(--input-bg) !important;
-  border:1px solid var(--section-border) !important;
-  border-radius:8px !important;
-  padding:10px 12px !important;
-  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace !important;
-  font-size:12px !important; 
-  color:#333 !important;
-  width:100%; 
-  box-sizing:border-box; 
-  white-space:pre-wrap !important; 
-  word-break:break-word !important; 
-  line-height:1.5;
-}
-
-.code-box, .config-code{ 
-  background:var(--code-bg) !important; 
-  max-height:200px; 
-  overflow-y:auto; 
-  position:relative; 
-}
-
-.textarea-plain, .modal-body textarea{ 
-  min-height:100px; 
-  resize:vertical; 
-}
-
-.input-plain[readonly], .modal-body input[readonly]{ 
-  cursor:default; 
-  background:var(--input-bg) !important; 
-}
-
-/* ===== 二维码：保留居中，移除左对齐 ===== */
-
-.modal-body .qr-container,
-.modal-body .qrcode,
-.modal-body [data-role="qrcode"]{
-  text-align:center !important;
-  margin: 16px auto !important;
-}
-
-.modal-body .qr-container canvas,
-.modal-body .qrcode canvas,
-.modal-body [data-role="qrcode"] canvas,
-#qrcode-sub canvas,
-#qrcode-protocol canvas{
-  width:180px !important; 
-  height:180px !important; 
-  aspect-ratio:1/1 !important;
-  display:block !important; 
-  margin:12px auto !important; 
-  image-rendering:pixelated;
-  /* 强制移除任何左对齐样式 */
-  float: none !important;
-  text-align: center !important;
-}
-
-/* 确保二维码容器不被其他样式影响 */
-.modal-body .qr-container div,
-.modal-body .qrcode div {
-  text-align: center !important;
-}
-
-/* ===== 复制按钮：白底圆角灰字 ===== */
-.modal .copy-btn,
-.modal .btn-copy,
-.modal .btn-secondary,
-.modal [data-action="copy"],
-.modal [data-action="copy-qr"],
-.ant-modal .ant-btn[data-role="copy"],
-.el-dialog .el-button[data-role="copy"]{
-  appearance:none !important;
-  background:var(--btn-bg) !important;
-  color:var(--btn-text) !important;
-  border:1px solid var(--btn-border) !important;
-  border-radius:8px !important;
-  padding:8px 12px !important;
-  font-size:12px !important;
-  line-height:1.2 !important;
-  cursor:pointer !important;
-  box-shadow:0 1px 2px rgba(0,0,0,.04) !important;
-  transition: all 0.15s ease !important;
-}
-
-.modal .copy-btn:hover,
-.modal .btn-copy:hover,
-.modal .btn-secondary:hover,
-.modal [data-action="copy"]:hover,
-.modal [data-action="copy-qr"]:hover,
-.ant-modal .ant-btn[data-role="copy"]:hover,
-.el-dialog .el-button[data-role="copy"]:hover{
-  background:var(--btn-bg-hover) !important;
-  color:var(--btn-text-hover) !important;
-  border-color:#cbd5e1 !important;
-  box-shadow:0 2px 4px rgba(0,0,0,.08) !important;
-}
-
-.modal .copy-btn:active,
-.modal .btn-copy:active,
-.modal .btn-secondary:active,
-.modal [data-action="copy"]:active,
-.modal [data-action="copy-qr"]:active{
-  background:var(--btn-bg-active) !important;
-  transform: translateY(1px);
-}
-
-/* ===== 关闭按钮：外包圆角小方框 ===== */
-.modal .close-btn,
-.modal .modal-close,
-.ant-modal-close, 
-.el-dialog__headerbtn{
-  position:absolute !important; 
-  right:12px !important; 
-  top:12px !important;
-  width:32px !important; 
-  height:28px !important;
-  border:1px solid #e5e7eb !important;
-  border-radius:8px !important;
-  background:#fff !important;
-  display:flex !important; 
-  align-items:center !important; 
-  justify-content:center !important;
-  cursor:pointer !important;
-  box-shadow:0 1px 3px rgba(0,0,0,.1) !important;
-  z-index:1;
-  transition: all 0.15s ease !important;
-}
-
-.modal .close-btn:hover,
-.modal .modal-close:hover,
-.ant-modal-close:hover, 
-.el-dialog__headerbtn:hover{
-  background:#f9fafb !important; 
-  border-color:#d1d5db !important;
-  box-shadow:0 2px 4px rgba(0,0,0,.12) !important;
-}
-
-.modal .close-btn svg,
-.modal .modal-close svg,
-.ant-modal-close svg, 
-.el-dialog__close,
-.ant-modal-close .anticon,
-.el-dialog__headerbtn .el-icon{
-  color:#6b7280 !important; 
-  font-size:16px !important; 
-  line-height:1 !important;
-}
-
-/* ===== 白名单弹窗：加上行表格样式 ===== */
-#whitelistModal .modal-body {
+/* 弹窗头部 */
+.modal-header,
+.el-dialog__header,
+.ant-modal-header {
+  flex-shrink: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
   padding: var(--modal-padding) !important;
+  border-bottom: 1px solid var(--section-border) !important;
+  background: #fff !important;
 }
 
-#whitelistList {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  background: #f3f4f6;
-  border-radius: 8px;
-  overflow: hidden;
-  border: 1px solid #e5e7eb;
+.modal-title,
+.el-dialog__title,
+.ant-modal-title,
+#configModalTitle,
+#ipqModalTitle {
+  font-size: 15px !important;
+  font-weight: 600 !important;
+  color: #111827 !important;
+  margin: 0 !important;
 }
 
-.whitelist-item {
-  padding: 12px 16px;
-  background: #ffffff;
-  font-size: 13px;
-  color: #374151;
-  word-break: break-all;
-  border-bottom: 1px solid #f3f4f6;
-  transition: background-color 0.15s ease;
+/* 弹窗主体（可滚动） */
+.modal-body,
+.el-dialog__body,
+.ant-modal-body {
+  flex: 1 !important;
+  padding: var(--modal-padding) !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  min-height: 0 !important; /* 防止内容撑开 */
 }
 
-.whitelist-item:hover {
-  background: #f8fafc;
+/* 美化滚动条 */
+.modal-body::-webkit-scrollbar {
+  width: 6px;
 }
 
-.whitelist-item:last-child {
+.modal-body::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+
+.modal-body::-webkit-scrollbar-thumb {
+  background: #ccc;
+  border-radius: 3px;
+}
+
+.modal-body::-webkit-scrollbar-thumb:hover {
+  background: #999;
+}
+
+/* 弹窗底部 */
+.modal-footer {
+  flex-shrink: 0 !important;
+  padding: var(--modal-padding) !important;
+  border-top: 1px solid var(--section-border) !important;
+  display: flex !important;
+  gap: 10px !important;
+  justify-content: flex-end !important;
+  background: #fff !important;
+}
+
+/* 语义分区 */
+.modal-section,
+.config-section {
+  padding: 20px 0;
+  border-bottom: 1px solid var(--section-border);
+}
+
+.modal-section:first-child,
+.config-section:first-child {
+  padding-top: 0;
+}
+
+.modal-section:last-child,
+.config-section:last-child {
+  padding-bottom: 0;
   border-bottom: none;
 }
 
-/* 如果白名单为空的提示 */
-#whitelistList p {
-  padding: 20px;
-  text-align: center;
-  color: #9ca3af;
-  font-size: 14px;
-  margin: 0;
-  background: #ffffff;
+.section-title,
+.config-section h4 {
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  color: #666 !important;
+  margin-bottom: 12px !important;
 }
 
-/* ===== 复制成功轻提示 ===== */
-.modal .modal-toast{
-  position:absolute; 
-  left:50%; 
-  top:50%;
-  transform:translate(-50%, -50%) scale(.98);
-  background:rgba(17,24,39,.92); 
-  color:#fff;
-  padding:10px 14px; 
-  border-radius:10px; 
-  font-size:12px;
-  box-shadow:0 8px 24px rgba(0,0,0,.2);
-  opacity:0; 
-  pointer-events:none; 
-  transition:opacity .18s, transform .18s;
-  z-index:10000;
+/* 键值对列表 */
+.kv-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
-.modal .modal-toast.show{ 
-  opacity:1; 
-  pointer-events:auto; 
-  transform:translate(-50%, -50%) scale(1); 
+.kv-row {
+  display: grid;
+  grid-template-columns: 144px 1fr;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px dashed #eef2f7;
+}
+
+.kv-row:last-child {
+  border-bottom: none;
+}
+
+.kv-key {
+  color: #6b7280;
+  font-size: 13px;
+  text-align: right;
+  padding-right: 8px;
+}
+
+.kv-val,
+.kv-value {
+  color: #111827;
+  font-size: 13px;
+  word-break: break-word;
+}
+
+/* 输入框/文本域/代码框：浅灰背景 */
+.input-plain,
+.textarea-plain,
+.code-box,
+.config-code,
+#json-code,
+#plain-link,
+#plain-links-6,
+#base64-link,
+.modal-body textarea,
+.modal-body input[type="text"],
+.modal-body pre,
+.modal-body code,
+.modal-body .codebox,
+.modal-body .jsonbox,
+.modal-body .linkbox {
+  background: var(--input-bg) !important;
+  border: 1px solid var(--section-border) !important;
+  border-radius: 8px !important;
+  padding: 10px 12px !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
+  font-size: 12px !important;
+  color: #333 !important;
+  width: 100%;
+  box-sizing: border-box;
+  white-space: pre-wrap !important;
+  word-break: break-word !important;
+  line-height: 1.5;
+}
+
+/* 代码框特定样式 */
+.code-box,
+.config-code {
+  background: var(--code-bg) !important;
+  max-height: 200px;
+  overflow-y: auto;
+  position: relative;
+}
+
+/* 文本域 */
+.textarea-plain,
+.modal-body textarea {
+  min-height: 100px;
+  resize: vertical;
+}
+
+/* 只读输入框 */
+.input-plain[readonly],
+.modal-body input[readonly] {
+  cursor: default;
+  background: var(--input-bg) !important;
+}
+
+/* 二维码居中 */
+.qr-container,
+#qrcode-sub,
+#qrcode-protocol,
+.modal-body .qrcode,
+.modal-body [data-role="qrcode"] {
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  margin: 16px auto !important;
+  text-align: center !important;
+}
+
+.qr-container canvas,
+#qrcode-sub canvas,
+#qrcode-protocol canvas,
+.modal-body .qrcode canvas {
+  max-width: 200px !important;
+  height: auto !important;
+  display: block !important;
+}
+
+/* 白名单项 */
+.whitelist-item {
+  padding: 8px 12px;
+  background: var(--input-bg);
+  border-radius: 6px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: #333;
+  word-break: break-all;
+}
+
+/* 关闭按钮 */
+.close-btn,
+.modal-close {
+  color: #6b7280 !important;
+  cursor: pointer !important;
+  font-size: 24px !important;
+  line-height: 1 !important;
+  opacity: 1 !important;
+  transition: color 0.2s !important;
+}
+
+.close-btn:hover,
+.modal-close:hover {
+  color: #111827 !important;
+}
+
+/* IP质量详情样式 */
+.ipq-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 20px;
+  margin: 20px 0;
+}
+
+.ipq-section h5 {
+  font-size: 13px;
+  font-weight: 600;
+  color: #666;
+  margin-bottom: 10px;
+}
+
+.ipq-kv {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ipq-item {
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.ipq-key {
+  color: #6b7280;
+}
+
+.ipq-value {
+  color: #111827;
+  word-break: break-word;
+}
+
+.ipq-conclusion {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--section-border);
 }
 
 /* 响应式 */
-@media (max-width:768px){
-  .modal, dialog[open], .el-dialog, .ant-modal{
+@media (max-width: 768px) {
+  :root {
     --modal-w: calc(100vw - 20px);
     --modal-h: calc(100vh - 40px);
   }
   
-  .kv-row{ 
-    grid-template-columns:1fr; 
+  .kv-row {
+    grid-template-columns: 1fr;
   }
   
-  .kv-key{ 
-    text-align:left; 
-    padding-right:0; 
-    margin-bottom:4px; 
+  .kv-key {
+    text-align: left;
+    padding-right: 0;
+    margin-bottom: 4px;
+  }
+  
+  .ipq-grid {
+    grid-template-columns: 1fr;
   }
 }
 
+/* 确保弹窗立即以固定大小显示 */
+.modal[style*="block"] .modal-content {
+  animation: none !important;
+  transition: none !important;
+}
 
 /* =======================================================================
- 按钮（查看详情、查看全部、查看配置、查看订阅）：白底蓝字，hover 浅灰，active 灰底 
+ 按钮（详情、查看全部、查看配置、查看订阅）：白底蓝字，hover 浅灰，active 灰底 
  ======================================================================= */
 .btn-detail,
 .btn-viewall,
@@ -5599,32 +5750,16 @@ function escapeHtml(s = '') {
 }
 
 function notify(msg, type = 'ok', ms = 1500) {
-    // 优先在打开的弹窗内显示，否则在页面中央显示
-    const modal = document.querySelector('.modal[style*="block"] .modal-content');
-    
-    if (modal) {
-        // 弹窗内居中轻提示
-        let toast = modal.querySelector('.modal-toast');
-        if (!toast) {
-            toast = document.createElement('div');
-            toast.className = 'modal-toast';
-            modal.appendChild(toast);
-        }
-        toast.textContent = msg;
-        toast.classList.add('show');
-        setTimeout(() => toast.classList.remove('show'), 1200);
-    } else {
-        // 页面级提示（保持原有逻辑）
-        const tip = document.createElement('div');
-        tip.className = `toast toast-${type}`;
-        tip.textContent = msg;
-        document.body.appendChild(tip);
-        requestAnimationFrame(() => tip.classList.add('show'));
-        setTimeout(() => {
-            tip.classList.remove('show');
-            setTimeout(() => tip.remove(), 300);
-        }, ms);
-    }
+    const host = document.querySelector('.modal[style*="block"] .modal-content') || document.body;
+    const tip = document.createElement('div');
+    tip.className = `toast toast-${type}`;
+    tip.textContent = msg;
+    host.appendChild(tip);
+    requestAnimationFrame(() => tip.classList.add('show'));
+    setTimeout(() => {
+        tip.classList.remove('show');
+        setTimeout(() => tip.remove(), 300);
+    }, ms);
 }
 
 async function copyTextFallbackAware(text) {
@@ -5803,50 +5938,22 @@ function renderCertificateAndNetwork() {
     }
   }
   if (proxyEl) proxyEl.textContent = formatProxy(proxyRaw);
-  
- /* === PATCH: 填充 Geo 与 IP质量主行分数 === */
-(async () => {
-  const setText = (id, val) => {
-    const el = document.getElementById(id);
-    if (el) el.textContent = (val ?? '—') || '—';
-  };
 
-  // VPS 侧
-  try {
-    const r = await fetch('/status/ipq_vps.json', { cache: 'no-store' });
-    if (r.ok) {
-      const j = await r.json();
-      const geo = [j.country, j.city].filter(Boolean).join(' · ');
-      setText('vps-geo', geo || '—');
-      setText('vps-ipq-score', (j.score != null) ? String(j.score) : (j.grade || '—'));
-    }
-  } catch (_) {}
-
-  // 代理侧
-  try {
-    const r = await fetch('/status/ipq_proxy.json', { cache: 'no-store' });
-    if (r.ok) {
-      const j = await r.json();
-      const geo = [j.country, j.city].filter(Boolean).join(' · ');
-      setText('proxy-geo', geo || '—');
-      setText('proxy-ipq-score', (j.score != null) ? String(j.score) : (j.grade || '—'));
-    }
-  } catch (_) {}
-})();
-
-// —— 白名单预览：只显示第一个域名的前9个字符 —— 
-const whitelist = data.shunt?.whitelist || [];
-const preview = document.getElementById('whitelistPreview');
+  // —— 白名单预览：保持你“始终显示查看全部 + 转义”的口径 —— 
+  const whitelist = data.shunt?.whitelist || [];
+  const preview = document.getElementById('whitelistPreview');
+// 在 renderCertificateAndNetwork() 函数的白名单处理部分添加：
 if (preview) {
   if (!whitelist.length) {
     preview.innerHTML = '<span class="whitelist-text">(无)</span>';
   } else {
-    // 取第一个域名，显示前6个字符
-    const firstDomain = whitelist[0] || '';
-    const shortText = firstDomain.length > 9 ? firstDomain.substring(0, 9) + '...' : firstDomain;
+    const fullText = whitelist.join(', ');
+    // 估算是否会超过3行（可以根据实际情况调整这个阈值）
+    const willOverflow = fullText.length > 120; // 大约3行的字符数
     
+    preview.className = `whitelist-preview${willOverflow ? ' has-overflow' : ''}`;
     preview.innerHTML =
-      `<span class="whitelist-text">${escapeHtml(shortText)}</span>` +
+      `<span class="whitelist-text">${escapeHtml(fullText)}</span>` +
       `<button class="whitelist-more" data-action="open-modal" data-modal="whitelistModal">查看全部</button>`;
   }
 }
@@ -5866,7 +5973,7 @@ function renderProtocolTable() {
             <td><span class="status-badge ${p.status === '运行中' ? 'status-running' : ''}">${p.status}</span></td>
             <td><button class="btn btn-sm btn-link" data-action="open-modal" data-modal="configModal" data-protocol="${escapeHtml(p.name)}">查看配置</button></td>
         </tr>`).join('');
-    const subRow = `<tr class="subs-row"><td style="font-weight:500;">整包协议</td><td></td><td></td><td></td><td><button class="btn btn-sm btn-link" data-action="open-modal" data-modal="configModal" data-protocol="__SUBS__">查看@订阅</button></td></tr>`;
+    const subRow = `<tr class="subs-row"><td style="font-weight:500;">整包订阅链接</td><td>所有协议</td><td>通用</td><td></td><td><button class="btn btn-sm btn-link" data-action="open-modal" data-modal="configModal" data-protocol="__SUBS__">查看|订阅</button></td></tr>`;
     tbody.innerHTML = rows + subRow;
 }
 
@@ -5914,20 +6021,15 @@ function renderTrafficCharts() {
           ]
         },
 options: {
-  responsive: true,
-  maintainAspectRatio: false,
-  plugins: {
-    legend: { display: false } // 隐藏底部内置图例
-  },
-  layout: {
-    padding: { bottom: 22 }    // 恢复底部留白，保证日期不被裁掉
-  },
-  scales: {
-    x: { ticks: { padding: 6 } },
-    y: { ticks: { padding: 6 } }
+  responsive:true, maintainAspectRatio:false,
+  interaction:{ mode:'index', intersect:false },
+  layout:{ padding:{ bottom:8 } },
+  plugins:{ legend:{ position:'bottom', labels:{ boxWidth:12, padding:12 } } },
+  scales:{
+    x:{ grid:{ display:false }, ticks:{ maxRotation:0, padding:6 } },
+    y:{ beginAtZero:true, ticks:{ padding:6 } }
   }
 }
-
       });
     }
   }
@@ -5947,20 +6049,14 @@ options: {
           ]
         },
 options: {
-  responsive: true,
-  maintainAspectRatio: false,
-  plugins: {
-    legend: { display: false } // 仍隐藏底部内置图例
-  },
-  layout: {
-    padding: { bottom: 22 }    // 给 x 轴刻度留空间
-  },
-  scales: {
-    x: { ticks: { padding: 6 } },
-    y: { ticks: { padding: 6 } }
+  responsive:true, maintainAspectRatio:false,
+  layout:{ padding:{ bottom:8 } },
+  plugins:{ legend:{ position:'bottom', labels:{ boxWidth:12, padding:12 } } },
+  scales:{
+    x:{ stacked:true, grid:{ display:false }, ticks:{ maxRotation:0, padding:6 } },
+    y:{ stacked:true, beginAtZero:true, ticks:{ padding:6 } }
   }
 }
-
       });
     }
   }
@@ -5995,25 +6091,26 @@ function showWhitelistModal() {
 }
 
 
-// [PATCH:SHOW_CONFIG_MODAL_SAFE] —— 精准、谨慎、只改一处
+// 显示配置弹窗（按文档要求的内容和按钮顺序）
+// === 安全版：只负责渲染配置弹窗，不影响页面其它区域 ===
 function showConfigModal(protocolKey) {
-  const dd = window.dashboardData;
-  const modal = document.getElementById('configModal');
-  if (!modal || !dd) return;
-
-  const title = document.getElementById('configModalTitle');
+  const dd      = (window.dashboardData || {});
+  const title   = document.getElementById('configModalTitle');
   const details = document.getElementById('configDetails');
-  const footer = modal.querySelector('.modal-footer');
+  const footer  = document.querySelector('#configModal .modal-footer');
   if (!title || !details || !footer) return;
 
-  // 工具函数
-  const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const toB64 = s => btoa(unescape(encodeURIComponent(s)));
-  const get = (o, p, fb = '') => p.split('.').reduce((a, k) => (a && a[k] !== undefined ? a[k] : undefined), o) ?? fb;
+  // 小工具（本地作用域，避免污染全局）
+  const esc = (s='') => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const toB64 = (s='') => { try { return btoa(unescape(encodeURIComponent(String(s)))); } catch { return ''; } };
+  const get   = (obj, path, fb='') => path.split('.').reduce((a,p)=> (a && a[p] !== undefined ? a[p] : undefined), obj) ?? fb;
 
-  // JSON 行尾注释对齐（仅用于 UI 展示）
+  // JSON 行尾注释对齐
   function annotateAligned(obj, comments = {}) {
-    const lines = JSON.stringify(obj, null, 2).split('\n');
+    const json = JSON.stringify(obj, null, 2);
+    const lines = json.split('\n');
+
+    // 预扫描每行长度："  "key": value,
     const metas = lines.map(line => {
       const m = line.match(/^(\s*)"([^"]+)"\s*:\s*(.*?)(,?)$/);
       if (!m) return null;
@@ -6028,57 +6125,48 @@ function showConfigModal(protocolKey) {
       if (!m) return line;
       const [, indent, key, val, comma] = m;
       const base = `${indent}"${key}": ${val}${comma}`;
-      const cm = comments[key];
+      const cm   = comments[key];
       if (!cm) return base;
       const thisLen = indent.length + 1 + key.length + 1 + 2 + 1 + String(val).length + (comma ? 1 : 0);
-      const pad = ' '.repeat(Math.max(1, maxLen - thisLen + 1));
+      const pad = ' '.repeat(Math.max(1, maxLen - thisLen + 1)); // 让 // 起始列统一
       return `${base}${pad}// ${cm}`;
     }).join('\n');
   }
 
-  const usage = html => (
-    `<div class="config-section">
-       <h4>使用说明</h4>
-       <div class="config-help" style="font-size:12px;color:#6b7280;line-height:1.6;">${html}</div>
-     </div>`
-  );
-
-  // 打开弹窗并给出加载态
-  details.innerHTML = '<div class="loading">正在加载配置…</div>';
-  modal.style.display = 'block';
-  document.body.classList.add('modal-open');
+  // 统一的“使用说明”区块
+  const usage = html => `
+    <div class="config-section">
+      <h4>使用说明</h4>
+      <div class="config-help" style="font-size:12px;color:#6b7280;line-height:1.6;">${html}</div>
+    </div>`;
 
   let qrText = '';
 
-  // ===== 整包订阅 =====
   if (protocolKey === '__SUBS__') {
-    const subsUrl = get(dd, 'subscription_url', '') ||
-                    (get(dd, 'server.server_ip', '') ? `http://${get(dd, 'server.server_ip')}/sub` : '');
-    const plain6 = get(dd, 'subscription.plain', '');
-    const base64 = get(dd, 'subscription.base64', '') || (plain6 ? toB64(plain6) : '');
+    // ===== 整包订阅 =====
+    const subsUrl = get(dd, 'subscription_url', '') || (get(dd, 'server.server_ip', '') ? `http://${get(dd,'server.server_ip')}/sub` : '');
+    const plain6  = get(dd, 'subscription.plain', '');
+    const base64  = get(dd, 'subscription.base64', '') || (plain6 ? toB64(plain6) : '');
 
     title.textContent = '订阅（整包）';
-    // 订阅配置的HTML - 包含二维码容器
     details.innerHTML = `
       <div class="config-section">
-        <h4>订阅 URL</h4>
+        <h4>明文链接（订阅 URL）</h4>
         <div class="config-code" id="plain-link">${esc(subsUrl)}</div>
       </div>
       <div class="config-section">
-        <h4>明文链接（6协议）</h4>
+        <h4>明文（6 协议）</h4>
         <div class="config-code" id="plain-links-6" style="white-space:pre-wrap">${esc(plain6)}</div>
       </div>
       <div class="config-section">
-        <h4>Base64整包链接</h4>
+        <h4>Base64（整包）</h4>
         <div class="config-code" id="base64-link">${esc(base64)}</div>
       </div>
       <div class="config-section">
-        <h4>二维码</h4>
-        <div class="qr-container">
-          <div id="qrcode-sub"></div>
-        </div>
+        <h4>二维码（订阅 URL）</h4>
+        <div class="qr-container"><div id="qrcode-sub"></div></div>
       </div>
-      ${usage('将"订阅 URL"导入 v2rayN、Clash 等支持订阅的客户端；部分客户端也支持直接粘贴 Base64 或扫码二维码。')}
+      ${usage('将“订阅 URL”导入 v2rayN、Clash 等支持订阅的客户端；部分客户端也支持直接粘贴 Base64 或扫码二维码。')}
     `;
     footer.innerHTML = `
       <button class="btn btn-sm btn-secondary" data-action="copy" data-type="plain">复制订阅URL</button>
@@ -6088,51 +6176,38 @@ function showConfigModal(protocolKey) {
     `;
     qrText = subsUrl;
 
-  // ===== 单协议 =====
   } else {
-    const protocols = Array.isArray(dd.protocols) ? dd.protocols : [];
-    const p = protocols.find(x =>
-      x && (x.name === protocolKey || x.key === protocolKey || x.id === protocolKey || x.type === protocolKey)
-    );
+    // ===== 单协议 =====
+    const p = (get(dd, 'protocols', []) || []).find(x => x && x.name === protocolKey);
+    if (!p) return;
 
-    if (!p) {
-      title.textContent = '配置详情';
-      details.innerHTML = `<div class="empty">未找到协议：<code>${esc(String(protocolKey))}</code></div>`;
-      footer.innerHTML = `<button class="btn btn-sm" data-action="close-config-modal">关闭</button>`;
-      return;
-    }
-
+    // 注意：cert 在 server 下
     const certMode = String(get(dd, 'server.cert.mode', 'self-signed'));
-    const isLE = certMode.startsWith('letsencrypt');
+    const isLE     = certMode.startsWith('letsencrypt');
     const serverIp = get(dd, 'server.server_ip', '');
 
     const obj = {
       protocol: p.name,
-      host: serverIp,
-      port: p.port ?? 443,
-      uuid: get(dd, 'secrets.vless.reality', '') ||
-            get(dd, 'secrets.vless.grpc', '') ||
-            get(dd, 'secrets.vless.ws', ''),
-      sni: isLE ? get(dd, 'server.cert.domain', '') : serverIp,
-      alpn: (p.name || '').toLowerCase().includes('grpc') ? 'h2'
-            : ((p.name || '').toLowerCase().includes('ws') ? 'http/1.1' : '')
+      host    : serverIp,
+      port    : p.port ?? 443,
+      uuid    : get(dd, 'secrets.vless.reality', '') || get(dd, 'secrets.vless.grpc', '') || get(dd, 'secrets.vless.ws', ''),
+      sni     : isLE ? get(dd, 'server.cert.domain', '') : serverIp,
+      alpn    : (p.name || '').toLowerCase().includes('grpc') ? 'h2' : ((p.name || '').toLowerCase().includes('ws') ? 'http/1.1' : '')
     };
-
     const comments = {
       protocol: '协议类型（例：VLESS-Reality）',
-      host: '服务器地址（IP/域名）',
-      port: '端口',
-      uuid: '认证 UUID / 密钥',
-      sni: 'TLS/SNI（域名模式用域名）',
-      alpn: 'ALPN（gRPC=h2，WS=http/1.1）'
+      host    : '服务器地址（IP/域名）',
+      port    : '端口',
+      uuid    : '认证 UUID / 密钥',
+      sni     : 'TLS/SNI（域名模式用域名）',
+      alpn    : 'ALPN（gRPC=h2，WS=http/1.1）'
     };
     const jsonAligned = annotateAligned(obj, comments);
 
-    const plain = p.share_link || '';
+    const plain  = p.share_link || '';
     const base64 = plain ? toB64(plain) : '';
 
     title.textContent = `${p.name} 配置`;
-    // 单协议配置的HTML - 包含二维码容器  
     details.innerHTML = `
       <div class="config-section">
         <h4>JSON 配置</h4>
@@ -6148,9 +6223,7 @@ function showConfigModal(protocolKey) {
       </div>
       <div class="config-section">
         <h4>二维码</h4>
-        <div class="qr-container">
-          <div id="qrcode-protocol"></div>
-        </div>
+        <div class="qr-container"><div id="qrcode-protocol"></div></div>
       </div>
       ${usage('复制明文或 JSON 导入客户端；若客户端支持扫码添加，也可直接扫描二维码。')}
     `;
@@ -6163,33 +6236,18 @@ function showConfigModal(protocolKey) {
     qrText = plain;
   }
 
-  // —— 生成二维码（直接使用已有的容器，不再动态创建）——
-if (qrText && window.QRCode) {
-  const holderId = (protocolKey === '__SUBS__') ? 'qrcode-sub' : 'qrcode-protocol';
-  const holder = document.getElementById(holderId);
-  if (holder) {
-    // ⚠️ 关键修复：彻底清空容器，移除所有子元素
-    while (holder.firstChild) {
-      holder.removeChild(holder.firstChild);
-    }
-    
-    // 延迟生成，确保DOM更新完毕
-    setTimeout(() => {
-      if (holder.children.length === 0) { // 二次检查，确保容器为空
-        new QRCode(holder, {
-          text: qrText,
-          width: 200,
-          height: 200,
-          colorDark: "#000000",
-          colorLight: "#ffffff",
-          correctLevel: QRCode.CorrectLevel.M
-        });
-      }
-    }, 10);
+  // 生成二维码（存在 QRCode 才生成，不报错）
+  if (qrText && window.QRCode) {
+    const id = (protocolKey === '__SUBS__') ? 'qrcode-sub' : 'qrcode-protocol';
+    const holder = document.getElementById(id);
+    if (holder) new QRCode(holder, { text: qrText, width: 200, height: 200 });
   }
+
+  // 打开弹窗（只负责当前弹窗，不改其它 DOM）
+  const modal = document.getElementById('configModal');
+  if (modal) { modal.style.display = 'block'; document.body.classList.add('modal-open'); }
 }
-}
-// [PATCH:SHOW_CONFIG_MODAL_SAFE_END]
+
 
 
 
@@ -6344,8 +6402,6 @@ async function refreshAllData() {
     renderTrafficCharts();
 }
 
-
-// 同时修改 setupEventListeners 函数，避免重复调用：
 function setupEventListeners() {
     document.addEventListener('click', e => {
         const target = e.target.closest('[data-action]');
@@ -6356,58 +6412,48 @@ function setupEventListeners() {
         switch (action) {
             case 'open-modal':
                 if (modal === 'whitelistModal') showWhitelistModal();
-                // 移除 configModal 处理，让事件委托处理
+                if (modal === 'configModal') showConfigModal(protocol);
                 if (modal === 'ipqModal') showIPQDetails(ipq);
                 break;
             case 'close-modal':
                 closeModal(modal);
                 break;
-            case 'copy': {
+            case 'copy': { // 使用块作用域以避免变量冲突
                 const modalContent = target.closest('.modal-content');
                 if (!modalContent) return;
 
+                const titleText = modalContent.querySelector('#configModalTitle')?.textContent || '';
                 let textToCopy = '';
-                
-                if (protocol === '__SUBS__') {
+
+                if (titleText.includes('订阅链接')) {
+                    // 这是订阅弹窗
+                    const sub = dashboardData.subscription || {};
+                    const subUrl = dashboardData.subscription_url || '';
                     switch (type) {
                         case 'sub':
-                            textToCopy = dashboardData.subscription_url || '';
+                            textToCopy = subUrl;
                             break;
                         case 'plain':
-                            textToCopy = dashboardData.subscription?.plain || '';
+                            textToCopy = sub.plain || '';
                             break;
                         case 'base64':
-                            textToCopy = dashboardData.subscription?.base64 || '';
+                            textToCopy = sub.base64 || '';
                             break;
                     }
                 } else {
-                    const p = dashboardData.protocols?.find(p => 
-                        p.name === protocol || p.key === protocol
-                    );
+                    // 这是单个协议的弹窗
+                    const protocolName = titleText.replace(' 配置详情', '');
+                    const p = (dashboardData.protocols || []).find(proto => proto.name === protocolName);
                     if (p) {
                         switch (type) {
                             case 'plain':
                                 textToCopy = p.share_link || '';
                                 break;
                             case 'json':
-                                const serverIp = dashboardData.server?.server_ip || '';
-                                const certMode = dashboardData.server?.cert?.mode || 'self-signed';
-                                const isLE = certMode.startsWith('letsencrypt');
-                                const obj = {
-                                    protocol: p.name,
-                                    host: serverIp,
-                                    port: p.port ?? 443,
-                                    uuid: dashboardData.secrets?.vless?.reality || 
-                                          dashboardData.secrets?.vless?.grpc || 
-                                          dashboardData.secrets?.vless?.ws || '',
-                                    sni: isLE ? dashboardData.server?.cert?.domain || '' : serverIp,
-                                    alpn: (p.name || '').toLowerCase().includes('grpc') ? 'h2'
-                                        : ((p.name || '').toLowerCase().includes('ws') ? 'http/1.1' : '')
-                                };
-                                textToCopy = JSON.stringify(obj, null, 2);
+                                textToCopy = generateProtocolJSON(p); // 复用生成JSON的函数
                                 break;
                             case 'base64':
-                                textToCopy = p.share_link ? btoa(unescape(encodeURIComponent(p.share_link))) : '';
+                                textToCopy = p.share_link ? btoa(p.share_link) : '';
                                 break;
                         }
                     }
@@ -6419,7 +6465,6 @@ function setupEventListeners() {
         }
     });
 }
-
 
 // --- Initialization ---
 document.addEventListener('DOMContentLoaded', () => {
@@ -6496,84 +6541,25 @@ case 'copy': {
   catch { (window.notify||console.warn)('复制失败'); }
   break;
 }
-
 // 复制二维码（受浏览器安全上下文限制）
 case 'copy-qr': {
   const host = btn.closest('.modal-content');
   const cvs  = host && host.querySelector('#qrcode-sub canvas, #qrcode-protocol canvas');
-  
-  if (!cvs) {
-    notify('未找到二维码', 'warn');
-    break;
+  if (cvs && cvs.toBlob && navigator.clipboard?.write && (location.protocol==='https:' || location.hostname==='localhost')) {
+    cvs.toBlob(async blob => {
+      try { await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]); (window.notify||console.log)('二维码已复制'); }
+      catch { (window.notify||console.warn)('复制二维码失败'); }
+    });
+  } else {
+    (window.notify||console.warn)('HTTP 页面无法直接复制二维码，请右键/长按保存');
   }
-  
-  // 检查浏览器支持
-  if (!cvs.toBlob) {
-    notify('浏览器不支持二维码复制', 'warn');
-    break;
-  }
-  
-  if (!navigator.clipboard?.write) {
-    notify('浏览器不支持剪贴板操作，请右键保存二维码', 'warn');
-    break;
-  }
-  
-  // 检查安全上下文
-  if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
-    notify('需要 HTTPS 环境才能复制二维码', 'warn');
-    break;
-  }
-  
-  // 执行复制
-  cvs.toBlob(async blob => {
-    if (!blob) {
-      notify('二维码转换失败', 'warn');
-      return;
-    }
-    
-    try {
-      await navigator.clipboard.write([
-        new ClipboardItem({ 'image/png': blob })
-      ]);
-      notify('二维码已复制到剪贴板');
-    } catch (error) {
-      console.error('复制二维码失败:', error);
-      notify('复制二维码失败，请右键保存', 'warn');
-    }
-  }, 'image/png');
-  
   break;
 }
+
 
     }
   });
 })();
-
-// === 复制按钮（弹窗内）统一轻提示 ======================
-document.addEventListener('click', async (ev) => {
-  const btn = ev.target.closest('[data-role="copy"], .copy-btn, .btn-copy');
-  if (!btn) return;
-
-  // 若你的复制逻辑已在别处执行，这里只负责提示即可。
-  // 如果需要兜底复制，可取消注释：
-  // const txt = btn.getAttribute('data-clipboard-text');
-  // if (txt) await navigator.clipboard.writeText(txt).catch(()=>{});
-
-  // 找到最近的弹窗容器（Ant / Element / 自研）
-  const modal = btn.closest('.ant-modal, .el-dialog, .modal');
-  if (!modal) return;
-
-  // 准备/显示 toast
-  let toast = modal.querySelector('.modal-toast');
-  if (!toast) {
-    toast = document.createElement('div');
-    toast.className = 'modal-toast';
-    toast.textContent = '已复制';
-    modal.appendChild(toast);
-  }
-  toast.classList.add('show');
-  setTimeout(() => toast.classList.remove('show'), 1200);
-});
 
 
 EXTERNAL_JS
@@ -6594,7 +6580,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 
 <div class="container">
   <div class="main-card">
-    <div class="main-header"><h1>🚀 EdgeBox - 企业级多协议节点管理系统 🚀</h1></div>
+    <div class="main-header"><h1>🚀 EdgeBox - 企业级多协议节点管理系统</h1></div>
     <div class="main-content">
 	
 <div class="card" id="system-overview">	
@@ -6736,18 +6722,17 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
           <value class="nid__value">直连</value>
         </div>
         <div class="info-item nid__row">
-          <label class="nid__label">VPS-IP:</label>
+          <label class="nid__label">出站IP:</label>
           <value class="nid__value" id="vps-ip">—</value>
         </div>
         <div class="info-item nid__row">
-
           <label class="nid__label">Geo:</label>
           <value class="nid__value" id="vps-geo">—</value>
         </div>
         <div class="info-item nid__row">
           <label class="nid__label">IP质量:</label>
           <value class="nid__value">
-            <span id="vps-ipq-score">—</span>
+            <span id="vps-ipq-score"></span>
             <button class="btn-link" data-action="open-modal" data-modal="ipqModal" data-ipq="vps">查看详情</button>
           </value>
         </div>
@@ -6771,26 +6756,18 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         <div class="info-item nid__row">
           <label class="nid__label">IP质量:</label>
           <value class="nid__value">
-            <span id="proxy-ipq-score">—</span>
+            <span id="proxy-ipq-score"></span>
             <button class="btn-link" data-action="open-modal" data-modal="ipqModal" data-ipq="proxy">查看详情</button>
           </value>
         </div>
       </div>
 
-<!-- 🔀 分流出站 -->
+      <!-- 🔀 分流出站 -->
       <div class="network-block" id="net-shunt">
         <h3>🔀 分流出站</h3>
         <div class="info-item nid__row">
           <label class="nid__label">混合身份:</label>
-          <value class="nid__value">直连&代理</value>
-        </div>
-        <div class="info-item nid__row">
-          <label class="nid__label">VPS-IP:</label>
-          <value class="nid__value">同左</value>
-        </div>
-        <div class="info-item nid__row">
-          <label class="nid__label">代理IP:</label>
-          <value class="nid__value">同左</value>
+          <value class="nid__value">直连v代理</value>
         </div>
         <div class="info-item nid__row">
           <label class="nid__label">白名单:</label>
@@ -8157,25 +8134,8 @@ build_proxy_args(){ local u="${1:-}"; [[ -z "$u" || "$u" == "null" ]] && return 
   case "$u" in socks5://*|socks5h://*) echo "--socks5-hostname ${u#*://}";;
            http://*|https://*) echo "--proxy $u";; *) :;; esac; }
 
-# [PATCH:IPQ_CURL_SILENT_RETRY]
-# 统一的 curl JSON 抓取：静默、短超时、少量重试，并吞掉错误输出
-CURL_UA="Mozilla/5.0 (EdgeBox IPQ)"
-CURL_CONN_TIMEOUT="${CURL_CONN_TIMEOUT:-2}"   # TCP 连接超时
-CURL_MAX_TIME="${CURL_MAX_TIME:-4}"          # 单次请求总超时（看到你日志是 4001ms）
-CURL_RETRY="${CURL_RETRY:-1}"                # 轻量重试 1 次
-CURL_RETRY_DELAY="${CURL_RETRY_DELAY:-1}"
-
-curl_json() { # $1: curl 代理参数或空  $2: url
-  local p="$1" u="$2"
-  # 注意：不用 -S，否则会在 -s 下仍打印错误；统一 2>/dev/null 吞掉报错
-  curl -fsL -s \
-       --connect-timeout "$CURL_CONN_TIMEOUT" \
-       --max-time "$CURL_MAX_TIME" \
-       --retry "$CURL_RETRY" \
-       --retry-delay "$CURL_RETRY_DELAY" \
-       -A "$CURL_UA" $p "$u" 2>/dev/null \
-  | jq -c . 2>/dev/null
-}
+curl_json(){ # $1 proxy-args  $2 url
+  eval "curl -fL -A 'Mozilla/5.0' -sS --max-time 4 $1 \"$2\"" || return 1; }
 
 get_proxy_url(){ local s="${SHUNT_DIR}/state.json"
   [[ -s "$s" ]] && jqget '.proxy_info' <"$s" || echo ""; }
@@ -8183,27 +8143,8 @@ get_proxy_url(){ local s="${SHUNT_DIR}/state.json"
 collect_one(){ # $1 vantage vps|proxy  $2 proxy-args
   local V="$1" P="$2" J1="{}" J2="{}" J3="{}" ok1=false ok2=false ok3=false
   if out=$(curl_json "$P" "https://ipinfo.io/json"); then J1="$out"; ok1=true; fi
-  
-# [PATCH:IPSB_ENDPOINT_PLUS] 主用 + 备选端点，避免单点波动与超时报错
-if out=$(curl_json "$P" "https://api.ip.sb/geoip"); then
-  J2="$out"; ok2=true
-else
-  for alt in \
-    "https://ifconfig.co/json" \
-    "https://api.myip.com" \
-    "https://ipapi.co/json/"
-  do
-    if out=$(curl_json "$P" "$alt"); then J2="$out"; ok2=true; break; fi
-  done
-fi
-
-if out=$(curl_json "$P" "http://ip-api.com/json/?fields=status,message,continent,country,regionName,city,lat,lon,isp,org,as,reverse,query"); then
-  J3="$out"; ok3=true
-else
-  if out=$(curl_json "$P" "https://ipwho.is/?lang=en"); then
-    J3="$out"; ok3=true
-  fi
-fi
+  if out=$(curl_json "$P" "https://ip.sb/api/json"); then J2="$out"; ok2=true; fi
+  if out=$(curl_json "$P" "http://ip-api.com/json/?fields=status,message,country,city,as,asname,reverse,hosting,proxy,mobile,query"); then J3="$out"; ok3=true; fi
 
   local ip=""; for j in "$J2" "$J1" "$J3"; do ip="$(jq -r '(.ip // .query // empty)' <<<"$j")"; [[ -n "$ip" && "$ip" != "null" ]] && break; done
   local rdns="$(jq -r '.reverse // empty' <<<"$J3")"
@@ -8256,7 +8197,7 @@ rm -f "$hits_file"
 
 # [PATCH:JQ_NOTES_SAFE] —— 先把 notes 文本安全转为 JSON 数组
 # 假设 bash 变量：$ts $vantage $ip $country $city $asn $isp $rdns 以及 $notes
-notes_json="$(printf '%s\n' "${notes[@]:-}" | tr ',' '\n' | awk 'NF' | jq -R -s 'split("\n")|map(select(length>0))' 2>/dev/null || echo '[]')"
+notes_json="$(printf '%s\n' "${notes:-}" | tr ',' '\n' | awk 'NF' | jq -R -s 'split("\n")|map(select(length>0))' 2>/dev/null || echo '[]')"
 
 # 统一用 --arg（字符串）和 --argjson（已经是 JSON 的）传参，避免引号嵌套地狱
 jq -n \
