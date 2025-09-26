@@ -3702,12 +3702,6 @@ MONTHLY_JSON="$(tail -n 12 "$LOG_DIR/monthly.csv" | grep -v '^month,' \
 jq -n --arg updated "$(date -Is)" --argjson last30d "$LAST30D_JSON" --argjson monthly "$MONTHLY_JSON" \
   '{updated_at:$updated,last30d:$last30d,monthly:$monthly}' > "$TRAFFIC_DIR/traffic.json"
 
-# 7) 确保 alert.conf 可通过 Web 访问（前端需要读取阈值配置）
-if [[ -r "$TRAFFIC_DIR/alert.conf" ]]; then
-  # 创建软链接，让前端可以通过 /traffic/alert.conf 访问
-  ln -sf "$TRAFFIC_DIR/alert.conf" "$TRAFFIC_DIR/alert.conf" 2>/dev/null || true
-fi
-
 # 7) 保存状态
 printf 'PREV_TX=%s\nPREV_RX=%s\nPREV_RESI=%s\n' "$TX_CUR" "$RX_CUR" "$RESI_CUR" > "$STATE"
 COLLECTOR
@@ -4848,21 +4842,8 @@ h4 {
   height:var(--meter-height); 
   background:#e2e8f0; 
   border-radius:999px; 
-  overflow:visible; /* 改为 visible 以显示上方标签 */
+  overflow:hidden; 
   position:relative; 
-  margin-top: 20px; /* 为上方标签留出空间 */
-}
-
-/* 阈值刻度线样式 */
-.traffic-card .threshold-marker {
-  border-radius: 1px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
-}
-
-.traffic-card .threshold-label {
-  font-weight: 500;
-  pointer-events: none;
-  text-shadow: 0 1px 1px rgba(255, 255, 255, 0.8);
 }
 .traffic-card .progress-fill{ 
   height:100%; 
@@ -5222,7 +5203,7 @@ dialog[open],
   background:var(--input-bg) !important; 
 }
 
-/* ===== 二维码 ===== */
+/* ===== 二维码：保留居中，移除左对齐 ===== */
 
 .modal-body .qr-container,
 .modal-body .qrcode,
@@ -5252,8 +5233,6 @@ dialog[open],
 .modal-body .qrcode div {
   text-align: center !important;
 }
-
-
 
 /* ===== 复制按钮：白底圆角灰字 ===== */
 .modal .copy-btn,
@@ -5610,29 +5589,6 @@ async function fetchJSON(url) {
   }
 }
 
-// 读取 alert.conf 配置
-async function fetchAlertConfig() {
-  try {
-    const response = await fetch('/traffic/alert.conf', { cache: 'no-store' });
-    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-    const text = await response.text();
-    const config = {};
-    text.split('\n').forEach(line => {
-      line = line.trim();
-      if (line && !line.startsWith('#')) {
-        const [key, value] = line.split('=');
-        if (key && value !== undefined) {
-          config[key.trim()] = value.trim();
-        }
-      }
-    });
-    return config;
-  } catch (error) {
-    console.error('Failed to fetch alert.conf:', error);
-    return { ALERT_STEPS: '30,60,90' }; // 默认值
-  }
-}
-
 function safeGet(obj, path, fallback = '—') {
   const value = path.split('.').reduce((acc, part) => acc && acc[part], obj);
   return value !== null && value !== undefined && value !== '' ? value : fallback;
@@ -5914,78 +5870,24 @@ function renderProtocolTable() {
     tbody.innerHTML = rows + subRow;
 }
 
-
-async function renderTrafficCharts() {
+function renderTrafficCharts() {
   if (!trafficData || !window.Chart) return;
 
   // —— 进度条（本月使用）——
   const monthly = trafficData.monthly || [];
   const currentMonthData = monthly.find(m => m.month === new Date().toISOString().slice(0, 7));
   if (currentMonthData) {
-    // 读取 alert.conf 配置
-    const alertConfig = await fetchAlertConfig();
-    const budget = parseInt(alertConfig.ALERT_MONTHLY_GIB) || 100;
-    const alertSteps = (alertConfig.ALERT_STEPS || '30,60,90').split(',').map(s => parseInt(s.trim()));
-    
+    const budget = 100; // GiB，总预算（保持你原逻辑）
     const used = (currentMonthData.total || 0) / GiB;
     const percentage = Math.min(100, Math.round((used / budget) * 100));
     const fillEl   = document.getElementById('progress-fill');
     const pctEl    = document.getElementById('progress-percentage');
     const budgetEl = document.getElementById('progress-budget');
-    
     if (fillEl)   fillEl.style.width = `${percentage}%`;
     if (pctEl)    pctEl.textContent  = `${percentage}%`;
-    if (budgetEl) budgetEl.textContent = `阈值(${budget}GiB)`;
-    if (pctEl) pctEl.title = `已用 ${used.toFixed(1)}GiB / 阈值 ${budget}GiB`;
-    
-    // 渲染阈值刻度线
-    renderProgressThresholds(alertSteps);
+	if (budgetEl) budgetEl.textContent = `阈值(${budget}GiB)`;
+	if (pctEl) pctEl.title = `已用 ${used.toFixed(1)}GiB / 阈值 ${budget}GiB`;
   }
-
-// 渲染进度条阈值刻度线
-function renderProgressThresholds(thresholds) {
-  const progressBar = document.querySelector('.progress-bar');
-  if (!progressBar) return;
-  
-  // 清除现有刻度线
-  const existingMarkers = progressBar.querySelectorAll('.threshold-marker');
-  existingMarkers.forEach(marker => marker.remove());
-  
-  // 添加新的刻度线
-  thresholds.forEach(threshold => {
-    if (threshold > 0 && threshold <= 100) {
-      const marker = document.createElement('div');
-      marker.className = 'threshold-marker';
-      marker.style.cssText = `
-        position: absolute;
-        left: ${threshold}%;
-        top: 0;
-        bottom: 0;
-        width: 2px;
-        background: #374151;
-        z-index: 10;
-        transform: translateX(-50%);
-      `;
-      
-      // 添加标签
-      const label = document.createElement('div');
-      label.className = 'threshold-label';
-      label.textContent = `${threshold}%`;
-      label.style.cssText = `
-        position: absolute;
-        left: ${threshold}%;
-        top: -18px;
-        font-size: 10px;
-        color: #6b7280;
-        transform: translateX(-50%);
-        white-space: nowrap;
-      `;
-      
-      progressBar.appendChild(marker);
-      progressBar.appendChild(label);
-    }
-  });
-}
 
   // —— 图表销毁（避免重复实例）——
   ['traffic', 'monthly-chart'].forEach(id => {
@@ -6445,10 +6347,6 @@ async function refreshAllData() {
 
 // 同时修改 setupEventListeners 函数，避免重复调用：
 function setupEventListeners() {
-
-    if (window.__EDGEBOX_EVENTS_BOUND__) return;
-    window.__EDGEBOX_EVENTS_BOUND__ = true;
-
     document.addEventListener('click', e => {
         const target = e.target.closest('[data-action]');
         if (!target) return;
@@ -6529,6 +6427,126 @@ document.addEventListener('DOMContentLoaded', () => {
     setupEventListeners();
 });
 
+// ==== new11 事件委托（append-only） ====
+(() => {
+  if (window.__EDGEBOX_DELEGATED__) return;
+  window.__EDGEBOX_DELEGATED__ = true;
+
+  const notify = window.notify || ((msg)=>console.log(msg));
+  const $ = s => document.querySelector(s);
+
+  function showModal(id) {
+    const m = document.getElementById(id);
+    if (!m) return;
+    m.style.display = 'block';
+    document.body.classList.add('modal-open');
+  }
+  function closeModal(id) {
+    const m = document.getElementById(id);
+    if (!m) return;
+    m.style.display = 'none';
+    document.body.classList.remove('modal-open');
+  }
+
+  document.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-action]');
+    if (!btn) return;
+    const action   = btn.dataset.action;
+    const modal    = btn.dataset.modal || '';
+    const protocol = btn.dataset.protocol || '';
+    const type     = btn.dataset.type || '';
+
+    switch (action) {
+      case 'open-modal': {
+        if (modal === 'configModal') {
+          if (typeof showConfigModal === 'function') showConfigModal(protocol);
+          const m = document.getElementById('configModal');
+          if (m && m.style.display !== 'block') showModal('configModal');
+        } else if (modal === 'whitelistModal') {
+          const list = (window.dashboardData?.shunt?.whitelist) || [];
+          const box  = $('#whitelistList');
+          if (box) box.innerHTML = list.map(d => `<div class="whitelist-item">${String(d)
+            .replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}</div>`).join('');
+          showModal('whitelistModal');
+} else if (modal === 'ipqModal') {
+  // 统一走 showIPQDetails（内部自带并发守卫），彻底避免“加载失败→内容”的闪烁
+  if (typeof showIPQDetails === 'function') {
+    await showIPQDetails(btn.dataset.ipq || 'vps'); // 'vps' | 'proxy'
+  } else {
+    showModal('ipqModal'); // 极端兜底：函数不存在时至少打开弹窗
+  }
+}
+        break;
+      }
+
+      case 'close-modal': {
+        closeModal(modal);
+        break;
+      }
+
+// 事件委托中的复制分支（替换你现有的 copy 分支）
+// 复制文本（JSON/明文/6协议明文/Base64）
+case 'copy': {
+  const host = btn.closest('.modal-content');
+  const map  = { json:'#json-code', plain:'#plain-link', plain6:'#plain-links-6', base64:'#base64-link' };
+  const el   = host && host.querySelector(map[btn.dataset.type]);
+  const text = el ? (el.textContent || '').trim() : '';
+  try { await copyTextFallbackAware(text); (window.notify||console.log)('已复制'); }
+  catch { (window.notify||console.warn)('复制失败'); }
+  break;
+}
+
+// 复制二维码（受浏览器安全上下文限制）
+case 'copy-qr': {
+  const host = btn.closest('.modal-content');
+  const cvs  = host && host.querySelector('#qrcode-sub canvas, #qrcode-protocol canvas');
+  
+  if (!cvs) {
+    notify('未找到二维码', 'warn');
+    break;
+  }
+  
+  // 检查浏览器支持
+  if (!cvs.toBlob) {
+    notify('浏览器不支持二维码复制', 'warn');
+    break;
+  }
+  
+  if (!navigator.clipboard?.write) {
+    notify('浏览器不支持剪贴板操作，请右键保存二维码', 'warn');
+    break;
+  }
+  
+  // 检查安全上下文
+  if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+    notify('需要 HTTPS 环境才能复制二维码', 'warn');
+    break;
+  }
+  
+  // 执行复制
+  cvs.toBlob(async blob => {
+    if (!blob) {
+      notify('二维码转换失败', 'warn');
+      return;
+    }
+    
+    try {
+      await navigator.clipboard.write([
+        new ClipboardItem({ 'image/png': blob })
+      ]);
+      notify('二维码已复制到剪贴板');
+    } catch (error) {
+      console.error('复制二维码失败:', error);
+      notify('复制二维码失败，请右键保存', 'warn');
+    }
+  }, 'image/png');
+  
+  break;
+}
+
+    }
+  });
+})();
 
 // === 复制按钮（弹窗内）统一轻提示 ======================
 document.addEventListener('click', async (ev) => {
