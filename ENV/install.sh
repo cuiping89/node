@@ -5234,38 +5234,7 @@ dialog[open],
   text-align: center !important;
 }
 
-/* 终极解决方案：强制只显示一个二维码 */
-#qrcode-protocol > :not(:first-child),
-#qrcode-sub > :not(:first-child) {
-  display: none !important;
-  visibility: hidden !important;
-  opacity: 0 !important;
-  position: absolute !important;
-  left: -99999px !important;
-  width: 0 !important;
-  height: 0 !important;
-  pointer-events: none !important;
-}
 
-/* 确保第一个二维码正常显示 */
-#qrcode-protocol > :first-child,
-#qrcode-sub > :first-child {
-  display: block !important;
-  visibility: visible !important;
-  opacity: 1 !important;
-  position: static !important;
-  margin: 0 auto !important;
-}
-
-/* 额外保险：限制容器高度 */
-#qrcode-protocol,
-#qrcode-sub {
-  overflow: hidden !important;
-  max-height: 220px !important;
-  display: flex !important;
-  justify-content: center !important;
-  align-items: center !important;
-}
 
 /* ===== 复制按钮：白底圆角灰字 ===== */
 .modal .copy-btn,
