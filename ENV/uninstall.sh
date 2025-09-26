@@ -1,243 +1,189 @@
-# --- 自动提权到root (兼容 bash <(curl ...)) ---
-if [[ $EUID -ne 0 ]]; then
-  # 把当前脚本内容拷到临时文件，再以 root 重启执行（兼容 /dev/fd/63）
+#!/usr/bin/env bash
+# =====================================================================
+# EdgeBox 一键卸载脚本（单次交互版：确认后卸载且保留流量数据）
+# - 仅交互一次：提示输入 Y/y 才会继续
+# - 默认保留“流量数据”目录；清理页面/样式/链接，避免 Web 残留
+# - 尽量不破坏系统其它组件；失败不报错退出，而是尽力清理
+# =====================================================================
+
+set -euo pipefail
+
+# --- 自动提权到 root（兼容 bash <(curl ...) 场景） -------------------
+if [[ ${EUID:-0} -ne 0 ]]; then
   _EB_TMP="$(mktemp)"
   # shellcheck disable=SC2128
   cat "${BASH_SOURCE:-/proc/self/fd/0}" > "$_EB_TMP"
   chmod +x "$_EB_TMP"
-
   if command -v sudo >/dev/null 2>&1; then
     exec sudo -E EB_TMP="$_EB_TMP" bash "$_EB_TMP" "$@"
   else
     exec su - root -c "EB_TMP='$_EB_TMP' bash '$_EB_TMP' $*"
   fi
 fi
+# 清理临时副本
+trap '[[ -n "${EB_TMP:-}" && -f "$EB_TMP" ]] && rm -f -- "$EB_TMP" || true' EXIT
 
-# 以 root 运行到这里；如果是从临时文件重启的，退出时自动清理
-trap '[[ -n "${EB_TMP:-}" ]] && rm -f "$EB_TMP"' EXIT
-
-
-#!/usr/bin/env bash
-# ===========================================================
-# EdgeBox Uninstall (idempotent, verbose)  —  with cache-busting rollback
-# ===========================================================
-set -Eeuo pipefail
-
-# ---------- UI helpers ----------
-GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; CYAN='\033[0;36m'; NC='\033[0m'
-ok()   { echo -e "  ${GREEN}✓${NC} $*"; }
-skip() { echo -e "  ${YELLOW}↷ 跳过${NC} $*"; }
-info() { echo -e "${CYAN}[INFO]${NC} $*"; }
-warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
-err()  { echo -e "${RED}[ERROR]${NC} $*"; }
-hr()   { echo -e "${CYAN}------------------------------------------------------------${NC}"; }
-
+# --- 颜色 & 输出 ------------------------------------------------------
+RED="\033[31m"; GREEN="\033[32m"; YELLOW="\033[33m"; BLUE="\033[34m"; CYAN="\033[36m"; NC="\033[0m"
 title(){ echo -e "\n${CYAN}==> $*${NC}"; }
+ok(){ echo -e "${GREEN}✔ $*${NC}"; }
+warn(){ echo -e "${YELLOW}⚠ $*${NC}"; }
+err(){ echo -e "${RED}✘ $*${NC}"; }
+hr(){ echo -e "${CYAN}------------------------------------------------------------${NC}"; }
 
-has_cmd(){ command -v "$1" >/dev/null 2>&1; }
-
-# ---------- Small utils ----------
+# --- 小工具 -----------------------------------------------------------
 systemd_safe(){
-  local action="${1:-}"; shift || true
-  local unit="${1:-}"; shift || true
-  if ! has_cmd systemctl; then return 0; fi
-  systemctl "${action}" "${unit}" >/dev/null 2>&1 || true
-}
-
-list_listeners(){
-  has_cmd ss || return 0
-  ss -lntup 2>/dev/null | egrep ':(443|2053|11443|10085|10086)\b' || true
-}
-
-kill_listeners(){
-  has_cmd ss || return 0
-  local ports="443 2053 11443 10085 10086"
-  for p in $ports; do
-    # tcp
-    ss -lntup 2>/dev/null \
-      | awk -v P=":$p" '$4 ~ P {print $NF}' \
-      | sed -E 's#.*/([0-9]+)\).*/\1#\1#' \
-      | sort -u | xargs -r kill -9 2>/dev/null || true
-    # udp
-    ss -lnuap 2>/dev/null \
-      | awk -v P=":$p" '$5 ~ P {print $NF}' \
-      | sed -E 's#.*/([0-9]+)\).*/\1#\1#' \
-      | sort -u | xargs -r kill -9 2>/dev/null || true
+  local act="$1"; shift
+  for s in "$@"; do
+    if systemctl list-unit-files | grep -qE "^${s}\.service"; then
+      systemctl "$act" "$s" >/dev/null 2>&1 || true
+    fi
   done
 }
 
-remove_paths(){
-  local any=0
+remove_paths(){ # 安全 rm -rf（按需列出）
+  local p
   for p in "$@"; do
-    [[ -z "${p}" ]] && continue
-    if [[ -e "$p" || -L "$p" ]]; then
-      rm -rf -- "$p" && ok "已删除：$p" && any=1
-    else
-      skip "不存在：$p"
+    [[ -z "${p:-}" ]] && continue
+    if [[ -L "$p" || -e "$p" ]]; then
+      rm -rf -- "$p" 2>/dev/null || true
+      ok "removed: $p"
     fi
   done
-  ((any==0)) && true
 }
 
-purge_cron_edgebox(){
-  crontab -l 2>/dev/null \
-    | sed -e '/edgebox\/scripts\/dashboard-backend\.sh/d' \
-          -e '/edgebox\/scripts\/traffic-collector\.sh/d' \
-          -e '/edgebox\/scripts\/traffic-alert\.sh/d' \
-          -e ':/usr/local/bin/edgebox-ipq\.sh:d' \
-    | crontab - 2>/dev/null || true
-  ok "已清理相关 crontab"
+# 猜测 Web 根；优先环境变量，其次常见路径
+detect_panel_root(){
+  if [[ -n "${PANEL_ROOT:-}" && -d "$PANEL_ROOT" ]]; then
+    echo "$PANEL_ROOT"; return
+  fi
+  local cands=(/var/www/html /usr/share/nginx/html)
+  local d; for d in "${cands[@]}"; do [[ -d "$d" ]] && { echo "$d"; return; }; done
+  # 兜底仍返回 /var/www/html（若不存在也可创建/忽略）
+  echo "/var/www/html"
 }
 
-nft_cleanup(){
-  if has_cmd nft && nft list table inet edgebox >/dev/null 2>&1; then
-    info "删除 nftables 表 inet edgebox ..."
-    nft flush table inet edgebox 2>/dev/null || true
-    nft delete table inet edgebox 2>/dev/null || true
-    ok "nftables: 已清理 inet edgebox"
-  else
-    skip "nftables: 未检测到 inet edgebox 表"
+# 识别“真实流量数据目录”，并区分“对外暴露/链接”
+detect_traffic_real(){
+  # 1) 若 /var/www/html/traffic 是链接，解析真实目录
+  if [[ -L /var/www/html/traffic ]]; then
+    readlink -f /var/www/html/traffic 2>/dev/null && return 0
+  fi
+  # 2) 常见真实存放路径
+  [[ -d /etc/edgebox/traffic ]] && { echo /etc/edgebox/traffic; return 0; }
+  [[ -d /var/www/edgebox-traffic ]] && { echo /var/www/edgebox-traffic; return 0; }
+  # 3) 未找到则为空
+  echo ""
+}
+
+# 确认提示（单次交互）
+confirm_once(){
+  echo -e "${YELLOW}本操作将卸载 EdgeBox，停止相关服务，并清理页面/样式/链接。${NC}"
+  echo -e "${YELLOW}注意：流量数据文件将被【保留】。${NC}"
+  read -r -p "确认继续？输入 Y 确认（y/N）: " ans
+  if [[ ! "${ans:-}" =~ ^[Yy]$ ]]; then
+    echo "已取消。"; exit 0
   fi
 }
 
-restore_kernel_tuning(){
-  local SCTL="/etc/sysctl.conf" LIMS="/etc/security/limits.conf"
-  local SCTL_BAK="${SCTL}.bak" LIMS_BAK="${LIMS}.bak"
-  [[ -f "$SCTL_BAK" ]] && install -m 0644 -T "$SCTL_BAK" "$SCTL" && ok "已回滚 $SCTL" || true
-  [[ -f "$LIMS_BAK" ]] && install -m 0644 -T "$LIMS_BAK" "$LIMS" && ok "已回滚 $LIMS" || true
-  has_cmd sysctl && sysctl -p >/dev/null 2>&1 || true
-}
-
-restore_nginx(){
-  if has_cmd nginx; then
-    # 恢复站点/配置备份（若存在）
-    for f in /etc/nginx/nginx.conf /etc/nginx/conf.d/edgebox.conf; do
-      [[ -f "${f}.bak" ]] && install -m 0644 -T "${f}.bak" "$f" && ok "已回滚 $f"
-    done
-    nginx -t && systemd_safe reload nginx || true
-  else
-    skip "未安装 nginx"
-  fi
-}
-
-# ---------- Cache-busting rollback (HTML ?v=VERSION 清理) ----------
-# 你的前端根目录（如有环境变量 WEB_ROOT 将优先使用）
-PANEL_ROOT="${WEB_ROOT:-/var/www/html}"
-
-# 入口页（有 <link>/<script> 的页面）；按需追加更多路径
-HTML_FILES=(
-  "${PANEL_ROOT}/index.html"
-  "${PANEL_ROOT}/panel/index.html"
-)
-
-# 要剥离 ?v= 的资源（正则，包含常见路径）
-ASSETS_REGEX='(app\.css|app\.js|assets/[A-Za-z0-9._-]+\.css|assets/[A-Za-z0-9._-]+\.js|static/[A-Za-z0-9/_.-]+\.css|static/[A-Za-z0-9/_.-]+\.js)'
-
-strip_file_version_from_html() {
-  local f="$1"
-  [[ -f "$f" ]] || { skip "HTML 不存在：$f"; return 0; }
-
-  # 1) 清理目标资源后的 ?v=xxx
-  sed -E -i "s#(${ASSETS_REGEX})\\?v=[^\"')]+#\\1#g" "$f"
-
-  # 2) 移除我们可能注入过的热点修复样式（如 id="hotfix-whitelist-*"）
-  sed -E -i '/<style[^>]*id="hotfix-whitelist[^"]*"[^>]*>/I,/<\/style>/Id' "$f"
-
-  ok "已剥离版本号/热修样式：$f"
-}
-
-uninstall_cache_busting() {
-  title "回滚前端 cache-busting（移除 ?v=VERSION）"
-  local found=0
-  for f in "${HTML_FILES[@]}"; do
-    if [[ -f "${f}.bak" ]]; then
-      install -m 0644 -T "${f}.bak" "$f" && ok "已还原备份：${f}.bak -> ${f}"
-      found=1
-    elif [[ -f "$f" ]]; then
-      strip_file_version_from_html "$f"
-      found=1
-    fi
-  done
-  ((found==0)) && skip "未发现入口 HTML，跳过 cache-busting 回滚"
-}
-
-# 可选：卸载时顺带删静态目录，重装再铺（防旧文件残留）
-clean_static_dirs(){
-  local root="${PANEL_ROOT}"
-  remove_paths "${root}/assets" "${root}/static"
-}
-
-# ---------- Main ----------
+# --- 主逻辑 -----------------------------------------------------------
 main(){
+  confirm_once
+  hr
+
+  # 记录关键路径
+  PANEL_ROOT="$(detect_panel_root)"
+  TRAFFIC_REAL="$(detect_traffic_real)"
+
   title "停止并禁用相关服务"
-  for s in xray sing-box nginx; do
-    systemd_safe stop "$s"
-    systemd_safe disable "$s"
-  done
+  systemd_safe stop xray sing-box nginx
+  systemd_safe disable xray sing-box nginx
+  ok "已尝试停止/禁用 xray, sing-box, nginx（如存在）。"
   hr
 
-  title "强制释放端口（443/2053/11443/10085/10086）"
-  list_listeners || true
-  kill_listeners || true
-  hr
-
-  title "删除程序/配置/数据文件"
-  # 按你的实际安装路径增减
+  title "删除程序/配置（保留流量数据目录）"
+  # 核心二进制/工具
   remove_paths \
-    /usr/local/bin/edgebox-ipq.sh \
     /usr/local/bin/edgeboxctl \
-    /etc/edgebox \
+    /usr/local/bin/edgebox-ipq.sh
+
+  # 配置/状态/数据库（不包含 traffic 真实目录）
+  # 先处理 /etc/edgebox：仅删除除流量目录外的所有内容
+  if [[ -d /etc/edgebox ]]; then
+    shopt -s dotglob nullglob
+    for p in /etc/edgebox/*; do
+      [[ -n "$TRAFFIC_REAL" && "$p" == "$TRAFFIC_REAL" ]] && continue
+      rm -rf -- "$p" 2>/dev/null || true
+    done
+    ok "已清理 /etc/edgebox（已保留：${TRAFFIC_REAL:-无}）。"
+  fi
+
+  # 其它典型路径
+  remove_paths \
     /etc/xray /usr/local/etc/xray \
     /etc/sing-box /usr/local/etc/sing-box \
-    /var/log/edgebox \
-    /var/lib/edgebox
+    /var/lib/edgebox \
+    /var/log/edgebox
+
+  # 如果 /etc/edgebox 现在为空目录，顺带删除（但若其本身就是 traffic 真实目录则不删）
+  if [[ -d /etc/edgebox ]]; then
+    if [[ -n "$TRAFFIC_REAL" && "$TRAFFIC_REAL" == "/etc/edgebox" ]]; then
+      : # /etc/edgebox 自身就是流量目录，不能删
+    else
+      rmdir /etc/edgebox 2>/dev/null || true
+    fi
+  fi
   hr
 
-  title "删除 Web 资源与链接（/status, /traffic, 日志）"
-  WEB_ROOT="${PANEL_ROOT}"
+  title "删除 Web 资源与链接（避免样式/页面残留）"
+  WEB_ROOT="$PANEL_ROOT"
   WEB_STATUS_LINK="${WEB_ROOT}/status"
   WEB_STATUS_PHY="/var/www/edgebox-status"
   TRAFFIC_LINK="${WEB_ROOT}/traffic"
   TRAFFIC_DIR="/var/www/edgebox-traffic"
   LOG_DIR="${WEB_ROOT}/logs"
   INSTALL_LOG="/var/log/edgebox-install.log"
-  remove_paths "$WEB_STATUS_LINK" "$WEB_STATUS_PHY" "$TRAFFIC_LINK" "$TRAFFIC_DIR" "$LOG_DIR" "$INSTALL_LOG"
-  hr
 
-  # ★★ 版本号清理（HTML 中去除 ?v=...） ★★
-  uninstall_cache_busting
-  # ★★ 如要更干净，顺带删除静态目录（可注释） ★★
-  clean_static_dirs
-  hr
+  # 删除状态页/日志/安装日志
+  remove_paths "$WEB_STATUS_LINK" "$WEB_STATUS_PHY" "$LOG_DIR" "$INSTALL_LOG"
 
-  title "清理 crontab / nftables / 内核参数 回滚"
-  purge_cron_edgebox
-  nft_cleanup
-  restore_kernel_tuning
-  hr
+  # 删除 traffic 链接/对外暴露，但保留真实数据目录
+  remove_paths "$TRAFFIC_LINK"
 
-  title "回滚 nginx 配置并重载"
-  restore_nginx
-  hr
-
-  title "残留检查"
-  local leftovers=()
-  for p in /etc/edgebox /etc/xray /usr/local/etc/xray /etc/sing-box /usr/local/etc/sing-box /var/www/edgebox-*; do
-    [[ -e "$p" ]] && leftovers+=("$p")
-  done
-  if ((${#leftovers[@]}==0)); then
-    ok "系统已清理完成。"
+  # 若真实数据目录就是 /var/www/edgebox-traffic，则为了避免“样式残留”，
+  # 我们仅删除其中可能的页面文件（index.html/css/js），保留纯数据（常见为 .json/.csv/.db 等）
+  if [[ -n "$TRAFFIC_REAL" && "$TRAFFIC_REAL" == "$TRAFFIC_DIR" && -d "$TRAFFIC_DIR" ]]; then
+    find "$TRAFFIC_DIR" -maxdepth 1 -type f \
+      \( -name 'index.html' -o -name '*.html' -o -name '*.css' -o -name '*.js' \) \
+      -print -exec rm -f {} \; 2>/dev/null || true
+    ok "已移除 /var/www/edgebox-traffic 中的样式/页面文件，仅保留数据文件。"
   else
-    echo -e "\n${YELLOW}⚠️ 卸载完成（存在残留或运行中的服务）。${NC}"
-    printf '  残留路径：\n'; printf '    - %s\n' "${leftovers[@]}"
+    # 如果真实目录不在 /var/www/edgebox-traffic，且该目录存在，直接删除它避免样式残留
+    if [[ -d "$TRAFFIC_DIR" && "$TRAFFIC_DIR" != "$TRAFFIC_REAL" ]]; then
+      rm -rf -- "$TRAFFIC_DIR" 2>/dev/null || true
+      ok "已删除 /var/www/edgebox-traffic（未触碰真实数据目录：${TRAFFIC_REAL:-无}）。"
+    fi
   fi
+  hr
 
-  echo "下一步建议："
-  echo "  1) 若要立刻重装，可直接运行你的安装命令（幂等安装）。"
-  echo "  2) 验证命令："
-  echo "     - ss -lntup | egrep ':443|:2053|:11443|:10085|:10086'"
-  echo "     - systemctl status xray sing-box nginx --no-pager"
-  echo -e "${CYAN}============================================================${NC}"
+  title "关闭残留监听端口（如有）"
+  # 常见端口：443(https/reality/grpc/ws)、2053(TUIC)、8443(Hysteria2)、10085/10086(示例)
+  # 这里只提示，具体释放随服务停止而完成
+  ss -lntup | egrep ':443|:2053|:8443|:10085|:10086' || true
+  hr
+
+  title "卸载完成（已保留流量数据）"
+  echo -e "Web 残留：已移除 status/logs 以及 traffic 链接；不再有样式/页面。"
+  if [[ -n "$TRAFFIC_REAL" && -d "$TRAFFIC_REAL" ]]; then
+    echo -e "已保留的流量数据目录：${GREEN}${TRAFFIC_REAL}${NC}"
+  else
+    echo -e "未检测到可保留的流量数据目录。"
+  fi
+  hr
+
+  echo "后续可执行："
+  echo "  - 重新安装：直接运行你的安装脚本（幂等）。"
+  echo "  - 验证服务：systemctl status xray sing-box nginx --no-pager"
 }
 
 main "$@"
