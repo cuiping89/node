@@ -5631,8 +5631,7 @@ async function copyTextFallbackAware(text) {
   if (!text) throw new Error('empty');
   try {
     if ((location.protocol === 'https:' || location.hostname === 'localhost') && navigator.clipboard) {
-      await navigator.clipboard.writeText(text); 
-      return true;
+      await navigator.clipboard.writeText(text); return true;
     }
     throw new Error('insecure');
   } catch {
@@ -5641,11 +5640,9 @@ async function copyTextFallbackAware(text) {
     ta.style.position='fixed'; ta.style.opacity='0';
     document.body.appendChild(ta); ta.select();
     const ok = document.execCommand('copy'); document.body.removeChild(ta);
-    if (!ok) throw new Error('execCommand failed'); 
-    return true;
+    if (!ok) throw new Error('execCommand failed'); return true;
   }
 }
-
 
 
 // --- UI Rendering Functions ---
@@ -6020,9 +6017,7 @@ function showConfigModal(protocolKey) {
   if (!title || !details || !footer) return;
 
   // 工具函数
-const esc = s => String(s).replace(/[&<>"']/g, c => ({
-  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-}[c]));
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const toB64 = s => btoa(unescape(encodeURIComponent(s)));
   const get = (o, p, fb = '') => p.split('.').reduce((a, k) => (a && a[k] !== undefined ? a[k] : undefined), o) ?? fb;
 
@@ -6178,19 +6173,30 @@ const esc = s => String(s).replace(/[&<>"']/g, c => ({
 
   // 生成二维码（使用 setTimeout 确保 DOM 已更新）
   setTimeout(() => {
-// —— 生成二维码（先清空再画，防止重复）——
-if (qrText && window.QRCode) {
-  const holderId = (protocolKey === '__SUBS__') ? 'qrcode-sub' : 'qrcode-protocol';
-  const holder = document.getElementById(holderId);
-  if (holder) {
-    holder.innerHTML = '';                // ✅ 关键：先清空
-    new QRCode(holder, {
-      text: qrText,
-      width: 200,
-      height: 200
-    });
-  }
-}
+    if (qrText && window.QRCode) {
+      const holderId = (protocolKey === '__SUBS__') ? 'qrcode-sub' : 'qrcode-protocol';
+      const holder = document.getElementById(holderId);
+      if (holder) {
+        // 彻底清空容器，移除所有子元素
+        while (holder.firstChild) {
+          holder.removeChild(holder.firstChild);
+        }
+        
+        // 创建新的二维码
+        try {
+          new QRCode(holder, {
+            text: qrText,
+            width: 200,
+            height: 200,
+            colorDark: "#000000",
+            colorLight: "#ffffff",
+            correctLevel: QRCode.CorrectLevel.M
+          });
+        } catch (e) {
+          console.error('生成二维码失败:', e);
+        }
+      }
+    }
   }, 10);
 }
 
@@ -6385,12 +6391,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     switch (action) {
       case 'open-modal': {
-if (modal === 'configModal') {
-  // 避免与 setupEventListeners 重复渲染
-  const m = document.getElementById('configModal');
-  if (m && m.style.display !== 'block') showModal('configModal'); // 只负责打开
-  // 渲染交给 setupEventListeners 那一份
-} else if (modal === 'whitelistModal') {
+        if (modal === 'configModal') {
+          if (typeof showConfigModal === 'function') showConfigModal(protocol);
+          const m = document.getElementById('configModal');
+          if (m && m.style.display !== 'block') showModal('configModal');
+        } else if (modal === 'whitelistModal') {
           const list = (window.dashboardData?.shunt?.whitelist) || [];
           const box  = $('#whitelistList');
           if (box) box.innerHTML = list.map(d => `<div class="whitelist-item">${String(d)
