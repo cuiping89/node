@@ -6902,51 +6902,63 @@ case 'copy': {
   break;
 }
 
-// 复制二维码（受浏览器安全上下文限制）
+
+// 复制二维码（安全上下文优先，失败自动降级为下载 + 复制明文）
 case 'copy-qr': {
   const host = btn.closest('.modal-content');
   const cvs  = host && host.querySelector('#qrcode-sub canvas, #qrcode-protocol canvas');
-  
+
   if (!cvs) {
     notify('未找到二维码', 'warn');
     break;
   }
-  
-  // 检查浏览器支持
-  if (!cvs.toBlob) {
-    notify('浏览器不支持二维码复制', 'warn');
-    break;
-  }
-  
-  if (!navigator.clipboard?.write) {
-    notify('浏览器不支持剪贴板操作，请右键保存二维码', 'warn');
-    break;
-  }
-  
-  // 检查安全上下文
-  if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
-    notify('需要 HTTPS 环境才能复制二维码', 'warn');
-    break;
-  }
-  
-  // 执行复制
-  cvs.toBlob(async blob => {
+
+  // 小工具：下载 PNG
+  const doDownload = (blob) => {
+    const a = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    const name = (protocol || '__SUBS__') + '_qrcode.png';
+    a.href = url; a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  };
+
+  // 小工具：复制文本兜底（订阅或明文链接）
+  const doFallbackText = async () => {
+    const text =
+      host?.querySelector('#plain-link')?.textContent?.trim()
+      || host?.querySelector('#plain-links-6')?.textContent?.trim()
+      || host?.querySelector('#base64-link')?.textContent?.trim()
+      || '';
+    if (text) {
+      try { await copyTextFallbackAware(text); } catch (_) {}
+    }
+  };
+
+  // 从 canvas 拿 PNG 并尽量写入剪贴板
+  cvs.toBlob(async (blob) => {
     if (!blob) {
-      notify('二维码转换失败', 'warn');
+      notify('获取二维码失败', 'warn');
       return;
     }
-    
     try {
-      await navigator.clipboard.write([
-        new ClipboardItem({ 'image/png': blob })
-      ]);
-      notify('二维码已复制到剪贴板');
-    } catch (error) {
-      console.error('复制二维码失败:', error);
-      notify('复制二维码失败，请右键保存', 'warn');
+      // 首选：安全上下文 + 支持图片写入
+      if (window.isSecureContext && navigator.clipboard?.write && window.ClipboardItem) {
+        await navigator.clipboard.write([ new ClipboardItem({ 'image/png': blob }) ]);
+        notify('二维码已复制到剪贴板');
+      } else {
+        throw new Error('insecure');
+      }
+    } catch (err) {
+      // 降级路径：自动下载 PNG + 复制明文
+      doDownload(blob);
+      await doFallbackText();
+      notify('图片复制受限：已自动下载二维码，并复制了明文/链接', 'warn');
     }
   }, 'image/png');
-  
+
   break;
 }
 
