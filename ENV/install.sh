@@ -3008,7 +3008,7 @@ get_certificate_info() {
     local cert_expires_at=""
     local cert_renewal_type="manual"
 
-    # 避免本地化影响 openssl 的英文月份解析
+    # 保持英文月份，避免本地化解析问题
     export LC_ALL=C
 
     # 读取证书模式
@@ -3016,29 +3016,52 @@ get_certificate_info() {
         cert_mode=$(cat "${CONFIG_DIR}/cert_mode")
     fi
 
-    # 统一的解析函数：把 notAfter 转成 yyyy-mm-dd
-    _parse_expire_date() {
+    # 便携式解析：把 "notAfter=Sep 25 12:34:56 2026 GMT" → "2026-09-25"
+    _parse_expire_date_portable() {
         local pem="$1"
         [[ -f "$pem" ]] || return 1
+
+        # 读出 notAfter 原始字符串
         local raw_end
-        raw_end=$(openssl x509 -enddate -noout -in "$pem" 2>/dev/null | sed 's/^notAfter=//') || return 1
-        [[ -n "$raw_end" ]] || return 1
-        # GNU date 解析并转成 yyyy-mm-dd；失败则返回 1
-        local iso_end
-        iso_end=$(date -u -d "$raw_end" '+%Y-%m-%d' 2>/dev/null) || return 1
-        printf '%s' "$iso_end"
+        raw_end=$(openssl x509 -enddate -noout -in "$pem" 2>/dev/null) || return 1
+        raw_end=${raw_end#notAfter=}                         # 去掉前缀
+        raw_end=$(printf '%s\n' "$raw_end" | awk '{$1=$1;print}')  # 压缩多空格
+
+        # 期望形如：Mon DD HH:MM:SS YYYY TZ
+        # 取出月份、日、年
+        local mon dd yyyy
+        mon=$(printf '%s\n' "$raw_end" | awk '{print $1}')
+        dd=$( printf '%s\n' "$raw_end" | awk '{print $2}')
+        yyyy=$(printf '%s\n' "$raw_end" | awk '{print $4}')
+
+        # 月份映射
+        local mm
+        case "$mon" in
+            Jan) mm=01 ;; Feb) mm=02 ;; Mar) mm=03 ;; Apr) mm=04 ;;
+            May) mm=05 ;; Jun) mm=06 ;; Jul) mm=07 ;; Aug) mm=08 ;;
+            Sep) mm=09 ;; Oct) mm=10 ;; Nov) mm=11 ;; Dec) mm=12 ;;
+            *)   return 1 ;;
+        esac
+
+        # 日补零
+        if [[ "$dd" =~ ^[0-9]$ ]]; then
+            dd="0$dd"
+        fi
+
+        # 基本校验
+        [[ -n "$yyyy" && -n "$mm" && -n "$dd" ]] || return 1
+
+        printf '%s-%s-%s' "$yyyy" "$mm" "$dd"
         return 0
     }
 
     # 确定证书文件路径（两类都处理好）
     local cert_file=""
-
     if [[ "$cert_mode" =~ ^letsencrypt ]]; then
         # ---- Let's Encrypt ----
         cert_domain="${cert_mode#letsencrypt:}"
         cert_renewal_type="auto"
 
-        # 1) 首选 live/{domain}/cert.pem；2) 退化到 fullchain.pem；3) 跟随符号链接
         if [[ -n "$cert_domain" ]]; then
             if [[ -f "/etc/letsencrypt/live/${cert_domain}/cert.pem" ]]; then
                 cert_file="/etc/letsencrypt/live/${cert_domain}/cert.pem"
@@ -3046,7 +3069,8 @@ get_certificate_info() {
                 cert_file="/etc/letsencrypt/live/${cert_domain}/fullchain.pem"
             fi
         fi
-        # 如果没指定域但系统存在 LE live 目录，尝试取第一个目录作为当前证书（可选）
+
+        # 兜底：未指定域名时，尝试 live 目录下的第一个证书
         if [[ -z "$cert_file" && -d /etc/letsencrypt/live ]]; then
             local first_live
             first_live=$(find /etc/letsencrypt/live -maxdepth 1 -mindepth 1 -type d | head -n1)
@@ -3065,9 +3089,9 @@ get_certificate_info() {
         [[ -f "$cert_file" ]] || cert_file="${CERT_DIR}/self-signed.pem"
     fi
 
-    # 解析到期时间（两类证书都统一走这里）
+    # 解析到期时间（统一用便携式解析）
     if [[ -n "$cert_file" ]]; then
-        cert_expires_at="$(_parse_expire_date "$cert_file")" || cert_expires_at=""
+        cert_expires_at="$(_parse_expire_date_portable "$cert_file")" || cert_expires_at=""
     fi
 
     # 输出 JSON（空串转 null）
@@ -5259,9 +5283,9 @@ h4 {
 .notification-center {
     position: relative;
     display: inline-flex;
-    width: 44px;              /* ← 调大/调小按钮外框尺寸改这里 */
-    height: 44px;
-    margin-right: 30px;       /* 保持你原来的间距 */
+    width: 38px;              /* ← 调大/调小按钮外框尺寸改这里 */
+    height: 38px;
+    margin-right: 22px;       /* 保持你原来的间距 */
     align-items: center;
     justify-content: center;
 }
@@ -5286,7 +5310,7 @@ h4 {
 .notification-trigger > svg,
 .notification-trigger > i,
 .notification-trigger > span {
-    font-size: 22px;          /* ← 调大/调小图标尺寸改这里 */
+    font-size: 23px;          /* ← 调大/调小图标尺寸改这里 */
     width: 1em;
     height: 1em;
     display: inline-block;
