@@ -4838,9 +4838,8 @@ h4 {
   display:flex; 
   align-items:center; 
   gap:10px; 
-  height:calc(var(--h-progress) + 25px); /* 增加高度以容纳标签 */
+  height:var(--h-progress); 
   flex-shrink:0; 
-  padding-top: 0; /* 确保顶部不被裁切 */
 }
 .traffic-card .progress-wrapper{ 
   flex:1; 
@@ -4850,9 +4849,8 @@ h4 {
   height:var(--meter-height); 
   background:#e2e8f0; 
   border-radius:999px; 
-  overflow:visible; /* 改为 visible 以显示上方标签 */
+  overflow:hidden;  /* 保持 hidden，标签现在在内部 */
   position:relative; 
-  margin-top: 25px; /* 为上方标签留出空间 */
 }
 .traffic-card .progress-fill{ 
   height:100%; 
@@ -5598,7 +5596,7 @@ async function fetchJSON(url) {
   }
 }
 
-/ 读取 alert.conf 配置
+// 读取 alert.conf 配置
 async function fetchAlertConfig() {
   try {
     const response = await fetch('/traffic/alert.conf', { cache: 'no-store' });
@@ -5903,31 +5901,44 @@ function renderProtocolTable() {
 }
 
 
-async function renderTrafficCharts() {
+function renderTrafficCharts() {
   if (!trafficData || !window.Chart) return;
 
   // —— 进度条（本月使用）——
   const monthly = trafficData.monthly || [];
   const currentMonthData = monthly.find(m => m.month === new Date().toISOString().slice(0, 7));
   if (currentMonthData) {
-    // 读取 alert.conf 配置
-    const alertConfig = await fetchAlertConfig();
-    const budget = parseInt(alertConfig.ALERT_MONTHLY_GIB) || 100;
-    const alertSteps = (alertConfig.ALERT_STEPS || '30,60,90').split(',').map(s => parseInt(s.trim()));
-    
     const used = (currentMonthData.total || 0) / GiB;
-    const percentage = Math.min(100, Math.round((used / budget) * 100));
+    const percentage = Math.min(100, Math.round((used / 100) * 100)); // 先用默认预算100
     const fillEl   = document.getElementById('progress-fill');
     const pctEl    = document.getElementById('progress-percentage');
     const budgetEl = document.getElementById('progress-budget');
     
     if (fillEl)   fillEl.style.width = `${percentage}%`;
     if (pctEl)    pctEl.textContent  = `${percentage}%`;
-    if (budgetEl) budgetEl.textContent = `阈值(${budget}GiB)`;
-    if (pctEl) pctEl.title = `已用 ${used.toFixed(1)}GiB / 阈值 ${budget}GiB`;
+    if (budgetEl) budgetEl.textContent = `阈值(100GiB)`;  // 先显示默认值
+    if (pctEl) pctEl.title = `已用 ${used.toFixed(1)}GiB / 阈值 100GiB`;
     
-    // 渲染阈值刻度线（只在流量统计进度条上）
-    renderTrafficProgressThresholds(alertSteps);
+    // 异步获取配置并更新阈值刻度线
+    fetchAlertConfig().then(alertConfig => {
+      const budget = parseInt(alertConfig.ALERT_MONTHLY_GIB) || 100;
+      const alertSteps = (alertConfig.ALERT_STEPS || '30,60,90').split(',').map(s => parseInt(s.trim()));
+      
+      // 重新计算百分比（基于真实预算）
+      const realPercentage = Math.min(100, Math.round((used / budget) * 100));
+      
+      // 更新显示
+      if (fillEl) fillEl.style.width = `${realPercentage}%`;
+      if (pctEl) pctEl.textContent = `${realPercentage}%`;
+      if (budgetEl) budgetEl.textContent = `阈值(${budget}GiB)`;
+      if (pctEl) pctEl.title = `已用 ${used.toFixed(1)}GiB / 阈值 ${budget}GiB`;
+      
+      // 渲染阈值刻度线
+      renderTrafficProgressThresholds(alertSteps);
+    }).catch(err => {
+      console.warn('无法加载 alert.conf，使用默认配置:', err);
+      renderTrafficProgressThresholds([30, 60, 90]); // 使用默认阈值
+    });
   }
 
 // 渲染流量统计进度条的阈值刻度线（只针对流量统计，不影响CPU/内存/磁盘进度条）
@@ -5960,20 +5971,25 @@ function renderTrafficProgressThresholds(thresholds) {
         border-radius: 1px;
       `;
       
-      // 标签
+      // 标签（白底字，放在进度条内部）
       const label = document.createElement('div');
       label.className = 'traffic-threshold-label';
       label.textContent = `${threshold}%`;
       label.style.cssText = `
         position: absolute;
         left: ${threshold}%;
-        top: -20px;
-        font-size: 10px;
-        color: #6b7280;
-        transform: translateX(-50%);
+        top: 50%;
+        transform: translate(-50%, -50%);
+        font-size: 9px;
+        color: #374151;
+        background: rgba(255, 255, 255, 0.9);
+        padding: 1px 3px;
+        border-radius: 2px;
         white-space: nowrap;
-        font-weight: 500;
+        font-weight: 600;
         pointer-events: none;
+        z-index: 11;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
       `;
       
       trafficProgressBar.appendChild(marker);
