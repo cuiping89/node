@@ -3702,6 +3702,12 @@ MONTHLY_JSON="$(tail -n 12 "$LOG_DIR/monthly.csv" | grep -v '^month,' \
 jq -n --arg updated "$(date -Is)" --argjson last30d "$LAST30D_JSON" --argjson monthly "$MONTHLY_JSON" \
   '{updated_at:$updated,last30d:$last30d,monthly:$monthly}' > "$TRAFFIC_DIR/traffic.json"
 
+# 7) 确保 alert.conf 可通过 Web 访问（前端需要读取阈值配置）
+if [[ -r "$TRAFFIC_DIR/alert.conf" ]]; then
+  # 创建软链接，让前端可以通过 /traffic/alert.conf 访问
+  ln -sf "$TRAFFIC_DIR/alert.conf" "$TRAFFIC_DIR/alert.conf" 2>/dev/null || true
+fi
+
 # 7) 保存状态
 printf 'PREV_TX=%s\nPREV_RX=%s\nPREV_RESI=%s\n' "$TX_CUR" "$RX_CUR" "$RESI_CUR" > "$STATE"
 COLLECTOR
@@ -4842,8 +4848,21 @@ h4 {
   height:var(--meter-height); 
   background:#e2e8f0; 
   border-radius:999px; 
-  overflow:hidden; 
+  overflow:visible; /* 改为 visible 以显示上方标签 */
   position:relative; 
+  margin-top: 20px; /* 为上方标签留出空间 */
+}
+
+/* 阈值刻度线样式 */
+.traffic-card .threshold-marker {
+  border-radius: 1px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.traffic-card .threshold-label {
+  font-weight: 500;
+  pointer-events: none;
+  text-shadow: 0 1px 1px rgba(255, 255, 255, 0.8);
 }
 .traffic-card .progress-fill{ 
   height:100%; 
@@ -5591,6 +5610,29 @@ async function fetchJSON(url) {
   }
 }
 
+// 读取 alert.conf 配置
+async function fetchAlertConfig() {
+  try {
+    const response = await fetch('/traffic/alert.conf', { cache: 'no-store' });
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    const text = await response.text();
+    const config = {};
+    text.split('\n').forEach(line => {
+      line = line.trim();
+      if (line && !line.startsWith('#')) {
+        const [key, value] = line.split('=');
+        if (key && value !== undefined) {
+          config[key.trim()] = value.trim();
+        }
+      }
+    });
+    return config;
+  } catch (error) {
+    console.error('Failed to fetch alert.conf:', error);
+    return { ALERT_STEPS: '30,60,90' }; // 默认值
+  }
+}
+
 function safeGet(obj, path, fallback = '—') {
   const value = path.split('.').reduce((acc, part) => acc && acc[part], obj);
   return value !== null && value !== undefined && value !== '' ? value : fallback;
@@ -5872,24 +5914,78 @@ function renderProtocolTable() {
     tbody.innerHTML = rows + subRow;
 }
 
-function renderTrafficCharts() {
+
+async function renderTrafficCharts() {
   if (!trafficData || !window.Chart) return;
 
   // —— 进度条（本月使用）——
   const monthly = trafficData.monthly || [];
   const currentMonthData = monthly.find(m => m.month === new Date().toISOString().slice(0, 7));
   if (currentMonthData) {
-    const budget = 100; // GiB，总预算（保持你原逻辑）
+    // 读取 alert.conf 配置
+    const alertConfig = await fetchAlertConfig();
+    const budget = parseInt(alertConfig.ALERT_MONTHLY_GIB) || 100;
+    const alertSteps = (alertConfig.ALERT_STEPS || '30,60,90').split(',').map(s => parseInt(s.trim()));
+    
     const used = (currentMonthData.total || 0) / GiB;
     const percentage = Math.min(100, Math.round((used / budget) * 100));
     const fillEl   = document.getElementById('progress-fill');
     const pctEl    = document.getElementById('progress-percentage');
     const budgetEl = document.getElementById('progress-budget');
+    
     if (fillEl)   fillEl.style.width = `${percentage}%`;
     if (pctEl)    pctEl.textContent  = `${percentage}%`;
-	if (budgetEl) budgetEl.textContent = `阈值(${budget}GiB)`;
-	if (pctEl) pctEl.title = `已用 ${used.toFixed(1)}GiB / 阈值 ${budget}GiB`;
+    if (budgetEl) budgetEl.textContent = `阈值(${budget}GiB)`;
+    if (pctEl) pctEl.title = `已用 ${used.toFixed(1)}GiB / 阈值 ${budget}GiB`;
+    
+    // 渲染阈值刻度线
+    renderProgressThresholds(alertSteps);
   }
+
+// 渲染进度条阈值刻度线
+function renderProgressThresholds(thresholds) {
+  const progressBar = document.querySelector('.progress-bar');
+  if (!progressBar) return;
+  
+  // 清除现有刻度线
+  const existingMarkers = progressBar.querySelectorAll('.threshold-marker');
+  existingMarkers.forEach(marker => marker.remove());
+  
+  // 添加新的刻度线
+  thresholds.forEach(threshold => {
+    if (threshold > 0 && threshold <= 100) {
+      const marker = document.createElement('div');
+      marker.className = 'threshold-marker';
+      marker.style.cssText = `
+        position: absolute;
+        left: ${threshold}%;
+        top: 0;
+        bottom: 0;
+        width: 2px;
+        background: #374151;
+        z-index: 10;
+        transform: translateX(-50%);
+      `;
+      
+      // 添加标签
+      const label = document.createElement('div');
+      label.className = 'threshold-label';
+      label.textContent = `${threshold}%`;
+      label.style.cssText = `
+        position: absolute;
+        left: ${threshold}%;
+        top: -18px;
+        font-size: 10px;
+        color: #6b7280;
+        transform: translateX(-50%);
+        white-space: nowrap;
+      `;
+      
+      progressBar.appendChild(marker);
+      progressBar.appendChild(label);
+    }
+  });
+}
 
   // —— 图表销毁（避免重复实例）——
   ['traffic', 'monthly-chart'].forEach(id => {
