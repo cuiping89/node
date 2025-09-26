@@ -6387,11 +6387,12 @@ function renderCertificateAndNetwork() {
   const certTypeEl = document.getElementById('cert-type');   if (certTypeEl) certTypeEl.textContent = certMode.startsWith('letsencrypt') ? "Let's Encrypt" : "自签名";
   const domEl = document.getElementById('cert-domain');      if (domEl) domEl.textContent = safeGet(cert, 'domain', '(无)');
   const rnEl  = document.getElementById('cert-renewal');     if (rnEl)  rnEl.textContent  = certMode.startsWith('letsencrypt') ? '自动' : '手动';
-  const exEl  = document.getElementById('cert-expiry');
-  if (exEl) {
-    const exp = safeGet(cert, 'expires_at', null);
-    exEl.textContent = exp ? new Date(exp).toLocaleDateString() : '—';
-  }
+const exEl  = document.getElementById('cert-expiry');
+if (exEl) {
+  const exp = safeGet(cert, 'expires_at', null);
+  // 直接显示 yyyy-mm-dd 格式，不进行本地化或其他格式转换
+  exEl.textContent = exp || '—';
+}
 
   // —— 出站模式高亮（采用你第二段的口径）——
   const shuntMode = String(safeGet(shunt, 'mode', 'vps')).toLowerCase();
