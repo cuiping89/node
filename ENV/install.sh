@@ -8885,7 +8885,9 @@ EMAIL_GUIDE
 }
 
 
-# 安装增强版IP质量评分系统 (包含VPS带宽测试、特征优化、rDNS改进)
+
+# [ANCHOR:IPQ_STACK_ENHANCED_START]
+# 安装增强版IP质量评分系统 (包含VPS带宽测试、特征优化、rDNS改进、前端修复)
 install_ipq_stack() {
   log_info "安装增强版 IP 质量评分（IPQ）栈..."
 
@@ -8898,6 +8900,26 @@ install_ipq_stack() {
     if command -v apt >/dev/null 2>&1; then apt -y update && apt -y install dnsutils;
     elif command -v yum >/dev/null 2>&1; then yum -y install bind-utils; fi
   fi
+
+  # 前端代码修复函数
+  fix_frontend_residential_support() {
+    log_info "修复前端代码以支持residential特征识别..."
+    
+    find /var/www /etc/edgebox -type f \( -name "*.html" -o -name "*.js" \) -exec grep -l "hosting.*数据中心" {} \; 2>/dev/null | while read file; do
+      if [[ -f "$file" ]]; then
+        log_info "修复文件: $file"
+        cp "$file" "${file}.bak"
+        awk '
+        /riskObj\.mobile.*移动网络.*null/ {
+          gsub(/riskObj\.mobile.*移动网络.*null/, "riskObj.residential ? \"住宅网络\" : null,\n    riskObj.mobile     ? \"移动网络\" : null")
+        }
+        {print}
+        ' "${file}.bak" > "$file"
+      fi
+    done
+    
+    log_success "前端residential字段支持修复完成"
+  }
 
   cat > /usr/local/bin/edgebox-ipq.sh <<'IPQ'
 #!/usr/bin/env bash
@@ -8930,71 +8952,86 @@ curl_json() {
   | jq -c . 2>/dev/null || echo "{}"
 }
 
-# 增强版带宽测试函数（支持VPS和代理）
-test_bandwidth() {
+# 带宽测试函数（支持VPS和代理）
+test_bandwidth_correct() {
   local proxy_args="$1"
-  local test_type="$2"  # "vps" or "proxy"
+  local test_type="$2"
   local dl_speed=0 ul_speed=0
   
-  # 下载速度测试 (多个测试文件，选择最优结果)
-  local test_urls=(
-    "http://speedtest.tele2.net/1MB.zip"
-    "http://ipv4.download.thinkbroadband.com/1MB.zip"
-    "https://github.com/numpy/numpy/archive/refs/heads/main.zip"
-  )
-  
-  for url in "${test_urls[@]}"; do
-    if dl_time=$(eval "curl $proxy_args -o /dev/null -s -w '%{time_total}' --max-time 15 '$url'" 2>/dev/null); then
-      if [[ -n "$dl_time" && "$dl_time" != "0.000000" ]]; then
-        local speed=$(awk -v t="$dl_time" 'BEGIN{printf("%.1f", 1/t)}')
-        if (( $(echo "$speed > $dl_speed" | bc -l 2>/dev/null || echo 0) )); then
-          dl_speed=$speed
-        fi
-        break
-      fi
+  # 下载测试
+  if dl_result=$(eval "curl $proxy_args -o /dev/null -s -w '%{time_total}:%{speed_download}' --max-time 15 'http://speedtest.tele2.net/1MB.zip'" 2>/dev/null); then
+    IFS=':' read -r dl_time dl_bytes_per_sec <<<"$dl_result"
+    if [[ -n "$dl_bytes_per_sec" && "$dl_bytes_per_sec" != "0" ]]; then
+      dl_speed=$(awk -v bps="$dl_bytes_per_sec" 'BEGIN{printf("%.1f", bps/1024/1024)}')
     fi
-  done
+  fi
   
-  # 上传速度测试（多种方法）
-  local ul_test_data="EdgeBox-IPQ-Test-$(date +%s)"
-  local ul_urls=(
-    "httpbin.org/post"
-    "postman-echo.com/post"
-  )
-  
-  for url in "${ul_urls[@]}"; do
-    if ul_time=$(eval "curl $proxy_args -X POST -d '$ul_test_data' -o /dev/null -s -w '%{time_total}' --max-time 10 'https://$url'" 2>/dev/null); then
-      if [[ -n "$ul_time" && "$ul_time" != "0.000000" ]]; then
-        ul_speed=$(awk -v t="$ul_time" -v size="${#ul_test_data}" 'BEGIN{printf("%.1f", (size/1024/1024)/t)}')
-        break
-      fi
+  # 上传测试
+  local test_data=$(printf '%*s' 10240 '' | tr ' ' 'x')
+  if ul_result=$(eval "curl $proxy_args -X POST -d '$test_data' -o /dev/null -s -w '%{time_total}' --max-time 10 'https://httpbin.org/post'" 2>/dev/null); then
+    if [[ -n "$ul_result" && "$ul_result" != "0.000000" ]]; then
+      ul_speed=$(awk -v t="$ul_result" 'BEGIN{printf("%.1f", 10/1024/t)}')
     fi
-  done
+  fi
   
   echo "${dl_speed}/${ul_speed}"
 }
 
-# 增强版rDNS查询（多种方法）
+# 增强版rDNS查询
 get_rdns() {
   local ip="$1"
   local rdns=""
   
-  # 方法1: dig查询
   if command -v dig >/dev/null 2>&1; then
     rdns=$(dig +time=2 +tries=2 +short -x "$ip" 2>/dev/null | head -n1 | sed 's/\.$//')
   fi
   
-  # 方法2: nslookup备用
   if [[ -z "$rdns" ]] && command -v nslookup >/dev/null 2>&1; then
     rdns=$(nslookup "$ip" 2>/dev/null | awk '/name =/ {print $4; exit}' | sed 's/\.$//')
   fi
   
-  # 方法3: host命令备用
-  if [[ -z "$rdns" ]] && command -v host >/dev/null 2>&1; then
-    rdns=$(host "$ip" 2>/dev/null | awk '/pointer/ {print $5; exit}' | sed 's/\.$//')
+  echo "$rdns"
+}
+
+# 智能特征识别
+detect_network_features() {
+  local asn="$1"
+  local isp="$2"
+  local ip="$3"
+  local vantage="$4"
+  
+  local hosting="false"
+  local residential="false" 
+  local mobile="false"
+  local proxy="false"
+  local network_type="Unknown"
+  
+  # 云服务商检测
+  if [[ "$asn" =~ (Google|AWS|Amazon|Microsoft|Azure|DigitalOcean|Linode|Vultr|Hetzner|OVH) ]] || \
+     [[ "$isp" =~ (Google|AWS|Amazon|Microsoft|Azure|DigitalOcean|Linode|Vultr|Hetzner|OVH) ]]; then
+    hosting="true"
+    if [[ "$asn" =~ (Google|AWS|Amazon|Microsoft|Azure) ]]; then
+      network_type="Cloud"
+    else
+      network_type="Datacenter"
+    fi
   fi
   
-  echo "$rdns"
+  # 住宅网络检测
+  if [[ "$vantage" == "proxy" && "$hosting" == "false" ]]; then
+    if [[ "$isp" =~ (NTT|Comcast|Verizon|AT&T|Charter|Spectrum|Cox|Residential|Cable|Fiber|DSL|Broadband) ]]; then
+      residential="true"
+      network_type="Residential"
+    fi
+  fi
+  
+  # 移动网络检测
+  if [[ "$asn" =~ (Mobile|Cellular|LTE|5G|4G|T-Mobile|Verizon Wireless) ]]; then
+    mobile="true"
+    network_type="Mobile"
+  fi
+  
+  echo "${hosting}:${residential}:${mobile}:${proxy}:${network_type}"
 }
 
 get_proxy_url(){ local s="${SHUNT_DIR}/state.json"
@@ -9047,27 +9084,6 @@ collect_one(){
   local isp="$(jq -r '(.org // empty)' <<<"$J1" 2>/dev/null || echo "")"; [[ -z "$isp" || "$isp" == "null" ]] && isp="$(jq -r '(.asname // .as // empty)' <<<"$J3" 2>/dev/null || echo "")"
   local country="$(jq -r '(.country // empty)' <<<"$J3" 2>/dev/null || echo "")"; [[ -z "$country" || "$country" == "null" ]] && country="$(jq -r '(.country // empty)' <<<"$J1" 2>/dev/null || echo "")"
   local city="$(jq -r '(.city // empty)' <<<"$J3" 2>/dev/null || echo "")"; [[ -z "$city" || "$city" == "null" ]] && city="$(jq -r '(.city // empty)' <<<"$J1" 2>/dev/null || echo "")"
-  
-  # 增强版风险标志检测
-  local f_host="$(jq -r '(.hosting // false)' <<<"$J3" 2>/dev/null || echo "false")"
-  local f_proxy="$(jq -r '(.proxy // false)' <<<"$J3" 2>/dev/null || echo "false")"
-  local f_mob="$(jq -r '(.mobile // false)' <<<"$J3" 2>/dev/null || echo "false")"
-  
-  # 云服务商强制检测
-  if [[ "$asn" =~ (Google|AWS|Amazon|Microsoft|Azure|DigitalOcean|Linode|Vultr|Hetzner|OVH) ]] || \
-     [[ "$isp" =~ (Google|AWS|Amazon|Microsoft|Azure|DigitalOcean|Linode|Vultr|Hetzner|OVH) ]]; then
-    f_host="true"
-  fi
-  
-  # 住宅网络特征检测
-  local f_residential="false"
-  if [[ "$V" == "proxy" && "$f_host" == "false" && "$f_mob" == "false" ]]; then
-    # 基于ISP名称判断住宅网络
-    if [[ "$isp" =~ (Comcast|Verizon|AT&T|Charter|Spectrum|Cox|Cablevision|Time Warner|Residential|Cable|Fiber|DSL|Broadband) ]] || \
-       [[ "$asn" =~ (Cable|Residential|Broadband|Telecom|Communications) ]]; then
-      f_residential="true"
-    fi
-  fi
 
   # DNSBL检查
   declare -a hits=(); 
@@ -9092,43 +9108,27 @@ collect_one(){
 
   # 带宽测试（VPS和代理都测试）
   local bandwidth_up="0" bandwidth_down="0"
-  local bw_result=$(test_bandwidth "$P" "$V")
+  local bw_result=$(test_bandwidth_correct "$P" "$V")
   IFS='/' read -r bandwidth_down bandwidth_up <<<"$bw_result"
 
-  # 网络类型检测（增强版）
-  local network_type="Unknown"
-  if [[ "$f_host" == "true" ]]; then
-    if [[ "$asn" =~ (Google|AWS|Amazon|Microsoft|Azure) ]]; then
-      network_type="Cloud"
-    else
-      network_type="Datacenter"
-    fi
-  elif [[ "$f_mob" == "true" ]]; then
-    network_type="Mobile"
-  elif [[ "$f_residential" == "true" ]]; then
-    network_type="Residential"
-  elif [[ "$f_proxy" == "true" ]]; then
-    network_type="Proxy"
-  else
-    network_type="Unknown"
-  fi
+  # 特征检测
+  local features=$(detect_network_features "$asn" "$isp" "$ip" "$V")
+  IFS=':' read -r hosting residential mobile proxy network_type <<<"$features"
 
-  # 评分计算（调整算法）
+  # 评分计算
   local score=100; declare -a notes=()
-  [[ "$f_proxy" == "true"   ]] && score=$((score-25)) && notes+=("proxy_flag")
-  [[ "$f_host"  == "true"   ]] && score=$((score-5)) && notes+=("datacenter_ip")
+  [[ "$proxy" == "true"   ]] && score=$((score-25)) && notes+=("proxy_flag")
+  [[ "$hosting"  == "true"   ]] && score=$((score-5)) && notes+=("datacenter_ip")
   (( ${#hits[@]} > 0 )) && score=$((score-12*${#hits[@]})) && notes+=("dnsbl_hits")
   (( lat>400 )) && score=$((score-15)) && notes+=("high_latency")
   (( lat>200 && lat<=400 )) && score=$((score-8)) && notes+=("mid_latency")
   
-  # 轻微的云服务商扣分
   if [[ "$asn" =~ (amazon|aws|google|gcp|microsoft|azure|alibaba|tencent|digitalocean|linode|vultr|hivelocity|ovh|hetzner|iij|ntt|leaseweb|contabo) ]]; then 
     score=$((score-3))
     notes+=("cloud_provider")
   fi
   
-  # 住宅网络加分
-  [[ "$f_residential" == "true" ]] && score=$((score+10)) && notes+=("residential_network")
+  [[ "$residential" == "true" ]] && score=$((score+10)) && notes+=("residential_network")
   
   (( score<0 )) && score=0
   (( score>100 )) && score=100
@@ -9136,8 +9136,8 @@ collect_one(){
 
   # 生成结论
   local conclusion="基于多维度评估："
-  [[ "$f_host" == "true" ]] && conclusion="${conclusion} 数据中心IP;"
-  [[ "$f_residential" == "true" ]] && conclusion="${conclusion} 住宅网络;"
+  [[ "$hosting" == "true" ]] && conclusion="${conclusion} 数据中心IP;"
+  [[ "$residential" == "true" ]] && conclusion="${conclusion} 住宅网络;"
   (( ${#hits[@]} > 0 )) && conclusion="${conclusion} 命中${#hits[@]}个黑名单;"
   (( lat > 200 )) && conclusion="${conclusion} 延迟较高(${lat}ms);"
   [[ "$bandwidth_down" != "0" ]] && conclusion="${conclusion} 带宽${bandwidth_down}/${bandwidth_up}MB/s;"
@@ -9165,10 +9165,10 @@ collect_one(){
     --argjson latency "$lat" \
     --argjson notes "$notes_json" \
     --argjson hits "$hits_json" \
-    --argjson proxy "$([[ "$f_proxy" == "true" ]] && echo true || echo false)" \
-    --argjson hosting "$([[ "$f_host" == "true" ]] && echo true || echo false)" \
-    --argjson mobile "$([[ "$f_mob" == "true" ]] && echo true || echo false)" \
-    --argjson residential "$([[ "$f_residential" == "true" ]] && echo true || echo false)" \
+    --argjson proxy "$([[ "$proxy" == "true" ]] && echo true || echo false)" \
+    --argjson hosting "$([[ "$hosting" == "true" ]] && echo true || echo false)" \
+    --argjson mobile "$([[ "$mobile" == "true" ]] && echo true || echo false)" \
+    --argjson residential "$([[ "$residential" == "true" ]] && echo true || echo false)" \
     '{
        detected_at: $ts,
        vantage: $v,
@@ -9205,7 +9205,7 @@ main(){
   else
     jq -n --arg ts "$(ts)" '{detected_at:$ts,vantage:"proxy",status:"not_configured"}' > "${STATUS_DIR}/ipq_proxy.json"
   fi
-  jq -n --arg ts "$(ts)" --arg ver "ipq-enhanced-2.0" '{last_run:$ts,version:$ver}' > "${STATUS_DIR}/ipq_meta.json"
+  jq -n --arg ts "$(ts)" --arg ver "ipq-enhanced-final-3.0" '{last_run:$ts,version:$ver}' > "${STATUS_DIR}/ipq_meta.json"
   chmod 644 "${STATUS_DIR}"/ipq_*.json 2>/dev/null || true
 }
 
@@ -9216,10 +9216,13 @@ IPQ
   ( crontab -l 2>/dev/null | grep -v '/usr/local/bin/edgebox-ipq.sh' ) | crontab - || true
   ( crontab -l 2>/dev/null; echo "15 2 * * * /usr/local/bin/edgebox-ipq.sh >/dev/null 2>&1" ) | crontab -
 
-  /usr/local/bin/edgebox-ipq.sh || true
-  log_success "增强版IPQ栈就绪：/status/ipq_vps.json /status/ipq_proxy.json（包含VPS带宽测试、增强特征识别、改进rDNS查询）"
-}
+  # 修复前端代码支持
+  fix_frontend_residential_support
 
+  /usr/local/bin/edgebox-ipq.sh || true
+  log_success "增强版IPQ栈完成：VPS带宽测试、特征识别优化、前端residential支持"
+}
+# [ANCHOR:IPQ_STACK_ENHANCED_END]
 
 
 # 生成初始化脚本（用于开机自启动流量监控）
