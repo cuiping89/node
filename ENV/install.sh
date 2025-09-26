@@ -5234,6 +5234,11 @@ dialog[open],
   text-align: center !important;
 }
 
+#qrcode-protocol canvas:not(:last-of-type),
+#qrcode-protocol img:not(:last-of-type),
+#qrcode-sub canvas:not(:last-of-type),
+#qrcode-sub img:not(:last-of-type) { display: none !important; }
+
 /* ===== 复制按钮：白底圆角灰字 ===== */
 .modal .copy-btn,
 .modal .btn-copy,
