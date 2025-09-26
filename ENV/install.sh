@@ -6164,7 +6164,7 @@ function showConfigModal(protocolKey) {
   }
 
   // —— 生成二维码（直接使用已有的容器，不再动态创建）——
- if (qrText && window.QRCode) {
+if (qrText && window.QRCode) {
   const holderId = (protocolKey === '__SUBS__') ? 'qrcode-sub' : 'qrcode-protocol';
   const holder = document.getElementById(holderId);
   if (holder) {
