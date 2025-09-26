@@ -9202,13 +9202,13 @@ show_installation_info() {
         server_ip="${SERVER_IP:-未知}"
     fi
     
-    echo -e "${CYAN}服务器信息：${NC}"
-    echo -e "  IP地址: ${PURPLE}${server_ip}${NC}"
-    echo -e "  📋 控制面板: ${PURPLE}http://${server_ip}/traffic/${NC}" 
+    echo -e  "${CYAN}服务器信息：${NC}"
+    echo -e  "  IP地址: ${PURPLE}${server_ip}${NC}"
+    echo -e  "  控制面板: ${PURPLE}http://${server_ip}/traffic/${NC}" 
 
-    echo -e "${CYAN}默认模式：${NC}"
-    echo -e "  证书模式: ${PURPLE}IP模式（自签名证书）${NC}"
-	echo -e "  网络身份: ${PURPLE}VPS出站IP（自签名证书）${NC}"
+    echo -e\n"${CYAN}默认模式：${NC}"
+    echo -e  "  证书模式: ${PURPLE}IP模式（自签名证书）${NC}"
+	echo -e  "  网络身份: ${PURPLE}VPS出站IP（自签名证书）${NC}"
 	
     echo -e "\n${CYAN}协议信息：${NC}"
     echo -e "  VLESS-Reality  端口: 443  UUID: ${PURPLE}${UUID_VLESS:0:8}...${NC}"
@@ -9227,11 +9227,11 @@ show_installation_info() {
     echo -e "  ${PURPLE}edgeboxctl alert monthly <GiB>${NC}            # 设置月度预算"
     echo -e "  ${PURPLE}edgeboxctl backup create${NC}                  # 手动备份"
     echo -e "  ${PURPLE}edgeboxctl help${NC}                           # 查看完整帮助"
-    echo -e "\n${CYAN}出站分流示例：${NC}"
+    echo -e "  ${CYAN}出站分流示例：${NC}"
     echo -e "  ${PURPLE}edgeboxctl shunt resi 'socks5://user:pass@proxy.example.com:1080'${NC}  # 代理全量出站"
     echo -e "  ${PURPLE}edgeboxctl shunt direct-resi 'http://user:pass@proxy.example.com:8080'${NC} # 分流出站（白名单VPS直连，其他走代理）"
     echo -e "  ${PURPLE}edgeboxctl shunt whitelist <add|remove|list>${NC}  # 白名单管理" 
-    echo -e "\n${CYAN}流量预警配置：${NC}"
+    echo -e "  ${CYAN}流量预警配置：${NC}"
     echo -e "  ${PURPLE}edgeboxctl alert monthly 500${NC}                # 设置月度500GiB预算"
     echo -e "  ${PURPLE}edgeboxctl alert telegram <token> <chat_id>${NC} # 配置Telegram通知"
     echo -e "  ${PURPLE}edgeboxctl alert discord <webhook_url>${NC}      # 配置Discord通知"
