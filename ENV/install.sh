@@ -2345,7 +2345,26 @@ SINGBOX_CONFIG
     
 # 创建sing-box systemd服务
 log_info "创建sing-box系统服务..."
-# ... (cat > /etc/systemd/system/sing-box.service) ...
+cat > /etc/systemd/system/sing-box.service << SINGBOX_SERVICE
+[Unit]
+Description=sing-box Service
+Documentation=https://sing-box.sagernet.org/
+After=network.target nss-lookup.target
+Wants=network.target
+
+[Service]
+User=root
+Group=root
+Type=simple
+ExecStart=/usr/local/bin/sing-box run -c ${CONFIG_DIR}/sing-box.json
+ExecReload=/bin/kill -HUP \$MAINPID
+Restart=on-failure
+RestartSec=10s
+LimitNOFILE=infinity
+
+[Install]
+WantedBy=multi-user.target
+SINGBOX_SERVICE
 
     # 重新加载systemd
     systemctl daemon-reload
