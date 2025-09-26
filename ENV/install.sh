@@ -5234,10 +5234,6 @@ dialog[open],
   text-align: center !important;
 }
 
-#qrcode-protocol canvas:not(:last-of-type),
-#qrcode-protocol img:not(:last-of-type),
-#qrcode-sub canvas:not(:last-of-type),
-#qrcode-sub img:not(:last-of-type) { display: none !important; }
 
 /* ===== 复制按钮：白底圆角灰字 ===== */
 .modal .copy-btn,
@@ -6352,6 +6348,10 @@ async function refreshAllData() {
 
 // 同时修改 setupEventListeners 函数，避免重复调用：
 function setupEventListeners() {
+
+    if (window.__EDGEBOX_EVENTS_BOUND__) return;
+    window.__EDGEBOX_EVENTS_BOUND__ = true;
+
     document.addEventListener('click', e => {
         const target = e.target.closest('[data-action]');
         if (!target) return;
@@ -6432,126 +6432,6 @@ document.addEventListener('DOMContentLoaded', () => {
     setupEventListeners();
 });
 
-// ==== new11 事件委托（append-only） ====
-(() => {
-  if (window.__EDGEBOX_DELEGATED__) return;
-  window.__EDGEBOX_DELEGATED__ = true;
-
-  const notify = window.notify || ((msg)=>console.log(msg));
-  const $ = s => document.querySelector(s);
-
-  function showModal(id) {
-    const m = document.getElementById(id);
-    if (!m) return;
-    m.style.display = 'block';
-    document.body.classList.add('modal-open');
-  }
-  function closeModal(id) {
-    const m = document.getElementById(id);
-    if (!m) return;
-    m.style.display = 'none';
-    document.body.classList.remove('modal-open');
-  }
-
-  document.addEventListener('click', async (e) => {
-    const btn = e.target.closest('[data-action]');
-    if (!btn) return;
-    const action   = btn.dataset.action;
-    const modal    = btn.dataset.modal || '';
-    const protocol = btn.dataset.protocol || '';
-    const type     = btn.dataset.type || '';
-
-    switch (action) {
-      case 'open-modal': {
-        if (modal === 'configModal') {
-          if (typeof showConfigModal === 'function') showConfigModal(protocol);
-          const m = document.getElementById('configModal');
-          if (m && m.style.display !== 'block') showModal('configModal');
-        } else if (modal === 'whitelistModal') {
-          const list = (window.dashboardData?.shunt?.whitelist) || [];
-          const box  = $('#whitelistList');
-          if (box) box.innerHTML = list.map(d => `<div class="whitelist-item">${String(d)
-            .replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}</div>`).join('');
-          showModal('whitelistModal');
-} else if (modal === 'ipqModal') {
-  // 统一走 showIPQDetails（内部自带并发守卫），彻底避免“加载失败→内容”的闪烁
-  if (typeof showIPQDetails === 'function') {
-    await showIPQDetails(btn.dataset.ipq || 'vps'); // 'vps' | 'proxy'
-  } else {
-    showModal('ipqModal'); // 极端兜底：函数不存在时至少打开弹窗
-  }
-}
-        break;
-      }
-
-      case 'close-modal': {
-        closeModal(modal);
-        break;
-      }
-
-// 事件委托中的复制分支（替换你现有的 copy 分支）
-// 复制文本（JSON/明文/6协议明文/Base64）
-case 'copy': {
-  const host = btn.closest('.modal-content');
-  const map  = { json:'#json-code', plain:'#plain-link', plain6:'#plain-links-6', base64:'#base64-link' };
-  const el   = host && host.querySelector(map[btn.dataset.type]);
-  const text = el ? (el.textContent || '').trim() : '';
-  try { await copyTextFallbackAware(text); (window.notify||console.log)('已复制'); }
-  catch { (window.notify||console.warn)('复制失败'); }
-  break;
-}
-
-// 复制二维码（受浏览器安全上下文限制）
-case 'copy-qr': {
-  const host = btn.closest('.modal-content');
-  const cvs  = host && host.querySelector('#qrcode-sub canvas, #qrcode-protocol canvas');
-  
-  if (!cvs) {
-    notify('未找到二维码', 'warn');
-    break;
-  }
-  
-  // 检查浏览器支持
-  if (!cvs.toBlob) {
-    notify('浏览器不支持二维码复制', 'warn');
-    break;
-  }
-  
-  if (!navigator.clipboard?.write) {
-    notify('浏览器不支持剪贴板操作，请右键保存二维码', 'warn');
-    break;
-  }
-  
-  // 检查安全上下文
-  if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
-    notify('需要 HTTPS 环境才能复制二维码', 'warn');
-    break;
-  }
-  
-  // 执行复制
-  cvs.toBlob(async blob => {
-    if (!blob) {
-      notify('二维码转换失败', 'warn');
-      return;
-    }
-    
-    try {
-      await navigator.clipboard.write([
-        new ClipboardItem({ 'image/png': blob })
-      ]);
-      notify('二维码已复制到剪贴板');
-    } catch (error) {
-      console.error('复制二维码失败:', error);
-      notify('复制二维码失败，请右键保存', 'warn');
-    }
-  }, 'image/png');
-  
-  break;
-}
-
-    }
-  });
-})();
 
 // === 复制按钮（弹窗内）统一轻提示 ======================
 document.addEventListener('click', async (ev) => {
