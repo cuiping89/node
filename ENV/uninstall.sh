@@ -1,3 +1,22 @@
+# --- 自动提权到root (兼容 bash <(curl ...)) ---
+if [[ $EUID -ne 0 ]]; then
+  # 把当前脚本内容拷到临时文件，再以 root 重启执行（兼容 /dev/fd/63）
+  _EB_TMP="$(mktemp)"
+  # shellcheck disable=SC2128
+  cat "${BASH_SOURCE:-/proc/self/fd/0}" > "$_EB_TMP"
+  chmod +x "$_EB_TMP"
+
+  if command -v sudo >/dev/null 2>&1; then
+    exec sudo -E EB_TMP="$_EB_TMP" bash "$_EB_TMP" "$@"
+  else
+    exec su - root -c "EB_TMP='$_EB_TMP' bash '$_EB_TMP' $*"
+  fi
+fi
+
+# 以 root 运行到这里；如果是从临时文件重启的，退出时自动清理
+trap '[[ -n "${EB_TMP:-}" ]] && rm -f "$EB_TMP"' EXIT
+
+
 #!/usr/bin/env bash
 # ===========================================================
 # EdgeBox Uninstall (idempotent, verbose)  —  with cache-busting rollback
