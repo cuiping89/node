@@ -5866,7 +5866,7 @@ function renderProtocolTable() {
             <td><span class="status-badge ${p.status === '运行中' ? 'status-running' : ''}">${p.status}</span></td>
             <td><button class="btn btn-sm btn-link" data-action="open-modal" data-modal="configModal" data-protocol="${escapeHtml(p.name)}">查看配置</button></td>
         </tr>`).join('');
-    const subRow = `<tr class="subs-row"><td style="font-weight:500;">整包协议链接</td><td></td><td></td><td></td><td><button class="btn btn-sm btn-link" data-action="open-modal" data-modal="configModal" data-protocol="__SUBS__">查看@订阅</button></td></tr>`;
+    const subRow = `<tr class="subs-row"><td style="font-weight:500;">整包协议</td><td></td><td></td><td></td><td><button class="btn btn-sm btn-link" data-action="open-modal" data-modal="configModal" data-protocol="__SUBS__">查看@订阅</button></td></tr>`;
     tbody.innerHTML = rows + subRow;
 }
 
@@ -6164,23 +6164,30 @@ function showConfigModal(protocolKey) {
   }
 
   // —— 生成二维码（直接使用已有的容器，不再动态创建）——
-  if (qrText && window.QRCode) {
-    const holderId = (protocolKey === '__SUBS__') ? 'qrcode-sub' : 'qrcode-protocol';
-    const holder = document.getElementById(holderId);
-    if (holder) {
-      // 清空之前的二维码（如果有）
-      holder.innerHTML = '';
-      // 生成新的二维码
-      new QRCode(holder, {
-        text: qrText,
-        width: 200,
-        height: 200,
-        colorDark: "#000000",
-        colorLight: "#ffffff",
-        correctLevel: QRCode.CorrectLevel.M
-      });
+ if (qrText && window.QRCode) {
+  const holderId = (protocolKey === '__SUBS__') ? 'qrcode-sub' : 'qrcode-protocol';
+  const holder = document.getElementById(holderId);
+  if (holder) {
+    // ⚠️ 关键修复：彻底清空容器，移除所有子元素
+    while (holder.firstChild) {
+      holder.removeChild(holder.firstChild);
     }
+    
+    // 延迟生成，确保DOM更新完毕
+    setTimeout(() => {
+      if (holder.children.length === 0) { // 二次检查，确保容器为空
+        new QRCode(holder, {
+          text: qrText,
+          width: 200,
+          height: 200,
+          colorDark: "#000000",
+          colorLight: "#ffffff",
+          correctLevel: QRCode.CorrectLevel.M
+        });
+      }
+    }, 10);
   }
+}
 }
 // [PATCH:SHOW_CONFIG_MODAL_SAFE_END]
 
@@ -6349,10 +6356,7 @@ function setupEventListeners() {
         switch (action) {
             case 'open-modal':
                 if (modal === 'whitelistModal') showWhitelistModal();
-                if (modal === 'configModal') {
-                    showConfigModal(protocol);
-                    // 不需要再手动调用 showModal，showConfigModal 内部已经处理了
-                }
+                // 移除 configModal 处理，让事件委托处理
                 if (modal === 'ipqModal') showIPQDetails(ipq);
                 break;
             case 'close-modal':
@@ -6362,44 +6366,39 @@ function setupEventListeners() {
                 const modalContent = target.closest('.modal-content');
                 if (!modalContent) return;
 
-                const titleText = modalContent.querySelector('#configModalTitle')?.textContent || '';
                 let textToCopy = '';
-
-                if (titleText.includes('订阅')) {
-                    // 这是订阅弹窗
-                    const sub = dashboardData.subscription || {};
-                    const subUrl = dashboardData.subscription_url || '';
+                
+                if (protocol === '__SUBS__') {
                     switch (type) {
-                        case 'plain':
-                            textToCopy = subUrl;
+                        case 'sub':
+                            textToCopy = dashboardData.subscription_url || '';
                             break;
-                        case 'plain6':
-                            textToCopy = sub.plain || '';
+                        case 'plain':
+                            textToCopy = dashboardData.subscription?.plain || '';
                             break;
                         case 'base64':
-                            textToCopy = sub.base64 || '';
+                            textToCopy = dashboardData.subscription?.base64 || '';
                             break;
                     }
                 } else {
-                    // 这是单个协议的弹窗
-                    const protocolName = titleText.replace(' 配置', '');
-                    const p = (dashboardData.protocols || []).find(proto => proto.name === protocolName);
+                    const p = dashboardData.protocols?.find(p => 
+                        p.name === protocol || p.key === protocol
+                    );
                     if (p) {
                         switch (type) {
                             case 'plain':
                                 textToCopy = p.share_link || '';
                                 break;
                             case 'json':
-                                // 生成 JSON
-                                const certMode = String(dashboardData.server?.cert?.mode || 'self-signed');
-                                const isLE = certMode.startsWith('letsencrypt');
                                 const serverIp = dashboardData.server?.server_ip || '';
+                                const certMode = dashboardData.server?.cert?.mode || 'self-signed';
+                                const isLE = certMode.startsWith('letsencrypt');
                                 const obj = {
                                     protocol: p.name,
                                     host: serverIp,
                                     port: p.port ?? 443,
                                     uuid: dashboardData.secrets?.vless?.reality || 
-                                          dashboardData.secrets?.vless?.grpc ||
+                                          dashboardData.secrets?.vless?.grpc || 
                                           dashboardData.secrets?.vless?.ws || '',
                                     sni: isLE ? dashboardData.server?.cert?.domain || '' : serverIp,
                                     alpn: (p.name || '').toLowerCase().includes('grpc') ? 'h2'
