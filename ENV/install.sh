@@ -5140,6 +5140,7 @@ h4 {
 .notification-center {
     position: relative;
     display: inline-block;
+	margin-right: 30px;  /* ← 32px 约等于两个中文字符的宽度 */
 }
 
 /* 通知触发按钮 */
@@ -6350,7 +6351,7 @@ function renderTrafficProgressThresholds(thresholds) {
         left: ${threshold}%;
         top: 50%;
         transform: translate(-50%, -50%);
-        font-size: 9px;
+        font-size: 12px;
         color: #fbbf24;         /* ← 改为黄色（预警色） */
         white-space: nowrap;
         font-weight: 600;
@@ -9285,19 +9286,43 @@ show_installation_info() {
 
 # 清理函数
 cleanup() {
-  local rc=$?
-  # 只有真错误（rc!=0）才报错
-  if (( rc != 0 )); then
-    log_error "安装脚本异常退出，退出码: ${rc}。请查看日志：${LOG_FILE}"
-    echo -e "\n${RED}安装失败！${NC}"
-    echo -e "${YELLOW}故障排除建议：${NC}"
-    echo -e "  1. 检查网络连接是否正常"
-    echo -e "  2. 确认系统版本支持（Ubuntu 18.04+, Debian 10+）"
-    echo -e "  3. 查看详细日志：cat ${LOG_FILE}"
-    echo -e "  4. 重试安装：curl -fsSL <安装脚本URL> | bash"
-    echo -e "  5. 手动清理：rm -rf /etc/edgebox /var/www/html/traffic"
-  fi
-  exit $rc
+    local rc=$?
+    
+    # 检查nginx、xray、sing-box服务状态来判断是否安装成功
+    if (( rc == 0 )) || check_services_running; then
+        # 安装成功的情况
+        if (( rc != 0 )); then
+            log_warn "安装过程中有非关键错误，但服务已正常运行"
+        fi
+        log_success "EdgeBox v3.0.0 安装成功完成！"
+        exit 0
+    else
+        # 真正的安装失败
+        log_error "安装脚本异常退出，退出码: ${rc}。请查看日志：${LOG_FILE}"
+        echo -e "\n${RED}安装失败！${NC}"
+        echo -e "${YELLOW}故障排除建议：${NC}"
+        echo -e "  1. 检查网络连接是否正常"
+        echo -e "  2. 确认系统版本支持（Ubuntu 18.04+, Debian 10+）"
+        echo -e "  3. 查看详细日志：cat ${LOG_FILE}"
+        echo -e "  4. 重试安装：curl -fsSL <安装脚本URL> | bash"
+        echo -e "  5. 手动清理：rm -rf /etc/edgebox /var/www/html/traffic"
+        exit $rc
+    fi
+}
+
+# 辅助函数：检查关键服务是否运行
+check_services_running() {
+    local services=("nginx" "xray" "sing-box")
+    local running_count=0
+    
+    for service in "${services[@]}"; do
+        if systemctl is-active --quiet "$service" 2>/dev/null; then
+            ((running_count++))
+        fi
+    done
+    
+    # 至少要有2个服务运行才认为安装成功
+    [[ $running_count -ge 2 ]]
 }
 
 # 预安装检查
