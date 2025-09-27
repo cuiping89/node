@@ -6040,6 +6040,42 @@ dialog[open],
 }
 
 
+/* Ant Design */
+.ant-modal .ant-modal-body {
+  text-align: left !important;
+  justify-content: flex-start !important;
+  align-items: flex-start !important;
+}
+
+/* Element Plus / Element UI */
+.el-dialog__body {
+  text-align: left !important;
+  justify-content: flex-start !important;
+  align-items: flex-start !important;
+}
+
+/* Bootstrap */
+.modal .modal-body {
+  text-align: left !important;
+  justify-content: flex-start !important;
+  align-items: flex-start !important;
+}
+
+/* 通用文本元素（放在上述后面，增强一致性） */
+.modal .modal-body h1,
+.modal .modal-body h2,
+.modal .modal-body h3,
+.modal .modal-body h4,
+.modal .modal-body h5,
+.modal .modal-body h6,
+.modal .modal-body p,
+.modal .modal-body li,
+.modal .modal-body th,
+.modal .modal-body td {
+  text-align: left !important;
+}
+
+
 /* =======================================================================
  按钮（查看详情、查看全部、查看配置、查看订阅）：白底蓝字，hover 浅灰，active 灰底 
  ======================================================================= */
