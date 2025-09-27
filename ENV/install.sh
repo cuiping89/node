@@ -5760,7 +5760,8 @@ dialog[open],
 #detailModal .kv-key, 
 #ipqModal .kv-key { 
   text-align:left !important; 
-  padding-right:0; 
+  padding-right:0 !important;
+  padding-left:8px !important;     /* 新增：确保有左边距 */
 }
 #detailModal .kv-value,
 #ipqModal .kv-value { 
@@ -6034,8 +6035,9 @@ dialog[open],
   }
   
   .kv-key{ 
-    text-align:left; 
+    text-align:left !important;     /* 确保移动端也是左对齐 */
     padding-right:0; 
+    padding-left:8px;               /* 移动端也保持左边距 */
     margin-bottom:4px; 
   }
 }
