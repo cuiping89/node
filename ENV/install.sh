@@ -6889,13 +6889,9 @@ function showConfigModal(protocolKey) {
       <button class="btn btn-sm btn-secondary" data-action="copy-qr">复制二维码</button>
     `;
     
-    // 修改：优先使用完整的明文链接（6协议）生成二维码，而不是订阅URL
-    if (plain6 && plain6.trim()) {
-      // 使用全部明文链接内容生成二维码，包含所有6个协议
-      qrText = plain6.trim(); // 包含所有协议，用户扫码后可以选择使用哪个
-    } else {
-      qrText = subsUrl || ''; // 如果没有明文链接，回退到订阅URL
-    }
+    // 整包订阅的二维码应该使用订阅URL，不是明文链接
+    // 客户端（如Shadowrocket）扫码后会自动获取订阅内容
+    qrText = subsUrl || '';
 
   // ===== 单协议 =====
   } else {
