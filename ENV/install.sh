@@ -4124,24 +4124,27 @@ chmod +x "${SCRIPTS_DIR}/traffic-alert.sh"
    ======================================================================= */
 
 /* --- 1. 全局重置与基础皮肤 --- */
+/* 描述：清除浏览器默认内外边距，并设定统一的盒模型，为后续样式提供一致的基础。*/
 * {
   margin: 0;
   padding: 0;
-  box-sizing: border-box; /* 统一盒模型，避免padding和border影响尺寸 */
+  box-sizing: border-box; /* 统一盒模型，使元素的宽度和高度计算包含内边距和边框 */
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; /* 优先使用系统默认字体，保证跨平台体验一致 */
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; /* 优先使用各平台的系统默认字体，保证体验一致 */
   background: #f3f4f6; /* 页面背景色：浅灰色 */
-  min-height: 100vh;
+  min-height: 100vh; /* 页面最小高度为整个视窗高度 */
   padding: 20px;
-  color: #1f2937; /* 默认文字颜色 */
+  color: #1f2937; /* 全局默认文字颜色 */
 }
 
+
 /* --- 2. 基础排版与文字样式 --- */
+/* 描述：定义内容容器、各级标题和基础文本的通用样式。*/
 .container {
-  max-width: 1400px; /* 内容最大宽度 */
-  margin: 0 auto; /* 居中显示 */
+  max-width: 1400px; /* 页面主体内容的最大宽度 */
+  margin: 0 auto; /* 水平居中显示 */
 }
 
 /* 各级标题样式 */
@@ -4158,33 +4161,35 @@ body, p, span, td, div {
   line-height: 20px;
 }
 
-/* 辅助文字颜色 */
+/* 辅助文字颜色类 */
 .text-muted { color: #6b7280; } /* 较浅的灰色，用于次要信息 */
 .text-secondary { color: #4b5563; } /* 中等灰色 */
 
-/* --- 3. 布局与组件 --- */
 
-/* -- 3.1 CSS 变量定义 -- */
-/* 使用CSS变量统一管理颜色和尺寸，便于维护 */
+/* --- 3. 布局与通用组件 --- */
+/* 描述：定义可复用的布局容器（如卡片、网格）和小型UI组件（如按钮、徽章）。*/
+
+/* -- 3.1 CSS 变量 (全局) -- */
+/* 使用CSS变量统一管理颜色和尺寸，便于全局主题的修改和维护。 */
 :root {
   --heading-color: #111827;   /* h3标题颜色（黑色） */
   --subheading-color: #6b7280; /* h4标题颜色（灰色） */
-  --content-color: #6b7280;   /* 内容颜色（灰色） */
+  --content-color: #6b7280;   /* 内容文本颜色（灰色） */
   --h3-size: 15px;            /* h3字体大小 */
   --h4-size: 14px;            /* h4字体大小 */
 }
 
 /* -- 3.2 卡片样式 -- */
-/* 主卡片（最外层容器） */
+/* 主卡片（最外层的整体容器） */
 .main-card {
   background: #fff;
   border: 1px solid #d1d5db;
   border-radius: 10px;
   box-shadow: 0 2px 6px rgba(0, 0, 0, .08);
-  overflow: hidden;
+  overflow: hidden; /* 确保内部元素的圆角效果正确显示 */
 }
 
-/* 通用卡片（各模块的基础容器） */
+/* 通用卡片（各功能模块的基础容器） */
 .card {
   background: #fff;
   border: 1px solid #d1d5db;
@@ -4195,25 +4200,25 @@ body, p, span, td, div {
   transition: box-shadow .2s;
 }
 .card:hover {
-  box-shadow: 0 4px 8px rgba(0, 0, 0, .08); /* 鼠标悬浮时阴影加深，提供反馈 */
+  box-shadow: 0 4px 8px rgba(0, 0, 0, .08); /* 鼠标悬浮时阴影加深，提供交互反馈 */
 }
 .card-header {
   margin-bottom: 20px;
   padding-bottom: 12px;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid #e5e7eb; /* 标题下方的分割线 */
 }
 .card-header h2 {
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
-.card-note {
+.card-note { /* 卡片标题旁的小字注释 */
   font-size: 11px;
   color: #6b7280;
   font-weight: 400;
 }
 
-/* 内嵌块（卡片内部的灰色背景区域） */
+/* 内嵌块（卡片内部的灰色背景区域，用于视觉分组） */
 .inner-block {
   background: #f5f5f5;
   border: 1px solid #e5e7eb;
@@ -4231,10 +4236,10 @@ body, p, span, td, div {
 }
 
 /* -- 3.3 网格布局 -- */
-/* 定义可复用的网格布局 */
+/* 定义可复用的网格布局类，用于创建规整的列布局。 */
 .grid {
   display: grid;
-  gap: 20px;
+  gap: 20px; /* 网格项之间的间距 */
 }
 .grid-3 {
   grid-template-columns: repeat(3, 1fr); /* 三列等宽 */
@@ -4244,7 +4249,7 @@ body, p, span, td, div {
 }
 
 /* -- 3.4 全局通用组件 -- */
-/* 信息展示行（标签 + 内容） */
+/* 信息展示行 (标签 + 内容) */
 .info-item {
   display: flex;
   justify-content: space-between;
@@ -4253,7 +4258,7 @@ body, p, span, td, div {
 .info-item label { color: #6b7280; }
 .info-item value { color: #1f2937; font-weight: 500; }
 
-/* 状态徽标 */
+/* 状态徽章 (运行中/已停止) */
 .status-badge {
   display: inline-flex;
   align-items: center;
@@ -4274,18 +4279,20 @@ body, p, span, td, div {
   border-color: #fecaca;
 }
 
+
 /* --- 4. 特定模块样式 --- */
+/* 描述：针对每个独立的功能面板（如系统概览、证书配置等）进行精细化样式定义。*/
 
 /* -- 4.1 页面主标题 -- */
 .main-header {
   text-align: center;
-  background: linear-gradient(135deg, #e2e8f0 0%, #f1f5f9 50%, #f8fafc 100%); /* 灰色渐变背景 */
+  background: linear-gradient(135deg, #e2e8f0 0%, #f1f5f9 50%, #f8fafc 100%); /* 灰色渐变背景，增加质感 */
   border-top-left-radius: 9px;
   border-top-right-radius: 9px;
   padding: 16px 20px;
   position: relative;
   margin: 0;
-  box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.9); /* 内阴影模拟凹陷效果 */
 }
 .main-header h1 {
   font-size: 24px;
@@ -4308,10 +4315,9 @@ body, p, span, td, div {
   padding: 20px;
 }
 
-
 /* -- 4.2 系统概览 (#system-overview) -- */
 #system-overview {
-  /* 定义此模块内专用的CSS变量 */
+  /* 定义此模块内专用的CSS变量，方便统一调整 */
   --label-w: 72px;           /* 左侧标签列宽度 */
   --percent-col: 33px;       /* 右侧百分比列宽度 */
   --meter-height: 20px;      /* 进度条高度 */
@@ -4327,15 +4333,8 @@ body, p, span, td, div {
 #system-overview .inner-block {
   padding: 12px;
 }
-#system-overview .inner-block > h3 {
-  display: flex;
-  align-items: center;
-  white-space: nowrap;
-  margin: 0 0 var(--h3-gap);
-  height: 22px;
-}
 
-/* 服务器信息布局 */
+/* 服务器信息布局 (Grid实现) */
 #system-overview .server-info .info-item {
   display: grid;
   grid-template-columns: var(--label-w) 1fr;
@@ -4344,7 +4343,7 @@ body, p, span, td, div {
   padding: 5px 0;
 }
 
-/* 进度条（CPU/内存/磁盘）布局 */
+/* 进度条 (CPU/内存/磁盘) 布局与样式 */
 #system-overview .progress-row {
   display: grid;
   grid-template-columns: var(--label-w) minmax(0, 1fr) var(--percent-col);
@@ -4363,17 +4362,17 @@ body, p, span, td, div {
   height: 100%;
   border-radius: 999px;
   background: linear-gradient(90deg, var(--meter-start), var(--meter-end));
-  transition: width .25s ease;
+  transition: width .25s ease; /* 宽度变化时有平滑动画 */
 }
-#system-overview .progress-text { /* 进度条上的文字 */
+#system-overview .progress-text { /* 覆盖在进度条上方的文字 */
   position: absolute;
   left: 4px; right: 4px; top: 50%;
   transform: translateY(-50%);
   font-size: 11px;
   color: #fff;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: nowrap; /* 不换行 */
+  overflow: hidden; /* 超出部分隐藏 */
+  text-overflow: ellipsis; /* 超出部分显示省略号 */
   pointer-events: none; /* 确保文字不影响鼠标事件 */
 }
 
@@ -4386,21 +4385,15 @@ body, p, span, td, div {
   padding: 5px 0;
 }
 #system-overview .core-services .status-badge {
-  height: 18px;
+  height: 18px; /* 尺寸微调 */
   line-height: 18px;
   padding: 0 8px;
   font-size: 11px;
 }
-#system-overview .core-services .version {
-  overflow: hidden; /* 超长时显示省略号 */
-  text-overflow: ellipsis;
-  color: var(--muted);
-  font-size: 12px;
-}
 
-/* 标题右侧的元信息（版本号、日期等） */
+/* 标题右侧的元信息 (版本号、日期等) */
 #system-overview .card-header h2 {
-  align-items: flex-end; /* 与标题下沿对齐 */
+  align-items: flex-end; /* 与标题文字的底边对齐 */
 }
 #system-overview .card-header #sys-meta {
   color: #9ca3af;
@@ -4408,67 +4401,53 @@ body, p, span, td, div {
   font-size: 12px;
   line-height: 1;
   margin-right: 1em;
-  transform: translateY(2px);
+  transform: translateY(2px); /* 像素级微调对齐 */
 }
-
 
 /* -- 4.3 证书切换 (#cert-panel) -- */
 #cert-panel {
-  /* 定义此模块内专用的CSS变量 */
-  --tag-pad-y: 9px;
-  --tag-pad-x: 16px;
-  --tag-radius: 8px;
-  --tag-font: 13px;
-  --tag-gap: 6px;
-  --label-w: 80px;
-  --row-gap: 10px;
   --tag-active-bg: #10b981;   /* 激活标签背景色：绿色 */
   --tag-inactive-bg: #e2e8f0; /* 非激活标签背景色：灰色 */
   --tag-active-color: #ffffff;
   --tag-inactive-color: #64748b;
-  --card-br: #e5e7eb;
 }
 #cert-panel .cert-modes {
   display: flex;
   gap: 5px;
-  margin-bottom: var(--tag-gap);
 }
 #cert-panel .cert-mode-tab { /* 证书模式切换按钮 */
   flex: 1;
-  padding: var(--tag-pad-y) var(--tag-pad-x);
-  border: 1px solid var(--card-br);
-  border-radius: var(--tag-radius);
+  padding: 9px 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
   background: var(--tag-inactive-bg);
   color: var(--tag-inactive-color);
-  font-size: var(--tag-font);
   font-weight: 600;
   text-align: center;
-  cursor: default;
+  cursor: default; /* 仅用于展示，不可点击 */
 }
-#cert-panel .cert-mode-tab.active { /* 激活状态的按钮 */
+#cert-panel .cert-mode-tab.active { /* 激活状态的按钮样式 */
   background: var(--tag-active-bg);
   color: var(--tag-active-color);
   border-color: var(--tag-active-bg);
 }
 
-
 /* -- 4.4 网络身份配置 (#netid-panel) -- */
-#netid-panel {
-  display: block;
-}
-#netid-panel .network-blocks { /* 三个并排的配置块容器 */
+/* 采用 "悬浮标签" 设计，视觉上将标题置于卡片之上 */
+#netid-panel .network-blocks {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 15px;
-  align-items: start; /* 顶部对齐 */
+  align-items: start;
 }
 #netid-panel .network-block { /* 单个配置块 */
-  position: relative;
+  position: relative; /* 为绝对定位的标题提供参照 */
   background: #fff;
-  border: 1px solid var(--card-br);
+  border: 1px solid #e5e7eb;
   border-radius: 10px;
   padding: 12px;
-  margin-top: calc( (var(--tag-pad-y) * 2 + 20px) + var(--tag-gap) ); /* 向上留出空间给"悬浮"的标题 */
+  /* 向上留出空间给"悬浮"的标题 */
+  margin-top: calc( ( (9px * 2) + 20px) + 6px );
   min-height: 140px;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
 }
@@ -4477,12 +4456,13 @@ body, p, span, td, div {
   top: 0;
   left: 1px;
   right: 1px;
-  transform: translateY(calc(-100% - var(--tag-gap))); /* 向上移动自身高度+间距 */
+  /* 向上移动自身高度+间距，实现悬浮效果 */
+  transform: translateY(calc(-100% - 6px));
   margin: 0;
-  padding: var(--tag-pad-y) var(--tag-pad-x);
+  padding: 9px 16px;
   background: var(--tag-inactive-bg);
-  border-radius: var(--tag-radius);
-  font-size: var(--h3-size);
+  border-radius: 8px;
+  font-size: 15px;
   text-align: center;
 }
 #netid-panel .network-block.active > h3 { /* 激活状态的标题 */
@@ -4495,29 +4475,6 @@ body, p, span, td, div {
   font-weight: 400;
   font-size: 12px;
 }
-/* 白名单 "查看全部" 按钮 */
-.whitelist-more {
-  --btn-h: 22px;
-  --btn-pad-x: 8px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: var(--btn-h);
-  padding: 0 var(--btn-pad-x);
-  border: 1px solid #d1d5db;
-  border-radius: 4px;
-  background: #fff;
-  color: #2563eb;
-  font-size: 11px;
-  cursor: pointer;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
-  transition: all 0.15s ease;
-}
-.whitelist-more:hover {
-  background: #f3f4f6;
-  border-color: #9ca3af;
-}
-
 
 /* -- 4.5 运维管理 (#ops-panel) -- */
 .commands-grid {
@@ -4539,7 +4496,7 @@ body, p, span, td, div {
   font-family: monospace;
   font-size: .78rem;
 }
-.command-list span { /* 命令注释 */
+.command-list span { /* 命令的中文注释 */
   color: #6b7280;
   margin-left: 8px;
 }
@@ -4550,8 +4507,8 @@ body, p, span, td, div {
   border-collapse: collapse;
   border: 1px solid #6b7280;
   border-radius: 8px;
-  overflow: hidden;
-  box-shadow: 0 6px 16px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.06);
+  overflow: hidden; /* 保证圆角边框效果 */
+  box-shadow: 0 6px 16px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.06); /* 增强立体感 */
 }
 .data-table th {
   background: #f5f5f5;
@@ -4570,7 +4527,7 @@ body, p, span, td, div {
   background: #f8f9fa;
   box-shadow: 0 2px 6px rgba(0,0,0,0.12);
 }
-.data-table tr.subs-row td { /* 订阅行的特殊样式 */
+.data-table tr.subs-row td { /* “整包协议”订阅行的特殊样式 */
   background: #eef2f7;
   border-top: 1px solid #cbd5e1;
 }
@@ -4583,25 +4540,24 @@ body, p, span, td, div {
   display: grid;
   grid-template-columns: 7fr 3fr; /* 左侧图表占7份，右侧占3份 */
   gap: 20px;
-  align-items: stretch; /* 拉伸子项以等高 */
+  align-items: stretch; /* 拉伸网格项以等高 */
 }
 .chart-container canvas {
   display: block;
   width: 100% !important;
   height: 100% !important;
 }
-/* 图表标题后的图例（通过伪元素实现，避免JS操作） */
+/* 图表标题后的图例 (通过CSS伪元素实现，避免JS操作) */
 .traffic-card .chart-container > h3::after {
   content: " 🔵 VPS 🟢 代理";
   font-size: 11px;
   color: #6b7280;
   margin-left: 8px;
 }
-/* 月度柱状图使用不同的图例 */
+/* 月度柱状图使用不同的方块图例 */
 .chart-container:has(> canvas#monthly-chart) > h3::after {
   content: " 🟦 VPS 🟩 代理";
 }
-
 
 /* -- 4.8 通知中心 -- */
 .notification-center {
@@ -4626,11 +4582,11 @@ body, p, span, td, div {
   font-size: 11px;
   min-width: 18px;
   text-align: center;
-  animation: notification-pulse 2s infinite; /* 脉冲动画，吸引注意 */
+  animation: notification-pulse 2s infinite; /* 脉冲动画，吸引用户注意 */
 }
 @keyframes notification-pulse {
-    0%, 100% { transform: scale(1); }
-    50% { transform: scale(1.1); }
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.1); }
 }
 .notification-panel { /* 弹出的通知面板 */
   position: absolute;
@@ -4646,14 +4602,16 @@ body, p, span, td, div {
   z-index: 1000;
 }
 .notification-panel.show {
-  display: block; /* JS添加此类以显示 */
+  display: block; /* JS通过添加此类来显示面板 */
 }
 
+
 /* --- 5. 弹窗 (Modal) 样式 --- */
+/* 描述：定义所有弹窗的统一样式，包括遮罩、窗口、头部、内容、底部及内部组件。*/
 .modal {
   display: none; /* 默认隐藏 */
   position: fixed;
-  inset: 0;
+  inset: 0; /* 覆盖整个视窗 */
   background: rgba(0, 0, 0, .5); /* 半透明遮罩层 */
   z-index: 9998;
 }
@@ -4661,10 +4619,10 @@ body, p, span, td, div {
   position: fixed;
   left: 50%;
   top: 50%;
-  transform: translate(-50%, -50%); /* 垂直水平居中 */
+  transform: translate(-50%, -50%); /* 确保弹窗垂直水平居中 */
   width: 630px;
   height: 730px;
-  max-height: 85vh; /* 最大高度不超过视窗的85% */
+  max-height: 85vh; /* 最大高度不超过视窗高度的85% */
   background: #fff;
   border-radius: 14px;
   box-shadow: 0 10px 30px rgba(17, 24, 39, .18);
@@ -4673,23 +4631,23 @@ body, p, span, td, div {
   overflow: hidden;
 }
 .modal-header {
-  flex-shrink: 0; /* 不压缩头部 */
+  flex-shrink: 0; /* 不压缩头部区域 */
   padding: 16px;
   border-bottom: 1px solid #e5e7eb;
 }
 .modal-body {
-  flex: 1; /* 占据剩余空间 */
+  flex: 1; /* 占据所有剩余空间 */
   padding: 16px;
-  overflow-y: auto; /* 内容超长时可滚动 */
+  overflow-y: auto; /* 当内容超长时，允许垂直滚动 */
 }
 .modal-footer {
   flex-shrink: 0;
   padding: 16px;
   border-top: 1px solid #e5e7eb;
   display: flex;
-  justify-content: flex-end;
+  justify-content: flex-end; /* 按钮靠右对齐 */
 }
-.modal .close-btn { /* 关闭按钮 */
+.modal .close-btn {
   position: absolute;
   right: 12px;
   top: 12px;
@@ -4699,7 +4657,7 @@ body, p, span, td, div {
   border-radius: 8px;
   cursor: pointer;
 }
-/* 弹窗内的代码框和输入框 */
+/* 弹窗内的代码框和输入框样式 */
 .modal .config-code,
 .modal .input-plain,
 .modal .textarea-plain {
@@ -4716,7 +4674,7 @@ body, p, span, td, div {
   text-align: center;
   margin: 16px auto;
 }
-/* "复制成功" 的轻提示 */
+/* "复制成功" 的轻提示样式 */
 .modal .modal-toast {
   position: absolute;
   left: 50%;
@@ -4727,8 +4685,8 @@ body, p, span, td, div {
   padding: 10px 14px;
   border-radius: 10px;
   font-size: 12px;
-  opacity: 0; /* 默认透明 */
-  pointer-events: none;
+  opacity: 0; /* 默认透明，通过JS添加 .show 类来显示 */
+  pointer-events: none; /* 不响应鼠标事件 */
   transition: opacity .18s, transform .18s;
   z-index: 10000;
 }
@@ -4736,20 +4694,21 @@ body, p, span, td, div {
   opacity: 1;
 }
 
+
 /* --- 6. 响应式布局 --- */
-/* 针对不同屏幕尺寸调整布局 */
-@media (max-width: 1024px) { /* 平板设备 */
+/* 描述：使用媒体查询，针对不同屏幕尺寸（如平板、手机）调整布局，以提供更好的浏览体验。*/
+@media (max-width: 1024px) { /* 平板设备尺寸 */
   .grid-3, .grid-1-2, .traffic-charts {
-    grid-template-columns: 1fr; /* 所有网格变为单列堆叠 */
+    grid-template-columns: 1fr; /* 所有多列网格变为单列堆叠 */
   }
 }
 
-@media (max-width: 768px) { /* 移动设备 */
+@media (max-width: 768px) { /* 移动设备尺寸 */
   .commands-grid {
     grid-template-columns: 1fr;
   }
   .modal-content {
-    width: 95%;
+    width: 95%; /* 弹窗宽度适应手机屏幕 */
     margin: 10px auto;
   }
 }
