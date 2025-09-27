@@ -7436,7 +7436,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 <div class="container">
   <div class="main-card">
         <div class="main-header">
-        <h1>🌐 EdgeBox - 企业级多协议节点管理系统 🌐</h1>
+        <h1>🌐 EdgeBox - 企业级多协议节点管理系统</h1>
         <div class="notification-center">
             <button class="notification-trigger" id="notificationTrigger" data-action="toggle-notifications">
                 <span class="notification-icon">🔔</span>
@@ -7582,10 +7582,10 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
     </div>
   </div>
 
-  <!-- 🌐 网络身份配置 -->
+  <!-- 🆔 网络身份配置 -->
   <div class="card" id="netid-panel">
     <div class="card-header">
-      <h2>🌐 网络身份配置 <span class="note-udp">注：HY2/TUIC为UDP通道，VPS直连，不参与分流配置.</span></h2>
+      <h2>🆔 网络身份配置 <span class="note-udp">注：HY2/TUIC为UDP通道，VPS直连，不参与分流配置.</span></h2>
     </div>
 
     <div class="network-blocks">
@@ -7714,7 +7714,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
           </div>
 
           <div class="command-section">
-            <h3>🌐 证书管理</h3>
+            <h3>🔒 证书切换</h3>
             <div class="command-list">
               <code>edgeboxctl switch-to-domain &lt;your_domain&gt;</code> <span># 切换到域名模式，申请证书</span><br>
               <code>edgeboxctl switch-to-ip</code> <span># 回退到IP模式，使用自签名证书</span><br>
