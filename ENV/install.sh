@@ -8017,30 +8017,51 @@ build_sub_payload(){
 show_sub(){
   ensure_traffic_dir
 
-  # 优先从 dashboard.json 读取
+  # 1) 优先从 dashboard.json 读三段
   if [[ -s "${TRAFFIC_DIR}/dashboard.json" ]]; then
-    local sub_plain sub_b64 sub_lines
-    sub_plain=$(jq -r '.subscription.plain // empty' "${TRAFFIC_DIR}/dashboard.json" 2>/dev/null || true)
-    sub_b64=$(jq -r '.subscription.base64 // empty' "${TRAFFIC_DIR}/dashboard.json" 2>/dev/null || true)
-    sub_lines=$(jq -r '.subscription.b64_lines // empty' "${TRAFFIC_DIR}/dashboard.json" 2>/dev/null || true)
+    local sub_plain sub_lines sub_b64
+    sub_plain=$(jq -r '.subscription.plain // empty'       "${TRAFFIC_DIR}/dashboard.json" 2>/dev/null || true)
+    sub_lines=$(jq -r '.subscription.b64_lines // empty'   "${TRAFFIC_DIR}/dashboard.json" 2>/dev/null || true)
+    sub_b64=$(jq -r '.subscription.base64 // empty'        "${TRAFFIC_DIR}/dashboard.json" 2>/dev/null || true)
 
-    if [[ -n "$sub_plain" ]]; then
-      printf '%s\n' "$sub_plain"
-      return 0
-    elif [[ -n "$sub_lines" ]]; then
-      printf '%s\n' "$sub_lines"
+    if [[ -n "$sub_plain$sub_lines$sub_b64" ]]; then
+      [[ -n "$sub_plain" ]] && { printf '%s\n\n' "$sub_plain"; }
+      if [[ -n "$sub_lines" ]]; then
+        echo "# Base64（逐行，每行一个链接；多数客户端不支持一次粘贴多行）"
+        printf '%s\n\n' "$sub_lines"
+      fi
+      if [[ -n "$sub_b64" ]]; then
+        echo "# Base64（整包，单行）"
+        printf '%s\n' "$sub_b64"
+        echo
+      fi
       return 0
     fi
   fi
 
-  # 兜底：使用原有逻辑
-  local payload; payload="$(build_sub_payload)"
-  if [[ -z "$payload" ]]; then
-    echo "订阅尚未生成，请运行 update-dashboard" >&2
-    exit 1
+  # 2) 回落：按安装阶段产生的三个文件拼装（若存在）
+  local txt="${CONFIG_DIR}/subscription.txt"
+  local b64lines="${CONFIG_DIR}/subscription.b64lines"
+  local b64all="${CONFIG_DIR}/subscription.base64"
+  if [[ -s "$txt" || -s "$b64lines" || -s "$b64all" ]]; then
+    [[ -s "$txt"      ]] && { cat "$txt"; echo; }
+    if [[ -s "$b64lines" ]]; then
+      echo "# Base64（逐行，每行一个链接；多数客户端不支持一次粘贴多行）"
+      cat "$b64lines"; echo
+    fi
+    if [[ -s "$b64all" ]]; then
+      echo "# Base64（整包，单行）"
+      cat "$b64all"; echo
+    fi
+    return 0
   fi
+
+  # 3) 兜底：现生成一次（仍尽量补全）
+  local payload; payload="$(build_sub_payload)"
+  [[ -z "$payload" ]] && { echo "订阅尚未生成，请运行 update-dashboard" >&2; exit 1; }
   printf '%s\n' "$payload"
 }
+
 
 show_status() {
   echo -e "${CYAN}EdgeBox 服务状态（v${VERSION}）：${NC}"
