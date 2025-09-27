@@ -6129,6 +6129,177 @@ dialog[open],
 }
 
 /* =======================================================================
+   针对IP质量检测弹窗的左对齐CSS修复
+   基于JSON配置弹窗的成功案例，采用相同的左对齐策略
+   ======================================================================= */
+
+/* 所有弹窗内容默认左对齐 - 学习JSON配置弹窗的成功经验 */
+#ipqModal .modal-body,
+#ipqModal .modal-body *,
+#detailModal .modal-body,
+#detailModal .modal-body * {
+  text-align: left !important;
+  white-space: pre-wrap !important;  /* 关键：学习JSON配置的成功做法 */
+}
+
+/* 特别针对IP质量检测弹窗的内容结构 */
+#ipqModal .ipq-section,
+#ipqModal .ipq-section *,
+#detailModal .detail-section,
+#detailModal .detail-section * {
+  text-align: left !important;
+  white-space: pre-wrap !important;
+}
+
+/* 强制所有可能的内容元素左对齐 */
+#ipqModal p,
+#ipqModal div,
+#ipqModal span,
+#ipqModal label,
+#ipqModal value,
+#ipqModal h1,
+#ipqModal h2,
+#ipqModal h3,
+#ipqModal h4,
+#ipqModal h5,
+#ipqModal h6,
+#detailModal p,
+#detailModal div,
+#detailModal span,
+#detailModal label,
+#detailModal value,
+#detailModal h1,
+#detailModal h2,
+#detailModal h3,
+#detailModal h4,
+#detailModal h5,
+#detailModal h6 {
+  text-align: left !important;
+  white-space: pre-wrap !important;
+}
+
+/* 如果使用了flex布局，强制左对齐 */
+#ipqModal .modal-body,
+#detailModal .modal-body {
+  display: block !important;
+  text-align: left !important;
+  align-items: flex-start !important;
+  justify-content: flex-start !important;
+}
+
+/* 键值对特殊处理 - 完全左对齐 */
+#ipqModal .kv-row,
+#detailModal .kv-row {
+  display: block !important;  /* 改为块级布局，避免grid的右对齐问题 */
+  text-align: left !important;
+  padding: 8px 0;
+  border-bottom: 1px dashed #eef2f7;
+}
+
+#ipqModal .kv-key,
+#detailModal .kv-key {
+  display: inline-block !important;
+  width: 144px !important;
+  text-align: left !important;
+  padding-left: 0 !important;
+  padding-right: 12px !important;
+  color: #6b7280;
+  font-size: 13px;
+  vertical-align: top;
+}
+
+#ipqModal .kv-value,
+#ipqModal .kv-val,
+#detailModal .kv-value,
+#detailModal .kv-val {
+  display: inline-block !important;
+  text-align: left !important;
+  color: #111827;
+  font-size: 13px;
+  word-break: break-word;
+  vertical-align: top;
+}
+
+/* 重写可能的grid布局为flex布局 */
+#ipqModal .kv-list,
+#detailModal .kv-list {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 0 !important;
+  text-align: left !important;
+}
+
+/* 确保段落和文本块都左对齐 */
+#ipqModal .modal-body > *,
+#detailModal .modal-body > * {
+  text-align: left !important;
+  margin-left: 0 !important;
+  margin-right: auto !important;
+}
+
+/* 特殊元素保持居中（二维码等） */
+#ipqModal .qr-container,
+#ipqModal .qrcode,
+#ipqModal [data-role="qrcode"],
+#detailModal .qr-container,
+#detailModal .qrcode,
+#detailModal [data-role="qrcode"] {
+  text-align: center !important;
+  margin: 16px auto !important;
+}
+
+#ipqModal .qr-container canvas,
+#ipqModal .qrcode canvas,
+#ipqModal [data-role="qrcode"] canvas,
+#detailModal .qr-container canvas,
+#detailModal .qrcode canvas,
+#detailModal [data-role="qrcode"] canvas {
+  margin: 12px auto !important;
+  display: block !important;
+}
+
+/* 配置弹窗保持原样（参考JSON配置的代码结构） */
+#configModal .config-code {
+  white-space: pre-wrap !important;
+  text-align: left !important;
+}
+
+#configModal .config-section {
+  text-align: left !important;
+}
+
+#configModal .config-section h4 {
+  text-align: left !important;
+}
+
+/* 移动端适配 */
+@media (max-width: 768px) {
+  #ipqModal .kv-key,
+  #detailModal .kv-key {
+    display: block !important;
+    width: 100% !important;
+    margin-bottom: 4px !important;
+    text-align: left !important;
+  }
+  
+  #ipqModal .kv-value,
+  #ipqModal .kv-val,
+  #detailModal .kv-value,
+  #detailModal .kv-val {
+    display: block !important;
+    width: 100% !important;
+    text-align: left !important;
+  }
+}
+
+/* 调试：临时给IP质量弹窗加红框，确认选择器生效 */
+/*
+#ipqModal .modal-body {
+  border: 2px solid red !important;
+}
+*/
+
+/* =======================================================================
  按钮（查看详情、查看全部、查看配置、查看订阅）：白底蓝字，hover 浅灰，active 灰底 
  ======================================================================= */
 .btn-detail,
