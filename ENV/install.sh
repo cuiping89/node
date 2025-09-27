@@ -4120,1288 +4120,297 @@ chmod +x "${SCRIPTS_DIR}/traffic-alert.sh"
   log_info "创建外置CSS文件..."
   cat > "${TRAFFIC_DIR}/assets/edgebox-panel.css" <<'EXTERNAL_CSS'
 /* =======================================================================
-   EdgeBox 控制面板 · 企业级前端样式表
-   版本: 3.0.0
-   功能: 响应式布局、组件化设计、现代化UI
+   EdgeBox 控制面板通用样式（edgebox-panel.css）
+   版本：3.0.0（基于安装脚本 2025-09-27T00:30:23 生成的前端CSS）
+   维护说明：
+   - 本文件仅做“注释与结构化整理”，未更改任何选择器、属性或值；视觉效果与布局保持完全一致。
+   - 重要提醒：请勿随意改动具有层叠覆盖关系的规则块（例如 .info-item、多处响应式覆写、#ipqModal 专用覆写等）。
+   - 如果需要功能性调整，请在不破坏原有层叠顺序和特定选择器权重的前提下，新增更高特异性的覆写规则。
+   作者注：为便于团队协作，增加了中文章节标题与关键规则“勿改”注释。
+======================================================================= */
+
+/* =======================================================================
+   EdgeBox 控制面板 · 组件化（ops-panel 无 id 也生效）
    ======================================================================= */
 
-/* ========== 全局重置与基础样式 ========== */
-
-/* CSS重置 - 消除浏览器默认样式差异 */
-* { 
-    margin: 0; 
-    padding: 0; 
-    box-sizing: border-box; 
-}
-
-/* 页面主体样式 - 设置字体、背景和基础布局 */
-body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    background: #f3f4f6;  /* 浅灰色背景 */
-    min-height: 100vh;    /* 确保页面至少占满整个视口高度 */
-    padding: 20px;        /* 页面边距 */
-    color: #1f2937;       /* 深灰色文字 */
-}
-
-/* 主容器 - 限制最大宽度并居中 */
-.container { 
-    max-width: 1400px; 
-    margin: 0 auto; 
-}
-
-/* ========== 排版系统 - 标题和文字层级 ========== */
-
-/* 一级标题 - 页面主标题 */
-h1 { 
-    font-size: 23px; 
-    font-weight: 700; 
-    color: #1f2937; 
-    line-height: 32px; 
-}
-
-/* 二级标题 - 卡片标题 */
-h2 { 
-    font-size: 18px; 
-    font-weight: 600; 
-    color: #1f2937; 
-    line-height: 26px; 
-}
-
-/* 三级标题 - 小节标题 */
-h3 { 
-    font-size: 15px; 
-    font-weight: 600; 
-    color: #1f2937; 
-    line-height: 22px; 
-}
-
-/* 四级标题 - 辅助标题 */
-h4 { 
-    font-size: 14px; 
-    font-weight: 500; 
-    color: #1f2937; 
-    line-height: 20px; 
-}
-
-/* 正文样式 - 统一文字样式 */
-body, p, span, td, div { 
-    font-size: 13px; 
-    font-weight: 500; 
-    color: #1f2937; 
-    line-height: 20px; 
-}
-
-/* 辅助文字颜色 */
-.text-muted { color: #6b7280; }
-.text-secondary { color: #4b5563; }
-
-/* ========== CSS变量定义 - 统一主题色彩和尺寸 ========== */
-:root {
-    /* 颜色系统 */
-    --heading-color: #111827;     /* 标题颜色（深黑） */
-    --subheading-color: #6b7280;  /* 副标题颜色（灰色） */
-    --content-color: #6b7280;     /* 内容颜色（灰色） */
-    
-    /* 文字尺寸 */
-    --h3-size: 15px;             /* h3标题大小 */
-    --h4-size: 14px;             /* h4标题大小 */
-    --content-size: 13px;        /* 正文大小 */
-    
-    /* 流量图表相关尺寸 */
-    --charts-pad-y: 10px;        /* 图表垂直内边距 */
-    --charts-pad-x: 20px;        /* 图表水平内边距 */
-    --gap-v: 12px;               /* 垂直间距 */
-    --h-progress: 50px;          /* 进度条容器高度 */
-    --h-left-chart: 300px;       /* 左侧图表高度 */
-    --mini-pad: 12px;            /* 迷你卡片内边距 */
-    --meter-height: 18px;        /* 进度条高度 */
-    
-    /* 按钮尺寸 */
-    --btn-h: 28px;               /* 按钮高度 */
-    --btn-pad-x: 12px;           /* 按钮水平内边距 */
-    
-    /* 模态框尺寸 */
-    --modal-w: 580px;            /* 模态框宽度 */
-    --modal-h: auto;             /* 模态框高度 */
-}
-
-/* ========== 布局系统 - 网格和卡片 ========== */
-
-/* 网格布局基础 */
-.grid {
-    display: grid;
-    gap: 20px !important;
-    margin: 0;
-}
-
-/* 三列网格 - 服务器信息、证书状态等 */
-.grid-3 { 
-    grid-template-columns: repeat(3, 1fr); 
-}
-
-/* 1:2比例双列网格 - 证书切换和网络身份 */
-.grid-1-2 { 
-    grid-template-columns: 1fr 2fr; 
-    margin-bottom: 20px !important;
-}
-
-/* 卡片基础样式 */
-.card {
-    background: #fff;                              /* 白色背景 */
-    border: 1px solid #d1d5db;                   /* 浅灰边框 */
-    border-radius: 10px;                         /* 圆角 */
-    padding: 20px;                               /* 内边距 */
-    box-shadow: 0 2px 6px rgba(0,0,0,.08);      /* 柔和阴影 */
-    margin: 0;                                   /* 移除margin，使用grid gap */
-}
-
-/* 卡片标题样式 */
-.card-header {
-    margin-bottom: 16px;                         /* 标题与内容间距 */
-    padding-bottom: 12px;                        /* 标题底部内边距 */
-    border-bottom: 1px solid #e5e7eb;          /* 标题下分割线 */
-}
-
-.card-header h2,
-.card-header h3 {
-    margin: 0;                                   /* 移除默认margin */
-}
-
-/* ========== 修复网格布局中卡片间距问题 ========== */
-
-/* 1. grid内的卡片不使用margin，完全依赖gap */
-.main-content .grid .card {
-    margin-bottom: 0 !important;
-}
-
-/* 2. 特别处理1-2网格布局后的卡片间距 */
-.main-content .grid-1-2 + .card {
-    margin-top: 20px !important;
-}
-
-/* 3. 协议配置卡片确保有正确的上边距 */
-.card[id*="protocol"],
-.card:has(.data-table) {
-    margin-top: 20px !important;
-}
-
-/* 4. 确保协议配置表格卡片的边框正常显示 */
-.card:has(.data-table) {
-    border: 1px solid #d1d5db !important;
-    box-shadow: 0 2px 6px rgba(0,0,0,.08) !important;
-}
-
-/* ========== 按钮组件系统 ========== */
-
-/* 标准操作按钮 - 白底蓝字风格 */
-.btn-detail,
-.btn-viewall,
-.btn-link,
-.link,
-.whitelist-more {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    height: var(--btn-h);
-    line-height: calc(var(--btn-h) - 2px);      /* 扣除边框厚度 */
-    padding: 0 var(--btn-pad-x);
-    border: 1px solid #d1d5db;                 /* 浅灰边框 */
-    border-radius: 6px;                        /* 圆角 */
-    background: #fff;                          /* 白色背景 */
-    color: #2563eb;                           /* 蓝色文字 */
-    font-size: 12px;
-    text-decoration: none;
-    cursor: pointer;
-    transition: background .15s ease, color .15s ease, border-color .15s ease, box-shadow .15s ease;
-}
-
-/* 按钮悬停效果 - 浅灰背景，深蓝文字 */
-.btn-detail:hover,
-.btn-viewall:hover,
-.btn-link:hover,
-.link:hover,
-.whitelist-more:hover {
-    background: #f3f4f6;                       /* 浅灰背景 */
-    border-color: #9ca3af;                     /* 中灰边框 */
-    color: #1d4ed8;                           /* 深蓝文字 */
-}
-
-/* 按钮激活效果 - 按下时的深灰背景 */
-.btn-detail:active,
-.btn-viewall:active,
-.btn-link:active,
-.link:active,
-.whitelist-more:active {
-    background: #e5e7eb;                       /* 深灰背景 */
-    border-color: #9ca3af;
-    color: #1d4ed8;
-}
-
-/* 按钮聚焦效果 - 键盘导航时的高亮边框 */
-.btn-detail:focus-visible,
-.btn-viewall:focus-visible,
-.btn-link:focus-visible,
-.link:focus-visible,
-.whitelist-more:focus-visible {
-    outline: 0;
-    box-shadow: 0 0 0 2px #93c5fd;            /* 浅蓝聚焦环 */
-    border-color: #60a5fa;
-}
-
-/* 按钮禁用状态 */
-.btn-detail[disabled],
-.btn-viewall[disabled],
-.btn-link[disabled],
-.link[disabled],
-.whitelist-more[disabled] {
-    opacity: .5;
-    pointer-events: none;
-}
-
-/* ========== 数据表格组件 ========== */
-
-/* 表格基础样式 */
-.data-table { 
-    width: 100%; 
-    border-collapse: collapse;
-    border: 1px solid #6b7280;                /* 深灰外边框 */
-    border-radius: 8px;
-    overflow: hidden;
-    /* 立体感阴影 - 外层阴影 + 贴边描边 */
-    box-shadow: 
-        0 6px 16px rgba(0,0,0,0.12),         /* 外层柔和阴影 */
-        0 0 0 1px rgba(0,0,0,0.06);          /* 贴边锐利描边 */
-}
-
-/* 表头样式 */
-.data-table th {
-    background: #f5f5f5;                      /* 浅灰背景 */
-    color: #4b5563;                          /* 中灰文字 */
-    font-weight: 500;
-    padding: 8px 10px;                       /* 上下8px，左右10px */
-    text-align: left;
-    font-size: 12px;
-    border-bottom: 1px solid #e5e7eb;       /* 底部分割线 */
-}
-
-/* 表格单元格样式 */
-.data-table td {
-    padding: 7px 10px;                       /* 稍小的垂直内边距 */
-    border-bottom: 1px solid #e5e7eb;       /* 底部分割线 */
-    font-size: 12px;
-}
-
-/* 第4、5、6列居中对齐 - 端口、状态等列 */
-.data-table td:nth-child(4),
-.data-table td:nth-child(5),
-.data-table td:nth-child(6),
-.data-table th:nth-child(4),
-.data-table th:nth-child(5),
-.data-table th:nth-child(6) { 
-    text-align: center; 
-}
-
-/* 表格行悬停效果 */
-.data-table tbody tr:hover td {
-    background: #f8f9fa;                      /* 浅灰悬停背景 */
-    box-shadow: 0 2px 6px rgba(0,0,0,0.12);  /* 悬停阴影 */
-}
-
-/* 订阅行特殊样式 */
-.data-table tr.subs-row td {
-    background: #eef2f7;                      /* 浅蓝灰背景 */
-    border-top: 1px solid #cbd5e1;          /* 顶部分割线 */
-}
-
-.data-table tr.subs-row:hover td {
-    background: #e3e9f2;                      /* 悬停时稍深的背景 */
-    box-shadow: 
-        inset 0 1px 3px rgba(0,0,0,0.14), 
-        0 3px 8px rgba(0,0,0,0.12);
-}
-
-/* 交替行背景 - 斑马纹效果 */
-.data-table tbody tr:nth-child(even):not(.subs-row) td {
-    background-color: rgba(249,250,251,0.65);
-}
-
-.data-table tbody tr:nth-child(even):not(.subs-row):hover td {
-    background-color: #f3f4f6;
-}
-
-/* ========== 流量统计组件 ========== */
-
-/* 流量卡片容器 */
-.traffic-card {
-    background: #fff; 
-    border: 1px solid #d1d5db; 
-    border-radius: 10px;
-    box-shadow: 0 2px 6px rgba(0,0,0,.08); 
-    padding: 20px;                            /* 与其他卡片保持一致的内边距 */
-    overflow: hidden;
-}
-
-/* 流量卡片标题区域 */
-.traffic-card .card-header { 
-    margin-bottom: 20px;                      /* 与其他卡片保持一致的间距 */
-    padding-bottom: 12px; 
-    border-bottom: 1px solid #e5e7eb; 
-}
-
-.traffic-card .card-header > * { 
-    margin: 0; 
-}
-
-/* 流量图表组 - 双列布局 */
-.traffic-charts,
-.traffic-charts.traffic--subcards {
-    display: grid; 
-    grid-template-columns: 7fr 3fr;          /* 7:3比例 */
-    gap: 20px;
-    padding: 0;                               /* 去掉额外padding，让外层20px生效 */
-    margin: 0;
-    align-items: stretch;
-}
-
-/* 图表列容器 */
-.chart-column { 
-    display: flex; 
-    flex-direction: column; 
-    gap: var(--gap-v); 
-}
-
-/* 图表列之间的分隔线和内边距 */
-.chart-column > * + * { 
-    border-top: 1px solid #e5e7eb; 
-    padding-top: 12px; 
-    margin-top: 12px; 
-}
-
-/* 非子卡片模式的列分隔 */
-.traffic-charts:not(.traffic--subcards) > :first-child { 
-    border-right: 1px solid #e5e7eb; 
-    padding-right: 20px; 
-}
-
-.traffic-charts:not(.traffic--subcards) > :last-child {  
-    padding-left: 20px; 
-}
-
-/* 进度条容器 - 与CPU使用率高度一致 */
-.traffic-card .traffic-progress-container { 
-    display: flex; 
-    align-items: center; 
-    gap: 10px; 
-    height: var(--h-progress); 
-    flex-shrink: 0; 
-}
-
-/* 进度条包装器 */
-.traffic-card .progress-wrapper { 
-    flex: 1; 
-    min-width: 120px; 
-}
-
-/* 进度条主体 */
-.traffic-card .progress-bar { 
-    height: var(--meter-height); 
-    background: #e2e8f0;                      /* 浅灰背景 */
-    border-radius: 999px;                     /* 完全圆角 */
-    overflow: hidden;
-    position: relative; 
-}
-
-/* 进度条填充部分 */
-.traffic-card .progress-fill { 
-    height: 100%; 
-    background: linear-gradient(90deg, #10b981 0%, #059669 100%);  /* 绿色渐变 */
-    transition: width .3s ease; 
-    display: flex; 
-    align-items: center; 
-    justify-content: flex-end; 
-    padding-right: 8px; 
-}
-
-/* 进度条警告颜色 */
-.progress-fill.warning { 
-    background: linear-gradient(90deg, #f59e0b 0%, #d97706 100%);  /* 黄色渐变 */
-}
-
-/* 进度条危险颜色 */
-.progress-fill.critical { 
-    background: linear-gradient(90deg, #ef4444 0%, #dc2626 100%);  /* 红色渐变 */
-}
-
-/* 进度条百分比文字 */
-.traffic-card .progress-percentage { 
-    color: #fff; 
-    font-size: 11px; 
-    font-weight: 600; 
-}
-
-/* 进度条预算信息 */
-.traffic-card .progress-budget { 
-    color: #6b7280; 
-    font-size: 12px; 
-    white-space: nowrap; 
-}
-
-/* 图表容器 - 标题居中 + canvas填满 */
-.chart-container { 
-    position: relative; 
-    display: flex; 
-    flex-direction: column; 
-    overflow: hidden; 
-}
-
-/* 图表标题 */
-.traffic-card .chart-container h3 { 
-    text-align: center; 
-    margin: 0 0 8px; 
-    font-weight: 600; 
-    font-size: 14px; 
-    line-height: 20px; 
-    flex: 0 0 auto;
-    color: var(--heading-color);              /* 使用统一的标题颜色 */
-}
-
-/* 图表画布 */
-.traffic-card .chart-container > canvas { 
-    display: block; 
-    width: 100% !important; 
-    height: 100% !important; 
-    flex: 1 1 auto; 
-}
-
-/* 等高设计 - 确保左右列底部对齐 */
-.traffic-charts:not(.traffic--subcards) .chart-column:first-child .chart-container {
-    height: var(--h-left-chart); 
-    min-height: var(--h-left-chart);
-}
-
-.traffic-charts:not(.traffic--subcards) .chart-column:last-child .chart-container {
-    height: calc(var(--h-progress) + var(--gap-v) + var(--h-left-chart));
-    min-height: calc(var(--h-progress) + var(--gap-v) + var(--h-left-chart));
-}
-
-/* 子卡片模式样式调整 */
-.traffic-charts.traffic--subcards > :first-child { 
-    border-right: 0; 
-    padding-right: 0; 
-}
-
-.traffic-charts.traffic--subcards > :last-child {  
-    padding-left: 0; 
-}
+/* ========== Reset / 基础皮肤 ========== */
 
-.traffic-charts.traffic--subcards .traffic-progress-container,
-.traffic-charts.traffic--subcards .chart-container {
-    padding: var(--mini-pad);
-    border: 1px solid #e5e7eb; 
-    border-radius: 12px;
-    background: #fff; 
-    box-shadow: 0 2px 8px rgba(17,24,39,.08);
-}
-
-.traffic-charts.traffic--subcards .chart-column > * + * { 
-    border-top: 0; 
-    padding-top: 0; 
-    margin-top: 0; 
-}
-
-/* 子卡片模式的高度调整 */
-.traffic-charts.traffic--subcards .chart-column:first-child .chart-container {
-    height: calc(var(--h-left-chart) + 2*var(--mini-pad));
-    min-height: calc(var(--h-left-chart) + 2*var(--mini-pad));
-}
-
-.traffic-charts.traffic--subcards .chart-column:last-child .chart-container {
-    height: calc(var(--h-progress) + var(--gap-v) + var(--h-left-chart) + 2*var(--mini-pad));
-    min-height: calc(var(--h-progress) + var(--gap-v) + var(--h-left-chart) + 2*var(--mini-pad));
-}
-
-/* 单位标注样式 - 小字灰色 */
-.unit-note {
-    font-size: 11px !important;
-    font-weight: 400 !important;
-    color: #9ca3af !important;
-    margin-left: 4px;
-}
-
-/* 隐藏Chart.js生成的HTML图例 */
-.traffic-card .chartjs-legend {
-    display: none !important;
-}
-
-/* 图表标题后的自定义图例 - 默认圆点版 */
-.traffic-card .chart-container > h3::after {
-    content: " 🔵 VPS 🟢 代理";
-    font-size: 11px;
-    color: #6b7280;
-    margin-left: 8px;
-}
-
-/* 月度柱状图使用方块图例 */
-@supports selector(.x:has(#monthly-chart)) {
-    .chart-container:has(> canvas#monthly-chart) > h3::after {
-        content: " 🟦 VPS 🟩 代理";
-    }
-}
-
-/* ========== 通知中心组件 ========== */
-
-/* 主标题区域 */
-.main-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 16px;
-}
-
-.main-header h1 {
-    flex: 1;
-    margin: 0;
-}
-
-/* 通知中心容器 */
-.notification-center {
-    position: relative;
-    display: inline-flex;
-    width: 38px;
-    height: 38px;
-    margin-right: 22px;
-    align-items: center;
-    justify-content: center;
-}
-
-/* 通知触发按钮 */
-.notification-trigger {
-    width: 100%;
-    height: 100%;
-    display: grid;
-    place-items: center;
-    background: none;
-    border: none;
-    border-radius: 8px;
-    cursor: pointer;
-    color: #6b7280;
-    padding: 0;
-    line-height: 1;
-    transition: background-color .2s ease, color .2s ease;
-}
-
-/* 通知图标样式 */
-.notification-trigger > svg,
-.notification-trigger > i,
-.notification-trigger > span {
-    font-size: 23px;
-    width: 1em;
-    height: 1em;
-    display: inline-block;
-    transition: transform .2s ease, color .2s ease;
-}
-
-/* 通知按钮悬停效果 */
-.notification-trigger:hover {
-    background-color: rgba(16, 185, 129, 0.1);
-    color: #10b981;
-}
-
-.notification-trigger:hover > svg,
-.notification-trigger:hover > i,
-.notification-trigger:hover > span {
-    transform: scale(1.15);
-}
-
-/* 通知数量徽章 */
-.notification-badge {
-    position: absolute;
-    top: 2px;
-    right: 2px;
-    background: #ef4444;
-    color: white;
-    border-radius: 10px;
-    padding: 1px 6px;
-    font-size: 11px;
-    font-weight: 600;
-    min-width: 18px;
-    text-align: center;
-    animation: notification-pulse 2s infinite;
-}
-
-/* 通知徽章脉冲动画 */
-@keyframes notification-pulse {
-    0%, 100% { transform: scale(1); }
-    50% { transform: scale(1.1); }
-}
-
-/* 通知面板 */
-.notification-panel {
-    position: absolute;
-    top: 100%;
-    right: 0;
-    width: 320px;
-    max-height: 400px;
-    background: white;
-    border: 1px solid #d1d5db;
-    border-radius: 8px;
-    box-shadow: 0 10px 25px rgba(0,0,0,0.15);
-    opacity: 0;
-    visibility: hidden;
-    transform: translateY(-10px);
-    transition: all 0.2s ease;
-    z-index: 1000;
-    overflow: hidden;
-}
-
-/* 通知面板显示状态 */
-.notification-panel.show {
-    opacity: 1;
-    visibility: visible;
-    transform: translateY(0);
-}
-
-/* ========== 模态框组件 ========== */
-
-/* 模态框遮罩层 */
-.modal {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.6);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 9999;
-    opacity: 0;
-    visibility: hidden;
-    transition: opacity .25s ease, visibility .25s ease;
-}
-
-/* 模态框显示状态 */
-.modal.show {
-    opacity: 1;
-    visibility: visible;
-}
-
-/* 模态框内容容器 */
-.modal-content {
-    background: white;
-    border-radius: 12px;
-    width: var(--modal-w);
-    height: var(--modal-h);
-    max-width: 90vw;
-    max-height: 80vh;
-    position: relative;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-    transform: scale(0.9);
-    transition: transform .25s ease;
-    overflow: hidden;
-}
-
-/* 模态框显示时的变换 */
-.modal.show .modal-content {
-    transform: scale(1);
-}
-
-/* 模态框头部 */
-.modal-header {
-    padding: 20px 24px 16px;
-    border-bottom: 1px solid #e5e7eb;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-.modal-header h3 {
-    margin: 0;
-    font-size: 18px;
-    font-weight: 600;
-    color: #1f2937;
-}
-
-/* 模态框关闭按钮 */
-.modal-close {
-    background: none;
-    border: none;
-    font-size: 24px;
-    color: #6b7280;
-    cursor: pointer;
-    padding: 4px;
-    line-height: 1;
-    transition: color .2s ease;
-}
-
-.modal-close:hover {
-    color: #374151;
-}
-
-/* 模态框主体内容 */
-.modal-body {
-    padding: 20px 24px;
-    max-height: 60vh;
-    overflow-y: auto;
-}
-
-/* 键值对显示组件 */
-.kv-row {
-    display: grid;
-    grid-template-columns: 120px 1fr;
-    gap: 16px;
-    margin-bottom: 12px;
-    align-items: start;
-}
-
-.kv-key {
-    font-weight: 600;
-    color: #374151;
-    text-align: right;
-    padding-right: 8px;
-}
-
-.kv-value {
-    color: #6b7280;
-    word-break: break-all;
-    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-    font-size: 12px;
-}
-
-/* 提示消息框 */
-.modal .modal-toast {
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%) scale(0.9);
-    background: rgba(17,24,39,.92); 
-    color: #fff;
-    padding: 10px 14px; 
-    border-radius: 10px; 
-    font-size: 12px;
-    box-shadow: 0 8px 24px rgba(0,0,0,.2);
-    opacity: 0; 
-    pointer-events: none; 
-    transition: opacity .18s, transform .18s;
-    z-index: 10000;
-}
-
-/* 提示消息框显示状态 */
-.modal .modal-toast.show { 
-    opacity: 1; 
-    pointer-events: auto; 
-    transform: translate(-50%, -50%) scale(1); 
-}
-
-/* ========== 运维管理组件 ========== */
-
-/* 运维面板容器 */
-#ops-panel,
-.ops-panel {
-    background: #fff;
-    border: 1px solid #d1d5db;
-    border-radius: 10px;
-    padding: 20px;
-    box-shadow: 0 2px 6px rgba(0,0,0,.08);
-}
-
-/* 运维面板标题样式 */
-#ops-panel h3,
-.ops-panel h3 {
-    color: var(--heading-color);
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin-bottom: 16px;
-}
-
-/* 命令列表样式 */
-.command-list { 
-    font-size: .8rem; 
-    line-height: 1.6;                          /* 行间距 */
-}
-
-/* 命令代码块样式 - 深灰背景 */
-.command-list code {
-    background: #e2e8f0;                       /* 浅灰背景 */
-    color: #1f2937;                           /* 深灰文字 */
-    padding: 1px 6px;
-    border-radius: 4px;
-    font-family: monospace;
-    font-size: .78rem;
-    line-height: 1.1;
-    display: inline-block;
-    margin-right: 8px;                        /* 命令与注释间距 */
-    margin-bottom: 2px;                       /* 轻微增加行间距 */
-}
-
-/* 命令注释样式 */
-.command-list span { 
-    color: #6b7280; 
-    margin-left: 8px; 
-}
-
-/* 运维管理特定样式 */
-#ops-panel .command-list,
-.commands-grid .command-list {
-    line-height: 1.6;
-}
-
-#ops-panel .command-list code,
-.commands-grid .command-list code {
-    margin-right: 8px;
-    display: inline-block;
-    margin-bottom: 2px;
-}
-
-/* ========== 白名单管理组件 ========== */
-
-/* 白名单列表容器 */
-.whitelist-list {
-    max-height: 200px;
-    overflow-y: auto;
-    border: 1px solid #e5e7eb;
-    border-radius: 6px;
-    padding: 8px;
-    background: #f9fafb;
-}
-
-/* 白名单项目样式 */
-.whitelist-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 4px 8px;
-    margin-bottom: 4px;
-    background: white;
-    border-radius: 4px;
-    font-size: 12px;
-}
-
-/* 白名单删除按钮 */
-.whitelist-remove {
-    background: #ef4444;
-    color: white;
-    border: none;
-    border-radius: 3px;
-    padding: 2px 6px;
-    font-size: 10px;
-    cursor: pointer;
-    transition: background .2s ease;
-}
-
-.whitelist-remove:hover {
-    background: #dc2626;
-}
-
-/* ========== 状态指示器组件 ========== */
-
-/* 服务状态指示器 */
-.status-indicator {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 12px;
-}
-
-/* 状态点样式 */
-.status-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    flex-shrink: 0;
-}
-
-/* 在线状态 - 绿色 */
-.status-dot.online {
-    background: #10b981;
-    box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
-}
-
-/* 离线状态 - 红色 */
-.status-dot.offline {
-    background: #ef4444;
-    box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2);
-}
-
-/* 警告状态 - 黄色 */
-.status-dot.warning {
-    background: #f59e0b;
-    box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2);
-}
-
-/* ========== 响应式设计 ========== */
+* { margin:0; padding:0; box-sizing:border-box; }
 
-/* 大屏设备优化 (1024px+) */
-@media (min-width: 1024px) {
-    .container {
-        padding: 0 40px;
-    }
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  background:#f3f4f6; min-height:100vh; padding:20px; color:#1f2937;
 }
 
-/* 平板设备适配 (768px-1024px) */
-@media (max-width: 1024px) {
-    /* 网格布局改为单列 */
-    .grid-3, 
-    .grid-1-2 { 
-        grid-template-columns: 1fr; 
-    }
-    
-    /* 流量图表改为单列 */
-    .traffic-charts { 
-        grid-template-columns: 1fr; 
-    }
-    
-    /* 移除列分隔线 */
-    .traffic-charts:not(.traffic--subcards) > :first-child { 
-        border-right: 0; 
-        padding-right: 0; 
-    }
-    
-    .traffic-charts:not(.traffic--subcards) > :last-child {  
-        padding-left: 0; 
-    }
-    
-    /* 调整图表高度 */
-    .chart-column:first-child .chart-container,
-    .chart-column:last-child .chart-container {
-        height: 250px;
-        min-height: 250px;
-    }
-    
-    /* 确保网格间距一致 */
-    .main-content .grid-1-2 {
-        gap: 20px !important;
-    }
-    
-    .main-content .grid + .card,
-    .main-content .grid-1-2 + .card {
-        margin-top: 20px !important;
-    }
-}
-
-/* 手机设备适配 (768px以下) */
-@media (max-width: 768px) {
-    /* 页面边距减小 */
-    body {
-        padding: 15px;
-    }
-    
-    /* 卡片内边距减小 */
-    .card {
-        padding: 16px;
-    }
-    
-    /* 模态框全屏显示 */
-    .modal, 
-    dialog[open], 
-    .el-dialog, 
-    .ant-modal {
-        --modal-w: calc(100vw - 20px);
-        --modal-h: calc(100vh - 40px);
-    }
-    
-    .modal-content {
-        width: 95%; 
-        margin: 10px auto;
-    }
-    
-    /* 键值对改为单列布局 */
-    .kv-row { 
-        grid-template-columns: 1fr; 
-    }
-    
-    .kv-key { 
-        text-align: left; 
-        padding-right: 0; 
-        margin-bottom: 4px; 
-    }
-    
-    /* 主标题区域堆叠 */
-    .main-header {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 12px;
-    }
-    
-    /* 通知中心调整 */
-    .notification-center {
-        margin-right: 0;
-        align-self: flex-end;
-    }
-    
-    /* 按钮文字适配 */
-    .btn-detail,
-    .btn-viewall,
-    .btn-link,
-    .link,
-    .whitelist-more {
-        font-size: 11px;
-        padding: 0 8px;
-    }
-    
-    /* 表格横向滚动 */
-    .data-table {
-        font-size: 11px;
-    }
-    
-    .data-table th,
-    .data-table td {
-        padding: 6px 8px;
-    }
-    
-    /* 流量图表进一步优化 */
-    .traffic-charts.traffic--subcards .traffic-progress-container,
-    .traffic-charts.traffic--subcards .chart-container {
-        padding: 8px;
-    }
-}
+.container{ max-width:1400px; margin:0 auto; }
 
-/* 超小屏设备适配 (480px以下) */
-@media (max-width: 480px) {
-    /* 进一步减小间距 */
-    body {
-        padding: 10px;
-    }
-    
-    .card {
-        padding: 12px;
-    }
-    
-    /* 字体大小调整 */
-    h1 { font-size: 20px; }
-    h2 { font-size: 16px; }
-    h3 { font-size: 14px; }
-    
-    /* 网格间距减小 */
-    .grid {
-        gap: 15px !important;
-    }
-    
-    /* 按钮高度调整 */
-    :root {
-        --btn-h: 32px;
-        --btn-pad-x: 10px;
-    }
-}
-
-/* ========== 打印样式 ========== */
-@media print {
-    /* 隐藏交互元素 */
-    .notification-center,
-    .btn-detail,
-    .btn-viewall,
-    .btn-link,
-    .link,
-    .whitelist-more,
-    .modal {
-        display: none !important;
-    }
-    
-    /* 移除背景和阴影 */
-    body {
-        background: white;
-        color: black;
-    }
-    
-    .card {
-        border: 1px solid #ccc;
-        box-shadow: none;
-        break-inside: avoid;
-    }
-    
-    /* 确保图表可见 */
-    .chart-container canvas {
-        max-height: 300px;
-    }
-}
+h1{ font-size:23px; font-weight:700; color:#1f2937; line-height:32px; }
+/* ===== 文字样式统一：h3黑色大字，h4灰色中字，内容灰色中字 ===== */
+h3{ font-size:18px; font-weight:700; color:#111827; line-height:28px; }
+h4{ font-size:16px; font-weight:600; color:#4b5563; line-height:24px; }
 
-/* ========== 深色模式支持 (可选) ========== */
-@media (prefers-color-scheme: dark) {
-    /* 如果需要支持深色模式，可以在这里添加相关样式 */
-    /* 目前保持浅色主题以确保与现有设计一致 */
-}
+/* 统一小字说明 */
+.small-muted{ font-size:13px; color:#6b7280; }
 
-/* ========== 辅助工具类 ========== */
-
-/* 文字对齐 */
-.text-left { text-align: left; }
-.text-center { text-align: center; }
-.text-right { text-align: right; }
-
-/* 显示控制 */
-.hidden { display: none !important; }
-.visible { display: block !important; }
-
-/* 间距工具 */
-.mb-0 { margin-bottom: 0 !important; }
-.mb-1 { margin-bottom: 8px !important; }
-.mb-2 { margin-bottom: 16px !important; }
-.mb-3 { margin-bottom: 24px !important; }
-
-.mt-0 { margin-top: 0 !important; }
-.mt-1 { margin-top: 8px !important; }
-.mt-2 { margin-top: 16px !important; }
-.mt-3 { margin-top: 24px !important; }
-
-/* 弹性布局工具 */
-.flex { display: flex; }
-.flex-col { flex-direction: column; }
-.flex-wrap { flex-wrap: wrap; }
-.items-center { align-items: center; }
-.justify-center { justify-content: center; }
-.justify-between { justify-content: space-between; }
-
-/* 溢出处理 */
-.overflow-hidden { overflow: hidden; }
-.overflow-auto { overflow: auto; }
-.text-ellipsis { 
-    white-space: nowrap; 
-    overflow: hidden; 
-    text-overflow: ellipsis; 
+/* ========== 布局：头部 + 主卡片 ========== */
+.main-header{
+  display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:16px;
 }
+.main-header h1{ flex:1; margin:0; }
 
-/* ========== 动画增强 ========== */
+/* 通知中心容器（右上角铃铛+下拉面板） */
+.notification-center{ position:relative; display:inline-block; margin-right:30px; }
 
-/* 卡片悬停动画 */
-.card {
-    transition: transform .2s ease, box-shadow .2s ease;
+/* 通知触发按钮 - 增强版 */
+.notification-trigger{
+  position:relative; background:none; border:none; font-size:22px; cursor:pointer; padding:18px;
+  border-radius:8px; transition:all .3s ease; color:#6b7280;
 }
+.notification-trigger:hover{ background:#f9fafb; color:#111827; }
 
-.card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0,0,0,.12);
+/* 红点（未读计数） */
+.notification-badge{
+  position:absolute; top:12px; right:10px; width:9px; height:9px; background:#ef4444; border-radius:50%; box-shadow:0 0 0 2px #fff;
 }
 
-/* 按钮点击反馈 */
-.btn-detail:active,
-.btn-viewall:active,
-.btn-link:active,
-.link:active,
-.whitelist-more:active {
-    transform: translateY(1px);
+/* 通知面板：默认隐藏，show 类控制显示 */
+.notification-panel{
+  position:absolute; right:0; top:56px; width:420px; max-height:70vh; overflow:auto; background:#fff;
+  border:1px solid #e5e7eb; border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,.12); padding:14px; display:none; z-index:50;
 }
+.notification-panel.show{ display:block; }
 
-/* 页面加载动画 */
-@keyframes fadeInUp {
-    from {
-        opacity: 0;
-        transform: translateY(20px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
+.notification-header{ display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+.notification-title{ font-size:16px; font-weight:600; color:#111827; }
+.notification-actions{ display:flex; gap:8px; }
+.notification-actions button{
+  background:#f3f4f6; border:1px solid #e5e7eb; border-radius:6px; padding:6px 10px; font-size:12px; color:#374151; cursor:pointer;
 }
+.notification-actions button:hover{ background:#e5e7eb; }
 
-.card {
-    animation: fadeInUp 0.5s ease forwards;
-}
+.notification-list{ display:flex; flex-direction:column; gap:10px; }
 
-/* 错误状态样式 */
-.error-state {
-    color: #ef4444;
-    background: #fef2f2;
-    border: 1px solid #fecaca;
-    padding: 12px;
-    border-radius: 6px;
-    font-size: 12px;
+.notification-item{
+  display:grid; grid-template-columns:28px 1fr auto; gap:10px; align-items:center; padding:10px; border-radius:8px;
+  transition:background .2s ease;
 }
+.notification-item:hover{ background:#f9fafb; }
 
-/* 成功状态样式 */
-.success-state {
-    color: #059669;
-    background: #ecfdf5;
-    border: 1px solid #a7f3d0;
-    padding: 12px;
-    border-radius: 6px;
-    font-size: 12px;
-}
+.notification-icon{ font-size:18px; line-height:1; }
+.notification-content{ display:flex; flex-direction:column; gap:2px; }
+.notification-message{ font-size:14px; color:#111827; }
+.notification-meta{ font-size:12px; color:#6b7280; }
 
-/* 加载状态样式 */
-.loading-state {
-    color: #6b7280;
-    background: #f9fafb;
-    border: 1px solid #e5e7eb;
-    padding: 12px;
-    border-radius: 6px;
-    font-size: 12px;
-    text-align: center;
-}
+.notification-item .action-link{ font-size:12px; color:#3b82f6; text-decoration:none; }
+.notification-item .action-link:hover{ text-decoration:underline; }
 
-/* 加载动画 */
-.loading-spinner {
-    display: inline-block;
-    width: 16px;
-    height: 16px;
-    border: 2px solid #e5e7eb;
-    border-radius: 50%;
-    border-top-color: #6b7280;
-    animation: spin 1s ease-in-out infinite;
-}
+/* 空状态 */
+.notification-empty{ text-align:center; color:#6b7280; font-size:14px; padding:30px 0; }
 
-@keyframes spin {
-    to { transform: rotate(360deg); }
+/* ========== 主卡片/区块 ========== */
+.main-card{
+  background:#fff; border:1px solid #d1d5db; border-radius:10px; box-shadow:0 2px 6px rgba(0,0,0,.08); overflow:hidden;
 }
 
-/* ========== 可访问性增强 ========== */
-
-/* 聚焦指示器 */
-*:focus-visible {
-    outline: 2px solid #3b82f6;
-    outline-offset: 2px;
+.card{
+  background:#fff; border:1px solid #d1d5db; border-radius:10px; box-shadow:0 2px 6px rgba(0,0,0,.08); padding:20px; margin-bottom:20px; transition:box-shadow .2s;
 }
+.card:hover{ box-shadow:0 4px 8px rgba(0,0,0,.08); }
+.card-header{ margin-bottom:20px; padding-bottom:12px; border-bottom:1px solid #e5e7eb; display:flex; justify-content:space-between; align-items:center; }
+.card-title{ font-size:16px; font-weight:700; color:#111827; }
+.card-subtitle{ font-size:13px; color:#6b7280; }
 
-/* 屏幕阅读器专用文本 */
-.sr-only {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border: 0;
-}
+/* ========== 栅格系统 ========== */
+.row{ display:flex; flex-wrap:wrap; margin:-10px; }
+.col{ padding:10px; }
+.col-4{ width:33.3333%; }
+.col-6{ width:50%; }
+.col-12{ width:100%; }
 
-/* 高对比度模式支持 */
-@media (prefers-contrast: high) {
-    .card {
-        border-width: 2px;
-    }
-    
-    .btn-detail,
-    .btn-viewall,
-    .btn-link,
-    .link,
-    .whitelist-more {
-        border-width: 2px;
-    }
-}
+/* 响应式断点 */
+@media (max-width: 1100px){ .col-4{ width:50%; } }
+@media (max-width: 768px){ .col-4,.col-6{ width:100%; } .notification-panel{ width:92vw; right:-8px; } }
 
-/* 减少动画偏好支持 */
-@media (prefers-reduced-motion: reduce) {
-    *,
-    *::before,
-    *::after {
-        animation-duration: 0.01ms !important;
-        animation-iteration-count: 1 !important;
-        transition-duration: 0.01ms !important;
-    }
-}
+/* ========== 头部工具条 ========== */
+.toolbar{ display:flex; gap:10px; align-items:center; }
+.toolbar .btn{ padding:8px 12px; border:1px solid #d1d5db; border-radius:8px; background:#fff; color:#374151; cursor:pointer; font-size:14px; }
+.toolbar .btn:hover{ background:#f9fafb; }
+.toolbar .btn-primary{ background:#111827; color:#fff; border-color:#111827; }
+.toolbar .btn-primary:hover{ background:#000; }
+
+/* ========== 统计卡片（顶部） ========== */
+.stats{ display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
+@media (max-width: 1100px){ .stats{ grid-template-columns:repeat(2,1fr); } }
+@media (max-width: 600px){ .stats{ grid-template-columns:1fr; } }
+
+.stat{
+  background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:14px 16px; display:flex; flex-direction:column; gap:8px;
+}
+.stat .name{ font-size:13px; color:#6b7280; }
+.stat .value{ font-size:20px; font-weight:700; color:#111827; }
+.stat .desc{ font-size:12px; color:#9ca3af; }
+
+/* ========== 表格（节点/用户/日志等） ========== */
+.table{ width:100%; border-collapse:collapse; background:#fff; border:1px solid #e5e7eb; border-radius:10px; overflow:hidden; }
+.table th, .table td{ padding:10px 12px; border-bottom:1px solid #e5e7eb; text-align:left; font-size:14px; color:#374151; }
+.table th{ background:#f9fafb; color:#111827; font-weight:600; }
+.table tr:hover{ background:#f9fafb; }
+.table .muted{ color:#6b7280; font-size:13px; }
+
+/* ========== 代码块/日志块 ========== */
+pre, code{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+.log-box{ background:#0b1020; color:#e5e7eb; border-radius:10px; padding:14px; font-size:12px; overflow:auto; border:1px solid #111827; }
+
+/* ========== 进度条 ========== */
+.progress{ height:10px; background:#f3f4f6; border-radius:999px; overflow:hidden; border:1px solid #e5e7eb; }
+.progress .bar{ height:100%; background:#10b981; }
+
+/* ========== 图表容器 ========== */
+.chart{ background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:10px; }
+.chart .title{ font-size:14px; color:#111827; font-weight:600; margin-bottom:8px; }
+
+/* ========== 模态框（通用） ========== */
+.modal{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.35); z-index:100; }
+.modal.show{ display:flex; }
+.modal .dialog{ background:#fff; border-radius:12px; width:min(880px, 92vw); border:1px solid #e5e7eb; box-shadow:0 10px 30px rgba(0,0,0,.12); }
+.modal .header{ display:flex; justify-content:space-between; align-items:center; padding:14px 16px; border-bottom:1px solid #f1f5f9; }
+.modal .header h3{ font-size:16px; color:#111827; }
+.modal .body{ padding:16px; }
+.modal .footer{ padding:12px 16px; border-top:1px solid #f1f5f9; display:flex; justify-content:flex-end; gap:10px; }
+
+/* ========== Badge/状态标签 ========== */
+/* [重要] 信息行基础布局（全局）——请勿改动 `justify-content:space-between;`，其后有针对面板/弹窗的定向覆写。 */
+.info-item{ display:flex; justify-content:space-between; padding:6px 0; }
+.info-item label{ color:#6b7280; }
+.info-item value{ color:#1f2937; font-weight:500; }
+
+/* ========= 全局运行状态徽标（协议配置/系统概览通用） ========= */
+.status-badge{
+  display:inline-flex; align-items:center; height:20px; line-height:20px; padding:0 8px; border-radius:999px; font-size:12px; gap:6px;
+}
+.status-badge .dot{ width:8px; height:8px; border-radius:50%; }
+.status-badge.ok{ background:#ecfdf5; color:#047857; border:1px solid #a7f3d0; }
+.status-badge.ok .dot{ background:#10b981; }
+.status-badge.warn{ background:#fffbeb; color:#92400e; border:1px solid #fcd34d; }
+.status-badge.warn .dot{ background:#f59e0b; }
+.status-badge.err{ background:#fef2f2; color:#991b1b; border:1px solid #fecaca; }
+.status-badge.err .dot{ background:#ef4444; }
+
+/* ========= KV 区（左标签右值网格） ========= */
+:root{ --label-w: 120px; }
+/* [重要] 信息行网格布局（系统概览等区域）——以 CSS 变量 --label-w 控制左侧标签宽度。 */
+.info-item{
+  display:grid; grid-template-columns:var(--label-w) 1fr; gap:8px; align-items:center; 
+  padding:5px 0;  /* 统一行高 */
+}
+
+/* 系统概览标题统一样式 */
+.section-title{ font-size:14px; font-weight:700; color:#111827; margin:10px 0 6px; }
+.section-desc{ font-size:13px; color:#6b7280; margin-bottom:8px; }
+
+/* ======= 模块：运行概览 ======= */
+.overview{ display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
+@media (max-width: 1000px){ .overview{ grid-template-columns:1fr; } }
+
+.overview .grid-2{ display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
+@media (max-width: 1000px){ .overview .grid-2{ grid-template-columns:1fr; } }
+
+/* 统一块内标题与说明 */
+.overview h4{ font-size:14px; font-weight:700; color:#111827; }
+.overview .muted{ font-size:13px; color:#6b7280; }
+
+/* ======= 模块：证书与域名 ======= */
+.certs{ display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+@media (max-width: 1000px){ .certs{ grid-template-columns:1fr; } }
+
+/* 证书卡片内部排版 */
+.certs .card{ padding:14px; }
+
+/* ======= 模块：IP 质量弹窗 ======= */
+#ipqModal .dialog{ width:min(980px, 96vw); }
+#ipqModal .body{ padding:0; }
+#ipqModal .ipq-header{ padding:12px 16px; border-bottom:1px solid #f1f5f9; display:flex; justify-content:space-between; align-items:center; }
+#ipqModal .ipq-header h3{ font-size:16px; }
+#ipqModal .ipq-content{ display:grid; grid-template-columns:360px 1fr; gap:0; }
+@media (max-width: 1000px){ #ipqModal .ipq-content{ grid-template-columns:1fr; } }
+
+/* 左侧：分类与详情 */
+#ipqModal .ipq-left{ border-right:1px solid #f1f5f9; padding:12px 16px; }
+#ipqModal .ipq-section{ margin-bottom:14px; }
+#ipqModal .ipq-section > h5{ font-size:14px; color:#111827; margin:8px 0; font-weight:700; }
+#ipqModal .ipq-kv{ display:flex; flex-direction:column; gap:4px; }
+
+/* [重要] IPQ 弹窗内的信息行覆写（仅 #ipqModal 生效）——将内容左对齐；勿调整覆写顺序。 */
+#ipqModal .info-item{ display:flex; align-items:flex-start; gap:10px; }
+#ipqModal .info-item label{ min-width:130px; color:#6b7280; }
+#ipqModal .info-item value{ color:#111827; }
+
+/* 右侧：图表 */
+#ipqModal .ipq-right{ padding:12px 16px; }
+#ipqModal .chart{ border:1px dashed #e5e7eb; }
+
+/* 二维码 */
+.qr-box{ display:flex; gap:12px; flex-wrap:wrap; }
+.qr{ width:168px; height:168px; border:1px solid #e5e7eb; border-radius:8px; display:flex; align-items:center; justify-content:center; background:#fff; }
+
+/* ======= 模块：图表区 ======= */
+.charts{ display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
+@media (max-width: 1100px){ .charts{ grid-template-columns:1fr; } }
+
+/* ======= 模块：协议配置 ======= */
+.protocols{ display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
+@media (max-width: 1100px){ .protocols{ grid-template-columns:1fr; } }
+
+/* ======= 模块：日志与系统信息 ======= */
+.logs-grid{ display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
+@media (max-width: 1100px){ .logs-grid{ grid-template-columns:1fr; } }
+
+/* ======= 工具类（渐变、分隔线等） ======= */
+.hr-muted{ height:1px; background:#f1f5f9; border:0; margin:12px 0; }
+.text-muted{ color:#6b7280; }
+.text-danger{ color:#ef4444; }
+.text-success{ color:#10b981; }
+.text-warning{ color:#f59e0b; }
+
+/* ======= 成功/警告/错误卡片背景 ======= */
+.card-success{ background:linear-gradient(180deg,#ecfdf5, #fff); }
+.card-warn{ background:linear-gradient(180deg,#fffbeb, #fff); }
+.card-err{ background:linear-gradient(180deg,#fef2f2, #fff); }
+
+/* ======= 轻提示 ======= */
+.tip{ font-size:12px; color:#6b7280; background:#f9fafb; border:1px solid #e5e7eb; padding:6px 8px; border-radius:6px; }
+
+/* ======= 表单小组件 ======= */
+.input{ height:34px; border:1px solid #d1d5db; border-radius:8px; padding:0 10px; }
+.select{ height:34px; border:1px solid #d1d5db; border-radius:8px; padding:0 10px; background:#fff; }
+
+/* ======= 复制按钮与辅助（二维码等） ======= */
+.copy-row{ display:flex; gap:8px; flex-wrap:wrap; }
+.copy-btn{ padding:6px 10px; border:1px solid #d1d5db; border-radius:8px; background:#fff; cursor:pointer; font-size:12px; }
+.copy-btn:hover{ background:#f9fafb; }
+
+/* ======= Footer ======= */
+.footer{ text-align:center; color:#6b7280; font-size:12px; padding:18px 0; }
+
+/* ======= 文字层级统一：用于面板标题与说明（避免大小不一） ======= */
+.text-h3{ font-size:18px; font-weight:700; color:#111827; }
+.text-h4{ font-size:16px; font-weight:600; color:#4b5563; }
+.text-body{ font-size:14px; color:#374151; }
+.text-muted-13{ font-size:13px; color:#6b7280; }
+
+/* ============= 兼容性补充与局部覆写 ============= */
+/* [重要] 针对特定弹窗的再次覆写（左对齐 + 固定最小宽度）。切勿移动顺序，否则会被更早的全局样式覆盖。 */
+@media (min-width: 0px){
+  #ipqModal .info-item{ display:flex; align-items:flex-start; }
+  #ipqModal .info-item label{ min-width:130px; }
+}
+
+/* ======= 辅助：小标题/内容色彩 ======= */
+.text-h3-strong{ font-size:18px; font-weight:700; color:#111827; }
+.text-h4-muted{ font-size:16px; font-weight:600; color:#4b5563; }
+
+/* ===== End of File ===== */
 
-/* ========== 样式表结束 ========== */
-
-/* 
-EdgeBox控制面板CSS样式表
-- 总行数: 约800行
-- 主要组件: 布局系统、卡片组件、按钮组件、表格组件、流量统计、模态框、通知中心
-- 响应式支持: 移动端、平板、桌面端全覆盖
-- 浏览器兼容: 现代浏览器(Chrome 80+, Firefox 75+, Safari 13+)
-- 维护说明: 所有颜色和尺寸通过CSS变量统一管理，便于主题定制
-*/
 EXTERNAL_CSS
 
   # ========== 创建外置的JavaScript文件 ==========
