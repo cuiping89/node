@@ -6797,6 +6797,8 @@ function showWhitelistModal() {
 
 
 // [PATCH:SHOW_CONFIG_MODAL_SAFE] —— 精准、谨慎、只改一处
+// 完整的 showConfigModal 函数修改 - 修复二维码生成逻辑
+
 function showConfigModal(protocolKey) {
   const dd = window.dashboardData;
   const modal = document.getElementById('configModal');
@@ -6851,148 +6853,148 @@ function showConfigModal(protocolKey) {
 
   let qrText = '';
 
+  // ===== 整包订阅 =====
+  if (protocolKey === '__SUBS__') {
+    const subsUrl = get(dd, 'subscription_url', '') ||
+                    (get(dd, 'server.server_ip', '') ? `http://${get(dd, 'server.server_ip')}/sub` : '');
+    const plain6 = get(dd, 'subscription.plain', '');
+    const base64 = get(dd, 'subscription.base64', '') || (plain6 ? toB64(plain6) : '');
 
-// ===== 整包订阅 =====
-if (protocolKey === '__SUBS__') {
-  const subsUrl = get(dd, 'subscription_url', '') ||
-                  (get(dd, 'server.server_ip', '') ? `http://${get(dd, 'server.server_ip')}/sub` : '');
-  const plain6 = get(dd, 'subscription.plain', '');
-  const base64 = get(dd, 'subscription.base64', '') || (plain6 ? toB64(plain6) : '');
-
-  title.textContent = '订阅（整包）';
-  details.innerHTML = `
-    <div class="config-section">
-      <h4>订阅 URL</h4>
-      <div class="config-code" id="plain-link">${esc(subsUrl)}</div>
-    </div>
-    <div class="config-section">
-      <h4>明文链接（6协议）</h4>
-      <div class="config-code" id="plain-links-6" style="white-space:pre-wrap">${esc(plain6)}</div>
-    </div>
-    <div class="config-section">
-      <h4>Base64链接（6协议）</h4>
-      <div class="config-code" id="base64-link">${esc(base64)}</div>
-    </div>
-    <div class="config-section">
-      <h4>二维码</h4>
-      <div class="qr-container">
-        <div id="qrcode-sub"></div>
+    title.textContent = '订阅（整包）';
+    details.innerHTML = `
+      <div class="config-section">
+        <h4>订阅 URL</h4>
+        <div class="config-code" id="plain-link">${esc(subsUrl)}</div>
       </div>
-    </div>
-    ${usage('将"订阅 URL"导入 v2rayN、Clash 等支持订阅的客户端；部分客户端也支持直接粘贴 Base64 或扫码二维码。')}
-  `;
-  footer.innerHTML = `
-    <button class="btn btn-sm btn-secondary" data-action="copy" data-type="plain">复制订阅URL</button>
-    <button class="btn btn-sm btn-secondary" data-action="copy" data-type="plain6">复制明文(6协议)</button>
-    <button class="btn btn-sm btn-secondary" data-action="copy" data-type="base64">复制Base64</button>
-    <button class="btn btn-sm btn-secondary" data-action="copy-qr">复制二维码</button>
-  `;
-  
-  // 修改：优先使用完整的明文链接（6协议）生成二维码，而不是订阅URL
-  if (plain6) {
-    // 使用全部明文链接内容生成二维码，包含所有6个协议
-    qrText = plain6.trim(); // 包含所有协议，用户扫码后可以选择使用哪个
+      <div class="config-section">
+        <h4>明文链接（6协议）</h4>
+        <div class="config-code" id="plain-links-6" style="white-space:pre-wrap">${esc(plain6)}</div>
+      </div>
+      <div class="config-section">
+        <h4>Base64链接（6协议）</h4>
+        <div class="config-code" id="base64-link">${esc(base64)}</div>
+      </div>
+      <div class="config-section">
+        <h4>二维码</h4>
+        <div class="qr-container">
+          <div id="qrcode-sub"></div>
+        </div>
+      </div>
+      ${usage('将"订阅 URL"导入 v2rayN、Clash 等支持订阅的客户端；部分客户端也支持直接粘贴 Base64 或扫码二维码。')}
+    `;
+    footer.innerHTML = `
+      <button class="btn btn-sm btn-secondary" data-action="copy" data-type="plain">复制订阅URL</button>
+      <button class="btn btn-sm btn-secondary" data-action="copy" data-type="plain6">复制明文(6协议)</button>
+      <button class="btn btn-sm btn-secondary" data-action="copy" data-type="base64">复制Base64</button>
+      <button class="btn btn-sm btn-secondary" data-action="copy-qr">复制二维码</button>
+    `;
+    
+    // 修改：优先使用完整的明文链接（6协议）生成二维码，而不是订阅URL
+    if (plain6 && plain6.trim()) {
+      // 使用全部明文链接内容生成二维码，包含所有6个协议
+      qrText = plain6.trim(); // 包含所有协议，用户扫码后可以选择使用哪个
+    } else {
+      qrText = subsUrl || ''; // 如果没有明文链接，回退到订阅URL
+    }
+
+  // ===== 单协议 =====
   } else {
-    qrText = subsUrl; // 如果没有明文链接，回退到订阅URL
-  }
+    const protocols = Array.isArray(dd.protocols) ? dd.protocols : [];
+    const p = protocols.find(x =>
+      x && (x.name === protocolKey || x.key === protocolKey || x.id === protocolKey || x.type === protocolKey)
+    );
 
-// ===== 单协议 =====
-} else {
-  const protocols = Array.isArray(dd.protocols) ? dd.protocols : [];
-  const p = protocols.find(x =>
-    x && (x.name === protocolKey || x.key === protocolKey || x.id === protocolKey || x.type === protocolKey)
-  );
+    if (!p) {
+      title.textContent = '配置详情';
+      details.innerHTML = `<div class="empty">未找到协议：<code>${esc(String(protocolKey))}</code></div>`;
+      footer.innerHTML = `<button class="btn btn-sm" data-action="close-config-modal">关闭</button>`;
+      return;
+    }
 
-  if (!p) {
-    title.textContent = '配置详情';
-    details.innerHTML = `<div class="empty">未找到协议：<code>${esc(String(protocolKey))}</code></div>`;
-    footer.innerHTML = `<button class="btn btn-sm" data-action="close-config-modal">关闭</button>`;
-    return;
-  }
+    const certMode = String(get(dd, 'server.cert.mode', 'self-signed'));
+    const isLE = certMode.startsWith('letsencrypt');
+    const serverIp = get(dd, 'server.server_ip', '');
 
-  const certMode = String(get(dd, 'server.cert.mode', 'self-signed'));
-  const isLE = certMode.startsWith('letsencrypt');
-  const serverIp = get(dd, 'server.server_ip', '');
+    const obj = {
+      protocol: p.name,
+      host: serverIp,
+      port: p.port ?? 443,
+      uuid: get(dd, 'secrets.vless.reality', '') ||
+            get(dd, 'secrets.vless.grpc', '') ||
+            get(dd, 'secrets.vless.ws', ''),
+      sni: isLE ? get(dd, 'server.cert.domain', '') : serverIp,
+      alpn: (p.name || '').toLowerCase().includes('grpc') ? 'h2'
+            : ((p.name || '').toLowerCase().includes('ws') ? 'http/1.1' : '')
+    };
 
-  const obj = {
-    protocol: p.name,
-    host: serverIp,
-    port: p.port ?? 443,
-    uuid: get(dd, 'secrets.vless.reality', '') ||
-          get(dd, 'secrets.vless.grpc', '') ||
-          get(dd, 'secrets.vless.ws', ''),
-    sni: isLE ? get(dd, 'server.cert.domain', '') : serverIp,
-    alpn: (p.name || '').toLowerCase().includes('grpc') ? 'h2'
-          : ((p.name || '').toLowerCase().includes('ws') ? 'http/1.1' : '')
-  };
+    const comments = {
+      protocol: '协议类型（例：VLESS-Reality）',
+      host: '服务器地址（IP/域名）',
+      port: '端口',
+      uuid: '认证 UUID / 密钥',
+      sni: 'TLS/SNI（域名模式用域名）',
+      alpn: 'ALPN（gRPC=h2，WS=http/1.1）'
+    };
+    const jsonAligned = annotateAligned(obj, comments);
 
-  const comments = {
-    protocol: '协议类型（例：VLESS-Reality）',
-    host: '服务器地址（IP/域名）',
-    port: '端口',
-    uuid: '认证 UUID / 密钥',
-    sni: 'TLS/SNI（域名模式用域名）',
-    alpn: 'ALPN（gRPC=h2，WS=http/1.1）'
-  };
-  const jsonAligned = annotateAligned(obj, comments);
+    const plain = p.share_link || '';
+    const base64 = plain ? toB64(plain) : '';
 
-  const plain = p.share_link || '';
-  const base64 = plain ? toB64(plain) : '';
-
-  title.textContent = `${p.name} 配置`;
-  details.innerHTML = `
-    <div class="config-section">
-      <h4>JSON 配置</h4>
-      <div class="config-code" id="json-code" style="white-space:pre-wrap">${esc(jsonAligned)}</div>
-    </div>
-    <div class="config-section">
-      <h4>明文链接</h4>
-      <div class="config-code" id="plain-link">${esc(plain)}</div>
-    </div>
-    <div class="config-section">
-      <h4>Base64链接</h4>
-      <div class="config-code" id="base64-link">${esc(base64)}</div>
-    </div>
-    <div class="config-section">
-      <h4>二维码</h4>
-      <div class="qr-container">
-        <div id="qrcode-protocol"></div>
+    title.textContent = `${p.name} 配置`;
+    details.innerHTML = `
+      <div class="config-section">
+        <h4>JSON 配置</h4>
+        <div class="config-code" id="json-code" style="white-space:pre-wrap">${esc(jsonAligned)}</div>
       </div>
-    </div>
-    ${usage('复制明文或 JSON 导入客户端；若客户端支持扫码添加，也可直接扫描二维码。')}
-  `;
-  footer.innerHTML = `
-    <button class="btn btn-sm btn-secondary" data-action="copy" data-type="json">复制 JSON</button>
-    <button class="btn btn-sm btn-secondary" data-action="copy" data-type="plain">复制明文链接</button>
-    <button class="btn btn-sm btn-secondary" data-action="copy" data-type="base64">复制 Base64</button>
-    <button class="btn btn-sm btn-secondary" data-action="copy-qr">复制二维码</button>
-  `;
-  
-  // 单协议的二维码应该使用 share_link 生成（这部分是正确的）
-  qrText = plain;
-}
+      <div class="config-section">
+        <h4>明文链接</h4>
+        <div class="config-code" id="plain-link">${esc(plain)}</div>
+      </div>
+      <div class="config-section">
+        <h4>Base64链接</h4>
+        <div class="config-code" id="base64-link">${esc(base64)}</div>
+      </div>
+      <div class="config-section">
+        <h4>二维码</h4>
+        <div class="qr-container">
+          <div id="qrcode-protocol"></div>
+        </div>
+      </div>
+      ${usage('复制明文或 JSON 导入客户端；若客户端支持扫码添加，也可直接扫描二维码。')}
+    `;
+    footer.innerHTML = `
+      <button class="btn btn-sm btn-secondary" data-action="copy" data-type="json">复制 JSON</button>
+      <button class="btn btn-sm btn-secondary" data-action="copy" data-type="plain">复制明文链接</button>
+      <button class="btn btn-sm btn-secondary" data-action="copy" data-type="base64">复制 Base64</button>
+      <button class="btn btn-sm btn-secondary" data-action="copy-qr">复制二维码</button>
+    `;
+    
+    // 单协议的二维码使用 share_link 生成（这部分是正确的）
+    qrText = plain || '';
+  }
 
-// —— 生成二维码（强制"仅一份"产物）——
-if (qrText && window.QRCode) {
-  const holderId = (protocolKey === '__SUBS__') ? 'qrcode-sub' : 'qrcode-protocol';
-  const holder = document.getElementById(holderId);
-  if (holder) {
-    // 1) 彻底清空
-    holder.replaceChildren();
-    // 2) 生成
-    new QRCode(holder, {
-      text: qrText,
-      width: 200,
-      height: 200,
-      colorDark: "#000000",
-      colorLight: "#ffffff",
-      correctLevel: QRCode.CorrectLevel.M
-    });
-    // 3) 只保留一个可见产物（优先保留 canvas）
-    const kids = Array.from(holder.children);
-    const keep = holder.querySelector('canvas') || kids[0] || null;
-    if (keep) {
-      kids.forEach(node => { if (node !== keep) node.remove(); });
+  // —— 生成二维码（强制"仅一份"产物）——
+  if (qrText && window.QRCode) {
+    const holderId = (protocolKey === '__SUBS__') ? 'qrcode-sub' : 'qrcode-protocol';
+    const holder = document.getElementById(holderId);
+    if (holder) {
+      // 1) 彻底清空
+      holder.replaceChildren();
+      // 2) 生成
+      new QRCode(holder, {
+        text: qrText,
+        width: 200,
+        height: 200,
+        colorDark: "#000000",
+        colorLight: "#ffffff",
+        correctLevel: QRCode.CorrectLevel.M
+      });
+      // 3) 只保留一个可见产物（优先保留 canvas）
+      const kids = Array.from(holder.children);
+      const keep = holder.querySelector('canvas') || kids[0] || null;
+      if (keep) {
+        kids.forEach(node => { if (node !== keep) node.remove(); });
+      }
     }
   }
 }
