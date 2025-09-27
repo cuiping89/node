@@ -6300,6 +6300,229 @@ dialog[open],
 */
 
 /* =======================================================================
+   查看详情弹窗 - 完善的左对齐样式修复方案
+   ======================================================================= */
+
+/* 1. 详情弹窗内所有内容强制左对齐（增强优先级） */
+#detailModal .modal-body,
+#detailModal .modal-body * {
+  text-align: left !important;
+  white-space: pre-wrap !important;
+}
+
+/* 2. 详情弹窗键值对布局改为块级（避免grid导致的对齐问题） */
+#detailModal .kv-row {
+  display: block !important;
+  text-align: left !important;
+  padding: 8px 0;
+  border-bottom: 1px dashed #eef2f7;
+}
+
+#detailModal .kv-row:last-child {
+  border-bottom: none;
+}
+
+/* 3. 键名样式 - 左对齐且作为行内块元素 */
+#detailModal .kv-key {
+  display: inline-block !important;
+  width: 140px !important;
+  text-align: left !important;
+  padding-left: 0 !important;
+  padding-right: 12px !important;
+  color: #6b7280;
+  font-size: 13px;
+  vertical-align: top;
+  font-weight: 500;
+}
+
+/* 4. 键值样式 - 左对齐且作为行内块元素 */
+#detailModal .kv-value,
+#detailModal .kv-val {
+  display: inline-block !important;
+  width: calc(100% - 152px) !important; /* 留出key的宽度 */
+  text-align: left !important;
+  color: #111827;
+  font-size: 13px;
+  word-break: break-word;
+  vertical-align: top;
+}
+
+/* 5. 详情弹窗内所有标题左对齐 */
+#detailModal h1,
+#detailModal h2, 
+#detailModal h3,
+#detailModal h4,
+#detailModal h5,
+#detailModal h6 {
+  text-align: left !important;
+  margin-bottom: 12px;
+  margin-left: 0 !important;
+}
+
+/* 6. 详情弹窗内所有段落和div左对齐 */
+#detailModal p,
+#detailModal div,
+#detailModal span,
+#detailModal label {
+  text-align: left !important;
+}
+
+/* 7. 详情弹窗分隔线样式 */
+#detailModal .detail-section,
+#detailModal .modal-section {
+  padding: 20px 0;
+  border-bottom: 1px solid #e5e7eb;
+  text-align: left !important;
+}
+
+#detailModal .detail-section:first-child,
+#detailModal .modal-section:first-child {
+  padding-top: 0;
+}
+
+#detailModal .detail-section:last-child,
+#detailModal .modal-section:last-child {
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+/* 8. 确保列表容器也是左对齐 */
+#detailModal .kv-list {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 0 !important;
+  text-align: left !important;
+}
+
+/* 9. 移动端响应式处理 */
+@media (max-width: 768px) {
+  #detailModal .kv-key {
+    display: block !important;
+    width: 100% !important;
+    margin-bottom: 4px !important;
+    text-align: left !important;
+    padding-left: 0 !important;
+  }
+  
+  #detailModal .kv-value,
+  #detailModal .kv-val {
+    display: block !important;
+    width: 100% !important;
+    text-align: left !important;
+    margin-left: 0 !important;
+  }
+}
+
+/* 10. 特殊元素保持原样（二维码等需要居中的元素） */
+#detailModal .qr-container,
+#detailModal .qrcode,
+#detailModal [data-role="qrcode"] {
+  text-align: center !important;
+  margin: 16px auto !important;
+}
+
+#detailModal .qr-container canvas,
+#detailModal .qrcode canvas,
+#detailModal [data-role="qrcode"] canvas {
+  margin: 12px auto !important;
+  display: block !important;
+}
+
+/* 11. 复制按钮保持原样 */
+#detailModal .btn-copy {
+  text-align: center !important;
+}
+
+/* 12. IP质量检测弹窗同样处理 */
+#ipqModal .modal-body,
+#ipqModal .modal-body * {
+  text-align: left !important;
+  white-space: pre-wrap !important;
+}
+
+#ipqModal .kv-row {
+  display: block !important;
+  text-align: left !important;
+  padding: 8px 0;
+  border-bottom: 1px dashed #eef2f7;
+}
+
+#ipqModal .kv-key {
+  display: inline-block !important;
+  width: 140px !important;
+  text-align: left !important;
+  padding-left: 0 !important;
+  padding-right: 12px !important;
+  color: #6b7280;
+  font-size: 13px;
+  vertical-align: top;
+  font-weight: 500;
+}
+
+#ipqModal .kv-value,
+#ipqModal .kv-val {
+  display: inline-block !important;
+  width: calc(100% - 152px) !important;
+  text-align: left !important;
+  color: #111827;
+  font-size: 13px;
+  word-break: break-word;
+  vertical-align: top;
+}
+
+#ipqModal h1,
+#ipqModal h2,
+#ipqModal h3,
+#ipqModal h4,
+#ipqModal h5,
+#ipqModal h6 {
+  text-align: left !important;
+  margin-bottom: 12px;
+  margin-left: 0 !important;
+}
+
+#ipqModal p,
+#ipqModal div,
+#ipqModal span,
+#ipqModal label {
+  text-align: left !important;
+}
+
+#ipqModal .ipq-section {
+  padding: 20px 0;
+  border-bottom: 1px solid #e5e7eb;
+  text-align: left !important;
+}
+
+#ipqModal .ipq-section:first-child {
+  padding-top: 0;
+}
+
+#ipqModal .ipq-section:last-child {
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+@media (max-width: 768px) {
+  #ipqModal .kv-key {
+    display: block !important;
+    width: 100% !important;
+    margin-bottom: 4px !important;
+    text-align: left !important;
+    padding-left: 0 !important;
+  }
+  
+  #ipqModal .kv-value,
+  #ipqModal .kv-val {
+    display: block !important;
+    width: 100% !important;
+    text-align: left !important;
+    margin-left: 0 !important;
+  }
+}
+
+
+/* =======================================================================
  按钮（查看详情、查看全部、查看配置、查看订阅）：白底蓝字，hover 浅灰，active 灰底 
  ======================================================================= */
 .btn-detail,
