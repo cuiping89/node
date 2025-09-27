@@ -5114,6 +5114,7 @@ h4 {
 */
 
 /* 协议配置表格：使用场景和伪装效果列应用h4格式 */
+.data-table td:nth-child(1),
 .data-table td:nth-child(2),
 .data-table td:nth-child(3) {
   color: var(--content-color) !important;  /* 使用h4的灰色 */
