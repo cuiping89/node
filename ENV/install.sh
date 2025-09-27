@@ -5767,6 +5767,25 @@ dialog[open],
   text-align:left !important; 
 }
 
+/* 方案A：detail-modal 统一左对齐（仅影响加了该类的弹窗） */
+.detail-modal,
+.detail-modal * {
+  text-align: left !important;
+}
+
+.detail-modal .modal-body,
+.detail-modal .el-dialog__body,
+.detail-modal .ant-modal-body {
+  justify-content: flex-start !important;
+  align-items: flex-start !important;
+}
+
+/* 若内部用“键值对”布局，再加强一次 */
+.detail-modal .kv-key,
+.detail-modal .kv-value {
+  text-align: left !important;
+}
+
 /* 键值对通用 */
 .kv-list{ 
   display:flex; 
@@ -6037,42 +6056,6 @@ dialog[open],
     padding-right:0; 
     margin-bottom:4px; 
   }
-}
-
-
-/* Ant Design */
-.ant-modal .ant-modal-body {
-  text-align: left !important;
-  justify-content: flex-start !important;
-  align-items: flex-start !important;
-}
-
-/* Element Plus / Element UI */
-.el-dialog__body {
-  text-align: left !important;
-  justify-content: flex-start !important;
-  align-items: flex-start !important;
-}
-
-/* Bootstrap */
-.modal .modal-body {
-  text-align: left !important;
-  justify-content: flex-start !important;
-  align-items: flex-start !important;
-}
-
-/* 通用文本元素（放在上述后面，增强一致性） */
-.modal .modal-body h1,
-.modal .modal-body h2,
-.modal .modal-body h3,
-.modal .modal-body h4,
-.modal .modal-body h5,
-.modal .modal-body h6,
-.modal .modal-body p,
-.modal .modal-body li,
-.modal .modal-body th,
-.modal .modal-body td {
-  text-align: left !important;
 }
 
 
@@ -7801,7 +7784,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
           <div class="command-section"><h4>💾 系统维护</h4><div class="command-list"><code>edgeboxctl update</code><span># 更新EdgeBox</span><br><code>edgeboxctl backup create</code><span># 创建备份</span><br><code>edgeboxctl backup list</code><span># 列出备份</span><br><code>edgeboxctl backup restore &lt;file&gt;</code><span># 恢复备份</span></div></div>
 		  
 <div id="whitelistModal" class="modal"><div class="modal-content"><div class="modal-header"><h3>白名单完整列表</h3><span class="close-btn" data-action="close-modal" data-modal="whitelistModal">×</span></div><div class="modal-body"><div id="whitelistList"></div></div></div></div>
-<div id="ipqModal" class="modal"><div class="modal-content"><div class="modal-header"><h3 id="ipqModalTitle">IP质量检测详情</h3><span class="close-btn" data-action="close-modal" data-modal="ipqModal">×</span></div><div class="modal-body"><div id="ipqDetails"></div></div></div></div>
+<div id="ipqModal" class="modal detail-modal"><div class="modal-content"><div class="modal-header"><h3 id="ipqModalTitle">IP质量检测详情</h3><span class="close-btn" data-action="close-modal" data-modal="ipqModal">×</span></div><div class="modal-body"><div id="ipqDetails"></div></div></div></div>
 
 <div id="configModal" class="modal">
   <div class="modal-content">
