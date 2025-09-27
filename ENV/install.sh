@@ -5639,7 +5639,7 @@ h4 {
 /* 变量 */
 .modal, dialog[open], .el-dialog, .ant-modal{
   --modal-w: 630px;
-  --modal-h: 720px;
+  --modal-h: 730px;
   --modal-radius: 14px;
   --modal-shadow: 0 10px 30px rgba(17,24,39,.18);
   --modal-padding: 16px;
@@ -5768,6 +5768,14 @@ dialog[open],
   #ipqModal .info-item value{ flex: 1; }
 }
 
+/* —— IPQ 弹窗分组标题（<h5>）尺寸修正，仅作用 #ipqModal —— */
+#ipqModal .ipq-section > h5 {
+  font-size: var(--h3-size, 15px); /* 复用你前面定义的 --h3-size */
+  line-height: 22px;
+  font-weight: 600;
+  color: var(--heading-color, #111827);
+  margin: 0 0 8px;
+}
 #detailModal .modal-section,
 #detailModal .detail-section,
 #ipqModal .ipq-section{
