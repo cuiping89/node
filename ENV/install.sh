@@ -960,8 +960,6 @@ PLAIN
       echo
     } > /var/www/html/sub
 
-install -m 0644 -T /var/www/html/sub /etc/edgebox/traffic/sub.txt
-
     log_success "订阅已生成"
     log_success "HTTP 订阅地址: http://${addr}/sub"
 }
@@ -1008,35 +1006,13 @@ _get_server_facts(){ local sip="" sdom="" ver="" install_date="" eip=""
   echo "$sip" "$sdom" "$ver" "$install_date" "$eip"
 }
 
-# 证书信息：优先读取安装契约 /etc/edgebox/config/cert_mode，其次再探测
-_get_cert_info(){
-  local mode typ expire dom pem notafter
-  local CFG="${CONFIG_DIR:-/etc/edgebox/config}/cert_mode"
-  if [[ -s "$CFG" ]]; then
-    mode="$(cut -d: -f1 "$CFG" 2>/dev/null)"
-    dom="$(cut -d: -f2- "$CFG" 2>/dev/null)"
+_get_cert_info(){ local mode="self-signed" typ="自签名证书" expire="N/A"
+  if ls ${CERT_DIR}/*/fullchain.pem >/dev/null 2>&1; then
+    mode="letsencrypt"; typ="Let's Encrypt"
+    local dom=$(basename ${CERT_DIR}/* 2>/dev/null | head -n1)
+    local pem="${CERT_DIR}/${dom}/cert.pem"
+    [[ -f "$pem" ]] && expire="$( (openssl x509 -enddate -noout -in "$pem" | cut -d= -f2 | xargs -I{} date -d {} +%Y-%m-%d) 2>/dev/null || openssl x509 -enddate -noout -in "$pem" | cut -d= -f2 )"
   fi
-  mode="${mode:-self-signed}"
-
-  case "$mode" in
-    self-signed)
-      typ="自签名证书"; expire="";;
-    letsencrypt)
-      typ="Let's Encrypt"
-      # 若契约里没写域名，再从 live 目录兜底推断一个
-      if [[ -z "$dom" && -d /etc/letsencrypt/live ]]; then
-        dom="$(ls /etc/letsencrypt/live 2>/dev/null | head -n1)"
-      fi
-      pem="/etc/letsencrypt/live/${dom}/cert.pem"
-      if [[ -f "$pem" ]]; then
-        notafter="$(openssl x509 -enddate -noout -in "$pem" | cut -d= -f2)"
-        # 统一转成 ISO 8601（浏览器/JS 100%可解析）
-        expire="$(date -u -d "$notafter" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "$notafter")"
-      fi
-      ;;
-    *) typ="未知"; expire="";;
-  esac
-
   echo "$mode" "$typ" "$expire"
 }
 
@@ -1086,62 +1062,29 @@ generate_dashboard_data(){
   local SUB_LINES="$(cat "$SUB_CACHE" 2>/dev/null || true)"
   local SUB_B64="$(printf '%s' "$SUB_LINES" | (base64 -w0 2>/dev/null || base64) | tr -d '\n')"
 
-# === SUBSCRIPTION: build sub_p / sub_b / sub_l ===
-if [[ -s "$SUB_CACHE" ]]; then
-  # 取明文区块（开头到第一处空行；跳过以 # 开头的注释行）
-  SUB_PLAIN="$(awk 'BEGIN{blk=1} /^$/ {exit} /^#/ {next} {print}' "$SUB_CACHE" | tr -d "\r")"
-else
-  SUB_PLAIN=""
-fi
-
-# base64(整包) —— 兼容没有 -w 的 base64
-if printf '%s' "$SUB_PLAIN" | base64 --help 2>&1 | grep -q -- ' -w'; then
-  SUB_B64="$(printf '%s\n' "$SUB_PLAIN" | base64 -w0)"
-else
-  SUB_B64="$(printf '%s\n' "$SUB_PLAIN" | base64 | tr -d '\n')"
-fi
-
-# base64(逐行)
-SUB_LINES="$(
-  printf '%s\n' "$SUB_PLAIN" | while IFS= read -r line; do
-    [[ -z "$line" ]] && continue
-    if printf '%s' "$line" | base64 --help 2>&1 | grep -q -- ' -w'; then
-      printf '%s' "$line" | sed -e '$a\' | base64 -w0
-    else
-      printf '%s' "$line" | sed -e '$a\' | base64 | tr -d '\n'
-    fi
-    printf '\n'
-  done
-)"
-
-# --- 生成 panel.json（补上 subscription） ---
-jq -n \
-  --arg ts "$(date -Is)" \
-  --arg ip "$SERVER_IP_" --arg eip "$EIP_" \
-  --arg ver "${EDGEBOX_VER_:-3.0.0}" --arg inst "${INSTALL_DATE_:-$(date +%F)}" \
-  --arg cm "$INSTALL_MODE_" --arg cd "$SERVER_DOMAIN_" --arg ce "$CERT_EXPIRE" \
-  --arg b1 "$has_tcp443" --arg b2 "$has_hy2" --arg b3 "$has_tuic" \
-  --arg sub_p "$SUB_PLAIN" --arg sub_b "$SUB_B64" --arg sub_l "$SUB_LINES" \
-  '{
-    updated_at: $ts,
-    server: {
-      ip: $ip,
-      eip: (if $eip=="" then null else $eip end),
-      version: $ver, install_date: $inst,
-      cert_mode: $cm,
-      cert_domain: (if $cd=="" then null else $cd end),
-      cert_expire: (if $ce=="" then null else $ce end)
-    },
-    protocols: [
-      {name:"VLESS/Trojan (443/TCP)", proto:"tcp", port:443, proc:(if $b1=="true" then "listening" else "未监听" end), note:"443 端口状态"},
-      {name:"Hysteria2", proto:"udp", port:0,   proc:(if $b2=="true" then "listening" else "未监听" end), note:"8443/443"},
-      {name:"TUIC",      proto:"udp", port:2053,proc:(if $b3=="true" then "listening" else "未监听" end), note:"2053"}
-    ],
-    shunt: { mode:"vps", proxy_info:"", health:"ok",
-      whitelist:["googlevideo.com","ytimg.com","ggpht.com","youtube.com","youtu.be","googleapis.com","gstatic.com","example.com"]
-    },
-    subscription: { plain: $sub_p, base64: $sub_b, b64_lines: $sub_l }
-  }' > "${TRAFFIC_DIR}/panel.json"
+  jq -n \
+    --arg ip "$SERVER_IP_" --arg eip "$EIP_" --arg domain "$SERVER_DOMAIN_" \
+    --arg mode "$INSTALL_MODE_" --arg ver "${EDGEBOX_VER_:-3.0.0}" --arg inst "${INSTALL_DATE_:-$(date +%F)}" \
+    --argjson cpu "$CPU" --argjson mem "$MEM" \
+    --arg nginx "$nginx_s" --arg xray "$xray_s" --arg sbox "$sbox_s" \
+    --arg cert_t "$CERT_TYPE" --arg cert_e "$CERT_EXPIRE" \
+    --arg r_sni "$REALITY_SNI_" --arg t_sni "$TROJAN_SNI_" \
+    --arg b_tcp443 "$has_tcp443" --arg b_hy2 "$has_hy2" --arg b_tuic "$has_tuic" \
+    --arg sub_p "$SUB_PLAIN" --arg sub_b "$SUB_B64" --arg sub_l "$SUB_LINES" \
+    '{
+      updated_at: (now | todate),
+      server: { ip:$ip, eip:(if $eip=="" then null else $eip end), version:$ver, install_date:$inst },
+      cert: { mode:$mode, type:$cert_t, expire:$cert_e, provider:(if $mode=="letsencrypt" then "auto" else "self" end) },
+      system: { cpu:($cpu|tonumber), memory:($mem|tonumber) },
+      services: { nginx:$nginx, xray:$xray, "sing-box":$sbox },
+      protocols: {
+        "443_tcp": (if $b_tcp443=="true" then "listening" else "down" end),
+        "hysteria2": (if $b_hy2=="true" then "listening" else "down" end),
+        "tuic_2053": (if $b_tuic=="true" then "listening" else "down" end),
+        reality_sni: $r_sni, trojan_sni: $t_sni
+      },
+      subscription: { plain:$sub_p, base64:$sub_b, b64_lines:$sub_l }
+    }' > "${TRAFFIC_DIR}/dashboard.json"
 
   chmod 0644 "${TRAFFIC_DIR}/dashboard.json"
 
@@ -1453,8 +1396,7 @@ cp -f "/etc/edgebox/config/server.json" "${TRAFFIC_DIR}/server.shadow.json" 2>/d
 # 写订阅复制链接
 proto="http"; addr="$server_ip"
 if [[ "$cert_mode" == "letsencrypt" && -n "$cert_domain" ]]; then proto="https"; addr="$cert_domain"; fi
-[[ -s "${TRAFFIC_DIR}/sub.txt" ]] || cp -f /var/www/html/sub "${TRAFFIC_DIR}/sub.txt"
-echo "${proto}://${addr}/sub" > "${TRAFFIC_DIR}/sub.link"
+echo "${proto}://${addr}/sub" > "${TRAFFIC_DIR}/sub.txt"
 PANEL
 chmod +x "${SCRIPTS_DIR}/panel-refresh.sh"
 
@@ -2565,27 +2507,25 @@ async function loadData() {
     window.serverConfig = serverJson || {};
 
     // 统一数据面向 UI
-const dashHasSub = !!(dashboard && dashboard.subscription && dashboard.subscription.plain);
-const model = dashHasSub ? {
-  updatedAt: dashboard.updated_at,
-  server: dashboard.server, cert: dashboard.cert,
-  system: dashboard.system, services: dashboard.services,
-  protocols: dashboard.protocols,
-  shunt: panel?.shunt || {},
-  subscription: dashboard.subscription
-} : {
-  updatedAt: panel?.updated_at || system?.updated_at,
-  server: panel?.server || {},
-  system: { cpu: system?.cpu ?? null, memory: system?.memory ?? null },
-  protocols: (panel?.protocols) || [],
-  shunt: panel?.shunt || {},
-  subscription: {
-    plain: subTxt.trim(),
-    base64: btoa(unescape(encodeURIComponent(subTxt.trim()))),
-    b64_lines: subTxt.trim().split('\n').map(l => btoa(unescape(encodeURIComponent(l)))).join('\n')
-  }
-};
-
+    const model = dashboard ? {
+      updatedAt: dashboard.updated_at,
+      server: dashboard.server, cert: dashboard.cert,
+      system: dashboard.system, services: dashboard.services,
+      protocols: dashboard.protocols,
+	  shunt: panel?.shunt || {},
+      subscription: dashboard.subscription
+    } : {
+      updatedAt: panel?.updated_at || system?.updated_at,
+      server: panel?.server || {},
+      system: { cpu: system?.cpu ?? null, memory: system?.memory ?? null },
+      protocols: (panel?.protocols) || [],
+	  shunt: panel?.shunt || {},
+      subscription: {
+        plain: subTxt.trim(),
+        base64: btoa(unescape(encodeURIComponent(subTxt.trim()))),
+        b64_lines: subTxt.trim().split('\n').map(l => btoa(unescape(encodeURIComponent(l)))).join('\n')
+      }
+    };
 
     // 渲染各个模块
     renderHeader(model);
@@ -2673,7 +2613,7 @@ function renderProtocols(model) {
       '<td>' + p.name + '</td>' +
       '<td>' + p.network + '</td>' +
       '<td>' + p.port + '</td>' +
-      '<td><span class="detail-link" onclick="showProtocolDetails(\'' + p.name + '\')">详情>></span></td>' +
+      '<td><span class="detail-link" onclick="showProtocolDetails(\'' + p.name + '\')">详情</span></td>' +
       '<td>' + p.disguise + '</td>' +
       '<td>' + p.scenario + '</td>' +
       '<td style="color:#10b981">✓ 运行</td>';
@@ -4700,9 +4640,9 @@ main() {
     configure_nginx
     configure_xray
     configure_sing_box
-	save_config_info
-	start_services
-	generate_subscription
+    save_config_info
+    start_services
+    generate_subscription
     
     # 高级功能安装（模块3）
     setup_traffic_monitoring
