@@ -6043,150 +6043,210 @@ dialog[open],
 }
 
 /* =======================================================================
-   查看详情弹窗专门的左对齐样式（不影响其他弹窗）
+   超强优先级：查看详情弹窗左对齐样式
+   使用最高优先级选择器，确保样式不被覆盖
    ======================================================================= */
 
-/* ===== 恢复通用kv-key为右对齐（保持其他地方不变） ===== */
-.kv-key{ 
-  color:#6b7280; 
-  font-size:13px; 
-  text-align:right !important;     /* 恢复右对齐，保持其他地方不变 */
-  padding-right:8px;               /* 恢复右边距 */
-  line-height:1.6; 
+/* 重要：先恢复其他地方的右对齐，避免影响配置弹窗等 */
+#configModal .kv-key,
+#whitelistModal .kv-key,
+.card .kv-key:not(#detailModal .kv-key):not(#ipqModal .kv-key) {
+  text-align: right !important;
+  padding-right: 8px !important;
+  padding-left: 0 !important;
 }
 
-/* ===== 查看详情弹窗分隔线样式 ===== */
+/* 超强选择器：专门针对详情弹窗，使用最高优先级 */
+#detailModal .modal-body .kv-key,
+#detailModal .modal-body .kv-list .kv-key,
+#detailModal .modal-body .kv-row .kv-key,
+#detailModal .modal-section .kv-key,
+#detailModal .detail-section .kv-key,
+#ipqModal .modal-body .kv-key,
+#ipqModal .modal-body .kv-list .kv-key,
+#ipqModal .modal-body .kv-row .kv-key,
+#ipqModal .ipq-section .kv-key {
+  text-align: left !important;
+  padding-left: 8px !important;
+  padding-right: 0 !important;
+  justify-self: start !important;
+  align-self: start !important;
+}
+
+/* 超强选择器：详情弹窗的键值也左对齐 */
+#detailModal .modal-body .kv-value,
+#detailModal .modal-body .kv-val,
+#detailModal .modal-body .kv-list .kv-value,
+#detailModal .modal-body .kv-list .kv-val,
+#detailModal .modal-body .kv-row .kv-value,
+#detailModal .modal-body .kv-row .kv-val,
+#detailModal .modal-section .kv-value,
+#detailModal .modal-section .kv-val,
+#detailModal .detail-section .kv-value,
+#detailModal .detail-section .kv-val,
+#ipqModal .modal-body .kv-value,
+#ipqModal .modal-body .kv-val,
+#ipqModal .modal-body .kv-list .kv-value,
+#ipqModal .modal-body .kv-list .kv-val,
+#ipqModal .modal-body .kv-row .kv-value,
+#ipqModal .modal-body .kv-row .kv-val,
+#ipqModal .ipq-section .kv-value,
+#ipqModal .ipq-section .kv-val {
+  text-align: left !important;
+  justify-self: start !important;
+  align-self: start !important;
+}
+
+/* 强制详情弹窗内所有文本左对齐 */
+#detailModal .modal-body *:not(.qr-container):not(.qrcode):not([data-role="qrcode"]):not(canvas),
+#ipqModal .modal-body *:not(.qr-container):not(.qrcode):not([data-role="qrcode"]):not(canvas) {
+  text-align: left !important;
+}
+
+/* 详情弹窗的具体内容区域强制左对齐 */
+#detailModal .modal-body,
 #detailModal .modal-section,
 #detailModal .detail-section,
-#ipqModal .ipq-section{
-  padding:20px 0;
-  border-bottom:1px solid #374151;
-}
-#detailModal .modal-section:first-child,
-#detailModal .detail-section:first-child,
-#ipqModal .ipq-section:first-child{ 
-  padding-top:0; 
-}
-#detailModal .modal-section:last-child,
-#detailModal .detail-section:last-child,
-#ipqModal .ipq-section:last-child{
-  padding-bottom:0; 
-  border-bottom:none;
+#ipqModal .modal-body,
+#ipqModal .ipq-section {
+  text-align: left !important;
+  direction: ltr !important;
 }
 
-/* ===== 专门针对查看详情弹窗的左对齐样式 ===== */
-
-/* 详情弹窗键名左对齐 */
-#detailModal .kv-key, 
-#ipqModal .kv-key { 
-  text-align:left !important; 
-  padding-right:0 !important;
-  padding-left:8px !important;
-}
-
-/* 详情弹窗键值左对齐 */
-#detailModal .kv-value,
-#ipqModal .kv-value { 
-  text-align:left !important; 
-}
-
-/* 详情弹窗内所有键值对行重新布局为左对齐 */
+/* 详情弹窗内的所有键值对行强制左对齐布局 */
 #detailModal .kv-row,
-#ipqModal .kv-row {
-  display:grid; 
-  grid-template-columns:144px 1fr; 
-  gap:12px;
-  padding:8px 0; 
-  border-bottom:1px dashed #eef2f7;
+#detailModal .modal-body .kv-row,
+#detailModal .modal-section .kv-row,
+#detailModal .detail-section .kv-row,
+#ipqModal .kv-row,
+#ipqModal .modal-body .kv-row,
+#ipqModal .ipq-section .kv-row {
+  display: grid !important;
+  grid-template-columns: 144px 1fr !important;
+  gap: 12px !important;
+  padding: 8px 0 !important;
+  border-bottom: 1px dashed #eef2f7 !important;
+  text-align: left !important;
+  justify-items: start !important;
+  align-items: start !important;
 }
 
+/* 详情弹窗内的最后一行去掉下边框 */
 #detailModal .kv-row:last-child,
-#ipqModal .kv-row:last-child { 
-  border-bottom:none; 
+#detailModal .modal-body .kv-row:last-child,
+#detailModal .modal-section .kv-row:last-child,
+#detailModal .detail-section .kv-row:last-child,
+#ipqModal .kv-row:last-child,
+#ipqModal .modal-body .kv-row:last-child,
+#ipqModal .ipq-section .kv-row:last-child {
+  border-bottom: none !important;
 }
 
-/* 详情弹窗内的所有文本内容左对齐 */
-#detailModal .modal-body,
-#ipqModal .modal-body {
-  text-align:left !important;
-}
-
-/* 详情弹窗内的所有段落和文本左对齐 */
-#detailModal .modal-body p,
-#detailModal .modal-body div,
-#detailModal .modal-body span,
-#ipqModal .modal-body p,
-#ipqModal .modal-body div,
-#ipqModal .modal-body span {
-  text-align:left !important;
-}
-
-/* 详情弹窗内的标题也左对齐 */
-#detailModal .modal-body h3,
-#detailModal .modal-body h4,
-#detailModal .modal-body h5,
-#ipqModal .modal-body h3,
-#ipqModal .modal-body h4,
-#ipqModal .modal-body h5 {
-  text-align:left !important;
-  margin-bottom:12px;
-}
-
-/* 确保二维码仍然居中显示 */
+/* 确保二维码仍然居中（例外处理） */
 #detailModal .qr-container,
 #detailModal .qrcode,
 #detailModal [data-role="qrcode"],
+#detailModal .qr-container *,
+#detailModal .qrcode *,
+#detailModal [data-role="qrcode"] *,
 #ipqModal .qr-container,
 #ipqModal .qrcode,
-#ipqModal [data-role="qrcode"] {
-  text-align:center !important;
-  margin: 16px auto !important;
+#ipqModal [data-role="qrcode"],
+#ipqModal .qr-container *,
+#ipqModal .qrcode *,
+#ipqModal [data-role="qrcode"] * {
+  text-align: center !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  display: block !important;
 }
 
-#detailModal .qr-container canvas,
-#detailModal .qrcode canvas,
-#detailModal [data-role="qrcode"] canvas,
-#ipqModal .qr-container canvas,
-#ipqModal .qrcode canvas,
-#ipqModal [data-role="qrcode"] canvas {
-  margin:12px auto !important; 
-  display:block !important;
+/* 详情弹窗内所有段落、div、span都左对齐 */
+#detailModal .modal-body p,
+#detailModal .modal-body div:not(.qr-container):not(.qrcode):not([data-role="qrcode"]),
+#detailModal .modal-body span,
+#detailModal .modal-body label,
+#detailModal .modal-body value,
+#detailModal .modal-section p,
+#detailModal .modal-section div:not(.qr-container):not(.qrcode):not([data-role="qrcode"]),
+#detailModal .modal-section span,
+#detailModal .modal-section label,
+#detailModal .modal-section value,
+#detailModal .detail-section p,
+#detailModal .detail-section div:not(.qr-container):not(.qrcode):not([data-role="qrcode"]),
+#detailModal .detail-section span,
+#detailModal .detail-section label,
+#detailModal .detail-section value,
+#ipqModal .modal-body p,
+#ipqModal .modal-body div:not(.qr-container):not(.qrcode):not([data-role="qrcode"]),
+#ipqModal .modal-body span,
+#ipqModal .modal-body label,
+#ipqModal .modal-body value,
+#ipqModal .ipq-section p,
+#ipqModal .ipq-section div:not(.qr-container):not(.qrcode):not([data-role="qrcode"]),
+#ipqModal .ipq-section span,
+#ipqModal .ipq-section label,
+#ipqModal .ipq-section value {
+  text-align: left !important;
+  justify-self: start !important;
+  align-self: start !important;
 }
 
-/* 响应式：移动端查看详情弹窗保持左对齐 */
-@media (max-width:768px){
+/* 响应式：移动端也保持左对齐 */
+@media (max-width: 768px) {
   #detailModal .kv-row,
-  #ipqModal .kv-row { 
-    grid-template-columns:1fr; 
+  #detailModal .modal-body .kv-row,
+  #detailModal .modal-section .kv-row,
+  #detailModal .detail-section .kv-row,
+  #ipqModal .kv-row,
+  #ipqModal .modal-body .kv-row,
+  #ipqModal .ipq-section .kv-row {
+    grid-template-columns: 1fr !important;
+    text-align: left !important;
   }
   
   #detailModal .kv-key,
-  #ipqModal .kv-key { 
-    text-align:left !important; 
-    padding-left:8px !important;
-    padding-right:0 !important; 
-    margin-bottom:4px; 
+  #detailModal .modal-body .kv-key,
+  #detailModal .modal-section .kv-key,
+  #detailModal .detail-section .kv-key,
+  #ipqModal .kv-key,
+  #ipqModal .modal-body .kv-key,
+  #ipqModal .ipq-section .kv-key {
+    text-align: left !important;
+    padding-left: 8px !important;
+    padding-right: 0 !important;
+    margin-bottom: 4px !important;
+    justify-self: start !important;
   }
   
   #detailModal .kv-value,
-  #ipqModal .kv-value {
-    text-align:left !important;
+  #detailModal .kv-val,
+  #detailModal .modal-body .kv-value,
+  #detailModal .modal-body .kv-val,
+  #detailModal .modal-section .kv-value,
+  #detailModal .modal-section .kv-val,
+  #detailModal .detail-section .kv-value,
+  #detailModal .detail-section .kv-val,
+  #ipqModal .kv-value,
+  #ipqModal .kv-val,
+  #ipqModal .modal-body .kv-value,
+  #ipqModal .modal-body .kv-val,
+  #ipqModal .ipq-section .kv-value,
+  #ipqModal .ipq-section .kv-val {
+    text-align: left !important;
+    justify-self: start !important;
   }
 }
 
-/* ===== 配置弹窗保持原样（不做左对齐） ===== */
-#configModal .modal-section,
-#configModal .config-section{ 
-  padding:16px 0; 
-  border-bottom:none; 
+/* 调试用：给详情弹窗添加边框，方便确认选择器是否生效 */
+/*
+#detailModal .modal-body {
+  border: 2px solid red !important;
 }
-
-/* 配置弹窗的键值对保持右对齐（原有样式） */
-#configModal .kv-key {
-  text-align:right !important;
-  padding-right:8px !important;
-  padding-left:0 !important;
+#ipqModal .modal-body {
+  border: 2px solid blue !important;
 }
+*/
 
 /* =======================================================================
  按钮（查看详情、查看全部、查看配置、查看订阅）：白底蓝字，hover 浅灰，active 灰底 
