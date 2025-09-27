@@ -430,36 +430,22 @@ install_sing_box() {
 
 # 生成Reality密钥对
 generate_reality_keys() {
-    log_info "生成Reality密钥对..."
-
-    # 优先用 sing-box 生成
-    if command -v sing-box >/dev/null 2>&1; then
-        local out
-        out="$(sing-box generate reality-keypair 2>/dev/null || sing-box generate reality-key 2>/dev/null || true)"
-        REALITY_PRIVATE_KEY="$(echo "$out" | awk -F': ' '/Private/{print $2}')"
-        REALITY_PUBLIC_KEY="$(echo "$out"  | awk -F': ' '/Public/{print  $2}')"
-        if [[ -n "$REALITY_PRIVATE_KEY" && -n "$REALITY_PUBLIC_KEY" ]]; then
-            log_success "Reality密钥对生成完成（sing-box）"
-            log_info "Reality公钥: $REALITY_PUBLIC_KEY"
-            return 0
-        fi
+    log_info "正在生成 Reality 密钥对..."
+    local keypair_output
+    # 只生成一次密钥对，并保存其输出
+    keypair_output=$(sing-box generate reality-keypair)
+    
+    # 从单次输出中提取私钥和公钥
+    REALITY_PRIVATE_KEY=$(echo "$keypair_output" | grep -oP 'PrivateKey: \K[a-zA-Z0-9_-]+')
+    REALITY_PUBLIC_KEY=$(echo "$keypair_output" | grep -oP 'PublicKey: \K[a-zA-Z0-9_-]+')
+    
+    if [ -n "${REALITY_PRIVATE_KEY}" ] && [ -n "${REALITY_PUBLIC_KEY}" ]; then
+        log_success "Reality 密钥生成成功。"
+    else
+        log_error "Reality 密钥生成失败！"
+        return 1
     fi
-
-    # 回退：使用 Xray 生成
-    if command -v xray >/dev/null 2>&1; then
-        local keys
-        keys="$(xray x25519)"
-        REALITY_PRIVATE_KEY="$(echo "$keys" | awk '/Private key/{print $3}')"
-        REALITY_PUBLIC_KEY="$(echo  "$keys" | awk '/Public key/{print  $3}')"
-        if [[ -n "$REALITY_PRIVATE_KEY" && -n "$REALITY_PUBLIC_KEY" ]]; then
-            log_success "Reality密钥对生成完成（xray）"
-            log_info "Reality公钥: $REALITY_PUBLIC_KEY"
-            return 0
-        fi
-    fi
-
-    log_error "生成Reality密钥失败"
-    return 1
+    return 0
 }
 
 # 配置Nginx（SNI定向 + ALPN兜底架构）
@@ -869,106 +855,124 @@ EOF
     log_success "配置信息保存完成"
 }
 
-# 启动服务
+# >>> 修复后的 start_services 函数 >>>
 start_services() {
   log_info "启动所有服务..."
   systemctl daemon-reload
   systemctl enable nginx xray sing-box >/dev/null 2>&1 || true
 
-  systemctl restart nginx >/dev/null 2>&1
-  systemctl restart xray  >/dev/null 2>&1
-  systemctl restart sing-box >/dev/null 2>&1
+  systemctl restart nginx     >/dev/null 2>&1 || true
+  systemctl restart xray      >/dev/null 2>&1 || true
+  systemctl restart sing-box  >/dev/null 2>&1 || true
 
   sleep 2
   for s in nginx xray sing-box; do
     if systemctl is-active --quiet "$s"; then
       log_success "$s 运行正常"
     else
-      log_error "$s 启动失败"
-      journalctl -u "$s" -n 30 --no-pager | tail -n 20
+      log_error "$s 启动失败"; journalctl -u "$s" -n 30 --no-pager | tail -n 20
     fi
   done
 
-  # 初始化 /sub 缓存（可选，确保首次生成有料）
-  if [[ ! -s "/etc/edgebox/traffic/sub.txt" && -s "/var/www/html/sub" ]]; then
-    cp -f "/var/www/html/sub" "/etc/edgebox/traffic/sub.txt"
+  # 确保目录存在
+  local CONFIG_DIR="${CONFIG_DIR:-/etc/edgebox/config}"
+  local TRAFFIC_DIR="${TRAFFIC_DIR:-/etc/edgebox/traffic}"
+  local WEB_ROOT="/var/www/html"
+  mkdir -p "$TRAFFIC_DIR" "$WEB_ROOT"
+
+  # 同步订阅文件
+  if [[ -s "$CONFIG_DIR/subscription.txt" ]]; then
+    # 确保文件存在且内容一致
+    if [[ ! -f "$TRAFFIC_DIR/sub.txt" ]] || ! cmp -s "$CONFIG_DIR/subscription.txt" "$TRAFFIC_DIR/sub.txt"; then
+      cp "$CONFIG_DIR/subscription.txt" "$TRAFFIC_DIR/sub.txt"
+    fi
+    if [[ ! -f "$WEB_ROOT/sub" ]] || ! cmp -s "$CONFIG_DIR/subscription.txt" "$WEB_ROOT/sub"; then
+      cp "$CONFIG_DIR/subscription.txt" "$WEB_ROOT/sub"
+    fi
+    log_info "订阅文件已同步到：$TRAFFIC_DIR/sub.txt 和 $WEB_ROOT/sub"
+  else
+    log_warn "未找到 $CONFIG_DIR/subscription.txt，稍后由 generate_subscription 生成"
   fi
 
-  # 安装并生成初始面板数据 + 写入定时任务（只跑一次）
-  install_scheduled_dashboard_backend
-  /etc/edgebox/scripts/dashboard-backend.sh --now
-  /etc/edgebox/scripts/dashboard-backend.sh --schedule
+  # 启动后台任务
+  if [[ -x /etc/edgebox/scripts/dashboard-backend.sh ]]; then
+    /etc/edgebox/scripts/dashboard-backend.sh --install >/dev/null 2>&1 || true
+    /etc/edgebox/scripts/dashboard-backend.sh --now     >/dev/null 2>&1 || true
+  fi
 }
 
-# 生成订阅链接（安装时）
+# >>> 修复后的 generate_subscription 函数 >>>
 generate_subscription() {
-    log_info "生成订阅链接..."
+  log_info "生成订阅链接..."
 
-    # 校验
-    if [[ -z "$SERVER_IP" || -z "$UUID_VLESS" || -z "$REALITY_PUBLIC_KEY" || -z "$UUID_TROJAN" || -z "$PASSWORD_TROJAN" ]]; then
-        log_error "必要的配置变量未设置，无法生成订阅"; return 1
-    fi
+  local CONFIG_DIR="${CONFIG_DIR:-/etc/edgebox/config}"
+  local TRAFFIC_DIR="${TRAFFIC_DIR:-/etc/edgebox/traffic}"
+  local WEB_ROOT="/var/www/html"
+  mkdir -p "$CONFIG_DIR" "$TRAFFIC_DIR" "$WEB_ROOT"
 
-    local addr="$SERVER_IP" uuid="$UUID_VLESS" trojan_uuid="$UUID_TROJAN"
-    local WS_SNI="ws.edgebox.internal"
-    local TROJAN_SNI="trojan.edgebox.internal"
-    local allowInsecure="&allowInsecure=1"   # IP 模式：gRPC/WS/TUIC/Trojan 关闭校验
-    local insecure="&insecure=1"             # IP 模式：HY2 关闭校验
+  local cfg="$CONFIG_DIR/server.json"
+  if [[ ! -s "$cfg" ]]; then
+    log_error "缺少 $cfg，无法生成订阅"; return 1
+  fi
 
-    # URL 编码密码
-    local HY2_PW_ENC TUIC_PW_ENC TROJAN_PW_ENC
-    HY2_PW_ENC=$(printf '%s' "$PASSWORD_HYSTERIA2" | jq -rR @uri)
-    TUIC_PW_ENC=$(printf '%s' "$PASSWORD_TUIC"     | jq -rR @uri)
-    TROJAN_PW_ENC=$(printf '%s' "$PASSWORD_TROJAN" | jq -rR @uri)
+  # 从 server.json 读权威字段
+  local IP UUID_VLESS UUID_TUIC PW_TROJAN PW_TUIC PW_HY2 PBK SID
+  IP="$(jq -r '.server_ip // empty'               "$cfg")"
+  UUID_VLESS="$(jq -r '.uuid.vless // empty'      "$cfg")"
+  UUID_TUIC="$(jq -r '.uuid.tuic // empty'        "$cfg")"
+  PW_TROJAN="$(jq -r '.password.trojan // empty'  "$cfg")"
+  PW_TUIC="$(jq -r '.password.tuic // empty'      "$cfg")"
+  PW_HY2="$(jq -r '.password.hysteria2 // empty'  "$cfg")"
+  PBK="$(jq -r '.reality.public_key // empty'     "$cfg")"
+  SID="$(jq -r '.reality.short_id // empty'       "$cfg")"
+  
+  # 检查必要字段
+  if [[ -z "$IP" || -z "$UUID_VLESS" || -z "$UUID_TUIC" || -z "$PW_TROJAN" || -z "$PW_TUIC" || -z "$PW_HY2" || -z "$PBK" || -z "$SID" ]]; then
+    log_error "server.json 字段缺失，无法生成订阅"
+    return 1
+  fi
 
-    # 明文 6 条（⚠️ 无注释、每行一条，放在文件最前面，保证粘贴导入稳定）
-    local plain=$(
-      cat <<PLAIN
-vless://${uuid}@${addr}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&type=tcp#EdgeBox-REALITY
-vless://${uuid}@${addr}:443?encryption=none&security=tls&sni=grpc.edgebox.internal&alpn=h2&type=grpc&serviceName=grpc&fp=chrome${allowInsecure}#EdgeBox-gRPC
-vless://${uuid}@${addr}:443?encryption=none&security=tls&sni=${WS_SNI}&host=${WS_SNI}&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome${allowInsecure}#EdgeBox-WS
-trojan://${TROJAN_PW_ENC}@${addr}:443?security=tls&sni=${TROJAN_SNI}&alpn=http%2F1.1&fp=chrome${allowInsecure}#EdgeBox-TROJAN
-hysteria2://${HY2_PW_ENC}@${addr}:443?sni=${addr}&alpn=h3${insecure}#EdgeBox-HYSTERIA2
-tuic://${UUID_TUIC}:${TUIC_PW_ENC}@${addr}:2053?congestion_control=bbr&alpn=h3&sni=${addr}${allowInsecure}#EdgeBox-TUIC
+  local WS_SNI="ws.edgebox.internal"
+  local TROJAN_SNI="trojan.edgebox.internal"
+  local allowInsecure="&allowInsecure=1"
+  local insecure="&insecure=1"
+
+  # URL 编码密钥
+  local PW_TROJAN_ENC PW_TUIC_ENC PW_HY2_ENC
+  PW_TROJAN_ENC=$(printf '%s' "$PW_TROJAN" | jq -Rr @uri)
+  PW_TUIC_ENC=$(printf '%s' "$PW_TUIC"     | jq -Rr @uri)
+  PW_HY2_ENC=$(printf '%s' "$PW_HY2"       | jq -Rr @uri)
+
+  # 6 条明文订阅链接
+  local plain
+  plain=$(cat <<PLAIN
+vless://${UUID_VLESS}@${IP}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${PBK}&sid=${SID}&type=tcp#EdgeBox-REALITY
+vless://${UUID_VLESS}@${IP}:443?encryption=none&security=tls&sni=grpc.edgebox.internal&alpn=h2&type=grpc&serviceName=grpc&fp=chrome${allowInsecure}#EdgeBox-gRPC
+vless://${UUID_VLESS}@${IP}:443?encryption=none&security=tls&sni=${WS_SNI}&host=${WS_SNI}&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome${allowInsecure}#EdgeBox-WS
+trojan://${PW_TROJAN_ENC}@${IP}:443?security=tls&sni=${TROJAN_SNI}&alpn=http%2F1.1&fp=chrome${allowInsecure}#EdgeBox-TROJAN
+hysteria2://${PW_HY2_ENC}@${IP}:443?sni=${IP}&alpn=h3${insecure}#EdgeBox-HYSTERIA2
+tuic://${UUID_TUIC}:${PW_TUIC_ENC}@${IP}:2053?congestion_control=bbr&alpn=h3&sni=${IP}${allowInsecure}#EdgeBox-TUIC
 PLAIN
-    )
+)
 
-    # Base64 工具
-    _b64_line(){ if base64 --help 2>&1 | grep -q -- '-w'; then base64 -w0; else base64 | tr -d '\n'; fi; }
-    _ensure_nl(){ sed -e '$a\'; }
-
-    # 写配置目录（给 CLI 兼容）
-    printf '%s\n' "$plain" > "${CONFIG_DIR}/subscription.txt"
-    _ensure_nl <<<"$plain" | _b64_line > "${CONFIG_DIR}/subscription.base64"
-
-    : > "${CONFIG_DIR}/subscription.b64lines"
-    while IFS= read -r line; do
-      [[ -n "$line" ]] || continue
-      printf '%s\n' "$line" | _ensure_nl | _b64_line >> "${CONFIG_DIR}/subscription.b64lines"
-      printf '\n' >> "${CONFIG_DIR}/subscription.b64lines"
-    done <<<"$plain"
-
-    # 控制面板文件：第一部分就是纯链接（没有任何注释）
-    mkdir -p /var/www/html
-    {
-      printf '%s\n\n' "$plain"
-      echo "# Base64逐行【每行一个协议，多数客户端不支持一次复制导入】"
-      cat "${CONFIG_DIR}/subscription.b64lines"
-      echo
-      echo "# Base64整包【六协议一起导入，iOS 常用】"
-      cat "${CONFIG_DIR}/subscription.base64"
-      echo
-    } > /var/www/html/sub
-
-    log_success "订阅已生成"
-    log_success "HTTP 订阅地址: http://${addr}/sub"
+  # 权威文件 + 幂等同步
+  printf '%s\n' "$plain" > "$CONFIG_DIR/subscription.txt"
+  
+  # 同步到web目录，避免"are the same file"错误
+  if [[ ! "$CONFIG_DIR/subscription.txt" -ef "$WEB_ROOT/sub" ]]; then
+    cp "$CONFIG_DIR/subscription.txt" "$WEB_ROOT/sub"
+  fi
+  if [[ ! "$CONFIG_DIR/subscription.txt" -ef "$TRAFFIC_DIR/sub.txt" ]]; then
+    cp "$CONFIG_DIR/subscription.txt" "$TRAFFIC_DIR/sub.txt"
+  fi
+  
+  log_success "订阅已生成并同步：$CONFIG_DIR/subscription.txt → $WEB_ROOT/sub, $TRAFFIC_DIR/sub.txt"
 }
 
-# === EdgeBox：安装 Dashboard 后端 ===
+# >>> 修复后的 install_scheduled_dashboard_backend 函数 >>>
 install_scheduled_dashboard_backend() {
   mkdir -p /etc/edgebox/scripts /etc/edgebox/traffic /etc/edgebox/config
 
-  # 写入后端脚本（generate_dashboard_data / --now / --schedule）
   cat >/etc/edgebox/scripts/dashboard-backend.sh <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -976,164 +980,133 @@ export LANG=C LC_ALL=C
 
 TRAFFIC_DIR="${TRAFFIC_DIR:-/etc/edgebox/traffic}"
 CONFIG_DIR="${CONFIG_DIR:-/etc/edgebox/config}"
-CERT_DIR="${CERT_DIR:-/etc/letsencrypt/live}"
-SUB_CACHE="${SUB_CACHE:-/etc/edgebox/traffic/sub.txt}"
 SERVER_JSON="${SERVER_JSON:-${CONFIG_DIR}/server.json}"
+SUB_CACHE="${SUB_CACHE:-${TRAFFIC_DIR}/sub.txt}"
 
-type log_info >/dev/null 2>&1 || log_info(){ echo "[INFO] $*"; }
+log_info(){ echo "[INFO] $*"; }
+log_warn(){ echo "[WARN] $*"; }
+log_error(){ echo "[ERROR] $*" >&2; }
 
-_get_cpu_mem(){ read _ a b c idle _ < /proc/stat; t1=$((a+b+c+idle)); i1=$idle; sleep 1
-                read _ a b c idle _ < /proc/stat; t2=$((a+b+c+idle)); i2=$idle; dt=$((t2-t1)); di=$((i2-i1))
-                CPU=$(( dt>0 ? (100*(dt-di)+dt/2)/dt : 0 ))
-                MT=$(awk '/MemTotal/{print $2}' /proc/meminfo)
-                MA=$(awk '/MemAvailable/{print $2}' /proc/meminfo)
-                MEM=$(( MT>0 ? (100*(MT-MA)+MT/2)/MT : 0 ))
-                echo "$CPU" "$MEM"; }
-
-_unit_active(){ systemctl is-active --quiet "$1" && echo active || echo inactive; }
-
-_get_server_facts(){ local sip="" sdom="" ver="" install_date="" eip=""
-  if [[ -s "$SERVER_JSON" ]]; then
-    sip=$(jq -r '.server_ip // empty' "$SERVER_JSON" 2>/dev/null || true)
-    sdom=$(jq -r '.server_domain // empty' "$SERVER_JSON" 2>/dev/null || true)
-    ver=$(jq -r '.version // empty' "$SERVER_JSON" 2>/dev/null || true)
-    install_date=$(jq -r '.install_date // empty' "$SERVER_JSON" 2>/dev/null || true)
+_get_cpu_mem(){ 
+  local cpu="0" mem="0"
+  if command -v top >/dev/null 2>&1; then
+    cpu=$(top -bn1 | awk '/Cpu/ {print 100-$8; exit}' 2>/dev/null || echo 0)
+    mem=$(free -m | awk '/Mem:/ {printf "%.1f", $3/$2*100}' 2>/dev/null || echo 0)
   fi
-  [[ -z "$sip"  ]] && sip="$(hostname -I 2>/dev/null | awk '{print $1}')"
-  if [[ "${ALLOW_EGRESS_EIP:-0}" == "1" ]] && command -v curl >/dev/null 2>&1; then
-    eip="$(curl -fsS --max-time 2 https://api.ipify.org 2>/dev/null || true)"
-  fi
-  echo "$sip" "$sdom" "$ver" "$install_date" "$eip"
+  printf '%s %s\n' "${cpu:-0}" "${mem:-0}"
 }
 
-_get_cert_info(){ local mode="self-signed" typ="自签名证书" expire="N/A"
-  if ls ${CERT_DIR}/*/fullchain.pem >/dev/null 2>&1; then
-    mode="letsencrypt"; typ="Let's Encrypt"
-    local dom=$(basename ${CERT_DIR}/* 2>/dev/null | head -n1)
-    local pem="${CERT_DIR}/${dom}/cert.pem"
-    [[ -f "$pem" ]] && expire="$( (openssl x509 -enddate -noout -in "$pem" | cut -d= -f2 | xargs -I{} date -d {} +%Y-%m-%d) 2>/dev/null || openssl x509 -enddate -noout -in "$pem" | cut -d= -f2 )"
+# 读取明文订阅 -> 产出 plain / base64 / b64_lines 三种形态
+_parse_sub(){
+  local sub_plain="" sub_b64="" line
+  if   [[ -s "${CONFIG_DIR}/subscription.txt" ]]; then
+    sub_plain="$(cat "${CONFIG_DIR}/subscription.txt")"
+  elif [[ -s "${SUB_CACHE}" ]]; then
+    sub_plain="$(cat "${SUB_CACHE}")"
+  elif [[ -s "/var/www/html/sub" ]]; then
+    sub_plain="$(cat "/var/www/html/sub")"
   fi
-  echo "$mode" "$typ" "$expire"
-}
 
-_touch_sub_cache_if_needed(){
-  local need=0
-  if [[ ! -s "$SUB_CACHE" ]]; then need=1
+  if [[ -n "$sub_plain" ]]; then
+    if base64 --help 2>&1 | grep -q -- ' -w'; then
+      sub_b64="$(printf '%s\n' "$sub_plain" | base64 -w0)"
+    else
+      sub_b64="$(printf '%s\n' "$sub_plain" | base64 | tr -d '\n')"
+    fi
+    while IFS= read -r line; do
+      [[ -z "$line" ]] && continue
+      if base64 --help 2>&1 | grep -q -- ' -w'; then
+        printf '%s' "$line" | sed -e '$a\' | base64 -w0
+      else
+        printf '%s' "$line" | sed -e '$a\' | base64 | tr -d '\n'
+      fi
+      printf '\n'
+    done <<<"$sub_plain" > "${TRAFFIC_DIR}/subscription.b64lines"
   else
-    local now=$(date +%s) mt=$(stat -c %Y "$SUB_CACHE" 2>/dev/null || echo $now)
-    (( now - mt > 900 )) && need=1
+    : > "${TRAFFIC_DIR}/subscription.b64lines"
   fi
-  if (( need == 1 )) && command -v edgeboxctl >/dev/null 2>&1; then
-    edgeboxctl sub > "$SUB_CACHE" 2>/dev/null || true
-  fi
-  [[ ! -s "$SUB_CACHE" && -s /var/www/html/sub ]] && cp /var/www/html/sub "$SUB_CACHE" || true
-}
 
-_parse_sni_from_sub(){ local key="$1" sni=""
-  [[ -s "$SUB_CACHE" ]] || { echo ""; return; }
-  case "$key" in
-    reality) sni=$(grep -i '^vless://'  "$SUB_CACHE" | head -n1 | sed -n 's/.*[?&]sni=\([^&]*\).*/\1/p' | sed 's/%2F/\//g;s/%3A/:/g');;
-    trojan)  sni=$(grep -i '^trojan://' "$SUB_CACHE" | head -n1 | sed -n 's/.*[?&]sni=\([^&]*\).*/\1/p' | sed 's/%2F/\//g;s/%3A/:/g');;
-  esac; echo "$sni"
+  printf '%s\n' "$sub_plain" > "${TRAFFIC_DIR}/subscription.txt"
+
+  export SUB_PLAIN="$sub_plain"
+  export SUB_B64="$sub_b64"
+  export SUB_LINES="$(cat "${TRAFFIC_DIR}/subscription.b64lines" 2>/dev/null || true)"
 }
 
 generate_dashboard_data(){
-  mkdir -p "$TRAFFIC_DIR"; _touch_sub_cache_if_needed
+  mkdir -p "$TRAFFIC_DIR"
   read CPU MEM < <(_get_cpu_mem || echo "0 0")
-  local nginx_s=$(_unit_active nginx) xray_s=$(_unit_active xray)
-  local sbox_s=$(_unit_active sing-box || _unit_active singbox)
 
-  read INSTALL_MODE_ CERT_TYPE CERT_EXPIRE < <(_get_cert_info)
-  read SERVER_IP_ SERVER_DOMAIN_ EDGEBOX_VER_ INSTALL_DATE_ EIP_ < <(_get_server_facts)
+  # 订阅形态
+  _parse_sub
 
-  local REALITY_SNI_="${REALITY_SNI:-$(_parse_sni_from_sub reality)}"
-  [[ -z "$REALITY_SNI_" ]] && REALITY_SNI_="www.cloudflare.com"
-  local TROJAN_SNI_="${TROJAN_SNI:-$(_parse_sni_from_sub trojan)}"
-  [[ -z "$TROJAN_SNI_" ]] && TROJAN_SNI_="trojan.edgebox.internal"
-
-  local has_tcp443="false" has_tuic="false" has_hy2="false"
-  if command -v ss >/dev/null 2>&1; then
-    ss -H -lnpt 2>/dev/null | grep -qE 'tcp .*:443 ' && has_tcp443="true" || true
-    ss -H -lnpu 2>/dev/null | grep -qE 'udp .*:2053 ' && has_tuic="true" || true
-    ss -H -lnpu 2>/dev/null | grep -qE 'udp .*:(8443|443) ' && has_hy2="true" || true
+  # 服务器事实
+  local IP EIP VER INST CM CERT_DOMAIN CERT_EXPIRE
+  if [[ -s "$SERVER_JSON" ]]; then
+    IP="$(jq -r '.server_ip // empty'           "$SERVER_JSON")"
+    EIP="$(jq -r '.eip // empty'                 "$SERVER_JSON")"
+    VER="$(jq -r '.version // "3.0.0"'           "$SERVER_JSON")"
+    INST="$(jq -r '.install_date // empty'       "$SERVER_JSON")"
+    CM="$(jq -r '.cert.mode // "self-signed"'   "$SERVER_JSON")"
+    CERT_DOMAIN="$(jq -r '.cert.domain // empty' "$SERVER_JSON")"
+    CERT_EXPIRE="$(jq -r '.cert.expire // empty' "$SERVER_JSON")"
   fi
 
-  local SUB_PLAIN="$(tr '\n' ' ' < "$SUB_CACHE" 2>/dev/null | sed 's/[[:space:]]\+/ /g' | sed 's/[[:space:]]$//')"
-  local SUB_LINES="$(cat "$SUB_CACHE" 2>/dev/null || true)"
-  local SUB_B64="$(printf '%s' "$SUB_LINES" | (base64 -w0 2>/dev/null || base64) | tr -d '\n')"
-
-  jq -n \
-    --arg ip "$SERVER_IP_" --arg eip "$EIP_" --arg domain "$SERVER_DOMAIN_" \
-    --arg mode "$INSTALL_MODE_" --arg ver "${EDGEBOX_VER_:-3.0.0}" --arg inst "${INSTALL_DATE_:-$(date +%F)}" \
-    --argjson cpu "$CPU" --argjson mem "$MEM" \
-    --arg nginx "$nginx_s" --arg xray "$xray_s" --arg sbox "$sbox_s" \
-    --arg cert_t "$CERT_TYPE" --arg cert_e "$CERT_EXPIRE" \
-    --arg r_sni "$REALITY_SNI_" --arg t_sni "$TROJAN_SNI_" \
-    --arg b_tcp443 "$has_tcp443" --arg b_hy2 "$has_hy2" --arg b_tuic "$has_tuic" \
-    --arg sub_p "$SUB_PLAIN" --arg sub_b "$SUB_B64" --arg sub_l "$SUB_LINES" \
-    '{
-      updated_at: (now | todate),
-      server: { ip:$ip, eip:(if $eip=="" then null else $eip end), version:$ver, install_date:$inst },
-      cert: { mode:$mode, type:$cert_t, expire:$cert_e, provider:(if $mode=="letsencrypt" then "auto" else "self" end) },
-      system: { cpu:($cpu|tonumber), memory:($mem|tonumber) },
-      services: { nginx:$nginx, xray:$xray, "sing-box":$sbox },
-      protocols: {
-        "443_tcp": (if $b_tcp443=="true" then "listening" else "down" end),
-        "hysteria2": (if $b_hy2=="true" then "listening" else "down" end),
-        "tuic_2053": (if $b_tuic=="true" then "listening" else "down" end),
-        reality_sni: $r_sni, trojan_sni: $t_sni
-      },
-      subscription: { plain:$sub_p, base64:$sub_b, b64_lines:$sub_l }
-    }' > "${TRAFFIC_DIR}/dashboard.json"
-
-  chmod 0644 "${TRAFFIC_DIR}/dashboard.json"
+  # 检查服务状态
+  local nginx_status="inactive" xray_status="inactive" singbox_status="inactive"
+  systemctl is-active --quiet nginx && nginx_status="active"
+  systemctl is-active --quiet xray && xray_status="active"  
+  systemctl is-active --quiet sing-box && singbox_status="active"
 
   jq -n --arg ts "$(date -Is)" --argjson cpu "$CPU" --argjson memory "$MEM" \
     '{updated_at:$ts,cpu:$cpu,memory:$memory}' > "${TRAFFIC_DIR}/system.json"
 
-  jq -n --arg ts "$(date -Is)" --arg ip "$SERVER_IP_" --arg eip "$EIP_" --arg ver "${EDGEBOX_VER_:-3.0.0}" --arg inst "${INSTALL_DATE_:-$(date +%F)}" \
-    --arg cm "$INSTALL_MODE_" --arg cd "$SERVER_DOMAIN_" --arg ce "$CERT_EXPIRE" \
-    --arg b1 "$has_tcp443" --arg b2 "$has_hy2" --arg b3 "$has_tuic" \
+  jq -n \
+    --arg ts "$(date -Is)" \
+    --arg ip "$IP" --arg eip "$EIP" \
+    --arg ver "$VER" --arg inst "$INST" \
+    --arg cm "$CM" --arg cd "$CERT_DOMAIN" --arg ce "$CERT_EXPIRE" \
+    --arg sub_p "${SUB_PLAIN:-}" --arg sub_b "${SUB_B64:-}" --arg sub_l "${SUB_LINES:-}" \
+    --arg nginx_st "$nginx_status" --arg xray_st "$xray_status" --arg singbox_st "$singbox_status" \
     '{
-      updated_at:$ts,
-      server:{ip:$ip,eip:(if $eip=="" then null else $eip end),version:$ver,install_date:$inst,
-              cert_mode:$cm,cert_domain:(if $cd=="" then null else $cd end),cert_expire:(if $ce=="" then null else $ce end)},
-      protocols:[
-        {name:"VLESS/Trojan (443/TCP)",proto:"tcp",port:443,proc:(if $b1=="true" then "listening" else "未监听" end),note:"443 端口状态"},
-        {name:"Hysteria2",proto:"udp",port:0,proc:(if $b2=="true" then "listening" else "未监听" end),note:"8443/443"},
-        {name:"TUIC",proto:"udp",port:2053,proc:(if $b3=="true" then "listening" else "未监听" end),note:"2053"}
-      ],
-      shunt:{mode:"vps",proxy_info:"",health:"ok",whitelist:["googlevideo.com","ytimg.com","ggpht.com","youtube.com","youtu.be","googleapis.com","gstatic.com","example.com"]}
-    }' > "${TRAFFIC_DIR}/panel.json"
+      updated_at: $ts,
+      server: {
+        ip: $ip,
+        eip: (if $eip=="" then null else $eip end),
+        version: $ver,
+        install_date: $inst,
+        cert_mode: $cm,
+        cert_domain: (if $cd=="" then null else $cd end),
+        cert_expire: (if $ce=="" then null else $ce end)
+      },
+      services: {
+        nginx: $nginx_st,
+        xray: $xray_st,
+        "sing-box": $singbox_st
+      },
+      subscription: { plain: $sub_p, base64: $sub_b, b64_lines: $sub_l }
+    }' > "${TRAFFIC_DIR}/dashboard.json"
 
-  [[ -s "$SUB_CACHE" ]] && cp -f "$SUB_CACHE" /var/www/html/sub 2>/dev/null || true
-  log_info "dashboard.json 已更新 -> ${TRAFFIC_DIR}/dashboard.json"
+  chmod 0644 "${TRAFFIC_DIR}/dashboard.json" "${TRAFFIC_DIR}/system.json" 2>/dev/null || true
+  log_info "dashboard.json 已更新"
 }
 
 schedule_dashboard_jobs(){
-  ( crontab -l 2>/dev/null | grep -vE '/(dashboard-backend\.sh|generate_dashboard_data|update-dashboard)\b' ) | crontab - || true
+  ( crontab -l 2>/dev/null | grep -vE '/dashboard-backend\.sh\b' ) | crontab - || true
   ( crontab -l 2>/dev/null; echo "*/2 * * * * bash -lc '/etc/edgebox/scripts/dashboard-backend.sh --now >/dev/null 2>&1'"; ) | crontab -
   log_info "已写入 cron：*/2 分钟刷新一次 dashboard"
 }
 
 case "${1:-}" in
   --now|--once|update) generate_dashboard_data ;;
-  --schedule)          schedule_dashboard_jobs ;;
-  --install)           generate_dashboard_data; schedule_dashboard_jobs ;;
-  *)                   generate_dashboard_data ;;
+  --schedule|--install) schedule_dashboard_jobs ;;
+  *) generate_dashboard_data ;;
 esac
 EOF
 
   chmod +x /etc/edgebox/scripts/dashboard-backend.sh
-
-  # 手动刷新命令
-  cat >/usr/local/bin/update-dashboard <<'EOF'
-#!/usr/bin/env bash
-exec /etc/edgebox/scripts/dashboard-backend.sh --now
-EOF
-  chmod +x /usr/local/bin/update-dashboard
+  log_success "dashboard-backend.sh 已写入并可执行"
 }
-# === /EdgeBox：安装 Dashboard 后端（含定时任务） ===
 
 #############################################
 # 模块3：高级运维功能安装
@@ -1326,8 +1299,8 @@ if [[ -s "${SHUNT_DIR}/whitelist.txt" ]]; then
 fi
 
 # --- 协议配置（检测监听端口/进程，做成一览表） ---
-# 目标：符合 README 的“左侧 70% 协议配置卡片”，至少给出协议名/端口/进程与说明【协议清单见 README】。
-# 数据来源：ss/ps 检测（健壮且不依赖具体实现），缺少时标注“未监听/未配置”。
+# 目标：符合 README 的"左侧 70% 协议配置卡片"，至少给出协议名/端口/进程与说明【协议清单见 README】。
+# 数据来源：ss/ps 检测（健壮且不依赖具体实现），缺少时标注"未监听/未配置"。
 SS="$(ss -H -lnptu 2>/dev/null || true)"
 add_proto() {  # name proto port proc note
   local name="$1" proto="$2" port="$3" proc="$4" note="$5"
@@ -1367,6 +1340,45 @@ fi
 # 汇总为 JSON 数组
 protocols_json="$(jq -s '.' <<<"${protos[*]:-[]}")"
 
+# --- 订阅数据获取（修复数据获取问题） ---
+sub_plain=""
+sub_b64=""
+sub_b64_lines=""
+
+# 优先从权威订阅文件读取
+if [[ -s "${CONFIG_DIR}/subscription.txt" ]]; then
+  sub_plain="$(cat "${CONFIG_DIR}/subscription.txt")"
+elif [[ -s "/var/www/html/sub" ]]; then
+  sub_plain="$(cat "/var/www/html/sub")"
+elif [[ -s "${TRAFFIC_DIR}/sub.txt" ]]; then
+  sub_plain="$(cat "${TRAFFIC_DIR}/sub.txt")"
+fi
+
+# 生成 base64 编码
+if [[ -n "$sub_plain" ]]; then
+  if base64 --help 2>&1 | grep -q -- ' -w'; then
+    sub_b64="$(printf '%s\n' "$sub_plain" | base64 -w0)"
+  else
+    sub_b64="$(printf '%s\n' "$sub_plain" | base64 | tr -d '\n')"
+  fi
+  
+  # 生成逐行 base64
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    if base64 --help 2>&1 | grep -q -- ' -w'; then
+      printf '%s' "$line" | sed -e '$a\' | base64 -w0
+    else
+      printf '%s' "$line" | sed -e '$a\' | base64 | tr -d '\n'
+    fi
+    printf '\n'
+  done <<<"$sub_plain" > "${TRAFFIC_DIR}/subscription.b64lines"
+  sub_b64_lines="$(cat "${TRAFFIC_DIR}/subscription.b64lines" 2>/dev/null || true)"
+  
+  # 确保订阅文件同步
+  [[ ! -s "${TRAFFIC_DIR}/sub.txt" ]] && printf '%s\n' "$sub_plain" > "${TRAFFIC_DIR}/sub.txt"
+  [[ ! -s "/var/www/html/sub" ]] && printf '%s\n' "$sub_plain" > "/var/www/html/sub"
+fi
+
 # --- 写 panel.json ---
 jq -n \
  --arg updated "$(date -Is)" \
@@ -1380,6 +1392,9 @@ jq -n \
  --arg mode "$mode" \
  --arg proxy "$proxy" \
  --arg health "$health" \
+ --arg sub_plain "$sub_plain" \
+ --arg sub_b64 "$sub_b64" \
+ --arg sub_b64_lines "$sub_b64_lines" \
  --argjson whitelist "$whitelist_json" \
  --argjson protocols "$protocols_json" \
  '{
@@ -1387,16 +1402,18 @@ jq -n \
    server:{ip:$ip,eip:($eip|select(length>0)),version:$version,install_date:$install_date,
            cert_mode:$cert_mode,cert_domain:($cert_domain|select(length>0)),cert_expire:($cert_expire|select(length>0))},
    protocols:$protocols,
-   shunt:{mode:$mode,proxy_info:$proxy,health:$health,whitelist:$whitelist}
+   shunt:{mode:$mode,proxy_info:$proxy,health:$health,whitelist:$whitelist},
+   subscription:{plain:$sub_plain,base64:$sub_b64,b64_lines:$sub_b64_lines}
  }'> "${TRAFFIC_DIR}/panel.json"
 
-# 让前端(仅面板)读取一份“影子配置”，避免再去解析 /sub
+# 让前端(仅面板)读取一份"影子配置"，避免再去解析 /sub
 cp -f "/etc/edgebox/config/server.json" "${TRAFFIC_DIR}/server.shadow.json" 2>/dev/null || true
 
 # 写订阅复制链接
 proto="http"; addr="$server_ip"
 if [[ "$cert_mode" == "letsencrypt" && -n "$cert_domain" ]]; then proto="https"; addr="$cert_domain"; fi
-echo "${proto}://${addr}/sub" > "${TRAFFIC_DIR}/sub.txt"
+[[ -s "${TRAFFIC_DIR}/sub.txt" ]] || cp -f /var/www/html/sub "${TRAFFIC_DIR}/sub.txt"
+echo "${proto}://${addr}/sub" > "${TRAFFIC_DIR}/sub.link"
 PANEL
 chmod +x "${SCRIPTS_DIR}/panel-refresh.sh"
 
@@ -2417,7 +2434,7 @@ document.addEventListener('click', function(e) {
   }
 });
 
-// 读取服务器配置
+// 读取服务器配置（修复数据获取）
 async function readServerConfig() {
   try {
     const r = await fetch('/traffic/server.shadow.json', { cache: 'no-store' });
@@ -2454,7 +2471,7 @@ async function readServerConfig() {
   } catch (_) { return {}; }
 }
 
-// 更新本月进度条
+// 更新本月进度条（确保从后台动态获取）
 async function updateProgressBar() {
   try {
     const [trafficRes, alertRes] = await Promise.all([
@@ -2486,13 +2503,12 @@ async function updateProgressBar() {
   }
 }
 
-// 主数据加载函数
+// 主数据加载函数（修复数据获取逻辑）
 async function loadData() {
   console.log('开始加载数据...');
   
   try {
-    const [dashboard, panel, system, traffic, alerts, subTxt, serverJson] = await Promise.all([
-      getJSON('/traffic/dashboard.json').catch(() => null),
+    const [panel, system, traffic, alerts, subTxt, serverJson] = await Promise.all([
       getJSON('/traffic/panel.json').catch(() => null),
       getJSON('/traffic/system.json').catch(() => null),
       getJSON('/traffic/traffic.json').catch(() => null),
@@ -2501,31 +2517,32 @@ async function loadData() {
       readServerConfig()
     ]);
     window._subTxtForFallback = subTxt;
-    console.log('数据加载完成:', { dashboard: !!dashboard, panel: !!panel, system: !!system, traffic: !!traffic, alerts: alerts.length, serverJson: !!serverJson });
+    console.log('数据加载完成:', { panel: !!panel, system: !!system, traffic: !!traffic, alerts: alerts.length, serverJson: !!serverJson });
     
     // 保存服务器配置供协议详情使用
     window.serverConfig = serverJson || {};
 
     // 统一数据面向 UI
-    const model = dashboard ? {
-      updatedAt: dashboard.updated_at,
-      server: dashboard.server, cert: dashboard.cert,
-      system: dashboard.system, services: dashboard.services,
-      protocols: dashboard.protocols,
-	  shunt: panel?.shunt || {},
-      subscription: dashboard.subscription
-    } : {
-      updatedAt: panel?.updated_at || system?.updated_at,
-      server: panel?.server || {},
-      system: { cpu: system?.cpu ?? null, memory: system?.memory ?? null },
-      protocols: (panel?.protocols) || [],
-	  shunt: panel?.shunt || {},
-      subscription: {
-        plain: subTxt.trim(),
-        base64: btoa(unescape(encodeURIComponent(subTxt.trim()))),
-        b64_lines: subTxt.trim().split('\n').map(l => btoa(unescape(encodeURIComponent(l)))).join('\n')
-      }
-    };
+const panelHasSub = !!(panel && panel.subscription && panel.subscription.plain);
+const model = panelHasSub ? {
+  updatedAt: panel.updated_at,
+  server: panel.server, cert: panel.cert,
+  system: panel.system, services: panel.services,
+  protocols: panel.protocols,
+  shunt: panel?.shunt || {},
+  subscription: panel.subscription
+} : {
+  updatedAt: panel?.updated_at || system?.updated_at,
+  server: panel?.server || {},
+  system: { cpu: system?.cpu ?? null, memory: system?.memory ?? null },
+  protocols: (panel?.protocols) || [],
+  shunt: panel?.shunt || {},
+  subscription: {
+    plain: subTxt.trim(),
+    base64: btoa(unescape(encodeURIComponent(subTxt.trim()))),
+    b64_lines: subTxt.trim().split('\n').map(l => btoa(unescape(encodeURIComponent(l)))).join('\n')
+  }
+};
 
     // 渲染各个模块
     renderHeader(model);
@@ -2563,7 +2580,7 @@ function renderHeader(model) {
       ? new Date(s.cert_expire || c.expire).toLocaleDateString('zh-CN')
       : '无';
 
-// 到期日期：无值或无效 -> “无”
+// 到期日期：无值或无效 -> "无"
 const expStr  = (s.cert_expire || c.expire || '').trim();
 const expDate = expStr ? new Date(expStr) : null;
 document.getElementById('cert-exp').textContent =
@@ -2613,7 +2630,7 @@ function renderProtocols(model) {
       '<td>' + p.name + '</td>' +
       '<td>' + p.network + '</td>' +
       '<td>' + p.port + '</td>' +
-      '<td><span class="detail-link" onclick="showProtocolDetails(\'' + p.name + '\')">详情</span></td>' +
+      '<td><span class="detail-link" onclick="showProtocolDetails(\'' + p.name + '\')">详情>></span></td>' +
       '<td>' + p.disguise + '</td>' +
       '<td>' + p.scenario + '</td>' +
       '<td style="color:#10b981">✓ 运行</td>';
@@ -2879,11 +2896,10 @@ chmod 644 ${WEB_ROOT}/sub 2>/dev/null || true
 find ${TRAFFIC_DIR} -type f -exec chmod 644 {} \; 2>/dev/null || true
 
 # 设置定时任务
-# 设置定时任务
 setup_cron_jobs() {
   log_info "配置定时任务..."
 
-  # 1) 写入/覆盖 预警配置
+  # 预警配置
 cat > /etc/edgebox/traffic/alert.conf <<'CONF'
 # 月度预算（GiB）
 ALERT_MONTHLY_GIB=100
@@ -2896,7 +2912,6 @@ ALERT_TG_CHAT_ID=
 ALERT_DISCORD_WEBHOOK=
 
 # 微信（个人可用的 PushPlus 转发）
-# https://www.pushplus.plus/ 里获取 token
 ALERT_PUSHPLUS_TOKEN=
 
 # （可选）通用 Webhook（HTTPS 443），FORMAT=raw|slack|discord
@@ -2907,94 +2922,7 @@ ALERT_WEBHOOK_FORMAT=raw
 ALERT_STEPS=30,60,90
 CONF
 
-  # 2) 写入/覆盖 预警脚本（按当月 total 达到阈值去重告警）
-cat > /etc/edgebox/scripts/traffic-alert.sh <<'ALERT'
-#!/bin/bash
-set -euo pipefail
-TRAFFIC_DIR="/etc/edgebox/traffic"
-LOG_DIR="$TRAFFIC_DIR/logs"
-CONF="$TRAFFIC_DIR/alert.conf"
-STATE="$TRAFFIC_DIR/alert.state"
-LOG="/var/log/edgebox-traffic-alert.log"
-ALERTS_JSON="$TRAFFIC_DIR/alerts.json"   # 面板“通知中心”读取
-
-[[ -r "$CONF" ]] || { echo "[$(date -Is)] no alert.conf" >> "$LOG"; exit 0; }
-# shellcheck source=/dev/null
-. "$CONF"
-
-month="$(date +%Y-%m)"
-row="$(grep "^${month}," "$LOG_DIR/monthly.csv" 2>/dev/null || true)"
-[[ -z "$row" ]] && { echo "[$(date -Is)] monthly.csv no row for ${month}" >> "$LOG"; exit 0; }
-
-# CSV: month,vps,resi,total,tx,rx
-IFS=',' read -r _ vps resi total tx rx <<<"$row"
-budget_bytes=$(( ${ALERT_MONTHLY_GIB:-100} * 1024 * 1024 * 1024 ))
-used=$total
-pct=$(( budget_bytes>0 ? used * 100 / budget_bytes : 0 ))
-
-sent=""; [[ -f "$STATE" ]] && sent="$(cat "$STATE")"
-
-# 写本地通知（保留50条，最新在前）
-persist_local() {
-  local msg="$1" ts="$(date -Is)"
-  local cur; cur="$(cat "$ALERTS_JSON" 2>/dev/null || echo '[]')"
-  printf '%s' "$cur" | jq --arg ts "$ts" --arg m "$msg" \
-    '([{"ts":$ts,"msg":$m}] + .) | .[:50]' > "${ALERTS_JSON}.tmp" && mv "${ALERTS_JSON}.tmp" "$ALERTS_JSON"
-}
-
-# 并发广播：配置了哪个就发哪个；失败不影响其它
-notify() {
-  local msg="$1"
-  echo "[$(date -Is)] $msg" | tee -a "$LOG" >/dev/null
-  persist_local "$msg"
-
-  # Telegram
-  if [[ -n "${ALERT_TG_BOT_TOKEN:-}" && -n "${ALERT_TG_CHAT_ID:-}" ]]; then
-    curl -m 8 -sS "https://api.telegram.org/bot${ALERT_TG_BOT_TOKEN}/sendMessage" \
-      -d "chat_id=${ALERT_TG_CHAT_ID}" -d "text=${msg}" >/dev/null 2>&1 || true
-  fi
-
-  # Discord
-  if [[ -n "${ALERT_DISCORD_WEBHOOK:-}" ]]; then
-    curl -m 8 -sS -H 'Content-Type: application/json' -X POST \
-      -d "$(jq -n --arg t "$msg" '{content:$t}')" \
-      "$ALERT_DISCORD_WEBHOOK" >/dev/null 2>&1 || true
-  fi
-
-  # 微信 PushPlus
-  if [[ -n "${ALERT_PUSHPLUS_TOKEN:-}" ]]; then
-    curl -m 8 -sS -H 'Content-Type: application/json' -X POST \
-      -d "$(jq -n --arg tk "$ALERT_PUSHPLUS_TOKEN" --arg t "EdgeBox 预警" --arg c "$msg" \
-            '{token:$tk,title:$t,content:$c}')" \
-      "https://www.pushplus.plus/send" >/dev/null 2>&1 || true
-  fi
-
-  # 通用 Webhook
-  if [[ -n "${ALERT_WEBHOOK:-}" ]]; then
-    case "${ALERT_WEBHOOK_FORMAT:-raw}" in
-      discord) body="$(jq -n --arg t "$msg" '{content:$t}')" ;;
-      slack)   body="$(jq -n --arg t "$msg" '{text:$t}')" ;;
-      *)       body="$(jq -n --arg t "$msg" '{text:$t}')" ;;
-    esac
-    curl -m 8 -sS -H 'Content-Type: application/json' -X POST \
-      -d "$body" "$ALERT_WEBHOOK" >/dev/null 2>&1 || true
-  fi
-}
-
-# 阈值触发（去重）
-new_sent="$sent"
-IFS=',' read -ra STEPS <<<"${ALERT_STEPS:-30,60,90}"
-for s in "${STEPS[@]}"; do
-  if [[ "$pct" -ge "$s" ]] && ! grep -q "(^|,)$s(,|$)" <<<",$sent,"; then
-    human_used="$(awk -v b="$used" 'BEGIN{printf "%.2f GiB", b/1024/1024/1024}')"
-    human_budget="$(awk -v b="$budget_bytes" 'BEGIN{printf "%.0f GiB", b/1024/1024/1024}')"
-    notify "本月用量 ${human_used}（${pct}% / 预算 ${human_budget}），触达 ${s}% 阈值。"
-    new_sent="${new_sent:+${new_sent},}${s}"
-  fi
-done
-echo "$new_sent" > "$STATE"
-ALERT
-chmod +x /etc/edgebox/scripts/traffic-alert.sh
+  # 预警脚本已在 setup_traffic_monitoring 中创建
 
   # 仅保留采集与预警；面板刷新由 dashboard-backend 统一维护
   ( crontab -l 2>/dev/null | grep -vE '/etc/edgebox/scripts/(traffic-collector\.sh|traffic-alert\.sh)\b' ) | crontab - || true
@@ -3002,6 +2930,7 @@ chmod +x /etc/edgebox/scripts/traffic-alert.sh
     echo "0 * * * * /etc/edgebox/scripts/traffic-collector.sh"; \
     echo "7 * * * * /etc/edgebox/scripts/traffic-alert.sh" \
   ) | crontab -
+  
   # 确保面板刷新任务存在
   /etc/edgebox/scripts/dashboard-backend.sh --schedule
 
@@ -4634,22 +4563,25 @@ main() {
     configure_firewall
     optimize_system
     generate_self_signed_cert
-    install_sing_box
     install_xray
+    install_sing_box
     generate_reality_keys
     configure_nginx
     configure_xray
     configure_sing_box
     save_config_info
-    start_services
-    generate_subscription
     
-    # 高级功能安装（模块3）
+    # 高级功能安装（模块3）- 先安装后台脚本
+    install_scheduled_dashboard_backend
     setup_traffic_monitoring
     setup_cron_jobs
     setup_email_system
-	create_enhanced_edgeboxctl
+    create_enhanced_edgeboxctl
     create_init_script
+    
+    # 生成订阅并启动服务
+    generate_subscription
+    start_services
 
     # 启动初始化服务
     systemctl start edgebox-init.service >/dev/null 2>&1 || true
@@ -4657,26 +4589,12 @@ main() {
     # 等待服务稳定
     sleep 3
     
-    # 生成初始图表和首页
-    if [[ -x "${SCRIPTS_DIR}/generate-charts.py" ]]; then
-        log_info "生成初始控制面板..."
-        "${SCRIPTS_DIR}/generate-charts.py" >/dev/null 2>&1 || log_warn "图表生成失败，请稍后访问控制面板"
-    fi
+    # 运行一次数据初始化
+    ${SCRIPTS_DIR}/system-stats.sh  || true
+    ${SCRIPTS_DIR}/traffic-collector.sh || true
+    ${SCRIPTS_DIR}/panel-refresh.sh || true
     
-    # 运行一次流量采集初始化
-    if [[ -x "${SCRIPTS_DIR}/traffic-collector.sh" ]]; then
-        "${SCRIPTS_DIR}/traffic-collector.sh" >/dev/null 2>&1 || true
-    fi
-
-# 先产出最不依赖其它的 system.json
-${SCRIPTS_DIR}/system-stats.sh  || true
-# 再产出 traffic.json（daily/monthly）
-${SCRIPTS_DIR}/traffic-collector.sh || true
-# 最后产出 panel.json（会读取 shunt 与证书状态）
-${SCRIPTS_DIR}/panel-refresh.sh || true
-
-
-	# 在安装收尾输出总结信息（原来没调用）
+    # 显示安装信息
     show_installation_info
 }
 
