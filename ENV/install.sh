@@ -5731,44 +5731,41 @@ dialog[open],
   background:#fff !important;
 }
 
+/* ===== 查看详情弹窗分隔线和左对齐 ===== */
 
-/* —— 查看详情（#ipqModal）安全左对齐，仅作用当前弹窗 —— */
-
-/* 1) 弹窗主体块左对齐 */
-#ipqModal .modal-body {
-  text-align: left !important;
+/* ===仅限 #ipqModal，避免污染全局 .info-item======= */
+#ipqModal .info-item{
+  display: grid;                   /* 用 grid 管控两列 */
+  grid-template-columns: 144px 1fr;/* 左列固定宽度，右列自适应，与现有 kv-row 一致 */
+  gap: 12px;
+  align-items: start;
+  justify-content: start;
+  text-align: left;                /* 兜底，确保文本左对齐 */
+}
+/* 标签列样式（更清晰） */
+#ipqModal .info-item label{
+  text-align: left;
+  font-weight: 600;
+  color: #6b7280;
+  margin: 0;
+}
+/* 值列换行策略，避免超长内容撑破 */
+#ipqModal .info-item value{
+  display: block;                  /* 自定义标签也作为网格项，块级更稳 */
+  text-align: left;
+  overflow-wrap: anywhere;         /* 优先换行其一即可 */
+  word-break: break-word;
 }
 
-/* 2) 常见文本元素跟随左对齐 */
-#ipqModal .modal-body h1,
-#ipqModal .modal-body h2,
-#ipqModal .modal-body h3,
-#ipqModal .modal-body h4,
-#ipqModal .modal-body h5,
-#ipqModal .modal-body h6,
-#ipqModal .modal-body p,
-#ipqModal .modal-body li,
-#ipqModal .modal-body dt,
-#ipqModal .modal-body dd,
-#ipqModal .modal-body th,
-#ipqModal .modal-body td {
-  text-align: left !important;
-}
-
-/* 3) 你面板里“键值对”区块（kv-*）进一步兜底 */
-#ipqModal .kv-key,
-#ipqModal .kv-value {
-  text-align: left !important;
-}
-
-/* 4) 如果弹窗里有需要保持居中的元素（比如二维码），单独保留居中。
-   （没有的话可删掉这段） */
-#ipqModal .qr-container,
-#ipqModal .qrcode,
-#ipqModal [data-role="qrcode"] {
-  text-align: center !important;
-  margin-left: auto !important;
-  margin-right: auto !important;
+/* 无 grid 的极老环境做兜底（基本用不到） */
+@supports not (display: grid){
+  #ipqModal .info-item{
+    display: flex;
+    justify-content: flex-start;   /* 覆写掉 space-between */
+    gap: 12px;
+  }
+  #ipqModal .info-item label{ min-width: 144px; }
+  #ipqModal .info-item value{ flex: 1; }
 }
 
 #detailModal .modal-section,
