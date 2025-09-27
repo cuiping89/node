@@ -5731,7 +5731,46 @@ dialog[open],
   background:#fff !important;
 }
 
-/* ===== 查看详情弹窗分隔线和左对齐 ===== */
+
+/* —— 查看详情（#ipqModal）安全左对齐，仅作用当前弹窗 —— */
+
+/* 1) 弹窗主体块左对齐 */
+#ipqModal .modal-body {
+  text-align: left !important;
+}
+
+/* 2) 常见文本元素跟随左对齐 */
+#ipqModal .modal-body h1,
+#ipqModal .modal-body h2,
+#ipqModal .modal-body h3,
+#ipqModal .modal-body h4,
+#ipqModal .modal-body h5,
+#ipqModal .modal-body h6,
+#ipqModal .modal-body p,
+#ipqModal .modal-body li,
+#ipqModal .modal-body dt,
+#ipqModal .modal-body dd,
+#ipqModal .modal-body th,
+#ipqModal .modal-body td {
+  text-align: left !important;
+}
+
+/* 3) 你面板里“键值对”区块（kv-*）进一步兜底 */
+#ipqModal .kv-key,
+#ipqModal .kv-value {
+  text-align: left !important;
+}
+
+/* 4) 如果弹窗里有需要保持居中的元素（比如二维码），单独保留居中。
+   （没有的话可删掉这段） */
+#ipqModal .qr-container,
+#ipqModal .qrcode,
+#ipqModal [data-role="qrcode"] {
+  text-align: center !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+}
+
 #detailModal .modal-section,
 #detailModal .detail-section,
 #ipqModal .ipq-section{
