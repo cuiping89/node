@@ -4758,6 +4758,21 @@ h4 {
   }
 }
 
+/* IP质量分数显示值颜色修复 */
+#vps-ipq-score,
+#proxy-ipq-score {
+  color: var(--content-color) !important;
+  font-size: var(--h4-size) !important;
+  font-weight: 500 !important;
+}
+
+.nid__value #vps-ipq-score,
+.nid__value #proxy-ipq-score {
+  color: var(--content-color) !important;
+  font-size: var(--h4-size) !important;
+  font-weight: 500 !important;
+}
+
 /* ======== 网络身份配置 - 白名单查看全部按钮专用CSS =========== */
 
 #net-shunt .whitelist-value,
