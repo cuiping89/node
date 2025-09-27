@@ -5788,8 +5788,9 @@ dialog[open],
 .kv-key{ 
   color:#6b7280; 
   font-size:13px; 
-  text-align:right; 
-  padding-right:8px; 
+  text-align:left !important;      /* 改为左对齐 */
+  padding-left:8px;                /* 改为左边距 */
+  padding-right:0;                 /* 移除右边距 */
   line-height:1.6; 
 }
 
@@ -7433,7 +7434,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 <div class="container">
   <div class="main-card">
         <div class="main-header">
-        <h1>🌐 EdgeBox - 企业级多协议节点管理系统 ⚡</h1>
+        <h1>🌐 EdgeBox - 企业级多协议节点管理系统 🌐</h1>
         <div class="notification-center">
             <button class="notification-trigger" id="notificationTrigger" data-action="toggle-notifications">
                 <span class="notification-icon">🔔</span>
