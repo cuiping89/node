@@ -6042,6 +6042,151 @@ dialog[open],
   }
 }
 
+/* =======================================================================
+   查看详情弹窗专门的左对齐样式（不影响其他弹窗）
+   ======================================================================= */
+
+/* ===== 恢复通用kv-key为右对齐（保持其他地方不变） ===== */
+.kv-key{ 
+  color:#6b7280; 
+  font-size:13px; 
+  text-align:right !important;     /* 恢复右对齐，保持其他地方不变 */
+  padding-right:8px;               /* 恢复右边距 */
+  line-height:1.6; 
+}
+
+/* ===== 查看详情弹窗分隔线样式 ===== */
+#detailModal .modal-section,
+#detailModal .detail-section,
+#ipqModal .ipq-section{
+  padding:20px 0;
+  border-bottom:1px solid #374151;
+}
+#detailModal .modal-section:first-child,
+#detailModal .detail-section:first-child,
+#ipqModal .ipq-section:first-child{ 
+  padding-top:0; 
+}
+#detailModal .modal-section:last-child,
+#detailModal .detail-section:last-child,
+#ipqModal .ipq-section:last-child{
+  padding-bottom:0; 
+  border-bottom:none;
+}
+
+/* ===== 专门针对查看详情弹窗的左对齐样式 ===== */
+
+/* 详情弹窗键名左对齐 */
+#detailModal .kv-key, 
+#ipqModal .kv-key { 
+  text-align:left !important; 
+  padding-right:0 !important;
+  padding-left:8px !important;
+}
+
+/* 详情弹窗键值左对齐 */
+#detailModal .kv-value,
+#ipqModal .kv-value { 
+  text-align:left !important; 
+}
+
+/* 详情弹窗内所有键值对行重新布局为左对齐 */
+#detailModal .kv-row,
+#ipqModal .kv-row {
+  display:grid; 
+  grid-template-columns:144px 1fr; 
+  gap:12px;
+  padding:8px 0; 
+  border-bottom:1px dashed #eef2f7;
+}
+
+#detailModal .kv-row:last-child,
+#ipqModal .kv-row:last-child { 
+  border-bottom:none; 
+}
+
+/* 详情弹窗内的所有文本内容左对齐 */
+#detailModal .modal-body,
+#ipqModal .modal-body {
+  text-align:left !important;
+}
+
+/* 详情弹窗内的所有段落和文本左对齐 */
+#detailModal .modal-body p,
+#detailModal .modal-body div,
+#detailModal .modal-body span,
+#ipqModal .modal-body p,
+#ipqModal .modal-body div,
+#ipqModal .modal-body span {
+  text-align:left !important;
+}
+
+/* 详情弹窗内的标题也左对齐 */
+#detailModal .modal-body h3,
+#detailModal .modal-body h4,
+#detailModal .modal-body h5,
+#ipqModal .modal-body h3,
+#ipqModal .modal-body h4,
+#ipqModal .modal-body h5 {
+  text-align:left !important;
+  margin-bottom:12px;
+}
+
+/* 确保二维码仍然居中显示 */
+#detailModal .qr-container,
+#detailModal .qrcode,
+#detailModal [data-role="qrcode"],
+#ipqModal .qr-container,
+#ipqModal .qrcode,
+#ipqModal [data-role="qrcode"] {
+  text-align:center !important;
+  margin: 16px auto !important;
+}
+
+#detailModal .qr-container canvas,
+#detailModal .qrcode canvas,
+#detailModal [data-role="qrcode"] canvas,
+#ipqModal .qr-container canvas,
+#ipqModal .qrcode canvas,
+#ipqModal [data-role="qrcode"] canvas {
+  margin:12px auto !important; 
+  display:block !important;
+}
+
+/* 响应式：移动端查看详情弹窗保持左对齐 */
+@media (max-width:768px){
+  #detailModal .kv-row,
+  #ipqModal .kv-row { 
+    grid-template-columns:1fr; 
+  }
+  
+  #detailModal .kv-key,
+  #ipqModal .kv-key { 
+    text-align:left !important; 
+    padding-left:8px !important;
+    padding-right:0 !important; 
+    margin-bottom:4px; 
+  }
+  
+  #detailModal .kv-value,
+  #ipqModal .kv-value {
+    text-align:left !important;
+  }
+}
+
+/* ===== 配置弹窗保持原样（不做左对齐） ===== */
+#configModal .modal-section,
+#configModal .config-section{ 
+  padding:16px 0; 
+  border-bottom:none; 
+}
+
+/* 配置弹窗的键值对保持右对齐（原有样式） */
+#configModal .kv-key {
+  text-align:right !important;
+  padding-right:8px !important;
+  padding-left:0 !important;
+}
 
 /* =======================================================================
  按钮（查看详情、查看全部、查看配置、查看订阅）：白底蓝字，hover 浅灰，active 灰底 
