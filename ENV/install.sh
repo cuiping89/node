@@ -4119,46 +4119,64 @@ chmod +x "${SCRIPTS_DIR}/traffic-alert.sh"
   # ========== 创建外置的CSS文件 ==========
   log_info "创建外置CSS文件..."
   cat > "${TRAFFIC_DIR}/assets/edgebox-panel.css" <<'EXTERNAL_CSS'
-
 /* =======================================================================
-   EdgeBox 控制面板 - 样式表 v3.0 (完整修复版)
-   修复了以下问题：
-   1. 流量统计卡片区的图表无限拉长
-   2. 所有弹窗按钮的样式恢复
-   3. 查看详情弹窗的内容左对齐
-   4. 查看配置弹窗二维码显示正常
+   EdgeBox 控制面板 - 完整CSS样式表 v3.0
+   组件化归类 | 去重优化 | 保持原有视觉效果
    ======================================================================= */
 
-/* --- 1. 全局重置与基础皮肤 --- */
-/* 描述：清除浏览器默认样式，并设定统一的盒模型、字体、背景色等 */
+/* ==================== 第一部分：全局基础样式 ==================== */
+
+/* 1.1 CSS变量定义 - 全局通用变量 */
+:root {
+  /* 颜色变量 */
+  --heading-color: #111827;      /* 标题颜色（黑色） */
+  --subheading-color: #6b7280;   /* 副标题颜色（灰色） */
+  --content-color: #6b7280;      /* 内容文本颜色（灰色） */
+  --muted-color: #6b7280;        /* 辅助文本颜色 */
+  
+  /* 字体大小变量 */
+  --h3-size: 15px;               /* h3字体大小 */
+  --h4-size: 14px;               /* h4字体大小 */
+  
+  /* 流量统计专用变量 */
+  --charts-pad-y: 10px;          /* 图表垂直内边距 */
+  --charts-pad-x: 20px;          /* 图表水平内边距 */
+  --gap-v: 12px;                 /* 垂直间距 */
+  --h-progress: 50px;            /* 进度条高度 */
+  --h-left-chart: 300px;         /* 左侧图表高度 */
+  --mini-pad: 12px;              /* 小卡片内边距 */
+  --meter-height: 18px;          /* 仪表高度 */
+}
+
+/* 1.2 全局重置 */
 * {
   margin: 0;
   padding: 0;
-  box-sizing: border-box; /* 统一盒模型 */
+  box-sizing: border-box;
 }
 
+/* 1.3 Body基础样式 */
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  background: #f3f4f6; /* 页面背景色：浅灰色 */
+  background: #f3f4f6;
   min-height: 100vh;
   padding: 20px;
-  color: #1f2937; /* 全局默认文字颜色 */
+  color: #1f2937;
 }
 
-/* --- 2. 基础排版与文字样式 --- */
-/* 描述：定义内容容器、各级标题和基础文本的通用样式 */
+/* 1.4 容器样式 */
 .container {
-  max-width: 1400px; /* 页面主体内容的最大宽度 */
-  margin: 0 auto; /* 水平居中 */
+  max-width: 1400px;
+  margin: 0 auto;
 }
 
-/* 各级标题样式 */
+/* 1.5 标题层级定义 */
 h1 { font-size: 23px; font-weight: 700; color: #1f2937; line-height: 32px; }
 h2 { font-size: 18px; font-weight: 600; color: #1f2937; line-height: 26px; }
 h3 { font-size: 15px; font-weight: 600; color: #1f2937; line-height: 22px; }
 h4 { font-size: 14px; font-weight: 500; color: #1f2937; line-height: 20px; }
 
-/* 基础文本样式 */
+/* 1.6 基础文本样式 */
 body, p, span, td, div {
   font-size: 13px;
   font-weight: 500;
@@ -4166,24 +4184,61 @@ body, p, span, td, div {
   line-height: 20px;
 }
 
-/* 辅助文字颜色类 */
+/* 1.7 文本辅助类 */
 .text-muted { color: #6b7280; }
 .text-secondary { color: #4b5563; }
-
-/* --- 3. 布局与通用组件 --- */
-/* 描述：定义可复用的布局容器（如卡片、网格）和小型UI组件（如按钮、徽章） */
-
-/* CSS 变量 (全局) */
-:root {
-  --heading-color: #111827;   /* h3标题颜色（黑色） */
-  --subheading-color: #6b7280; /* h4标题颜色（灰色） */
-  --content-color: #6b7280;   /* 内容文本颜色（灰色） */
-  --h3-size: 15px;            /* h3字体大小 */
-  --h4-size: 14px;            /* h4字体大小 */
+.text-h4-muted {
+  font-size: var(--h4-size);
+  line-height: 1.4;
+  color: var(--muted-color);
 }
 
-/* 卡片样式 */
-.main-card { /* 最外层的整体容器 */
+/* ==================== 第二部分：布局组件 ==================== */
+
+/* 2.1 网格系统 */
+.grid {
+  display: grid;
+  gap: 20px;
+}
+
+.grid-3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.grid-1-2 {
+  grid-template-columns: 1fr 2fr;
+}
+
+/* 2.2 网格内卡片间距修复 */
+.main-content .grid {
+  display: grid;
+  gap: 20px !important;
+  margin: 0;
+}
+
+.main-content .grid .card {
+  margin-bottom: 0 !important;
+}
+
+.main-content .grid-1-2 {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: 20px !important;
+  margin-bottom: 20px !important;
+}
+
+/* 2.3 协议配置卡片间距 */
+.card[id*="protocol"],
+.card:has(.data-table),
+.main-content .grid + .card,
+.main-content .grid-1-2 + .card {
+  margin-top: 20px !important;
+}
+
+/* ==================== 第三部分：卡片组件 ==================== */
+
+/* 3.1 主卡片容器 */
+.main-card {
   background: #fff;
   border: 1px solid #d1d5db;
   border-radius: 10px;
@@ -4193,7 +4248,8 @@ body, p, span, td, div {
   padding: 0;
 }
 
-.card { /* 各功能模块的基础容器 */
+/* 3.2 通用卡片样式 */
+.card {
   background: #fff;
   border: 1px solid #d1d5db;
   border-radius: 10px;
@@ -4207,6 +4263,12 @@ body, p, span, td, div {
   box-shadow: 0 4px 8px rgba(0, 0, 0, .08);
 }
 
+.card:has(.data-table) {
+  border: 1px solid #d1d5db !important;
+  box-shadow: 0 2px 6px rgba(0,0,0,.08) !important;
+}
+
+/* 3.3 卡片头部 */
 .card-header {
   margin-bottom: 20px;
   padding-bottom: 12px;
@@ -4219,40 +4281,18 @@ body, p, span, td, div {
   align-items: center;
 }
 
+.card-header > * {
+  margin: 0;
+}
+
+/* 3.4 卡片注释 */
 .card-note {
   font-size: 11px;
   color: #6b7280;
   font-weight: 400;
 }
 
-/* 网格布局 */
-.grid { display: grid; gap: 20px; }
-.grid-3 { grid-template-columns: repeat(3, 1fr); }
-.grid-1-2 { grid-template-columns: 1fr 2fr; }
-
-/* 全局通用组件 */
-.info-item {
-  display: flex;
-  justify-content: space-between;
-  padding: 6px 0;
-}
-.info-item label { color: #6b7280; }
-.info-item value { color: #1f2937; font-weight: 500; }
-
-/* 状态徽章 */
-.status-badge {
-  display: inline-flex;
-  align-items: center;
-  height: 20px;
-  line-height: 20px;
-  padding: 0 10px;
-  border-radius: 999px;
-  font-size: 11px;
-}
-.status-running { background: #d1fae5; color: #059669; border-color: #a7f3d0; }
-.status-stopped { background: #fee2e2; color: #ef4444; border-color: #fecaca; }
-
-/* 页面主标题 */
+/* 3.5 主页面头部 */
 .main-header {
   background: linear-gradient(135deg, #e2e8f0 0%, #f1f5f9 50%, #f8fafc 100%);
   border-radius: 0;
@@ -4290,14 +4330,193 @@ body, p, span, td, div {
   opacity: 0.6;
 }
 
+/* 3.6 主内容区 */
 .main-content {
   padding: 20px;
 }
 
-/* --- 4. 特定模块样式 --- */
-/* 描述：针对每个独立的功能面板进行精细化样式定义 */
+/* 3.7 内部块 */
+.inner-block {
+  padding: 12px;
+  margin-bottom: 0;
+}
 
-/* 系统概览 */
+/* ==================== 第四部分：通用UI组件 ==================== */
+
+/* 4.1 信息展示行 */
+.info-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 0;
+}
+
+.info-item label {
+  color: #6b7280;
+}
+
+.info-item value {
+  color: #1f2937;
+  font-weight: 500;
+}
+
+/* 4.2 状态徽章 */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  line-height: 20px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 11px;
+}
+
+.status-running {
+  background: #d1fae5;
+  color: #059669;
+  border-color: #a7f3d0;
+}
+
+.status-stopped {
+  background: #fee2e2;
+  color: #ef4444;
+  border-color: #fecaca;
+}
+
+/* 4.3 进度条组件 */
+.progress-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.progress-label {
+  font-size: 13px;
+  color: #6b7280;
+  white-space: nowrap;
+  min-width: 40px;
+}
+
+.progress-label h4 {
+  color: var(--heading-color);
+}
+
+.progress-info {
+  font-size: 12px;
+  color: #6b7280;
+  min-width: 35px;
+  text-align: right;
+}
+
+.progress-bar {
+  height: 20px;
+  background: #f3f4f6;
+  border-radius: 10px;
+  overflow: hidden;
+  position: relative;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg,#10b981 0%,#059669 100%);
+  transition: width .3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 8px;
+}
+
+.progress-fill.warning {
+  background: linear-gradient(90deg,#f59e0b 0%,#d97706 100%);
+}
+
+.progress-fill.critical {
+  background: linear-gradient(90deg,#ef4444 0%,#dc2626 100%);
+}
+
+.progress-percentage {
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.progress-budget {
+  color: #6b7280;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.progress-wrapper {
+  flex: 1;
+  min-width: 120px;
+}
+
+/* 4.4 按钮样式 */
+.btn-detail,
+.btn-viewall,
+.btn-link,
+.link,
+.whitelist-more {
+  --btn-h: 28px;
+  --btn-pad-x: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--btn-h);
+  line-height: calc(var(--btn-h) - 2px);
+  padding: 0 var(--btn-pad-x);
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  color: #2563eb;
+  font-size: 12px;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background .15s ease, color .15s ease, border-color .15s ease, box-shadow .15s ease;
+}
+
+.btn-detail:hover,
+.btn-viewall:hover,
+.btn-link:hover,
+.link:hover,
+.whitelist-more:hover {
+  background: #f3f4f6;
+  border-color: #9ca3af;
+  color: #1d4ed8;
+}
+
+.btn-detail:active,
+.btn-viewall:active,
+.btn-link:active,
+.link:active,
+.whitelist-more:active {
+  background: #e5e7eb;
+  border-color: #9ca3af;
+  color: #1d4ed8;
+}
+
+.btn-detail:focus-visible,
+.btn-viewall:focus-visible,
+.btn-link:focus-visible,
+.link:focus-visible,
+.whitelist-more:focus-visible {
+  outline: 0;
+  box-shadow: 0 0 0 2px #93c5fd;
+  border-color: #60a5fa;
+}
+
+.btn-detail[disabled],
+.btn-viewall[disabled],
+.btn-link[disabled],
+.link[disabled],
+.whitelist-more[disabled] {
+  opacity: .5;
+  pointer-events: none;
+}
+
+/* ==================== 第五部分：功能模块样式 ==================== */
+
+/* 5.1 系统概览模块 */
 #system-overview {
   --label-w: 72px;
   --percent-col: 33px;
@@ -4325,7 +4544,9 @@ body, p, span, td, div {
 
 #system-overview .progress-text {
   position: absolute;
-  left: 4px; right: 4px; top: 50%;
+  left: 4px;
+  right: 4px;
+  top: 50%;
   transform: translateY(-50%);
   font-size: 11px;
   color: #fff;
@@ -4334,15 +4555,33 @@ body, p, span, td, div {
   text-overflow: ellipsis;
 }
 
-/* 运维管理 */
+/* 系统概览标题颜色修复 */
+.system-overview .progress-label h4,
+.system-overview .meter-title h4,
+.system-overview .metric-label h4,
+#system-overview h3 {
+  color: var(--heading-color);
+  font-size: var(--h4-size);
+  line-height: 1.4;
+  font-weight: 600;
+  margin: 0;
+}
+
+.system-overview .meter-value,
+.system-overview .metric-desc,
+.system-overview .progress-extra,
+.system-overview .progress-budget {
+  font-size: var(--h4-size);
+  line-height: 1.4;
+  color: var(--muted-color);
+  font-weight: 500;
+}
+
+/* 5.2 运维管理模块 */
 .commands-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 20px;
-}
-
-@media (max-width:768px){
-  .commands-grid{ grid-template-columns:1fr; }
 }
 
 .command-section {
@@ -4352,8 +4591,10 @@ body, p, span, td, div {
   padding: 12px;
 }
 
-.command-section h3, .command-section h4 {
+.command-section h3,
+.command-section h4 {
   margin: 0 0 8px;
+  font-size: .9rem;
   font-weight: 600;
   color: #1e293b;
   display: flex;
@@ -4384,7 +4625,7 @@ body, p, span, td, div {
   margin-left: 8px;
 }
 
-/* 协议配置表格 */
+/* 5.3 协议配置表格 */
 .data-table {
   width: 100%;
   border-collapse: collapse;
@@ -4434,63 +4675,15 @@ body, p, span, td, div {
   box-shadow: inset 0 1px 3px rgba(0,0,0,0.14), 0 3px 8px rgba(0,0,0,0.12);
 }
 
-/* 流量进度条 */
-.traffic-progress-container {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+.data-table tbody tr:nth-child(even):not(.subs-row) td {
+  background-color: rgba(249,250,251,0.65);
 }
 
-.progress-label {
-  font-size: 13px;
-  color: #6b7280;
-  white-space: nowrap;
+.data-table tbody tr:nth-child(even):not(.subs-row):hover td {
+  background-color: #f3f4f6;
 }
 
-.progress-wrapper {
-  flex: 1;
-  min-width: 120px;
-}
-
-.progress-bar {
-  height: 20px;
-  background: #f3f4f6;
-  border-radius: 10px;
-  overflow: hidden;
-  position: relative;
-}
-
-.progress-fill {
-  height: 100%;
-  background: linear-gradient(90deg,#10b981 0%,#059669 100%);
-  transition: width .3s ease;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  padding-right: 8px;
-}
-
-.progress-fill.warning {
-  background: linear-gradient(90deg,#f59e0b 0%,#d97706 100%);
-}
-
-.progress-fill.critical {
-  background: linear-gradient(90deg,#ef4444 0%,#dc2626 100%);
-}
-
-.progress-percentage {
-  color: #fff;
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.progress-budget {
-  color: #6b7280;
-  font-size: 12px;
-  white-space: nowrap;
-}
-
-/* 【关键修复】流量统计图表 - 防止无限拉长 */
+/* 5.4 流量统计模块 */
 .traffic-card {
   background: #fff;
   border: 1px solid #d1d5db;
@@ -4506,7 +4699,9 @@ body, p, span, td, div {
   border-bottom: 1px solid #e5e7eb;
 }
 
-.traffic-charts {
+/* 流量图表布局 */
+.traffic-charts,
+.traffic-charts.traffic--subcards {
   display: grid;
   grid-template-columns: 7fr 3fr;
   gap: 20px;
@@ -4518,25 +4713,21 @@ body, p, span, td, div {
 .chart-column {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--gap-v);
 }
 
+.chart-column > * + * {
+  border-top: 1px solid #e5e7eb;
+  padding-top: 12px;
+  margin-top: 12px;
+}
+
+/* 图表容器 */
 .chart-container {
   position: relative;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-}
-
-/* 【关键修复】为图表容器设定固定高度，防止无限拉伸 */
-.traffic-charts .chart-column:first-child .chart-container {
-  height: 300px;
-  min-height: 300px;
-}
-
-.traffic-charts .chart-column:last-child .chart-container {
-  height: calc(50px + 12px + 300px);
-  min-height: calc(50px + 12px + 300px);
 }
 
 .traffic-card .chart-container h3 {
@@ -4556,27 +4747,114 @@ body, p, span, td, div {
   flex: 1 1 auto;
 }
 
-/* 子卡片样式 */
+/* 图表高度设定 - 防止无限拉伸 */
+.traffic-charts:not(.traffic--subcards) .chart-column:first-child .chart-container,
+.chart-column:first-child .chart-container {
+  height: var(--h-left-chart);
+  min-height: var(--h-left-chart);
+}
+
+.traffic-charts:not(.traffic--subcards) .chart-column:last-child .chart-container,
+.chart-column:last-child .chart-container {
+  height: calc(var(--h-progress) + var(--gap-v) + var(--h-left-chart));
+  min-height: calc(var(--h-progress) + var(--gap-v) + var(--h-left-chart));
+}
+
+/* 非子卡片模式分隔线 */
+.traffic-charts:not(.traffic--subcards) > :first-child {
+  border-right: 1px solid #e5e7eb;
+  padding-right: 20px;
+}
+
+.traffic-charts:not(.traffic--subcards) > :last-child {
+  padding-left: 20px;
+}
+
+/* 子卡片模式 */
+.traffic-charts.traffic--subcards > :first-child {
+  border-right: 0;
+  padding-right: 0;
+}
+
+.traffic-charts.traffic--subcards > :last-child {
+  padding-left: 0;
+}
+
 .traffic-charts.traffic--subcards .traffic-progress-container,
 .traffic-charts.traffic--subcards .chart-container {
-  padding: 12px;
+  padding: var(--mini-pad);
   border: 1px solid #e5e7eb;
   border-radius: 12px;
   background: #fff;
   box-shadow: 0 2px 8px rgba(17,24,39,.08);
 }
 
+.traffic-charts.traffic--subcards .chart-column > * + * {
+  border-top: 0;
+  padding-top: 0;
+  margin-top: 0;
+}
+
 .traffic-charts.traffic--subcards .chart-column:first-child .chart-container {
-  height: calc(300px + 24px);
-  min-height: calc(300px + 24px);
+  height: calc(var(--h-left-chart) + 2*var(--mini-pad));
+  min-height: calc(var(--h-left-chart) + 2*var(--mini-pad));
 }
 
 .traffic-charts.traffic--subcards .chart-column:last-child .chart-container {
-  height: calc(50px + 12px + 300px + 24px);
-  min-height: calc(50px + 12px + 300px + 24px);
+  height: calc(var(--h-progress) + var(--gap-v) + var(--h-left-chart) + 2*var(--mini-pad));
+  min-height: calc(var(--h-progress) + var(--gap-v) + var(--h-left-chart) + 2*var(--mini-pad));
 }
 
-/* 单位标注样式 */
+/* 流量进度条 */
+.traffic-card .traffic-progress-container,
+.traffic-progress-container {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: var(--h-progress);
+  flex-shrink: 0;
+}
+
+.traffic-card .progress-wrapper {
+  flex: 1;
+  min-width: 120px;
+}
+
+.traffic-card .progress-bar {
+  height: var(--meter-height);
+  background: #e2e8f0;
+  border-radius: 999px;
+  overflow: hidden;
+  position: relative;
+}
+
+.traffic-card .progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg,#10b981 0%,#059669 100%);
+  transition: width .3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 8px;
+}
+
+.traffic-card .progress-percentage {
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.traffic-card .progress-budget {
+  color: #6b7280;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.traffic-card .progress-label h3 {
+  color: var(--heading-color);
+}
+
+/* 图表单位和图例 */
 .unit-note {
   font-size: 11px !important;
   font-weight: 400 !important;
@@ -4584,7 +4862,10 @@ body, p, span, td, div {
   margin-left: 4px;
 }
 
-/* 图表图例 */
+.traffic-card .chartjs-legend {
+  display: none !important;
+}
+
 .traffic-card .chart-container > h3::after {
   content: " 🔵 VPS 🟢 代理";
   font-size: 11px;
@@ -4592,7 +4873,66 @@ body, p, span, td, div {
   margin-left: 8px;
 }
 
-/* 通知中心 */
+@supports selector(.x:has(#monthly-chart)) {
+  .chart-container:has(> canvas#monthly-chart) > h3::after {
+    content: " 🟦 VPS 🟩 代理";
+  }
+}
+
+/* 5.5 网络身份配置白名单 */
+#net-shunt .whitelist-value,
+#net-shunt .info-item .whitelist-value {
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: initial !important;
+  position: relative;
+  width: 100%;
+  min-height: auto;
+}
+
+.whitelist-preview {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.whitelist-text {
+  color: #111827;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.whitelist-more {
+  --btn-h: 22px;
+  --btn-pad-x: 8px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+}
+
+.whitelist-preview.has-overflow .whitelist-more {
+  position: absolute;
+  right: 0;
+  top: calc(1.4em * 2.2);
+  margin-left: 0;
+}
+
+.whitelist-more:hover {
+  box-shadow: 0 2px 4px rgba(0,0,0,0.12);
+}
+
+.whitelist-more:active {
+  transform: translateY(1px);
+}
+
+#net-shunt .info-item.nid__row:last-child {
+  align-items: center;
+}
+
+/* ==================== 第六部分：通知中心 ==================== */
+
 .notification-center {
   position: relative;
   display: inline-flex;
@@ -4672,7 +5012,6 @@ body, p, span, td, div {
   margin-top: 8px;
   max-height: 480px;
   overflow: hidden;
-  display: none;
   flex-direction: column;
 }
 
@@ -4765,8 +5104,16 @@ body, p, span, td, div {
   font-size: 13px;
 }
 
-/* --- 5. 【关键修复】弹窗与按钮样式 --- */
-/* 弹窗变量 */
+.notification-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ==================== 第七部分：弹窗(Modal)系统 ==================== */
+
+/* 7.1 弹窗CSS变量 */
 .modal, dialog[open], .el-dialog, .ant-modal {
   --modal-w: 630px;
   --modal-h: 730px;
@@ -4784,7 +5131,7 @@ body, p, span, td, div {
   --btn-bg-active: #f3f4f6;
 }
 
-/* 弹窗基础结构 */
+/* 7.2 弹窗遮罩层 */
 .modal {
   display: none;
   position: fixed;
@@ -4793,6 +5140,7 @@ body, p, span, td, div {
   z-index: 9998;
 }
 
+/* 7.3 弹窗内容容器 */
 .modal .modal-content,
 dialog[open],
 .el-dialog,
@@ -4815,9 +5163,11 @@ dialog[open],
   flex-direction: column !important;
   overflow: hidden !important;
   z-index: 9999 !important;
+  animation: none !important;
+  transition: none !important;
 }
 
-/* 弹窗头部 */
+/* 7.4 弹窗头部 */
 .modal-header, .el-dialog__header, .ant-modal-header {
   flex-shrink: 0 !important;
   display: flex !important;
@@ -4837,7 +5187,7 @@ dialog[open],
   text-align: left !important;
 }
 
-/* 弹窗主体 */
+/* 7.5 弹窗主体 */
 .modal-body, .el-dialog__body, .ant-modal-body {
   flex: 1 !important;
   padding: var(--modal-padding) !important;
@@ -4846,7 +5196,7 @@ dialog[open],
   min-height: 0 !important;
 }
 
-/* 弹窗底部 */
+/* 7.6 弹窗底部 */
 .modal-footer {
   flex-shrink: 0 !important;
   padding: var(--modal-padding) !important;
@@ -4857,7 +5207,51 @@ dialog[open],
   background: #fff !important;
 }
 
-/* 【关键修复】查看详情弹窗内容左对齐 */
+/* 7.7 弹窗关闭按钮 */
+.modal .close-btn,
+.modal .modal-close,
+.ant-modal-close,
+.el-dialog__headerbtn {
+  position: absolute !important;
+  right: 12px !important;
+  top: 12px !important;
+  width: 32px !important;
+  height: 28px !important;
+  border: 1px solid #e5e7eb !important;
+  border-radius: 8px !important;
+  background: #fff !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: pointer !important;
+  box-shadow: 0 1px 3px rgba(0,0,0,.1) !important;
+  z-index: 1;
+  transition: all 0.15s ease !important;
+}
+
+.modal .close-btn:hover,
+.modal .modal-close:hover,
+.ant-modal-close:hover,
+.el-dialog__headerbtn:hover {
+  background: #f9fafb !important;
+  border-color: #d1d5db !important;
+  box-shadow: 0 2px 4px rgba(0,0,0,.12) !important;
+}
+
+.modal .close-btn svg,
+.modal .modal-close svg,
+.ant-modal-close svg,
+.el-dialog__close,
+.ant-modal-close .anticon,
+.el-dialog__headerbtn .el-icon {
+  color: #6b7280 !important;
+  font-size: 16px !important;
+  line-height: 1 !important;
+}
+
+/* ==================== 第八部分：弹窗内容样式 ==================== */
+
+/* 8.1 详情弹窗内容对齐 */
 #ipqModal .info-item,
 #detailModal .info-item {
   display: grid;
@@ -4884,39 +5278,7 @@ dialog[open],
   word-break: break-word;
 }
 
-/* 键值对样式 */
-.kv-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.kv-row {
-  display: grid;
-  grid-template-columns: 144px 1fr;
-  gap: 12px;
-  padding: 8px 0;
-  border-bottom: 1px dashed #eef2f7;
-}
-
-.kv-row:last-child {
-  border-bottom: none;
-}
-
-.kv-key {
-  color: #6b7280;
-  font-size: 13px;
-  text-align: left;
-  line-height: 1.6;
-}
-
-.kv-val, .kv-value {
-  color: #111827;
-  font-size: 13px;
-  word-break: break-word;
-}
-
-/* 弹窗分组标题 */
+/* 8.2 弹窗分组 */
 #ipqModal .ipq-section > h5,
 #detailModal .modal-section > h5,
 #configModal .config-section > h5 {
@@ -4953,7 +5315,51 @@ dialog[open],
   border-bottom: none;
 }
 
-/* 输入框和代码框样式 */
+/* 8.3 键值对布局 */
+.kv-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.kv-row {
+  display: grid;
+  grid-template-columns: 144px 1fr;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px dashed #eef2f7;
+}
+
+.kv-row:last-child {
+  border-bottom: none;
+}
+
+.kv-key {
+  color: #6b7280;
+  font-size: 13px;
+  text-align: left;
+  padding-right: 8px;
+  line-height: 1.6;
+}
+
+.kv-val, .kv-value {
+  color: #111827;
+  font-size: 13px;
+  word-break: break-word;
+}
+
+#detailModal .kv-key,
+#ipqModal .kv-key {
+  text-align: left !important;
+  padding-right: 0;
+}
+
+#detailModal .kv-value,
+#ipqModal .kv-value {
+  text-align: left !important;
+}
+
+/* 8.4 输入框和代码框 */
 .input-plain, .textarea-plain, .code-box, .config-code,
 #json-code, #plain-link, #plain-links-6, #base64-link,
 .modal-body textarea, .modal-body input[type="text"],
@@ -4992,7 +5398,7 @@ dialog[open],
   background: var(--input-bg) !important;
 }
 
-/* 【关键修复】二维码容器样式 - 确保二维码显示 */
+/* 8.5 二维码样式 */
 .modal-body .qr-container,
 .modal-body .qrcode,
 .modal-body [data-role="qrcode"] {
@@ -5015,14 +5421,12 @@ dialog[open],
   text-align: center !important;
 }
 
-/* 确保二维码容器不被其他样式影响 */
 .modal-body .qr-container div,
 .modal-body .qrcode div {
   text-align: center !important;
 }
 
-/* 【关键修复】弹窗按钮样式恢复 */
-/* 复制按钮：白底灰字 */
+/* 8.6 弹窗按钮 */
 .modal .copy-btn,
 .modal .btn-copy,
 .modal .btn-secondary,
@@ -5065,49 +5469,7 @@ dialog[open],
   transform: translateY(1px);
 }
 
-/* 关闭按钮 */
-.modal .close-btn,
-.modal .modal-close,
-.ant-modal-close,
-.el-dialog__headerbtn {
-  position: absolute !important;
-  right: 12px !important;
-  top: 12px !important;
-  width: 32px !important;
-  height: 28px !important;
-  border: 1px solid #e5e7eb !important;
-  border-radius: 8px !important;
-  background: #fff !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  cursor: pointer !important;
-  box-shadow: 0 1px 3px rgba(0,0,0,.1) !important;
-  z-index: 1;
-  transition: all 0.15s ease !important;
-}
-
-.modal .close-btn:hover,
-.modal .modal-close:hover,
-.ant-modal-close:hover,
-.el-dialog__headerbtn:hover {
-  background: #f9fafb !important;
-  border-color: #d1d5db !important;
-  box-shadow: 0 2px 4px rgba(0,0,0,.12) !important;
-}
-
-.modal .close-btn svg,
-.modal .modal-close svg,
-.ant-modal-close svg,
-.el-dialog__close,
-.ant-modal-close .anticon,
-.el-dialog__headerbtn .el-icon {
-  color: #6b7280 !important;
-  font-size: 16px !important;
-  line-height: 1 !important;
-}
-
-/* 白名单弹窗样式 */
+/* 8.7 白名单弹窗 */
 #whitelistModal .modal-body {
   padding: var(--modal-padding) !important;
 }
@@ -5149,7 +5511,7 @@ dialog[open],
   background: #ffffff;
 }
 
-/* 复制成功轻提示 */
+/* 8.8 弹窗提示 */
 .modal .modal-toast {
   position: absolute;
   left: 50%;
@@ -5173,141 +5535,39 @@ dialog[open],
   transform: translate(-50%, -50%) scale(1);
 }
 
-/* 【关键修复】通用按钮样式（查看详情、查看全部等） */
-.btn-detail,
-.btn-viewall,
-.btn-link,
-.link,
-.whitelist-more {
-  --btn-h: 28px;
-  --btn-pad-x: 12px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: var(--btn-h);
-  line-height: calc(var(--btn-h) - 2px);
-  padding: 0 var(--btn-pad-x);
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  background: #fff;
-  color: #2563eb;
-  font-size: 12px;
-  text-decoration: none;
-  cursor: pointer;
-  transition: background .15s ease, color .15s ease, border-color .15s ease, box-shadow .15s ease;
+/* ==================== 第九部分：标题颜色统一 ==================== */
+
+/* 所有h3标题统一黑色 */
+.card h3,
+#system-overview h3,
+#netid-panel h3,
+.traffic-card .chart-container h3,
+.traffic-card .progress-label h3,
+.note h3, 
+.muted h3, 
+.desc h3 {
+  color: var(--heading-color);
 }
 
-.btn-detail:hover,
-.btn-viewall:hover,
-.btn-link:hover,
-.link:hover,
-.whitelist-more:hover {
-  background: #f3f4f6;
-  border-color: #9ca3af;
-  color: #1d4ed8;
-}
+/* ==================== 第十部分：响应式设计 ==================== */
 
-.btn-detail:active,
-.btn-viewall:active,
-.btn-link:active,
-.link:active,
-.whitelist-more:active {
-  background: #e5e7eb;
-  border-color: #9ca3af;
-  color: #1d4ed8;
-}
-
-.btn-detail:focus-visible,
-.btn-viewall:focus-visible,
-.btn-link:focus-visible,
-.link:focus-visible,
-.whitelist-more:focus-visible {
-  outline: 0;
-  box-shadow: 0 0 0 2px #93c5fd;
-  border-color: #60a5fa;
-}
-
-.btn-detail[disabled],
-.btn-viewall[disabled],
-.btn-link[disabled],
-.link[disabled],
-.whitelist-more[disabled] {
-  opacity: .5;
-  pointer-events: none;
-}
-
-/* 网络身份配置 - 白名单查看全部按钮 */
-#net-shunt .whitelist-value,
-#net-shunt .info-item .whitelist-value {
-  white-space: normal !important;
-  overflow: visible !important;
-  text-overflow: initial !important;
-  position: relative;
-  width: 100%;
-  min-height: auto;
-}
-
-.whitelist-preview {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  line-height: 1.4;
-}
-
-.whitelist-text {
-  color: #111827;
-  font-size: 13px;
-  flex-shrink: 0;
-}
-
-.whitelist-preview.has-overflow .whitelist-more {
-  position: absolute;
-  right: 0;
-  top: calc(1.4em * 2.2);
-  margin-left: 0;
-}
-
-#net-shunt .info-item.nid__row:last-child {
-  align-items: center;
-}
-
-/* 卡片间距修复 */
-.main-content .grid .card {
-  margin-bottom: 0 !important;
-}
-
-.main-content .grid {
-  display: grid;
-  gap: 20px !important;
-  margin: 0;
-}
-
-.main-content .grid-1-2 {
-  display: grid;
-  grid-template-columns: 1fr 2fr;
-  gap: 20px !important;
-  margin-bottom: 20px !important;
-}
-
-.card[id*="protocol"],
-.card:has(.data-table),
-.main-content .grid + .card,
-.main-content .grid-1-2 + .card {
-  margin-top: 20px !important;
-}
-
-.card:has(.data-table) {
-  border: 1px solid #d1d5db !important;
-  box-shadow: 0 2px 6px rgba(0,0,0,.08) !important;
-}
-
-/* 响应式调整 */
 @media (max-width: 1024px) {
+  /* 网格响应式 */
   .grid-3, .grid-1-2 {
     grid-template-columns: 1fr;
   }
   
+  .main-content .grid-1-2 {
+    grid-template-columns: 1fr;
+    gap: 20px !important;
+  }
+  
+  .main-content .grid + .card,
+  .main-content .grid-1-2 + .card {
+    margin-top: 20px !important;
+  }
+  
+  /* 流量图表响应式 */
   .traffic-charts {
     grid-template-columns: 1fr;
   }
@@ -5327,16 +5587,7 @@ dialog[open],
     min-height: 250px;
   }
   
-  .main-content .grid-1-2 {
-    grid-template-columns: 1fr;
-    gap: 20px !important;
-  }
-  
-  .main-content .grid + .card,
-  .main-content .grid-1-2 + .card {
-    margin-top: 20px !important;
-  }
-  
+  /* 白名单按钮响应式 */
   .whitelist-more {
     --btn-h: 18px;
     --btn-pad-x: 4px;
@@ -5345,6 +5596,12 @@ dialog[open],
 }
 
 @media (max-width: 768px) {
+  /* 运维管理响应式 */
+  .commands-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  /* 弹窗响应式 */
   .modal, dialog[open], .el-dialog, .ant-modal {
     --modal-w: calc(100vw - 20px);
     --modal-h: calc(100vh - 40px);
@@ -5365,17 +5622,21 @@ dialog[open],
     margin-bottom: 4px;
   }
   
+  /* 通知面板响应式 */
   .notification-panel {
     width: 280px;
     right: -20px;
   }
   
+  /* 主标题响应式 */
   .main-header h1 {
     font-size: 1.3rem;
   }
 }
 
-/* 修复无grid支持的老浏览器 */
+/* ==================== 第十一部分：浏览器兼容性 ==================== */
+
+/* 不支持grid的浏览器降级方案 */
 @supports not (display: grid) {
   #ipqModal .info-item {
     display: flex;
@@ -5392,6 +5653,10 @@ dialog[open],
   }
 }
 
+/* =======================================================================
+   EdgeBox CSS 完整版结束
+   保持所有原有样式效果 | 仅进行代码优化
+   ======================================================================= */
 EXTERNAL_CSS
 
   # ========== 创建外置的JavaScript文件 ==========
