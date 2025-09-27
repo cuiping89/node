@@ -6385,7 +6385,7 @@ function renderCertificateAndNetwork() {
   document.getElementById('cert-self')?.classList.toggle('active', certMode === 'self-signed');
   document.getElementById('cert-ca')?.classList.toggle('active', certMode.startsWith('letsencrypt'));
   const certTypeEl = document.getElementById('cert-type');   if (certTypeEl) certTypeEl.textContent = certMode.startsWith('letsencrypt') ? "Let's Encrypt" : "自签名";
-  const domEl = document.getElementById('cert-domain');      if (domEl) domEl.textContent = safeGet(cert, 'domain', '(无)');
+  const domEl = document.getElementById('cert-domain');      if (domEl) domEl.textContent = safeGet(cert, 'domain', '-');
   const rnEl  = document.getElementById('cert-renewal');     if (rnEl)  rnEl.textContent  = certMode.startsWith('letsencrypt') ? '自动' : '手动';
 const exEl  = document.getElementById('cert-expiry');
 if (exEl) {
@@ -8024,6 +8024,37 @@ debug_ports(){
   echo "  TCP/10143 (Trojan内部): $(ss -tln | grep -q '127.0.0.1:10143 ' && echo '✓' || echo '✗')"
 }
 
+# 设置用户备注名
+set_user_alias() {
+    local new_alias="$1"
+    local config_file="/etc/edgebox/config/server.json"
+    
+    if [[ ! -f "$config_file" ]]; then
+        echo "错误: 配置文件不存在"
+        return 1
+    fi
+    
+    echo "设置备注: $new_alias"
+    
+    # 更新配置文件
+    local temp_file=$(mktemp)
+    if jq --arg alias "$new_alias" '.user_alias = $alias' "$config_file" > "$temp_file"; then
+        mv "$temp_file" "$config_file"
+        chmod 644 "$config_file"
+        echo "备注设置成功"
+        
+        # 更新面板数据
+        if [[ -f "/etc/edgebox/scripts/dashboard-backend.sh" ]]; then
+            /etc/edgebox/scripts/dashboard-backend.sh >/dev/null 2>&1
+            echo "面板数据已更新"
+        fi
+    else
+        rm -f "$temp_file"
+        echo "设置失败"
+        return 1
+    fi
+}
+
 #############################################
 # 证书管理
 #############################################
@@ -8745,6 +8776,16 @@ case "$1" in
   test) test_connection ;;
   debug-ports) debug_ports ;;
   
+  # 备注服务器名称
+   "alias")
+        if [[ -n "$2" ]]; then
+            set_user_alias "$2"
+        else
+            echo "用法: edgeboxctl alias \"备注内容\""
+            echo "当前备注: $(jq -r '.user_alias // "未设置"' /etc/edgebox/config/server.json 2>/dev/null || echo "未设置")"
+        fi
+        ;;
+		
   # 证书管理
   cert)
     case "$2" in
@@ -8844,6 +8885,7 @@ ${YELLOW}基础操作:${NC}
   edgeboxctl restart                             优雅重启核心服务（修改配置后使用）
   edgeboxctl test                                测试各协议连通性
   edgeboxctl debug-ports                         调试 80/443/2053 等端口占用
+  edgeboxctl alias "备注名称"                     备注和更新服务器名称
 
 ${YELLOW}证书管理:${NC}
   edgeboxctl cert status                         查看证书状态（类型/到期）
@@ -9572,11 +9614,11 @@ show_installation_info() {
     echo -e "  ${PURPLE}edgeboxctl shunt direct-resi '<代理URL>'${NC}  # 配置分流出站"
     echo -e "  ${PURPLE}edgeboxctl traffic show${NC}                   # 查看流量统计"
     echo -e "  ${PURPLE}edgeboxctl backup create${NC}                  # 手动备份"
-	echo -e "  ${PURPLE}edgeboxctl name <自定义名>${NC}                 # 服务器名备注"
+	echo -e "  ${PURPLE}edgeboxctl alias "自定义名称"${NC}               # 备注和更新服务器名称"
     echo -e "  ${PURPLE}edgeboxctl help${NC}                           # 查看完整帮助"
     echo -e "  ${CYAN}出站分流示例：${NC}"
     echo -e "  ${PURPLE}edgeboxctl shunt resi 'socks5://user:pass@proxy.example.com:1080'${NC}  # 代理全量出站"
-    echo -e "  ${PURPLE}edgeboxctl shunt direct-resi 'http://user:pass@proxy.example.com:8080'${NC} # 分流出站（白名单VPS直连，其他走代理）"
+    echo -e "  ${PURPLE}edgeboxctl '<代理URL>'${NC}                         # 分流出站（白名单VPS直连，其他走代理）"
     echo -e "  ${PURPLE}edgeboxctl shunt whitelist <add|remove|list>${NC}  # 白名单管理" 
     echo -e "  ${CYAN}流量预警配置：${NC}"
     echo -e "  ${PURPLE}edgeboxctl alert monthly 500${NC}                # 设置月度500GiB预算"
@@ -9735,7 +9777,6 @@ show_progress() {
 }
 
 # 主安装流程
-# 主安装流程 (v3 优化版)
 main() {
     trap cleanup EXIT
     
