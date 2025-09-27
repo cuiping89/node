@@ -6462,7 +6462,14 @@ if (exEl) {
       const j = await r.json();
       const geo = [j.country, j.city].filter(Boolean).join(' · ');
       setText('vps-geo', geo || '—');
-      setText('vps-ipq-score', (j.score != null) ? String(j.score) : (j.grade || '—'));
+      // VPS IP质量显示：分数 + 等级
+if (j.score != null && j.grade != null) {
+  setText('vps-ipq-score', `${j.score} (${j.grade})`);
+} else if (j.score != null) {
+  setText('vps-ipq-score', String(j.score));
+} else {
+  setText('vps-ipq-score', j.grade || '—');
+}
     }
   } catch (_) {}
 
@@ -6473,7 +6480,14 @@ if (exEl) {
       const j = await r.json();
       const geo = [j.country, j.city].filter(Boolean).join(' · ');
       setText('proxy-geo', geo || '—');
-      setText('proxy-ipq-score', (j.score != null) ? String(j.score) : (j.grade || '—'));
+      // 代理IP质量显示：分数 + 等级  
+if (j.score != null && j.grade != null) {
+  setText('proxy-ipq-score', `${j.score} (${j.grade})`);
+} else if (j.score != null) {
+  setText('proxy-ipq-score', String(j.score));
+} else {
+  setText('proxy-ipq-score', j.grade || '—');
+}
     }
   } catch (_) {}
 })();
@@ -7404,7 +7418,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 <div class="container">
   <div class="main-card">
         <div class="main-header">
-        <h1>🚀 EdgeBox - 企业级多协议节点管理系统 🚀</h1>
+        <h1>🌐 EdgeBox - 企业级多协议节点管理系统 ⚡</h1>
         <div class="notification-center">
             <button class="notification-trigger" id="notificationTrigger" data-action="toggle-notifications">
                 <span class="notification-icon">🔔</span>
@@ -9618,7 +9632,7 @@ show_installation_info() {
     echo -e "  ${PURPLE}edgeboxctl help${NC}                           # 查看完整帮助"
     echo -e "  ${CYAN}出站分流示例：${NC}"
     echo -e "  ${PURPLE}edgeboxctl shunt resi 'socks5://user:pass@proxy.example.com:1080'${NC}  # 代理全量出站"
-    echo -e "  ${PURPLE}edgeboxctl '<代理URL>'${NC}                         # 分流出站（白名单VPS直连，其他走代理）"
+    echo -e "  ${PURPLE}edgeboxctl '<代理URL>'${NC}                        # 分流出站（白名单VPS直连，其他走代理）"
     echo -e "  ${PURPLE}edgeboxctl shunt whitelist <add|remove|list>${NC}  # 白名单管理" 
     echo -e "  ${CYAN}流量预警配置：${NC}"
     echo -e "  ${PURPLE}edgeboxctl alert monthly 500${NC}                # 设置月度500GiB预算"
