@@ -4738,12 +4738,20 @@ body, p, span, td, div {
 
 /* ========== 12. 模态框组件 ========== */
 
+/* 模态框变量 */
 .modal,
 dialog[open],
 .el-dialog,
 .ant-modal {
   --modal-w: min(90vw, 600px);
   --modal-h: auto;
+  --modal-padding: 20px;
+  --section-border: #e5e7eb;
+  --btn-bg-default: #f8f9fa;
+  --btn-text-default: #374151;
+  --btn-bg-hover: #e5e7eb;
+  --btn-text-hover: #1f2937;
+  --btn-bg-active: #d1d5db;
   
   position: fixed;
   top: 0;
@@ -4768,6 +4776,7 @@ dialog[open],
   pointer-events: auto;
 }
 
+/* 模态框内容容器 */
 .modal-content,
 .el-dialog__wrapper,
 .ant-modal-content {
@@ -4780,6 +4789,8 @@ dialog[open],
   overflow-y: auto;
   transform: scale(0.9);
   transition: transform var(--transition);
+  display: flex;
+  flex-direction: column;
 }
 
 .modal.show .modal-content,
@@ -4789,16 +4800,260 @@ dialog[open] .modal-content,
   transform: scale(1);
 }
 
+/* 模态框头部 */
+.modal-header,
+.el-dialog__header,
+.ant-modal-header {
+  flex-shrink: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding: var(--modal-padding) !important;
+  border-bottom: 1px solid var(--section-border) !important;
+  background: var(--bg-white) !important;
+}
+
+/* 模态框标题 */
+.modal-title,
+.el-dialog__title,
+.ant-modal-title,
+#configModalTitle,
+#ipqModalTitle {
+  font-size: var(--h3-size) !important;
+  font-weight: 600 !important;
+  color: var(--heading-color) !important;
+  margin: 0 !important;
+  text-align: left !important;
+}
+
+/* 模态框主体 */
+.modal-body,
+.el-dialog__body,
+.ant-modal-body {
+  flex: 1 !important;
+  padding: var(--modal-padding) !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  min-height: 0 !important;
+}
+
+/* 模态框底部 */
+.modal-footer {
+  flex-shrink: 0 !important;
+  padding: var(--modal-padding) !important;
+  border-top: 1px solid var(--section-border) !important;
+  display: flex !important;
+  gap: var(--spacing-md) !important;
+  justify-content: flex-end !important;
+  background: var(--bg-white) !important;
+}
+
+/* 查看详情弹窗分隔线和左对齐 */
+#detailModal .modal-section,
+#detailModal .detail-section,
+#ipqModal .ipq-section {
+  padding: var(--spacing-xl) 0;
+  border-bottom: 1px solid #374151;
+}
+
+#detailModal .modal-section:first-child,
+#detailModal .detail-section:first-child,
+#ipqModal .ipq-section:first-child {
+  padding-top: 0;
+}
+
+#detailModal .modal-section:last-child,
+#detailModal .detail-section:last-child,
+#ipqModal .ipq-section:last-child {
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+#configModal .modal-section,
+#configModal .config-section {
+  padding: var(--spacing-lg) 0;
+  border-bottom: none;
+}
+
+/* 查看详情弹窗内容左对齐 */
+#detailModal .kv-key,
+#ipqModal .kv-key {
+  text-align: left !important;
+  padding-right: 0;
+}
+
+#detailModal .kv-value,
+#ipqModal .kv-value {
+  text-align: left !important;
+}
+
+/* 键值对列表 */
+.kv-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+/* 输入/代码框 */
+.input-plain,
+.textarea-plain,
+.code-box,
+.config-code,
+#json-code,
+#plain-link,
+#plain-links-6,
+#base64-link,
+.modal-body textarea,
+.modal-body input[type="text"],
+.modal-body pre,
+.modal-body code {
+  background: #f8f9fa !important;
+  border: 1px solid #e9ecef !important;
+  border-radius: var(--radius-md) !important;
+  padding: var(--spacing-md) !important;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace !important;
+  font-size: var(--small-size) !important;
+  line-height: 1.5 !important;
+  color: var(--text-primary) !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+  text-align: left !important;
+  word-break: break-all !important;
+}
+
+/* 模态框按钮样式 */
+.modal .copy-btn,
+.modal .btn-copy,
+.modal .btn-secondary,
+.modal [data-action="copy"],
+.modal [data-action="copy-qr"] {
+  background: var(--btn-bg-default) !important;
+  color: var(--btn-text-default) !important;
+  border: 1px solid #d1d5db !important;
+  border-radius: var(--radius-md) !important;
+  padding: var(--spacing-sm) var(--spacing-md) !important;
+  font-size: var(--small-size) !important;
+  cursor: pointer !important;
+  transition: all var(--transition) !important;
+}
+
+.modal .copy-btn:hover,
+.modal .btn-copy:hover,
+.modal .btn-secondary:hover,
+.modal [data-action="copy"]:hover,
+.modal [data-action="copy-qr"]:hover {
+  background: var(--btn-bg-hover) !important;
+  color: var(--btn-text-hover) !important;
+  border-color: #cbd5e1 !important;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.08) !important;
+}
+
+.modal .copy-btn:active,
+.modal .btn-copy:active,
+.modal .btn-secondary:active,
+.modal [data-action="copy"]:active,
+.modal [data-action="copy-qr"]:active {
+  background: var(--btn-bg-active) !important;
+  transform: translateY(1px);
+}
+
+/* 关闭按钮：外包圆角小方框 */
+.modal .close-btn,
+.modal .modal-close,
+.ant-modal-close,
+.el-dialog__headerbtn {
+  position: absolute !important;
+  right: var(--spacing-md) !important;
+  top: var(--spacing-md) !important;
+  width: 32px !important;
+  height: 28px !important;
+  border: 1px solid #e5e7eb !important;
+  border-radius: var(--radius-lg) !important;
+  background: var(--bg-white) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: pointer !important;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1) !important;
+  z-index: 1;
+  transition: all var(--transition) !important;
+}
+
+.modal .close-btn:hover,
+.modal .modal-close:hover,
+.ant-modal-close:hover,
+.el-dialog__headerbtn:hover {
+  background: #f9fafb !important;
+  border-color: var(--border-color) !important;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.12) !important;
+}
+
+.modal .close-btn svg,
+.modal .modal-close svg,
+.ant-modal-close svg,
+.el-dialog__close,
+.ant-modal-close .anticon,
+.el-dialog__headerbtn .el-icon {
+  color: var(--muted-color) !important;
+  font-size: var(--spacing-lg) !important;
+  line-height: 1 !important;
+}
+
+/* 白名单弹窗：加上行表格样式 */
+#whitelistModal .modal-body {
+  padding: var(--modal-padding) !important;
+}
+
+#whitelistList {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  background: var(--bg-light);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  border: 1px solid #e5e7eb;
+}
+
+.whitelist-item {
+  padding: var(--spacing-md) var(--spacing-lg);
+  background: var(--bg-white);
+  font-size: var(--body-size);
+  color: #374151;
+  word-break: break-all;
+  border-bottom: 1px solid var(--bg-light);
+  transition: background-color var(--transition);
+}
+
+.whitelist-item:hover {
+  background: #f8fafc;
+}
+
+.whitelist-item:last-child {
+  border-bottom: none;
+}
+
+/* 如果白名单为空的提示 */
+#whitelistList p {
+  padding: var(--spacing-xl);
+  text-align: center;
+  color: #9ca3af;
+  font-size: var(--h4-size);
+  margin: 0;
+  background: var(--bg-white);
+}
+
 /* Toast样式的模态框 */
 .modal .modal-toast {
-  position: fixed;
-  top: 50%;
+  position: absolute;
   left: 50%;
-  transform: translate(-50%, -50%) scale(0.8);
-  background: var(--bg-white);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
-  padding: var(--spacing-xl);
+  top: 50%;
+  transform: translate(-50%, -50%) scale(0.98);
+  background: rgba(17,24,39,0.92);
+  color: white;
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-radius: var(--spacing-md);
+  font-size: var(--small-size);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.2);
   opacity: 0;
   pointer-events: none;
   transition: all 0.18s;
