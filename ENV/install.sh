@@ -4119,297 +4119,418 @@ chmod +x "${SCRIPTS_DIR}/traffic-alert.sh"
   # ========== 创建外置的CSS文件 ==========
   log_info "创建外置CSS文件..."
   cat > "${TRAFFIC_DIR}/assets/edgebox-panel.css" <<'EXTERNAL_CSS'
-/* =======================================================================
-   EdgeBox 控制面板通用样式（edgebox-panel.css）
-   版本：3.0.0（基于安装脚本 2025-09-27T00:30:23 生成的前端CSS）
-   维护说明：
-   - 本文件仅做“注释与结构化整理”，未更改任何选择器、属性或值；视觉效果与布局保持完全一致。
-   - 重要提醒：请勿随意改动具有层叠覆盖关系的规则块（例如 .info-item、多处响应式覆写、#ipqModal 专用覆写等）。
-   - 如果需要功能性调整，请在不破坏原有层叠顺序和特定选择器权重的前提下，新增更高特异性的覆写规则。
-   作者注：为便于团队协作，增加了中文章节标题与关键规则“勿改”注释。
-======================================================================= */
+/* ==========================================================================
+   EdgeBox 控制面板 CSS（合并补全版）
+   说明：基于你上传的 b.sh 样式，对照原脚本补齐“流量统计图表、弹窗按钮、
+         详情弹窗对齐、配置弹窗二维码”等缺失规则；不改变布局/视觉/内容。
+   ========================================================================== */
 
-/* =======================================================================
-   EdgeBox 控制面板 · 组件化（ops-panel 无 id 也生效）
-   ======================================================================= */
+/* ============= 0) 全局变量（仅用于图表/进度等，保持与原稿一致） ============= */
+/* 这些变量用于等高口径与进度区的高度计算；数值来自原脚本 */
+:root {
+  --charts-pad-y: 10px;    /* 图表区域垂直内边距（如有） */
+  --charts-pad-x: 20px;    /* 图表区域水平内边距（如有） */
+  --gap-v: 12px;           /* 进度条与左侧图表之间的垂直间距 */
+  --h-progress: 50px;      /* “本月进度”模块的总高度 */
+  --h-left-chart: 300px;   /* 左侧“近30日”图表容器的固定高度 */
+  --mini-pad: 12px;        /* 子卡片模式(traffic--subcards)的额外 padding */
+  --meter-height: 18px;    /* 与系统概览中的仪表条一致 */
+  /* 以下按钮/输入框相关变量若你已在别处声明，会被同名值覆盖为一致外观 */
+  --btn-bg: #fff;
+  --btn-text: #374151;
+  --btn-border: #e5e7eb;
+  --btn-bg-hover: #f9fafb;
+  --btn-text-hover: #111827;
+  --btn-bg-active: #f3f4f6;
 
-/* ========== Reset / 基础皮肤 ========== */
-
-* { margin:0; padding:0; box-sizing:border-box; }
-
-body{
-  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
-  background:#f3f4f6; min-height:100vh; padding:20px; color:#1f2937;
+  --input-bg: #f7f8fa;
+  --code-bg: #f7f8fa;
+  --section-border: #e5e7eb;
 }
 
-.container{ max-width:1400px; margin:0 auto; }
+/* ============= 1) 表格（保留 b.sh 里已有的外观，不做视觉改动） ============= */
 
-h1{ font-size:23px; font-weight:700; color:#1f2937; line-height:32px; }
-/* ===== 文字样式统一：h3黑色大字，h4灰色中字，内容灰色中字 ===== */
-h3{ font-size:18px; font-weight:700; color:#111827; line-height:28px; }
-h4{ font-size:16px; font-weight:600; color:#4b5563; line-height:24px; }
-
-/* 统一小字说明 */
-.small-muted{ font-size:13px; color:#6b7280; }
-
-/* ========== 布局：头部 + 主卡片 ========== */
-.main-header{
-  display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:16px;
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid #6b7280;
+  border-radius: 8px;
+  overflow: hidden; /* 保证圆角边框效果 */
+  box-shadow: 0 6px 16px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.06); /* 增强立体感 */
 }
-.main-header h1{ flex:1; margin:0; }
+.data-table th {
+  background: #f5f5f5;
+  color: #4b5563;
+  padding: 8px 10px;
+  text-align: left;
+  font-size: 12px;
+  border-bottom: 1px solid #e5e7eb;
+}
+.data-table td {
+  padding: 7px 10px;
+  border-bottom: 1px solid #e5e7eb;
+  font-size: 12px;
+}
+.data-table tbody tr:hover td {
+  background: #f8f9fa;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+}
+.data-table tr.subs-row td { /* “整包协议”订阅行的特殊样式 */
+  background: #eef2f7;
+  border-top: 1px solid #cbd5e1;
+}
 
-/* 通知中心容器（右上角铃铛+下拉面板） */
-.notification-center{ position:relative; display:inline-block; margin-right:30px; }
+/* ===================== 2) 运维管理区（保持原效果） ===================== */
 
-/* 通知触发按钮 - 增强版 */
+.commands-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+.command-section {
+  background: #f5f5f5;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 12px;
+}
+.command-list code { /* 命令文本的灰色背景块 */
+  background: #e2e8f0;
+  color: #1f2937;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: .78rem;
+}
+.command-list span { /* 命令的中文注释 */
+  color: #6b7280;
+  margin-left: 8px;
+}
+
+/* ====================== 3) 流量统计卡片（关键补全） ====================== */
+/* 说明：
+   - 你的 b.sh 把 canvas 设为 height:100%，但父容器没有固定高度时会无限拉长；
+     在此按原脚本为左右两列的 .chart-container 明确固定高度，且等高口径。
+   - 移动端统一设置 250px 高度，避免图例/刻度被裁切。
+   - 同时保留“标题后的自定义图例”和“仅隐藏 Chart.js HTML 图例”的规则。
+*/
+
+/* 卡片外框：保持与其他卡片一致的内边距与边框（不改变外观） */
+.traffic-card {
+  background:#fff;
+  border:1px solid #d1d5db;
+  border-radius:10px;
+  box-shadow:0 2px 6px rgba(0,0,0,.08);
+  padding:20px;            /* ← 与原设计一致 */
+  overflow:hidden;
+}
+
+/* 两列网格：左 7fr / 右 3fr（你 b.sh 已有，保留） */
+.traffic-charts {
+  display: grid;
+  grid-template-columns: 7fr 3fr;
+  gap: 20px;
+  align-items: stretch;
+}
+
+/* 等高口径：非“子卡片模式”的左/右列图表容器固定高度 */
+.traffic-charts:not(.traffic--subcards) .chart-column:first-child .chart-container{
+  height: var(--h-left-chart);
+  min-height: var(--h-left-chart);
+}
+.traffic-charts:not(.traffic--subcards) .chart-column:last-child .chart-container{
+  height: calc(var(--h-progress) + var(--gap-v) + var(--h-left-chart));
+  min-height: calc(var(--h-progress) + var(--gap-v) + var(--h-left-chart));
+}
+
+/* 子卡片模式（如右侧拆分为进度+柱状的独立卡）：容器补上内边距差额 */
+.traffic-charts.traffic--subcards > :first-child{
+  border-right:0;
+  padding-right:0;
+}
+.traffic-charts.traffic--subcards > :last-child{
+  padding-left:0;
+}
+.traffic-charts.traffic--subcards .traffic-progress-container,
+.traffic-charts.traffic--subcards .chart-container{
+  padding:var(--mini-pad);
+  border:1px solid #e5e7eb;
+  border-radius:12px;
+  background:#fff;
+  box-shadow:0 2px 8px rgba(17,24,39,.08);
+}
+.traffic-charts.traffic--subcards .chart-column > * + *{
+  border-top:0;
+  padding-top:0;
+  margin-top:0;
+}
+.traffic-charts.traffic--subcards .chart-column:first-child .chart-container{
+  height: calc(var(--h-left-chart) + 2*var(--mini-pad));
+  min-height: calc(var(--h-left-chart) + 2*var(--mini-pad));
+}
+.traffic-charts.traffic--subcards .chart-column:last-child .chart-container{
+  height: calc(var(--h-progress) + var(--gap-v) + var(--h-left-chart) + 2*var(--mini-pad));
+  min-height: calc(var(--h-progress) + var(--gap-v) + var(--h-left-chart) + 2*var(--mini-pad));
+}
+
+/* Canvas：保持填满父容器（父容器已固定高，避免无限拉伸） */
+.chart-container canvas{
+  display:block;
+  width:100% !important;
+  height:100% !important;
+}
+
+/* 单位小字（GiB）样式 */
+.unit-note{
+  font-size:11px !important;
+  font-weight:400 !important;
+  color:#9ca3af !important;
+  margin-left:4px;
+}
+
+/* 隐藏 Chart.js 生成的 HTML 图例（不影响坐标轴刻度） */
+.traffic-card .chartjs-legend { display:none !important; }
+
+/* 标题后的默认自定义图例（折线“圆点”版） */
+.traffic-card .chart-container > h3::after{
+  content:" 🔵 VPS 🟢 代理";
+  font-size:11px;
+  color:#6b7280;
+  margin-left:8px;
+}
+
+/* “近12月柱状图”使用“方块”图例（精确到含 #monthly-chart 的容器） */
+@supports selector(.x:has(#monthly-chart)){
+  .chart-container:has(> canvas#monthly-chart) > h3::after{
+    content:" 🟦 VPS 🟩 代理";
+  }
+}
+
+/* 响应式：窄屏单列且统一固定 250px 高度，避免被裁切 */
+@media (max-width:1024px){
+  .traffic-charts{ grid-template-columns:1fr; }
+  .traffic-charts:not(.traffic--subcards) > :first-child{ border-right:0; padding-right:0; }
+  .traffic-charts:not(.traffic--subcards) > :last-child{  padding-left:0; }
+  .chart-column:first-child .chart-container,
+  .chart-column:last-child  .chart-container{
+    height:250px;
+    min-height:250px;
+  }
+}
+
+/* ======================== 4) 弹窗（关键补全） ========================= */
+/* 4.1 关闭按钮：白底+细边框的小方形，位置固定在右上角 */
+.modal .close-btn,
+.modal .modal-close,
+.ant-modal-close,
+.el-dialog__headerbtn{
+  position:absolute !important;
+  right:12px !important;
+  top:12px !important;
+  width:32px !important;
+  height:28px !important;
+  border:1px solid #e5e7eb !important;
+  border-radius:8px !important;
+  background:#fff !important;
+  display:flex !important;
+  align-items:center !important;
+  justify-content:center !important;
+  cursor:pointer !important;
+  box-shadow:0 1px 3px rgba(0,0,0,.1) !important;
+  z-index:1;
+  transition:all .15s ease !important;
+}
+.modal .close-btn:hover,
+.modal .modal-close:hover,
+.ant-modal-close:hover,
+.el-dialog__headerbtn:hover{
+  background:#f9fafb !important;
+  border-color:#d1d5db !important;
+  box-shadow:0 2px 4px rgba(0,0,0,.12) !important;
+}
+.modal .close-btn svg,
+.modal .modal-close svg,
+.ant-modal-close svg,
+.el-dialog__close,
+.ant-modal-close .anticon,
+.el-dialog__headerbtn .el-icon{
+  color:#6b7280 !important;
+  font-size:16px !important;
+  line-height:1 !important;
+}
+
+/* 4.2 复制/次要按钮：白底圆角灰字（保持原视觉） */
+.modal .copy-btn,
+.modal .btn-copy,
+.modal .btn-secondary,
+.modal [data-action="copy"],
+.modal [data-action="copy-qr"],
+.ant-modal .ant-btn[data-role="copy"],
+.el-dialog .el-button[data-role="copy"]{
+  appearance:none !important;
+  background:var(--btn-bg) !important;
+  color:var(--btn-text) !important;
+  border:1px solid var(--btn-border) !important;
+  border-radius:8px !important;
+  padding:8px 12px !important;
+  font-size:12px !important;
+  line-height:1.2 !important;
+  cursor:pointer !important;
+  box-shadow:0 1px 2px rgba(0,0,0,.04) !important;
+  transition:all .15s ease !important;
+}
+.modal .copy-btn:hover,
+.modal .btn-copy:hover,
+.modal .btn-secondary:hover,
+.modal [data-action="copy"]:hover,
+.modal [data-action="copy-qr"]:hover,
+.ant-modal .ant-btn[data-role="copy"]:hover,
+.el-dialog .el-button[data-role="copy"]:hover{
+  background:var(--btn-bg-hover) !important;
+  color:var(--btn-text-hover) !important;
+  border-color:#cbd5e1 !important;
+  box-shadow:0 2px 4px rgba(0,0,0,.08) !important;
+}
+.modal .copy-btn:active,
+.modal .btn-copy:active,
+.modal .btn-secondary:active,
+.modal [data-action="copy"]:active,
+.modal [data-action="copy-qr"]:active{
+  background:var(--btn-bg-active) !important;
+  transform: translateY(1px);
+}
+
+/* 4.3 输入框/代码框：白边圆角，等宽字体（与原一致） */
+.input-plain, .textarea-plain, .code-box, .config-code,
+#json-code, #plain-link, #plain-links-6, #base64-link,
+.modal-body textarea, .modal-body input[type="text"],
+.modal-body pre, .modal-body code,
+.modal-body .codebox pre, .modal-body .codebox code,
+.modal-body .jsonbox pre, .modal-body .jsonbox code,
+.modal-body .linkbox input, .modal-body .linkbox textarea{
+  background:var(--input-bg) !important;
+  border:1px solid var(--section-border) !important;
+  border-radius:8px !important;
+  padding:10px 12px !important;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace !important;
+  font-size:12px !important;
+  color:#333 !important;
+  width:100%;
+  box-sizing:border-box;
+  white-space:pre-wrap !important;
+  word-break:break-word !important;
+  line-height:1.5;
+}
+.code-box, .config-code{
+  background:var(--code-bg) !important;
+  max-height:200px;
+  overflow-y:auto;
+  position:relative;
+}
+.textarea-plain, .modal-body textarea{
+  min-height:100px;
+  resize:vertical;
+}
+.input-plain[readonly], .modal-body input[readonly]{
+  cursor:default;
+  background:var(--input-bg) !important;
+}
+
+/* 4.4 详情类弹窗（键值对）：左内容、右标签对齐（修复“未左对齐”） */
+.kv-key{
+  color:#6b7280;
+  font-size:13px;
+  text-align:right;
+  padding-right:8px;
+  line-height:1.6;
+}
+.kv-val, .kv-value{
+  color:#111827;
+  font-size:13px;
+  word-break:break-word;
+}
+/* 保险：详情弹窗正文区域强制左对齐文本 */
+#ipqModal .modal-body,
+#detailModal .modal-body{ text-align:left; }
+
+/* 4.5 二维码容器与画布：固定 180×180 居中（修复“二维码不见”） */
+.modal-body .qr-container,
+.modal-body .qrcode,
+.modal-body [data-role="qrcode"]{
+  text-align:center !important;
+  margin:16px auto !important;
+}
+.modal-body .qr-container canvas,
+.modal-body .qrcode canvas,
+.modal-body [data-role="qrcode"] canvas,
+#qrcode-sub canvas,
+#qrcode-protocol canvas{
+  width:180px !important;
+  height:180px !important;
+  aspect-ratio:1/1 !important;
+  display:block !important;
+  margin:12px auto !important;
+  image-rendering:pixelated;
+  float:none !important;            /* 移除任何潜在的左浮动 */
+  text-align:center !important;
+}
+/* 防止容器内层被继承成左对齐 */
+.modal-body .qr-container div,
+.modal-body .qrcode div{ text-align:center !important; }
+
+/* 4.6 白名单弹窗：内边距与其它弹窗一致 */
+#whitelistModal .modal-body{ padding:16px !important; }
+
+/* ===================== 5) 通知中心（保持原效果） ===================== */
+.notification-center{
+  position:relative;
+  display:inline-flex;
+  width:38px;
+  height:38px;
+}
 .notification-trigger{
-  position:relative; background:none; border:none; font-size:22px; cursor:pointer; padding:18px;
-  border-radius:8px; transition:all .3s ease; color:#6b7280;
+  width:100%;
+  height:100%;
+  cursor:pointer;
 }
-.notification-trigger:hover{ background:#f9fafb; color:#111827; }
-
-/* 红点（未读计数） */
 .notification-badge{
-  position:absolute; top:12px; right:10px; width:9px; height:9px; background:#ef4444; border-radius:50%; box-shadow:0 0 0 2px #fff;
+  position:absolute;
+  top:2px; right:2px;
+  background:#ef4444;
+  color:#fff;
+  border-radius:10px;
+  padding:1px 6px;
+  font-size:11px;
+  min-width:18px;
+  text-align:center;
+  animation:notification-pulse 2s infinite;
+}
+@keyframes notification-pulse{
+  0%,100%{ transform:scale(1); }
+  50%{ transform:scale(1.1); }
 }
 
-/* 通知面板：默认隐藏，show 类控制显示 */
-.notification-panel{
-  position:absolute; right:0; top:56px; width:420px; max-height:70vh; overflow:auto; background:#fff;
-  border:1px solid #e5e7eb; border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,.12); padding:14px; display:none; z-index:50;
+/* ===================== 6) 其它间距兜底（与原保持一致） ===================== */
+/* 保证协议配置卡片与前面网格区块之间有一致的间距 */
+#protocol-panel,
+#protocols-panel,
+.protocol-card{
+  margin-top:20px !important;
+  margin-bottom:20px !important;
 }
-.notification-panel.show{ display:block; }
-
-.notification-header{ display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
-.notification-title{ font-size:16px; font-weight:600; color:#111827; }
-.notification-actions{ display:flex; gap:8px; }
-.notification-actions button{
-  background:#f3f4f6; border:1px solid #e5e7eb; border-radius:6px; padding:6px 10px; font-size:12px; color:#374151; cursor:pointer;
+.main-content > .card:not(.grid .card){ margin-bottom:20px !important; }
+.main-content > .card:not(.grid .card):not(:first-child){ margin-top:20px !important; }
+.main-content .grid + .card,
+.main-content .grid-1-2 + .card{ margin-top:20px !important; }
+@media (max-width:1024px){
+  .main-content .grid-1-2{ grid-template-columns:1fr; gap:20px !important; }
+  .main-content .grid + .card,
+  .main-content .grid-1-2 + .card{ margin-top:20px !important; }
 }
-.notification-actions button:hover{ background:#e5e7eb; }
-
-.notification-list{ display:flex; flex-direction:column; gap:10px; }
-
-.notification-item{
-  display:grid; grid-template-columns:28px 1fr auto; gap:10px; align-items:center; padding:10px; border-radius:8px;
-  transition:background .2s ease;
+/* 有表格的卡片维持边框/阴影（还原原稿细节） */
+.card:has(.data-table){
+  border:1px solid #d1d5db !important;
+  box-shadow:0 2px 6px rgba(0,0,0,.08) !important;
 }
-.notification-item:hover{ background:#f9fafb; }
-
-.notification-icon{ font-size:18px; line-height:1; }
-.notification-content{ display:flex; flex-direction:column; gap:2px; }
-.notification-message{ font-size:14px; color:#111827; }
-.notification-meta{ font-size:12px; color:#6b7280; }
-
-.notification-item .action-link{ font-size:12px; color:#3b82f6; text-decoration:none; }
-.notification-item .action-link:hover{ text-decoration:underline; }
-
-/* 空状态 */
-.notification-empty{ text-align:center; color:#6b7280; font-size:14px; padding:30px 0; }
-
-/* ========== 主卡片/区块 ========== */
-.main-card{
-  background:#fff; border:1px solid #d1d5db; border-radius:10px; box-shadow:0 2px 6px rgba(0,0,0,.08); overflow:hidden;
-}
-
-.card{
-  background:#fff; border:1px solid #d1d5db; border-radius:10px; box-shadow:0 2px 6px rgba(0,0,0,.08); padding:20px; margin-bottom:20px; transition:box-shadow .2s;
-}
-.card:hover{ box-shadow:0 4px 8px rgba(0,0,0,.08); }
-.card-header{ margin-bottom:20px; padding-bottom:12px; border-bottom:1px solid #e5e7eb; display:flex; justify-content:space-between; align-items:center; }
-.card-title{ font-size:16px; font-weight:700; color:#111827; }
-.card-subtitle{ font-size:13px; color:#6b7280; }
-
-/* ========== 栅格系统 ========== */
-.row{ display:flex; flex-wrap:wrap; margin:-10px; }
-.col{ padding:10px; }
-.col-4{ width:33.3333%; }
-.col-6{ width:50%; }
-.col-12{ width:100%; }
-
-/* 响应式断点 */
-@media (max-width: 1100px){ .col-4{ width:50%; } }
-@media (max-width: 768px){ .col-4,.col-6{ width:100%; } .notification-panel{ width:92vw; right:-8px; } }
-
-/* ========== 头部工具条 ========== */
-.toolbar{ display:flex; gap:10px; align-items:center; }
-.toolbar .btn{ padding:8px 12px; border:1px solid #d1d5db; border-radius:8px; background:#fff; color:#374151; cursor:pointer; font-size:14px; }
-.toolbar .btn:hover{ background:#f9fafb; }
-.toolbar .btn-primary{ background:#111827; color:#fff; border-color:#111827; }
-.toolbar .btn-primary:hover{ background:#000; }
-
-/* ========== 统计卡片（顶部） ========== */
-.stats{ display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
-@media (max-width: 1100px){ .stats{ grid-template-columns:repeat(2,1fr); } }
-@media (max-width: 600px){ .stats{ grid-template-columns:1fr; } }
-
-.stat{
-  background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:14px 16px; display:flex; flex-direction:column; gap:8px;
-}
-.stat .name{ font-size:13px; color:#6b7280; }
-.stat .value{ font-size:20px; font-weight:700; color:#111827; }
-.stat .desc{ font-size:12px; color:#9ca3af; }
-
-/* ========== 表格（节点/用户/日志等） ========== */
-.table{ width:100%; border-collapse:collapse; background:#fff; border:1px solid #e5e7eb; border-radius:10px; overflow:hidden; }
-.table th, .table td{ padding:10px 12px; border-bottom:1px solid #e5e7eb; text-align:left; font-size:14px; color:#374151; }
-.table th{ background:#f9fafb; color:#111827; font-weight:600; }
-.table tr:hover{ background:#f9fafb; }
-.table .muted{ color:#6b7280; font-size:13px; }
-
-/* ========== 代码块/日志块 ========== */
-pre, code{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
-.log-box{ background:#0b1020; color:#e5e7eb; border-radius:10px; padding:14px; font-size:12px; overflow:auto; border:1px solid #111827; }
-
-/* ========== 进度条 ========== */
-.progress{ height:10px; background:#f3f4f6; border-radius:999px; overflow:hidden; border:1px solid #e5e7eb; }
-.progress .bar{ height:100%; background:#10b981; }
-
-/* ========== 图表容器 ========== */
-.chart{ background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:10px; }
-.chart .title{ font-size:14px; color:#111827; font-weight:600; margin-bottom:8px; }
-
-/* ========== 模态框（通用） ========== */
-.modal{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.35); z-index:100; }
-.modal.show{ display:flex; }
-.modal .dialog{ background:#fff; border-radius:12px; width:min(880px, 92vw); border:1px solid #e5e7eb; box-shadow:0 10px 30px rgba(0,0,0,.12); }
-.modal .header{ display:flex; justify-content:space-between; align-items:center; padding:14px 16px; border-bottom:1px solid #f1f5f9; }
-.modal .header h3{ font-size:16px; color:#111827; }
-.modal .body{ padding:16px; }
-.modal .footer{ padding:12px 16px; border-top:1px solid #f1f5f9; display:flex; justify-content:flex-end; gap:10px; }
-
-/* ========== Badge/状态标签 ========== */
-/* [重要] 信息行基础布局（全局）——请勿改动 `justify-content:space-between;`，其后有针对面板/弹窗的定向覆写。 */
-.info-item{ display:flex; justify-content:space-between; padding:6px 0; }
-.info-item label{ color:#6b7280; }
-.info-item value{ color:#1f2937; font-weight:500; }
-
-/* ========= 全局运行状态徽标（协议配置/系统概览通用） ========= */
-.status-badge{
-  display:inline-flex; align-items:center; height:20px; line-height:20px; padding:0 8px; border-radius:999px; font-size:12px; gap:6px;
-}
-.status-badge .dot{ width:8px; height:8px; border-radius:50%; }
-.status-badge.ok{ background:#ecfdf5; color:#047857; border:1px solid #a7f3d0; }
-.status-badge.ok .dot{ background:#10b981; }
-.status-badge.warn{ background:#fffbeb; color:#92400e; border:1px solid #fcd34d; }
-.status-badge.warn .dot{ background:#f59e0b; }
-.status-badge.err{ background:#fef2f2; color:#991b1b; border:1px solid #fecaca; }
-.status-badge.err .dot{ background:#ef4444; }
-
-/* ========= KV 区（左标签右值网格） ========= */
-:root{ --label-w: 120px; }
-/* [重要] 信息行网格布局（系统概览等区域）——以 CSS 变量 --label-w 控制左侧标签宽度。 */
-.info-item{
-  display:grid; grid-template-columns:var(--label-w) 1fr; gap:8px; align-items:center; 
-  padding:5px 0;  /* 统一行高 */
-}
-
-/* 系统概览标题统一样式 */
-.section-title{ font-size:14px; font-weight:700; color:#111827; margin:10px 0 6px; }
-.section-desc{ font-size:13px; color:#6b7280; margin-bottom:8px; }
-
-/* ======= 模块：运行概览 ======= */
-.overview{ display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
-@media (max-width: 1000px){ .overview{ grid-template-columns:1fr; } }
-
-.overview .grid-2{ display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
-@media (max-width: 1000px){ .overview .grid-2{ grid-template-columns:1fr; } }
-
-/* 统一块内标题与说明 */
-.overview h4{ font-size:14px; font-weight:700; color:#111827; }
-.overview .muted{ font-size:13px; color:#6b7280; }
-
-/* ======= 模块：证书与域名 ======= */
-.certs{ display:grid; grid-template-columns:1fr 1fr; gap:14px; }
-@media (max-width: 1000px){ .certs{ grid-template-columns:1fr; } }
-
-/* 证书卡片内部排版 */
-.certs .card{ padding:14px; }
-
-/* ======= 模块：IP 质量弹窗 ======= */
-#ipqModal .dialog{ width:min(980px, 96vw); }
-#ipqModal .body{ padding:0; }
-#ipqModal .ipq-header{ padding:12px 16px; border-bottom:1px solid #f1f5f9; display:flex; justify-content:space-between; align-items:center; }
-#ipqModal .ipq-header h3{ font-size:16px; }
-#ipqModal .ipq-content{ display:grid; grid-template-columns:360px 1fr; gap:0; }
-@media (max-width: 1000px){ #ipqModal .ipq-content{ grid-template-columns:1fr; } }
-
-/* 左侧：分类与详情 */
-#ipqModal .ipq-left{ border-right:1px solid #f1f5f9; padding:12px 16px; }
-#ipqModal .ipq-section{ margin-bottom:14px; }
-#ipqModal .ipq-section > h5{ font-size:14px; color:#111827; margin:8px 0; font-weight:700; }
-#ipqModal .ipq-kv{ display:flex; flex-direction:column; gap:4px; }
-
-/* [重要] IPQ 弹窗内的信息行覆写（仅 #ipqModal 生效）——将内容左对齐；勿调整覆写顺序。 */
-#ipqModal .info-item{ display:flex; align-items:flex-start; gap:10px; }
-#ipqModal .info-item label{ min-width:130px; color:#6b7280; }
-#ipqModal .info-item value{ color:#111827; }
-
-/* 右侧：图表 */
-#ipqModal .ipq-right{ padding:12px 16px; }
-#ipqModal .chart{ border:1px dashed #e5e7eb; }
-
-/* 二维码 */
-.qr-box{ display:flex; gap:12px; flex-wrap:wrap; }
-.qr{ width:168px; height:168px; border:1px solid #e5e7eb; border-radius:8px; display:flex; align-items:center; justify-content:center; background:#fff; }
-
-/* ======= 模块：图表区 ======= */
-.charts{ display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
-@media (max-width: 1100px){ .charts{ grid-template-columns:1fr; } }
-
-/* ======= 模块：协议配置 ======= */
-.protocols{ display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
-@media (max-width: 1100px){ .protocols{ grid-template-columns:1fr; } }
-
-/* ======= 模块：日志与系统信息 ======= */
-.logs-grid{ display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
-@media (max-width: 1100px){ .logs-grid{ grid-template-columns:1fr; } }
-
-/* ======= 工具类（渐变、分隔线等） ======= */
-.hr-muted{ height:1px; background:#f1f5f9; border:0; margin:12px 0; }
-.text-muted{ color:#6b7280; }
-.text-danger{ color:#ef4444; }
-.text-success{ color:#10b981; }
-.text-warning{ color:#f59e0b; }
-
-/* ======= 成功/警告/错误卡片背景 ======= */
-.card-success{ background:linear-gradient(180deg,#ecfdf5, #fff); }
-.card-warn{ background:linear-gradient(180deg,#fffbeb, #fff); }
-.card-err{ background:linear-gradient(180deg,#fef2f2, #fff); }
-
-/* ======= 轻提示 ======= */
-.tip{ font-size:12px; color:#6b7280; background:#f9fafb; border:1px solid #e5e7eb; padding:6px 8px; border-radius:6px; }
-
-/* ======= 表单小组件 ======= */
-.input{ height:34px; border:1px solid #d1d5db; border-radius:8px; padding:0 10px; }
-.select{ height:34px; border:1px solid #d1d5db; border-radius:8px; padding:0 10px; background:#fff; }
-
-/* ======= 复制按钮与辅助（二维码等） ======= */
-.copy-row{ display:flex; gap:8px; flex-wrap:wrap; }
-.copy-btn{ padding:6px 10px; border:1px solid #d1d5db; border-radius:8px; background:#fff; cursor:pointer; font-size:12px; }
-.copy-btn:hover{ background:#f9fafb; }
-
-/* ======= Footer ======= */
-.footer{ text-align:center; color:#6b7280; font-size:12px; padding:18px 0; }
-
-/* ======= 文字层级统一：用于面板标题与说明（避免大小不一） ======= */
-.text-h3{ font-size:18px; font-weight:700; color:#111827; }
-.text-h4{ font-size:16px; font-weight:600; color:#4b5563; }
-.text-body{ font-size:14px; color:#374151; }
-.text-muted-13{ font-size:13px; color:#6b7280; }
-
-/* ============= 兼容性补充与局部覆写 ============= */
-/* [重要] 针对特定弹窗的再次覆写（左对齐 + 固定最小宽度）。切勿移动顺序，否则会被更早的全局样式覆盖。 */
-@media (min-width: 0px){
-  #ipqModal .info-item{ display:flex; align-items:flex-start; }
-  #ipqModal .info-item label{ min-width:130px; }
-}
-
-/* ======= 辅助：小标题/内容色彩 ======= */
-.text-h3-strong{ font-size:18px; font-weight:700; color:#111827; }
-.text-h4-muted{ font-size:16px; font-weight:600; color:#4b5563; }
-
-/* ===== End of File ===== */
 
 EXTERNAL_CSS
 
