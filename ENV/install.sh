@@ -3819,19 +3819,6 @@ collect_notifications() {
     log_info "通知数据收集完成"
 }
 
-# 设置通知收集定时任务
-setup_notification_cron() {
-    log_info "设置通知收集定时任务..."
-    
-    # 通知收集定时任务（每2分钟）
-    local notif_cron="*/2 * * * * ${SCRIPTS_DIR}/dashboard-backend.sh --notifications-only >/dev/null 2>&1"
-    
-    # 检查是否已存在
-    if ! crontab -l 2>/dev/null | grep -q "dashboard-backend.sh --notifications-only"; then
-        (crontab -l 2>/dev/null; echo "$notif_cron") | crontab -
-        log_success "通知收集定时任务已设置"
-    fi
-}
 
 #############################################
 # 主数据生成函数
@@ -7454,6 +7441,7 @@ async function refreshAllData() {
     if (sys) systemData = sys;
     if (traf) trafficData = traf;
     if (notif) updateNotificationCenter(notif);
+
 
 document.addEventListener('DOMContentLoaded', () => {
   // 首次刷新
