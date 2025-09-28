@@ -3925,6 +3925,16 @@ generate_dashboard_data() {
     subscription_info=$(get_subscription_info)
     secrets_info=$(get_secrets_info)
 
+    # 获取通知信息
+    local notifications_info="[]"
+    local notifications_file="$TRAFFIC_DIR/notifications.json"
+    if [[ -f "$notifications_file" ]]; then
+        notifications_info=$(jq -c '.notifications // []' "$notifications_file" 2>/dev/null || echo "[]")
+        if [[ "$notifications_info" == "null" ]] || [[ -z "$notifications_info" ]]; then
+            notifications_info="[]"
+        fi
+    fi
+
 # 统一生成 services_info（状态+版本号）
 services_info=$(
   jq -n \
@@ -3949,6 +3959,7 @@ jq -n \
     --argjson shunt "$shunt_info" \
     --argjson subscription "$subscription_info" \
     --argjson secrets "$secrets_info" \
+	--argjson notifications "$notifications_info"\
     '{
         updated_at: $timestamp,
         # 直接用 system.server_ip 拼接订阅地址（80端口走HTTP）
@@ -3958,7 +3969,8 @@ jq -n \
         protocols: $protocols,
         shunt: $shunt,
         subscription: $subscription,
-        secrets: $secrets
+        secrets: $secrets,
+		notifications: $notifications
     }' > "${TRAFFIC_DIR}/dashboard.json.tmp"
     
     # 原子替换，避免读取时文件不完整
@@ -7851,6 +7863,69 @@ document.addEventListener('click', (e) => {
     }
 });
 
+// 通知中心数据获取函数
+async function fetchAndUpdateNotifications() {
+    try {
+        console.log("开始获取通知数据...");
+        
+        // 从dashboard.json获取通知数据
+        let notificationData = null;
+        try {
+            const dashData = await fetchJSON('/traffic/dashboard.json');
+            if (dashData && dashData.notifications) {
+                notificationData = dashData.notifications;
+                console.log("从dashboard.json获取到通知:", notificationData.length, "条");
+            }
+        } catch (e) {
+            console.log("从dashboard.json获取通知失败:", e);
+        }
+        
+        // 备选方案：直接从notifications.json获取
+        if (!notificationData || notificationData.length === 0) {
+            try {
+                const notifData = await fetchJSON('/traffic/notifications.json');
+                if (notifData && notifData.notifications) {
+                    notificationData = notifData.notifications;
+                    console.log("从notifications.json获取到通知:", notificationData.length, "条");
+                }
+            } catch (e) {
+                console.log("从notifications.json获取通知失败:", e);
+            }
+        }
+        
+        // 更新通知中心
+        if (notificationData && Array.isArray(notificationData)) {
+            updateNotificationCenter({notifications: notificationData});
+            console.log("通知中心更新成功，通知数量:", notificationData.length);
+        } else {
+            console.log("没有有效的通知数据");
+            updateNotificationCenter({notifications: []});
+        }
+        
+    } catch (error) {
+        console.error("获取通知数据失败:", error);
+        updateNotificationCenter({notifications: []});
+    }
+}
+
+// 页面加载时获取通知
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+        setTimeout(fetchAndUpdateNotifications, 500);
+    });
+} else {
+    setTimeout(fetchAndUpdateNotifications, 500);
+}
+
+// 定期更新通知
+setInterval(fetchAndUpdateNotifications, 30000);
+
+# 同时在refreshAllData函数中，找到 if (dash) dashboardData = dash; 这行，在其后添加：
+    // 处理通知数据
+    if (dash && dash.notifications) {
+        updateNotificationCenter({notifications: dash.notifications});
+    }
+
 EXTERNAL_JS
 
 
@@ -10239,6 +10314,7 @@ finalize_data_generation() {
   log_success "数据生成与系统验证完成"
 }
 
+
 # 显示安装完成信息
 show_installation_info() {
     clear
@@ -10510,8 +10586,7 @@ main() {
     # 显示安装信息
     show_installation_info
     
-    log_success "EdgeBox v3.0.0 安装成功完成！"
-    exit 0
+    log_info "安装流程执行完毕，正在进行最终验证..."
 }
 
 # 脚本入口点检查
