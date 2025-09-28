@@ -7339,19 +7339,23 @@ async function copyText(text) {
 
 // --- Main Application Logic ---
 async function refreshAllData() {
-    const [dash, sys, traf] = await Promise.all([
-        fetchJSON('/traffic/dashboard.json'),
-        fetchJSON('/traffic/system.json'),
-        fetchJSON('/traffic/traffic.json')
-    ]);
-    if (dash) dashboardData = dash;
-    if (sys) systemData = sys;
-    if (traf) trafficData = traf;
-    window.dashboardData = dashboardData; 
-    renderOverview();
-    renderCertificateAndNetwork();
-    renderProtocolTable();
-    renderTrafficCharts();
+const [dashboard, system, traffic, notifications] = await Promise.all([
+  fetchJSON('/traffic/dashboard.json'),
+  fetchJSON('/traffic/system.json'),
+  fetchJSON('/traffic/traffic.json'),
+  // 新增：通知中心数据；失败兜底为空结构
+  fetchJSON('/traffic/notifications.json').catch(() => ({ notifications: [], unread_count: 0 }))
+]);
+
+// 你原有的渲染调用…
+renderDashboard(dashboard);
+renderSystem(system);
+renderTraffic(traffic);
+
+// 新增：把数据喂给通知中心
+if (typeof updateNotificationCenter === 'function') {
+  updateNotificationCenter(notifications);
+}
 }
 
 
