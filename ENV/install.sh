@@ -7430,17 +7430,22 @@ async function copyText(text) {
     }
 }
 
+// --- Main Application Logic ---
 async function refreshAllData() {
-    const [dash, sys, traf, notif] = await Promise.all([
+    const [dash, sys, traf] = await Promise.all([
         fetchJSON('/traffic/dashboard.json'),
         fetchJSON('/traffic/system.json'),
-        fetchJSON('/traffic/traffic.json'),
-        fetchJSON('/traffic/notifications.json')
+        fetchJSON('/traffic/traffic.json')
     ]);
     if (dash) dashboardData = dash;
     if (sys) systemData = sys;
     if (traf) trafficData = traf;
-    if (notif) updateNotificationCenter(notif);
+    window.dashboardData = dashboardData; 
+    renderOverview();
+    renderCertificateAndNetwork();
+    renderProtocolTable();
+    renderTrafficCharts();
+}
 
 
 document.addEventListener('DOMContentLoaded', () => {
