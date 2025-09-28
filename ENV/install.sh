@@ -7337,26 +7337,35 @@ async function copyText(text) {
     }
 }
 
-// --- Main Application Logic ---
+// === refreshAllData: begin ===
 async function refreshAllData() {
-const [dashboard, system, traffic, notifications] = await Promise.all([
-  fetchJSON('/traffic/dashboard.json'),
-  fetchJSON('/traffic/system.json'),
-  fetchJSON('/traffic/traffic.json'),
-  // 新增：通知中心数据；失败兜底为空结构
-  fetchJSON('/traffic/notifications.json').catch(() => ({ notifications: [], unread_count: 0 }))
-]);
+  // 1) 主数据并发（失败会直接暴露真实问题；但不会受通知失败牵连）
+  const [dashboard, system, traffic] = await Promise.all([
+    fetchJSON('/traffic/dashboard.json'),
+    fetchJSON('/traffic/system.json'),
+    fetchJSON('/traffic/traffic.json'),
+  ]);
 
-// 你原有的渲染调用…
-renderDashboard(dashboard);
-renderSystem(system);
-renderTraffic(traffic);
+  // 2) 先渲染主界面，保证“模板有值”
+  renderDashboard(dashboard);
+  renderSystem(system);
+  renderTraffic(traffic);
 
-// 新增：把数据喂给通知中心
-if (typeof updateNotificationCenter === 'function') {
-  updateNotificationCenter(notifications);
+  // 3) 通知单独请求（失败兜底，不影响页面）
+  try {
+    const raw = await fetchJSON('/traffic/notifications.json');
+    const data = normalizeNotifications(raw);    // 见锚点 2
+    if (typeof updateNotificationCenter === 'function') {
+      updateNotificationCenter(data);
+    }
+  } catch (err) {
+    console.warn('[notifications] fetch failed:', err);
+    if (typeof updateNotificationCenter === 'function') {
+      updateNotificationCenter({ notifications: [], unread_count: 0 });
+    }
+  }
 }
-}
+// === refreshAllData: end ===
 
 
 document.addEventListener('DOMContentLoaded', () => {
