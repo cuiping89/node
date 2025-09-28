@@ -33,18 +33,7 @@ fi
 # 全局配置 - 脚本基础信息
 #############################################
 
-set -Eeuo pipefail
-shopt -s inherit_errexit 2>/dev/null || true
-
-# 并发锁（cron/多实例保护）
-: "${LOCK_FILE:=/var/lock/edgebox-dashboard.lock}"
-mkdir -p "$(dirname "$LOCK_FILE")" 2>/dev/null || true
-exec 200>"$LOCK_FILE"
-# 已有实例在运行则直接退出（不视为错误，退出码 0）
-flock -n 200 || { echo "[INFO] another instance is running; quit."; exit 0; }
-# 可选：把 PID 写进锁文件（便于排障）
-printf '%d\n' "$$" 1>&200 || true
-
+set -e  # 遇到错误立即退出
 
 # 版本号
 EDGEBOX_VER="3.0.0"
@@ -5753,285 +5742,101 @@ h4 {
 /* =======================================================================
    通知中心样式
    ======================================================================= */
-
-/* 主标题区域调整 */
-.main-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 16px;
+/* ===== edgebox: Notification Center Badge (override) ===== */
+/* 调参：只需改这三项即可 */
+:root{
+  --edgebox-badge-size: 16px;   /* 徽标直径：更小可设 14px/12px */
+  --edgebox-badge-font: 10px;   /* 数字字号 */
+  --edgebox-badge-ring: 2px;    /* 白色描边厚度，防止贴铃铛背景糊在一起 */
+  --edgebox-badge-color: #ef4444; /* 红色 */
 }
 
-.main-header h1 {
-    flex: 1;
-    margin: 0;
+/* 铃铛按钮容器：允许定位并不裁切右上角 */
+.bell-btn,
+.notification-bell,
+#notifyBell{
+  position: relative;
+  overflow: visible;
 }
 
-/* 通知中心容器 */
-.notification-center {
-    position: relative;
-    display: inline-flex;
-    width: 38px;              /* ← 调大/调小按钮外框尺寸改这里 */
-    height: 38px;
-    margin-right: 22px;       /* 保持你原来的间距 */
-    align-items: center;
-    justify-content: center;
+/* —— span徽标版本（优先命中） —— */
+.bell-btn > .badge,
+.bell-btn > .notify-badge,
+.notification-bell > .badge,
+.notification-bell > .notify-badge,
+#notifyBell > .badge,
+#notifyBell > .notify-badge{
+  position: absolute;
+  top: 0;
+  right: 0;
+  transform: translate(50%,-50%); /* 锚在右上角外侧半径位置 */
+  min-width: var(--edgebox-badge-size);
+  height: var(--edgebox-badge-size);
+  padding: 0 4px;                 /* 双位数自动加宽 */
+  border-radius: 999px;
+  background: var(--edgebox-badge-color);
+  color: #fff;
+  font-size: var(--edgebox-badge-font);
+  line-height: var(--edgebox-badge-size);
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;           /* 关键：徽标不挡点击 */
+  z-index: 3;
+  box-shadow: 0 0 0 var(--edgebox-badge-ring) #fff; /* 白边圈 */
+  font-variant-numeric: tabular-nums;
+  border: none;
+  margin: 0;
+  white-space: nowrap;
 }
 
-/* 通知触发按钮 - 增强版 */
-.notification-trigger {
-    width: 100%;
-    height: 100%;
-    display: grid;
-    place-items: center;
-    background: none;
-    border: none;
-    border-radius: 8px;
-    cursor: pointer;
-    color: #6b7280;
-    padding: 0;               /* 关键：不再用 padding 放大 */
-    line-height: 1;           /* 避免文字行高影响外框 */
-    transition: background-color .2s ease, color .2s ease;
+/* —— 伪元素徽标版本（如果你用 data-badge 驱动） —— */
+.bell-btn[data-badge]::after,
+.notification-bell[data-badge]::after,
+#notifyBell[data-badge]::after{
+  content: attr(data-badge);
+  position: absolute;
+  top: 0;
+  right: 0;
+  transform: translate(50%,-50%);
+  min-width: var(--edgebox-badge-size);
+  height: var(--edgebox-badge-size);
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--edgebox-badge-color);
+  color: #fff;
+  font-size: var(--edgebox-badge-font);
+  line-height: var(--edgebox-badge-size);
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 3;
+  box-shadow: 0 0 0 var(--edgebox-badge-ring) #fff;
+  font-variant-numeric: tabular-nums;
 }
 
-/* 放大图标而不是放大按钮外框：不影响标题行高度 */
-.notification-trigger > svg,
-.notification-trigger > i,
-.notification-trigger > span {
-    font-size: 23px;          /* ← 调大/调小图标尺寸改这里 */
-    width: 1em;
-    height: 1em;
-    display: inline-block;
-    transition: transform .2s ease, color .2s ease;
+/* 数字为 0 或空时隐藏 */
+.bell-btn > .badge:empty,
+.bell-btn > .notify-badge:empty,
+.notification-bell > .badge:empty,
+.notification-bell > .notify-badge:empty,
+#notifyBell > .badge:empty,
+#notifyBell > .notify-badge:empty,
+.bell-btn[data-badge="0"]::after,
+.notification-bell[data-badge="0"]::after,
+#notifyBell[data-badge="0"]::after{
+  display: none;
 }
 
-/* 悬停态：背景与颜色变化，图标轻微放大 */
-.notification-trigger:hover {
-    background-color: rgba(16, 185, 129, 0.1);
-    color: #10b981;
+/* 防止图标自身吃到事件（按钮接管点击即可） */
+.bell-btn svg,
+.notification-bell svg,
+#notifyBell svg{
+  pointer-events: none;
 }
-
-.notification-trigger:hover > svg,
-.notification-trigger:hover > i,
-.notification-trigger:hover > span {
-    transform: scale(1.15);
-}
-
-/* 通知数量徽章 */
-.notification-badge {
-    position: absolute;
-    top: 2px;
-    right: 2px;
-    background: #ef4444;
-    color: white;
-    border-radius: 10px;
-    padding: 1px 6px;
-    font-size: 11px;
-    font-weight: 600;
-    min-width: 18px;
-    text-align: center;
-    animation: notification-pulse 2s infinite;
-}
-
-@keyframes notification-pulse {
-    0%, 100% { transform: scale(1); }
-    50% { transform: scale(1.1); }
-}
-
-/* 通知面板 */
-.notification-panel {
-    position: absolute;
-    top: 100%;
-    right: 0;
-    width: 320px;
-    max-height: 400px;
-    background: white;
-    border: 1px solid #d1d5db;
-    border-radius: 8px;
-    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.15);
-    display: none;
-    z-index: 1000;
-    overflow: hidden;
-}
-
-.notification-panel.show {
-    display: block;
-    animation: notification-slide-in 0.2s ease-out;
-}
-
-@keyframes notification-slide-in {
-    from {
-        opacity: 0;
-        transform: translateY(-10px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
-/* 通知面板头部 */
-.notification-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 12px 16px;
-    border-bottom: 1px solid #e5e7eb;
-    background: #f9fafb;
-}
-
-.notification-header h3 {
-    margin: 0;
-    font-size: 14px;
-    font-weight: 600;
-    color: #374151;
-}
-
-.notification-clear {
-    background: none;
-    border: none;
-    color: #6b7280;
-    font-size: 12px;
-    cursor: pointer;
-    padding: 4px 8px;
-    border-radius: 4px;
-    transition: background-color 0.2s ease;
-}
-
-.notification-clear:hover {
-    background-color: rgba(0, 0, 0, 0.05);
-    color: #374151;
-}
-
-/* 通知列表 */
-.notification-list {
-    max-height: 300px;
-    overflow-y: auto;
-    padding: 0;
-}
-
-/* 通知项目 */
-.notification-item {
-    display: flex;
-    align-items: flex-start;
-    padding: 12px 16px;
-    border-bottom: 1px solid #f3f4f6;
-    transition: background-color 0.2s ease;
-    cursor: pointer;
-}
-
-.notification-item:hover {
-    background-color: #f9fafb;
-}
-
-.notification-item:last-child {
-    border-bottom: none;
-}
-
-.notification-item.unread {
-    background-color: #fef3c7;
-    border-left: 3px solid #f59e0b;
-}
-
-/* 通知图标 */
-.notification-item-icon {
-    flex-shrink: 0;
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin-right: 12px;
-    font-size: 14px;
-}
-
-.notification-item-icon.alert {
-    background: #fef3c7;
-    color: #d97706;
-}
-
-.notification-item-icon.system {
-    background: #dbeafe;
-    color: #2563eb;
-}
-
-.notification-item-icon.error {
-    background: #fee2e2;
-    color: #dc2626;
-}
-
-/* 通知内容 */
-.notification-item-content {
-    flex: 1;
-    min-width: 0;
-}
-
-.notification-item-message {
-    font-size: 13px;
-    color: #374151;
-    line-height: 1.4;
-    margin-bottom: 4px;
-}
-
-.notification-item-time {
-    font-size: 11px;
-    color: #6b7280;
-}
-
-.notification-item-action {
-    font-size: 11px;
-    color: #2563eb;
-    margin-top: 4px;
-    cursor: pointer;
-    font-family: monospace;
-    background: #f3f4f6;
-    padding: 2px 4px;
-    border-radius: 2px;
-}
-
-/* 通知面板底部 */
-.notification-footer {
-    padding: 8px 16px;
-    background: #f9fafb;
-    border-top: 1px solid #e5e7eb;
-    text-align: center;
-}
-
-.notification-footer small {
-    color: #6b7280;
-    font-size: 11px;
-}
-
-/* 空状态和加载状态 */
-.notification-empty,
-.notification-loading {
-    padding: 40px 20px;
-    text-align: center;
-    color: #6b7280;
-    font-size: 13px;
-}
-
-.notification-empty {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 8px;
-}
-
-/* 响应式调整 */
-@media (max-width: 768px) {
-    .notification-panel {
-        width: 280px;
-        right: -20px;
-    }
-    
-    .main-header h1 {
-        font-size: 1.3rem;
-    }
-}
-
 
 /* =========================
    弹窗 Modal 统一样式补丁（按您要求修正）
