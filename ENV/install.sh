@@ -901,8 +901,8 @@ cleanup_all() {
         fi
         
         echo ""
-        echo -e "${CYAN}🔗 访问控制面板:${NC} http://$(get_server_ip/traffic/"
-        echo -e "${CYAN}📋 订阅链接:${NC} http://$(get_server_ip/sub"
+        echo -e "${CYAN}🔗 访问控制面板:${NC} http://$(get_server_ip)/traffic/"
+        echo -e "${CYAN}📋 订阅链接:${NC} http://$(get_server_ip)/sub"
         echo -e "${CYAN}🔧 管理工具:${NC} edgeboxctl"
         echo ""
         
