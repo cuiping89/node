@@ -50,86 +50,70 @@ NC="${ESC}[0m"  # No Color
 # 统一兜底版本，可被环境变量覆盖：DEFAULT_SING_BOX_VERSION=1.12.5 bash install.sh
 DEFAULT_SING_BOX_VERSION="${DEFAULT_SING_BOX_VERSION:-1.12.4}"
 
-#############################################
-# 目录结构定义
-#############################################
-
-# 主安装目录
-INSTALL_DIR="/etc/edgebox"
-CERT_DIR="${INSTALL_DIR}/cert"
-CONFIG_DIR="${INSTALL_DIR}/config"
-TRAFFIC_DIR="${INSTALL_DIR}/traffic"
-SCRIPTS_DIR="${INSTALL_DIR}/scripts"
-
-# 其他重要目录
-BACKUP_DIR="/root/edgebox-backup"
-LOG_FILE="/var/log/edgebox-install.log"
-WEB_ROOT="/var/www/html"
-
 
 #############################################
 # 统一路径和常量管理
 #############################################
 
 # === 核心目录结构 ===
-readonly INSTALL_DIR="/etc/edgebox"
-readonly CERT_DIR="${INSTALL_DIR}/cert"
-readonly CONFIG_DIR="${INSTALL_DIR}/config"
-readonly TRAFFIC_DIR="${INSTALL_DIR}/traffic"
-readonly SCRIPTS_DIR="${INSTALL_DIR}/scripts"
-readonly BACKUP_DIR="/root/edgebox-backup"
+INSTALL_DIR="/etc/edgebox"
+CERT_DIR="${INSTALL_DIR}/cert"
+CONFIG_DIR="${INSTALL_DIR}/config"
+TRAFFIC_DIR="${INSTALL_DIR}/traffic"
+SCRIPTS_DIR="${INSTALL_DIR}/scripts"
+BACKUP_DIR="/root/edgebox-backup"
 
 # === 日志文件路径 ===
-readonly LOG_FILE="/var/log/edgebox-install.log"
-readonly XRAY_LOG="/var/log/xray/access.log"
-readonly SINGBOX_LOG="/var/log/edgebox/sing-box.log"
-readonly NGINX_ACCESS_LOG="/var/log/nginx/access.log"
-readonly NGINX_ERROR_LOG="/var/log/nginx/error.log"
+LOG_FILE="/var/log/edgebox-install.log"
+XRAY_LOG="/var/log/xray/access.log"
+SINGBOX_LOG="/var/log/edgebox/sing-box.log"
+NGINX_ACCESS_LOG="/var/log/nginx/access.log"
+NGINX_ERROR_LOG="/var/log/nginx/error.log"
 
 # === Web相关路径 ===
-readonly WEB_ROOT="/var/www/html"
-readonly NGINX_CONF="/etc/nginx/nginx.conf"
-readonly NGINX_SITES_AVAILABLE="/etc/nginx/sites-available"
-readonly NGINX_SITES_ENABLED="/etc/nginx/sites-enabled"
+WEB_ROOT="/var/www/html"
+NGINX_CONF="/etc/nginx/nginx.conf"
+NGINX_SITES_AVAILABLE="/etc/nginx/sites-available"
+NGINX_SITES_ENABLED="/etc/nginx/sites-enabled"
 
 # === 可执行文件路径 ===
-readonly XRAY_BIN="/usr/local/bin/xray"
-readonly SINGBOX_BIN="/usr/local/bin/sing-box"
-readonly EDGEBOXCTL_BIN="/usr/local/bin/edgeboxctl"
+XRAY_BIN="/usr/local/bin/xray"
+SINGBOX_BIN="/usr/local/bin/sing-box"
+EDGEBOXCTL_BIN="/usr/local/bin/edgeboxctl"
 
 # === 配置文件路径 ===
-readonly SERVER_CONFIG="${CONFIG_DIR}/server.json"
-readonly XRAY_CONFIG="${CONFIG_DIR}/xray.json"
-readonly SINGBOX_CONFIG="${CONFIG_DIR}/sing-box.json"
-readonly SUBSCRIPTION_FILE="${WEB_ROOT}/subscription.txt"
+SERVER_CONFIG="${CONFIG_DIR}/server.json"
+XRAY_CONFIG="${CONFIG_DIR}/xray.json"
+SINGBOX_CONFIG="${CONFIG_DIR}/sing-box.json"
+SUBSCRIPTION_FILE="${WEB_ROOT}/subscription.txt"
 
 # === 证书相关路径 ===
-readonly CERT_CRT="${CERT_DIR}/current.pem"
-readonly CERT_KEY="${CERT_DIR}/current.key"
-readonly CERT_CSR="${CERT_DIR}/current.csr"
+CERT_CRT="${CERT_DIR}/current.pem"
+CERT_KEY="${CERT_DIR}/current.key"
+CERT_CSR="${CERT_DIR}/current.csr"
 
 # === 系统服务文件路径 ===
-readonly XRAY_SERVICE="/etc/systemd/system/xray.service"
-readonly SINGBOX_SERVICE="/etc/systemd/system/sing-box.service"
-readonly NGINX_SERVICE="/etc/systemd/system/nginx.service"
+XRAY_SERVICE="/etc/systemd/system/xray.service"
+SINGBOX_SERVICE="/etc/systemd/system/sing-box.service"
+NGINX_SERVICE="/etc/systemd/system/nginx.service"
 
 # === 用户和组常量 ===
-readonly WEB_USER="www-data"
-readonly XRAY_USER="nobody"
-readonly SINGBOX_USER="root"
+WEB_USER="www-data"
+XRAY_USER="nobody"
+SINGBOX_USER="root"
 
 # === 网络常量 ===
-readonly DEFAULT_PORTS=(80 443 2053)
-readonly REALITY_SNI="www.microsoft.com"
-readonly HYSTERIA2_MASQUERADE="https://www.bing.com"
+DEFAULT_PORTS=(80 443 2053)
+REALITY_SNI="www.microsoft.com"
+HYSTERIA2_MASQUERADE="https://www.bing.com"
 
 # === 版本和下载常量 ===
-readonly DEFAULT_SING_BOX_VERSION="1.12.4"
-readonly XRAY_INSTALL_SCRIPT="https://raw.githubusercontent.com/XTLS/Xray-install/main/install-release.sh"
+DEFAULT_SING_BOX_VERSION="1.12.4"
+XRAY_INSTALL_SCRIPT="https://raw.githubusercontent.com/XTLS/Xray-install/main/install-release.sh"
 
 # === 临时文件常量 ===
-readonly TMP_DIR="/tmp/edgebox"
-readonly LOCK_FILE="/var/lock/edgebox-install.lock"
+TMP_DIR="/tmp/edgebox"
+LOCK_FILE="/var/lock/edgebox-install.lock"
 
 #############################################
 # 路径验证和创建函数
