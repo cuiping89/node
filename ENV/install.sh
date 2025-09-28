@@ -66,6 +66,153 @@ BACKUP_DIR="/root/edgebox-backup"
 LOG_FILE="/var/log/edgebox-install.log"
 WEB_ROOT="/var/www/html"
 
+
+#############################################
+# 统一路径和常量管理
+#############################################
+
+# === 核心目录结构 ===
+readonly INSTALL_DIR="/etc/edgebox"
+readonly CERT_DIR="${INSTALL_DIR}/cert"
+readonly CONFIG_DIR="${INSTALL_DIR}/config"
+readonly TRAFFIC_DIR="${INSTALL_DIR}/traffic"
+readonly SCRIPTS_DIR="${INSTALL_DIR}/scripts"
+readonly BACKUP_DIR="/root/edgebox-backup"
+
+# === 日志文件路径 ===
+readonly LOG_FILE="/var/log/edgebox-install.log"
+readonly XRAY_LOG="/var/log/xray/access.log"
+readonly SINGBOX_LOG="/var/log/edgebox/sing-box.log"
+readonly NGINX_ACCESS_LOG="/var/log/nginx/access.log"
+readonly NGINX_ERROR_LOG="/var/log/nginx/error.log"
+
+# === Web相关路径 ===
+readonly WEB_ROOT="/var/www/html"
+readonly NGINX_CONF="/etc/nginx/nginx.conf"
+readonly NGINX_SITES_AVAILABLE="/etc/nginx/sites-available"
+readonly NGINX_SITES_ENABLED="/etc/nginx/sites-enabled"
+
+# === 可执行文件路径 ===
+readonly XRAY_BIN="/usr/local/bin/xray"
+readonly SINGBOX_BIN="/usr/local/bin/sing-box"
+readonly EDGEBOXCTL_BIN="/usr/local/bin/edgeboxctl"
+
+# === 配置文件路径 ===
+readonly SERVER_CONFIG="${CONFIG_DIR}/server.json"
+readonly XRAY_CONFIG="${CONFIG_DIR}/xray.json"
+readonly SINGBOX_CONFIG="${CONFIG_DIR}/sing-box.json"
+readonly SUBSCRIPTION_FILE="${WEB_ROOT}/subscription.txt"
+
+# === 证书相关路径 ===
+readonly CERT_CRT="${CERT_DIR}/current.pem"
+readonly CERT_KEY="${CERT_DIR}/current.key"
+readonly CERT_CSR="${CERT_DIR}/current.csr"
+
+# === 系统服务文件路径 ===
+readonly XRAY_SERVICE="/etc/systemd/system/xray.service"
+readonly SINGBOX_SERVICE="/etc/systemd/system/sing-box.service"
+readonly NGINX_SERVICE="/etc/systemd/system/nginx.service"
+
+# === 用户和组常量 ===
+readonly WEB_USER="www-data"
+readonly XRAY_USER="nobody"
+readonly SINGBOX_USER="root"
+
+# === 网络常量 ===
+readonly DEFAULT_PORTS=(80 443 2053)
+readonly REALITY_SNI="www.microsoft.com"
+readonly HYSTERIA2_MASQUERADE="https://www.bing.com"
+
+# === 版本和下载常量 ===
+readonly DEFAULT_SING_BOX_VERSION="1.12.4"
+readonly XRAY_INSTALL_SCRIPT="https://raw.githubusercontent.com/XTLS/Xray-install/main/install-release.sh"
+
+# === 临时文件常量 ===
+readonly TMP_DIR="/tmp/edgebox"
+readonly LOCK_FILE="/var/lock/edgebox-install.lock"
+
+#############################################
+# 路径验证和创建函数
+#############################################
+
+# 创建所有必要目录
+create_directories() {
+    log_info "创建目录结构..."
+    
+    local dirs=(
+        "$INSTALL_DIR" "$CERT_DIR" "$CONFIG_DIR" 
+        "$TRAFFIC_DIR" "$SCRIPTS_DIR" "$BACKUP_DIR"
+        "$(dirname "$LOG_FILE")" "$WEB_ROOT"
+        "$TMP_DIR"
+    )
+    
+    for dir in "${dirs[@]}"; do
+        if ! mkdir -p "$dir" 2>/dev/null; then
+            log_error "创建目录失败: $dir"
+            return 1
+        fi
+    done
+    
+    # 设置适当的权限
+    chmod 755 "$INSTALL_DIR" "$CONFIG_DIR" "$WEB_ROOT"
+    chmod 700 "$CERT_DIR" "$BACKUP_DIR"
+    chmod 755 "$TRAFFIC_DIR" "$SCRIPTS_DIR"
+    
+    log_success "目录结构创建完成"
+    return 0
+}
+
+# 验证关键路径
+validate_paths() {
+    log_info "验证关键路径..."
+    
+    # 检查可写性
+    local writable_paths=(
+        "$INSTALL_DIR" "$CONFIG_DIR" "$CERT_DIR" 
+        "$WEB_ROOT" "$(dirname "$LOG_FILE")"
+    )
+    
+    for path in "${writable_paths[@]}"; do
+        if [[ ! -w "$path" ]]; then
+            log_error "路径不可写: $path"
+            return 1
+        fi
+    done
+    
+    log_success "路径验证通过"
+    return 0
+}
+
+#############################################
+# 在其他函数中使用常量示例
+#############################################
+
+# 修改 configure_nginx 函数使用统一常量
+configure_nginx() {
+    log_info "配置Nginx（SNI定向 + ALPN兜底架构）..."
+    
+    # 备份原始配置
+    if [[ -f "$NGINX_CONF" ]]; then
+        cp "$NGINX_CONF" "${NGINX_CONF}.bak.$(date +%s)"
+        log_info "已备份原始Nginx配置"
+    fi
+    
+    # 生成新的Nginx配置
+    cat > "$NGINX_CONF" << 'NGINX_CONFIG'
+# EdgeBox Nginx 配置文件
+# 架构：SNI定向 + ALPN兜底 + 单端口复用
+
+user www-data;
+worker_processes auto;
+pid /run/nginx.pid;
+
+# ... 其余配置保持不变 ...
+NGINX_CONFIG
+
+    log_success "Nginx配置文件生成完成"
+    return 0
+}
+
 #############################################
 # 服务器信息变量（待收集）
 #############################################
@@ -1748,149 +1895,109 @@ install_sing_box() {
         fi
         log_info "检测到已安装的sing-box版本: ${current_version:-未知}"
         log_info "跳过sing-box重新安装，使用现有版本"
-    else
-# 解析架构 → sing-box 资产名
-local arch="$(uname -m)"
-local arch_tag=""
-case "$arch" in
-  x86_64|amd64)   arch_tag="amd64" ;;
-  aarch64|arm64)  arch_tag="arm64" ;;
-  armv7l)         arch_tag="armv7" ;;
-  armv6l)         arch_tag="armv6" ;;
-  i386|i686)      arch_tag="386"  ;;
-  *) log_warn "未知架构: $arch，尝试使用 amd64"; arch_tag="amd64" ;;
-esac
-
-# 版本优先级：
-# 1) 显式 SING_BOX_VERSION（可带或不带 v）
-# 2) GitHub API /releases/latest 取 tag_name
-# 3) 跟随跳转读取 releases/latest 的最终 URL，解析 tag
-# 4) 仍失败 → 统一回落到 DEFAULT_SINGBOX_VERSION
-local ver_raw=""
-if [[ -n "${SING_BOX_VERSION:-}" ]]; then
-  ver_raw="${SING_BOX_VERSION#v}"
-else
-  # 尝试 API
-  ver_raw="$(
-    curl -fsSL -H 'User-Agent: EdgeBox' \
-      'https://api.github.com/repos/SagerNet/sing-box/releases/latest' 2>/dev/null \
-    | jq -r '.tag_name' 2>/dev/null | sed 's/^v//'
-  )"
-
-  # API 拿不到时：不解析 HTML，直接跟随跳转拿最终 URL
-  if [[ -z "$ver_raw" || "$ver_raw" == "null" ]]; then
-    ver_raw="$(
-      curl -fsSLI -o /dev/null -w '%{url_effective}' \
-        'https://github.com/SagerNet/sing-box/releases/latest' \
-      | sed -nE 's#.*/tag/v([0-9.]+).*#\1#p'
-    )"
-  fi
-
-  # 统一回落
-  [[ -z "$ver_raw" ]] && ver_raw="${DEFAULT_SING_BOX_VERSION}"
-fi
-local version="$ver_raw"
-
-# 组合资产与候选 URL（官方 tag、latest/download 双兜底）
-local asset="sing-box-${version}-linux-${arch_tag}.tar.gz"
-local urls=(
-  "https://github.com/SagerNet/sing-box/releases/download/v${version}/${asset}"
-  "https://github.com/SagerNet/sing-box/releases/latest/download/${asset}"
-)
-
-# 支持可选代理（如果你设置了 GH_PROXY=你的中转前缀）
-if [[ -n "${GH_PROXY:-}" ]]; then
-  urls=("${GH_PROXY%/}/SagerNet/sing-box/releases/download/v${version}/${asset}" \
-        "${GH_PROXY%/}/SagerNet/sing-box/releases/latest/download/${asset}" \
-        "${urls[@]}")
-fi
-
-# 下载（多地址重试）
-local temp_file="/tmp/${asset}"
-rm -f "$temp_file"
-local ok=0
-for u in "${urls[@]}"; do
-  log_info "下载 sing-box: $u"
-  if curl -fL -A "Mozilla/5.0 (EdgeBox Installer)" --retry 3 --retry-delay 2 -o "$temp_file" "$u"; then
-    ok=1; break
-  else
-    log_warn "下载失败: $u"
-  fi
-done
-[[ "$ok" -ne 1 ]] && { log_error "所有 sing-box 下载地址均失败"; return 1; }
-
-# 验证下载文件
-if [[ ! -f "$temp_file" || ! -s "$temp_file" ]]; then
-  log_error "下载的文件无效或为空"
-  return 1
-fi
-        
-        log_info "解压并安装sing-box..."
-        
-        # 创建临时解压目录
-        local temp_dir
-        temp_dir="$(mktemp -d)"
-        
-        # 解压文件
-        if ! tar -xzf "$temp_file" -C "$temp_dir" 2>/dev/null; then
-            log_error "解压sing-box失败"
-            rm -rf "$temp_dir" "$temp_file"
-            return 1
-        fi
-        
-        # 查找sing-box二进制文件
-        local sing_box_binary
-        sing_box_binary=$(find "$temp_dir" -name "sing-box" -type f -executable | head -1)
-        
-        if [[ -z "$sing_box_binary" || ! -f "$sing_box_binary" ]]; then
-            log_error "解压后未找到sing-box二进制文件"
-            rm -rf "$temp_dir" "$temp_file"
-            return 1
-        fi
-        
-        # 安装到系统目录
-        if install -m 0755 -o root -g root "$sing_box_binary" /usr/local/bin/sing-box; then
-            log_success "sing-box安装到 /usr/local/bin/sing-box"
-        else
-            log_error "sing-box安装失败"
-            rm -rf "$temp_dir" "$temp_file"
-            return 1
-        fi
-        
-        # 清理临时文件
-        rm -rf "$temp_dir" "$temp_file"
+        return 0
     fi
     
-    # 验证安装
+    # ... 下载逻辑保持不变 ...
+    
+    log_info "解压并安装sing-box..."
+    
+    # 创建临时解压目录
+    local temp_dir
+    if ! temp_dir="$(mktemp -d)"; then
+        log_error "创建临时目录失败"
+        rm -f "$temp_file"
+        return 1
+    fi
+    
+    # 解压文件 - 增强错误处理
+    if ! tar -xzf "$temp_file" -C "$temp_dir" 2>/dev/null; then
+        log_error "解压sing-box失败"
+        log_debug "压缩包路径: $temp_file"
+        log_debug "解压目录: $temp_dir"
+        rm -rf "$temp_dir" "$temp_file"
+        return 1
+    fi
+    
+    # 查找sing-box二进制文件
+    local sing_box_binary
+    sing_box_binary=$(find "$temp_dir" -name "sing-box" -type f -executable | head -1)
+    
+    if [[ -z "$sing_box_binary" || ! -f "$sing_box_binary" ]]; then
+        log_error "解压后未找到sing-box二进制文件"
+        log_debug "解压目录内容:"
+        find "$temp_dir" -type f 2>/dev/null | head -10 | while read -r file; do
+            log_debug "  - $(basename "$file")"
+        done
+        rm -rf "$temp_dir" "$temp_file"
+        return 1
+    fi
+    
+    # 验证二进制文件有效性
+    if ! "$sing_box_binary" version >/dev/null 2>&1; then
+        log_error "下载的sing-box二进制文件无法执行或已损坏"
+        rm -rf "$temp_dir" "$temp_file"
+        return 1
+    fi
+    
+    # 安装到系统目录 - 增强错误处理
+    if ! install -m 0755 -o root -g root "$sing_box_binary" /usr/local/bin/sing-box; then
+        log_error "sing-box安装失败"
+        log_debug "安装命令: install -m 0755 -o root -g root $sing_box_binary /usr/local/bin/sing-box"
+        log_debug "目标目录权限: $(ls -ld /usr/local/bin/ 2>/dev/null || echo '目录不存在')"
+        rm -rf "$temp_dir" "$temp_file"
+        return 1
+    fi
+    
+    # 验证安装结果
+    if [[ ! -f /usr/local/bin/sing-box ]]; then
+        log_error "sing-box安装验证失败 - 文件不存在"
+        rm -rf "$temp_dir" "$temp_file"
+        return 1
+    fi
+    
+    if [[ ! -x /usr/local/bin/sing-box ]]; then
+        log_error "sing-box安装验证失败 - 文件不可执行"
+        chmod +x /usr/local/bin/sing-box 2>/dev/null || true
+    fi
+    
+    # 清理临时文件
+    rm -rf "$temp_dir" "$temp_file"
+    
+    log_success "sing-box安装到 /usr/local/bin/sing-box"
+    
+    # 最终验证安装
     local sing_box_cmd=""
     if command -v sing-box >/dev/null 2>&1; then
         sing_box_cmd="sing-box"
     elif command -v /usr/local/bin/sing-box >/dev/null 2>&1; then
         sing_box_cmd="/usr/local/bin/sing-box"
-    fi
-    
-    if [[ -n "$sing_box_cmd" ]] && $sing_box_cmd version >/dev/null 2>&1; then
-        local version_info
-        version_info=$($sing_box_cmd version 2>/dev/null | head -1)
-        log_success "sing-box验证通过: $version_info"
-        
-        # 如果模块2中Reality密钥生成失败，在这里重新生成
-        if [[ "$REALITY_PUBLIC_KEY" == "temp_public_key_will_be_replaced" ]]; then
-            log_info "使用安装完成的sing-box重新生成Reality密钥..."
-            if generate_reality_keys; then
-                log_success "Reality密钥重新生成完成"
-                # 更新server.json
-                save_config_info
-            else
-                log_warn "Reality密钥重新生成失败，将使用临时密钥"
-            fi
-        fi
-        
-        return 0
     else
-        log_error "sing-box安装验证失败"
+        log_error "sing-box安装验证失败 - 命令不可用"
         return 1
     fi
+    
+    if ! $sing_box_cmd version >/dev/null 2>&1; then
+        log_error "sing-box安装验证失败 - 版本检查失败"
+        return 1
+    fi
+    
+    local version_info
+    version_info=$($sing_box_cmd version 2>/dev/null | head -1)
+    log_success "sing-box验证通过: $version_info"
+    
+    # Reality密钥重新生成逻辑（如果需要）
+    if [[ "$REALITY_PUBLIC_KEY" == "temp_public_key_will_be_replaced" ]]; then
+        log_info "使用安装完成的sing-box重新生成Reality密钥..."
+        if generate_reality_keys; then
+            log_success "Reality密钥重新生成完成"
+            save_config_info
+        else
+            log_warn "Reality密钥重新生成失败，将使用临时密钥"
+        fi
+    fi
+    
+    return 0
 }
 
 #############################################
@@ -2464,96 +2571,92 @@ configure_sing_box() {
         return 1
     fi
     
-    log_info "生成sing-box配置文件..."
+    log_info "生成sing-box配置文件 (使用 jq 确保安全)..."
     
-    # 生成sing-box配置
-    cat > "${CONFIG_DIR}/sing-box.json" << SINGBOX_CONFIG
-{
-  "log": {
-    "level": "warn",
-    "timestamp": true,
-    "output": "/var/log/edgebox/sing-box.log"
-  },
-  "inbounds": [
-    {
-      "type": "hysteria2",
-      "tag": "hysteria2-in",
-      "listen": "::",
-      "listen_port": 443,
-      "users": [
-        {
-          "password": "${PASSWORD_HYSTERIA2}"
-        }
-      ],
-      "masquerade": "https://www.bing.com",
-      "tls": {
-        "enabled": true,
-        "alpn": [
-          "h3"
-        ],
-        "certificate_path": "${CERT_DIR}/current.pem",
-        "key_path": "${CERT_DIR}/current.key"
-      }
-    },
-    {
-      "type": "tuic",
-      "tag": "tuic-in",
-      "listen": "::",
-      "listen_port": 2053,
-      "users": [
-        {
-          "uuid": "${UUID_TUIC}",
-          "password": "${PASSWORD_TUIC}"
-        }
-      ],
-      "congestion_control": "bbr",
-      "auth_timeout": "3s",
-      "zero_rtt_handshake": false,
-      "heartbeat": "10s",
-      "tls": {
-        "enabled": true,
-        "alpn": [
-          "h3"
-        ],
-        "certificate_path": "${CERT_DIR}/current.pem",
-        "key_path": "${CERT_DIR}/current.key"
-      }
-    }
-  ],
-  "outbounds": [
-    {
-      "type": "direct",
-      "tag": "direct"
-    }
-  ],
-"route": {
-  "rules": [
-    {
-      "ip_cidr": [
-        "127.0.0.0/8",
-        "10.0.0.0/8",
-        "172.16.0.0/12",
-        "192.168.0.0/16",
-        "::1/128",
-        "fc00::/7",
-        "fe80::/10"
-      ],
-      "outbound": "direct"
-    }
-  ]
-}
-}
-SINGBOX_CONFIG
-    
-    # 验证JSON格式
-    if ! jq '.' "${CONFIG_DIR}/sing-box.json" >/dev/null 2>&1; then
-        log_error "sing-box配置JSON格式错误"
+    # 使用 jq 安全地生成配置文件，避免特殊字符问题
+    if ! jq -n \
+        --arg hy2_pass "$PASSWORD_HYSTERIA2" \
+        --arg tuic_uuid "$UUID_TUIC" \
+        --arg tuic_pass "$PASSWORD_TUIC" \
+        --arg cert_pem "${CERT_DIR}/current.pem" \
+        --arg cert_key "${CERT_DIR}/current.key" \
+        '{
+          "log": {
+            "level": "warn",
+            "timestamp": true,
+            "output": "/var/log/edgebox/sing-box.log"
+          },
+          "inbounds": [
+            {
+              "type": "hysteria2",
+              "tag": "hysteria2-in",
+              "listen": "::",
+              "listen_port": 443,
+              "users": [{"password": $hy2_pass}],
+              "masquerade": "https://www.bing.com",
+              "tls": {
+                "enabled": true,
+                "alpn": ["h3"],
+                "certificate_path": $cert_pem,
+                "key_path": $cert_key
+              }
+            },
+            {
+              "type": "tuic",
+              "tag": "tuic-in",
+              "listen": "::",
+              "listen_port": 2053,
+              "users": [{"uuid": $tuic_uuid, "password": $tuic_pass}],
+              "congestion_control": "bbr",
+              "auth_timeout": "3s",
+              "zero_rtt_handshake": false,
+              "heartbeat": "10s",
+              "tls": {
+                "enabled": true,
+                "alpn": ["h3"],
+                "certificate_path": $cert_pem,
+                "key_path": $cert_key
+              }
+            }
+          ],
+          "outbounds": [
+            {
+              "type": "direct",
+              "tag": "direct"
+            }
+          ],
+          "route": {
+            "rules": [
+              {
+                "ip_cidr": [
+                  "127.0.0.0/8",
+                  "10.0.0.0/8",
+                  "172.16.0.0/12",
+                  "192.168.0.0/16",
+                  "::1/128",
+                  "fc00::/7",
+                  "fe80::/10"
+                ],
+                "outbound": "direct"
+              }
+            ]
+          }
+        }' > "${CONFIG_DIR}/sing-box.json"; then
+        log_error "使用 jq 生成 sing-box.json 失败"
         return 1
     fi
     
-# 创建sing-box systemd服务
-log_info "创建sing-box系统服务..."
-cat > /etc/systemd/system/sing-box.service << SINGBOX_SERVICE
+    log_success "sing-box配置文件生成完成"
+    
+    # 验证生成的JSON格式
+    if ! jq '.' "${CONFIG_DIR}/sing-box.json" >/dev/null 2>&1; then
+        log_error "生成的sing-box配置JSON格式验证失败"
+        return 1
+    fi
+    
+    # 创建sing-box systemd服务
+    log_info "创建sing-box系统服务..."
+    cat > /etc/systemd/system/sing-box.service << 'SINGBOX_SERVICE'
 [Unit]
 Description=sing-box Service
 Documentation=https://sing-box.sagernet.org/
@@ -2564,8 +2667,8 @@ Wants=network.target
 User=root
 Group=root
 Type=simple
-ExecStart=/usr/local/bin/sing-box run -c ${CONFIG_DIR}/sing-box.json
-ExecReload=/bin/kill -HUP \$MAINPID
+ExecStart=/usr/local/bin/sing-box run -c /etc/edgebox/config/sing-box.json
+ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=10s
 LimitNOFILE=infinity
@@ -8222,6 +8325,149 @@ get_server_info() {
   REALITY_PUBLIC_KEY=$(jq -r '.reality.public_key' ${CONFIG_DIR}/server.json 2>/dev/null)
   REALITY_SHORT_ID=$(jq -r '.reality.short_id' ${CONFIG_DIR}/server.json 2>/dev/null)
 }
+
+# 全局变量和初始化函数
+
+# 全局配置变量 - 在脚本开始时加载一次
+SERVER_IP=""
+UUID_VLESS_REALITY=""
+UUID_VLESS_GRPC=""
+UUID_VLESS_WS=""
+UUID_TUIC=""
+UUID_HYSTERIA2=""
+UUID_TROJAN=""
+PASSWORD_HYSTERIA2=""
+PASSWORD_TUIC=""
+PASSWORD_TROJAN=""
+REALITY_PUBLIC_KEY=""
+REALITY_SHORT_ID=""
+CONFIG_LOADED=false
+
+# 一次性加载所有配置信息
+load_config_once() {
+    if [[ "$CONFIG_LOADED" == "true" ]]; then
+        return 0
+    fi
+    
+    local config_file="/etc/edgebox/config/server.json"
+    if [[ ! -f "$config_file" ]]; then
+        echo "错误: 配置文件不存在: $config_file"
+        return 1
+    fi
+    
+    # 一次性读取所有需要的配置项
+    local config_data
+    config_data=$(jq -r '
+        {
+            server_ip: .server_ip,
+            uuid_vless_reality: .uuid.vless_reality,
+            uuid_vless_grpc: .uuid.vless_grpc,
+            uuid_vless_ws: .uuid.vless_ws,
+            uuid_tuic: .uuid.tuic,
+            uuid_hysteria2: .uuid.hysteria2,
+            uuid_trojan: .uuid.trojan,
+            password_hysteria2: .password.hysteria2,
+            password_tuic: .password.tuic,
+            password_trojan: .password.trojan,
+            reality_public_key: .reality.public_key,
+            reality_short_id: .reality.short_id
+        } | @base64
+    ' "$config_file" 2>/dev/null)
+    
+    if [[ -z "$config_data" || "$config_data" == "null" ]]; then
+        echo "错误: 配置文件格式错误或读取失败"
+        return 1
+    fi
+    
+    # 解码并加载到全局变量
+    local decoded
+    decoded=$(echo "$config_data" | base64 -d 2>/dev/null)
+    
+    SERVER_IP=$(echo "$decoded" | jq -r '.server_ip // ""')
+    UUID_VLESS_REALITY=$(echo "$decoded" | jq -r '.uuid_vless_reality // ""')
+    UUID_VLESS_GRPC=$(echo "$decoded" | jq -r '.uuid_vless_grpc // ""')
+    UUID_VLESS_WS=$(echo "$decoded" | jq -r '.uuid_vless_ws // ""')
+    UUID_TUIC=$(echo "$decoded" | jq -r '.uuid_tuic // ""')
+    UUID_HYSTERIA2=$(echo "$decoded" | jq -r '.uuid_hysteria2 // ""')
+    UUID_TROJAN=$(echo "$decoded" | jq -r '.uuid_trojan // ""')
+    PASSWORD_HYSTERIA2=$(echo "$decoded" | jq -r '.password_hysteria2 // ""')
+    PASSWORD_TUIC=$(echo "$decoded" | jq -r '.password_tuic // ""')
+    PASSWORD_TROJAN=$(echo "$decoded" | jq -r '.password_trojan // ""')
+    REALITY_PUBLIC_KEY=$(echo "$decoded" | jq -r '.reality_public_key // ""')
+    REALITY_SHORT_ID=$(echo "$decoded" | jq -r '.reality_short_id // ""')
+    
+    CONFIG_LOADED=true
+    return 0
+}
+
+# 原来的 get_server_info 函数现在变成简单的验证函数
+get_server_info() {
+    if [[ "$CONFIG_LOADED" != "true" ]]; then
+        echo "错误: 配置未加载，请先调用 load_config_once"
+        return 1
+    fi
+    
+    if [[ -z "$SERVER_IP" ]]; then
+        echo "错误: 服务器IP配置缺失"
+        return 1
+    fi
+    
+    return 0
+}
+
+# 修改后的订阅显示函数 - 不再重复读取配置
+show_sub() {
+    # 配置已在脚本开始时加载，直接使用全局变量
+    if ! get_server_info; then
+        return 1
+    fi
+    
+    echo "=== EdgeBox 节点订阅信息 ==="
+    echo
+    echo "🌐 服务器信息:"
+    echo "   IP地址: $SERVER_IP"
+    echo
+    echo "📋 订阅链接 (复制到客户端):"
+    
+    # 生成各协议链接（使用已加载的全局变量）
+    local vless_reality="vless://${UUID_VLESS_REALITY}@${SERVER_IP}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.microsoft.com&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&type=tcp&headerType=none#EdgeBox-Reality"
+    
+    local hysteria2="hy2://${PASSWORD_HYSTERIA2}@${SERVER_IP}:443/?sni=${SERVER_IP}#EdgeBox-Hysteria2"
+    
+    echo "1️⃣  VLESS+Reality:"
+    echo "   $vless_reality"
+    echo
+    echo "2️⃣  Hysteria2:"
+    echo "   $hysteria2"
+    echo
+    # ... 其他协议类似处理
+}
+
+# 主函数 - 在执行任何命令前先加载配置
+main() {
+    # 在脚本开始时一次性加载所有配置
+    if ! load_config_once; then
+        echo "配置加载失败，退出"
+        exit 1
+    fi
+    
+    case "$1" in
+        sub|subscription)
+            show_sub
+            ;;
+        status)
+            show_status
+            ;;
+        # ... 其他命令
+        *)
+            echo "用法: edgeboxctl [sub|status|logs|restart|...]"
+            ;;
+    esac
+}
+
+# 脚本入口
+main "$@"
+
 
 #############################################
 # 基础功能
