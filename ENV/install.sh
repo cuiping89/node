@@ -7337,35 +7337,31 @@ async function copyText(text) {
     }
 }
 
-// === refreshAllData: begin ===
+// --- 主应用程序逻辑 ---
 async function refreshAllData() {
-  // 1) 主数据并发（失败会直接暴露真实问题；但不会受通知失败牵连）
-  const [dashboard, system, traffic] = await Promise.all([
-    fetchJSON('/traffic/dashboard.json'),
-    fetchJSON('/traffic/system.json'),
-    fetchJSON('/traffic/traffic.json'),
-  ]);
+// 并行获取所有四个 JSON 文件
+const [dash, sys, traf, notif] = await Promise.all([
+fetchJSON('/traffic/dashboard.json'),
+fetchJSON('/traffic/system.json'),
+fetchJSON('/traffic/traffic.json'),
+fetchJSON('/traffic/notifications.json') // <-- 添加此行
+]);
 
-  // 2) 先渲染主界面，保证“模板有值”
-  renderDashboard(dashboard);
-  renderSystem(system);
-  renderTraffic(traffic);
+// 更新全局数据对象
+if (dash) dashboardData = dash;
+if (sys) systemData = sys;
+if (traf) trafficData = traf;
 
-  // 3) 通知单独请求（失败兜底，不影响页面）
-  try {
-    const raw = await fetchJSON('/traffic/notifications.json');
-    const data = normalizeNotifications(raw);    // 见锚点 2
-    if (typeof updateNotificationCenter === 'function') {
-      updateNotificationCenter(data);
-    }
-  } catch (err) {
-    console.warn('[notifications] fetch failed:', err);
-    if (typeof updateNotificationCenter === 'function') {
-      updateNotificationCenter({ notifications: [], unread_count: 0 });
-    }
-  }
+// 将通知数据传递给其更新函数
+if (notif) updateNotificationCenter(notif); // <-- 添加此行
+
+// 继续使用现有的渲染逻辑
+window.dashboardData = dashboardData;
+renderOverview();
+renderCertificateAndNetwork();
+renderProtocolTable();
+renderTrafficCharts();
 }
-// === refreshAllData: end ===
 
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -8165,7 +8161,6 @@ CONF
 */2 * * * * bash -lc '/etc/edgebox/scripts/dashboard-backend.sh --now' >/dev/null 2>&1
 0  * * * * bash -lc '/etc/edgebox/scripts/traffic-collector.sh'        >/dev/null 2>&1
 7  * * * * bash -lc '/etc/edgebox/scripts/traffic-alert.sh'            >/dev/null 2>&1
-*/5 * * * * bash -lc '/etc/edgebox/scripts/dashboard-backend.sh --notifications-only' >/dev/null 2>&1
 15 2 * * * bash -lc '/usr/local/bin/edgebox-ipq.sh'                    >/dev/null 2>&1
 CRON
     ) | crontab -
