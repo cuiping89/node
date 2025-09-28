@@ -5713,9 +5713,9 @@ h4 {
     color: white;
     border-radius: 10px;
     padding: 1px 6px;
-    font-size: 10px;     /* 🔧 缩小字体：12px → 10px */
+    font-size: 8px;     /* 🔧 缩小字体：12px → 10px */
     font-weight: 600;
-    min-width: 13px;     /* 🔧 缩小尺寸：20px → 16px */
+    min-width: 11px;     /* 🔧 缩小尺寸：20px → 16px */
 	height: 16px;        /* 🔧 缩小尺寸：20px → 16px */
     z-index: 10;         /* 🔧 确保在铃铛之上 */
     border: 2px solid white; /* 🔧 白色边框增加对比度 */
