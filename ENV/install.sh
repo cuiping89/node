@@ -33,7 +33,7 @@ fi
 # 全局配置 - 脚本基础信息
 #############################################
 
-set -e  # 遇到错误立即退出
+set -euo pipefail  # 遇到错误立即退出
 
 # 版本号
 EDGEBOX_VER="3.0.0"
@@ -391,6 +391,7 @@ create_directories() {
         "/var/log/edgebox"
         "/var/log/xray"
         "${WEB_ROOT}"
+		"/var/lock"
     )
 
     # 创建所有必要目录
@@ -2969,6 +2970,13 @@ create_dashboard_backend() {
 set -euo pipefail
 export LANG=C LC_ALL=C
 
+# 并发锁：防止多个实例同时运行
+exec 200>/var/lock/edgebox-dashboard.lock
+if ! flock -n 200; then
+    echo "[$(date -Is)] Another dashboard-backend instance is running, skipping..."
+    exit 0
+fi
+
 # 解析当前脚本所在目录，并为 SCRIPTS_DIR 提供默认值
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 : "${SCRIPTS_DIR:=${SCRIPT_DIR}}"
@@ -3999,6 +4007,14 @@ chmod +x "${SCRIPTS_DIR}/system-stats.sh"
 cat > "${SCRIPTS_DIR}/traffic-collector.sh" <<'COLLECTOR'
 #!/bin/bash
 set -euo pipefail
+
+# 并发锁：防止多个实例同时运行
+exec 201>/var/lock/edgebox-traffic.lock
+if ! flock -n 201; then
+    echo "[$(date -Is)] Another traffic-collector instance is running, skipping..."
+    exit 0
+fi
+
 TRAFFIC_DIR="/etc/edgebox/traffic"
 LOG_DIR="$TRAFFIC_DIR/logs"
 STATE="${TRAFFIC_DIR}/.state"
@@ -4199,6 +4215,14 @@ CONF
 cat > "${SCRIPTS_DIR}/traffic-alert.sh" <<'ALERT'
 #!/bin/bash
 set -euo pipefail
+
+# 并发锁：防止多个实例同时运行
+exec 202>/var/lock/edgebox-alert.lock
+if ! flock -n 202; then
+    echo "[$(date -Is)] Another traffic-alert instance is running, skipping..."
+    exit 0
+fi
+
 TRAFFIC_DIR="/etc/edgebox/traffic"
 LOG_DIR="$TRAFFIC_DIR/logs"
 CONF="$TRAFFIC_DIR/alert.conf"
@@ -9741,6 +9765,13 @@ collect_one(){
 }
 
 main(){
+  # 并发锁：防止多个实例同时运行
+  exec 203>/var/lock/edgebox-ipq.lock
+  if ! flock -n 203; then
+    echo "[$(date -Is)] Another ipq instance is running, skipping..."
+    exit 0
+  fi
+
   collect_one "vps" "" > "${STATUS_DIR}/ipq_vps.json"
   purl="$(get_proxy_url)"
   if [[ -n "${purl:-}" && "$purl" != "null" ]]; then
@@ -10206,8 +10237,8 @@ show_progress() {
 
 # 主安装流程
 main() {
-    trap cleanup EXIT
-    
+    trap cleanup_all EXIT
+	
     clear
     print_separator
     echo -e "${GREEN}EdgeBox 企业级安装脚本 v3.0.0${NC}"
