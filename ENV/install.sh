@@ -779,13 +779,9 @@ EOF
     fi
 }
 
-
-###############################
 # 错误处理和清理函数
-###############################
-
 cleanup_all() {
-    local script_exit_code=$?
+    local exit_code=$?
     
     log_info "执行统一清理程序..."
     
@@ -793,211 +789,40 @@ cleanup_all() {
     [[ -n "${EB_TMP:-}" ]] && rm -f "$EB_TMP" 2>/dev/null || true
     
     # 2. 清理安装过程中的临时文件
-    rm -f /tmp/edgebox_* 2>/dev/null || true
-    rm -f /tmp/sing-box* 2>/dev/null || true
-    rm -f /tmp/xray_* 2>/dev/null || true
-    rm -f /tmp/*.tar.gz 2>/dev/null || true
-    rm -f /tmp/*.zip 2>/dev/null || true
-    find /tmp -name "*.bak.*" -mtime 0 -delete 2>/dev/null || true
-    
-    log_info "临时文件清理完成"
-    
-    # 3. 🔧 关键修复：智能判断安装是否真正成功
-    log_info "正在验证安装结果..."
-    
-    # 检查核心服务状态
-    local services=("nginx" "xray" "sing-box")
-    local running_services=()
-    local failed_services=()
-    
-    for service in "${services[@]}"; do
-        if systemctl is-active --quiet "$service" 2>/dev/null; then
-            running_services+=("$service")
-            log_info "✅ $service 服务运行正常"
-        else
-            failed_services+=("$service")
-            log_warn "❌ $service 服务未运行"
-        fi
-    done
-    
-    # 检查关键端口
-    local ports=("80:nginx" "443:tcp" "443:udp" "2053:udp")
-    local listening_ports=()
-    local failed_ports=()
-    
-    for port_info in "${ports[@]}"; do
-        local port="${port_info%:*}"
-        local desc="${port_info#*:}"
+    if [[ $exit_code -ne 0 ]]; then
+        log_error "安装过程中发生错误，退出码: $exit_code"
+        log_info "正在清理临时文件..."
         
-        if [[ "$desc" == "udp" ]] || [[ "$port_info" == *":udp" ]]; then
-            if ss -ulnp 2>/dev/null | grep -q ":${port} "; then
-                listening_ports+=("$port($desc)")
-            else
-                failed_ports+=("$port($desc)")
-            fi
-        else
-            if ss -tlnp 2>/dev/null | grep -q ":${port} "; then
-                listening_ports+=("$port($desc)")
-            else
-                failed_ports+=("$port($desc)")
-            fi
-        fi
-    done
-    
-    # 检查重要文件
-    local config_files=(
-        "/etc/edgebox/config/server.json"
-        "/etc/edgebox/config/xray.json"
-        "/etc/edgebox/config/sing-box.json"
-        "/etc/edgebox/scripts/dashboard-backend.sh"
-        "/var/www/html/sub"
-    )
-    local existing_files=()
-    local missing_files=()
-    
-    for file in "${config_files[@]}"; do
-        if [[ -f "$file" ]]; then
-            existing_files+=("$file")
-        else
-            missing_files+=("$file")
-        fi
-    done
-    
-    # 🎯 安装成功判定逻辑
-    local success_score=0
-    local total_score=0
-    
-    # 服务权重：每个服务20分
-    success_score=$((success_score + ${#running_services[@]} * 20))
-    total_score=$((total_score + ${#services[@]} * 20))
-    
-    # 端口权重：每个端口10分
-    success_score=$((success_score + ${#listening_ports[@]} * 10))
-    total_score=$((total_score + ${#ports[@]} * 10))
-    
-    # 文件权重：每个文件4分
-    success_score=$((success_score + ${#existing_files[@]} * 4))
-    total_score=$((total_score + ${#config_files[@]} * 4))
-    
-    local success_rate=$((success_score * 100 / total_score))
-    
-    log_info "安装完成度评估：${success_score}/${total_score} (${success_rate}%)"
-    
-    # 🚀 判定标准：80%以上完成度且nginx运行 = 安装成功
-    if [[ $success_rate -ge 80 ]] && [[ " ${running_services[*]} " =~ " nginx " ]]; then
-        log_success "🎉 EdgeBox v3.0.0 安装成功完成！"
+        # 清理可能的临时文件
+        rm -f /tmp/edgebox_* 2>/dev/null || true
+        rm -f /tmp/sing-box* 2>/dev/null || true
+        rm -f /tmp/xray_* 2>/dev/null || true
+        
+        # 清理可能的下载文件
+        rm -f /tmp/*.tar.gz 2>/dev/null || true
+        rm -f /tmp/*.zip 2>/dev/null || true
+        
+        # 清理可能的配置备份
+        find /tmp -name "*.bak.*" -mtime 0 -delete 2>/dev/null || true
+        
+        log_info "临时文件清理完成"
+        log_info "详细错误信息请查看: $LOG_FILE"
+        
+        # 显示故障排查提示
         echo ""
-        echo -e "${GREEN}=== 安装成功摘要 ===${NC}"
-        echo -e "${GREEN}✅ 运行中的服务:${NC} ${running_services[*]}"
-        echo -e "${GREEN}✅ 监听中的端口:${NC} ${listening_ports[*]}"
-        echo -e "${GREEN}✅ 成功率:${NC} ${success_rate}%"
-        
-        if [[ ${#failed_services[@]} -gt 0 ]] || [[ ${#failed_ports[@]} -gt 0 ]]; then
-            echo ""
-            echo -e "${YELLOW}⚠️  注意事项:${NC}"
-            [[ ${#failed_services[@]} -gt 0 ]] && echo -e "${YELLOW}  - 部分服务可能需要手动启动:${NC} ${failed_services[*]}"
-            [[ ${#failed_ports[@]} -gt 0 ]] && echo -e "${YELLOW}  - 部分端口可能需要检查:${NC} ${failed_ports[*]}"
-            echo -e "${YELLOW}  - 这些问题不影响核心功能，可稍后处理${NC}"
-        fi
-        
-        echo ""
-        echo -e "${CYAN}🔗 访问控制面板:${NC} http://$(get_server_ip 2>/dev/null || hostname -I | awk '{print $1}')/traffic/"
-        echo -e "${CYAN}📋 订阅链接:${NC} http://$(get_server_ip 2>/dev/null || hostname -I | awk '{print $1}')/sub"
-        echo -e "${CYAN}🔧 管理工具:${NC} edgeboxctl"
-        echo ""
-        
-        # 成功退出
-        exit 0
-        
+        log_info "故障排查建议："
+        log_info "1. 检查系统兼容性: cat /etc/os-release"
+        log_info "2. 检查网络连接: curl -I https://github.com"
+        log_info "3. 检查端口占用: ss -tlnp | grep ':443 '"
+        log_info "4. 查看详细日志: tail -n 50 $LOG_FILE"
+        log_info "5. 重新运行脚本或联系技术支持"
     else
-        # 真正的安装失败
-        log_error "💥 EdgeBox 安装失败"
-        echo ""
-        echo -e "${RED}=== 安装失败摘要 ===${NC}"
-        echo -e "${RED}❌ 失败的服务:${NC} ${failed_services[*]}"
-        echo -e "${RED}❌ 失败的端口:${NC} ${failed_ports[*]}"
-        echo -e "${RED}❌ 缺失的文件:${NC} ${missing_files[*]}"
-        echo -e "${RED}❌ 完成度:${NC} ${success_rate}% (需要≥80%)"
-        echo ""
-        echo -e "${YELLOW}🔧 故障排查建议：${NC}"
-        echo -e "  1. 检查系统兼容性: ${CYAN}cat /etc/os-release${NC}"
-        echo -e "  2. 检查网络连接: ${CYAN}curl -I https://github.com${NC}"
-        echo -e "  3. 检查端口占用: ${CYAN}ss -tlnp | grep ':443 '${NC}"
-        echo -e "  4. 查看详细日志: ${CYAN}tail -n 50 $LOG_FILE${NC}"
-        echo -e "  5. 手动检查服务: ${CYAN}systemctl status nginx xray sing-box${NC}"
-        echo -e "  6. 重新运行脚本或联系技术支持"
-        echo ""
-        
-        # 失败退出
-        exit 1
-    fi
-}
-
-# 🔧 另外，修改主函数的最后部分，确保正确的退出流程
-main() {
-    trap cleanup_all EXIT
-    
-    # ... 其他安装步骤保持不变 ...
-    
-    # 最后这部分要修改：
-    show_progress 10 10 "最终数据生成与同步"
-    finalize_data_generation
-    
-    # 🔧 移除这里的直接退出，让cleanup_all来处理最终结果
-    # log_success "EdgeBox v3.0.0 安装成功完成！"
-    # exit 0
-    
-    # 🎯 直接结束，让cleanup_all函数来判断和处理最终结果
-    log_info "安装流程执行完毕，正在进行最终验证..."
-}
-
-# 🔧 同时在finalize_data_generation函数的最后，移除任何可能导致非零退出的命令
-finalize_data_generation() {
-    log_info "最终数据生成与同步..."
-    
-    # 生成最终订阅文件
-    log_info "生成最终订阅文件..."
-    generate_subscription || log_warn "订阅文件生成遇到小问题，但不影响核心功能"
-    
-    # 同步订阅文件
-    log_info "同步订阅文件..."
-    if [[ -f "${CONFIG_DIR}/subscription.txt" ]]; then
-        cp "${CONFIG_DIR}/subscription.txt" "${WEB_ROOT}/sub" 2>/dev/null || true
-        cp "${CONFIG_DIR}/subscription.txt" "${TRAFFIC_DIR}/sub.txt" 2>/dev/null || true
-        log_success "订阅同步完成：${WEB_ROOT}/sub -> ${CONFIG_DIR}/subscription.txt，以及 ${TRAFFIC_DIR}/sub.txt"
-    else
-        log_warn "订阅文件不存在，跳过同步"
+        # 成功完成，只做基础清理
+        [[ -n "${EB_TMP:-}" ]] && rm -f "$EB_TMP" 2>/dev/null || true
+        log_debug "安装成功，清理完成"
     fi
     
-    # 初始化分流配置
-    log_info "初始化分流配置..."
-    mkdir -p "${CONFIG_DIR}/shunt" 2>/dev/null || true
-    echo '{"enabled": false, "mode": "whitelist", "domains": []}' > "${CONFIG_DIR}/shunt/state.json" 2>/dev/null || true
-    
-    # 生成初始面板数据
-    log_info "生成初始面板数据..."
-    "${SCRIPTS_DIR}/dashboard-backend.sh" --now 2>/dev/null || log_warn "初始面板数据生成遇到小问题"
-    
-    # 初始化流量监控数据
-    log_info "初始化流量监控数据..."
-    mkdir -p "${TRAFFIC_DIR}/data" 2>/dev/null || true
-    echo '[]' > "${TRAFFIC_DIR}/data/traffic_history.json" 2>/dev/null || true
-    
-    # 设置文件权限
-    log_info "设置文件权限..."
-    chmod -R 755 "${SCRIPTS_DIR}" 2>/dev/null || true
-    chmod -R 644 "${CONFIG_DIR}"/*.json 2>/dev/null || true
-    chmod -R 755 "${TRAFFIC_DIR}" 2>/dev/null || true
-    
-    # 执行最终验证
-    log_info "执行最终验证..."
-    # 🔧 确保这里的命令不会失败
-    systemctl daemon-reload 2>/dev/null || true
-    
-    log_success "数据生成与系统验证完成"
-    
-    # 🔧 明确返回成功，避免意外的非零退出码
-    return 0
+    exit $exit_code
 }
 
 
