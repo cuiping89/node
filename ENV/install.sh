@@ -3819,6 +3819,19 @@ collect_notifications() {
     log_info "通知数据收集完成"
 }
 
+# 设置通知收集定时任务
+setup_notification_cron() {
+    log_info "设置通知收集定时任务..."
+    
+    # 通知收集定时任务（每2分钟）
+    local notif_cron="*/2 * * * * ${SCRIPTS_DIR}/dashboard-backend.sh --notifications-only >/dev/null 2>&1"
+    
+    # 检查是否已存在
+    if ! crontab -l 2>/dev/null | grep -q "dashboard-backend.sh --notifications-only"; then
+        (crontab -l 2>/dev/null; echo "$notif_cron") | crontab -
+        log_success "通知收集定时任务已设置"
+    fi
+}
 
 #############################################
 # 主数据生成函数
@@ -7430,23 +7443,17 @@ async function copyText(text) {
     }
 }
 
-// --- Main Application Logic ---
 async function refreshAllData() {
-    const [dash, sys, traf] = await Promise.all([
+    const [dash, sys, traf, notif] = await Promise.all([
         fetchJSON('/traffic/dashboard.json'),
         fetchJSON('/traffic/system.json'),
-        fetchJSON('/traffic/traffic.json')
+        fetchJSON('/traffic/traffic.json'),
+        fetchJSON('/traffic/notifications.json')
     ]);
     if (dash) dashboardData = dash;
     if (sys) systemData = sys;
     if (traf) trafficData = traf;
-    window.dashboardData = dashboardData; 
-    renderOverview();
-    renderCertificateAndNetwork();
-    renderProtocolTable();
-    renderTrafficCharts();
-}
-
+    if (notif) updateNotificationCenter(notif);
 
 document.addEventListener('DOMContentLoaded', () => {
   // 首次刷新
