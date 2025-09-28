@@ -912,48 +912,37 @@ EOF
 
 # 错误处理和清理函数
 cleanup_all() {
-    local exit_code=$?
+    local rc=$?
     
-    log_info "执行统一清理程序..."
+    # 不再依赖退出码，而是检查关键服务状态
+    local services_ok=true
+    local core_services=("nginx" "xray" "sing-box")
     
-    # 1. 清理初始提权产生的临时文件
-    [[ -n "${EB_TMP:-}" ]] && rm -f "$EB_TMP" 2>/dev/null || true
+    for service in "${core_services[@]}"; do
+        if ! systemctl is-active --quiet "$service" 2>/dev/null; then
+            services_ok=false
+            break
+        fi
+    done
     
-    # 2. 清理安装过程中的临时文件
-    if [[ $exit_code -ne 0 ]]; then
-        log_error "安装过程中发生错误，退出码: $exit_code"
-        log_info "正在清理临时文件..."
-        
-        # 清理可能的临时文件
-        rm -f /tmp/edgebox_* 2>/dev/null || true
-        rm -f /tmp/sing-box* 2>/dev/null || true
-        rm -f /tmp/xray_* 2>/dev/null || true
-        
-        # 清理可能的下载文件
-        rm -f /tmp/*.tar.gz 2>/dev/null || true
-        rm -f /tmp/*.zip 2>/dev/null || true
-        
-        # 清理可能的配置备份
-        find /tmp -name "*.bak.*" -mtime 0 -delete 2>/dev/null || true
-        
-        log_info "临时文件清理完成"
-        log_info "详细错误信息请查看: $LOG_FILE"
-        
-        # 显示故障排查提示
-        echo ""
-        log_info "故障排查建议："
-        log_info "1. 检查系统兼容性: cat /etc/os-release"
-        log_info "2. 检查网络连接: curl -I https://github.com"
-        log_info "3. 检查端口占用: ss -tlnp | grep ':443 '"
-        log_info "4. 查看详细日志: tail -n 50 $LOG_FILE"
-        log_info "5. 重新运行脚本或联系技术支持"
+    # 只有当服务真正失败时才报错
+    if [[ "$services_ok" == "true" ]]; then
+        log_success "EdgeBox v3.0.0 安装成功完成！"
+        echo -e "\n${GREEN}🎉 安装成功！${NC}"
+        echo -e "${CYAN}订阅链接位置：${NC}"
+        echo -e "  📄 明文: /etc/edgebox/config/subscription.txt"
+        echo -e "  🌐 Web: /var/www/html/sub"
+        echo -e "  📦 Base64: /etc/edgebox/config/subscription.base64"
+        exit 0
     else
-        # 成功完成，只做基础清理
-        [[ -n "${EB_TMP:-}" ]] && rm -f "$EB_TMP" 2>/dev/null || true
-        log_debug "安装成功，清理完成"
+        log_error "安装失败，部分核心服务未能启动"
+        echo -e "\n${RED}❌ 安装失败！${NC}"
+        echo -e "${YELLOW}故障排除建议：${NC}"
+        echo -e "  1. 检查服务状态：systemctl status nginx xray sing-box"
+        echo -e "  2. 查看详细日志：cat /var/log/edgebox-install.log"
+        echo -e "  3. 检查端口占用：ss -tlnp | grep ':443'"
+        exit 1
     fi
-    
-    exit $exit_code
 }
 
 
@@ -5718,19 +5707,28 @@ h4 {
 /* 通知数量徽章 */
 .notification-badge {
     position: absolute;
-    top: 2px;
-    right: 2px;
+    top: -6px;           /* 🔧 向上偏移到铃铛上方 */
+    right: -6px;         /* 🔧 向右偏移到铃铛右侧 */
     background: #ef4444;
     color: white;
     border-radius: 10px;
     padding: 1px 6px;
-    font-size: 11px;
+    font-size: 10px;     /* 🔧 缩小字体：12px → 10px */
     font-weight: 600;
-    min-width: 18px;
+    min-width: 13px;     /* 🔧 缩小尺寸：20px → 16px */
+	height: 16px;        /* 🔧 缩小尺寸：20px → 16px */
+    z-index: 10;         /* 🔧 确保在铃铛之上 */
+    border: 2px solid white; /* 🔧 白色边框增加对比度 */
     text-align: center;
     animation: notification-pulse 2s infinite;
 }
 
+.notification-badge {
+    position: absolute;
+
+
+
+}
 @keyframes notification-pulse {
     0%, 100% { transform: scale(1); }
     50% { transform: scale(1.1); }
