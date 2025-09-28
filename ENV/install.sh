@@ -459,134 +459,44 @@ check_ports() {
 
 # 配置防火墙规则
 configure_firewall() {
-    log_info "配置防火墙规则（智能SSH端口检测）..."
-    
-    # 🚨 第一步：智能检测当前SSH端口（防止锁死）
-    local ssh_ports=()
-    local current_ssh_port=""
-    
-    # 方法1：检测sshd监听端口
-    while IFS= read -r line; do
-        if [[ "$line" =~ :([0-9]+)[[:space:]]+.*sshd ]]; then
-            ssh_ports+=("${BASH_REMATCH[1]}")
-        fi
-    done < <(ss -tlnp 2>/dev/null | grep sshd || true)
-    
-    # 方法2：检查配置文件中的端口
-    if [[ -f /etc/ssh/sshd_config ]]; then
-        local config_port
-        config_port=$(grep -E "^[[:space:]]*Port[[:space:]]+" /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}' | head -1)
-        if [[ -n "$config_port" && "$config_port" =~ ^[0-9]+$ ]]; then
-            ssh_ports+=("$config_port")
-        fi
-    fi
-    
-    # 方法3：检查当前连接的端口（如果通过SSH连接）
-    if [[ -n "${SSH_CONNECTION:-}" ]]; then
-        local connection_port
-        connection_port=$(echo "$SSH_CONNECTION" | awk '{print $4}')
-        if [[ -n "$connection_port" && "$connection_port" =~ ^[0-9]+$ ]]; then
-            ssh_ports+=("$connection_port")
-        fi
-    fi
-    
-    # 去重并取第一个有效端口
-    ssh_ports=($(printf "%s\n" "${ssh_ports[@]}" | sort -u))
-    current_ssh_port="${ssh_ports[0]:-22}"  # 默认22
-    
-    log_info "检测到SSH端口: $current_ssh_port"
-    
-    # 🚨 第二步：安全的防火墙配置
-    if command -v ufw >/dev/null 2>&1; then
-        # Ubuntu/Debian UFW
-        log_info "配置UFW防火墙（SSH端口：$current_ssh_port）..."
-        
-        # 🔥 关键修复：先允许SSH，再重置，避免锁死
-        ufw allow "$current_ssh_port/tcp" comment 'SSH-Emergency' >/dev/null 2>&1 || true
-        
-        # 重置防火墙
-        ufw --force reset >/dev/null 2>&1
-        ufw default deny incoming >/dev/null 2>&1
-        ufw default allow outgoing >/dev/null 2>&1
-        
-        # 🔥 立即重新允许SSH（最高优先级）
-        ufw allow "$current_ssh_port/tcp" comment 'SSH' >/dev/null 2>&1
-        
-        # 允许EdgeBox端口
-        ufw allow 80/tcp comment 'HTTP' >/dev/null 2>&1
-        ufw allow 443/tcp comment 'EdgeBox TCP' >/dev/null 2>&1
-        ufw allow 443/udp comment 'EdgeBox Hysteria2' >/dev/null 2>&1
-        ufw allow 2053/udp comment 'EdgeBox TUIC' >/dev/null 2>&1
-        
-        # 🔥 启用前最后确认SSH端口
-        if ! ufw status | grep -q "$current_ssh_port/tcp"; then
-            ufw allow "$current_ssh_port/tcp" comment 'SSH-Final' >/dev/null 2>&1
-        fi
-        
-        # 启用UFW
-        ufw --force enable >/dev/null 2>&1
-        
-        # 🚨 验证SSH端口确实被允许
-        if ufw status | grep -q "$current_ssh_port/tcp.*ALLOW"; then
-            log_success "UFW防火墙配置完成，SSH端口 $current_ssh_port 已确认开放"
-        else
-            log_error "⚠️ UFW配置完成但SSH端口状态异常，请立即检查连接"
-        fi
-        
-    elif command -v firewall-cmd >/dev/null 2>&1; then
-        # CentOS/RHEL FirewallD
-        log_info "配置FirewallD防火墙（SSH端口：$current_ssh_port）..."
-        
-        # 确保SSH端口开放
-        firewall-cmd --permanent --add-port="$current_ssh_port/tcp" >/dev/null 2>&1
-        
-        # 配置EdgeBox端口
-        firewall-cmd --permanent --add-port=80/tcp >/dev/null 2>&1
-        firewall-cmd --permanent --add-port=443/tcp >/dev/null 2>&1
-        firewall-cmd --permanent --add-port=443/udp >/dev/null 2>&1
-        firewall-cmd --permanent --add-port=2053/udp >/dev/null 2>&1
-        
-        # 重新加载规则
-        firewall-cmd --reload >/dev/null 2>&1
-        log_success "FirewallD防火墙配置完成，SSH端口 $current_ssh_port 已开放"
-        
-    elif command -v iptables >/dev/null 2>&1; then
-        # 传统iptables
-        log_info "配置iptables防火墙（SSH端口：$current_ssh_port）..."
-        
-        # 🔥 基本iptables规则（SSH优先）
-        iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-        iptables -A INPUT -p tcp --dport "$current_ssh_port" -j ACCEPT  # SSH优先
-        iptables -A INPUT -p tcp --dport 80 -j ACCEPT
-        iptables -A INPUT -p tcp --dport 443 -j ACCEPT
-        iptables -A INPUT -p udp --dport 443 -j ACCEPT
-        iptables -A INPUT -p udp --dport 2053 -j ACCEPT
-        iptables -A INPUT -i lo -j ACCEPT
-        
-        # 保存iptables规则
-        if command -v iptables-save >/dev/null 2>&1; then
-            mkdir -p /etc/iptables
-            iptables-save > /etc/iptables/rules.v4 2>/dev/null || true
-        fi
-        
-        log_success "iptables防火墙配置完成，SSH端口 $current_ssh_port 已开放"
-        
-    else
-        log_warn "未检测到支持的防火墙软件，跳过自动配置"
-        log_info "请手动配置防火墙，确保开放以下端口："
-        log_info "  SSH: $current_ssh_port/tcp"
-        log_info "  EdgeBox: 80/tcp, 443/tcp, 443/udp, 2053/udp"
-    fi
-    
-    # 🚨 最终验证：确保SSH连接正常
-    log_info "验证SSH连接状态..."
-    if ss -tln | grep -q ":$current_ssh_port "; then
-        log_success "✅ SSH端口 $current_ssh_port 监听正常"
-    else
-        log_warn "⚠️ SSH端口监听状态异常，请检查sshd服务"
-    fi
-}
+  [[ "${SKIP_FIREWALL}" == "1" ]] && { echo "[INFO] SKIP_FIREWALL=1，跳过防火墙配置"; return 0; }
+  echo "[INFO] 配置防火墙（幂等模式，失败降级为 WARN，不中断安装）"
 
+  # 期望放行的端口/协议
+  local want_tcp=("22" "80" "443")
+  local want_udp=("443" "2053")
+
+  if command -v ufw >/dev/null 2>&1; then
+    # 不强制 reset，逐条幂等放行
+    ufw status || true
+    ufw --force enable || echo "[WARN] ufw enable 失败（可能在容器/无交互环境），将继续"
+    for p in "${want_tcp[@]}"; do ufw allow "${p}/tcp" 2>/dev/null || true; done
+    for p in "${want_udp[@]}"; do ufw allow "${p}/udp" 2>/dev/null || true; done
+    ufw reload 2>/dev/null || echo "[WARN] ufw reload 失败，继续安装"
+    echo "[INFO] ufw 规则已尝试应用"
+    return 0
+  fi
+
+  if command -v firewall-cmd >/dev/null 2>&1; then
+    # firewalld 永久规则 + reload
+    for p in "${want_tcp[@]}"; do firewall-cmd --permanent --add-port="${p}/tcp" 2>/dev/null || true; done
+    for p in "${want_udp[@]}"; do firewall-cmd --permanent --add-port="${p}/udp" 2>/dev/null || true; done
+    firewall-cmd --reload 2>/dev/null || echo "[WARN] firewalld reload 失败，继续安装"
+    echo "[INFO] firewalld 规则已尝试应用"
+    return 0
+  fi
+
+  # 兜底：iptables/nft（幂等检测 -C 不报错才 -A）
+  if command -v iptables >/dev/null 2>&1; then
+    for p in "${want_tcp[@]}"; do iptables  -C INPUT -p tcp --dport "$p" -j ACCEPT 2>/dev/null || iptables  -A INPUT -p tcp --dport "$p" -j ACCEPT || true; done
+    for p in "${want_udp[@]}"; do iptables  -C INPUT -p udp --dport "$p" -j ACCEPT 2>/dev/null || iptables  -A INPUT -p udp --dport "$p" -j ACCEPT || true; done
+    iptables-save >/dev/null 2>&1 || true
+    echo "[INFO] iptables 规则已尝试应用"
+    return 0
+  fi
+
+  echo "[WARN] 未检测到受支持的防火墙管理器，跳过且不作为致命错误"
+}
 
 # 防火墙回滚机制
 setup_firewall_rollback() {
