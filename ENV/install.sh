@@ -491,9 +491,17 @@ configure_firewall() {
         fi
     fi
     
-    # 去重并取第一个有效端口
-    ssh_ports=($(printf "%s\n" "${ssh_ports[@]}" | sort -u))
-    current_ssh_port="${ssh_ports[0]:-22}"  # 默认22
+    # 🔧 修复：更安全的数组去重
+    if [[ ${#ssh_ports[@]} -gt 0 ]]; then
+        # 使用临时文件进行去重，避免数组操作问题
+        local temp_file=$(mktemp)
+        printf "%s\n" "${ssh_ports[@]}" | sort -u > "$temp_file"
+        current_ssh_port=$(head -1 "$temp_file")
+        rm -f "$temp_file"
+    fi
+    
+    # 默认端口兜底
+    current_ssh_port="${current_ssh_port:-22}"
     
     log_info "检测到SSH端口: $current_ssh_port"
     
@@ -503,71 +511,119 @@ configure_firewall() {
         log_info "配置UFW防火墙（SSH端口：$current_ssh_port）..."
         
         # 🔥 关键修复：先允许SSH，再重置，避免锁死
-        ufw allow "$current_ssh_port/tcp" comment 'SSH-Emergency' >/dev/null 2>&1 || true
+        if ! ufw allow "$current_ssh_port/tcp" comment 'SSH-Emergency' >/dev/null 2>&1; then
+            log_warn "UFW SSH应急规则添加失败，但继续执行"
+        fi
         
-        # 重置防火墙
-        ufw --force reset >/dev/null 2>&1
-        ufw default deny incoming >/dev/null 2>&1
-        ufw default allow outgoing >/dev/null 2>&1
+        # 🔧 修复：增加错误处理
+        if ! ufw --force reset >/dev/null 2>&1; then
+            log_error "UFW重置失败"
+            return 1
+        fi
+        
+        if ! ufw default deny incoming >/dev/null 2>&1 || ! ufw default allow outgoing >/dev/null 2>&1; then
+            log_error "UFW默认策略设置失败"
+            return 1
+        fi
         
         # 🔥 立即重新允许SSH（最高优先级）
-        ufw allow "$current_ssh_port/tcp" comment 'SSH' >/dev/null 2>&1
+        if ! ufw allow "$current_ssh_port/tcp" comment 'SSH' >/dev/null 2>&1; then
+            log_error "UFW SSH规则添加失败"
+            return 1
+        fi
         
         # 允许EdgeBox端口
-        ufw allow 80/tcp comment 'HTTP' >/dev/null 2>&1
-        ufw allow 443/tcp comment 'EdgeBox TCP' >/dev/null 2>&1
-        ufw allow 443/udp comment 'EdgeBox Hysteria2' >/dev/null 2>&1
-        ufw allow 2053/udp comment 'EdgeBox TUIC' >/dev/null 2>&1
+        ufw allow 80/tcp comment 'HTTP' >/dev/null 2>&1 || log_warn "HTTP端口配置失败"
+        ufw allow 443/tcp comment 'EdgeBox TCP' >/dev/null 2>&1 || log_warn "HTTPS TCP端口配置失败"
+        ufw allow 443/udp comment 'EdgeBox Hysteria2' >/dev/null 2>&1 || log_warn "Hysteria2端口配置失败"
+        ufw allow 2053/udp comment 'EdgeBox TUIC' >/dev/null 2>&1 || log_warn "TUIC端口配置失败"
         
         # 🔥 启用前最后确认SSH端口
         if ! ufw status | grep -q "$current_ssh_port/tcp"; then
-            ufw allow "$current_ssh_port/tcp" comment 'SSH-Final' >/dev/null 2>&1
+            if ! ufw allow "$current_ssh_port/tcp" comment 'SSH-Final' >/dev/null 2>&1; then
+                log_error "最终SSH规则确认失败"
+                return 1
+            fi
         fi
         
         # 启用UFW
-        ufw --force enable >/dev/null 2>&1
+        if ! ufw --force enable >/dev/null 2>&1; then
+            log_error "UFW启用失败"
+            return 1
+        fi
         
         # 🚨 验证SSH端口确实被允许
         if ufw status | grep -q "$current_ssh_port/tcp.*ALLOW"; then
             log_success "UFW防火墙配置完成，SSH端口 $current_ssh_port 已确认开放"
         else
             log_error "⚠️ UFW配置完成但SSH端口状态异常，请立即检查连接"
+            return 1
         fi
         
     elif command -v firewall-cmd >/dev/null 2>&1; then
         # CentOS/RHEL FirewallD
         log_info "配置FirewallD防火墙（SSH端口：$current_ssh_port）..."
         
-        # 确保SSH端口开放
-        firewall-cmd --permanent --add-port="$current_ssh_port/tcp" >/dev/null 2>&1
+        # 🔧 修复：增加错误处理
+        if ! firewall-cmd --permanent --add-port="$current_ssh_port/tcp" >/dev/null 2>&1; then
+            log_error "FirewallD SSH端口配置失败"
+            return 1
+        fi
         
-        # 配置EdgeBox端口
-        firewall-cmd --permanent --add-port=80/tcp >/dev/null 2>&1
-        firewall-cmd --permanent --add-port=443/tcp >/dev/null 2>&1
-        firewall-cmd --permanent --add-port=443/udp >/dev/null 2>&1
-        firewall-cmd --permanent --add-port=2053/udp >/dev/null 2>&1
+        # 配置EdgeBox端口（允许失败，但记录警告）
+        firewall-cmd --permanent --add-port=80/tcp >/dev/null 2>&1 || log_warn "HTTP端口配置失败"
+        firewall-cmd --permanent --add-port=443/tcp >/dev/null 2>&1 || log_warn "HTTPS TCP端口配置失败"
+        firewall-cmd --permanent --add-port=443/udp >/dev/null 2>&1 || log_warn "Hysteria2端口配置失败"
+        firewall-cmd --permanent --add-port=2053/udp >/dev/null 2>&1 || log_warn "TUIC端口配置失败"
         
         # 重新加载规则
-        firewall-cmd --reload >/dev/null 2>&1
+        if ! firewall-cmd --reload >/dev/null 2>&1; then
+            log_error "FirewallD规则重载失败"
+            return 1
+        fi
+        
         log_success "FirewallD防火墙配置完成，SSH端口 $current_ssh_port 已开放"
         
     elif command -v iptables >/dev/null 2>&1; then
         # 传统iptables
         log_info "配置iptables防火墙（SSH端口：$current_ssh_port）..."
         
-        # 🔥 基本iptables规则（SSH优先）
-        iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-        iptables -A INPUT -p tcp --dport "$current_ssh_port" -j ACCEPT  # SSH优先
-        iptables -A INPUT -p tcp --dport 80 -j ACCEPT
-        iptables -A INPUT -p tcp --dport 443 -j ACCEPT
-        iptables -A INPUT -p udp --dport 443 -j ACCEPT
-        iptables -A INPUT -p udp --dport 2053 -j ACCEPT
-        iptables -A INPUT -i lo -j ACCEPT
+        # 🔧 修复：避免重复规则，先清理再添加
+        # 检查是否已有规则，避免重复
+        if ! iptables -C INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT >/dev/null 2>&1; then
+            iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+        fi
+        
+        if ! iptables -C INPUT -p tcp --dport "$current_ssh_port" -j ACCEPT >/dev/null 2>&1; then
+            iptables -A INPUT -p tcp --dport "$current_ssh_port" -j ACCEPT
+        fi
+        
+        if ! iptables -C INPUT -p tcp --dport 80 -j ACCEPT >/dev/null 2>&1; then
+            iptables -A INPUT -p tcp --dport 80 -j ACCEPT
+        fi
+        
+        if ! iptables -C INPUT -p tcp --dport 443 -j ACCEPT >/dev/null 2>&1; then
+            iptables -A INPUT -p tcp --dport 443 -j ACCEPT
+        fi
+        
+        if ! iptables -C INPUT -p udp --dport 443 -j ACCEPT >/dev/null 2>&1; then
+            iptables -A INPUT -p udp --dport 443 -j ACCEPT
+        fi
+        
+        if ! iptables -C INPUT -p udp --dport 2053 -j ACCEPT >/dev/null 2>&1; then
+            iptables -A INPUT -p udp --dport 2053 -j ACCEPT
+        fi
+        
+        if ! iptables -C INPUT -i lo -j ACCEPT >/dev/null 2>&1; then
+            iptables -A INPUT -i lo -j ACCEPT
+        fi
         
         # 保存iptables规则
         if command -v iptables-save >/dev/null 2>&1; then
             mkdir -p /etc/iptables
-            iptables-save > /etc/iptables/rules.v4 2>/dev/null || true
+            if ! iptables-save > /etc/iptables/rules.v4 2>/dev/null; then
+                log_warn "iptables规则保存失败"
+            fi
         fi
         
         log_success "iptables防火墙配置完成，SSH端口 $current_ssh_port 已开放"
@@ -586,6 +642,8 @@ configure_firewall() {
     else
         log_warn "⚠️ SSH端口监听状态异常，请检查sshd服务"
     fi
+    
+    return 0
 }
 
 
