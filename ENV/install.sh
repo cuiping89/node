@@ -2440,8 +2440,6 @@ if [[ -z "$UUID_VLESS_REALITY" || -z "$REALITY_PRIVATE_KEY" ]]; then
     fi
 fi
 
-# 设置证书路径
-CERT_DIR="/etc/edgebox/cert"
 
 # 显示将要替换的变量（调试用）
 log_info "配置变量检查:"
