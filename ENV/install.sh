@@ -15,16 +15,14 @@
 
 # --- 自动提权到root (兼容 bash <(curl ...)) ---
 if [[ $EUID -ne 0 ]]; then
-  # 把当前脚本内容拷到临时文件，再以 root 重启执行（兼容 /dev/fd/63）
-  _EB_TMP="$(mktemp)"
-  # shellcheck disable=SC2128
-  cat "${BASH_SOURCE:-/proc/self/fd/0}" > "$_EB_TMP"
-  chmod +x "$_EB_TMP"
+  EB_TMP="$(mktemp)"  
+  cat "${BASH_SOURCE:-/proc/self/fd/0}" > "$EB_TMP"
+  chmod +x "$EB_TMP"
 
   if command -v sudo >/dev/null 2>&1; then
-    exec sudo -E EB_TMP="$_EB_TMP" bash "$_EB_TMP" "$@"
+    exec sudo -E EB_TMP="$EB_TMP" bash "$EB_TMP" "$@"  
   else
-    exec su - root -c "EB_TMP='$_EB_TMP' bash '$_EB_TMP' $*"
+    exec su - root -c "EB_TMP='$EB_TMP' bash '$EB_TMP' $*"
   fi
 fi
 
