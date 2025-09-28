@@ -3613,6 +3613,120 @@ get_secrets_info() {
     echo "$secrets_json"
 }
 
+
+#############################################
+# 通知收集函数（修复版）
+#############################################
+
+collect_notifications() {
+    local notifications_json="$TRAFFIC_DIR/notifications.json"
+    local temp_notifications="[]"
+    local alert_log="/var/log/edgebox-traffic-alert.log"
+    
+    log_info "收集系统通知..."
+    
+    # 收集预警通知（最近10条）
+    if [[ -f "$alert_log" ]] && [[ -r "$alert_log" ]]; then
+        local alert_notifications
+        alert_notifications=$(tail -n 10 "$alert_log" 2>/dev/null | grep -E '^\[[0-9-T:Z+]+\]' | \
+        awk 'BEGIN{print "["} 
+        {
+            gsub(/^\[/, "", $1)  # 移除开头的 [
+            gsub(/\]/, "", $1)   # 移除结尾的 ]
+            msg = $0
+            gsub(/^\[[^\]]+\]\s*/, "", msg)  # 移除时间戳部分
+            gsub(/"/, "\\\"", msg)  # 转义双引号
+            if(NR>1) print ","
+            printf "{\"id\":\"alert_%s\",\"type\":\"alert\",\"level\":\"warning\",\"time\":\"%s\",\"message\":\"%s\",\"read\":false}", 
+                   NR, $1, msg
+        } 
+        END{print "]"}' 2>/dev/null || echo "[]")
+        temp_notifications="$alert_notifications"
+    fi
+    
+    # 收集系统状态通知
+    local system_notifications="[]"
+    local nginx_status=$(systemctl is-active nginx 2>/dev/null || echo "inactive")
+    local xray_status=$(systemctl is-active xray 2>/dev/null || echo "inactive")
+    local singbox_status=$(systemctl is-active sing-box 2>/dev/null || echo "inactive")
+    
+    # 生成系统状态通知
+    local sys_notifs="["
+    local has_notif=false
+    local current_time=$(date -Is)
+    local timestamp=$(date +%s)
+    
+    if [[ "$nginx_status" != "active" ]]; then
+        if [[ "$has_notif" == "true" ]]; then sys_notifs+=","; fi
+        sys_notifs+="{\"id\":\"sys_nginx_${timestamp}\",\"type\":\"system\",\"level\":\"error\",\"time\":\"${current_time}\",\"message\":\"Nginx 服务已停止运行\",\"action\":\"systemctl start nginx\",\"read\":false}"
+        has_notif=true
+    fi
+    
+    if [[ "$xray_status" != "active" ]]; then
+        if [[ "$has_notif" == "true" ]]; then sys_notifs+=","; fi
+        sys_notifs+="{\"id\":\"sys_xray_${timestamp}\",\"type\":\"system\",\"level\":\"error\",\"time\":\"${current_time}\",\"message\":\"Xray 服务已停止运行\",\"action\":\"systemctl start xray\",\"read\":false}"
+        has_notif=true
+    fi
+    
+    if [[ "$singbox_status" != "active" ]]; then
+        if [[ "$has_notif" == "true" ]]; then sys_notifs+=","; fi
+        sys_notifs+="{\"id\":\"sys_singbox_${timestamp}\",\"type\":\"system\",\"level\":\"error\",\"time\":\"${current_time}\",\"message\":\"sing-box 服务已停止运行\",\"action\":\"systemctl start sing-box\",\"read\":false}"
+        has_notif=true
+    fi
+    
+    sys_notifs+="]"
+    system_notifications="$sys_notifs"
+    
+    # 读取已有通知并合并
+    local existing_notifications="[]"
+    if [[ -f "$notifications_json" ]]; then
+        existing_notifications=$(jq '.notifications // []' "$notifications_json" 2>/dev/null || echo "[]")
+    fi
+    
+    # 合并所有通知，去重并限制数量
+    local cutoff_date=$(date -d '7 days ago' -Is)
+    
+    # 使用更安全的jq命令
+    {
+        echo "{"
+        echo "  \"updated_at\": \"$(date -Is)\","
+        echo "  \"notifications\": []"
+        echo "}"
+    } > "$notifications_json.tmp"
+    
+    # 如果jq可用，使用复杂合并；否则使用简单版本
+    if command -v jq >/dev/null 2>&1; then
+        jq -n \
+            --argjson existing "$existing_notifications" \
+            --argjson alerts "$temp_notifications" \
+            --argjson systems "$system_notifications" \
+            --arg updated "$(date -Is)" \
+            --arg cutoff "$cutoff_date" \
+            '{
+                updated_at: $updated,
+                notifications: ([$alerts[], $systems[], $existing[]] | 
+                               unique_by(.id) |
+                               map(select(.time > $cutoff)) |
+                               sort_by(.time) | 
+                               reverse | 
+                               .[0:50])
+            }' > "$notifications_json.tmp" 2>/dev/null || {
+            # 如果jq复杂操作失败，使用简单版本
+            echo "{\"updated_at\":\"$(date -Is)\",\"notifications\":${system_notifications}}" > "$notifications_json.tmp"
+        }
+    else
+        # 如果没有jq，创建基本结构
+        echo "{\"updated_at\":\"$(date -Is)\",\"notifications\":${system_notifications}}" > "$notifications_json.tmp"
+    fi
+    
+    # 原子性替换
+    mv "$notifications_json.tmp" "$notifications_json"
+    chmod 644 "$notifications_json" 2>/dev/null || true
+    
+    log_info "通知数据收集完成"
+}
+
+
 #############################################
 # 主数据生成函数
 #############################################
@@ -4122,113 +4236,6 @@ MONTHLY_JSON="$(tail -n 12 "$LOG_DIR/monthly.csv" | grep -v '^month,' \
   | awk -F, '{printf("{\"month\":\"%s\",\"vps\":%s,\"resi\":%s,\"total\":%s,\"tx\":%s,\"rx\":%s}\n",$1,$2,$3,$4,$5,$6)}' | jq -s '.')"
 jq -n --arg updated "$(date -Is)" --argjson last30d "$LAST30D_JSON" --argjson monthly "$MONTHLY_JSON" \
   '{updated_at:$updated,last30d:$last30d,monthly:$monthly}' > "$TRAFFIC_DIR/traffic.json"
-
-# 7) 收集系统通知数据
-collect_notifications() {
-    local notifications_json="$TRAFFIC_DIR/notifications.json"
-    local temp_notifications="[]"
-    local alert_log="/var/log/edgebox-traffic-alert.log"
-    
-    # 收集预警通知（最近10条）
-    if [[ -f "$alert_log" ]]; then
-        local alert_notifications
-        alert_notifications=$(tail -n 10 "$alert_log" 2>/dev/null | grep -E '^\[.*\]' | \
-        awk 'BEGIN{print "["} 
-        {
-            if(match($0, /^\[([^\]]+)\]\s+(.*)/, arr)) {
-                if(NR>1) print ","
-                gsub(/"/, "\\\"", arr[2])  # 转义双引号
-                printf "{\"id\":\"%s_%s\",\"type\":\"alert\",\"level\":\"warning\",\"time\":\"%s\",\"message\":\"%s\",\"read\":false}", 
-                       "alert", NR, arr[1], arr[2]
-            }
-        } 
-        END{print "]"}' 2>/dev/null || echo "[]")
-        temp_notifications="$alert_notifications"
-    fi
-    
-    # 收集系统状态通知
-    local system_notifications="[]"
-    local nginx_status=$(systemctl is-active nginx 2>/dev/null || echo "inactive")
-    local xray_status=$(systemctl is-active xray 2>/dev/null || echo "inactive")
-    local singbox_status=$(systemctl is-active sing-box 2>/dev/null || echo "inactive")
-    
-    # 生成系统状态通知
-    local sys_notifs="["
-    local has_notif=false
-    
-    if [[ "$nginx_status" != "active" ]]; then
-        if [[ "$has_notif" == "true" ]]; then sys_notifs+=","; fi
-        sys_notifs+='{
-            "id":"sys_nginx_'$(date +%s)'",
-            "type":"system",
-            "level":"error", 
-            "time":"'$(date -Is)'",
-            "message":"Nginx 服务已停止运行",
-            "action":"systemctl start nginx",
-            "read":false
-        }'
-        has_notif=true
-    fi
-    
-    if [[ "$xray_status" != "active" ]]; then
-        if [[ "$has_notif" == "true" ]]; then sys_notifs+=","; fi
-        sys_notifs+='{
-            "id":"sys_xray_'$(date +%s)'",
-            "type":"system",
-            "level":"error",
-            "time":"'$(date -Is)'", 
-            "message":"Xray 服务已停止运行",
-            "action":"systemctl start xray",
-            "read":false
-        }'
-        has_notif=true
-    fi
-    
-    if [[ "$singbox_status" != "active" ]]; then
-        if [[ "$has_notif" == "true" ]]; then sys_notifs+=","; fi
-        sys_notifs+='{
-            "id":"sys_singbox_'$(date +%s)'",
-            "type":"system",
-            "level":"error",
-            "time":"'$(date -Is)'",
-            "message":"sing-box 服务已停止运行", 
-            "action":"systemctl start sing-box",
-            "read":false
-        }'
-        has_notif=true
-    fi
-    
-    sys_notifs+="]"
-    system_notifications="$sys_notifs"
-    
-    # 读取已有通知并合并
-    local existing_notifications="[]"
-    if [[ -f "$notifications_json" ]]; then
-        existing_notifications=$(jq '.notifications // []' "$notifications_json" 2>/dev/null || echo "[]")
-    fi
-    
-    # 合并所有通知，去重并限制数量
-    jq -n \
-        --argjson existing "$existing_notifications" \
-        --argjson alerts "$temp_notifications" \
-        --argjson systems "$system_notifications" \
-        --arg updated "$(date -Is)" \
-        --arg cutoff "$(date -d '7 days ago' -Is)" \
-        '{
-            updated_at: $updated,
-            notifications: ([$alerts[], $systems[], $existing[]] | 
-                           unique_by(.id) |
-                           map(select(.time > $cutoff)) |
-                           sort_by(.time) | 
-                           reverse | 
-                           .[0:50])
-        }' > "$notifications_json"
-    
-    chmod 644 "$notifications_json" 2>/dev/null || true
-}
-
-# 在主函数最后调用通知收集
-collect_notifications
 
 # 7) 确保 alert.conf 可通过 Web 访问（前端需要读取阈值配置）
 if [[ -r "$TRAFFIC_DIR/alert.conf" ]]; then
