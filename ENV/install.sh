@@ -33,7 +33,17 @@ fi
 # 全局配置 - 脚本基础信息
 #############################################
 
-set -e  # 遇到错误立即退出
+set -Eeuo pipefail
+shopt -s inherit_errexit 2>/dev/null || true
+
+# 并发锁（cron/多实例保护）
+: "${LOCK_FILE:=/var/lock/edgebox-dashboard.lock}"
+mkdir -p "$(dirname "$LOCK_FILE")" 2>/dev/null || true
+exec 200>"$LOCK_FILE"
+# 已有实例在运行则直接退出（不视为错误，退出码 0）
+flock -n 200 || { echo "[INFO] another instance is running; quit."; exit 0; }
+# 可选：把 PID 写进锁文件（便于排障）
+printf '%d\n' "$$" 1>&200 || true
 
 # 版本号
 EDGEBOX_VER="3.0.0"
