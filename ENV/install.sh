@@ -781,7 +781,7 @@ EOF
 
 # 错误处理和清理函数
 cleanup_all() {
-    local script_exit_code=$?
+    local exit_code=$?
     
     log_info "执行统一清理程序..."
     
@@ -789,135 +789,42 @@ cleanup_all() {
     [[ -n "${EB_TMP:-}" ]] && rm -f "$EB_TMP" 2>/dev/null || true
     
     # 2. 清理安装过程中的临时文件
-    rm -f /tmp/edgebox_* 2>/dev/null || true
-    rm -f /tmp/sing-box* 2>/dev/null || true
-    rm -f /tmp/xray_* 2>/dev/null || true
-    rm -f /tmp/*.tar.gz 2>/dev/null || true
-    rm -f /tmp/*.zip 2>/dev/null || true
-    find /tmp -name "*.bak.*" -mtime 0 -delete 2>/dev/null || true
-    
-    log_info "临时文件清理完成"
-    
-    # 3. 智能判断安装是否真正成功
-    log_info "正在验证安装结果..."
-    
-    # 检查核心服务状态
-    local services=("nginx" "xray" "sing-box")
-    local running_services=()
-    local failed_services=()
-    
-    for service in "${services[@]}"; do
-        if systemctl is-active --quiet "$service" 2>/dev/null; then
-            running_services+=("$service")
-            log_info "✅ $service 服务运行正常"
-        else
-            failed_services+=("$service")
-            log_warn "❌ $service 服务未运行"
-        fi
-    done
-    
-    # 检查关键端口
-    local ports=("80:nginx" "443:tcp" "443:udp" "2053:udp")
-    local listening_ports=()
-    local failed_ports=()
-    
-    for port_info in "${ports[@]}"; do
-        local port="${port_info%:*}"
-        local desc="${port_info#*:}"
+    if [[ $exit_code -ne 0 ]]; then
+        log_error "安装过程中发生错误，退出码: $exit_code"
+        log_info "正在清理临时文件..."
         
-        if [[ "$desc" == "udp" ]] || [[ "$port_info" == *":udp" ]]; then
-            if ss -ulnp 2>/dev/null | grep -q ":${port} "; then
-                listening_ports+=("$port($desc)")
-            else
-                failed_ports+=("$port($desc)")
-            fi
-        else
-            if ss -tlnp 2>/dev/null | grep -q ":${port} "; then
-                listening_ports+=("$port($desc)")
-            else
-                failed_ports+=("$port($desc)")
-            fi
-        fi
-    done
-    
-    # 检查重要文件
-    local config_files=(
-        "/etc/edgebox/config/server.json"
-        "/etc/edgebox/config/xray.json"
-        "/etc/edgebox/config/sing-box.json"
-        "/etc/edgebox/scripts/dashboard-backend.sh"
-        "/var/www/html/sub"
-    )
-    local existing_files=()
-    local missing_files=()
-    
-    for file in "${config_files[@]}"; do
-        if [[ -f "$file" ]]; then
-            existing_files+=("$(basename "$file")")
-        else
-            missing_files+=("$(basename "$file")")
-        fi
-    done
-    
-    # 安装成功判定逻辑
-    local success_score=0
-    local total_score=0
-    
-    # 服务权重：每个服务20分
-    success_score=$((success_score + ${#running_services[@]} * 20))
-    total_score=$((total_score + ${#services[@]} * 20))
-    
-    # 端口权重：每个端口10分
-    success_score=$((success_score + ${#listening_ports[@]} * 10))
-    total_score=$((total_score + ${#ports[@]} * 10))
-    
-    # 文件权重：每个文件4分
-    success_score=$((success_score + ${#existing_files[@]} * 4))
-    total_score=$((total_score + ${#config_files[@]} * 4))
-    
-    local success_rate=$((success_score * 100 / total_score))
-    
-    log_info "安装完成度评估：${success_score}/${total_score} (${success_rate}%)"
-    
-    # 判定标准：80%以上完成度且nginx运行 = 安装成功
-    if [[ $success_rate -ge 80 ]] && [[ " ${running_services[*]} " =~ " nginx " ]]; then
-        # 安装成功 - 显示简洁的成功信息（不与您的finalize_data_generation冲突）
-        log_success "🎉 EdgeBox v3.0.0 安装验证通过！"
+        # 清理可能的临时文件
+        rm -f /tmp/edgebox_* 2>/dev/null || true
+        rm -f /tmp/sing-box* 2>/dev/null || true
+        rm -f /tmp/xray_* 2>/dev/null || true
+        
+        # 清理可能的下载文件
+        rm -f /tmp/*.tar.gz 2>/dev/null || true
+        rm -f /tmp/*.zip 2>/dev/null || true
+        
+        # 清理可能的配置备份
+        find /tmp -name "*.bak.*" -mtime 0 -delete 2>/dev/null || true
+        
+        log_info "临时文件清理完成"
+        log_info "详细错误信息请查看: $LOG_FILE"
+        
+        # 显示故障排查提示
         echo ""
-        if [[ ${#failed_services[@]} -gt 0 ]] || [[ ${#failed_ports[@]} -gt 0 ]]; then
-            echo -e "${YELLOW}⚠️  注意：${NC}"
-            [[ ${#failed_services[@]} -gt 0 ]] && echo -e "${YELLOW}  部分服务需要检查: ${failed_services[*]}${NC}"
-            [[ ${#failed_ports[@]} -gt 0 ]] && echo -e "${YELLOW}  部分端口需要检查: ${failed_ports[*]}${NC}"
-            echo -e "${YELLOW}  这些小问题不影响核心功能${NC}"
-            echo ""
-        fi
-        
-        # 成功退出
-        exit 0
-        
+        log_info "故障排查建议："
+        log_info "1. 检查系统兼容性: cat /etc/os-release"
+        log_info "2. 检查网络连接: curl -I https://github.com"
+        log_info "3. 检查端口占用: ss -tlnp | grep ':443 '"
+        log_info "4. 查看详细日志: tail -n 50 $LOG_FILE"
+        log_info "5. 重新运行脚本或联系技术支持"
     else
-        # 真正的安装失败
-        log_error "💥 EdgeBox 安装失败"
-        echo ""
-        echo -e "${RED}=== 安装失败摘要 ===${NC}"
-        echo -e "${RED}❌ 失败的服务: ${failed_services[*]:-无}${NC}"
-        echo -e "${RED}❌ 失败的端口: ${failed_ports[*]:-无}${NC}"
-        echo -e "${RED}❌ 缺失的文件: ${missing_files[*]:-无}${NC}"
-        echo -e "${RED}❌ 完成度: ${success_rate}% (需要≥80%)${NC}"
-        echo ""
-        echo -e "${YELLOW}🔧 故障排查建议：${NC}"
-        echo -e "  1. 检查系统兼容性: ${CYAN}cat /etc/os-release${NC}"
-        echo -e "  2. 检查网络连接: ${CYAN}curl -I https://github.com${NC}"
-        echo -e "  3. 检查端口占用: ${CYAN}ss -tlnp | grep ':443 '${NC}"
-        echo -e "  4. 查看详细日志: ${CYAN}tail -n 50 $LOG_FILE${NC}"
-        echo -e "  5. 手动检查服务: ${CYAN}systemctl status nginx xray sing-box${NC}"
-        echo -e "  6. 重新运行脚本或联系技术支持"
-        echo ""
-        
-        # 失败退出
-        exit 1
+        # 成功完成，只做基础清理
+        [[ -n "${EB_TMP:-}" ]] && rm -f "$EB_TMP" 2>/dev/null || true
+        log_debug "安装成功，清理完成"
     fi
+    
+    exit $exit_code
 }
+
 
 #############################################
 # 模块1初始化完成标记
@@ -10422,15 +10329,13 @@ main() {
     show_progress 9 10 "启动并验证所有服务"
     start_and_verify_services || { log_error "服务未能全部正常启动，请检查日志"; exit 1; }
     
-   show_progress 10 10 "最终数据生成与同步"
+    show_progress 10 10 "最终数据生成与同步"
     finalize_data_generation
     
-    # 显示安装信息（保留您原有的show_installation_info函数输出）
+    # 显示安装信息
     show_installation_info
     
-    # 注意：移除这里的任何log_success和exit语句
-    # 让cleanup_all函数来处理最终的成功/失败判定
-    log_info "安装流程执行完毕，正在进行最终验证..."
+    log_success "EdgeBox v3.0.0 安装成功完成！"
     exit 0
 }
 
