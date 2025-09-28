@@ -802,7 +802,7 @@ cleanup_all() {
     
     log_info "临时文件清理完成"
     
-    # 3. 智能判断安装是否真正成功
+    # 3. 🔧 关键修复：智能判断安装是否真正成功
     log_info "正在验证安装结果..."
     
     # 检查核心服务状态
@@ -857,13 +857,13 @@ cleanup_all() {
     
     for file in "${config_files[@]}"; do
         if [[ -f "$file" ]]; then
-            existing_files+=("$(basename "$file")")
+            existing_files+=("$file")
         else
-            missing_files+=("$(basename "$file")")
+            missing_files+=("$file")
         fi
     done
     
-    # 安装成功判定逻辑
+    # 🎯 安装成功判定逻辑
     local success_score=0
     local total_score=0
     
@@ -883,18 +883,28 @@ cleanup_all() {
     
     log_info "安装完成度评估：${success_score}/${total_score} (${success_rate}%)"
     
-    # 判定标准：80%以上完成度且nginx运行 = 安装成功
+    # 🚀 判定标准：80%以上完成度且nginx运行 = 安装成功
     if [[ $success_rate -ge 80 ]] && [[ " ${running_services[*]} " =~ " nginx " ]]; then
-        # 安装成功 - 显示简洁的成功信息（不与您的finalize_data_generation冲突）
-        log_success "🎉 EdgeBox v3.0.0 安装验证通过！"
+        log_success "🎉 EdgeBox v3.0.0 安装成功完成！"
         echo ""
+        echo -e "${GREEN}=== 安装成功摘要 ===${NC}"
+        echo -e "${GREEN}✅ 运行中的服务:${NC} ${running_services[*]}"
+        echo -e "${GREEN}✅ 监听中的端口:${NC} ${listening_ports[*]}"
+        echo -e "${GREEN}✅ 成功率:${NC} ${success_rate}%"
+        
         if [[ ${#failed_services[@]} -gt 0 ]] || [[ ${#failed_ports[@]} -gt 0 ]]; then
-            echo -e "${YELLOW}⚠️  注意：${NC}"
-            [[ ${#failed_services[@]} -gt 0 ]] && echo -e "${YELLOW}  部分服务需要检查: ${failed_services[*]}${NC}"
-            [[ ${#failed_ports[@]} -gt 0 ]] && echo -e "${YELLOW}  部分端口需要检查: ${failed_ports[*]}${NC}"
-            echo -e "${YELLOW}  这些小问题不影响核心功能${NC}"
             echo ""
+            echo -e "${YELLOW}⚠️  注意事项:${NC}"
+            [[ ${#failed_services[@]} -gt 0 ]] && echo -e "${YELLOW}  - 部分服务可能需要手动启动:${NC} ${failed_services[*]}"
+            [[ ${#failed_ports[@]} -gt 0 ]] && echo -e "${YELLOW}  - 部分端口可能需要检查:${NC} ${failed_ports[*]}"
+            echo -e "${YELLOW}  - 这些问题不影响核心功能，可稍后处理${NC}"
         fi
+        
+        echo ""
+        echo -e "${CYAN}🔗 访问控制面板:${NC} http://$(get_server_ip 2>/dev/null || hostname -I | awk '{print $1}')/traffic/"
+        echo -e "${CYAN}📋 订阅链接:${NC} http://$(get_server_ip 2>/dev/null || hostname -I | awk '{print $1}')/sub"
+        echo -e "${CYAN}🔧 管理工具:${NC} edgeboxctl"
+        echo ""
         
         # 成功退出
         exit 0
@@ -904,10 +914,10 @@ cleanup_all() {
         log_error "💥 EdgeBox 安装失败"
         echo ""
         echo -e "${RED}=== 安装失败摘要 ===${NC}"
-        echo -e "${RED}❌ 失败的服务: ${failed_services[*]:-无}${NC}"
-        echo -e "${RED}❌ 失败的端口: ${failed_ports[*]:-无}${NC}"
-        echo -e "${RED}❌ 缺失的文件: ${missing_files[*]:-无}${NC}"
-        echo -e "${RED}❌ 完成度: ${success_rate}% (需要≥80%)${NC}"
+        echo -e "${RED}❌ 失败的服务:${NC} ${failed_services[*]}"
+        echo -e "${RED}❌ 失败的端口:${NC} ${failed_ports[*]}"
+        echo -e "${RED}❌ 缺失的文件:${NC} ${missing_files[*]}"
+        echo -e "${RED}❌ 完成度:${NC} ${success_rate}% (需要≥80%)"
         echo ""
         echo -e "${YELLOW}🔧 故障排查建议：${NC}"
         echo -e "  1. 检查系统兼容性: ${CYAN}cat /etc/os-release${NC}"
@@ -10573,10 +10583,9 @@ main() {
     show_progress 10 10 "最终数据生成与同步"
     finalize_data_generation
     
-    # 显示安装信息（保留您原有的show_installation_info函数输出）
+    # 显示安装信息
     show_installation_info
     
-
     log_info "安装流程执行完毕，正在进行最终验证..."
 }
 
