@@ -28,8 +28,6 @@ if [[ $EUID -ne 0 ]]; then
   fi
 fi
 
-# 以 root 运行到这里；如果是从临时文件重启的，退出时自动清理
-trap '[[ -n "${EB_TMP:-}" ]] && rm -f "$EB_TMP"' EXIT
 
 #############################################
 # 全局配置 - 脚本基础信息
@@ -462,20 +460,58 @@ check_ports() {
 
 # 配置防火墙规则
 configure_firewall() {
-    log_info "配置防火墙规则..."
+    log_info "配置防火墙规则（智能SSH端口检测）..."
     
-    # 检测防火墙类型并配置
+    # 🚨 第一步：智能检测当前SSH端口（防止锁死）
+    local ssh_ports=()
+    local current_ssh_port=""
+    
+    # 方法1：检测sshd监听端口
+    while IFS= read -r line; do
+        if [[ "$line" =~ :([0-9]+)[[:space:]]+.*sshd ]]; then
+            ssh_ports+=("${BASH_REMATCH[1]}")
+        fi
+    done < <(ss -tlnp 2>/dev/null | grep sshd || true)
+    
+    # 方法2：检查配置文件中的端口
+    if [[ -f /etc/ssh/sshd_config ]]; then
+        local config_port
+        config_port=$(grep -E "^[[:space:]]*Port[[:space:]]+" /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}' | head -1)
+        if [[ -n "$config_port" && "$config_port" =~ ^[0-9]+$ ]]; then
+            ssh_ports+=("$config_port")
+        fi
+    fi
+    
+    # 方法3：检查当前连接的端口（如果通过SSH连接）
+    if [[ -n "${SSH_CONNECTION:-}" ]]; then
+        local connection_port
+        connection_port=$(echo "$SSH_CONNECTION" | awk '{print $4}')
+        if [[ -n "$connection_port" && "$connection_port" =~ ^[0-9]+$ ]]; then
+            ssh_ports+=("$connection_port")
+        fi
+    fi
+    
+    # 去重并取第一个有效端口
+    ssh_ports=($(printf "%s\n" "${ssh_ports[@]}" | sort -u))
+    current_ssh_port="${ssh_ports[0]:-22}"  # 默认22
+    
+    log_info "检测到SSH端口: $current_ssh_port"
+    
+    # 🚨 第二步：安全的防火墙配置
     if command -v ufw >/dev/null 2>&1; then
         # Ubuntu/Debian UFW
-        log_info "检测到UFW防火墙，正在配置..."
+        log_info "配置UFW防火墙（SSH端口：$current_ssh_port）..."
         
-        # 重置并配置UFW
+        # 🔥 关键修复：先允许SSH，再重置，避免锁死
+        ufw allow "$current_ssh_port/tcp" comment 'SSH-Emergency' >/dev/null 2>&1 || true
+        
+        # 重置防火墙
         ufw --force reset >/dev/null 2>&1
         ufw default deny incoming >/dev/null 2>&1
         ufw default allow outgoing >/dev/null 2>&1
         
-        # 允许SSH（保持连接）
-        ufw allow 22/tcp comment 'SSH' >/dev/null 2>&1
+        # 🔥 立即重新允许SSH（最高优先级）
+        ufw allow "$current_ssh_port/tcp" comment 'SSH' >/dev/null 2>&1
         
         # 允许EdgeBox端口
         ufw allow 80/tcp comment 'HTTP' >/dev/null 2>&1
@@ -483,15 +519,29 @@ configure_firewall() {
         ufw allow 443/udp comment 'EdgeBox Hysteria2' >/dev/null 2>&1
         ufw allow 2053/udp comment 'EdgeBox TUIC' >/dev/null 2>&1
         
+        # 🔥 启用前最后确认SSH端口
+        if ! ufw status | grep -q "$current_ssh_port/tcp"; then
+            ufw allow "$current_ssh_port/tcp" comment 'SSH-Final' >/dev/null 2>&1
+        fi
+        
         # 启用UFW
         ufw --force enable >/dev/null 2>&1
-        log_success "UFW防火墙配置完成"
+        
+        # 🚨 验证SSH端口确实被允许
+        if ufw status | grep -q "$current_ssh_port/tcp.*ALLOW"; then
+            log_success "UFW防火墙配置完成，SSH端口 $current_ssh_port 已确认开放"
+        else
+            log_error "⚠️ UFW配置完成但SSH端口状态异常，请立即检查连接"
+        fi
         
     elif command -v firewall-cmd >/dev/null 2>&1; then
         # CentOS/RHEL FirewallD
-        log_info "检测到FirewallD防火墙，正在配置..."
+        log_info "配置FirewallD防火墙（SSH端口：$current_ssh_port）..."
         
-        # 配置防火墙规则
+        # 确保SSH端口开放
+        firewall-cmd --permanent --add-port="$current_ssh_port/tcp" >/dev/null 2>&1
+        
+        # 配置EdgeBox端口
         firewall-cmd --permanent --add-port=80/tcp >/dev/null 2>&1
         firewall-cmd --permanent --add-port=443/tcp >/dev/null 2>&1
         firewall-cmd --permanent --add-port=443/udp >/dev/null 2>&1
@@ -499,32 +549,96 @@ configure_firewall() {
         
         # 重新加载规则
         firewall-cmd --reload >/dev/null 2>&1
-        log_success "FirewallD防火墙配置完成"
+        log_success "FirewallD防火墙配置完成，SSH端口 $current_ssh_port 已开放"
         
     elif command -v iptables >/dev/null 2>&1; then
         # 传统iptables
-        log_info "使用iptables配置防火墙..."
+        log_info "配置iptables防火墙（SSH端口：$current_ssh_port）..."
         
-        # 基本iptables规则
+        # 🔥 基本iptables规则（SSH优先）
         iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-        iptables -A INPUT -p tcp --dport 22 -j ACCEPT
+        iptables -A INPUT -p tcp --dport "$current_ssh_port" -j ACCEPT  # SSH优先
         iptables -A INPUT -p tcp --dport 80 -j ACCEPT
         iptables -A INPUT -p tcp --dport 443 -j ACCEPT
         iptables -A INPUT -p udp --dport 443 -j ACCEPT
         iptables -A INPUT -p udp --dport 2053 -j ACCEPT
         iptables -A INPUT -i lo -j ACCEPT
         
-        # 保存iptables规则（如果有保存命令）
+        # 保存iptables规则
         if command -v iptables-save >/dev/null 2>&1; then
+            mkdir -p /etc/iptables
             iptables-save > /etc/iptables/rules.v4 2>/dev/null || true
         fi
         
-        log_success "iptables防火墙配置完成"
+        log_success "iptables防火墙配置完成，SSH端口 $current_ssh_port 已开放"
+        
     else
-        log_warn "未检测到支持的防火墙软件"
-        log_info "请手动配置防火墙，开放端口: 80/tcp, 443/tcp, 443/udp, 2053/udp"
+        log_warn "未检测到支持的防火墙软件，跳过自动配置"
+        log_info "请手动配置防火墙，确保开放以下端口："
+        log_info "  SSH: $current_ssh_port/tcp"
+        log_info "  EdgeBox: 80/tcp, 443/tcp, 443/udp, 2053/udp"
+    fi
+    
+    # 🚨 最终验证：确保SSH连接正常
+    log_info "验证SSH连接状态..."
+    if ss -tln | grep -q ":$current_ssh_port "; then
+        log_success "✅ SSH端口 $current_ssh_port 监听正常"
+    else
+        log_warn "⚠️ SSH端口监听状态异常，请检查sshd服务"
     fi
 }
+
+
+# 防火墙回滚机制
+setup_firewall_rollback() {
+    log_info "设置防火墙安全回滚机制..."
+    
+    # 创建回滚脚本
+    cat > /tmp/firewall_rollback.sh << 'ROLLBACK_SCRIPT'
+#!/bin/bash
+# EdgeBox 防火墙紧急回滚脚本
+# 如果SSH连接中断，5分钟后自动回滚防火墙设置
+
+echo "启动防火墙安全回滚机制（5分钟倒计时）..."
+sleep 300  # 等待5分钟
+
+# 检查是否还有活跃的SSH连接
+if ! pgrep -f "sshd.*" >/dev/null; then
+    echo "检测到SSH连接中断，执行紧急回滚..."
+    
+    # 紧急开放所有端口
+    if command -v ufw >/dev/null 2>&1; then
+        ufw --force disable
+        echo "UFW防火墙已紧急关闭"
+    elif command -v firewall-cmd >/dev/null 2>&1; then
+        firewall-cmd --panic-off
+        echo "FirewallD防火墙已紧急关闭"
+    elif command -v iptables >/dev/null 2>&1; then
+        iptables -P INPUT ACCEPT
+        iptables -P FORWARD ACCEPT
+        iptables -P OUTPUT ACCEPT
+        iptables -F
+        echo "iptables防火墙已紧急重置"
+    fi
+    
+    echo "防火墙紧急回滚完成，请立即检查服务器连接"
+else
+    echo "SSH连接正常，取消回滚"
+fi
+
+# 清理自己
+rm -f /tmp/firewall_rollback.sh
+ROLLBACK_SCRIPT
+
+    chmod +x /tmp/firewall_rollback.sh
+    
+    # 后台启动回滚进程
+    nohup /tmp/firewall_rollback.sh >/dev/null 2>&1 &
+    
+    log_success "防火墙安全回滚机制已启动（5分钟超时）"
+    log_info "如果SSH连接中断超过5分钟，防火墙将自动回滚"
+}
+
 
 # 优化系统参数
 optimize_system() {
@@ -608,9 +722,15 @@ EOF
 }
 
 # 错误处理和清理函数
-cleanup_on_error() {
+cleanup_all() {
     local exit_code=$?
     
+    log_info "执行统一清理程序..."
+    
+    # 1. 清理初始提权产生的临时文件
+    [[ -n "${EB_TMP:-}" ]] && rm -f "$EB_TMP" 2>/dev/null || true
+    
+    # 2. 清理安装过程中的临时文件
     if [[ $exit_code -ne 0 ]]; then
         log_error "安装过程中发生错误，退出码: $exit_code"
         log_info "正在清理临时文件..."
@@ -618,15 +738,35 @@ cleanup_on_error() {
         # 清理可能的临时文件
         rm -f /tmp/edgebox_* 2>/dev/null || true
         rm -f /tmp/sing-box* 2>/dev/null || true
+        rm -f /tmp/xray_* 2>/dev/null || true
         
-        log_info "清理完成。详细错误信息请查看: $LOG_FILE"
+        # 清理可能的下载文件
+        rm -f /tmp/*.tar.gz 2>/dev/null || true
+        rm -f /tmp/*.zip 2>/dev/null || true
+        
+        # 清理可能的配置备份
+        find /tmp -name "*.bak.*" -mtime 0 -delete 2>/dev/null || true
+        
+        log_info "临时文件清理完成"
+        log_info "详细错误信息请查看: $LOG_FILE"
+        
+        # 显示故障排查提示
+        echo ""
+        log_info "故障排查建议："
+        log_info "1. 检查系统兼容性: cat /etc/os-release"
+        log_info "2. 检查网络连接: curl -I https://github.com"
+        log_info "3. 检查端口占用: ss -tlnp | grep ':443 '"
+        log_info "4. 查看详细日志: tail -n 50 $LOG_FILE"
+        log_info "5. 重新运行脚本或联系技术支持"
+    else
+        # 成功完成，只做基础清理
+        [[ -n "${EB_TMP:-}" ]] && rm -f "$EB_TMP" 2>/dev/null || true
+        log_debug "安装成功，清理完成"
     fi
     
     exit $exit_code
 }
 
-# 设置错误处理
-trap cleanup_on_error EXIT
 
 #############################################
 # 模块1初始化完成标记
