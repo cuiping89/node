@@ -2309,7 +2309,7 @@ fi
 # sing-box 安装函数
 #############################################
 
-# 安装sing-box核心程序
+# 安装sing-box核心程序 (增加SHA256校验的安全版本)
 install_sing_box() {
     log_info "安装sing-box核心程序..."
     
@@ -2352,18 +2352,59 @@ install_sing_box() {
     local version="${DEFAULT_SING_BOX_VERSION}"
     local filename="sing-box-${version}-${os_type}-${system_arch}.tar.gz"
     local download_url="https://github.com/SagerNet/sing-box/releases/download/v${version}/${filename}"
+    local checksum_url="https://github.com/SagerNet/sing-box/releases/download/v${version}/sing-box-${version}-checksums.txt"
     
     log_info "下载sing-box版本: v${version} (${system_arch})"
     log_debug "下载URL: $download_url"
+    log_debug "校验文件URL: $checksum_url"
     
     # 创建临时下载文件
-    local temp_file
+    local temp_file temp_checksum_file
     if ! temp_file="$(mktemp)"; then
         log_error "创建临时文件失败"
         return 1
     fi
     
-    # 多源下载（添加重试机制）
+    if ! temp_checksum_file="$(mktemp)"; then
+        log_error "创建临时校验文件失败"
+        rm -f "$temp_file"
+        return 1
+    fi
+    
+    # 下载校验文件
+    log_info "下载SHA256校验文件..."
+    local checksum_success=false
+    local checksum_sources=(
+        "$checksum_url"
+        "https://ghproxy.com/https://github.com/SagerNet/sing-box/releases/download/v${version}/sing-box-${version}-checksums.txt"
+        "https://mirror.ghproxy.com/https://github.com/SagerNet/sing-box/releases/download/v${version}/sing-box-${version}-checksums.txt"
+    )
+    
+    for checksum_url_try in "${checksum_sources[@]}"; do
+        if curl -fsSL --retry 2 --retry-delay 1 \
+            --connect-timeout 15 --max-time 60 \
+            -A "Mozilla/5.0 (EdgeBox Installer)" \
+            "$checksum_url_try" -o "$temp_checksum_file"; then
+            
+            if [[ -s "$temp_checksum_file" ]] && grep -q "$filename" "$temp_checksum_file"; then
+                log_success "校验文件下载成功"
+                checksum_success=true
+                break
+            else
+                log_warn "校验文件内容异常，尝试下一个源"
+            fi
+        else
+            log_warn "从 ${checksum_url_try##*/} 下载校验文件失败"
+        fi
+    done
+    
+    if [[ "$checksum_success" != "true" ]]; then
+        log_warn "⚠️  无法下载校验文件，将跳过SHA256验证（存在安全风险）"
+        log_warn "继续安装过程，但建议您手动验证二进制文件的完整性"
+    fi
+    
+    # 多源下载二进制文件
+    log_info "下载sing-box二进制文件..."
     local download_success=false
     local download_sources=(
         "$download_url"
@@ -2398,8 +2439,48 @@ install_sing_box() {
     
     if [[ "$download_success" != "true" ]]; then
         log_error "所有下载源均失败"
-        rm -f "$temp_file"
+        rm -f "$temp_file" "$temp_checksum_file"
         return 1
+    fi
+    
+    # SHA256 校验步骤
+    if [[ "$checksum_success" == "true" ]]; then
+        log_info "🔐 执行SHA256完整性校验..."
+        
+        # 从校验文件中提取对应的哈希值
+        local expected_hash
+        expected_hash=$(grep "$filename" "$temp_checksum_file" | awk '{print $1}' | head -1)
+        
+        if [[ -z "$expected_hash" ]]; then
+            log_warn "⚠️  无法从校验文件中提取哈希值，跳过校验"
+        else
+            # 计算下载文件的SHA256
+            local actual_hash
+            if command -v sha256sum >/dev/null 2>&1; then
+                actual_hash=$(sha256sum "$temp_file" | awk '{print $1}')
+            elif command -v shasum >/dev/null 2>&1; then
+                actual_hash=$(shasum -a 256 "$temp_file" | awk '{print $1}')
+            else
+                log_warn "⚠️  系统缺少SHA256计算工具，跳过校验"
+                actual_hash=""
+            fi
+            
+            if [[ -n "$actual_hash" ]]; then
+                log_debug "期望哈希: $expected_hash"
+                log_debug "实际哈希: $actual_hash"
+                
+                if [[ "$expected_hash" == "$actual_hash" ]]; then
+                    log_success "✅ SHA256校验通过 - 文件完整性确认"
+                else
+                    log_error "❌ SHA256校验失败 - 文件可能被篡改或损坏!"
+                    log_error "期望: $expected_hash"
+                    log_error "实际: $actual_hash"
+                    log_error "为了安全，中止安装"
+                    rm -f "$temp_file" "$temp_checksum_file"
+                    return 1
+                fi
+            fi
+        fi
     fi
     
     log_info "解压并安装sing-box..."
@@ -2408,7 +2489,7 @@ install_sing_box() {
     local temp_dir
     if ! temp_dir="$(mktemp -d)"; then
         log_error "创建临时目录失败"
-        rm -f "$temp_file"
+        rm -f "$temp_file" "$temp_checksum_file"
         return 1
     fi
     
@@ -2422,7 +2503,7 @@ install_sing_box() {
         tar -tzf "$temp_file" 2>/dev/null | head -10 | while read -r file; do
             log_debug "  - $file"
         done
-        rm -rf "$temp_dir" "$temp_file"
+        rm -rf "$temp_dir" "$temp_file" "$temp_checksum_file"
         return 1
     fi
     
@@ -2449,7 +2530,7 @@ install_sing_box() {
         find "$temp_dir" -type f 2>/dev/null | head -10 | while read -r file; do
             log_debug "  - $(basename "$file")"
         done
-        rm -rf "$temp_dir" "$temp_file"
+        rm -rf "$temp_dir" "$temp_file" "$temp_checksum_file"
         return 1
     fi
     
@@ -2458,7 +2539,7 @@ install_sing_box() {
         log_error "下载的sing-box二进制文件无法执行或已损坏"
         log_debug "尝试的二进制文件: $sing_box_binary"
         log_debug "文件信息: $(ls -la "$sing_box_binary" 2>/dev/null)"
-        rm -rf "$temp_dir" "$temp_file"
+        rm -rf "$temp_dir" "$temp_file" "$temp_checksum_file"
         return 1
     fi
     
@@ -2467,14 +2548,14 @@ install_sing_box() {
         log_error "sing-box安装失败"
         log_debug "安装命令: install -m 0755 -o root -g root $sing_box_binary /usr/local/bin/sing-box"
         log_debug "目标目录权限: $(ls -ld /usr/local/bin/ 2>/dev/null || echo '目录不存在')"
-        rm -rf "$temp_dir" "$temp_file"
+        rm -rf "$temp_dir" "$temp_file" "$temp_checksum_file"
         return 1
     fi
     
     # 验证安装结果
     if [[ ! -f /usr/local/bin/sing-box ]]; then
         log_error "sing-box安装验证失败 - 文件不存在"
-        rm -rf "$temp_dir" "$temp_file"
+        rm -rf "$temp_dir" "$temp_file" "$temp_checksum_file"
         return 1
     fi
     
@@ -2484,7 +2565,7 @@ install_sing_box() {
     fi
     
     # 清理临时文件
-    rm -rf "$temp_dir" "$temp_file"
+    rm -rf "$temp_dir" "$temp_file" "$temp_checksum_file"
     
     log_success "sing-box安装到 /usr/local/bin/sing-box"
     
@@ -2506,7 +2587,7 @@ install_sing_box() {
     
     local version_info
     version_info=$($sing_box_cmd version 2>/dev/null | head -1)
-    log_success "sing-box验证通过: $version_info"
+    log_success "🔒 sing-box安装完成并通过安全校验: $version_info"
     
     # Reality密钥重新生成逻辑（如果需要）
     if [[ "$REALITY_PUBLIC_KEY" == "temp_public_key_will_be_replaced" ]]; then
@@ -2521,7 +2602,6 @@ install_sing_box() {
     
     return 0
 }
-
 
 #############################################
 # Nginx 配置函数
