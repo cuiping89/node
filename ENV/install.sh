@@ -10266,27 +10266,27 @@ case "$1" in
     show_reality_rotation_status
     ;;
 
- # SNI域名管理
-    "sni")
-        case "$2" in
-            "list"|"pool")
-                sni_pool_list
-                ;;
-            "test"|"test-all")
-                sni_test_all
-                ;;
-            "select"|"auto")
-                sni_auto_select
-                ;;
-            "set")
-                sni_set_domain "$3"
-                ;;
-            *)
-                echo "用法: edgeboxctl sni {list|test-all|auto|set <域名>}"
-                exit 1
-                ;;
-        esac
+  # SNI域名池管理
+  sni)
+    case "$2" in
+      list|pool)
+        sni_pool_list
         ;;
+      test|test-all)
+        sni_test_all
+        ;;
+      select|auto)
+        sni_auto_select
+        ;;
+      set)
+        sni_set_domain "$3"
+        ;;
+      *)
+        echo "用法: edgeboxctl sni {list|test-all|auto|set <域名>}"
+        exit 1
+        ;;
+    esac
+    ;;
 
   # 帮助信息
 help|"") 
@@ -11215,14 +11215,6 @@ finalize_data_generation() {
   # 8. 最终验证
   log_info "执行最终验证..."
   local validation_failed=false
-  
-  # SNI域名初始
-  log_info "执行SNI域名初始选择..."
-if "$SNI_MANAGER_SCRIPT" select; then
-    log_success "✓ SNI域名初始选择完成"
-else
-    log_warn "SNI域名初始选择失败，可手动执行: edgeboxctl sni auto"
-fi
 
   # 验证关键文件存在
   for file in "${CONFIG_DIR}/server.json" "${CONFIG_DIR}/subscription.txt" "${WEB_ROOT}/sub"; do
@@ -11251,6 +11243,14 @@ fi
     return 1
   fi
 
+    # 执行初始SNI域名选择
+    log_info "执行初始SNI域名选择..."
+    if "$SNI_MANAGER_SCRIPT" select; then
+        log_success "✓ SNI域名初始选择完成"
+    else
+        log_warn "SNI域名初始选择失败，可手动执行: edgeboxctl sni auto"
+    fi
+	
   log_success "数据生成与系统验证完成"
 }
 
@@ -11483,6 +11483,7 @@ main() {
     show_progress 2 10 "网络与目录配置"
     get_server_ip
     create_directories
+	setup_sni_pool_management
     check_ports
     configure_firewall
     optimize_system
