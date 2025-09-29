@@ -1384,11 +1384,6 @@ cleanup_all() {
     # 只有当服务真正失败时才报错
     if [[ "$services_ok" == "true" ]]; then
         log_success "EdgeBox v3.0.0 安装成功完成！"
-        echo -e "\n${GREEN}🎉 安装成功！${NC}"
-        echo -e "${CYAN}订阅链接位置：${NC}"
-        echo -e "  📄 明文: /etc/edgebox/config/subscription.txt"
-        echo -e "  🌐 Web: /var/www/html/sub"
-        echo -e "  📦 Base64: /etc/edgebox/config/subscription.base64"
         exit 0
     else
         log_error "安装失败，部分核心服务未能启动"
@@ -5664,11 +5659,11 @@ h4 {
    ======================================================================= */
 #cert-panel{
   /* 与 NetID 标签一致的参数 */
-  --tag-pad-y: 8px;        /* ← 改它=改标签高度 */
+  --tag-pad-y: 6px;        /* ← 改它=改标签高度 */
   --tag-pad-x: 16px;
   --tag-radius: 8px;
   --tag-font: 13px;
-  --tag-gap: 6px;
+  --tag-gap: 8px;
 
   --label-w: 80px;          /* 行布局与原来保持一致 */
   --row-gap: 10px;
@@ -5759,9 +5754,9 @@ h4 {
   --line-vpad: 6px;         /* 每行上下内边距（行高节奏） */
 
   /* 悬浮标签（与证书切换一致） */
-  --tag-pad-y: 8px;        /* 标签上下 padding = 高度 */
+  --tag-pad-y: 6px;        /* 标签上下 padding = 高度 */
   --tag-pad-x: 16px;        /* 标签左右 padding = 视觉宽度 */
-  --tag-gap: 6px;           /* 标签与卡片的垂直间距 */
+  --tag-gap: 8px;           /* 标签与卡片的垂直间距 */
   --tag-radius: 8px;
   --tag-font: 13px;
 
@@ -6587,9 +6582,9 @@ h4 {
     height: 20px;
     
     /* 字体调整 */
-    font-size: 8px; !important;
+    font-size: 6px; !important;
     font-weight: 500;
-    line-height: 16px;
+    line-height: 12px;
     
     /* 居中对齐 */
     display: flex;
