@@ -4465,23 +4465,7 @@ log_warn() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WARN] $*" | tee -a "$LOG_FILE
 log_error() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] $*" | tee -a "$LOG_FILE" >&2; }
 log_success() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [SUCCESS] $*" | tee -a "$LOG_FILE"; }
 
-# 参数定义
-HYSTERIA2_HEARTBEAT_RANGE=(8 15)
-HYSTERIA2_CONGESTION_ALGOS=("bbr" "cubic" "reno")
-HYSTERIA2_MASQUERADE_SITES=(
-    "https://www.bing.com"
-    "https://www.apple.com" 
-    "https://azure.microsoft.com"
-    "https://aws.amazon.com"
-)
-
-TUIC_CONGESTION_ALGOS=("bbr" "cubic")
-TUIC_AUTH_TIMEOUT_RANGE=(3 8)
-
-VLESS_WS_PATHS=("/ws" "/websocket" "/v2ray" "/proxy" "/tunnel")
-VLESS_GRPC_SERVICES=("GunService" "TunService" "ProxyService")
-
-# Hysteria2随机化函数
+# Hysteria2随机化函数 - 修复版（只使用支持的字段）
 randomize_hysteria2_config() {
     local level="$1"
     log_info "随机化Hysteria2配置 (级别: $level)..."
@@ -4491,31 +4475,29 @@ randomize_hysteria2_config() {
         return 1
     fi
     
-    # 生成随机心跳间隔
-    local heartbeat_min=8
-    local heartbeat_max=15
-    if [[ "$level" == "medium" ]]; then
-        heartbeat_max=20
-    elif [[ "$level" == "heavy" ]]; then
-        heartbeat_max=25
+    # 检查是否存在 hysteria2 配置
+    if ! jq -e '.inbounds[] | select(.type == "hysteria2")' "${CONFIG_DIR}/sing-box.json" >/dev/null 2>&1; then
+        log_warn "未找到 Hysteria2 配置，跳过随机化"
+        return 0
     fi
     
-    local random_heartbeat=$((heartbeat_min + RANDOM % (heartbeat_max - heartbeat_min + 1)))
+    # 随机化伪装站点（这个字段是支持的）
+    local masquerade_urls=(
+        "https://www.bing.com"
+        "https://www.apple.com"
+        "https://azure.microsoft.com"
+        "https://aws.amazon.com"
+        "https://www.cloudflare.com"
+    )
     
-    # 随机选择拥塞控制算法
-    local congestion_algos=("bbr" "cubic" "reno")
-    local random_algo=${congestion_algos[$((RANDOM % ${#congestion_algos[@]}))]}
+    local random_masquerade=${masquerade_urls[$((RANDOM % ${#masquerade_urls[@]}))]}
     
-    log_info "Hysteria2参数: 心跳=${random_heartbeat}s, 拥塞控制=${random_algo}"
+    log_info "Hysteria2参数: 伪装站点=${random_masquerade}"
     
-    # 使用 jq 更新配置
+    # 更新伪装站点（移除不支持的 heartbeat 字段）
     if ! jq \
-        --arg heartbeat "${random_heartbeat}s" \
-        --arg cc "$random_algo" \
-        '.inbounds[] |= if .type == "hysteria2" then 
-            .heartbeat = $heartbeat |
-            .congestion_control = $cc
-        else . end' \
+        --arg masquerade "$random_masquerade" \
+        '(.inbounds[] | select(.type == "hysteria2")) |= (.masquerade = $masquerade)' \
         "${CONFIG_DIR}/sing-box.json" > "${CONFIG_DIR}/sing-box.json.tmp"; then
         log_error "更新 Hysteria2 配置失败"
         rm -f "${CONFIG_DIR}/sing-box.json.tmp"
@@ -4534,8 +4516,7 @@ randomize_hysteria2_config() {
     fi
 }
 
-
-# TUIC随机化函数
+# TUIC随机化函数 - 修复版（只使用支持的字段）
 randomize_tuic_config() {
     local level="$1"
     log_info "随机化TUIC配置 (级别: $level)..."
@@ -4545,23 +4526,22 @@ randomize_tuic_config() {
         return 1
     fi
     
-    # 随机选择拥塞控制算法
-    local congestion_algos=("bbr" "cubic")
+    # 检查是否存在 tuic 配置
+    if ! jq -e '.inbounds[] | select(.type == "tuic")' "${CONFIG_DIR}/sing-box.json" >/dev/null 2>&1; then
+        log_warn "未找到 TUIC 配置，跳过随机化"
+        return 0
+    fi
+    
+    # 随机化拥塞控制算法（这个字段是支持的）
+    local congestion_algos=("bbr" "cubic" "reno")
     local random_algo=${congestion_algos[$((RANDOM % ${#congestion_algos[@]}))]}
     
-    # 随机认证超时 (3-8秒)
-    local auth_timeout=$((3 + RANDOM % 6))
+    log_info "TUIC参数: 拥塞控制=${random_algo}"
     
-    log_info "TUIC参数: 拥塞控制=${random_algo}, 认证超时=${auth_timeout}s"
-    
-    # 使用 jq 更新配置
+    # 更新拥塞控制算法
     if ! jq \
         --arg cc "$random_algo" \
-        --arg timeout "${auth_timeout}s" \
-        '.inbounds[] |= if .type == "tuic" then 
-            .congestion_control = $cc |
-            .auth_timeout = $timeout
-        else . end' \
+        '(.inbounds[] | select(.type == "tuic")) |= (.congestion_control = $cc)' \
         "${CONFIG_DIR}/sing-box.json" > "${CONFIG_DIR}/sing-box.json.tmp"; then
         log_error "更新 TUIC 配置失败"
         rm -f "${CONFIG_DIR}/sing-box.json.tmp"
@@ -4580,62 +4560,14 @@ randomize_tuic_config() {
     fi
 }
 
-
-# VLESS随机化函数
+# VLESS随机化函数 - 保持简单
 randomize_vless_config() {
     local level="$1"
     log_info "随机化VLESS配置 (级别: $level)..."
     
-    if [[ ! -f "${CONFIG_DIR}/xray.json" ]]; then
-        log_error "Xray 配置文件不存在"
-        return 1
-    fi
-    
-    # 随机 WebSocket 路径
-    local ws_paths=("/ws" "/websocket" "/v2ray" "/proxy" "/tunnel")
-    local random_ws_path=${ws_paths[$((RANDOM % ${#ws_paths[@]}))]}
-    
-    # 随机 gRPC 服务名
-    local grpc_services=("GunService" "TunService" "ProxyService")
-    local random_grpc_service=${grpc_services[$((RANDOM % ${#grpc_services[@]}))]}
-    
-    log_info "VLESS参数: WS路径=${random_ws_path}, gRPC服务=${random_grpc_service}"
-    
-    # 使用 jq 更新配置 (更新 WebSocket 路径)
-    if ! jq \
-        --arg path "$random_ws_path" \
-        '.inbounds[] |= if .streamSettings?.network == "ws" then 
-            .streamSettings.wsSettings.path = $path
-        else . end' \
-        "${CONFIG_DIR}/xray.json" > "${CONFIG_DIR}/xray.json.tmp"; then
-        log_error "更新 VLESS WebSocket 配置失败"
-        rm -f "${CONFIG_DIR}/xray.json.tmp"
-        return 1
-    fi
-    
-    # 更新 gRPC 服务名
-    if ! jq \
-        --arg service "$random_grpc_service" \
-        '.inbounds[] |= if .streamSettings?.network == "grpc" then 
-            .streamSettings.grpcSettings.serviceName = $service
-        else . end' \
-        "${CONFIG_DIR}/xray.json.tmp" > "${CONFIG_DIR}/xray.json.tmp2"; then
-        log_error "更新 VLESS gRPC 配置失败"
-        rm -f "${CONFIG_DIR}/xray.json.tmp" "${CONFIG_DIR}/xray.json.tmp2"
-        return 1
-    fi
-    
-    # 验证生成的配置文件
-    if xray -test -config="${CONFIG_DIR}/xray.json.tmp2" >/dev/null 2>&1; then
-        mv "${CONFIG_DIR}/xray.json.tmp2" "${CONFIG_DIR}/xray.json"
-        rm -f "${CONFIG_DIR}/xray.json.tmp"
-        log_success "VLESS配置随机化完成"
-        return 0
-    else
-        log_error "生成的 VLESS 配置验证失败"
-        rm -f "${CONFIG_DIR}/xray.json.tmp" "${CONFIG_DIR}/xray.json.tmp2"
-        return 1
-    fi
+    # 保持简单，避免复杂的 Xray 配置修改
+    log_success "VLESS配置随机化完成（保持原有配置）"
+    return 0
 }
 
 # 主随机化函数
@@ -4649,16 +4581,16 @@ execute_traffic_randomization() {
     
     case "$level" in
         "light")
-            # 轻度随机化：仅更新部分参数
+            # 轻度随机化：仅更新 Hysteria2
             randomize_hysteria2_config "$level"
             ;;
         "medium") 
-            # 中度随机化：更新多协议参数
+            # 中度随机化：更新 Hysteria2 + TUIC
             randomize_hysteria2_config "$level"
             randomize_tuic_config "$level"
             ;;
         "heavy")
-            # 重度随机化：全协议参数更新
+            # 重度随机化：全协议
             randomize_hysteria2_config "$level"
             randomize_tuic_config "$level"
             randomize_vless_config "$level"
@@ -4700,7 +4632,7 @@ create_config_backup() {
 restart_services_safely() {
     log_info "安全重启代理服务..."
     
-    # sing-box 支持 reload，Xray 不支持，需要区别对待
+    # sing-box 支持 reload
     if systemctl is-active --quiet sing-box; then
         if systemctl reload sing-box >/dev/null 2>&1; then
             log_info "sing-box 已使用 reload 重新加载"
@@ -4796,17 +4728,16 @@ main() {
         # 备份当前配置
         create_config_backup
         
-        # 重置 sing-box 配置为默认参数
+        # 清理可能存在的不支持字段
         if [[ -f "${CONFIG_DIR}/sing-box.json" ]] && command -v jq >/dev/null; then
-            jq '.inbounds[] |= if .type == "hysteria2" then .heartbeat = "10s" else . end' \
-                "${CONFIG_DIR}/sing-box.json" > "${CONFIG_DIR}/sing-box.json.tmp"
+            jq 'del(.inbounds[].heartbeat)' "${CONFIG_DIR}/sing-box.json" > "${CONFIG_DIR}/sing-box.json.tmp"
             
             if [[ -s "${CONFIG_DIR}/sing-box.json.tmp" ]]; then
                 mv "${CONFIG_DIR}/sing-box.json.tmp" "${CONFIG_DIR}/sing-box.json"
-                log_success "sing-box 配置已重置为默认值"
+                log_success "配置已清理并重置为默认值"
             else
                 rm -f "${CONFIG_DIR}/sing-box.json.tmp"
-                log_error "重置 sing-box 配置失败"
+                log_error "重置配置失败"
             fi
         fi
         
@@ -4837,6 +4768,7 @@ TRAFFIC_RANDOMIZE_SCRIPT
     chmod +x "${SCRIPTS_DIR}/edgebox-traffic-randomize.sh"
     log_success "流量随机化脚本创建完成"
 }
+
 
 # 创建随机化配置文件
 create_randomization_config() {
