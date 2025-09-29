@@ -2643,316 +2643,252 @@ log_success "Nginx配置文件创建完成"
 return 0
 }
 
+
 #############################################
 # Xray 配置函数
 #############################################
 
-# 使用安全的sed替换方法，避免特殊字符问题
-escape_for_sed() {
-    local input="$1"
-    # 转义 & / \ $ ^ * [ ] . 等特殊字符
-    echo "$input" | sed 's/[[\.*^$()+?{|\\]/\\&/g'
-}
-
-# 配置Xray服务
+# 配置Xray服务 (使用jq重构，彻底解决特殊字符问题)
 configure_xray() {
     log_info "配置Xray多协议服务..."
 	
-local NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
+    local NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
   
-# 验证必要变量 (增强版)
-local required_vars=(
-    "UUID_VLESS_REALITY"
-    "UUID_VLESS_GRPC"  
-    "UUID_VLESS_WS"
-    "REALITY_PRIVATE_KEY"
-    "REALITY_SHORT_ID"
-    "PASSWORD_TROJAN"
-)
+    # 验证必要变量 (增强版)
+    local required_vars=(
+        "UUID_VLESS_REALITY"
+        "UUID_VLESS_GRPC"  
+        "UUID_VLESS_WS"
+        "REALITY_PRIVATE_KEY"
+        "REALITY_SHORT_ID"
+        "PASSWORD_TROJAN"
+    )
 
-log_info "检查必要变量设置..."
-local missing_vars=()
+    log_info "检查必要变量设置..."
+    local missing_vars=()
 
-for var in "${required_vars[@]}"; do
-    if [[ -z "${!var}" ]]; then
-        missing_vars+=("$var")
-        log_error "必要变量 $var 未设置"
-    else
-        log_success "✓ $var 已设置: ${!var:0:8}..."
-    fi
-done
+    for var in "${required_vars[@]}"; do
+        if [[ -z "${!var}" ]]; then
+            missing_vars+=("$var")
+            log_error "必要变量 $var 未设置"
+        else
+            log_success "✓ $var 已设置: ${!var:0:8}..."
+        fi
+    done
 
-if [[ ${#missing_vars[@]} -gt 0 ]]; then
-    log_error "缺少必要变量: ${missing_vars[*]}"
-    log_info "尝试从配置文件重新加载变量..."
-    
-    # 尝试从server.json重新加载变量
-    if [[ -f "${CONFIG_DIR}/server.json" ]]; then
-        UUID_VLESS_REALITY=$(jq -r '.uuid.vless.reality // .uuid.vless' "${CONFIG_DIR}/server.json" 2>/dev/null)
-        UUID_VLESS_GRPC=$(jq -r '.uuid.vless.grpc // .uuid.vless' "${CONFIG_DIR}/server.json" 2>/dev/null)
-        UUID_VLESS_WS=$(jq -r '.uuid.vless.ws // .uuid.vless' "${CONFIG_DIR}/server.json" 2>/dev/null)
-        REALITY_PRIVATE_KEY=$(jq -r '.reality.private_key' "${CONFIG_DIR}/server.json" 2>/dev/null)
-        REALITY_SHORT_ID=$(jq -r '.reality.short_id' "${CONFIG_DIR}/server.json" 2>/dev/null)
-        PASSWORD_TROJAN=$(jq -r '.password.trojan' "${CONFIG_DIR}/server.json" 2>/dev/null)
+    if [[ ${#missing_vars[@]} -gt 0 ]]; then
+        log_error "缺少必要变量: ${missing_vars[*]}"
+        log_info "尝试从配置文件重新加载变量..."
         
-        log_info "已从配置文件重新加载变量"
-    else
-        log_error "配置文件不存在，无法重新加载变量"
+        # 尝试从server.json重新加载变量
+        if [[ -f "${CONFIG_DIR}/server.json" ]]; then
+            UUID_VLESS_REALITY=$(jq -r '.uuid.vless.reality // .uuid.vless' "${CONFIG_DIR}/server.json" 2>/dev/null)
+            UUID_VLESS_GRPC=$(jq -r '.uuid.vless.grpc // .uuid.vless' "${CONFIG_DIR}/server.json" 2>/dev/null)
+            UUID_VLESS_WS=$(jq -r '.uuid.vless.ws // .uuid.vless' "${CONFIG_DIR}/server.json" 2>/dev/null)
+            REALITY_PRIVATE_KEY=$(jq -r '.reality.private_key' "${CONFIG_DIR}/server.json" 2>/dev/null)
+            REALITY_SHORT_ID=$(jq -r '.reality.short_id' "${CONFIG_DIR}/server.json" 2>/dev/null)
+            PASSWORD_TROJAN=$(jq -r '.password.trojan' "${CONFIG_DIR}/server.json" 2>/dev/null)
+            
+            log_info "已从配置文件重新加载变量"
+        else
+            log_error "配置文件不存在，无法重新加载变量"
+            return 1
+        fi
+    fi
+    
+    # 显示将要使用的变量（调试用）
+    log_info "配置变量检查:"
+    log_info "├─ UUID_VLESS_REALITY: ${UUID_VLESS_REALITY:0:8}..."
+    log_info "├─ REALITY_PRIVATE_KEY: ${REALITY_PRIVATE_KEY:0:8}..."
+    log_info "├─ REALITY_SHORT_ID: $REALITY_SHORT_ID"
+    log_info "├─ PASSWORD_TROJAN: ${PASSWORD_TROJAN:0:8}..."
+    log_info "└─ CERT_DIR: $CERT_DIR"
+    
+    log_info "使用jq生成Xray配置文件（彻底避免特殊字符问题）..."
+    
+    # 使用jq安全地生成完整的Xray配置文件
+    if ! jq -n \
+        --arg uuid_vless_reality "$UUID_VLESS_REALITY" \
+        --arg uuid_vless_grpc "$UUID_VLESS_GRPC" \
+        --arg uuid_vless_ws "$UUID_VLESS_WS" \
+        --arg reality_private_key "$REALITY_PRIVATE_KEY" \
+        --arg reality_short_id "$REALITY_SHORT_ID" \
+        --arg password_trojan "$PASSWORD_TROJAN" \
+        --arg cert_pem "${CERT_DIR}/current.pem" \
+        --arg cert_key "${CERT_DIR}/current.key" \
+        --arg reality_sni "$REALITY_SNI" \
+        '{
+            "log": {
+                "loglevel": "warning",
+                "access": "/var/log/xray/access.log",
+                "error": "/var/log/xray/error.log"
+            },
+            "inbounds": [
+                {
+                    "tag": "vless-reality",
+                    "listen": "127.0.0.1",
+                    "port": 11443,
+                    "protocol": "vless",
+                    "settings": {
+                        "clients": [
+                            {
+                                "id": $uuid_vless_reality,
+                                "flow": "xtls-rprx-vision"
+                            }
+                        ],
+                        "decryption": "none"
+                    },
+                    "streamSettings": {
+                        "network": "tcp",
+                        "security": "reality",
+                        "realitySettings": {
+                            "show": false,
+                            "dest": ($reality_sni + ":443"),
+                            "xver": 0,
+                            "serverNames": [$reality_sni],
+                            "privateKey": $reality_private_key,
+                            "shortIds": [$reality_short_id]
+                        }
+                    },
+                    "sniffing": {
+                        "enabled": true,
+                        "destOverride": ["http", "tls"]
+                    }
+                },
+                {
+                    "tag": "vless-grpc",
+                    "listen": "127.0.0.1", 
+                    "port": 12443,
+                    "protocol": "vless",
+                    "settings": {
+                        "clients": [
+                            {
+                                "id": $uuid_vless_grpc
+                            }
+                        ],
+                        "decryption": "none"
+                    },
+                    "streamSettings": {
+                        "network": "grpc",
+                        "security": "tls",
+                        "tlsSettings": {
+                            "certificates": [
+                                {
+                                    "certificateFile": $cert_pem,
+                                    "keyFile": $cert_key
+                                }
+                            ]
+                        },
+                        "grpcSettings": {
+                            "serviceName": "grpc-service"
+                        }
+                    }
+                },
+                {
+                    "tag": "vless-ws",
+                    "listen": "127.0.0.1",
+                    "port": 13443, 
+                    "protocol": "vless",
+                    "settings": {
+                        "clients": [
+                            {
+                                "id": $uuid_vless_ws
+                            }
+                        ],
+                        "decryption": "none"
+                    },
+                    "streamSettings": {
+                        "network": "ws",
+                        "security": "tls",
+                        "tlsSettings": {
+                            "certificates": [
+                                {
+                                    "certificateFile": $cert_pem,
+                                    "keyFile": $cert_key
+                                }
+                            ]
+                        },
+                        "wsSettings": {
+                            "path": "/websocket"
+                        }
+                    }
+                },
+                {
+                    "tag": "trojan-tcp",
+                    "listen": "127.0.0.1",
+                    "port": 14443,
+                    "protocol": "trojan",
+                    "settings": {
+                        "clients": [
+                            {
+                                "password": $password_trojan
+                            }
+                        ]
+                    },
+                    "streamSettings": {
+                        "network": "tcp",
+                        "security": "tls", 
+                        "tlsSettings": {
+                            "certificates": [
+                                {
+                                    "certificateFile": $cert_pem,
+                                    "keyFile": $cert_key
+                                }
+                            ]
+                        }
+                    }
+                }
+            ],
+            "outbounds": [
+                {
+                    "tag": "direct",
+                    "protocol": "freedom",
+                    "settings": {}
+                },
+                {
+                    "tag": "block",
+                    "protocol": "blackhole",
+                    "settings": {}
+                }
+            ],
+            "routing": {
+                "domainStrategy": "AsIs",
+                "rules": [
+                    {
+                        "type": "field",
+                        "ip": ["geoip:private"],
+                        "outboundTag": "block"
+                    }
+                ]
+            },
+            "policy": {
+                "handshake": 4,
+                "connIdle": 30
+            }
+        }' > "${CONFIG_DIR}/xray.json"; then
+        log_error "使用jq生成Xray配置文件失败"
         return 1
     fi
-fi
-    
-    log_info "生成Xray配置文件..."
-    
-    # 生成Xray配置
-    cat > "${CONFIG_DIR}/xray.json" << 'XRAY_CONFIG'
-{
-  "log": {
-    "loglevel": "warning",
-    "access": "/var/log/xray/access.log",
-    "error": "/var/log/xray/error.log"
-  },
-  "inbounds": [
-    {
-      "tag": "vless-reality",
-      "listen": "127.0.0.1",
-      "port": 11443,
-      "protocol": "vless",
-      "settings": {
-        "clients": [
-          {
-            "id": "__UUID_VLESS_REALITY__",
-            "flow": "xtls-rprx-vision",
-            "email": "reality@edgebox.local"
-          }
-        ],
-        "decryption": "none"
-      },
-      "streamSettings": {
-        "network": "tcp",
-        "security": "reality",
-        "realitySettings": {
-          "show": false,
-          "dest": "www.cloudflare.com:443",
-          "xver": 0,
-          "serverNames": [
-            "www.cloudflare.com",
-            "www.microsoft.com",
-            "www.apple.com"
-          ],
-          "privateKey": "__REALITY_PRIVATE_KEY__",
-          "shortIds": [
-            "__REALITY_SHORT_ID__"
-          ]
-        }
-      }
-    },
-    {
-      "tag": "vless-grpc",
-      "listen": "127.0.0.1",
-      "port": 10085,
-      "protocol": "vless",
-      "settings": {
-        "clients": [
-          {
-            "id": "__UUID_VLESS_GRPC__",
-            "email": "grpc@edgebox.local"
-          }
-        ],
-        "decryption": "none"
-      },
-      "streamSettings": {
-        "network": "grpc",
-        "security": "tls",
-        "tlsSettings": {
-          "alpn": ["h2"],
-          "certificates": [
-            {
-              "certificateFile": "__CERT_PEM__",
-              "keyFile": "__CERT_KEY__"
-            }
-          ]
-        },
-        "grpcSettings": {
-          "serviceName": "grpc",
-          "multiMode": true
-        }
-      }
-    },
-    {
-      "tag": "vless-websocket",
-      "listen": "127.0.0.1",
-      "port": 10086,
-      "protocol": "vless",
-      "settings": {
-        "clients": [
-          {
-            "id": "__UUID_VLESS_WS__",
-            "email": "websocket@edgebox.local"
-          }
-        ],
-        "decryption": "none"
-      },
-      "streamSettings": {
-        "network": "ws",
-        "security": "tls",
-        "tlsSettings": {
-          "alpn": ["http/1.1"],
-          "certificates": [
-            {
-              "certificateFile": "__CERT_PEM__",
-              "keyFile": "__CERT_KEY__"
-            }
-          ]
-        },
-        "wsSettings": {
-          "path": "/ws"
-        }
-      }
-    },
-    {
-      "tag": "trojan-tls",
-      "listen": "127.0.0.1",
-      "port": 10143,
-      "protocol": "trojan",
-      "settings": {
-        "clients": [
-          {
-            "password": "__PASSWORD_TROJAN__",
-            "email": "trojan@edgebox.local"
-          }
-        ]
-      },
-      "streamSettings": {
-        "network": "tcp",
-        "security": "tls",
-        "tlsSettings": {
-          "alpn": ["http/1.1", "h2"],
-          "certificates": [
-            {
-              "certificateFile": "__CERT_PEM__",
-              "keyFile": "__CERT_KEY__"
-            }
-          ]
-        }
-      }
-    }
-  ],
-  "outbounds": [
-    {
-      "tag": "direct",
-      "protocol": "freedom",
-      "settings": {}
-    },
-    {
-      "tag": "block",
-      "protocol": "blackhole",
-      "settings": {
-        "response": {
-          "type": "http"
-        }
-      }
-    }
-  ],
-  "routing": {
-    "domainStrategy": "AsIs",
-    "rules": [
-      {
-        "type": "field",
-        "ip": ["geoip:private"],
-        "outboundTag": "block"
-      }
-    ]
-  }
-}
-XRAY_CONFIG
-    
-# 替换配置文件中的占位符 (修复版)
-log_info "应用Xray配置参数..."
 
-# 确保所有必要变量都已设置，如果没有则从server.json重新加载
-if [[ -z "$UUID_VLESS_REALITY" || -z "$REALITY_PRIVATE_KEY" ]]; then
-    log_warn "检测到变量缺失，从server.json重新加载..."
-    if [[ -f "${CONFIG_DIR}/server.json" ]]; then
-        UUID_VLESS_REALITY=$(jq -r '.uuid.vless.reality // .uuid.vless' "${CONFIG_DIR}/server.json" 2>/dev/null)
-        UUID_VLESS_GRPC=$(jq -r '.uuid.vless.grpc // .uuid.vless' "${CONFIG_DIR}/server.json" 2>/dev/null)
-        UUID_VLESS_WS=$(jq -r '.uuid.vless.ws // .uuid.vless' "${CONFIG_DIR}/server.json" 2>/dev/null)
-        REALITY_PRIVATE_KEY=$(jq -r '.reality.private_key' "${CONFIG_DIR}/server.json" 2>/dev/null)
-        REALITY_SHORT_ID=$(jq -r '.reality.short_id' "${CONFIG_DIR}/server.json" 2>/dev/null)
-        PASSWORD_TROJAN=$(jq -r '.password.trojan' "${CONFIG_DIR}/server.json" 2>/dev/null)
-        log_info "已重新加载变量"
+    log_success "Xray配置文件生成完成"
+    
+    # 验证JSON格式和配置内容
+    if ! jq '.' "${CONFIG_DIR}/xray.json" >/dev/null 2>&1; then
+        log_error "Xray配置JSON格式错误"
+        return 1
     fi
-fi
 
-
-# 显示将要替换的变量（调试用）
-log_info "配置变量检查:"
-log_info "├─ UUID_VLESS_REALITY: ${UUID_VLESS_REALITY:0:8}..."
-log_info "├─ REALITY_PRIVATE_KEY: ${REALITY_PRIVATE_KEY:0:8}..."
-log_info "├─ REALITY_SHORT_ID: $REALITY_SHORT_ID"
-log_info "├─ PASSWORD_TROJAN: ${PASSWORD_TROJAN:0:8}..."
-log_info "└─ CERT_DIR: $CERT_DIR"
-
-# 执行替换 (修复特殊字符处理)
-log_info "开始替换配置文件占位符..."
-
-# 安全替换各个变量
-local safe_uuid_reality=$(escape_for_sed "$UUID_VLESS_REALITY")
-local safe_uuid_grpc=$(escape_for_sed "$UUID_VLESS_GRPC")
-local safe_uuid_ws=$(escape_for_sed "$UUID_VLESS_WS")
-local safe_reality_private=$(escape_for_sed "$REALITY_PRIVATE_KEY")
-local safe_reality_short=$(escape_for_sed "$REALITY_SHORT_ID")
-local safe_password_trojan=$(escape_for_sed "$PASSWORD_TROJAN")
-local safe_cert_pem=$(escape_for_sed "${CERT_DIR}/current.pem")
-local safe_cert_key=$(escape_for_sed "${CERT_DIR}/current.key")
-
-# 执行安全的替换操作
-sed -i \
-    -e "s#__UUID_VLESS_REALITY__#${safe_uuid_reality}#g" \
-    -e "s#__UUID_VLESS_GRPC__#${safe_uuid_grpc}#g" \
-    -e "s#__UUID_VLESS_WS__#${safe_uuid_ws}#g" \
-    -e "s#__REALITY_PRIVATE_KEY__#${safe_reality_private}#g" \
-    -e "s#__REALITY_SHORT_ID__#${safe_reality_short}#g" \
-    -e "s#__CERT_PEM__#${safe_cert_pem}#g" \
-    -e "s#__CERT_KEY__#${safe_cert_key}#g" \
-    -e "s#__PASSWORD_TROJAN__#${safe_password_trojan}#g" \
-    "${CONFIG_DIR}/xray.json"
-
-log_success "配置文件占位符替换完成"
-
-# 验证替换结果
-local unreplaced_vars=$(grep -o "__[A-Z_]*__" "${CONFIG_DIR}/xray.json" || true)
-if [[ -n "$unreplaced_vars" ]]; then
-    log_error "配置文件中仍存在未替换的变量: $unreplaced_vars"
-    return 1
-else
-    log_success "所有配置变量替换完成"
-fi
-    
-# 验证JSON格式和配置内容
-if ! jq '.' "${CONFIG_DIR}/xray.json" >/dev/null 2>&1; then
-    log_error "Xray配置JSON格式错误"
-    return 1
-fi
-
-# 调试：显示实际生成的配置片段
-log_info "验证Xray配置文件..."
-if ! grep -q "127.0.0.1" "${CONFIG_DIR}/xray.json"; then
-    log_error "Xray配置中缺少监听地址"
-    return 1
-fi
-
-# 检查变量是否正确替换
-local unreplaced_vars=$(grep -o "__[A-Z_]*__" "${CONFIG_DIR}/xray.json" || true)
-if [[ -n "$unreplaced_vars" ]]; then
-    log_error "Xray配置中存在未替换的变量: $unreplaced_vars"
-    return 1
-fi
+    # 验证配置内容
+    log_info "验证Xray配置文件..."
+    if ! grep -q "127.0.0.1" "${CONFIG_DIR}/xray.json"; then
+        log_error "Xray配置中缺少监听地址"
+        return 1
+    fi
  
-log_success "Xray配置文件验证通过"
-    
+    log_success "Xray配置文件验证通过"
+        
     log_info "创建Xray系统服务..."
-cat > /etc/systemd/system/xray.service << XRAY_SERVICE
+    cat > /etc/systemd/system/xray.service << XRAY_SERVICE
 [Unit]
 Description=Xray Service
 Documentation=https://github.com/xtls
@@ -2979,6 +2915,7 @@ XRAY_SERVICE
     log_success "Xray服务文件创建完成"
     return 0
 }
+
 
 #############################################
 # sing-box 配置函数
