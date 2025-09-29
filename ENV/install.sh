@@ -6576,20 +6576,34 @@ h4 {
 /* 通知数量徽章 */
 .notification-badge {
     position: absolute;
-    top: -6px;           /* 🔧 向上偏移到铃铛上方 */
-    right: -6px;         /* 🔧 向右偏移到铃铛右侧 */
+    top: -8px;
+    right: -8px;
     background: #ef4444;
     color: white;
-    border-radius: 10px;
-    padding: 1px 6px;
-    font-size: 8px;     /* 🔧 缩小字体：12px → 10px */
-    font-weight: 300;
-    min-width: 11px;     /* 🔧 缩小尺寸：20px → 16px */
-	height: 16px;        /* 🔧 缩小尺寸：20px → 16px */
-    z-index: 10;         /* 🔧 确保在铃铛之上 */
-    border: 2px solid white; /* 🔧 白色边框增加对比度 */
+    border-radius: 50%;           /* 完全圆形 */
+    
+    /* 尺寸修复 */
+    min-width: 20px;
+    height: 20px;
+    
+    /* 字体调整 */
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 20px;
+    
+    /* 居中对齐 */
+    display: flex;
+    align-items: center;
+    justify-content: center;
     text-align: center;
+    
+    border: 2px solid white;
+    z-index: 10;
     animation: notification-pulse 2s infinite;
+    
+    /* 防止溢出 */
+    overflow: hidden;
+    box-sizing: border-box;
 }
 
 .notification-badge {
@@ -8986,11 +9000,13 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
       <div class="command-list">
         <code>edgeboxctl config show</code> <span># 显示所有服务的核心配置信息</span><br>
         <code>edgeboxctl config regenerate-uuid</code> <span># 为所有协议重新生成新的UUID</span>
+		<code>edgeboxctl rotate-reality</code> <span># 执行Reality密钥轮换</span><br>
+        <code>edgeboxctl reality-status</code> <span># 查看轮换状态</span>
       </div>
     </div>
 
     <div class="command-section">
-      <h4>💾 系统维护</h4>
+      <h3>💾 系统维护</h3>
       <div class="command-list">
         <code>edgeboxctl update</code><span># 更新EdgeBox</span><br>
         <code>edgeboxctl backup create</code><span># 创建备份</span><br>
@@ -8998,6 +9014,25 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         <code>edgeboxctl backup restore &lt;file&gt;</code><span># 恢复备份</span>
       </div>
     </div>
+
+<div class="command-section">
+  <h3>🌐 SNI域名管理</h3>
+  <div class="command-list">
+    <code>edgeboxctl sni list</code> <span># 显示域名池状态</span><br>
+    <code>edgeboxctl sni test-all</code> <span># 测试所有域名</span><br>
+    <code>edgeboxctl sni auto</code> <span># 智能选择最优域名</span><br>
+    <code>edgeboxctl sni set &lt;域名&gt;</code> <span># 手动设置域名</span>
+  </div>
+</div>
+
+<div class="command-section">
+  <h3>🎲 流量特征随机化</h3>
+  <div class="command-list">
+    <code>edgeboxctl traffic randomize [light|medium|heavy]</code> <span># 执行流量特征随机化</span><br>
+    <code>edgeboxctl traffic status</code> <span># 显示随机化状态</span><br>
+    <code>edgeboxctl traffic reset</code> <span># 重置为默认配置</span>
+  </div>
+</div>
 
   </div>
 </div>
@@ -10917,6 +10952,7 @@ ${YELLOW}备份恢复:${NC}
 
 ${YELLOW}系统维护:${NC}
   edgeboxctl update                              在线更新 EdgeBox（拉取并执行最新安装脚本）
+  
 HLP
   ;;
   
