@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # =====================================================================
-# EdgeBox 一键卸载脚本（最终通用版）
-# - 仅交互一次：按下 Y/y 立即继续（无需回车）；其它键取消
-# - 默认保留【流量数据目录】（/etc/edgebox/traffic 或由 /var/www/html/traffic 指向的真实目录）
-# - 清除 Web 端“样式/页面/链接”残留（删除 HTML/CSS/JS 与 /status、/traffic 链接）
-# - 停止并禁用 EdgeBox 相关服务，移除 systemd 单元、定时任务、工具脚本
-# - 恢复 Nginx 原始配置（如存在 /etc/nginx/nginx.conf.bak.* 备份）
-# - 还原/清理 EdgeBox 专用 nftables 计数表
-# - 若安装脚本优化过 sysctl，存在备份则恢复
+# EdgeBox 一键卸载脚本 (最终完善版)
+#
+# 功能特性:
+# - 交互友好: 仅需按一次 Y/y 键即可确认，无需回车。
+# - 保留数据: 默认安全保留流量数据目录，避免数据丢失。
+# - 清理彻底: 移除服务、配置、定时任务、工具、Web文件及链接。
+# - 智能恢复: 自动从备份恢复 Nginx, sysctl, limits.conf 配置。
+# - 安全第一: 明确不处理防火墙规则，避免用户SSH失联。
 # =====================================================================
 
 set -euo pipefail
@@ -27,171 +27,181 @@ fi
 # 退出时清理临时副本
 trap '[[ -n "${EB_TMP:-}" && -f "$EB_TMP" ]] && rm -f -- "$EB_TMP" || true' EXIT
 
-# --- 颜色 & 输出 ------------------------------------------------------
+# --- 颜色 & 输出函数 --------------------------------------------------
 RED="\033[31m"; GREEN="\033[32m"; YELLOW="\033[33m"; BLUE="\033[34m"; CYAN="\033[36m"; NC="\033[0m"
-title(){ echo -e "\n${CYAN}==> $*${NC}"; }
-ok(){ echo -e "${GREEN}✔ $*${NC}"; }
-warn(){ echo -e "${YELLOW}⚠ $*${NC}"; }
-err(){ echo -e "${RED}✘ $*${NC}"; }
-hr(){ echo -e "${CYAN}------------------------------------------------------------${NC}"; }
+title(){ echo -e "\n${CYAN}==> $1${NC}"; }
+ok(){ echo -e "${GREEN}✔ $1${NC}"; }
+warn(){ echo -e "${YELLOW}⚠ $1${NC}"; }
+err(){ echo -e "${RED}✘ $1${NC}"; }
+hr(){ echo -e "${BLUE}------------------------------------------------------------${NC}"; }
 
-# --- 小工具 -----------------------------------------------------------
+# --- 工具函数 ---------------------------------------------------------
+
+# 安全地停止和禁用 systemd 服务
 systemd_safe(){
-  local act="$1"; shift || true
-  for s in "$@"; do
-    [[ -z "${s:-}" ]] && continue
-    if systemctl list-unit-files | grep -qE "^${s}\.service"; then
-      systemctl "$act" "$s" >/dev/null 2>&1 || true
+  local action="$1"; shift || true
+  for service in "$@"; do
+    [[ -z "${service:-}" ]] && continue
+    # 仅当服务单元文件存在时才操作
+    if systemctl list-unit-files | grep -qE "^${service}\.service"; then
+      systemctl "$action" "$service" >/dev/null 2>&1 || true
     fi
   done
 }
 
-remove_paths(){ # 安全 rm -rf（仅在目标存在时）
-  local p
-  for p in "$@"; do
-    [[ -z "${p:-}" ]] && continue
-    if [[ -L "$p" || -e "$p" ]]; then
-      rm -rf -- "$p" 2>/dev/null || true
-      ok "removed: $p"
+# 安全地删除文件或目录（仅在存在时操作）
+remove_paths(){
+  local path
+  for path in "$@"; do
+    [[ -z "${path:-}" ]] && continue
+    if [[ -L "$path" || -e "$path" ]]; then
+      rm -rf -- "$path"
+      ok "已移除: $path"
     fi
   done
 }
 
-detect_panel_root(){
-  if [[ -n "${PANEL_ROOT:-}" && -d "$PANEL_ROOT" ]]; then
-    echo "$PANEL_ROOT"; return
-  fi
-  local cands=(/var/www/html /usr/share/nginx/html)
-  local d; for d in "${cands[@]}"; do [[ -d "$d" ]] && { echo "$d"; return; }; done
-  echo "/var/www/html"
+# 探测 Web 服务器根目录
+detect_web_root(){
+  local candidates=(/var/www/html /usr/share/nginx/html)
+  local dir
+  for dir in "${candidates[@]}"; do
+    if [[ -d "$dir" ]]; then
+      echo "$dir"
+      return
+    fi
+  done
+  echo "/var/www/html" # 默认值
 }
 
-# 返回真实“流量数据目录”（若无则返回空串）
-detect_traffic_real(){
+# 探测真实的流量数据目录路径
+detect_traffic_real_path(){
   if [[ -L /var/www/html/traffic ]]; then
     readlink -f /var/www/html/traffic 2>/dev/null && return 0
   fi
-  [[ -d /etc/edgebox/traffic ]] && { echo /etc/edgebox/traffic; return 0; }
-  [[ -d /var/www/edgebox-traffic ]] && { echo /var/www/edgebox-traffic; return 0; }
-  echo ""
+  # 兼容不同版本可能的位置
+  for path in /etc/edgebox/traffic /var/www/edgebox-traffic; do
+    if [[ -d "$path" ]]; then
+      echo "$path"
+      return 0
+    fi
+  done
+  echo "" # 未找到则返回空
 }
 
-# 读取单个按键（Y/y 继续），无需回车
-confirm_once(){
-  echo -e "${YELLOW}本操作将卸载 EdgeBox：${NC}"
-  echo -e "${YELLOW}- 停止并禁用相关服务，移除 systemd 单元与定时任务${NC}"
-  echo -e "${YELLOW}- 恢复 Nginx 配置与 Web 链接，清除页面/样式残留${NC}"
-  echo -e "${YELLOW}- 【保留】流量数据目录（JSON/CSV/DB等数据文件）${NC}"
-  echo -ne "确认继续？按 ${GREEN}Y${NC}/${GREEN}y${NC} 立即执行（任意其它键取消）："
+# --- 卸载流程函数 -----------------------------------------------------
+
+# 步骤1: 预检查与用户确认
+run_pre_checks_and_confirm(){
+  echo -e "${YELLOW}本操作将从您的系统中卸载 EdgeBox 及其相关组件。${NC}"
+  echo
+  echo -e "将执行以下操作:"
+  echo -e "  - ${RED}停止并禁用${NC} Nginx, Xray, sing-box 等相关服务。"
+  echo -e "  - ${RED}移除${NC} systemd 单元文件、crontab 定时任务和 edgeboxctl 工具。"
+  echo -e "  - ${RED}删除${NC} EdgeBox 的配置文件、日志和 Web 资产文件。"
+  echo -e "  - ${GREEN}恢复${NC} Nginx, sysctl, limits.conf 的原始配置（如果存在备份）。"
+  echo
+  echo -e "为保护您的数据，以下内容将${GREEN}被保留${NC}:"
+  echo -e "  - ✅ 流量统计数据目录 (${YELLOW}$(detect_traffic_real_path)${NC})"
+  echo
+  echo -e "为保障您的服务器安全，以下内容将${YELLOW}不会被修改${NC}:"
+  echo -e "  - 🛡️ 防火墙 (ufw, firewalld) 规则。"
+  echo
+  echo -ne "确认继续？按 ${GREEN}Y${NC} 或 ${GREEN}y${NC} 键立即执行（按任意其它键取消）: "
   # shellcheck disable=SC2162
   read -r -n 1 ans || true
   echo
   if [[ ! "${ans:-}" =~ ^[Yy]$ ]]; then
-    echo "已取消。"; exit 0
+    echo "操作已取消。"
+    exit 0
   fi
 }
 
-# --- 主逻辑 -----------------------------------------------------------
-main(){
-  confirm_once
-  hr
-
-  local WEB_ROOT TRAFFIC_REAL
-  WEB_ROOT="$(detect_panel_root)"
-  TRAFFIC_REAL="$(detect_traffic_real)"
-
-  title "停止并禁用 EdgeBox 相关服务"
-  systemd_safe stop xray sing-box edgebox-init
+# 步骤2: 停止服务
+stop_and_disable_services(){
+  title "正在停止并禁用 EdgeBox 相关服务..."
+  systemd_safe stop nginx xray sing-box edgebox-init
   systemd_safe disable xray sing-box edgebox-init
-  ok "已尝试停止/禁用 xray、sing-box、edgebox-init（如存在）。"
-  hr
+  ok "已处理 xray, sing-box, edgebox-init 服务。"
+  # Nginx 仅停止，不禁用，因为可能是系统通用服务
+  systemd_safe stop nginx
+  ok "已停止 Nginx 服务。"
+}
 
-  title "移除 systemd 单元文件并重载"
+# 步骤3: 移除系统集成（服务单元、定时任务、可执行文件）
+remove_system_integration(){
+  title "正在移除系统集成组件..."
+  # 移除 systemd 单元文件
   remove_paths /etc/systemd/system/xray.service \
                /etc/systemd/system/sing-box.service \
                /etc/systemd/system/edgebox-init.service
   systemctl daemon-reload >/dev/null 2>&1 || true
-  ok "systemd 已重载。"
-  hr
+  ok "Systemd 配置已重载。"
 
-  title "清理 crontab 中的 EdgeBox 相关定时任务"
-  # 过滤掉包含 /etc/edgebox 或 edgebox 关键字的行（含 edgebox-ipq.sh）
+  # 清理 crontab
   if command -v crontab >/dev/null 2>&1; then
     ( crontab -l 2>/dev/null | grep -vE '(/etc/edgebox/|\bedgebox\b|\bEdgeBox\b)' ) | crontab - 2>/dev/null || true
-    ok "crontab 规则已清理。"
+    ok "Crontab 定时任务已清理。"
   else
-    warn "系统未安装 crontab，跳过。"
+    warn "未找到 crontab 命令，跳过定时任务清理。"
   fi
-  hr
+  
+  # 移除可执行文件
+  remove_paths /usr/local/bin/edgeboxctl \
+               /usr/local/bin/edgebox-ipq.sh \
+               /usr/local/bin/xray \
+               /usr/local/bin/sing-box
+}
 
-  title "删除工具与配置（保留流量数据目录）"
-  # 工具
-  remove_paths /usr/local/bin/edgeboxctl /usr/local/bin/edgebox-ipq.sh
+# 步骤4: 清理文件系统
+clean_filesystem(){
+  title "正在清理文件系统（将保留流量数据）..."
+  local WEB_ROOT TRAFFIC_REAL_PATH
+  WEB_ROOT="$(detect_web_root)"
+  TRAFFIC_REAL_PATH="$(detect_traffic_real_path)"
 
-  # /etc/edgebox 下仅保留流量数据目录，删除其余内容
+  # 清理 /etc/edgebox，但保留流量数据目录
   if [[ -d /etc/edgebox ]]; then
     shopt -s dotglob nullglob
-    for p in /etc/edgebox/*; do
-      if [[ -n "$TRAFFIC_REAL" && "$p" == "$TRAFFIC_REAL" ]]; then continue; fi
-      if [[ "$p" == "/etc/edgebox/traffic" && -n "$TRAFFIC_REAL" && "$TRAFFIC_REAL" != "/etc/edgebox/traffic" ]]; then
-        # 若真实目录不在 /etc/edgebox/traffic，则可以安全删除这个目录（通常是陈旧或空壳）
-        rm -rf -- "$p" 2>/dev/null || true
+    for item in /etc/edgebox/*; do
+      # 如果当前项是真实的流量数据目录，则跳过
+      if [[ -n "$TRAFFIC_REAL_PATH" && "$item" == "$TRAFFIC_REAL_PATH" ]]; then
         continue
       fi
-      rm -rf -- "$p" 2>/dev/null || true
+      rm -rf -- "$item"
     done
-    ok "已清理 /etc/edgebox（保留：${TRAFFIC_REAL:-无}）。"
+    shopt -u dotglob nullglob
+    ok "已清理 /etc/edgebox/ 目录（保留流量数据）。"
   fi
-
-  # 删除其它典型配置/状态目录
+  
+  # 清理其他相关目录
   remove_paths /etc/xray /usr/local/etc/xray \
                /etc/sing-box /usr/local/etc/sing-box \
                /var/lib/edgebox \
-               /var/log/edgebox /var/log/edgebox-install.log /var/log/edgebox-traffic-alert.log
-  hr
+               /var/log/edgebox /var/log/xray \
+               /var/log/edgebox-install.log /var/log/edgebox-traffic-alert.log
 
-  title "恢复 Nginx & 清理 Web 残留（避免样式/页面残留）"
-  local WEB_STATUS_LINK="${WEB_ROOT}/status"
-  local WEB_STATUS_PHY="/var/www/edgebox/status"
-  local TRAFFIC_LINK="${WEB_ROOT}/traffic"
-  local TRAFFIC_DIR="/var/www/edgebox-traffic"
-  local WEB_LOGS="${WEB_ROOT}/logs"
-
-  # 1) 移除对外链接
-  remove_paths "$WEB_STATUS_LINK" "$TRAFFIC_LINK" "$WEB_LOGS"
-
-  # 2) 移除状态页物理目录
-  remove_paths "$WEB_STATUS_PHY"
-
-  # 3) 若存在旧版物理 traffic 目录且不是“真实数据目录”，则删除（避免重复/残留）
-  if [[ -d "$TRAFFIC_DIR" && ( -z "$TRAFFIC_REAL" || "$TRAFFIC_REAL" != "$TRAFFIC_DIR" ) ]]; then
-    rm -rf -- "$TRAFFIC_DIR" 2>/dev/null || true
-    ok "已删除旧版 Web 物理目录：$TRAFFIC_DIR"
+  # 清理 Web 目录下的链接和残留文件
+  remove_paths "${WEB_ROOT}/status" "${WEB_ROOT}/traffic"
+  if [[ -n "$TRAFFIC_REAL_PATH" && -d "$TRAFFIC_REAL_PATH" ]]; then
+    find "$TRAFFIC_REAL_PATH" -maxdepth 1 -type f \( -name '*.html' -o -name '*.css' -o -name '*.js' \) -exec rm -f {} \; 2>/dev/null || true
+    remove_paths "${TRAFFIC_REAL_PATH}/assets"
+    ok "已清理流量目录中的前端页面与样式文件。"
   fi
+}
 
-  # 4) 在“真实数据目录”内，移除前端样式/页面文件，仅保留数据（json/csv/db等）
-  if [[ -n "$TRAFFIC_REAL" && -d "$TRAFFIC_REAL" ]]; then
-    find "$TRAFFIC_REAL" -maxdepth 1 -type f \( -name '*.html' -o -name '*.css' -o -name '*.js' -o -name 'index.html' \) -print -exec rm -f {} \; 2>/dev/null || true
-    # 常见样式目录
-    rm -rf -- "${TRAFFIC_REAL}/assets" 2>/dev/null || true
-    ok "已清除 ${TRAFFIC_REAL} 内的 HTML/CSS/JS/资产文件，保留数据文件。"
-  else
-    warn "未检测到可保留的流量数据目录（可能之前未初始化流量模块）。"
-  fi
-
-  # 5) 恢复 Nginx 备份（若存在）并重载
-  if [[ -f /etc/nginx/nginx.conf ]]; then
-    # 优先恢复最新的 *.bak.* 备份
-    local latest_bak
-    latest_bak="$(ls -t /etc/nginx/nginx.conf.bak.* 2>/dev/null | head -n1 || true)"
-    if [[ -n "$latest_bak" && -f "$latest_bak" ]]; then
-      cp -f "$latest_bak" /etc/nginx/nginx.conf
-      ok "已恢复 Nginx 配置：$latest_bak → /etc/nginx/nginx.conf"
-      systemctl reload nginx >/dev/null 2>&1 || systemctl restart nginx >/dev/null 2>&1 || true
-    else
-      # 若不存在备份但当前配置包含 EdgeBox 标记，则写入一份最小默认配置
-      if grep -q 'EdgeBox Nginx 配置文件' /etc/nginx/nginx.conf 2>/dev/null; then
-        cat > /etc/nginx/nginx.conf <<'NGINX_MIN'
+# 步骤5: 恢复系统配置
+restore_system_configs(){
+  title "正在恢复系统配置..."
+  # 恢复 Nginx
+  local latest_nginx_bak
+  latest_nginx_bak="$(ls -t /etc/nginx/nginx.conf.bak.* 2>/dev/null | head -n1 || true)"
+  if [[ -f "$latest_nginx_bak" ]]; then
+    cp -f "$latest_nginx_bak" /etc/nginx/nginx.conf
+    ok "已从 $latest_nginx_bak 恢复 Nginx 配置。"
+  elif grep -q 'EdgeBox Nginx 配置文件' /etc/nginx/nginx.conf 2>/dev/null; then
+    # 如果没有备份但当前配置是 EdgeBox 的，写入一个最小化的默认配置
+    cat > /etc/nginx/nginx.conf <<'NGINX_MINIMAL_CONFIG'
 user www-data;
 worker_processes auto;
 pid /run/nginx.pid;
@@ -210,47 +220,84 @@ http {
     location / { try_files $uri $uri/ =404; }
   }
 }
-NGINX_MIN
-        ok "已写入最小默认 nginx.conf（因未发现备份且检测到 EdgeBox 配置标记）。"
-        systemctl reload nginx >/dev/null 2>&1 || systemctl restart nginx >/dev/null 2>&1 || true
-      else
-        ok "保留现有 Nginx 配置（未检测到 EdgeBox 标记或备份）。"
-      fi
-    fi
-  fi
-  hr
-
-  title "移除 EdgeBox 专用 nftables 表（如存在）"
-  if command -v nft >/dev/null 2>&1; then
-    if nft list table inet edgebox >/dev/null 2>&1; then
-      nft delete table inet edgebox >/dev/null 2>&1 || true
-      ok "已删除 nftables: table inet edgebox"
-    else
-      ok "未检测到 nftables: table inet edgebox"
-    fi
+NGINX_MINIMAL_CONFIG
+    ok "未找到 Nginx 备份，已写入最小化的默认配置。"
   else
-    warn "系统无 nft 命令，跳过。"
+    ok "保留现有 Nginx 配置（非 EdgeBox 配置或无备份）。"
   fi
-  hr
-
-  title "还原 sysctl（若存在安装时备份）"
+  
+  # 恢复 sysctl.conf
   if [[ -f /etc/sysctl.conf.bak ]]; then
     cp -f /etc/sysctl.conf.bak /etc/sysctl.conf
     sysctl -p >/dev/null 2>&1 || true
-    ok "已从 /etc/sysctl.conf.bak 还原并加载内核参数。"
+    ok "已从 /etc/sysctl.conf.bak 恢复内核参数。"
   else
-    ok "未发现 /etc/sysctl.conf.bak，保持现状。"
+    ok "未找到 sysctl.conf 备份，无需恢复。"
   fi
-  hr
 
-  title "卸载完成（已保留流量数据）"
-  if [[ -n "$TRAFFIC_REAL" && -d "$TRAFFIC_REAL" ]]; then
-    echo -e "已保留的流量数据目录：${GREEN}${TRAFFIC_REAL}${NC}"
+  # 恢复 limits.conf
+  if [[ -f /etc/security/limits.conf.bak ]]; then
+    cp -f /etc/security/limits.conf.bak /etc/security/limits.conf
+    ok "已从 /etc/security/limits.conf.bak 恢复文件描述符限制。"
   else
-    echo -e "未检测到流量数据目录，无需保留。"
+    ok "未找到 limits.conf 备份，无需恢复。"
   fi
-  echo -e "Web 残留：已移除 /status、/traffic 链接与样式文件；Nginx 已恢复/重载（若存在备份）。"
+  
+  # 重新加载 Nginx
+  systemctl reload nginx >/dev/null 2>&1 || systemctl restart nginx >/dev/null 2>&1 || warn "Nginx 重载/重启失败，请手动检查。"
+  ok "Nginx 服务已尝试重载。"
+}
+
+# 步骤6: 清理网络配置（nftables）
+remove_network_configs(){
+  title "正在清理网络配置..."
+  # 清理 nftables
+  if command -v nft >/dev/null 2>&1; then
+    if nft list table inet edgebox >/dev/null 2>&1; then
+      nft delete table inet edgebox >/dev/null 2>&1 || true
+      ok "已删除 nftables 表: table inet edgebox"
+    else
+      ok "未检测到 EdgeBox 的 nftables 表，无需清理。"
+    fi
+  else
+    warn "未找到 nft 命令，跳过 nftables 清理。"
+  fi
+  # 明确告知用户防火墙规则未动
+  warn "防火墙规则未被修改。请根据需要手动检查并清理 EdgeBox 相关规则。"
+}
+
+# 步骤7: 显示最终摘要
+print_final_summary(){
+  local TRAFFIC_REAL_PATH
+  TRAFFIC_REAL_PATH="$(detect_traffic_real_path)"
+  hr
+  title "EdgeBox 卸载完成"
+  echo -e "所有 EdgeBox 相关服务、配置和工具均已移除。"
+  if [[ -n "$TRAFFIC_REAL_PATH" && -d "$TRAFFIC_REAL_PATH" ]]; then
+    echo -e "${GREEN}✔ 已成功保留您的流量数据，位于: ${TRAFFIC_REAL_PATH}${NC}"
+  else
+    echo -e "${YELLOW}ℹ 未检测到流量数据目录，无可保留的数据。${NC}"
+  fi
+  echo -e "建议您重启服务器以确保所有更改完全生效。"
   hr
 }
 
+# --- 主执行逻辑 -------------------------------------------------------
+main(){
+  run_pre_checks_and_confirm
+  hr
+  stop_and_disable_services
+  hr
+  remove_system_integration
+  hr
+  clean_filesystem
+  hr
+  restore_system_configs
+  hr
+  remove_network_configs
+  hr
+  print_final_summary
+}
+
+# 脚本入口
 main "$@"
