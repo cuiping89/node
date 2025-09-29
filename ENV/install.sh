@@ -4406,6 +4406,381 @@ DASHBOARD_BACKEND_SCRIPT
 
 
 #############################################
+# 模块5：流量特征随机化系统
+# 
+# 功能说明：
+# - 协议参数随机化，避免固定指纹特征
+# - 分级随机化策略（轻度/中度/重度）
+# - 自动化调度和性能优化
+# - 与现有配置系统集成
+#############################################
+
+# 随机化参数定义
+declare -A HYSTERIA2_PARAMS=(
+    ["heartbeat_min"]=8
+    ["heartbeat_max"]=15
+    ["congestion_algos"]="bbr cubic reno"
+    ["masquerade_sites"]="https://www.bing.com https://www.apple.com https://azure.microsoft.com https://aws.amazon.com"
+)
+
+declare -A TUIC_PARAMS=(
+    ["congestion_algos"]="bbr cubic"
+    ["auth_timeout_min"]=3
+    ["auth_timeout_max"]=8
+)
+
+declare -A VLESS_PARAMS=(
+    ["ws_paths"]="/ws /websocket /v2ray /proxy /tunnel"
+    ["grpc_services"]="GunService TunService ProxyService"
+)
+
+# 流量特征随机化核心函数
+setup_traffic_randomization() {
+    log_info "配置流量特征随机化系统..."
+    
+    # 创建随机化脚本目录
+    mkdir -p "${SCRIPTS_DIR}/randomization"
+    
+    create_traffic_randomization_script
+    create_randomization_config
+    setup_randomization_schedule
+    
+    log_success "流量特征随机化系统配置完成"
+}
+
+# 创建流量随机化主脚本
+create_traffic_randomization_script() {
+    cat > "${SCRIPTS_DIR}/edgebox-traffic-randomize.sh" << 'TRAFFIC_RANDOMIZE_SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+
+# 配置路径
+CONFIG_DIR="${CONFIG_DIR:-/etc/edgebox/config}"
+SCRIPTS_DIR="${SCRIPTS_DIR:-/etc/edgebox/scripts}"
+LOG_FILE="/var/log/edgebox/traffic-randomization.log"
+
+# 日志函数
+log_info() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] $*" | tee -a "$LOG_FILE"; }
+log_warn() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WARN] $*" | tee -a "$LOG_FILE"; }
+log_error() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] $*" | tee -a "$LOG_FILE" >&2; }
+log_success() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [SUCCESS] $*" | tee -a "$LOG_FILE"; }
+
+# 参数定义
+HYSTERIA2_HEARTBEAT_RANGE=(8 15)
+HYSTERIA2_CONGESTION_ALGOS=("bbr" "cubic" "reno")
+HYSTERIA2_MASQUERADE_SITES=(
+    "https://www.bing.com"
+    "https://www.apple.com" 
+    "https://azure.microsoft.com"
+    "https://aws.amazon.com"
+)
+
+TUIC_CONGESTION_ALGOS=("bbr" "cubic")
+TUIC_AUTH_TIMEOUT_RANGE=(3 8)
+
+VLESS_WS_PATHS=("/ws" "/websocket" "/v2ray" "/proxy" "/tunnel")
+VLESS_GRPC_SERVICES=("GunService" "TunService" "ProxyService")
+
+# Hysteria2随机化函数
+randomize_hysteria2_config() {
+    local level="$1"
+    log_info "随机化Hysteria2配置 (级别: $level)..."
+    
+    # 生成随机参数
+    local heartbeat=$((${HYSTERIA2_HEARTBEAT_RANGE[0]} + RANDOM % (${HYSTERIA2_HEARTBEAT_RANGE[1]} - ${HYSTERIA2_HEARTBEAT_RANGE[0]} + 1)))
+    local congestion_algo="${HYSTERIA2_CONGESTION_ALGOS[RANDOM % ${#HYSTERIA2_CONGESTION_ALGOS[@]}]}"
+    local masquerade_site="${HYSTERIA2_MASQUERADE_SITES[RANDOM % ${#HYSTERIA2_MASQUERADE_SITES[@]}]}"
+    
+    log_info "Hysteria2参数: 心跳=${heartbeat}s, 拥塞控制=$congestion_algo"
+    
+    # 更新sing-box配置
+    if [[ -f "${CONFIG_DIR}/sing-box.json" ]]; then
+        jq --arg heartbeat "${heartbeat}s" \
+           --arg congestion "$congestion_algo" \
+           --arg masquerade "$masquerade_site" '
+            (.inbounds[] | select(.type == "hysteria2") | .heartbeat) = $heartbeat |
+            (.inbounds[] | select(.type == "hysteria2") | .congestion_control) = $congestion |
+            (.inbounds[] | select(.type == "hysteria2") | .masquerade) = $masquerade
+        ' "${CONFIG_DIR}/sing-box.json" > "${CONFIG_DIR}/sing-box.json.tmp"
+        
+        if jq '.' "${CONFIG_DIR}/sing-box.json.tmp" >/dev/null 2>&1; then
+            mv "${CONFIG_DIR}/sing-box.json.tmp" "${CONFIG_DIR}/sing-box.json"
+            log_success "Hysteria2配置随机化完成"
+        else
+            rm -f "${CONFIG_DIR}/sing-box.json.tmp"
+            log_error "Hysteria2配置更新失败"
+            return 1
+        fi
+    fi
+}
+
+# TUIC随机化函数
+randomize_tuic_config() {
+    local level="$1"
+    log_info "随机化TUIC配置 (级别: $level)..."
+    
+    local congestion_algo="${TUIC_CONGESTION_ALGOS[RANDOM % ${#TUIC_CONGESTION_ALGOS[@]}]}"
+    local auth_timeout=$((${TUIC_AUTH_TIMEOUT_RANGE[0]} + RANDOM % (${TUIC_AUTH_TIMEOUT_RANGE[1]} - ${TUIC_AUTH_TIMEOUT_RANGE[0]} + 1)))
+    
+    log_info "TUIC参数: 拥塞控制=$congestion_algo, 认证超时=${auth_timeout}s"
+    
+    if [[ -f "${CONFIG_DIR}/sing-box.json" ]]; then
+        jq --arg congestion "$congestion_algo" \
+           --arg timeout "${auth_timeout}s" '
+            (.inbounds[] | select(.type == "tuic") | .congestion_control) = $congestion |
+            (.inbounds[] | select(.type == "tuic") | .auth_timeout) = $timeout
+        ' "${CONFIG_DIR}/sing-box.json" > "${CONFIG_DIR}/sing-box.json.tmp"
+        
+        if jq '.' "${CONFIG_DIR}/sing-box.json.tmp" >/dev/null 2>&1; then
+            mv "${CONFIG_DIR}/sing-box.json.tmp" "${CONFIG_DIR}/sing-box.json"
+            log_success "TUIC配置随机化完成"
+        else
+            rm -f "${CONFIG_DIR}/sing-box.json.tmp"
+            log_error "TUIC配置更新失败"
+            return 1
+        fi
+    fi
+}
+
+# VLESS随机化函数
+randomize_vless_config() {
+    local level="$1" 
+    log_info "随机化VLESS配置 (级别: $level)..."
+    
+    local ws_path="${VLESS_WS_PATHS[RANDOM % ${#VLESS_WS_PATHS[@]}]}"
+    local grpc_service="${VLESS_GRPC_SERVICES[RANDOM % ${#VLESS_GRPC_SERVICES[@]}]}"
+    
+    log_info "VLESS参数: WebSocket路径=$ws_path, gRPC服务=$grpc_service"
+    
+    if [[ -f "${CONFIG_DIR}/xray.json" ]]; then
+        # 更新WebSocket路径
+        jq --arg path "$ws_path" '
+            (.inbounds[] | select(.streamSettings.network == "ws") | .streamSettings.wsSettings.path) = $path
+        ' "${CONFIG_DIR}/xray.json" > "${CONFIG_DIR}/xray.json.tmp"
+        
+        # 更新gRPC服务名
+        jq --arg service "$grpc_service" '
+            (.inbounds[] | select(.streamSettings.network == "grpc") | .streamSettings.grpcSettings.serviceName) = $service
+        ' "${CONFIG_DIR}/xray.json.tmp" > "${CONFIG_DIR}/xray.json.tmp2"
+        
+        if jq '.' "${CONFIG_DIR}/xray.json.tmp2" >/dev/null 2>&1; then
+            mv "${CONFIG_DIR}/xray.json.tmp2" "${CONFIG_DIR}/xray.json"
+            rm -f "${CONFIG_DIR}/xray.json.tmp"
+            log_success "VLESS配置随机化完成"
+        else
+            rm -f "${CONFIG_DIR}/xray.json.tmp" "${CONFIG_DIR}/xray.json.tmp2"
+            log_error "VLESS配置更新失败"
+            return 1
+        fi
+    fi
+}
+
+# 主随机化函数
+execute_traffic_randomization() {
+    local level="${1:-light}"
+    
+    log_info "开始执行流量特征随机化 (级别: $level)..."
+    
+    # 创建配置备份
+    create_config_backup
+    
+    case "$level" in
+        "light")
+            # 轻度随机化：仅更新部分参数
+            randomize_hysteria2_config "$level"
+            ;;
+        "medium") 
+            # 中度随机化：更新多协议参数
+            randomize_hysteria2_config "$level"
+            randomize_tuic_config "$level"
+            ;;
+        "heavy")
+            # 重度随机化：全协议参数更新
+            randomize_hysteria2_config "$level"
+            randomize_tuic_config "$level"
+            randomize_vless_config "$level"
+            ;;
+        *)
+            log_error "未知的随机化级别: $level"
+            return 1
+            ;;
+    esac
+    
+    # 重启相关服务
+    restart_services_safely
+    
+    # 验证配置生效
+    verify_randomization_result
+    
+    log_success "流量特征随机化完成 (级别: $level)"
+}
+
+# 配置备份函数
+create_config_backup() {
+    local backup_dir="/etc/edgebox/backup/randomization"
+    local timestamp=$(date '+%Y%m%d_%H%M%S')
+    
+    mkdir -p "$backup_dir"
+    
+    if [[ -f "${CONFIG_DIR}/xray.json" ]]; then
+        cp "${CONFIG_DIR}/xray.json" "${backup_dir}/xray_${timestamp}.json"
+    fi
+    
+    if [[ -f "${CONFIG_DIR}/sing-box.json" ]]; then
+        cp "${CONFIG_DIR}/sing-box.json" "${backup_dir}/sing-box_${timestamp}.json"
+    fi
+    
+    log_info "配置备份已创建: $backup_dir"
+}
+
+# 安全重启服务函数
+restart_services_safely() {
+    log_info "安全重启代理服务..."
+    
+    # 使用reload而非restart，减少中断时间
+    if systemctl is-active --quiet sing-box; then
+        systemctl reload sing-box || systemctl restart sing-box
+    fi
+    
+    if systemctl is-active --quiet xray; then
+        systemctl reload xray || systemctl restart xray
+    fi
+    
+    # 等待服务稳定
+    sleep 3
+}
+
+# 验证随机化结果
+verify_randomization_result() {
+    log_info "验证随机化配置..."
+    
+    local verification_failed=false
+    
+    # 验证配置文件语法
+    if [[ -f "${CONFIG_DIR}/xray.json" ]] && ! xray -test -config="${CONFIG_DIR}/xray.json" >/dev/null 2>&1; then
+        log_error "Xray配置验证失败"
+        verification_failed=true
+    fi
+    
+    if [[ -f "${CONFIG_DIR}/sing-box.json" ]] && ! sing-box check -c "${CONFIG_DIR}/sing-box.json" >/dev/null 2>&1; then
+        log_error "sing-box配置验证失败"
+        verification_failed=true
+    fi
+    
+    # 验证服务状态
+    if ! systemctl is-active --quiet sing-box; then
+        log_error "sing-box服务状态异常"
+        verification_failed=true
+    fi
+    
+    if ! systemctl is-active --quiet xray; then
+        log_error "Xray服务状态异常"
+        verification_failed=true
+    fi
+    
+    if [[ "$verification_failed" == "true" ]]; then
+        log_error "随机化验证失败，尝试回滚配置..."
+        rollback_configuration
+        return 1
+    fi
+    
+    log_success "随机化验证通过"
+}
+
+# 配置回滚函数
+rollback_configuration() {
+    local backup_dir="/etc/edgebox/backup/randomization"
+    
+    # 查找最近的备份
+    local latest_xray_backup=$(ls -t "${backup_dir}"/xray_*.json 2>/dev/null | head -1)
+    local latest_singbox_backup=$(ls -t "${backup_dir}"/sing-box_*.json 2>/dev/null | head -1)
+    
+    if [[ -n "$latest_xray_backup" ]]; then
+        cp "$latest_xray_backup" "${CONFIG_DIR}/xray.json"
+        log_info "Xray配置已回滚"
+    fi
+    
+    if [[ -n "$latest_singbox_backup" ]]; then
+        cp "$latest_singbox_backup" "${CONFIG_DIR}/sing-box.json"
+        log_info "sing-box配置已回滚"
+    fi
+    
+    restart_services_safely
+}
+
+# 主函数
+main() {
+    local level="${1:-light}"
+    
+    # 创建日志目录
+    mkdir -p "$(dirname "$LOG_FILE")"
+    
+    log_info "EdgeBox流量特征随机化开始..."
+    
+    if execute_traffic_randomization "$level"; then
+        log_success "EdgeBox流量特征随机化成功完成"
+        exit 0
+    else
+        log_error "EdgeBox流量特征随机化失败"
+        exit 1
+    fi
+}
+
+# 脚本执行入口
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
+TRAFFIC_RANDOMIZE_SCRIPT
+
+    chmod +x "${SCRIPTS_DIR}/edgebox-traffic-randomize.sh"
+    log_success "流量随机化脚本创建完成"
+}
+
+# 创建随机化配置文件
+create_randomization_config() {
+    mkdir -p "${CONFIG_DIR}/randomization"
+    
+    cat > "${CONFIG_DIR}/randomization/traffic.conf" << 'EOF'
+# EdgeBox流量特征随机化配置文件
+
+[general]
+enabled=true
+default_level=light
+backup_retention=7
+
+[schedules]
+light_cron="0 4 * * *"
+medium_cron="0 5 * * 0"  
+heavy_cron="0 6 1 * *"
+
+[hysteria2]
+heartbeat_min=8
+heartbeat_max=15
+congestion_algos=bbr,cubic,reno
+masquerade_rotation=true
+
+[tuic]
+congestion_algos=bbr,cubic
+auth_timeout_min=3
+auth_timeout_max=8
+
+[vless]
+ws_path_rotation=true
+grpc_service_rotation=true
+header_randomization=false
+
+[safety]
+backup_before_change=true
+verify_after_change=true
+rollback_on_failure=true
+service_restart_method=reload
+EOF
+
+    log_success "随机化配置文件创建完成"
+}
+
+
+#############################################
 # 模块4主执行函数
 #############################################
 
@@ -8707,6 +9082,10 @@ CONF
 0  2 * * * bash -lc '/usr/local/bin/edgeboxctl rotate-reality'         >/dev/null 2>&1
 0  3 * * 0 ${SCRIPTS_DIR}/sni-manager.sh select >/dev/null 2>&1
 0  4 * * * ${SCRIPTS_DIR}/sni-manager.sh health >/dev/null 2>&1
+# 在 setup_cron_jobs() 函数内，现有cron任务后添加：
+0 4 * * * bash -lc '/etc/edgebox/scripts/edgebox-traffic-randomize.sh light' >/dev/null 2>&1
+0 5 * * 0 bash -lc '/etc/edgebox/scripts/edgebox-traffic-randomize.sh medium' >/dev/null 2>&1
+0 6 1 * * bash -lc '/etc/edgebox/scripts/edgebox-traffic-randomize.sh heavy' >/dev/null 2>&1
 CRON
     ) | crontab -
 
@@ -9015,6 +9394,91 @@ show_sub(){
     echo "# 明文链接"
     cat "${CONFIG_DIR}/subscription.txt"
   fi
+}
+
+
+# 流量随机化管理命令
+traffic_randomize() {
+    local level="${1:-light}"
+    
+    case "$level" in
+        "light"|"medium"|"heavy")
+            log_info "执行流量特征随机化 (级别: $level)..."
+            if "${SCRIPTS_DIR}/edgebox-traffic-randomize.sh" "$level"; then
+                log_success "流量特征随机化完成"
+            else
+                log_error "流量特征随机化失败"
+                return 1
+            fi
+            ;;
+        *)
+            echo "用法: $0 traffic randomize [light|medium|heavy]"
+            echo "  light  - 轻度随机化 (仅Hysteria2参数)"
+            echo "  medium - 中度随机化 (Hysteria2 + TUIC参数)"
+            echo "  heavy  - 重度随机化 (全协议参数)"
+            return 1
+            ;;
+    esac
+}
+
+traffic_status() {
+    echo "=== EdgeBox流量随机化状态 ==="
+    
+    # 检查随机化脚本
+    if [[ -f "${SCRIPTS_DIR}/edgebox-traffic-randomize.sh" ]]; then
+        echo "✅ 随机化脚本: 已安装"
+    else
+        echo "❌ 随机化脚本: 未安装"
+    fi
+    
+    # 检查配置文件
+    if [[ -f "${CONFIG_DIR}/randomization/traffic.conf" ]]; then
+        echo "✅ 随机化配置: 已配置"
+    else
+        echo "❌ 随机化配置: 未配置"
+    fi
+    
+    # 检查定时任务
+    if crontab -l 2>/dev/null | grep -q "edgebox-traffic-randomize"; then
+        echo "✅ 定时任务: 已配置"
+        echo "下次执行时间:"
+        crontab -l | grep "edgebox-traffic-randomize" | while read -r line; do
+            echo "  - $line"
+        done
+    else
+        echo "❌ 定时任务: 未配置"
+    fi
+    
+    # 显示最近随机化记录
+    local log_file="/var/log/edgebox/traffic-randomization.log"
+    if [[ -f "$log_file" ]]; then
+        echo ""
+        echo "最近随机化记录:"
+        tail -5 "$log_file" | while read -r line; do
+            echo "  $line"
+        done
+    fi
+}
+
+traffic_reset() {
+    log_info "重置流量随机化配置为默认值..."
+    
+    # 备份当前配置
+    local backup_dir="/etc/edgebox/backup/reset_$(date '+%Y%m%d_%H%M%S')"
+    mkdir -p "$backup_dir"
+    
+    [[ -f "${CONFIG_DIR}/xray.json" ]] && cp "${CONFIG_DIR}/xray.json" "$backup_dir/"
+    [[ -f "${CONFIG_DIR}/sing-box.json" ]] && cp "${CONFIG_DIR}/sing-box.json" "$backup_dir/"
+    
+    # 重新生成默认配置
+    if generate_xray_config && generate_sing_box_config; then
+        systemctl reload xray sing-box 2>/dev/null || true
+        log_success "流量随机化配置已重置为默认值"
+        log_info "配置备份保存在: $backup_dir"
+    else
+        log_error "重置配置失败"
+        return 1
+    fi
 }
 
 
@@ -10309,7 +10773,21 @@ case "$1" in
         ;;
     esac
     ;;
-
+	
+	# 流量特征随机化
+        "traffic")
+            case "${2:-}" in
+                "randomize") traffic_randomize "${3:-light}" ;;
+                "status") traffic_status ;;
+                "reset") traffic_reset ;;
+                *) 
+                    echo "未知的流量命令: ${2:-}"
+                    echo "使用 '$0 help' 查看帮助信息"
+                    exit 1
+                    ;;
+            esac
+            ;;
+			
   # 帮助信息
 help|"") 
   cat <<HLP
@@ -10366,6 +10844,11 @@ edgeboxctl sni list                              显示域名池状态
 edgeboxctl sni test-all                          测试所有域名
 edgeboxctl sni auto                              智能选择最优域名
 edgeboxctl sni set <域名>                         手动设置域名
+
+${YELLOW}流量管理命令:${NC}
+edgeboxctl traffic randomize [level]             执行流量特征随机化
+edgeboxctl traffic status                        显示随机化状态
+edgeboxctl traffic reset                         重置为默认配置
 
 ${YELLOW}备份恢复:${NC}
   edgeboxctl backup create                       创建备份
@@ -11534,6 +12017,11 @@ main() {
     setup_email_system
     install_ipq_stack
     create_init_script
+	
+	if ! setup_traffic_randomization; then
+    log_error "流量特征随机化系统设置失败"
+    exit 1
+fi
 
     # --- 最终阶段: 启动、验证与数据生成 ---
     show_progress 8 10 "生成订阅链接"
