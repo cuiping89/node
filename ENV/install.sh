@@ -10879,25 +10879,30 @@ case "$1" in
     esac
     ;;
 
-  # 帮助信息
+# 帮助信息
   help|"") 
     cat <<HLP
 ${CYAN}EdgeBox 管理工具 v${VERSION}${NC}
 
 ${YELLOW}基础操作:${NC}
   edgeboxctl sub                                 显示订阅与面板链接
-  edgeboxctl logs <svc> [nginx|xray|sing-box]     查看指定服务实时日志（Ctrl+C 退出）
+  edgeboxctl logs <svc> [nginx|xray|sing-box]   查看指定服务实时日志（Ctrl+C 退出）
+    示例: edgeboxctl logs nginx                  查看Nginx日志
+          edgeboxctl logs xray                   查看Xray日志
+          edgeboxctl logs sing-box               查看sing-box日志
   edgeboxctl status                              查看所有核心服务状态
   edgeboxctl restart                             优雅重启核心服务（修改配置后使用）
   edgeboxctl test                                测试各协议连通性
   edgeboxctl debug-ports                         调试 80/443/2053 等端口占用
   edgeboxctl alias "备注名称"                     备注和更新服务器名称
+    示例: edgeboxctl alias "香港节点-主力"
 
 ${YELLOW}证书管理:${NC}
   edgeboxctl cert status                         查看证书状态（类型/到期）
   edgeboxctl cert renew                          立即续期证书并重载服务
   edgeboxctl fix-permissions                     修复证书/密钥文件权限
   edgeboxctl switch-to-domain <domain>           切换域名模式并申请证书
+    示例: edgeboxctl switch-to-domain example.com
   edgeboxctl switch-to-ip                        切换到 IP 模式（自签证书）
 
 ${YELLOW}出站分流:${NC}
@@ -10905,49 +10910,112 @@ ${YELLOW}出站分流:${NC}
   edgeboxctl shunt resi '<代理URL>'               全量走代理（仅 Xray 分流）
   edgeboxctl shunt direct-resi '<代理URL>'        智能分流（白名单直连，其余走代理）
   edgeboxctl shunt status                        查看当前出站分流状态
-  edgeboxctl shunt whitelist [add|remove|list|reset] [domain]   管理白名单
-  代理URL示例:
-    http://user:pass@host:port
-    https://user:pass@host:port?sni=example.com
-    socks5://user:pass@host:port
-    socks5s://user:pass@host:port?sni=example.com
-  示例（全栈走代理）: edgeboxctl shunt resi 'socks5://u:p@111.222.333.444:11324'
+  edgeboxctl shunt whitelist <action> [domain]   管理白名单
+    add <域名>     - 添加域名到白名单
+    remove <域名>  - 从白名单移除域名
+    list          - 显示所有白名单域名
+    reset         - 重置为默认白名单
+    示例: edgeboxctl shunt whitelist add google.com
+          edgeboxctl shunt whitelist remove baidu.com
+          edgeboxctl shunt whitelist list
+  
+  代理URL格式说明:
+    HTTP代理:    http://user:pass@host:port
+    HTTPS代理:   https://user:pass@host:port?sni=example.com
+    SOCKS5代理:  socks5://user:pass@host:port
+    SOCKS5S代理: socks5s://user:pass@host:port?sni=example.com
+    
+  完整示例:
+    # 全量走代理
+    edgeboxctl shunt resi 'socks5://username:password@111.222.333.444:11324'
+    # 智能分流（白名单直连）
+    edgeboxctl shunt direct-resi 'http://user:pass@proxy.example.com:8080'
 
 ${YELLOW}流量统计与预警:${NC}
   edgeboxctl traffic show                        查看流量统计
   edgeboxctl alert show                          查看当前预警配置
-  edgeboxctl alert monthly <GiB>                 设置月度预算（GiB）
-  edgeboxctl alert steps 30,60,90                设置触发阈值（百分比，逗号分隔）
-  edgeboxctl alert telegram <bot_token> <chat_id> 配置 Telegram 通知
+  edgeboxctl alert monthly <GiB>                 设置月度预算
+    示例: edgeboxctl alert monthly 500          设置500GiB月度预算
+  edgeboxctl alert steps <阈值列表>               设置触发阈值（百分比，逗号分隔）
+    示例: edgeboxctl alert steps 30,60,90       30%/60%/90%时触发预警
+          edgeboxctl alert steps 50,80          仅在50%和80%时预警
+  
+  通知渠道配置:
+  edgeboxctl alert telegram <bot_token> <chat_id>  配置 Telegram 通知
+    示例: edgeboxctl alert telegram 123456:ABCdef-... -1001234567890
   edgeboxctl alert discord <webhook_url>         配置 Discord 通知
+    示例: edgeboxctl alert discord https://discord.com/api/webhooks/...
   edgeboxctl alert wechat <pushplus_token>       配置微信 PushPlus 转发
-  edgeboxctl alert webhook <url> [raw|slack|discord]  配置通用 Webhook
-  edgeboxctl alert test [percent]                模拟触发（默认 40%），写入流量预警日志
+    示例: edgeboxctl alert wechat your_pushplus_token
+  edgeboxctl alert webhook <url> [format]        配置通用 Webhook
+    format: raw(默认) | slack | discord
+    示例: edgeboxctl alert webhook https://your-webhook.com/alert slack
+          edgeboxctl alert webhook https://hooks.zapier.com/... raw
+  edgeboxctl alert test [percent]                模拟触发预警测试
+    示例: edgeboxctl alert test                  模拟40%预警
+          edgeboxctl alert test 80               模拟80%预警
 
 ${YELLOW}配置管理:${NC}
   edgeboxctl config show                         显示当前配置（UUID/Reality/端口等）
-  edgeboxctl config regenerate-uuid              重新生成 UUID
+  edgeboxctl config regenerate-uuid              重新生成所有协议的UUID
   edgeboxctl rotate-reality                      执行Reality密钥轮换
-  edgeboxctl reality-status                      查看轮换状态
+  edgeboxctl reality-status                      查看Reality密钥轮换状态
 
 ${YELLOW}SNI域名管理:${NC}
- edgeboxctl sni list                              显示域名池状态
- edgeboxctl sni test-all                          测试所有域名
- edgeboxctl sni auto                              智能选择最优域名
- edgeboxctl sni set <域名>                         手动设置域名
+  edgeboxctl sni list                            显示域名池状态和当前使用域名
+  edgeboxctl sni test-all                        测试域名池中所有域名的可用性
+  edgeboxctl sni auto                            智能选择最优域名（自动模式）
+  edgeboxctl sni set <域名>                       手动设置指定域名
+    示例: edgeboxctl sni set www.cloudflare.com
+          edgeboxctl sni set www.microsoft.com
 
 ${YELLOW}流量特征随机化:${NC}
- edgeboxctl traffic randomize [light|medium|heavy]  执行流量特征随机化
- edgeboxctl traffic status                          显示随机化状态
- edgeboxctl traffic reset                           重置为默认配置
+  edgeboxctl traffic randomize [level]           执行流量特征随机化
+    level 参数:
+      light  (默认) - 轻度随机化，仅修改Hysteria2伪装站点
+      medium        - 中度随机化，修改Hysteria2+TUIC参数
+      heavy         - 重度随机化，修改全协议参数
+    示例: edgeboxctl traffic randomize           默认轻度随机化
+          edgeboxctl traffic randomize medium    中度随机化
+          edgeboxctl traffic randomize heavy     重度随机化
+  edgeboxctl traffic status                      显示随机化系统状态和定时任务
+  edgeboxctl traffic reset                       重置协议参数为默认配置
 
 ${YELLOW}备份恢复:${NC}
-  edgeboxctl backup create                       创建备份
-  edgeboxctl backup list                         列出备份
-  edgeboxctl backup restore <file>               恢复备份
+  edgeboxctl backup create                       创建完整配置备份
+  edgeboxctl backup list                         列出所有可用备份文件
+  edgeboxctl backup restore <file>               恢复指定备份文件
+    示例: edgeboxctl backup restore backup-20250929-083045.tar.gz
 
 ${YELLOW}系统维护:${NC}
-  edgeboxctl update                              在线更新 EdgeBox（拉取并执行最新安装脚本）
+  edgeboxctl update                              在线更新EdgeBox到最新版本
+    注意: 会拉取并执行最新安装脚本，请确保网络连接稳定
+
+${CYAN}常用命令组合示例:${NC}
+  # 完整的节点配置流程
+  edgeboxctl alias "生产环境-香港节点"            # 1. 设置备注名
+  edgeboxctl switch-to-domain yourdomain.com     # 2. 配置域名证书
+  edgeboxctl alert monthly 1000                  # 3. 设置月度预算
+  edgeboxctl alert telegram <token> <chat_id>    # 4. 配置通知
+  edgeboxctl backup create                       # 5. 创建备份
+  
+  # 故障排查流程
+  edgeboxctl status                              # 1. 检查服务状态
+  edgeboxctl debug-ports                         # 2. 检查端口占用
+  edgeboxctl logs xray                           # 3. 查看错误日志
+  edgeboxctl test                                # 4. 测试连通性
+  
+  # 定期维护流程
+  edgeboxctl cert status                         # 检查证书有效期
+  edgeboxctl traffic show                        # 查看流量使用情况
+  edgeboxctl sni auto                            # 优化SNI域名
+  edgeboxctl backup create                       # 创建定期备份
+
+${CYAN}获取更多帮助:${NC}
+  - 查看日志: tail -f /var/log/edgebox-install.log
+  - 配置文件: /etc/edgebox/config/
+  - Web面板: http://your-server-ip/traffic/
+  - 订阅链接: http://your-server-ip/sub
   
 HLP
   ;;
@@ -11894,17 +11962,11 @@ show_installation_info() {
     echo -e "  ${PURPLE}edgeboxctl shunt direct-resi '<代理URL>'${NC}  # 配置分流出站"
     echo -e "  ${PURPLE}edgeboxctl traffic show${NC}                   # 查看流量统计"
     echo -e "  ${PURPLE}edgeboxctl backup create${NC}                  # 手动备份"
+	echo -e "  ${PURPLE}edgeboxctl '<代理URL>'${NC}                        # 分流出站（白名单VPS直连，其他走代理）"
+    echo -e "  ${PURPLE}edgeboxctl shunt whitelist <add|remove|list>${NC} # 白名单管理" 
+	echo -e "  ${PURPLE}edgeboxctl alert monthly 500${NC}               # 设置月度500GiB预算"
 	echo -e "  ${PURPLE}edgeboxctl alias "自定义名称"${NC}               # 备注和更新服务器名称"
     echo -e "  ${PURPLE}edgeboxctl help${NC}                           # 查看完整帮助"
-    echo -e "  ${CYAN}出站分流示例：${NC}"
-    echo -e "  ${PURPLE}edgeboxctl shunt resi 'socks5://user:pass@proxy.example.com:1080'${NC}  # 代理全量出站"
-    echo -e "  ${PURPLE}edgeboxctl '<代理URL>'${NC}                        # 分流出站（白名单VPS直连，其他走代理）"
-    echo -e "  ${PURPLE}edgeboxctl shunt whitelist <add|remove|list>${NC}  # 白名单管理" 
-    echo -e "  ${CYAN}流量预警配置：${NC}"
-    echo -e "  ${PURPLE}edgeboxctl alert monthly 500${NC}                # 设置月度500GiB预算"
-    echo -e "  ${PURPLE}edgeboxctl alert telegram <token> <chat_id>${NC} # 配置Telegram通知"
-    echo -e "  ${PURPLE}edgeboxctl alert discord <webhook_url>${NC}      # 配置Discord通知"
-    echo -e "  ${PURPLE}edgeboxctl alert test 80${NC}                    # 模拟80%用量测试"
     
 	echo -e "\n${CYAN}高级运维功能：${NC}"
     echo -e "  🔄 证书切换: IP模式 ⇋ 域名模式（Let's Encrypt证书）"
