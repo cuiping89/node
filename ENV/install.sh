@@ -10506,15 +10506,36 @@ update_reality_rotation_state() {
 
 # 查看Reality轮换状态
 show_reality_rotation_status() {
-    if [[ ! -f "$REALITY_ROTATION_STATE" ]]; then
-        echo "Reality轮换状态文件不存在"
-        return 1
+    log_info "查看Reality密钥轮换状态..."
+    
+    local rotation_state="${CONFIG_DIR}/reality-rotation.json"
+    
+    if [[ ! -f "$rotation_state" ]]; then
+        echo "Reality轮换状态文件不存在，正在创建初始状态..."
+        
+        # 确保目录存在
+        mkdir -p "$(dirname "$rotation_state")"
+        
+        # 创建初始状态文件
+        local current_time=$(date -Iseconds)
+        local next_rotation=$(date -d "+${REALITY_ROTATION_DAYS} days" -Iseconds)
+        
+        # 尝试从server.json获取当前公钥
+        local current_public_key=""
+        if [[ -f "${CONFIG_DIR}/server.json" ]]; then
+            current_public_key=$(jq -r '.reality.public_key // ""' "${CONFIG_DIR}/server.json" 2>/dev/null)
+        fi
+        
+        echo "{\"last_rotation\":\"$current_time\",\"next_rotation\":\"$next_rotation\",\"last_public_key\":\"$current_public_key\"}" > "$rotation_state"
+        
+        log_success "已创建初始Reality轮换状态文件"
     fi
     
+    # 读取并显示状态
     local next_rotation_time last_rotation_time last_public_key
-    next_rotation_time=$(jq -r '.next_rotation' "$REALITY_ROTATION_STATE" 2>/dev/null)
-    last_rotation_time=$(jq -r '.last_rotation' "$REALITY_ROTATION_STATE" 2>/dev/null)
-    last_public_key=$(jq -r '.last_public_key' "$REALITY_ROTATION_STATE" 2>/dev/null)
+    next_rotation_time=$(jq -r '.next_rotation' "$rotation_state" 2>/dev/null)
+    last_rotation_time=$(jq -r '.last_rotation' "$rotation_state" 2>/dev/null)
+    last_public_key=$(jq -r '.last_public_key' "$rotation_state" 2>/dev/null)
     
     echo "=== Reality密钥轮换状态 ==="
     echo "上次轮换: $(date -d "$last_rotation_time" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "$last_rotation_time")"
