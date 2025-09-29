@@ -10848,10 +10848,24 @@ case "$1" in
       "reset") 
         traffic_reset
         ;;
-			
+      *) 
+        echo "用法: edgeboxctl traffic [show|randomize|status|reset]"
+        echo ""
+        echo "流量统计:"
+        echo "  show        - 显示流量使用统计"
+        echo ""
+        echo "流量特征随机化:"
+        echo "  randomize   - 执行协议参数随机化 [light|medium|heavy]"
+        echo "  status      - 显示随机化系统状态"
+        echo "  reset       - 重置协议参数为默认值"
+        exit 1
+        ;;
+    esac
+    ;;
+
   # 帮助信息
-help|"") 
-  cat <<HLP
+  help|"") 
+    cat <<HLP
 ${CYAN}EdgeBox 管理工具 v${VERSION}${NC}
 
 ${YELLOW}基础操作:${NC}
@@ -10901,15 +10915,15 @@ ${YELLOW}配置管理:${NC}
   edgeboxctl reality-status                      查看轮换状态
 
 ${YELLOW}SNI域名管理:${NC}
-edgeboxctl sni list                              显示域名池状态
-edgeboxctl sni test-all                          测试所有域名
-edgeboxctl sni auto                              智能选择最优域名
-edgeboxctl sni set <域名>                         手动设置域名
+ edgeboxctl sni list                              显示域名池状态
+ edgeboxctl sni test-all                          测试所有域名
+ edgeboxctl sni auto                              智能选择最优域名
+ edgeboxctl sni set <域名>                         手动设置域名
 
 ${YELLOW}流量特征随机化:${NC}
-edgeboxctl traffic randomize [light|medium|heavy]  执行流量特征随机化
-edgeboxctl traffic status                          显示随机化状态
-edgeboxctl traffic reset                           重置为默认配置
+ edgeboxctl traffic randomize [light|medium|heavy]  执行流量特征随机化
+ edgeboxctl traffic status                          显示随机化状态
+ edgeboxctl traffic reset                           重置为默认配置
 
 ${YELLOW}备份恢复:${NC}
   edgeboxctl backup create                       创建备份
