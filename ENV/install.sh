@@ -9497,6 +9497,147 @@ show_config(){
     fi
 }
 
+
+#############################################
+# Reality密钥轮换函数
+#############################################
+
+rotate_reality_keys() {
+    log_info "开始Reality密钥轮换..."
+    
+    # 检查sing-box是否可用
+    if ! command -v sing-box >/dev/null 2>&1 && ! command -v /usr/local/bin/sing-box >/dev/null 2>&1; then
+        log_error "sing-box未安装，无法生成Reality密钥"
+        return 1
+    fi
+    
+    # 生成新的Reality密钥对
+    local reality_output
+    if command -v sing-box >/dev/null 2>&1; then
+        reality_output="$(sing-box generate reality-keypair 2>/dev/null)"
+    elif command -v /usr/local/bin/sing-box >/dev/null 2>&1; then
+        reality_output="$(/usr/local/bin/sing-box generate reality-keypair 2>/dev/null)"
+    fi
+    
+    if [[ -z "$reality_output" ]]; then
+        log_error "Reality密钥对生成失败"
+        return 1
+    fi
+    
+    # 提取新密钥
+    local new_private_key="$(echo "$reality_output" | grep -oP 'PrivateKey: \K[a-zA-Z0-9_-]+' | head -1)"
+    local new_public_key="$(echo "$reality_output" | grep -oP 'PublicKey: \K[a-zA-Z0-9_-]+' | head -1)"
+    local new_short_id="$(openssl rand -hex 4 2>/dev/null || echo "$(date +%s | sha256sum | head -c 8)")"
+    
+    # 验证密钥完整性
+    if [[ -z "$new_private_key" || -z "$new_public_key" || -z "$new_short_id" ]]; then
+        log_error "Reality密钥信息生成不完整"
+        return 1
+    fi
+    
+    # 备份当前配置
+    local backup_dir="/root/edgebox-backup/reality-keys/$(date +%Y%m%d_%H%M%S)"
+    mkdir -p "$backup_dir"
+    
+    [[ -f "${CONFIG_DIR}/xray.json" ]] && cp "${CONFIG_DIR}/xray.json" "$backup_dir/"
+    [[ -f "${CONFIG_DIR}/server.json" ]] && cp "${CONFIG_DIR}/server.json" "$backup_dir/"
+    
+    # 更新Xray配置
+    if [[ -f "${CONFIG_DIR}/xray.json" ]]; then
+        local temp_config="${CONFIG_DIR}/xray.json.tmp"
+        if jq --arg private_key "$new_private_key" \
+              --arg short_id "$new_short_id" \
+              '(.inbounds[]? | select(.tag? | contains("reality"))? | .streamSettings?.realitySettings?.privateKey?) = $private_key |
+               (.inbounds[]? | select(.tag? | contains("reality"))? | .streamSettings?.realitySettings?.shortId?) = [$short_id]' \
+              "${CONFIG_DIR}/xray.json" > "$temp_config" 2>/dev/null && jq '.' "$temp_config" >/dev/null 2>&1; then
+            mv "$temp_config" "${CONFIG_DIR}/xray.json"
+            log_success "Xray配置更新成功"
+        else
+            log_error "Xray配置更新失败"
+            rm -f "$temp_config"
+            return 1
+        fi
+    fi
+    
+    # 更新server.json
+    if [[ -f "${CONFIG_DIR}/server.json" ]]; then
+        local temp_server="${CONFIG_DIR}/server.json.tmp"
+        if jq --arg private_key "$new_private_key" \
+              --arg public_key "$new_public_key" \
+              --arg short_id "$new_short_id" \
+              --arg updated_at "$(date -Iseconds)" \
+              '.reality.private_key = $private_key |
+               .reality.public_key = $public_key |
+               .reality.short_id = $short_id |
+               .reality.last_rotation = $updated_at |
+               .updated_at = $updated_at' \
+              "${CONFIG_DIR}/server.json" > "$temp_server" 2>/dev/null; then
+            mv "$temp_server" "${CONFIG_DIR}/server.json"
+            log_success "server.json更新成功"
+        else
+            log_warn "server.json更新失败"
+            rm -f "$temp_server"
+        fi
+    fi
+    
+    # 更新轮换状态
+    local current_time=$(date -Iseconds)
+    local next_rotation=$(date -d "+90 days" -Iseconds)
+    local rotation_state="${CONFIG_DIR}/reality-rotation.json"
+    
+    mkdir -p "$(dirname "$rotation_state")"
+    echo "{\"last_rotation\":\"$current_time\",\"next_rotation\":\"$next_rotation\",\"last_public_key\":\"$new_public_key\"}" > "$rotation_state"
+    
+    # 重启服务
+    log_info "重启相关服务..."
+    systemctl restart xray >/dev/null 2>&1
+    
+    # 重新生成订阅
+    if [[ -x /etc/edgebox/scripts/dashboard-backend.sh ]]; then
+        /etc/edgebox/scripts/dashboard-backend.sh --now >/dev/null 2>&1
+    fi
+    
+    log_success "Reality密钥轮换完成"
+    log_info "新公钥: ${new_public_key:0:20}..."
+    log_info "下次轮换: $(date -d "$next_rotation" '+%Y-%m-%d %H:%M:%S')"
+    log_info "备份保存至: $backup_dir"
+}
+
+# Reality轮换状态查看函数（在edgeboxctl中）
+show_reality_rotation_status() {
+    log_info "查看Reality密钥轮换状态..."
+    
+    local rotation_state="${CONFIG_DIR}/reality-rotation.json"
+    
+    if [[ ! -f "$rotation_state" ]]; then
+        echo "Reality轮换状态文件不存在"
+        return 1
+    fi
+    
+    local next_rotation_time last_rotation_time last_public_key
+    next_rotation_time=$(jq -r '.next_rotation' "$rotation_state" 2>/dev/null)
+    last_rotation_time=$(jq -r '.last_rotation' "$rotation_state" 2>/dev/null)
+    last_public_key=$(jq -r '.last_public_key' "$rotation_state" 2>/dev/null)
+    
+    echo "=== Reality密钥轮换状态 ==="
+    echo "上次轮换: $(date -d "$last_rotation_time" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "$last_rotation_time")"
+    echo "下次轮换: $(date -d "$next_rotation_time" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "$next_rotation_time")"
+    echo "当前公钥: ${last_public_key:0:20}..."
+    
+    local next_timestamp=$(date -d "$next_rotation_time" +%s 2>/dev/null || echo 0)
+    local current_timestamp=$(date +%s)
+    local days_remaining=$(( (next_timestamp - current_timestamp) / 86400 ))
+    
+    if [[ $days_remaining -gt 0 ]]; then
+        echo "剩余时间: $days_remaining 天"
+    elif [[ $days_remaining -eq 0 ]]; then
+        echo "状态: 今日应执行轮换"
+    else
+        echo "状态: 轮换已过期 $((-days_remaining)) 天"
+    fi
+}
+
+
 #############################################
 # 主命令处理
 #############################################
