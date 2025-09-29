@@ -4715,6 +4715,34 @@ main() {
     # 创建日志目录
     mkdir -p "$(dirname "$LOG_FILE")"
     
+    # 处理 reset 选项
+    if [[ "$level" == "reset" ]]; then
+        log_info "重置协议参数为默认值..."
+        
+        # 备份当前配置
+        create_config_backup
+        
+        # 重置 sing-box 配置为默认参数
+        if [[ -f "${CONFIG_DIR}/sing-box.json" ]] && command -v jq >/dev/null; then
+            jq '.inbounds[] |= if .type == "hysteria2" then .heartbeat = "10s" else . end' \
+                "${CONFIG_DIR}/sing-box.json" > "${CONFIG_DIR}/sing-box.json.tmp"
+            
+            if [[ -s "${CONFIG_DIR}/sing-box.json.tmp" ]]; then
+                mv "${CONFIG_DIR}/sing-box.json.tmp" "${CONFIG_DIR}/sing-box.json"
+                log_success "sing-box 配置已重置为默认值"
+            else
+                rm -f "${CONFIG_DIR}/sing-box.json.tmp"
+                log_error "重置 sing-box 配置失败"
+            fi
+        fi
+        
+        # 重启服务
+        restart_services_safely
+        
+        log_success "协议参数重置完成"
+        exit 0
+    fi
+    
     log_info "EdgeBox流量特征随机化开始..."
     
     if execute_traffic_randomization "$level"; then
@@ -9082,10 +9110,9 @@ CONF
 0  2 * * * bash -lc '/usr/local/bin/edgeboxctl rotate-reality'         >/dev/null 2>&1
 0  3 * * 0 ${SCRIPTS_DIR}/sni-manager.sh select >/dev/null 2>&1
 0  4 * * * ${SCRIPTS_DIR}/sni-manager.sh health >/dev/null 2>&1
-# 在 setup_cron_jobs() 函数内，现有cron任务后添加：
-0 4 * * * bash -lc '/etc/edgebox/scripts/edgebox-traffic-randomize.sh light' >/dev/null 2>&1
-0 5 * * 0 bash -lc '/etc/edgebox/scripts/edgebox-traffic-randomize.sh medium' >/dev/null 2>&1
-0 6 1 * * bash -lc '/etc/edgebox/scripts/edgebox-traffic-randomize.sh heavy' >/dev/null 2>&1
+0 4 * * * bash -lc '/usr/local/bin/edgeboxctl traffic randomize light' >/dev/null 2>&1
+0 5 * * 0 bash -lc '/usr/local/bin/edgeboxctl traffic randomize medium' >/dev/null 2>&1
+0 6 1 * * bash -lc '/usr/local/bin/edgeboxctl traffic randomize heavy' >/dev/null 2>&1
 CRON
     ) | crontab -
 
@@ -9478,6 +9505,44 @@ traffic_reset() {
     else
         log_error "重置配置失败"
         return 1
+    fi
+}
+
+traffic_reset() {
+    log_info "重置协议参数为默认值..."
+    
+    # 备份当前配置
+    local backup_dir="/etc/edgebox/backup/reset_$(date '+%Y%m%d_%H%M%S')"
+    mkdir -p "$backup_dir"
+    
+    [[ -f "${CONFIG_DIR}/xray.json" ]] && cp "${CONFIG_DIR}/xray.json" "$backup_dir/"
+    [[ -f "${CONFIG_DIR}/sing-box.json" ]] && cp "${CONFIG_DIR}/sing-box.json" "$backup_dir/"
+    
+    # 调用随机化脚本的 reset 功能
+    if [[ -f "${SCRIPTS_DIR}/edgebox-traffic-randomize.sh" ]]; then
+        if "${SCRIPTS_DIR}/edgebox-traffic-randomize.sh" reset; then
+            log_success "协议参数已重置为默认值"
+            log_info "配置备份保存在: $backup_dir"
+        else
+            log_error "重置配置失败"
+            return 1
+        fi
+    else
+        # 手动重置关键参数
+        log_warn "随机化脚本不存在，手动重置部分参数..."
+        
+        if [[ -f "${CONFIG_DIR}/sing-box.json" ]] && command -v jq >/dev/null; then
+            # 恢复默认的 Hysteria2 heartbeat
+            jq '.inbounds[] |= if .type == "hysteria2" then .heartbeat = "10s" else . end' \
+                "${CONFIG_DIR}/sing-box.json" > "${CONFIG_DIR}/sing-box.json.tmp" && \
+                mv "${CONFIG_DIR}/sing-box.json.tmp" "${CONFIG_DIR}/sing-box.json"
+            
+            log_success "已重置 sing-box 配置为默认参数"
+        fi
+        
+        # 重启服务以应用更改
+        systemctl reload-or-restart sing-box xray >/dev/null 2>&1
+        log_success "服务已重启"
     fi
 }
 
@@ -10718,14 +10783,6 @@ case "$1" in
       *) echo "用法: edgeboxctl alert [show|monthly <GiB>|steps <p1,p2,..>|telegram <token> <chat>|discord <url>|wechat <pushplus_token>|webhook <url> [raw|slack|discord]|test <percent>]";;
     esac
     exit 0 ;;
-
-  # 流量统计
-  traffic) 
-    case "$2" in 
-      show|"") traffic_show ;; 
-      *) echo "用法: edgeboxctl traffic [show|reset]";; 
-    esac 
-    ;;
   
   # 备份恢复
   backup) 
@@ -10774,19 +10831,23 @@ case "$1" in
     esac
     ;;
 	
-	# 流量特征随机化
-        "traffic")
-            case "${2:-}" in
-                "randomize") traffic_randomize "${3:-light}" ;;
-                "status") traffic_status ;;
-                "reset") traffic_reset ;;
-                *) 
-                    echo "未知的流量命令: ${2:-}"
-                    echo "使用 '$0 help' 查看帮助信息"
-                    exit 1
-                    ;;
-            esac
-            ;;
+  # 流量管理 (统计 + 随机化)
+  traffic)
+    case "${2:-}" in
+      # 流量统计
+      "show"|"")
+        traffic_show
+        ;;
+      # 流量特征随机化
+      "randomize") 
+        traffic_randomize "${3:-light}"
+        ;;
+      "status") 
+        traffic_status
+        ;;
+      "reset") 
+        traffic_reset
+        ;;
 			
   # 帮助信息
 help|"") 
@@ -10845,10 +10906,10 @@ edgeboxctl sni test-all                          测试所有域名
 edgeboxctl sni auto                              智能选择最优域名
 edgeboxctl sni set <域名>                         手动设置域名
 
-${YELLOW}流量管理命令:${NC}
-edgeboxctl traffic randomize [level]             执行流量特征随机化
-edgeboxctl traffic status                        显示随机化状态
-edgeboxctl traffic reset                         重置为默认配置
+${YELLOW}流量特征随机化:${NC}
+edgeboxctl traffic randomize [light|medium|heavy]  执行流量特征随机化
+edgeboxctl traffic status                          显示随机化状态
+edgeboxctl traffic reset                           重置为默认配置
 
 ${YELLOW}备份恢复:${NC}
   edgeboxctl backup create                       创建备份
