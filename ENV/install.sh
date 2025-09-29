@@ -2326,7 +2326,81 @@ install_sing_box() {
         return 0
     fi
     
-    # ... 下载逻辑保持不变 ...
+    # 系统架构检测
+    local arch system_arch
+    arch="$(uname -m)"
+    case "$arch" in
+        x86_64|amd64)
+            system_arch="amd64"
+            ;;
+        aarch64|arm64)
+            system_arch="arm64"
+            ;;
+        armv7*)
+            system_arch="armv7"
+            ;;
+        *)
+            log_error "不支持的系统架构: $arch"
+            return 1
+            ;;
+    esac
+    
+    # 操作系统检测
+    local os_type="linux"
+    
+    # 构造下载URL
+    local version="${DEFAULT_SING_BOX_VERSION}"
+    local filename="sing-box-${version}-${os_type}-${system_arch}.tar.gz"
+    local download_url="https://github.com/SagerNet/sing-box/releases/download/v${version}/${filename}"
+    
+    log_info "下载sing-box版本: v${version} (${system_arch})"
+    log_debug "下载URL: $download_url"
+    
+    # 创建临时下载文件
+    local temp_file
+    if ! temp_file="$(mktemp)"; then
+        log_error "创建临时文件失败"
+        return 1
+    fi
+    
+    # 多源下载（添加重试机制）
+    local download_success=false
+    local download_sources=(
+        "$download_url"
+        "https://github.com/SagerNet/sing-box/releases/download/v${version}/${filename}"
+        "https://ghproxy.com/https://github.com/SagerNet/sing-box/releases/download/v${version}/${filename}"
+        "https://mirror.ghproxy.com/https://github.com/SagerNet/sing-box/releases/download/v${version}/${filename}"
+    )
+    
+    for url in "${download_sources[@]}"; do
+        log_info "尝试从源下载: ${url##*/}"
+        if curl -fsSL --retry 3 --retry-delay 2 \
+            --connect-timeout 30 --max-time 300 \
+            -A "Mozilla/5.0 (EdgeBox Installer)" \
+            "$url" -o "$temp_file"; then
+            
+            # 验证下载的文件大小
+            local file_size
+            file_size=$(stat -c%s "$temp_file" 2>/dev/null || echo "0")
+            if [[ "$file_size" -gt 1000000 ]]; then  # 至少1MB
+                log_success "下载成功，文件大小: $((file_size / 1024 / 1024))MB"
+                download_success=true
+                break
+            else
+                log_warn "下载文件过小，可能下载不完整"
+                rm -f "$temp_file"
+                temp_file="$(mktemp)"
+            fi
+        else
+            log_warn "从此源下载失败"
+        fi
+    done
+    
+    if [[ "$download_success" != "true" ]]; then
+        log_error "所有下载源均失败"
+        rm -f "$temp_file"
+        return 1
+    fi
     
     log_info "解压并安装sing-box..."
     
@@ -2343,13 +2417,31 @@ install_sing_box() {
         log_error "解压sing-box失败"
         log_debug "压缩包路径: $temp_file"
         log_debug "解压目录: $temp_dir"
+        # 尝试查看压缩包内容进行调试
+        log_debug "压缩包内容:"
+        tar -tzf "$temp_file" 2>/dev/null | head -10 | while read -r file; do
+            log_debug "  - $file"
+        done
         rm -rf "$temp_dir" "$temp_file"
         return 1
     fi
     
-    # 查找sing-box二进制文件
+    # 查找sing-box二进制文件 - 改进查找逻辑
     local sing_box_binary
+    # 先尝试直接查找
     sing_box_binary=$(find "$temp_dir" -name "sing-box" -type f -executable | head -1)
+    
+    # 如果没找到，尝试查找所有文件
+    if [[ -z "$sing_box_binary" ]]; then
+        log_debug "直接查找失败，尝试更广泛的搜索..."
+        sing_box_binary=$(find "$temp_dir" -type f -name "*sing-box*" | head -1)
+        
+        # 如果找到了，给它执行权限
+        if [[ -n "$sing_box_binary" && -f "$sing_box_binary" ]]; then
+            chmod +x "$sing_box_binary"
+            log_debug "找到文件并添加执行权限: $sing_box_binary"
+        fi
+    fi
     
     if [[ -z "$sing_box_binary" || ! -f "$sing_box_binary" ]]; then
         log_error "解压后未找到sing-box二进制文件"
@@ -2364,6 +2456,8 @@ install_sing_box() {
     # 验证二进制文件有效性
     if ! "$sing_box_binary" version >/dev/null 2>&1; then
         log_error "下载的sing-box二进制文件无法执行或已损坏"
+        log_debug "尝试的二进制文件: $sing_box_binary"
+        log_debug "文件信息: $(ls -la "$sing_box_binary" 2>/dev/null)"
         rm -rf "$temp_dir" "$temp_file"
         return 1
     fi
@@ -2385,7 +2479,7 @@ install_sing_box() {
     fi
     
     if [[ ! -x /usr/local/bin/sing-box ]]; then
-        log_error "sing-box安装验证失败 - 文件不可执行"
+        log_warn "sing-box安装验证 - 文件不可执行，尝试修复权限"
         chmod +x /usr/local/bin/sing-box 2>/dev/null || true
     fi
     
@@ -2427,6 +2521,7 @@ install_sing_box() {
     
     return 0
 }
+
 
 #############################################
 # Nginx 配置函数
