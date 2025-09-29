@@ -5659,7 +5659,7 @@ h4 {
    ======================================================================= */
 #cert-panel{
   /* 与 NetID 标签一致的参数 */
-  --tag-pad-y: 6px;        /* ← 改它=改标签高度 */
+  --tag-pad-y: 5px;        /* ← 改它=改标签高度 */
   --tag-pad-x: 16px;
   --tag-radius: 8px;
   --tag-font: 13px;
@@ -6584,7 +6584,7 @@ h4 {
     /* 字体调整 */
     font-size: 6px; !important;
     font-weight: 500;
-    line-height: 12px;
+    line-height: 15px;
     
     /* 居中对齐 */
     display: flex;
