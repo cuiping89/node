@@ -6587,7 +6587,7 @@ h4 {
     height: 20px;
     
     /* 字体调整 */
-    font-size: 11px;
+    font-size: 8px;
     font-weight: 600;
     line-height: 20px;
     
@@ -8996,16 +8996,6 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
     </div>
 
     <div class="command-section">
-      <h3>🧩 配置管理</h3>
-      <div class="command-list">
-        <code>edgeboxctl config show</code> <span># 显示所有服务的核心配置信息</span><br>
-        <code>edgeboxctl config regenerate-uuid</code> <span># 为所有协议重新生成新的UUID</span>
-		<code>edgeboxctl rotate-reality</code> <span># 执行Reality密钥轮换</span><br>
-        <code>edgeboxctl reality-status</code> <span># 查看轮换状态</span>
-      </div>
-    </div>
-
-    <div class="command-section">
       <h3>💾 系统维护</h3>
       <div class="command-list">
         <code>edgeboxctl update</code><span># 更新EdgeBox</span><br>
@@ -9015,8 +9005,19 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
       </div>
     </div>
 
+
+    <div class="command-section">
+      <h3>🧩 配置管理</h3>
+      <div class="command-list">
+        <code>edgeboxctl config show</code> <span># 显示所有服务的核心配置信息</span><br>
+        <code>edgeboxctl config regenerate-uuid</code> <span># 为所有协议重新生成新的UUID</span><br>
+		<code>edgeboxctl rotate-reality</code> <span># 执行Reality密钥轮换</span><br>
+        <code>edgeboxctl reality-status</code> <span># 查看轮换状态</span>
+      </div>
+    </div>
+	
 <div class="command-section">
-  <h3>🌐 SNI域名管理</h3>
+  <h3>🌐 SNI域名池管理</h3>
   <div class="command-list">
     <code>edgeboxctl sni list</code> <span># 显示域名池状态</span><br>
     <code>edgeboxctl sni test-all</code> <span># 测试所有域名</span><br>
