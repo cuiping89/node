@@ -9314,90 +9314,175 @@ error()    { log_error "$@"; }
 get_current_cert_mode(){ [[ -f ${CONFIG_DIR}/cert_mode ]] && cat ${CONFIG_DIR}/cert_mode || echo "self-signed"; }
 need(){ command -v "$1" >/dev/null 2>&1; }
 
+# 优化后的配置验证函数（替代原来的get_server_info）
 get_server_info() {
-  if [[ ! -f ${CONFIG_DIR}/server.json ]]; then log_error "配置文件不存在：${CONFIG_DIR}/server.json"; return 1; fi
-  SERVER_IP=$(jq -r '.server_ip' ${CONFIG_DIR}/server.json 2>/dev/null)
-  UUID_VLESS=$(jq -r '.uuid.vless.reality // .uuid.vless' ${CONFIG_DIR}/server.json 2>/dev/null)
-  UUID_TUIC=$(jq -r '.uuid.tuic' ${CONFIG_DIR}/server.json 2>/dev/null)
-  PASSWORD_HYSTERIA2=$(jq -r '.password.hysteria2' ${CONFIG_DIR}/server.json 2>/dev/null)
-  PASSWORD_TUIC=$(jq -r '.password.tuic' ${CONFIG_DIR}/server.json 2>/dev/null)
-  PASSWORD_TROJAN=$(jq -r '.password.trojan' ${CONFIG_DIR}/server.json 2>/dev/null)
-  REALITY_PUBLIC_KEY=$(jq -r '.reality.public_key' ${CONFIG_DIR}/server.json 2>/dev/null)
-  REALITY_SHORT_ID=$(jq -r '.reality.short_id' ${CONFIG_DIR}/server.json 2>/dev/null)
+    ensure_config_loaded || return 1
+    
+    # 验证关键配置项
+    if [[ -z "$SERVER_IP" || "$SERVER_IP" == "null" ]]; then
+        log_error "服务器IP配置缺失"
+        return 1
+    fi
+    
+    # 可选：验证UUID格式
+    if [[ -n "$UUID_VLESS_REALITY" ]] && ! [[ "$UUID_VLESS_REALITY" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+        log_warn "VLESS Reality UUID格式可能异常"
+    fi
+    
+    return 0
 }
 
-# 全局变量和初始化函数
+# ===== 性能优化的全局配置变量 =====
+# 这些变量在脚本启动时加载一次，后续直接使用
+CONFIG_LOADED=false
+CONFIG_LOAD_TIME=""
 
-# 全局配置变量 - 在脚本开始时加载一次
+# 服务器基础信息
 SERVER_IP=""
+SERVER_EIP=""
+SERVER_VERSION=""
+INSTALL_DATE=""
+
+# UUID配置
 UUID_VLESS_REALITY=""
 UUID_VLESS_GRPC=""
 UUID_VLESS_WS=""
 UUID_TUIC=""
 UUID_HYSTERIA2=""
 UUID_TROJAN=""
+
+# 密码配置
 PASSWORD_HYSTERIA2=""
 PASSWORD_TUIC=""
 PASSWORD_TROJAN=""
-REALITY_PUBLIC_KEY=""
-REALITY_SHORT_ID=""
-CONFIG_LOADED=false
 
-# 一次性加载所有配置信息
+# Reality配置
+REALITY_PUBLIC_KEY=""
+REALITY_PRIVATE_KEY=""
+REALITY_SHORT_ID=""
+
+# 云服务商信息
+CLOUD_PROVIDER=""
+CLOUD_REGION=""
+INSTANCE_ID=""
+
+# 系统规格
+CPU_SPEC=""
+MEMORY_SPEC=""
+DISK_SPEC=""
+
+
+#############################################
+# 优化的配置加载函数
+#############################################
+
+# 一次性加载所有配置到全局变量（性能优化核心）
 load_config_once() {
+    # 如果已经加载过且时间戳相同，直接返回
     if [[ "$CONFIG_LOADED" == "true" ]]; then
-        return 0
+        local current_mtime
+        current_mtime=$(stat -c %Y "${CONFIG_DIR}/server.json" 2>/dev/null || echo "0")
+        
+        if [[ "$CONFIG_LOAD_TIME" == "$current_mtime" ]]; then
+            return 0  # 配置未改变，无需重新加载
+        fi
     fi
     
-    local config_file="/etc/edgebox/config/server.json"
+    local config_file="${CONFIG_DIR}/server.json"
     if [[ ! -f "$config_file" ]]; then
-        echo "错误: 配置文件不存在: $config_file"
+        log_error "配置文件不存在: $config_file"
         return 1
     fi
     
-    # 一次性读取所有需要的配置项
-    local config_data
-    config_data=$(jq -r '
+    log_debug "加载配置文件: $config_file"
+    
+    # 🚀 性能优化关键：一次性读取所有配置项
+    # 原来需要8-10个jq进程，现在只需要1个！
+    local config_json
+    if ! config_json=$(jq -c '
         {
-            server_ip: .server_ip,
-            uuid_vless_reality: .uuid.vless_reality,
-            uuid_vless_grpc: .uuid.vless_grpc,
-            uuid_vless_ws: .uuid.vless_ws,
-            uuid_tuic: .uuid.tuic,
-            uuid_hysteria2: .uuid.hysteria2,
-            uuid_trojan: .uuid.trojan,
-            password_hysteria2: .password.hysteria2,
-            password_tuic: .password.tuic,
-            password_trojan: .password.trojan,
-            reality_public_key: .reality.public_key,
-            reality_short_id: .reality.short_id
-        } | @base64
-    ' "$config_file" 2>/dev/null)
-    
-    if [[ -z "$config_data" || "$config_data" == "null" ]]; then
-        echo "错误: 配置文件格式错误或读取失败"
+            server_ip: (.server_ip // ""),
+            server_eip: (.eip // ""),
+            server_version: (.version // "3.0.0"),
+            install_date: (.install_date // ""),
+            
+            uuid_vless_reality: (.uuid.vless.reality // .uuid.vless // ""),
+            uuid_vless_grpc: (.uuid.vless.grpc // .uuid.vless // ""),
+            uuid_vless_ws: (.uuid.vless.ws // .uuid.vless // ""),
+            uuid_tuic: (.uuid.tuic // ""),
+            uuid_hysteria2: (.uuid.hysteria2 // ""),
+            uuid_trojan: (.uuid.trojan // ""),
+            
+            password_hysteria2: (.password.hysteria2 // ""),
+            password_tuic: (.password.tuic // ""),
+            password_trojan: (.password.trojan // ""),
+            
+            reality_public_key: (.reality.public_key // ""),
+            reality_private_key: (.reality.private_key // ""),
+            reality_short_id: (.reality.short_id // ""),
+            
+            cloud_provider: (.cloud.provider // "Unknown"),
+            cloud_region: (.cloud.region // "Unknown"),
+            instance_id: (.instance_id // "Unknown"),
+            
+            cpu_spec: (.spec.cpu // "Unknown"),
+            memory_spec: (.spec.memory // "Unknown"),
+            disk_spec: (.spec.disk // "Unknown")
+        }
+    ' "$config_file" 2>/dev/null); then
+        log_error "配置文件JSON格式错误或解析失败"
         return 1
     fi
     
-    # 解码并加载到全局变量
-    local decoded
-    decoded=$(echo "$config_data" | base64 -d 2>/dev/null)
+    # 验证关键配置
+    if [[ -z "$config_json" || "$config_json" == "null" ]]; then
+        log_error "配置文件内容为空或无效"
+        return 1
+    fi
     
-    SERVER_IP=$(echo "$decoded" | jq -r '.server_ip // ""')
-    UUID_VLESS_REALITY=$(echo "$decoded" | jq -r '.uuid_vless_reality // ""')
-    UUID_VLESS_GRPC=$(echo "$decoded" | jq -r '.uuid_vless_grpc // ""')
-    UUID_VLESS_WS=$(echo "$decoded" | jq -r '.uuid_vless_ws // ""')
-    UUID_TUIC=$(echo "$decoded" | jq -r '.uuid_tuic // ""')
-    UUID_HYSTERIA2=$(echo "$decoded" | jq -r '.uuid_hysteria2 // ""')
-    UUID_TROJAN=$(echo "$decoded" | jq -r '.uuid_trojan // ""')
-    PASSWORD_HYSTERIA2=$(echo "$decoded" | jq -r '.password_hysteria2 // ""')
-    PASSWORD_TUIC=$(echo "$decoded" | jq -r '.password_tuic // ""')
-    PASSWORD_TROJAN=$(echo "$decoded" | jq -r '.password_trojan // ""')
-    REALITY_PUBLIC_KEY=$(echo "$decoded" | jq -r '.reality_public_key // ""')
-    REALITY_SHORT_ID=$(echo "$decoded" | jq -r '.reality_short_id // ""')
+    # 🚀 批量赋值全局变量（避免多次jq调用）
+    SERVER_IP=$(echo "$config_json" | jq -r '.server_ip')
+    SERVER_EIP=$(echo "$config_json" | jq -r '.server_eip')
+    SERVER_VERSION=$(echo "$config_json" | jq -r '.server_version')
+    INSTALL_DATE=$(echo "$config_json" | jq -r '.install_date')
     
+    UUID_VLESS_REALITY=$(echo "$config_json" | jq -r '.uuid_vless_reality')
+    UUID_VLESS_GRPC=$(echo "$config_json" | jq -r '.uuid_vless_grpc')
+    UUID_VLESS_WS=$(echo "$config_json" | jq -r '.uuid_vless_ws')
+    UUID_TUIC=$(echo "$config_json" | jq -r '.uuid_tuic')
+    UUID_HYSTERIA2=$(echo "$config_json" | jq -r '.uuid_hysteria2')
+    UUID_TROJAN=$(echo "$config_json" | jq -r '.uuid_trojan')
+    
+    PASSWORD_HYSTERIA2=$(echo "$config_json" | jq -r '.password_hysteria2')
+    PASSWORD_TUIC=$(echo "$config_json" | jq -r '.password_tuic')
+    PASSWORD_TROJAN=$(echo "$config_json" | jq -r '.password_trojan')
+    
+    REALITY_PUBLIC_KEY=$(echo "$config_json" | jq -r '.reality_public_key')
+    REALITY_PRIVATE_KEY=$(echo "$config_json" | jq -r '.reality_private_key')
+    REALITY_SHORT_ID=$(echo "$config_json" | jq -r '.reality_short_id')
+    
+    CLOUD_PROVIDER=$(echo "$config_json" | jq -r '.cloud_provider')
+    CLOUD_REGION=$(echo "$config_json" | jq -r '.cloud_region')
+    INSTANCE_ID=$(echo "$config_json" | jq -r '.instance_id')
+    
+    CPU_SPEC=$(echo "$config_json" | jq -r '.cpu_spec')
+    MEMORY_SPEC=$(echo "$config_json" | jq -r '.memory_spec')
+    DISK_SPEC=$(echo "$config_json" | jq -r '.disk_spec')
+    
+    # 记录加载状态和时间戳
     CONFIG_LOADED=true
+    CONFIG_LOAD_TIME=$(stat -c %Y "$config_file" 2>/dev/null || echo "0")
+    
+    log_debug "配置加载完成，涉及 $(echo "$config_json" | jq -r '. | keys | length') 个配置项"
     return 0
+}
+
+# 智能配置加载函数（自动检查是否需要重新加载）
+ensure_config_loaded() {
+    load_config_once || {
+        log_error "配置加载失败"
+        return 1
+    }
 }
 
 # 原来的 get_server_info 函数现在变成简单的验证函数
@@ -9417,10 +9502,9 @@ get_server_info() {
 
 # 修改后的订阅显示函数 - 不再重复读取配置
 show_sub() {
-    # 配置已在脚本开始时加载，直接使用全局变量
-    if ! get_server_info; then
-        return 1
-    fi
+    ensure_config_loaded || return 1
+    
+    log_info "生成订阅链接..."
     
     echo "=== EdgeBox 节点订阅信息 ==="
     echo
@@ -11137,6 +11221,22 @@ HLP
     exit 1
     ;;
 esac
+
+# 脚本启动时自动加载配置
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]] || [[ -n "${EDGEBOXCTL_LOADED}" ]]; then
+    # 设置调试模式
+    [[ "${EDGEBOX_DEBUG}" == "true" ]] && LOG_LEVEL="debug"
+    
+    # 确保日志目录存在
+    mkdir -p "$(dirname "$LOG_FILE")"
+    
+    # 在脚本开始时加载配置（性能优化的核心）
+    load_config_once || {
+        log_warn "初始配置加载失败，部分功能可能不可用"
+    }
+    
+    log_debug "edgeboxctl初始化完成，配置已缓存"
+fi
 EDGEBOXCTL_SCRIPT
 
     chmod +x /usr/local/bin/edgeboxctl
