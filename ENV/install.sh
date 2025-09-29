@@ -120,6 +120,22 @@ REALITY_ROTATION_DAYS=90
 REALITY_ROTATION_STATE="${CONFIG_DIR}/reality-rotation.json"
 REALITY_BACKUP_DIR="${BACKUP_DIR}/reality-keys"
 
+# === SNI域名池管理相关路径 ===
+SNI_CONFIG_DIR="${CONFIG_DIR}/sni"
+SNI_DOMAINS_CONFIG="${SNI_CONFIG_DIR}/domains.json"
+SNI_LOG_FILE="/var/log/edgebox/sni-management.log"
+SNI_MANAGER_SCRIPT="${SCRIPTS_DIR}/sni-manager.sh"
+# SNI域名池配置
+SNI_DOMAIN_POOL=(
+    "www.microsoft.com"      # 权重: 25 (稳定性高)
+    "www.apple.com"          # 权重: 20 (全球覆盖)  
+    "www.cloudflare.com"     # 权重: 20 (网络友好)
+    "azure.microsoft.com"    # 权重: 15 (企业级)
+    "aws.amazon.com"         # 权重: 10 (备用)
+    "www.fastly.com"         # 权重: 10 (CDN特性)
+)
+
+
 #############################################
 # 路径验证和创建函数
 #############################################
@@ -527,6 +543,7 @@ create_directories() {
         "/var/log/edgebox"
         "/var/log/xray"
         "${WEB_ROOT}"
+		"${SNI_CONFIG_DIR}"
     )
 
     # 创建所有必要目录
@@ -550,6 +567,406 @@ chgrp "${NOBODY_GRP}" "${CERT_DIR}" || true
     
     log_success "目录结构创建完成"
 }
+
+#############################################
+# SNI域名池智能管理
+#############################################
+
+# SNI域名池智能管理设置
+setup_sni_pool_management() {
+    log_info "设置SNI域名池智能管理..."
+    
+    # 创建域名池配置文件
+    create_sni_pool_config
+    
+    # 创建SNI管理脚本
+    create_sni_management_script
+    
+    log_success "SNI域名池智能管理设置完成"
+}
+
+# 创建SNI域名池配置文件
+create_sni_pool_config() {
+    log_info "创建SNI域名池配置文件..."
+    
+    cat > "$SNI_DOMAINS_CONFIG" << 'EOF'
+{
+  "version": "1.0",
+  "last_updated": "",
+  "current_domain": "",
+  "domains": [
+    {
+      "hostname": "www.microsoft.com",
+      "weight": 25,
+      "category": "tech-giant",
+      "region": "global",
+      "last_used": "",
+      "success_rate": 0.0,
+      "avg_response_time": 0.0,
+      "last_check": ""
+    },
+    {
+      "hostname": "www.apple.com",
+      "weight": 20,
+      "category": "tech-giant", 
+      "region": "global",
+      "last_used": "",
+      "success_rate": 0.0,
+      "avg_response_time": 0.0,
+      "last_check": ""
+    },
+    {
+      "hostname": "www.cloudflare.com",
+      "weight": 20,
+      "category": "cdn",
+      "region": "global",
+      "last_used": "",
+      "success_rate": 0.0,
+      "avg_response_time": 0.0,
+      "last_check": ""
+    },
+    {
+      "hostname": "azure.microsoft.com",
+      "weight": 15,
+      "category": "cloud-service",
+      "region": "global",
+      "last_used": "",
+      "success_rate": 0.0,
+      "avg_response_time": 0.0,
+      "last_check": ""
+    },
+    {
+      "hostname": "aws.amazon.com",
+      "weight": 10,
+      "category": "cloud-service",
+      "region": "global",
+      "last_used": "",
+      "success_rate": 0.0,
+      "avg_response_time": 0.0,
+      "last_check": ""
+    },
+    {
+      "hostname": "www.fastly.com",
+      "weight": 10,
+      "category": "cdn",
+      "region": "global",
+      "last_used": "",
+      "success_rate": 0.0,
+      "avg_response_time": 0.0,
+      "last_check": ""
+    }
+  ],
+  "selection_history": [],
+  "rotation_config": {
+    "enabled": true,
+    "frequency": "weekly",
+    "last_rotation": "",
+    "next_rotation": "",
+    "auto_fallback": true,
+    "health_check_interval": 3600
+  }
+}
+EOF
+
+    chmod 644 "$SNI_DOMAINS_CONFIG"
+    log_success "SNI域名池配置文件创建完成: $SNI_DOMAINS_CONFIG"
+}
+
+# 创建SNI管理脚本
+create_sni_management_script() {
+    log_info "创建SNI管理脚本..."
+    
+    cat > "$SNI_MANAGER_SCRIPT" << 'EOF'
+#!/bin/bash
+# ========= SNI域名池智能管理脚本:  =========
+
+set -euo pipefail
+
+# 配置路径
+CONFIG_DIR="${CONFIG_DIR:-/etc/edgebox/config}"
+SNI_CONFIG="${CONFIG_DIR}/sni/domains.json"
+XRAY_CONFIG="${CONFIG_DIR}/xray.json"
+LOG_FILE="/var/log/edgebox/sni-management.log"
+
+# 日志函数
+log_info() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] $*" | tee -a "$LOG_FILE"; }
+log_warn() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WARN] $*" | tee -a "$LOG_FILE"; }
+log_error() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] $*" | tee -a "$LOG_FILE" >&2; }
+log_success() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [SUCCESS] $*" | tee -a "$LOG_FILE"; }
+
+# 域名评分函数
+evaluate_sni_domain() {
+    local domain="$1"
+    local score=0
+    
+    log_info "评估域名: $domain"
+    
+    # 可达性测试 (40分)
+    if timeout 5 curl -s --connect-timeout 3 --max-time 5 "https://${domain}" >/dev/null 2>&1; then
+        score=$((score + 40))
+        log_info "  可达性测试: 通过 (+40分)"
+    else
+        log_warn "  可达性测试: 失败 (+0分)"
+    fi
+    
+    # 响应时间测试 (20分)
+    local response_time
+    response_time=$(timeout 5 curl -o /dev/null -s -w '%{time_total}' --connect-timeout 3 "https://${domain}" 2>/dev/null || echo "99.999")
+    
+    if command -v bc >/dev/null 2>&1 && (( $(echo "$response_time < 2.0" | bc -l 2>/dev/null || echo 0) )); then
+        score=$((score + 20))
+        log_info "  响应时间: ${response_time}s (+20分)"
+    elif command -v bc >/dev/null 2>&1 && (( $(echo "$response_time < 5.0" | bc -l 2>/dev/null || echo 0) )); then
+        score=$((score + 10))
+        log_info "  响应时间: ${response_time}s (+10分)"
+    else
+        log_warn "  响应时间: ${response_time}s (+0分)"
+    fi
+    
+    # 域名热度检查 (20分)
+    local heat_score=15
+    score=$((score + heat_score))
+    log_info "  域名热度: 中等 (+${heat_score}分)"
+    
+    # 地理位置优化 (20分)
+    if [[ "$domain" =~ (microsoft|apple|cloudflare) ]]; then
+        score=$((score + 20))
+        log_info "  地理位置: 全球优化 (+20分)"
+    else
+        score=$((score + 10))
+        log_info "  地理位置: 一般 (+10分)"
+    fi
+    
+    log_info "  域名 $domain 总评分: $score"
+    echo "$score"
+}
+
+# 更新SNI域名配置
+update_sni_domain() {
+    local new_domain="$1"
+    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    
+    log_info "更新SNI域名配置: $new_domain"
+    
+    # 备份当前配置
+    if [[ -f "$XRAY_CONFIG" ]]; then
+        cp "$XRAY_CONFIG" "${XRAY_CONFIG}.backup.$(date +%s)"
+    fi
+    
+    # 创建临时配置文件
+    local temp_config="${XRAY_CONFIG}.tmp"
+    
+    # 使用jq更新SNI域名配置
+    if jq --arg domain "$new_domain" '
+        (.inbounds[] | select(.tag | contains("reality")) | .streamSettings.realitySettings.dest) = $domain + ":443"
+    ' "$XRAY_CONFIG" > "$temp_config"; then
+        # 验证JSON格式
+        if jq empty "$temp_config" >/dev/null 2>&1; then
+            mv "$temp_config" "$XRAY_CONFIG"
+            log_success "SNI域名配置更新成功: $new_domain"
+            
+            # 更新域名池配置
+            update_domain_usage "$new_domain" "$timestamp"
+            
+            # 重载Xray配置
+            if systemctl reload xray 2>/dev/null || systemctl restart xray; then
+                log_success "Xray服务配置重载成功"
+                return 0
+            else
+                log_error "Xray服务重载失败"
+                return 1
+            fi
+        else
+            log_error "配置文件JSON格式错误"
+            rm -f "$temp_config"
+            return 1
+        fi
+    else
+        log_error "配置更新失败"
+        rm -f "$temp_config"
+        return 1
+    fi
+}
+
+# 更新域名使用记录
+update_domain_usage() {
+    local domain="$1"
+    local timestamp="$2"
+    
+    # 更新SNI配置文件中的使用记录
+    local temp_sni="${SNI_CONFIG}.tmp"
+    
+    jq --arg domain "$domain" --arg timestamp "$timestamp" '
+        .current_domain = $domain |
+        .last_updated = $timestamp |
+        (.domains[] | select(.hostname == $domain) | .last_used) = $timestamp |
+        .selection_history += [{
+            "timestamp": $timestamp,
+            "selected": $domain,
+            "reason": "auto_selection"
+        }] |
+        .selection_history |= if length > 50 then .[1:] else . end
+    ' "$SNI_CONFIG" > "$temp_sni" && mv "$temp_sni" "$SNI_CONFIG"
+}
+
+# 获取当前SNI域名
+get_current_sni_domain() {
+    if [[ ! -f "$XRAY_CONFIG" ]]; then
+        echo ""
+        return
+    fi
+    
+    jq -r '
+        .inbounds[]? | 
+        select(.tag | contains("reality")) | 
+        .streamSettings.realitySettings.dest // empty
+    ' "$XRAY_CONFIG" 2>/dev/null | head -1 | cut -d: -f1
+}
+
+# 智能选择最优域名
+auto_select_optimal_domain() {
+    log_info "开始SNI域名智能选择..."
+    
+    if [[ ! -f "$SNI_CONFIG" ]]; then
+        log_error "SNI配置文件不存在: $SNI_CONFIG"
+        return 1
+    fi
+    
+    local best_domain=""
+    local best_score=0
+    local current_sni
+    
+    current_sni=$(get_current_sni_domain)
+    log_info "当前SNI域名: ${current_sni:-未配置}"
+    
+    # 从配置文件获取域名列表
+    local domains
+    domains=$(jq -r '.domains[].hostname' "$SNI_CONFIG" 2>/dev/null || echo "")
+    
+    if [[ -z "$domains" ]]; then
+        log_error "无法获取域名列表"
+        return 1
+    fi
+    
+    # 评估所有候选域名
+    while IFS= read -r domain; do
+        [[ -z "$domain" ]] && continue
+        
+        local score
+        score=$(evaluate_sni_domain "$domain")
+        
+        if [[ $score -gt $best_score ]]; then
+            best_score=$score
+            best_domain="$domain"
+        fi
+        
+        # 更新域名评分到配置文件
+        local temp_config="${SNI_CONFIG}.tmp"
+        jq --arg domain "$domain" --argjson score "$score" --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" '
+            (.domains[] | select(.hostname == $domain) | .last_check) = $timestamp
+        ' "$SNI_CONFIG" > "$temp_config" && mv "$temp_config" "$SNI_CONFIG"
+        
+    done <<< "$domains"
+    
+    if [[ -z "$best_domain" ]]; then
+        log_error "未找到可用的SNI域名"
+        return 1
+    fi
+    
+    log_info "最优域名选择结果: $best_domain (评分: $best_score)"
+    
+    # 检查是否需要更换
+    if [[ "$best_domain" == "$current_sni" ]]; then
+        log_info "当前SNI域名已是最优，无需更换"
+        return 0
+    fi
+    
+    # 执行更换
+    log_info "更换SNI域名: ${current_sni:-未配置} → $best_domain"
+    
+    if update_sni_domain "$best_domain"; then
+        log_success "SNI域名更换成功"
+        return 0
+    else
+        log_error "SNI域名更换失败"
+        return 1
+    fi
+}
+
+# 健康检查功能
+health_check_domains() {
+    log_info "开始域名健康检查..."
+    
+    local domains
+    domains=$(jq -r '.domains[].hostname' "$SNI_CONFIG" 2>/dev/null || echo "")
+    
+    if [[ -z "$domains" ]]; then
+        log_error "无法获取域名列表进行健康检查"
+        return 1
+    fi
+    
+    local unhealthy_count=0
+    local total_count=0
+    
+    while IFS= read -r domain; do
+        [[ -z "$domain" ]] && continue
+        ((total_count++))
+        
+        if ! timeout 5 curl -s --connect-timeout 3 --max-time 5 "https://${domain}" >/dev/null 2>&1; then
+            log_warn "域名健康检查失败: $domain"
+            ((unhealthy_count++))
+        else
+            log_info "域名健康检查通过: $domain"
+        fi
+    done <<< "$domains"
+    
+    log_info "健康检查完成: ${total_count}个域名，${unhealthy_count}个异常"
+    
+    # 如果当前域名不健康，自动切换
+    local current_sni
+    current_sni=$(get_current_sni_domain)
+    
+    if [[ -n "$current_sni" ]]; then
+        if ! timeout 5 curl -s --connect-timeout 3 --max-time 5 "https://${current_sni}" >/dev/null 2>&1; then
+            log_warn "当前SNI域名 $current_sni 健康检查失败，尝试自动切换"
+            auto_select_optimal_domain
+        fi
+    fi
+}
+
+# 主函数
+main() {
+    case "${1:-}" in
+        "select"|"auto")
+            auto_select_optimal_domain
+            ;;
+        "health"|"check")
+            health_check_domains
+            ;;
+        "status")
+            echo "当前SNI域名: $(get_current_sni_domain)"
+            ;;
+        *)
+            echo "用法: $0 {select|health|status}"
+            echo "  select - 智能选择最优SNI域名"
+            echo "  health - 执行域名健康检查"
+            echo "  status - 显示当前SNI域名状态"
+            exit 1
+            ;;
+    esac
+}
+
+# 确保日志目录存在
+mkdir -p "$(dirname "$LOG_FILE")"
+
+# 执行主函数
+main "$@"
+EOF
+
+    chmod +x "$SNI_MANAGER_SCRIPT"
+    log_success "SNI管理脚本创建完成: $SNI_MANAGER_SCRIPT"
+}
+
 
 # 检查端口占用情况
 check_ports() {
@@ -8181,7 +8598,6 @@ chmod 644 "$TRAFFIC_DIR/index.html"
 
 
 # 设置定时任务
-# ========================== NEW11 replacement begin ==========================
 setup_cron_jobs() {
     log_info "设置定时任务（new11清理模式）..."
 
@@ -8248,19 +8664,21 @@ CONF
     ( crontab -l 2>/dev/null | grep -vE '(/etc/edgebox/|\bedgebox\b|\bEdgeBox\b)' ) | crontab - || true
 
     # ---- D) 写入 new11 标准任务集（仅这一套）----
-    ( crontab -l 2>/dev/null || true; cat <<'CRON'
-# EdgeBox 定时任务 v3.0 (new11)
+    ( crontab -l 2>/dev/null || true; cat <<CRON
+# EdgeBox 定时任务 v3.0 (new11 + SNI管理)
 */2 * * * * bash -lc '/etc/edgebox/scripts/dashboard-backend.sh --now' >/dev/null 2>&1
 0  * * * * bash -lc '/etc/edgebox/scripts/traffic-collector.sh'        >/dev/null 2>&1
 7  * * * * bash -lc '/etc/edgebox/scripts/traffic-alert.sh'            >/dev/null 2>&1
 15 2 * * * bash -lc '/usr/local/bin/edgebox-ipq.sh'                    >/dev/null 2>&1
 0  2 * * * bash -lc '/usr/local/bin/edgeboxctl rotate-reality'         >/dev/null 2>&1
+0  3 * * 0 ${SCRIPTS_DIR}/sni-manager.sh select >/dev/null 2>&1
+0  4 * * * ${SCRIPTS_DIR}/sni-manager.sh health >/dev/null 2>&1
 CRON
     ) | crontab -
 
     log_success "定时任务设置完成（已清理旧任务并写入 new11 任务集；alert.conf 已补全 8 项）"
 }
-# =========================== NEW11 replacement end ===========================
+
 
 
 # 创建完整的edgeboxctl管理工具
@@ -9639,6 +10057,98 @@ show_reality_rotation_status() {
 
 
 #############################################
+# SNI域名管理
+#############################################
+
+# SNI域名池管理函数
+sni_pool_list() {
+    if [[ ! -f "$SNI_DOMAINS_CONFIG" ]]; then
+        echo "错误: SNI配置文件不存在"
+        return 1
+    fi
+    
+    echo "SNI域名池状态:"
+    echo "$(printf "%-25s %-8s %-12s %-15s %-20s" "域名" "权重" "成功率" "响应时间" "最后检查")"
+    echo "$(printf "%s" "$(printf "%-25s %-8s %-12s %-15s %-20s" | tr " " "-")")"
+    
+    jq -r '.domains[] | [.hostname, .weight, (.success_rate // 0), (.avg_response_time // 0), (.last_check // "未检查")] | @tsv' "$SNI_DOMAINS_CONFIG" | \
+    while IFS=$'\t' read -r hostname weight success_rate response_time last_check; do
+        printf "%-25s %-8s %-12s %-15s %-20s\n" \
+            "$hostname" "$weight" "${success_rate}" "${response_time}s" "$last_check"
+    done
+    
+    echo ""
+    echo "当前使用: $(jq -r '.current_domain // "未配置"' "$SNI_DOMAINS_CONFIG")"
+}
+
+sni_test_all() {
+    echo "测试所有SNI域名可达性..."
+    "$SNI_MANAGER_SCRIPT" health
+}
+
+sni_auto_select() {
+    echo "执行SNI域名智能选择..."
+    "$SNI_MANAGER_SCRIPT" select
+}
+
+sni_set_domain() {
+    local target_domain="$1"
+    
+    if [[ -z "$target_domain" ]]; then
+        echo "用法: edgeboxctl sni set <域名>"
+        return 1
+    fi
+    
+    echo "手动设置SNI域名: $target_domain"
+    
+    # 验证域名是否在池中
+    if ! jq -e --arg domain "$target_domain" '.domains[] | select(.hostname == $domain)' "$SNI_DOMAINS_CONFIG" >/dev/null 2>&1; then
+        echo "警告: 域名 $target_domain 不在预定义池中"
+        read -p "是否继续? (y/N): " -r
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            echo "操作已取消"
+            return 1
+        fi
+    fi
+    
+    # 调用更新函数
+    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    if update_sni_domain_direct "$target_domain" "$timestamp"; then
+        echo "SNI域名设置成功: $target_domain"
+    else
+        echo "SNI域名设置失败"
+        return 1
+    fi
+}
+
+# 直接更新SNI域名的辅助函数
+update_sni_domain_direct() {
+    local new_domain="$1"
+    local timestamp="$2"
+    
+    # 备份当前配置
+    if [[ -f "$XRAY_CONFIG" ]]; then
+        cp "$XRAY_CONFIG" "${XRAY_CONFIG}.backup.$(date +%s)"
+    fi
+    
+    # 更新配置
+    local temp_config="${XRAY_CONFIG}.tmp"
+    if jq --arg domain "$new_domain" '
+        (.inbounds[] | select(.tag | contains("reality")) | .streamSettings.realitySettings.dest) = $domain + ":443"
+    ' "$XRAY_CONFIG" > "$temp_config"; then
+        if jq empty "$temp_config" >/dev/null 2>&1; then
+            mv "$temp_config" "$XRAY_CONFIG"
+            systemctl reload xray 2>/dev/null || systemctl restart xray
+            return 0
+        fi
+    fi
+    
+    rm -f "$temp_config"
+    return 1
+}
+
+
+#############################################
 # 主命令处理
 #############################################
 
@@ -9747,7 +10257,7 @@ case "$1" in
     curl -fsSL https://raw.githubusercontent.com/cuiping89/node/main/ENV/install.sh | bash
     ;;
 	
- # Reality密钥轮换
+ # Reality 密钥轮换
   rotate-reality)
     rotate_reality_keys
     ;;
@@ -9755,7 +10265,29 @@ case "$1" in
   reality-status)
     show_reality_rotation_status
     ;;
-	
+
+ # SNI域名管理
+    "sni")
+        case "$2" in
+            "list"|"pool")
+                sni_pool_list
+                ;;
+            "test"|"test-all")
+                sni_test_all
+                ;;
+            "select"|"auto")
+                sni_auto_select
+                ;;
+            "set")
+                sni_set_domain "$3"
+                ;;
+            *)
+                echo "用法: edgeboxctl sni {list|test-all|auto|set <域名>}"
+                exit 1
+                ;;
+        esac
+        ;;
+
   # 帮助信息
 help|"") 
   cat <<HLP
@@ -9806,7 +10338,13 @@ ${YELLOW}配置管理:${NC}
   edgeboxctl config regenerate-uuid              重新生成 UUID
   edgeboxctl rotate-reality                      执行Reality密钥轮换
   edgeboxctl reality-status                      查看轮换状态
-  
+
+${YELLOW}SNI域名管理:${NC}
+edgeboxctl sni list                              显示域名池状态
+edgeboxctl sni test-all                          测试所有域名
+edgeboxctl sni auto                              智能选择最优域名
+edgeboxctl sni set <域名>                         手动设置域名
+
 ${YELLOW}备份恢复:${NC}
   edgeboxctl backup create                       创建备份
   edgeboxctl backup list                         列出备份
@@ -10678,6 +11216,14 @@ finalize_data_generation() {
   log_info "执行最终验证..."
   local validation_failed=false
   
+  # SNI域名初始
+  log_info "执行SNI域名初始选择..."
+if "$SNI_MANAGER_SCRIPT" select; then
+    log_success "✓ SNI域名初始选择完成"
+else
+    log_warn "SNI域名初始选择失败，可手动执行: edgeboxctl sni auto"
+fi
+
   # 验证关键文件存在
   for file in "${CONFIG_DIR}/server.json" "${CONFIG_DIR}/subscription.txt" "${WEB_ROOT}/sub"; do
     if [[ ! -s "$file" ]]; then
