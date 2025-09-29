@@ -4486,92 +4486,155 @@ randomize_hysteria2_config() {
     local level="$1"
     log_info "随机化Hysteria2配置 (级别: $level)..."
     
-    # 生成随机参数
-    local heartbeat=$((${HYSTERIA2_HEARTBEAT_RANGE[0]} + RANDOM % (${HYSTERIA2_HEARTBEAT_RANGE[1]} - ${HYSTERIA2_HEARTBEAT_RANGE[0]} + 1)))
-    local congestion_algo="${HYSTERIA2_CONGESTION_ALGOS[RANDOM % ${#HYSTERIA2_CONGESTION_ALGOS[@]}]}"
-    local masquerade_site="${HYSTERIA2_MASQUERADE_SITES[RANDOM % ${#HYSTERIA2_MASQUERADE_SITES[@]}]}"
+    if [[ ! -f "${CONFIG_DIR}/sing-box.json" ]]; then
+        log_error "sing-box 配置文件不存在"
+        return 1
+    fi
     
-    log_info "Hysteria2参数: 心跳=${heartbeat}s, 拥塞控制=$congestion_algo"
+    # 生成随机心跳间隔
+    local heartbeat_min=8
+    local heartbeat_max=15
+    if [[ "$level" == "medium" ]]; then
+        heartbeat_max=20
+    elif [[ "$level" == "heavy" ]]; then
+        heartbeat_max=25
+    fi
     
-    # 更新sing-box配置
-    if [[ -f "${CONFIG_DIR}/sing-box.json" ]]; then
-        jq --arg heartbeat "${heartbeat}s" \
-           --arg congestion "$congestion_algo" \
-           --arg masquerade "$masquerade_site" '
-            (.inbounds[] | select(.type == "hysteria2") | .heartbeat) = $heartbeat |
-            (.inbounds[] | select(.type == "hysteria2") | .congestion_control) = $congestion |
-            (.inbounds[] | select(.type == "hysteria2") | .masquerade) = $masquerade
-        ' "${CONFIG_DIR}/sing-box.json" > "${CONFIG_DIR}/sing-box.json.tmp"
-        
-        if jq '.' "${CONFIG_DIR}/sing-box.json.tmp" >/dev/null 2>&1; then
-            mv "${CONFIG_DIR}/sing-box.json.tmp" "${CONFIG_DIR}/sing-box.json"
-            log_success "Hysteria2配置随机化完成"
-        else
-            rm -f "${CONFIG_DIR}/sing-box.json.tmp"
-            log_error "Hysteria2配置更新失败"
-            return 1
-        fi
+    local random_heartbeat=$((heartbeat_min + RANDOM % (heartbeat_max - heartbeat_min + 1)))
+    
+    # 随机选择拥塞控制算法
+    local congestion_algos=("bbr" "cubic" "reno")
+    local random_algo=${congestion_algos[$((RANDOM % ${#congestion_algos[@]}))]}
+    
+    log_info "Hysteria2参数: 心跳=${random_heartbeat}s, 拥塞控制=${random_algo}"
+    
+    # 使用 jq 更新配置
+    if ! jq \
+        --arg heartbeat "${random_heartbeat}s" \
+        --arg cc "$random_algo" \
+        '.inbounds[] |= if .type == "hysteria2" then 
+            .heartbeat = $heartbeat |
+            .congestion_control = $cc
+        else . end' \
+        "${CONFIG_DIR}/sing-box.json" > "${CONFIG_DIR}/sing-box.json.tmp"; then
+        log_error "更新 Hysteria2 配置失败"
+        rm -f "${CONFIG_DIR}/sing-box.json.tmp"
+        return 1
+    fi
+    
+    # 验证生成的配置文件
+    if sing-box check -c "${CONFIG_DIR}/sing-box.json.tmp" >/dev/null 2>&1; then
+        mv "${CONFIG_DIR}/sing-box.json.tmp" "${CONFIG_DIR}/sing-box.json"
+        log_success "Hysteria2配置随机化完成"
+        return 0
+    else
+        log_error "生成的 Hysteria2 配置验证失败"
+        rm -f "${CONFIG_DIR}/sing-box.json.tmp"
+        return 1
     fi
 }
+
 
 # TUIC随机化函数
 randomize_tuic_config() {
     local level="$1"
     log_info "随机化TUIC配置 (级别: $level)..."
     
-    local congestion_algo="${TUIC_CONGESTION_ALGOS[RANDOM % ${#TUIC_CONGESTION_ALGOS[@]}]}"
-    local auth_timeout=$((${TUIC_AUTH_TIMEOUT_RANGE[0]} + RANDOM % (${TUIC_AUTH_TIMEOUT_RANGE[1]} - ${TUIC_AUTH_TIMEOUT_RANGE[0]} + 1)))
+    if [[ ! -f "${CONFIG_DIR}/sing-box.json" ]]; then
+        log_error "sing-box 配置文件不存在"
+        return 1
+    fi
     
-    log_info "TUIC参数: 拥塞控制=$congestion_algo, 认证超时=${auth_timeout}s"
+    # 随机选择拥塞控制算法
+    local congestion_algos=("bbr" "cubic")
+    local random_algo=${congestion_algos[$((RANDOM % ${#congestion_algos[@]}))]}
     
-    if [[ -f "${CONFIG_DIR}/sing-box.json" ]]; then
-        jq --arg congestion "$congestion_algo" \
-           --arg timeout "${auth_timeout}s" '
-            (.inbounds[] | select(.type == "tuic") | .congestion_control) = $congestion |
-            (.inbounds[] | select(.type == "tuic") | .auth_timeout) = $timeout
-        ' "${CONFIG_DIR}/sing-box.json" > "${CONFIG_DIR}/sing-box.json.tmp"
-        
-        if jq '.' "${CONFIG_DIR}/sing-box.json.tmp" >/dev/null 2>&1; then
-            mv "${CONFIG_DIR}/sing-box.json.tmp" "${CONFIG_DIR}/sing-box.json"
-            log_success "TUIC配置随机化完成"
-        else
-            rm -f "${CONFIG_DIR}/sing-box.json.tmp"
-            log_error "TUIC配置更新失败"
-            return 1
-        fi
+    # 随机认证超时 (3-8秒)
+    local auth_timeout=$((3 + RANDOM % 6))
+    
+    log_info "TUIC参数: 拥塞控制=${random_algo}, 认证超时=${auth_timeout}s"
+    
+    # 使用 jq 更新配置
+    if ! jq \
+        --arg cc "$random_algo" \
+        --arg timeout "${auth_timeout}s" \
+        '.inbounds[] |= if .type == "tuic" then 
+            .congestion_control = $cc |
+            .auth_timeout = $timeout
+        else . end' \
+        "${CONFIG_DIR}/sing-box.json" > "${CONFIG_DIR}/sing-box.json.tmp"; then
+        log_error "更新 TUIC 配置失败"
+        rm -f "${CONFIG_DIR}/sing-box.json.tmp"
+        return 1
+    fi
+    
+    # 验证生成的配置文件
+    if sing-box check -c "${CONFIG_DIR}/sing-box.json.tmp" >/dev/null 2>&1; then
+        mv "${CONFIG_DIR}/sing-box.json.tmp" "${CONFIG_DIR}/sing-box.json"
+        log_success "TUIC配置随机化完成"
+        return 0
+    else
+        log_error "生成的 TUIC 配置验证失败"
+        rm -f "${CONFIG_DIR}/sing-box.json.tmp"
+        return 1
     fi
 }
 
+
 # VLESS随机化函数
 randomize_vless_config() {
-    local level="$1" 
+    local level="$1"
     log_info "随机化VLESS配置 (级别: $level)..."
     
-    local ws_path="${VLESS_WS_PATHS[RANDOM % ${#VLESS_WS_PATHS[@]}]}"
-    local grpc_service="${VLESS_GRPC_SERVICES[RANDOM % ${#VLESS_GRPC_SERVICES[@]}]}"
+    if [[ ! -f "${CONFIG_DIR}/xray.json" ]]; then
+        log_error "Xray 配置文件不存在"
+        return 1
+    fi
     
-    log_info "VLESS参数: WebSocket路径=$ws_path, gRPC服务=$grpc_service"
+    # 随机 WebSocket 路径
+    local ws_paths=("/ws" "/websocket" "/v2ray" "/proxy" "/tunnel")
+    local random_ws_path=${ws_paths[$((RANDOM % ${#ws_paths[@]}))]}
     
-    if [[ -f "${CONFIG_DIR}/xray.json" ]]; then
-        # 更新WebSocket路径
-        jq --arg path "$ws_path" '
-            (.inbounds[] | select(.streamSettings.network == "ws") | .streamSettings.wsSettings.path) = $path
-        ' "${CONFIG_DIR}/xray.json" > "${CONFIG_DIR}/xray.json.tmp"
-        
-        # 更新gRPC服务名
-        jq --arg service "$grpc_service" '
-            (.inbounds[] | select(.streamSettings.network == "grpc") | .streamSettings.grpcSettings.serviceName) = $service
-        ' "${CONFIG_DIR}/xray.json.tmp" > "${CONFIG_DIR}/xray.json.tmp2"
-        
-        if jq '.' "${CONFIG_DIR}/xray.json.tmp2" >/dev/null 2>&1; then
-            mv "${CONFIG_DIR}/xray.json.tmp2" "${CONFIG_DIR}/xray.json"
-            rm -f "${CONFIG_DIR}/xray.json.tmp"
-            log_success "VLESS配置随机化完成"
-        else
-            rm -f "${CONFIG_DIR}/xray.json.tmp" "${CONFIG_DIR}/xray.json.tmp2"
-            log_error "VLESS配置更新失败"
-            return 1
-        fi
+    # 随机 gRPC 服务名
+    local grpc_services=("GunService" "TunService" "ProxyService")
+    local random_grpc_service=${grpc_services[$((RANDOM % ${#grpc_services[@]}))]}
+    
+    log_info "VLESS参数: WS路径=${random_ws_path}, gRPC服务=${random_grpc_service}"
+    
+    # 使用 jq 更新配置 (更新 WebSocket 路径)
+    if ! jq \
+        --arg path "$random_ws_path" \
+        '.inbounds[] |= if .streamSettings?.network == "ws" then 
+            .streamSettings.wsSettings.path = $path
+        else . end' \
+        "${CONFIG_DIR}/xray.json" > "${CONFIG_DIR}/xray.json.tmp"; then
+        log_error "更新 VLESS WebSocket 配置失败"
+        rm -f "${CONFIG_DIR}/xray.json.tmp"
+        return 1
+    fi
+    
+    # 更新 gRPC 服务名
+    if ! jq \
+        --arg service "$random_grpc_service" \
+        '.inbounds[] |= if .streamSettings?.network == "grpc" then 
+            .streamSettings.grpcSettings.serviceName = $service
+        else . end' \
+        "${CONFIG_DIR}/xray.json.tmp" > "${CONFIG_DIR}/xray.json.tmp2"; then
+        log_error "更新 VLESS gRPC 配置失败"
+        rm -f "${CONFIG_DIR}/xray.json.tmp" "${CONFIG_DIR}/xray.json.tmp2"
+        return 1
+    fi
+    
+    # 验证生成的配置文件
+    if xray -test -config="${CONFIG_DIR}/xray.json.tmp2" >/dev/null 2>&1; then
+        mv "${CONFIG_DIR}/xray.json.tmp2" "${CONFIG_DIR}/xray.json"
+        rm -f "${CONFIG_DIR}/xray.json.tmp"
+        log_success "VLESS配置随机化完成"
+        return 0
+    else
+        log_error "生成的 VLESS 配置验证失败"
+        rm -f "${CONFIG_DIR}/xray.json.tmp" "${CONFIG_DIR}/xray.json.tmp2"
+        return 1
     fi
 }
 
@@ -4637,17 +4700,28 @@ create_config_backup() {
 restart_services_safely() {
     log_info "安全重启代理服务..."
     
-    # 使用reload而非restart，减少中断时间
+    # sing-box 支持 reload，Xray 不支持，需要区别对待
     if systemctl is-active --quiet sing-box; then
-        systemctl reload sing-box || systemctl restart sing-box
+        if systemctl reload sing-box >/dev/null 2>&1; then
+            log_info "sing-box 已使用 reload 重新加载"
+        else
+            log_warn "sing-box reload 失败，使用 restart"
+            systemctl restart sing-box
+        fi
+    else
+        systemctl start sing-box
     fi
     
+    # Xray 不支持 reload，直接使用 restart
     if systemctl is-active --quiet xray; then
-        systemctl reload xray || systemctl restart xray
+        systemctl restart xray
+        log_info "Xray 已重启"
+    else
+        systemctl start xray
     fi
     
     # 等待服务稳定
-    sleep 3
+    sleep 5
 }
 
 # 验证随机化结果
@@ -9110,9 +9184,9 @@ CONF
 0  2 * * * bash -lc '/usr/local/bin/edgeboxctl rotate-reality'         >/dev/null 2>&1
 0  3 * * 0 ${SCRIPTS_DIR}/sni-manager.sh select >/dev/null 2>&1
 0  4 * * * ${SCRIPTS_DIR}/sni-manager.sh health >/dev/null 2>&1
-0 4 * * * bash -lc '/usr/local/bin/edgeboxctl traffic randomize light' >/dev/null 2>&1
-0 5 * * 0 bash -lc '/usr/local/bin/edgeboxctl traffic randomize medium' >/dev/null 2>&1
-0 6 1 * * bash -lc '/usr/local/bin/edgeboxctl traffic randomize heavy' >/dev/null 2>&1
+0 4 * * * bash -lc '/etc/edgebox/scripts/edgebox-traffic-randomize.sh light' >/dev/null 2>&1
+0 5 * * 0 bash -lc '/etc/edgebox/scripts/edgebox-traffic-randomize.sh medium' >/dev/null 2>&1
+0 6 1 * * bash -lc '/etc/edgebox/scripts/edgebox-traffic-randomize.sh heavy' >/dev/null 2>&1
 CRON
     ) | crontab -
 
@@ -9484,27 +9558,6 @@ traffic_status() {
         tail -5 "$log_file" | while read -r line; do
             echo "  $line"
         done
-    fi
-}
-
-traffic_reset() {
-    log_info "重置流量随机化配置为默认值..."
-    
-    # 备份当前配置
-    local backup_dir="/etc/edgebox/backup/reset_$(date '+%Y%m%d_%H%M%S')"
-    mkdir -p "$backup_dir"
-    
-    [[ -f "${CONFIG_DIR}/xray.json" ]] && cp "${CONFIG_DIR}/xray.json" "$backup_dir/"
-    [[ -f "${CONFIG_DIR}/sing-box.json" ]] && cp "${CONFIG_DIR}/sing-box.json" "$backup_dir/"
-    
-    # 重新生成默认配置
-    if generate_xray_config && generate_sing_box_config; then
-        systemctl reload xray sing-box 2>/dev/null || true
-        log_success "流量随机化配置已重置为默认值"
-        log_info "配置备份保存在: $backup_dir"
-    else
-        log_error "重置配置失败"
-        return 1
     fi
 }
 
