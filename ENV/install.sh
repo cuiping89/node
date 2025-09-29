@@ -2853,7 +2853,7 @@ configure_xray() {
                 {
                     "tag": "vless-grpc",
                     "listen": "127.0.0.1", 
-                    "port": 12443,
+                    "port": 10085,
                     "protocol": "vless",
                     "settings": {
                         "clients": [
@@ -2882,7 +2882,7 @@ configure_xray() {
                 {
                     "tag": "vless-ws",
                     "listen": "127.0.0.1",
-                    "port": 13443, 
+                    "port": 10086, 
                     "protocol": "vless",
                     "settings": {
                         "clients": [
@@ -2911,7 +2911,7 @@ configure_xray() {
                 {
                     "tag": "trojan-tcp",
                     "listen": "127.0.0.1",
-                    "port": 14443,
+                    "port": 10143,
                     "protocol": "trojan",
                     "settings": {
                         "clients": [
@@ -3010,7 +3010,6 @@ XRAY_SERVICE
     log_success "Xray服务文件创建完成"
     return 0
 }
-
 
 #############################################
 # sing-box 配置函数
