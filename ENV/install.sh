@@ -9485,21 +9485,6 @@ ensure_config_loaded() {
     }
 }
 
-# 原来的 get_server_info 函数现在变成简单的验证函数
-get_server_info() {
-    if [[ "$CONFIG_LOADED" != "true" ]]; then
-        echo "错误: 配置未加载，请先调用 load_config_once"
-        return 1
-    fi
-    
-    if [[ -z "$SERVER_IP" ]]; then
-        echo "错误: 服务器IP配置缺失"
-        return 1
-    fi
-    
-    return 0
-}
-
 # 修改后的订阅显示函数 - 不再重复读取配置
 show_sub() {
     ensure_config_loaded || return 1
