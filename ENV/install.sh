@@ -115,6 +115,11 @@ XRAY_INSTALL_SCRIPT="https://raw.githubusercontent.com/XTLS/Xray-install/main/in
 TMP_DIR="/tmp/edgebox"
 LOCK_FILE="/var/lock/edgebox-install.lock"
 
+# === Reality密钥轮换配置 ===
+REALITY_ROTATION_DAYS=90
+REALITY_ROTATION_STATE="${CONFIG_DIR}/reality-rotation.json"
+REALITY_BACKUP_DIR="${BACKUP_DIR}/reality-keys"
+
 #############################################
 # 路径验证和创建函数
 #############################################
@@ -1755,6 +1760,10 @@ regenerate_credentials() {
         "all")
             log_info "重新生成所有凭据..."
             generate_credentials && generate_reality_keys && generate_self_signed_cert
+            ;;
+		"reality-rotate")
+            log_info "执行Reality密钥轮换..."
+            rotate_reality_keys
             ;;
         *)
             log_error "未知的凭据类型: $cred_type"
@@ -4063,7 +4072,7 @@ log_info "已创建favicon.ico文件"
 }
 
 #############################################
-# 模块4导出函数（供其他模块调用）
+# 模块4导出函数
 #############################################
 
 # 手动刷新Dashboard数据
@@ -8245,6 +8254,7 @@ CONF
 0  * * * * bash -lc '/etc/edgebox/scripts/traffic-collector.sh'        >/dev/null 2>&1
 7  * * * * bash -lc '/etc/edgebox/scripts/traffic-alert.sh'            >/dev/null 2>&1
 15 2 * * * bash -lc '/usr/local/bin/edgebox-ipq.sh'                    >/dev/null 2>&1
+0  2 * * * bash -lc '/usr/local/bin/edgeboxctl rotate-reality'         >/dev/null 2>&1
 CRON
     ) | crontab -
 
@@ -9595,7 +9605,16 @@ case "$1" in
     log_info "更新EdgeBox..."
     curl -fsSL https://raw.githubusercontent.com/cuiping89/node/main/ENV/install.sh | bash
     ;;
-  
+	
+ # Reality密钥轮换
+  rotate-reality)
+    rotate_reality_keys
+    ;;
+    
+  reality-status)
+    show_reality_rotation_status
+    ;;
+	
   # 帮助信息
 help|"") 
   cat <<HLP
@@ -9644,7 +9663,9 @@ ${YELLOW}流量统计与预警:${NC}
 ${YELLOW}配置管理:${NC}
   edgeboxctl config show                         显示当前配置（UUID/Reality/端口等）
   edgeboxctl config regenerate-uuid              重新生成 UUID
-
+  edgeboxctl rotate-reality                      执行Reality密钥轮换
+  edgeboxctl reality-status                      查看轮换状态
+  
 ${YELLOW}备份恢复:${NC}
   edgeboxctl backup create                       创建备份
   edgeboxctl backup list                         列出备份
@@ -9728,9 +9749,10 @@ EMAIL_GUIDE
 }
 
 
+#############################################
+# IP质量评分系统
+#############################################
 
-# [ANCHOR:IPQ_STACK_ENHANCED_START]
-# 安装增强版IP质量评分系统 (包含VPS带宽测试、特征优化、rDNS改进、前端修复)
 install_ipq_stack() {
   log_info "安装增强版 IP 质量评分（IPQ）栈..."
 
@@ -10065,7 +10087,6 @@ IPQ
   /usr/local/bin/edgebox-ipq.sh || true
   log_success "增强版IPQ栈完成：VPS带宽测试、特征识别优化、前端residential支持"
 }
-# [ANCHOR:IPQ_STACK_ENHANCED_END]
 
 
 # 生成初始化脚本（用于开机自启动流量监控）
@@ -10144,6 +10165,233 @@ INIT_SERVICE
 }
 
 
+#############################################
+# Reality密钥轮换系统
+#############################################
+
+# 生成新的Reality密钥对并执行轮换
+rotate_reality_keys() {
+    log_info "开始Reality密钥轮换..."
+    
+    # 检查是否需要轮换
+    if ! check_reality_rotation_needed; then
+        log_info "当前不需要轮换Reality密钥"
+        return 0
+    fi
+    
+    # 备份当前配置
+    local backup_file="${CONFIG_DIR}/xray.json.backup.$(date +%s)"
+    cp "${CONFIG_DIR}/xray.json" "$backup_file" 2>/dev/null || true
+    
+    # 生成新密钥
+    local reality_output
+    if command -v sing-box >/dev/null 2>&1; then
+        reality_output="$(sing-box generate reality-keypair 2>/dev/null)"
+    elif command -v /usr/local/bin/sing-box >/dev/null 2>&1; then
+        reality_output="$(/usr/local/bin/sing-box generate reality-keypair 2>/dev/null)"
+    else
+        log_error "sing-box未安装，无法轮换密钥"
+        return 1
+    fi
+    
+    if [[ -z "$reality_output" ]]; then
+        log_error "Reality密钥生成失败"
+        return 1
+    fi
+    
+    # 提取新密钥
+    local new_private_key new_public_key new_short_id
+    new_private_key="$(echo "$reality_output" | grep -oP 'PrivateKey: \K[a-zA-Z0-9_-]+' | head -1)"
+    new_public_key="$(echo "$reality_output" | grep -oP 'PublicKey: \K[a-zA-Z0-9_-]+' | head -1)"
+    new_short_id="$(openssl rand -hex 4 2>/dev/null || echo "$(date +%s | sha256sum | head -c 8)")"
+    
+    # 验证密钥
+    if [[ -z "$new_private_key" || -z "$new_public_key" || ${#new_private_key} -lt 32 ]]; then
+        log_error "新密钥生成不完整或无效"
+        return 1
+    fi
+    
+    log_success "新Reality密钥生成成功"
+    log_info "新公钥: ${new_public_key:0:16}..."
+    
+    # 更新Xray配置
+    if update_xray_reality_keys "$new_private_key" "$new_short_id"; then
+        log_success "Xray配置更新成功"
+    else
+        log_error "Xray配置更新失败，恢复备份"
+        cp "$backup_file" "${CONFIG_DIR}/xray.json" 2>/dev/null || true
+        return 1
+    fi
+    
+    # 更新server.json
+    update_server_reality_keys "$new_private_key" "$new_public_key" "$new_short_id"
+    
+    # 重启Xray服务
+    if systemctl restart xray; then
+        log_success "Xray服务重启成功"
+        sleep 3
+        
+        # 验证服务状态
+        if systemctl is-active --quiet xray; then
+            log_success "Reality密钥轮换完成"
+            
+            # 更新轮换状态
+            update_reality_rotation_state "$new_public_key"
+            
+            # 重新生成订阅
+            REALITY_PUBLIC_KEY="$new_public_key"
+            REALITY_SHORT_ID="$new_short_id"
+            generate_subscription 2>/dev/null || log_warn "订阅链接更新失败"
+            
+            log_info "请提醒用户更新客户端配置"
+            return 0
+        else
+            log_error "Xray服务启动失败，恢复备份配置"
+            cp "$backup_file" "${CONFIG_DIR}/xray.json" 2>/dev/null || true
+            systemctl restart xray
+            return 1
+        fi
+    else
+        log_error "Xray服务重启失败"
+        return 1
+    fi
+}
+
+# 检查是否需要轮换
+check_reality_rotation_needed() {
+    # 如果没有轮换状态文件，创建一个
+    if [[ ! -f "$REALITY_ROTATION_STATE" ]]; then
+        local next_rotation=$(date -d "+${REALITY_ROTATION_DAYS} days" -Iseconds)
+        echo "{\"next_rotation\":\"$next_rotation\",\"last_rotation\":\"$(date -Iseconds)\"}" > "$REALITY_ROTATION_STATE"
+        log_info "创建Reality轮换状态文件，下次轮换: $next_rotation"
+        return 1  # 首次安装不需要轮换
+    fi
+    
+    # 检查轮换时间
+    local next_rotation_time
+    next_rotation_time=$(jq -r '.next_rotation' "$REALITY_ROTATION_STATE" 2>/dev/null)
+    
+    if [[ -n "$next_rotation_time" && "$next_rotation_time" != "null" ]]; then
+        local next_timestamp=$(date -d "$next_rotation_time" +%s 2>/dev/null || echo 0)
+        local current_timestamp=$(date +%s)
+        
+        if [[ $current_timestamp -ge $next_timestamp ]]; then
+            log_info "Reality密钥已到轮换时间"
+            return 0
+        else
+            local days_remaining=$(( (next_timestamp - current_timestamp) / 86400 ))
+            log_info "距离下次Reality密钥轮换还有 $days_remaining 天"
+            return 1
+        fi
+    fi
+    
+    return 1
+}
+
+# 更新Xray配置中的Reality密钥
+update_xray_reality_keys() {
+    local new_private_key="$1"
+    local new_short_id="$2"
+    
+    if [[ ! -f "${CONFIG_DIR}/xray.json" ]]; then
+        log_error "Xray配置文件不存在"
+        return 1
+    fi
+    
+    # 使用jq安全更新配置
+    local temp_config="${CONFIG_DIR}/xray.json.tmp"
+    
+    if jq --arg private_key "$new_private_key" \
+          --arg short_id "$new_short_id" \
+          '(.inbounds[]? | select(.tag? | contains("reality"))? | .streamSettings?.realitySettings?.privateKey?) = $private_key |
+           (.inbounds[]? | select(.tag? | contains("reality"))? | .streamSettings?.realitySettings?.shortId?) = [$short_id]' \
+          "${CONFIG_DIR}/xray.json" > "$temp_config" 2>/dev/null; then
+        
+        # 验证JSON格式
+        if jq '.' "$temp_config" >/dev/null 2>&1; then
+            mv "$temp_config" "${CONFIG_DIR}/xray.json"
+            return 0
+        else
+            log_error "更新后的Xray配置JSON格式错误"
+            rm -f "$temp_config"
+            return 1
+        fi
+    else
+        log_error "使用jq更新Xray配置失败"
+        rm -f "$temp_config"
+        return 1
+    fi
+}
+
+# 更新server.json中的Reality密钥
+update_server_reality_keys() {
+    local new_private_key="$1"
+    local new_public_key="$2"
+    local new_short_id="$3"
+    
+    if [[ -f "${CONFIG_DIR}/server.json" ]]; then
+        local temp_server="${CONFIG_DIR}/server.json.tmp"
+        
+        if jq --arg private_key "$new_private_key" \
+              --arg public_key "$new_public_key" \
+              --arg short_id "$new_short_id" \
+              --arg updated_at "$(date -Iseconds)" \
+              '.reality.private_key = $private_key |
+               .reality.public_key = $public_key |
+               .reality.short_id = $short_id |
+               .reality.last_rotation = $updated_at |
+               .updated_at = $updated_at' \
+              "${CONFIG_DIR}/server.json" > "$temp_server" 2>/dev/null; then
+            
+            mv "$temp_server" "${CONFIG_DIR}/server.json"
+            log_success "server.json更新成功"
+        else
+            log_warn "server.json更新失败"
+            rm -f "$temp_server"
+        fi
+    fi
+}
+
+# 更新轮换状态
+update_reality_rotation_state() {
+    local new_public_key="$1"
+    local current_time=$(date -Iseconds)
+    local next_rotation=$(date -d "+${REALITY_ROTATION_DAYS} days" -Iseconds)
+    
+    mkdir -p "$(dirname "$REALITY_ROTATION_STATE")"
+    echo "{\"last_rotation\":\"$current_time\",\"next_rotation\":\"$next_rotation\",\"last_public_key\":\"$new_public_key\"}" > "$REALITY_ROTATION_STATE"
+    log_info "轮换状态已更新，下次轮换时间: $next_rotation"
+}
+
+# 查看Reality轮换状态
+show_reality_rotation_status() {
+    if [[ ! -f "$REALITY_ROTATION_STATE" ]]; then
+        echo "Reality轮换状态文件不存在"
+        return 1
+    fi
+    
+    local next_rotation_time last_rotation_time last_public_key
+    next_rotation_time=$(jq -r '.next_rotation' "$REALITY_ROTATION_STATE" 2>/dev/null)
+    last_rotation_time=$(jq -r '.last_rotation' "$REALITY_ROTATION_STATE" 2>/dev/null)
+    last_public_key=$(jq -r '.last_public_key' "$REALITY_ROTATION_STATE" 2>/dev/null)
+    
+    echo "=== Reality密钥轮换状态 ==="
+    echo "上次轮换: $(date -d "$last_rotation_time" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "$last_rotation_time")"
+    echo "下次轮换: $(date -d "$next_rotation_time" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "$next_rotation_time")"
+    echo "当前公钥: ${last_public_key:0:20}..."
+    
+    local next_timestamp=$(date -d "$next_rotation_time" +%s 2>/dev/null || echo 0)
+    local current_timestamp=$(date +%s)
+    local days_remaining=$(( (next_timestamp - current_timestamp) / 86400 ))
+    
+    if [[ $days_remaining -gt 0 ]]; then
+        echo "剩余时间: $days_remaining 天"
+    elif [[ $days_remaining -eq 0 ]]; then
+        echo "状态: 今日应执行轮换"
+    else
+        echo "状态: 轮换已过期 $((-days_remaining)) 天"
+    fi
+}
 
 
 #############################################
