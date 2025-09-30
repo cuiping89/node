@@ -3453,8 +3453,17 @@ configure_xray() {
                     "settings": {}
                 }
             ],
+			"dns": {
+  "servers": [
+    "8.8.8.8",
+    "1.1.1.1",
+    {"address": "https://1.1.1.1/dns-query"},
+    {"address": "https://8.8.8.8/dns-query"}
+  ],
+  "queryStrategy": "UseIP"
+},
             "routing": {
-                "domainStrategy": "AsIs",
+                "domainStrategy": "UseIp",
                 "rules": [
                     {
                         "type": "field",
@@ -3727,12 +3736,19 @@ generate_subscription() {
         echo "${encoded}"
     }
     
+	# 计算 Reality 使用的 SNI（与服务端 xray.json 保持一致）
+    local reality_sni
+    reality_sni="$(jq -r 'first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.serverNames[0])
+                           // (first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.dest) | split(":")[0])
+                           // empty' "${CONFIG_DIR}/xray.json" 2>/dev/null)"
+    : "${reality_sni:=${REALITY_SNI:-www.microsoft.com}}"
+	
     # 生成协议链接
     local subscription_links=""
     
     # 1. VLESS-Reality
     if [[ -n "$uuid_reality" && -n "$reality_public_key" && -n "$reality_short_id" ]]; then
-        subscription_links+="vless://${uuid_reality}@${server_ip}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${reality_public_key}&sid=${reality_short_id}&type=tcp#EdgeBox-REALITY\n"
+        subscription_links+="vless://${uuid_reality}@${server_ip}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${reality_sni}&fp=chrome&pbk=${reality_public_key}&sid=${reality_short_id}&type=tcp#EdgeBox-REALITY\n"
     fi
     
     # 2. VLESS-gRPC (IP模式使用内部域名)
