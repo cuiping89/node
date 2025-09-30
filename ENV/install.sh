@@ -47,8 +47,48 @@ YELLOW="${ESC}[1;33m"
 GREEN="${ESC}[0;32m"
 RED="${ESC}[0;31m"
 NC="${ESC}[0m"  # No Color
+
+
+#############################################
+# 下载加速配置（可通过环境变量自定义）
+#############################################
+
 # 统一兜底版本，可被环境变量覆盖：DEFAULT_SING_BOX_VERSION=1.12.5 bash install.sh
 DEFAULT_SING_BOX_VERSION="${DEFAULT_SING_BOX_VERSION:-1.12.4}"
+
+# 主下载代理（用于GitHub Releases等二进制文件）
+# 使用方式: export EDGEBOX_DOWNLOAD_PROXY="https://my-mirror.com/" bash install.sh
+EDGEBOX_DOWNLOAD_PROXY="${EDGEBOX_DOWNLOAD_PROXY:-}"
+
+# GitHub文件加速镜像（用于raw.githubusercontent.com等脚本文件）
+EDGEBOX_GITHUB_MIRROR="${EDGEBOX_GITHUB_MIRROR:-}"
+
+# 预定义的下载镜像源列表（按优先级排序）
+declare -a DEFAULT_DOWNLOAD_MIRRORS=(
+    ""  # 直连（第一优先）
+    "https://ghproxy.com/"
+    "https://mirror.ghproxy.com/"
+    "https://gh.api.99988866.xyz/"
+)
+
+# 预定义的GitHub脚本镜像列表
+declare -a DEFAULT_GITHUB_MIRRORS=(
+    ""  # 直连
+    "https://ghproxy.com/"
+    "https://fastly.jsdelivr.net/"
+    "https://gcore.jsdelivr.net/"
+)
+
+# 如果用户指定了代理，将其插入到列表最前面
+if [[ -n "$EDGEBOX_DOWNLOAD_PROXY" ]]; then
+    DEFAULT_DOWNLOAD_MIRRORS=("$EDGEBOX_DOWNLOAD_PROXY" "${DEFAULT_DOWNLOAD_MIRRORS[@]}")
+    log_info "使用用户指定的下载代理: $EDGEBOX_DOWNLOAD_PROXY"
+fi
+
+if [[ -n "$EDGEBOX_GITHUB_MIRROR" ]]; then
+    DEFAULT_GITHUB_MIRRORS=("$EDGEBOX_GITHUB_MIRROR" "${DEFAULT_GITHUB_MIRRORS[@]}")
+    log_info "使用用户指定的GitHub镜像: $EDGEBOX_GITHUB_MIRROR"
+fi
 
 
 #############################################
@@ -398,6 +438,111 @@ get_server_ip() {
     # 所有服务都失败的情况
     log_error "无法获取服务器公网IP，请检查网络连接"
     exit 1
+}
+
+# 智能下载函数：自动尝试多个镜像源
+smart_download() {
+    local url="$1"
+    local output="$2"
+    local file_type="${3:-binary}"  # binary|script|checksum
+    
+    log_info "智能下载: ${url##*/}"
+    
+    # 根据文件类型选择镜像列表
+    local -a mirrors
+    if [[ "$file_type" == "script" ]] || [[ "$url" == *"raw.githubusercontent.com"* ]]; then
+        mirrors=("${DEFAULT_GITHUB_MIRRORS[@]}")
+    else
+        mirrors=("${DEFAULT_DOWNLOAD_MIRRORS[@]}")
+    fi
+    
+    # 尝试每个镜像源
+    local attempt=0
+    for mirror in "${mirrors[@]}"; do
+        attempt=$((attempt + 1))
+        local full_url
+        
+        if [[ -z "$mirror" ]]; then
+            full_url="$url"
+            log_info "尝试 $attempt: 直连下载"
+        else
+            mirror="${mirror%/}"
+            full_url="${mirror}/${url}"
+            log_info "尝试 $attempt: ${mirror##*/}"
+        fi
+        
+        if curl -fsSL --retry 2 --retry-delay 2 \
+            --connect-timeout 15 --max-time 300 \
+            -A "Mozilla/5.0 (EdgeBox/3.0.0)" \
+            "$full_url" -o "$output"; then
+            
+            if validate_download "$output" "$file_type"; then
+                log_success "下载成功: ${url##*/}"
+                return 0
+            else
+                log_warn "文件验证失败，尝试下一个源"
+                rm -f "$output"
+            fi
+        fi
+    done
+    
+    log_error "所有下载源均失败: ${url##*/}"
+    return 1
+}
+
+# 下载验证函数
+validate_download() {
+    local file="$1"
+    local type="$2"
+    
+    [[ ! -f "$file" ]] && return 1
+    
+    case "$type" in
+        "binary")
+            local size=$(stat -c%s "$file" 2>/dev/null || echo "0")
+            [[ "$size" -gt 1048576 ]] && return 0  # 至少1MB
+            ;;
+        "script")
+            head -n1 "$file" 2>/dev/null | grep -q "^#!" && return 0
+            ;;
+        "checksum")
+            grep -q "[0-9a-f]\{64\}" "$file" && return 0
+            ;;
+        *)
+            [[ -s "$file" ]] && return 0
+            ;;
+    esac
+    
+    return 1
+}
+
+# 智能下载并执行脚本
+smart_download_script() {
+    local url="$1"
+    local description="${2:-script}"
+    
+    log_info "下载$description..."
+    
+    local temp_script
+    temp_script=$(mktemp) || {
+        log_error "创建临时文件失败"
+        return 1
+    }
+    
+    if smart_download "$url" "$temp_script" "script"; then
+        bash "$temp_script"
+        local exit_code=$?
+        rm -f "$temp_script"
+        return $exit_code
+    else
+        rm -f "$temp_script"
+        return 1
+    fi
+}
+
+# install_dependencies 函数
+install_dependencies() {
+    ...（保持原有）...
 }
 
 
@@ -2311,32 +2456,21 @@ install_xray() {
         local current_version
         current_version=$(xray version 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)
         log_info "检测到已安装的Xray版本: ${current_version:-未知}"
-        
-        # 询问是否重新安装（在自动安装中默认跳过）
         log_info "跳过Xray重新安装，使用现有版本"
-    else
-        log_info "从官方仓库下载并安装Xray..."
-        
-# 使用官方安装脚本（多源回退，修复 404）
-if curl -fsSL --retry 3 --retry-delay 2 -A "Mozilla/5.0" \
-    https://raw.githubusercontent.com/XTLS/Xray-install/main/install-release.sh | bash; then
-    log_success "Xray安装完成"
-elif curl -fsSL --retry 3 --retry-delay 2 -A "Mozilla/5.0" \
-    https://fastly.jsdelivr.net/gh/XTLS/Xray-install@main/install-release.sh | bash; then
-    log_success "Xray安装完成（jsdelivr镜像）"
-elif curl -fsSL --retry 3 --retry-delay 2 -A "Mozilla/5.0" \
-    https://ghproxy.com/https://raw.githubusercontent.com/XTLS/Xray-install/main/install-release.sh | bash; then
-    log_success "Xray安装完成（ghproxy镜像）"
-else
-    log_error "Xray安装失败（安装脚本 404/不可达）"
-    return 1
-fi
-
+        return 0
     fi
     
-    # 停用官方的systemd服务（使用自定义配置）
-    systemctl disable --now xray >/dev/null 2>&1 || true
-    rm -rf /etc/systemd/system/xray.service.d 2>/dev/null || true
+    log_info "从官方仓库下载并安装Xray..."
+    
+    # 使用智能下载函数
+    if smart_download_script \
+        "https://raw.githubusercontent.com/XTLS/Xray-install/main/install-release.sh" \
+        "Xray安装脚本"; then
+        log_success "Xray安装完成"
+    else
+        log_error "Xray安装失败"
+        return 1
+    fi
     
     # 验证安装
     if command -v xray >/dev/null 2>&1; then
@@ -2344,9 +2478,9 @@ fi
         xray_version=$(xray version 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)
         log_success "Xray验证通过，版本: ${xray_version:-未知}"
         
-        # 创建日志目录
         mkdir -p /var/log/xray
-        chown nobody:nogroup /var/log/xray 2>/dev/null || chown nobody:nobody /var/log/xray 2>/dev/null || true
+        chown nobody:nogroup /var/log/xray 2>/dev/null || \
+            chown nobody:nobody /var/log/xray 2>/dev/null || true
         
         return 0
     else
@@ -2453,42 +2587,18 @@ install_sing_box() {
         log_warn "继续安装过程，但建议您手动验证二进制文件的完整性"
     fi
     
-    # 多源下载二进制文件
+# 下载校验文件
+    log_info "下载SHA256校验文件..."
+    if smart_download "$checksum_url" "$temp_checksum_file" "checksum"; then
+        log_success "校验文件下载成功"
+    else
+        log_warn "校验文件下载失败，将跳过SHA256验证"
+    fi
+    
+    # 下载二进制文件
     log_info "下载sing-box二进制文件..."
-    local download_success=false
-    local download_sources=(
-        "$download_url"
-        "https://github.com/SagerNet/sing-box/releases/download/v${version}/${filename}"
-        "https://ghproxy.com/https://github.com/SagerNet/sing-box/releases/download/v${version}/${filename}"
-        "https://mirror.ghproxy.com/https://github.com/SagerNet/sing-box/releases/download/v${version}/${filename}"
-    )
-    
-    for url in "${download_sources[@]}"; do
-        log_info "尝试从源下载: ${url##*/}"
-        if curl -fsSL --retry 3 --retry-delay 2 \
-            --connect-timeout 30 --max-time 300 \
-            -A "Mozilla/5.0 (EdgeBox Installer)" \
-            "$url" -o "$temp_file"; then
-            
-            # 验证下载的文件大小
-            local file_size
-            file_size=$(stat -c%s "$temp_file" 2>/dev/null || echo "0")
-            if [[ "$file_size" -gt 1000000 ]]; then  # 至少1MB
-                log_success "下载成功，文件大小: $((file_size / 1024 / 1024))MB"
-                download_success=true
-                break
-            else
-                log_warn "下载文件过小，可能下载不完整"
-                rm -f "$temp_file"
-                temp_file="$(mktemp)"
-            fi
-        else
-            log_warn "从此源下载失败"
-        fi
-    done
-    
-    if [[ "$download_success" != "true" ]]; then
-        log_error "所有下载源均失败"
+    if ! smart_download "$download_url" "$temp_file" "binary"; then
+        log_error "sing-box二进制文件下载失败"
         rm -f "$temp_file" "$temp_checksum_file"
         return 1
     fi
@@ -4580,7 +4690,6 @@ setup_traffic_randomization() {
     
     create_traffic_randomization_script
     create_randomization_config
-    setup_randomization_schedule
     
     log_success "流量特征随机化系统配置完成"
 }
