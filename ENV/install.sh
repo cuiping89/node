@@ -597,9 +597,160 @@ smart_download_script() {
     fi
 }
 
-# install_dependencies 函数
+
 install_dependencies() {
-    ...（保持原有）...
+    log_info "安装系统依赖（增强幂等性检查）..."
+    
+    # 检查包管理器并设置安装命令
+    if command -v apt-get >/dev/null 2>&1; then
+        PKG_MANAGER="apt"
+        INSTALL_CMD="DEBIAN_FRONTEND=noninteractive apt-get install -y"
+        UPDATE_CMD="apt-get update"
+    elif command -v yum >/dev/null 2>&1; then
+        PKG_MANAGER="yum"
+        INSTALL_CMD="yum install -y"
+        UPDATE_CMD="yum makecache"
+    elif command -v dnf >/dev/null 2>&1; then
+        PKG_MANAGER="dnf"
+        INSTALL_CMD="dnf install -y"
+        UPDATE_CMD="dnf makecache"
+    else
+        log_error "不支持的包管理器"
+        return 1
+    fi
+    
+    # 必要的依赖包列表
+    local base_packages=(
+        curl wget unzip gawk ca-certificates 
+        jq bc uuid-runtime dnsutils openssl
+        tar cron
+    )
+    
+    # 网络和防火墙包
+    local network_packages=(vnstat nftables)
+    local web_packages=(nginx)
+    local cert_mail_packages=(certbot msmtp-mta bsd-mailx)
+    local system_packages=(dmidecode htop iotop)
+
+    # 根据系统类型调整包名
+    if [[ "$PKG_MANAGER" == "apt" ]]; then
+        network_packages+=(libnginx-mod-stream)
+        cert_mail_packages+=(python3-certbot-nginx)
+    elif [[ "$PKG_MANAGER" =~ ^(yum|dnf)$ ]]; then
+        base_packages+=(epel-release)
+        cert_mail_packages+=(python3-certbot-nginx)
+    fi
+
+    # 合并所有包
+    local all_packages=(
+        "${base_packages[@]}" "${network_packages[@]}" 
+        "${web_packages[@]}" "${cert_mail_packages[@]}"
+        "${system_packages[@]}"
+    )
+    
+    # 更新包索引（幂等操作）
+    log_info "更新包索引..."
+    if ! eval "$UPDATE_CMD" >/dev/null 2>&1; then
+        log_warn "包索引更新失败，尝试清理缓存后重试..."
+        case "$PKG_MANAGER" in
+            "apt") 
+                apt-get clean >/dev/null 2>&1
+                eval "$UPDATE_CMD" >/dev/null 2>&1 || log_warn "包索引更新仍然失败，继续安装"
+                ;;
+            "yum") 
+                yum clean all >/dev/null 2>&1
+                eval "$UPDATE_CMD" >/dev/null 2>&1 || log_warn "包索引更新仍然失败，继续安装"
+                ;;
+            "dnf") 
+                dnf clean all >/dev/null 2>&1
+                eval "$UPDATE_CMD" >/dev/null 2>&1 || log_warn "包索引更新仍然失败，继续安装"
+                ;;
+        esac
+    fi
+    
+    # [改进] 增强的包安装检查 - 批次处理提高效率
+    local failed_packages=()
+    local skipped_packages=()
+    local installed_packages=()
+    
+    log_info "检查包安装状态..."
+    for pkg in "${all_packages[@]}"; do
+        if is_package_properly_installed "$pkg"; then
+            log_success "✓ ${pkg} 已正确安装"
+            skipped_packages+=("$pkg")
+        else
+            log_info "→ ${pkg} 需要安装"
+            installed_packages+=("$pkg")
+        fi
+    done
+    
+    # 统计信息
+    log_info "包状态统计: 已安装 ${#skipped_packages[@]}, 待安装 ${#installed_packages[@]}"
+    
+    # 批量安装未安装的包（提高效率）
+    if [[ ${#installed_packages[@]} -gt 0 ]]; then
+        log_info "开始批量安装 ${#installed_packages[@]} 个包..."
+        
+        # 构建批量安装命令
+        local install_list="${installed_packages[*]}"
+        
+        if eval "$INSTALL_CMD $install_list" >/dev/null 2>&1; then
+            log_success "批量安装命令执行成功，开始验证..."
+            
+            # 逐个验证安装结果
+            for pkg in "${installed_packages[@]}"; do
+                if is_package_properly_installed "$pkg"; then
+                    log_success "✓ ${pkg} 安装并验证成功"
+                else
+                    log_warn "⚠ ${pkg} 批量安装后验证失败，尝试单独安装"
+                    # 单独重试安装
+                    if eval "$INSTALL_CMD $pkg" >/dev/null 2>&1 && is_package_properly_installed "$pkg"; then
+                        log_success "✓ ${pkg} 单独安装成功"
+                    else
+                        log_error "✗ ${pkg} 安装失败"
+                        failed_packages+=("$pkg")
+                    fi
+                fi
+            done
+        else
+            log_warn "批量安装失败，改为逐个安装..."
+            # 批量安装失败时逐个安装
+            for pkg in "${installed_packages[@]}"; do
+                log_info "单独安装 ${pkg}..."
+                if eval "$INSTALL_CMD $pkg" >/dev/null 2>&1; then
+                    if is_package_properly_installed "$pkg"; then
+                        log_success "✓ ${pkg} 安装并验证成功"
+                    else
+                        log_warn "⚠ ${pkg} 安装似乎成功但验证失败"
+                        failed_packages+=("$pkg")
+                    fi
+                else
+                    log_error "✗ ${pkg} 安装失败"
+                    failed_packages+=("$pkg")
+                fi
+            done
+        fi
+    fi
+    
+    # 验证关键依赖（增强版）
+    verify_critical_dependencies
+    
+    # 确保系统服务状态
+    ensure_system_services
+    
+    # 最终状态报告
+    if [[ ${#failed_packages[@]} -eq 0 ]]; then
+        log_success "所有依赖包安装验证完成"
+        log_info "  ├─ 已安装: ${#skipped_packages[@]} 个"
+        log_info "  ├─ 新安装: ${#installed_packages[@]} 个"
+        log_info "  └─ 失败: 0 个"
+    else
+        log_warn "依赖安装完成，但有 ${#failed_packages[@]} 个包安装失败"
+        log_warn "失败的包: ${failed_packages[*]}"
+        log_warn "这可能不会影响核心功能，但建议检查"
+    fi
+    
+    return 0
 }
 
 
@@ -717,15 +868,34 @@ log_success "所有关键依赖验证通过"
 is_package_properly_installed() {
     local pkg="$1"
     
-    # 1. 检查命令是否可用（最重要）
+    # 1. 优先检查命令是否可用（最重要的判断）
     if command -v "$pkg" >/dev/null 2>&1; then
         return 0
     fi
     
-    # 2. 检查包管理器记录
+    # 2. 特殊包名映射检查
+    local actual_command=""
+    case "$pkg" in
+        "python3-certbot-nginx") actual_command="certbot" ;;
+        "msmtp-mta") actual_command="msmtp" ;;
+        "bsd-mailx") actual_command="mail" ;;
+        "libnginx-mod-stream") 
+            # 检查nginx模块是否已加载
+            nginx -T 2>/dev/null | grep -q "stream" && return 0 || return 1
+            ;;
+        *) actual_command="$pkg" ;;
+    esac
+    
+    # 检查映射后的命令
+    if [[ -n "$actual_command" ]] && command -v "$actual_command" >/dev/null 2>&1; then
+        return 0
+    fi
+    
+    # 3. 检查包管理器记录
     case "$PKG_MANAGER" in
         "apt")
-            dpkg -l 2>/dev/null | grep -q "^ii.*${pkg}"
+            # 检查已安装且配置正确的包
+            dpkg -l 2>/dev/null | grep -q "^ii.*${pkg}" 
             ;;
         "yum"|"dnf")
             rpm -q "$pkg" >/dev/null 2>&1
@@ -771,7 +941,7 @@ ensure_system_services() {
 create_directories() {
     log_info "创建目录结构（幂等性保证）..."
 
-    # 主要目录结构（保持原有）
+    # 主要目录结构
     local directories=(
         "${INSTALL_DIR}"
         "${CERT_DIR}"
@@ -788,47 +958,218 @@ create_directories() {
     )
 
     # 创建所有必要目录（幂等操作）
+    local created_dirs=()
+    local existing_dirs=()
+    local failed_dirs=()
+    
     for dir in "${directories[@]}"; do
-        if mkdir -p "$dir" 2>/dev/null; then
-            log_success "目录就绪: $dir"
+        if [[ -d "$dir" ]]; then
+            log_info "✓ 目录已存在: $dir"
+            existing_dirs+=("$dir")
         else
-            log_error "目录创建失败: $dir"
-            return 1
+            if mkdir -p "$dir" 2>/dev/null; then
+                log_success "✓ 目录创建成功: $dir"
+                created_dirs+=("$dir")
+            else
+                log_error "✗ 目录创建失败: $dir"
+                failed_dirs+=("$dir")
+            fi
         fi
     done
+
+    # 如果有目录创建失败，返回错误
+    if [[ ${#failed_dirs[@]} -gt 0 ]]; then
+        log_error "以下目录创建失败: ${failed_dirs[*]}"
+        return 1
+    fi
 
     # [新增] 强制确保所有目录权限正确（完全幂等）
     ensure_directory_permissions
     
+    # 验证目录可写性
+    verify_directory_writable
+    
+    # 状态汇报
     log_success "目录结构已完整建立"
+    log_info "  ├─ 已存在: ${#existing_dirs[@]} 个"
+    log_info "  ├─ 新创建: ${#created_dirs[@]} 个"
+    log_info "  └─ 失败: ${#failed_dirs[@]} 个"
+    
+    return 0
 }
 
-# [新增函数] 确保目录权限（完全幂等）
 ensure_directory_permissions() {
-    log_info "确保目录权限正确..."
+    log_info "确保目录权限正确（幂等操作）..."
     
-    # 标准目录权限设置（每次运行都确保正确）
-    chmod 755 "${INSTALL_DIR}" 2>/dev/null || true
-    chmod 755 "${CONFIG_DIR}" 2>/dev/null || true
-    chmod 755 "${SCRIPTS_DIR}" 2>/dev/null || true
-    chmod 755 "${TRAFFIC_DIR}" 2>/dev/null || true
-    chmod 755 "/var/log/edgebox" 2>/dev/null || true
+    # 定义目录权限映射
+    local dir_permissions=(
+        "${INSTALL_DIR}:755"
+        "${CONFIG_DIR}:755"
+        "${SCRIPTS_DIR}:755"
+        "${TRAFFIC_DIR}:755"
+        "/var/log/edgebox:755"
+        "${WEB_ROOT}:755"
+        "${SNI_CONFIG_DIR}:755"
+        "${CERT_DIR}:750"           # 证书目录特殊权限
+        "${BACKUP_DIR}:700"         # 备份目录私有权限
+    )
     
-    # 证书目录特殊权限（仅 root 与 nobody 组可访问）
-    chmod 750 "${CERT_DIR}" 2>/dev/null || true
+    local permission_errors=()
     
-    # 获取 nobody 用户对应的组名
-    local nobody_group
-    nobody_group="$(id -gn nobody 2>/dev/null || echo nogroup)"
-    chgrp "${nobody_group}" "${CERT_DIR}" 2>/dev/null || true
+    for dir_perm in "${dir_permissions[@]}"; do
+        IFS=':' read -r dir perm <<< "$dir_perm"
+        
+        if [[ -d "$dir" ]]; then
+            # 获取当前权限
+            local current_perm
+            current_perm=$(stat -c "%a" "$dir" 2>/dev/null || echo "000")
+            
+            if [[ "$current_perm" != "$perm" ]]; then
+                if chmod "$perm" "$dir" 2>/dev/null; then
+                    log_info "✓ 权限修正: $dir ($current_perm → $perm)"
+                else
+                    log_error "✗ 权限设置失败: $dir"
+                    permission_errors+=("$dir")
+                fi
+            else
+                log_info "✓ 权限正确: $dir ($perm)"
+            fi
+        fi
+    done
     
-    # 确保日志文件权限
-    [[ -f "/var/log/edgebox.log" ]] && chmod 644 "/var/log/edgebox.log" || true
-    [[ -f "/var/log/xray/error.log" ]] && chmod 644 "/var/log/xray/error.log" || true
+    # 证书目录特殊组权限设置
+    if [[ -d "${CERT_DIR}" ]]; then
+        local nobody_group
+        nobody_group="$(id -gn nobody 2>/dev/null || echo nogroup)"
+        
+        if chgrp "${nobody_group}" "${CERT_DIR}" 2>/dev/null; then
+            log_info "✓ 证书目录组权限设置为: ${nobody_group}"
+        else
+            log_warn "⚠ 证书目录组权限设置失败，使用默认权限"
+        fi
+    fi
     
-    log_success "目录权限已确保正确"
+    # 确保日志文件存在且权限正确
+    local log_files=(
+        "/var/log/edgebox.log"
+        "/var/log/xray/error.log"
+        "/var/log/xray/access.log"
+    )
+    
+    for log_file in "${log_files[@]}"; do
+        # 创建日志文件目录
+        local log_dir
+        log_dir="$(dirname "$log_file")"
+        [[ ! -d "$log_dir" ]] && mkdir -p "$log_dir"
+        
+        # 创建日志文件（如果不存在）
+        if [[ ! -f "$log_file" ]]; then
+            touch "$log_file" 2>/dev/null && chmod 644 "$log_file" 2>/dev/null
+            log_info "✓ 日志文件创建: $log_file"
+        else
+            chmod 644 "$log_file" 2>/dev/null
+            log_info "✓ 日志文件权限: $log_file"
+        fi
+    done
+    
+    if [[ ${#permission_errors[@]} -eq 0 ]]; then
+        log_success "所有目录权限设置完成"
+    else
+        log_warn "部分目录权限设置失败: ${permission_errors[*]}"
+    fi
 }
 
+verify_directory_writable() {
+    log_info "验证目录可写性..."
+    
+    # 需要写入权限的关键目录
+    local writable_dirs=(
+        "${INSTALL_DIR}"
+        "${CONFIG_DIR}"
+        "${TRAFFIC_DIR}"
+        "${SCRIPTS_DIR}"
+        "${BACKUP_DIR}"
+        "/var/log/edgebox"
+        "${WEB_ROOT}"
+    )
+    
+    local write_test_errors=()
+    
+    for dir in "${writable_dirs[@]}"; do
+        if [[ -d "$dir" ]]; then
+            # 创建测试文件
+            local test_file="${dir}/.write_test_$$"
+            
+            if echo "test" > "$test_file" 2>/dev/null; then
+                rm -f "$test_file" 2>/dev/null
+                log_info "✓ 目录可写: $dir"
+            else
+                log_error "✗ 目录不可写: $dir"
+                write_test_errors+=("$dir")
+            fi
+        else
+            log_warn "⚠ 目录不存在: $dir"
+            write_test_errors+=("$dir")
+        fi
+    done
+    
+    if [[ ${#write_test_errors[@]} -eq 0 ]]; then
+        log_success "所有关键目录写入权限验证通过"
+        return 0
+    else
+        log_error "以下目录写入权限验证失败: ${write_test_errors[*]}"
+        return 1
+    fi
+}
+
+verify_critical_dependencies() {
+    log_info "验证关键依赖安装状态..."
+    
+    # 关键依赖命令映射
+    local critical_deps=(
+        "jq:JSON处理工具"
+        "curl:HTTP客户端"
+        "wget:下载工具"
+        "nginx:Web服务器"
+        "openssl:加密工具"
+        "uuidgen:UUID生成器"
+        "certbot:SSL证书工具"
+    )
+    
+    local missing_critical=()
+    local available_critical=()
+    
+    for dep_info in "${critical_deps[@]}"; do
+        IFS=':' read -r cmd desc <<< "$dep_info"
+        
+        if command -v "$cmd" >/dev/null 2>&1; then
+            log_success "✓ $desc ($cmd) 可用"
+            available_critical+=("$cmd")
+        else
+            log_error "✗ $desc ($cmd) 不可用"
+            missing_critical+=("$cmd")
+        fi
+    done
+    
+    # 统计验证结果
+    local total_deps=${#critical_deps[@]}
+    local available_count=${#available_critical[@]}
+    local missing_count=${#missing_critical[@]}
+    
+    log_info "关键依赖验证完成: $available_count/$total_deps 可用"
+    
+    if [[ $missing_count -eq 0 ]]; then
+        log_success "所有关键依赖验证通过"
+        return 0
+    elif [[ $missing_count -le 2 ]]; then
+        log_warn "部分关键依赖缺失，可能影响某些功能: ${missing_critical[*]}"
+        return 0  # 允许继续，但发出警告
+    else
+        log_error "关键依赖缺失过多，无法继续安装"
+        log_error "缺失的依赖: ${missing_critical[*]}"
+        return 1
+    fi
+}
 
 #############################################
 # SNI域名池智能管理
@@ -3567,30 +3908,41 @@ ensure_service_running() {
     local max_attempts=3
     local attempt=0
     
+    log_info "确保服务运行状态: $service"
+    
     while [[ $attempt -lt $max_attempts ]]; do
         # 重新加载systemd配置（幂等）
         systemctl daemon-reload >/dev/null 2>&1
         
         # 启用服务（幂等）
-        systemctl enable "$service" >/dev/null 2>&1
+        if systemctl enable "$service" >/dev/null 2>&1; then
+            log_info "✓ $service 服务已启用"
+        else
+            log_warn "⚠ $service 服务启用失败"
+        fi
         
         # 检查服务状态
         if systemctl is-active --quiet "$service"; then
-            log_info "$service 已在运行"
+            log_success "✓ $service 已在运行"
             return 0
         fi
         
         # 尝试启动服务
         log_info "启动 $service 服务 (尝试 $((attempt + 1))/$max_attempts)"
-        systemctl start "$service" >/dev/null 2>&1
         
-        # 等待启动完成
-        sleep 2
-        
-        # 验证启动结果
-        if systemctl is-active --quiet "$service"; then
-            log_success "$service 服务启动成功"
-            return 0
+        if systemctl start "$service" >/dev/null 2>&1; then
+            # 等待启动完成
+            sleep 3
+            
+            # 验证启动结果
+            if systemctl is-active --quiet "$service"; then
+                log_success "✓ $service 服务启动成功"
+                return 0
+            else
+                log_warn "⚠ $service 启动命令成功但服务未激活"
+            fi
+        else
+            log_warn "⚠ $service 启动命令失败"
         fi
         
         ((attempt++))
@@ -3598,14 +3950,23 @@ ensure_service_running() {
         # 如果不是最后一次尝试，显示错误信息并重试
         if [[ $attempt -lt $max_attempts ]]; then
             log_warn "$service 启动失败，将重试..."
+            # 获取服务状态信息用于调试
+            systemctl status "$service" --no-pager -l >/dev/null 2>&1 || true
+            # 停止服务准备重试
             systemctl stop "$service" >/dev/null 2>&1 || true
-            sleep 1
+            sleep 2
         fi
     done
     
-    # 所有尝试失败，显示详细错误信息
-    log_error "$service 服务在 $max_attempts 次尝试后仍无法启动"
-    systemctl status "$service" --no-pager -l || true
+    # 最终失败处理
+    log_error "✗ $service 服务在 $max_attempts 次尝试后仍无法启动"
+    
+    # 输出详细错误信息用于调试
+    log_error "服务状态详情:"
+    systemctl status "$service" --no-pager -l 2>&1 | head -10 | while read -r line; do
+        log_error "  $line"
+    done
+    
     return 1
 }
 
