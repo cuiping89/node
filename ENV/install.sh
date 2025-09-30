@@ -3165,14 +3165,14 @@ stream {
     # SNI 映射规则（基于域名分流）
     map $ssl_preread_server_name $backend_pool {
         # Reality 伪装域名
-        ~^(www\.cloudflare\.com|www\.apple\.com|www\.microsoft\.com)$ reality;
+        ~*(microsoft\.com|apple\.com|cloudflare\.com|amazon\.com|fastly\.com)$ reality;
         
         # Trojan 专用子域
-        ~*^trojan\. trojan;
+        ~*^trojan\..* trojan;
         
         # 内部服务域名（用于gRPC和WebSocket）
         grpc.edgebox.internal grpc;
-        ws.edgebox.internal ws;
+        ws.edgebox.internal websocket;
         
         # 默认后端
         default "";
@@ -3180,10 +3180,10 @@ stream {
     
     # ALPN 协议映射（基于应用层协议分流）
     map $ssl_preread_alpn_protocols $backend_alpn {
-        ~\bh2\b            grpc;      # HTTP/2 -> gRPC
-        ~\bhttp/1\.1\b     websocket; # HTTP/1.1 -> WebSocket
-        default            reality;   # 默认 -> Reality
-    }
+    ~\bhttp/1\.1\b     websocket; # 先判 WebSocket
+    ~\bh2\b            grpc;      # 再判 gRPC
+    default            reality;   # 兜底 Reality
+}
     
     # 后端服务器映射
     map $backend_pool $upstream_server {
@@ -3370,7 +3370,7 @@ configure_xray() {
                             ]
                         },
                         "grpcSettings": {
-                            "serviceName": "GunService"
+                            "serviceName": "grpc"
                         }
                     }
                 },
@@ -3399,7 +3399,7 @@ configure_xray() {
                             ]
                         },
                         "wsSettings": {
-                            "path": "/websocket"
+                           "path": "/ws"
                         }
                     }
                 },
@@ -11462,7 +11462,7 @@ sni_set_domain() {
     echo "手动设置SNI域名: $target_domain"
     
     local temp_config="${XRAY_CONFIG}.tmp"
-    if jq --arg domain "$target_domain" '(.inbounds[] | select(.tag == "vless-reality-vision") | .streamSettings.realitySettings.dest) = $domain + ":443"' "$XRAY_CONFIG" > "$temp_config" 2>/dev/null; then
+    if jq --arg domain "$target_domain" '(.inbounds[] | select(.tag == "vless-reality") | .streamSettings.realitySettings.dest) = $domain + ":443"' "$XRAY_CONFIG" > "$temp_config" 2>/dev/null; then
         if jq empty "$temp_config" >/dev/null 2>&1; then
             mv "$temp_config" "$XRAY_CONFIG"
             reload_or_restart_services xray
