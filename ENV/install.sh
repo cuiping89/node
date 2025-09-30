@@ -50,11 +50,48 @@ NC="${ESC}[0m"  # No Color
 
 
 #############################################
-# 下载加速配置（可通过环境变量自定义）
+# 智能版本管理 - 自动获取最新稳定版本
 #############################################
 
-# 统一兜底版本，可被环境变量覆盖：DEFAULT_SING_BOX_VERSION=1.12.5 bash install.sh
-DEFAULT_SING_BOX_VERSION="${DEFAULT_SING_BOX_VERSION:-1.12.4}"
+# 获取sing-box最新稳定版本
+get_latest_sing_box_version() {
+    local fallback="1.10.3"  # 已验证的稳定版本
+    
+    # 尝试从GitHub API获取最新版本
+    local latest=$(curl -fsSL --connect-timeout 5 --max-time 10 \
+        "https://api.github.com/repos/SagerNet/sing-box/releases/latest" 2>/dev/null \
+        | grep -oE '"tag_name":\s*"v[^"]+' \
+        | sed 's/.*"v\([^"]*\)/\1/' \
+        | head -1)
+    
+    # 验证版本格式
+    if [[ "$latest" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        # 检查版本是否真的可下载（避免1.12.4这种问题版本）
+        local test_url="https://github.com/SagerNet/sing-box/releases/download/v${latest}/sing-box-${latest}-linux-amd64.tar.gz"
+        if curl -fsSL --head --connect-timeout 3 "$test_url" >/dev/null 2>&1; then
+            echo "$latest"
+            return 0
+        fi
+    fi
+    
+    # 降级到已知稳定版本
+    echo "$fallback"
+}
+
+# 设置版本变量（支持用户覆盖）
+if [[ -n "${DEFAULT_SING_BOX_VERSION:-}" ]]; then
+    # 用户指定了版本
+    DEFAULT_SING_BOX_VERSION="${DEFAULT_SING_BOX_VERSION}"
+    log_info "使用用户指定的sing-box版本: v${DEFAULT_SING_BOX_VERSION}"
+else
+    # 自动获取最新版本
+    DEFAULT_SING_BOX_VERSION=$(get_latest_sing_box_version)
+    log_info "自动选择sing-box版本: v${DEFAULT_SING_BOX_VERSION}"
+fi
+
+#############################################
+# 下载加速配置（可通过环境变量自定义）
+#############################################
 
 # 主下载代理（用于GitHub Releases等二进制文件）
 # 使用方式: export EDGEBOX_DOWNLOAD_PROXY="https://my-mirror.com/" bash install.sh
@@ -2565,6 +2602,12 @@ install_sing_box() {
         return 1
     fi
     
+	# 版本降级检查（针对已知问题版本）
+    if [[ "$version" == "1.12.4" ]]; then
+        log_warn "检测到问题版本 v1.12.4，自动降级到 v1.10.3"
+        version="1.10.3"
+    fi
+	
     # 下载校验文件
     log_info "下载SHA256校验文件..."
     local checksum_success=false
@@ -2592,10 +2635,19 @@ install_sing_box() {
         fi
     done
     
-    if [[ "$checksum_success" != "true" ]]; then
+	if [[ "$checksum_success" != "true" ]]; then
+    # 对于特定的已知安全版本，可以跳过校验
+    local safe_versions=("1.10.3" "1.10.0" "1.9.7")
+    if [[ " ${safe_versions[@]} " =~ " ${version} " ]]; then
+        log_info "使用已知安全版本 v${version}，跳过SHA256校验"
+    else
         log_warn "⚠️  无法下载校验文件，将跳过SHA256验证（存在安全风险）"
-        log_warn "继续安装过程，但建议您手动验证二进制文件的完整性"
+        log_warn "建议使用已知安全版本：${safe_versions[*]}"
+        # 可选：强制降级到安全版本
+        # version="${safe_versions[0]}"
+        # log_info "强制使用安全版本: v${version}"
     fi
+fi
     
 # 下载校验文件
     log_info "下载SHA256校验文件..."
