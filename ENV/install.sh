@@ -63,20 +63,18 @@ EDGEBOX_DOWNLOAD_PROXY="${EDGEBOX_DOWNLOAD_PROXY:-}"
 # GitHub文件加速镜像（用于raw.githubusercontent.com等脚本文件）
 EDGEBOX_GITHUB_MIRROR="${EDGEBOX_GITHUB_MIRROR:-}"
 
-# 预定义的下载镜像源列表（按优先级排序）
+# 预定义的下载镜像源列表（按优先级排序，移除问题镜像）
 declare -a DEFAULT_DOWNLOAD_MIRRORS=(
     ""  # 直连（第一优先）
-    "https://ghproxy.com/"
-    "https://mirror.ghproxy.com/"
-    "https://gh.api.99988866.xyz/"
+    "https://ghp.ci/"  # 稳定的镜像源
+    "https://github.moeyy.xyz/"  # 备用镜像
 )
 
 # 预定义的GitHub脚本镜像列表
 declare -a DEFAULT_GITHUB_MIRRORS=(
     ""  # 直连
-    "https://ghproxy.com/"
-    "https://fastly.jsdelivr.net/"
-    "https://gcore.jsdelivr.net/"
+    "https://ghp.ci/"
+    "https://raw.gitmirror.com/"
 )
 
 # 如果用户指定了代理，将其插入到列表最前面
@@ -444,7 +442,7 @@ get_server_ip() {
 smart_download() {
     local url="$1"
     local output="$2"
-    local file_type="${3:-binary}"  # binary|script|checksum
+    local file_type="${3:-binary}"
     
     log_info "智能下载: ${url##*/}"
     
@@ -471,10 +469,12 @@ smart_download() {
             log_info "尝试 $attempt: ${mirror##*/}"
         fi
         
+        # [修改点] 添加 --insecure 作为最后的降级选项
+        # 首次尝试正常下载
         if curl -fsSL --retry 2 --retry-delay 2 \
             --connect-timeout 15 --max-time 300 \
             -A "Mozilla/5.0 (EdgeBox/3.0.0)" \
-            "$full_url" -o "$output"; then
+            "$full_url" -o "$output" 2>/dev/null; then
             
             if validate_download "$output" "$file_type"; then
                 log_success "下载成功: ${url##*/}"
@@ -483,6 +483,22 @@ smart_download() {
                 log_warn "文件验证失败，尝试下一个源"
                 rm -f "$output"
             fi
+        else
+            # 如果是 SSL 错误，尝试使用 --insecure（仅用于校验和文件）
+            if [[ "$file_type" == "checksum" ]]; then
+                log_debug "尝试使用 --insecure 下载校验文件"
+                if curl -fsSL --insecure --retry 2 --retry-delay 2 \
+                    --connect-timeout 15 --max-time 300 \
+                    -A "Mozilla/5.0 (EdgeBox/3.0.0)" \
+                    "$full_url" -o "$output" 2>/dev/null; then
+                    
+                    if validate_download "$output" "$file_type"; then
+                        log_success "下载成功（已跳过 SSL 验证）: ${url##*/}"
+                        return 0
+                    fi
+                fi
+            fi
+            rm -f "$output"
         fi
     done
     
@@ -3043,15 +3059,15 @@ configure_xray() {
     
     # 使用jq安全地生成完整的Xray配置文件
     if ! jq -n \
-        --arg uuid_vless_reality "$UUID_VLESS_REALITY" \
-        --arg uuid_vless_grpc "$UUID_VLESS_GRPC" \
-        --arg uuid_vless_ws "$UUID_VLESS_WS" \
-        --arg reality_private_key "$REALITY_PRIVATE_KEY" \
-        --arg reality_short_id "$REALITY_SHORT_ID" \
+        --arg uuid_reality "$UUID_VLESS_REALITY" \
+        --arg uuid_grpc "$UUID_VLESS_GRPC" \
+        --arg uuid_ws "$UUID_VLESS_WS" \
+        --arg reality_private "$REALITY_PRIVATE_KEY" \
+        --arg reality_short "$REALITY_SHORT_ID" \
+        --arg reality_sni "$REALITY_SNI" \
         --arg password_trojan "$PASSWORD_TROJAN" \
         --arg cert_pem "${CERT_DIR}/current.pem" \
         --arg cert_key "${CERT_DIR}/current.key" \
-        --arg reality_sni "$REALITY_SNI" \
         '{
             "log": {
                 "loglevel": "warning",
@@ -3067,7 +3083,7 @@ configure_xray() {
                     "settings": {
                         "clients": [
                             {
-                                "id": $uuid_vless_reality,
+                                "id": $uuid_reality,
                                 "flow": "xtls-rprx-vision"
                             }
                         ],
@@ -3079,26 +3095,21 @@ configure_xray() {
                         "realitySettings": {
                             "show": false,
                             "dest": ($reality_sni + ":443"),
-                            "xver": 0,
                             "serverNames": [$reality_sni],
-                            "privateKey": $reality_private_key,
-                            "shortIds": [$reality_short_id]
+                            "privateKey": $reality_private,
+                            "shortIds": [$reality_short]
                         }
-                    },
-                    "sniffing": {
-                        "enabled": true,
-                        "destOverride": ["http", "tls"]
                     }
                 },
                 {
                     "tag": "vless-grpc",
-                    "listen": "127.0.0.1", 
+                    "listen": "127.0.0.1",
                     "port": 10085,
                     "protocol": "vless",
                     "settings": {
                         "clients": [
                             {
-                                "id": $uuid_vless_grpc
+                                "id": $uuid_grpc
                             }
                         ],
                         "decryption": "none"
@@ -3115,19 +3126,19 @@ configure_xray() {
                             ]
                         },
                         "grpcSettings": {
-                            "serviceName": "grpc-service"
+                            "serviceName": "GunService"
                         }
                     }
                 },
                 {
                     "tag": "vless-ws",
                     "listen": "127.0.0.1",
-                    "port": 10086, 
+                    "port": 10086,
                     "protocol": "vless",
                     "settings": {
                         "clients": [
                             {
-                                "id": $uuid_vless_ws
+                                "id": $uuid_ws
                             }
                         ],
                         "decryption": "none"
@@ -3221,15 +3232,35 @@ configure_xray() {
     fi
  
     log_success "Xray配置文件验证通过"
-        
+    
+    # ============================================
+    # [关键修复] 创建正确的 systemd 服务文件
+    # ============================================
     log_info "创建Xray系统服务..."
-    cat > /etc/systemd/system/xray.service << XRAY_SERVICE
+    
+    # 停止并禁用官方的服务
+    systemctl stop xray >/dev/null 2>&1 || true
+    systemctl disable xray >/dev/null 2>&1 || true
+    
+    # 备份官方服务文件
+    if [[ -f /etc/systemd/system/xray.service ]]; then
+        mv /etc/systemd/system/xray.service \
+           /etc/systemd/system/xray.service.official.bak 2>/dev/null || true
+    fi
+    
+    # 删除官方的配置覆盖目录
+    rm -rf /etc/systemd/system/xray.service.d 2>/dev/null || true
+    rm -rf /etc/systemd/system/xray@.service.d 2>/dev/null || true
+    
+    # 创建我们自己的 systemd 服务文件（使用正确的配置路径）
+    cat > /etc/systemd/system/xray.service << EOF
 [Unit]
-Description=Xray Service
+Description=Xray Service (EdgeBox)
 Documentation=https://github.com/xtls
 After=network.target nss-lookup.target
 
 [Service]
+Type=simple
 User=nobody
 Group=${NOBODY_GRP}
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
@@ -3243,11 +3274,16 @@ LimitNOFILE=1000000
 
 [Install]
 WantedBy=multi-user.target
-XRAY_SERVICE
+EOF
     
     # 重新加载systemd，以便后续服务可以启动
     systemctl daemon-reload
-    log_success "Xray服务文件创建完成"
+    
+    # 启用服务（但不立即启动，等待统一启动）
+    systemctl enable xray >/dev/null 2>&1
+    
+    log_success "Xray服务文件创建完成（配置路径: ${CONFIG_DIR}/xray.json）"
+    
     return 0
 }
 
