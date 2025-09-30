@@ -1614,7 +1614,6 @@ EOF
     log_success "SNI管理脚本创建完成: $SNI_MANAGER_SCRIPT"
 }
 
-
 # 检查端口占用情况
 check_ports() {
     log_info "检查端口占用情况..."
@@ -1897,6 +1896,71 @@ ROLLBACK_SCRIPT
     log_info "如果SSH连接中断超过5分钟，防火墙将自动回滚"
 }
 
+# --- 系统 DNS 兜底 ---
+ensure_system_dns() {
+  if systemctl is-active --quiet systemd-resolved 2>/dev/null; then
+    mkdir -p /etc/systemd
+    if [[ -f /etc/systemd/resolved.conf ]]; then
+      sed -ri \
+        -e 's/^#?DNS=.*/DNS=8.8.8.8 1.1.1.1/' \
+        -e 's/^#?FallbackDNS=.*/FallbackDNS=9.9.9.9 1.0.0.1/' \
+        /etc/systemd/resolved.conf || true
+      grep -q '^DNS=' /etc/systemd/resolved.conf        || echo 'DNS=8.8.8.8 1.1.1.1' >> /etc/systemd/resolved.conf
+      grep -q '^FallbackDNS=' /etc/systemd/resolved.conf || echo 'FallbackDNS=9.9.9.9 1.0.0.1' >> /etc/systemd/resolved.conf
+    else
+      cat > /etc/systemd/resolved.conf <<'EOF'
+[Resolve]
+DNS=8.8.8.8 1.1.1.1
+FallbackDNS=9.9.9.9 1.0.0.1
+#DNSOverTLS=yes
+EOF
+    fi
+
+    systemctl restart systemd-resolved || true
+    # 使 /etc/resolv.conf 指向 systemd-resolved
+    if [[ ! -L /etc/resolv.conf ]]; then
+      ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf 2>/dev/null \
+      || ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf 2>/dev/null || true
+    fi
+  else
+    # 非 systemd-resolved：直接写 resolv.conf
+    cp -a /etc/resolv.conf /etc/resolv.conf.bak.$(date +%s) 2>/dev/null || true
+    cat > /etc/resolv.conf <<'EOF'
+nameserver 8.8.8.8
+nameserver 1.1.1.1
+options timeout:2 attempts:3
+EOF
+  fi
+}
+
+
+# --- Xray DNS 对齐 ---
+ensure_xray_dns_alignment() {
+  local cfg="${CONFIG_DIR}/xray.json"
+  [[ -f "$cfg" ]] || return 0
+  local tmp="${cfg}.tmp.$$"
+
+  # 注入 dns.servers（含 IP 直连 DoH），并把 routing.domainStrategy 置为 UseIp
+  if jq '
+    .dns = {
+      servers: [
+        "8.8.8.8",
+        "1.1.1.1",
+        {"address":"https://1.1.1.1/dns-query"},
+        {"address":"https://8.8.8.8/dns-query"}
+      ],
+      queryStrategy: "UseIP"
+    }
+    |
+    (.routing.domainStrategy = "UseIp")
+  ' "$cfg" > "$tmp" 2>/dev/null; then
+    mv "$tmp" "$cfg"
+  else
+    rm -f "$tmp"
+    return 1
+  fi
+}
+
 
 # 优化系统参数
 optimize_system() {
@@ -2016,19 +2080,6 @@ cleanup_all() {
 
 log_success "模块1：脚本头部+基础函数 - 初始化完成"
 
-
-
-#############################################
-# EdgeBox 企业级多协议节点部署脚本 v3.0.0
-# 模块2：系统信息收集+凭据生成
-# 
-# 功能说明：
-# - 自动检测云厂商和硬件规格
-# - 生成所有协议的UUID和密码
-# - 生成Reality密钥对
-# - 保存完整配置到server.json
-# - 对齐控制面板数据口径
-#############################################
 
 #############################################
 # 系统信息收集函数
