@@ -7284,10 +7284,11 @@ h4 {
     border-radius: 50%;
     border: 1.5px solid white;
     
-    /* 文字居中 */
+    /* 文字居中 + 微调垂直位置 */
     display: flex;
     align-items: center;
     justify-content: center;
+    padding-top: 1px;           /* ← 关键：数字向下偏移 1px */
     font-size: 9px;
     font-weight: 600;
     line-height: 1;
