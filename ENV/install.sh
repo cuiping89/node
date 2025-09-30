@@ -1302,47 +1302,89 @@ log_success() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [SUCCESS] $*" >> "$LOG_FILE
 evaluate_sni_domain() {
     local domain="$1"
     local score=0
+    local details=""
     
     log_info "评估域名: $domain"
     
-    # 可达性测试 (40分)
+    # 1. 可达性测试 (30分)
+    local reachable=false
     if timeout 5 curl -s --connect-timeout 3 --max-time 5 "https://${domain}" >/dev/null 2>&1; then
-        score=$((score + 40))
-        log_info "  可达性测试: 通过 (+40分)"
+        score=$((score + 30))
+        reachable=true
+        details+="✓ 可达性 (+30)\n"
     else
-        log_warn "  可达性测试: 失败 (+0分)"
+        details+="✗ 可达性 (+0)\n"
+        echo "$score"  # 不可达直接返回0分
+        return
     fi
     
-    # 响应时间测试 (20分)
-    local response_time
-    response_time=$(timeout 5 curl -o /dev/null -s -w '%{time_total}' --connect-timeout 3 "https://${domain}" 2>/dev/null || echo "99.999")
+    # 2. 响应时间测试 (25分)
+    local response_time=$(timeout 5 curl -o /dev/null -s -w '%{time_total}' --connect-timeout 3 "https://${domain}" 2>/dev/null || echo "99.999")
+    local time_int=${response_time%.*}
     
-    # 简化响应时间判断，避免bc依赖
-    if [[ "${response_time%.*}" -lt 2 ]]; then
+    if [[ "$time_int" -lt 1 ]]; then
+        score=$((score + 25))
+        details+="✓ 响应时间: ${response_time}s (+25)\n"
+    elif [[ "$time_int" -lt 2 ]]; then
         score=$((score + 20))
-        log_info "  响应时间: ${response_time}s (+20分)"
-    elif [[ "${response_time%.*}" -lt 5 ]]; then
-        score=$((score + 10))
-        log_info "  响应时间: ${response_time}s (+10分)"
+        details+="○ 响应时间: ${response_time}s (+20)\n"
+    elif [[ "$time_int" -lt 3 ]]; then
+        score=$((score + 15))
+        details+="○ 响应时间: ${response_time}s (+15)\n"
     else
-        log_warn "  响应时间: ${response_time}s (+0分)"
+        score=$((score + 5))
+        details+="✗ 响应时间: ${response_time}s (+5)\n"
     fi
     
-    # 域名热度检查 (20分)
-    local heat_score=15
-    score=$((score + heat_score))
-    log_info "  域名热度: 中等 (+${heat_score}分)"
-    
-    # 地理位置优化 (20分)
-    if [[ "$domain" =~ (microsoft|apple|cloudflare) ]]; then
+    # 3. SSL证书验证 (20分) - 新增
+    if timeout 5 openssl s_client -connect "${domain}:443" -servername "$domain" </dev/null 2>/dev/null | grep -q "Verify return code: 0"; then
         score=$((score + 20))
-        log_info "  地理位置: 全球优化 (+20分)"
+        details+="✓ SSL证书有效 (+20)\n"
     else
-        score=$((score + 10))
-        log_info "  地理位置: 一般 (+10分)"
+        score=$((score + 5))
+        details+="✗ SSL证书问题 (+5)\n"
     fi
     
-    log_info "  域名 $domain 总评分: $score"
+    # 4. CDN检测 (15分) - 新增
+    local response_headers=$(timeout 5 curl -sI "https://${domain}" 2>/dev/null)
+    if echo "$response_headers" | grep -qiE "(cloudflare|akamai|fastly|cloudfront|cdn)"; then
+        score=$((score + 15))
+        details+="✓ 使用CDN (+15)\n"
+    else
+        score=$((score + 5))
+        details+="○ 非CDN (+5)\n"
+    fi
+    
+    # 5. 域名类别加分 (10分)
+    case "$domain" in
+        *microsoft*|*apple*|*google*)
+            score=$((score + 10))
+            details+="✓ 顶级科技公司 (+10)\n"
+            ;;
+        *cloudflare*|*akamai*|*fastly*)
+            score=$((score + 9))
+            details+="✓ CDN服务商 (+9)\n"
+            ;;
+        *azure*|*aws*|*cloud*)
+            score=$((score + 8))
+            details+="✓ 云服务 (+8)\n"
+            ;;
+        *)
+            score=$((score + 5))
+            details+="○ 普通域名 (+5)\n"
+            ;;
+    esac
+    
+    # 记录到日志
+    {
+        echo "=== 域名评分: $domain ==="
+        echo -e "$details"
+        echo "总分: $score/100"
+        echo "时间: $(date '+%Y-%m-%d %H:%M:%S')"
+        echo ""
+    } >> "$SNI_HEALTH_LOG"
+    
+    log_info "域名 $domain 得分: $score/100"
     echo "$score"
 }
 
@@ -2058,11 +2100,11 @@ cleanup_all() {
         fi
     done
     
-    # 只有当服务真正失败时才报错
     if [[ "$services_ok" == "true" ]]; then
-        # 安静退出；最终摘要已在 show_installation_info() 输出
+        # [修改] 成功时安静退出，让 main 函数完成后续的 show_installation_info
         exit 0
     else
+	
         log_error "安装失败，部分核心服务未能启动"
         echo -e "\n${RED}❌ 安装失败！${NC}"
         echo -e "${YELLOW}故障排除建议：${NC}"
@@ -5193,23 +5235,23 @@ log_warn() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WARN] $*" | tee -a "$LOG_FILE
 log_error() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] $*" | tee -a "$LOG_FILE" >&2; }
 log_success() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [SUCCESS] $*" | tee -a "$LOG_FILE"; }
 
-# Hysteria2随机化函数 - 修复版（只使用支持的字段）
+# 增强的 Hysteria2 随机化函数
 randomize_hysteria2_config() {
     local level="$1"
     log_info "随机化Hysteria2配置 (级别: $level)..."
     
     if [[ ! -f "${CONFIG_DIR}/sing-box.json" ]]; then
-        log_error "sing-box 配置文件不存在"
+        log_error "sing-box配置文件不存在"
         return 1
     fi
     
-    # 检查是否存在 hysteria2 配置
+    # 检查是否存在hysteria2配置
     if ! jq -e '.inbounds[] | select(.type == "hysteria2")' "${CONFIG_DIR}/sing-box.json" >/dev/null 2>&1; then
-        log_warn "未找到 Hysteria2 配置，跳过随机化"
+        log_warn "未找到Hysteria2配置，跳过"
         return 0
     fi
     
-    # 随机化伪装站点（这个字段是支持的）
+    # 随机化伪装站点
     local masquerade_urls=(
         "https://www.bing.com"
         "https://www.apple.com"
@@ -5219,27 +5261,85 @@ randomize_hysteria2_config() {
     )
     
     local random_masquerade=${masquerade_urls[$((RANDOM % ${#masquerade_urls[@]}))]}
+    log_info "伪装站点: $random_masquerade"
     
-    log_info "Hysteria2参数: 伪装站点=${random_masquerade}"
-    
-    # 更新伪装站点（移除不支持的 heartbeat 字段）
-    if ! jq \
-        --arg masquerade "$random_masquerade" \
-        '(.inbounds[] | select(.type == "hysteria2")) |= (.masquerade = $masquerade)' \
+    # 更新配置
+    if ! jq --arg url "$random_masquerade" \
+        '(.inbounds[] | select(.type == "hysteria2") | .masquerade?) = $url' \
         "${CONFIG_DIR}/sing-box.json" > "${CONFIG_DIR}/sing-box.json.tmp"; then
-        log_error "更新 Hysteria2 配置失败"
+        log_error "更新配置失败"
         rm -f "${CONFIG_DIR}/sing-box.json.tmp"
         return 1
     fi
     
-    # 验证生成的配置文件
-    if sing-box check -c "${CONFIG_DIR}/sing-box.json.tmp" >/dev/null 2>&1; then
-        mv "${CONFIG_DIR}/sing-box.json.tmp" "${CONFIG_DIR}/sing-box.json"
-        log_success "Hysteria2配置随机化完成"
+    # 【新增】验证生成的配置
+    log_info "验证sing-box配置语法..."
+    if ! sing-box check -c "${CONFIG_DIR}/sing-box.json.tmp" >/dev/null 2>&1; then
+        log_error "生成的配置验证失败"
+        rm -f "${CONFIG_DIR}/sing-box.json.tmp"
+        return 1
+    fi
+    
+    # 应用配置
+    mv "${CONFIG_DIR}/sing-box.json.tmp" "${CONFIG_DIR}/sing-box.json"
+    log_success "Hysteria2配置随机化完成"
+    return 0
+}
+
+# 【新增】配置回滚函数
+rollback_traffic_config() {
+    local backup_dir="/etc/edgebox/backup/randomization"
+    
+    local latest_singbox=$(ls -t "${backup_dir}"/sing-box_*.json 2>/dev/null | head -1)
+    
+    if [[ -n "$latest_singbox" && -f "$latest_singbox" ]]; then
+        log_warn "检测到配置问题，回滚到上一版本..."
+        cp "$latest_singbox" "${CONFIG_DIR}/sing-box.json"
+        
+        # 重启服务
+        if systemctl restart sing-box; then
+            log_success "配置已回滚并重启服务"
+            return 0
+        else
+            log_error "服务重启失败"
+            return 1
+        fi
+    else
+        log_error "未找到备份文件，无法回滚"
+        return 1
+    fi
+}
+
+# 【新增】验证服务状态
+verify_services_after_randomization() {
+    log_info "验证服务状态..."
+    
+    local all_ok=true
+    
+    # 检查sing-box
+    if ! systemctl is-active --quiet sing-box; then
+        log_error "sing-box服务未运行"
+        all_ok=false
+    fi
+    
+    # 检查xray
+    if ! systemctl is-active --quiet xray; then
+        log_error "xray服务未运行"
+        all_ok=false
+    fi
+    
+    # 检查端口
+    if ! ss -tulnp | grep -q ":443.*sing-box"; then
+        log_warn "Hysteria2端口未监听"
+        all_ok=false
+    fi
+    
+    if $all_ok; then
+        log_success "服务验证通过"
         return 0
     else
-        log_error "生成的 Hysteria2 配置验证失败"
-        rm -f "${CONFIG_DIR}/sing-box.json.tmp"
+        log_error "服务验证失败，尝试回滚"
+        rollback_traffic_config
         return 1
     fi
 }
@@ -11308,104 +11408,207 @@ echo -e "  VLESS WS UUID: $(jq -r '.uuid.vless.ws // .uuid.vless' ${CONFIG_DIR}/
 #############################################
 
 rotate_reality_keys() {
-    log_info "开始Reality密钥轮换..."
+    local force_rotation=${1:-false}
     
-    # 检查sing-box是否可用
-    if ! command -v sing-box >/dev/null 2>&1 && ! command -v /usr/local/bin/sing-box >/dev/null 2>&1; then
-        log_error "sing-box未安装，无法生成Reality密钥"
+    log_info "开始Reality密钥轮换流程..."
+    
+    # 步骤1: 检查是否需要轮换
+    if [[ "$force_rotation" != "true" ]]; then
+        if ! check_reality_rotation_needed; then
+            log_info "当前不需要轮换Reality密钥"
+            return 0
+        fi
+    fi
+    
+    # 步骤2: 测试备用协议（新增）
+    log_info "测试备用协议连接..."
+    local backup_protocols_ok=true
+    
+    # 检查 Hysteria2
+    if ! ss -tulnp | grep -q ":443.*sing-box"; then
+        log_warn "Hysteria2 (UDP 443) 未监听"
+        backup_protocols_ok=false
+    fi
+    
+    # 检查 TUIC
+    if ! ss -tulnp | grep -q ":2053.*sing-box"; then
+        log_warn "TUIC (UDP 2053) 未监听"
+        backup_protocols_ok=false
+    fi
+    
+    if ! $backup_protocols_ok && [[ "$force_rotation" != "true" ]]; then
+        log_error "备用协议测试失败，建议先修复后再轮换"
+        log_info "强制执行: edgeboxctl rotate-reality --force"
         return 1
     fi
     
-    # 生成新的Reality密钥对
+    # 步骤3: 创建完整备份（增强）
+    log_info "创建配置备份..."
+    local backup_file="${CONFIG_DIR}/reality_backup_$(date +%Y%m%d_%H%M%S).tar.gz"
+    tar -czf "$backup_file" \
+        -C / \
+        etc/edgebox/config/xray.json \
+        etc/edgebox/config/server.json \
+        etc/edgebox/config/subscription.txt \
+        2>/dev/null || {
+        log_error "备份创建失败"
+        return 1
+    }
+    
+    # 步骤4: 生成新密钥
     local reality_output
     if command -v sing-box >/dev/null 2>&1; then
         reality_output="$(sing-box generate reality-keypair 2>/dev/null)"
-    elif command -v /usr/local/bin/sing-box >/dev/null 2>&1; then
-        reality_output="$(/usr/local/bin/sing-box generate reality-keypair 2>/dev/null)"
+    else
+        log_error "sing-box未安装，无法生成密钥"
+        return 1
     fi
     
     if [[ -z "$reality_output" ]]; then
-        log_error "Reality密钥对生成失败"
+        log_error "Reality密钥生成失败"
         return 1
     fi
     
-    # 提取新密钥
-    local new_private_key="$(echo "$reality_output" | grep -oP 'PrivateKey: \K[a-zA-Z0-9_-]+' | head -1)"
-    local new_public_key="$(echo "$reality_output" | grep -oP 'PublicKey: \K[a-zA-Z0-9_-]+' | head -1)"
-    local new_short_id="$(openssl rand -hex 4 2>/dev/null || echo "$(date +%s | sha256sum | head -c 8)")"
+    # 步骤5: 提取并验证新密钥
+    local new_private_key new_public_key new_short_id
+    new_private_key="$(echo "$reality_output" | grep -oP 'PrivateKey: \K[a-zA-Z0-9_-]+' | head -1)"
+    new_public_key="$(echo "$reality_output" | grep -oP 'PublicKey: \K[a-zA-Z0-9_-]+' | head -1)"
+    new_short_id="$(openssl rand -hex 4 2>/dev/null || echo "$(date +%s | sha256sum | head -c 8)")"
     
-    # 验证密钥完整性
-    if [[ -z "$new_private_key" || -z "$new_public_key" || -z "$new_short_id" ]]; then
-        log_error "Reality密钥信息生成不完整"
+    # 密钥验证（增强）
+    if [[ -z "$new_private_key" || -z "$new_public_key" || ${#new_private_key} -lt 32 || ${#new_public_key} -lt 32 ]]; then
+        log_error "新密钥生成不完整或格式错误"
+        log_error "Private Key 长度: ${#new_private_key}, Public Key 长度: ${#new_public_key}"
         return 1
     fi
     
-    # 备份当前配置
-    local backup_dir="/root/edgebox-backup/reality-keys/$(date +%Y%m%d_%H%M%S)"
-    mkdir -p "$backup_dir"
+    log_success "新Reality密钥生成成功"
+    log_info "新公钥: ${new_public_key:0:20}..."
     
-    [[ -f "${CONFIG_DIR}/xray.json" ]] && cp "${CONFIG_DIR}/xray.json" "$backup_dir/"
-    [[ -f "${CONFIG_DIR}/server.json" ]] && cp "${CONFIG_DIR}/server.json" "$backup_dir/"
+    # 步骤6: 更新配置文件（带完整验证）
+    log_info "更新Xray配置..."
+    if ! update_xray_reality_keys "$new_private_key" "$new_short_id"; then
+        log_error "Xray配置更新失败，恢复备份"
+        tar -xzf "$backup_file" -C / 2>/dev/null
+        reload_or_restart_services xray
+        return 1
+    fi
     
-    # 更新Xray配置
-    if [[ -f "${CONFIG_DIR}/xray.json" ]]; then
-        local temp_config="${CONFIG_DIR}/xray.json.tmp"
-        if jq --arg private_key "$new_private_key" \
-              --arg short_id "$new_short_id" \
-              '(.inbounds[]? | select(.tag? | contains("reality"))? | .streamSettings?.realitySettings?.privateKey?) = $private_key |
-               (.inbounds[]? | select(.tag? | contains("reality"))? | .streamSettings?.realitySettings?.shortId?) = [$short_id]' \
-              "${CONFIG_DIR}/xray.json" > "$temp_config" 2>/dev/null && jq '.' "$temp_config" >/dev/null 2>&1; then
-            mv "$temp_config" "${CONFIG_DIR}/xray.json"
-            log_success "Xray配置更新成功"
+    # 验证Xray配置语法（新增）
+    if ! xray -test -config="${CONFIG_DIR}/xray.json" >/dev/null 2>&1; then
+        log_error "Xray配置验证失败，恢复备份"
+        tar -xzf "$backup_file" -C / 2>/dev/null
+        reload_or_restart_services xray
+        return 1
+    fi
+    
+    log_info "更新server.json..."
+    if ! update_server_reality_keys "$new_private_key" "$new_public_key" "$new_short_id"; then
+        log_error "server.json更新失败，恢复备份"
+        tar -xzf "$backup_file" -C / 2>/dev/null
+        reload_or_restart_services xray
+        return 1
+    fi
+    
+    # 步骤7: 重启服务并验证（增强）
+    log_info "重启Xray服务..."
+    if ! reload_or_restart_services xray; then
+        log_error "Xray服务重启失败，恢复备份"
+        tar -xzf "$backup_file" -C / 2>/dev/null
+        reload_or_restart_services xray
+        return 1
+    fi
+    
+    # 等待服务稳定
+    sleep 5
+    
+    # 验证服务状态（新增多次重试）
+    local retry_count=0
+    local max_retries=3
+    while [[ $retry_count -lt $max_retries ]]; do
+        if systemctl is-active --quiet xray; then
+            log_success "Xray服务运行正常"
+            break
+        fi
+        
+        retry_count=$((retry_count + 1))
+        if [[ $retry_count -lt $max_retries ]]; then
+            log_warn "Xray服务未就绪，等待重试 ($retry_count/$max_retries)..."
+            sleep 3
         else
-            log_error "Xray配置更新失败"
-            rm -f "$temp_config"
+            log_error "Xray服务启动失败，恢复备份"
+            tar -xzf "$backup_file" -C / 2>/dev/null
+            reload_or_restart_services xray
             return 1
         fi
+    done
+    
+    # 步骤8: 验证端口监听（新增）
+    if ! ss -tlnp | grep -q ":443.*xray"; then
+        log_error "Xray未监听443端口，恢复备份"
+        tar -xzf "$backup_file" -C / 2>/dev/null
+        reload_or_restart_services xray
+        return 1
     fi
     
-    # 更新server.json
-    if [[ -f "${CONFIG_DIR}/server.json" ]]; then
-        local temp_server="${CONFIG_DIR}/server.json.tmp"
-        if jq --arg private_key "$new_private_key" \
-              --arg public_key "$new_public_key" \
-              --arg short_id "$new_short_id" \
-              --arg updated_at "$(date -Iseconds)" \
-              '.reality.private_key = $private_key |
-               .reality.public_key = $public_key |
-               .reality.short_id = $short_id |
-               .reality.last_rotation = $updated_at |
-               .updated_at = $updated_at' \
-              "${CONFIG_DIR}/server.json" > "$temp_server" 2>/dev/null; then
-            mv "$temp_server" "${CONFIG_DIR}/server.json"
-            log_success "server.json更新成功"
-        else
-            log_warn "server.json更新失败"
-            rm -f "$temp_server"
-        fi
+    # 步骤9: 更新订阅链接
+    log_info "更新订阅链接..."
+    REALITY_PUBLIC_KEY="$new_public_key"
+    REALITY_SHORT_ID="$new_short_id"
+    
+    if ! generate_subscription 2>/dev/null; then
+        log_warn "订阅链接更新失败，请手动执行: edgeboxctl sub"
     fi
     
-    # 更新轮换状态
-    local current_time=$(date -Iseconds)
-    local next_rotation=$(date -d "+90 days" -Iseconds)
-    local rotation_state="${CONFIG_DIR}/reality-rotation.json"
+    # 步骤10: 更新轮换状态
+    update_reality_rotation_state "$new_public_key"
     
-    mkdir -p "$(dirname "$rotation_state")"
-    echo "{\"last_rotation\":\"$current_time\",\"next_rotation\":\"$next_rotation\",\"last_public_key\":\"$new_public_key\"}" > "$rotation_state"
+    # 步骤11: 清理旧备份（保留最近5个）
+    ls -t "${CONFIG_DIR}"/reality_backup_*.tar.gz 2>/dev/null | tail -n +6 | xargs rm -f 2>/dev/null || true
     
-    # 重启服务
-    log_info "重启相关服务..."
-    reload_or_restart_services xray
-    
-    # 重新生成订阅
-    if [[ -x /etc/edgebox/scripts/dashboard-backend.sh ]]; then
-        /etc/edgebox/scripts/dashboard-backend.sh --now >/dev/null 2>&1
+    # 步骤12: 发送完成通知（增强）
+    local message="✅ Reality密钥轮换完成
+
+新公钥: ${new_public_key:0:20}...
+完整公钥: $new_public_key
+Short ID: $new_short_id
+完成时间: $(date '+%Y-%m-%d %H:%M:%S')
+下次轮换: $(date -d "+${REALITY_ROTATION_DAYS} days" '+%Y-%m-%d')
+
+⚠️ 重要提醒:
+请通知所有用户更新客户端配置！
+
+更新方式:
+1. 访问订阅链接获取最新配置（推荐）
+2. 手动更新公钥和Short ID
+
+备用连接:
+- Hysteria2 (UDP 443) - 无需更新
+- TUIC (UDP 2053) - 无需更新"
+
+    # 保存到dashboard通知
+    if [[ -f "${TRAFFIC_DIR}/dashboard.json" ]]; then
+        local timestamp=$(date -Iseconds)
+        jq --arg time "$timestamp" \
+           --arg msg "$message" \
+           '.notifications += [{
+               "timestamp": $time,
+               "type": "reality_rotation",
+               "level": "success",
+               "message": $msg,
+               "read": false
+           }]' "${TRAFFIC_DIR}/dashboard.json" > "${TRAFFIC_DIR}/dashboard.json.tmp"
+        
+        mv "${TRAFFIC_DIR}/dashboard.json.tmp" "${TRAFFIC_DIR}/dashboard.json"
     fi
     
-    log_success "Reality密钥轮换完成"
-    log_info "新公钥: ${new_public_key:0:20}..."
-    log_info "下次轮换: $(date -d "$next_rotation" '+%Y-%m-%d %H:%M:%S')"
-    log_info "备份保存至: $backup_dir"
+    log_success "✅ Reality密钥轮换成功完成！"
+    log_info "⚠️ 请通知用户更新客户端配置"
+    log_info "新公钥: $new_public_key"
+    log_info "新Short ID: $new_short_id"
+    log_info "备份文件: $backup_file"
+    
+    return 0
 }
 
 # Reality轮换状态查看函数（在edgeboxctl中）
