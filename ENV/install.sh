@@ -640,26 +640,36 @@ install_dependencies() {
     done
     
     # 检查关键包是否安装成功
-    local critical_packages=(jq curl wget nginx)
-    for pkg in "${critical_packages[@]}"; do
-        if ! command -v "$pkg" >/dev/null 2>&1; then
-            log_error "关键依赖 $pkg 安装失败，无法继续安装"
-            return 1
-        fi
-    done
+# 检查关键包是否安装成功（增强版）
+local critical_packages=(
+    jq           # JSON 处理
+    curl         # 下载工具
+    wget         # 下载工具（备用）
+    nginx        # Web 服务器
+    openssl      # 加密工具
+    uuidgen      # UUID 生成
+)
 
-    # [新增] 服务启用的幂等性保证
-    ensure_system_services
-    
-    # 结果检查
-    if [[ ${#failed_packages[@]} -eq 0 ]]; then
-        log_success "所有依赖包已就绪"
+log_info "验证关键依赖安装状态..."
+local missing_critical=()
+
+for pkg in "${critical_packages[@]}"; do
+    if ! command -v "$pkg" >/dev/null 2>&1; then
+        log_error "✗ 关键依赖 $pkg 未安装或不可用"
+        missing_critical+=("$pkg")
     else
-        log_warn "以下包安装失败: ${failed_packages[*]}"
-        log_info "这些包不影响核心功能，安装将继续"
+        log_success "✓ $pkg 可用"
     fi
-    
-    return 0
+done
+
+if [[ ${#missing_critical[@]} -gt 0 ]]; then
+    log_error "以下关键依赖缺失: ${missing_critical[*]}"
+    log_error "无法继续安装，请检查包管理器是否正常"
+    return 1
+fi
+
+log_success "所有关键依赖验证通过"
+
 }
 
 # [新增函数] 增强的包安装检查
@@ -1836,28 +1846,12 @@ get_cpu_info() {
 generate_credentials() {
     log_info "生成协议凭据..."
     
-    # 检查UUID生成工具
-    if ! command -v uuidgen >/dev/null 2>&1; then
-        log_error "uuidgen工具未安装，无法生成UUID"
-        log_info "尝试安装uuid-runtime包..."
-        if command -v apt-get >/dev/null 2>&1; then
-            apt-get install -y uuid-runtime >/dev/null 2>&1
-        elif command -v yum >/dev/null 2>&1; then
-            yum install -y util-linux >/dev/null 2>&1
-        fi
-        
-        # 再次检查
-        if ! command -v uuidgen >/dev/null 2>&1; then
-            log_error "UUID生成工具安装失败，无法继续"
-            return 1
-        fi
-    fi
-    
-    # 检查密码生成工具
-    if ! command -v openssl >/dev/null 2>&1; then
-        log_error "openssl工具未找到，无法生成密码"
-        return 1
-    fi
+# 快速验证工具可用性（应该已在前置检查中确保）
+if ! command -v uuidgen >/dev/null 2>&1 || ! command -v openssl >/dev/null 2>&1; then
+    log_error "关键工具缺失（uuidgen 或 openssl），这不应该发生"
+    log_error "请重新运行安装脚本或手动安装 uuid-runtime 和 openssl"
+    return 1
+fi
     
     log_info "生成协议UUID..."
     
@@ -3070,10 +3064,10 @@ configure_xray() {
         --arg cert_key "${CERT_DIR}/current.key" \
         '{
             "log": {
-                "loglevel": "warning",
-                "access": "/var/log/xray/access.log",
-                "error": "/var/log/xray/error.log"
-            },
+    "loglevel": "error",
+    "access": "none",
+    "error": "/var/log/xray/error.log"
+},
             "inbounds": [
                 {
                     "tag": "vless-reality",
