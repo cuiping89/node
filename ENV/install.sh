@@ -400,30 +400,32 @@ get_server_ip() {
     exit 1
 }
 
-
-# 安装系统依赖包（增强幂等性）
+# 安装系统依赖包
 install_dependencies() {
-    log_info "安装系统依赖（幂等性检查）..."
+    log_info "安装系统依赖包..."
     
-    # 检查包管理器并设置安装命令
+    # 更新包管理器
     if command -v apt-get >/dev/null 2>&1; then
-        PKG_MANAGER="apt"
+        # Debian/Ubuntu系统
+        DEBIAN_FRONTEND=noninteractive apt-get update -y >/dev/null 2>&1 || true
+        PKG_MANAGER="apt-get"
         INSTALL_CMD="DEBIAN_FRONTEND=noninteractive apt-get install -y"
-        UPDATE_CMD="apt-get update"
     elif command -v yum >/dev/null 2>&1; then
+        # CentOS/RHEL系统
+        yum update -y >/dev/null 2>&1 || true
         PKG_MANAGER="yum"
         INSTALL_CMD="yum install -y"
-        UPDATE_CMD="yum makecache"
     elif command -v dnf >/dev/null 2>&1; then
+        # Fedora/新版CentOS
+        dnf update -y >/dev/null 2>&1 || true
         PKG_MANAGER="dnf"
         INSTALL_CMD="dnf install -y"
-        UPDATE_CMD="dnf makecache"
     else
-        log_error "不支持的包管理器"
-        return 1
+        log_error "不支持的包管理器，无法安装依赖"
+        exit 1
     fi
-    
-    # 必要的依赖包列表（保持原有）
+
+    # 必要的依赖包列表
     local base_packages=(
         curl wget unzip gawk ca-certificates 
         jq bc uuid-runtime dnsutils openssl
@@ -431,50 +433,58 @@ install_dependencies() {
     )
     
     # 网络和防火墙包
-    local network_packages=(vnstat nftables)
-    local web_packages=(nginx)
-    local cert_mail_packages=(certbot msmtp-mta bsd-mailx)
-    local system_packages=(dmidecode htop iotop)
+    local network_packages=(
+        vnstat nftables
+    )
+    
+    # Web服务器包
+    local web_packages=(
+        nginx
+    )
+    
+    # 证书和邮件包
+    local cert_mail_packages=(
+        certbot msmtp-mta bsd-mailx
+    )
+    
+    # 系统工具包
+    local system_packages=(
+        dmidecode htop iotop
+    )
 
     # 根据系统类型调整包名
-    if [[ "$PKG_MANAGER" == "apt" ]]; then
+    if [[ "$PKG_MANAGER" == "apt-get" ]]; then
+        # Debian/Ubuntu特有包
         network_packages+=(libnginx-mod-stream)
         cert_mail_packages+=(python3-certbot-nginx)
     elif [[ "$PKG_MANAGER" =~ ^(yum|dnf)$ ]]; then
+        # RHEL/CentOS特有包
         base_packages+=(epel-release)
         cert_mail_packages+=(python3-certbot-nginx)
     fi
 
     # 合并所有包
     local all_packages=(
-        "${base_packages[@]}" "${network_packages[@]}" 
-        "${web_packages[@]}" "${cert_mail_packages[@]}"
+        "${base_packages[@]}" 
+        "${network_packages[@]}" 
+        "${web_packages[@]}" 
+        "${cert_mail_packages[@]}"
         "${system_packages[@]}"
     )
     
-    # 更新包索引（幂等操作）
-    log_info "更新包索引..."
-    eval "$UPDATE_CMD" >/dev/null 2>&1 || log_warn "包索引更新失败，继续安装"
-    
-    # [改进] 增强的包安装检查
+    # 安装依赖包
     local failed_packages=()
     for pkg in "${all_packages[@]}"; do
-        if is_package_properly_installed "$pkg"; then
-            log_info "${pkg} 已正确安装"
-        else
+        if ! dpkg -l 2>/dev/null | grep -q "^ii.*${pkg}" && ! rpm -q "$pkg" >/dev/null 2>&1; then
             log_info "安装 ${pkg}..."
             if eval "$INSTALL_CMD $pkg" >/dev/null 2>&1; then
-                # 安装后再次验证
-                if is_package_properly_installed "$pkg"; then
-                    log_success "${pkg} 安装并验证成功"
-                else
-                    log_warn "${pkg} 安装似乎成功但验证失败"
-                    failed_packages+=("$pkg")
-                fi
+                log_success "${pkg} 安装成功"
             else
-                log_warn "${pkg} 安装失败"
+                log_warn "${pkg} 安装失败，将跳过"
                 failed_packages+=("$pkg")
             fi
+        else
+            log_info "${pkg} 已安装"
         fi
     done
     
@@ -487,12 +497,26 @@ install_dependencies() {
         fi
     done
 
-    # [新增] 服务启用的幂等性保证
-    ensure_system_services
+    # 启用和启动基础服务
+    log_info "启用基础服务..."
     
-    # 结果检查
+    # vnstat（网络流量统计）
+    if command -v vnstat >/dev/null 2>&1; then
+        systemctl enable vnstat >/dev/null 2>&1 || true
+        systemctl start vnstat >/dev/null 2>&1 || true
+        log_success "vnstat服务已启动"
+    fi
+
+    # nftables（网络过滤）
+    if command -v nft >/dev/null 2>&1; then
+        systemctl enable nftables >/dev/null 2>&1 || true
+        systemctl start nftables >/dev/null 2>&1 || true
+        log_success "nftables服务已启动"
+    fi
+
+    # 输出安装总结
     if [[ ${#failed_packages[@]} -eq 0 ]]; then
-        log_success "所有依赖包已就绪"
+        log_success "所有依赖包安装完成"
     else
         log_warn "以下包安装失败: ${failed_packages[*]}"
         log_info "这些包不影响核心功能，安装将继续"
@@ -501,65 +525,11 @@ install_dependencies() {
     return 0
 }
 
-# [新增函数] 增强的包安装检查
-is_package_properly_installed() {
-    local pkg="$1"
-    
-    # 1. 检查命令是否可用（最重要）
-    if command -v "$pkg" >/dev/null 2>&1; then
-        return 0
-    fi
-    
-    # 2. 检查包管理器记录
-    case "$PKG_MANAGER" in
-        "apt")
-            dpkg -l 2>/dev/null | grep -q "^ii.*${pkg}"
-            ;;
-        "yum"|"dnf")
-            rpm -q "$pkg" >/dev/null 2>&1
-            ;;
-        *)
-            return 1
-            ;;
-    esac
-}
-
-# [新增函数] 确保系统服务状态（完全幂等）
-ensure_system_services() {
-    log_info "确保系统服务状态..."
-    
-    local services=(
-        "vnstat:vnstat"
-        "nft:nftables"
-    )
-    
-    for service_info in "${services[@]}"; do
-        IFS=':' read -r cmd service <<< "$service_info"
-        
-        if command -v "$cmd" >/dev/null 2>&1; then
-            # 启用服务（幂等）
-            systemctl enable "$service" >/dev/null 2>&1 || true
-            
-            # 启动服务（如果未运行则启动）
-            if ! systemctl is-active --quiet "$service"; then
-                systemctl start "$service" >/dev/null 2>&1 || true
-                if systemctl is-active --quiet "$service"; then
-                    log_success "${service}服务已启动"
-                else
-                    log_warn "${service}服务启动失败，但不影响核心功能"
-                fi
-            else
-                log_info "${service}服务已在运行"
-            fi
-        fi
-    done
-}
-
 # 创建目录结构
 create_directories() {
-    log_info "创建目录结构（幂等性保证）..."
+    log_info "创建目录结构..."
 
-    # 主要目录结构（保持原有）
+    # 主要目录结构
     local directories=(
         "${INSTALL_DIR}"
         "${CERT_DIR}"
@@ -572,49 +542,29 @@ create_directories() {
         "/var/log/edgebox"
         "/var/log/xray"
         "${WEB_ROOT}"
-        "${SNI_CONFIG_DIR}"
+		"${SNI_CONFIG_DIR}"
     )
 
-    # 创建所有必要目录（幂等操作）
+    # 创建所有必要目录
     for dir in "${directories[@]}"; do
         if mkdir -p "$dir" 2>/dev/null; then
-            log_success "目录就绪: $dir"
+            log_success "目录创建成功: $dir"
         else
             log_error "目录创建失败: $dir"
             return 1
         fi
     done
 
-    # [新增] 强制确保所有目录权限正确（完全幂等）
-    ensure_directory_permissions
-    
-    log_success "目录结构已完整建立"
-}
+# 设置目录权限
+chmod 755 "${INSTALL_DIR}" "${CONFIG_DIR}" "${SCRIPTS_DIR}"
+# 证书目录：仅 root 与 nobody 所在组可访问
+chmod 750 "${CERT_DIR}"
+# 把证书目录的 group 调整为 nobody 对应的组（Debian 为 nogroup，RHEL 系为 nobody）
+NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
+chgrp "${NOBODY_GRP}" "${CERT_DIR}" || true
 
-# [新增函数] 确保目录权限（完全幂等）
-ensure_directory_permissions() {
-    log_info "确保目录权限正确..."
     
-    # 标准目录权限设置（每次运行都确保正确）
-    chmod 755 "${INSTALL_DIR}" 2>/dev/null || true
-    chmod 755 "${CONFIG_DIR}" 2>/dev/null || true
-    chmod 755 "${SCRIPTS_DIR}" 2>/dev/null || true
-    chmod 755 "${TRAFFIC_DIR}" 2>/dev/null || true
-    chmod 755 "/var/log/edgebox" 2>/dev/null || true
-    
-    # 证书目录特殊权限（仅 root 与 nobody 组可访问）
-    chmod 750 "${CERT_DIR}" 2>/dev/null || true
-    
-    # 获取 nobody 用户对应的组名
-    local nobody_group
-    nobody_group="$(id -gn nobody 2>/dev/null || echo nogroup)"
-    chgrp "${nobody_group}" "${CERT_DIR}" 2>/dev/null || true
-    
-    # 确保日志文件权限
-    [[ -f "/var/log/edgebox.log" ]] && chmod 644 "/var/log/edgebox.log" || true
-    [[ -f "/var/log/xray/error.log" ]] && chmod 644 "/var/log/xray/error.log" || true
-    
-    log_success "目录权限已确保正确"
+    log_success "目录结构创建完成"
 }
 
 
@@ -2690,16 +2640,6 @@ events {
 http {
     include       /etc/nginx/mime.types;
     default_type  application/octet-stream;
-	
-	# 压缩与实体标识
-    gzip on;
-    gzip_min_length 1024;
-    gzip_types application/json text/css application/javascript application/xml text/plain text/html;
-    gzip_comp_level 5;
-    gzip_vary on;
-
-    # 允许全局 ETag（静态文件天然可用）
-    etag on;
     
     # 日志格式
     log_format main '$remote_addr - $remote_user [$time_local] "$request" '
@@ -2744,50 +2684,34 @@ http {
         }
         
         # 控制面板和数据API
-location ^~ /traffic/ {
-    alias /etc/edgebox/traffic/;
-    index index.html;
-    autoindex off;
-
-    # 为静态资源启用强缓存与 ETag（文件名没变时也能走 304/If-None-Match）
-    etag on;
-
-    # HTML/CSS/JS/图片等：建议强缓存（若你有文件指纹更佳）
-    location ~* \.(css|js|png|jpg|jpeg|gif|svg|ico|woff2?)$ {
-        expires 7d;
-        add_header Cache-Control "public, max-age=604800, immutable";
-    }
-
-    # JSON/CONF 数据：启用“可再验证”缓存（no-cache），配合 ETag 走 304
-    location ~* \.(json|conf)$ {
-        add_header Cache-Control "no-cache";
-        add_header Pragma "no-cache";
-        add_header Content-Type "application/json; charset=utf-8";
-    }
-
-    # 页面
-    location ~* \.(html?)$ {
-        add_header Content-Type "text/html; charset=utf-8";
-        add_header Cache-Control "no-cache";
-    }
-
-    # 纯文本
-    location ~* \.(txt)$ {
-        add_header Content-Type "text/plain; charset=utf-8";
-        add_header Cache-Control "no-cache";
-    }
-}
+        location ^~ /traffic/ {
+            alias /etc/edgebox/traffic/;
+            index index.html;
+            autoindex off;
+            
+            # 缓存控制
+            add_header Cache-Control "no-store, no-cache, must-revalidate";
+            add_header Pragma "no-cache";
+            
+            # 文件类型
+            location ~* \.(html|htm)$ {
+                add_header Content-Type "text/html; charset=utf-8";
+            }
+            location ~* \.(json)$ {
+                add_header Content-Type "application/json; charset=utf-8";
+            }
+            location ~* \.(txt)$ {
+                add_header Content-Type "text/plain; charset=utf-8";
+            }
+        }
         
-# IP质量检测API（对齐技术规范）
-location ^~ /status/ {
-    alias /var/www/edgebox/status/;
-    autoindex off;
-    etag on;
-    add_header Content-Type "application/json; charset=utf-8";
-    add_header Cache-Control "no-cache";
-    add_header Pragma "no-cache";
-}
-
+        # IP质量检测API（对齐技术规范）
+        location ^~ /status/ {
+            alias /var/www/edgebox/status/;
+            autoindex off;
+            add_header Cache-Control "no-store, no-cache, must-revalidate";
+            add_header Content-Type "application/json; charset=utf-8";
+        }
         
         # 健康检查
         location = /health {
@@ -3434,107 +3358,125 @@ chmod 644 "${CONFIG_DIR}/subscription.txt"
 # 服务启动和验证函数
 #############################################
 
-# 启动所有服务并验证（增强幂等性）
+# 启动所有服务并验证
 start_and_verify_services() {
-    log_info "启动并验证服务（幂等性保证）..."
+    log_info "统一启动并验证所有EdgeBox核心服务..."
     
-    local services=("xray" "sing-box" "nginx")
-    local failed_services=()
+    local services=(xray sing-box nginx) # 启动顺序：后端 -> 前端
     
+    # 1. 重新加载daemon并启用所有服务
+    systemctl daemon-reload
     for service in "${services[@]}"; do
-        # 使用增强的服务启动检查
-        if ensure_service_running "$service"; then
-            log_success "$service 服务已正常运行"
+        systemctl enable "$service" >/dev/null 2>&1
+    done
+
+    # 2. 启动所有服务
+    local all_started=true
+    for service in "${services[@]}"; do
+        if systemctl restart "$service"; then
+            log_success "✓ $service 服务已发出启动命令"
         else
-            log_error "$service 服务启动失败"
-            failed_services+=("$service")
+            log_error "✗ $service 服务启动命令失败"
+            systemctl status "$service" --no-pager -l
+            all_started=false
         fi
     done
-    
-    # 端口监听验证
-    verify_port_listening
-    
-    if [[ ${#failed_services[@]} -eq 0 ]]; then
-        log_success "所有服务已正常运行"
-        return 0
-    else
-        log_error "以下服务运行异常: ${failed_services[*]}"
-        return 1
-    fi
-}
+    [[ "$all_started" == "false" ]] && return 1
 
-# [新增函数] 确保服务运行状态（完全幂等）
-ensure_service_running() {
-    local service="$1"
-    local max_attempts=3
-    local attempt=0
-    
-    while [[ $attempt -lt $max_attempts ]]; do
-        # 重新加载systemd配置（幂等）
-        systemctl daemon-reload >/dev/null 2>&1
+    log_info "等待服务稳定并开始验证 (最多等待15秒)..."
+
+    # 3. 循环验证，解决竞态条件
+    local attempts=0
+    local max_attempts=15
+    while [[ $attempts -lt $max_attempts ]]; do
+        attempts=$((attempts + 1))
         
-        # 启用服务（幂等）
-        systemctl enable "$service" >/dev/null 2>&1
+        # 定义需要检查的所有端口和服务
+local required_ports=(
+  "tcp::80:nginx"
+  "tcp::443:nginx"
+  "udp::443:sing-box"
+  "udp::2053:sing-box"
+  "tcp:127.0.0.1:11443:xray"  # Reality
+  "tcp:127.0.0.1:10085:xray"  # gRPC
+  "tcp:127.0.0.1:10086:xray"  # WS
+  "tcp:127.0.0.1:10143:xray"  # Trojan
+)
+
+        local listening_count=0
+        local services_active_count=0
         
         # 检查服务状态
-        if systemctl is-active --quiet "$service"; then
-            log_info "$service 已在运行"
+        for service in "${services[@]}"; do
+            systemctl is-active --quiet "$service" && services_active_count=$((services_active_count + 1))
+        done
+        
+# 检查端口监听 (使用更精确的 ss 命令)
+for p_info in "${required_ports[@]}"; do
+    IFS=':' read -r proto addr port proc <<< "$p_info"
+    # [FIX:PORT_PARSE_COMPAT] 支持三段式 “tcp:80:nginx” → 四段含义
+    if [[ -z "$proc" ]]; then
+        proc="$port"; port="$addr"; addr="";
+    fi
+
+    local cmd=""
+    if [[ "$addr" == "127.0.0.1" ]]; then
+        cmd="ss -H -tlnp sport = :$port and src = $addr" # 仅限TCP和本地回环
+    elif [[ "$proto" == "tcp" ]]; then
+        cmd="ss -H -tlnp sport = :$port"
+    else
+        cmd="ss -H -ulnp sport = :$port"
+    fi
+
+    if $cmd | grep -q "$proc"; then
+        listening_count=$((listening_count + 1))
+    fi
+done
+        
+        # 如果全部成功，则跳出循环
+        if [[ $services_active_count -eq ${#services[@]} && $listening_count -eq ${#required_ports[@]} ]]; then
+            log_success "所有服务 (${#services[@]}) 和端口 (${#required_ports[@]}) 验证通过！"
             return 0
         fi
-        
-        # 尝试启动服务
-        log_info "启动 $service 服务 (尝试 $((attempt + 1))/$max_attempts)"
-        systemctl start "$service" >/dev/null 2>&1
-        
-        # 等待启动完成
-        sleep 2
-        
-        # 验证启动结果
-        if systemctl is-active --quiet "$service"; then
-            log_success "$service 服务启动成功"
-            return 0
-        fi
-        
-        ((attempt++))
-        
-        # 如果不是最后一次尝试，显示错误信息并重试
-        if [[ $attempt -lt $max_attempts ]]; then
-            log_warn "$service 启动失败，将重试..."
-            systemctl stop "$service" >/dev/null 2>&1 || true
-            sleep 1
+
+        log_info "验证中... (尝试 $attempts/$max_attempts, 服务: $services_active_count/${#services[@]}, 端口: $listening_count/${#required_ports[@]})"
+        sleep 1
+    done
+
+    # 4. 如果超时，报告详细的失败信息
+    log_error "服务启动验证超时！"
+    log_info "请检查以下未通过的项目："
+    
+    for service in "${services[@]}"; do
+        if ! systemctl is-active --quiet "$service"; then
+            log_error "✗ 服务 $service 状态: $(systemctl is-active "$service")"
+            journalctl -u "$service" -n 10 --no-pager
         fi
     done
     
-    # 所有尝试失败，显示详细错误信息
-    log_error "$service 服务在 $max_attempts 次尝试后仍无法启动"
-    systemctl status "$service" --no-pager -l || true
+for p_info in "${required_ports[@]}"; do
+    IFS=':' read -r proto addr port proc <<< "$p_info"
+    # [FIX:PORT_PARSE_COMPAT] 同上：三段式兼容
+    if [[ -z "$proc" ]]; then
+        proc="$port"; port="$addr"; addr="";
+    fi
+
+    local cmd=""
+    if [[ "$addr" == "127.0.0.1" ]]; then
+        cmd="ss -H -tlnp sport = :$port and src = $addr"
+    elif [[ "$proto" == "tcp" ]]; then
+        cmd="ss -H -tlnp sport = :$port"
+    else
+        cmd="ss -H -ulnp sport = :$port"
+    fi
+
+    if ! $cmd | grep -q "$proc"; then
+        log_error "✗ 端口 $proto:$addr:$port ($proc) 未监听到"
+    fi
+done
+    
     return 1
 }
-
-# [新增函数] 验证端口监听状态
-verify_port_listening() {
-    log_info "验证关键端口监听状态..."
-    
-    local critical_ports=(443 80 2053)
-    local listening_ports=()
-    local failed_ports=()
-    
-    for port in "${critical_ports[@]}"; do
-        if ss -tlnp 2>/dev/null | grep -q ":${port} "; then
-            listening_ports+=("$port")
-            log_success "端口 $port 正在监听"
-        else
-            failed_ports+=("$port")
-            log_warn "端口 $port 未在监听"
-        fi
-    done
-    
-    if [[ ${#failed_ports[@]} -gt 0 ]]; then
-        log_warn "以下端口未正常监听: ${failed_ports[*]}"
-        log_info "请检查相关服务配置"
-    fi
-}
-
 
 #############################################
 # 模块3主执行函数
@@ -7602,7 +7544,7 @@ const ebYAxisUnitTop = {
 // --- Utility Functions ---
 async function fetchJSON(url) {
   try {
-    const response = await fetch(url, { cache: 'no-cache' });
+    const response = await fetch(url, { cache: 'no-store' });
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
     return await response.json();
   } catch (error) {
@@ -7614,7 +7556,7 @@ async function fetchJSON(url) {
 // 读取 alert.conf 配置
 async function fetchAlertConfig() {
   try {
-    const response = await fetch('/traffic/alert.conf', { cache: 'no-cache' });
+    const response = await fetch('/traffic/alert.conf', { cache: 'no-store' });
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
     const text = await response.text();
     const config = {};
@@ -7850,54 +7792,49 @@ if (exEl) {
   }
   if (proxyEl) proxyEl.textContent = formatProxy(proxyRaw);
   
-
-/* === PATCH: 填充 Geo 与 IP质量主行分数（idle/defer + no-cache） === */
-(() => {
-  const runner = async () => {
-    const setText = (id, val) => {
-      const el = document.getElementById(id);
-      if (el) el.textContent = (val ?? '—') || '—';
-    };
-
-    // VPS 侧
-    try {
-      const r = await fetch('/status/ipq_vps.json', { cache: 'no-cache' });
-      if (r.ok) {
-        const j = await r.json();
-        const geo = [j.country, j.city].filter(Boolean).join(' · ');
-        setText('vps-geo', geo || '—');
-        if (j.score != null && j.grade != null) {
-          setText('vps-ipq-score', `${j.score} (${j.grade})`);
-        } else if (j.score != null) {
-          setText('vps-ipq-score', String(j.score));
-        }
-      }
-    } catch (_) {}
-
-    // 代理侧
-    try {
-      const r = await fetch('/status/ipq_proxy.json', { cache: 'no-cache' });
-      if (r.ok) {
-        const j = await r.json();
-        const geo = [j.country, j.city].filter(Boolean).join(' · ');
-        setText('proxy-geo', geo || '—');
-        if (j.score != null && j.grade != null) {
-          setText('proxy-ipq-score', `${j.score} (${j.grade})`);
-        } else if (j.score != null) {
-          setText('proxy-ipq-score', String(j.score));
-        }
-      }
-    } catch (_) {}
+ /* === PATCH: 填充 Geo 与 IP质量主行分数 === */
+(async () => {
+  const setText = (id, val) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = (val ?? '—') || '—';
   };
 
-  // 延后到浏览器空闲或首屏稳定后再取（减少与首屏关键数据的抢占）
-  if ('requestIdleCallback' in window) {
-    requestIdleCallback(() => runner(), { timeout: 1500 });
-  } else {
-    setTimeout(() => runner(), 1200);
-  }
-})();
+  // VPS 侧
+  try {
+    const r = await fetch('/status/ipq_vps.json', { cache: 'no-store' });
+    if (r.ok) {
+      const j = await r.json();
+      const geo = [j.country, j.city].filter(Boolean).join(' · ');
+      setText('vps-geo', geo || '—');
+      // VPS IP质量显示：分数 + 等级
+if (j.score != null && j.grade != null) {
+  setText('vps-ipq-score', `${j.score} (${j.grade})`);
+} else if (j.score != null) {
+  setText('vps-ipq-score', String(j.score));
+} else {
+  setText('vps-ipq-score', j.grade || '—');
+}
+    }
+  } catch (_) {}
 
+  // 代理侧
+  try {
+    const r = await fetch('/status/ipq_proxy.json', { cache: 'no-store' });
+    if (r.ok) {
+      const j = await r.json();
+      const geo = [j.country, j.city].filter(Boolean).join(' · ');
+      setText('proxy-geo', geo || '—');
+      // 代理IP质量显示：分数 + 等级  
+if (j.score != null && j.grade != null) {
+  setText('proxy-ipq-score', `${j.score} (${j.grade})`);
+} else if (j.score != null) {
+  setText('proxy-ipq-score', String(j.score));
+} else {
+  setText('proxy-ipq-score', j.grade || '—');
+}
+    }
+  } catch (_) {}
+})();
 
 // —— 白名单预览：只显示第一个域名的前9个字符 —— 
 const whitelist = data.shunt?.whitelist || [];
@@ -8354,7 +8291,7 @@ let data = null;
 const __seq = ++__IPQ_REQ_SEQ__; // 记录本次请求序号
 
 try {
-  const r = await fetch(file, { cache: 'no-cache' });
+  const r = await fetch(file, { cache: 'no-store' });
   if (__seq !== __IPQ_REQ_SEQ__) return;           // 旧请求作废，防止“失败→内容”闪烁
   if (!r.ok) throw new Error('HTTP ' + r.status);
   data = await r.json();
@@ -9314,9 +9251,9 @@ CONF
     # ---- D) 写入 new11 标准任务集（仅这一套）----
     ( crontab -l 2>/dev/null || true; cat <<CRON
 # EdgeBox 定时任务 v3.0 (new11 + SNI管理)
-1-59/2 * * * * bash -lc 'ionice -c2 -n7 nice -n 10 /etc/edgebox/scripts/dashboard-backend.sh --now' >/dev/null 2>&1
-3  * * * * bash -lc 'ionice -c2 -n7 nice -n 10 /etc/edgebox/scripts/traffic-collector.sh'            >/dev/null 2>&1
-9  * * * * bash -lc 'ionice -c2 -n7 nice -n 10 /etc/edgebox/scripts/traffic-alert.sh'  
+*/2 * * * * bash -lc '/etc/edgebox/scripts/dashboard-backend.sh --now' >/dev/null 2>&1
+0  * * * * bash -lc '/etc/edgebox/scripts/traffic-collector.sh'        >/dev/null 2>&1
+7  * * * * bash -lc '/etc/edgebox/scripts/traffic-alert.sh'            >/dev/null 2>&1
 15 2 * * * bash -lc '/usr/local/bin/edgebox-ipq.sh'                    >/dev/null 2>&1
 0  2 * * * bash -lc '/usr/local/bin/edgeboxctl rotate-reality'         >/dev/null 2>&1
 0  3 * * 0 ${SCRIPTS_DIR}/sni-manager.sh select >/dev/null 2>&1
@@ -12461,62 +12398,9 @@ fi
     
     # 显示安装信息
     show_installation_info
-	
-	# 最终系统状态修复（幂等性保证）
-    log_info "执行最终系统状态检查..."
-    repair_system_state
     
     log_success "EdgeBox v3.0.0 安装成功完成！"
     exit 0
-}
-
-# [新增] 系统状态检查和修复函数
-repair_system_state() {
-    log_info "检查并修复系统状态..."
-    
-    # 1. 修复目录权限
-    ensure_directory_permissions
-    
-    # 2. 修复服务状态
-    local services=("xray" "sing-box" "nginx")
-    for service in "${services[@]}"; do
-        if systemctl list-unit-files | grep -q "^${service}.service"; then
-            ensure_service_running "$service" >/dev/null 2>&1 || true
-        fi
-    done
-    
-    # 3. 修复配置文件权限
-    repair_config_permissions
-    
-    log_success "系统状态修复完成"
-}
-
-# [新增函数] 修复配置文件权限
-repair_config_permissions() {
-    log_info "修复配置文件权限..."
-    
-    # 配置文件权限映射
-    local config_files=(
-        "${CONFIG_DIR}/config.json:600"
-        "${CONFIG_DIR}/sing-box.json:600"
-        "/etc/nginx/sites-available/edgebox:644"
-    )
-    
-    for file_perm in "${config_files[@]}"; do
-        IFS=':' read -r file perm <<< "$file_perm"
-        if [[ -f "$file" ]]; then
-            chmod "$perm" "$file" 2>/dev/null || true
-            chown root:root "$file" 2>/dev/null || true
-        fi
-    done
-    
-    # 证书目录权限
-    if [[ -d "${CERT_DIR}" ]]; then
-        find "${CERT_DIR}" -name "*.crt" -exec chmod 644 {} \; 2>/dev/null || true
-        find "${CERT_DIR}" -name "*.key" -exec chmod 600 {} \; 2>/dev/null || true
-    fi
-    
-    log_success "配置文件权限已修复"
 }
 
 # 脚本入口点检查
