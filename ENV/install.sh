@@ -7268,11 +7268,11 @@ h4 {
     transform: scale(1.15);
 }
 
-/* 通知数量徽章 - 最小尺寸版本 */
+/* 通知数量徽章 - 最小尺寸版本（修正对齐） */
 .notification-badge {
     position: absolute;
-    top: -6px;
-    right: -6px;
+    top: 2px;              /* 修正：贴近铃铛顶部 */
+    right: 2px;            /* 修正：贴近铃铛右侧 */
     background: #ef4444;
     color: white;
     border-radius: 50%;
@@ -7283,7 +7283,7 @@ h4 {
     
     /* 缩小字体 */
     font-size: 9px !important;
-    font-weight: 500;
+    font-weight: 600;      /* 加粗提高可读性 */
     line-height: 16px;
     
     /* 居中对齐 */
