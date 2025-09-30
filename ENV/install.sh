@@ -1352,42 +1352,51 @@ get_current_sni_domain() {
         echo ""
         return
     fi
-    
-    local sni_dest
-    sni_dest=$(jq -r '.inbounds[] | select(.tag == "vless-reality-vision") | .streamSettings.realitySettings.dest // empty' "$XRAY_CONFIG" 2>/dev/null | head -1)
-    
-    if [[ -n "$sni_dest" && "$sni_dest" != "null" ]]; then
-        echo "${sni_dest%:*}"
-    else
-        echo ""
-    fi
+
+    # 优先读 serverNames[0]，否则从 dest 截主机名
+    local sni
+    sni=$(
+      jq -r '
+        first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.serverNames[0])
+        // (
+          first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.dest)
+          | split(":")[0]
+        )
+        // empty
+      ' "$XRAY_CONFIG" 2>/dev/null
+    )
+
+    echo "${sni:-}"
 }
 
 # 更新SNI域名配置
 update_sni_domain() {
     local new_domain="$1"
     local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-    
+
     log_info "更新SNI域名配置: $new_domain"
-    
+
     if [[ ! -f "$XRAY_CONFIG" ]]; then
         log_error "Xray配置文件不存在: $XRAY_CONFIG"
         return 1
     fi
-    
+
     cp "$XRAY_CONFIG" "${XRAY_CONFIG}.backup.$(date +%s)"
-    
     local temp_config="${XRAY_CONFIG}.tmp"
-    
+
+    # 同步更新 dest 和 serverNames[0]
     if jq --arg domain "$new_domain" '
-        (.inbounds[] | select(.tag == "vless-reality-vision") | .streamSettings.realitySettings.dest) = $domain + ":443"
+      (.inbounds[] | select(.tag=="vless-reality") | .streamSettings.realitySettings.dest) = ($domain + ":443")
+      |
+      (.inbounds[] | select(.tag=="vless-reality") | .streamSettings.realitySettings.serverNames)
+        |= ( (.[0] = $domain) // [$domain] )
     ' "$XRAY_CONFIG" > "$temp_config"; then
         if jq empty "$temp_config" >/dev/null 2>&1; then
             mv "$temp_config" "$XRAY_CONFIG"
             log_success "SNI域名配置更新成功: $new_domain"
-            
+
             update_domain_usage "$new_domain" "$timestamp"
-            
+
             if reload_or_restart_services xray; then
                 log_success "Xray服务配置重载成功"
                 echo "SNI域名更新成功: $new_domain"
@@ -1410,6 +1419,7 @@ update_sni_domain() {
         return 1
     fi
 }
+
 
 # 更新域名使用记录
 update_domain_usage() {
@@ -11483,27 +11493,32 @@ sni_auto_select() {
 sni_set_domain() {
     local target_domain="$1"
     local XRAY_CONFIG="/etc/edgebox/config/xray.json"
-    
+
     if [[ -z "$target_domain" ]]; then
         echo "用法: edgeboxctl sni set <域名>"
         return 1
     fi
-    
+
     echo "手动设置SNI域名: $target_domain"
-    
-    local temp_config="${XRAY_CONFIG}.tmp"
-    if jq --arg domain "$target_domain" '(.inbounds[] | select(.tag == "vless-reality") | .streamSettings.realitySettings.dest) = $domain + ":443"' "$XRAY_CONFIG" > "$temp_config" 2>/dev/null; then
-        if jq empty "$temp_config" >/dev/null 2>&1; then
-            mv "$temp_config" "$XRAY_CONFIG"
+
+    local tmp="${XRAY_CONFIG}.tmp"
+    if jq --arg domain "$target_domain" '
+      (.inbounds[] | select(.tag=="vless-reality") | .streamSettings.realitySettings.dest) = ($domain + ":443")
+      |
+      (.inbounds[] | select(.tag=="vless-reality") | .streamSettings.realitySettings.serverNames)
+        |= ( (.[0] = $domain) // [$domain] )
+    ' "$XRAY_CONFIG" > "$tmp" 2>/dev/null; then
+        if jq empty "$tmp" >/dev/null 2>&1; then
+            mv "$tmp" "$XRAY_CONFIG"
             reload_or_restart_services xray
             echo "SNI域名设置成功: $target_domain"
         else
-            rm -f "$temp_config"
+            rm -f "$tmp"
             echo "配置文件格式错误"
             return 1
         fi
     else
-        rm -f "$temp_config"
+        rm -f "$tmp"
         echo "配置更新失败"
         return 1
     fi
