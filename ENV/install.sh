@@ -2060,7 +2060,7 @@ cleanup_all() {
     
     # 只有当服务真正失败时才报错
     if [[ "$services_ok" == "true" ]]; then
-        log_success "EdgeBox v3.0.0 安装成功完成！"
+        # 安静退出；最终摘要已在 show_installation_info() 输出
         exit 0
     else
         log_error "安装失败，部分核心服务未能启动"
@@ -12775,8 +12775,8 @@ show_installation_info() {
     echo -e "  VLESS-gRPC     端口: 443  UUID: ${PURPLE}${UUID_VLESS:0:8}...${NC}"  
     echo -e "  VLESS-WS       端口: 443  UUID: ${PURPLE}${UUID_VLESS:0:8}...${NC}"
     echo -e "  Trojan-TLS     端口: 443  密码: ${PURPLE}${PASSWORD_TROJAN:0:8}...${NC}"
-    echo -e "  Hysteria2      端口: 443  密码: ${PURPLE}${PASSWORD_HYSTERIA2:0:8}...${NC}"
-    echo -e "  TUIC           端口: 2053 UUID: ${PURPLE}${UUID_TUIC:0:8}...${NC}"
+    echo -e "  Hysteria2      端口: ${PORT_HYSTERIA2:-443}  密码: ${PURPLE}${PASSWORD_HYSTERIA2:0:8}...${NC}"
+    echo -e "  TUIC           端口: ${PORT_TUIC:-2053} UUID: ${PURPLE}${UUID_TUIC:0:8}...${NC}"
     
     echo -e "\n${CYAN}常用管理命令：${NC}"
     echo -e "  ${PURPLE}edgeboxctl status${NC}                         # 查看服务状态"
@@ -12800,25 +12800,54 @@ show_installation_info() {
     echo -e "  🔍 IP质量: 实时出口IP质量评分、黑名单检测"
     echo -e " "
     
-    # 显示服务状态摘要
+	
+   # 显示服务状态摘要（统一：仅展示存在的关键服务）
     echo -e "${CYAN}当前服务状态：${NC}"
-    local service_ok=0
+
+    # 仅对存在的单元打印，避免误报
+    _unit_exists() { systemctl list-unit-files --no-legend | awk '{print $1}' | grep -qx "$1.service"; }
+
     for svc in nginx xray sing-box; do
-        if systemctl is-active --quiet "$svc"; then
-            echo -e "  ✅ $svc: ${GREEN}运行正常${NC}"
-            ((service_ok++))
-        else
-            echo -e "  ❌ $svc: ${RED}服务异常${NC}"
+        if _unit_exists "$svc"; then
+            if systemctl is-active --quiet "$svc"; then
+                printf "  ✅ %-8s %b运行正常%b\n" "$svc" "${GREEN}" "${NC}"
+            else
+                printf "  ❌ %-8s %b未运行%b\n" "$svc" "${RED}"   "${NC}"
+            fi
         fi
     done
-    
-    if [[ $service_ok -eq 3 ]]; then
-        echo -e "\n${GREEN}🎊 所有服务运行正常，EdgeBox已就绪！${NC}"
+
+    # 关键端口监听（TCP/UDP 分开检测；端口取脚本变量，带兜底）
+    echo -e "\n${CYAN}关键端口监听：${NC}"
+
+    # TCP 443：TLS/Reality/WS/gRPC 复用
+    if ss -tln 2>/dev/null | awk '{print $4}' | grep -qE '[:.]443($|[^0-9])'; then
+        echo -e "  ✅ 443/tcp   TLS/Reality/WS/gRPC 复用"
     else
-        echo -e "\n${YELLOW}⚠️  部分服务异常，请运行 edgeboxctl status 检查详情${NC}"
+        echo -e "  ⚠️  443/tcp   TLS/Reality/WS/gRPC 复用（未监听）"
     fi
-    
+
+    # Hysteria2（UDP）
+    H2_PORT="${PORT_HYSTERIA2:-8443}"
+    if ss -uln 2>/dev/null | awk '{print $5}' | grep -qE "[:.]${H2_PORT}($|[^0-9])"; then
+        echo -e "  ✅ ${H2_PORT}/udp   Hysteria2"
+    else
+        echo -e "  ⚠️  ${H2_PORT}/udp   Hysteria2（未监听）"
+    fi
+
+    # TUIC（UDP）
+    TUIC_PORT_REAL="${PORT_TUIC:-2053}"
+    if ss -uln 2>/dev/null | awk '{print $5}' | grep -qE "[:.]${TUIC_PORT_REAL}($|[^0-9])"; then
+        echo -e "  ✅ ${TUIC_PORT_REAL}/udp   TUIC"
+    else
+        echo -e "  ⚠️  ${TUIC_PORT_REAL}/udp   TUIC（未监听）"
+    fi
+
+    echo
+    echo -e "${GREEN}安装完成${NC} ✅  （详细检查请执行：${PURPLE}edgeboxctl status${NC}）"
+
     print_separator
+
 }
 
 # 简化版清理函数 - 成功就是成功，不提及小问题
@@ -12838,7 +12867,7 @@ cleanup() {
     # 判断安装结果：只要有2个以上服务运行就算成功
     if [[ $running_count -ge 2 ]]; then
         # 🎯 安装成功 - 不提及任何警告或小问题
-        log_success "EdgeBox v3.0.0 安装成功完成！"
+        # 安静退出；最终摘要已在 show_installation_info() 输出
         exit 0
     else
         # 真正的安装失败
@@ -12860,7 +12889,7 @@ cleanup_minimal() {
     
     # 简单检查：只要nginx运行就算成功（因为nginx是最关键的入口服务）
     if systemctl is-active --quiet nginx 2>/dev/null; then
-        log_success "EdgeBox v3.0.0 安装成功完成！"
+        # 安静退出；最终摘要已在 show_installation_info() 输出
         exit 0
     else
         log_error "安装失败，核心服务未能启动"
