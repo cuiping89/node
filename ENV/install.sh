@@ -3492,7 +3492,7 @@ reload_or_restart_services() {
         ;;
 
       xray|xray.service|xray@*)
-        # 多数 xray 不支持真正 reload：先 -test 再 restart
+        # xray 一般不支持真正 reload：先 -test 再 restart
         if command -v xray >/dev/null 2>&1; then
           local xr_cfg="/etc/edgebox/config/xray.json"
           [ -f "$xr_cfg" ] && ! xray -test -config "$xr_cfg" >/dev/null 2>&1 && {
@@ -3529,6 +3529,7 @@ reload_or_restart_services() {
   ((${#failed[@]}==0)) || return 1
 }
 # --- hot-reload: end ---
+
 
 
 # 启动所有服务并验证（增强幂等性）
@@ -9470,6 +9471,68 @@ get_server_info() {
     return 0
 }
 
+# --- hot-reload: begin ---
+reload_or_restart_services() {
+  local services=("$@")
+  local failed=()
+  for svc in "${services[@]}"; do
+    local action="reload"
+    case "$svc" in
+      nginx|nginx.service)
+        if command -v nginx >/dev/null 2>&1; then
+          if ! nginx -t >/dev/null 2>&1; then
+            log_error "[hot-reload] nginx 配置校验失败（nginx -t）"
+            failed+=("$svc"); continue
+          fi
+        fi
+        systemctl reload nginx || { action="restart"; systemctl restart nginx; }
+        ;;
+      sing-box|sing-box.service|sing-box@*)
+        if command -v sing-box >/dev/null 2>&1; then
+          local sb_cfg="${CONFIG_DIR}/sing-box.json"
+          [ -f "$sb_cfg" ] && ! sing-box check -c "$sb_cfg" >/dev/null 2>&1 && {
+            log_error "[hot-reload] sing-box 配置校验失败（sing-box check）"
+            failed+=("$svc"); continue
+          }
+        fi
+        systemctl reload "$svc" 2>/dev/null \
+          || systemctl kill -s HUP "$svc" 2>/dev/null \
+          || { action="restart"; systemctl restart "$svc"; }
+        ;;
+      xray|xray.service|xray@*)
+        if command -v xray >/dev/null 2>&1; then
+          local xr_cfg="${CONFIG_DIR}/xray.json"
+          [ -f "$xr_cfg" ] && ! xray -test -config "$xr_cfg" >/dev/null 2>&1 && {
+            log_error "[hot-reload] xray 配置校验失败（xray -test）"
+            failed+=("$svc"); continue
+          }
+        fi
+        action="restart"
+        systemctl restart "$svc"
+        ;;
+      hysteria*|hy2*|hysteria-server*)
+        systemctl reload "$svc" 2>/dev/null || { action="restart"; systemctl restart "$svc"; }
+        ;;
+      tuic*)
+        action="restart"
+        systemctl restart "$svc"
+        ;;
+      *)
+        systemctl reload "$svc" 2>/dev/null || { action="restart"; systemctl restart "$svc"; }
+        ;;
+    esac
+    if ! systemctl is-active --quiet "$svc"; then
+      log_error "[hot-reload] $svc 在 ${action} 后仍未 active"
+      journalctl -u "$svc" -n 50 --no-pager || true
+      failed+=("$svc")
+    else
+      log_info "[hot-reload] $svc ${action}ed"
+    fi
+  done
+  ((${#failed[@]}==0)) || return 1
+}
+# --- hot-reload: end ---
+
 # ===== 性能优化的全局配置变量 =====
 # 这些变量在脚本启动时加载一次，后续直接使用
 CONFIG_LOADED=false
@@ -9680,6 +9743,16 @@ main() {
         *)
             echo "用法: edgeboxctl [sub|status|logs|restart|...]"
             ;;
+			
+		  reload)
+    shift
+    if [ $# -gt 0 ]; then
+      reload_or_restart_services "$@"
+    else
+      reload_or_restart_services nginx xray sing-box
+    fi
+    ;;
+
     esac
 }
 
