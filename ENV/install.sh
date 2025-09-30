@@ -1047,7 +1047,7 @@ update_sni_domain() {
             
             update_domain_usage "$new_domain" "$timestamp"
             
-            if systemctl reload xray 2>/dev/null || systemctl restart xray; then
+            if reload_or_restart_services xray; then
                 log_success "Xray服务配置重载成功"
                 echo "SNI域名更新成功: $new_domain"
                 return 0
@@ -3604,6 +3604,80 @@ chmod 644 "${CONFIG_DIR}/subscription.txt"
 # 服务启动和验证函数
 #############################################
 
+# --- hot-reload: begin ---
+# 智能热加载/回退重启（nginx / sing-box / xray 等）
+# 用法：reload_or_restart_services nginx sing-box xray
+reload_or_restart_services() {
+  local services=("$@")
+  local failed=()
+  for svc in "${services[@]}"; do
+    local action="reload"
+    case "$svc" in
+      nginx|nginx.service)
+        if command -v nginx >/dev/null 2>&1; then
+          if ! nginx -t >/dev/null 2>&1; then
+            log_error "[hot-reload] nginx 配置校验失败（nginx -t）"
+            failed+=("$svc"); continue
+          fi
+        fi
+        systemctl reload nginx || { action="restart"; systemctl restart nginx; }
+        ;;
+
+      sing-box|sing-box.service|sing-box@*)
+        # 当前脚本 sing-box 配置在 /etc/edgebox/config/sing-box.json
+        if command -v sing-box >/dev/null 2>&1; then
+          local sb_cfg="/etc/edgebox/config/sing-box.json"
+          [ -f "$sb_cfg" ] && ! sing-box check -c "$sb_cfg" >/dev/null 2>&1 && {
+            log_error "[hot-reload] sing-box 配置校验失败（sing-box check）"
+            failed+=("$svc"); continue
+          }
+        fi
+        # 优先 ExecReload，其次 HUP，最后重启
+        systemctl reload "$svc" 2>/dev/null \
+          || systemctl kill -s HUP "$svc" 2>/dev/null \
+          || { action="restart"; systemctl restart "$svc"; }
+        ;;
+
+      xray|xray.service|xray@*)
+        # 多数 xray 不支持真正 reload：先 -test 再 restart
+        if command -v xray >/dev/null 2>&1; then
+          local xr_cfg="/etc/edgebox/config/xray.json"
+          [ -f "$xr_cfg" ] && ! xray -test -config "$xr_cfg" >/dev/null 2>&1 && {
+            log_error "[hot-reload] xray 配置校验失败（xray -test）"
+            failed+=("$svc"); continue
+          }
+        fi
+        action="restart"
+        systemctl restart "$svc"
+        ;;
+
+      hysteria*|hy2*|hysteria-server*)
+        systemctl reload "$svc" 2>/dev/null || { action="restart"; systemctl restart "$svc"; }
+        ;;
+
+      tuic*)
+        action="restart"
+        systemctl restart "$svc"
+        ;;
+
+      *)
+        systemctl reload "$svc" 2>/dev/null || { action="restart"; systemctl restart "$svc"; }
+        ;;
+    esac
+
+    if ! systemctl is-active --quiet "$svc"; then
+      log_error "[hot-reload] $svc 在 ${action} 后仍未 active"
+      journalctl -u "$svc" -n 50 --no-pager || true
+      failed+=("$svc")
+    else
+      log_info "[hot-reload] $svc ${action}ed"
+    fi
+  done
+  ((${#failed[@]}==0)) || return 1
+}
+# --- hot-reload: end ---
+
+
 # 启动所有服务并验证（增强幂等性）
 start_and_verify_services() {
     log_info "启动并验证服务（幂等性保证）..."
@@ -3792,7 +3866,7 @@ restart_all_services() {
     local success_count=0
     
     for service in "${services[@]}"; do
-        if systemctl restart "$service"; then
+        if reload_or_restart_services "$service"; then
             log_success "✓ $service 重启成功"
             success_count=$((success_count + 1))
         else
@@ -4966,26 +5040,11 @@ restart_services_safely() {
     
     # sing-box 支持 reload
     if systemctl is-active --quiet sing-box; then
-        if systemctl reload sing-box >/dev/null 2>&1; then
-            log_info "sing-box 已使用 reload 重新加载"
-        else
-            log_warn "sing-box reload 失败，使用 restart"
-            systemctl restart sing-box
-        fi
-    else
-        systemctl start sing-box
-    fi
-    
-    # Xray 不支持 reload，直接使用 restart
-    if systemctl is-active --quiet xray; then
-        systemctl restart xray
-        log_info "Xray 已重启"
-    else
-        systemctl start xray
-    fi
-    
-    # 等待服务稳定
-    sleep 5
+	
+    # 应用更改并热加载（不支持的会回退重启）
+reload_or_restart_services sing-box xray
+sleep 5
+
 }
 
 # 验证随机化结果
@@ -9974,7 +10033,7 @@ traffic_reset() {
         fi
         
         # 重启服务以应用更改
-        systemctl reload-or-restart sing-box xray >/dev/null 2>&1
+        reload_or_restart_services sing-box xray
         log_success "服务已重启"
     fi
 }
@@ -10004,7 +10063,7 @@ restart_services(){
   echo -e "${CYAN}重启EdgeBox服务...${NC}"; 
   for s in nginx xray sing-box; do 
     echo -n "  重启 $s... "; 
-    systemctl restart "$s" && echo -e "${GREEN}OK${NC}" || echo -e "${RED}FAIL${NC}"; 
+    reload_or_restart_services "$s" && echo -e "${GREEN}OK${NC}" || echo -e "${RED}FAIL${NC}";
   done; 
 }
 
@@ -10150,7 +10209,7 @@ fi
   ln -sf "/etc/letsencrypt/live/${domain}/privkey.pem"  "${CERT_DIR}/current.key"
   echo "letsencrypt:${domain}" > "${CONFIG_DIR}/cert_mode"
 
-  systemctl reload nginx xray sing-box >/dev/null 2>&1 || systemctl restart nginx xray sing-box
+  reload_or_restart_services nginx xray sing-box
 
   if [[ ${have_trojan} -eq 1 ]]; then
     log_success "Let's Encrypt 证书已生效（包含 trojan.${domain}）"
@@ -10271,7 +10330,7 @@ switch_to_ip(){
   ln -sf ${CERT_DIR}/self-signed.pem ${CERT_DIR}/current.pem
   echo "self-signed" > ${CONFIG_DIR}/cert_mode
   regen_sub_ip
-  systemctl restart xray sing-box >/dev/null 2>&1
+  reload_or_restart_services xray sing-box
   log_success "已切换到 IP 模式"
 
   # 验收报告
@@ -10571,7 +10630,7 @@ EOF
 
     setup_shunt_directories
     update_shunt_state "vps" "" "healthy"
-    systemctl restart xray sing-box && log_success "VPS全量出站模式配置成功" || { log_error "配置失败"; return 1; }
+    reload_or_restart_services xray sing-box && log_success "VPS全量出站模式配置成功" || { log_error "配置失败"; return 1; }
 	post_shunt_report "VPS 全量" ""
     flush_nft_resi_sets
 }
@@ -10615,7 +10674,7 @@ EOF
   echo "$url" > "${CONFIG_DIR}/shunt/resi.conf"
   setup_shunt_directories
   update_shunt_state "resi(xray-only)" "$url" "healthy"
-  systemctl restart xray sing-box && log_success "代理全量出站已生效（Xray 分流，sing-box 直连）" || { log_error "失败"; return 1; }
+  reload_or_restart_services xray sing-box && log_success "代理全量出站已生效（Xray 分流，sing-box 直连）" || { log_error "失败"; return 1; }
   post_shunt_report "代理全量（Xray-only）" "$url"
 }
 
@@ -10660,7 +10719,7 @@ EOF
 
   echo "$url" > "${CONFIG_DIR}/shunt/resi.conf"
   update_shunt_state "direct_resi(xray-only)" "$url" "healthy"
-  systemctl restart xray sing-box && log_success "智能分流已生效（Xray 分流，sing-box 直连）" || { log_error "失败"; return 1; }
+  reload_or_restart_services xray sing-box && log_success "智能分流已生效（Xray 分流，sing-box 直连）" || { log_error "失败"; return 1; }
   post_shunt_report "智能分流（白名单直连）" "$url"
 }
 
@@ -10828,7 +10887,7 @@ backup_restore(){
         
         # 重启服务
         systemctl daemon-reload
-        systemctl restart nginx xray sing-box
+        reload_or_restart_services nginx xray sing-box
         rm -rf "$restore_dir"
         log_success "恢复完成"
     else
@@ -10881,7 +10940,7 @@ regenerate_uuid(){
     fi
     
     # 重启服务
-    systemctl restart xray sing-box
+    reload_or_restart_services xray sing-box
     log_success "UUID重新生成完成"
     echo -e "${YELLOW}新的UUID：${NC}"
     echo -e "  VLESS: $new_vless_uuid"
@@ -11010,7 +11069,7 @@ rotate_reality_keys() {
     
     # 重启服务
     log_info "重启相关服务..."
-    systemctl restart xray >/dev/null 2>&1
+    reload_or_restart_services xray
     
     # 重新生成订阅
     if [[ -x /etc/edgebox/scripts/dashboard-backend.sh ]]; then
@@ -11119,7 +11178,7 @@ sni_set_domain() {
     if jq --arg domain "$target_domain" '(.inbounds[] | select(.tag == "vless-reality-vision") | .streamSettings.realitySettings.dest) = $domain + ":443"' "$XRAY_CONFIG" > "$temp_config" 2>/dev/null; then
         if jq empty "$temp_config" >/dev/null 2>&1; then
             mv "$temp_config" "$XRAY_CONFIG"
-            systemctl reload xray 2>/dev/null || systemctl restart xray
+            reload_or_restart_services xray
             echo "SNI域名设置成功: $target_domain"
         else
             rm -f "$temp_config"
@@ -11169,7 +11228,7 @@ case "$1" in
         certbot renew --quiet || true
         systemctl start nginx >/dev/null 2>&1 || true
         # 尽量优先 reload，失败再 restart
-        systemctl reload nginx xray sing-box >/dev/null 2>&1 || systemctl restart nginx xray sing-box
+        reload_or_restart_services nginx xray sing-box
         cert_status
         ;;
       *)
@@ -12006,7 +12065,7 @@ rotate_reality_keys() {
     update_server_reality_keys "$new_private_key" "$new_public_key" "$new_short_id"
     
     # 重启Xray服务
-    if systemctl restart xray; then
+    if reload_or_restart_services xray; then
         log_success "Xray服务重启成功"
         sleep 3
         
@@ -12027,7 +12086,7 @@ rotate_reality_keys() {
         else
             log_error "Xray服务启动失败，恢复备份配置"
             cp "$backup_file" "${CONFIG_DIR}/xray.json" 2>/dev/null || true
-            systemctl restart xray
+            reload_or_restart_services xray
             return 1
         fi
     else
@@ -12224,9 +12283,7 @@ start_services() {
   systemctl daemon-reload
   systemctl enable nginx xray sing-box >/dev/null 2>&1 || true
 
-  systemctl restart nginx
-  systemctl restart xray
-  systemctl restart sing-box
+  reload_or_restart_services nginx xray sing-box
 
   sleep 2
   for s in nginx xray sing-box; do
