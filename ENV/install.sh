@@ -2690,6 +2690,16 @@ events {
 http {
     include       /etc/nginx/mime.types;
     default_type  application/octet-stream;
+	
+	# 压缩与实体标识
+    gzip on;
+    gzip_min_length 1024;
+    gzip_types application/json text/css application/javascript application/xml text/plain text/html;
+    gzip_comp_level 5;
+    gzip_vary on;
+
+    # 允许全局 ETag（静态文件天然可用）
+    etag on;
     
     # 日志格式
     log_format main '$remote_addr - $remote_user [$time_local] "$request" '
@@ -2734,34 +2744,50 @@ http {
         }
         
         # 控制面板和数据API
-        location ^~ /traffic/ {
-            alias /etc/edgebox/traffic/;
-            index index.html;
-            autoindex off;
-            
-            # 缓存控制
-            add_header Cache-Control "no-store, no-cache, must-revalidate";
-            add_header Pragma "no-cache";
-            
-            # 文件类型
-            location ~* \.(html|htm)$ {
-                add_header Content-Type "text/html; charset=utf-8";
-            }
-            location ~* \.(json)$ {
-                add_header Content-Type "application/json; charset=utf-8";
-            }
-            location ~* \.(txt)$ {
-                add_header Content-Type "text/plain; charset=utf-8";
-            }
-        }
+location ^~ /traffic/ {
+    alias /etc/edgebox/traffic/;
+    index index.html;
+    autoindex off;
+
+    # 为静态资源启用强缓存与 ETag（文件名没变时也能走 304/If-None-Match）
+    etag on;
+
+    # HTML/CSS/JS/图片等：建议强缓存（若你有文件指纹更佳）
+    location ~* \.(css|js|png|jpg|jpeg|gif|svg|ico|woff2?)$ {
+        expires 7d;
+        add_header Cache-Control "public, max-age=604800, immutable";
+    }
+
+    # JSON/CONF 数据：启用“可再验证”缓存（no-cache），配合 ETag 走 304
+    location ~* \.(json|conf)$ {
+        add_header Cache-Control "no-cache";
+        add_header Pragma "no-cache";
+        add_header Content-Type "application/json; charset=utf-8";
+    }
+
+    # 页面
+    location ~* \.(html?)$ {
+        add_header Content-Type "text/html; charset=utf-8";
+        add_header Cache-Control "no-cache";
+    }
+
+    # 纯文本
+    location ~* \.(txt)$ {
+        add_header Content-Type "text/plain; charset=utf-8";
+        add_header Cache-Control "no-cache";
+    }
+}
         
-        # IP质量检测API（对齐技术规范）
-        location ^~ /status/ {
-            alias /var/www/edgebox/status/;
-            autoindex off;
-            add_header Cache-Control "no-store, no-cache, must-revalidate";
-            add_header Content-Type "application/json; charset=utf-8";
-        }
+# IP质量检测API（对齐技术规范）
+location ^~ /status/ {
+    alias /var/www/edgebox/status/;
+    autoindex off;
+    etag on;
+    add_header Content-Type "application/json; charset=utf-8";
+    add_header Cache-Control "no-cache";
+    add_header Pragma "no-cache";
+}
+
         
         # 健康检查
         location = /health {
@@ -7576,7 +7602,7 @@ const ebYAxisUnitTop = {
 // --- Utility Functions ---
 async function fetchJSON(url) {
   try {
-    const response = await fetch(url, { cache: 'no-store' });
+    const response = await fetch(url, { cache: 'no-cache' });
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
     return await response.json();
   } catch (error) {
@@ -7588,7 +7614,7 @@ async function fetchJSON(url) {
 // 读取 alert.conf 配置
 async function fetchAlertConfig() {
   try {
-    const response = await fetch('/traffic/alert.conf', { cache: 'no-store' });
+    const response = await fetch('/traffic/alert.conf', { cache: 'no-cache' });
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
     const text = await response.text();
     const config = {};
@@ -7824,49 +7850,54 @@ if (exEl) {
   }
   if (proxyEl) proxyEl.textContent = formatProxy(proxyRaw);
   
- /* === PATCH: 填充 Geo 与 IP质量主行分数 === */
-(async () => {
-  const setText = (id, val) => {
-    const el = document.getElementById(id);
-    if (el) el.textContent = (val ?? '—') || '—';
+
+/* === PATCH: 填充 Geo 与 IP质量主行分数（idle/defer + no-cache） === */
+(() => {
+  const runner = async () => {
+    const setText = (id, val) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = (val ?? '—') || '—';
+    };
+
+    // VPS 侧
+    try {
+      const r = await fetch('/status/ipq_vps.json', { cache: 'no-cache' });
+      if (r.ok) {
+        const j = await r.json();
+        const geo = [j.country, j.city].filter(Boolean).join(' · ');
+        setText('vps-geo', geo || '—');
+        if (j.score != null && j.grade != null) {
+          setText('vps-ipq-score', `${j.score} (${j.grade})`);
+        } else if (j.score != null) {
+          setText('vps-ipq-score', String(j.score));
+        }
+      }
+    } catch (_) {}
+
+    // 代理侧
+    try {
+      const r = await fetch('/status/ipq_proxy.json', { cache: 'no-cache' });
+      if (r.ok) {
+        const j = await r.json();
+        const geo = [j.country, j.city].filter(Boolean).join(' · ');
+        setText('proxy-geo', geo || '—');
+        if (j.score != null && j.grade != null) {
+          setText('proxy-ipq-score', `${j.score} (${j.grade})`);
+        } else if (j.score != null) {
+          setText('proxy-ipq-score', String(j.score));
+        }
+      }
+    } catch (_) {}
   };
 
-  // VPS 侧
-  try {
-    const r = await fetch('/status/ipq_vps.json', { cache: 'no-store' });
-    if (r.ok) {
-      const j = await r.json();
-      const geo = [j.country, j.city].filter(Boolean).join(' · ');
-      setText('vps-geo', geo || '—');
-      // VPS IP质量显示：分数 + 等级
-if (j.score != null && j.grade != null) {
-  setText('vps-ipq-score', `${j.score} (${j.grade})`);
-} else if (j.score != null) {
-  setText('vps-ipq-score', String(j.score));
-} else {
-  setText('vps-ipq-score', j.grade || '—');
-}
-    }
-  } catch (_) {}
-
-  // 代理侧
-  try {
-    const r = await fetch('/status/ipq_proxy.json', { cache: 'no-store' });
-    if (r.ok) {
-      const j = await r.json();
-      const geo = [j.country, j.city].filter(Boolean).join(' · ');
-      setText('proxy-geo', geo || '—');
-      // 代理IP质量显示：分数 + 等级  
-if (j.score != null && j.grade != null) {
-  setText('proxy-ipq-score', `${j.score} (${j.grade})`);
-} else if (j.score != null) {
-  setText('proxy-ipq-score', String(j.score));
-} else {
-  setText('proxy-ipq-score', j.grade || '—');
-}
-    }
-  } catch (_) {}
+  // 延后到浏览器空闲或首屏稳定后再取（减少与首屏关键数据的抢占）
+  if ('requestIdleCallback' in window) {
+    requestIdleCallback(() => runner(), { timeout: 1500 });
+  } else {
+    setTimeout(() => runner(), 1200);
+  }
 })();
+
 
 // —— 白名单预览：只显示第一个域名的前9个字符 —— 
 const whitelist = data.shunt?.whitelist || [];
@@ -8323,7 +8354,7 @@ let data = null;
 const __seq = ++__IPQ_REQ_SEQ__; // 记录本次请求序号
 
 try {
-  const r = await fetch(file, { cache: 'no-store' });
+  const r = await fetch(file, { cache: 'no-cache' });
   if (__seq !== __IPQ_REQ_SEQ__) return;           // 旧请求作废，防止“失败→内容”闪烁
   if (!r.ok) throw new Error('HTTP ' + r.status);
   data = await r.json();
@@ -9283,9 +9314,9 @@ CONF
     # ---- D) 写入 new11 标准任务集（仅这一套）----
     ( crontab -l 2>/dev/null || true; cat <<CRON
 # EdgeBox 定时任务 v3.0 (new11 + SNI管理)
-*/2 * * * * bash -lc '/etc/edgebox/scripts/dashboard-backend.sh --now' >/dev/null 2>&1
-0  * * * * bash -lc '/etc/edgebox/scripts/traffic-collector.sh'        >/dev/null 2>&1
-7  * * * * bash -lc '/etc/edgebox/scripts/traffic-alert.sh'            >/dev/null 2>&1
+1-59/2 * * * * bash -lc 'ionice -c2 -n7 nice -n 10 /etc/edgebox/scripts/dashboard-backend.sh --now' >/dev/null 2>&1
+3  * * * * bash -lc 'ionice -c2 -n7 nice -n 10 /etc/edgebox/scripts/traffic-collector.sh'            >/dev/null 2>&1
+9  * * * * bash -lc 'ionice -c2 -n7 nice -n 10 /etc/edgebox/scripts/traffic-alert.sh'  
 15 2 * * * bash -lc '/usr/local/bin/edgebox-ipq.sh'                    >/dev/null 2>&1
 0  2 * * * bash -lc '/usr/local/bin/edgeboxctl rotate-reality'         >/dev/null 2>&1
 0  3 * * 0 ${SCRIPTS_DIR}/sni-manager.sh select >/dev/null 2>&1
