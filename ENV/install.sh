@@ -2408,6 +2408,7 @@ save_config_info() {
         --arg rpub "$REALITY_PUBLIC_KEY" \
         --arg rpri "$REALITY_PRIVATE_KEY" \
         --arg rsid "$REALITY_SHORT_ID" \
+		--arg rsni "$REALITY_SNI" \
         '{
             server_ip: $ip,
             eip: $eip,
@@ -2441,9 +2442,10 @@ save_config_info() {
                 hysteria2: $hy
             },
             reality: {
-                public_key: $rpub,
-                private_key: $rpri,
-                short_id: $rsid
+                  public_key: $rpub,
+				  private_key: $rpri,
+				  short_id: $rsid,
+				  sni: $rsni
             },
             cert: {
                 mode: "self-signed",
@@ -10072,7 +10074,8 @@ show_sub() {
     echo "📋 订阅链接 (复制到客户端):"
     
     # 生成各协议链接（使用已加载的全局变量）
-    local vless_reality="vless://${UUID_VLESS_REALITY}@${SERVER_IP}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.microsoft.com&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&type=tcp&headerType=none#EdgeBox-Reality"
+    local vless_reality="vless://${UUID_VLESS_REALITY}@${SERVER_IP}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=$(jq -r 'first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.serverNames[0]) // (first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.dest) | split(":")[0]) // empty' ${CONFIG_DIR}/xray.json 2>/dev/null || echo ${REALITY_SNI:-www.microsoft.com})&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&type=tcp&headerType=none#EdgeBox-Reality"
+
     
     local hysteria2="hy2://${PASSWORD_HYSTERIA2}@${SERVER_IP}:443/?sni=${SERVER_IP}#EdgeBox-Hysteria2"
     
@@ -10132,27 +10135,31 @@ ensure_traffic_dir(){ mkdir -p /etc/edgebox/traffic; }
 
 # 优先读取安装阶段写入的 subscription.txt；没有就根据 cert 模式现生成
 build_sub_payload(){
-  # 已有订阅（安装时 generate_subscription() 写入）
+  # 1) 已有订阅（安装时 generate_subscription() 写入）
   if [[ -s "${CONFIG_DIR}/subscription.txt" ]]; then
     cat "${CONFIG_DIR}/subscription.txt"
     return 0
   fi
 
-  # 没有就按当前证书模式生成
-  local mode
+  # 2) 没有就按当前证书模式生成（不再依赖 server.json 存在与否）
+  local mode domain
   mode="$(get_current_cert_mode 2>/dev/null || echo self-signed)"
-  if [[ -f "${CONFIG_DIR}/server.json" ]]; then
-    if [[ "$mode" == "self-signed" ]]; then
-      regen_sub_ip
+  if [[ "$mode" == "self-signed" ]]; then
+    regen_sub_ip
+  else
+    # letsencrypt:<domain>
+    domain="${mode##*:}"
+    if [[ -n "$domain" ]]; then
+      regen_sub_domain "$domain" || regen_sub_ip
     else
-      # letsencrypt:<domain>
-      local domain="${mode##*:}"
-      [[ -n "$domain" ]] && regen_sub_domain "$domain" || regen_sub_ip
+      regen_sub_ip
     fi
-    # 生成后必然存在
-    [[ -s "${CONFIG_DIR}/subscription.txt" ]] && cat "${CONFIG_DIR}/subscription.txt"
   fi
+
+  # 3) 生成后输出（存在即输出）
+  [[ -s "${CONFIG_DIR}/subscription.txt" ]] && cat "${CONFIG_DIR}/subscription.txt"
 }
+
 
 show_sub(){
   ensure_traffic_dir
@@ -10160,9 +10167,9 @@ show_sub(){
   # 1) 优先从 dashboard.json 读三段
   if [[ -s "${TRAFFIC_DIR}/dashboard.json" ]]; then
     local sub_plain sub_lines sub_b64
-    sub_plain=$(jq -r '.subscription.plain // empty'       "${TRAFFIC_DIR}/dashboard.json" 2>/dev/null || true)
-    sub_lines=$(jq -r '.subscription.b64_lines // empty'   "${TRAFFIC_DIR}/dashboard.json" 2>/dev/null || true)
-    sub_b64=$(jq -r '.subscription.base64 // empty'        "${TRAFFIC_DIR}/dashboard.json" 2>/dev/null || true)
+    sub_plain=$(jq -r '.subscription.plain // empty'     "${TRAFFIC_DIR}/dashboard.json" 2>/dev/null || true)
+    sub_lines=$(jq -r '.subscription.b64_lines // empty' "${TRAFFIC_DIR}/dashboard.json" 2>/dev/null || true)
+    sub_b64=$(jq -r '.subscription.base64 // empty'      "${TRAFFIC_DIR}/dashboard.json" 2>/dev/null || true)
 
     if [[ -n "$sub_plain$sub_lines$sub_b64" ]]; then
       if [[ -n "$sub_plain" ]]; then
@@ -10204,22 +10211,33 @@ show_sub(){
     return 0
   fi
 
-  # 3) 兜底：现生成一次（仍尽量补全）
+  # 3) 兜底：现生成一次（读取 CONFIG_DIR/server.json；若缺省则用 self-signed/IP）
   local cert_mode domain
-  cert_mode=$(safe_jq '.cert.mode' "${TRAFFIC_DIR}/server.json" "self-signed")
-  domain=$(safe_jq '.cert.domain' "${TRAFFIC_DIR}/server.json" "")
-  
+  cert_mode=$(safe_jq '.cert.mode'   "${CONFIG_DIR}/server.json" "self-signed")
+  domain=$(    safe_jq '.cert.domain' "${CONFIG_DIR}/server.json" "")
+
   if [[ "$cert_mode" == letsencrypt* ]] && [[ -n "$domain" ]]; then
     regen_sub_domain "$domain" || regen_sub_ip
   else
     regen_sub_ip
   fi
-  
-  # 生成后必然存在，重新调用自己（但只会进入上面的分支）
-  if [[ -s "${CONFIG_DIR}/subscription.txt" ]]; then
-    echo
-    echo "# 明文链接"
-    cat "${CONFIG_DIR}/subscription.txt"
+
+  # 生成后以与“回落分支”一致的格式输出三段
+  if [[ -s "$txt" || -s "$b64lines" || -s "$b64all" ]]; then
+    if [[ -s "$txt" ]]; then
+      echo
+      echo "# 明文链接"
+      cat "$txt"; echo
+    fi
+    if [[ -s "$b64lines" ]]; then
+      echo "# Base64（逐行，每行一个链接；多数客户端不支持一次粘贴多行）"
+      cat "$b64lines"; echo
+    fi
+    if [[ -s "$b64all" ]]; then
+      echo "# Base64（整包）"
+      cat "$b64all"; echo
+    fi
+    return 0
   fi
 }
 
@@ -10508,14 +10526,19 @@ fi
 # 生成订阅（域名 / IP模式）
 regen_sub_domain(){
   local domain=$1; get_server_info
-  local HY2_PW_ENC TUIC_PW_ENC TROJAN_PW_ENC
+  local HY2_PW_ENC TUIC_PW_ENC TROJAN_PW_ENC reality_sni
   HY2_PW_ENC=$(printf '%s' "$PASSWORD_HYSTERIA2" | jq -rR @uri)
   TUIC_PW_ENC=$(printf '%s' "$PASSWORD_TUIC"     | jq -rR @uri)
   TROJAN_PW_ENC=$(printf '%s' "$PASSWORD_TROJAN" | jq -rR @uri)
 
+  # 从 xray.json -> server.json -> 环境变量 依次获取真实的 Reality SNI
+  reality_sni="$(jq -r 'first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.serverNames[0]) // (first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.dest) | split(":")[0]) // empty' "${CONFIG_DIR}/xray.json" 2>/dev/null)"
+  : "${reality_sni:=$(jq -r '.reality.sni // empty' "${SERVER_CONFIG}" 2>/dev/null)}"
+  : "${reality_sni:=${REALITY_SNI:-www.microsoft.com}}"
+
   local sub=$(
     cat <<PLAIN
-vless://${UUID_VLESS_REALITY}@${domain}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.microsoft.com&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&type=tcp#EdgeBox-REALITY
+vless://${UUID_VLESS_REALITY}@${domain}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${reality_sni}&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&type=tcp#EdgeBox-REALITY
 vless://${UUID_VLESS_GRPC}@${domain}:443?encryption=none&security=tls&sni=${domain}&alpn=h2&type=grpc&serviceName=grpc&fp=chrome#EdgeBox-gRPC
 vless://${UUID_VLESS_WS}@${domain}:443?encryption=none&security=tls&sni=${domain}&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome#EdgeBox-WS
 trojan://${TROJAN_PW_ENC}@${domain}:443?security=tls&sni=trojan.${domain}&alpn=http%2F1.1&fp=chrome#EdgeBox-TROJAN
@@ -10550,16 +10573,22 @@ PLAIN
   log_success "域名模式订阅已更新"
 }
 
+
 regen_sub_ip(){
   get_server_info
-  local HY2_PW_ENC TUIC_PW_ENC TROJAN_PW_ENC
+  local HY2_PW_ENC TUIC_PW_ENC TROJAN_PW_ENC reality_sni
   HY2_PW_ENC=$(printf '%s' "$PASSWORD_HYSTERIA2" | jq -rR @uri)
   TUIC_PW_ENC=$(printf '%s' "$PASSWORD_TUIC"     | jq -rR @uri)
   TROJAN_PW_ENC=$(printf '%s' "$PASSWORD_TROJAN" | jq -rR @uri)
 
+  # 从 xray.json -> server.json -> 环境变量 依次获取真实的 Reality SNI
+  reality_sni="$(jq -r 'first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.serverNames[0]) // (first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.dest) | split(":")[0]) // empty' "${CONFIG_DIR}/xray.json" 2>/dev/null)"
+  : "${reality_sni:=$(jq -r '.reality.sni // empty' "${SERVER_CONFIG}" 2>/dev/null)}"
+  : "${reality_sni:=${REALITY_SNI:-www.microsoft.com}}"
+
   local sub=$(
     cat <<PLAIN
-vless://${UUID_VLESS_REALITY}@${SERVER_IP}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&type=tcp#EdgeBox-REALITY
+vless://${UUID_VLESS_REALITY}@${SERVER_IP}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${reality_sni}&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&type=tcp#EdgeBox-REALITY
 vless://${UUID_VLESS_GRPC}@${SERVER_IP}:443?encryption=none&security=tls&sni=grpc.edgebox.internal&alpn=h2&type=grpc&serviceName=grpc&fp=chrome&allowInsecure=1#EdgeBox-gRPC
 vless://${UUID_VLESS_WS}@${SERVER_IP}:443?encryption=none&security=tls&sni=ws.edgebox.internal&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome&allowInsecure=1#EdgeBox-WS
 trojan://${TROJAN_PW_ENC}@${SERVER_IP}:443?security=tls&sni=trojan.edgebox.internal&alpn=http%2F1.1&fp=chrome&allowInsecure=1#EdgeBox-TROJAN
@@ -10593,6 +10622,7 @@ PLAIN
 
   log_success "IP 模式订阅已更新"
 }
+
 
 switch_to_domain(){
   local domain="$1"
