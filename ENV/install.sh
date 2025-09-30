@@ -66,7 +66,7 @@ get_latest_sing_box_version() {
     
     # 验证版本格式
     if [[ "$latest" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-        # 检查版本是否真的可下载（避免1.12.4这种问题版本）
+        # 检查版本是否真的可下载
         local test_url="https://github.com/SagerNet/sing-box/releases/download/v${latest}/sing-box-${latest}-linux-amd64.tar.gz"
         if curl -fsSL --head --connect-timeout 3 "$test_url" >/dev/null 2>&1; then
             echo "$latest"
@@ -78,16 +78,20 @@ get_latest_sing_box_version() {
     echo "$fallback"
 }
 
-# 设置版本变量（支持用户覆盖）
+# 设置版本变量（支持用户覆盖）- 移除log_info调用
 if [[ -n "${DEFAULT_SING_BOX_VERSION:-}" ]]; then
     # 用户指定了版本
     DEFAULT_SING_BOX_VERSION="${DEFAULT_SING_BOX_VERSION}"
-    log_info "使用用户指定的sing-box版本: v${DEFAULT_SING_BOX_VERSION}"
+    # 注意：这里移除了 log_info
 else
     # 自动获取最新版本
     DEFAULT_SING_BOX_VERSION=$(get_latest_sing_box_version)
-    log_info "自动选择sing-box版本: v${DEFAULT_SING_BOX_VERSION}"
+    # 注意：这里移除了 log_info
 fi
+
+# 保存版本信息到变量，稍后在日志函数定义后再输出
+SING_BOX_VERSION_SOURCE="auto"
+[[ -n "${DEFAULT_SING_BOX_VERSION:-}" ]] && SING_BOX_VERSION_SOURCE="user"
 
 #############################################
 # 下载加速配置（可通过环境变量自定义）
