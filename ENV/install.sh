@@ -4658,7 +4658,6 @@ setup_traffic_randomization() {
     
     create_traffic_randomization_script
     create_randomization_config
-    setup_randomization_schedule
     
     log_success "流量特征随机化系统配置完成"
 }
