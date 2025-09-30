@@ -7268,23 +7268,23 @@ h4 {
     transform: scale(1.15);
 }
 
-/* 通知数量徽章 */
+/* 通知数量徽章 - 最小尺寸版本 */
 .notification-badge {
     position: absolute;
-    top: -8px;
-    right: -8px;
+    top: -6px;
+    right: -6px;
     background: #ef4444;
     color: white;
-    border-radius: 50%;           /* 完全圆形 */
+    border-radius: 50%;
     
-    /* 尺寸修复 */
-    min-width: 20px;
-    height: 20px;
+    /* 缩小尺寸 */
+    min-width: 16px;
+    height: 16px;
     
-    /* 字体调整 */
-    font-size: 6px; !important;
+    /* 缩小字体 */
+    font-size: 9px !important;
     font-weight: 500;
-    line-height: 15px;
+    line-height: 16px;
     
     /* 居中对齐 */
     display: flex;
@@ -7292,7 +7292,7 @@ h4 {
     justify-content: center;
     text-align: center;
     
-    border: 2px solid white;
+    border: 1.5px solid white;
     z-index: 10;
     animation: notification-pulse 2s infinite;
     
