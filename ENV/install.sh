@@ -3296,6 +3296,11 @@ else
     nginx -t  # 显示详细错误信息
     return 1
 fi
+
+# 对齐系统与 Xray 的 DNS（幂等，无则跳过）
+log_info "对齐 DNS 解析（系统 & Xray）..."
+ensure_system_dns
+ensure_xray_dns_alignment
     
 log_success "Nginx配置文件创建完成"
 return 0
@@ -3549,6 +3554,11 @@ configure_xray() {
  
     log_success "Xray配置文件验证通过"
     
+	# 对齐系统与 Xray 的 DNS
+log_info "对齐 DNS 解析（系统 & Xray）..."
+ensure_system_dns
+ensure_xray_dns_alignment
+	
     # ============================================
     # [关键修复] 创建正确的 systemd 服务文件
     # ============================================
