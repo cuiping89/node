@@ -2116,22 +2116,28 @@ get_cpu_info() {
 }
     
     # 获取内存详细信息
-    get_memory_info() {
-        # 读取内存信息（KB转换为GB）
-        local total_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo 2>/dev/null || echo "0")
-        local total_gb=$(( total_kb / 1024 / 1024 ))
-        
-        # 读取交换分区信息
-        local swap_kb=$(awk '/SwapTotal/ {print $2}' /proc/meminfo 2>/dev/null || echo "0")
-        local swap_gb=$(( swap_kb / 1024 / 1024 ))
-        
-        # 格式化输出
-        if [[ $swap_gb -gt 0 ]]; then
-            echo "${total_gb}GiB + ${swap_gb}GiB Swap"
-        else
-            echo "${total_gb}GiB"
-        fi
-    }
+get_memory_info() {
+  local mem_kb swap_kb mem_mib swap_mib
+  mem_kb=$(grep -i '^MemTotal:' /proc/meminfo | awk '{print $2}')
+  swap_kb=$(grep -i '^SwapTotal:' /proc/meminfo | awk '{print $2}')
+  mem_mib=$(( (mem_kb + 1023) / 1024 ))     # 四舍五入到 MiB
+  swap_mib=$(( (swap_kb + 1023) / 1024 ))
+
+  # >= 1024 MiB 时按 GiB 一位小数显示，否则按 MiB 显示
+  if (( mem_mib >= 1024 )); then
+    printf "%.1fGiB" "$(echo "$mem_mib/1024" | bc -l)"
+  else
+    printf "%dMiB" "$mem_mib"
+  fi
+
+  printf " + "
+
+  if (( swap_mib >= 1024 )); then
+    printf "%.1fGiB Swap" "$(echo "$swap_mib/1024" | bc -l)"
+  else
+    printf "%dMiB Swap" "$swap_mib"
+  fi
+}
     
     # 获取磁盘信息
     get_disk_info() {
@@ -2930,7 +2936,7 @@ install_xray() {
     # 验证安装
     if command -v xray >/dev/null 2>&1; then
         local xray_version
-        xray_version=$(xray version 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+        xray_version=$(xray version 2>/dev/null \ | grep -oE '[Vv]?[0-9]+\.[0-9]+\.[0-9]+' \ | head -1 | sed 's/^[Vv]//')
         log_success "Xray验证通过，版本: ${xray_version:-未知}"
         
         mkdir -p /var/log/xray
@@ -2962,30 +2968,31 @@ install_sing_box() {
     fi
 
     # --- 版本决策逻辑 ---
-    local version_to_install=""
-    local KNOWN_BAD_VERSIONS=("1.12.4") # 可在此处维护一个问题版本黑名单
-    local STABLE_FALLBACK="1.10.3"    # 经过验证的稳定版本
+local version_to_install=""
+local KNOWN_BAD_VERSIONS=("1.12.4")   # 问题版本黑名单
+local STABLE_FALLBACK="1.10.3"        # 经验证稳定版
 
-    if [[ -n "${DEFAULT_SING_BOX_VERSION:-}" ]]; then
-        # 用户通过环境变量指定了版本
-        version_to_install="${DEFAULT_SING_BOX_VERSION}"
-        log_info "使用用户指定的sing-box版本: v${version_to_install}"
-    else
-        # 自动获取最新版本
-        log_info "正在自动获取最新的sing-box稳定版本..."
-        local latest_version
-        latest_version=$(get_latest_sing_box_version)
-        
-        # 检查最新版本是否在黑名单中
-        if [[ " ${KNOWN_BAD_VERSIONS[*]} " =~ " ${latest_version} " ]]; then
-            log_warn "检测到最新版本 v${latest_version} 存在已知问题，自动降级到稳定版 v${STABLE_FALLBACK}"
-            version_to_install="$STABLE_FALLBACK"
-        else
-            version_to_install="$latest_version"
-            log_success "获取到最新稳定版本: v${version_to_install}"
-        fi
-    fi
-    # --- 版本决策结束 ---
+if [[ -n "${DEFAULT_SING_BOX_VERSION:-}" ]]; then
+  version_to_install="${DEFAULT_SING_BOX_VERSION}"
+  # 对“用户指定版本”也做黑名单拦截
+  if [[ " ${KNOWN_BAD_VERSIONS[*]} " =~ " ${version_to_install} " ]]; then
+    log_warn "用户指定的 v${version_to_install} 在黑名单，自动回退到稳定版 v${STABLE_FALLBACK}"
+    version_to_install="$STABLE_FALLBACK"
+  else
+    log_info "使用用户指定的 sing-box 版本: v${version_to_install}"
+  fi
+else
+  log_info "正在获取 sing-box 最新稳定版..."
+  local latest_version
+  latest_version=$(get_latest_sing_box_version)
+  if [[ " ${KNOWN_BAD_VERSIONS[*]} " =~ " ${latest_version} " ]]; then
+    log_warn "检测到最新版 v${latest_version} 存在已知问题，回退至 v${STABLE_FALLBACK}"
+    version_to_install="$STABLE_FALLBACK"
+  else
+    version_to_install="$latest_version"
+    log_success "获取到最新稳定版: v${version_to_install}"
+  fi
+fi
 
     # 系统架构检测
     local system_arch
@@ -3009,17 +3016,35 @@ install_sing_box() {
     temp_checksum_file=$(mktemp) || { log_error "创建临时校验文件失败"; rm -f "$temp_file"; return 1; }
     
     # 智能下载
-    log_info "下载SHA256校验文件..."
-    if ! smart_download "$checksum_url" "$temp_checksum_file" "checksum"; then
-        log_warn "⚠️ 校验文件下载失败，将跳过SHA256验证（存在安全风险）"
-    fi
+# --- 下载 SHA256 校验文件（替换原逻辑） ---
+log_info "下载SHA256校验文件."
+local checksum_ok=false
+local temp_checksum_file="$(mktemp)"
 
-    log_info "下载sing-box二进制包..."
-    if ! smart_download "$download_url" "$temp_file" "binary"; then
-        log_error "sing-box二进制包下载失败"
-        rm -f "$temp_file" "$temp_checksum_file"
-        return 1
+# 尝试下载校验文件（多源）
+if smart_download "https://github.com/SagerNet/sing-box/releases/download/v${version_to_install}/sing-box-${version_to_install}-checksums.txt" \
+                  "sing-box-${version_to_install}-checksums.txt" "$temp_checksum_file"; then
+  checksum_ok=true
+else
+  log_warn "校验文件获取失败，准备回退到稳定版 v${STABLE_FALLBACK} 重试"
+  if [[ "${version_to_install}" != "${STABLE_FALLBACK}" ]]; then
+    version_to_install="${STABLE_FALLBACK}"
+    rm -f "$temp_checksum_file"
+    if smart_download "https://github.com/SagerNet/sing-box/releases/download/v${version_to_install}/sing-box-${version_to_install}-checksums.txt" \
+                      "sing-box-${version_to_install}-checksums.txt" "$temp_checksum_file"; then
+      checksum_ok=true
     fi
+  fi
+fi
+
+if [[ "${checksum_ok}" != true ]]; then
+  log_error "无法获取任一版本的校验文件，出于安全考虑中止安装"
+  return 1
+fi
+
+# ↓ 其后继续下载 tar.gz，并用上面的校验文件做 shasum 验证
+#   验证失败也要 return 1，切勿“跳过校验继续安装”
+
 
     # SHA256 校验
     if [[ -s "$temp_checksum_file" ]]; then
@@ -4060,28 +4085,21 @@ ensure_service_running() {
 }
 
 # [新增函数] 验证端口监听状态
+# --- 统一的端口监听检测 ---
 verify_port_listening() {
-    log_info "验证关键端口监听状态..."
-    
-    local critical_ports=(443 80 2053)
-    local listening_ports=()
-    local failed_ports=()
-    
-    for port in "${critical_ports[@]}"; do
-        if ss -tlnp 2>/dev/null | grep -q ":${port} "; then
-            listening_ports+=("$port")
-            log_success "端口 $port 正在监听"
-        else
-            failed_ports+=("$port")
-            log_warn "端口 $port 未在监听"
-        fi
-    done
-    
-    if [[ ${#failed_ports[@]} -gt 0 ]]; then
-        log_warn "以下端口未正常监听: ${failed_ports[*]}"
-        log_info "请检查相关服务配置"
-    fi
+  local port="$1" proto="$2"  # proto = tcp|udp
+  if [[ "$proto" == "udp" ]]; then
+    ss -uln 2>/dev/null | awk '{print $5}' | grep -qE "[:.]${port}($|[^0-9])"
+  else
+    ss -tln 2>/dev/null | awk '{print $4}' | grep -qE "[:.]${port}($|[^0-9])"
+  fi
 }
+
+# 使用示例（安装阶段）：
+verify_port_listening 443 tcp  && log_success "端口 443 正在监听" || log_warn "端口 443 未在监听"
+verify_port_listening 80  tcp  && log_success "端口 80 正在监听"  || log_warn "端口 80 未在监听"
+verify_port_listening 2053 udp && log_success "端口 2053 正在监听" || log_warn "端口 2053 未在监听"
+
 
 #############################################
 # 模块3主执行函数
