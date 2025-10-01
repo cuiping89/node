@@ -1709,11 +1709,14 @@ check_ports() {
     fi
 }
 
-# 配置防火墙规则
+
+# 配置防火墙规则（完整版 - 支持 UFW/FirewallD/iptables）
 configure_firewall() {
     log_info "配置防火墙规则（智能SSH端口检测）..."
     
-    # 🚨 第一步：智能检测当前SSH端口（防止锁死）
+    # ==========================================
+    # 第一步：智能检测当前SSH端口（防止锁死）
+    # ==========================================
     local ssh_ports=()
     local current_ssh_port=""
     
@@ -1742,9 +1745,8 @@ configure_firewall() {
         fi
     fi
     
-    # 🔧 修复：更安全的数组去重
+    # 数组去重并选择第一个端口
     if [[ ${#ssh_ports[@]} -gt 0 ]]; then
-        # 使用临时文件进行去重，避免数组操作问题
         local temp_file=$(mktemp)
         printf "%s\n" "${ssh_ports[@]}" | sort -u > "$temp_file"
         current_ssh_port=$(head -1 "$temp_file")
@@ -1756,22 +1758,28 @@ configure_firewall() {
     
     log_info "检测到SSH端口: $current_ssh_port"
     
-    # 🚨 第二步：安全的防火墙配置
+    # ==========================================
+    # 第二步：根据防火墙类型配置规则
+    # ==========================================
+    
     if command -v ufw >/dev/null 2>&1; then
-        # Ubuntu/Debian UFW
+        # ==========================================
+        # Ubuntu/Debian UFW 配置
+        # ==========================================
         log_info "配置UFW防火墙（SSH端口：$current_ssh_port）..."
         
-        # 🔥 关键修复：先允许SSH，再重置，避免锁死
+        # 🔥 关键：先允许SSH，再重置，避免锁死
         if ! ufw allow "$current_ssh_port/tcp" comment 'SSH-Emergency' >/dev/null 2>&1; then
             log_warn "UFW SSH应急规则添加失败，但继续执行"
         fi
         
-        # 🔧 修复：增加错误处理
+        # 重置UFW规则
         if ! ufw --force reset >/dev/null 2>&1; then
             log_error "UFW重置失败"
             return 1
         fi
         
+        # 设置默认策略
         if ! ufw default deny incoming >/dev/null 2>&1 || ! ufw default allow outgoing >/dev/null 2>&1; then
             log_error "UFW默认策略设置失败"
             return 1
@@ -1785,9 +1793,11 @@ configure_firewall() {
         
         # 允许EdgeBox端口
         ufw allow 80/tcp comment 'HTTP' >/dev/null 2>&1 || log_warn "HTTP端口配置失败"
-        ufw allow 443/tcp comment 'EdgeBox TCP' >/dev/null 2>&1 || log_warn "HTTPS TCP端口配置失败"
-        ufw allow 443/udp comment 'EdgeBox Hysteria2' >/dev/null 2>&1 || log_warn "Hysteria2端口配置失败"
-        ufw allow 2053/udp comment 'EdgeBox TUIC' >/dev/null 2>&1 || log_warn "TUIC端口配置失败"
+        ufw allow 443/tcp comment 'HTTPS/TLS' >/dev/null 2>&1 || log_warn "HTTPS TCP端口配置失败"
+        
+        # 【关键】UDP 端口
+        ufw allow 443/udp comment 'Hysteria2' >/dev/null 2>&1 || log_warn "Hysteria2端口配置失败"
+        ufw allow 2053/udp comment 'TUIC' >/dev/null 2>&1 || log_warn "TUIC端口配置失败"
         
         # 🔥 启用前最后确认SSH端口
         if ! ufw status | grep -q "$current_ssh_port/tcp"; then
@@ -1811,19 +1821,23 @@ configure_firewall() {
             return 1
         fi
         
-    elif command -v firewall-cmd >/dev/null 2>&1; then
-        # CentOS/RHEL FirewallD
+    elif command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then
+        # ==========================================
+        # CentOS/RHEL FirewallD 配置
+        # ==========================================
         log_info "配置FirewallD防火墙（SSH端口：$current_ssh_port）..."
         
-        # 🔧 修复：增加错误处理
+        # SSH端口配置
         if ! firewall-cmd --permanent --add-port="$current_ssh_port/tcp" >/dev/null 2>&1; then
             log_error "FirewallD SSH端口配置失败"
             return 1
         fi
         
-        # 配置EdgeBox端口（允许失败，但记录警告）
+        # EdgeBox端口配置
         firewall-cmd --permanent --add-port=80/tcp >/dev/null 2>&1 || log_warn "HTTP端口配置失败"
         firewall-cmd --permanent --add-port=443/tcp >/dev/null 2>&1 || log_warn "HTTPS TCP端口配置失败"
+        
+        # 【关键】UDP 端口
         firewall-cmd --permanent --add-port=443/udp >/dev/null 2>&1 || log_warn "Hysteria2端口配置失败"
         firewall-cmd --permanent --add-port=2053/udp >/dev/null 2>&1 || log_warn "TUIC端口配置失败"
         
@@ -1836,19 +1850,22 @@ configure_firewall() {
         log_success "FirewallD防火墙配置完成，SSH端口 $current_ssh_port 已开放"
         
     elif command -v iptables >/dev/null 2>&1; then
-        # 传统iptables
+        # ==========================================
+        # 传统 iptables 配置
+        # ==========================================
         log_info "配置iptables防火墙（SSH端口：$current_ssh_port）..."
         
-        # 🔧 修复：避免重复规则，先清理再添加
-        # 检查是否已有规则，避免重复
+        # 允许已建立的连接
         if ! iptables -C INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT >/dev/null 2>&1; then
             iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
         fi
         
+        # SSH端口
         if ! iptables -C INPUT -p tcp --dport "$current_ssh_port" -j ACCEPT >/dev/null 2>&1; then
             iptables -A INPUT -p tcp --dport "$current_ssh_port" -j ACCEPT
         fi
         
+        # HTTP/HTTPS TCP
         if ! iptables -C INPUT -p tcp --dport 80 -j ACCEPT >/dev/null 2>&1; then
             iptables -A INPUT -p tcp --dport 80 -j ACCEPT
         fi
@@ -1857,6 +1874,7 @@ configure_firewall() {
             iptables -A INPUT -p tcp --dport 443 -j ACCEPT
         fi
         
+        # 【关键】UDP 端口
         if ! iptables -C INPUT -p udp --dport 443 -j ACCEPT >/dev/null 2>&1; then
             iptables -A INPUT -p udp --dport 443 -j ACCEPT
         fi
@@ -1865,6 +1883,7 @@ configure_firewall() {
             iptables -A INPUT -p udp --dport 2053 -j ACCEPT
         fi
         
+        # 允许本地回环
         if ! iptables -C INPUT -i lo -j ACCEPT >/dev/null 2>&1; then
             iptables -A INPUT -i lo -j ACCEPT
         fi
@@ -1877,16 +1896,32 @@ configure_firewall() {
             fi
         fi
         
+        # 如果有netfilter-persistent，使用它保存
+        if command -v netfilter-persistent >/dev/null 2>&1; then
+            netfilter-persistent save >/dev/null 2>&1 || true
+        fi
+        
         log_success "iptables防火墙配置完成，SSH端口 $current_ssh_port 已开放"
         
     else
-        log_warn "未检测到支持的防火墙软件，跳过自动配置"
+        # ==========================================
+        # 无防火墙或不支持的防火墙
+        # ==========================================
+        log_warn "未检测到支持的防火墙软件（UFW/FirewallD/iptables）"
         log_info "请手动配置防火墙，确保开放以下端口："
-        log_info "  SSH: $current_ssh_port/tcp"
-        log_info "  EdgeBox: 80/tcp, 443/tcp, 443/udp, 2053/udp"
+        log_info "  - SSH: $current_ssh_port/tcp"
+        log_info "  - HTTP: 80/tcp"
+        log_info "  - HTTPS: 443/tcp"
+        log_info "  - Hysteria2: 443/udp"
+        log_info "  - TUIC: 2053/udp"
+        
+        # 如果是云服务器，提示检查安全组
+        log_warn "如果使用云服务器，请同时检查云厂商安全组规则！"
     fi
     
-    # 🚨 最终验证：确保SSH连接正常
+    # ==========================================
+    # 第三步：最终验证SSH连接正常
+    # ==========================================
     log_info "验证SSH连接状态..."
     if ss -tln | grep -q ":$current_ssh_port "; then
         log_success "✅ SSH端口 $current_ssh_port 监听正常"
@@ -1897,8 +1932,10 @@ configure_firewall() {
     return 0
 }
 
-
-# 防火墙回滚机制
+# ==========================================
+# 【可选】防火墙安全回滚机制
+# ==========================================
+# 如果担心SSH被锁死，可以在主安装流程中调用此函数
 setup_firewall_rollback() {
     log_info "设置防火墙安全回滚机制..."
     
@@ -1947,6 +1984,7 @@ ROLLBACK_SCRIPT
     log_success "防火墙安全回滚机制已启动（5分钟超时）"
     log_info "如果SSH连接中断超过5分钟，防火墙将自动回滚"
 }
+
 
 # --- 系统 DNS 兜底 ---
 ensure_system_dns() {
@@ -3881,7 +3919,7 @@ configure_sing_box() {
     
     log_info "生成sing-box配置文件 (使用 jq 确保安全)..."
     
-    # 使用 jq 安全地生成配置文件（删除所有注释）
+    # 使用 jq 安全地生成配置文件，避免特殊字符问题
     if ! jq -n \
         --arg hy2_pass "$PASSWORD_HYSTERIA2" \
         --arg tuic_uuid "$UUID_TUIC" \
@@ -3968,17 +4006,26 @@ configure_sing_box() {
         log_error "sing-box配置中缺少监听地址"
         return 1
     fi
+ 
+    log_success "sing-box配置文件验证通过"
     
-    # 【新增】使用 sing-box check 命令验证配置
-    log_info "使用 sing-box 验证配置语法..."
-    if command -v sing-box >/dev/null 2>&1; then
-        if ! sing-box check -c "${CONFIG_DIR}/sing-box.json" 2>/dev/null; then
-            log_warn "sing-box 配置验证警告（可能是版本兼容性问题）"
+    # 【新增】确保证书符号链接存在
+    log_info "检查并创建证书符号链接..."
+    if [[ ! -L "${CERT_DIR}/current.pem" ]] || [[ ! -L "${CERT_DIR}/current.key" ]]; then
+        if [[ -f "${CERT_DIR}/self-signed.pem" ]] && [[ -f "${CERT_DIR}/self-signed.key" ]]; then
+            ln -sf "${CERT_DIR}/self-signed.pem" "${CERT_DIR}/current.pem"
+            ln -sf "${CERT_DIR}/self-signed.key" "${CERT_DIR}/current.key"
+            log_success "证书符号链接已创建"
         else
-            log_success "sing-box 配置验证通过"
+            log_warn "自签名证书不存在，可能在后续步骤生成"
         fi
-    else
-        log_warn "sing-box 命令未找到，跳过配置验证"
+    fi
+    
+    # 确保证书权限正确
+    if [[ -f "${CERT_DIR}/self-signed.pem" ]]; then
+        chmod 644 "${CERT_DIR}"/*.pem 2>/dev/null || true
+        chmod 600 "${CERT_DIR}"/*.key 2>/dev/null || true
+        log_success "证书权限已设置"
     fi
     
     # 创建正确的 systemd 服务文件
@@ -4008,10 +4055,10 @@ EOF
     # 重新加载systemd
     systemctl daemon-reload
     
-    # 启用服务
+    # 启用服务（但不立即启动，等待统一启动）
     systemctl enable sing-box >/dev/null 2>&1
     
-    log_success "sing-box服务文件创建完成"
+    log_success "sing-box服务文件创建完成（配置路径: ${CONFIG_DIR}/sing-box.json）"
     
     return 0
 }
@@ -12601,15 +12648,15 @@ setup_outbound_vps() {
     log_info "配置VPS全量出站模式..."
     get_server_info || return 1
 
-    # === sing-box：恢复直连 ===
+    # === sing-box：恢复直连（修改 listen 为 0.0.0.0）===
     cp ${CONFIG_DIR}/sing-box.json ${CONFIG_DIR}/sing-box.json.bak 2>/dev/null || true
     cat > ${CONFIG_DIR}/sing-box.json <<EOF
 {"log":{"level":"warn","timestamp":true},
  "inbounds":[
-  {"type":"hysteria2","tag":"hysteria2-in","listen":"::","listen_port":443,
+  {"type":"hysteria2","tag":"hysteria2-in","listen":"0.0.0.0","listen_port":443,
    "users":[{"password":"${PASSWORD_HYSTERIA2}"}],
    "tls":{"enabled":true,"alpn":["h3"],"certificate_path":"${CERT_DIR}/current.pem","key_path":"${CERT_DIR}/current.key"}},
-  {"type":"tuic","tag":"tuic-in","listen":"::","listen_port":2053,
+  {"type":"tuic","tag":"tuic-in","listen":"0.0.0.0","listen_port":2053,
    "users":[{"uuid":"${UUID_TUIC}","password":"${PASSWORD_TUIC}"}],
    "congestion_control":"bbr",
    "tls":{"enabled":true,"alpn":["h3"],"certificate_path":"${CERT_DIR}/current.pem","key_path":"${CERT_DIR}/current.key"}}],
@@ -12656,10 +12703,10 @@ setup_outbound_resi() {
   cat > ${CONFIG_DIR}/sing-box.json <<EOF
 {"log":{"level":"warn","timestamp":true},
  "inbounds":[
-  {"type":"hysteria2","tag":"hysteria2-in","listen":"::","listen_port":443,
+  {"type":"hysteria2","tag":"hysteria2-in","listen":"0.0.0.0","listen_port":443,
    "users":[{"password":"${PASSWORD_HYSTERIA2}"}],
    "tls":{"enabled":true,"alpn":["h3"],"certificate_path":"${CERT_DIR}/current.pem","key_path":"${CERT_DIR}/current.key"}},
-  {"type":"tuic","tag":"tuic-in","listen":"::","listen_port":2053,
+  {"type":"tuic","tag":"tuic-in","listen":"0.0.0.0","listen_port":2053,
    "users":[{"uuid":"${UUID_TUIC}","password":"${PASSWORD_TUIC}"}],
    "congestion_control":"bbr",
    "tls":{"enabled":true,"alpn":["h3"],"certificate_path":"${CERT_DIR}/current.pem","key_path":"${CERT_DIR}/current.key"}}],
@@ -12702,10 +12749,10 @@ setup_outbound_direct_resi() {
   cat > ${CONFIG_DIR}/sing-box.json <<EOF
 {"log":{"level":"warn","timestamp":true},
  "inbounds":[
-  {"type":"hysteria2","tag":"hysteria2-in","listen":"::","listen_port":443,
+  {"type":"hysteria2","tag":"hysteria2-in","listen":"0.0.0.0","listen_port":443,
    "users":[{"password":"${PASSWORD_HYSTERIA2}"}],
    "tls":{"enabled":true,"alpn":["h3"],"certificate_path":"${CERT_DIR}/current.pem","key_path":"${CERT_DIR}/current.key"}},
-  {"type":"tuic","tag":"tuic-in","listen":"::","listen_port":2053,
+  {"type":"tuic","tag":"tuic-in","listen":"0.0.0.0","listen_port":2053,
    "users":[{"uuid":"${UUID_TUIC}","password":"${PASSWORD_TUIC}"}],
    "congestion_control":"bbr",
    "tls":{"enabled":true,"alpn":["h3"],"certificate_path":"${CERT_DIR}/current.pem","key_path":"${CERT_DIR}/current.key"}}],
