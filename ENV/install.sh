@@ -10770,28 +10770,40 @@ function getScoreLevel(score) {
     return 'poor';
 }
 
-/**
- * 渲染协议表格（完整版）
- */
-// [PATCH:RENDER_PROTOCOL_TABLE_UNIFY] —— 统一渲染入口（可选参数 + 正确选择器 + 健康叠加）
+
+//名称标准化到健康数据的 protocol 键
+function normalizeProtoKey(name) {
+  const key = String(name || '').trim().toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[–—]/g, '-'); // 兼容不同的连字符
+  const map = {
+    'vless-reality': 'reality',
+    'vless-grpc': 'grpc',
+    'vless-websocket': 'ws',
+    'trojan-tls': 'trojan',
+    'hysteria2': 'hysteria2',
+    'tuic': 'tuic'
+  };
+  return map[key] || key;
+}
+
+/*** 渲染协议表格（完整版） */
+
 function renderProtocolTable(protocolsOpt, healthOpt) {
   const protocols = Array.isArray(protocolsOpt) ? protocolsOpt
                    : (window.dashboardData?.protocols || []);
   const health = healthOpt || window.__protocolHealth || null;
 
-  const tbody = document.getElementById('protocol-tbody'); // ✅ 正确的选择器
+  const tbody = document.getElementById('protocol-tbody'); // ✅ 正确 tbody
   if (!tbody) return;
-
   tbody.innerHTML = '';
 
   protocols.forEach(p => {
-    const protoKey = String(p.name || '').toLowerCase();
-    const tr = document.createElement('tr');
-    tr.setAttribute('data-protocol', protoKey);            // ✅ 供健康徽章定位
-
-    // 健康数据（可选）
+    const protoKey = normalizeProtoKey(p.name);
     const h = health?.protocols?.find(x => x.protocol === protoKey);
 
+    const tr = document.createElement('tr');
+    tr.dataset.protocol = protoKey; // 供后续徽章/事件定位
     tr.innerHTML = `
       <td>${escapeHtml(p.name)}</td>
       <td>${escapeHtml(p.fit || p.scenario || '—')}</td>
@@ -10803,17 +10815,19 @@ function renderProtocolTable(protocolsOpt, healthOpt) {
             <div class="health-detail-message">${h.detail_message}</div>
             ${h.recommendation_badge ? `<div class="health-recommendation-badge">${h.recommendation_badge}</div>` : ''}
           </div>
-        ` : `<span class="status-badge ${p.status === '运行中' ? 'status-running' : ''}">${p.status}</span>`}
+        ` : `<span class="status-badge ${p.status === '运行中' ? 'status-running' : ''}">${p.status || '—'}</span>`}
       </td>
-      <td><button class="btn btn-sm btn-link"
-                  data-action="open-modal"
-                  data-modal="configModal"
-                  data-protocol="${escapeHtml(p.name)}">查看配置</button></td>
+      <td>
+        <button class="btn btn-sm btn-link"
+                data-action="open-modal"
+                data-modal="configModal"
+                data-protocol="${escapeHtml(p.name)}">查看配置</button>
+      </td>
     `;
     tbody.appendChild(tr);
   });
 
-  // 追加“整包订阅”行
+  // “整包协议”行
   const subRow = document.createElement('tr');
   subRow.className = 'subs-row';
   subRow.innerHTML = `
@@ -10867,17 +10881,15 @@ function renderHealthSummary(healthData) {
     `;
 }
 
-/**
- * 主初始化函数 - 在页面加载时调用
- */
+/*** 主初始化函数 - 在页面加载时调用 */
 async function initializeProtocolHealth() {
   const healthData = await loadProtocolHealth();
   if (healthData) {
-    window.__protocolHealth = healthData;                  // ✅ 缓存
+    window.__protocolHealth = healthData;
     renderHealthSummary(healthData);
-    renderProtocolTable();                                  // ✅ 触发表格重绘叠加健康徽章
+    renderProtocolTable(); // ✅ 叠加健康徽章到表格
   } else {
-    console.warn('使用降级模式显示协议状态');
+    console.warn('健康数据加载失败，使用“运行中”降级显示');
   }
 }
 
