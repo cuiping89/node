@@ -3881,7 +3881,7 @@ configure_sing_box() {
     
     log_info "生成sing-box配置文件 (使用 jq 确保安全)..."
     
-    # 使用 jq 安全地生成配置文件，避免特殊字符问题
+    # 使用 jq 安全地生成配置文件（删除所有注释）
     if ! jq -n \
         --arg hy2_pass "$PASSWORD_HYSTERIA2" \
         --arg tuic_uuid "$UUID_TUIC" \
@@ -3898,7 +3898,7 @@ configure_sing_box() {
             {
               "type": "hysteria2",
               "tag": "hysteria2-in",
-              "listen": "0.0.0.0",      // ✅ 同时监听 IPv4
+              "listen": "0.0.0.0",
               "listen_port": 443,
               "users": [{"password": $hy2_pass}],
               "masquerade": "https://www.bing.com",
@@ -3912,7 +3912,7 @@ configure_sing_box() {
             {
               "type": "tuic",
               "tag": "tuic-in",
-              "listen": "0.0.0.0",      // ✅ 同时监听 IPv4
+              "listen": "0.0.0.0",
               "listen_port": 2053,
               "users": [{"uuid": $tuic_uuid, "password": $tuic_pass}],
               "congestion_control": "bbr",
@@ -3958,36 +3958,61 @@ configure_sing_box() {
     
     # 验证生成的JSON格式
     if ! jq '.' "${CONFIG_DIR}/sing-box.json" >/dev/null 2>&1; then
-        log_error "生成的sing-box配置JSON格式验证失败"
+        log_error "sing-box配置JSON格式错误"
         return 1
     fi
     
-    # 创建sing-box systemd服务
+    # 验证配置内容
+    log_info "验证sing-box配置文件..."
+    if ! grep -q "0.0.0.0" "${CONFIG_DIR}/sing-box.json"; then
+        log_error "sing-box配置中缺少监听地址"
+        return 1
+    fi
+    
+    # 【新增】使用 sing-box check 命令验证配置
+    log_info "使用 sing-box 验证配置语法..."
+    if command -v sing-box >/dev/null 2>&1; then
+        if ! sing-box check -c "${CONFIG_DIR}/sing-box.json" 2>/dev/null; then
+            log_warn "sing-box 配置验证警告（可能是版本兼容性问题）"
+        else
+            log_success "sing-box 配置验证通过"
+        fi
+    else
+        log_warn "sing-box 命令未找到，跳过配置验证"
+    fi
+    
+    # 创建正确的 systemd 服务文件
     log_info "创建sing-box系统服务..."
-    cat > /etc/systemd/system/sing-box.service << 'SINGBOX_SERVICE'
+    
+    cat > /etc/systemd/system/sing-box.service << EOF
 [Unit]
-Description=sing-box Service
-Documentation=https://sing-box.sagernet.org/
+Description=sing-box service
+Documentation=https://sing-box.sagernet.org
 After=network.target nss-lookup.target
-Wants=network.target
 
 [Service]
-User=root
-Group=root
 Type=simple
-ExecStart=/usr/local/bin/sing-box run -c /etc/edgebox/config/sing-box.json
-ExecReload=/bin/kill -HUP $MAINPID
+User=root
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_SYS_PTRACE
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_SYS_PTRACE
+ExecStart=/usr/local/bin/sing-box run -c ${CONFIG_DIR}/sing-box.json
+ExecReload=/bin/kill -HUP \$MAINPID
 Restart=on-failure
 RestartSec=10s
 LimitNOFILE=infinity
 
 [Install]
 WantedBy=multi-user.target
-SINGBOX_SERVICE
-
+EOF
+    
     # 重新加载systemd
     systemctl daemon-reload
+    
+    # 启用服务
+    systemctl enable sing-box >/dev/null 2>&1
+    
     log_success "sing-box服务文件创建完成"
+    
     return 0
 }
 
