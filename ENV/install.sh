@@ -3874,8 +3874,7 @@ After=network.target nss-lookup.target
 
 [Service]
 Type=simple
-User=nobody
-Group=${NOBODY_GRP}
+User=root
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
 NoNewPrivileges=true
@@ -4060,6 +4059,11 @@ EOF
     
     log_success "sing-box服务文件创建完成（配置路径: ${CONFIG_DIR}/sing-box.json）"
     
+	chmod 755 "${CERT_DIR}" 2>/dev/null || true
+chmod 644 "${CERT_DIR}"/*.pem 2>/dev/null || true
+chmod 640 "${CERT_DIR}"/*.key 2>/dev/null || true
+chown root:nobody "${CERT_DIR}"/*.key 2>/dev/null || true
+
     return 0
 }
 
