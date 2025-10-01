@@ -3601,7 +3601,12 @@ return 0
 # 配置Xray服务 (使用jq重构，彻底解决特殊字符问题)
 configure_xray() {
     log_info "配置Xray多协议服务..."
-	
+    
+    # 【添加】创建Xray日志目录
+    mkdir -p /var/log/xray
+    chmod 755 /var/log/xray
+    chown root:root /var/log/xray
+    
     local NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
   
     # 验证必要变量 (增强版)
@@ -3668,10 +3673,8 @@ configure_xray() {
         --arg cert_pem "${CERT_DIR}/current.pem" \
         --arg cert_key "${CERT_DIR}/current.key" \
         '{
-            "log": {
-    "loglevel": "error",
-    "access": "none",
-    "error": "/var/log/xray/error.log"
+"log": {
+    "loglevel": "warning"
 },
             "inbounds": [
                 {
