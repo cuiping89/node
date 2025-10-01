@@ -55,26 +55,28 @@ NC="${ESC}[0m"  # No Color
 
 # 获取sing-box最新稳定版本
 get_latest_sing_box_version() {
-    local fallback="1.10.3"  # 已验证的稳定版本
+    local fallback="1.10.3"
+    local latest=""
     
-    # 尝试从GitHub API获取最新版本
-    local latest=$(curl -fsSL --connect-timeout 5 --max-time 10 \
+    # 尝试从 GitHub API 获取最新版本
+    latest=$(curl -fsSL --connect-timeout 5 --max-time 10 \
         "https://api.github.com/repos/SagerNet/sing-box/releases/latest" 2>/dev/null \
-        | grep -oE '"tag_name":\s*"v[^"]+' \
-        | sed 's/.*"v\([^"]*\)/\1/' \
+        | grep '"tag_name":' \
+        | sed -E 's/.*"v?([^"]+)".*/\1/' \
         | head -1)
     
     # 验证版本格式
     if [[ "$latest" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-        # 检查版本是否真的可下载
+        # 验证该版本是否真的可下载
         local test_url="https://github.com/SagerNet/sing-box/releases/download/v${latest}/sing-box-${latest}-linux-amd64.tar.gz"
-        if curl -fsSL --head --connect-timeout 3 "$test_url" >/dev/null 2>&1; then
+        if curl -fsSL --head --connect-timeout 3 --max-time 5 "$test_url" >/dev/null 2>&1; then
             echo "$latest"
             return 0
         fi
     fi
     
-    # 降级到已知稳定版本
+    # 如果获取失败，返回稳定版本
+    log_warn "无法获取最新版本，使用稳定版本: v${fallback}"
     echo "$fallback"
 }
 
@@ -3000,121 +3002,204 @@ install_xray() {
 install_sing_box() {
     log_info "安装sing-box核心程序..."
 
-    # 检查是否已安装
+    # ========================================
+    # 第1步：检查是否已安装
+    # ========================================
     if command -v sing-box >/dev/null 2>&1 || command -v /usr/local/bin/sing-box >/dev/null 2>&1; then
         local current_version
-        current_version=$( (sing-box version || /usr/local/bin/sing-box version) 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 )
-        log_info "检测到已安装的sing-box版本: ${current_version:-未知}"
+        current_version=$( (sing-box version || /usr/local/bin/sing-box version) 2>/dev/null \
+            | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 )
+        log_info "检测到已安装的sing-box版本: v${current_version:-未知}"
         log_info "跳过sing-box重新安装，使用现有版本"
         return 0
     fi
 
-    # --- 版本决策逻辑 ---
-local version_to_install=""
-local KNOWN_BAD_VERSIONS=("1.12.4")   # 问题版本黑名单
-local STABLE_FALLBACK="1.10.3"        # 经验证稳定版
+    # ========================================
+    # 第2步：版本决策逻辑（关键修复点）
+    # ========================================
+    local version_to_install=""
+    local KNOWN_BAD_VERSIONS=("1.12.4")   # 问题版本黑名单
+    local STABLE_FALLBACK="1.10.3"        # 经验证的稳定版本
 
-if [[ -n "${DEFAULT_SING_BOX_VERSION:-}" ]]; then
-  version_to_install="${DEFAULT_SING_BOX_VERSION}"
-  # 对“用户指定版本”也做黑名单拦截
-  if [[ " ${KNOWN_BAD_VERSIONS[*]} " =~ " ${version_to_install} " ]]; then
-    log_warn "用户指定的 v${version_to_install} 在黑名单，自动回退到稳定版 v${STABLE_FALLBACK}"
-    version_to_install="$STABLE_FALLBACK"
-  else
-    log_info "使用用户指定的 sing-box 版本: v${version_to_install}"
-  fi
-else
-  log_info "正在获取 sing-box 最新稳定版..."
-  local latest_version
-  latest_version=$(get_latest_sing_box_version)
-  if [[ " ${KNOWN_BAD_VERSIONS[*]} " =~ " ${latest_version} " ]]; then
-    log_warn "检测到最新版 v${latest_version} 存在已知问题，回退至 v${STABLE_FALLBACK}"
-    version_to_install="$STABLE_FALLBACK"
-  else
-    version_to_install="$latest_version"
-    log_success "获取到最新稳定版: v${version_to_install}"
-  fi
-fi
+    # 2.1 确定初始版本
+    if [[ -n "${DEFAULT_SING_BOX_VERSION:-}" ]]; then
+        version_to_install="${DEFAULT_SING_BOX_VERSION}"
+        log_info "使用用户指定的 sing-box 版本: v${version_to_install}"
+    else
+        log_info "正在自动获取最新的 sing-box 稳定版本..."
+        version_to_install=$(get_latest_sing_box_version)
+        
+        if [[ -z "$version_to_install" || "$version_to_install" == "null" ]]; then
+            log_warn "无法获取最新版本，使用稳定备用版本 v${STABLE_FALLBACK}"
+            version_to_install="$STABLE_FALLBACK"
+        else
+            log_success "获取到最新稳定版本: v${version_to_install}"
+        fi
+    fi
 
-    # 系统架构检测
+    # 2.2 黑名单检查（关键：在URL构造之前）
+    if [[ " ${KNOWN_BAD_VERSIONS[*]} " =~ " ${version_to_install} " ]]; then
+        log_warn "检测到版本 v${version_to_install} 存在已知问题，自动降级到稳定版 v${STABLE_FALLBACK}"
+        version_to_install="$STABLE_FALLBACK"
+    fi
+
+    # 2.3 最终确认
+    log_info "最终决定安装版本: v${version_to_install}"
+
+    # ========================================
+    # 第3步：系统架构检测
+    # ========================================
     local system_arch
     case "$(uname -m)" in
         x86_64|amd64) system_arch="amd64" ;;
         aarch64|arm64) system_arch="arm64" ;;
         armv7*) system_arch="armv7" ;;
-        *) log_error "不支持的系统架构: $(uname -m)"; return 1 ;;
+        *) 
+            log_error "不支持的系统架构: $(uname -m)"
+            return 1
+            ;;
     esac
 
-    # 构造下载URL和文件名 (在版本最终确定后进行)
+    # ========================================
+    # 第4步：构造下载URL（在版本最终确定后）
+    # ========================================
     local filename="sing-box-${version_to_install}-linux-${system_arch}.tar.gz"
     local download_url="https://github.com/SagerNet/sing-box/releases/download/v${version_to_install}/${filename}"
     local checksum_url="https://github.com/SagerNet/sing-box/releases/download/v${version_to_install}/sing-box-${version_to_install}-checksums.txt"
     
-    log_info "准备下载sing-box版本: v${version_to_install} (${system_arch})"
-    
-    # 创建临时文件
+    log_info "准备下载: ${filename}"
+    log_debug "下载URL: ${download_url}"
+    log_debug "校验URL: ${checksum_url}"
+
+    # ========================================
+    # 第5步：创建临时文件
+    # ========================================
     local temp_file temp_checksum_file
-    temp_file=$(mktemp) || { log_error "创建临时文件失败"; return 1; }
-    temp_checksum_file=$(mktemp) || { log_error "创建临时校验文件失败"; rm -f "$temp_file"; return 1; }
+    temp_file=$(mktemp) || { 
+        log_error "创建临时文件失败"
+        return 1
+    }
+    temp_checksum_file=$(mktemp) || { 
+        log_error "创建临时校验文件失败"
+        rm -f "$temp_file"
+        return 1
+    }
+
+    # ========================================
+    # 第6步：下载校验文件（使用 smart_download）
+    # ========================================
+    log_info "下载SHA256校验文件..."
     
-    # 智能下载
-# --- 下载 SHA256 校验文件（替换原逻辑） ---
-log_info "下载SHA256校验文件."
-local checksum_ok=false
-local temp_checksum_file="$(mktemp)"
-
-# 尝试下载校验文件（多源）
-if smart_download "https://github.com/SagerNet/sing-box/releases/download/v${version_to_install}/sing-box-${version_to_install}-checksums.txt" \
-                  "sing-box-${version_to_install}-checksums.txt" "$temp_checksum_file"; then
-  checksum_ok=true
-else
-  log_warn "校验文件获取失败，准备回退到稳定版 v${STABLE_FALLBACK} 重试"
-  if [[ "${version_to_install}" != "${STABLE_FALLBACK}" ]]; then
-    version_to_install="${STABLE_FALLBACK}"
-    rm -f "$temp_checksum_file"
-    if smart_download "https://github.com/SagerNet/sing-box/releases/download/v${version_to_install}/sing-box-${version_to_install}-checksums.txt" \
-                      "sing-box-${version_to_install}-checksums.txt" "$temp_checksum_file"; then
-      checksum_ok=true
-    fi
-  fi
-fi
-
-if [[ "${checksum_ok}" != true ]]; then
-  log_error "无法获取任一版本的校验文件，出于安全考虑中止安装"
-  return 1
-fi
-
-# ↓ 其后继续下载 tar.gz，并用上面的校验文件做 shasum 验证
-#   验证失败也要 return 1，切勿“跳过校验继续安装”
-
-
-    # SHA256 校验
-    if [[ -s "$temp_checksum_file" ]]; then
-        log_info "🔐 执行SHA256完整性校验..."
-        local expected_hash actual_hash
-        expected_hash=$(grep "$filename" "$temp_checksum_file" | awk '{print $1}' | head -1)
+    # 注意：这里使用您现有的 smart_download 函数
+    # 第三个参数指定文件类型为 "checksum"
+    if ! smart_download "$checksum_url" "$temp_checksum_file" "checksum"; then
+        log_error "无法下载校验文件: ${checksum_url##*/}"
+        log_error "尝试的所有镜像源均失败"
         
-        if [[ -z "$expected_hash" ]]; then
-            log_warn "无法从校验文件中提取哈希值，跳过校验"
-        else
-            actual_hash=$(sha256sum "$temp_file" | awk '{print $1}')
-            if [[ "$expected_hash" == "$actual_hash" ]]; then
-                log_success "✅ SHA256校验通过 - 文件完整性确认"
-            else
-                log_error "❌ SHA256校验失败 - 文件可能被篡改或损坏!"
+        # 清理并退出
+        rm -f "$temp_file" "$temp_checksum_file"
+        
+        # 可选：尝试降级安装（如果当前不是稳定版）
+        if [[ "$version_to_install" != "$STABLE_FALLBACK" ]]; then
+            log_warn "尝试降级到稳定版本 v${STABLE_FALLBACK} 重试..."
+            version_to_install="$STABLE_FALLBACK"
+            
+            # 重新构造URL
+            filename="sing-box-${version_to_install}-linux-${system_arch}.tar.gz"
+            checksum_url="https://github.com/SagerNet/sing-box/releases/download/v${version_to_install}/sing-box-${version_to_install}-checksums.txt"
+            
+            # 重新创建临时文件
+            temp_checksum_file=$(mktemp) || return 1
+            
+            # 再次尝试下载
+            if ! smart_download "$checksum_url" "$temp_checksum_file" "checksum"; then
+                log_error "降级后仍无法下载校验文件，出于安全考虑中止安装"
                 rm -f "$temp_file" "$temp_checksum_file"
                 return 1
             fi
+            
+            log_success "降级版本校验文件下载成功"
+        else
+            log_error "无法获取校验文件，出于安全考虑中止安装"
+            return 1
         fi
+    else
+        log_success "校验文件下载成功"
     fi
+
+    # 验证校验文件内容
+    if [[ ! -s "$temp_checksum_file" ]]; then
+        log_error "校验文件为空"
+        rm -f "$temp_file" "$temp_checksum_file"
+        return 1
+    fi
+
+    if ! grep -q "[0-9a-f]\{64\}" "$temp_checksum_file"; then
+        log_error "校验文件格式无效"
+        rm -f "$temp_file" "$temp_checksum_file"
+        return 1
+    fi
+
+    # ========================================
+    # 第7步：下载二进制包
+    # ========================================
+    log_info "下载 sing-box 二进制包..."
     
-    # 解压和安装... (后续逻辑与您脚本一致，保持不变)
-    log_info "解压并安装sing-box..."
+    # 重新构造下载URL（确保与当前版本一致）
+    download_url="https://github.com/SagerNet/sing-box/releases/download/v${version_to_install}/${filename}"
+    
+    if ! smart_download "$download_url" "$temp_file" "binary"; then
+        log_error "sing-box 二进制包下载失败"
+        rm -f "$temp_file" "$temp_checksum_file"
+        return 1
+    fi
+
+    log_success "二进制包下载成功"
+
+    # ========================================
+    # 第8步：SHA256 完整性校验
+    # ========================================
+    log_info "🔐 执行SHA256完整性校验..."
+    
+    local expected_hash actual_hash
+    expected_hash=$(grep "$filename" "$temp_checksum_file" | awk '{print $1}' | head -1)
+    
+    if [[ -z "$expected_hash" ]]; then
+        log_error "无法从校验文件中提取 ${filename} 的哈希值"
+        log_error "校验文件内容预览:"
+        head -n 5 "$temp_checksum_file" >&2
+        rm -f "$temp_file" "$temp_checksum_file"
+        return 1
+    fi
+
+    actual_hash=$(sha256sum "$temp_file" | awk '{print $1}')
+    
+    if [[ "$expected_hash" == "$actual_hash" ]]; then
+        log_success "✅ SHA256校验通过 - 文件完整性确认"
+        log_debug "Expected: $expected_hash"
+        log_debug "Actual:   $actual_hash"
+    else
+        log_error "❌ SHA256校验失败 - 文件可能被篡改或损坏!"
+        log_error "Expected: $expected_hash"
+        log_error "Actual:   $actual_hash"
+        rm -f "$temp_file" "$temp_checksum_file"
+        return 1
+    fi
+
+    # ========================================
+    # 第9步：解压和安装
+    # ========================================
+    log_info "解压并安装 sing-box..."
+    
     local temp_dir
-    temp_dir=$(mktemp -d) || { log_error "创建临时目录失败"; rm -f "$temp_file" "$temp_checksum_file"; return 1; }
+    temp_dir=$(mktemp -d) || { 
+        log_error "创建临时目录失败"
+        rm -f "$temp_file" "$temp_checksum_file"
+        return 1
+    }
     
-    if ! tar -xzf "$temp_file" -C "$temp_dir"; then
-        log_error "解压sing-box失败"
+    if ! tar -xzf "$temp_file" -C "$temp_dir" 2>/dev/null; then
+        log_error "解压 sing-box 失败"
         rm -rf "$temp_dir" "$temp_file" "$temp_checksum_file"
         return 1
     fi
@@ -3123,35 +3208,51 @@ fi
     sing_box_binary=$(find "$temp_dir" -name "sing-box" -type f -executable | head -1)
     
     if [[ -z "$sing_box_binary" ]]; then
-        log_error "解压后未找到sing-box二进制文件"
+        log_error "解压后未找到 sing-box 二进制文件"
+        log_error "目录内容:"
+        ls -la "$temp_dir" >&2
         rm -rf "$temp_dir" "$temp_file" "$temp_checksum_file"
         return 1
     fi
     
     if ! install -m 0755 "$sing_box_binary" /usr/local/bin/sing-box; then
-        log_error "sing-box安装失败"
+        log_error "sing-box 安装失败（复制到 /usr/local/bin 失败）"
         rm -rf "$temp_dir" "$temp_file" "$temp_checksum_file"
         return 1
     fi
     
+    # 清理临时文件
     rm -rf "$temp_dir" "$temp_file" "$temp_checksum_file"
+
+    # ========================================
+    # 第10步：验证安装
+    # ========================================
+    if ! /usr/local/bin/sing-box version >/dev/null 2>&1; then
+        log_error "sing-box 安装后验证失败"
+        return 1
+    fi
     
     local version_info
     version_info=$(/usr/local/bin/sing-box version | head -n1)
-    log_success "🔒 sing-box安装完成并通过安全校验: $version_info"
-    
-    # 重新生成Reality密钥（如果需要）
-    if [[ "$REALITY_PUBLIC_KEY" == "temp_public_key_will_be_replaced" ]]; then
-        log_info "使用已安装的sing-box重新生成Reality密钥..."
+    log_success "🔒 sing-box 安装完成并通过安全校验: $version_info"
+
+    # ========================================
+    # 第11步：重新生成 Reality 密钥（如果需要）
+    # ========================================
+    if [[ "${REALITY_PUBLIC_KEY:-}" == "temp_public_key_will_be_replaced" ]] || \
+       [[ -z "${REALITY_PUBLIC_KEY:-}" ]]; then
+        log_info "使用已安装的 sing-box 重新生成 Reality 密钥..."
+        
         if generate_reality_keys && save_config_info; then
-            log_success "Reality密钥重新生成并保存成功"
+            log_success "Reality 密钥重新生成并保存成功"
         else
-            log_warn "Reality密钥重新生成失败"
+            log_warn "Reality 密钥重新生成失败，将在后续步骤重试"
         fi
     fi
     
     return 0
 }
+
 
 #############################################
 # Nginx 配置函数
