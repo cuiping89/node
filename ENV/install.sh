@@ -4972,7 +4972,7 @@ cat <<EOF
     "status": "$udp443_status",
     "port": 443,
     "network": "udp",
-    "share_link": "hysteria2://${hy2_pw_enc}@${domain}:443?sni=${domain}&alpn=h3#EdgeBox-HYSTERIA2"
+    "share_link": "hysteria2://${hy2_pw_enc}@${domain}:443?sni=${domain}&alpn=h3&insecure=1#EdgeBox-HYSTERIA2"
   },
   {
     "name": "TUIC",
@@ -4981,7 +4981,7 @@ cat <<EOF
     "status": "$udp2053_status",
     "port": 2053,
     "network": "udp",
-    "share_link": "tuic://${uuid_tuic}:${tuic_pw_enc}@${domain}:2053?congestion_control=bbr&alpn=h3&sni=${domain}#EdgeBox-TUIC"
+    "share_link": "tuic://${uuid_tuic}:${tuic_pw_enc}@${domain}:2053?congestion_control=bbr&alpn=h3&sni=${domain}&allow_insecure=1#EdgeBox-TUIC"
   }
 ]
 EOF
