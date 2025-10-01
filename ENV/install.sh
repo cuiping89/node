@@ -5398,13 +5398,22 @@ log_warn() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WARN] $*"; }
 log_error() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] $*" >&2; }
 
 # 协议端口映射
+# 动态读取
+SRV_JSON="/etc/edgebox/server.json"
+R_PORT=$(jq -r '.ports.reality   // 443'   "$SRV_JSON")
+G_PORT=$(jq -r '.ports.grpc      // 10085' "$SRV_JSON")
+W_PORT=$(jq -r '.ports.ws        // 10086' "$SRV_JSON")
+T_PORT=$(jq -r '.ports.trojan    // 10143' "$SRV_JSON")
+H_PORT=$(jq -r '.ports.hysteria2 // 11443' "$SRV_JSON")
+U_PORT=$(jq -r '.ports.tuic      // 11444' "$SRV_JSON")
+
 declare -A PROTOCOL_PORTS=(
-    ["reality"]="11443"
-    ["grpc"]="10085"
-    ["ws"]="10086"
-    ["trojan"]="10143"
-    ["hysteria2"]="443"
-    ["tuic"]="2053"
+  [reality]="$R_PORT"
+  [grpc]="$G_PORT"
+  [ws]="$W_PORT"
+  [trojan]="$T_PORT"
+  [hysteria2]="$H_PORT"
+  [tuic]="$U_PORT"
 )
 
 # 协议推荐权重配置
@@ -10764,52 +10773,54 @@ function getScoreLevel(score) {
 /**
  * 渲染协议表格（完整版）
  */
-function renderProtocolTable(protocols, healthData) {
-    const tbody = document.querySelector('#protocol-table tbody');
-    if (!tbody) return;
+// [PATCH:RENDER_PROTOCOL_TABLE_UNIFY] —— 统一渲染入口（可选参数 + 正确选择器 + 健康叠加）
+function renderProtocolTable(protocolsOpt, healthOpt) {
+  const protocols = Array.isArray(protocolsOpt) ? protocolsOpt
+                   : (window.dashboardData?.protocols || []);
+  const health = healthOpt || window.__protocolHealth || null;
 
-    tbody.innerHTML = '';
+  const tbody = document.getElementById('protocol-tbody'); // ✅ 正确的选择器
+  if (!tbody) return;
 
-    protocols.forEach(protocol => {
-        const healthInfo = healthData?.protocols?.find(p => p.protocol === protocol.name.toLowerCase());
-        
-        const row = document.createElement('tr');
-        row.setAttribute('data-protocol', protocol.name.toLowerCase());
-        
-        row.innerHTML = `
-            <td class="protocol-name">
-                <strong>${protocol.name}</strong>
-                <span class="protocol-port">${protocol.port}</span>
-            </td>
-            <td class="protocol-type">${protocol.type}</td>
-            <td class="protocol-status">
-                ${healthInfo ? `
-                    <div class="health-status-container">
-                        <div class="health-status-badge ${healthInfo.status}">
-                            ${healthInfo.status_badge}
-                        </div>
-                        <div class="health-detail-message">
-                            ${healthInfo.detail_message}
-                        </div>
-                        ${healthInfo.recommendation_badge ? `
-                            <div class="health-recommendation-badge">
-                                ${healthInfo.recommendation_badge}
-                            </div>
-                        ` : ''}
-                    </div>
-                ` : `
-                    <span class="status-legacy">${protocol.status}</span>
-                `}
-            </td>
-            <td class="protocol-actions">
-                <button class="btn-copy" onclick="copyProtocolLink('${protocol.name}')">
-                    复制链接
-                </button>
-            </td>
-        `;
-        
-        tbody.appendChild(row);
-    });
+  tbody.innerHTML = '';
+
+  protocols.forEach(p => {
+    const protoKey = String(p.name || '').toLowerCase();
+    const tr = document.createElement('tr');
+    tr.setAttribute('data-protocol', protoKey);            // ✅ 供健康徽章定位
+
+    // 健康数据（可选）
+    const h = health?.protocols?.find(x => x.protocol === protoKey);
+
+    tr.innerHTML = `
+      <td>${escapeHtml(p.name)}</td>
+      <td>${escapeHtml(p.fit || p.scenario || '—')}</td>
+      <td>${escapeHtml(p.effect || p.camouflage || '—')}</td>
+      <td class="protocol-status">
+        ${h ? `
+          <div class="health-status-container">
+            <div class="health-status-badge ${h.status}">${h.status_badge}</div>
+            <div class="health-detail-message">${h.detail_message}</div>
+            ${h.recommendation_badge ? `<div class="health-recommendation-badge">${h.recommendation_badge}</div>` : ''}
+          </div>
+        ` : `<span class="status-badge ${p.status === '运行中' ? 'status-running' : ''}">${p.status}</span>`}
+      </td>
+      <td><button class="btn btn-sm btn-link"
+                  data-action="open-modal"
+                  data-modal="configModal"
+                  data-protocol="${escapeHtml(p.name)}">查看配置</button></td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  // 追加“整包订阅”行
+  const subRow = document.createElement('tr');
+  subRow.className = 'subs-row';
+  subRow.innerHTML = `
+    <td style="font-weight:500;">整包协议</td><td></td><td></td><td></td>
+    <td><button class="btn btn-sm btn-link" data-action="open-modal" data-modal="configModal" data-protocol="__SUBS__">查看@订阅</button></td>
+  `;
+  tbody.appendChild(subRow);
 }
 
 /**
@@ -10860,23 +10871,14 @@ function renderHealthSummary(healthData) {
  * 主初始化函数 - 在页面加载时调用
  */
 async function initializeProtocolHealth() {
-    // 加载健康数据
-    const healthData = await loadProtocolHealth();
-    
-    if (healthData) {
-        console.log('协议健康数据加载成功', healthData);
-        
-        // 渲染健康摘要（如果有摘要区域）
-        renderHealthSummary(healthData);
-        
-        // 更新所有协议卡片的状态
-        const protocols = ['reality', 'grpc', 'ws', 'trojan', 'hysteria2', 'tuic'];
-        protocols.forEach(protocol => {
-            renderProtocolHealthCard(protocol, healthData);
-        });
-    } else {
-        console.warn('使用降级模式显示协议状态');
-    }
+  const healthData = await loadProtocolHealth();
+  if (healthData) {
+    window.__protocolHealth = healthData;                  // ✅ 缓存
+    renderHealthSummary(healthData);
+    renderProtocolTable();                                  // ✅ 触发表格重绘叠加健康徽章
+  } else {
+    console.warn('使用降级模式显示协议状态');
+  }
 }
 
 // ========================================
