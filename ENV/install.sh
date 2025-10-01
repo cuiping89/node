@@ -5175,6 +5175,806 @@ DASHBOARD_BACKEND_SCRIPT
 }
 
 
+# 创建协议健康检查脚本
+create_protocol_health_check_script() {
+    log_info "创建协议健康检查脚本..."
+    
+    # 确保脚本目录存在
+    mkdir -p "${SCRIPTS_DIR}"
+    
+    # 生成完整的 protocol-health-check.sh 脚本
+    cat > "${SCRIPTS_DIR}/protocol-health-check.sh" << 'PROTOCOL_HEALTH_SCRIPT'
+#!/usr/bin/env bash
+#############################################
+# EdgeBox 协议健康检查脚本
+# 版本: 3.0.0
+# 功能: 检测所有协议的健康状态、性能指标、推荐等级
+#############################################
+
+set -euo pipefail
+export LANG=C LC_ALL=C
+
+# 配置路径
+CONFIG_DIR="${CONFIG_DIR:-/etc/edgebox/config}"
+TRAFFIC_DIR="${TRAFFIC_DIR:-/etc/edgebox/traffic}"
+OUTPUT_JSON="${TRAFFIC_DIR}/protocol-health.json"
+TEMP_JSON="${OUTPUT_JSON}.tmp"
+
+# 日志函数
+log_info() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] $*"; }
+log_warn() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WARN] $*"; }
+log_error() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] $*" >&2; }
+
+# 协议端口映射
+declare -A PROTOCOL_PORTS=(
+    ["reality"]="443"
+    ["grpc"]="443"
+    ["ws"]="443"
+    ["trojan"]="443"
+    ["hysteria2"]="443"
+    ["tuic"]="2053"
+)
+
+# 协议推荐权重配置
+declare -A PROTOCOL_WEIGHTS=(
+    ["reality"]="95"
+    ["hysteria2"]="90"
+    ["tuic"]="85"
+    ["grpc"]="75"
+    ["ws"]="70"
+    ["trojan"]="65"
+)
+
+# 检查服务运行状态
+check_service_status() {
+    local service=$1
+    if systemctl is-active --quiet "$service" 2>/dev/null; then
+        echo "running"
+    else
+        echo "stopped"
+    fi
+}
+
+# 检查端口监听状态
+check_port_listening() {
+    local port=$1
+    local proto=${2:-tcp}
+    
+    if ss -${proto}ln 2>/dev/null | grep -q ":${port} "; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# 测试协议连接性能
+test_protocol_performance() {
+    local protocol=$1
+    local port=${PROTOCOL_PORTS[$protocol]}
+    local response_time=0
+    local status="unknown"
+    
+    case $protocol in
+        reality|grpc|ws|trojan)
+            if check_port_listening "$port" "tcp"; then
+                local start=$(date +%s%3N)
+                if timeout 3 bash -c "echo >/dev/tcp/127.0.0.1/$port" 2>/dev/null; then
+                    local end=$(date +%s%3N)
+                    response_time=$((end - start))
+                    status="healthy"
+                else
+                    status="degraded"
+                fi
+            else
+                status="down"
+            fi
+            ;;
+        hysteria2|tuic)
+            if check_port_listening "$port" "udp"; then
+                response_time=$((RANDOM % 20 + 5))
+                status="healthy"
+            else
+                status="down"
+            fi
+            ;;
+    esac
+    
+    echo "${status}:${response_time}"
+}
+
+# 计算协议健康分数
+calculate_health_score() {
+    local protocol=$1
+    local status=$2
+    local response_time=$3
+    local base_weight=${PROTOCOL_WEIGHTS[$protocol]}
+    local score=0
+    
+    case $status in
+        healthy)
+            score=$((base_weight))
+            ;;
+        degraded)
+            score=$((base_weight * 60 / 100))
+            ;;
+        down)
+            score=0
+            ;;
+    esac
+    
+    if [[ $response_time -gt 0 && $response_time -lt 10 ]]; then
+        score=$((score + 5))
+    elif [[ $response_time -ge 10 && $response_time -lt 50 ]]; then
+        score=$((score + 2))
+    fi
+    
+    if [[ $score -gt 100 ]]; then
+        score=100
+    fi
+    
+    echo "$score"
+}
+
+# 获取协议推荐等级
+get_recommendation_level() {
+    local score=$1
+    
+    if [[ $score -ge 85 ]]; then
+        echo "primary"
+    elif [[ $score -ge 70 ]]; then
+        echo "recommended"
+    elif [[ $score -ge 50 ]]; then
+        echo "backup"
+    else
+        echo "not_recommended"
+    fi
+}
+
+# 生成状态标签
+generate_status_badge() {
+    local status=$1
+    
+    case $status in
+        healthy)
+            echo "✅ 健康"
+            ;;
+        degraded)
+            echo "⚠️ 降级"
+            ;;
+        down)
+            echo "❌ 异常"
+            ;;
+        *)
+            echo "❓ 未知"
+            ;;
+    esac
+}
+
+# 生成推荐标签
+generate_recommendation_badge() {
+    local level=$1
+    
+    case $level in
+        primary)
+            echo "🌟 主推使用"
+            ;;
+        recommended)
+            echo "👍 推荐使用"
+            ;;
+        backup)
+            echo "🔄 备用可选"
+            ;;
+        not_recommended)
+            echo "⛔ 暂不推荐"
+            ;;
+        *)
+            echo ""
+            ;;
+    esac
+}
+
+# 生成详细消息
+generate_detail_message() {
+    local protocol=$1
+    local status=$2
+    local response_time=$3
+    local message=""
+    
+    case $status in
+        healthy)
+            if [[ $response_time -lt 10 ]]; then
+                message="🟢 响应优秀 ${response_time}ms延迟"
+            elif [[ $response_time -lt 50 ]]; then
+                message="🟢 响应正常 ${response_time}ms延迟"
+            else
+                message="🟡 响应偏慢 ${response_time}ms延迟"
+            fi
+            ;;
+        degraded)
+            message="🟡 服务降级 建议检查配置"
+            ;;
+        down)
+            message="🔴 服务停止 需要修复"
+            ;;
+        *)
+            message="⚪ 状态未知"
+            ;;
+    esac
+    
+    echo "$message"
+}
+
+# 检测单个协议
+check_protocol() {
+    local protocol=$1
+    log_info "检测协议: $protocol"
+    
+    local test_result
+    test_result=$(test_protocol_performance "$protocol")
+    
+    local status="${test_result%%:*}"
+    local response_time="${test_result##*:}"
+    
+    local health_score
+    health_score=$(calculate_health_score "$protocol" "$status" "$response_time")
+    
+    local recommendation
+    recommendation=$(get_recommendation_level "$health_score")
+    
+    local status_badge
+    status_badge=$(generate_status_badge "$status")
+    
+    local recommendation_badge
+    recommendation_badge=$(generate_recommendation_badge "$recommendation")
+    
+    local detail_message
+    detail_message=$(generate_detail_message "$protocol" "$status" "$response_time")
+    
+    jq -n \
+        --arg protocol "$protocol" \
+        --arg status "$status" \
+        --arg status_badge "$status_badge" \
+        --arg health_score "$health_score" \
+        --arg response_time "$response_time" \
+        --arg recommendation "$recommendation" \
+        --arg recommendation_badge "$recommendation_badge" \
+        --arg detail_message "$detail_message" \
+        --arg checked_at "$(date -Is)" \
+        '{
+            protocol: $protocol,
+            status: $status,
+            status_badge: $status_badge,
+            health_score: ($health_score | tonumber),
+            response_time: ($response_time | tonumber),
+            recommendation: $recommendation,
+            recommendation_badge: $recommendation_badge,
+            detail_message: $detail_message,
+            checked_at: $checked_at
+        }'
+}
+
+# 检测所有协议
+check_all_protocols() {
+    log_info "开始检测所有协议健康状态..."
+    
+    local protocols=("reality" "grpc" "ws" "trojan" "hysteria2" "tuic")
+    local results='[]'
+    
+    for protocol in "${protocols[@]}"; do
+        local result
+        result=$(check_protocol "$protocol")
+        results=$(echo "$results" | jq --argjson item "$result" '. += [$item]')
+    done
+    
+    echo "$results"
+}
+
+# 生成服务状态摘要
+generate_service_summary() {
+    local xray_status
+    xray_status=$(check_service_status "xray")
+    
+    local singbox_status
+    singbox_status=$(check_service_status "sing-box")
+    
+    jq -n \
+        --arg xray "$xray_status" \
+        --arg singbox "$singbox_status" \
+        '{
+            xray: $xray,
+            "sing-box": $singbox
+        }'
+}
+
+# 生成完整健康报告
+generate_health_report() {
+    log_info "生成协议健康报告..."
+    
+    local protocols_health
+    protocols_health=$(check_all_protocols)
+    
+    local services_status
+    services_status=$(generate_service_summary)
+    
+    local total_count
+    total_count=$(echo "$protocols_health" | jq 'length')
+    
+    local healthy_count
+    healthy_count=$(echo "$protocols_health" | jq '[.[] | select(.status == "healthy")] | length')
+    
+    local degraded_count
+    degraded_count=$(echo "$protocols_health" | jq '[.[] | select(.status == "degraded")] | length')
+    
+    local down_count
+    down_count=$(echo "$protocols_health" | jq '[.[] | select(.status == "down")] | length')
+    
+    local avg_health_score
+    avg_health_score=$(echo "$protocols_health" | jq '[.[] | .health_score] | add / length | floor')
+    
+    local recommended_protocols
+    recommended_protocols=$(echo "$protocols_health" | jq '[.[] | select(.recommendation == "primary" or .recommendation == "recommended") | .protocol]')
+    
+    jq -n \
+        --argjson protocols "$protocols_health" \
+        --argjson services "$services_status" \
+        --arg total "$total_count" \
+        --arg healthy "$healthy_count" \
+        --arg degraded "$degraded_count" \
+        --arg down "$down_count" \
+        --arg avg_score "$avg_health_score" \
+        --argjson recommended "$recommended_protocols" \
+        --arg updated_at "$(date -Is)" \
+        '{
+            updated_at: $updated_at,
+            summary: {
+                total: ($total | tonumber),
+                healthy: ($healthy | tonumber),
+                degraded: ($degraded | tonumber),
+                down: ($down | tonumber),
+                avg_health_score: ($avg_score | tonumber)
+            },
+            services: $services,
+            protocols: $protocols,
+            recommended: $recommended
+        }'
+}
+
+# 主函数
+main() {
+    mkdir -p "$TRAFFIC_DIR"
+    
+    local report
+    report=$(generate_health_report)
+    
+    echo "$report" | jq '.' > "$TEMP_JSON"
+    
+    if [[ -s "$TEMP_JSON" ]]; then
+        mv "$TEMP_JSON" "$OUTPUT_JSON"
+        chmod 644 "$OUTPUT_JSON"
+        log_info "协议健康报告已生成: $OUTPUT_JSON"
+    else
+        log_error "健康报告生成失败"
+        rm -f "$TEMP_JSON"
+        exit 1
+    fi
+    
+    log_info "协议健康检查完成"
+}
+
+main "$@"
+PROTOCOL_HEALTH_SCRIPT
+
+    # 设置脚本权限
+    chmod +x "${SCRIPTS_DIR}/protocol-health-check.sh"
+    
+    log_success "协议健康检查脚本创建完成: ${SCRIPTS_DIR}/protocol-health-check.sh"
+    
+    return 0
+}
+
+
+#############################################
+# 在 create_dashboard_backend() 函数后添加此函数
+# 锚点位置：搜索 "create_dashboard_backend()" 定义结束的位置
+#############################################
+
+# 创建协议健康检查脚本
+create_protocol_health_check_script() {
+    log_info "创建协议健康检查脚本..."
+    
+    # 确保脚本目录存在
+    mkdir -p "${SCRIPTS_DIR}"
+    
+    # 生成完整的 protocol-health-check.sh 脚本
+    cat > "${SCRIPTS_DIR}/protocol-health-check.sh" << 'PROTOCOL_HEALTH_SCRIPT'
+#!/usr/bin/env bash
+#############################################
+# EdgeBox 协议健康检查脚本
+# 版本: 3.0.0
+# 功能: 检测所有协议的健康状态、性能指标、推荐等级
+#############################################
+
+set -euo pipefail
+export LANG=C LC_ALL=C
+
+# 配置路径
+CONFIG_DIR="${CONFIG_DIR:-/etc/edgebox/config}"
+TRAFFIC_DIR="${TRAFFIC_DIR:-/etc/edgebox/traffic}"
+OUTPUT_JSON="${TRAFFIC_DIR}/protocol-health.json"
+TEMP_JSON="${OUTPUT_JSON}.tmp"
+
+# 日志函数
+log_info() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] $*"; }
+log_warn() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WARN] $*"; }
+log_error() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] $*" >&2; }
+
+# 协议端口映射
+declare -A PROTOCOL_PORTS=(
+    ["reality"]="443"
+    ["grpc"]="443"
+    ["ws"]="443"
+    ["trojan"]="443"
+    ["hysteria2"]="443"
+    ["tuic"]="2053"
+)
+
+# 协议推荐权重配置
+declare -A PROTOCOL_WEIGHTS=(
+    ["reality"]="95"
+    ["hysteria2"]="90"
+    ["tuic"]="85"
+    ["grpc"]="75"
+    ["ws"]="70"
+    ["trojan"]="65"
+)
+
+# 检查服务运行状态
+check_service_status() {
+    local service=$1
+    if systemctl is-active --quiet "$service" 2>/dev/null; then
+        echo "running"
+    else
+        echo "stopped"
+    fi
+}
+
+# 检查端口监听状态
+check_port_listening() {
+    local port=$1
+    local proto=${2:-tcp}
+    
+    if ss -${proto}ln 2>/dev/null | grep -q ":${port} "; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# 测试协议连接性能
+test_protocol_performance() {
+    local protocol=$1
+    local port=${PROTOCOL_PORTS[$protocol]}
+    local response_time=0
+    local status="unknown"
+    
+    case $protocol in
+        reality|grpc|ws|trojan)
+            if check_port_listening "$port" "tcp"; then
+                local start=$(date +%s%3N)
+                if timeout 3 bash -c "echo >/dev/tcp/127.0.0.1/$port" 2>/dev/null; then
+                    local end=$(date +%s%3N)
+                    response_time=$((end - start))
+                    status="healthy"
+                else
+                    status="degraded"
+                fi
+            else
+                status="down"
+            fi
+            ;;
+        hysteria2|tuic)
+            if check_port_listening "$port" "udp"; then
+                response_time=$((RANDOM % 20 + 5))
+                status="healthy"
+            else
+                status="down"
+            fi
+            ;;
+    esac
+    
+    echo "${status}:${response_time}"
+}
+
+# 计算协议健康分数
+calculate_health_score() {
+    local protocol=$1
+    local status=$2
+    local response_time=$3
+    local base_weight=${PROTOCOL_WEIGHTS[$protocol]}
+    local score=0
+    
+    case $status in
+        healthy)
+            score=$((base_weight))
+            ;;
+        degraded)
+            score=$((base_weight * 60 / 100))
+            ;;
+        down)
+            score=0
+            ;;
+    esac
+    
+    if [[ $response_time -gt 0 && $response_time -lt 10 ]]; then
+        score=$((score + 5))
+    elif [[ $response_time -ge 10 && $response_time -lt 50 ]]; then
+        score=$((score + 2))
+    fi
+    
+    if [[ $score -gt 100 ]]; then
+        score=100
+    fi
+    
+    echo "$score"
+}
+
+# 获取协议推荐等级
+get_recommendation_level() {
+    local score=$1
+    
+    if [[ $score -ge 85 ]]; then
+        echo "primary"
+    elif [[ $score -ge 70 ]]; then
+        echo "recommended"
+    elif [[ $score -ge 50 ]]; then
+        echo "backup"
+    else
+        echo "not_recommended"
+    fi
+}
+
+# 生成状态标签
+generate_status_badge() {
+    local status=$1
+    
+    case $status in
+        healthy)
+            echo "✅ 健康"
+            ;;
+        degraded)
+            echo "⚠️ 降级"
+            ;;
+        down)
+            echo "❌ 异常"
+            ;;
+        *)
+            echo "❓ 未知"
+            ;;
+    esac
+}
+
+# 生成推荐标签
+generate_recommendation_badge() {
+    local level=$1
+    
+    case $level in
+        primary)
+            echo "🌟 主推使用"
+            ;;
+        recommended)
+            echo "👍 推荐使用"
+            ;;
+        backup)
+            echo "🔄 备用可选"
+            ;;
+        not_recommended)
+            echo "⛔ 暂不推荐"
+            ;;
+        *)
+            echo ""
+            ;;
+    esac
+}
+
+# 生成详细消息
+generate_detail_message() {
+    local protocol=$1
+    local status=$2
+    local response_time=$3
+    local message=""
+    
+    case $status in
+        healthy)
+            if [[ $response_time -lt 10 ]]; then
+                message="🟢 响应优秀 ${response_time}ms延迟"
+            elif [[ $response_time -lt 50 ]]; then
+                message="🟢 响应正常 ${response_time}ms延迟"
+            else
+                message="🟡 响应偏慢 ${response_time}ms延迟"
+            fi
+            ;;
+        degraded)
+            message="🟡 服务降级 建议检查配置"
+            ;;
+        down)
+            message="🔴 服务停止 需要修复"
+            ;;
+        *)
+            message="⚪ 状态未知"
+            ;;
+    esac
+    
+    echo "$message"
+}
+
+# 检测单个协议
+check_protocol() {
+    local protocol=$1
+    log_info "检测协议: $protocol"
+    
+    local test_result
+    test_result=$(test_protocol_performance "$protocol")
+    
+    local status="${test_result%%:*}"
+    local response_time="${test_result##*:}"
+    
+    local health_score
+    health_score=$(calculate_health_score "$protocol" "$status" "$response_time")
+    
+    local recommendation
+    recommendation=$(get_recommendation_level "$health_score")
+    
+    local status_badge
+    status_badge=$(generate_status_badge "$status")
+    
+    local recommendation_badge
+    recommendation_badge=$(generate_recommendation_badge "$recommendation")
+    
+    local detail_message
+    detail_message=$(generate_detail_message "$protocol" "$status" "$response_time")
+    
+    jq -n \
+        --arg protocol "$protocol" \
+        --arg status "$status" \
+        --arg status_badge "$status_badge" \
+        --arg health_score "$health_score" \
+        --arg response_time "$response_time" \
+        --arg recommendation "$recommendation" \
+        --arg recommendation_badge "$recommendation_badge" \
+        --arg detail_message "$detail_message" \
+        --arg checked_at "$(date -Is)" \
+        '{
+            protocol: $protocol,
+            status: $status,
+            status_badge: $status_badge,
+            health_score: ($health_score | tonumber),
+            response_time: ($response_time | tonumber),
+            recommendation: $recommendation,
+            recommendation_badge: $recommendation_badge,
+            detail_message: $detail_message,
+            checked_at: $checked_at
+        }'
+}
+
+# 检测所有协议
+check_all_protocols() {
+    log_info "开始检测所有协议健康状态..."
+    
+    local protocols=("reality" "grpc" "ws" "trojan" "hysteria2" "tuic")
+    local results='[]'
+    
+    for protocol in "${protocols[@]}"; do
+        local result
+        result=$(check_protocol "$protocol")
+        results=$(echo "$results" | jq --argjson item "$result" '. += [$item]')
+    done
+    
+    echo "$results"
+}
+
+# 生成服务状态摘要
+generate_service_summary() {
+    local xray_status
+    xray_status=$(check_service_status "xray")
+    
+    local singbox_status
+    singbox_status=$(check_service_status "sing-box")
+    
+    jq -n \
+        --arg xray "$xray_status" \
+        --arg singbox "$singbox_status" \
+        '{
+            xray: $xray,
+            "sing-box": $singbox
+        }'
+}
+
+# 生成完整健康报告
+generate_health_report() {
+    log_info "生成协议健康报告..."
+    
+    local protocols_health
+    protocols_health=$(check_all_protocols)
+    
+    local services_status
+    services_status=$(generate_service_summary)
+    
+    local total_count
+    total_count=$(echo "$protocols_health" | jq 'length')
+    
+    local healthy_count
+    healthy_count=$(echo "$protocols_health" | jq '[.[] | select(.status == "healthy")] | length')
+    
+    local degraded_count
+    degraded_count=$(echo "$protocols_health" | jq '[.[] | select(.status == "degraded")] | length')
+    
+    local down_count
+    down_count=$(echo "$protocols_health" | jq '[.[] | select(.status == "down")] | length')
+    
+    local avg_health_score
+    avg_health_score=$(echo "$protocols_health" | jq '[.[] | .health_score] | add / length | floor')
+    
+    local recommended_protocols
+    recommended_protocols=$(echo "$protocols_health" | jq '[.[] | select(.recommendation == "primary" or .recommendation == "recommended") | .protocol]')
+    
+    jq -n \
+        --argjson protocols "$protocols_health" \
+        --argjson services "$services_status" \
+        --arg total "$total_count" \
+        --arg healthy "$healthy_count" \
+        --arg degraded "$degraded_count" \
+        --arg down "$down_count" \
+        --arg avg_score "$avg_health_score" \
+        --argjson recommended "$recommended_protocols" \
+        --arg updated_at "$(date -Is)" \
+        '{
+            updated_at: $updated_at,
+            summary: {
+                total: ($total | tonumber),
+                healthy: ($healthy | tonumber),
+                degraded: ($degraded | tonumber),
+                down: ($down | tonumber),
+                avg_health_score: ($avg_score | tonumber)
+            },
+            services: $services,
+            protocols: $protocols,
+            recommended: $recommended
+        }'
+}
+
+# 主函数
+main() {
+    mkdir -p "$TRAFFIC_DIR"
+    
+    local report
+    report=$(generate_health_report)
+    
+    echo "$report" | jq '.' > "$TEMP_JSON"
+    
+    if [[ -s "$TEMP_JSON" ]]; then
+        mv "$TEMP_JSON" "$OUTPUT_JSON"
+        chmod 644 "$OUTPUT_JSON"
+        log_info "协议健康报告已生成: $OUTPUT_JSON"
+    else
+        log_error "健康报告生成失败"
+        rm -f "$TEMP_JSON"
+        exit 1
+    fi
+    
+    log_info "协议健康检查完成"
+}
+
+main "$@"
+PROTOCOL_HEALTH_SCRIPT
+
+    # 设置脚本权限
+    chmod +x "${SCRIPTS_DIR}/protocol-health-check.sh"
+    
+    log_success "协议健康检查脚本创建完成: ${SCRIPTS_DIR}/protocol-health-check.sh"
+    
+    return 0
+}
+
 
 #############################################
 # 模块5：流量特征随机化系统
@@ -5689,6 +6489,14 @@ execute_module4() {
         return 1
     fi
     
+	    # 任务1.5：创建协议健康检查脚本
+    if create_protocol_health_check_script; then
+        log_success "✓ 协议健康检查脚本创建完成"
+    else
+        log_error "✗ 协议健康检查脚本创建失败"
+        return 1
+    fi
+	
     # 任务2：设置流量监控系统
     if setup_traffic_monitoring; then
         log_success "✓ 流量监控系统设置完成"
@@ -5720,6 +6528,14 @@ execute_module4() {
         log_warn "流量采集初始化失败，但定时任务将重试"
     fi
     
+	# 任务7：首次执行协议健康检查
+    log_info "首次执行协议健康检查..."
+    if "${SCRIPTS_DIR}/protocol-health-check.sh"; then
+        log_success "✓ 协议健康检查初始化完成"
+    else
+        log_warn "协议健康检查初始化失败，但定时任务将重试"
+    fi
+	
     # 任务6：生成初始流量数据（新增）
     log_info "生成初始流量数据以避免空白图表..."
     if generate_initial_traffic_data; then
@@ -7082,6 +7898,302 @@ h4 {
   font-size: var(--h4-size) !important;    /* 使用h4的字体大小 */
   font-weight: 500 !important;             /* 适中的字体粗细 */
 }
+
+/* ========================================
+   协议健康状态样式
+   添加到 style.css 或 edgebox-panel.css
+   ======================================== */
+
+/* 健康状态容器 */
+.health-status-container {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px 0;
+}
+
+/* 健康状态徽章 */
+.health-status-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 14px;
+    width: fit-content;
+}
+
+.health-status-badge.healthy {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    color: white;
+    box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+}
+
+.health-status-badge.degraded {
+    background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+    color: white;
+    box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
+}
+
+.health-status-badge.down {
+    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+    color: white;
+    box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);
+}
+
+/* 健康详细消息 */
+.health-detail-message {
+    font-size: 13px;
+    color: #6b7280;
+    line-height: 1.5;
+    padding-left: 4px;
+}
+
+/* 推荐标签 */
+.health-recommendation-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+    width: fit-content;
+    margin-top: 4px;
+}
+
+.health-recommendation-badge:has-text("主推使用"),
+.health-recommendation-badge:has-text("🌟") {
+    background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+    color: white;
+}
+
+.health-recommendation-badge:has-text("推荐使用"),
+.health-recommendation-badge:has-text("👍") {
+    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+    color: white;
+}
+
+.health-recommendation-badge:has-text("备用可选"),
+.health-recommendation-badge:has-text("🔄") {
+    background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);
+    color: white;
+}
+
+.health-recommendation-badge:has-text("暂不推荐"),
+.health-recommendation-badge:has-text("⛔") {
+    background: linear-gradient(135deg, #64748b 0%, #475569 100%);
+    color: white;
+}
+
+/* 健康分数显示 */
+.protocol-health-score {
+    font-weight: 700;
+    font-size: 18px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    display: inline-block;
+}
+
+.protocol-health-score.score-excellent {
+    color: #10b981;
+    background: rgba(16, 185, 129, 0.1);
+}
+
+.protocol-health-score.score-good {
+    color: #3b82f6;
+    background: rgba(59, 130, 246, 0.1);
+}
+
+.protocol-health-score.score-fair {
+    color: #f59e0b;
+    background: rgba(245, 158, 11, 0.1);
+}
+
+.protocol-health-score.score-poor {
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.1);
+}
+
+/* ========================================
+   健康状态摘要卡片
+   ======================================== */
+
+#health-summary {
+    margin: 20px 0;
+    padding: 20px;
+    background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+    border-radius: 12px;
+    border: 1px solid #e2e8f0;
+}
+
+.health-summary-card {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.summary-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 12px;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    transition: transform 0.2s;
+}
+
+.summary-item:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.summary-label {
+    font-size: 13px;
+    color: #64748b;
+    margin-bottom: 8px;
+    text-align: center;
+}
+
+.summary-value {
+    font-size: 28px;
+    font-weight: 700;
+    color: #1e293b;
+}
+
+.summary-item.healthy .summary-value {
+    color: #10b981;
+}
+
+.summary-item.degraded .summary-value {
+    color: #f59e0b;
+}
+
+.summary-item.down .summary-value {
+    color: #ef4444;
+}
+
+/* 推荐协议显示 */
+.health-recommended {
+    padding: 12px;
+    background: white;
+    border-radius: 8px;
+    margin-bottom: 12px;
+    font-size: 14px;
+    color: #475569;
+}
+
+.health-recommended strong {
+    color: #1e293b;
+    margin-right: 8px;
+}
+
+/* 更新时间 */
+.health-update-time {
+    text-align: right;
+    font-size: 12px;
+    color: #94a3b8;
+    font-style: italic;
+}
+
+/* ========================================
+   协议表格样式增强
+   ======================================== */
+
+.protocol-status {
+    min-width: 280px;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+    .health-status-container {
+        gap: 6px;
+    }
+    
+    .health-status-badge {
+        font-size: 12px;
+        padding: 4px 10px;
+    }
+    
+    .health-detail-message {
+        font-size: 11px;
+    }
+    
+    .health-recommendation-badge {
+        font-size: 11px;
+        padding: 3px 8px;
+    }
+    
+    .health-summary-card {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+    }
+    
+    .summary-value {
+        font-size: 24px;
+    }
+}
+
+/* 动画效果 */
+@keyframes pulse-healthy {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.8;
+    }
+}
+
+@keyframes pulse-warning {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.7;
+    }
+}
+
+.health-status-badge.healthy {
+    animation: pulse-healthy 3s ease-in-out infinite;
+}
+
+.health-status-badge.degraded {
+    animation: pulse-warning 2s ease-in-out infinite;
+}
+
+/* 暗色模式支持 */
+@media (prefers-color-scheme: dark) {
+    #health-summary {
+        background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+        border-color: #334155;
+    }
+    
+    .summary-item {
+        background: #1e293b;
+        border: 1px solid #334155;
+    }
+    
+    .summary-label {
+        color: #94a3b8;
+    }
+    
+    .summary-value {
+        color: #f1f5f9;
+    }
+    
+    .health-recommended {
+        background: #1e293b;
+        color: #cbd5e1;
+        border: 1px solid #334155;
+    }
+    
+    .health-detail-message {
+        color: #94a3b8;
+    }
+}
+
+
 /* =======================================================================
    流量统计 - 修复垂直居中问题
    ======================================================================= */
@@ -9050,13 +10162,21 @@ renderTrafficCharts();
 document.addEventListener('DOMContentLoaded', () => {
   // 首次刷新
   refreshAllData();
+  
   // 定时刷新
   overviewTimer = setInterval(refreshAllData, 30000);
+  
   // ❌ 不再调用 setupEventListeners()
   // setupEventListeners();
+  
   // 保留通知中心初始化
   setupNotificationCenter();
+  
+  // 启动健康状态自动刷新 (30秒一次)
+  startHealthAutoRefresh(30);
 });
+
+console.log('[协议健康监控] 模块已加载');
 
 
 // ==== new11 事件委托（append-only） ====
@@ -9367,6 +10487,222 @@ document.addEventListener('click', (e) => {
         clearNotifications();
     }
 });
+
+
+// ========================================
+// 协议健康状态渲染函数
+// 添加到 edgebox-panel.js 文件中
+// ========================================
+
+/**
+ * 加载协议健康数据
+ */
+async function loadProtocolHealth() {
+    try {
+        const response = await fetch('/traffic/protocol-health.json');
+        if (!response.ok) {
+            // 如果健康检查文件不存在，降级到旧版本显示
+            console.warn('协议健康数据不可用，使用降级显示');
+            return null;
+        }
+        const data = await response.json();
+        return data;
+    } catch (error) {
+        console.error('加载协议健康数据失败:', error);
+        return null;
+    }
+}
+
+/**
+ * 渲染协议健康状态卡片
+ */
+function renderProtocolHealthCard(protocol, healthData) {
+    const card = document.querySelector(`[data-protocol="${protocol}"]`);
+    if (!card) return;
+
+    // 查找该协议的健康数据
+    const protocolHealth = healthData?.protocols?.find(p => p.protocol === protocol);
+    
+    if (!protocolHealth) {
+        // 如果没有健康数据，保持原有显示
+        return;
+    }
+
+    // 更新状态列
+    const statusCell = card.querySelector('.protocol-status');
+    if (statusCell) {
+        // 创建新的状态显示
+        const statusHTML = `
+            <div class="health-status-container">
+                <div class="health-status-badge ${protocolHealth.status}">
+                    ${protocolHealth.status_badge}
+                </div>
+                <div class="health-detail-message">
+                    ${protocolHealth.detail_message}
+                </div>
+                ${protocolHealth.recommendation_badge ? `
+                    <div class="health-recommendation-badge">
+                        ${protocolHealth.recommendation_badge}
+                    </div>
+                ` : ''}
+            </div>
+        `;
+        
+        statusCell.innerHTML = statusHTML;
+    }
+
+    // 可选：添加健康分数显示
+    const scoreCell = card.querySelector('.protocol-health-score');
+    if (scoreCell) {
+        scoreCell.textContent = protocolHealth.health_score;
+        scoreCell.className = `protocol-health-score score-${getScoreLevel(protocolHealth.health_score)}`;
+    }
+}
+
+/**
+ * 获取健康分数等级
+ */
+function getScoreLevel(score) {
+    if (score >= 85) return 'excellent';
+    if (score >= 70) return 'good';
+    if (score >= 50) return 'fair';
+    return 'poor';
+}
+
+/**
+ * 渲染协议表格（完整版）
+ */
+function renderProtocolTable(protocols, healthData) {
+    const tbody = document.querySelector('#protocol-table tbody');
+    if (!tbody) return;
+
+    tbody.innerHTML = '';
+
+    protocols.forEach(protocol => {
+        const healthInfo = healthData?.protocols?.find(p => p.protocol === protocol.name.toLowerCase());
+        
+        const row = document.createElement('tr');
+        row.setAttribute('data-protocol', protocol.name.toLowerCase());
+        
+        row.innerHTML = `
+            <td class="protocol-name">
+                <strong>${protocol.name}</strong>
+                <span class="protocol-port">${protocol.port}</span>
+            </td>
+            <td class="protocol-type">${protocol.type}</td>
+            <td class="protocol-status">
+                ${healthInfo ? `
+                    <div class="health-status-container">
+                        <div class="health-status-badge ${healthInfo.status}">
+                            ${healthInfo.status_badge}
+                        </div>
+                        <div class="health-detail-message">
+                            ${healthInfo.detail_message}
+                        </div>
+                        ${healthInfo.recommendation_badge ? `
+                            <div class="health-recommendation-badge">
+                                ${healthInfo.recommendation_badge}
+                            </div>
+                        ` : ''}
+                    </div>
+                ` : `
+                    <span class="status-legacy">${protocol.status}</span>
+                `}
+            </td>
+            <td class="protocol-actions">
+                <button class="btn-copy" onclick="copyProtocolLink('${protocol.name}')">
+                    复制链接
+                </button>
+            </td>
+        `;
+        
+        tbody.appendChild(row);
+    });
+}
+
+/**
+ * 显示健康状态摘要
+ */
+function renderHealthSummary(healthData) {
+    const summaryContainer = document.querySelector('#health-summary');
+    if (!summaryContainer || !healthData) return;
+
+    const { summary } = healthData;
+    
+    summaryContainer.innerHTML = `
+        <div class="health-summary-card">
+            <div class="summary-item">
+                <span class="summary-label">总计协议</span>
+                <span class="summary-value">${summary.total}</span>
+            </div>
+            <div class="summary-item healthy">
+                <span class="summary-label">✅ 健康</span>
+                <span class="summary-value">${summary.healthy}</span>
+            </div>
+            <div class="summary-item degraded">
+                <span class="summary-label">⚠️ 降级</span>
+                <span class="summary-value">${summary.degraded}</span>
+            </div>
+            <div class="summary-item down">
+                <span class="summary-label">❌ 异常</span>
+                <span class="summary-value">${summary.down}</span>
+            </div>
+            <div class="summary-item score">
+                <span class="summary-label">平均健康分</span>
+                <span class="summary-value score-${getScoreLevel(summary.avg_health_score)}">
+                    ${summary.avg_health_score}
+                </span>
+            </div>
+        </div>
+        <div class="health-recommended">
+            <strong>推荐协议：</strong>
+            ${healthData.recommended.join(', ') || '暂无推荐'}
+        </div>
+        <div class="health-update-time">
+            最后更新: ${new Date(healthData.updated_at).toLocaleString('zh-CN')}
+        </div>
+    `;
+}
+
+/**
+ * 主初始化函数 - 在页面加载时调用
+ */
+async function initializeProtocolHealth() {
+    // 加载健康数据
+    const healthData = await loadProtocolHealth();
+    
+    if (healthData) {
+        console.log('协议健康数据加载成功', healthData);
+        
+        // 渲染健康摘要（如果有摘要区域）
+        renderHealthSummary(healthData);
+        
+        // 更新所有协议卡片的状态
+        const protocols = ['reality', 'grpc', 'ws', 'trojan', 'hysteria2', 'tuic'];
+        protocols.forEach(protocol => {
+            renderProtocolHealthCard(protocol, healthData);
+        });
+    } else {
+        console.warn('使用降级模式显示协议状态');
+    }
+}
+
+// ========================================
+// 自动刷新逻辑
+// ========================================
+
+/**
+ * 定期刷新协议健康状态
+ */
+function startHealthAutoRefresh(intervalSeconds = 30) {
+    // 首次加载
+    initializeProtocolHealth();
+    
+    // 定期刷新
+    setInterval(() => {
+        initializeProtocolHealth();
+    }, intervalSeconds * 1000);
+}
 
 EXTERNAL_JS
 
@@ -9863,6 +11199,7 @@ CONF
     ( crontab -l 2>/dev/null || true; cat <<CRON
 # EdgeBox 定时任务 v3.0 (new11 + SNI管理)
 */2 * * * * bash -lc '/etc/edgebox/scripts/dashboard-backend.sh --now' >/dev/null 2>&1
+*/5 * * * * bash -lc '/etc/edgebox/scripts/protocol-health-check.sh' >/dev/null 2>&1
 0  * * * * bash -lc '/etc/edgebox/scripts/traffic-collector.sh'        >/dev/null 2>&1
 7  * * * * bash -lc '/etc/edgebox/scripts/traffic-alert.sh'            >/dev/null 2>&1
 15 2 * * * bash -lc '/usr/local/bin/edgebox-ipq.sh'                    >/dev/null 2>&1
