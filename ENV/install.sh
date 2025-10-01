@@ -5472,10 +5472,9 @@ test_protocol_performance() {
             fi
             ;;
         hysteria2|tuic)
-            # UDP 协议暂时只检查端口监听
             if check_port_listening "$port" "udp"; then
-                response_time=$((RANDOM % 30 + 10)) # 模拟一个合理的延迟
-                status="healthy"
+                response_time=0 # 不再模拟延迟
+                status="degraded" # 将状态改为“降级”或“仅监听”
             else
                 status="down"
             fi
@@ -5594,7 +5593,7 @@ generate_detail_message() {
             fi
             ;;
         degraded)
-            message="🟡 服务降级 建议检查配置"
+            message="🟡 正在监听，但外部可达性未知。请检查防火墙。"
             ;;
         down)
             message="🔴 服务停止 需要修复"
