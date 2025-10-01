@@ -3898,7 +3898,7 @@ configure_sing_box() {
             {
               "type": "hysteria2",
               "tag": "hysteria2-in",
-              "listen": "::",
+              "listen": "0.0.0.0",      // ✅ 同时监听 IPv4
               "listen_port": 443,
               "users": [{"password": $hy2_pass}],
               "masquerade": "https://www.bing.com",
@@ -3912,7 +3912,7 @@ configure_sing_box() {
             {
               "type": "tuic",
               "tag": "tuic-in",
-              "listen": "::",
+              "listen": "0.0.0.0",      // ✅ 同时监听 IPv4
               "listen_port": 2053,
               "users": [{"uuid": $tuic_uuid, "password": $tuic_pass}],
               "congestion_control": "bbr",
