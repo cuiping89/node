@@ -5399,10 +5399,10 @@ log_error() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] $*" >&2; }
 
 # 协议端口映射
 declare -A PROTOCOL_PORTS=(
-    ["reality"]="443"
-    ["grpc"]="443"
-    ["ws"]="443"
-    ["trojan"]="443"
+    ["reality"]="11443"
+    ["grpc"]="10085"
+    ["ws"]="10086"
+    ["trojan"]="10143"
     ["hysteria2"]="443"
     ["tuic"]="2053"
 )
