@@ -575,10 +575,12 @@ validate_download() {
     return 1
 }
 
-# 智能下载并执行脚本
+# 智能下载并执行脚本（支持传递参数）
 smart_download_script() {
     local url="$1"
     local description="${2:-script}"
+    shift 2  # 移除前两个参数，剩余的都是要传递给脚本的参数
+    local script_args=("$@")  # 获取所有剩余参数
     
     log_info "下载$description..."
     
@@ -589,7 +591,13 @@ smart_download_script() {
     }
     
     if smart_download "$url" "$temp_script" "script"; then
-        bash "$temp_script"
+        # [关键修复] 传递所有参数给脚本
+        if [[ ${#script_args[@]} -gt 0 ]]; then
+            log_debug "执行脚本参数: ${script_args[*]}"
+            bash "$temp_script" "${script_args[@]}"
+        else
+            bash "$temp_script"
+        fi
         local exit_code=$?
         rm -f "$temp_script"
         return $exit_code
@@ -3185,12 +3193,13 @@ install_sing_box() {
         fi
     fi
     
-    # ========================================
-    # 第7步：文件完整性验证（基于大小）
+	
+	# ========================================
+    # 第7步：文件完整性验证（增强版：大小 + SHA256）
     # ========================================
     log_info "🔍 验证文件完整性..."
     
-    # 验证文件大小（sing-box 至少应该大于 5MB）
+    # 7.1 快速大小检查（必需，快速失败）
     local file_size
     file_size=$(stat -c%s "$temp_file" 2>/dev/null || stat -f%z "$temp_file" 2>/dev/null || echo 0)
     
@@ -3201,6 +3210,73 @@ install_sing_box() {
     fi
     
     log_success "✅ 文件大小验证通过: $(($file_size / 1024 / 1024)) MB"
+
+    # 7.2 SHA256完整性校验（可选，作为额外保障）
+    local sha256_verified=false
+    
+    # 检查版本是否支持SHA256校验（1.12.x系列不提供统一校验文件）
+    local version_major_minor
+    version_major_minor=$(echo "$version_to_install" | cut -d. -f1,2)
+    
+    if [[ "$version_to_install" < "1.12.0" ]] || [[ "$version_major_minor" == "1.11" ]] || [[ "$version_major_minor" == "1.10" ]]; then
+        log_info "🔐 尝试SHA256校验（版本 v${version_to_install} 支持）..."
+        
+        # 构造校验文件URL
+        local checksum_filename="sing-box-${version_to_install}-checksums.txt"
+        local checksum_url="https://github.com/SagerNet/sing-box/releases/download/v${version_to_install}/${checksum_filename}"
+        local temp_checksum_file
+        temp_checksum_file=$(mktemp) || {
+            log_debug "创建临时校验文件失败，跳过SHA256校验"
+        }
+        
+        if [[ -n "$temp_checksum_file" ]]; then
+            # 下载校验文件（允许失败，不阻塞安装）
+            if smart_download "$checksum_url" "$temp_checksum_file" "checksum" 2>/dev/null; then
+                log_debug "校验文件下载成功"
+                
+                # 提取预期的SHA256哈希值
+                local expected_hash
+                expected_hash=$(grep "$filename" "$temp_checksum_file" | awk '{print $1}' | head -1)
+                
+                if [[ -n "$expected_hash" && ${#expected_hash} -eq 64 ]]; then
+                    # 计算实际文件的SHA256哈希值
+                    local actual_hash
+                    actual_hash=$(sha256sum "$temp_file" | awk '{print $1}')
+                    
+                    # 比对哈希值
+                    if [[ "$expected_hash" == "$actual_hash" ]]; then
+                        log_success "✅ SHA256校验通过"
+                        log_debug "   预期: ${expected_hash:0:16}..."
+                        log_debug "   实际: ${actual_hash:0:16}..."
+                        sha256_verified=true
+                    else
+                        log_error "❌ SHA256校验失败 - 文件可能被篡改或损坏!"
+                        log_error "   预期哈希: ${expected_hash:0:32}..."
+                        log_error "   实际哈希: ${actual_hash:0:32}..."
+                        rm -f "$temp_file" "$temp_checksum_file"
+                        return 1
+                    fi
+                else
+                    log_debug "无法从校验文件中提取有效哈希值，跳过SHA256校验"
+                fi
+                
+                rm -f "$temp_checksum_file"
+            else
+                log_debug "校验文件下载失败（可能不存在或网络问题），跳过SHA256校验"
+            fi
+        fi
+    else
+        log_debug "版本 v${version_to_install} 不提供统一校验文件，跳过SHA256校验"
+    fi
+    
+    # 7.3 验证总结
+    if [[ "$sha256_verified" == "true" ]]; then
+        log_success "✅ 文件完整性验证通过（大小 + SHA256）"
+    else
+        log_success "✅ 文件完整性验证通过（仅大小验证）"
+        log_debug "SHA256校验未执行或不可用（非致命问题）"
+    fi
+	
 
     # ========================================
     # 第8步：解压和安装
