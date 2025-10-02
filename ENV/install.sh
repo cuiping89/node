@@ -3903,69 +3903,61 @@ configure_sing_box() {
     
 	mkdir -p /var/log/edgebox 2>/dev/null || true
 
-    log_info "生成sing-box配置文件 (使用 jq 确保安全)..."
-    
-    # 使用 jq 安全地生成配置文件，避免特殊字符问题
-    if ! jq -n \
-        --arg hy2_pass "$PASSWORD_HYSTERIA2" \
-        --arg tuic_uuid "$UUID_TUIC" \
-        --arg tuic_pass "$PASSWORD_TUIC" \
-        --arg cert_pem "${CERT_DIR}/current.pem" \
-        --arg cert_key "${CERT_DIR}/current.key" \
-        '{
-  "log": { "level": "warn", "timestamp": true },
-  "inbounds": [
-    {
-      "type": "hysteria2",
-      "tag": "hysteria2-in",
-      "listen": "0.0.0.0",
-      "listen_port": 443,
-      "users": [ { "password": "${PASSWORD_HYSTERIA2}" } ],
-      "tls": {
-        "enabled": true,
-        "alpn": ["h3"],
-        "certificate_path": "${CERT_DIR}/current.pem",
-        "key_path": "${CERT_DIR}/current.key"
+log_info "生成sing-box配置文件 (使用 jq 确保安全)..."
+
+if ! jq -n \
+  --arg hy2_pass "$PASSWORD_HYSTERIA2" \
+  --arg tuic_uuid "$UUID_TUIC" \
+  --arg tuic_pass "$PASSWORD_TUIC" \
+  --arg cert_pem "${CERT_DIR}/current.pem" \
+  --arg cert_key "${CERT_DIR}/current.key" \
+  '{
+    "log": { "level": "warn", "timestamp": true },
+    "inbounds": [
+      {
+        "type": "hysteria2",
+        "tag": "hysteria2-in",
+        "listen": "0.0.0.0",
+        "listen_port": 443,
+        "users": [ { "password": $hy2_pass } ],
+        "tls": {
+          "enabled": true,
+          "alpn": ["h3"],
+          "certificate_path": $cert_pem,
+          "key_path": $cert_key
+        }
+      },
+      {
+        "type": "tuic",
+        "tag": "tuic-in",
+        "listen": "0.0.0.0",
+        "listen_port": 2053,
+        "users": [ { "uuid": $tuic_uuid, "password": $tuic_pass } ],
+        "congestion_control": "bbr",
+        "tls": {
+          "enabled": true,
+          "alpn": ["h3"],
+          "certificate_path": $cert_pem,
+          "key_path": $cert_key
+        }
       }
-    },
-    {
-      "type": "tuic",
-      "tag": "tuic-in",
-      "listen": "0.0.0.0",
-      "listen_port": 2053,
-      "users": [ { "uuid": "${UUID_TUIC}", "password": "${PASSWORD_TUIC}" } ],
-      "congestion_control": "bbr",
-      "tls": {
-        "enabled": true,
-        "alpn": ["h3"],
-        "certificate_path": "${CERT_DIR}/current.pem",
-        "key_path": "${CERT_DIR}/current.key"
-      }
+    ],
+    "outbounds": [ { "type": "direct", "tag": "direct" } ],
+    "route": {
+      "rules": [
+        {
+          "ip_cidr": [
+            "127.0.0.0/8","10.0.0.0/8","172.16.0.0/12","192.168.0.0/16",
+            "::1/128","fc00::/7","fe80::/10"
+          ],
+          "outbound": "direct"
+        }
+      ]
     }
-  ],
-  "outbounds": [
-    { "type": "direct", "tag": "direct" }
-  ],
-          "route": {
-            "rules": [
-              {
-                "ip_cidr": [
-                  "127.0.0.0/8",
-                  "10.0.0.0/8",
-                  "172.16.0.0/12",
-                  "192.168.0.0/16",
-                  "::1/128",
-                  "fc00::/7",
-                  "fe80::/10"
-                ],
-                "outbound": "direct"
-              }
-            ]
-          }
-        }' > "${CONFIG_DIR}/sing-box.json"; then
-        log_error "使用 jq 生成 sing-box.json 失败"
-        return 1
-    fi
+  }' > "${CONFIG_DIR}/sing-box.json"; then
+  log_error "使用 jq 生成 sing-box.json 失败"
+  return 1
+fi
     
     log_success "sing-box配置文件生成完成"
     
