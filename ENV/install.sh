@@ -3685,37 +3685,36 @@ configure_xray() {
                         }
                     }
                 },
+{
+    "tag": "vless-grpc",
+    "listen": "127.0.0.1",
+    "port": 10085,
+    "protocol": "vless",
+    "settings": {
+        "clients": [
+            {
+                "id": $uuid_grpc
+            }
+        ],
+        "decryption": "none"
+    },
+    "streamSettings": {
+        "network": "grpc",
+        "security": "tls",
+        "tlsSettings": {
+            "certificates": [
                 {
-                    "tag": "vless-grpc",
-                    "listen": "127.0.0.1",
-                    "port": 10085,
-                    "protocol": "vless",
-                    "settings": {
-                        "clients": [
-                            {
-                                "id": $uuid_grpc
-                            }
-                        ],
-                        "decryption": "none"
-                    },
-                    "streamSettings": {
-                        "network": "tcp",
-                        "security": "tls",
-                        "tcpSettings": {
-                            "header": {
-                                "type": "none"
-                            }
-                        },
-                        "tlsSettings": {
-                            "certificates": [
-                                {
-                                    "certificateFile": $cert_pem,
-                                    "keyFile": $cert_key
-                                }
-                            ]
-                        }
-                    }
-                },
+                    "certificateFile": $cert_pem,
+                    "keyFile": $cert_key
+                }
+            ]
+        },
+        "grpcSettings": {
+            "serviceName": "grpc",
+            "multiMode": false
+        }
+    }
+},
                 {
                     "tag": "vless-ws",
                     "listen": "127.0.0.1",
@@ -3745,31 +3744,31 @@ configure_xray() {
                         }
                     }
                 },
+{
+    "tag": "trojan-tcp",
+    "listen": "127.0.0.1",
+    "port": 10143,
+    "protocol": "trojan",
+    "settings": {
+        "clients": [
+            {
+                "password": $password_trojan
+            }
+        ]
+    },
+    "streamSettings": {
+        "network": "tcp",
+        "security": "tls",
+        "tlsSettings": {
+            "certificates": [
                 {
-                    "tag": "trojan-tcp",
-                    "listen": "127.0.0.1",
-                    "port": 10143,
-                    "protocol": "trojan",
-                    "settings": {
-                        "clients": [
-                            {
-                                "password": $password_trojan
-                            }
-                        ]
-                    },
-                    "streamSettings": {
-                        "network": "tcp",
-                        "security": "tls", 
-                        "tlsSettings": {
-                            "certificates": [
-                                {
-                                    "certificateFile": $cert_pem,
-                                    "keyFile": $cert_key
-                                }
-                            ]
-                        }
-                    }
+                    "certificateFile": $cert_pem,
+                    "keyFile": $cert_key
                 }
+            ]
+        }
+    }
+}
             ],
             "outbounds": [
                 {
