@@ -3929,50 +3929,39 @@ configure_sing_box() {
         --arg cert_pem "${CERT_DIR}/current.pem" \
         --arg cert_key "${CERT_DIR}/current.key" \
         '{
-          "log": {
-            "level": "warn",
-            "timestamp": true,
-            "output": "/var/log/edgebox/sing-box.log"
-          },
-          "inbounds": [
-            {
-              "type": "hysteria2",
-              "tag": "hysteria2-in",
-              "listen": "0.0.0.0",
-              "listen_port": 443,
-              "users": [{"password": $hy2_pass}],
-              "masquerade": "https://www.bing.com",
-              "tls": {
-                "enabled": true,
-                "alpn": ["h3"],
-                "certificate_path": $cert_pem,
-                "key_path": $cert_key
-              }
-            },
-            {
-              "type": "tuic",
-              "tag": "tuic-in",
-              "listen": "0.0.0.0",
-              "listen_port": 2053,
-              "users": [{"uuid": $tuic_uuid, "password": $tuic_pass}],
-              "congestion_control": "bbr",
-              "auth_timeout": "3s",
-              "zero_rtt_handshake": false,
-              "heartbeat": "10s",
-              "tls": {
-                "enabled": true,
-                "alpn": ["h3"],
-                "certificate_path": $cert_pem,
-                "key_path": $cert_key
-              }
-            }
-          ],
-          "outbounds": [
-            {
-              "type": "direct",
-              "tag": "direct"
-            }
-          ],
+  "log": { "level": "warn", "timestamp": true },
+  "inbounds": [
+    {
+      "type": "hysteria2",
+      "tag": "hysteria2-in",
+      "listen": "0.0.0.0",
+      "listen_port": 443,
+      "users": [ { "password": "${PASSWORD_HYSTERIA2}" } ],
+      "tls": {
+        "enabled": true,
+        "alpn": ["h3"],
+        "certificate_path": "${CERT_DIR}/current.pem",
+        "key_path": "${CERT_DIR}/current.key"
+      }
+    },
+    {
+      "type": "tuic",
+      "tag": "tuic-in",
+      "listen": "0.0.0.0",
+      "listen_port": 2053,
+      "users": [ { "uuid": "${UUID_TUIC}", "password": "${PASSWORD_TUIC}" } ],
+      "congestion_control": "bbr",
+      "tls": {
+        "enabled": true,
+        "alpn": ["h3"],
+        "certificate_path": "${CERT_DIR}/current.pem",
+        "key_path": "${CERT_DIR}/current.key"
+      }
+    }
+  ],
+  "outbounds": [
+    { "type": "direct", "tag": "direct" }
+  ],
           "route": {
             "rules": [
               {
@@ -11155,10 +11144,10 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
     </div>
   </div>
 
-  <!-- 👤 网络身份配置 -->
+  <!-- 👥 网络身份配置 -->
   <div class="card" id="netid-panel">
     <div class="card-header">
-      <h2>👤 网络身份配置 <span class="note-udp">注：HY2/TUIC为UDP通道，VPS直连，不参与分流配置.</span></h2>
+      <h2>👥 网络身份配置 <span class="note-udp">注：HY2/TUIC为UDP通道，VPS直连，不参与分流配置.</span></h2>
     </div>
 
     <div class="network-blocks">
@@ -14876,53 +14865,63 @@ fi
     exit 0
 }
 
-# [新增] 系统状态检查和修复函数
+# 系统状态检查和修复函数
 repair_system_state() {
     log_info "检查并修复系统状态..."
-    
-    # 1. 修复目录权限
+
+    # 1) 修复目录权限（你原有逻辑）
     ensure_directory_permissions
-    
-    # 2. 修复服务状态
+
+    # 2) 修复服务状态（你原有逻辑）
     local services=("xray" "sing-box" "nginx")
     for service in "${services[@]}"; do
         if systemctl list-unit-files | grep -q "^${service}.service"; then
             ensure_service_running "$service" >/dev/null 2>&1 || true
         fi
     done
-    
-    # 3. 修复配置文件权限
-    repair_config_permissions
-    
-    log_success "系统状态修复完成"
-}
 
-# [新增函数] 修复配置文件权限
-repair_config_permissions() {
-    log_info "修复配置文件权限..."
-    
-    # 配置文件权限映射
-    local config_files=(
-        "${CONFIG_DIR}/config.json:600"
-        "${CONFIG_DIR}/sing-box.json:600"
-        "/etc/nginx/sites-available/edgebox:644"
-    )
-    
-    for file_perm in "${config_files[@]}"; do
-        IFS=':' read -r file perm <<< "$file_perm"
-        if [[ -f "$file" ]]; then
-            chmod "$perm" "$file" 2>/dev/null || true
-            chown root:root "$file" 2>/dev/null || true
+    # 3) 修复配置文件权限（你原有逻辑）
+    repair_config_permissions
+
+    # 4) 关键修复：将 sing-box UDP 入站监听从 '::' 修为 '0.0.0.0'
+    #    说明：很多系统未启用 v6->v4 映射，UDP 绑定 '::' 导致 IPv4 客户端打不进来。
+    local sb="${CONFIG_DIR}/sing-box.json"
+    if [[ -f "$sb" ]]; then
+        if grep -q '"listen": "::"' "$sb"; then
+            sed -i 's/"listen": "::"/"listen": "0.0.0.0"/g' "$sb"
+            log_info "已将 sing-box 入站监听地址从 '::' 调整为 '0.0.0.0'"
+            systemctl restart sing-box || true
+            sleep 0.5
         fi
-    done
-    
-    # 证书目录权限
-    if [[ -d "${CERT_DIR}" ]]; then
-        find "${CERT_DIR}" -name "*.crt" -exec chmod 644 {} \; 2>/dev/null || true
-        find "${CERT_DIR}" -name "*.key" -exec chmod 600 {} \; 2>/dev/null || true
     fi
-    
-    log_success "配置文件权限已修复"
+
+    # 5) 放通 UDP 端口（HY2: 443/8443，TUIC: 2053）
+    if command -v ufw >/dev/null 2>&1 && ufw status >/dev/null 2>&1; then
+        ufw status | grep -q '443/udp'  || ufw allow 443/udp  >/dev/null 2>&1 || true
+        ufw status | grep -q '2053/udp' || ufw allow 2053/udp >/dev/null 2>&1 || true
+        ufw status | grep -q '8443/udp' || ufw allow 8443/udp >/dev/null 2>&1 || true
+    elif command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then
+        firewall-cmd --permanent --add-port=443/udp  >/dev/null 2>&1 || true
+        firewall-cmd --permanent --add-port=2053/udp >/dev/null 2>&1 || true
+        firewall-cmd --permanent --add-port=8443/udp >/dev/null 2>&1 || true
+        firewall-cmd --reload >/dev/null 2>&1 || true
+    else
+        iptables -C INPUT -p udp --dport 443  -j ACCEPT >/dev/null 2>&1 || iptables -A INPUT -p udp --dport 443  -j ACCEPT
+        iptables -C INPUT -p udp --dport 2053 -j ACCEPT >/dev/null 2>&1 || iptables -A INPUT -p udp --dport 2053 -j ACCEPT
+        iptables -C INPUT -p udp --dport 8443 -j ACCEPT >/dev/null 2>&1 || iptables -A INPUT -p udp --dport 8443 -j ACCEPT
+        command -v iptables-save >/dev/null 2>&1 && { mkdir -p /etc/iptables; iptables-save > /etc/iptables/rules.v4 2>/dev/null || true; }
+    fi
+
+    # 6) 监听自检（与你现场排障命令保持一致）
+    local hy2_ok tuic_ok
+    # HY2 可能用 443 或 8443，任一命中即算通过
+    hy2_ok=$(ss -ulnp | awk '$5 ~ /:(443|8443)$/ {print}' | grep -c sing-box || true)
+    tuic_ok=$(ss -ulnp | awk '$5 ~ /:2053$/ {print}' | grep -c sing-box || true)
+
+    [[ "$hy2_ok" -ge 1 ]] && log_success "HY2 UDP 端口(443/8443) 监听正常" || log_warn "HY2 未监听在 443/8443（检查 listen_port 与防火墙）"
+    [[ "$tuic_ok" -ge 1 ]] && log_success "TUIC UDP 端口(2053) 监听正常"       || log_warn "TUIC 未监听在 2053（检查 listen_port 与防火墙）"
+
+    log_success "系统状态修复完成"
 }
 
 # 脚本入口点检查
