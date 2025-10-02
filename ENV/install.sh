@@ -3756,23 +3756,23 @@ configure_xray() {
             }
         ]
     },
-"streamSettings": {
-                        "network": "tcp",
-                        "security": "tls",
-                        "tcpSettings": {
-                            "header": {
-                                "type": "none"
-                            }
-                        },
-                        "tlsSettings": {
-                            "certificates": [
-                                {
-                                    "certificateFile": $cert_pem,
-                                    "keyFile": $cert_key
-                                }
-                            ]
-                        }
-                    }
+    "streamSettings": {
+        "network": "tcp",
+        "security": "tls",
+        "tcpSettings": {
+            "header": {
+                "type": "none"
+            }
+        },
+        "tlsSettings": {
+            "certificates": [
+                {
+                    "certificateFile": $cert_pem,
+                    "keyFile": $cert_key
+                }
+            ]
+        }
+    }
 }
             ],
             "outbounds": [
@@ -4138,12 +4138,12 @@ generate_subscription() {
         subscription_links+="vless://${uuid_ws}@${server_ip}:443?encryption=none&security=tls&sni=ws.edgebox.internal&host=ws.edgebox.internal&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome&allowInsecure=1#EdgeBox-WS\n"
     fi
     
-    # 4. Trojan (IP模式使用内部域名)
-    if [[ -n "$password_trojan" ]]; then
-        local encoded_trojan_password
-        encoded_trojan_password=$(url_encode "$password_trojan")
-        subscription_links+="trojan://${encoded_trojan_password}@${server_ip}:443?security=tls&sni=trojan.edgebox.internal&fp=chrome&allowInsecure=1#EdgeBox-TROJAN\n"
-    fi
+# 4. Trojan (IP模式使用内部域名)
+if [[ -n "$password_trojan" ]]; then
+    local encoded_trojan_password
+    encoded_trojan_password=$(url_encode "$password_trojan")
+    subscription_links+="trojan://${encoded_trojan_password}@${server_ip}:443?security=tls&sni=trojan.edgebox.internal&fp=chrome&allowInsecure=1#EdgeBox-TROJAN\n"
+fi
     
     # 5. Hysteria2
     if [[ -n "$password_hysteria2" ]]; then
@@ -12273,7 +12273,7 @@ regen_sub_domain(){
 vless://${UUID_VLESS_REALITY}@${domain}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${reality_sni}&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&type=tcp#EdgeBox-REALITY
 vless://${UUID_VLESS_GRPC}@${domain}:443?encryption=none&security=tls&sni=${domain}&alpn=h2&type=grpc&serviceName=grpc&fp=chrome#EdgeBox-gRPC
 vless://${UUID_VLESS_WS}@${domain}:443?encryption=none&security=tls&sni=${domain}&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome#EdgeBox-WS
-trojan://${TROJAN_PW_ENC}@${domain}:443?security=tls&sni=trojan.${domain}&alpn=http%2F1.1&fp=chrome#EdgeBox-TROJAN
+trojan://${TROJAN_PW_ENC}@${domain}:443?security=tls&sni=trojan.${domain}&fp=chrome#EdgeBox-TROJAN
 hysteria2://${HY2_PW_ENC}@${domain}:443?sni=${domain}&alpn=h3#EdgeBox-HYSTERIA2
 tuic://${UUID_TUIC}:${TUIC_PW_ENC}@${domain}:2053?congestion_control=bbr&alpn=h3&sni=${domain}#EdgeBox-TUIC
 PLAIN
@@ -12323,7 +12323,7 @@ regen_sub_ip(){
 vless://${UUID_VLESS_REALITY}@${SERVER_IP}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${reality_sni}&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&type=tcp#EdgeBox-REALITY
 vless://${UUID_VLESS_GRPC}@${SERVER_IP}:443?encryption=none&security=tls&sni=grpc.edgebox.internal&alpn=h2&type=grpc&serviceName=grpc&fp=chrome&allowInsecure=1#EdgeBox-gRPC
 vless://${UUID_VLESS_WS}@${SERVER_IP}:443?encryption=none&security=tls&sni=ws.edgebox.internal&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome&allowInsecure=1#EdgeBox-WS
-trojan://${TROJAN_PW_ENC}@${SERVER_IP}:443?security=tls&sni=trojan.edgebox.internal&alpn=http%2F1.1&fp=chrome&allowInsecure=1#EdgeBox-TROJAN
+trojan://${TROJAN_PW_ENC}@${SERVER_IP}:443?security=tls&sni=trojan.edgebox.internal&fp=chrome&allowInsecure=1#EdgeBox-TROJAN
 hysteria2://${HY2_PW_ENC}@${SERVER_IP}:443?sni=${SERVER_IP}&alpn=h3&insecure=1#EdgeBox-HYSTERIA2
 tuic://${UUID_TUIC}:${TUIC_PW_ENC}@${SERVER_IP}:2053?congestion_control=bbr&alpn=h3&sni=${SERVER_IP}&allowInsecure=1#EdgeBox-TUIC
 PLAIN
