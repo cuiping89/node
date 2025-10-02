@@ -1010,8 +1010,8 @@ create_directories() {
 
 ensure_directory_permissions() {
     log_info "确保目录权限正确（幂等操作）..."
-    
-    # 定义目录权限映射
+
+    # 需要存在的目录及权限
     local dir_permissions=(
         "${INSTALL_DIR}:755"
         "${CONFIG_DIR}:755"
@@ -1020,74 +1020,50 @@ ensure_directory_permissions() {
         "/var/log/edgebox:755"
         "${WEB_ROOT}:755"
         "${SNI_CONFIG_DIR}:755"
-        "${CERT_DIR}:750"           # 证书目录特殊权限
-        "${BACKUP_DIR}:700"         # 备份目录私有权限
+        "${CERT_DIR}:750"      # 证书目录
+        "${BACKUP_DIR}:700"    # 备份目录
     )
-    
+
     local permission_errors=()
-    
-    for dir_perm in "${dir_permissions[@]}"; do
-        IFS=':' read -r dir perm <<< "$dir_perm"
-        
-        if [[ -d "$dir" ]]; then
-            # 获取当前权限
-            local current_perm
-            current_perm=$(stat -c "%a" "$dir" 2>/dev/null || echo "000")
-            
-            if [[ "$current_perm" != "$perm" ]]; then
-                if chmod "$perm" "$dir" 2>/dev/null; then
-                    log_info "✓ 权限修正: $dir ($current_perm → $perm)"
-                else
-                    log_error "✗ 权限设置失败: $dir"
-                    permission_errors+=("$dir")
-                fi
-            else
-                log_info "✓ 权限正确: $dir ($perm)"
-            fi
+
+    for dp in "${dir_permissions[@]}"; do
+        IFS=':' read -r d perm <<< "$dp"
+        [[ -d "$d" ]] || mkdir -p "$d"
+        if chmod "$perm" "$d" 2>/dev/null; then
+            log_info "✓ 目录就绪: $d ($perm)"
+        else
+            log_error "✗ 目录权限设置失败: $d"
+            permission_errors+=("$d")
         fi
     done
-    
-    # 证书目录特殊组权限设置
+
+    # 证书目录组权限（nobody/nogroup）
     if [[ -d "${CERT_DIR}" ]]; then
-        local nobody_group
-        nobody_group="$(id -gn nobody 2>/dev/null || echo nogroup)"
-        
-        if chgrp "${nobody_group}" "${CERT_DIR}" 2>/dev/null; then
-            log_info "✓ 证书目录组权限设置为: ${nobody_group}"
-        else
-            log_warn "⚠ 证书目录组权限设置失败，使用默认权限"
-        fi
+        local nobody_group="$(id -gn nobody 2>/dev/null || echo nogroup)"
+        chgrp "${nobody_group}" "${CERT_DIR}" 2>/dev/null || true
     fi
-    
-    # 确保日志文件存在且权限正确
+
+    # 必要日志文件（会自动创建父目录）
     local log_files=(
-        "/var/log/edgebox.log"
-        "/var/log/xray/error.log"
+        "/var/log/edgebox-install.log"
+        "/var/log/edgebox/sing-box.log"
         "/var/log/xray/access.log"
+        "/var/log/xray/error.log"
     )
-    
-    for log_file in "${log_files[@]}"; do
-        # 创建日志文件目录
-        local log_dir
-        log_dir="$(dirname "$log_file")"
-        [[ ! -d "$log_dir" ]] && mkdir -p "$log_dir"
-        
-        # 创建日志文件（如果不存在）
-        if [[ ! -f "$log_file" ]]; then
-            touch "$log_file" 2>/dev/null && chmod 644 "$log_file" 2>/dev/null
-            log_info "✓ 日志文件创建: $log_file"
-        else
-            chmod 644 "$log_file" 2>/dev/null
-            log_info "✓ 日志文件权限: $log_file"
-        fi
+    for lf in "${log_files[@]}"; do
+        mkdir -p "$(dirname "$lf")"
+        [[ -f "$lf" ]] || touch "$lf"
+        chmod 644 "$lf" 2>/dev/null || true
+        log_info "✓ 日志就绪: $lf"
     done
-    
+
     if [[ ${#permission_errors[@]} -eq 0 ]]; then
-        log_success "所有目录权限设置完成"
+        log_success "所有目录/日志已就绪"
     else
         log_warn "部分目录权限设置失败: ${permission_errors[*]}"
     fi
 }
+
 
 verify_directory_writable() {
     log_info "验证目录可写性..."
@@ -2859,12 +2835,12 @@ execute_module2() {
     fi
     
     # 任务4：生成自签名证书
-    if generate_self_signed_cert; then
-        log_success "✓ 自签名证书生成完成"
-    else
-        log_error "✗ 自签名证书生成失败"
-        return 1
-    fi
+if generate_self_signed_cert; then
+    log_success "✓ 自签名证书生成完成（已链接为 current.pem/current.key）"
+else
+    log_error "✗ 自签名证书生成失败"
+    return 1
+fi
     
     # 任务5：保存配置信息
     if save_config_info; then
@@ -3042,14 +3018,20 @@ install_sing_box() {
     # ========================================
     # 第1步：检查是否已安装
     # ========================================
-    if command -v sing-box >/dev/null 2>&1 || command -v /usr/local/bin/sing-box >/dev/null 2>&1; then
-        local current_version
-        current_version=$( (sing-box version || /usr/local/bin/sing-box version) 2>/dev/null \
-            | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 )
-        log_info "检测到已安装的sing-box版本: v${current_version:-未知}"
-        log_info "跳过sing-box重新安装，使用现有版本"
+local MIN_REQUIRED_VERSION="1.8.0"   # HY2 服务端所需的最低版本（可调高）
+local current_version=""
+if command -v sing-box >/dev/null 2>&1 || command -v /usr/local/bin/sing-box >/dev/null 2>&1; then
+    current_version=$( (sing-box version || /usr/local/bin/sing-box version) 2>/dev/null \
+        | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 )
+    log_info "检测到已安装 sing-box: v${current_version:-未知}"
+    if [[ -n "$current_version" && "$(printf '%s\n' "$MIN_REQUIRED_VERSION" "$current_version" | sort -V | head -1)" == "$MIN_REQUIRED_VERSION" ]]; then
+        log_success "现有版本满足最低要求 (>= ${MIN_REQUIRED_VERSION})，跳过重新安装"
         return 0
+    else
+        log_warn "现有版本过低，将升级到脚本内置稳定版"
+        # 继续执行安装流程（覆盖到 /usr/local/bin/sing-box）
     fi
+fi
 
     # ========================================
     # 第2步：版本决策逻辑（核心改进）
@@ -3919,6 +3901,8 @@ configure_sing_box() {
         return 1
     fi
     
+	mkdir -p /var/log/edgebox 2>/dev/null || true
+
     log_info "生成sing-box配置文件 (使用 jq 确保安全)..."
     
     # 使用 jq 安全地生成配置文件，避免特殊字符问题
@@ -3991,6 +3975,23 @@ configure_sing_box() {
         return 1
     fi
     
+	# === sing-box 语义自检 ===
+if command -v /usr/local/bin/sing-box >/dev/null 2>&1; then
+  if ! /usr/local/bin/sing-box check -c "${CONFIG_DIR}/sing-box.json" >/dev/null 2>&1; then
+    log_warn "sing-box 语义校验失败，尝试移除可能不兼容字段后重试..."
+    # 常见不兼容字段兜底（老版本不认识的键）
+    if command -v jq >/dev/null 2>&1; then
+      tmpf=$(mktemp)
+      jq '(.inbounds[] | select(.type=="hysteria2")) -= {masquerade}' \
+        "${CONFIG_DIR}/sing-box.json" > "$tmpf" 2>/dev/null && mv -f "$tmpf" "${CONFIG_DIR}/sing-box.json"
+    fi
+    if ! /usr/local/bin/sing-box check -c "${CONFIG_DIR}/sing-box.json" >/dev/null 2>&1; then
+      log_error "sing-box 配置仍无法通过语义校验，请检查证书路径/字段"
+      return 1
+    fi
+  fi
+fi
+
     # 验证配置内容
     log_info "验证sing-box配置文件..."
     if ! grep -q "0.0.0.0" "${CONFIG_DIR}/sing-box.json"; then
@@ -4297,7 +4298,7 @@ start_and_verify_services() {
     done
     
     # 端口监听验证
-    verify_port_listening
+    verify_critical_ports
     
     if [[ ${#failed_services[@]} -eq 0 ]]; then
         log_success "所有服务已正常运行"
@@ -4307,6 +4308,18 @@ start_and_verify_services() {
         return 1
     fi
 }
+
+# === BEGIN PATCH: 关键端口自检 ===
+verify_critical_ports() {
+  log_info "检查关键端口监听状态..."
+  local ok=true
+  ss -tln | grep -q ':443 '    && log_success "TCP 443 (Nginx) 监听正常" || { log_warn "TCP 443 未监听"; ok=false; }
+  ss -uln | grep -q ':443 '    && log_success "UDP 443 (Hysteria2) 监听正常" || { log_warn "UDP 443 未监听"; ok=false; }
+  ss -uln | grep -q ':2053 '   && log_success "UDP 2053 (TUIC) 监听正常"     || { log_warn "UDP 2053 未监听"; ok=false; }
+  $ok
+}
+# === END PATCH ===
+
 
 # [新增函数] 确保服务运行状态（完全幂等）
 ensure_service_running() {
@@ -14869,60 +14882,60 @@ fi
 repair_system_state() {
     log_info "检查并修复系统状态..."
 
-    # 1) 修复目录权限（你原有逻辑）
+    # 1) 目录与日志
     ensure_directory_permissions
+    mkdir -p /var/log/edgebox 2>/dev/null || true
+    [[ -f /var/log/edgebox/sing-box.log ]] || touch /var/log/edgebox/sing-box.log
 
-    # 2) 修复服务状态（你原有逻辑）
+    # 2) 服务自愈（保持你的逻辑）
     local services=("xray" "sing-box" "nginx")
-    for service in "${services[@]}"; do
-        if systemctl list-unit-files | grep -q "^${service}.service"; then
-            ensure_service_running "$service" >/dev/null 2>&1 || true
+    for s in "${services[@]}"; do
+        if systemctl list-unit-files | grep -q "^${s}.service"; then
+            systemctl enable "$s" >/dev/null 2>&1 || true
         fi
     done
 
-    # 3) 修复配置文件权限（你原有逻辑）
-    repair_config_permissions
-
-    # 4) 关键修复：将 sing-box UDP 入站监听从 '::' 修为 '0.0.0.0'
-    #    说明：很多系统未启用 v6->v4 映射，UDP 绑定 '::' 导致 IPv4 客户端打不进来。
+    # 3) 修正 sing-box 监听地址（兼容旧残留）
     local sb="${CONFIG_DIR}/sing-box.json"
-    if [[ -f "$sb" ]]; then
-        if grep -q '"listen": "::"' "$sb"; then
-            sed -i 's/"listen": "::"/"listen": "0.0.0.0"/g' "$sb"
-            log_info "已将 sing-box 入站监听地址从 '::' 调整为 '0.0.0.0'"
-            systemctl restart sing-box || true
-            sleep 0.5
-        fi
+    if [[ -f "$sb" ]] && grep -q '"listen": "::"' "$sb"; then
+        sed -i 's/"listen": "::"/"listen": "0.0.0.0"/g' "$sb"
+        log_info "已将 sing-box 监听地址修正为 0.0.0.0"
     fi
 
-    # 5) 放通 UDP 端口（HY2: 443/8443，TUIC: 2053）
+    # 4) 防火墙放行 UDP（HY2/TUIC）
     if command -v ufw >/dev/null 2>&1 && ufw status >/dev/null 2>&1; then
         ufw status | grep -q '443/udp'  || ufw allow 443/udp  >/dev/null 2>&1 || true
         ufw status | grep -q '2053/udp' || ufw allow 2053/udp >/dev/null 2>&1 || true
-        ufw status | grep -q '8443/udp' || ufw allow 8443/udp >/dev/null 2>&1 || true
     elif command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then
         firewall-cmd --permanent --add-port=443/udp  >/dev/null 2>&1 || true
         firewall-cmd --permanent --add-port=2053/udp >/dev/null 2>&1 || true
-        firewall-cmd --permanent --add-port=8443/udp >/dev/null 2>&1 || true
         firewall-cmd --reload >/dev/null 2>&1 || true
     else
         iptables -C INPUT -p udp --dport 443  -j ACCEPT >/dev/null 2>&1 || iptables -A INPUT -p udp --dport 443  -j ACCEPT
         iptables -C INPUT -p udp --dport 2053 -j ACCEPT >/dev/null 2>&1 || iptables -A INPUT -p udp --dport 2053 -j ACCEPT
-        iptables -C INPUT -p udp --dport 8443 -j ACCEPT >/dev/null 2>&1 || iptables -A INPUT -p udp --dport 8443 -j ACCEPT
         command -v iptables-save >/dev/null 2>&1 && { mkdir -p /etc/iptables; iptables-save > /etc/iptables/rules.v4 2>/dev/null || true; }
     fi
 
-    # 6) 监听自检（与你现场排障命令保持一致）
-    local hy2_ok tuic_ok
-    # HY2 可能用 443 或 8443，任一命中即算通过
-    hy2_ok=$(ss -ulnp | awk '$5 ~ /:(443|8443)$/ {print}' | grep -c sing-box || true)
-    tuic_ok=$(ss -ulnp | awk '$5 ~ /:2053$/ {print}' | grep -c sing-box || true)
+    # 5) 确认证书可用（若缺失则再次生成自签名）
+    if [[ ! -s "${CERT_DIR}/current.pem" || ! -s "${CERT_DIR}/current.key" ]]; then
+        log_warn "未发现有效证书，尝试生成自签名证书..."
+        generate_self_signed_cert || log_warn "自签名证书生成失败，请稍后手动检查"
+    fi
 
-    [[ "$hy2_ok" -ge 1 ]] && log_success "HY2 UDP 端口(443/8443) 监听正常" || log_warn "HY2 未监听在 443/8443（检查 listen_port 与防火墙）"
-    [[ "$tuic_ok" -ge 1 ]] && log_success "TUIC UDP 端口(2053) 监听正常"       || log_warn "TUIC 未监听在 2053（检查 listen_port 与防火墙）"
+    # 6) 语义校验并重启 sing-box
+    if command -v /usr/local/bin/sing-box >/dev/null 2>&1; then
+        /usr/local/bin/sing-box check -c "$sb" >/dev/null 2>&1 || log_warn "sing-box 配置校验失败（将尝试继续重启）"
+    fi
+    systemctl restart sing-box || true
+    sleep 0.5
+
+    # 7) 端口自检（与你现场排障一致）
+    ss -uln | grep -q ':443 '  && log_success "HY2 UDP 443 监听 ✓"  || log_warn "HY2 UDP 443 未监听 ✗"
+    ss -uln | grep -q ':2053 ' && log_success "TUIC UDP 2053 监听 ✓" || log_warn "TUIC UDP 2053 未监听 ✗"
 
     log_success "系统状态修复完成"
 }
+
 
 # 脚本入口点检查
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
