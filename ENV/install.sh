@@ -4136,7 +4136,7 @@ generate_subscription() {
     if [[ -n "$password_trojan" ]]; then
         local encoded_trojan_password
         encoded_trojan_password=$(url_encode "$password_trojan")
-        subscription_links+="trojan://${encoded_trojan_password}@${server_ip}:443?security=tls&sni=trojan.edgebox.internal&alpn=http%2F1.1&fp=chrome&allowInsecure=1#EdgeBox-TROJAN\n"
+        subscription_links+="trojan://${encoded_trojan_password}@${server_ip}:443?security=tls&sni=trojan.edgebox.internal&fp=chrome&allowInsecure=1#EdgeBox-TROJAN\n"
     fi
     
     # 5. Hysteria2
