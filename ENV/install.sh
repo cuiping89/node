@@ -3698,9 +3698,15 @@ configure_xray() {
                         ],
                         "decryption": "none"
                     },
+                    +++
                     "streamSettings": {
-                        "network": "grpc",
+                        "network": "tcp",
                         "security": "tls",
+                        "tcpSettings": {
+                            "header": {
+                                "type": "none"
+                            }
+                        },
                         "tlsSettings": {
                             "certificates": [
                                 {
@@ -3708,9 +3714,6 @@ configure_xray() {
                                     "keyFile": $cert_key
                                 }
                             ]
-                        },
-                        "grpcSettings": {
-                            "serviceName": "grpc"
                         }
                     }
                 },
