@@ -10821,24 +10821,35 @@ function updateHealthSummaryBadge(summary) {
 }
 
 
-document.addEventListener('DOMContentLoaded', () => {
-  // 首次刷新
-  refreshAllData();
-  
-  // 定时刷新
-  overviewTimer = setInterval(refreshAllData, 30000);
-  
-  // ❌ 不再调用 setupEventListeners()
-  // setupEventListeners();
-  
-  // 保留通知中心初始化
-  setupNotificationCenter();
-  
-  // 启动健康状态自动刷新 (30秒一次)
-  startHealthAutoRefresh(30);
+// 这是最终的、正确的页面加载逻辑
+document.addEventListener('DOMContentLoaded', async () => {
+    // 仅初始化不依赖数据的UI组件
+    setupNotificationCenter();
+
+    try {
+        // 1. 串行执行：首先等待所有核心数据加载完成
+        console.log('[Init] 正在首次加载核心数据...');
+        await refreshAllData(); 
+        console.log('[Init] 核心数据加载完成。');
+
+        // 2. 在核心数据加载后，再加载依赖于它的健康数据并渲染
+        console.log('[Init] 正在加载协议健康状态...');
+        await initializeProtocolHealth();
+        console.log('[Init] 协议健康状态加载完成。');
+
+    } catch (error) {
+        console.error('[Init] 页面初始化过程中发生错误:', error);
+    }
+
+    // 3. 所有初始加载和渲染完成后，再设置定时任务
+    console.log('[Init] 设置所有定时刷新任务 (30秒间隔)...');
+    overviewTimer = setInterval(async () => {
+        await refreshAllData();
+        await initializeProtocolHealth();
+    }, 30000);
 });
 
-console.log('[协议健康监控] 模块已加载');
+console.log('[EdgeBox Panel] 脚本加载完毕，初始化流程开始...');
 
 
 // ==== new11 事件委托（append-only） ====
