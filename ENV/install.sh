@@ -10805,21 +10805,26 @@ function updateHealthSummaryBadge(summary) {
 }
 
 
-document.addEventListener('DOMContentLoaded', () => {
-  // 首次刷新
-  refreshAllData();
-  
-  // 定时刷新
-  overviewTimer = setInterval(refreshAllData, 30000);
-  
-  // ❌ 不再调用 setupEventListeners()
-  // setupEventListeners();
-  
-  // 保留通知中心初始化
-  setupNotificationCenter();
-  
-  // 启动健康状态自动刷新 (30秒一次)
-  startHealthAutoRefresh(30);
+// install.sh -> setup_traffic_monitoring() -> edgebox-panel.js (末尾部分) 【已修复】
+document.addEventListener('DOMContentLoaded', async () => {
+    // 设置通知中心UI（不依赖数据）
+    setupNotificationCenter();
+
+    // 1. 首次加载：串行执行，确保数据获取优先
+    console.log('[Init] 首次加载所有数据...');
+    await refreshAllData(); // 使用 await 等待首次数据加载完成
+    console.log('[Init] 首次加载完成，开始渲染UI。');
+
+    // 2. 初始化健康检查（现在可以安全调用，因为它依赖的数据已加载）
+    console.log('[Init] 初始化协议健康状态...');
+    await initializeProtocolHealth();
+
+    // 3. 设置定时刷新任务
+    console.log('[Init] 设置定时刷新任务 (30秒)...');
+    overviewTimer = setInterval(() => {
+        refreshAllData();
+        initializeProtocolHealth(); // 每次刷新主数据后，也刷新健康状态
+    }, 30000); // 30秒刷新一次
 });
 
 console.log('[协议健康监控] 模块已加载');
