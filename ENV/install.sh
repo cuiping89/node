@@ -10753,6 +10753,57 @@ async function refreshAllData() {
     renderTrafficCharts();
 }
 
+// 更新协议健康状态显示
+function updateProtocolHealthStatus(healthData) {
+    if (!healthData || !healthData.protocols) return;
+    
+    healthData.protocols.forEach(proto => {
+        // 在协议配置表格中更新状态列
+        const statusCell = document.querySelector(
+            `.protocol-row[data-protocol="${proto.protocol}"] .status-cell`
+        );
+        
+        if (statusCell) {
+            statusCell.innerHTML = `
+                <div class="health-status-container">
+                    <span class="health-status-badge ${proto.status}">
+                        ${proto.status_badge}
+                    </span>
+                    <span class="health-detail-message">
+                        ${proto.detail_message}
+                    </span>
+                    ${proto.repair_result ? `
+                        <span class="repair-info">
+                            🔧 ${proto.repair_result.includes('repaired') ? '已自动修复' : '修复失败'}
+                        </span>
+                    ` : ''}
+                </div>
+            `;
+        }
+    });
+    
+    // 更新汇总统计
+    const summary = healthData.summary;
+    updateHealthSummaryBadge(summary);
+}
+
+// 更新健康状态汇总徽章
+function updateHealthSummaryBadge(summary) {
+    const badge = document.querySelector('.health-summary-badge');
+    if (!badge) return;
+    
+    const healthRate = summary.total > 0 
+        ? Math.round((summary.healthy / summary.total) * 100) 
+        : 0;
+    
+    let badgeClass = 'success';
+    if (healthRate < 50) badgeClass = 'danger';
+    else if (healthRate < 80) badgeClass = 'warning';
+    
+    badge.className = `health-summary-badge ${badgeClass}`;
+    badge.textContent = `协议健康度: ${healthRate}% (${summary.healthy}/${summary.total})`;
+}
+
 
 document.addEventListener('DOMContentLoaded', () => {
   // 首次刷新
