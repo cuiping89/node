@@ -3698,7 +3698,6 @@ configure_xray() {
                         ],
                         "decryption": "none"
                     },
-                    +++
                     "streamSettings": {
                         "network": "tcp",
                         "security": "tls",
