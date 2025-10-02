@@ -3756,18 +3756,23 @@ configure_xray() {
             }
         ]
     },
-    "streamSettings": {
-        "network": "tcp",
-        "security": "tls",
-        "tlsSettings": {
-            "certificates": [
-                {
-                    "certificateFile": $cert_pem,
-                    "keyFile": $cert_key
-                }
-            ]
-        }
-    }
+"streamSettings": {
+                        "network": "tcp",
+                        "security": "tls",
+                        "tcpSettings": {
+                            "header": {
+                                "type": "none"
+                            }
+                        },
+                        "tlsSettings": {
+                            "certificates": [
+                                {
+                                    "certificateFile": $cert_pem,
+                                    "keyFile": $cert_key
+                                }
+                            ]
+                        }
+                    }
 }
             ],
             "outbounds": [
