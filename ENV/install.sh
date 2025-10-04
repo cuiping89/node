@@ -10730,33 +10730,38 @@ async function copyText(text) {
 }
 
 // --- 主应用程序逻辑 ---
-async function refreshAllData() {
-    // 现在并行获取所有 5 个关键 JSON 文件
-    const [dash, sys, traf, notif, health] = await Promise.all([
-        fetchJSON('/traffic/dashboard.json'),
-        fetchJSON('/traffic/system.json'),
-        fetchJSON('/traffic/traffic.json'),
-        fetchJSON('/traffic/notifications.json'),
-        fetchJSON('/traffic/protocol-health.json') // Added health data fetch here
-    ]);
-    
-    //更新全局状态变量
-    if (dash) window.dashboardData = dash;
-    if (sys) window.systemData = sys;
-    if (traf) window.trafficData = traf;
-    if (notif) updateNotificationCenter(notif);
-    
-    if (health) window.__protocolHealth = health;
+// 1. 获取并渲染主仪表板数据
+async function refreshDashboard() {
+const dash = await fetchJSON('/traffic/dashboard.json');
+if (dash) {
+window.dashboardData = dash;
+// 这些渲染器仅依赖于 dashboard.json
+renderCertificateAndNetwork();
+renderProtocolTable(); // 如果健康数据可用，现在将正确使用健康数据
+}
+}
 
-    //渲染所有依赖此数据的组件
-    renderOverview();
-    renderCertificateAndNetwork();
-    renderProtocolTable(); // This now has access to both dashboardData and __protocolHealth
-    renderTrafficCharts();
-    
-    if (health) {
-        renderHealthSummary(health);
-    }
+// 2. 获取并渲染实时系统状态（CPU、内存、服务）
+async function refreshSystemStats() {
+const [sys, dash] = await Promise.all([
+fetchJSON('/traffic/system.json'),
+fetchJSON('/traffic/dashboard.json') // 同时获取 dash 以获取服务状态
+]);
+
+if (sys) window.systemData = sys;
+if (dash) window.dashboardData = dash; // 确保 dashboardData 是最新的
+
+// 此渲染器同时依赖于 system.json 和 dashboard.json
+renderOverview();
+}
+
+// 3. 获取并渲染流量图数据
+async function refreshTraffic() {
+const traf = await fetchJSON('/traffic/traffic.json');
+if (traf) {
+window.trafficData = traf;
+renderTrafficCharts();
+}
 }
 
 // 更新协议健康状态显示
@@ -10812,20 +10817,30 @@ function updateHealthSummaryBadge(summary) {
 
 
 // 这是最终的、正确的页面加载逻辑
+
 document.addEventListener('DOMContentLoaded', async () => {
-// 1. 初始化不依赖数据的 UI 组件
-console.log('[EdgeBox Panel] 正在初始化 UI 组件...');
+console.log('[EdgeBox Panel] 正在初始化...');
+
+// 首先设置不需要数据的 UI 元素
 setupNotificationCenter();
+
+// 在数据加载时设置占位符
 const tbody = document.getElementById('protocol-tbody');
 if (tbody) {
-tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:20px;color:#6b7280;">正在连接并加载节点数据...</td></tr>';
+tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:20px;color:#6b7280;">正在加载节点数据...</td></tr>';
 }
 
-// 2. 执行第一次统一的数据加载和渲染
 try {
-console.log('[Init] 正在执行初始数据加载和渲染...');
-await refreshAllData();
-console.log('[Init] 初始渲染完成');
+// --- 初始加载 ---
+// 一开始就加载所有内容，以便快速填充页面。
+await Promise.all([
+refreshDashboard(),
+refreshSystemStats(),
+refreshTraffic(),
+initializeProtocolHealth() // 保留健康检查逻辑
+]);
+console.log('[Init] 初始页面渲染完成。');
+
 } catch (error) {
 console.error('[Init] 初始数据加载失败：', error);
 if (tbody) {
@@ -10833,13 +10848,19 @@ tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:20px;col
 }
 }
 
-// 3. 启动定期刷新计时器
-console.log('[Init] 设置定期刷新（30 秒）...');
-overviewTimer = setInterval(refreshAllData, 30000);
+// --- 设置周期性刷新定时器 ---
+// 用于 CPU/内存等实时统计数据的快速计时器
+setInterval(refreshSystemStats, 5000); // 每 5 秒刷新一次系统统计数据
+
+// 用于变化频率较低的数据的较慢计时器
+setInterval(async () => {
+await refreshDashboard();
+await refreshTraffic();
+await initializeProtocolHealth();
+}, 30000); // 每 30 秒刷新一次其他数据
+
+console.log('[Init] 定期刷新计时器已启动。');
 });
-
-console.log('[EdgeBox Panel] 脚本已加载，初始化开始...');
-
 
 // ==== new11 事件委托（append-only） ====
 (() => {
