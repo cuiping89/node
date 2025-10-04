@@ -10193,24 +10193,6 @@ if (preview) {
 }
 
 
-
-function renderProtocolTable() {
-    const protocols = dashboardData.protocols || [];
-    const tbody = document.getElementById('protocol-tbody');
-    if (!tbody) return;
-    const rows = protocols.map(p => `
-        <tr>
-            <td>${escapeHtml(p.name)}</td>
-<td>${escapeHtml(p.fit || p.scenario || '—')}</td>
-<td>${escapeHtml(p.effect || p.camouflage || '—')}</td>
-            <td><span class="status-badge ${p.status === '运行中' ? 'status-running' : ''}">${p.status}</span></td>
-            <td><button class="btn btn-sm btn-link" data-action="open-modal" data-modal="configModal" data-protocol="${escapeHtml(p.name)}">查看配置</button></td>
-        </tr>`).join('');
-    const subRow = `<tr class="subs-row"><td style="font-weight:500;">整包协议</td><td></td><td></td><td></td><td><button class="btn btn-sm btn-link" data-action="open-modal" data-modal="configModal" data-protocol="__SUBS__">查看@订阅</button></td></tr>`;
-    tbody.innerHTML = rows + subRow;
-}
-
-
 function renderTrafficCharts() {
   if (!trafficData || !window.Chart) return;
 
@@ -10749,24 +10731,32 @@ async function copyText(text) {
 
 // --- 主应用程序逻辑 ---
 async function refreshAllData() {
+    // 现在并行获取所有 5 个关键 JSON 文件
     const [dash, sys, traf, notif, health] = await Promise.all([
         fetchJSON('/traffic/dashboard.json'),
         fetchJSON('/traffic/system.json'),
         fetchJSON('/traffic/traffic.json'),
         fetchJSON('/traffic/notifications.json'),
-        fetchJSON('/traffic/protocol-health.json')  // 新增
+        fetchJSON('/traffic/protocol-health.json') // Added health data fetch here
     ]);
     
-    if (dash) dashboardData = dash;
-    if (sys) systemData = sys;
-    if (traf) trafficData = traf;
+    //更新全局状态变量
+    if (dash) window.dashboardData = dash;
+    if (sys) window.systemData = sys;
+    if (traf) window.trafficData = traf;
     if (notif) updateNotificationCenter(notif);
-    if (health) updateProtocolHealthStatus(health);  // 新增
     
+    if (health) window.__protocolHealth = health;
+
+    //渲染所有依赖此数据的组件
     renderOverview();
     renderCertificateAndNetwork();
-    renderProtocolTable();
+    renderProtocolTable(); // This now has access to both dashboardData and __protocolHealth
     renderTrafficCharts();
+    
+    if (health) {
+        renderHealthSummary(health);
+    }
 }
 
 // 更新协议健康状态显示
@@ -10823,33 +10813,32 @@ function updateHealthSummaryBadge(summary) {
 
 // 这是最终的、正确的页面加载逻辑
 document.addEventListener('DOMContentLoaded', async () => {
-    // 仅初始化不依赖数据的UI组件
-    setupNotificationCenter();
+// 1. 初始化不依赖数据的 UI 组件
+console.log('[EdgeBox Panel] 正在初始化 UI 组件...');
+setupNotificationCenter();
+const tbody = document.getElementById('protocol-tbody');
+if (tbody) {
+tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:20px;color:#6b7280;">正在连接并加载节点数据...</td></tr>';
+}
 
-    try {
-        // 1. 串行执行：首先等待所有核心数据加载完成
-        console.log('[Init] 正在首次加载核心数据...');
-        await refreshAllData(); 
-        console.log('[Init] 核心数据加载完成。');
+// 2. 执行第一次统一的数据加载和渲染
+try {
+console.log('[Init] 正在执行初始数据加载和渲染...');
+await refreshAllData();
+console.log('[Init] 初始渲染完成');
+} catch (error) {
+console.error('[Init] 初始数据加载失败：', error);
+if (tbody) {
+tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:20px;color:#dc2626;">错误：无法加载节点数据。</td></tr>';
+}
+}
 
-        // 2. 在核心数据加载后，再加载依赖于它的健康数据并渲染
-        console.log('[Init] 正在加载协议健康状态...');
-        await initializeProtocolHealth();
-        console.log('[Init] 协议健康状态加载完成。');
-
-    } catch (error) {
-        console.error('[Init] 页面初始化过程中发生错误:', error);
-    }
-
-    // 3. 所有初始加载和渲染完成后，再设置定时任务
-    console.log('[Init] 设置所有定时刷新任务 (30秒间隔)...');
-    overviewTimer = setInterval(async () => {
-        await refreshAllData();
-        await initializeProtocolHealth();
-    }, 30000);
+// 3. 启动定期刷新计时器
+console.log('[Init] 设置定期刷新（30 秒）...');
+overviewTimer = setInterval(refreshAllData, 30000);
 });
 
-console.log('[EdgeBox Panel] 脚本加载完毕，初始化流程开始...');
+console.log('[EdgeBox Panel] 脚本已加载，初始化开始...');
 
 
 // ==== new11 事件委托（append-only） ====
