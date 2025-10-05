@@ -3402,7 +3402,7 @@ fi
 #############################################
 
 # 配置Nginx（SNI定向 + ALPN兜底架构）
-# 配置Nginx（SNI定向 + ALPN兜底架构）- 最终修复版
+# 配置Nginx（SNI定向 + ALPN兜底架构）
 configure_nginx() {
     log_info "配置Nginx（SNI定向 + ALPN兜底架构）..."
     
@@ -3412,7 +3412,7 @@ configure_nginx() {
         log_info "已备份原始Nginx配置"
     fi
     
-    # 生成新的 Nginx 配置（使用valid_referers实现密码验证）
+    # 生成新的 Nginx 配置
     cat > /etc/nginx/nginx.conf << 'NGINX_CONFIG'
 # EdgeBox Nginx 配置文件
 # 架构：SNI定向 + ALPN兜底 + 单端口复用
@@ -3477,7 +3477,6 @@ http {
         
         # 控制面板（需要密码）
         location ^~ /traffic/ {
-            # 使用Lua或者Perl模块的替代方案：geo + map
             set $auth_ok 0;
             
             # 检查密码是否正确
@@ -3641,7 +3640,6 @@ NGINX_CONFIG
     log_success "Nginx配置文件创建完成"
     return 0
 }
-
 
 #############################################
 # Xray 配置函数
