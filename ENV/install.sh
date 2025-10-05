@@ -4661,52 +4661,81 @@ jq_safe_list() {
 
 # 获取系统负载信息
 get_system_metrics() {
-    local cpu_percent=0 memory_percent=0 disk_percent=0
-
-    # CPU 使用率：通过 awk 精确计算，避免 sleep 和 shell 数组不稳定的问题
+    local cpu_percent=0
+    local memory_percent=0
+    local disk_percent=0
+    
+    # 改进的CPU使用率计算
     if [[ -r /proc/stat ]]; then
-        local stat_file="/proc/stat"
-        local prev_stats=$(awk '/^cpu / {print $2+$3+$4, $5}' "$stat_file")
-        sleep 1 # 使用1秒的采样间隔以获得更准确的读数
-        local curr_stats=$(awk '/^cpu / {print $2+$3+$4, $5}' "$stat_file")
-
-        read prev_active prev_idle <<< "$prev_stats"
-        read curr_active curr_idle <<< "$curr_stats"
-
-        local total_diff=$(( (curr_active + curr_idle) - (prev_active + prev_idle) ))
-        local idle_diff=$((curr_idle - prev_idle))
-
+        read _ user1 nice1 system1 idle1 iowait1 irq1 softirq1 _ < /proc/stat
+        
+        sleep 2
+        
+        read _ user2 nice2 system2 idle2 iowait2 irq2 softirq2 _ < /proc/stat
+        
+        local user_diff=$((user2 - user1))
+        local nice_diff=$((nice2 - nice1))
+        local system_diff=$((system2 - system1))
+        local idle_diff=$((idle2 - idle1))
+        local iowait_diff=$((iowait2 - iowait1))
+        local irq_diff=$((irq2 - irq1))
+        local softirq_diff=$((softirq2 - softirq1))
+        
+        local total_diff=$((user_diff + nice_diff + system_diff + idle_diff + iowait_diff + irq_diff + softirq_diff))
+        local active_diff=$((total_diff - idle_diff))
+        
         if [[ $total_diff -gt 0 ]]; then
-            cpu_percent=$(( ( (total_diff - idle_diff) * 100 ) / total_diff ))
+            cpu_percent=$(( (active_diff * 1000) / total_diff ))
+            cpu_percent=$((cpu_percent / 10))
+            # 设置最小值为1%
+            if [[ $cpu_percent -lt 1 ]]; then
+                cpu_percent=1
+            fi
+        else
+            cpu_percent=1
         fi
     fi
-
-    # 内存使用率：使用 MemAvailable，这是最准确的指标
+    
+    # 内存使用率计算保持不变
     if [[ -r /proc/meminfo ]]; then
-        local mem_total=$(awk '/MemTotal:/ {print $2}' /proc/meminfo)
-        local mem_available=$(awk '/MemAvailable:/ {print $2}' /proc/meminfo)
-        if [[ ${mem_total:-0} -gt 0 ]]; then
+        local mem_total mem_available
+        mem_total=$(awk '/MemTotal:/ {print $2}' /proc/meminfo)
+        mem_available=$(awk '/MemAvailable:/ {print $2}' /proc/meminfo)
+        
+        if [[ $mem_total -gt 0 && $mem_available -ge 0 ]]; then
             memory_percent=$(( (mem_total - mem_available) * 100 / mem_total ))
         fi
     fi
-
-    # 根分区磁盘使用率
+    
+    # 磁盘使用率计算保持不变
     if command -v df >/dev/null 2>&1; then
-        disk_percent=$(df / | awk 'NR==2 {print $5}' | sed 's/%//')
+        local disk_info
+        disk_info=$(df / 2>/dev/null | tail -1)
+        if [[ -n "$disk_info" ]]; then
+            disk_percent=$(echo "$disk_info" | awk '{print $5}' | sed 's/%//')
+        fi
     fi
-
-    # 确保所有值都在 0-100 范围内
-    (( cpu_percent < 0 )) && cpu_percent=0 || (( cpu_percent > 100 )) && cpu_percent=100
-    (( memory_percent < 0 )) && memory_percent=0 || (( memory_percent > 100 )) && memory_percent=100
-    (( disk_percent < 0 )) && disk_percent=0 || (( disk_percent > 100 )) && disk_percent=100
-
-    # 输出 JSON
+    
+    # 确保所有值在合理范围内
+    cpu_percent=$(( cpu_percent > 100 ? 100 : cpu_percent ))
+    cpu_percent=$(( cpu_percent < 1 ? 1 : cpu_percent ))
+    memory_percent=$(( memory_percent > 100 ? 100 : memory_percent ))
+    memory_percent=$(( memory_percent < 0 ? 0 : memory_percent ))
+    disk_percent=$(( disk_percent > 100 ? 100 : disk_percent ))
+    disk_percent=$(( disk_percent < 0 ? 0 : disk_percent ))
+    
+    # 输出JSON格式
     jq -n \
-      --argjson cpu "$cpu_percent" \
-      --argjson memory "$memory_percent" \
-      --argjson disk "$disk_percent" \
-      --arg timestamp "$(date -Is)" \
-      '{updated_at:$timestamp, cpu:$cpu, memory:$memory, disk:$disk}'
+        --argjson cpu "$cpu_percent" \
+        --argjson memory "$memory_percent" \
+        --argjson disk "$disk_percent" \
+        --arg timestamp "$(date -Is)" \
+        '{
+            updated_at: $timestamp,
+            cpu: $cpu,
+            memory: $memory,
+            disk: $disk
+        }'
 }
 
 
@@ -5294,14 +5323,12 @@ services_info=$(
     --arg nstat "$(systemctl is-active --quiet nginx    && echo 运行中 || echo 已停止)" \
     --arg xstat "$(systemctl is-active --quiet xray     && echo 运行中 || echo 已停止)" \
     --arg sstat "$(systemctl is-active --quiet sing-box && echo 运行中 || echo 已停止)" \
-    --arg nver  "$(nginx -v 2>&1 | grep -oE '[0-9]+(\.[0-9]+)+' | head -1 || echo "")" \
-    --arg xver  "$( (xray version 2>/dev/null || xray -version 2>/dev/null) | head -n1 | grep -Eo 'v?[0-9]+(\.[0-9]+)+' | head -1 || echo "" )" \
-    --arg sver  "$( (sing-box version 2>/dev/null || /usr/local/bin/sing-box version 2>/dev/null) | head -n1 | grep -oE '[0-9]+(\.[0-9]+)+' | head -1 || echo "" )" \
-    '{
-        "nginx":    {"status": $nstat, "version": (if $nver == "" then null else $nver end)},
-        "xray":     {"status": $xstat, "version": (if $xver == "" then null else $xver end)},
-        "sing-box": {"status": $sstat, "version": (if $sver == "" then null else $sver end)}
-    }'
+    --arg nver  "$(nginx -v 2>&1 | grep -oE '[0-9]+(\.[0-9]+)+' | head -1)" \
+    --arg xver  "$((xray -version 2>/dev/null || xray version 2>/dev/null) | head -n1 | grep -Eo 'v?[0-9]+(\.[0-9]+)+' | head -1)" \
+    --arg sver  "$(sing-box version 2>/dev/null | head -n1 | grep -oE '[0-9]+(\.[0-9]+)+' | head -1)" \
+    '{nginx:{status:$nstat,version:$nver},
+      xray:{status:$xstat,version:$xver},
+      "sing-box":{status:$sstat,version:$sver}}'
 )
 
     # 合并所有数据生成dashboard.json
@@ -10789,62 +10816,51 @@ function updateHealthSummaryBadge(summary) {
 }
 
 
-/* === 统一数据刷新：一次性拿齐所有 JSON，再原子渲染 === */
-async function refreshAllData() {
-  console.log("[EdgeBox Panel] Refreshing all data...");
-  const [dash, sys, traf, health, notif] = await Promise.all([
-    fetchJSON('/traffic/dashboard.json'),
-    fetchJSON('/traffic/system.json'),
-    fetchJSON('/traffic/traffic.json'),
-    fetchJSON('/traffic/protocol-health.json'),
-    fetchJSON('/traffic/notifications.json')
-  ]);
+// 这是最终的、正确的页面加载逻辑
 
-  // 更新全局态
-  if (dash)   window.dashboardData = dash;
-  if (sys)    window.systemData    = sys;
-  if (traf)   window.trafficData   = traf;
-  if (health) { window.__protocolHealth = health; renderHealthSummary(health); }
-  if (notif && typeof updateNotificationCenter === 'function') {
-    updateNotificationCenter(notif);
-  }
+document.addEventListener('DOMContentLoaded', async () => {
+console.log('[EdgeBox Panel] 正在初始化...');
 
-  // 原子渲染（按你现有函数）
-  if (typeof renderOverview === 'function')                renderOverview();
-  if (typeof renderCertificateAndNetwork === 'function')  renderCertificateAndNetwork();
-  if (typeof renderProtocolTable === 'function')          renderProtocolTable();
-  if (typeof renderTrafficCharts === 'function')          renderTrafficCharts();
+// 首先设置不需要数据的 UI 元素
+setupNotificationCenter();
+
+// 在数据加载时设置占位符
+const tbody = document.getElementById('protocol-tbody');
+if (tbody) {
+tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:20px;color:#6b7280;">正在加载节点数据...</td></tr>';
 }
 
+try {
+// --- 初始加载 ---
+// 一开始就加载所有内容，以便快速填充页面。
+await Promise.all([
+refreshDashboard(),
+refreshSystemStats(),
+refreshTraffic(),
+initializeProtocolHealth() // 保留健康检查逻辑
+]);
+console.log('[Init] 初始页面渲染完成。');
 
-// 这是最终的、正确的页面加载逻辑
-document.addEventListener('DOMContentLoaded', async () => {
-  console.log('[EdgeBox Panel] 正在初始化...');
-  if (typeof setupNotificationCenter === 'function') {
-    setupNotificationCenter();
-  }
+} catch (error) {
+console.error('[Init] 初始数据加载失败：', error);
+if (tbody) {
+tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:20px;color:#dc2626;">错误：无法加载节点数据。</td></tr>';
+}
+}
 
-  // 占位提示
-  const tbody = document.getElementById('protocol-tbody');
-  if (tbody) {
-    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:20px;color:#6b7280;">正在加载节点数据...</td></tr>';
-  }
+// --- 设置周期性刷新定时器 ---
+// 用于 CPU/内存等实时统计数据的快速计时器
+setInterval(refreshSystemStats, 5000); // 每 5 秒刷新一次系统统计数据
 
-  try {
-    await refreshAllData();
-    console.log('[Init] 初始页面渲染完成。');
-  } catch (err) {
-    console.error('[Init] 初始数据加载失败：', err);
-    if (tbody) {
-      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:20px;color:#dc2626;">错误：无法加载节点数据。</td></tr>';
-    }
-  }
+// 用于变化频率较低的数据的较慢计时器
+setInterval(async () => {
+await refreshDashboard();
+await refreshTraffic();
+await initializeProtocolHealth();
+}, 30000); // 每 30 秒刷新一次其他数据
 
-  // **统一的周期刷新**：避免多定时器/多数据源竞态
-  setInterval(refreshAllData, 15000);
-  console.log('[Init] 已启动统一刷新定时器（15s）。');
+console.log('[Init] 定期刷新计时器已启动。');
 });
-
 
 // ==== new11 事件委托（append-only） ====
 (() => {
