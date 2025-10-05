@@ -5291,12 +5291,12 @@ generate_dashboard_data() {
 # 统一生成 services_info（状态+版本号）
 services_info=$(
   jq -n \
-    --arg nstat "$(systemctl is-active --quiet nginx && echo 运行中 || echo 已停止)" \
-    --arg xstat "$(systemctl is-active --quiet xray && echo 运行中 || echo 已停止)" \
+    --arg nstat "$(systemctl is-active --quiet nginx    && echo 运行中 || echo 已停止)" \
+    --arg xstat "$(systemctl is-active --quiet xray     && echo 运行中 || echo 已停止)" \
     --arg sstat "$(systemctl is-active --quiet sing-box && echo 运行中 || echo 已停止)" \
-    --arg nver "$(nginx -v 2>&1 | grep -oE '[0-9]+(\.[0-9]+)+' | head -1 || echo "")" \
-    --arg xver "$((xray version 2>/dev/null || xray -version 2>/dev/null) | head -n1 | grep -Eo 'v?[0-9]+(\.[0-9]+)+' | head -1 || echo "")" \
-    --arg sver "$((sing-box version 2>/dev/null || /usr/local/bin/sing-box version 2>/dev/null) | head -n1 | grep -oE '[0-9]+(\.[0-9]+)+' | head -1 || echo "")" \
+    --arg nver  "$(nginx -v 2>&1 | grep -oE '[0-9]+(\.[0-9]+)+' | head -1 || echo "")" \
+    --arg xver  "$( (xray version 2>/dev/null || xray -version 2>/dev/null) | head -n1 | grep -Eo 'v?[0-9]+(\.[0-9]+)+' | head -1 || echo "" )" \
+    --arg sver  "$( (sing-box version 2>/dev/null || /usr/local/bin/sing-box version 2>/dev/null) | head -n1 | grep -oE '[0-9]+(\.[0-9]+)+' | head -1 || echo "" )" \
     '{
         "nginx":    {"status": $nstat, "version": (if $nver == "" then null else $nver end)},
         "xray":     {"status": $xstat, "version": (if $xver == "" then null else $xver end)},
