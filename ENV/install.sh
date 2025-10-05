@@ -4661,81 +4661,58 @@ jq_safe_list() {
 
 # 获取系统负载信息
 get_system_metrics() {
-    local cpu_percent=0
-    local memory_percent=0
-    local disk_percent=0
-    
-    # 改进的CPU使用率计算
+    local cpu_percent=0 memory_percent=0 disk_percent=0
+
+    # CPU（/proc/stat 两次采样，短间隔）
     if [[ -r /proc/stat ]]; then
-        read _ user1 nice1 system1 idle1 iowait1 irq1 softirq1 _ < /proc/stat
-        
-        sleep 2
-        
-        read _ user2 nice2 system2 idle2 iowait2 irq2 softirq2 _ < /proc/stat
-        
-        local user_diff=$((user2 - user1))
-        local nice_diff=$((nice2 - nice1))
-        local system_diff=$((system2 - system1))
+        local stat1 stat2 idle1 idle2 total1=0 total2=0
+        # 第一次采样
+        read -r -a stat1 < /proc/stat
+        idle1=${stat1[4]}
+        for v in "${stat1[@]:1}"; do total1=$((total1 + v)); done
+        # 短暂停 0.5s（减少后台被 web 调起时的卡顿）
+        sleep 0.5
+        # 第二次采样
+        read -r -a stat2 < /proc/stat
+        idle2=${stat2[4]}
+        for v in "${stat2[@]:1}"; do total2=$((total2 + v)); done
+        local total_diff=$((total2 - total1))
         local idle_diff=$((idle2 - idle1))
-        local iowait_diff=$((iowait2 - iowait1))
-        local irq_diff=$((irq2 - irq1))
-        local softirq_diff=$((softirq2 - softirq1))
-        
-        local total_diff=$((user_diff + nice_diff + system_diff + idle_diff + iowait_diff + irq_diff + softirq_diff))
-        local active_diff=$((total_diff - idle_diff))
-        
         if [[ $total_diff -gt 0 ]]; then
-            cpu_percent=$(( (active_diff * 1000) / total_diff ))
-            cpu_percent=$((cpu_percent / 10))
-            # 设置最小值为1%
-            if [[ $cpu_percent -lt 1 ]]; then
-                cpu_percent=1
-            fi
-        else
-            cpu_percent=1
+            cpu_percent=$(( ( (total_diff - idle_diff) * 100 ) / total_diff ))
         fi
     fi
-    
-    # 内存使用率计算保持不变
+
+    # 内存（MemTotal/MemAvailable）
     if [[ -r /proc/meminfo ]]; then
         local mem_total mem_available
         mem_total=$(awk '/MemTotal:/ {print $2}' /proc/meminfo)
         mem_available=$(awk '/MemAvailable:/ {print $2}' /proc/meminfo)
-        
-        if [[ $mem_total -gt 0 && $mem_available -ge 0 ]]; then
+        if [[ ${mem_total:-0} -gt 0 ]]; then
             memory_percent=$(( (mem_total - mem_available) * 100 / mem_total ))
         fi
     fi
-    
-    # 磁盘使用率计算保持不变
+
+    # 根分区磁盘使用率
     if command -v df >/dev/null 2>&1; then
-        local disk_info
-        disk_info=$(df / 2>/dev/null | tail -1)
-        if [[ -n "$disk_info" ]]; then
-            disk_percent=$(echo "$disk_info" | awk '{print $5}' | sed 's/%//')
-        fi
+        disk_percent=$(df / | awk 'NR==2 {gsub("%","",$5); print $5}')
     fi
-    
-    # 确保所有值在合理范围内
-    cpu_percent=$(( cpu_percent > 100 ? 100 : cpu_percent ))
-    cpu_percent=$(( cpu_percent < 1 ? 1 : cpu_percent ))
-    memory_percent=$(( memory_percent > 100 ? 100 : memory_percent ))
-    memory_percent=$(( memory_percent < 0 ? 0 : memory_percent ))
-    disk_percent=$(( disk_percent > 100 ? 100 : disk_percent ))
-    disk_percent=$(( disk_percent < 0 ? 0 : disk_percent ))
-    
-    # 输出JSON格式
+
+    # 限幅到 0–100
+    (( cpu_percent     < 0 )) && cpu_percent=0
+    (( cpu_percent     > 100 )) && cpu_percent=100
+    (( memory_percent  < 0 )) && memory_percent=0
+    (( memory_percent  > 100 )) && memory_percent=100
+    (( disk_percent    < 0 )) && disk_percent=0
+    (( disk_percent    > 100 )) && disk_percent=100
+
+    # 输出 JSON
     jq -n \
-        --argjson cpu "$cpu_percent" \
-        --argjson memory "$memory_percent" \
-        --argjson disk "$disk_percent" \
-        --arg timestamp "$(date -Is)" \
-        '{
-            updated_at: $timestamp,
-            cpu: $cpu,
-            memory: $memory,
-            disk: $disk
-        }'
+      --argjson cpu "$cpu_percent" \
+      --argjson memory "$memory_percent" \
+      --argjson disk "$disk_percent" \
+      --arg timestamp "$(date -Is)" \
+      '{updated_at:$timestamp, cpu:$cpu, memory:$memory, disk:$disk}'
 }
 
 
@@ -5324,12 +5301,15 @@ services_info=$(
     --arg xstat "$(systemctl is-active --quiet xray     && echo 运行中 || echo 已停止)" \
     --arg sstat "$(systemctl is-active --quiet sing-box && echo 运行中 || echo 已停止)" \
     --arg nver  "$(nginx -v 2>&1 | grep -oE '[0-9]+(\.[0-9]+)+' | head -1)" \
-    --arg xver  "$((xray -version 2>/dev/null || xray version 2>/dev/null) | head -n1 | grep -Eo 'v?[0-9]+(\.[0-9]+)+' | head -1)" \
-    --arg sver  "$(sing-box version 2>/dev/null | head -n1 | grep -oE '[0-9]+(\.[0-9]+)+' | head -1)" \
-    '{nginx:{status:$nstat,version:$nver},
-      xray:{status:$xstat,version:$xver},
-      "sing-box":{status:$sstat,version:$sver}}'
+    --arg xver  "$({ xray -version 2>/dev/null || xray version 2>/dev/null; } | head -n1 | grep -Eo 'v?[0-9]+(\.[0-9]+)+' | head -1)" \
+    --arg sver  "$({ command -v sing-box >/dev/null && sing-box version 2>/dev/null || /usr/local/bin/sing-box version 2>/dev/null; } | head -n1 | grep -oE '[0-9]+(\.[0-9]+)+' | head -1)" \
+    '{
+       nginx:     {status:$nstat,  version:(if $nver=="" then null else $nver end)},
+       xray:      {status:$xstat,  version:(if $xver=="" then null else $xver end)},
+       "sing-box":{status:$sstat,  version:(if $sver=="" then null else $sver end)}
+     }'
 )
+
 
     # 合并所有数据生成dashboard.json
 jq -n \
@@ -6951,11 +6931,9 @@ LOG_DIR="$TRAFFIC_DIR/logs"
 STATE="${TRAFFIC_DIR}/.state"
 mkdir -p "$LOG_DIR"
 
-# 1) 识别默认出网网卡（更健壮：兼容 policy routing / ensX / ethX / veth 等）
-IFACE="$(ip -o -4 route show to default 2>/dev/null | awk 'NR==1{print $5}')"
-[[ -z "$IFACE" ]] && IFACE="$(ip -4 route list 0/0 2>/dev/null | awk 'NR==1{print $5}')"
-[[ -z "$IFACE" ]] && IFACE="$(ip -o route show default 2>/dev/null | awk 'NR==1{print $5}')"
-[[ -z "$IFACE" ]] && IFACE="$(ip -o link show | awk -F': ' '$2!~/^(lo|docker|br-|virbr|veth)/{print $2;exit}')"
+# 1) 识别默认出网网卡
+IFACE="$(ip route | awk '/default/{print $5;exit}')"
+[[ -z "$IFACE" ]] && IFACE="$(ip -o -4 addr show scope global | awk '{print $2;exit}')"
 [[ -z "$IFACE" ]] && { echo "no iface"; exit 0; }
 
 # 2) 读取当前计数
@@ -10818,51 +10796,62 @@ function updateHealthSummaryBadge(summary) {
 }
 
 
+/* === 统一数据刷新：一次性拿齐所有 JSON，再原子渲染 === */
+async function refreshAllData() {
+  console.log("[EdgeBox Panel] Refreshing all data...");
+  const [dash, sys, traf, health, notif] = await Promise.all([
+    fetchJSON('/traffic/dashboard.json'),
+    fetchJSON('/traffic/system.json'),
+    fetchJSON('/traffic/traffic.json'),
+    fetchJSON('/traffic/protocol-health.json'),
+    fetchJSON('/traffic/notifications.json')
+  ]);
+
+  // 更新全局态
+  if (dash)   window.dashboardData = dash;
+  if (sys)    window.systemData    = sys;
+  if (traf)   window.trafficData   = traf;
+  if (health) { window.__protocolHealth = health; renderHealthSummary(health); }
+  if (notif && typeof updateNotificationCenter === 'function') {
+    updateNotificationCenter(notif);
+  }
+
+  // 原子渲染（按你现有函数）
+  if (typeof renderOverview === 'function')                renderOverview();
+  if (typeof renderCertificateAndNetwork === 'function')  renderCertificateAndNetwork();
+  if (typeof renderProtocolTable === 'function')          renderProtocolTable();
+  if (typeof renderTrafficCharts === 'function')          renderTrafficCharts();
+}
+
+
 // 这是最终的、正确的页面加载逻辑
-
 document.addEventListener('DOMContentLoaded', async () => {
-console.log('[EdgeBox Panel] 正在初始化...');
+  console.log('[EdgeBox Panel] 正在初始化...');
+  if (typeof setupNotificationCenter === 'function') {
+    setupNotificationCenter();
+  }
 
-// 首先设置不需要数据的 UI 元素
-setupNotificationCenter();
+  // 占位提示
+  const tbody = document.getElementById('protocol-tbody');
+  if (tbody) {
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:20px;color:#6b7280;">正在加载节点数据...</td></tr>';
+  }
 
-// 在数据加载时设置占位符
-const tbody = document.getElementById('protocol-tbody');
-if (tbody) {
-tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:20px;color:#6b7280;">正在加载节点数据...</td></tr>';
-}
+  try {
+    await refreshAllData();
+    console.log('[Init] 初始页面渲染完成。');
+  } catch (err) {
+    console.error('[Init] 初始数据加载失败：', err);
+    if (tbody) {
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:20px;color:#dc2626;">错误：无法加载节点数据。</td></tr>';
+    }
+  }
 
-try {
-// --- 初始加载 ---
-// 一开始就加载所有内容，以便快速填充页面。
-await Promise.all([
-refreshDashboard(),
-refreshSystemStats(),
-refreshTraffic(),
-initializeProtocolHealth() // 保留健康检查逻辑
-]);
-console.log('[Init] 初始页面渲染完成。');
-
-} catch (error) {
-console.error('[Init] 初始数据加载失败：', error);
-if (tbody) {
-tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:20px;color:#dc2626;">错误：无法加载节点数据。</td></tr>';
-}
-}
-
-// --- 设置周期性刷新定时器 ---
-// 用于 CPU/内存等实时统计数据的快速计时器
-setInterval(refreshSystemStats, 5000); // 每 5 秒刷新一次系统统计数据
-
-// 用于变化频率较低的数据的较慢计时器
-setInterval(async () => {
-await refreshDashboard();
-await refreshTraffic();
-await initializeProtocolHealth();
-}, 30000); // 每 30 秒刷新一次其他数据
-
-console.log('[Init] 定期刷新计时器已启动。');
+  // **统一的周期刷新**：避免多定时器/多数据源竞态
+  setInterval(refreshAllData, 15000);
+  console.log('[Init] 已启动统一刷新定时器（15s）。');
 });
+
 
 // ==== new11 事件委托（append-only） ====
 (() => {
@@ -11927,12 +11916,10 @@ CONF
     # ---- D) 写入 new11 标准任务集（仅这一套）----
     ( crontab -l 2>/dev/null || true; cat <<'CRON'
 # EdgeBox 定时任务 v3.0 (SNI管理 + 协议健康检查)
-# EdgeBox 定时任务 v3.0 (SNI管理 + 协议健康检查)
 */2 * * * * bash -lc '/etc/edgebox/scripts/dashboard-backend.sh --now' >/dev/null 2>&1
-*/5 * * * * bash -lc '/etc/edgebox/scripts/system-stats.sh'            >/dev/null 2>&1   # ← 新增兜底：确保 system.json 永远存在
-*/5 * * * * bash -lc '/etc/edgebox/scripts/protocol-health-check.sh'   >/dev/null 2>&1
-0  *  * * * bash -lc '/etc/edgebox/scripts/traffic-collector.sh'       >/dev/null 2>&1
-7  *  * * * bash -lc '/etc/edgebox/scripts/traffic-alert.sh'           >/dev/null 2>&1
+*/5 * * * * bash -lc '/etc/edgebox/scripts/protocol-health-check.sh' >/dev/null 2>&1
+0  *  * * * bash -lc '/etc/edgebox/scripts/traffic-collector.sh'        >/dev/null 2>&1
+7  *  * * * bash -lc '/etc/edgebox/scripts/traffic-alert.sh'            >/dev/null 2>&1
 15 2  * * * bash -lc '/usr/local/bin/edgebox-ipq.sh'                    >/dev/null 2>&1
 0  2  * * * bash -lc '/usr/local/bin/edgeboxctl rotate-reality'         >/dev/null 2>&1
 0  3  * * 0 ${SCRIPTS_DIR}/sni-manager.sh select >/dev/null 2>&1
@@ -14969,19 +14956,11 @@ fi
     fi
   fi
 
-# 6. 初始化流量监控数据（并确保 system.json/dashboard.json 立即可用）
-log_info "初始化流量监控数据..."
-if [[ -x "${SCRIPTS_DIR}/traffic-collector.sh" ]]; then
-  "${SCRIPTS_DIR}/traffic-collector.sh" >/dev/null 2>&1 || log_warn "流量采集器初始化失败"
-fi
-# 立刻产出 system.json（即便 backend 首轮失败也有兜底）
-if [[ -x "${SCRIPTS_DIR}/system-stats.sh" ]]; then
-  "${SCRIPTS_DIR}/system-stats.sh" >/dev/null 2>&1 || log_warn "系统统计初始化失败"
-fi
-# 立刻产出 dashboard.json +（再次）system.json（正式口径）
-if [[ -x "${SCRIPTS_DIR}/dashboard-backend.sh" ]]; then
-  "${SCRIPTS_DIR}/dashboard-backend.sh" --now >/dev/null 2>&1 || log_warn "Dashboard 初始化失败"
-fi
+  # 6. 初始化流量监控数据
+  log_info "初始化流量监控数据..."
+  if [[ -x "${SCRIPTS_DIR}/traffic-collector.sh" ]]; then
+    "${SCRIPTS_DIR}/traffic-collector.sh" >/dev/null 2>&1 || log_warn "流量采集器初始化失败"
+  fi
 
   # 7. 设置正确的文件权限
   log_info "设置文件权限..."
