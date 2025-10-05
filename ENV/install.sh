@@ -2530,6 +2530,7 @@ save_config_info() {
   "instance_id": "$instance_id",
   "user_alias": "$user_alias",
   "dashboard_passcode": "$DASHBOARD_PASSCODE",
+  "dashboard_passcode": "$DASHBOARD_PASSCODE",
   "cloud": {
     "provider": "$cloud_provider",
     "region": "$cloud_region"
@@ -3475,6 +3476,8 @@ http {
                 text/html        html htm;
                 text/plain       txt;
                 application/json json;
+				text/css         css;
+                application/javascript js;
             }
         }
         
