@@ -3040,6 +3040,7 @@ fi
     # 版本优先级队列（从最新到最稳定）
     # 注意：这是降级队列，会依次尝试直到成功
     local VERSION_PRIORITY=(
+	    "1.12.8"    # 最新版（2025年推荐）
         "1.12.1"    # 最新稳定版（2025年推荐）
         "1.12.0"    # 稳定版（2024年3月发布）
         "1.11.15"   # LTS 长期支持版
@@ -7992,14 +7993,19 @@ h4 {
 
 /* ==========协议健康状态 - 单行布局(与核心服务徽标统一)=========== */
 
-/* 单行水平布局容器 - 容器居中，内容左对齐 */
+/* 运行状态列取消居中，改为左对齐 */
+.data-table td:nth-child(4) {
+    text-align: left !important;  /* ← 强制左对齐 */
+    padding-left: 20px;           /* ← 添加左侧内边距，让内容不要太靠边 */
+}
+
+/* 单行水平布局容器 - 左对齐排列 */
 .health-status-container {
-    display: inline-flex;        /* inline-flex 使其受父元素 text-align 影响 */
-    align-items: center;         /* 垂直居中 */
-    justify-content: flex-start; /* 内容从左开始排列 */
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;  /* ← 左对齐 */
     gap: 6px;
     padding: 4px 0;
-    text-align: left;            /* ← 新增：容器内强制左对齐 */
 }
 
 /* 健康状态徽章 - 使用与核心服务相同的样式 */
@@ -8012,6 +8018,7 @@ h4 {
     border-radius: 999px;
     font-size: 11px;
     font-weight: 500;
+    flex-shrink: 0;  /* ← 防止徽标被压缩 */
 }
 
 .health-status-badge.healthy {
@@ -8084,6 +8091,10 @@ h4 {
 
 /* 响应式调整 */
 @media (max-width: 768px) {
+    .data-table td:nth-child(4) {
+        padding-left: 10px;  /* 窄屏减少左边距 */
+    }
+    
     .health-status-badge {
         font-size: 10px;
         padding: 0 8px;
@@ -10676,10 +10687,10 @@ function renderNotifications() {
     if (!notificationData.notifications || notificationData.notifications.length === 0) {
         if (listEl) {
             listEl.innerHTML = `
-                
+                <div class="notification-empty">
                     🔔
-                    暂无通知
-                
+                    <div>暂无通知</div>
+                </div>
             `;
         }
         if (badgeEl) badgeEl.style.display = 'none';
@@ -10698,7 +10709,7 @@ function renderNotifications() {
         }
     }
     
-    // 渲染通知项
+    // 渲染通知项 - 使用正确的HTML结构
     if (listEl) {
         const html = notificationData.notifications.slice(0, 20).map(notification => {
             const iconMap = {
@@ -10709,23 +10720,34 @@ function renderNotifications() {
             
             const timeAgo = getTimeAgo(notification.time);
             const icon = iconMap[notification.type] || iconMap[notification.level] || '📋';
+            const unreadClass = notification.read ? '' : 'unread';
             
             return `
-                
-                    
-                        ${icon}
-                    
-                    
-                        ${escapeHtml(notification.message)}
-                        ${timeAgo}
-                        ${notification.action ? `${escapeHtml(notification.action)}` : ''}
-                    
-                
+                <div class="notification-item ${unreadClass}">
+                    <div class="notification-item-icon">${icon}</div>
+                    <div class="notification-item-content">
+                        <div class="notification-item-message">${escapeHtml(notification.message)}</div>
+                        <div class="notification-item-time">${timeAgo}</div>
+                        ${notification.action ? `<a href="#" class="notification-item-action">${escapeHtml(notification.action)}</a>` : ''}
+                    </div>
+                </div>
             `;
         }).join('');
         
         listEl.innerHTML = html;
     }
+}
+
+// HTML转义函数（如果不存在的话）
+function escapeHtml(text) {
+    const map = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;'
+    };
+    return text.replace(/[&<>"']/g, m => map[m]);
 }
 
 // 时间格式化
