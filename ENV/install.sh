@@ -8070,13 +8070,12 @@ h4 {
 .data-table { 
     width: 100%; 
     border-collapse: collapse;
-    border: 1px solid #6b7280;          /* 深色边框 */
+    border: 1px solid #6b7280;
     border-radius: 8px;
     overflow: hidden;
-    /* 立体感：外层阴影 + 贴边描边 */
     box-shadow: 
-        0 6px 16px rgba(0,0,0,0.12),    /* 外层柔和阴影 */
-        0 0 0 1px rgba(0,0,0,0.06);     /* 贴边描边光 */
+        0 6px 16px rgba(0,0,0,0.12),
+        0 0 0 1px rgba(0,0,0,0.06);
 }
 
 /* 表头 */
@@ -8090,7 +8089,7 @@ h4 {
     border-bottom: 1px solid #e5e7eb;
 }
 
-/* 普通单元格 - 只用border-bottom */
+/* 普通单元格 */
 .data-table td {
     padding: 7px 10px;
     border-bottom: 1px solid #e5e7eb;
@@ -8107,7 +8106,7 @@ h4 {
     text-align: center; 
 }
 
-/* hover行效果 - 外部柔和投影 */
+/* hover行效果 */
 .data-table tbody tr:hover td {
     background: #f8f9fa;
     box-shadow: 0 2px 6px rgba(0,0,0,0.12);
@@ -8122,7 +8121,7 @@ h4 {
     background-color: #f3f4f6;
 }
 
-/* 订阅行特殊样式 - 用1px边框作上边线 */
+/* 订阅行特殊样式 */
 .data-table tr.subs-row td {
     background: #eef2f7;
     border-top: 1px solid #cbd5e1;
@@ -8145,45 +8144,38 @@ h4 {
 
 /* =======================================================================
    协议配置卡片 - 间距修复
-   说明: 修复协议配置卡片与上方卡片边框贴着的问题
    ======================================================================= */
 
-/* 1. grid布局中的卡片不使用margin，完全依赖gap */
+/* grid布局中的卡片不使用margin */
 .main-content .grid .card {
     margin-bottom: 0 !important;
 }
 
-/* 2. 确保grid布局有正确的gap */
+/* 确保grid布局有正确的gap */
 .main-content .grid {
     display: grid; 
     gap: 20px !important;
     margin: 0;
 }
 
-/* 3. 特别处理1-2网格布局(证书切换和网络身份配置这一行) */
+/* 1-2网格布局(证书切换和网络身份配置) */
 .main-content .grid-1-2 {
     display: grid; 
     grid-template-columns: 1fr 2fr;
     gap: 20px !important;
-    margin-bottom: 20px !important; /* 这一行与下方协议配置卡片的间距 */
+    margin-bottom: 20px !important;
 }
 
-/* 4. 协议配置卡片确保有正确的上边距 */
+/* 协议配置卡片确保有正确的上边距 */
 .card[id*="protocol"],
 .card:has(.data-table),
-.card:has(h2:contains("协议配置")) {
-    margin-top: 20px !important;
-}
-
-/* 5. 如果协议配置卡片有特定的类名或ID，直接指定 */
 #protocol-panel,
 #protocols-panel,
 .protocol-card {
     margin-top: 20px !important;
-    margin-bottom: 20px !important;
 }
 
-/* 6. 通用解决方案：确保所有非grid内的卡片有正确间距 */
+/* 非grid内的卡片间距 */
 .main-content > .card:not(.grid .card) {
     margin-bottom: 20px !important;
 }
@@ -8192,13 +8184,19 @@ h4 {
     margin-top: 20px !important;
 }
 
-/* 7. 特殊情况：如果协议配置在grid后面，强制添加上边距 */
+/* grid后面的卡片强制添加上边距 */
 .main-content .grid + .card,
 .main-content .grid-1-2 + .card {
     margin-top: 20px !important;
 }
 
-/* 8. 响应式处理：窄屏时确保间距一致 */
+/* 确保协议配置表格卡片的边框正常显示 */
+.card:has(.data-table) {
+    border: 1px solid #d1d5db !important;
+    box-shadow: 0 2px 6px rgba(0,0,0,.08) !important;
+}
+
+/* 响应式：窄屏时确保间距一致 */
 @media (max-width: 1024px) {
     .main-content .grid-1-2 {
         grid-template-columns: 1fr;
@@ -8211,16 +8209,9 @@ h4 {
     }
 }
 
-/* 9. 确保协议配置表格卡片的边框正常显示 */
-.card:has(.data-table) {
-    border: 1px solid #d1d5db !important;
-    box-shadow: 0 2px 6px rgba(0,0,0,.08) !important;
-}
-
 
 /* =======================================================================
-   协议健康状态 - 单行紧凑布局(与核心服务徽标统一)
-   说明: 运行状态列改为单行显示,徽标样式与核心服务保持一致
+   协议健康状态 - 单行布局(与核心服务徽标统一)
    ======================================================================= */
 
 /* 单行水平布局容器 */
@@ -8261,7 +8252,7 @@ h4 {
     border: 1px solid #fecaca;
 }
 
-/* 健康详细消息 - 与前三列保持一致的文字格式 */
+/* 健康详细消息 - 与前三列保持一致 */
 .health-detail-message {
     color: var(--content-color, #6b7280);
     font-size: var(--h4-size, 13px);
@@ -8269,7 +8260,7 @@ h4 {
     white-space: nowrap;
 }
 
-/* 推荐标签 - 与前三列保持一致的文字格式 */
+/* 推荐标签 - 与前三列保持一致 */
 .health-recommendation-badge {
     color: var(--content-color, #6b7280);
     font-size: var(--h4-size, 13px);
@@ -8282,7 +8273,7 @@ h4 {
     min-width: 280px;
 }
 
-/* 健康分数显示(如果需要) */
+/* 健康分数显示 */
 .protocol-health-score {
     font-weight: 700;
     font-size: 18px;
@@ -8333,7 +8324,6 @@ h4 {
 
 /* =======================================================================
    协议健康状态 - 摘要卡片
-   说明: 显示所有协议的健康度汇总统计
    ======================================================================= */
 
 #health-summary {
@@ -8392,7 +8382,6 @@ h4 {
     color: #ef4444;
 }
 
-/* 推荐协议显示 */
 .health-recommended {
     padding: 12px;
     background: white;
@@ -8407,371 +8396,11 @@ h4 {
     margin-right: 8px;
 }
 
-/* 更新时间 */
 .health-update-time {
     text-align: right;
     font-size: 12px;
     color: #94a3b8;
     font-style: italic;
-}
-
-
-/* =======================================================================
-   协议健康状态 - 表格样式增强
-   ======================================================================= */
-
-.protocol-status {
-    min-width: 280px;
-}
-
-
-/* =======================================================================
-   协议健康状态 - 响应式设计
-   ======================================================================= */
-@media (max-width: 768px) {
-    /* 健康状态容器 */
-    .health-status-container {
-        gap: 6px;
-    }
-    
-    /* 健康状态徽章 */
-    .health-status-badge {
-        font-size: 12px;
-        padding: 4px 10px;
-    }
-    
-    /* 健康详细消息 */
-    .health-detail-message {
-        font-size: 11px;
-    }
-    
-    /* 推荐标签 */
-    .health-recommendation-badge {
-        font-size: 11px;
-        padding: 3px 8px;
-    }
-    
-    /* 摘要卡片 */
-    .health-summary-card {
-        grid-template-columns: repeat(2, 1fr);
-        gap: 12px;
-    }
-    
-    .summary-value {
-        font-size: 24px;
-    }
-}
-
-
-/* =======================================================================
-   协议健康状态 - 动画效果
-   ======================================================================= */
-
-/* 健康状态脉动动画 */
-@keyframes pulse-healthy {
-    0%, 100% {
-        opacity: 1;
-    }
-    50% {
-        opacity: 0.8;
-    }
-}
-
-/* 警告状态脉动动画 */
-@keyframes pulse-warning {
-    0%, 100% {
-        opacity: 1;
-    }
-    50% {
-        opacity: 0.7;
-    }
-}
-
-/* 应用动画 */
-.health-status-badge.healthy {
-    animation: pulse-healthy 3s ease-in-out infinite;
-}
-
-.health-status-badge.degraded {
-    animation: pulse-warning 2s ease-in-out infinite;
-}
-
-
-/* =======================================================================
-   暗色模式支持
-   说明: 适配系统暗色主题偏好
-   ======================================================================= */
-@media (prefers-color-scheme: dark) {
-    #health-summary {
-        background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
-        border-color: #334155;
-    }
-    
-    .summary-item {
-        background: #1e293b;
-        border: 1px solid #334155;
-    }
-    
-    .summary-label {
-        color: #94a3b8;
-    }
-    
-    .summary-value {
-        color: #f1f5f9;
-    }
-    
-    .health-recommended {
-        background: #1e293b;
-        color: #cbd5e1;
-        border: 1px solid #334155;
-    }
-    
-    .health-detail-message {
-        color: #94a3b8;
-    }
-}
-
-
-/* =======================================================================
-   协议健康状态 - 单行紧凑布局(可选替代方案)
-   说明: 如需使用单行显示,取消下方注释并隐藏上方的垂直布局样式
-   ======================================================================= */
-
-/* 单行水平布局容器 */
-.health-status-inline {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 4px 0;
-}
-
-/* 紧凑徽章 */
-.health-badge {
-    display: inline-flex;
-    align-items: center;
-    padding: 4px 10px;
-    border-radius: 4px;
-    font-weight: 600;
-    font-size: 13px;
-    white-space: nowrap;
-    flex-shrink: 0;
-}
-
-.health-badge.healthy {
-    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-    color: white;
-    box-shadow: 0 1px 3px rgba(16, 185, 129, 0.3);
-}
-
-.health-badge.degraded {
-    background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-    color: white;
-    box-shadow: 0 1px 3px rgba(245, 158, 11, 0.3);
-}
-
-.health-badge.down {
-    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-    color: white;
-    box-shadow: 0 1px 3px rgba(239, 68, 68, 0.3);
-}
-
-/* 单行消息 */
-.health-message {
-    font-size: 13px;
-    color: #6b7280;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-/* 单行布局响应式 */
-@media (max-width: 768px) {
-    .health-badge {
-        font-size: 12px;
-        padding: 3px 8px;
-    }
-    
-    .health-message {
-        font-size: 12px;
-    }
-    
-    .protocol-status {
-        min-width: 180px;
-    }
-}
-
-/* =======================================================================
-   切换单行/多行布局的开关
-   说明: 如需切换到单行布局,取消下方注释
-   ======================================================================= */
-
-/*
-.health-status-container,
-.health-detail-message,
-.health-recommendation-badge {
-    display: none !important;
-}
-
-.protocol-status {
-    min-width: 220px;
-    max-width: 280px;
-}
-*/状态列宽度 */
-.protocol-status {
-    min-width: 220px;
-    max-width: 280px;
-}
-
-/* 响应式 */
-@media (max-width: 768px) {
-    .health-badge {
-        font-size: 12px;
-        padding: 3px 8px;
-    }
-    
-    .health-message {
-        font-size: 12px;
-    }
-    
-    .protocol-status {
-        min-width: 180px;
-    }
-}
-
-
-/* =======================================================================
-   协议健康状态 - 旧版多行样式(已废弃,保持隐藏)
-   ======================================================================= */
-
-.health-status-badge.healthy {
-    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-    color: white;
-    box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
-}
-
-.health-status-badge.degraded {
-    background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-    color: white;
-    box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
-}
-
-.health-status-badge.down {
-    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-    color: white;
-    box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);
-}
-
-
-/* =======================================================================
-   协议健康状态 - 摘要卡片(可选功能)
-   ======================================================================= */
-
-#health-summary {
-    margin: 20px 0;
-    padding: 20px;
-    background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
-    border-radius: 12px;
-    border: 1px solid #e2e8f0;
-}
-
-.health-summary-card {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-    gap: 16px;
-    margin-bottom: 16px;
-}
-
-.summary-item {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding: 12px;
-    background: white;
-    border-radius: 8px;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-    transition: transform 0.2s;
-}
-
-.summary-item:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-}
-
-.summary-label {
-    font-size: 13px;
-    color: #64748b;
-    margin-bottom: 8px;
-    text-align: center;
-}
-
-.summary-value {
-    font-size: 28px;
-    font-weight: 700;
-    color: #1e293b;
-}
-
-.summary-item.healthy .summary-value {
-    color: #10b981;
-}
-
-.summary-item.degraded .summary-value {
-    color: #f59e0b;
-}
-
-.summary-item.down .summary-value {
-    color: #ef4444;
-}
-
-/* 推荐协议显示 */
-.health-recommended {
-    padding: 12px;
-    background: white;
-    border-radius: 8px;
-    margin-bottom: 12px;
-    font-size: 14px;
-    color: #475569;
-}
-
-.health-recommended strong {
-    color: #1e293b;
-    margin-right: 8px;
-}
-
-/* 更新时间 */
-.health-update-time {
-    text-align: right;
-    font-size: 12px;
-    color: #94a3b8;
-    font-style: italic;
-}
-
-/* 健康分数显示 */
-.protocol-health-score {
-    font-weight: 700;
-    font-size: 18px;
-    padding: 4px 8px;
-    border-radius: 4px;
-    display: inline-block;
-}
-
-.protocol-health-score.score-excellent {
-    color: #10b981;
-    background: rgba(16, 185, 129, 0.1);
-}
-
-.protocol-health-score.score-good {
-    color: #3b82f6;
-    background: rgba(59, 130, 246, 0.1);
-}
-
-.protocol-health-score.score-fair {
-    color: #f59e0b;
-    background: rgba(245, 158, 11, 0.1);
-}
-
-.protocol-health-score.score-poor {
-    color: #ef4444;
-    background: rgba(239, 68, 68, 0.1);
 }
 
 /* 摘要卡片响应式 */
@@ -8792,34 +8421,26 @@ h4 {
    ======================================================================= */
 
 @keyframes pulse-healthy {
-    0%, 100% {
-        opacity: 1;
-    }
-    50% {
-        opacity: 0.8;
-    }
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.8; }
 }
 
 @keyframes pulse-warning {
-    0%, 100% {
-        opacity: 1;
-    }
-    50% {
-        opacity: 0.7;
-    }
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
 }
 
-.health-badge.healthy {
+.health-status-badge.healthy {
     animation: pulse-healthy 3s ease-in-out infinite;
 }
 
-.health-badge.degraded {
+.health-status-badge.degraded {
     animation: pulse-warning 2s ease-in-out infinite;
 }
 
 
 /* =======================================================================
-   暗色模式支持(可选)
+   暗色模式支持
    ======================================================================= */
 
 @media (prefers-color-scheme: dark) {
@@ -8847,10 +8468,11 @@ h4 {
         border: 1px solid #334155;
     }
     
-    .health-message {
+    .health-detail-message {
         color: #94a3b8;
     }
 }
+
 
 /* =======================================================================
    流量统计 - 修复垂直居中问题
