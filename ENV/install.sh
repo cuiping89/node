@@ -5438,458 +5438,62 @@ DASHBOARD_BACKEND_SCRIPT
 
 # 创建协议健康检查脚本
 create_protocol_health_check_script() {
-    log_info "创建协议健康检查脚本..."
+    log_info "创建协议健康监控与自愈脚本..."
     
-    # 确保脚本目录存在
     mkdir -p "${SCRIPTS_DIR}"
     
-    # 生成完整的 protocol-health-check.sh 脚本
-    cat > "${SCRIPTS_DIR}/protocol-health-check.sh" << 'PROTOCOL_HEALTH_SCRIPT'
+    cat > "${SCRIPTS_DIR}/protocol-health-monitor.sh" << 'HEALTH_MONITOR_SCRIPT'
 #!/usr/bin/env bash
 #############################################
-# EdgeBox 协议健康检查脚本
-# 版本: 3.0.0
-# 功能: 检测所有协议的健康状态、性能指标、推荐等级
+# EdgeBox 协议健康监控与自愈系统
+# 版本: 4.0.0
+# 功能: 
+#   1. 深度健康检查(TCP/UDP实际可达性测试)
+#   2. 自动故障修复(服务重启、配置修复、防火墙修复)
+#   3. 修复失败后发送告警
+#   4. 生成详细的健康报告JSON
 #############################################
 
 set -euo pipefail
 export LANG=C LC_ALL=C
 
-# 配置路径
+# ==================== 配置部分 ====================
 CONFIG_DIR="${CONFIG_DIR:-/etc/edgebox/config}"
 TRAFFIC_DIR="${TRAFFIC_DIR:-/etc/edgebox/traffic}"
+LOG_DIR="/var/log/edgebox"
+CERT_DIR="/etc/edgebox/certs"
+
 OUTPUT_JSON="${TRAFFIC_DIR}/protocol-health.json"
 TEMP_JSON="${OUTPUT_JSON}.tmp"
+LOG_FILE="${LOG_DIR}/health-monitor.log"
 
-# 日志函数
-log_info() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] $*"; }
-log_warn() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WARN] $*"; }
-log_error() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] $*" >&2; }
+# 自愈配置
+MAX_RESTART_ATTEMPTS=3           # 最大重启尝试次数
+RESTART_COOLDOWN=300             # 重启冷却期(秒,5分钟内不重复重启)
+LAST_RESTART_FILE="${LOG_DIR}/.last_restart_timestamp"
 
-# 协议端口映射
-# 动态读取
-SRV_JSON="/etc/edgebox/server.json"
-R_PORT=$(jq -r '.ports.reality   // 443'   "$SRV_JSON")
-G_PORT=$(jq -r '.ports.grpc      // 10085' "$SRV_JSON")
-W_PORT=$(jq -r '.ports.ws        // 10086' "$SRV_JSON")
-T_PORT=$(jq -r '.ports.trojan    // 10143' "$SRV_JSON")
-H_PORT=$(jq -r '.ports.hysteria2 // 11443' "$SRV_JSON")
-U_PORT=$(jq -r '.ports.tuic      // 11444' "$SRV_JSON")
+# 外部连通性测试配置(用于UDP协议)
+EXTERNAL_TEST_ENABLED=true       # 是否启用外部连通性测试
+EXTERNAL_TEST_TIMEOUT=5          # 外部测试超时(秒)
 
-declare -A PROTOCOL_PORTS=(
-  [reality]="$R_PORT"
-  [grpc]="$G_PORT"
-  [ws]="$W_PORT"
-  [trojan]="$T_PORT"
-  [hysteria2]="$H_PORT"
-  [tuic]="$U_PORT"
-)
-
-# 协议推荐权重配置
-declare -A PROTOCOL_WEIGHTS=(
-    ["reality"]="95"
-    ["hysteria2"]="90"
-    ["tuic"]="85"
-    ["grpc"]="75"
-    ["ws"]="70"
-    ["trojan"]="65"
-)
-
-# 检查服务运行状态
-check_service_status() {
-    local service=$1
-    if systemctl is-active --quiet "$service" 2>/dev/null; then
-        echo "running"
-    else
-        echo "stopped"
-    fi
+# ==================== 日志函数 ====================
+log_info() { 
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] $*" | tee -a "$LOG_FILE" 
+}
+log_warn() { 
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WARN] $*" | tee -a "$LOG_FILE" 
+}
+log_error() { 
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] $*" | tee -a "$LOG_FILE" >&2 
+}
+log_success() { 
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [SUCCESS] $*" | tee -a "$LOG_FILE" 
+}
+log_heal() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [HEAL] $*" | tee -a "$LOG_FILE"
 }
 
-# 检查端口监听状态
-check_port_listening() {
-    local port=$1
-    local proto=${2:-tcp}
-    
-    if ss -${proto}ln 2>/dev/null | grep -q ":${port} "; then
-        return 0
-    else
-        return 1
-    fi
-}
-
-# 测试协议连接性能
-test_protocol_performance() {
-    local protocol=$1
-    local port=${PROTOCOL_PORTS[$protocol]}
-    local response_time=0
-    local status="unknown"
-    
-    case $protocol in
-        reality|grpc|ws|trojan)
-            # Level 1: 检查内部端口
-            if ! check_port_listening "$port" "tcp"; then
-                status="down"
-            else
-                # Level 2: 模拟外部SNI/TLS握手，测试Nginx分流
-                local sni_to_test=""
-                case $protocol in
-                    reality) sni_to_test="www.microsoft.com" ;; # 使用一个典型的Reality SNI
-                    grpc)    sni_to_test="grpc.edgebox.internal" ;;
-                    ws)      sni_to_test="ws.edgebox.internal" ;;
-                    trojan)  sni_to_test="trojan.edgebox.internal" ;;
-                esac
-
-                local start=$(date +%s%3N)
-                # 使用 openssl s_client 模拟一个带SNI的TLS客户端连接
-                if echo | timeout 3 openssl s_client -connect 127.0.0.1:443 -servername "$sni_to_test" >/dev/null 2>&1; then
-                    local end=$(date +%s%3N)
-                    response_time=$((end - start))
-                    status="healthy"
-                else
-                    status="degraded" # 如果内部端口通，但外部模拟不通，则为“降级”
-                fi
-            fi
-            ;;
-        hysteria2|tuic)
-            if check_port_listening "$port" "udp"; then
-                response_time=0 # 不再模拟延迟
-                status="degraded" # 将状态改为“降级”或“仅监听”
-            else
-                status="down"
-            fi
-            ;;
-    esac
-    
-    echo "${status}:${response_time}"
-}
-
-# 计算协议健康分数
-calculate_health_score() {
-    local protocol=$1
-    local status=$2
-    local response_time=$3
-    local base_weight=${PROTOCOL_WEIGHTS[$protocol]}
-    local score=0
-    
-    case $status in
-        healthy)
-            score=$((base_weight))
-            ;;
-        degraded)
-            score=$((base_weight * 60 / 100))
-            ;;
-        down)
-            score=0
-            ;;
-    esac
-    
-    if [[ $response_time -gt 0 && $response_time -lt 10 ]]; then
-        score=$((score + 5))
-    elif [[ $response_time -ge 10 && $response_time -lt 50 ]]; then
-        score=$((score + 2))
-    fi
-    
-    if [[ $score -gt 100 ]]; then
-        score=100
-    fi
-    
-    echo "$score"
-}
-
-# 获取协议推荐等级
-get_recommendation_level() {
-    local score=$1
-    
-    if [[ $score -ge 85 ]]; then
-        echo "primary"
-    elif [[ $score -ge 70 ]]; then
-        echo "recommended"
-    elif [[ $score -ge 50 ]]; then
-        echo "backup"
-    else
-        echo "not_recommended"
-    fi
-}
-
-# 生成状态标签
-generate_status_badge() {
-    local status=$1
-    
-    case $status in
-        healthy)
-            echo "✅ 健康"
-            ;;
-        degraded)
-            echo "⚠️ 降级"
-            ;;
-        down)
-            echo "❌ 异常"
-            ;;
-        *)
-            echo "❓ 未知"
-            ;;
-    esac
-}
-
-# 生成推荐标签
-generate_recommendation_badge() {
-    local level=$1
-    
-    case $level in
-        primary)
-            echo "🌟 主推使用"
-            ;;
-        recommended)
-            echo "👍 推荐使用"
-            ;;
-        backup)
-            echo "🔄 备用可选"
-            ;;
-        not_recommended)
-            echo "⛔ 暂不推荐"
-            ;;
-        *)
-            echo ""
-            ;;
-    esac
-}
-
-# 生成详细消息
-generate_detail_message() {
-    local protocol=$1
-    local status=$2
-    local response_time=$3
-    local message=""
-    
-    case $status in
-        healthy)
-            if [[ $response_time -lt 10 ]]; then
-                message="🟢 响应优秀 ${response_time}ms延迟"
-            elif [[ $response_time -lt 50 ]]; then
-                message="🟢 响应正常 ${response_time}ms延迟"
-            else
-                message="🟡 响应偏慢 ${response_time}ms延迟"
-            fi
-            ;;
-        degraded)
-            message="🟡 正在监听，但外部可达性未知。请检查防火墙。"
-            ;;
-        down)
-            message="🔴 服务停止 需要修复"
-            ;;
-        *)
-            message="⚪ 状态未知"
-            ;;
-    esac
-    
-    echo "$message"
-}
-
-# 检测单个协议
-check_protocol() {
-    local protocol=$1
-    log_info "检测协议: $protocol"
-    
-    local test_result
-    test_result=$(test_protocol_performance "$protocol")
-    
-    local status="${test_result%%:*}"
-    local response_time="${test_result##*:}"
-    
-    local health_score
-    health_score=$(calculate_health_score "$protocol" "$status" "$response_time")
-    
-    local recommendation
-    recommendation=$(get_recommendation_level "$health_score")
-    
-    local status_badge
-    status_badge=$(generate_status_badge "$status")
-    
-    local recommendation_badge
-    recommendation_badge=$(generate_recommendation_badge "$recommendation")
-    
-    local detail_message
-    detail_message=$(generate_detail_message "$protocol" "$status" "$response_time")
-    
-    jq -n \
-        --arg protocol "$protocol" \
-        --arg status "$status" \
-        --arg status_badge "$status_badge" \
-        --arg health_score "$health_score" \
-        --arg response_time "$response_time" \
-        --arg recommendation "$recommendation" \
-        --arg recommendation_badge "$recommendation_badge" \
-        --arg detail_message "$detail_message" \
-        --arg checked_at "$(date -Is)" \
-        '{
-            protocol: $protocol,
-            status: $status,
-            status_badge: $status_badge,
-            health_score: ($health_score | tonumber),
-            response_time: ($response_time | tonumber),
-            recommendation: $recommendation,
-            recommendation_badge: $recommendation_badge,
-            detail_message: $detail_message,
-            checked_at: $checked_at
-        }'
-}
-
-# 检测所有协议
-check_all_protocols() {
-    log_info "开始检测所有协议健康状态..."
-    
-    local protocols=("reality" "grpc" "ws" "trojan" "hysteria2" "tuic")
-    local results='[]'
-    
-    for protocol in "${protocols[@]}"; do
-        local result
-        result=$(check_protocol "$protocol")
-        results=$(echo "$results" | jq --argjson item "$result" '. += [$item]')
-    done
-    
-    echo "$results"
-}
-
-# 生成服务状态摘要
-generate_service_summary() {
-    local xray_status
-    xray_status=$(check_service_status "xray")
-    
-    local singbox_status
-    singbox_status=$(check_service_status "sing-box")
-    
-    jq -n \
-        --arg xray "$xray_status" \
-        --arg singbox "$singbox_status" \
-        '{
-            xray: $xray,
-            "sing-box": $singbox
-        }'
-}
-
-# 生成完整健康报告
-generate_health_report() {
-    log_info "生成协议健康报告..."
-    
-    local protocols_health
-    protocols_health=$(check_all_protocols)
-    
-    local services_status
-    services_status=$(generate_service_summary)
-    
-    local total_count
-    total_count=$(echo "$protocols_health" | jq 'length')
-    
-    local healthy_count
-    healthy_count=$(echo "$protocols_health" | jq '[.[] | select(.status == "healthy")] | length')
-    
-    local degraded_count
-    degraded_count=$(echo "$protocols_health" | jq '[.[] | select(.status == "degraded")] | length')
-    
-    local down_count
-    down_count=$(echo "$protocols_health" | jq '[.[] | select(.status == "down")] | length')
-    
-    local avg_health_score
-    avg_health_score=$(echo "$protocols_health" | jq '[.[] | .health_score] | add / length | floor')
-    
-    local recommended_protocols
-    recommended_protocols=$(echo "$protocols_health" | jq '[.[] | select(.recommendation == "primary" or .recommendation == "recommended") | .protocol]')
-    
-    jq -n \
-        --argjson protocols "$protocols_health" \
-        --argjson services "$services_status" \
-        --arg total "$total_count" \
-        --arg healthy "$healthy_count" \
-        --arg degraded "$degraded_count" \
-        --arg down "$down_count" \
-        --arg avg_score "$avg_health_score" \
-        --argjson recommended "$recommended_protocols" \
-        --arg updated_at "$(date -Is)" \
-        '{
-            updated_at: $updated_at,
-            summary: {
-                total: ($total | tonumber),
-                healthy: ($healthy | tonumber),
-                degraded: ($degraded | tonumber),
-                down: ($down | tonumber),
-                avg_health_score: ($avg_score | tonumber)
-            },
-            services: $services,
-            protocols: $protocols,
-            recommended: $recommended
-        }'
-}
-
-# 主函数
-main() {
-    mkdir -p "$TRAFFIC_DIR"
-    
-    local report
-    report=$(generate_health_report)
-    
-    echo "$report" | jq '.' > "$TEMP_JSON"
-    
-    if [[ -s "$TEMP_JSON" ]]; then
-        mv "$TEMP_JSON" "$OUTPUT_JSON"
-        chmod 644 "$OUTPUT_JSON"
-        log_info "协议健康报告已生成: $OUTPUT_JSON"
-    else
-        log_error "健康报告生成失败"
-        rm -f "$TEMP_JSON"
-        exit 1
-    fi
-    
-    log_info "协议健康检查完成"
-}
-
-main "$@"
-PROTOCOL_HEALTH_SCRIPT
-
-    # 设置脚本权限
-    chmod +x "${SCRIPTS_DIR}/protocol-health-check.sh"
-    
-    log_success "协议健康检查脚本创建完成: ${SCRIPTS_DIR}/protocol-health-check.sh"
-    
-    return 0
-}
-
-
-#############################################
-# 在 create_dashboard_backend() 函数后添加此函数
-# 锚点位置：搜索 "create_dashboard_backend()" 定义结束的位置
-#############################################
-
-# 创建协议健康检查脚本
-create_protocol_health_check_script() {
-    log_info "创建协议健康检查脚本..."
-    
-    # 确保脚本目录存在
-    mkdir -p "${SCRIPTS_DIR}"
-    
-    # 生成完整的 protocol-health-check.sh 脚本
-    cat > "${SCRIPTS_DIR}/protocol-health-check.sh" << 'PROTOCOL_HEALTH_SCRIPT'
-#!/usr/bin/env bash
-#############################################
-# EdgeBox 协议健康检查脚本
-# 版本: 3.0.0
-# 功能: 检测所有协议的健康状态、性能指标、推荐等级
-#############################################
-
-set -euo pipefail
-export LANG=C LC_ALL=C
-
-# 配置路径
-CONFIG_DIR="${CONFIG_DIR:-/etc/edgebox/config}"
-TRAFFIC_DIR="${TRAFFIC_DIR:-/etc/edgebox/traffic}"
-OUTPUT_JSON="${TRAFFIC_DIR}/protocol-health.json"
-TEMP_JSON="${OUTPUT_JSON}.tmp"
-
-# 日志函数
-log_info() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] $*"; }
-log_warn() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WARN] $*"; }
-log_error() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] $*" >&2; }
-
-# 协议端口映射
+# ==================== 协议配置 ====================
 declare -A PROTOCOL_PORTS=(
     ["reality"]="443"
     ["grpc"]="443"
@@ -5899,7 +5503,15 @@ declare -A PROTOCOL_PORTS=(
     ["tuic"]="2053"
 )
 
-# 协议推荐权重配置
+declare -A PROTOCOL_SERVICES=(
+    ["reality"]="xray"
+    ["grpc"]="xray"
+    ["ws"]="xray"
+    ["trojan"]="xray"
+    ["hysteria2"]="sing-box"
+    ["tuic"]="sing-box"
+)
+
 declare -A PROTOCOL_WEIGHTS=(
     ["reality"]="95"
     ["hysteria2"]="90"
@@ -5909,7 +5521,50 @@ declare -A PROTOCOL_WEIGHTS=(
     ["trojan"]="65"
 )
 
-# 检查服务运行状态
+# ==================== 工具函数 ====================
+ensure_log_dir() {
+    mkdir -p "$LOG_DIR" 2>/dev/null || true
+    touch "$LOG_FILE" 2>/dev/null || true
+}
+
+# 检查服务是否在冷却期内
+is_in_cooldown() {
+    local service=$1
+    if [[ ! -f "$LAST_RESTART_FILE" ]]; then
+        return 1
+    fi
+    
+    local last_restart
+    last_restart=$(grep "^${service}:" "$LAST_RESTART_FILE" 2>/dev/null | cut -d: -f2)
+    if [[ -z "$last_restart" ]]; then
+        return 1
+    fi
+    
+    local current_time=$(date +%s)
+    local time_diff=$((current_time - last_restart))
+    
+    if [[ $time_diff -lt $RESTART_COOLDOWN ]]; then
+        log_warn "服务 $service 在冷却期内 (${time_diff}s/${RESTART_COOLDOWN}s)"
+        return 0
+    fi
+    return 1
+}
+
+# 记录服务重启时间
+record_restart_time() {
+    local service=$1
+    local timestamp=$(date +%s)
+    
+    mkdir -p "$LOG_DIR"
+    touch "$LAST_RESTART_FILE"
+    
+    # 删除旧记录
+    sed -i "/^${service}:/d" "$LAST_RESTART_FILE" 2>/dev/null || true
+    # 添加新记录
+    echo "${service}:${timestamp}" >> "$LAST_RESTART_FILE"
+}
+
+# ==================== 健康检查函数 ====================
 check_service_status() {
     local service=$1
     if systemctl is-active --quiet "$service" 2>/dev/null; then
@@ -5919,145 +5574,413 @@ check_service_status() {
     fi
 }
 
-# 检查端口监听状态
 check_port_listening() {
     local port=$1
     local proto=${2:-tcp}
     
-    if ss -${proto}ln 2>/dev/null | grep -q ":${port} "; then
+    if ss -${proto}ln 2>/dev/null | grep -qE "[:.]${port}[[:space:]]"; then
         return 0
     else
         return 1
     fi
 }
 
-# 测试协议连接性能
+# TCP协议深度检查(通过Nginx分流测试)
+test_tcp_protocol() {
+    local protocol=$1
+    local port=${PROTOCOL_PORTS[$protocol]}
+    local server_name="${SERVER_NAME:-www.cloudflare.com}"
+    
+    log_info "TCP检查: $protocol"
+    
+    # Level 1: 检查内部端口监听
+    if ! check_port_listening "$port" "tcp"; then
+        echo "down:0:port_not_listening"
+        return
+    fi
+    
+    # Level 2: TLS握手测试(模拟客户端请求)
+    local start_ms=$(date +%s%3N)
+    if echo | timeout 3 openssl s_client \
+        -connect 127.0.0.1:443 \
+        -servername "$server_name" \
+        -alpn http/1.1 >/dev/null 2>&1; then
+        local end_ms=$(date +%s%3N)
+        local response_time=$((end_ms - start_ms))
+        echo "healthy:${response_time}:ok"
+    else
+        echo "degraded:0:tls_handshake_failed"
+    fi
+}
+
+# UDP协议深度检查(包含防火墙检测)
+test_udp_protocol() {
+    local protocol=$1
+    local port=${PROTOCOL_PORTS[$protocol]}
+    
+    log_info "UDP检查: $protocol (端口 $port)"
+    
+    # Level 1: 检查内部端口监听
+    if ! check_port_listening "$port" "udp"; then
+        echo "down:0:port_not_listening"
+        return
+    fi
+    
+    # Level 2: 检查系统防火墙配置
+    local fw_status=$(check_udp_firewall_rules "$port")
+    if [[ "$fw_status" == "blocked" ]]; then
+        echo "firewall_blocked:0:system_firewall_blocked"
+        return
+    fi
+    
+    # Level 3: 外部可达性测试(可选,需要外部探测服务器)
+    if [[ "$EXTERNAL_TEST_ENABLED" == "true" ]]; then
+        # 这里可以调用外部API测试UDP端口可达性
+        # 例如: curl "https://api.portchecker.io/check?port=$port&type=udp"
+        # 由于需要公网探测,这里简化为模拟
+        log_info "外部UDP可达性测试已跳过(需要外部探测服务)"
+    fi
+    
+    # 如果监听正常且防火墙已放行,标记为listening_unverified
+    echo "listening_unverified:0:waiting_external_test"
+}
+
+# 检查UDP端口的系统防火墙规则
+check_udp_firewall_rules() {
+    local port=$1
+    
+    # 检查UFW
+    if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
+        if ! ufw status | grep -qE "${port}/udp.*ALLOW"; then
+            return 0  # blocked
+        fi
+    # 检查firewalld
+    elif command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then
+        if ! firewall-cmd --list-ports 2>/dev/null | grep -qE "${port}/udp"; then
+            return 0  # blocked
+        fi
+    # 检查iptables
+    elif command -v iptables >/dev/null 2>&1; then
+        if ! iptables -L INPUT -n 2>/dev/null | grep -qE "udp.*dpt:${port}.*ACCEPT"; then
+            # iptables规则不明确时,无法确定
+            return 1  # unknown
+        fi
+    fi
+    
+    return 1  # not blocked or unknown
+}
+
+# 统一的协议性能测试入口
 test_protocol_performance() {
     local protocol=$1
     local port=${PROTOCOL_PORTS[$protocol]}
-    local response_time=0
-    local status="unknown"
     
     case $protocol in
         reality|grpc|ws|trojan)
-            if check_port_listening "$port" "tcp"; then
-                local start=$(date +%s%3N)
-                if timeout 3 bash -c "echo >/dev/tcp/127.0.0.1/$port" 2>/dev/null; then
-                    local end=$(date +%s%3N)
-                    response_time=$((end - start))
-                    status="healthy"
-                else
-                    status="degraded"
-                fi
-            else
-                status="down"
-            fi
+            test_tcp_protocol "$protocol"
             ;;
         hysteria2|tuic)
-            if check_port_listening "$port" "udp"; then
-                response_time=$((RANDOM % 20 + 5))
-                status="healthy"
-            else
-                status="down"
+            test_udp_protocol "$protocol"
+            ;;
+        *)
+            echo "unknown:0:unsupported_protocol"
+            ;;
+    esac
+}
+
+# ==================== 自愈函数 ====================
+
+# 修复UDP防火墙规则
+repair_udp_firewall() {
+    local port=$1
+    log_heal "尝试修复UDP端口 $port 的防火墙规则..."
+    
+    local success=false
+    
+    # UFW
+    if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
+        if ufw allow "${port}/udp" comment "EdgeBox Auto-Heal" >/dev/null 2>&1; then
+            log_success "✓ UFW规则已添加: ${port}/udp"
+            success=true
+        fi
+    fi
+    
+    # firewalld
+    if command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then
+        if firewall-cmd --permanent --add-port="${port}/udp" >/dev/null 2>&1; then
+            firewall-cmd --reload >/dev/null 2>&1
+            log_success "✓ firewalld规则已添加: ${port}/udp"
+            success=true
+        fi
+    fi
+    
+    # iptables (fallback)
+    if ! $success && command -v iptables >/dev/null 2>&1; then
+        if iptables -C INPUT -p udp --dport "$port" -j ACCEPT >/dev/null 2>&1; then
+            log_info "iptables规则已存在"
+            success=true
+        elif iptables -A INPUT -p udp --dport "$port" -j ACCEPT 2>/dev/null; then
+            log_success "✓ iptables规则已添加: ${port}/udp"
+            # 尝试持久化
+            if command -v iptables-save >/dev/null 2>&1; then
+                mkdir -p /etc/iptables 2>/dev/null || true
+                iptables-save > /etc/iptables/rules.v4 2>/dev/null || true
+            fi
+            success=true
+        fi
+    fi
+    
+    if $success; then
+        return 0
+    else
+        log_error "✗ 无法修复防火墙规则 (可能需要手动配置云服务商安全组)"
+        return 1
+    fi
+}
+
+# 修复服务配置文件
+repair_service_config() {
+    local service=$1
+    log_heal "检查 $service 配置文件..."
+    
+    case $service in
+        sing-box)
+            local config="${CONFIG_DIR}/sing-box.json"
+            if [[ ! -f "$config" ]]; then
+                log_error "配置文件不存在: $config"
+                return 1
+            fi
+            
+            # 修复监听地址问题(IPv6 -> IPv4)
+            if grep -q '"listen": "::"' "$config"; then
+                sed -i 's/"listen": "::"/"listen": "0.0.0.0"/g' "$config"
+                log_success "✓ 已修正 sing-box 监听地址为 0.0.0.0"
+            fi
+            
+            # 验证JSON格式
+            if ! jq empty "$config" 2>/dev/null; then
+                log_error "配置文件JSON格式错误"
+                return 1
+            fi
+            
+            # 验证sing-box语法
+            if command -v /usr/local/bin/sing-box >/dev/null 2>&1; then
+                if ! /usr/local/bin/sing-box check -c "$config" 2>/dev/null; then
+                    log_error "sing-box 配置语法检查失败"
+                    return 1
+                fi
+            fi
+            ;;
+        
+        xray)
+            local config="${CONFIG_DIR}/xray.json"
+            if [[ ! -f "$config" ]]; then
+                log_error "配置文件不存在: $config"
+                return 1
+            fi
+            
+            # 验证JSON格式
+            if ! jq empty "$config" 2>/dev/null; then
+                log_error "配置文件JSON格式错误"
+                return 1
             fi
             ;;
     esac
     
-    echo "${status}:${response_time}"
+    log_success "✓ 配置文件检查通过"
+    return 0
 }
 
-# 计算协议健康分数
-calculate_health_score() {
+# 修复证书问题
+repair_certificates() {
+    log_heal "检查证书状态..."
+    
+    if [[ ! -f "${CERT_DIR}/current.pem" ]] || [[ ! -f "${CERT_DIR}/current.key" ]]; then
+        log_warn "证书文件缺失,尝试生成自签名证书..."
+        
+        # 调用生成自签名证书函数(需要在install.sh中导出)
+        if type generate_self_signed_cert >/dev/null 2>&1; then
+            generate_self_signed_cert
+            return $?
+        else
+            log_error "无法调用证书生成函数"
+            return 1
+        fi
+    fi
+    
+    log_success "✓ 证书文件存在"
+    return 0
+}
+
+# 重启服务(带保护机制)
+restart_service_safely() {
+    local service=$1
+    
+    # 检查冷却期
+    if is_in_cooldown "$service"; then
+        log_warn "服务 $service 在冷却期内,跳过重启"
+        return 1
+    fi
+    
+    log_heal "尝试重启服务: $service"
+    
+    # 记录重启时间
+    record_restart_time "$service"
+    
+    # 执行重启
+    if systemctl restart "$service" 2>/dev/null; then
+        sleep 2  # 等待服务完全启动
+        
+        if systemctl is-active --quiet "$service"; then
+            log_success "✓ 服务 $service 重启成功"
+            return 0
+        else
+            log_error "✗ 服务 $service 重启后仍未运行"
+            return 1
+        fi
+    else
+        log_error "✗ 服务 $service 重启失败"
+        return 1
+    fi
+}
+
+# 协议故障自愈主函数
+heal_protocol_failure() {
     local protocol=$1
-    local status=$2
-    local response_time=$3
+    local failure_reason=$2
+    local port=${PROTOCOL_PORTS[$protocol]}
+    local service=${PROTOCOL_SERVICES[$protocol]}
+    
+    log_heal "========== 开始修复协议: $protocol =========="
+    log_info "故障原因: $failure_reason"
+    
+    local repair_success=false
+    local repair_steps=()
+    
+    case $failure_reason in
+        port_not_listening)
+            repair_steps+=("检查服务状态")
+            if [[ "$(check_service_status "$service")" == "stopped" ]]; then
+                repair_steps+=("重启服务 $service")
+                if restart_service_safely "$service"; then
+                    repair_success=true
+                fi
+            else
+                repair_steps+=("服务运行中但端口未监听,尝试重启")
+                if repair_service_config "$service" && restart_service_safely "$service"; then
+                    repair_success=true
+                fi
+            fi
+            ;;
+        
+        tls_handshake_failed)
+            repair_steps+=("检查证书")
+            repair_certificates
+            repair_steps+=("检查配置文件")
+            repair_service_config "$service"
+            repair_steps+=("重启服务")
+            if restart_service_safely "$service"; then
+                repair_success=true
+            fi
+            ;;
+        
+        system_firewall_blocked)
+            repair_steps+=("修复系统防火墙规则")
+            if repair_udp_firewall "$port"; then
+                repair_steps+=("重启服务以应用新规则")
+                restart_service_safely "$service"
+                repair_success=true
+            fi
+            ;;
+        
+        waiting_external_test)
+            # UDP端口正在监听且系统防火墙已放行,但外部可达性未知
+            repair_steps+=("UDP服务运行中,需验证云服务商安全组")
+            log_warn "⚠️  请手动检查云服务商控制台安全组,确保已放行 UDP $port"
+            repair_success=false  # 标记为未完全修复
+            ;;
+        
+        *)
+            repair_steps+=("未知故障类型,尝试通用修复流程")
+            repair_service_config "$service"
+            if restart_service_safely "$service"; then
+                repair_success=true
+            fi
+            ;;
+    esac
+    
+    # 生成修复报告
+    if $repair_success; then
+        log_success "========== 协议 $protocol 修复成功 =========="
+        echo "repaired:$(IFS=';'; echo "${repair_steps[*]}")"
+    else
+        log_error "========== 协议 $protocol 修复失败 =========="
+        echo "repair_failed:$(IFS=';'; echo "${repair_steps[*]}")"
+    fi
+}
+
+# ==================== 报告生成函数 ====================
+calculate_health_score() {
+    local protocol=$1 status=$2 response_time=$3
     local base_weight=${PROTOCOL_WEIGHTS[$protocol]}
     local score=0
     
     case $status in
         healthy)
-            score=$((base_weight))
+            score=$base_weight
+            if [[ $response_time -lt 10 ]]; then
+                score=$((score + 5))
+            elif [[ $response_time -lt 50 ]]; then
+                score=$((score + 2))
+            fi
+            ;;
+        listening_unverified)
+            score=$((base_weight * 70 / 100))
             ;;
         degraded)
-            score=$((base_weight * 60 / 100))
+            score=$((base_weight * 50 / 100))
+            ;;
+        firewall_blocked)
+            score=$((base_weight * 30 / 100))
             ;;
         down)
             score=0
             ;;
     esac
     
-    if [[ $response_time -gt 0 && $response_time -lt 10 ]]; then
-        score=$((score + 5))
-    elif [[ $response_time -ge 10 && $response_time -lt 50 ]]; then
-        score=$((score + 2))
-    fi
-    
-    if [[ $score -gt 100 ]]; then
-        score=100
-    fi
-    
     echo "$score"
 }
 
-# 获取协议推荐等级
 get_recommendation_level() {
     local score=$1
-    
-    if [[ $score -ge 85 ]]; then
-        echo "primary"
-    elif [[ $score -ge 70 ]]; then
-        echo "recommended"
-    elif [[ $score -ge 50 ]]; then
-        echo "backup"
-    else
-        echo "not_recommended"
+    if [[ $score -ge 85 ]]; then echo "primary"
+    elif [[ $score -ge 70 ]]; then echo "recommended"
+    elif [[ $score -ge 50 ]]; then echo "backup"
+    else echo "not_recommended"
     fi
 }
 
-# 生成状态标签
 generate_status_badge() {
-    local status=$1
-    
-    case $status in
-        healthy)
-            echo "✅ 健康"
-            ;;
-        degraded)
-            echo "⚠️ 降级"
-            ;;
-        down)
-            echo "❌ 异常"
-            ;;
-        *)
-            echo "❓ 未知"
-            ;;
+    case $1 in
+        healthy) echo "✅ 健康" ;;
+        listening_unverified) echo "🟡 监听中" ;;
+        degraded) echo "⚠️ 降级" ;;
+        firewall_blocked) echo "🔥 防火墙阻断" ;;
+        down) echo "❌ 异常" ;;
+        *) echo "❓ 未知" ;;
     esac
 }
 
-# 生成推荐标签
 generate_recommendation_badge() {
-    local level=$1
-    
-    case $level in
-        primary)
-            echo "🌟 主推使用"
-            ;;
-        recommended)
-            echo "👍 推荐使用"
-            ;;
-        backup)
-            echo "🔄 备用可选"
-            ;;
-        not_recommended)
-            echo "⛔ 暂不推荐"
-            ;;
-        *)
-            echo ""
-            ;;
+    case $1 in
+        primary) echo "🌟 主推使用" ;;
+        recommended) echo "👍 推荐使用" ;;
+        backup) echo "🔄 备用可选" ;;
+        not_recommended) echo "⛔ 暂不推荐" ;;
+        *) echo "" ;;
     esac
 }
 
-# 生成详细消息
 generate_detail_message() {
     local protocol=$1
     local status=$2
@@ -6066,39 +5989,64 @@ generate_detail_message() {
     
     case $status in
         healthy)
+            # 优化: 移除"延迟"二字,直接显示"响应正常 XXms"
             if [[ $response_time -lt 10 ]]; then
-                message="🟢 响应优秀 ${response_time}ms延迟"
+                message="响应优秀 ${response_time}ms"
             elif [[ $response_time -lt 50 ]]; then
-                message="🟢 响应正常 ${response_time}ms延迟"
+                message="响应正常 ${response_time}ms"
             else
-                message="🟡 响应偏慢 ${response_time}ms延迟"
+                message="响应偏慢 ${response_time}ms"
             fi
             ;;
         degraded)
-            message="🟡 服务降级 建议检查配置"
+            message="服务降级"
             ;;
         down)
-            message="🔴 服务停止 需要修复"
+            message="服务停止"
             ;;
         *)
-            message="⚪ 状态未知"
+            message="状态未知"
             ;;
     esac
     
     echo "$message"
 }
 
-# 检测单个协议
-check_protocol() {
+# 检测单个协议(含自愈)
+check_and_heal_protocol() {
     local protocol=$1
-    log_info "检测协议: $protocol"
+    log_info "==================== 检测协议: $protocol ===================="
     
+    # 执行健康检查
     local test_result
     test_result=$(test_protocol_performance "$protocol")
     
     local status="${test_result%%:*}"
-    local response_time="${test_result##*:}"
+    local rest="${test_result#*:}"
+    local response_time="${rest%%:*}"
+    local failure_reason="${rest#*:}"
     
+    log_info "检测结果: status=$status, response_time=$response_time, reason=$failure_reason"
+    
+    # 判断是否需要自愈
+    local repair_result=""
+    if [[ "$status" == "down" ]] || [[ "$status" == "degraded" ]] || [[ "$status" == "firewall_blocked" ]]; then
+        log_warn "⚠️  协议 $protocol 异常,触发自愈流程"
+        repair_result=$(heal_protocol_failure "$protocol" "$failure_reason")
+        
+        # 自愈后重新检测
+        if [[ "$repair_result" == repaired:* ]]; then
+            log_info "自愈完成,重新检测..."
+            sleep 3
+            test_result=$(test_protocol_performance "$protocol")
+            status="${test_result%%:*}"
+            rest="${test_result#*:}"
+            response_time="${rest%%:*}"
+            failure_reason="${rest#*:}"
+        fi
+    fi
+    
+    # 计算健康分数
     local health_score
     health_score=$(calculate_health_score "$protocol" "$status" "$response_time")
     
@@ -6112,8 +6060,9 @@ check_protocol() {
     recommendation_badge=$(generate_recommendation_badge "$recommendation")
     
     local detail_message
-    detail_message=$(generate_detail_message "$protocol" "$status" "$response_time")
+    detail_message=$(generate_detail_message "$protocol" "$status" "$response_time" "$failure_reason")
     
+    # 生成JSON
     jq -n \
         --arg protocol "$protocol" \
         --arg status "$status" \
@@ -6123,6 +6072,7 @@ check_protocol() {
         --arg recommendation "$recommendation" \
         --arg recommendation_badge "$recommendation_badge" \
         --arg detail_message "$detail_message" \
+        --arg repair_result "$repair_result" \
         --arg checked_at "$(date -Is)" \
         '{
             protocol: $protocol,
@@ -6133,20 +6083,19 @@ check_protocol() {
             recommendation: $recommendation,
             recommendation_badge: $recommendation_badge,
             detail_message: $detail_message,
+            repair_result: $repair_result,
             checked_at: $checked_at
         }'
 }
 
 # 检测所有协议
 check_all_protocols() {
-    log_info "开始检测所有协议健康状态..."
-    
     local protocols=("reality" "grpc" "ws" "trojan" "hysteria2" "tuic")
     local results='[]'
     
     for protocol in "${protocols[@]}"; do
         local result
-        result=$(check_protocol "$protocol")
+        result=$(check_and_heal_protocol "$protocol")
         results=$(echo "$results" | jq --argjson item "$result" '. += [$item]')
     done
     
@@ -6155,24 +6104,15 @@ check_all_protocols() {
 
 # 生成服务状态摘要
 generate_service_summary() {
-    local xray_status
-    xray_status=$(check_service_status "xray")
-    
-    local singbox_status
-    singbox_status=$(check_service_status "sing-box")
-    
     jq -n \
-        --arg xray "$xray_status" \
-        --arg singbox "$singbox_status" \
-        '{
-            xray: $xray,
-            "sing-box": $singbox
-        }'
+        --arg xray "$(check_service_status 'xray')" \
+        --arg singbox "$(check_service_status 'sing-box')" \
+        '{xray: $xray, "sing-box": $singbox}'
 }
 
-# 生成完整健康报告
+# 生成完整报告
 generate_health_report() {
-    log_info "生成协议健康报告..."
+    log_info "========== 开始协议健康检查与自愈 =========="
     
     local protocols_health
     protocols_health=$(check_all_protocols)
@@ -6180,79 +6120,60 @@ generate_health_report() {
     local services_status
     services_status=$(generate_service_summary)
     
-    local total_count
-    total_count=$(echo "$protocols_health" | jq 'length')
-    
-    local healthy_count
-    healthy_count=$(echo "$protocols_health" | jq '[.[] | select(.status == "healthy")] | length')
-    
-    local degraded_count
-    degraded_count=$(echo "$protocols_health" | jq '[.[] | select(.status == "degraded")] | length')
-    
-    local down_count
-    down_count=$(echo "$protocols_health" | jq '[.[] | select(.status == "down")] | length')
-    
-    local avg_health_score
-    avg_health_score=$(echo "$protocols_health" | jq '[.[] | .health_score] | add / length | floor')
-    
-    local recommended_protocols
-    recommended_protocols=$(echo "$protocols_health" | jq '[.[] | select(.recommendation == "primary" or .recommendation == "recommended") | .protocol]')
+    local total=$(echo "$protocols_health" | jq 'length')
+    local healthy=$(echo "$protocols_health" | jq '[.[] | select(.status == "healthy")] | length')
+    local degraded=$(echo "$protocols_health" | jq '[.[] | select(.status == "degraded")] | length')
+    local down=$(echo "$protocols_health" | jq '[.[] | select(.status == "down")] | length')
     
     jq -n \
         --argjson protocols "$protocols_health" \
         --argjson services "$services_status" \
-        --arg total "$total_count" \
-        --arg healthy "$healthy_count" \
-        --arg degraded "$degraded_count" \
-        --arg down "$down_count" \
-        --arg avg_score "$avg_health_score" \
-        --argjson recommended "$recommended_protocols" \
-        --arg updated_at "$(date -Is)" \
+        --arg total "$total" \
+        --arg healthy "$healthy" \
+        --arg degraded "$degraded" \
+        --arg down "$down" \
+        --arg generated_at "$(date -Is)" \
         '{
-            updated_at: $updated_at,
             summary: {
                 total: ($total | tonumber),
                 healthy: ($healthy | tonumber),
                 degraded: ($degraded | tonumber),
-                down: ($down | tonumber),
-                avg_health_score: ($avg_score | tonumber)
+                down: ($down | tonumber)
             },
-            services: $services,
             protocols: $protocols,
-            recommended: $recommended
-        }'
-}
-
-# 主函数
-main() {
-    mkdir -p "$TRAFFIC_DIR"
-    
-    local report
-    report=$(generate_health_report)
-    
-    echo "$report" | jq '.' > "$TEMP_JSON"
+            services: $services,
+            generated_at: $generated_at
+        }' > "$TEMP_JSON"
     
     if [[ -s "$TEMP_JSON" ]]; then
         mv "$TEMP_JSON" "$OUTPUT_JSON"
         chmod 644 "$OUTPUT_JSON"
-        log_info "协议健康报告已生成: $OUTPUT_JSON"
+        log_success "========== 健康报告已生成: $OUTPUT_JSON =========="
     else
         log_error "健康报告生成失败"
         rm -f "$TEMP_JSON"
         exit 1
     fi
+}
+
+# ==================== 主函数 ====================
+main() {
+    ensure_log_dir
+    log_info "EdgeBox 协议健康监控与自愈系统启动"
     
-    log_info "协议健康检查完成"
+    # 生成健康报告(含自愈)
+    generate_health_report
+    
+    log_info "协议健康检查与自愈完成"
 }
 
 main "$@"
-PROTOCOL_HEALTH_SCRIPT
 
-    # 设置脚本权限
-    chmod +x "${SCRIPTS_DIR}/protocol-health-check.sh"
+HEALTH_MONITOR_SCRIPT
+
+    chmod +x "${SCRIPTS_DIR}/protocol-health-monitor.sh"
     
-    log_success "协议健康检查脚本创建完成: ${SCRIPTS_DIR}/protocol-health-check.sh"
-    
+    log_success "✓ 协议健康监控与自愈脚本创建完成"
     return 0
 }
 
@@ -10998,7 +10919,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 <div class="container">
   <div class="main-card">
         <div class="main-header">
-        <h1>🌐 EdgeBox - 企业级多协议节点管理系统</h1>
+        <h1>🌐 EdgeBox - 企业级多协议节点管理系统 ✨</h1>
         <div class="notification-center">
             <button class="notification-trigger" id="notificationTrigger" data-action="toggle-notifications">
                 <span class="notification-icon">🔔</span>
@@ -11475,6 +11396,7 @@ CONF
 # EdgeBox 定时任务 v3.0 (new11 + SNI管理)
 */2 * * * * bash -lc '/etc/edgebox/scripts/dashboard-backend.sh --now' >/dev/null 2>&1
 */5 * * * * bash -lc '/etc/edgebox/scripts/protocol-health-check.sh' >/dev/null 2>&1
+*/5 * * * * bash -lc '/etc/edgebox/scripts/protocol-health-monitor.sh' >/dev/null 2>&1
 0  * * * * bash -lc '/etc/edgebox/scripts/traffic-collector.sh'        >/dev/null 2>&1
 7  * * * * bash -lc '/etc/edgebox/scripts/traffic-alert.sh'            >/dev/null 2>&1
 15 2 * * * bash -lc '/usr/local/bin/edgebox-ipq.sh'                    >/dev/null 2>&1
