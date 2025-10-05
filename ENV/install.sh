@@ -8219,96 +8219,70 @@ h4 {
 
 
 /* =======================================================================
-   协议健康状态 - 垂直布局(多行显示) - 原始版本
-   说明: 保留原有样式,用于显示健康状态、推荐标签等完整信息
+   协议健康状态 - 单行紧凑布局(与核心服务徽标统一)
+   说明: 运行状态列改为单行显示,徽标样式与核心服务保持一致
    ======================================================================= */
 
-/* 健康状态容器 - 垂直排列 */
+/* 单行水平布局容器 */
 .health-status-container {
     display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 8px 0;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 0;
 }
 
-/* 健康状态徽章 */
+/* 健康状态徽章 - 使用与核心服务相同的样式 */
 .health-status-badge {
     display: inline-flex;
     align-items: center;
-    padding: 6px 12px;
-    border-radius: 6px;
-    font-weight: 600;
-    font-size: 14px;
-    width: fit-content;
+    height: 20px;
+    line-height: 20px;
+    padding: 0 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 500;
 }
 
 .health-status-badge.healthy {
-    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-    color: white;
-    box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+    background: #d1fae5;
+    color: #059669;
+    border: 1px solid #a7f3d0;
 }
 
 .health-status-badge.degraded {
-    background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-    color: white;
-    box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
+    background: #fef3c7;
+    color: #d97706;
+    border: 1px solid #fde68a;
 }
 
 .health-status-badge.down {
-    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-    color: white;
-    box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);
+    background: #fee2e2;
+    color: #ef4444;
+    border: 1px solid #fecaca;
 }
 
-/* 健康详细消息 */
+/* 健康详细消息 - 与前三列保持一致的文字格式 */
 .health-detail-message {
-    font-size: 13px;
-    color: #6b7280;
-    line-height: 1.5;
-    padding-left: 4px;
-}
-
-/* 推荐标签 */
-.health-recommendation-badge {
-    display: inline-flex;
-    align-items: center;
-    padding: 4px 10px;
-    border-radius: 12px;
-    font-size: 12px;
+    color: var(--content-color, #6b7280);
+    font-size: var(--h4-size, 13px);
     font-weight: 500;
-    width: fit-content;
-    margin-top: 4px;
+    white-space: nowrap;
 }
 
-/* 推荐标签颜色 - 主推使用 */
-.health-recommendation-badge:has-text("主推使用"),
-.health-recommendation-badge:has-text("🌟") {
-    background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
-    color: white;
+/* 推荐标签 - 与前三列保持一致的文字格式 */
+.health-recommendation-badge {
+    color: var(--content-color, #6b7280);
+    font-size: var(--h4-size, 13px);
+    font-weight: 500;
+    white-space: nowrap;
 }
 
-/* 推荐标签颜色 - 推荐使用 */
-.health-recommendation-badge:has-text("推荐使用"),
-.health-recommendation-badge:has-text("👍") {
-    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-    color: white;
+/* 运行状态列宽度 */
+.protocol-status {
+    min-width: 280px;
 }
 
-/* 推荐标签颜色 - 备用可选 */
-.health-recommendation-badge:has-text("备用可选"),
-.health-recommendation-badge:has-text("🔄") {
-    background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);
-    color: white;
-}
-
-/* 推荐标签颜色 - 暂不推荐 */
-.health-recommendation-badge:has-text("暂不推荐"),
-.health-recommendation-badge:has-text("⛔") {
-    background: linear-gradient(135deg, #64748b 0%, #475569 100%);
-    color: white;
-}
-
-/* 健康分数显示 */
+/* 健康分数显示(如果需要) */
 .protocol-health-score {
     font-weight: 700;
     font-size: 18px;
@@ -8335,6 +8309,25 @@ h4 {
 .protocol-health-score.score-poor {
     color: #ef4444;
     background: rgba(239, 68, 68, 0.1);
+}
+
+/* 响应式调整 */
+@media (max-width: 768px) {
+    .health-status-badge {
+        font-size: 10px;
+        padding: 0 8px;
+        height: 18px;
+        line-height: 18px;
+    }
+    
+    .health-detail-message,
+    .health-recommendation-badge {
+        font-size: 12px;
+    }
+    
+    .protocol-status {
+        min-width: 220px;
+    }
 }
 
 
