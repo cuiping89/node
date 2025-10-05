@@ -7992,11 +7992,11 @@ h4 {
 
 /* ==========协议健康状态 - 单行布局(与核心服务徽标统一)=========== */
 
-/* 单行水平布局容器 - 左对齐垂直居中 */
+/* 单行水平布局容器 - 内容左对齐，容器在单元格中居中 */
 .health-status-container {
-    display: flex;
-    align-items: center;        /* 垂直居中 */
-    justify-content: flex-start; /* ← 改为左对齐 */
+    display: inline-flex;        /* ← 改为 inline-flex */
+    align-items: center;         /* 垂直居中 */
+    justify-content: flex-start; /* 内容左对齐 */
     gap: 6px;
     padding: 4px 0;
 }
@@ -9769,24 +9769,6 @@ if (preview) {
 }
 
 
-
-function renderProtocolTable() {
-    const protocols = dashboardData.protocols || [];
-    const tbody = document.getElementById('protocol-tbody');
-    if (!tbody) return;
-    const rows = protocols.map(p => `
-        <tr>
-            <td>${escapeHtml(p.name)}</td>
-<td>${escapeHtml(p.fit || p.scenario || '—')}</td>
-<td>${escapeHtml(p.effect || p.camouflage || '—')}</td>
-            <td><span class="status-badge ${p.status === '运行中' ? 'status-running' : ''}">${p.status}</span></td>
-            <td><button class="btn btn-sm btn-link" data-action="open-modal" data-modal="configModal" data-protocol="${escapeHtml(p.name)}">查看配置</button></td>
-        </tr>`).join('');
-    const subRow = `<tr class="subs-row"><td style="font-weight:500;">整包协议</td><td></td><td></td><td></td><td><button class="btn btn-sm btn-link" data-action="open-modal" data-modal="configModal" data-protocol="__SUBS__">查看@订阅</button></td></tr>`;
-    tbody.innerHTML = rows + subRow;
-}
-
-
 function renderTrafficCharts() {
   if (!trafficData || !window.Chart) return;
 
@@ -11395,7 +11377,7 @@ CONF
     ( crontab -l 2>/dev/null || true; cat <<CRON
 # EdgeBox 定时任务 v3.0 (new11 + SNI管理)
 */2 * * * * bash -lc '/etc/edgebox/scripts/dashboard-backend.sh --now' >/dev/null 2>&1
-*/5 * * * * bash -lc '/etc/edgebox/scripts/protocol-health-check.sh' >/dev/null 2>&1
+*/5 * * * * bash -lc '/etc/edgebox/scripts/protocol-health-monitor.sh' >/dev/null 2>&1
 */5 * * * * bash -lc '/etc/edgebox/scripts/protocol-health-monitor.sh' >/dev/null 2>&1
 0  * * * * bash -lc '/etc/edgebox/scripts/traffic-collector.sh'        >/dev/null 2>&1
 7  * * * * bash -lc '/etc/edgebox/scripts/traffic-alert.sh'            >/dev/null 2>&1
