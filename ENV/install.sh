@@ -7992,13 +7992,14 @@ h4 {
 
 /* ==========协议健康状态 - 单行布局(与核心服务徽标统一)=========== */
 
-/* 单行水平布局容器 - 内容左对齐，容器在单元格中居中 */
+/* 单行水平布局容器 - 容器居中，内容左对齐 */
 .health-status-container {
-    display: inline-flex;        /* ← 改为 inline-flex */
+    display: inline-flex;        /* inline-flex 使其受父元素 text-align 影响 */
     align-items: center;         /* 垂直居中 */
-    justify-content: flex-start; /* 内容左对齐 */
+    justify-content: flex-start; /* 内容从左开始排列 */
     gap: 6px;
     padding: 4px 0;
+    text-align: left;            /* ← 新增：容器内强制左对齐 */
 }
 
 /* 健康状态徽章 - 使用与核心服务相同的样式 */
@@ -8646,7 +8647,7 @@ h4 {
     display: flex;
     align-items: center;
     justify-content: center;
-    padding-top: 1px;           /* ← 关键：数字向下偏移 1px */
+    padding-top: 1px;           /* ← 关键:数字向下偏移 1px */
     font-size: 9px;
     font-weight: 600;
     line-height: 1;
@@ -8674,25 +8675,26 @@ h4 {
     }
 }
 
-/* 通知面板 */
+/* 通知面板 - 复用弹窗样式 */
 .notification-panel {
     position: absolute;
     top: 100%;
     right: 0;
-    width: 320px;
-    max-height: 400px;
+    width: 380px;
+    max-height: 480px;
     background: white;
     border: 1px solid #d1d5db;
-    border-radius: 8px;
-    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.15);
+    border-radius: 14px;
+    box-shadow: 0 10px 30px rgba(17, 24, 39, 0.18);
     display: none;
     z-index: 1000;
     overflow: hidden;
-    margin-top: 8px;            /* 与按钮保持间距 */
+    margin-top: 8px;
+    flex-direction: column;
 }
 
 .notification-panel.show {
-    display: block;
+    display: flex;
     animation: notification-slide-in 0.2s ease-out;
 }
 
@@ -8707,37 +8709,178 @@ h4 {
     }
 }
 
-/* 通知面板头部 */
+/* 通知面板头部 - 复用弹窗头部样式 */
 .notification-header {
+    flex-shrink: 0;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 12px 16px;
+    padding: 16px;
     border-bottom: 1px solid #e5e7eb;
     background: #f9fafb;
 }
 
 .notification-header h3 {
     margin: 0;
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 600;
-    color: #374151;
+    color: #111827;
 }
 
+/* 清空按钮 - 复用弹窗按钮样式 */
 .notification-clear {
-    background: none;
-    border: none;
+    background: #ffffff;
+    border: 1px solid #d1d5db;
     color: #6b7280;
     font-size: 12px;
     cursor: pointer;
-    padding: 4px 8px;
-    border-radius: 4px;
-    transition: background-color 0.2s ease;
+    padding: 6px 12px;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+    font-weight: 500;
 }
 
 .notification-clear:hover {
-    background-color: rgba(0, 0, 0, 0.05);
+    background-color: #f9fafb;
     color: #374151;
+    border-color: #9ca3af;
+}
+
+.notification-clear:active {
+    background-color: #f3f4f6;
+}
+
+/* 通知列表容器 - 可滚动 */
+.notification-list {
+    flex: 1;
+    padding: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    min-height: 0;
+}
+
+/* 通知项 - 每条之间有分隔线 */
+.notification-item {
+    display: flex;
+    gap: 12px;
+    padding: 14px 16px;
+    border-bottom: 1px solid #e5e7eb;
+    transition: background-color 0.2s ease;
+    cursor: pointer;
+}
+
+.notification-item:last-child {
+    border-bottom: none;
+}
+
+.notification-item:hover {
+    background-color: #f9fafb;
+}
+
+.notification-item.unread {
+    background-color: #f0f9ff;
+}
+
+.notification-item.unread:hover {
+    background-color: #e0f2fe;
+}
+
+/* 通知图标 */
+.notification-item-icon {
+    flex-shrink: 0;
+    font-size: 18px;
+    line-height: 1;
+    margin-top: 2px;
+}
+
+/* 通知内容区 - 支持自动换行 */
+.notification-item-content {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+/* 通知消息文字 - 自动换行 */
+.notification-item-message {
+    font-size: 13px;
+    color: #374151;
+    line-height: 1.5;
+    word-wrap: break-word;
+    word-break: break-word;
+    overflow-wrap: break-word;
+    white-space: normal;
+}
+
+/* 通知时间 */
+.notification-item-time {
+    font-size: 11px;
+    color: #9ca3af;
+}
+
+/* 通知操作按钮 */
+.notification-item-action {
+    font-size: 12px;
+    color: #10b981;
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.notification-item-action:hover {
+    color: #059669;
+    text-decoration: underline;
+}
+
+/* 空状态和加载状态 */
+.notification-empty,
+.notification-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+    color: #9ca3af;
+    text-align: center;
+    gap: 8px;
+}
+
+.notification-empty::before,
+.notification-loading::before {
+    font-size: 32px;
+    margin-bottom: 8px;
+}
+
+/* 通知面板底部 */
+.notification-footer {
+    flex-shrink: 0;
+    padding: 12px 16px;
+    border-top: 1px solid #e5e7eb;
+    background: #f9fafb;
+    text-align: center;
+}
+
+.notification-footer small {
+    font-size: 11px;
+    color: #9ca3af;
+}
+
+/* 滚动条样式优化 */
+.notification-list::-webkit-scrollbar {
+    width: 6px;
+}
+
+.notification-list::-webkit-scrollbar-track {
+    background: #f9fafb;
+}
+
+.notification-list::-webkit-scrollbar-thumb {
+    background: #d1d5db;
+    border-radius: 3px;
+}
+
+.notification-list::-webkit-scrollbar-thumb:hover {
+    background: #9ca3af;
 }
 
 /* 响应式调整 */
@@ -8762,7 +8905,8 @@ h4 {
     }
     
     .notification-panel {
-        width: 280px;
+        width: calc(100vw - 32px);
+        max-width: 320px;
         right: -20px;
     }
 }
