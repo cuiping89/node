@@ -8071,11 +8071,11 @@ h4 {
 
 /* ==========协议健康状态 - 单行布局(与核心服务徽标统一)=========== */
 
-/* 单行水平布局容器 - 居中对齐 */
+/* 单行水平布局容器 - 左对齐垂直居中 */
 .health-status-container {
     display: flex;
-    align-items: center;
-    justify-content: center;  /* ← 新增：水平居中 */
+    align-items: center;        /* 垂直居中 */
+    justify-content: flex-start; /* ← 改为左对齐 */
     gap: 6px;
     padding: 4px 0;
 }
