@@ -6951,9 +6951,11 @@ LOG_DIR="$TRAFFIC_DIR/logs"
 STATE="${TRAFFIC_DIR}/.state"
 mkdir -p "$LOG_DIR"
 
-# 1) 识别默认出网网卡
-IFACE="$(ip route | awk '/default/{print $5;exit}')"
-[[ -z "$IFACE" ]] && IFACE="$(ip -o -4 addr show scope global | awk '{print $2;exit}')"
+# 1) 识别默认出网网卡（更健壮：兼容 policy routing / ensX / ethX / veth 等）
+IFACE="$(ip -o -4 route show to default 2>/dev/null | awk 'NR==1{print $5}')"
+[[ -z "$IFACE" ]] && IFACE="$(ip -4 route list 0/0 2>/dev/null | awk 'NR==1{print $5}')"
+[[ -z "$IFACE" ]] && IFACE="$(ip -o route show default 2>/dev/null | awk 'NR==1{print $5}')"
+[[ -z "$IFACE" ]] && IFACE="$(ip -o link show | awk -F': ' '$2!~/^(lo|docker|br-|virbr|veth)/{print $2;exit}')"
 [[ -z "$IFACE" ]] && { echo "no iface"; exit 0; }
 
 # 2) 读取当前计数
@@ -11925,10 +11927,12 @@ CONF
     # ---- D) 写入 new11 标准任务集（仅这一套）----
     ( crontab -l 2>/dev/null || true; cat <<'CRON'
 # EdgeBox 定时任务 v3.0 (SNI管理 + 协议健康检查)
+# EdgeBox 定时任务 v3.0 (SNI管理 + 协议健康检查)
 */2 * * * * bash -lc '/etc/edgebox/scripts/dashboard-backend.sh --now' >/dev/null 2>&1
-*/5 * * * * bash -lc '/etc/edgebox/scripts/protocol-health-check.sh' >/dev/null 2>&1
-0  *  * * * bash -lc '/etc/edgebox/scripts/traffic-collector.sh'        >/dev/null 2>&1
-7  *  * * * bash -lc '/etc/edgebox/scripts/traffic-alert.sh'            >/dev/null 2>&1
+*/5 * * * * bash -lc '/etc/edgebox/scripts/system-stats.sh'            >/dev/null 2>&1   # ← 新增兜底：确保 system.json 永远存在
+*/5 * * * * bash -lc '/etc/edgebox/scripts/protocol-health-check.sh'   >/dev/null 2>&1
+0  *  * * * bash -lc '/etc/edgebox/scripts/traffic-collector.sh'       >/dev/null 2>&1
+7  *  * * * bash -lc '/etc/edgebox/scripts/traffic-alert.sh'           >/dev/null 2>&1
 15 2  * * * bash -lc '/usr/local/bin/edgebox-ipq.sh'                    >/dev/null 2>&1
 0  2  * * * bash -lc '/usr/local/bin/edgeboxctl rotate-reality'         >/dev/null 2>&1
 0  3  * * 0 ${SCRIPTS_DIR}/sni-manager.sh select >/dev/null 2>&1
@@ -14965,11 +14969,19 @@ fi
     fi
   fi
 
-  # 6. 初始化流量监控数据
-  log_info "初始化流量监控数据..."
-  if [[ -x "${SCRIPTS_DIR}/traffic-collector.sh" ]]; then
-    "${SCRIPTS_DIR}/traffic-collector.sh" >/dev/null 2>&1 || log_warn "流量采集器初始化失败"
-  fi
+# 6. 初始化流量监控数据（并确保 system.json/dashboard.json 立即可用）
+log_info "初始化流量监控数据..."
+if [[ -x "${SCRIPTS_DIR}/traffic-collector.sh" ]]; then
+  "${SCRIPTS_DIR}/traffic-collector.sh" >/dev/null 2>&1 || log_warn "流量采集器初始化失败"
+fi
+# 立刻产出 system.json（即便 backend 首轮失败也有兜底）
+if [[ -x "${SCRIPTS_DIR}/system-stats.sh" ]]; then
+  "${SCRIPTS_DIR}/system-stats.sh" >/dev/null 2>&1 || log_warn "系统统计初始化失败"
+fi
+# 立刻产出 dashboard.json +（再次）system.json（正式口径）
+if [[ -x "${SCRIPTS_DIR}/dashboard-backend.sh" ]]; then
+  "${SCRIPTS_DIR}/dashboard-backend.sh" --now >/dev/null 2>&1 || log_warn "Dashboard 初始化失败"
+fi
 
   # 7. 设置正确的文件权限
   log_info "设置文件权限..."
