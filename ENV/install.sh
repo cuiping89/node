@@ -7993,22 +7993,21 @@ h4 {
 
 /* ========== 协议健康状态 - 单行布局(与核心服务徽标统一) ========== */
 
-/* 运行状态列：横向左对齐 + 纵向居中 */
-.data-table th:nth-child(4),
+/* 仅第4列 td：横向保持居中 + 垂直居中（不动 th 标题） */
 .data-table td:nth-child(4) {
-    text-align: left;       /* ← 修改：由 center 改为 left（整列左对齐） */
-    vertical-align: middle; /* ← 新增：整列内容垂直居中 */
+    text-align: center;      /* 列保持居中 */
+    vertical-align: middle;  /* 垂直居中 */
 }
 
-/* 单行水平布局容器 - 在左对齐的列中从左开始排布 */
-.health-status-container {
-    display: inline-flex;        /* 保持 inline-flex，不改变外观占位 */
-    align-items: center;         /* 垂直中线对齐 */
-    justify-content: flex-start; /* 内容从左开始 */
+/* 单行水平布局容器：自身内部左对齐；容器整体仍居中（inline-flex） */
+.data-table td:nth-child(4) .health-status-container {
+    display: inline-flex;         /* 在居中列中作为“块”被居中 */
+    align-items: center;          /* 徽标与文字垂直对齐 */
+    justify-content: flex-start;  /* 容器内部从左开始排布 */
     gap: 6px;
     padding: 4px 0;
-    min-width: 260px;            /* 保持：确保对齐一致性 */
-    text-align: left;            /* 内部文字左对齐 */
+    min-width: 260px;             /* 关键：统一宽度以便对齐 */
+    text-align: left;             /* 容器内部文字左对齐 */
 }
 
 /* 健康状态徽章 - 固定宽度确保对齐，并与文字中线对齐 */
@@ -8022,12 +8021,12 @@ h4 {
     border-radius: 999px;
     font-size: 11px;
     font-weight: 500;
-    min-width: 50px;             /* 保持：固定最小宽度 */
+    min-width: 50px;              /* 固定最小宽度 */
     flex-shrink: 0;
-    vertical-align: middle;      /* ← 新增：徽章与文字中线对齐 */
+    vertical-align: middle;       /* 徽章与文字中线对齐 */
 }
 
-/* 常见状态配色（保持不变） */
+/* 状态配色（保持原样） */
 .health-status-badge.healthy {
     background: #d1fae5;
     color: #059669;
@@ -8044,10 +8043,10 @@ h4 {
     border: 1px solid #fecaca;
 }
 
-/* 徽标/图标类元素：统一与文字中线对齐 */
-.health-status-container :is(.dot, .icon, svg, img) {
-    vertical-align: middle;  /* ← 新增 */
-    align-self: center;      /* ← 新增：在 flex 容器内强制居中 */
+/* 图标/圆点等与文字中线对齐 */
+.data-table td:nth-child(4) .health-status-container :is(.dot, .icon, svg, img) {
+    vertical-align: middle;
+    align-self: center;
 }
 
 /* 健康详细消息 - 与前三列保持一致 */
@@ -8057,7 +8056,7 @@ h4 {
     font-weight: 500;
     white-space: nowrap;
     flex-shrink: 0;
-    line-height: 1.2;        /* ← 新增：与徽章中线更贴合 */
+    line-height: 1.2;
 }
 
 /* 推荐标签 - 与前三列保持一致 */
@@ -8067,10 +8066,10 @@ h4 {
     font-weight: 500;
     white-space: nowrap;
     flex-shrink: 0;
-    line-height: 1.2;        /* ← 新增 */
+    line-height: 1.2;
 }
 
-/* 运行状态列宽度（保持原值） */
+/* 运行状态列宽度 */
 .protocol-status {
     min-width: 320px;
 }
@@ -8082,9 +8081,8 @@ h4 {
     padding: 4px 8px;
     border-radius: 4px;
     display: inline-block;
-    vertical-align: middle;  /* ← 新增 */
+    vertical-align: middle;
 }
-
 .protocol-health-score.score-excellent {
     color: #10b981;
     background: rgba(16, 185, 129, 0.1);
@@ -8102,9 +8100,9 @@ h4 {
     background: rgba(239, 68, 68, 0.1);
 }
 
-/* 响应式调整（保持原逻辑） */
+/* 响应式调整 */
 @media (max-width: 768px) {
-    .health-status-container {
+    .data-table td:nth-child(4) .health-status-container {
         min-width: 220px;
     }
     .health-status-badge {
@@ -8122,7 +8120,6 @@ h4 {
         min-width: 260px;
     }
 }
-
 
 /* =============协议健康状态 - 摘要卡片================ */
 
