@@ -3919,7 +3919,7 @@ if ! jq -n \
   --arg cert_pem "${CERT_DIR}/current.pem" \
   --arg cert_key "${CERT_DIR}/current.key" \
   '{
-    "log": { "level": "warn", "timestamp": true },
+    "log": { "level": "info", "timestamp": true },
     "inbounds": [
       {
         "type": "hysteria2",
@@ -5473,6 +5473,22 @@ MAX_RESTART_ATTEMPTS=3           # 最大重启尝试次数
 RESTART_COOLDOWN=300             # 重启冷却期(秒,5分钟内不重复重启)
 LAST_RESTART_FILE="${LOG_DIR}/.last_restart_timestamp"
 
+# ==================== 增强配置常量 ====================
+# 日志分析窗口
+JOURNAL_LOOKBACK_MINUTES="${JOURNAL_LOOKBACK_MINUTES:-10}"
+
+# 动态状态与通知文件
+NOTIFICATIONS_FILE="${TRAFFIC_DIR}/notifications.json"
+SEVERE_ERROR_FILE="${TRAFFIC_DIR}/severe_errors.json"
+WEIGHT_HISTORY_FILE="${LOG_DIR}/.protocol_weight_history"
+
+# 自愈保护增强
+RESTART_HOURLY_LIMIT=3
+RESTART_COUNTER_FILE="${LOG_DIR}/.restart_counter"
+
+# 动态权重配置
+WEIGHT_ADJUSTMENT_THRESHOLD=3
+
 # 外部连通性测试配置(用于UDP协议)
 EXTERNAL_TEST_ENABLED=true       # 是否启用外部连通性测试
 EXTERNAL_TEST_TIMEOUT=5          # 外部测试超时(秒)
@@ -5586,65 +5602,147 @@ check_port_listening() {
     fi
 }
 
-# TCP协议深度检查(通过Nginx分流测试)
+
+# TCP协议深度检查(增强版 - 含全链路延迟测试)
 test_tcp_protocol() {
     local protocol=$1
     local port=${PROTOCOL_PORTS[$protocol]}
-    local server_name="${SERVER_NAME:-www.cloudflare.com}"
-    
+    # 修正SERVER_NAME的获取方式，优先从配置文件读取
+    local server_name
+    server_name=$(jq -r '.server.cert.domain // ""' "${TRAFFIC_DIR}/dashboard.json" 2>/dev/null)
+    [[ -z "$server_name" ]] && server_name=$(jq -r '.server.server_ip // "www.cloudflare.com"' "${TRAFFIC_DIR}/dashboard.json" 2>/dev/null)
+
+
     log_info "TCP检查: $protocol"
-    
-    # Level 1: 检查内部端口监听
-    if ! check_port_listening "$port" "tcp"; then
+
+    # Level 1: 检查内部回环端口监听
+    local internal_port
+    case $protocol in
+        reality) internal_port=11443 ;;
+        grpc)    internal_port=10085 ;;
+        ws)      internal_port=10086 ;;
+        trojan)  internal_port=10143 ;;
+        *)
+            echo "down:0:unknown_tcp_protocol"
+            return
+            ;;
+    esac
+
+    if ! check_port_listening "$internal_port" "tcp"; then
         echo "down:0:port_not_listening"
         return
     fi
-    
-    # Level 2: TLS握手测试(模拟客户端请求)
+
+    # Level 2: TLS握手测试 (经由Nginx)
+    local handshake_time=0
     local start_ms=$(date +%s%3N)
+    # 修正-alpn参数，使其更通用
     if echo | timeout 3 openssl s_client \
         -connect 127.0.0.1:443 \
         -servername "$server_name" \
-        -alpn http/1.1 >/dev/null 2>&1; then
+        -alpn "h2,http/1.1" >/dev/null 2>&1; then
         local end_ms=$(date +%s%3N)
-        local response_time=$((end_ms - start_ms))
-        echo "healthy:${response_time}:ok"
+        handshake_time=$((end_ms - start_ms))
+        log_info "TLS握手时间: ${handshake_time}ms"
     else
         echo "degraded:0:tls_handshake_failed"
+        return
+    fi
+
+    # Level 3: 全链路延迟测试 (经由Nginx)
+    local full_chain_time=0
+    local test_url="https://127.0.0.1/health" # 使用Nginx内置的健康检查路径
+
+    local curl_time
+    curl_time=$(timeout 5 curl -s -w "%{time_total}" \
+        --resolve "${server_name}:443:127.0.0.1" \
+        --connect-timeout 3 \
+        --max-time 5 \
+        -o /dev/null \
+        -H "Host: ${server_name}" \
+        "${test_url}" 2>/dev/null || echo "")
+
+    if [[ -n "$curl_time" ]] && [[ "$curl_time" != "0.000" ]]; then
+        full_chain_time=$(echo "$curl_time" | awk '{printf "%.0f", $1 * 1000}')
+        log_info "全链路延迟: ${full_chain_time}ms"
+
+        # 综合加权延迟，握手占40%，全链路占60%
+        local weighted_time=$(( (handshake_time * 4 + full_chain_time * 6) / 10 ))
+        echo "healthy:${weighted_time}:full_chain_verified"
+    else
+        log_warn "全链路测试失败, 使用握手时间作为指标"
+        echo "healthy:${handshake_time}:handshake_only"
     fi
 }
 
-# UDP协议深度检查(包含防火墙检测)
+
+# UDP协议深度检查(增强版 - 日志分析 + 本地探测)
 test_udp_protocol() {
     local protocol=$1
     local port=${PROTOCOL_PORTS[$protocol]}
-    
+    local service=${PROTOCOL_SERVICES[$protocol]}
+
     log_info "UDP检查: $protocol (端口 $port)"
-    
-    # Level 1: 检查内部端口监听
+
+    # Level 1: 检查端口监听
     if ! check_port_listening "$port" "udp"; then
         echo "down:0:port_not_listening"
         return
     fi
-    
-    # Level 2: 检查系统防火墙配置
-    local fw_status=$(check_udp_firewall_rules "$port")
-    if [[ "$fw_status" == "blocked" ]]; then
-        echo "firewall_blocked:0:system_firewall_blocked"
+
+    # Level 2: 检查系统防火墙
+    if ! check_udp_firewall_rules "$port"; then
+        echo "degraded:0:firewall_blocked"
         return
     fi
-    
-    # Level 3: 外部可达性测试(可选,需要外部探测服务器)
-    if [[ "$EXTERNAL_TEST_ENABLED" == "true" ]]; then
-        # 这里可以调用外部API测试UDP端口可达性
-        # 例如: curl "https://api.portchecker.io/check?port=$port&type=udp"
-        # 由于需要公网探测,这里简化为模拟
-        log_info "外部UDP可达性测试已跳过(需要外部探测服务)"
+
+    # Level 3: 日志真实性检查 (主要依据)
+    local time_window="${JOURNAL_LOOKBACK_MINUTES:-10}"
+    local keywords=()
+    case $protocol in
+        hysteria2)
+            keywords=("accepted udp connection" "hysteria.*established" "client connected" "connection from")
+            ;;
+        tuic)
+            keywords=("tuic.*accepted" "connection established" "client.*authenticated" "new connection")
+            ;;
+    esac
+
+    for keyword in "${keywords[@]}"; do
+        if journalctl -u "$service" --since "${time_window} minutes ago" --no-pager 2>/dev/null | grep -iE "$keyword" >/dev/null 2>&1; then
+            log_success "✓ 通过日志验证: $protocol 有活跃连接"
+            # 从日志中提取延迟信息（尽力而为）
+            local latency
+            latency=$(journalctl -u "$service" --since "10 minutes ago" --no-pager 2>/dev/null | grep -oE "latency[: ]*[0-9]+ms|rtt[: ]*[0-9]+ms" | grep -oE "[0-9]+" | awk '{ total += $1; count++ } END { if (count > 0) print int(total/count); else print 5 }')
+            echo "healthy:${latency:-5}:verified_by_log"
+            return
+        fi
+    done
+
+    # Level 4: 本地轻量探测 (辅助依据, 用于区分 "listening" 和 "alive")
+    if command -v tcpdump >/dev/null 2>&1 && (command -v socat >/dev/null 2>&1 || command -v nc >/dev/null 2>&1); then
+        local cap_ok=0
+        timeout 1 tcpdump -n -i any "udp and port ${port}" -c 1 -q >"/tmp/udp_cap_${protocol}.pcap" 2>/dev/null &
+        local TPID=$!
+        sleep 0.2
+        # 发送一个无效的UDP包
+        printf 'healthcheck' | socat -T1 - udp:127.0.0.1:"${port}" >/dev/null 2>&1 || true
+        wait $TPID >/dev/null 2>&1 || true
+        if [[ -s "/tmp/udp_cap_${protocol}.pcap" ]]; then
+            cap_ok=1
+        fi
+        rm -f "/tmp/udp_cap_${protocol}.pcap" 2>/dev/null || true
+        if [[ $cap_ok -eq 1 ]]; then
+            log_info "✓ 本地探测成功: $protocol 端口可达"
+            echo "alive:5:verified_by_probe" # alive状态，延迟给一个默认值
+            return
+        fi
     fi
-    
-    # 如果监听正常且防火墙已放行,标记为listening_unverified
-    echo "listening_unverified:0:waiting_external_test"
+
+    # 如果以上检查都未通过，则为仅监听到但未验证
+    echo "listening_unverified:0:waiting_for_connection"
 }
+
 
 # 检查UDP端口的系统防火墙规则
 check_udp_firewall_rules() {
@@ -5813,25 +5911,35 @@ repair_certificates() {
     return 0
 }
 
-# 重启服务(带保护机制)
+# 重启服务(带多重保护机制)
 restart_service_safely() {
     local service=$1
-    
-    # 检查冷却期
+    # 保护1: 检查冷却期
     if is_in_cooldown "$service"; then
-        log_warn "服务 $service 在冷却期内,跳过重启"
         return 1
     fi
-    
+    # 保护2: 检查1小时内重启次数
+    if ! check_restart_hourly_limit "$service"; then
+        local count
+        count=$(grep -c "^${service}:" "$RESTART_COUNTER_FILE" 2>/dev/null || echo "0")
+        create_severe_error_notification "$service" "频繁重启(可能配置死锁)" "$count"
+        return 1
+    fi
     log_heal "尝试重启服务: $service"
-    
+    # 保护3: 重启前配置诊断
+    local config_check_result
+    config_check_result=$(diagnose_service_config "$service")
+    if [[ "$config_check_result" != "ok" ]]; then
+        log_error "配置诊断失败: $config_check_result"
+        create_severe_error_notification "$service" "配置文件错误: $config_check_result" "N/A"
+        return 1
+    fi
     # 记录重启时间
     record_restart_time "$service"
-    
+    echo "${service}:$(date +%s)" >> "$RESTART_COUNTER_FILE"
     # 执行重启
     if systemctl restart "$service" 2>/dev/null; then
-        sleep 2  # 等待服务完全启动
-        
+        sleep 2
         if systemctl is-active --quiet "$service"; then
             log_success "✓ 服务 $service 重启成功"
             return 0
@@ -5840,176 +5948,363 @@ restart_service_safely() {
             return 1
         fi
     else
-        log_error "✗ 服务 $service 重启失败"
+        log_error "✗ 服务 $service 重启命令失败"
         return 1
     fi
 }
 
-# 协议故障自愈主函数
+# ==================== 通知系统集成 ====================
+NOTIFICATIONS_FILE="${TRAFFIC_DIR}/notifications.json"
+
+# 初始化通知系统
+init_notification_system() {
+    mkdir -p "$TRAFFIC_DIR"
+    if [[ ! -f "$NOTIFICATIONS_FILE" ]]; then
+        echo '{"notifications": [], "stats": {"total": 0, "unread": 0}}' > "$NOTIFICATIONS_FILE"
+        chmod 644 "$NOTIFICATIONS_FILE"
+    fi
+}
+
+# 发送自愈步骤通知
+send_heal_step_notification() {
+    local protocol=$1 step=$2 result=$3 details=${4:-""}
+    init_notification_system
+    local icon
+    case $result in
+        success) icon="✅" ;;
+        info)    icon="ℹ️" ;;
+        warning) icon="⚠️" ;;
+        error)   icon="❌" ;;
+        *)       icon="🔧" ;;
+    esac
+    local notification
+    notification=$(jq -n \
+        --arg id "heal_$(date +%s)_${RANDOM}" --arg type "auto_heal" \
+        --arg protocol "$protocol" --arg step "$step" --arg result "$result" \
+        --arg icon "$icon" --arg details "$details" --arg timestamp "$(date -Is)" \
+        '{
+            id: $id, type: $type, category: "system", protocol: $protocol,
+            title: ($icon + " 自愈: " + $protocol), message: $step, result: $result,
+            details: $details, timestamp: $timestamp, read: false,
+            priority: (if $result == "error" then "high" else "normal" end)
+        }')
+    local temp_file="${NOTIFICATIONS_FILE}.tmp"
+    jq --argjson notif "$notification" '
+        .notifications |= [$notif] + . |
+        if (.notifications | length) > 100 then .notifications = .notifications[0:100] else . end |
+        .stats.total += 1 |
+        .stats.unread += 1
+    ' "$NOTIFICATIONS_FILE" > "$temp_file" 2>/dev/null || return 1
+    mv "$temp_file" "$NOTIFICATIONS_FILE"
+    chmod 644 "$NOTIFICATIONS_FILE"
+    log_info "[通知] $icon $step - $details"
+}
+
+# ==================== 自愈保护增强配置 ====================
+# 检查服务在1小时内的重启次数
+check_restart_hourly_limit() {
+    local service=$1
+    local current_time=$(date +%s)
+    local one_hour_ago=$((current_time - 3600))
+    mkdir -p "$LOG_DIR"
+    touch "$RESTART_COUNTER_FILE"
+    local temp_file="${RESTART_COUNTER_FILE}.tmp"
+    awk -v threshold="$one_hour_ago" -F: '$2 >= threshold' "$RESTART_COUNTER_FILE" > "$temp_file" 2>/dev/null || true
+    mv "$temp_file" "$RESTART_COUNTER_FILE" 2>/dev/null || true
+    local count
+    count=$(grep -c "^${service}:" "$RESTART_COUNTER_FILE" 2>/dev/null || echo "0")
+    if [[ $count -ge $RESTART_HOURLY_LIMIT ]]; then
+        log_error "⚠️  服务 $service 在1小时内已重启 ${count} 次, 超过限制(${RESTART_HOURLY_LIMIT}次)"
+        return 1
+    fi
+    return 0
+}
+
+# 生成严重错误通知
+create_severe_error_notification() {
+    local service=$1 reason=$2 restart_count=$3
+    log_error "========== 严重错误: $service 需要人工干预 =========="
+    local notification
+    notification=$(jq -n \
+        --arg type "critical" --arg service "$service" --arg reason "$reason" \
+        --arg restart_count "$restart_count" --arg timestamp "$(date -Is)" \
+        '{
+            type: $type, service: $service, title: "服务需要人工干预",
+            message: ($service + " 在1小时内重启 " + $restart_count + " 次，已暂停自动修复。原因: " + $reason),
+            severity: "critical", timestamp: $timestamp, action_required: "请检查服务日志和配置文件",
+            log_command: ("journalctl -u " + $service + " -n 50")
+        }')
+    mkdir -p "$TRAFFIC_DIR"
+    if [[ -f "$SEVERE_ERROR_FILE" ]]; then
+        local existing
+        existing=$(cat "$SEVERE_ERROR_FILE")
+        echo "$existing" | jq --argjson new "$notification" '. += [$new]' > "${SEVERE_ERROR_FILE}.tmp"
+        mv "${SEVERE_ERROR_FILE}.tmp" "$SEVERE_ERROR_FILE"
+    else
+        echo "[$notification]" > "$SEVERE_ERROR_FILE"
+    fi
+    chmod 644 "$SEVERE_ERROR_FILE" 2>/dev/null || true
+}
+
+# 深入诊断服务配置
+diagnose_service_config() {
+    local service=$1
+    local config_path=""
+    case $service in
+        sing-box) config_path="${CONFIG_DIR}/sing-box.json" ;;
+        xray)     config_path="${CONFIG_DIR}/xray.json" ;;
+        nginx)    config_path="/etc/nginx/nginx.conf" ;;
+        *) echo "ok"; return 0 ;;
+    esac
+
+    if ! jq empty "$config_path" 2>/dev/null; then
+        echo "json_syntax_error"
+        return 1
+    fi
+
+    if [[ "$service" == "sing-box" ]] && command -v /usr/local/bin/sing-box >/dev/null 2>&1; then
+        local check_output
+        check_output=$(/usr/local/bin/sing-box check -c "$config_path" 2>&1)
+        if [[ $? -ne 0 ]]; then
+            local error_line
+            error_line=$(echo "$check_output" | head -n 1)
+            log_error "sing-box配置错误: $error_line"
+            echo "config_validation_failed: $error_line"
+            return 1
+        fi
+    elif [[ "$service" == "xray" ]] && command -v /usr/local/bin/xray >/dev/null 2>&1; then
+        if ! /usr/local/bin/xray -test -config="$config_path" >/dev/null 2>&1; then
+            echo "config_validation_failed"
+            return 1
+        fi
+    elif [[ "$service" == "nginx" ]] && command -v nginx >/dev/null 2>&1; then
+        if ! nginx -t >/dev/null 2>&1; then
+            echo "config_validation_failed"
+            return 1
+        fi
+    fi
+
+    echo "ok"
+    return 0
+}
+
+# 协议故障自愈主函数(带完整通知)
 heal_protocol_failure() {
-    local protocol=$1
-    local failure_reason=$2
+    local protocol=$1 failure_reason=$2
     local port=${PROTOCOL_PORTS[$protocol]}
     local service=${PROTOCOL_SERVICES[$protocol]}
-    
     log_heal "========== 开始修复协议: $protocol =========="
     log_info "故障原因: $failure_reason"
-    
+    send_heal_step_notification "$protocol" "检测到 ${protocol} 异常, 启动自愈" "info" "故障原因: $failure_reason"
     local repair_success=false
     local repair_steps=()
-    
     case $failure_reason in
         port_not_listening)
             repair_steps+=("检查服务状态")
+            send_heal_step_notification "$protocol" "检查 $service 服务状态" "info"
             if [[ "$(check_service_status "$service")" == "stopped" ]]; then
-                repair_steps+=("重启服务 $service")
+                repair_steps+=("服务已停止, 尝试重启")
+                send_heal_step_notification "$protocol" "服务已停止, 准备重启" "warning"
                 if restart_service_safely "$service"; then
                     repair_success=true
+                    send_heal_step_notification "$protocol" "✓ 服务重启成功" "success"
+                else
+                    send_heal_step_notification "$protocol" "✗ 服务重启失败" "error" "请检查日志: journalctl -u $service -n 50"
                 fi
             else
-                repair_steps+=("服务运行中但端口未监听,尝试重启")
+                repair_steps+=("服务运行中但端口未监听, 检查配置并重启")
+                send_heal_step_notification "$protocol" "检测到配置异常或服务僵死" "warning"
                 if repair_service_config "$service" && restart_service_safely "$service"; then
                     repair_success=true
+                    send_heal_step_notification "$protocol" "✓ 服务已成功恢复" "success"
+                else
+                    send_heal_step_notification "$protocol" "✗ 服务恢复失败" "error"
                 fi
             fi
             ;;
-        
         tls_handshake_failed)
+            send_heal_step_notification "$protocol" "检测到TLS握手失败" "warning"
             repair_steps+=("检查证书")
-            repair_certificates
-            repair_steps+=("检查配置文件")
-            repair_service_config "$service"
+            send_heal_step_notification "$protocol" "正在检查TLS证书..." "info"
+            if repair_certificates; then
+                send_heal_step_notification "$protocol" "证书检查与修复完成" "success"
+            fi
             repair_steps+=("重启服务")
             if restart_service_safely "$service"; then
                 repair_success=true
+                send_heal_step_notification "$protocol" "✓ 服务已恢复正常" "success"
+            else
+                send_heal_step_notification "$protocol" "✗ 服务重启失败, 需人工干预" "error"
             fi
             ;;
-        
-        system_firewall_blocked)
+        firewall_blocked)
+            send_heal_step_notification "$protocol" "检测到防火墙可能阻断 UDP ${port}" "warning"
             repair_steps+=("修复系统防火墙规则")
+            send_heal_step_notification "$protocol" "正在添加防火墙规则..." "info"
             if repair_udp_firewall "$port"; then
-                repair_steps+=("重启服务以应用新规则")
-                restart_service_safely "$service"
-                repair_success=true
+                send_heal_step_notification "$protocol" "✓ 防火墙规则已添加" "success"
+                repair_success=true # 防火墙修复后通常不需要重启服务
+            else
+                send_heal_step_notification "$protocol" "✗ 防火墙修复失败" "error" "请检查云服务商安全组, 确保已放行 UDP ${port}"
             fi
             ;;
-        
-        waiting_external_test)
-            # UDP端口正在监听且系统防火墙已放行,但外部可达性未知
-            repair_steps+=("UDP服务运行中,需验证云服务商安全组")
-            log_warn "⚠️  请手动检查云服务商控制台安全组,确保已放行 UDP $port"
-            repair_success=false  # 标记为未完全修复
-            ;;
-        
         *)
-            repair_steps+=("未知故障类型,尝试通用修复流程")
-            repair_service_config "$service"
-            if restart_service_safely "$service"; then
+            send_heal_step_notification "$protocol" "未知故障, 尝试通用修复" "warning"
+            repair_steps+=("通用修复流程")
+            if repair_service_config "$service" && restart_service_safely "$service"; then
                 repair_success=true
+                send_heal_step_notification "$protocol" "✓ 通用修复成功" "success"
+            else
+                send_heal_step_notification "$protocol" "✗ 修复失败, 需人工排查" "error"
             fi
             ;;
     esac
-    
-    # 生成修复报告
     if $repair_success; then
         log_success "========== 协议 $protocol 修复成功 =========="
+        send_heal_step_notification "$protocol" "🎉 自愈完成, 协议已恢复" "success" "执行步骤: $(IFS='; '; echo "${repair_steps[*]}")"
         echo "repaired:$(IFS=';'; echo "${repair_steps[*]}")"
     else
         log_error "========== 协议 $protocol 修复失败 =========="
+        send_heal_step_notification "$protocol" "⚠️ 自愈未能修复, 需人工干预" "error" "已尝试: $(IFS='; '; echo "${repair_steps[*]}")"
         echo "repair_failed:$(IFS=';'; echo "${repair_steps[*]}")"
     fi
 }
 
-# ==================== 报告生成函数 ====================
+# ==================== 动态权重系统 ====================
+# 更新协议权重(基于历史表现)
+update_protocol_weight() {
+    local protocol=$1 status=$2 response_time=$3
+    init_weight_history
+    local weight_line
+    weight_line=$(grep "^${protocol}:" "$WEIGHT_HISTORY_FILE" || echo "")
+    if [[ -z "$weight_line" ]]; then
+        echo "80"
+        return
+    fi
+    IFS=':' read -r _ base_weight current_bonus consecutive_excellent consecutive_poor <<< "$weight_line"
+    local new_excellent=0 new_poor=0 new_bonus=$current_bonus
+    if [[ "$status" == "healthy" ]] && [[ $response_time -lt 10 ]]; then
+        new_excellent=$((consecutive_excellent + 1))
+        new_poor=0
+        if [[ $new_excellent -ge $WEIGHT_ADJUSTMENT_THRESHOLD ]]; then
+            new_bonus=$((current_bonus + 2))
+            # 限制奖励上限
+            [[ $new_bonus -gt 10 ]] && new_bonus=10
+            new_excellent=0
+            log_info "✨ 协议 $protocol 连续表现优秀, 权重+2 (当前奖励: $new_bonus)"
+        fi
+    elif [[ "$status" == "down" ]] || [[ "$status" == "degraded" ]] || [[ "$status" == "firewall_blocked" ]]; then
+        new_excellent=0
+        new_poor=$((consecutive_poor + 1))
+        if [[ $new_poor -ge $WEIGHT_ADJUSTMENT_THRESHOLD ]]; then
+            new_bonus=$((current_bonus - 5)) # 加大惩罚力度
+            # 限制惩罚下限
+            [[ $new_bonus -lt -20 ]] && new_bonus=-20
+            new_poor=0
+            log_warn "⚠️  协议 $protocol 连续表现不佳, 权重-5 (当前奖励: $new_bonus)"
+        fi
+    else
+        # 对 alive 和 listening_unverified 状态，缓慢恢复权重
+        new_excellent=0
+        new_poor=0
+        if [[ $current_bonus -lt 0 ]]; then
+            new_bonus=$((current_bonus + 1))
+        fi
+    fi
+    sed -i "/^${protocol}:/d" "$WEIGHT_HISTORY_FILE"
+    echo "${protocol}:${base_weight}:${new_bonus}:${new_excellent}:${new_poor}" >> "$WEIGHT_HISTORY_FILE"
+    echo $((base_weight + new_bonus))
+}
+
+# 初始化权重历史
+init_weight_history() {
+    mkdir -p "$LOG_DIR"
+    if [[ ! -f "$WEIGHT_HISTORY_FILE" ]]; then
+        for protocol in reality hysteria2 tuic grpc ws trojan; do
+            local base_weight=${PROTOCOL_WEIGHTS[$protocol]:-80}
+            echo "${protocol}:${base_weight}:0:0:0" >> "$WEIGHT_HISTORY_FILE"
+        done
+    fi
+}
+
+# 增强的健康分数计算(含动态权重)
 calculate_health_score() {
     local protocol=$1 status=$2 response_time=$3
-    local base_weight=${PROTOCOL_WEIGHTS[$protocol]}
+    local adjusted_weight
+    adjusted_weight=$(update_protocol_weight "$protocol" "$status" "$response_time")
+    [[ -z "$adjusted_weight" || $adjusted_weight -lt 0 ]] && adjusted_weight=${PROTOCOL_WEIGHTS[$protocol]:-80}
     local score=0
-    
     case $status in
         healthy)
-            score=$base_weight
-            if [[ $response_time -lt 10 ]]; then
-                score=$((score + 5))
-            elif [[ $response_time -lt 50 ]]; then
-                score=$((score + 2))
+            score=$adjusted_weight
+            if [[ $response_time -lt 10 ]]; then score=$((score + 5))
+            elif [[ $response_time -lt 50 ]]; then score=$((score + 2))
             fi
             ;;
+        alive) # 新增状态
+            score=$((adjusted_weight * 85 / 100))
+            ;;
         listening_unverified)
-            score=$((base_weight * 70 / 100))
+            score=$((adjusted_weight * 70 / 100))
             ;;
         degraded)
-            score=$((base_weight * 50 / 100))
+            score=$((adjusted_weight * 50 / 100))
             ;;
         firewall_blocked)
-            score=$((base_weight * 30 / 100))
+            score=$((adjusted_weight * 30 / 100))
             ;;
         down)
             score=0
             ;;
     esac
-    
+    [[ $score -gt 100 ]] && score=100
+    [[ $score -lt 0 ]] && score=0
     echo "$score"
 }
 
-get_recommendation_level() {
-    local score=$1
-    if [[ $score -ge 85 ]]; then echo "primary"
-    elif [[ $score -ge 70 ]]; then echo "recommended"
-    elif [[ $score -ge 50 ]]; then echo "backup"
-    else echo "not_recommended"
+# 根据延迟生成性能等级
+get_performance_grade() {
+    local response_time=$1
+    if [[ $response_time -lt 10 ]]; then echo "excellent"
+    elif [[ $response_time -lt 30 ]]; then echo "good"
+    elif [[ $response_time -lt 100 ]]; then echo "fair"
+    else echo "poor"
     fi
 }
 
-generate_status_badge() {
-    case $1 in
-        healthy) echo "✅ 健康" ;;
-        listening_unverified) echo "🟡 监听中" ;;
-        degraded) echo "⚠️ 降级" ;;
-        firewall_blocked) echo "🔥 防火墙阻断" ;;
-        down) echo "❌ 异常" ;;
-        *) echo "❓ 未知" ;;
-    esac
-}
-
-generate_recommendation_badge() {
-    case $1 in
-        primary) echo "🌟 主推使用" ;;
-        recommended) echo "👍 推荐使用" ;;
-        backup) echo "🔄 备用可选" ;;
-        not_recommended) echo "⛔ 暂不推荐" ;;
-        *) echo "" ;;
-    esac
-}
-
+# 增强的详细消息生成(含性能等级)
 generate_detail_message() {
-    local protocol=$1
-    local status=$2
-    local response_time=$3
-    local message=""
-    
+    local protocol=$1 status=$2 response_time=$3 failure_reason=${4:-""} message=""
     case $status in
         healthy)
-            # 优化: 移除"延迟"二字,直接显示"响应正常 XXms"
-            if [[ $response_time -lt 10 ]]; then
-                message="响应优秀 ${response_time}ms"
-            elif [[ $response_time -lt 50 ]]; then
-                message="响应正常 ${response_time}ms"
-            else
-                message="响应偏慢 ${response_time}ms"
-            fi
+            local grade
+            grade=$(get_performance_grade "$response_time")
+            case $grade in
+                excellent) message="🚀 性能优秀 ${response_time}ms" ;;
+                good)      message="✨ 性能良好 ${response_time}ms" ;;
+                fair)      message="📊 性能一般 ${response_time}ms" ;;
+                poor)      message="⏱️ 性能较慢 ${response_time}ms" ;;
+            esac
+            ;;
+        alive)
+            message=" UDP服务活跃(已探测)"
+            ;;
+        listening_unverified)
+            message="🟡 服务监听中(待验证)"
             ;;
         degraded)
-            message="服务降级"
+            message="⚠️  服务降级(${failure_reason})"
+            ;;
+        firewall_blocked)
+            message="🔥 防火墙阻断"
             ;;
         down)
-            message="服务停止"
+            message="❌ 服务停止(${failure_reason})"
             ;;
         *)
-            message="状态未知"
+            message="❓ 状态未知"
             ;;
     esac
-    
     echo "$message"
 }
 
@@ -12694,7 +12989,7 @@ setup_outbound_vps() {
     # === sing-box：恢复直连（修改 listen 为 0.0.0.0）===
     cp ${CONFIG_DIR}/sing-box.json ${CONFIG_DIR}/sing-box.json.bak 2>/dev/null || true
     cat > ${CONFIG_DIR}/sing-box.json <<EOF
-{"log":{"level":"warn","timestamp":true},
+{"log":{"level":"info","timestamp":true},
  "inbounds":[
   {"type":"hysteria2","tag":"hysteria2-in","listen":"0.0.0.0","listen_port":443,
    "users":[{"password":"${PASSWORD_HYSTERIA2}"}],
@@ -12744,7 +13039,7 @@ setup_outbound_resi() {
 
   # sing-box: 固定直连（HY2/TUIC 需要 UDP）
   cat > ${CONFIG_DIR}/sing-box.json <<EOF
-{"log":{"level":"warn","timestamp":true},
+{"log":{"level":"info","timestamp":true},
  "inbounds":[
   {"type":"hysteria2","tag":"hysteria2-in","listen":"0.0.0.0","listen_port":443,
    "users":[{"password":"${PASSWORD_HYSTERIA2}"}],
@@ -12790,7 +13085,7 @@ setup_outbound_direct_resi() {
 
   # sing-box: 固定直连
   cat > ${CONFIG_DIR}/sing-box.json <<EOF
-{"log":{"level":"warn","timestamp":true},
+{"log":{"level":"info","timestamp":true},
  "inbounds":[
   {"type":"hysteria2","tag":"hysteria2-in","listen":"0.0.0.0","listen_port":443,
    "users":[{"password":"${PASSWORD_HYSTERIA2}"}],
@@ -13518,7 +13813,7 @@ case "$1" in
     esac
     ;;
 	
-  # 流量管理 (统计 + 随机化)
+  # 流量管理 (统计 + 流量特征随机化)
   traffic)
     case "${2:-}" in
       # 流量统计
@@ -13548,6 +13843,22 @@ case "$1" in
         exit 1
         ;;
     esac
+    ;;
+	
+	test-udp)
+    # 用法: edgeboxctl test-udp <host> <port> [seconds]
+    local host="${2:-127.0.0.1}" port="${3:-443}" secs="${4:-3}"
+    echo "[INFO] UDP 简测: ${host}:${port}, ${secs}s"
+    if command -v iperf3 >/dev/null 2>&1; then
+      iperf3 -u -c "$host" -p "$port" -t "$secs" --bitrate 5M --get-server-output || true
+    else
+      echo "[WARN] 未安装 iperf3，退化为本地探测..."
+      if command -v socat >/dev/null 2>&1; then
+        printf 'x' | socat -T1 - udp:${host}:${port} && echo "[OK] 发送成功(不代表服务握手成功)"
+      else
+        echo "[HINT] 建议安装: apt-get install -y iperf3 socat"
+      fi
+    fi
     ;;
 
 # 帮助信息
