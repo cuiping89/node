@@ -3402,7 +3402,6 @@ fi
 #############################################
 
 # 配置Nginx（SNI定向 + ALPN兜底架构）
-# 配置Nginx（SNI定向 + ALPN兜底架构）
 configure_nginx() {
     log_info "配置Nginx（SNI定向 + ALPN兜底架构）..."
     
@@ -3412,7 +3411,7 @@ configure_nginx() {
         log_info "已备份原始Nginx配置"
     fi
     
-    # 生成新的 Nginx 配置
+    # 生成新的Nginx配置
     cat > /etc/nginx/nginx.conf << 'NGINX_CONFIG'
 # EdgeBox Nginx 配置文件
 # 架构：SNI定向 + ALPN兜底 + 单端口复用
@@ -3421,23 +3420,35 @@ user www-data;
 worker_processes auto;
 pid /run/nginx.pid;
 
+# 加载必要模块
 include /etc/nginx/modules-enabled/*.conf;
 
+# 事件处理
 events {
     worker_connections 1024;
     use epoll;
     multi_accept on;
 }
 
+# HTTP 服务器配置
 http {
     include       /etc/nginx/mime.types;
     default_type  application/octet-stream;
     
-    # 日志配置
+    # 【新增】定义一个 map 变量 $auth_required，用于检查密码
+    map $arg_passcode $auth_required {
+        # 如果 URL 参数匹配正确的密码（__DASHBOARD_PASSCODE_PH__ 是占位符，将在安装后期被 sed 替换）
+        "__DASHBOARD_PASSCODE_PH__" 0;  # 设置为 0 (无需认证)
+        # 其他任何情况，默认设置为 1 (需要认证)
+        default 1;                      
+    }
+    
+    # 日志格式
     log_format main '$remote_addr - $remote_user [$time_local] "$request" '
                    '$status $body_bytes_sent "$http_referer" '
                    '"$http_user_agent" "$http_x_forwarded_for"';
     
+    # 日志文件
     access_log /var/log/nginx/access.log main;
     error_log  /var/log/nginx/error.log warn;
     
@@ -3454,53 +3465,58 @@ http {
     add_header X-Content-Type-Options nosniff;
     add_header X-XSS-Protection "1; mode=block";
     
-    # ============================================
-    # HTTP Server（端口80）
-    # ============================================
+    # HTTP 服务器（端口80）
     server {
         listen 80 default_server;
         listen [::]:80 default_server;
         server_name _;
         
-        # 根路径重定向
+        # 根路径重定向到控制面板
         location = / {
-            return 302 /traffic/?passcode=__DASHBOARD_PASSCODE_PH__;
+            return 302 /traffic/;
         }
         
-        # 订阅链接服务（无需认证）
+        # 订阅链接服务
         location = /sub {
             default_type text/plain;
             add_header Cache-Control "no-store, no-cache, must-revalidate";
+            add_header Pragma "no-cache";
             root /var/www/html;
             try_files /sub =404;
         }
         
-        # 控制面板（需要密码）
+        # 控制面板和数据API
         location ^~ /traffic/ {
-            set $auth_ok 0;
-            
-            # 检查密码是否正确
-            if ($arg_passcode = "__DASHBOARD_PASSCODE_PH__") {
-                set $auth_ok 1;
-            }
-            
-            # 密码错误返回403
-            if ($auth_ok = 0) {
-                return 403 "403 Forbidden: Invalid or missing passcode\n";
-            }
-            
             alias /etc/edgebox/traffic/;
             index index.html;
-            
+            autoindex off;
+
+# 【密码保护逻辑 - 修复版】
+# 组合两个条件：$auth_required 为 1 且请求的不是 /sub 路径
+set $final_auth_check "${auth_required}:${request_uri}";
+if ($final_auth_check ~* "1:(?!/sub$)") {
+    return 401;
+}
+
+            # 缓存控制
             add_header Cache-Control "no-store, no-cache, must-revalidate";
             add_header Pragma "no-cache";
+
+            # ✅ 正确做法：不要嵌套 location，改用 charset / types
+            charset utf-8;
+            types {
+                text/html               html htm;
+                text/plain              txt;
+                application/json        json;
+            }
         }
         
-        # IP质量检测API（无需认证）
+        # IP质量检测API（对齐技术规范）
         location ^~ /status/ {
             alias /var/www/edgebox/status/;
-            add_header Content-Type "application/json; charset=utf-8";
+            autoindex off;
             add_header Cache-Control "no-store, no-cache, must-revalidate";
+            add_header Content-Type "application/json; charset=utf-8";
         }
         
         # 健康检查
@@ -3510,136 +3526,109 @@ http {
             add_header Content-Type text/plain;
         }
         
-        # Favicon
+		# Favicon支持
         location = /favicon.ico {
             access_log off;
             log_not_found off;
             expires 1y;
+            add_header Cache-Control "public, immutable";
         }
-        
-        # 拒绝隐藏文件
+		
+        # 拒绝访问隐藏文件
         location ~ /\. {
             deny all;
             access_log off;
-        }
-    }
-    
-    # ============================================
-    # HTTPS Server（端口443）- TLS终止 + 后端代理
-    # ============================================
-    server {
-        listen 443 ssl http2 default_server;
-        listen [::]:443 ssl http2 default_server;
-        server_name _;
-        
-        # TLS配置
-        ssl_certificate /etc/edgebox/cert/server.crt;
-        ssl_certificate_key /etc/edgebox/cert/server.key;
-        ssl_protocols TLSv1.2 TLSv1.3;
-        ssl_ciphers HIGH:!aNULL:!MD5;
-        ssl_prefer_server_ciphers on;
-        ssl_session_cache shared:SSL:10m;
-        ssl_session_timeout 10m;
-        
-        # 根路径伪装
-        location / {
-            root /var/www/html;
-            index index.html;
-            try_files $uri $uri/ =404;
-        }
-        
-        # WebSocket代理
-        location /ws {
-            proxy_pass http://127.0.0.1:10086;
-            proxy_http_version 1.1;
-            proxy_set_header Upgrade $http_upgrade;
-            proxy_set_header Connection "upgrade";
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_read_timeout 300s;
-        }
-        
-        # gRPC代理
-        location /grpc {
-            grpc_pass grpc://127.0.0.1:10085;
-            grpc_set_header Host $host;
-            grpc_set_header X-Real-IP $remote_addr;
-            grpc_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        }
-        
-        # Trojan代理
-        location /trojan {
-            proxy_pass http://127.0.0.1:10143;
-            proxy_http_version 1.1;
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            log_not_found off;
         }
     }
 }
 
-# ============================================
-# Stream Server（端口443）- SNI路由
-# ============================================
+# Stream 模块配置（TCP/443 端口分流）
 stream {
-    map $ssl_preread_server_name $backend_name {
-        default reality;
-    }
+    # 日志配置
+    error_log /var/log/nginx/stream.log warn;
     
-    log_format stream_routing '$remote_addr [$time_local] '
-                             'with SNI name "$ssl_preread_server_name" '
-                             'proxying to "$backend_name" '
-                             '$protocol $status $bytes_sent $bytes_received '
-                             '$session_time';
-    
-    access_log /var/log/nginx/stream-access.log stream_routing;
-    error_log  /var/log/nginx/stream-error.log warn;
-    
-    upstream reality {
-        server 127.0.0.1:11443;
-    }
-    
-    server {
-        listen 443 reuseport;
-        listen [::]:443 reuseport;
+    # SNI 映射规则（基于域名分流）
+    map $ssl_preread_server_name $backend_pool {
+        # Reality 伪装域名
+        ~*(microsoft\.com|apple\.com|cloudflare\.com|amazon\.com|fastly\.com)$ reality;
         
-        ssl_preread on;
-        proxy_pass $backend_name;
-        proxy_timeout 300s;
-        proxy_connect_timeout 5s;
+        # Trojan 专用子域
+        ~*^trojan\..* trojan;
+        
+        # 内部服务域名（用于gRPC和WebSocket）
+        grpc.edgebox.internal grpc;
+        ws.edgebox.internal websocket;
+        
+        # 默认后端
+        default "";
+    }
+    
+    # ALPN 协议映射（基于应用层协议分流）
+    map $ssl_preread_alpn_protocols $backend_alpn {
+    ~\bhttp/1\.1\b     websocket; # 先判 WebSocket
+    ~\bh2\b            grpc;      # 再判 gRPC
+    default            reality;   # 兜底 Reality
+}
+    
+    # 后端服务器映射
+    map $backend_pool $upstream_server {
+        reality   127.0.0.1:11443;  # Reality 内部端口
+        trojan    127.0.0.1:10143;  # Trojan 内部端口
+        grpc      127.0.0.1:10085;  # gRPC 内部端口
+        websocket 127.0.0.1:10086;  # WebSocket 内部端口
+        default   "";
+    }
+    
+    # ALPN 后端映射（SNI 未命中时的兜底）
+    map $backend_alpn $upstream_alpn {
+        grpc      127.0.0.1:10085;  # gRPC
+        websocket 127.0.0.1:10086;  # WebSocket
+        reality   127.0.0.1:11443;  # Reality
+        default   127.0.0.1:11443;  # 默认 Reality
+    }
+    
+    # 最终上游选择（SNI 优先，ALPN 兜底）
+    map $upstream_server $final_upstream {
+        ""      $upstream_alpn;     # SNI 未命中，使用 ALPN
+        default $upstream_server;   # SNI 命中，使用 SNI 结果
+    }
+    
+    # TCP/443 端口监听和分流
+    server {
+        listen 443 reuseport;                    # 仅监听 TCP，UDP 443 留给 sing-box
+        ssl_preread on;                          # 启用 SSL 预读取
+        proxy_pass $final_upstream;             # 代理到最终上游
+        proxy_timeout 300s;                     # 代理超时
+        proxy_connect_timeout 5s;               # 连接超时
+        proxy_protocol_timeout 5s;              # 协议超时
+        
+        # 错误处理
+        proxy_responses 1;
+        proxy_next_upstream_tries 1;
     }
 }
 NGINX_CONFIG
     
-    # 替换密码占位符
-    local final_passcode="${DASHBOARD_PASSCODE:-$(jq -r '.dashboard_passcode // "123456"' "${CONFIG_DIR}/server.json" 2>/dev/null)}"
-    if [[ -n "$final_passcode" && "$final_passcode" != "null" ]]; then
-        log_info "应用控制面板密码: ${final_passcode}"
-        sed -i "s/__DASHBOARD_PASSCODE_PH__/${final_passcode}/g" /etc/nginx/nginx.conf
-    else
-        log_warn "未找到密码配置，使用默认值"
-        sed -i "s/__DASHBOARD_PASSCODE_PH__/123456/g" /etc/nginx/nginx.conf
-    fi
+# 验证Nginx配置
+log_info "验证Nginx配置..."
+if nginx -t 2>/dev/null; then
+    log_success "Nginx配置验证通过"
+else
+    log_error "Nginx配置验证失败"
+    nginx -t  # 显示详细错误信息
+    return 1
+fi
+
+# 对齐系统与 Xray 的 DNS（幂等，无则跳过）
+log_info "对齐 DNS 解析（系统 & Xray）..."
+ensure_system_dns
+ensure_xray_dns_alignment
     
-    # 验证配置
-    log_info "验证Nginx配置..."
-    if nginx -t 2>&1 | tee /tmp/nginx_test.log; then
-        log_success "Nginx配置验证通过"
-    else
-        log_error "Nginx配置验证失败，详细信息："
-        cat /tmp/nginx_test.log
-        return 1
-    fi
-    
-    # DNS对齐
-    log_info "对齐 DNS 解析..."
-    ensure_system_dns 2>/dev/null || true
-    ensure_xray_dns_alignment 2>/dev/null || true
-    
-    log_success "Nginx配置文件创建完成"
-    return 0
+log_success "Nginx配置文件创建完成"
+return 0
 }
+
 
 #############################################
 # Xray 配置函数
