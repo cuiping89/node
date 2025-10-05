@@ -271,35 +271,6 @@ validate_paths() {
     return 0
 }
 
-#############################################
-# 在其他函数中使用常量示例
-#############################################
-
-# 修改 configure_nginx 函数使用统一常量
-configure_nginx() {
-    log_info "配置Nginx（SNI定向 + ALPN兜底架构）..."
-    
-    # 备份原始配置
-    if [[ -f "$NGINX_CONF" ]]; then
-        cp "$NGINX_CONF" "${NGINX_CONF}.bak.$(date +%s)"
-        log_info "已备份原始Nginx配置"
-    fi
-    
-    # 生成新的Nginx配置
-    cat > "$NGINX_CONF" << 'NGINX_CONFIG'
-# EdgeBox Nginx 配置文件
-# 架构：SNI定向 + ALPN兜底 + 单端口复用
-
-user www-data;
-worker_processes auto;
-pid /run/nginx.pid;
-
-# ... 其余配置保持不变 ...
-NGINX_CONFIG
-
-    log_success "Nginx配置文件生成完成"
-    return 0
-}
 
 #############################################
 # 服务器信息变量（待收集）
@@ -3485,29 +3456,20 @@ http {
             try_files /sub =404;
         }
         
-        # 控制面板和数据API
+# 控制面板和数据API
         location ^~ /traffic/ {
             alias /etc/edgebox/traffic/;
             index index.html;
             autoindex off;
 
-# 【密码保护逻辑 - 修复版】
-# 组合两个条件：$auth_required 为 1 且请求的不是 /sub 路径
-set $final_auth_check "${auth_required}:${request_uri}";
-if ($final_auth_check ~* "1:(?!/sub$)") {
-    return 401;
-}
-
-            # 缓存控制
+            # 统一缓存/编码
             add_header Cache-Control "no-store, no-cache, must-revalidate";
             add_header Pragma "no-cache";
-
-            # ✅ 正确做法：不要嵌套 location，改用 charset / types
             charset utf-8;
             types {
-                text/html               html htm;
-                text/plain              txt;
-                application/json        json;
+                text/html        html htm;
+                text/plain       txt;
+                application/json json;
             }
         }
         
