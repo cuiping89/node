@@ -15025,7 +15025,11 @@ show_installation_info() {
     echo -e  "${CYAN}--- 核心访问信息（重要！） ---${NC}"
     echo -e  "  IP地址: ${PURPLE}${server_ip}${NC}"
     
-    # 【优化点 1：突出密码和链接】
+    # 打印时需要检查 DASHBOARD_PASSCODE 是否获取成功
+    if [[ -z "$DASHBOARD_PASSCODE" ]]; then
+        DASHBOARD_PASSCODE="[错误/缺失]"
+    fi
+    
     echo -e  "  ${RED}🔑 访问密码:${NC} ${YELLOW}${DASHBOARD_PASSCODE}${NC} （6位相同数字）"
     echo -e  "  🌐 控制面板: ${PURPLE}http://${server_ip}/traffic/?passcode=${DASHBOARD_PASSCODE}${NC}" 
 
