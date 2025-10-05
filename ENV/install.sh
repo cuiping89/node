@@ -8650,18 +8650,6 @@ h4 {
    协议健康状态 - 旧版多行样式(已废弃,保持隐藏)
    ======================================================================= */
 
-/* 隐藏旧版垂直布局组件 */
-.health-status-container,
-.health-detail-message,
-.health-recommendation-badge {
-    display: none !important;
-}
-
-/* 以下为旧版样式,保留以防回滚 */
-.health-status-badge {
-    display: none !important;
-}
-
 .health-status-badge.healthy {
     background: linear-gradient(135deg, #10b981 0%, #059669 100%);
     color: white;
