@@ -7992,6 +7992,7 @@ h4 {
 
 
 /* ========== 协议健康状态 - 单行布局(与核心服务徽标统一) ========== */
+/* 锚点ID：edgebox-status-col-align ——（替换块开始） */
 
 /* 仅第4列 td：横向保持居中 + 垂直居中（不动 th 标题） */
 .data-table td:nth-child(4) {
@@ -7999,15 +8000,17 @@ h4 {
     vertical-align: middle;  /* 垂直居中 */
 }
 
-/* 单行水平布局容器：自身内部左对齐；容器整体仍居中（inline-flex） */
+/* 单元格容器：块级 flex，自身在单元格中居中；内部从左排布 */
 .data-table td:nth-child(4) .health-status-container {
-    display: inline-flex;         /* 在居中列中作为“块”被居中 */
-    align-items: center;          /* 徽标与文字垂直对齐 */
-    justify-content: flex-start;  /* 容器内部从左开始排布 */
+    display: flex;                 /* 改为块级 flex（更稳定的居中） ← 关键 */
+    align-items: center;           /* 徽标与文字垂直对齐 */
+    justify-content: flex-start;   /* 容器内部从左开始 */
     gap: 6px;
     padding: 4px 0;
-    min-width: 260px;             /* 关键：统一宽度以便对齐 */
-    text-align: left;             /* 容器内部文字左对齐 */
+    inline-size: var(--status-col-w, 320px); /* 自适应列宽（可用CSS变量覆盖） */
+    max-inline-size: 100%;
+    margin-inline: auto;           /* 容器作为“块”在居中列里真正居中 ← 关键 */
+    text-align: left;              /* 容器内部文字左对齐 */
 }
 
 /* 健康状态徽章 - 固定宽度确保对齐，并与文字中线对齐 */
@@ -8021,27 +8024,15 @@ h4 {
     border-radius: 999px;
     font-size: 11px;
     font-weight: 500;
-    min-width: 50px;              /* 固定最小宽度 */
+    min-width: 50px;
     flex-shrink: 0;
-    vertical-align: middle;       /* 徽章与文字中线对齐 */
+    vertical-align: middle;
 }
 
 /* 状态配色（保持原样） */
-.health-status-badge.healthy {
-    background: #d1fae5;
-    color: #059669;
-    border: 1px solid #a7f3d0;
-}
-.health-status-badge.degraded {
-    background: #fef3c7;
-    color: #d97706;
-    border: 1px solid #fde68a;
-}
-.health-status-badge.down {
-    background: #fee2e2;
-    color: #ef4444;
-    border: 1px solid #fecaca;
-}
+.health-status-badge.healthy { background:#d1fae5; color:#059669; border:1px solid #a7f3d0; }
+.health-status-badge.degraded { background:#fef3c7; color:#d97706; border:1px solid #fde68a; }
+.health-status-badge.down { background:#fee2e2; color:#ef4444; border:1px solid #fecaca; }
 
 /* 图标/圆点等与文字中线对齐 */
 .data-table td:nth-child(4) .health-status-container :is(.dot, .icon, svg, img) {
@@ -8049,17 +8040,8 @@ h4 {
     align-self: center;
 }
 
-/* 健康详细消息 - 与前三列保持一致 */
-.health-detail-message {
-    color: var(--content-color, #6b7280);
-    font-size: var(--h4-size, 13px);
-    font-weight: 500;
-    white-space: nowrap;
-    flex-shrink: 0;
-    line-height: 1.2;
-}
-
-/* 推荐标签 - 与前三列保持一致 */
+/* 健康详细消息/推荐标签 */
+.health-detail-message,
 .health-recommendation-badge {
     color: var(--content-color, #6b7280);
     font-size: var(--h4-size, 13px);
@@ -8069,10 +8051,8 @@ h4 {
     line-height: 1.2;
 }
 
-/* 运行状态列宽度 */
-.protocol-status {
-    min-width: 320px;
-}
+/* 运行状态列宽度（保留，可与变量联动） */
+.protocol-status { min-width: 320px; }
 
 /* 健康分数显示：与徽章中线对齐 */
 .protocol-health-score {
@@ -8083,27 +8063,15 @@ h4 {
     display: inline-block;
     vertical-align: middle;
 }
-.protocol-health-score.score-excellent {
-    color: #10b981;
-    background: rgba(16, 185, 129, 0.1);
-}
-.protocol-health-score.score-good {
-    color: #3b82f6;
-    background: rgba(59, 130, 246, 0.1);
-}
-.protocol-health-score.score-fair {
-    color: #f59e0b;
-    background: rgba(245, 158, 11, 0.1);
-}
-.protocol-health-score.score-poor {
-    color: #ef4444;
-    background: rgba(239, 68, 68, 0.1);
-}
+.protocol-health-score.score-excellent { color:#10b981; background:rgba(16,185,129,0.1); }
+.protocol-health-score.score-good { color:#3b82f6; background:rgba(59,130,246,0.1); }
+.protocol-health-score.score-fair { color:#f59e0b; background:rgba(245,158,11,0.1); }
+.protocol-health-score.score-poor { color:#ef4444; background:rgba(239,68,68,0.1); }
 
-/* 响应式调整 */
+/* 响应式：窄屏减小容器宽度，仍保持“列居中/内容左起” */
 @media (max-width: 768px) {
     .data-table td:nth-child(4) .health-status-container {
-        min-width: 220px;
+        inline-size: var(--status-col-w-sm, 260px);
     }
     .health-status-badge {
         font-size: 10px;
@@ -8113,13 +8081,12 @@ h4 {
         min-width: 45px;
     }
     .health-detail-message,
-    .health-recommendation-badge {
-        font-size: 12px;
-    }
-    .protocol-status {
-        min-width: 260px;
-    }
+    .health-recommendation-badge { font-size: 12px; }
+    .protocol-status { min-width: 260px; }
 }
+
+/* 锚点ID：edgebox-status-col-align ——（替换块结束） */
+
 
 /* =============协议健康状态 - 摘要卡片================ */
 
