@@ -2830,13 +2830,36 @@ execute_module2() {
         return 1
     fi
     
-	# 任务2.5：生成控制面板密码
-if generate_dashboard_passcode; then
-    log_success "✓ 控制面板密码生成完成"
-else
-    log_error "✗ 控制面板密码生成失败"
-    return 1
-fi
+    # ========== 修复点1: 改进任务2.5 ==========
+    # 任务2.5：生成控制面板密码 (修复版)
+    if generate_dashboard_passcode; then
+        log_success "✓ 控制面板密码生成完成: ${DASHBOARD_PASSCODE}"
+        
+        # 【新增】立即验证密码是否已写入server.json
+        local saved_password=$(jq -r '.dashboard_passcode // empty' "${CONFIG_DIR}/server.json" 2>/dev/null)
+        if [[ -z "$saved_password" || "$saved_password" == "null" ]]; then
+            log_error "密码未成功写入server.json,尝试重新写入"
+            # 重新写入
+            local temp_file="${CONFIG_DIR}/server.json.tmp"
+            if jq --arg passcode "$DASHBOARD_PASSCODE" '.dashboard_passcode = $passcode' "${CONFIG_DIR}/server.json" > "$temp_file"; then
+                mv "$temp_file" "${CONFIG_DIR}/server.json"
+                log_success "密码重新写入成功"
+            else
+                log_error "密码重新写入失败"
+                return 1
+            fi
+        else
+            log_info "验证: 密码已成功写入server.json"
+        fi
+        
+        # 【新增】导出变量供后续模块使用
+        export DASHBOARD_PASSCODE
+        log_debug "已导出DASHBOARD_PASSCODE环境变量: ${DASHBOARD_PASSCODE}"
+    else
+        log_error "✗ 控制面板密码生成失败"
+        return 1
+    fi
+    # ========== 修复点1结束 ==========
 
     # 任务3：生成Reality密钥（可能延迟到模块3）
     if generate_reality_keys; then
@@ -2846,12 +2869,12 @@ fi
     fi
     
     # 任务4：生成自签名证书
-if generate_self_signed_cert; then
-    log_success "✓ 自签名证书生成完成（已链接为 current.pem/current.key）"
-else
-    log_error "✗ 自签名证书生成失败"
-    return 1
-fi
+    if generate_self_signed_cert; then
+        log_success "✓ 自签名证书生成完成（已链接为 current.pem/current.key）"
+    else
+        log_error "✗ 自签名证书生成失败"
+        return 1
+    fi
     
     # 任务5：保存配置信息
     if save_config_info; then
@@ -2867,14 +2890,15 @@ fi
     else
         log_warn "数据完整性验证发现问题，但安装将继续"
     fi
-	
-	# 导出变量供后续模块使用
-export UUID_VLESS_REALITY UUID_VLESS_GRPC UUID_VLESS_WS
-export UUID_TUIC PASSWORD_HYSTERIA2 PASSWORD_TUIC PASSWORD_TROJAN
-export REALITY_PRIVATE_KEY REALITY_PUBLIC_KEY REALITY_SHORT_ID
-export SERVER_IP
-
-log_info "已导出所有必要变量供后续模块使用"
+    
+    # 导出变量供后续模块使用
+    export UUID_VLESS_REALITY UUID_VLESS_GRPC UUID_VLESS_WS
+    export UUID_TUIC PASSWORD_HYSTERIA2 PASSWORD_TUIC PASSWORD_TROJAN
+    export REALITY_PRIVATE_KEY REALITY_PUBLIC_KEY REALITY_SHORT_ID
+    export SERVER_IP
+    export DASHBOARD_PASSCODE  # 【新增】确保导出
+    
+    log_info "已导出所有必要变量供后续模块使用"
     
     log_success "======== 模块2执行完成 ========"
     log_info "已生成："
@@ -2882,10 +2906,12 @@ log_info "已导出所有必要变量供后续模块使用"
     log_info "├─ 所有协议的UUID和密码"
     log_info "├─ Reality密钥对"
     log_info "├─ 自签名证书"
+    log_info "├─ 控制面板密码: ${DASHBOARD_PASSCODE}"  # 【新增】显示密码
     log_info "└─ 完整的server.json配置文件"
     
     return 0
 }
+
 
 #############################################
 # 模块2导出函数（供其他模块调用）
@@ -4467,16 +4493,79 @@ execute_module3() {
         log_error "✗ Nginx配置失败"
         return 1
     fi
-	  
-# 替换 Nginx 配置中的密码占位符
-local final_passcode="${DASHBOARD_PASSCODE:-$(jq -r '.dashboard_passcode // empty' "${CONFIG_DIR}/server.json" 2>/dev/null)}"
-if [[ -n "$final_passcode" ]]; then
-    log_info "应用控制面板密码到 Nginx 配置..."
-    # 实际替换 Nginx 配置中的占位符
-    sed -i "s/__DASHBOARD_PASSCODE_PH__/${final_passcode}/g" /etc/nginx/nginx.conf
-else
-    log_warn "未获取到控制面板密码，Nginx 配置将使用默认占位符"
-fi
+    
+    # ========== 修复点2: 改进密码替换逻辑 ==========
+    # 替换 Nginx 配置中的密码占位符 (修复版)
+    log_info "开始应用控制面板密码到Nginx配置..."
+    
+    # 1. 多种方式获取密码,增加容错性
+    local final_passcode=""
+    
+    # 尝试1: 从环境变量获取
+    if [[ -n "$DASHBOARD_PASSCODE" && "$DASHBOARD_PASSCODE" != "null" ]]; then
+        final_passcode="$DASHBOARD_PASSCODE"
+        log_info "从环境变量获取密码: ${final_passcode}"
+    # 尝试2: 从server.json读取
+    elif [[ -f "${CONFIG_DIR}/server.json" ]]; then
+        final_passcode=$(jq -r '.dashboard_passcode // empty' "${CONFIG_DIR}/server.json" 2>/dev/null)
+        if [[ -n "$final_passcode" && "$final_passcode" != "null" ]]; then
+            log_info "从server.json读取密码: ${final_passcode}"
+        else
+            final_passcode=""
+        fi
+    fi
+    
+    # 2. 如果还是没有密码,重新生成
+    if [[ -z "$final_passcode" ]]; then
+        log_warn "未找到密码,重新生成..."
+        local random_digit=$((RANDOM % 10))
+        final_passcode="${random_digit}${random_digit}${random_digit}${random_digit}${random_digit}${random_digit}"
+        
+        # 写入server.json
+        local temp_file="${CONFIG_DIR}/server.json.tmp"
+        if jq --arg passcode "$final_passcode" '.dashboard_passcode = $passcode' "${CONFIG_DIR}/server.json" > "$temp_file"; then
+            mv "$temp_file" "${CONFIG_DIR}/server.json"
+            log_success "新密码已生成并写入: ${final_passcode}"
+        else
+            log_error "生成新密码失败"
+            rm -f "$temp_file"
+        fi
+    fi
+    
+    # 3. 验证密码有效性
+    if [[ -z "$final_passcode" || ${#final_passcode} -ne 6 ]]; then
+        log_error "密码无效或长度不正确: '${final_passcode}'"
+        log_error "Nginx配置将保留占位符,需要手动修复"
+    else
+        # 4. 执行替换
+        log_info "应用密码到Nginx配置: ${final_passcode}"
+        
+        # 创建备份
+        cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak.pre-password
+        
+        # 替换占位符
+        if sed -i "s/__DASHBOARD_PASSCODE_PH__/${final_passcode}/g" /etc/nginx/nginx.conf; then
+            log_success "密码已成功应用到Nginx配置"
+            
+            # 验证替换是否成功
+            if grep -q "__DASHBOARD_PASSCODE_PH__" /etc/nginx/nginx.conf; then
+                log_warn "警告: Nginx配置中仍存在占位符,可能替换不完整"
+            else
+                log_success "验证通过: 占位符已完全替换"
+            fi
+            
+            # 验证Nginx配置语法
+            if nginx -t 2>/dev/null; then
+                log_success "Nginx配置语法验证通过"
+            else
+                log_error "Nginx配置语法验证失败"
+                log_error "已创建备份: /etc/nginx/nginx.conf.bak.pre-password"
+            fi
+        else
+            log_error "sed替换失败"
+        fi
+    fi
+    # ========== 修复点2结束 ==========
     
     # 任务6：生成订阅链接
     if generate_subscription; then
@@ -4500,10 +4589,12 @@ fi
     log_info "├─ sing-box服务（Hysteria2、TUIC）"
     log_info "├─ Nginx分流代理（SNI+ALPN架构）"
     log_info "├─ 订阅链接生成（6种协议）"
+    log_info "├─ 控制面板密码: ${final_passcode:-未设置}"  # 【新增】
     log_info "└─ 所有服务运行验证"
     
     return 0
 }
+
 
 #############################################
 # 模块3导出函数（供其他模块调用）
