@@ -4663,31 +4663,28 @@ jq_safe_list() {
 get_system_metrics() {
     local cpu_percent=0 memory_percent=0 disk_percent=0
 
-    # CPU（/proc/stat 两次采样，短间隔）
+    # CPU 使用率：通过 awk 精确计算，避免 sleep 和 shell 数组不稳定的问题
     if [[ -r /proc/stat ]]; then
-        local stat1 stat2 idle1 idle2 total1=0 total2=0
-        # 第一次采样
-        read -r -a stat1 < /proc/stat
-        idle1=${stat1[4]}
-        for v in "${stat1[@]:1}"; do total1=$((total1 + v)); done
-        # 短暂停 0.5s（减少后台被 web 调起时的卡顿）
-        sleep 0.5
-        # 第二次采样
-        read -r -a stat2 < /proc/stat
-        idle2=${stat2[4]}
-        for v in "${stat2[@]:1}"; do total2=$((total2 + v)); done
-        local total_diff=$((total2 - total1))
-        local idle_diff=$((idle2 - idle1))
+        local stat_file="/proc/stat"
+        local prev_stats=$(awk '/^cpu / {print $2+$3+$4, $5}' "$stat_file")
+        sleep 1 # 使用1秒的采样间隔以获得更准确的读数
+        local curr_stats=$(awk '/^cpu / {print $2+$3+$4, $5}' "$stat_file")
+
+        read prev_active prev_idle <<< "$prev_stats"
+        read curr_active curr_idle <<< "$curr_stats"
+
+        local total_diff=$(( (curr_active + curr_idle) - (prev_active + prev_idle) ))
+        local idle_diff=$((curr_idle - prev_idle))
+
         if [[ $total_diff -gt 0 ]]; then
             cpu_percent=$(( ( (total_diff - idle_diff) * 100 ) / total_diff ))
         fi
     fi
 
-    # 内存（MemTotal/MemAvailable）
+    # 内存使用率：使用 MemAvailable，这是最准确的指标
     if [[ -r /proc/meminfo ]]; then
-        local mem_total mem_available
-        mem_total=$(awk '/MemTotal:/ {print $2}' /proc/meminfo)
-        mem_available=$(awk '/MemAvailable:/ {print $2}' /proc/meminfo)
+        local mem_total=$(awk '/MemTotal:/ {print $2}' /proc/meminfo)
+        local mem_available=$(awk '/MemAvailable:/ {print $2}' /proc/meminfo)
         if [[ ${mem_total:-0} -gt 0 ]]; then
             memory_percent=$(( (mem_total - mem_available) * 100 / mem_total ))
         fi
@@ -4695,16 +4692,13 @@ get_system_metrics() {
 
     # 根分区磁盘使用率
     if command -v df >/dev/null 2>&1; then
-        disk_percent=$(df / | awk 'NR==2 {gsub("%","",$5); print $5}')
+        disk_percent=$(df / | awk 'NR==2 {print $5}' | sed 's/%//')
     fi
 
-    # 限幅到 0–100
-    (( cpu_percent     < 0 )) && cpu_percent=0
-    (( cpu_percent     > 100 )) && cpu_percent=100
-    (( memory_percent  < 0 )) && memory_percent=0
-    (( memory_percent  > 100 )) && memory_percent=100
-    (( disk_percent    < 0 )) && disk_percent=0
-    (( disk_percent    > 100 )) && disk_percent=100
+    # 确保所有值都在 0-100 范围内
+    (( cpu_percent < 0 )) && cpu_percent=0 || (( cpu_percent > 100 )) && cpu_percent=100
+    (( memory_percent < 0 )) && memory_percent=0 || (( memory_percent > 100 )) && memory_percent=100
+    (( disk_percent < 0 )) && disk_percent=0 || (( disk_percent > 100 )) && disk_percent=100
 
     # 输出 JSON
     jq -n \
@@ -5297,19 +5291,18 @@ generate_dashboard_data() {
 # 统一生成 services_info（状态+版本号）
 services_info=$(
   jq -n \
-    --arg nstat "$(systemctl is-active --quiet nginx    && echo 运行中 || echo 已停止)" \
-    --arg xstat "$(systemctl is-active --quiet xray     && echo 运行中 || echo 已停止)" \
+    --arg nstat "$(systemctl is-active --quiet nginx && echo 运行中 || echo 已停止)" \
+    --arg xstat "$(systemctl is-active --quiet xray && echo 运行中 || echo 已停止)" \
     --arg sstat "$(systemctl is-active --quiet sing-box && echo 运行中 || echo 已停止)" \
-    --arg nver  "$(nginx -v 2>&1 | grep -oE '[0-9]+(\.[0-9]+)+' | head -1)" \
-    --arg xver  "$({ xray -version 2>/dev/null || xray version 2>/dev/null; } | head -n1 | grep -Eo 'v?[0-9]+(\.[0-9]+)+' | head -1)" \
-    --arg sver  "$({ command -v sing-box >/dev/null && sing-box version 2>/dev/null || /usr/local/bin/sing-box version 2>/dev/null; } | head -n1 | grep -oE '[0-9]+(\.[0-9]+)+' | head -1)" \
+    --arg nver "$(nginx -v 2>&1 | grep -oE '[0-9]+(\.[0-9]+)+' | head -1 || echo "")" \
+    --arg xver "$((xray version 2>/dev/null || xray -version 2>/dev/null) | head -n1 | grep -Eo 'v?[0-9]+(\.[0-9]+)+' | head -1 || echo "")" \
+    --arg sver "$((sing-box version 2>/dev/null || /usr/local/bin/sing-box version 2>/dev/null) | head -n1 | grep -oE '[0-9]+(\.[0-9]+)+' | head -1 || echo "")" \
     '{
-       nginx:     {status:$nstat,  version:(if $nver=="" then null else $nver end)},
-       xray:      {status:$xstat,  version:(if $xver=="" then null else $xver end)},
-       "sing-box":{status:$sstat,  version:(if $sver=="" then null else $sver end)}
-     }'
+        "nginx":    {"status": $nstat, "version": (if $nver == "" then null else $nver end)},
+        "xray":     {"status": $xstat, "version": (if $xver == "" then null else $xver end)},
+        "sing-box": {"status": $sstat, "version": (if $sver == "" then null else $sver end)}
+    }'
 )
-
 
     # 合并所有数据生成dashboard.json
 jq -n \
