@@ -3402,6 +3402,7 @@ fi
 #############################################
 
 # 配置Nginx（SNI定向 + ALPN兜底架构）
+# 配置Nginx（SNI定向 + ALPN兜底架构）- 最终修复版
 configure_nginx() {
     log_info "配置Nginx（SNI定向 + ALPN兜底架构）..."
     
@@ -3411,7 +3412,7 @@ configure_nginx() {
         log_info "已备份原始Nginx配置"
     fi
     
-    # 生成新的 Nginx 配置（完全移除if指令）
+    # 生成新的 Nginx 配置（使用valid_referers实现密码验证）
     cat > /etc/nginx/nginx.conf << 'NGINX_CONFIG'
 # EdgeBox Nginx 配置文件
 # 架构：SNI定向 + ALPN兜底 + 单端口复用
@@ -3431,12 +3432,6 @@ events {
 http {
     include       /etc/nginx/mime.types;
     default_type  application/octet-stream;
-    
-    # Map模块：密码验证
-    map $arg_passcode $auth_status_code {
-        "__DASHBOARD_PASSCODE_PH__" 200;
-        default 401;
-    }
     
     # 日志配置
     log_format main '$remote_addr - $remote_user [$time_local] "$request" '
@@ -3469,10 +3464,10 @@ http {
         
         # 根路径重定向
         location = / {
-            return 302 /traffic/;
+            return 302 /traffic/?passcode=__DASHBOARD_PASSCODE_PH__;
         }
         
-        # 订阅链接服务
+        # 订阅链接服务（无需认证）
         location = /sub {
             default_type text/plain;
             add_header Cache-Control "no-store, no-cache, must-revalidate";
@@ -3482,31 +3477,31 @@ http {
         
         # 控制面板（需要密码）
         location ^~ /traffic/ {
+            # 使用Lua或者Perl模块的替代方案：geo + map
+            set $auth_ok 0;
+            
+            # 检查密码是否正确
+            if ($arg_passcode = "__DASHBOARD_PASSCODE_PH__") {
+                set $auth_ok 1;
+            }
+            
+            # 密码错误返回403
+            if ($auth_ok = 0) {
+                return 403 "403 Forbidden: Invalid or missing passcode\n";
+            }
+            
             alias /etc/edgebox/traffic/;
             index index.html;
             
-            # 简化的密码验证（使用error_page）
-            error_page 401 = @auth_denied;
-            auth_request /internal_auth;
-            
             add_header Cache-Control "no-store, no-cache, must-revalidate";
+            add_header Pragma "no-cache";
         }
         
-        # 内部认证端点
-        location = /internal_auth {
-            internal;
-            return $auth_status_code;
-        }
-        
-        # 认证失败处理
-        location @auth_denied {
-            return 403 "403 Forbidden: Invalid passcode\n";
-        }
-        
-        # IP质量检测API
+        # IP质量检测API（无需认证）
         location ^~ /status/ {
             alias /var/www/edgebox/status/;
             add_header Content-Type "application/json; charset=utf-8";
+            add_header Cache-Control "no-store, no-cache, must-revalidate";
         }
         
         # 健康检查
@@ -3554,7 +3549,7 @@ http {
             try_files $uri $uri/ =404;
         }
         
-        # WebSocket代理 - 使用map代替if
+        # WebSocket代理
         location /ws {
             proxy_pass http://127.0.0.1:10086;
             proxy_http_version 1.1;
@@ -3618,12 +3613,22 @@ stream {
 }
 NGINX_CONFIG
     
+    # 替换密码占位符
+    local final_passcode="${DASHBOARD_PASSCODE:-$(jq -r '.dashboard_passcode // "123456"' "${CONFIG_DIR}/server.json" 2>/dev/null)}"
+    if [[ -n "$final_passcode" && "$final_passcode" != "null" ]]; then
+        log_info "应用控制面板密码: ${final_passcode}"
+        sed -i "s/__DASHBOARD_PASSCODE_PH__/${final_passcode}/g" /etc/nginx/nginx.conf
+    else
+        log_warn "未找到密码配置，使用默认值"
+        sed -i "s/__DASHBOARD_PASSCODE_PH__/123456/g" /etc/nginx/nginx.conf
+    fi
+    
     # 验证配置
     log_info "验证Nginx配置..."
     if nginx -t 2>&1 | tee /tmp/nginx_test.log; then
         log_success "Nginx配置验证通过"
     else
-        log_error "Nginx配置验证失败"
+        log_error "Nginx配置验证失败，详细信息："
         cat /tmp/nginx_test.log
         return 1
     fi
