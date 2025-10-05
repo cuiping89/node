@@ -11235,50 +11235,89 @@ function normalizeProtoKey(name) {
 /*** 渲染协议表格（完整版） */
 
 function renderProtocolTable(protocolsOpt, healthOpt) {
-  const protocols = Array.isArray(protocolsOpt) ? protocolsOpt
-                   : (window.dashboardData?.protocols || []);
-  const health = healthOpt || window.__protocolHealth || null;
-
+  // ========== 🛡️ 防御性检查 ==========
+  
+  // 1. 检查 DOM 元素
   const tbody = document.getElementById('protocol-tbody');
-  if (!tbody) return;
+  if (!tbody) {
+    console.warn('[renderProtocolTable] tbody元素不存在，跳过渲染');
+    return false;
+  }
+  
+  // 2. 获取协议数据（支持多种来源）
+  let protocols = [];
+  
+  if (Array.isArray(protocolsOpt) && protocolsOpt.length > 0) {
+    protocols = protocolsOpt;
+  } else if (window.dashboardData?.protocols && Array.isArray(window.dashboardData.protocols)) {
+    protocols = window.dashboardData.protocols;
+  }
+  
+  // 3. 数据验证
+  if (!protocols || protocols.length === 0) {
+    console.warn('[renderProtocolTable] 协议数据为空，等待数据加载...');
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:20px;color:#6b7280;">正在加载协议配置...</td></tr>';
+    return false;
+  }
+  
+  console.log('[renderProtocolTable] 开始渲染，协议数量:', protocols.length);
+  
+  // ========== 🎨 开始渲染 ==========
+  
   tbody.innerHTML = '';
+  
+  const health = healthOpt || window.__protocolHealth || null;
+  
+  protocols.forEach((p, index) => {
+    try {
+      const protoKey = normalizeProtoKey(p.name);
+      const h = health?.protocols?.find(x => x.protocol === protoKey);
 
-  protocols.forEach(p => {
-    const protoKey = normalizeProtoKey(p.name);
-    const h = health?.protocols?.find(x => x.protocol === protoKey);
-
-    const tr = document.createElement('tr');
-    tr.dataset.protocol = protoKey;
-    tr.innerHTML = `
-      <td>${escapeHtml(p.name)}</td>
-      <td>${escapeHtml(p.fit || p.scenario || '—')}</td>
-      <td>${escapeHtml(p.effect || p.camouflage || '—')}</td>
-      <td class="protocol-status">
-        ${h ? `
-          <div class="health-status-inline">
-            <span class="health-badge ${h.status}">${h.status_badge}</span>
-            <span class="health-message">${h.detail_message}</span>
-          </div>
-        ` : `<span class="status-badge ${p.status === '运行中' ? 'status-running' : ''}">${p.status || '—'}</span>`}
-      </td>
-      <td>
-        <button class="btn btn-sm btn-link"
-                data-action="open-modal"
-                data-modal="configModal"
-                data-protocol="${escapeHtml(p.name)}">查看配置</button>
-      </td>
-    `;
-    tbody.appendChild(tr);
+      const tr = document.createElement('tr');
+      tr.dataset.protocol = protoKey;
+      tr.innerHTML = `
+        <td>${escapeHtml(p.name)}</td>
+        <td>${escapeHtml(p.fit || p.scenario || '—')}</td>
+        <td>${escapeHtml(p.effect || p.camouflage || '—')}</td>
+        <td class="protocol-status">
+          ${h ? `
+            <div class="health-status-inline">
+              <span class="health-badge ${h.status}">${h.status_badge}</span>
+              <span class="health-message">${h.detail_message}</span>
+            </div>
+          ` : `<span class="status-badge ${p.status === '运行中' ? 'status-running' : ''}">${p.status || '—'}</span>`}
+        </td>
+        <td>
+          <button class="btn btn-sm btn-link"
+                  data-action="open-modal"
+                  data-modal="configModal"
+                  data-protocol="${escapeHtml(p.name)}">查看配置</button>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    } catch (error) {
+      console.error('[renderProtocolTable] 渲染协议失败:', p.name, error);
+    }
   });
 
-  // "整包协议"行
-  const subRow = document.createElement('tr');
-  subRow.className = 'subs-row';
-  subRow.innerHTML = `
-    <td style="font-weight:500;">整包协议</td><td></td><td></td><td></td>
-    <td><button class="btn btn-sm btn-link" data-action="open-modal" data-modal="configModal" data-protocol="__SUBS__">查看@订阅</button></td>
-  `;
-  tbody.appendChild(subRow);
+  // 添加整包协议行
+  try {
+    const subRow = document.createElement('tr');
+    subRow.className = 'subs-row';
+    subRow.innerHTML = `
+      <td style="font-weight:500;">整包协议</td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td><button class="btn btn-sm btn-link" data-action="open-modal" data-modal="configModal" data-protocol="__SUBS__">查看@订阅</button></td>
+    `;
+    tbody.appendChild(subRow);
+  } catch (error) {
+    console.error('[renderProtocolTable] 添加整包协议行失败:', error);
+  }
+  
+  console.log('[renderProtocolTable] 渲染完成，总行数:', tbody.querySelectorAll('tr').length);
+  return true;
 }
 
 
