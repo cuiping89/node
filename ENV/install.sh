@@ -3411,7 +3411,7 @@ configure_nginx() {
         log_info "已备份原始Nginx配置"
     fi
     
-    # 生成新的 Nginx 配置
+    # 生成新的Nginx配置
     cat > /etc/nginx/nginx.conf << 'NGINX_CONFIG'
 # EdgeBox Nginx 配置文件
 # 架构：SNI定向 + ALPN兜底 + 单端口复用
@@ -3423,6 +3423,7 @@ pid /run/nginx.pid;
 # 加载必要模块
 include /etc/nginx/modules-enabled/*.conf;
 
+# 事件处理
 events {
     worker_connections 1024;
     use epoll;
@@ -3434,12 +3435,12 @@ http {
     include       /etc/nginx/mime.types;
     default_type  application/octet-stream;
     
-    # 【核心修复】1. Map 模块：检查 URL 参数是否匹配密码
-    map $arg_passcode $auth_status_code {
-        # 如果 URL 参数匹配正确的密码（__DASHBOARD_PASSCODE_PH__ 是占位符）
-        "__DASHBOARD_PASSCODE_PH__" 200;  # 设置为 200 (认证成功)
-        # 其他任何情况（包括密码为空），默认设置为 401 (需要认证)
-        default 401;                      
+    # 【新增】定义一个 map 变量 $auth_required，用于检查密码
+    map $arg_passcode $auth_required {
+        # 如果 URL 参数匹配正确的密码（__DASHBOARD_PASSCODE_PH__ 是占位符，将在安装后期被 sed 替换）
+        "__DASHBOARD_PASSCODE_PH__" 0;  # 设置为 0 (无需认证)
+        # 其他任何情况，默认设置为 1 (需要认证)
+        default 1;                      
     }
     
     # 日志格式
@@ -3464,12 +3465,6 @@ http {
     add_header X-Content-Type-Options nosniff;
     add_header X-XSS-Protection "1; mode=block";
     
-    # 【核心修复】2. 授权检查模块（无 IF，直接返回状态码）
-    location = /internal_auth {
-        internal;
-        return $auth_status_code;
-    }
-    
     # HTTP 服务器（端口80）
     server {
         listen 80 default_server;
@@ -3481,7 +3476,7 @@ http {
             return 302 /traffic/;
         }
         
-        # 订阅链接服务 (无需认证)
+        # 订阅链接服务
         location = /sub {
             default_type text/plain;
             add_header Cache-Control "no-store, no-cache, must-revalidate";
@@ -3490,30 +3485,28 @@ http {
             try_files /sub =404;
         }
         
-        # 控制面板和数据API（需要认证）
+        # 控制面板和数据API
         location ^~ /traffic/ {
             alias /etc/edgebox/traffic/;
             index index.html;
             autoindex off;
-            
-            # 【启用密码保护】通过子请求验证权限
-            auth_request /internal_auth;     # <-- 调用授权模块
-            error_page 401 = @auth_denied;   # <-- 捕获认证失败，跳转到处理块
-            
+
+            # 【密码保护逻辑】基于 map $auth_required（值来自 http{} 顶部的 map）
+            if ($auth_required = 1) {
+                if ($request_uri !~* /sub$) { return 401; }
+            }
+
             # 缓存控制
             add_header Cache-Control "no-store, no-cache, must-revalidate";
             add_header Pragma "no-cache";
-            
-            # 文件类型（防止错误覆盖）
-            location ~* \.(html|htm|json|txt)$ {
-                alias /etc/edgebox/traffic/;
-                add_header Content-Type "text/$1; charset=utf-8";
+
+            # ✅ 正确做法：不要嵌套 location，改用 charset / types
+            charset utf-8;
+            types {
+                text/html               html htm;
+                text/plain              txt;
+                application/json        json;
             }
-        }
-        
-        # 【新增】3. 认证失败处理块（返回 403 友好提示）
-        location @auth_denied {
-            return 403 "403 Forbidden: Missing or invalid passcode in URL parameter.\n";
         }
         
         # IP质量检测API（对齐技术规范）
@@ -3546,6 +3539,7 @@ http {
             log_not_found off;
         }
     }
+}
 
 # Stream 模块配置（TCP/443 端口分流）
 stream {
@@ -3570,10 +3564,10 @@ stream {
     
     # ALPN 协议映射（基于应用层协议分流）
     map $ssl_preread_alpn_protocols $backend_alpn {
-        ~\bhttp/1\.1\b     websocket; # 先判 WebSocket
-        ~\bh2\b            grpc;      # 再判 gRPC
-        default            reality;   # 兜底 Reality
-    }
+    ~\bhttp/1\.1\b     websocket; # 先判 WebSocket
+    ~\bh2\b            grpc;      # 再判 gRPC
+    default            reality;   # 兜底 Reality
+}
     
     # 后端服务器映射
     map $backend_pool $upstream_server {
@@ -3632,6 +3626,7 @@ ensure_xray_dns_alignment
 log_success "Nginx配置文件创建完成"
 return 0
 }
+
 
 #############################################
 # Xray 配置函数
