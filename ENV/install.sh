@@ -2438,6 +2438,7 @@ generate_reality_keys() {
 # 生成控制面板密码
 generate_dashboard_passcode() {
     log_info "生成控制面板访问密码..."
+    
     # 随机生成一个 0-9 的数字
     local random_digit=$((RANDOM % 10))
     # 生成 6 位相同的数字密码
@@ -2448,19 +2449,19 @@ generate_dashboard_passcode() {
         return 1
     fi
     
+    # ========== 关键修复: 不在这里写入,等save_config_info()统一写入 ==========
     log_success "控制面板密码生成完成: $DASHBOARD_PASSCODE"
     
-    # 将密码写入 server.json
-    local config_file="${CONFIG_DIR}/server.json"
-    if [[ -f "$config_file" ]]; then
-        local temp_file="${config_file}.tmp"
-        if jq --arg passcode "$DASHBOARD_PASSCODE" '.dashboard_passcode = $passcode' "$config_file" > "$temp_file"; then
-            mv "$temp_file" "$config_file"
-            log_info "控制面板密码已写入 server.json"
-        else
-            log_warn "写入 server.json 失败"
-        fi
-    fi
+    # 导出环境变量供save_config_info()使用
+    export DASHBOARD_PASSCODE
+    
+    # 不再执行这段代码,避免被save_config_info()覆盖:
+    # local config_file="${CONFIG_DIR}/server.json"
+    # if [[ -f "$config_file" ]]; then
+    #     ...jq写入...
+    # fi
+    # =========================================================================
+    
     return 0
 }
 
@@ -2486,17 +2487,25 @@ save_config_info() {
     local cloud_region="${CLOUD_REGION:-Unknown}"
     local instance_id="${INSTANCE_ID:-Unknown}"
     local hostname="${HOSTNAME:-$(hostname)}"
-    local user_alias=""  # 用户可后续自定义
+    local user_alias=""
     local cpu_spec="${CPU_SPEC:-Unknown}"
     local memory_spec="${MEMORY_SPEC:-Unknown}"
     local disk_spec="${DISK_SPEC:-Unknown}"
     
-    # 协议凭据变量（必须有值）
+    # ========== 关键修复1: 确保密码变量有效 ==========
+    # 如果DASHBOARD_PASSCODE为空,生成一个临时密码
+    if [[ -z "$DASHBOARD_PASSCODE" ]]; then
+        log_warn "DASHBOARD_PASSCODE变量为空,生成临时密码"
+        local random_digit=$((RANDOM % 10))
+        DASHBOARD_PASSCODE="${random_digit}${random_digit}${random_digit}${random_digit}${random_digit}${random_digit}"
+        export DASHBOARD_PASSCODE
+    fi
+    log_info "保存密码: $DASHBOARD_PASSCODE"
+    # ===============================================
+    
+    # 协议凭据变量验证
     if [[ -z "$UUID_VLESS_REALITY" || -z "$PASSWORD_TROJAN" || -z "$PASSWORD_HYSTERIA2" ]]; then
         log_error "关键凭据缺失，无法保存配置"
-        log_debug "VLESS Reality UUID: ${UUID_VLESS_REALITY:-空}"
-        log_debug "Trojan密码: ${PASSWORD_TROJAN:-空}"
-        log_debug "Hysteria2密码: ${PASSWORD_HYSTERIA2:-空}"
         return 1
     fi
     
@@ -2508,110 +2517,90 @@ save_config_info() {
     
     log_info "生成server.json配置文件..."
     
-    # 生成完整的server.json配置（对齐控制面板数据结构）
-    if ! jq -n \
-        --arg ts "$updated_at" \
-        --arg ip "$server_ip" \
-        --arg eip "" \
-        --arg vm "$version" \
-        --arg inst "$install_date" \
-        --arg cloud_provider "$cloud_provider" \
-        --arg cloud_region "$cloud_region" \
-        --arg instance_id "$instance_id" \
-        --arg hostname "$hostname" \
-        --arg user_alias "$user_alias" \
-        --arg cpu_spec "$cpu_spec" \
-        --arg memory_spec "$memory_spec" \
-        --arg disk_spec "$disk_spec" \
-        --arg vr "$UUID_VLESS_REALITY" \
-        --arg vg "$UUID_VLESS_GRPC" \
-        --arg vw "$UUID_VLESS_WS" \
-        --arg tu "$UUID_TUIC" \
-        --arg tru "$UUID_TROJAN" \
-        --arg tt "$PASSWORD_TROJAN" \
-        --arg tp "$PASSWORD_TUIC" \
-        --arg hy "$PASSWORD_HYSTERIA2" \
-        --arg rpub "$REALITY_PUBLIC_KEY" \
-        --arg rpri "$REALITY_PRIVATE_KEY" \
-        --arg rsid "$REALITY_SHORT_ID" \
-		--arg rsni "$REALITY_SNI" \
-        '{
-            server_ip: $ip,
-            eip: $eip,
-            version: $vm,
-            install_date: $inst,
-            updated_at: $ts,
-            cloud: {
-                provider: $cloud_provider,
-                region: $cloud_region
-            },
-            instance_id: $instance_id,
-            hostname: $hostname,
-            user_alias: $user_alias,
-            spec: {
-                cpu: $cpu_spec,
-                memory: $memory_spec,
-                disk: $disk_spec
-            },
-            uuid: {
-                vless: {
-                    reality: $vr,
-                    grpc: $vg,
-                    ws: $vw
-                },
-                tuic: $tu,
-                trojan: $tru
-            },
-            password: {
-                trojan: $tt,
-                tuic: $tp,
-                hysteria2: $hy
-            },
-            reality: {
-                  public_key: $rpub,
-				  private_key: $rpri,
-				  short_id: $rsid,
-				  sni: $rsni
-            },
-            cert: {
-                mode: "self-signed",
-                domain: "",
-                expires_at: ""
-            }
-        }' > "${CONFIG_DIR}/server.json"; then
-        log_error "server.json生成失败"
+    # ========== 关键修复2: JSON模板中包含dashboard_passcode ==========
+    # 生成完整的server.json配置
+    cat > "${CONFIG_DIR}/server.json" << EOF
+{
+  "version": "$version",
+  "install_date": "$install_date",
+  "updated_at": "$updated_at",
+  "server_ip": "$server_ip",
+  "eip": "${SERVER_EIP:-$server_ip}",
+  "hostname": "$hostname",
+  "instance_id": "$instance_id",
+  "user_alias": "$user_alias",
+  "dashboard_passcode": "$DASHBOARD_PASSCODE",
+  "cloud": {
+    "provider": "$cloud_provider",
+    "region": "$cloud_region"
+  },
+  "spec": {
+    "cpu": "$cpu_spec",
+    "memory": "$memory_spec",
+    "disk": "$disk_spec"
+  },
+  "uuid": {
+    "vless": {
+      "reality": "$UUID_VLESS_REALITY",
+      "grpc": "$UUID_VLESS_GRPC",
+      "ws": "$UUID_VLESS_WS"
+    },
+    "tuic": "$UUID_TUIC",
+    "hysteria2": "$UUID_HYSTERIA2",
+    "trojan": "$UUID_TROJAN"
+  },
+  "password": {
+    "trojan": "$PASSWORD_TROJAN",
+    "tuic": "$PASSWORD_TUIC",
+    "hysteria2": "$PASSWORD_HYSTERIA2"
+  },
+  "reality": {
+    "public_key": "$REALITY_PUBLIC_KEY",
+    "private_key": "$REALITY_PRIVATE_KEY",
+    "short_id": "$REALITY_SHORT_ID"
+  },
+  "cert": {
+    "mode": "self-signed",
+    "domain": null,
+    "auto_renew": false
+  }
+}
+EOF
+    # ================================================================
+
+    # 验证生成的JSON文件
+    if [[ ! -f "${CONFIG_DIR}/server.json" ]]; then
+        log_error "server.json文件创建失败"
         return 1
     fi
     
-if ! jq '.' "${CONFIG_DIR}/server.json" >/dev/null 2>&1; then
-       log_error "server.json验证失败"
-       return 1
-   fi
+    if ! jq '.' "${CONFIG_DIR}/server.json" >/dev/null 2>&1; then
+        log_error "server.json验证失败"
+        return 1
+    fi
     
-    # 设置文件权限（只有root可读写）
+    # ========== 关键修复3: 验证密码是否正确保存 ==========
+    local saved_password=$(jq -r '.dashboard_passcode // empty' "${CONFIG_DIR}/server.json" 2>/dev/null)
+    if [[ -z "$saved_password" || "$saved_password" != "$DASHBOARD_PASSCODE" ]]; then
+        log_error "密码保存验证失败!"
+        log_error "  期望密码: $DASHBOARD_PASSCODE"
+        log_error "  实际保存: ${saved_password:-空}"
+        return 1
+    else
+        log_success "密码保存验证通过: $saved_password"
+    fi
+    # =================================================
+    
+    # 设置文件权限
     chmod 600 "${CONFIG_DIR}/server.json"
     chown root:root "${CONFIG_DIR}/server.json"
     
     log_success "server.json配置文件保存完成"
     
-    # 显示配置摘要（不显示敏感信息）
-    log_info "配置摘要："
-    jq -r '
-        "├─ 服务器IP: " + .server_ip,
-        "├─ 云厂商: " + .cloud.provider + "/" + .cloud.region,
-        "├─ 实例ID: " + .instance_id,
-        "├─ 主机名: " + .hostname,
-        "├─ CPU规格: " + .spec.cpu,
-        "├─ 内存规格: " + .spec.memory,
-        "├─ 磁盘规格: " + .spec.disk,
-        "├─ Reality公钥: " + (.reality.public_key[0:16] + "..."),
-        "└─ 配置版本: " + .version
-    ' "${CONFIG_DIR}/server.json" | while read -r line; do
-        log_info "$line"
-    done
-    
     return 0
 }
+
+
 
 # 生成自签名证书（基础版本，模块3会有完整版本）
 generate_self_signed_cert() {
@@ -2830,38 +2819,18 @@ execute_module2() {
         return 1
     fi
     
-    # ========== 修复点1: 改进任务2.5 ==========
-    # 任务2.5：生成控制面板密码 (修复版)
+    # ========== 关键修复: 密码生成在save_config_info之前 ==========
+    # 任务2.5：生成控制面板密码(只生成不写入)
     if generate_dashboard_passcode; then
         log_success "✓ 控制面板密码生成完成: ${DASHBOARD_PASSCODE}"
-        
-        # 【新增】立即验证密码是否已写入server.json
-        local saved_password=$(jq -r '.dashboard_passcode // empty' "${CONFIG_DIR}/server.json" 2>/dev/null)
-        if [[ -z "$saved_password" || "$saved_password" == "null" ]]; then
-            log_error "密码未成功写入server.json,尝试重新写入"
-            # 重新写入
-            local temp_file="${CONFIG_DIR}/server.json.tmp"
-            if jq --arg passcode "$DASHBOARD_PASSCODE" '.dashboard_passcode = $passcode' "${CONFIG_DIR}/server.json" > "$temp_file"; then
-                mv "$temp_file" "${CONFIG_DIR}/server.json"
-                log_success "密码重新写入成功"
-            else
-                log_error "密码重新写入失败"
-                return 1
-            fi
-        else
-            log_info "验证: 密码已成功写入server.json"
-        fi
-        
-        # 【新增】导出变量供后续模块使用
-        export DASHBOARD_PASSCODE
-        log_debug "已导出DASHBOARD_PASSCODE环境变量: ${DASHBOARD_PASSCODE}"
+        export DASHBOARD_PASSCODE  # 确保导出
     else
         log_error "✗ 控制面板密码生成失败"
         return 1
     fi
-    # ========== 修复点1结束 ==========
+    # ==============================================================
 
-    # 任务3：生成Reality密钥（可能延迟到模块3）
+    # 任务3：生成Reality密钥
     if generate_reality_keys; then
         log_success "✓ Reality密钥生成完成"
     else
@@ -2870,19 +2839,30 @@ execute_module2() {
     
     # 任务4：生成自签名证书
     if generate_self_signed_cert; then
-        log_success "✓ 自签名证书生成完成（已链接为 current.pem/current.key）"
+        log_success "✓ 自签名证书生成完成"
     else
         log_error "✗ 自签名证书生成失败"
         return 1
     fi
     
-    # 任务5：保存配置信息
+    # ========== 关键修复: save_config_info在密码生成之后 ==========
+    # 任务5：保存配置信息(统一写入所有配置包括密码)
     if save_config_info; then
         log_success "✓ 配置信息保存完成"
+        
+        # 再次验证密码
+        local verify_password=$(jq -r '.dashboard_passcode // empty' "${CONFIG_DIR}/server.json" 2>/dev/null)
+        if [[ "$verify_password" == "$DASHBOARD_PASSCODE" ]]; then
+            log_success "✓ 密码二次验证通过"
+        else
+            log_error "✗ 密码二次验证失败"
+            return 1
+        fi
     else
         log_error "✗ 配置信息保存失败"
         return 1
     fi
+    # ===========================================================
     
     # 任务6：验证数据完整性
     if verify_module2_data; then
@@ -2891,12 +2871,11 @@ execute_module2() {
         log_warn "数据完整性验证发现问题，但安装将继续"
     fi
     
-    # 导出变量供后续模块使用
+    # 导出所有变量供后续模块使用
     export UUID_VLESS_REALITY UUID_VLESS_GRPC UUID_VLESS_WS
     export UUID_TUIC PASSWORD_HYSTERIA2 PASSWORD_TUIC PASSWORD_TROJAN
     export REALITY_PRIVATE_KEY REALITY_PUBLIC_KEY REALITY_SHORT_ID
-    export SERVER_IP
-    export DASHBOARD_PASSCODE  # 【新增】确保导出
+    export SERVER_IP DASHBOARD_PASSCODE
     
     log_info "已导出所有必要变量供后续模块使用"
     
@@ -2906,7 +2885,7 @@ execute_module2() {
     log_info "├─ 所有协议的UUID和密码"
     log_info "├─ Reality密钥对"
     log_info "├─ 自签名证书"
-    log_info "├─ 控制面板密码: ${DASHBOARD_PASSCODE}"  # 【新增】显示密码
+    log_info "├─ 控制面板密码: ${DASHBOARD_PASSCODE}"
     log_info "└─ 完整的server.json配置文件"
     
     return 0
