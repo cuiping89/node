@@ -9863,16 +9863,32 @@ const ebYAxisUnitTop = {
   }
 };
 
-// --- Utility Functions ---
-async function fetchJSON(url) {
-  try {
-    const response = await fetch(url, { cache: 'no-store' });
-    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-    return await response.json();
-  } catch (error) {
-    console.error(`Fetch error for ${url}:`, error);
-    return null;
+
+async function fetchJSON(url, retries = 1, delay = 3000) {
+  for (let i = 0; i <= retries; i++) {
+    try {
+      const response = await fetch(url, { cache: 'no-store' });
+      if (!response.ok) {
+        // 如果是404错误，并且还有重试机会，就等待后重试
+        if (response.status === 404 && i < retries) {
+          console.warn(`'${url}' not found. Retrying in ${delay / 1000}s... (${i + 1}/${retries})`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue; // 继续下一次循环
+        }
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      return await response.json();
+    } catch (error) {
+      console.error(`Fetch error for ${url}:`, error);
+      if (i < retries) {
+         console.warn(`Fetch failed. Retrying in ${delay / 1000}s... (${i + 1}/${retries})`);
+         await new Promise(resolve => setTimeout(resolve, delay));
+      } else {
+         return null; // 所有重试都失败后返回 null
+      }
+    }
   }
+  return null;
 }
 
 // 读取 alert.conf 配置
@@ -10805,24 +10821,35 @@ function updateHealthSummaryBadge(summary) {
 }
 
 
-document.addEventListener('DOMContentLoaded', () => {
-  // 首次刷新
-  refreshAllData();
-  
-  // 定时刷新
-  overviewTimer = setInterval(refreshAllData, 30000);
-  
-  // ❌ 不再调用 setupEventListeners()
-  // setupEventListeners();
-  
-  // 保留通知中心初始化
-  setupNotificationCenter();
-  
-  // 启动健康状态自动刷新 (30秒一次)
-  startHealthAutoRefresh(30);
+// 这是最终的、正确的页面加载逻辑
+document.addEventListener('DOMContentLoaded', async () => {
+    // 仅初始化不依赖数据的UI组件
+    setupNotificationCenter();
+
+    try {
+        // 1. 串行执行：首先等待所有核心数据加载完成
+        console.log('[Init] 正在首次加载核心数据...');
+        await refreshAllData(); 
+        console.log('[Init] 核心数据加载完成。');
+
+        // 2. 在核心数据加载后，再加载依赖于它的健康数据并渲染
+        console.log('[Init] 正在加载协议健康状态...');
+        await initializeProtocolHealth();
+        console.log('[Init] 协议健康状态加载完成。');
+
+    } catch (error) {
+        console.error('[Init] 页面初始化过程中发生错误:', error);
+    }
+
+    // 3. 所有初始加载和渲染完成后，再设置定时任务
+    console.log('[Init] 设置所有定时刷新任务 (30秒间隔)...');
+    overviewTimer = setInterval(async () => {
+        await refreshAllData();
+        await initializeProtocolHealth();
+    }, 30000);
 });
 
-console.log('[协议健康监控] 模块已加载');
+console.log('[EdgeBox Panel] 脚本加载完毕，初始化流程开始...');
 
 
 // ==== new11 事件委托（append-only） ====
@@ -14903,11 +14930,22 @@ finalize_data_generation() {
   fi
 
   # 4. 立即生成首版面板数据
-  log_info "生成初始面板数据..."
-  if [[ -x "${SCRIPTS_DIR}/dashboard-backend.sh" ]]; then
-    "${SCRIPTS_DIR}/dashboard-backend.sh" --now >/dev/null 2>&1 || log_warn "首刷失败，稍后由定时任务再试"
+log_info "生成初始面板数据..."
+if [[ -x "${SCRIPTS_DIR}/dashboard-backend.sh" ]]; then
+    log_info "等待服务稳定 (3秒)..."
+    sleep 3 # 增加一个短暂延时，等待所有服务完全就绪
+
+    # 移除错误抑制，如果失败就直接显示错误
+    if "${SCRIPTS_DIR}/dashboard-backend.sh" --now; then
+        log_success "✓ 初始面板数据生成成功"
+    else
+        log_error "✗ 初始面板数据生成失败，请检查 dashboard-backend.sh 脚本的输出！"
+        # 即使失败也继续，让定时任务来弥补
+    fi
+
+    # 设置定时任务
     "${SCRIPTS_DIR}/dashboard-backend.sh" --schedule >/dev/null 2>&1 || true
-  fi
+fi
 
   # 5. 健康检查：若 subscription 仍为空，兜底再刷一次
   if [[ -s "${CONFIG_DIR}/subscription.txt" ]]; then
