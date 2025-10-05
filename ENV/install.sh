@@ -3022,7 +3022,8 @@ install_xray() {
     # 使用智能下载函数
     if smart_download_script \
         "https://raw.githubusercontent.com/XTLS/Xray-install/main/install-release.sh" \
-        "Xray安装脚本"; then
+        "Xray安装脚本" \
+        >/dev/null 2>&1; then
         log_success "Xray安装完成"
     else
         log_error "Xray安装失败"
@@ -3476,29 +3477,27 @@ http {
             try_files /sub =404;
         }
         
-        # 控制面板和数据API
+         # 控制面板和数据API
         location ^~ /traffic/ {
             alias /etc/edgebox/traffic/;
             index index.html;
             autoindex off;
             
-            # 【新增】控制面板密码保护
-            # 使用 URL 参数校验密码：/traffic/?passcode=xxxxxx
-            set $passcode_ok 0;
-            if ($arg_passcode = "__DASHBOARD_PASSCODE_PH__") {
-                set $passcode_ok 1;
-            }
-            
-            # 如果密码错误，返回 403
-            if ($passcode_ok = 0) {
-                # 排除 /sub 路径，避免影响订阅
-                if ($request_uri !~* /sub$) {
-                    return 403;
+            # 【修复后的密码保护逻辑】
+            # 1. 检查 URL 参数是否携带正确的密码
+            set $auth_passcode "__DASHBOARD_PASSCODE_PH__";
+
+            # 2. 如果请求的 URL 不包含正确的 passcode，则返回 401
+            if ($arg_passcode != $auth_passcode) {
+                # 排除根路径 /traffic/ 和订阅 /sub
+                if ($uri !~* ^/traffic/$ && $uri !~* /sub$) {
+                    return 401; 
                 }
             }
-            # 【新增】/traffic/ 路径下，重定向到 /traffic/?passcode=xxxxxx （前端JS会自动添加）
-            if ($uri = /traffic/) {
-                return 302 /traffic/?passcode=__DASHBOARD_PASSCODE_PH__;
+            
+            # 3. 根路径重定向：如果访问 /traffic/ 且未带密码，强制重定向到带密码的 URL
+            if ($arg_passcode = "") {
+                return 302 /traffic/?passcode=$auth_passcode;
             }
             
             # 缓存控制
