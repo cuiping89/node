@@ -7993,23 +7993,22 @@ h4 {
 
 /* ==========协议健康状态 - 单行布局(与核心服务徽标统一)=========== */
 
-/* 运行状态列保持居中 */
+/* 运行状态列居中 */
 .data-table td:nth-child(4) {
-    text-align: center;  /* 保持居中 */
+    text-align: center;
 }
 
-/* 单行水平布局容器 - 使用inline-flex在居中列中左对齐 */
+/* 容器：在居中列中显示，内容网格布局 */
 .health-status-container {
-    display: inline-flex;         /* inline-flex使其在居中列中居中 */
+    display: inline-grid;                    /* ← 关键：grid布局 */
+    grid-template-columns: auto auto auto;   /* ← 三列：徽标、消息、推荐 */
     align-items: center;
-    justify-content: flex-start;  /* 内容从左开始 */
     gap: 6px;
     padding: 4px 0;
-    min-width: 260px;             /* ← 关键：固定最小宽度，确保对齐 */
-    text-align: left;             /* 内部文字左对齐 */
+    justify-items: start;                    /* ← 每个格子内容左对齐 */
 }
 
-/* 健康状态徽章 - 固定宽度确保对齐 */
+/* 健康状态徽章 */
 .health-status-badge {
     display: inline-flex;
     align-items: center;
@@ -8020,8 +8019,7 @@ h4 {
     border-radius: 999px;
     font-size: 11px;
     font-weight: 500;
-    min-width: 50px;              /* ← 关键：固定最小宽度 */
-    flex-shrink: 0;
+    width: 50px;  /* ← 固定宽度 */
 }
 
 .health-status-badge.healthy {
@@ -8042,70 +8040,32 @@ h4 {
     border: 1px solid #fecaca;
 }
 
-/* 健康详细消息 - 与前三列保持一致 */
 .health-detail-message {
     color: var(--content-color, #6b7280);
     font-size: var(--h4-size, 13px);
     font-weight: 500;
     white-space: nowrap;
-    flex-shrink: 0;
 }
 
-/* 推荐标签 - 与前三列保持一致 */
 .health-recommendation-badge {
     color: var(--content-color, #6b7280);
     font-size: var(--h4-size, 13px);
     font-weight: 500;
     white-space: nowrap;
-    flex-shrink: 0;
 }
 
-/* 运行状态列宽度 */
 .protocol-status {
-    min-width: 320px;  /* 增加宽度以容纳内容 */
+    min-width: 320px;
 }
 
-/* 健康分数显示 */
-.protocol-health-score {
-    font-weight: 700;
-    font-size: 18px;
-    padding: 4px 8px;
-    border-radius: 4px;
-    display: inline-block;
-}
-
-.protocol-health-score.score-excellent {
-    color: #10b981;
-    background: rgba(16, 185, 129, 0.1);
-}
-
-.protocol-health-score.score-good {
-    color: #3b82f6;
-    background: rgba(59, 130, 246, 0.1);
-}
-
-.protocol-health-score.score-fair {
-    color: #f59e0b;
-    background: rgba(245, 158, 11, 0.1);
-}
-
-.protocol-health-score.score-poor {
-    color: #ef4444;
-    background: rgba(239, 68, 68, 0.1);
-}
-
-/* 响应式调整 */
+/* 响应式 */
 @media (max-width: 768px) {
-    .health-status-container {
-        min-width: 220px;
-    }
-    
     .health-status-badge {
         font-size: 10px;
         padding: 0 8px;
         height: 18px;
         line-height: 18px;
-        min-width: 45px;
+        width: 45px;
     }
     
     .health-detail-message,
@@ -8577,7 +8537,7 @@ h4 {
 
 
 /* =======================================================================
-   通知中心样式 - 完整修复版
+   通知中心样式 - 完整修复版（靠左自动换行）
    ======================================================================= */
 
 /* 主标题区域调整 */
@@ -8664,7 +8624,7 @@ h4 {
     display: flex;
     align-items: center;
     justify-content: center;
-    padding-top: 1px;           /* ← 关键:数字向下偏移 1px */
+    padding-top: 1px;           /* ← 关键：数字向下偏移 1px */
     font-size: 9px;
     font-weight: 600;
     line-height: 1;
@@ -8776,9 +8736,10 @@ h4 {
     min-height: 0;
 }
 
-/* 通知项 - 每条之间有分隔线 */
+/* 通知项 - 每条之间有分隔线，靠左自动换行 */
 .notification-item {
     display: flex;
+    align-items: flex-start;    /* 顶部对齐 */
     gap: 12px;
     padding: 14px 16px;
     border-bottom: 1px solid #e5e7eb;
@@ -8813,27 +8774,29 @@ h4 {
 /* 通知内容区 - 支持自动换行 */
 .notification-item-content {
     flex: 1;
-    min-width: 0;
+    min-width: 0;               /* 关键：允许flex子元素缩小 */
     display: flex;
     flex-direction: column;
     gap: 4px;
 }
 
-/* 通知消息文字 - 自动换行 */
+/* 通知消息文字 - 靠左自动换行 */
 .notification-item-message {
     font-size: 13px;
     color: #374151;
     line-height: 1.5;
+    text-align: left;           /* 靠左对齐 */
     word-wrap: break-word;
     word-break: break-word;
     overflow-wrap: break-word;
-    white-space: normal;
+    white-space: normal;        /* 允许换行 */
 }
 
 /* 通知时间 */
 .notification-item-time {
     font-size: 11px;
     color: #9ca3af;
+    text-align: left;           /* 靠左对齐 */
 }
 
 /* 通知操作按钮 */
@@ -8842,6 +8805,7 @@ h4 {
     color: #10b981;
     text-decoration: none;
     font-weight: 500;
+    text-align: left;           /* 靠左对齐 */
 }
 
 .notification-item-action:hover {
@@ -8860,12 +8824,6 @@ h4 {
     color: #9ca3af;
     text-align: center;
     gap: 8px;
-}
-
-.notification-empty::before,
-.notification-loading::before {
-    font-size: 32px;
-    margin-bottom: 8px;
 }
 
 /* 通知面板底部 */
@@ -10827,11 +10785,14 @@ function markAllAsRead() {
 
 // 清空通知
 function clearNotifications() {
-    if (confirm('确定要清空所有通知吗？')) {
-        notificationData.notifications = [];
-        renderNotifications();
-        notify('已清空所有通知', 'ok');
+    if (!notificationData.notifications || notificationData.notifications.length === 0) {
+        notify('暂无通知需要清空', 'info');
+        return;
     }
+    
+    notificationData.notifications = [];
+    renderNotifications();
+    notify('已清空所有通知', 'ok');
 }
 
 
