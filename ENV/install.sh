@@ -15103,26 +15103,34 @@ show_installation_info() {
     echo -e "${GREEN}🎉 EdgeBox 企业级多协议节点 v${EDGEBOX_VER} 安装完成！${NC}"
     print_separator
     
-    # 确保加载最新数据
+    # 确保加载最新数据（特别是密码）
     local config_file="${CONFIG_DIR}/server.json"
+    
+    # 【修复点：强制从持久化文件读取 DASHBOARD_PASSCODE】
+    # 确保 jq 命令和文件路径正确
     local server_ip=$(jq -r '.server_ip // empty' "$config_file" 2>/dev/null)
     local UUID_VLESS=$(jq -r '.uuid.vless.reality // .uuid.vless // empty' "$config_file" 2>/dev/null)
     local UUID_TUIC=$(jq -r '.uuid.tuic // empty' "$config_file" 2>/dev/null)
     local PASSWORD_HYSTERIA2=$(jq -r '.password.hysteria2 // empty' "$config_file" 2>/dev/null)
     local PASSWORD_TUIC=$(jq -r '.password.tuic // empty' "$config_file" 2>/dev/null)
     local PASSWORD_TROJAN=$(jq -r '.password.trojan // empty' "$config_file" 2>/dev/null)
+    
+    # >>> 核心修复逻辑：从文件加载密码 >>>
     local DASHBOARD_PASSCODE=$(jq -r '.dashboard_passcode // empty' "$config_file" 2>/dev/null)
+    
+    # 如果读取失败，至少赋一个安全值
+    if [[ -z "$DASHBOARD_PASSCODE" ]]; then
+        DASHBOARD_PASSCODE="[密码读取失败]"
+    fi
+    # <<< 核心修复逻辑结束 <<<
     
     echo -e  "${CYAN}--- 核心访问信息（重要！） ---${NC}"
     echo -e  "  IP地址: ${PURPLE}${server_ip}${NC}"
     
-    # 打印时需要检查 DASHBOARD_PASSCODE 是否获取成功
-    if [[ -z "$DASHBOARD_PASSCODE" ]]; then
-        DASHBOARD_PASSCODE="[错误/缺失]"
-    fi
-    
+    # 打印时使用已验证的 DASHBOARD_PASSCODE 变量
     echo -e  "  ${RED}🔑 访问密码:${NC} ${YELLOW}${DASHBOARD_PASSCODE}${NC} （6位相同数字）"
     echo -e  "  🌐 控制面板: ${PURPLE}http://${server_ip}/traffic/?passcode=${DASHBOARD_PASSCODE}${NC}" 
+    
 
     echo -e  "\n${CYAN}--- 默认模式（IP模式，需客户端跳过证书验证） ---${NC}"
     echo -e  "  证书模式: ${PURPLE}IP模式（自签名证书）${NC}"
