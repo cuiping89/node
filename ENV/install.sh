@@ -3435,6 +3435,14 @@ http {
     include       /etc/nginx/mime.types;
     default_type  application/octet-stream;
     
+    # 【新增】定义一个 map 变量 $auth_required，用于检查密码
+    map $arg_passcode $auth_required {
+        # 如果 URL 参数匹配正确的密码（__DASHBOARD_PASSCODE_PH__ 是占位符，将在安装后期被 sed 替换）
+        "__DASHBOARD_PASSCODE_PH__" 0;  # 设置为 0 (无需认证)
+        # 其他任何情况，默认设置为 1 (需要认证)
+        default 1;                      
+    }
+    
     # 日志格式
     log_format main '$remote_addr - $remote_user [$time_local] "$request" '
                    '$status $body_bytes_sent "$http_referer" '
@@ -3477,27 +3485,19 @@ http {
             try_files /sub =404;
         }
         
-         # 控制面板和数据API
+        # 控制面板和数据API
         location ^~ /traffic/ {
             alias /etc/edgebox/traffic/;
             index index.html;
             autoindex off;
             
-            # 【修复后的密码保护逻辑】
-            # 1. 检查 URL 参数是否携带正确的密码
-            set $auth_passcode "__DASHBOARD_PASSCODE_PH__";
-
-            # 2. 如果请求的 URL 不包含正确的 passcode，则返回 401
-            if ($arg_passcode != $auth_passcode) {
-                # 排除根路径 /traffic/ 和订阅 /sub
-                if ($uri !~* ^/traffic/$ && $uri !~* /sub$) {
+            # 【密码保护逻辑】
+            # 如果 $auth_required = 1 (URL参数不匹配)，则返回 401 Unauthorized
+            if ($auth_required = 1) {
+                # 排除 /sub 路径，避免影响订阅
+                if ($request_uri !~* /sub$) {
                     return 401; 
                 }
-            }
-            
-            # 3. 根路径重定向：如果访问 /traffic/ 且未带密码，强制重定向到带密码的 URL
-            if ($arg_passcode = "") {
-                return 302 /traffic/?passcode=$auth_passcode;
             }
             
             # 缓存控制
@@ -4515,9 +4515,10 @@ execute_module3() {
 local final_passcode="${DASHBOARD_PASSCODE:-$(jq -r '.dashboard_passcode // empty' "${CONFIG_DIR}/server.json" 2>/dev/null)}"
 if [[ -n "$final_passcode" ]]; then
     log_info "应用控制面板密码到 Nginx 配置..."
+    # 实际替换 Nginx 配置中的占位符
     sed -i "s/__DASHBOARD_PASSCODE_PH__/${final_passcode}/g" /etc/nginx/nginx.conf
 else
-    log_warn "未获取到控制面板密码，Nginx 配置中将使用默认占位符"
+    log_warn "未获取到控制面板密码，Nginx 配置将使用默认占位符"
 fi
     
     # 任务6：生成订阅链接
