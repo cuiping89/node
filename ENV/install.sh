@@ -4661,52 +4661,81 @@ jq_safe_list() {
 
 # 获取系统负载信息
 get_system_metrics() {
-    local cpu_percent=0 memory_percent=0 disk_percent=0
-
-    # CPU 使用率：通过 awk 精确计算，避免 sleep 和 shell 数组不稳定的问题
+    local cpu_percent=0
+    local memory_percent=0
+    local disk_percent=0
+    
+    # 改进的CPU使用率计算
     if [[ -r /proc/stat ]]; then
-        local stat_file="/proc/stat"
-        local prev_stats=$(awk '/^cpu / {print $2+$3+$4, $5}' "$stat_file")
-        sleep 1 # 使用1秒的采样间隔以获得更准确的读数
-        local curr_stats=$(awk '/^cpu / {print $2+$3+$4, $5}' "$stat_file")
-
-        read prev_active prev_idle <<< "$prev_stats"
-        read curr_active curr_idle <<< "$curr_stats"
-
-        local total_diff=$(( (curr_active + curr_idle) - (prev_active + prev_idle) ))
-        local idle_diff=$((curr_idle - prev_idle))
-
+        read _ user1 nice1 system1 idle1 iowait1 irq1 softirq1 _ < /proc/stat
+        
+        sleep 2
+        
+        read _ user2 nice2 system2 idle2 iowait2 irq2 softirq2 _ < /proc/stat
+        
+        local user_diff=$((user2 - user1))
+        local nice_diff=$((nice2 - nice1))
+        local system_diff=$((system2 - system1))
+        local idle_diff=$((idle2 - idle1))
+        local iowait_diff=$((iowait2 - iowait1))
+        local irq_diff=$((irq2 - irq1))
+        local softirq_diff=$((softirq2 - softirq1))
+        
+        local total_diff=$((user_diff + nice_diff + system_diff + idle_diff + iowait_diff + irq_diff + softirq_diff))
+        local active_diff=$((total_diff - idle_diff))
+        
         if [[ $total_diff -gt 0 ]]; then
-            cpu_percent=$(( ( (total_diff - idle_diff) * 100 ) / total_diff ))
+            cpu_percent=$(( (active_diff * 1000) / total_diff ))
+            cpu_percent=$((cpu_percent / 10))
+            # 设置最小值为1%
+            if [[ $cpu_percent -lt 1 ]]; then
+                cpu_percent=1
+            fi
+        else
+            cpu_percent=1
         fi
     fi
-
-    # 内存使用率：使用 MemAvailable，这是最准确的指标
+    
+    # 内存使用率计算保持不变
     if [[ -r /proc/meminfo ]]; then
-        local mem_total=$(awk '/MemTotal:/ {print $2}' /proc/meminfo)
-        local mem_available=$(awk '/MemAvailable:/ {print $2}' /proc/meminfo)
-        if [[ ${mem_total:-0} -gt 0 ]]; then
+        local mem_total mem_available
+        mem_total=$(awk '/MemTotal:/ {print $2}' /proc/meminfo)
+        mem_available=$(awk '/MemAvailable:/ {print $2}' /proc/meminfo)
+        
+        if [[ $mem_total -gt 0 && $mem_available -ge 0 ]]; then
             memory_percent=$(( (mem_total - mem_available) * 100 / mem_total ))
         fi
     fi
-
-    # 根分区磁盘使用率
+    
+    # 磁盘使用率计算保持不变
     if command -v df >/dev/null 2>&1; then
-        disk_percent=$(df / | awk 'NR==2 {print $5}' | sed 's/%//')
+        local disk_info
+        disk_info=$(df / 2>/dev/null | tail -1)
+        if [[ -n "$disk_info" ]]; then
+            disk_percent=$(echo "$disk_info" | awk '{print $5}' | sed 's/%//')
+        fi
     fi
-
-    # 确保所有值都在 0-100 范围内
-    (( cpu_percent < 0 )) && cpu_percent=0 || (( cpu_percent > 100 )) && cpu_percent=100
-    (( memory_percent < 0 )) && memory_percent=0 || (( memory_percent > 100 )) && memory_percent=100
-    (( disk_percent < 0 )) && disk_percent=0 || (( disk_percent > 100 )) && disk_percent=100
-
-    # 输出 JSON
+    
+    # 确保所有值在合理范围内
+    cpu_percent=$(( cpu_percent > 100 ? 100 : cpu_percent ))
+    cpu_percent=$(( cpu_percent < 1 ? 1 : cpu_percent ))
+    memory_percent=$(( memory_percent > 100 ? 100 : memory_percent ))
+    memory_percent=$(( memory_percent < 0 ? 0 : memory_percent ))
+    disk_percent=$(( disk_percent > 100 ? 100 : disk_percent ))
+    disk_percent=$(( disk_percent < 0 ? 0 : disk_percent ))
+    
+    # 输出JSON格式
     jq -n \
-      --argjson cpu "$cpu_percent" \
-      --argjson memory "$memory_percent" \
-      --argjson disk "$disk_percent" \
-      --arg timestamp "$(date -Is)" \
-      '{updated_at:$timestamp, cpu:$cpu, memory:$memory, disk:$disk}'
+        --argjson cpu "$cpu_percent" \
+        --argjson memory "$memory_percent" \
+        --argjson disk "$disk_percent" \
+        --arg timestamp "$(date -Is)" \
+        '{
+            updated_at: $timestamp,
+            cpu: $cpu,
+            memory: $memory,
+            disk: $disk
+        }'
 }
 
 
@@ -5294,14 +5323,12 @@ services_info=$(
     --arg nstat "$(systemctl is-active --quiet nginx    && echo 运行中 || echo 已停止)" \
     --arg xstat "$(systemctl is-active --quiet xray     && echo 运行中 || echo 已停止)" \
     --arg sstat "$(systemctl is-active --quiet sing-box && echo 运行中 || echo 已停止)" \
-    --arg nver  "$(nginx -v 2>&1 | grep -oE '[0-9]+(\.[0-9]+)+' | head -1 || echo "")" \
-    --arg xver  "$( (xray version 2>/dev/null || xray -version 2>/dev/null) | head -n1 | grep -Eo 'v?[0-9]+(\.[0-9]+)+' | head -1 || echo "" )" \
-    --arg sver  "$( (sing-box version 2>/dev/null || /usr/local/bin/sing-box version 2>/dev/null) | head -n1 | grep -oE '[0-9]+(\.[0-9]+)+' | head -1 || echo "" )" \
-    '{
-        "nginx":    {"status": $nstat, "version": (if $nver == "" then null else $nver end)},
-        "xray":     {"status": $xstat, "version": (if $xver == "" then null else $xver end)},
-        "sing-box": {"status": $sstat, "version": (if $sver == "" then null else $sver end)}
-    }'
+    --arg nver  "$(nginx -v 2>&1 | grep -oE '[0-9]+(\.[0-9]+)+' | head -1)" \
+    --arg xver  "$((xray -version 2>/dev/null || xray version 2>/dev/null) | head -n1 | grep -Eo 'v?[0-9]+(\.[0-9]+)+' | head -1)" \
+    --arg sver  "$(sing-box version 2>/dev/null | head -n1 | grep -oE '[0-9]+(\.[0-9]+)+' | head -1)" \
+    '{nginx:{status:$nstat,version:$nver},
+      xray:{status:$xstat,version:$xver},
+      "sing-box":{status:$sstat,version:$sver}}'
 )
 
     # 合并所有数据生成dashboard.json
@@ -9836,32 +9863,16 @@ const ebYAxisUnitTop = {
   }
 };
 
-
-async function fetchJSON(url, retries = 1, delay = 3000) {
-  for (let i = 0; i <= retries; i++) {
-    try {
-      const response = await fetch(url, { cache: 'no-store' });
-      if (!response.ok) {
-        // 如果是404错误，并且还有重试机会，就等待后重试
-        if (response.status === 404 && i < retries) {
-          console.warn(`'${url}' not found. Retrying in ${delay / 1000}s... (${i + 1}/${retries})`);
-          await new Promise(resolve => setTimeout(resolve, delay));
-          continue; // 继续下一次循环
-        }
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      return await response.json();
-    } catch (error) {
-      console.error(`Fetch error for ${url}:`, error);
-      if (i < retries) {
-         console.warn(`Fetch failed. Retrying in ${delay / 1000}s... (${i + 1}/${retries})`);
-         await new Promise(resolve => setTimeout(resolve, delay));
-      } else {
-         return null; // 所有重试都失败后返回 null
-      }
-    }
+// --- Utility Functions ---
+async function fetchJSON(url) {
+  try {
+    const response = await fetch(url, { cache: 'no-store' });
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    return await response.json();
+  } catch (error) {
+    console.error(`Fetch error for ${url}:`, error);
+    return null;
   }
-  return null;
 }
 
 // 读取 alert.conf 配置
@@ -10163,6 +10174,24 @@ if (preview) {
       `<button class="whitelist-more" data-action="open-modal" data-modal="whitelistModal">查看全部</button>`;
   }
 }
+}
+
+
+
+function renderProtocolTable() {
+    const protocols = dashboardData.protocols || [];
+    const tbody = document.getElementById('protocol-tbody');
+    if (!tbody) return;
+    const rows = protocols.map(p => `
+        <tr>
+            <td>${escapeHtml(p.name)}</td>
+<td>${escapeHtml(p.fit || p.scenario || '—')}</td>
+<td>${escapeHtml(p.effect || p.camouflage || '—')}</td>
+            <td><span class="status-badge ${p.status === '运行中' ? 'status-running' : ''}">${p.status}</span></td>
+            <td><button class="btn btn-sm btn-link" data-action="open-modal" data-modal="configModal" data-protocol="${escapeHtml(p.name)}">查看配置</button></td>
+        </tr>`).join('');
+    const subRow = `<tr class="subs-row"><td style="font-weight:500;">整包协议</td><td></td><td></td><td></td><td><button class="btn btn-sm btn-link" data-action="open-modal" data-modal="configModal" data-protocol="__SUBS__">查看@订阅</button></td></tr>`;
+    tbody.innerHTML = rows + subRow;
 }
 
 
@@ -10703,38 +10732,25 @@ async function copyText(text) {
 }
 
 // --- 主应用程序逻辑 ---
-// 1. 获取并渲染主仪表板数据
-async function refreshDashboard() {
-const dash = await fetchJSON('/traffic/dashboard.json');
-if (dash) {
-window.dashboardData = dash;
-// 这些渲染器仅依赖于 dashboard.json
-renderCertificateAndNetwork();
-renderProtocolTable(); // 如果健康数据可用，现在将正确使用健康数据
-}
-}
-
-// 2. 获取并渲染实时系统状态（CPU、内存、服务）
-async function refreshSystemStats() {
-const [sys, dash] = await Promise.all([
-fetchJSON('/traffic/system.json'),
-fetchJSON('/traffic/dashboard.json') // 同时获取 dash 以获取服务状态
-]);
-
-if (sys) window.systemData = sys;
-if (dash) window.dashboardData = dash; // 确保 dashboardData 是最新的
-
-// 此渲染器同时依赖于 system.json 和 dashboard.json
-renderOverview();
-}
-
-// 3. 获取并渲染流量图数据
-async function refreshTraffic() {
-const traf = await fetchJSON('/traffic/traffic.json');
-if (traf) {
-window.trafficData = traf;
-renderTrafficCharts();
-}
+async function refreshAllData() {
+    const [dash, sys, traf, notif, health] = await Promise.all([
+        fetchJSON('/traffic/dashboard.json'),
+        fetchJSON('/traffic/system.json'),
+        fetchJSON('/traffic/traffic.json'),
+        fetchJSON('/traffic/notifications.json'),
+        fetchJSON('/traffic/protocol-health.json')  // 新增
+    ]);
+    
+    if (dash) dashboardData = dash;
+    if (sys) systemData = sys;
+    if (traf) trafficData = traf;
+    if (notif) updateNotificationCenter(notif);
+    if (health) updateProtocolHealthStatus(health);  // 新增
+    
+    renderOverview();
+    renderCertificateAndNetwork();
+    renderProtocolTable();
+    renderTrafficCharts();
 }
 
 // 更新协议健康状态显示
@@ -10789,61 +10805,24 @@ function updateHealthSummaryBadge(summary) {
 }
 
 
-/* === 统一数据刷新：一次性拿齐所有 JSON，再原子渲染 === */
-async function refreshAllData() {
-  console.log("[EdgeBox Panel] Refreshing all data...");
-  const [dash, sys, traf, health, notif] = await Promise.all([
-    fetchJSON('/traffic/dashboard.json'),
-    fetchJSON('/traffic/system.json'),
-    fetchJSON('/traffic/traffic.json'),
-    fetchJSON('/traffic/protocol-health.json'),
-    fetchJSON('/traffic/notifications.json')
-  ]);
-
-  // 更新全局态
-  if (dash)   window.dashboardData = dash;
-  if (sys)    window.systemData    = sys;
-  if (traf)   window.trafficData   = traf;
-  if (health) { window.__protocolHealth = health; renderHealthSummary(health); }
-  if (notif && typeof updateNotificationCenter === 'function') {
-    updateNotificationCenter(notif);
-  }
-
-  // 原子渲染（按你现有函数）
-  if (typeof renderOverview === 'function')                renderOverview();
-  if (typeof renderCertificateAndNetwork === 'function')  renderCertificateAndNetwork();
-  if (typeof renderProtocolTable === 'function')          renderProtocolTable();
-  if (typeof renderTrafficCharts === 'function')          renderTrafficCharts();
-}
-
-
-// 这是最终的、正确的页面加载逻辑
-document.addEventListener('DOMContentLoaded', async () => {
-  console.log('[EdgeBox Panel] 正在初始化...');
-  if (typeof setupNotificationCenter === 'function') {
-    setupNotificationCenter();
-  }
-
-  // 占位提示
-  const tbody = document.getElementById('protocol-tbody');
-  if (tbody) {
-    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:20px;color:#6b7280;">正在加载节点数据...</td></tr>';
-  }
-
-  try {
-    await refreshAllData();
-    console.log('[Init] 初始页面渲染完成。');
-  } catch (err) {
-    console.error('[Init] 初始数据加载失败：', err);
-    if (tbody) {
-      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:20px;color:#dc2626;">错误：无法加载节点数据。</td></tr>';
-    }
-  }
-
-  // **统一的周期刷新**：避免多定时器/多数据源竞态
-  setInterval(refreshAllData, 15000);
-  console.log('[Init] 已启动统一刷新定时器（15s）。');
+document.addEventListener('DOMContentLoaded', () => {
+  // 首次刷新
+  refreshAllData();
+  
+  // 定时刷新
+  overviewTimer = setInterval(refreshAllData, 30000);
+  
+  // ❌ 不再调用 setupEventListeners()
+  // setupEventListeners();
+  
+  // 保留通知中心初始化
+  setupNotificationCenter();
+  
+  // 启动健康状态自动刷新 (30秒一次)
+  startHealthAutoRefresh(30);
 });
+
+console.log('[协议健康监控] 模块已加载');
 
 
 // ==== new11 事件委托（append-only） ====
@@ -14924,22 +14903,11 @@ finalize_data_generation() {
   fi
 
   # 4. 立即生成首版面板数据
-log_info "生成初始面板数据..."
-if [[ -x "${SCRIPTS_DIR}/dashboard-backend.sh" ]]; then
-    log_info "等待服务稳定 (3秒)..."
-    sleep 3 # 增加一个短暂延时，等待所有服务完全就绪
-
-    # 移除错误抑制，如果失败就直接显示错误
-    if "${SCRIPTS_DIR}/dashboard-backend.sh" --now; then
-        log_success "✓ 初始面板数据生成成功"
-    else
-        log_error "✗ 初始面板数据生成失败，请检查 dashboard-backend.sh 脚本的输出！"
-        # 即使失败也继续，让定时任务来弥补
-    fi
-
-    # 设置定时任务
+  log_info "生成初始面板数据..."
+  if [[ -x "${SCRIPTS_DIR}/dashboard-backend.sh" ]]; then
+    "${SCRIPTS_DIR}/dashboard-backend.sh" --now >/dev/null 2>&1 || log_warn "首刷失败，稍后由定时任务再试"
     "${SCRIPTS_DIR}/dashboard-backend.sh" --schedule >/dev/null 2>&1 || true
-fi
+  fi
 
   # 5. 健康检查：若 subscription 仍为空，兜底再刷一次
   if [[ -s "${CONFIG_DIR}/subscription.txt" ]]; then
