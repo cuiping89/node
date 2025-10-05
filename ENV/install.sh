@@ -7922,145 +7922,6 @@ h4 {
   }
 }
 
-/* =======================================================================
-   运维管理
-   ======================================================================= */
-.commands-grid{
-  display:grid;
-  grid-template-columns:1fr 1fr;
-  gap:20px;
-}
-@media (max-width:768px){
-  .commands-grid{ grid-template-columns:1fr; }
-}
-
-.command-section{
-  background:#f5f5f5;
-  border:1px solid #d1d5db;
-  border-radius:8px;
-  padding:12px;
-}
-.command-section h4{
-  margin:0 0 8px;
-  font-size:.9rem;
-  font-weight:600;
-  color:#1e293b;
-  display:flex;
-  align-items:center;
-  gap:6px;
-}
-
-.command-list{ font-size:.8rem; line-height:1.5; }
-/* 深灰代码块（命令） */
-.command-list code{
-  background: #e2e8f0;          /* 改成你想要的灰，例如 newb 用的 #e2e8f0 */
-  color: #1f2937;
-  padding:1px 6px;
-  border-radius:4px;
-  font-family:monospace;
-  font-size:.78rem;
-  line-height:1.1;
-  display:inline-block;
-}
-.command-list span{ color:#6b7280; margin-left:8px; }
-
-/* 运维管理：行距 & 命令与注释的间距 */
-#ops-panel .command-list,
-.commands-grid .command-list {
-  line-height: 1.6;    /* ← 行与行的垂直距离，1.6~1.9 自行调 */
-}
-
-#ops-panel .command-list code,
-.commands-grid .command-list code {
-  margin-right: 8px;    /* ← 命令小胶囊 与 注释 的水平间距 */
-  /* 可选：如果需要让 margin-bottom 生效，再打开下一行 */
-  /* display: inline-block; */
-}
-
-#ops-panel .command-list code,
-.commands-grid .command-list code {
-  display: inline-block;
-  margin-right: 8px;
-  margin-bottom: 2px;   /* 轻微增加行间距 */
-}
-
-/* =======================================================================
-   流量进度条组件
-   ======================================================================= */
-.traffic-progress-container { 
-    display: flex; 
-    align-items: center; 
-    gap: 10px; 
-}
-
-.progress-label { 
-    font-size: 13px; 
-    color: #6b7280; 
-    white-space: nowrap; 
-}
-
-.progress-wrapper { 
-    flex: 1; 
-    min-width: 120px; 
-}
-
-.progress-bar { 
-    height: 20px; 
-    background: #f3f4f6; 
-    border-radius: 10px; 
-    overflow: hidden; 
-    position: relative; 
-}
-
-.progress-fill { 
-    height: 100%; 
-    background: linear-gradient(90deg, #10b981 0%, #059669 100%); 
-    transition: width .3s ease; 
-    display: flex; 
-    align-items: center; 
-    justify-content: flex-end; 
-    padding-right: 8px; 
-}
-
-.progress-fill.warning { 
-    background: linear-gradient(90deg, #f59e0b 0%, #d97706 100%); 
-}
-
-.progress-fill.critical { 
-    background: linear-gradient(90deg, #ef4444 0%, #dc2626 100%); 
-}
-
-.progress-percentage { 
-    color: #fff; 
-    font-size: 11px; 
-    font-weight: 600; 
-}
-
-.progress-budget { 
-    color: #6b7280; 
-    font-size: 12px; 
-    white-space: nowrap; 
-}
-
-/* =======================================================================
-   响应式布局 - 基础
-   ======================================================================= */
-@media (max-width: 1024px) {
-    .grid-3, .grid-1-2 { 
-        grid-template-columns: 1fr; 
-    }
-    .traffic-charts { 
-        grid-template-columns: 1fr; 
-    }
-}
-
-@media (max-width: 768px) {
-    .modal-content { 
-        width: 95%; 
-        margin: 10px auto; 
-    }
-}
-
 
 /* =======================================================================
    协议配置表格 - 基础样式
@@ -8142,9 +8003,7 @@ h4 {
 }
 
 
-/* =======================================================================
-   协议配置卡片 - 间距修复
-   ======================================================================= */
+/* ====================协议配置卡片 - 间距修复================================= */
 
 /* grid布局中的卡片不使用margin */
 .main-content .grid .card {
@@ -8210,14 +8069,13 @@ h4 {
 }
 
 
-/* =======================================================================
-   协议健康状态 - 单行布局(与核心服务徽标统一)
-   ======================================================================= */
+/* ==========协议健康状态 - 单行布局(与核心服务徽标统一)=========== */
 
-/* 单行水平布局容器 */
+/* 单行水平布局容器 - 居中对齐 */
 .health-status-container {
     display: flex;
     align-items: center;
+    justify-content: center;  /* ← 新增：水平居中 */
     gap: 6px;
     padding: 4px 0;
 }
@@ -8322,9 +8180,7 @@ h4 {
 }
 
 
-/* =======================================================================
-   协议健康状态 - 摘要卡片
-   ======================================================================= */
+/* =============协议健康状态 - 摘要卡片================ */
 
 #health-summary {
     margin: 20px 0;
@@ -8416,9 +8272,7 @@ h4 {
 }
 
 
-/* =======================================================================
-   协议健康状态 - 动画效果
-   ======================================================================= */
+/* =====================协议健康状态 - 动画效果============================== */
 
 @keyframes pulse-healthy {
     0%, 100% { opacity: 1; }
@@ -8439,9 +8293,7 @@ h4 {
 }
 
 
-/* =======================================================================
-   暗色模式支持
-   ======================================================================= */
+/* =====================暗色模式支持======================================= */
 
 @media (prefers-color-scheme: dark) {
     #health-summary {
@@ -8709,6 +8561,81 @@ h4 {
 }
 */
 
+/* ========================  流量进度条组件  ========================== */
+.traffic-progress-container { 
+    display: flex; 
+    align-items: center; 
+    gap: 10px; 
+}
+
+.progress-label { 
+    font-size: 13px; 
+    color: #6b7280; 
+    white-space: nowrap; 
+}
+
+.progress-wrapper { 
+    flex: 1; 
+    min-width: 120px; 
+}
+
+.progress-bar { 
+    height: 20px; 
+    background: #f3f4f6; 
+    border-radius: 10px; 
+    overflow: hidden; 
+    position: relative; 
+}
+
+.progress-fill { 
+    height: 100%; 
+    background: linear-gradient(90deg, #10b981 0%, #059669 100%); 
+    transition: width .3s ease; 
+    display: flex; 
+    align-items: center; 
+    justify-content: flex-end; 
+    padding-right: 8px; 
+}
+
+.progress-fill.warning { 
+    background: linear-gradient(90deg, #f59e0b 0%, #d97706 100%); 
+}
+
+.progress-fill.critical { 
+    background: linear-gradient(90deg, #ef4444 0%, #dc2626 100%); 
+}
+
+.progress-percentage { 
+    color: #fff; 
+    font-size: 11px; 
+    font-weight: 600; 
+}
+
+.progress-budget { 
+    color: #6b7280; 
+    font-size: 12px; 
+    white-space: nowrap; 
+}
+
+/* =======================================================================
+   响应式布局 - 基础
+   ======================================================================= */
+@media (max-width: 1024px) {
+    .grid-3, .grid-1-2 { 
+        grid-template-columns: 1fr; 
+    }
+    .traffic-charts { 
+        grid-template-columns: 1fr; 
+    }
+}
+
+@media (max-width: 768px) {
+    .modal-content { 
+        width: 95%; 
+        margin: 10px auto; 
+    }
+}
+
 
 /* =======================================================================
    通知中心样式 - 完整修复版
@@ -8917,6 +8844,69 @@ h4 {
         width: 280px;
         right: -20px;
     }
+}
+
+
+/* =======================================================================
+   运维管理
+   ======================================================================= */
+.commands-grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:20px;
+}
+@media (max-width:768px){
+  .commands-grid{ grid-template-columns:1fr; }
+}
+
+.command-section{
+  background:#f5f5f5;
+  border:1px solid #d1d5db;
+  border-radius:8px;
+  padding:12px;
+}
+.command-section h4{
+  margin:0 0 8px;
+  font-size:.9rem;
+  font-weight:600;
+  color:#1e293b;
+  display:flex;
+  align-items:center;
+  gap:6px;
+}
+
+.command-list{ font-size:.8rem; line-height:1.5; }
+/* 深灰代码块（命令） */
+.command-list code{
+  background: #e2e8f0;          /* 改成你想要的灰，例如 newb 用的 #e2e8f0 */
+  color: #1f2937;
+  padding:1px 6px;
+  border-radius:4px;
+  font-family:monospace;
+  font-size:.78rem;
+  line-height:1.1;
+  display:inline-block;
+}
+.command-list span{ color:#6b7280; margin-left:8px; }
+
+/* 运维管理：行距 & 命令与注释的间距 */
+#ops-panel .command-list,
+.commands-grid .command-list {
+  line-height: 1.6;    /* ← 行与行的垂直距离，1.6~1.9 自行调 */
+}
+
+#ops-panel .command-list code,
+.commands-grid .command-list code {
+  margin-right: 8px;    /* ← 命令小胶囊 与 注释 的水平间距 */
+  /* 可选：如果需要让 margin-bottom 生效，再打开下一行 */
+  /* display: inline-block; */
+}
+
+#ops-panel .command-list code,
+.commands-grid .command-list code {
+  display: inline-block;
+  margin-right: 8px;
+  margin-bottom: 2px;   /* 轻微增加行间距 */
 }
 
 
