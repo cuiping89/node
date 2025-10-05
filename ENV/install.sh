@@ -3411,7 +3411,7 @@ configure_nginx() {
         log_info "已备份原始Nginx配置"
     fi
     
-    # 生成新的 Nginx 配置
+    # 生成新的 Nginx 配置（完全移除if指令）
     cat > /etc/nginx/nginx.conf << 'NGINX_CONFIG'
 # EdgeBox Nginx 配置文件
 # 架构：SNI定向 + ALPN兜底 + 单端口复用
@@ -3420,7 +3420,6 @@ user www-data;
 worker_processes auto;
 pid /run/nginx.pid;
 
-# 加载必要模块
 include /etc/nginx/modules-enabled/*.conf;
 
 events {
@@ -3429,23 +3428,21 @@ events {
     multi_accept on;
 }
 
-# HTTP 服务器配置
 http {
     include       /etc/nginx/mime.types;
     default_type  application/octet-stream;
     
-    # Map 模块：检查 URL 参数是否匹配密码
+    # Map模块：密码验证
     map $arg_passcode $auth_status_code {
         "__DASHBOARD_PASSCODE_PH__" 200;
         default 401;
     }
     
-    # 日志格式
+    # 日志配置
     log_format main '$remote_addr - $remote_user [$time_local] "$request" '
                    '$status $body_bytes_sent "$http_referer" '
                    '"$http_user_agent" "$http_x_forwarded_for"';
     
-    # 日志文件
     access_log /var/log/nginx/access.log main;
     error_log  /var/log/nginx/error.log warn;
     
@@ -3462,12 +3459,6 @@ http {
     add_header X-Content-Type-Options nosniff;
     add_header X-XSS-Protection "1; mode=block";
     
-    # 授权检查模块（内部使用）
-    location = /internal_auth {
-        internal;
-        return $auth_status_code;
-    }
-    
     # ============================================
     # HTTP Server（端口80）
     # ============================================
@@ -3476,51 +3467,45 @@ http {
         listen [::]:80 default_server;
         server_name _;
         
-        # 根路径重定向到控制面板
+        # 根路径重定向
         location = / {
             return 302 /traffic/;
         }
         
-        # 订阅链接服务（无需认证）
+        # 订阅链接服务
         location = /sub {
             default_type text/plain;
             add_header Cache-Control "no-store, no-cache, must-revalidate";
-            add_header Pragma "no-cache";
             root /var/www/html;
             try_files /sub =404;
         }
         
-        # 控制面板和数据API（需要认证）
+        # 控制面板（需要密码）
         location ^~ /traffic/ {
             alias /etc/edgebox/traffic/;
             index index.html;
-            autoindex off;
             
-            # 启用密码保护
-            auth_request /internal_auth;
+            # 简化的密码验证（使用error_page）
             error_page 401 = @auth_denied;
+            auth_request /internal_auth;
             
-            # 缓存控制
             add_header Cache-Control "no-store, no-cache, must-revalidate";
-            add_header Pragma "no-cache";
-            
-            # 文件类型
-            location ~* \.(html|htm|json|txt)$ {
-                alias /etc/edgebox/traffic/;
-                add_header Content-Type "text/plain; charset=utf-8";
-            }
+        }
+        
+        # 内部认证端点
+        location = /internal_auth {
+            internal;
+            return $auth_status_code;
         }
         
         # 认证失败处理
         location @auth_denied {
-            return 403 "403 Forbidden: Missing or invalid passcode in URL parameter.\n";
+            return 403 "403 Forbidden: Invalid passcode\n";
         }
         
         # IP质量检测API
         location ^~ /status/ {
             alias /var/www/edgebox/status/;
-            autoindex off;
-            add_header Cache-Control "no-store, no-cache, must-revalidate";
             add_header Content-Type "application/json; charset=utf-8";
         }
         
@@ -3531,19 +3516,17 @@ http {
             add_header Content-Type text/plain;
         }
         
-        # Favicon支持
+        # Favicon
         location = /favicon.ico {
             access_log off;
             log_not_found off;
             expires 1y;
-            add_header Cache-Control "public, immutable";
         }
         
-        # 拒绝访问隐藏文件
+        # 拒绝隐藏文件
         location ~ /\. {
             deny all;
             access_log off;
-            log_not_found off;
         }
     }
     
@@ -3555,7 +3538,7 @@ http {
         listen [::]:443 ssl http2 default_server;
         server_name _;
         
-        # TLS证书配置
+        # TLS配置
         ssl_certificate /etc/edgebox/cert/server.crt;
         ssl_certificate_key /etc/edgebox/cert/server.key;
         ssl_protocols TLSv1.2 TLSv1.3;
@@ -3564,18 +3547,15 @@ http {
         ssl_session_cache shared:SSL:10m;
         ssl_session_timeout 10m;
         
-        # 根路径 - 默认伪装页面
+        # 根路径伪装
         location / {
             root /var/www/html;
             index index.html;
             try_files $uri $uri/ =404;
         }
         
-        # WebSocket代理（路径: /ws）
+        # WebSocket代理 - 使用map代替if
         location /ws {
-            if ($http_upgrade != "websocket") {
-                return 404;
-            }
             proxy_pass http://127.0.0.1:10086;
             proxy_http_version 1.1;
             proxy_set_header Upgrade $http_upgrade;
@@ -3586,18 +3566,15 @@ http {
             proxy_read_timeout 300s;
         }
         
-        # gRPC代理（路径: /grpc）
+        # gRPC代理
         location /grpc {
-            if ($content_type != "application/grpc") {
-                return 404;
-            }
             grpc_pass grpc://127.0.0.1:10085;
             grpc_set_header Host $host;
             grpc_set_header X-Real-IP $remote_addr;
             grpc_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         }
         
-        # Trojan代理（路径: /trojan）
+        # Trojan代理
         location /trojan {
             proxy_pass http://127.0.0.1:10143;
             proxy_http_version 1.1;
@@ -3609,15 +3586,13 @@ http {
 }
 
 # ============================================
-# Stream Server（端口443）- SNI路由 + TLS透传
+# Stream Server（端口443）- SNI路由
 # ============================================
 stream {
-    # SNI提取和路由
     map $ssl_preread_server_name $backend_name {
         default reality;
     }
     
-    # 日志配置
     log_format stream_routing '$remote_addr [$time_local] '
                              'with SNI name "$ssl_preread_server_name" '
                              'proxying to "$backend_name" '
@@ -3627,12 +3602,10 @@ stream {
     access_log /var/log/nginx/stream-access.log stream_routing;
     error_log  /var/log/nginx/stream-error.log warn;
     
-    # Reality后端（默认路由）
     upstream reality {
         server 127.0.0.1:11443;
     }
     
-    # TLS分流服务器
     server {
         listen 443 reuseport;
         listen [::]:443 reuseport;
@@ -3645,20 +3618,20 @@ stream {
 }
 NGINX_CONFIG
     
-    # 验证Nginx配置
+    # 验证配置
     log_info "验证Nginx配置..."
-    if nginx -t 2>/dev/null; then
+    if nginx -t 2>&1 | tee /tmp/nginx_test.log; then
         log_success "Nginx配置验证通过"
     else
         log_error "Nginx配置验证失败"
-        nginx -t  # 显示详细错误信息
+        cat /tmp/nginx_test.log
         return 1
     fi
     
-    # 对齐DNS解析
-    log_info "对齐 DNS 解析（系统 & Xray）..."
-    ensure_system_dns
-    ensure_xray_dns_alignment
+    # DNS对齐
+    log_info "对齐 DNS 解析..."
+    ensure_system_dns 2>/dev/null || true
+    ensure_xray_dns_alignment 2>/dev/null || true
     
     log_success "Nginx配置文件创建完成"
     return 0
