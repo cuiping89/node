@@ -7993,32 +7993,35 @@ h4 {
 
 /* ==========协议健康状态 - 单行布局(与核心服务徽标统一)=========== */
 
-/* 运行状态列取消居中，改为左对齐 */
+/* 运行状态列保持居中 */
 .data-table td:nth-child(4) {
-    text-align: left !important;  /* ← 强制左对齐 */
-    padding-left: 20px;           /* ← 添加左侧内边距，让内容不要太靠边 */
+    text-align: center;  /* 保持居中 */
 }
 
-/* 单行水平布局容器 - 左对齐排列 */
+/* 单行水平布局容器 - 使用inline-flex在居中列中左对齐 */
 .health-status-container {
-    display: flex;
+    display: inline-flex;         /* inline-flex使其在居中列中居中 */
     align-items: center;
-    justify-content: flex-start;  /* ← 左对齐 */
+    justify-content: flex-start;  /* 内容从左开始 */
     gap: 6px;
     padding: 4px 0;
+    min-width: 260px;             /* ← 关键：固定最小宽度，确保对齐 */
+    text-align: left;             /* 内部文字左对齐 */
 }
 
-/* 健康状态徽章 - 使用与核心服务相同的样式 */
+/* 健康状态徽章 - 固定宽度确保对齐 */
 .health-status-badge {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     height: 20px;
     line-height: 20px;
     padding: 0 10px;
     border-radius: 999px;
     font-size: 11px;
     font-weight: 500;
-    flex-shrink: 0;  /* ← 防止徽标被压缩 */
+    min-width: 50px;              /* ← 关键：固定最小宽度 */
+    flex-shrink: 0;
 }
 
 .health-status-badge.healthy {
@@ -8045,6 +8048,7 @@ h4 {
     font-size: var(--h4-size, 13px);
     font-weight: 500;
     white-space: nowrap;
+    flex-shrink: 0;
 }
 
 /* 推荐标签 - 与前三列保持一致 */
@@ -8053,11 +8057,12 @@ h4 {
     font-size: var(--h4-size, 13px);
     font-weight: 500;
     white-space: nowrap;
+    flex-shrink: 0;
 }
 
 /* 运行状态列宽度 */
 .protocol-status {
-    min-width: 280px;
+    min-width: 320px;  /* 增加宽度以容纳内容 */
 }
 
 /* 健康分数显示 */
@@ -8091,8 +8096,8 @@ h4 {
 
 /* 响应式调整 */
 @media (max-width: 768px) {
-    .data-table td:nth-child(4) {
-        padding-left: 10px;  /* 窄屏减少左边距 */
+    .health-status-container {
+        min-width: 220px;
     }
     
     .health-status-badge {
@@ -8100,6 +8105,7 @@ h4 {
         padding: 0 8px;
         height: 18px;
         line-height: 18px;
+        min-width: 45px;
     }
     
     .health-detail-message,
@@ -8108,7 +8114,7 @@ h4 {
     }
     
     .protocol-status {
-        min-width: 220px;
+        min-width: 260px;
     }
 }
 
@@ -10774,6 +10780,7 @@ function getTimeAgo(timeStr) {
 function setupNotificationCenter() {
     const trigger = document.getElementById('notificationTrigger');
     const panel = document.getElementById('notificationPanel');
+    const clearBtn = document.querySelector('.notification-clear');
     
     if (!trigger || !panel) return;
     
@@ -10799,6 +10806,15 @@ function setupNotificationCenter() {
     panel.addEventListener('click', (e) => {
         e.stopPropagation();
     });
+    
+    // ✅ 关键修复：直接绑定清空按钮
+    if (clearBtn) {
+        clearBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            clearNotifications();
+        });
+    }
 }
 
 // 标记所有通知为已读
@@ -10817,15 +10833,6 @@ function clearNotifications() {
         notify('已清空所有通知', 'ok');
     }
 }
-
-// 在现有事件委托中添加通知相关处理
-document.addEventListener('click', (e) => {
-    const action = e.target.closest('[data-action]')?.dataset.action;
-    
-    if (action === 'clear-notifications') {
-        clearNotifications();
-    }
-});
 
 
 // ========================================
