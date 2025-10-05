@@ -189,7 +189,7 @@ REALITY_SNI="www.microsoft.com"
 HYSTERIA2_MASQUERADE="https://www.bing.com"
 
 # === 版本和下载常量 ===
-DEFAULT_SING_BOX_VERSION="1.12.4"
+DEFAULT_SING_BOX_VERSION="1.12.8"
 XRAY_INSTALL_SCRIPT="https://raw.githubusercontent.com/XTLS/Xray-install/main/install-release.sh"
 
 # === 临时文件常量 ===
@@ -215,6 +215,9 @@ SNI_DOMAIN_POOL=(
     "aws.amazon.com"         # 权重: 10 (备用)
     "www.fastly.com"         # 权重: 10 (CDN特性)
 )
+
+# === 控制面板访问密码 ===
+DASHBOARD_PASSCODE=""      # 6位随机相同数字
 
 #############################################
 # 路径验证和创建函数
@@ -2461,6 +2464,35 @@ generate_reality_keys() {
     return 0
 }
 
+# 生成控制面板密码
+generate_dashboard_passcode() {
+    log_info "生成控制面板访问密码..."
+    # 随机生成一个 0-9 的数字
+    local random_digit=$((RANDOM % 10))
+    # 生成 6 位相同的数字密码
+    DASHBOARD_PASSCODE="${random_digit}${random_digit}${random_digit}${random_digit}${random_digit}${random_digit}"
+    
+    if [[ -z "$DASHBOARD_PASSCODE" || ${#DASHBOARD_PASSCODE} -ne 6 ]]; then
+        log_error "控制面板密码生成失败"
+        return 1
+    fi
+    
+    log_success "控制面板密码生成完成: $DASHBOARD_PASSCODE"
+    
+    # 将密码写入 server.json
+    local config_file="${CONFIG_DIR}/server.json"
+    if [[ -f "$config_file" ]]; then
+        local temp_file="${config_file}.tmp"
+        if jq --arg passcode "$DASHBOARD_PASSCODE" '.dashboard_passcode = $passcode' "$config_file" > "$temp_file"; then
+            mv "$temp_file" "$config_file"
+            log_info "控制面板密码已写入 server.json"
+        else
+            log_warn "写入 server.json 失败"
+        fi
+    fi
+    return 0
+}
+
 #############################################
 # 配置信息保存函数
 #############################################
@@ -2827,6 +2859,14 @@ execute_module2() {
         return 1
     fi
     
+	# 任务2.5：生成控制面板密码
+if generate_dashboard_passcode; then
+    log_success "✓ 控制面板密码生成完成"
+else
+    log_error "✗ 控制面板密码生成失败"
+    return 1
+fi
+
     # 任务3：生成Reality密钥（可能延迟到模块3）
     if generate_reality_keys; then
         log_success "✓ Reality密钥生成完成"
@@ -3441,6 +3481,25 @@ http {
             alias /etc/edgebox/traffic/;
             index index.html;
             autoindex off;
+            
+            # 【新增】控制面板密码保护
+            # 使用 URL 参数校验密码：/traffic/?passcode=xxxxxx
+            set $passcode_ok 0;
+            if ($arg_passcode = "__DASHBOARD_PASSCODE_PH__") {
+                set $passcode_ok 1;
+            }
+            
+            # 如果密码错误，返回 403
+            if ($passcode_ok = 0) {
+                # 排除 /sub 路径，避免影响订阅
+                if ($request_uri !~* /sub$) {
+                    return 403;
+                }
+            }
+            # 【新增】/traffic/ 路径下，重定向到 /traffic/?passcode=xxxxxx （前端JS会自动添加）
+            if ($uri = /traffic/) {
+                return 302 /traffic/?passcode=__DASHBOARD_PASSCODE_PH__;
+            }
             
             # 缓存控制
             add_header Cache-Control "no-store, no-cache, must-revalidate";
@@ -4452,6 +4511,15 @@ execute_module3() {
         log_error "✗ Nginx配置失败"
         return 1
     fi
+	  
+# 替换 Nginx 配置中的密码占位符
+local final_passcode="${DASHBOARD_PASSCODE:-$(jq -r '.dashboard_passcode // empty' "${CONFIG_DIR}/server.json" 2>/dev/null)}"
+if [[ -n "$final_passcode" ]]; then
+    log_info "应用控制面板密码到 Nginx 配置..."
+    sed -i "s/__DASHBOARD_PASSCODE_PH__/${final_passcode}/g" /etc/nginx/nginx.conf
+else
+    log_warn "未获取到控制面板密码，Nginx 配置中将使用默认占位符"
+fi
     
     # 任务6：生成订阅链接
     if generate_subscription; then
@@ -11879,6 +11947,55 @@ error()    { log_error "$@"; }
 get_current_cert_mode(){ [[ -f ${CONFIG_DIR}/cert_mode ]] && cat ${CONFIG_DIR}/cert_mode || echo "self-signed"; }
 need(){ command -v "$1" >/dev/null 2>&1; }
 
+# 获取控制面板密码
+get_dashboard_passcode() {
+    jq -r '.dashboard_passcode // empty' "${CONFIG_DIR}/server.json" 2>/dev/null || echo ""
+}
+
+# 更新控制面板密码
+update_dashboard_passcode() {
+    local old_passcode=$(get_dashboard_passcode)
+    
+    # 1. 随机生成新密码
+    local random_digit=$((RANDOM % 10))
+    local new_passcode="${random_digit}${random_digit}${random_digit}${random_digit}${random_digit}${random_digit}"
+    
+    # 2. 更新 server.json
+    local temp_file="${CONFIG_DIR}/server.json.tmp"
+    if jq --arg passcode "$new_passcode" '.dashboard_passcode = $passcode' "${CONFIG_DIR}/server.json" > "$temp_file"; then
+        mv "$temp_file" "${CONFIG_DIR}/server.json"
+        log_success "server.json 中的密码已更新"
+    else
+        log_error "更新 server.json 失败"
+        return 1
+    fi
+    
+    # 3. 更新 Nginx 配置
+    local nginx_conf="/etc/nginx/nginx.conf"
+    local nginx_tmp="${nginx_conf}.tmp"
+    
+    if grep -q "set \$passcode_ok" "$nginx_conf"; then
+        # 替换旧密码（使用 $passcode_ok 占位符作为标记）
+        sed -i "s/\(if (\$arg_passcode = \).*/\1\"${new_passcode}\") {/g" "$nginx_conf"
+        sed -i "s/\(return 302 \/traffic\/\?passcode=\).*/\1${new_passcode};/g" "$nginx_conf"
+    else
+        # 如果是首次运行（可能未在安装时应用），直接替换占位符（假设占位符存在）
+        # 这种场景应该在安装时避免，此处仅为兜底
+        sed -i "s/__DASHBOARD_PASSCODE_PH__/${new_passcode}/g" "$nginx_conf"
+    fi
+    
+    # 4. 重载 Nginx
+    if reload_or_restart_services nginx; then
+        log_success "Nginx 配置重载成功"
+        log_success "控制面板密码更新成功！新密码：${YELLOW}${new_passcode}${NC}"
+        log_info "原密码：${old_passcode:-无}"
+        return 0
+    else
+        log_error "Nginx 重载失败，请检查 /etc/nginx/nginx.conf"
+        return 1
+    fi
+}
+
 # 优化后的配置验证函数（替代原来的get_server_info）
 get_server_info() {
     ensure_config_loaded || return 1
@@ -13860,6 +13977,20 @@ case "$1" in
       fi
     fi
     ;;
+	
+	# 控制面板密码管理
+  dashboard)
+    case "$2" in
+      passcode)
+        shift 2
+        update_dashboard_passcode
+        ;;
+      *)
+        echo "用法: edgeboxctl dashboard passcode"
+        echo "  - 更新并显示控制面板访问密码"
+        ;;
+    esac
+    ;;
 
 # 帮助信息
   help|"") 
@@ -13975,7 +14106,7 @@ ${YELLOW}系统维护:${NC}
 
 ${CYAN}常用命令组合示例:${NC}
   # 完整的节点配置流程
-  edgeboxctl alias "生产环境-香港节点"            # 1. 设置备注名
+  edgeboxctl alias "生产环境-香港节点"              # 1. 设置备注名
   edgeboxctl switch-to-domain yourdomain.com     # 2. 配置域名证书
   edgeboxctl alert monthly 1000                  # 3. 设置月度预算
   edgeboxctl alert telegram <token> <chat_id>    # 4. 配置通知
@@ -13986,6 +14117,7 @@ ${CYAN}常用命令组合示例:${NC}
   edgeboxctl debug-ports                         # 2. 检查端口占用
   edgeboxctl logs xray                           # 3. 查看错误日志
   edgeboxctl test                                # 4. 测试连通性
+  edgeboxctl test-udp
   
   # 定期维护流程
   edgeboxctl cert status                         # 检查证书有效期
@@ -14915,54 +15047,51 @@ finalize_data_generation() {
   log_success "数据生成与系统验证完成"
 }
 
+
 # 显示安装完成信息
 show_installation_info() {
     clear
     print_separator
-    echo -e "${GREEN}🎉 EdgeBox 企业级多协议节点 v3.0.0 安装完成！${NC}"
+    echo -e "${GREEN}🎉 EdgeBox 企业级多协议节点 v${EDGEBOX_VER} 安装完成！${NC}"
     print_separator
     
-    # 读取配置信息
-    local server_ip config_file="${CONFIG_DIR}/server.json"
-    if [[ -s "$config_file" ]]; then
-        server_ip=$(jq -r '.server_ip // empty' "$config_file" 2>/dev/null)
-        UUID_VLESS=$(jq -r '.uuid.vless.reality // .uuid.vless // empty' "$config_file" 2>/dev/null)
-        UUID_TUIC=$(jq -r '.uuid.tuic // empty' "$config_file" 2>/dev/null)
-        PASSWORD_HYSTERIA2=$(jq -r '.password.hysteria2 // empty' "$config_file" 2>/dev/null)
-        PASSWORD_TUIC=$(jq -r '.password.tuic // empty' "$config_file" 2>/dev/null)
-        PASSWORD_TROJAN=$(jq -r '.password.trojan // empty' "$config_file" 2>/dev/null)
-    else
-        server_ip="${SERVER_IP:-未知}"
-    fi
+    # 确保加载最新数据
+    local config_file="${CONFIG_DIR}/server.json"
+    local server_ip=$(jq -r '.server_ip // empty' "$config_file" 2>/dev/null)
+    local UUID_VLESS=$(jq -r '.uuid.vless.reality // .uuid.vless // empty' "$config_file" 2>/dev/null)
+    local UUID_TUIC=$(jq -r '.uuid.tuic // empty' "$config_file" 2>/dev/null)
+    local PASSWORD_HYSTERIA2=$(jq -r '.password.hysteria2 // empty' "$config_file" 2>/dev/null)
+    local PASSWORD_TUIC=$(jq -r '.password.tuic // empty' "$config_file" 2>/dev/null)
+    local PASSWORD_TROJAN=$(jq -r '.password.trojan // empty' "$config_file" 2>/dev/null)
+    local DASHBOARD_PASSCODE=$(jq -r '.dashboard_passcode // empty' "$config_file" 2>/dev/null)
     
-    echo -e  "${CYAN}服务器信息：${NC}"
+    echo -e  "${CYAN}--- 核心访问信息（重要！） ---${NC}"
     echo -e  "  IP地址: ${PURPLE}${server_ip}${NC}"
-    echo -e  "  控制面板: ${PURPLE}http://${server_ip}/traffic/${NC}" 
+    
+    # 【优化点 1：突出密码和链接】
+    echo -e  "  ${RED}🔑 访问密码:${NC} ${YELLOW}${DASHBOARD_PASSCODE}${NC} （6位相同数字）"
+    echo -e  "  🌐 控制面板: ${PURPLE}http://${server_ip}/traffic/?passcode=${DASHBOARD_PASSCODE}${NC}" 
 
-    echo -e  "\n${CYAN}默认模式：${NC}"
+    echo -e  "\n${CYAN}--- 默认模式（IP模式，需客户端跳过证书验证） ---${NC}"
     echo -e  "  证书模式: ${PURPLE}IP模式（自签名证书）${NC}"
-	echo -e  "  网络身份: ${PURPLE}VPS出站IP（自签名证书）${NC}"
+    echo -e  "  网络身份: ${PURPLE}VPS直连出站（默认）${NC}"
 	
-    echo -e "\n${CYAN}协议信息：${NC}"
+    echo -e "\n${CYAN}--- 协议配置摘要（客户端配置所需） ---${NC}"
+    # 【优化点 2：统一摘要长度】
     echo -e "  VLESS-Reality  端口: 443  UUID: ${PURPLE}${UUID_VLESS:0:8}...${NC}"
     echo -e "  VLESS-gRPC     端口: 443  UUID: ${PURPLE}${UUID_VLESS:0:8}...${NC}"  
-    echo -e "  VLESS-WS       端口: 443  UUID: ${PURPLE}${UUID_VLESS:0:8}...${NC}"
     echo -e "  Trojan-TLS     端口: 443  密码: ${PURPLE}${PASSWORD_TROJAN:0:8}...${NC}"
-    echo -e "  Hysteria2      端口: ${PORT_HYSTERIA2:-443}  密码: ${PURPLE}${PASSWORD_HYSTERIA2:0:8}...${NC}"
-    echo -e "  TUIC           端口: ${PORT_TUIC:-2053} UUID: ${PURPLE}${UUID_TUIC:0:8}...${NC}"
+    echo -e "  Hysteria2      端口: 443  密码: ${PURPLE}${PASSWORD_HYSTERIA2:0:8}...${NC}"
+    echo -e "  TUIC           端口: 2053 UUID: ${PURPLE}${UUID_TUIC:0:8}...${NC}"
     
-    echo -e "\n${CYAN}常用管理命令：${NC}"
-    echo -e "  ${PURPLE}edgeboxctl status${NC}                         # 查看服务状态"
-    echo -e "  ${PURPLE}edgeboxctl sub${NC}                            # 查看订阅链接"
-    echo -e "  ${PURPLE}edgeboxctl switch-to-domain <域名>${NC}         # 切换证书"
-    echo -e "  ${PURPLE}edgeboxctl shunt direct-resi '<代理URL>'${NC}  # 配置分流出站"
-    echo -e "  ${PURPLE}edgeboxctl traffic show${NC}                   # 查看流量统计"
-    echo -e "  ${PURPLE}edgeboxctl backup create${NC}                  # 手动备份"
-	echo -e "  ${PURPLE}edgeboxctl '<代理URL>'${NC}                        # 分流出站（白名单VPS直连，其他走代理）"
-    echo -e "  ${PURPLE}edgeboxctl shunt whitelist <add|remove|list>${NC} # 白名单管理" 
-	echo -e "  ${PURPLE}edgeboxctl alert monthly 500${NC}               # 设置月度500GiB预算"
-	echo -e "  ${PURPLE}edgeboxctl alias "自定义名称"${NC}               # 备注和更新服务器名称"
-    echo -e "  ${PURPLE}edgeboxctl help${NC}                           # 查看完整帮助"
+    echo -e "\n${CYAN}--- 常用运维命令 ---${NC}"
+    # 【优化点 3：新增密码修改命令】
+    echo -e "  ${PURPLE}edgeboxctl status${NC}                             # 查看服务状态"
+    echo -e "  ${PURPLE}edgeboxctl sub${NC}                                # 查看订阅链接"
+    echo -e "  ${PURPLE}edgeboxctl dashboard passcode${NC}                 # ${RED}更新控制面板密码${NC}"
+    echo -e "  ${PURPLE}edgeboxctl switch-to-domain <域名>${NC}             # 切换证书模式"
+    echo -e "  ${PURPLE}edgeboxctl shunt direct-resi '<代理URL>'${NC}      # 启用智能分流"
+    echo -e "  ${PURPLE}edgeboxctl help${NC}                               # 查看完整帮助"
     
 	echo -e "\n${CYAN}高级运维功能：${NC}"
     echo -e "  🔄 证书切换: IP模式 ⇋ 域名模式（Let's Encrypt证书）"
