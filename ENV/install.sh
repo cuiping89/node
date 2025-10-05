@@ -3405,13 +3405,11 @@ fi
 configure_nginx() {
     log_info "配置Nginx（SNI定向 + ALPN兜底架构）..."
     
-    # 备份原始配置
     if [[ -f /etc/nginx/nginx.conf ]]; then
         cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak.$(date +%s)
         log_info "已备份原始Nginx配置"
     fi
     
-    # 生成新的Nginx配置
     cat > /etc/nginx/nginx.conf << 'NGINX_CONFIG'
 # EdgeBox Nginx 配置文件
 # 架构：SNI定向 + ALPN兜底 + 单端口复用
@@ -3423,7 +3421,6 @@ pid /run/nginx.pid;
 # 加载必要模块
 include /etc/nginx/modules-enabled/*.conf;
 
-# 事件处理
 events {
     worker_connections 1024;
     use epoll;
@@ -3435,11 +3432,11 @@ http {
     include       /etc/nginx/mime.types;
     default_type  application/octet-stream;
     
-    # 【新增】定义一个 map 变量 $auth_required，用于检查密码
+    # 【新增 Map 模块】检查 URL 参数是否匹配密码
     map $arg_passcode $auth_required {
-        # 如果 URL 参数匹配正确的密码（__DASHBOARD_PASSCODE_PH__ 是占位符，将在安装后期被 sed 替换）
+        # 如果 URL 参数匹配正确的密码（__DASHBOARD_PASSCODE_PH__ 是占位符）
         "__DASHBOARD_PASSCODE_PH__" 0;  # 设置为 0 (无需认证)
-        # 其他任何情况，默认设置为 1 (需要认证)
+        # 其他任何情况（包括密码为空），默认设置为 1 (需要认证)
         default 1;                      
     }
     
@@ -3465,6 +3462,17 @@ http {
     add_header X-Content-Type-Options nosniff;
     add_header X-XSS-Protection "1; mode=block";
     
+    # 【新增授权检查模块】此模块只返回 401/200，不进行文件处理
+    location = /auth_passcode {
+        internal;
+        # 如果 $auth_required = 1，返回 401（认证失败）
+        if ($auth_required = 1) {
+            return 401;
+        }
+        # 否则返回 200（认证成功）
+        return 200;
+    }
+    
     # HTTP 服务器（端口80）
     server {
         listen 80 default_server;
@@ -3476,7 +3484,7 @@ http {
             return 302 /traffic/;
         }
         
-        # 订阅链接服务
+        # 订阅链接服务 (无需认证)
         location = /sub {
             default_type text/plain;
             add_header Cache-Control "no-store, no-cache, must-revalidate";
@@ -3485,35 +3493,35 @@ http {
             try_files /sub =404;
         }
         
-        # 控制面板和数据API
+        # 控制面板和数据API（需要认证）
         location ^~ /traffic/ {
             alias /etc/edgebox/traffic/;
             index index.html;
             autoindex off;
             
-            # 【密码保护逻辑】
-            # 如果 $auth_required = 1 (URL参数不匹配)，则返回 401 Unauthorized
-            if ($auth_required = 1) {
-                # 排除 /sub 路径，避免影响订阅
-                if ($request_uri !~* /sub$) {
-                    return 401; 
-                }
-            }
+            # 【启用密码保护】通过子请求验证权限
+            # 如果 /auth_passcode 返回 401，Nginx 则返回 401
+            auth_request /auth_passcode; 
+            error_page 401 = @bypass_401;
+            
+            # 内部重定向，避免 Nginx 对 alias 所在 location 块执行复杂 if
+            # 如果访问 /traffic/ 且未带密码，此处会被 auth_request 拦截，不会执行到这里。
+            # 如果访问 /traffic/?passcode=xxxxxx (匹配)，则正常执行 alias。
             
             # 缓存控制
             add_header Cache-Control "no-store, no-cache, must-revalidate";
             add_header Pragma "no-cache";
             
-            # 文件类型
-            location ~* \.(html|htm)$ {
-                add_header Content-Type "text/html; charset=utf-8";
+            # 文件类型（保持不变）
+            location ~* \.(html|htm|json|txt)$ {
+                alias /etc/edgebox/traffic/;
+                add_header Content-Type "text/$1; charset=utf-8";
             }
-            location ~* \.(json)$ {
-                add_header Content-Type "application/json; charset=utf-8";
-            }
-            location ~* \.(txt)$ {
-                add_header Content-Type "text/plain; charset=utf-8";
-            }
+        }
+        
+        # 【新增】当密码验证失败时，返回 403 错误（更明确）
+        location @bypass_401 {
+            return 403 "403 Forbidden: Missing or invalid passcode.\n";
         }
         
         # IP质量检测API（对齐技术规范）
@@ -3546,92 +3554,6 @@ http {
             log_not_found off;
         }
     }
-}
-
-# Stream 模块配置（TCP/443 端口分流）
-stream {
-    # 日志配置
-    error_log /var/log/nginx/stream.log warn;
-    
-    # SNI 映射规则（基于域名分流）
-    map $ssl_preread_server_name $backend_pool {
-        # Reality 伪装域名
-        ~*(microsoft\.com|apple\.com|cloudflare\.com|amazon\.com|fastly\.com)$ reality;
-        
-        # Trojan 专用子域
-        ~*^trojan\..* trojan;
-        
-        # 内部服务域名（用于gRPC和WebSocket）
-        grpc.edgebox.internal grpc;
-        ws.edgebox.internal websocket;
-        
-        # 默认后端
-        default "";
-    }
-    
-    # ALPN 协议映射（基于应用层协议分流）
-    map $ssl_preread_alpn_protocols $backend_alpn {
-    ~\bhttp/1\.1\b     websocket; # 先判 WebSocket
-    ~\bh2\b            grpc;      # 再判 gRPC
-    default            reality;   # 兜底 Reality
-}
-    
-    # 后端服务器映射
-    map $backend_pool $upstream_server {
-        reality   127.0.0.1:11443;  # Reality 内部端口
-        trojan    127.0.0.1:10143;  # Trojan 内部端口
-        grpc      127.0.0.1:10085;  # gRPC 内部端口
-        websocket 127.0.0.1:10086;  # WebSocket 内部端口
-        default   "";
-    }
-    
-    # ALPN 后端映射（SNI 未命中时的兜底）
-    map $backend_alpn $upstream_alpn {
-        grpc      127.0.0.1:10085;  # gRPC
-        websocket 127.0.0.1:10086;  # WebSocket
-        reality   127.0.0.1:11443;  # Reality
-        default   127.0.0.1:11443;  # 默认 Reality
-    }
-    
-    # 最终上游选择（SNI 优先，ALPN 兜底）
-    map $upstream_server $final_upstream {
-        ""      $upstream_alpn;     # SNI 未命中，使用 ALPN
-        default $upstream_server;   # SNI 命中，使用 SNI 结果
-    }
-    
-    # TCP/443 端口监听和分流
-    server {
-        listen 443 reuseport;                    # 仅监听 TCP，UDP 443 留给 sing-box
-        ssl_preread on;                          # 启用 SSL 预读取
-        proxy_pass $final_upstream;             # 代理到最终上游
-        proxy_timeout 300s;                     # 代理超时
-        proxy_connect_timeout 5s;               # 连接超时
-        proxy_protocol_timeout 5s;              # 协议超时
-        
-        # 错误处理
-        proxy_responses 1;
-        proxy_next_upstream_tries 1;
-    }
-}
-NGINX_CONFIG
-    
-# 验证Nginx配置
-log_info "验证Nginx配置..."
-if nginx -t 2>/dev/null; then
-    log_success "Nginx配置验证通过"
-else
-    log_error "Nginx配置验证失败"
-    nginx -t  # 显示详细错误信息
-    return 1
-fi
-
-# 对齐系统与 Xray 的 DNS（幂等，无则跳过）
-log_info "对齐 DNS 解析（系统 & Xray）..."
-ensure_system_dns
-ensure_xray_dns_alignment
-    
-log_success "Nginx配置文件创建完成"
-return 0
 }
 
 
