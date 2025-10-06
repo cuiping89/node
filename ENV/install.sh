@@ -6419,47 +6419,40 @@ generate_health_report() {
     protocols_health=$(check_all_protocols)
     services_status=$(generate_service_summary)
 
-    # 规范化字段，解决 name:null / 缺失 health/score；并为缺省记录补齐 recommendation
-    # 规范化字段并生成推荐徽章
-    local normalized
-    normalized=$(echo "$protocols_health" | jq -c '
-      map(
-        # 生成推荐等级
-        .recommendation = (
-          if .recommendation and (.recommendation | type) == "string" then
-            (.recommendation | split("\n")[0])
-          elif (.status == "healthy" or .status == "alive") then
-            if (.health_score // .score // 0) >= 85 then "primary"
-            elif (.health_score // .score // 0) >= 70 then "recommended"
-            elif (.health_score // .score // 0) >= 50 then "backup"
-            else "not_recommended"
-            end
-          else "none"
-          end
-        ) |
-        # 生成推荐徽章
-        .recommendation_badge = (
-          if .recommendation == "primary" then "🏆 主推"
-          elif .recommendation == "recommended" then "👍 推荐"
-          elif .recommendation == "backup" then "🔄 备用可选"
-          elif .recommendation == "not_recommended" then "⛔ 暂不推荐"
-          else ""
-          end
-        ) |
-        # 确保其他字段存在
-        .protocol = (.protocol // .proto // "") |
-        .status = (.status // .health // "unknown") |
-        .health_score = ((.health_score // .score // 0) | tonumber) |
-        .response_time = ((.response_time // .latency_ms // 0) | tonumber)
-      )
-    ')
+# 规范化字段，解决 name:null / 缺失 health/score；并为缺省记录补齐 recommendation
+normalized=$(echo "$protocols_health" | jq -c '
+  map(
+    # 生成推荐等级（只添加，不覆盖）
+    .recommendation = (
+      if .recommendation and (.recommendation | type) == "string" then
+        (.recommendation | split("\n")[0])
+      elif (.status == "healthy" or .status == "alive") then
+        if (.health_score // .score // 0) >= 85 then "primary"
+        elif (.health_score // .score // 0) >= 70 then "recommended"
+        elif (.health_score // .score // 0) >= 50 then "backup"
+        else "not_recommended"
+        end
+      else "none"
+      end
+    ) |
+    # 生成推荐徽章（只添加，不覆盖）
+    .recommendation_badge = (
+      if .recommendation == "primary" then "🏆 主推"
+      elif .recommendation == "recommended" then "👍 推荐"
+      elif .recommendation == "backup" then "🔄 备用可选"
+      elif .recommendation == "not_recommended" then "⛔ 暂不推荐"
+      else ""
+      end
+    )
+    # 不要再添加其他字段赋值了，保留原始数据
+  )
+')
 
-    # 汇总统计（使用规范化后的字段）
-    local total healthy degraded down
-    total=$(jq 'length' <<<"$normalized")
-    healthy=$(jq '[.[] | select(.health=="healthy")] | length'   <<<"$normalized")
-    degraded=$(jq '[.[] | select(.health=="degraded")] | length' <<<"$normalized")
-    down=$(jq     '[.[] | select(.health=="down")]     | length' <<<"$normalized")
+# 修复统计代码：.health 改为 .status
+total=$(jq 'length' <<<"$normalized")
+healthy=$(jq '[.[] | select(.status=="healthy")] | length' <<<"$normalized")
+degraded=$(jq '[.[] | select(.status=="degraded")] | length' <<<"$normalized")
+down=$(jq '[.[] | select(.status=="down")] | length' <<<"$normalized")
 
     # 输出最终 JSON（保持原路径与落盘逻辑）
     jq -n \
