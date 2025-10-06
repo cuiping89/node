@@ -3414,7 +3414,7 @@ http {
     
     # 【新增】定义一个 map 变量 $auth_required，用于检查密码
     map \$arg_passcode \$auth_required {
-        # 直接使用实际密码 (从环境变量获取)
+        # 直接使用实际密码 (从环境变量)
         "${DASHBOARD_PASSCODE}" 0;  # 设置为 0 (无需认证)
         # 其他任何情况，默认设置为 1 (需要认证)
         default 1;                      
@@ -4481,10 +4481,9 @@ execute_module3() {
         return 1
     fi
     
-    # 验证控制面板密码已设置
-    log_info "验证控制面板密码配置..."
+    # 验证控制面板密码已正确配置
     if [[ -n "$DASHBOARD_PASSCODE" && ${#DASHBOARD_PASSCODE} -eq 6 ]]; then
-        log_success "✓ 控制面板密码: ${DASHBOARD_PASSCODE}"
+        log_success "✓ 控制面板密码已配置: ${DASHBOARD_PASSCODE}"
     else
         log_error "✗ 控制面板密码配置异常"
         return 1
