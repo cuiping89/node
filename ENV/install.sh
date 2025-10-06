@@ -7850,59 +7850,78 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
    ======================================================================= */
 #cert-panel{
   /* 与 NetID 标签一致的参数 */
-  --tag-pad-y: 5px;        /* ← 改它=改标签高度 */
+  --tag-pad-y: 5px;
   --tag-pad-x: 16px;
   --tag-radius: 8px;
   --tag-font: 13px;
   --tag-gap: 8px;
-  --label-w: 80px;          /* 行布局与原来保持一致 */
+  --label-w: 80px;
   --row-gap: 10px;
   --h3-gap: 8px;
   /* 颜色 */
   --label: var(--heading-color);
   --value: var(--content-color);
-  --tag-active-bg: #10b981;     /* 激活：绿色 */
-  --tag-inactive-bg: #e2e8f0;   /* 非当前：灰底 */
-  --tag-active-color: #ffffff;  /* ← 激活标签文字：白色 */
+  --tag-active-bg: #10b981;
+  --tag-inactive-bg: #e2e8f0;
+  --tag-active-color: #ffffff;
   --tag-inactive-color: #64748b;
   --card-br: #e5e7eb;
 }
+
 /* 顶部模式标签（两枚） */
 #cert-panel .cert-modes{
   display:flex;
   gap:5px;
-  margin-bottom: var(--tag-gap);  /* 与下方内容的间距 */
+  margin-bottom: var(--tag-gap);
 }
+
 #cert-panel .cert-mode-tab{
   flex:1;
   padding: var(--tag-pad-y) var(--tag-pad-x);
   border: 1px solid var(--card-br);
   border-radius: var(--tag-radius);
-  background: var(--tag-inactive-bg);       /* 非当前：#e2e8f0 */
-  color: var(--tag-inactive-color);         /* 非当前：灰色文字 */
+  background: var(--tag-inactive-bg);
+  color: var(--tag-inactive-color);
   font-size: var(--tag-font);
   font-weight: 600;
   text-align:center;
   cursor: default;
 }
-#cert-panel .cert-mode-tab.active{
-  background: var(--tag-active-bg);         /* 激活：绿色背景 */
-  color: var(--tag-active-color);           /* ← 激活：白色文字 */
-  border-color: var(--tag-active-bg);
+
+/* 【关键修复】激活标签 - 外层div和内部h3都设为白色 */
+#cert-panel .cert-mode-tab.active {
+  background: var(--tag-active-bg) !important;
+  color: var(--tag-active-color) !important;
+  border-color: var(--tag-active-bg) !important;
 }
-/* 内容卡片：白底 + 边框 + 阴影（去掉灰底） */
+
+#cert-panel .cert-mode-tab.active h3 {
+  color: var(--tag-active-color) !important;
+}
+
+/* 非激活标签的h3也要设置颜色 */
+#cert-panel .cert-mode-tab h3 {
+  color: inherit;
+  margin: 0;
+  font-size: var(--tag-font);
+  font-weight: 600;
+}
+
+/* 内容卡片：白底 + 边框 + 阴影 */
 #cert-panel .inner-block{
   display:block;
-  background:#fff;                         /* ← 替换掉原来的灰底 */
+  background:#fff;
   border:1px solid var(--card-br);
   border-radius:10px;
   padding:15px;
-  box-shadow:0 2px 6px rgba(0,0,0,.08);    /* 阴影 */
+  box-shadow:0 2px 6px rgba(0,0,0,.08);
 }
+
 #cert-panel .inner-block>h3{
   margin:0 0 var(--h3-gap);
 }
-/* 明细行：键名 | 值（保持原有行节奏） */
+
+/* 明细行 */
 #cert-panel .inner-block .info-item{
   display:grid;
   grid-template-columns: var(--label-w) 1fr;
@@ -7910,13 +7929,15 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   align-items:center;
   padding:6px 0;
 }
+
 /* 证书切换标题统一样式 */
 #cert-panel .inner-block .info-item label{
-  color: var(--subheading-color) !important;  /* h4级别用灰色 */
+  color: var(--subheading-color) !important;
   font-size: var(--h4-size) !important;
   font-weight: 600 !important;
   justify-self: start;
 }
+
 /* 证书切换内容统一样式 */
 #cert-panel .inner-block .info-item value{
   color: var(--content-color) !important;
@@ -7938,7 +7959,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   --line-vpad: 6px;         /* 每行上下内边距（行高节奏） */
 
   /* 悬浮标签（与证书切换一致） */
-  --tag-pad-y: 6px;        /* 标签上下 padding = 高度 */
+  --tag-pad-y: 6px;         /* 标签上下 padding = 高度 */
   --tag-pad-x: 16px;        /* 标签左右 padding = 视觉宽度 */
   --tag-gap: 8px;           /* 标签与卡片的垂直间距 */
   --tag-radius: 8px;
@@ -7959,7 +7980,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 
   /* 标题横线 ↔ 组件组 的间距（只影响本卡） */
   --header-gap: 12px;       /* 原全局为 20px：越小越贴近 */
-  --panel-top-gap: 4px;     /* 组件组再向下的细微“下移” */
+  --panel-top-gap: 4px;     /* 组件组再向下的细微"下移" */
 
   display: block !important; /* 防外部 flex 干扰 */
 }
@@ -7969,19 +7990,31 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   margin-bottom: var(--header-gap) !important;
 }
 
-/* 三块容器：三列、等高、整组垂直居中 */
+/* 标题右侧"注：HY2/TUIC…"（颜色+对齐+右缩进，仅本卡） */
+#netid-panel .card-header h2{
+  display: flex;
+  align-items: flex-end;        /* 和标题下沿对齐 */
+}
+#netid-panel .card-header .note-udp{
+  color: #9ca3af !important;    /* 浅灰 */
+  font-weight: 400;
+  font-size: 12px;
+  line-height: 1;
+  margin-right: 1em;            /* 右缩进一个字宽（可改 1em） */
+  transform: translateY(2px);   /* 轻微下沉，更贴近底线 */
+}
+
 /* 三块容器：三列、自适应高度、顶部对齐 */
 #netid-panel .network-blocks{
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 15px;
-
   align-content: start;         /* 从顶部开始排列 */
   align-items: start;           /* 子项顶部对齐，不强制等高 */
   padding-top: var(--panel-top-gap); /* 与标题横线的微调间距 */
 }
 
-/* 小卡片：为“悬浮标签”预留位置 + 阴影 */
+/* 小卡片：为"悬浮标签"预留位置 + 阴影 */
 #netid-panel .network-block{
   position: relative;
   background: #fff;
@@ -7993,6 +8026,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   box-shadow: 0 2px 6px rgba(0,0,0,0.08);
 }
 
+/* 悬浮标签样式 */
 #netid-panel .network-block > h3{
   position: absolute !important;
   top: 0 !important;
@@ -8042,8 +8076,11 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   font-weight: 600 !important;
 }
 
-/* 网络身份配置内容统一样式 */
-#netid-panel .network-block .info-item value{
+/* 网络身份配置内容统一样式（包含IP质量分数） */
+#netid-panel .network-block .info-item value,
+#netid-panel .nid__value #vps-ipq-score,
+#netid-panel .nid__value #proxy-ipq-score,
+#netid-panel .whitelist-text{
   color: var(--content-color) !important;
   font-size: var(--h4-size) !important;
   font-weight: 500 !important;
@@ -8053,26 +8090,9 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   text-overflow: ellipsis;
 }
 
-/* 特殊处理：白名单文本保持统一样式 */
+/* 白名单文本特殊处理 */
 #netid-panel .whitelist-text {
-  color: var(--content-color) !important;
-  font-size: var(--h4-size) !important;
-  font-weight: 500 !important;
   flex-shrink: 0;
-}
-
-/* 标题右侧“注：HY2/TUIC…”（颜色+对齐+右缩进，仅本卡） */
-#netid-panel .card-header h2{
-  display: flex;
-  align-items: flex-end;        /* 和标题下沿对齐 */
-}
-#netid-panel .card-header .note-udp{
-  color: #9ca3af !important;    /* 浅灰 */
-  font-weight: 400;
-  font-size: 12px;
-  line-height: 1;
-  margin-right: 1em;             /* 右缩进一个字宽（可改 1em） */
-  transform: translateY(2px);    /* 轻微下沉，更贴近底线 */
 }
 
 /* 窄屏：纵向堆叠，去掉强制高度避免留白 */
@@ -8083,21 +8103,6 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
     align-content: start;
     padding-top: 0;
   }
-}
-
-/* IP质量分数显示值颜色修复 */
-#vps-ipq-score,
-#proxy-ipq-score {
-  color: var(--content-color) !important;
-  font-size: var(--h4-size) !important;
-  font-weight: 500 !important;
-}
-
-.nid__value #vps-ipq-score,
-.nid__value #proxy-ipq-score {
-  color: var(--content-color) !important;
-  font-size: var(--h4-size) !important;
-  font-weight: 500 !important;
 }
 
 /* ======== 网络身份配置 - 白名单查看全部按钮专用CSS =========== */
