@@ -5233,6 +5233,19 @@ collect_notifications() {
 # 生成完整的dashboard.json
 generate_dashboard_data() {
     log_info "开始生成Dashboard数据..."
+	
+	# ========== 竞态修复: 主动刷新协议健康状态 ==========
+    log_info "主动刷新协议健康状态以确保数据新鲜度..."
+    if [[ -x "${SCRIPTS_DIR}/protocol-health-monitor.sh" ]]; then
+        if "${SCRIPTS_DIR}/protocol-health-monitor.sh" >/dev/null 2>&1; then
+            log_info "✓ 协议健康状态已刷新"
+        else
+            log_warn "协议健康检查执行失败,将使用现有数据"
+        fi
+    else
+        log_warn "协议健康检查脚本不存在或不可执行"
+    fi
+    # ========== 竞态修复结束 ==========
     
     # 确保目录存在
     mkdir -p "$TRAFFIC_DIR"
@@ -11804,8 +11817,7 @@ CONF
     # ---- D) 写入 new11 标准任务集（仅这一套）----
     ( crontab -l 2>/dev/null || true; cat <<CRON
 # EdgeBox 定时任务 v3.0 (new11 + SNI管理)
-*/2 * * * * bash -lc '/etc/edgebox/scripts/dashboard-backend.sh --now' >/dev/null 2>&1
-*/5 * * * * bash -lc '/etc/edgebox/scripts/protocol-health-monitor.sh' >/dev/null 2>&1
+*/5 * * * * bash -lc '/etc/edgebox/scripts/dashboard-backend.sh --now' >/dev/null 2>&1
 0  * * * * bash -lc '/etc/edgebox/scripts/traffic-collector.sh'        >/dev/null 2>&1
 7  * * * * bash -lc '/etc/edgebox/scripts/traffic-alert.sh'            >/dev/null 2>&1
 15 2 * * * bash -lc '/usr/local/bin/edgebox-ipq.sh'                    >/dev/null 2>&1
