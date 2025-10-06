@@ -4890,19 +4890,19 @@ get_services_status() {
 }
 
 
-# 获取协议配置状态 (最终修复版 - 强制顺序 & 优化数据读取)
+# 获取协议配置状态 (最终修复版 - 强制顺序 & 修正数据合并逻辑)
 get_protocols_status() {
-    # 1. 定义健康报告的路径和jq查询的默认值
+    # 1. 定义健康报告路径和默认状态
     local health_report_file="${TRAFFIC_DIR}/protocol-health.json"
     local default_status_json='{"status": "待检测", "status_badge": "⚪ 待检测"}'
-    
-    # 2. 读取并解析健康报告 (如果存在且有效)
+
+    # 2. 读取健康报告 (如果存在且有效)
     local health_data="[]"
     if [[ -s "$health_report_file" ]]; then
         health_data=$(jq -c '.protocols // []' "$health_report_file" 2>/dev/null || echo "[]")
     fi
 
-    # 3. ★★★ 强制定义协议的显示顺序 ★★★
+    # 3. 强制定义协议显示顺序
     local protocol_order=(
         "VLESS-Reality"
         "VLESS-gRPC"
@@ -4911,8 +4911,8 @@ get_protocols_status() {
         "Hysteria2"
         "TUIC"
     )
-    
-    # 4. 从 server.json 预加载所有需要的凭据和信息
+
+    # 4. 从 server.json 预加载所有需要的信息
     local server_config
     server_config=$(jq -c '{
         server_ip: .server_ip,
@@ -4935,7 +4935,7 @@ get_protocols_status() {
     domain=$(echo "$server_config" | jq -r '.domain // ""')
     cert_mode=$(echo "$server_config" | jq -r '.cert_mode // "self-signed"')
     [[ -z "$domain" || "$cert_mode" == "self-signed" ]] && domain="$server_ip"
-    
+
     declare -A share_links
     share_links["VLESS-Reality"]="vless://$(echo "$server_config" | jq -r '.uuid_vless_reality')@${domain}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.microsoft.com&pbk=$(echo "$server_config" | jq -r '.reality_pbk')&sid=$(echo "$server_config" | jq -r '.reality_sid')&type=tcp#EdgeBox-REALITY"
     share_links["VLESS-gRPC"]="vless://$(echo "$server_config" | jq -r '.uuid_vless_grpc')@${domain}:443?encryption=none&security=tls&sni=${domain}&alpn=h2&type=grpc&serviceName=grpc&fp=chrome#EdgeBox-gRPC"
@@ -4953,25 +4953,25 @@ get_protocols_status() {
     protocol_meta["Hysteria2"]="hysteria2|弱网/高丢包更佳|一般★★★☆☆|443|udp"
     protocol_meta["TUIC"]="tuic|大带宽/低时延|良好★★★★☆|2053|udp"
 
-    # 7. 严格按照 protocol_order 数组的顺序生成JSON
+    # 7. 严格按照顺序生成最终的JSON数组
     local protocols_json="["
     local first=true
     for name in "${protocol_order[@]}"; do
         IFS='|' read -r key scenario camouflage port network <<< "${protocol_meta[$name]}"
-        
-        # 从健康数据中查找状态，如果找不到则使用默认值
+
+        # ★★★ 核心修复：在这里查找并合并健康状态 ★★★
         local status_info
-        status_info=$(echo "$health_data" | jq -r --arg key "$key" '.[] | select(.protocol == $key) | {status, status_badge} // null')
-        
-        # 如果jq查询失败或结果为null，使用默认状态
+        status_info=$(echo "$health_data" | jq -c --arg key "$key" '.[] | select(.protocol == $key) | {status, status_badge}')
+
         if [[ -z "$status_info" || "$status_info" == "null" ]]; then
             status_info="$default_status_json"
         fi
-        
+
         if [[ "$first" == "false" ]]; then
             protocols_json+=","
         fi
-        
+
+        # 使用jq将基础信息和健康状态信息合并成一个对象
         protocols_json+=$(jq -n \
             --arg name "$name" \
             --arg scenario "$scenario" \
@@ -4980,19 +4980,12 @@ get_protocols_status() {
             --arg network "$network" \
             --arg share_link "${share_links[$name]}" \
             --argjson status_info "$status_info" \
-            '{
-                name: $name,
-                scenario: $scenario,
-                camouflage: $camouflage,
-                port: $port,
-                network: $network,
-                share_link: $share_link
-            } + $status_info')
-        
+            '{name: $name, scenario: $scenario, camouflage: $camouflage, port: $port, network: $network, share_link: $share_link} + $status_info')
+
         first=false
     done
     protocols_json+="]"
-    
+
     echo "$protocols_json"
 }
 
