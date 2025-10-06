@@ -3412,18 +3412,16 @@ http {
     include       /etc/nginx/mime.types;
     default_type  application/octet-stream;
     
-    # 【新增】定义一个 map 变量 $auth_required，用于检查密码
-    map $arg_passcode $auth_required {
-        # 如果 URL 参数匹配正确的密码（__DASHBOARD_PASSCODE_PH__ 是占位符，将在安装后期被 sed 替换）
-        "__DASHBOARD_PASSCODE_PH__" 0;  # 设置为 0 (无需认证)
-        # 其他任何情况，默认设置为 1 (需要认证)
-        default 1;                      
+    # 【口令映射：默认拒绝，命中正确口令才放行】
+    map $arg_passcode $deny_traffic {
+        default 1;                           # 默认拒绝
+        "__DASHBOARD_PASSCODE_PH__" 0;       # 正确口令 -> 0（不拒绝）
     }
     
     # 日志格式
-    log_format main '$remote_addr - $remote_user [$time_local] "$request" '
-                   '$status $body_bytes_sent "$http_referer" '
-                   '"$http_user_agent" "$http_x_forwarded_for"';
+log_format main '$remote_addr - $remote_user [$time_local] "$request_method $uri $server_protocol" '
+               '$status $body_bytes_sent "$http_referer" '
+               '"$http_user_agent" "$http_x_forwarded_for"';
     
     # 日志文件
     access_log /var/log/nginx/access.log main;
@@ -3462,13 +3460,23 @@ http {
             try_files /sub =404;
         }
         
-# 控制面板和数据API
+	    # 内部403页面（只在本server内有效）
+        location = /_deny_traffic {
+            internal;
+            return 403;
+        }
+		
+        # 控制面板和数据API
         location ^~ /traffic/ {
+            # 口令校验：默认拒绝；命中则放行
+            error_page 418 = /_deny_traffic;
+            if ($deny_traffic) { return 418; }  # 仅作触发码，无嵌套location
+
             alias /etc/edgebox/traffic/;
             index index.html;
             autoindex off;
 
-            # 统一缓存/编码
+            # 缓存/编码
             add_header Cache-Control "no-store, no-cache, must-revalidate";
             add_header Pragma "no-cache";
             charset utf-8;
@@ -3476,11 +3484,11 @@ http {
                 text/html        html htm;
                 text/plain       txt;
                 application/json json;
-				text/css         css;
+                text/css         css;
                 application/javascript js;
             }
         }
-        
+
         # IP质量检测API（对齐技术规范）
         location ^~ /status/ {
             alias /var/www/edgebox/status/;
@@ -3589,6 +3597,20 @@ else
     nginx -t  # 显示详细错误信息
     return 1
 fi
+
+    # 用真实口令替换占位符并重载
+    if [[ -n "$DASHBOARD_PASSCODE" ]]; then
+        sed -ri "s#__DASHBOARD_PASSCODE_PH__#${DASHBOARD_PASSCODE}#g" /etc/nginx/nginx.conf
+        if nginx -t; then
+            systemctl reload nginx || systemctl restart nginx
+            log_success "已注入控制面板口令并重载 Nginx"
+        else
+            log_error "注入口令后 nginx -t 失败，请检查 /etc/nginx/nginx.conf"
+            return 1
+        fi
+    else
+        log_warn "DASHBOARD_PASSCODE 为空，未注入口令（将导致默认拒绝）"
+    fi
 
 # 对齐系统与 Xray 的 DNS（幂等，无则跳过）
 log_info "对齐 DNS 解析（系统 & Xray）..."
@@ -5136,7 +5158,7 @@ cat <<EOF
   {
     "name": "Hysteria2",
     "scenario": "弱网/高丢包更佳",
-    "camouflage": " 好★★★☆☆",
+    "camouflage": "一般★★★☆☆",
     "status": "$udp443_status",
     "port": 443,
     "network": "udp",
@@ -11361,15 +11383,15 @@ function renderHealthSummary(healthData) {
                 <span class="summary-value">${summary.total}</span>
             </div>
             <div class="summary-item healthy">
-                <span class="summary-label">✅ 健康</span>
+                <span class="summary-label">健康 √</span>
                 <span class="summary-value">${summary.healthy}</span>
             </div>
             <div class="summary-item degraded">
-                <span class="summary-label">⚠️ 降级</span>
+                <span class="summary-label">降级 ⚠️</span>
                 <span class="summary-value">${summary.degraded}</span>
             </div>
             <div class="summary-item down">
-                <span class="summary-label">❌ 异常</span>
+                <span class="summary-label">异常 ❌</span>
                 <span class="summary-value">${summary.down}</span>
             </div>
             <div class="summary-item score">
