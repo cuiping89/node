@@ -11070,224 +11070,179 @@ function clearNotifications() {
 
 
 // ========================================
-// 协议健康状态渲染函数
-// 添加到 edgebox-panel.js 文件中
+// EdgeBox 面板脚本（带协议健康&推荐徽章渲染）
 // ========================================
 
-/**
- * 加载协议健康数据
- */
-async function loadProtocolHealth() {
-    try {
-        const response = await fetch('/traffic/protocol-health.json');
-        if (!response.ok) {
-            // 如果健康检查文件不存在，降级到旧版本显示
-            console.warn('协议健康数据不可用，使用降级显示');
-            return null;
-        }
-        const data = await response.json();
-        return data;
-    } catch (error) {
-        console.error('加载协议健康数据失败:', error);
-        return null;
-    }
+/* 工具 */
+function escapeHtml(s){return String(s??'').replace(/[&<>"'`=\/]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;","/":"&#x2F;","`":"&#x60;","=":"&#x3D;"}[c]))}
+function $(sel,root=document){return root.querySelector(sel)}
+function $all(sel,root=document){return [...root.querySelectorAll(sel)]}
+
+/* 健康数据加载 */
+async function loadProtocolHealth(){
+  try{
+    const resp = await fetch('/traffic/protocol-health.json',{cache:'no-store'});
+    if(!resp.ok) return null;
+    return await resp.json();
+  }catch(e){
+    console.warn('加载协议健康数据失败:',e);return null;
+  }
 }
 
-/**
- * 渲染协议健康状态卡片
- */
-function renderProtocolHealthCard(protocol, healthData) {
-    const card = document.querySelector(`[data-protocol="${protocol}"]`);
-    if (!card) return;
-
-    // 查找该协议的健康数据
-    const protocolHealth = healthData?.protocols?.find(p => p.protocol === protocol);
-    
-    if (!protocolHealth) {
-        // 如果没有健康数据，保持原有显示
-        return;
-    }
-
-    // 更新状态列
-    const statusCell = card.querySelector('.protocol-status');
-    if (statusCell) {
-        // 创建新的状态显示
-        const statusHTML = `
-            <div class="health-status-container">
-                <div class="health-status-badge ${protocolHealth.status}">
-                    ${protocolHealth.status_badge}
-                </div>
-                <div class="health-detail-message">
-                    ${protocolHealth.detail_message}
-                </div>
-                ${protocolHealth.recommendation_badge ? `
-                    <div class="health-recommendation-badge">
-                        ${protocolHealth.recommendation_badge}
-                    </div>
-                ` : ''}
-            </div>
-        `;
-        
-        statusCell.innerHTML = statusHTML;
-    }
-
-    // 可选：添加健康分数显示
-    const scoreCell = card.querySelector('.protocol-health-score');
-    if (scoreCell) {
-        scoreCell.textContent = protocolHealth.health_score;
-        scoreCell.className = `protocol-health-score score-${getScoreLevel(protocolHealth.health_score)}`;
-    }
-}
-
-/**
- * 获取健康分数等级
- */
-function getScoreLevel(score) {
-    if (score >= 85) return 'excellent';
-    if (score >= 70) return 'good';
-    if (score >= 50) return 'fair';
-    return 'poor';
-}
-
-
-//名称标准化到健康数据的 protocol 键
-function normalizeProtoKey(name) {
-  const key = String(name || '').trim().toLowerCase()
-    .replace(/\s+/g, '-')
-    .replace(/[–—]/g, '-'); // 兼容不同的连字符
+/* 名称标准化 -> 健康数据里的 protocol 键 */
+function normalizeProtoKey(name){
+  const key = String(name||'').trim().toLowerCase().replace(/\s+/g,'-').replace(/[–—]/g,'-');
   const map = {
-    'vless-reality': 'reality',
-    'vless-grpc': 'grpc',
-    'vless-websocket': 'ws',
-    'trojan-tls': 'trojan',
-    'hysteria2': 'hysteria2',
-    'tuic': 'tuic'
+    'vless-reality':'reality',
+    'vless-grpc':'grpc',
+    'vless-websocket':'ws',
+    'trojan-tls':'trojan',
+    'hysteria2':'hysteria2',
+    'tuic':'tuic'
   };
-  return map[key] || key;
+  return map[key]||key;
 }
 
-/*** 渲染协议表格（完整版） */
+/* 分数等级 */
+function getScoreLevel(x){
+  const s = Number(x||0);
+  if(s>=85) return 'excellent';
+  if(s>=70) return 'good';
+  if(s>=50) return 'fair';
+  return 'poor';
+}
 
-function renderProtocolTable(protocolsOpt, healthOpt) {
-  const protocols = Array.isArray(protocolsOpt) ? protocolsOpt
-                   : (window.dashboardData?.protocols || []);
+/* 推荐徽章兜底（后端若未提供 recommendation_badge） */
+function fallbackRecBadge(recRaw){
+  const rec = String(recRaw||'').toLowerCase();
+  if(!rec) return '';
+  const text = rec==='primary'?'🏆 主推'
+             : rec==='recommended'?'👍 推荐'
+             : rec==='backup'?'🔄 备用可选'
+             : rec==='not_recommended'?'⛔ 暂不推荐'
+             : '';
+  return text ? `<div class="health-recommendation-badge">${text}</div>` : '';
+}
+
+/* 健康摘要渲染 */
+function renderHealthSummary(health){
+  const box = $('#health-summary');
+  if(!box || !health) return;
+  const sum = health.summary||{};
+  const avg = sum.avg_health_score ?? (Array.isArray(health.protocols)?Math.round(health.protocols.map(p=>Number(p.score||p.health_score||0)).reduce((a,b)=>a+b,0)/(health.protocols.length||1)):0);
+  box.innerHTML = `
+    <div class="health-summary-card">
+      <div class="summary-item"><span class="summary-label">总计协议</span><span class="summary-value">${sum.total ?? (health.protocols?.length||0)}</span></div>
+      <div class="summary-item healthy"><span class="summary-label">健康 √</span><span class="summary-value">${sum.healthy ?? '-'}</span></div>
+      <div class="summary-item degraded"><span class="summary-label">降级 ⚠️</span><span class="summary-value">${sum.degraded ?? '-'}</span></div>
+      <div class="summary-item down"><span class="summary-label">异常 ❌</span><span class="summary-value">${sum.down ?? '-'}</span></div>
+      <div class="summary-item score"><span class="summary-label">平均健康分</span><span class="summary-value score-${getScoreLevel(avg)}">${avg}</span></div>
+    </div>
+    <div class="health-recommended"><strong>推荐协议：</strong>${(health.recommended||[]).join(', ') || '暂无推荐'}</div>
+    <div class="health-update-time">最后更新: ${escapeHtml(health.generated_at || health.updated_at || '')}</div>
+  `;
+}
+
+/* 协议表格渲染（叠加健康&推荐徽章） */
+function renderProtocolTable(protocolsOpt, healthOpt){
+  const protocols = Array.isArray(protocolsOpt)?protocolsOpt:(window.dashboardData?.protocols||[]);
   const health = healthOpt || window.__protocolHealth || null;
+  const tbody = $('#protocol-tbody');
+  if(!tbody) return;
+  tbody.innerHTML='';
 
-  const tbody = document.getElementById('protocol-tbody'); // ✅ 正确 tbody
-  if (!tbody) return;
-  tbody.innerHTML = '';
-
-  protocols.forEach(p => {
+  protocols.forEach(p=>{
     const protoKey = normalizeProtoKey(p.name);
-    const h = health?.protocols?.find(x => x.protocol === protoKey);
-
+    const h = health?.protocols?.find(x=>x.protocol===protoKey);
+    const recBadge = h?.recommendation_badge || fallbackRecBadge(h?.recommendation);
     const tr = document.createElement('tr');
-    tr.dataset.protocol = protoKey; // 供后续徽章/事件定位
+    tr.dataset.protocol = protoKey;
+    if(String(h?.recommendation||'').toLowerCase()==='primary'){ tr.classList.add('primary-protocol'); }
     tr.innerHTML = `
       <td>${escapeHtml(p.name)}</td>
-      <td>${escapeHtml(p.fit || p.scenario || '—')}</td>
-      <td>${escapeHtml(p.effect || p.camouflage || '—')}</td>
+      <td>${escapeHtml(p.fit||p.scenario||'—')}</td>
+      <td>${escapeHtml(p.effect||p.camouflage||'—')}</td>
       <td class="protocol-status">
-        ${h ? `
+        ${h?`
           <div class="health-status-container">
-            <div class="health-status-badge ${h.status}">${h.status_badge}</div>
-            <div class="health-detail-message">${h.detail_message}</div>
-            ${h.recommendation_badge ? `<div class="health-recommendation-badge">${h.recommendation_badge}</div>` : ''}
+            <div class="health-status-badge ${escapeHtml(h.status||h.health||'unknown')}">
+              ${h.status_badge || escapeHtml(h.health||'')}
+            </div>
+            <div class="health-detail-message">
+              ${escapeHtml(h.detail_message || h.message || '')}
+              ${h.latency_ms!=null?`（${Number(h.latency_ms)}ms）`:''}
+            </div>
+            ${recBadge}
           </div>
-        ` : `<span class="status-badge ${p.status === '运行中' ? 'status-running' : ''}">${p.status || '—'}</span>`}
+        `:`
+          <span class="status-badge ${p.status==='运行中'?'status-running':''}">${escapeHtml(p.status||'—')}</span>
+        `}
       </td>
       <td>
-        <button class="btn btn-sm btn-link"
-                data-action="open-modal"
-                data-modal="configModal"
-                data-protocol="${escapeHtml(p.name)}">查看配置</button>
+        <button class="btn btn-sm btn-link" data-action="open-modal" data-modal="configModal" data-protocol="${escapeHtml(p.name)}">查看配置</button>
       </td>
     `;
     tbody.appendChild(tr);
   });
 
   // “整包协议”行
-  const subRow = document.createElement('tr');
-  subRow.className = 'subs-row';
-  subRow.innerHTML = `
+  const subRow=document.createElement('tr');
+  subRow.className='subs-row';
+  subRow.innerHTML=`
     <td style="font-weight:500;">整包协议</td><td></td><td></td><td></td>
-    <td><button class="btn btn-sm btn-link" data-action="open-modal" data-modal="configModal" data-protocol="__SUBS__">查看@订阅</button></td>
-  `;
+    <td><button class="btn btn-sm btn-link" data-action="open-modal" data-modal="configModal" data-protocol="__SUBS__">查看@订阅</button></td>`;
   tbody.appendChild(subRow);
 }
 
-/**
- * 显示健康状态摘要
- */
-function renderHealthSummary(healthData) {
-    const summaryContainer = document.querySelector('#health-summary');
-    if (!summaryContainer || !healthData) return;
-
-    const { summary } = healthData;
-    
-    summaryContainer.innerHTML = `
-        <div class="health-summary-card">
-            <div class="summary-item">
-                <span class="summary-label">总计协议</span>
-                <span class="summary-value">${summary.total}</span>
-            </div>
-            <div class="summary-item healthy">
-                <span class="summary-label">健康 √</span>
-                <span class="summary-value">${summary.healthy}</span>
-            </div>
-            <div class="summary-item degraded">
-                <span class="summary-label">降级 ⚠️</span>
-                <span class="summary-value">${summary.degraded}</span>
-            </div>
-            <div class="summary-item down">
-                <span class="summary-label">异常 ❌</span>
-                <span class="summary-value">${summary.down}</span>
-            </div>
-            <div class="summary-item score">
-                <span class="summary-label">平均健康分</span>
-                <span class="summary-value score-${getScoreLevel(summary.avg_health_score)}">
-                    ${summary.avg_health_score}
-                </span>
-            </div>
+/* 卡片式单项更新（保留接口，当前表格渲染已覆盖） */
+function renderProtocolHealthCard(protocol, healthData){
+  const card = document.querySelector(`[data-protocol="${protocol}"]`);
+  if(!card||!healthData) return;
+  const h = healthData.protocols?.find(p=>p.protocol===protocol);
+  if(!h) return;
+  const statusCell = card.querySelector('.protocol-status');
+  if(statusCell){
+    const recBadge = h.recommendation_badge || fallbackRecBadge(h.recommendation);
+    statusCell.innerHTML = `
+      <div class="health-status-container">
+        <div class="health-status-badge ${escapeHtml(h.status||h.health||'unknown')}">
+          ${h.status_badge || escapeHtml(h.health||'')}
         </div>
-        <div class="health-recommended">
-            <strong>推荐协议：</strong>
-            ${healthData.recommended.join(', ') || '暂无推荐'}
-        </div>
-        <div class="health-update-time">
-            最后更新: ${new Date(healthData.updated_at).toLocaleString('zh-CN')}
-        </div>
-    `;
-}
-
-/*** 主初始化函数 - 在页面加载时调用 */
-async function initializeProtocolHealth() {
-  const healthData = await loadProtocolHealth();
-  if (healthData) {
-    window.__protocolHealth = healthData;
-    renderHealthSummary(healthData);
-    renderProtocolTable(); // ✅ 叠加健康徽章到表格
-  } else {
-    console.warn('健康数据加载失败，使用“运行中”降级显示');
+        <div class="health-detail-message">${escapeHtml(h.detail_message||h.message||'')}</div>
+        ${recBadge}
+      </div>`;
+  }
+  const scoreCell = card.querySelector('.protocol-health-score');
+  if(scoreCell){
+    const sc = h.health_score ?? h.score ?? 0;
+    scoreCell.textContent = sc;
+    scoreCell.className = `protocol-health-score score-${getScoreLevel(sc)}`;
   }
 }
 
-// ========================================
-// 自动刷新逻辑
-// ========================================
-
-/**
- * 定期刷新协议健康状态
- */
-function startHealthAutoRefresh(intervalSeconds = 30) {
-    // 首次加载
-    initializeProtocolHealth();
-    
-    // 定期刷新
-    setInterval(() => {
-        initializeProtocolHealth();
-    }, intervalSeconds * 1000);
+/* 初始化与自动刷新 */
+async function initializeProtocolHealth(){
+  const healthData = await loadProtocolHealth();
+  if(healthData){
+    window.__protocolHealth = healthData;
+    renderHealthSummary(healthData);
+    renderProtocolTable(); // 叠加健康徽章到表格
+  }else{
+    console.warn('健康数据不可用，使用“运行中”降级显示');
+  }
 }
+
+function startHealthAutoRefresh(intervalSeconds=30){
+  // 首次
+  initializeProtocolHealth();
+  // 定时
+  setInterval(initializeProtocolHealth, intervalSeconds*1000);
+}
+
+/* 页面就绪后启动 */
+document.addEventListener('DOMContentLoaded', ()=>{
+  try{ startHealthAutoRefresh(30); }catch(e){ console.error(e); }
+});
 
 EXTERNAL_JS
 
