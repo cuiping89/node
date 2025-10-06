@@ -11637,9 +11637,9 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         <code style="display: inline-block; margin-left: 0; margin-top: 5px;">edgeboxctl traffic randomize medium</code>
         <div style="margin-top: 10px; color: #ADD8E6; font-size: 0.95em;">
           <strong>level:</strong><br>
-          <code style="display: inline-block; margin-left: 0; color: #9fa8da;">light(默认) - 轻度随机化，仅修改 Hysteria2 伪装站点</code><br>
-          <code style="display: inline-block; margin-left: 0; color: #9fa8da;">medium  - 中度随机化，修改 Hysteria2 + TUIC 参数</code><br>
-          <code style="display: inline-block; margin-left: 0; color: #9fa8da;">heavy  - 重度随机化，修改全协议参数</code>
+          <code style="display: inline-block; margin-left: 0; color: #ADD8E6;">light(默认) - 轻度随机化，仅修改 Hysteria2 伪装站点</code><br>
+          <code style="display: inline-block; margin-left: 0; color: #ADD8E6;">medium  - 中度随机化，修改 Hysteria2 + TUIC 参数</code><br>
+          <code style="display: inline-block; margin-left: 0; color: #ADD8E6;">heavy  - 重度随机化，修改全协议参数</code>
         </div>
       </div>
     </div>
@@ -11658,10 +11658,10 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         <code style="display: inline-block; margin-left: 0;">edgeboxctl shunt whitelist add netflix.com</code>
         <div style="margin-top: 10px; color: #ADD8E6; font-size: 0.95em;">
           <strong>代理URL格式：</strong><br>
-          <code style="display: inline-block; margin-left: 0; color: #9fa8da;">http://user:pass@host:port</code><br>
-          <code style="display: inline-block; margin-left: 0; color: #9fa8da;">https://user:pass@host:port?sni=example.com</code><br>
-          <code style="display: inline-block; margin-left: 0; color: #9fa8da;">socks5://user:pass@host:port</code><br>
-          <code style="display: inline-block; margin-left: 0; color: #9fa8da;">socks5s://user:pass@host:port?sni=example.com</code>
+          <code style="display: inline-block; margin-left: 0; color: #ADD8E6;">http://user:pass@host:port</code><br>
+          <code style="display: inline-block; margin-left: 0; color: #ADD8E6;">https://user:pass@host:port?sni=example.com</code><br>
+          <code style="display: inline-block; margin-left: 0; color: #ADD8E6;">socks5://user:pass@host:port</code><br>
+          <code style="display: inline-block; margin-left: 0; color: #ADD8E6;">socks5s://user:pass@host:port?sni=example.com</code>
         </div>
       </div>
     </div>
@@ -13945,28 +13945,28 @@ ${YELLOW}■ 核心命令 (Core Commands)${NC}
   ${GREEN}edgeboxctl status${NC}                      ${DIM}# 查看所有服务及端口的健康状态${NC}
   ${GREEN}edgeboxctl sub${NC}                         ${DIM}# 显示订阅链接与 Web 面板信息${NC}
   ${GREEN}edgeboxctl restart${NC}                     ${DIM}# 优雅重启所有核心服务 (配置变更后使用)${NC}
-  ${GREEN}edgeboxctl logs${NC} ${CYAN}<service>${NC}              ${DIM}# 查看指定服务的实时日志 (Ctrl+C 退出)${NC}
+  ${GREEN}edgeboxctl logs${NC} ${CYAN}<service>${NC}  ${DIM}# 查看指定服务的实时日志 (Ctrl+C 退出)${NC}
   ${GREEN}edgeboxctl update${NC}                      ${DIM}# 在线更新 EdgeBox 至最新版本${NC}
   ${GREEN}edgeboxctl help${NC}                        ${DIM}# 显示此帮助信息${NC}
   ${CYAN}示例:${NC}
-   edgeboxctl logs xray
+  edgeboxctl logs xray
 
 ${YELLOW}■ 证书管理 (Certificate Management)${NC}
   ${GREEN}edgeboxctl switch-to-domain${NC} ${CYAN}<domain>${NC}   ${DIM}# 切换为域名模式，并申请 Let's Encrypt 证书${NC}
-  ${GREEN}edgeboxctl switch-to-ip${NC}                ${DIM}# 切换回 IP 模式，使用自签名证书${NC}
-  ${GREEN}edgeboxctl cert status${NC}                 ${DIM}# 查看当前证书类型、域名及有效期${NC}
-  ${GREEN}edgeboxctl cert renew${NC}                  ${DIM}# 手动续期 Let's Encrypt 证书${NC}
-  ${GREEN}edgeboxctl fix-permissions${NC}             ${DIM}# 修复证书文件的读写权限${NC}
+  ${GREEN}edgeboxctl switch-to-ip${NC}                            ${DIM}# 切换回 IP 模式，使用自签名证书${NC}
+  ${GREEN}edgeboxctl cert status${NC}                             ${DIM}# 查看当前证书类型、域名及有效期${NC}
+  ${GREEN}edgeboxctl cert renew${NC}                              ${DIM}# 手动续期 Let's Encrypt 证书${NC}
+  ${GREEN}edgeboxctl fix-permissions${NC}                         ${DIM}# 修复证书文件的读写权限${NC}
   ${CYAN}示例:${NC}
-   edgeboxctl switch-to-domain my.domain.com
+  edgeboxctl switch-to-domain my.domain.com
 
 ${YELLOW}■ SNI 域名管理 (SNI Domain Management)${NC}
-  ${GREEN}edgeboxctl sni list${NC}                    ${DIM}# 显示 SNI 域名池状态 (别名: pool)${NC}
-  ${GREEN}edgeboxctl sni auto${NC}                    ${DIM}# 智能测试并选择最优 SNI 域名${NC}
-  ${GREEN}edgeboxctl sni set${NC} ${CYAN}<domain>${NC}            ${DIM}# 手动强制指定一个 SNI 域名${NC}
-  ${GREEN}edgeboxctl sni test-all${NC}                ${DIM}# 测试池中所有域名的可用性${NC}
+  ${GREEN}edgeboxctl sni list${NC}                      ${DIM}# 显示 SNI 域名池状态 (别名: pool)${NC}
+  ${GREEN}edgeboxctl sni auto${NC}                      ${DIM}# 智能测试并选择最优 SNI 域名${NC}
+  ${GREEN}edgeboxctl sni set${NC} ${CYAN}<domain>${NC}  ${DIM}# 手动强制指定一个 SNI 域名${NC}
+  ${GREEN}edgeboxctl sni test-all${NC}                  ${DIM}# 测试池中所有域名的可用性${NC}
   ${CYAN}示例:${NC}
-   edgeboxctl sni set www.apple.com
+  edgeboxctl sni set www.apple.com
 
 ${YELLOW}■ Reality 密钥轮换 (Reality Key Rotation)${NC}
   ${GREEN}edgeboxctl rotate-reality${NC}              ${DIM}# 手动执行 Reality 密钥对轮换 (安全增强)${NC}
@@ -13974,64 +13974,64 @@ ${YELLOW}■ Reality 密钥轮换 (Reality Key Rotation)${NC}
 
 ${YELLOW}■ 流量特征随机化 (Traffic Randomization)${NC}
   ${GREEN}edgeboxctl traffic randomize${NC} ${CYAN}[light|medium|heavy]${NC} ${DIM}# 执行流量特征随机化，增强隐蔽性${NC}
-  ${GREEN}edgeboxctl traffic status${NC}              ${DIM}# 查看随机化系统状态和定时任务${NC}
-  ${GREEN}edgeboxctl traffic reset${NC}               ${DIM}# 重置随机化参数为默认值${NC}
+  ${GREEN}edgeboxctl traffic status${NC}                                     ${DIM}# 查看随机化系统状态和定时任务${NC}
+  ${GREEN}edgeboxctl traffic reset${NC}                                      ${DIM}# 重置随机化参数为默认值${NC}
   ${CYAN}示例:${NC}
-   edgeboxctl traffic randomize medium
-  ${DIM}level:${NC}
-   light  ${DIM}- 轻度随机化，仅修改 Hysteria2 伪装站点${NC}
-   medium ${DIM}- 中度随机化，修改 Hysteria2 + TUIC 参数${NC}
-   heavy  ${DIM}- 重度随机化，修改全协议参数${NC}
+  edgeboxctl traffic randomize medium
+  ${CYAN}level:${NC}
+  light  ${DIM}- 轻度随机化，仅修改 Hysteria2 伪装站点${NC}
+  medium ${DIM}- 中度随机化，修改 Hysteria2 + TUIC 参数${NC}
+  heavy  ${DIM}- 重度随机化，修改全协议参数${NC}
 
 ${YELLOW}■ 出站分流 (Outbound Routing)${NC}
-  ${GREEN}edgeboxctl shunt vps${NC}                   ${DIM}# [模式] VPS 直连出站 (默认)${NC}
+  ${GREEN}edgeboxctl shunt vps${NC}                               ${DIM}# [模式] VPS 直连出站 (默认)${NC}
   ${GREEN}edgeboxctl shunt resi${NC} ${CYAN}'<URL>'${NC}          ${DIM}# [模式] 代理全量出站 (仅 Xray)${NC}
   ${GREEN}edgeboxctl shunt direct-resi${NC} ${CYAN}'<URL>'${NC}   ${DIM}# [模式] 智能分流 (白名单直连，其余走代理)${NC}
-  ${GREEN}edgeboxctl shunt status${NC}                ${DIM}# 查看当前出站模式及代理健康状况${NC}
-  ${GREEN}edgeboxctl shunt whitelist${NC} ${CYAN}<action>${NC} ${CYAN}[domain]${NC}  ${DIM}# 管理白名单 (add|remove|list|reset)${NC}
+  ${GREEN}edgeboxctl shunt status${NC}                            ${DIM}# 查看当前出站模式及代理健康状况${NC}
+  ${GREEN}edgeboxctl shunt whitelist${NC} ${CYAN}<action>${NC}    ${CYAN}[domain]${NC}  ${DIM}# 管理白名单 (add|remove|list|reset)${NC}
   ${CYAN}示例:${NC}
-   edgeboxctl shunt direct-resi 'socks5://user:pass@host:port'
-   edgeboxctl shunt whitelist add netflix.com
-  ${DIM}代理URL格式:${NC}
-   http://user:pass@host:port
-   https://user:pass@host:port?sni=example.com
-   socks5://user:pass@host:port
-   socks5s://user:pass@host:port?sni=example.com
+  edgeboxctl shunt direct-resi 'socks5://user:pass@host:port'
+  edgeboxctl shunt whitelist add netflix.com
+  ${CYAN}代理URL格式:${NC}
+  http://user:pass@host:port
+  https://user:pass@host:port?sni=example.com
+  socks5://user:pass@host:port
+  socks5s://user:pass@host:port?sni=example.com
 
 ${YELLOW}■ 流量与预警 (Traffic & Alert)${NC}
-  ${GREEN}edgeboxctl traffic show${NC}                ${DIM}# 在终端查看流量使用统计${NC}
-  ${GREEN}edgeboxctl alert show${NC}                  ${DIM}# 查看当前预警配置${NC}
+  ${GREEN}edgeboxctl traffic show${NC}                            ${DIM}# 在终端查看流量使用统计${NC}
+  ${GREEN}edgeboxctl alert show${NC}                              ${DIM}# 查看当前预警配置${NC}
   ${GREEN}edgeboxctl alert monthly${NC} ${CYAN}<GiB>${NC}         ${DIM}# 设置月度流量预算${NC}
   ${GREEN}edgeboxctl alert steps${NC} ${CYAN}<p1,p2,...>${NC}     ${DIM}# 设置百分比预警阈值 (逗号分隔)${NC}
   ${GREEN}edgeboxctl alert telegram${NC} ${CYAN}<token>${NC} ${CYAN}<chat_id>${NC} ${DIM}# 配置 Telegram 通知渠道${NC}
-  ${GREEN}edgeboxctl alert discord${NC} ${CYAN}<webhook_url>${NC} ${DIM}# 配置 Discord 通知渠道${NC}
-  ${GREEN}edgeboxctl alert wechat${NC} ${CYAN}<pushplus_token>${NC} ${DIM}# 配置微信 PushPlus 通知渠道${NC}
-  ${GREEN}edgeboxctl alert webhook${NC} ${CYAN}<url>${NC} ${CYAN}[format]${NC} ${DIM}# 配置通用 Webhook (raw|slack|discord)${NC}
-  ${GREEN}edgeboxctl alert test${NC} ${CYAN}[percent]${NC}        ${DIM}# 模拟触发预警以测试通知渠道${NC}
+  ${GREEN}edgeboxctl alert discord${NC} ${CYAN}<webhook_url>${NC}                  ${DIM}# 配置 Discord 通知渠道${NC}
+  ${GREEN}edgeboxctl alert wechat${NC} ${CYAN}<pushplus_token>${NC}                ${DIM}# 配置微信 PushPlus 通知渠道${NC}
+  ${GREEN}edgeboxctl alert webhook${NC} ${CYAN}<url>${NC} ${CYAN}[format]${NC}     ${DIM}# 配置通用 Webhook (raw|slack|discord)${NC}
+  ${GREEN}edgeboxctl alert test${NC} ${CYAN}[percent]${NC}                         ${DIM}# 模拟触发预警以测试通知渠道${NC}
   ${CYAN}示例:${NC}
-   edgeboxctl alert monthly 1000
-   edgeboxctl alert steps 50,80,95
-   edgeboxctl alert telegram <token> <chat_id>
-   edgeboxctl alert test 80
+  edgeboxctl alert monthly 1000
+  edgeboxctl alert steps 50,80,95
+  edgeboxctl alert telegram <token> <chat_id>
+  edgeboxctl alert test 80
 
 ${YELLOW}■ 配置与维护 (Configuration & Maintenance)${NC}
   ${GREEN}edgeboxctl config show${NC}                 ${DIM}# 显示所有协议的 UUID、密码等详细配置${NC}
   ${GREEN}edgeboxctl config regenerate-uuid${NC}      ${DIM}# 为所有协议重新生成 UUID 和密码${NC}
   ${GREEN}edgeboxctl dashboard passcode${NC}          ${DIM}# 重置并显示 Web 控制面板的访问密码${NC}
-  ${GREEN}edgeboxctl alias${NC} ${CYAN}"我的备注"${NC}             ${DIM}# 为当前服务器设置一个易记的别名${NC}
-  ${GREEN}edgeboxctl backup create${NC}               ${DIM}# 创建当前系统配置的完整备份${NC}
-  ${GREEN}edgeboxctl backup list${NC}                 ${DIM}# 列出所有可用的备份文件${NC}
-  ${GREEN}edgeboxctl backup restore${NC} ${CYAN}<file>${NC}       ${DIM}# 从指定备份文件恢复系统配置${NC}
+  ${GREEN}edgeboxctl alias${NC} ${CYAN}"我的备注"${NC} ${DIM}# 为当前服务器设置一个易记的别名${NC}
+  ${GREEN}edgeboxctl backup create${NC}                       ${DIM}# 创建当前系统配置的完整备份${NC}
+  ${GREEN}edgeboxctl backup list${NC}                         ${DIM}# 列出所有可用的备份文件${NC}
+  ${GREEN}edgeboxctl backup restore${NC} ${CYAN}<file>${NC}   ${DIM}# 从指定备份文件恢复系统配置${NC}
   ${CYAN}示例:${NC}
-   edgeboxctl alias "香港-CN2-主力"
-   edgeboxctl backup restore edgebox_backup_xxx.tar.gz
+  edgeboxctl alias "香港-CN2-主力"
+  edgeboxctl backup restore edgebox_backup_xxx.tar.gz
 
 ${YELLOW}■ 诊断与排障 (Diagnostics & Debug)${NC}
   ${GREEN}edgeboxctl test${NC}                        ${DIM}# 对各协议入口进行基础连通性测试${NC}
   ${GREEN}edgeboxctl test-udp${NC} ${CYAN}<host>${NC} ${CYAN}<port>${NC} ${CYAN}[seconds]${NC} ${DIM}# 使用 iperf3/socat 进行 UDP 连通性简测${NC}
   ${GREEN}edgeboxctl debug-ports${NC}                 ${DIM}# 检查核心端口 (80, 443, 2053) 是否被占用${NC}
   ${CYAN}示例 (排障流程):${NC}
-   edgeboxctl status → edgeboxctl logs xray → edgeboxctl debug-ports
+  edgeboxctl status → edgeboxctl logs xray → edgeboxctl debug-ports
 
 ${CYAN}────────────────────────────────────────────────────────────────
   获取更多帮助
