@@ -7450,96 +7450,92 @@ body{
 
 .container{ max-width:1400px; margin:0 auto; }
 
-h1{ font-size:23px; font-weight:700; color:#1f2937; line-height:32px; }
-h2{ font-size:18px; font-weight:600; color:#1f2937; line-height:26px; }
-h3{ font-size:15px; font-weight:600; color:#1f2937; line-height:22px; }
-h4{ font-size:14px; font-weight:500; color:#1f2937; line-height:20px; }
-
-body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:20px; }
-.text-muted{ color:#6b7280; }
-.text-secondary{ color:#4b5563; }
-
 /* ===== 文字样式统一：h3黑色大字，h4灰色中字，内容灰色中字 ===== */
 :root {
-  --heading-color: #111827;   /* h3标题颜色（黑色） */
-  --subheading-color: #6b7280; /* h4标题颜色（灰色） */
-  --content-color: #6b7280;   /* 内容颜色（灰色） */
-  --h3-size: 15px;            /* h3字体大小 */
-  --h4-size: 14px;            /* h4字体大小 */
+  --heading-color: #111827;      /* h3标题颜色（黑色） */
+  --subheading-color: #6b7280;   /* h4标题颜色（灰色） */
+  --content-color: #6b7280;      /* 内容颜色（灰色） */
+  --h3-size: 15px;               /* h3字体大小 */
+  --h4-size: 14px;               /* h4字体大小 */
 }
 
-/* h3基础样式：黑色大字 */
-h3 { 
+/* 标题样式 */
+h1{ font-size:23px; font-weight:700; color:#1f2937; line-height:32px; }
+h2{ font-size:18px; font-weight:600; color:#1f2937; line-height:26px; }
+h3{ 
   font-size: var(--h3-size); 
   line-height: 1.4; 
   font-weight: 600; 
   color: var(--heading-color);
 }
-
-/* h4基础样式：灰色中字 */
-h4 { 
+h4{ 
   font-size: var(--h4-size); 
   line-height: 1.4; 
   font-weight: 600; 
   color: var(--subheading-color);
 }
 
+/* 文本样式 */
+body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:20px; }
+.text-muted{ color:#6b7280; }
+.text-secondary{ color:#4b5563; }
+
 /* ================ 卡片/区块 ================ */
 .main-card{
-  background:#fff; border:1px solid #d1d5db; border-radius:10px;
-  box-shadow:0 2px 6px rgba(0,0,0,.08); overflow:hidden;
+  background:#fff; 
+  border:1px solid #d1d5db; 
+  border-radius:10px;
+  box-shadow:0 2px 6px rgba(0,0,0,.08); 
+  overflow:hidden;
+  margin-bottom:20px;
+  padding:0 !important;
 }
 
 .card{
-  background:#fff; border:1px solid #d1d5db; border-radius:10px;
-  box-shadow:0 2px 6px rgba(0,0,0,.08); padding:20px; margin-bottom:20px;
+  background:#fff; 
+  border:1px solid #d1d5db; 
+  border-radius:10px;
+  box-shadow:0 2px 6px rgba(0,0,0,.08); 
+  padding:20px; 
+  margin-bottom:20px;
   transition:box-shadow .2s;
 }
 .card:hover{ box-shadow:0 4px 8px rgba(0,0,0,.08); }
-.card-header{ margin-bottom:20px; padding-bottom:12px; border-bottom:1px solid #e5e7eb; }
-.card-header h2{ display:flex; justify-content:space-between; align-items:center; }
-.card-note{ font-size:11px; color:#6b7280; font-weight:400; }
 
-
-/* =========标题 =========*/
-
-/* 1. 恢复标题作为大卡片的一部分 */
-.main-card {
-  background: #fff; 
-  border: 1px solid #d1d5db; 
-  border-radius: 10px;
-  box-shadow: 0 2px 6px rgba(0,0,0,.08); 
-  overflow: hidden;
-  margin-bottom: 20px;
-  /* 去掉整体padding，让标题可以占满宽度 */
-  padding: 0 !important;
+.card-header{ 
+  margin-bottom:20px; 
+  padding-bottom:12px; 
+  border-bottom:1px solid #e5e7eb; 
+}
+.card-header h2{ 
+  display:flex; 
+  justify-content:space-between; 
+  align-items:center; 
+}
+.card-note{ 
+  font-size:11px; 
+  color:#6b7280; 
+  font-weight:400; 
 }
 
-/* 2. 标题样式：从深灰到浅灰的渐变 + 圆角只在顶部 */
+/* =========标题区域 =========*/
+
+/* 标题样式：从深灰到浅灰的渐变 + 圆角只在顶部 */
 .main-header {
   text-align: center;
-  /* 修正渐变：从深灰到浅灰 */
   background: linear-gradient(135deg, #e2e8f0 0%, #f1f5f9 50%, #f8fafc 100%);
-  border: none; /* 去掉单独边框，融入大卡片 */
-  border-radius: 0; /* 去掉独立圆角 */
-  border-top-left-radius: 9px; /* 只保留顶部圆角，配合大卡片 */
+  border: none;
+  border-radius: 0;
+  border-top-left-radius: 9px;
   border-top-right-radius: 9px;
   padding: 16px 20px;
   position: relative;
-  margin: 0; /* 重要：去掉margin让标题贴合大卡片边缘 */
-  /* 调整阴影：内阴影营造嵌入效果 */
+  margin: 0;
   box-shadow: 
     inset 0 -1px 0 rgba(0,0,0,0.1),
     inset 0 1px 0 rgba(255,255,255,0.9);
 }
 
-/* 3. 大卡片内容区域恢复padding */
-.main-content {
-  padding: 20px !important;
-  margin: 0 !important;
-}
-
-/* 4. 标题文字样式 */
 .main-header h1 {
   text-align: center !important;
   margin: 0 auto;
@@ -7552,12 +7548,12 @@ h4 {
   text-shadow: 0 1px 2px rgba(0,0,0,0.1);
 }
 
-/* 5. 去掉紫色竖杠 */
+/* 去掉紫色竖杠 */
 .main-header::before {
   display: none !important;
 }
 
-/* 6. 可选：底部装饰线 */
+/* 底部装饰线 */
 .main-header::after {
   content: "";
   position: absolute;
@@ -7571,21 +7567,7 @@ h4 {
   opacity: 0.6;
 }
 
-/* 7. 确保内部卡片间距正确 */
-.main-content .card {
-  margin-bottom: 20px !important;
-}
-
-.main-content .card:last-child {
-  margin-bottom: 0 !important;
-}
-
-/* 8. grid布局特殊处理 */
-.main-content .grid .card {
-  margin-bottom: 0 !important;
-}
-
-/* 9. 可选：鼠标悬停效果（整个标题区域） */
+/* 鼠标悬停效果 */
 .main-header:hover {
   background: linear-gradient(135deg, #d1d5db 0%, #e2e8f0 50%, #f1f5f9 100%);
   box-shadow: 
@@ -7594,50 +7576,87 @@ h4 {
   transition: all 0.3s ease;
 }
 
-/* 10. 备选方案：如果想要更明显的深浅对比 */
+/* 备选方案：更明显的深浅对比 */
 .main-header.dark-to-light {
   background: linear-gradient(135deg, #94a3b8 0%, #cbd5e1 50%, #e2e8f0 100%);
 }
-
 .main-header.dark-to-light:hover {
   background: linear-gradient(135deg, #64748b 0%, #94a3b8 50%, #cbd5e1 100%);
 }
 
+/* =========内容区域 =========*/
 
-/* =========内层 =========*/
+/* 大卡片内容区域恢复padding */
+.main-content {
+  padding: 20px !important;
+  margin: 0 !important;
+}
+
+/* 确保内部卡片间距正确 */
+.main-content .card {
+  margin-bottom: 20px !important;
+}
+.main-content .card:last-child {
+  margin-bottom: 0 !important;
+}
+
+/* grid布局特殊处理 */
+.main-content .grid .card {
+  margin-bottom: 0 !important;
+}
+
+/* 内层块 */
 .inner-block{
-  background:#f5f5f5; border:1px solid #e5e7eb; border-radius:6px; padding:15px; margin-bottom:15px;
+  background:#f5f5f5; 
+  border:1px solid #e5e7eb; 
+  border-radius:6px; 
+  padding:15px; 
+  margin-bottom:15px;
 }
 .inner-block:last-child{ margin-bottom:0; }
 .inner-block h3{
-  margin-bottom:12px; padding-bottom:8px; border-bottom:1px solid #e5e7eb;
+  margin-bottom:12px; 
+  padding-bottom:8px; 
+  border-bottom:1px solid #e5e7eb;
 }
 
-/*========= 网格 =========*/
+/*========= 网格布局 =========*/
 .grid{ display:grid; gap:20px; }
 .grid-3{ grid-template-columns:repeat(3,1fr); }
 .grid-1-2{ grid-template-columns:1fr 2fr; }
 
-/* ============= 全局行（简单版，组件内会覆写） ============= */
-.info-item{ display:flex; justify-content:space-between; padding:6px 0; }
+/* ============= 全局行样式 ============= */
+.info-item{ 
+  display:flex; 
+  justify-content:space-between; 
+  padding:6px 0; 
+}
 .info-item label{ color:#6b7280; }
 .info-item value{ color:#1f2937; font-weight:500; }
 
-/* ========= 全局运行状态徽标（协议配置/系统概览通用） ========= */
+/* ========= 全局运行状态徽标 ========= */
 .status-badge{
-  display:inline-flex; align-items:center;
-  height:20px; line-height:20px; padding:0 10px;
-  border-radius:999px; font-size:11px;
-  background:#eafaf3; color:#059669; border:1px solid #c7f0df;
+  display:inline-flex; 
+  align-items:center;
+  height:20px; 
+  line-height:20px; 
+  padding:0 10px;
+  border-radius:999px; 
+  font-size:11px;
+  background:#eafaf3; 
+  color:#059669; 
+  border:1px solid #c7f0df;
 }
-.status-running{ background:#d1fae5; color:#059669; border-color:#a7f3d0; }
-.status-stopped{ background:#fee2e2; color:#ef4444; border-color:#fecaca; }
-
-/* ===== 全局栅格（如果这是你全局用的） ===== */
-.grid-3,.grid-1-2{ display:grid; gap:20px; }
-.grid-3{ grid-template-columns:repeat(3,1fr); }
-.grid-1-2{ grid-template-columns:1fr 2fr; }
-
+.status-running{ 
+  background:#d1fae5; 
+  color:#059669; 
+  border-color:#a7f3d0; 
+}
+.status-stopped{ 
+  background:#fee2e2; 
+  color:#ef4444; 
+  border-color:#fecaca; 
+}
 
 
 /* =======================================================================
@@ -7826,7 +7845,6 @@ h4 {
   transform:translateY(2px);/* 轻微下沉，贴近标题底线 */
 }
 
-
 /* =======================================================================
    证书切换
    ======================================================================= */
@@ -7837,21 +7855,18 @@ h4 {
   --tag-radius: 8px;
   --tag-font: 13px;
   --tag-gap: 8px;
-
   --label-w: 80px;          /* 行布局与原来保持一致 */
   --row-gap: 10px;
   --h3-gap: 8px;
-
   /* 颜色 */
   --label: var(--heading-color);
   --value: var(--content-color);
   --tag-active-bg: #10b981;     /* 激活：绿色 */
   --tag-inactive-bg: #e2e8f0;   /* 非当前：灰底 */
-  --tag-active-color: #ffffff;
+  --tag-active-color: #ffffff;  /* ← 激活标签文字：白色 */
   --tag-inactive-color: #64748b;
   --card-br: #e5e7eb;
 }
-
 /* 顶部模式标签（两枚） */
 #cert-panel .cert-modes{
   display:flex;
@@ -7864,18 +7879,17 @@ h4 {
   border: 1px solid var(--card-br);
   border-radius: var(--tag-radius);
   background: var(--tag-inactive-bg);       /* 非当前：#e2e8f0 */
-  color: var(--tag-inactive-color);
+  color: var(--tag-inactive-color);         /* 非当前：灰色文字 */
   font-size: var(--tag-font);
   font-weight: 600;
   text-align:center;
   cursor: default;
 }
 #cert-panel .cert-mode-tab.active{
-  background: var(--tag-active-bg);
-  color: var(--tag-active-color);
+  background: var(--tag-active-bg);         /* 激活：绿色背景 */
+  color: var(--tag-active-color);           /* ← 激活：白色文字 */
   border-color: var(--tag-active-bg);
 }
-
 /* 内容卡片：白底 + 边框 + 阴影（去掉灰底） */
 #cert-panel .inner-block{
   display:block;
@@ -7888,7 +7902,6 @@ h4 {
 #cert-panel .inner-block>h3{
   margin:0 0 var(--h3-gap);
 }
-
 /* 明细行：键名 | 值（保持原有行节奏） */
 #cert-panel .inner-block .info-item{
   display:grid;
@@ -7897,7 +7910,6 @@ h4 {
   align-items:center;
   padding:6px 0;
 }
-
 /* 证书切换标题统一样式 */
 #cert-panel .inner-block .info-item label{
   color: var(--subheading-color) !important;  /* h4级别用灰色 */
@@ -7905,7 +7917,6 @@ h4 {
   font-weight: 600 !important;
   justify-self: start;
 }
-
 /* 证书切换内容统一样式 */
 #cert-panel .inner-block .info-item value{
   color: var(--content-color) !important;
