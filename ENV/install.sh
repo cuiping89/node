@@ -7888,23 +7888,25 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   cursor: default;
 }
 
-/* 【关键修复】激活标签 - 外层div和内部h3都设为白色 */
+/* 激活标签 - 外层div */
 #cert-panel .cert-mode-tab.active {
   background: var(--tag-active-bg) !important;
   color: var(--tag-active-color) !important;
   border-color: var(--tag-active-bg) !important;
 }
 
-#cert-panel .cert-mode-tab.active h3 {
-  color: var(--tag-active-color) !important;
-}
-
-/* 非激活标签的h3也要设置颜色 */
+/* 【关键修复】所有标签的h3统一样式 */
 #cert-panel .cert-mode-tab h3 {
   color: inherit;
   margin: 0;
-  font-size: var(--tag-font);
+  font-size: var(--tag-font) !important;  /* ← 改为13px,与网络身份配置一致 */
   font-weight: 600;
+  line-height: 1.2;
+}
+
+/* 激活标签的h3也是白色 */
+#cert-panel .cert-mode-tab.active h3 {
+  color: var(--tag-active-color) !important;
 }
 
 /* 内容卡片：白底 + 边框 + 阴影 */
@@ -8276,8 +8278,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
     font-weight: 500;
 }
 
-
-/* ====================协议配置卡片 - 间距修复================================= */
+/* ====================协议配置卡片 - 间距修复=================== */
 
 /* grid布局中的卡片不使用margin */
 .main-content .grid .card {
@@ -8329,40 +8330,25 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
     box-shadow: 0 2px 6px rgba(0,0,0,.08) !important;
 }
 
-/* 响应式：窄屏时确保间距一致 */
-@media (max-width: 1024px) {
-    .main-content .grid-1-2 {
-        grid-template-columns: 1fr;
-        gap: 20px !important;
-    }
-    
-    .main-content .grid + .card,
-    .main-content .grid-1-2 + .card {
-        margin-top: 20px !important;
-    }
-}
-
-
 /* ========== 协议健康状态 - 单行布局(与核心服务徽标统一) ========== */
-/* 锚点ID：edgebox-status-col-align ——（替换块开始） */
 
 /* 仅第4列 td：横向保持居中 + 垂直居中（不动 th 标题） */
 .data-table td:nth-child(4) {
-    text-align: center;      /* 列保持居中 */
-    vertical-align: middle;  /* 垂直居中 */
+    text-align: center;
+    vertical-align: middle;
 }
 
 /* 单元格容器：块级 flex，自身在单元格中居中；内部从左排布 */
 .data-table td:nth-child(4) .health-status-container {
-    display: flex;                 /* 改为块级 flex（更稳定的居中） ← 关键 */
-    align-items: center;           /* 徽标与文字垂直对齐 */
-    justify-content: flex-start;   /* 容器内部从左开始 */
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
     gap: 6px;
     padding: 4px 0;
-    inline-size: var(--status-col-w, 320px); /* 自适应列宽（可用CSS变量覆盖） */
+    inline-size: var(--status-col-w, 320px);
     max-inline-size: 100%;
-    margin-inline: auto;           /* 容器作为“块”在居中列里真正居中 ← 关键 */
-    text-align: left;              /* 容器内部文字左对齐 */
+    margin-inline: auto;
+    text-align: left;
 }
 
 /* 健康状态徽章 - 固定宽度确保对齐，并与文字中线对齐 */
@@ -8381,7 +8367,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
     vertical-align: middle;
 }
 
-/* 状态配色（保持原样） */
+/* 状态配色 */
 .health-status-badge.healthy { background:#d1fae5; color:#059669; border:1px solid #a7f3d0; }
 .health-status-badge.degraded { background:#fef3c7; color:#d97706; border:1px solid #fde68a; }
 .health-status-badge.down { background:#fee2e2; color:#ef4444; border:1px solid #fecaca; }
@@ -8403,7 +8389,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
     line-height: 1.2;
 }
 
-/* 运行状态列宽度（保留，可与变量联动） */
+/* 运行状态列宽度 */
 .protocol-status { min-width: 320px; }
 
 /* 健康分数显示：与徽章中线对齐 */
@@ -8419,26 +8405,6 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 .protocol-health-score.score-good { color:#3b82f6; background:rgba(59,130,246,0.1); }
 .protocol-health-score.score-fair { color:#f59e0b; background:rgba(245,158,11,0.1); }
 .protocol-health-score.score-poor { color:#ef4444; background:rgba(239,68,68,0.1); }
-
-/* 响应式：窄屏减小容器宽度，仍保持“列居中/内容左起” */
-@media (max-width: 768px) {
-    .data-table td:nth-child(4) .health-status-container {
-        inline-size: var(--status-col-w-sm, 260px);
-    }
-    .health-status-badge {
-        font-size: 10px;
-        padding: 0 8px;
-        height: 18px;
-        line-height: 18px;
-        min-width: 45px;
-    }
-    .health-detail-message,
-    .health-recommendation-badge { font-size: 12px; }
-    .protocol-status { min-width: 260px; }
-}
-
-/* 锚点ID：edgebox-status-col-align ——（替换块结束） */
-
 
 /* =============协议健康状态 - 摘要卡片================ */
 
@@ -8486,17 +8452,9 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
     color: #1e293b;
 }
 
-.summary-item.healthy .summary-value {
-    color: #10b981;
-}
-
-.summary-item.degraded .summary-value {
-    color: #f59e0b;
-}
-
-.summary-item.down .summary-value {
-    color: #ef4444;
-}
+.summary-item.healthy .summary-value { color: #10b981; }
+.summary-item.degraded .summary-value { color: #f59e0b; }
+.summary-item.down .summary-value { color: #ef4444; }
 
 .health-recommended {
     padding: 12px;
@@ -8519,20 +8477,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
     font-style: italic;
 }
 
-/* 摘要卡片响应式 */
-@media (max-width: 768px) {
-    .health-summary-card {
-        grid-template-columns: repeat(2, 1fr);
-        gap: 12px;
-    }
-    
-    .summary-value {
-        font-size: 24px;
-    }
-}
-
-
-/* =====================协议健康状态 - 动画效果============================== */
+/* =====================协议健康状态 - 动画效果==================== */
 
 @keyframes pulse-healthy {
     0%, 100% { opacity: 1; }
@@ -8552,8 +8497,48 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
     animation: pulse-warning 2s ease-in-out infinite;
 }
 
+/* =====================响应式布局======================== */
 
-/* =====================暗色模式支持======================================= */
+/* 响应式：窄屏减小容器宽度，仍保持"列居中/内容左起" */
+@media (max-width: 768px) {
+    .data-table td:nth-child(4) .health-status-container {
+        inline-size: var(--status-col-w-sm, 260px);
+    }
+    .health-status-badge {
+        font-size: 10px;
+        padding: 0 8px;
+        height: 18px;
+        line-height: 18px;
+        min-width: 45px;
+    }
+    .health-detail-message,
+    .health-recommendation-badge { font-size: 12px; }
+    .protocol-status { min-width: 260px; }
+    
+    .health-summary-card {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+    }
+    
+    .summary-value {
+        font-size: 24px;
+    }
+}
+
+/* 响应式：窄屏时确保间距一致 */
+@media (max-width: 1024px) {
+    .main-content .grid-1-2 {
+        grid-template-columns: 1fr;
+        gap: 20px !important;
+    }
+    
+    .main-content .grid + .card,
+    .main-content .grid-1-2 + .card {
+        margin-top: 20px !important;
+    }
+}
+
+/* ===============暗色模式支持=============== */
 
 @media (prefers-color-scheme: dark) {
     #health-summary {
