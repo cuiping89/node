@@ -5233,26 +5233,19 @@ collect_notifications() {
 # 生成完整的dashboard.json
 generate_dashboard_data() {
     log_info "开始生成Dashboard数据..."
-	
-	# ========== 竞态修复: 主动刷新协议健康状态 ==========
-    log_info "主动刷新协议健康状态以确保数据新鲜度..."
+
+    # 1. 优先执行健康检查，确保 protocol-health.json 是最新的
     if [[ -x "${SCRIPTS_DIR}/protocol-health-monitor.sh" ]]; then
-        if "${SCRIPTS_DIR}/protocol-health-monitor.sh" >/dev/null 2>&1; then
-            log_info "✓ 协议健康状态已刷新"
-        else
-            log_warn "协议健康检查执行失败,将使用现有数据"
-        fi
-    else
-        log_warn "协议健康检查脚本不存在或不可执行"
+        log_info "正在刷新协议健康状态..."
+        "${SCRIPTS_DIR}/protocol-health-monitor.sh" >/dev/null 2>&1 || log_warn "协议健康检查失败"
     fi
-    # ========== 竞态修复结束 ==========
-    
+
     # 确保目录存在
     mkdir -p "$TRAFFIC_DIR"
-    
+
     # 获取各模块数据
     local timestamp system_info cert_info services_info protocols_info shunt_info subscription_info secrets_info
-    
+
     timestamp=$(date -Is)
     system_info=$(get_system_info)
     cert_info=$(get_certificate_info)
@@ -5297,7 +5290,7 @@ jq -n \
         subscription: $subscription,
         secrets: $secrets
     }' > "${TRAFFIC_DIR}/dashboard.json.tmp"
-    
+
     # 原子替换，避免读取时文件不完整
     if [[ -s "${TRAFFIC_DIR}/dashboard.json.tmp" ]]; then
         mv "${TRAFFIC_DIR}/dashboard.json.tmp" "${TRAFFIC_DIR}/dashboard.json"
@@ -11022,41 +11015,34 @@ function renderHealthSummary(health) {
 /**
  * 渲染协议表格
  */
-function renderProtocolTable(protocolsOpt, healthOpt) {
+function renderProtocolTable(protocolsOpt) { // 只接收一个参数
   const protocols = Array.isArray(protocolsOpt) ? protocolsOpt : (window.dashboardData?.protocols || []);
-  const health = healthOpt || window.__protocolHealth || null;
   const tbody = $('#protocol-tbody');
   if (!tbody) return;
   tbody.innerHTML = '';
 
   protocols.forEach(p => {
-    const protoKey = normalizeProtoKey(p.name);
-    const h = health?.protocols?.find(x => x.protocol === protoKey);
-    const recBadge = h?.recommendation_badge || fallbackRecBadge(h?.recommendation);
+    // 直接从协议对象 p 中获取所有信息，不再需要去 health 对象里查找
+    const recBadge = p.recommendation_badge || '';
     const tr = document.createElement('tr');
-    tr.dataset.protocol = protoKey;
-    if (String(h?.recommendation || '').toLowerCase() === 'primary') {
-      tr.classList.add('primary-protocol');
-    }
+    // BUGFIX: 使用 p.protocol 或标准化的 p.name 作为 key
+    const protocolKey = p.protocol || normalizeProtoKey(p.name);
+    tr.dataset.protocol = protocolKey;
+
     tr.innerHTML = `
       <td>${escapeHtml(p.name)}</td>
-      <td>${escapeHtml(p.fit || p.scenario || '—')}</td>
-      <td>${escapeHtml(p.effect || p.camouflage || '—')}</td>
+      <td>${escapeHtml(p.scenario || '—')}</td>
+      <td>${escapeHtml(p.camouflage || '—')}</td>
       <td class="protocol-status">
-        ${h ? `
-          <div class="health-status-container">
-            <div class="health-status-badge ${escapeHtml(h.status || h.health || 'unknown')}">
-              ${h.status_badge || escapeHtml(h.health || '')}
-            </div>
-            <div class="health-detail-message">
-              ${escapeHtml(h.detail_message || h.message || '')}
-              ${h.latency_ms != null ? `(${Number(h.latency_ms)}ms)` : ''}
-            </div>
-            ${recBadge}
+        <div class="health-status-container">
+          <div class="health-status-badge ${escapeHtml(p.status || 'unknown')}">
+            ${p.status_badge || escapeHtml(p.status || '—')}
           </div>
-        ` : `
-          <span class="status-badge ${p.status === '运行中' ? 'status-running' : ''}">${escapeHtml(p.status || '—')}</span>
-        `}
+          <div class="health-detail-message">
+            ${escapeHtml(p.detail_message || '')}
+          </div>
+          ${recBadge}
+        </div>
       </td>
       <td>
         <button class="btn btn-sm btn-link" data-action="open-modal" data-modal="configModal" data-protocol="${escapeHtml(p.name)}">查看配置</button>
@@ -11065,6 +11051,7 @@ function renderProtocolTable(protocolsOpt, healthOpt) {
     tbody.appendChild(tr);
   });
 
+  // 订阅行的逻辑不变
   const subRow = document.createElement('tr');
   subRow.className = 'subs-row';
   subRow.innerHTML = `
@@ -11072,6 +11059,7 @@ function renderProtocolTable(protocolsOpt, healthOpt) {
     <td><button class="btn btn-sm btn-link" data-action="open-modal" data-modal="configModal" data-protocol="__SUBS__">查看@订阅</button></td>`;
   tbody.appendChild(subRow);
 }
+
 
 /**
  * 初始化协议健康监控
@@ -11103,32 +11091,33 @@ function startHealthAutoRefresh(intervalSeconds = 30) {
  * 刷新所有数据
  */
 async function refreshAllData() {
-  // 并行获取所有数据，包括健康数据
-  const [dash, sys, traf, notif, health] = await Promise.all([
+  // 只请求聚合后的主要数据文件
+  const [dash, sys, traf, notif] = await Promise.all([
     fetchJSON('/traffic/dashboard.json'),
     fetchJSON('/traffic/system.json'),
     fetchJSON('/traffic/traffic.json'),
-    fetchJSON('/traffic/notifications.json'),
-    fetchJSON('/traffic/protocol-health.json')  // ✅ 新增这一行
+    fetchJSON('/traffic/notifications.json')
   ]);
 
-  if (dash) dashboardData = dash;
+  if (dash) {
+    dashboardData = dash;
+    window.dashboardData = dashboardData;
+    // 健康摘要数据也从 dashboard.json 中读取
+    // 注意: 后端需要将健康摘要聚合到 dashboard.json 中 (当前脚本已支持)
+    if(dash.health_summary) { 
+       renderHealthSummary(dash.health_summary);
+    }
+  }
   if (sys) systemData = sys;
   if (traf) trafficData = traf;
   if (notif) updateNotificationCenter(notif);
-  
-  // ✅ 新增：更新健康数据
-  if (health) {
-    window.__protocolHealth = health;
-    renderHealthSummary(health);
-  }
 
-  window.dashboardData = dashboardData;
   renderOverview();
   renderCertificateAndNetwork();
-  renderProtocolTable();
+  renderProtocolTable(); // 调用时不再传递 health 数据
   renderTrafficCharts();
 }
+
 
 /**
  * DOM 加载完成后初始化
@@ -11799,38 +11788,36 @@ ALERT_STEPS=30,60,90
 ALERT_EMAIL=
 CONF
     }
+    ensure_alert_conf_full
 
-    # 优先沿用你已有的 ensure_alert_conf；随后补齐缺失键
-    if type -t ensure_alert_conf >/dev/null 2>&1; then
-        ensure_alert_conf
-        ensure_alert_conf_full_patch
-    else
-        ensure_alert_conf_full
-    fi
-
-    # ---- B) 备份现有 crontab（可回滚）----
+    # 备份并清理所有旧的 EdgeBox 任务
     crontab -l > ~/crontab.backup.$(date +%Y%m%d%H%M%S) 2>/dev/null || true
-
-    # ---- C) 激进清理：删除所有 EdgeBox 相关的旧任务（路径/关键字双保险）----
     ( crontab -l 2>/dev/null | grep -vE '(/etc/edgebox/|\bedgebox\b|\bEdgeBox\b)' ) | crontab - || true
 
-    # ---- D) 写入 new11 标准任务集（仅这一套）----
+    # 写入优化后的新任务集
     ( crontab -l 2>/dev/null || true; cat <<CRON
-# EdgeBox 定时任务 v3.0 (new11 + SNI管理)
+# EdgeBox 定时任务 v3.0 (优化版)
+# 统一数据刷新 (包含协议健康检查)
 */5 * * * * bash -lc '/etc/edgebox/scripts/dashboard-backend.sh --now' >/dev/null 2>&1
+# 流量采集
 0  * * * * bash -lc '/etc/edgebox/scripts/traffic-collector.sh'        >/dev/null 2>&1
+# 流量预警
 7  * * * * bash -lc '/etc/edgebox/scripts/traffic-alert.sh'            >/dev/null 2>&1
+# IP质量检测
 15 2 * * * bash -lc '/usr/local/bin/edgebox-ipq.sh'                    >/dev/null 2>&1
+# Reality密钥自动轮换
 0  2 * * * bash -lc '/usr/local/bin/edgeboxctl rotate-reality'         >/dev/null 2>&1
+# SNI域名池管理
 0  3 * * 0 ${SCRIPTS_DIR}/sni-manager.sh select >/dev/null 2>&1
 0  4 * * * ${SCRIPTS_DIR}/sni-manager.sh health >/dev/null 2>&1
+# 流量特征随机化
 0 4 * * * bash -lc '/etc/edgebox/scripts/edgebox-traffic-randomize.sh light' >/dev/null 2>&1
 0 5 * * 0 bash -lc '/etc/edgebox/scripts/edgebox-traffic-randomize.sh medium' >/dev/null 2>&1
 0 6 1 * * bash -lc '/etc/edgebox/scripts/edgebox-traffic-randomize.sh heavy' >/dev/null 2>&1
 CRON
     ) | crontab -
 
-    log_success "定时任务设置完成（已清理旧任务并写入 new11 任务集；alert.conf 已补全 8 项）"
+    log_success "定时任务已优化并设置完成"
 }
 
 
