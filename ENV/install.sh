@@ -558,8 +558,10 @@ smart_download_script() {
 # 安装系统依赖包（增强幂等性）
 install_dependencies() {
     log_info "安装系统依赖（幂等性检查）..."
-    
-    # 检查包管理器并设置安装命令
+
+    # 本地化包管理器相关变量，避免污染全局
+    local PKG_MANAGER INSTALL_CMD UPDATE_CMD
+
     if command -v apt-get >/dev/null 2>&1; then
         PKG_MANAGER="apt"
         INSTALL_CMD="DEBIAN_FRONTEND=noninteractive apt-get install -y"
@@ -576,21 +578,15 @@ install_dependencies() {
         log_error "不支持的包管理器"
         return 1
     fi
-    
-    # 必要的依赖包列表（保持原有）
-    local base_packages=(
-        curl wget unzip gawk ca-certificates 
-        jq bc uuid-runtime dnsutils openssl
-        tar cron
-    )
-    
-    # 网络和防火墙包
+
+    # 依赖列表
+    local base_packages=(curl wget unzip gawk ca-certificates jq bc uuid-runtime dnsutils openssl tar cron)
     local network_packages=(vnstat nftables)
     local web_packages=(nginx)
     local cert_mail_packages=(certbot msmtp-mta bsd-mailx)
     local system_packages=(dmidecode htop iotop)
 
-    # 根据系统类型调整包名
+    # 按系统补充包名
     if [[ "$PKG_MANAGER" == "apt" ]]; then
         network_packages+=(libnginx-mod-stream)
         cert_mail_packages+=(python3-certbot-nginx)
@@ -599,18 +595,18 @@ install_dependencies() {
         cert_mail_packages+=(python3-certbot-nginx)
     fi
 
-    # 合并所有包
+    # 合并
     local all_packages=(
-        "${base_packages[@]}" "${network_packages[@]}" 
+        "${base_packages[@]}" "${network_packages[@]}"
         "${web_packages[@]}" "${cert_mail_packages[@]}"
         "${system_packages[@]}"
     )
-    
-    # 更新包索引（幂等操作）
+
+    # 更新索引（失败不中断）
     log_info "更新包索引..."
     eval "$UPDATE_CMD" >/dev/null 2>&1 || log_warn "包索引更新失败，继续安装"
-    
-    # [改进] 增强的包安装检查
+
+    # 幂等安装
     local failed_packages=()
     for pkg in "${all_packages[@]}"; do
         if is_package_properly_installed "$pkg"; then
@@ -618,7 +614,6 @@ install_dependencies() {
         else
             log_info "安装 ${pkg}..."
             if eval "$INSTALL_CMD $pkg" >/dev/null 2>&1; then
-                # 安装后再次验证
                 if is_package_properly_installed "$pkg"; then
                     log_success "${pkg} 安装并验证成功"
                 else
@@ -632,29 +627,18 @@ install_dependencies() {
         fi
     done
 
-for pkg in "${critical_packages[@]}"; do
-    if ! command -v "$pkg" >/dev/null 2>&1; then
-        log_error "✗ 关键依赖 $pkg 未安装或不可用"
-        missing_critical+=("$pkg")
+    # 最终状态报告
+    if [[ ${#failed_packages[@]} -eq 0 ]]; then
+        log_success "所有依赖包安装验证完成"
     else
-        log_success "✓ $pkg 可用"
+        log_warn "依赖安装完成，但有 ${#failed_packages[@]} 个包安装失败: ${failed_packages[*]}"
     fi
-done
 
-# 最终状态报告
-if [[ ${#failed_packages[@]} -eq 0 ]]; then
-    log_success "所有依赖包安装验证完成"
-    # ...
-else
-    log_warn "依赖安装完成，但有 ${#failed_packages[@]} 个包安装失败"
-    # ...
-fi
+    # 用集中化的关键依赖校验替代旧的循环
+    verify_critical_dependencies
 
-# 原本这里是一大段代码块，现在替换为函数调用
-verify_critical_dependencies
-
-return 0
-} # install_dependencies 函数结束
+    return 0
+}
 
 
 # [统一版] 判断包是否“已正确安装”（解耦全局PKG_MANAGER）
@@ -690,7 +674,7 @@ is_package_properly_installed() {
 
     # 4) 包数据库记录（按pm区分）
     case "$pm" in
-        apt) dpkg -l 2>/dev/null | grep -q "^ii\s\+$pkg\s" && return 0 ;;
+        apt) dpkg -l 2>/dev/null | awk '/^ii[[:space:]]/ {print $2}' | grep -qx "$pkg" && return 0 ;;
         yum|dnf) rpm -q "$pkg" >/dev/null 2>&1 && return 0 ;;
     esac
 
