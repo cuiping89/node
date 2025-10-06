@@ -6432,23 +6432,26 @@ generate_health_report() {
         elif  p=="tuic"      then "TUIC"
         else p end;
 
-      # 对数组中每一条记录做规范化
+      # 对数组中每一条记录做规范化，【保留原有所有字段】
       map(
-        .protocol = (.protocol // .proto // "") |
-        .name     = (name_map(.protocol))       |
-        .health   = (.status // .health // "unknown") |
-        .latency_ms = ((.response_time // .latency_ms) | tonumber?) |
-        .score      = ((.health_score // .score // 0) | tonumber)   |
-        .recommendation = (
-          .recommendation // .recommended // (
-            if (.health=="healthy" or .health=="alive") then
-              if   (.score>=85) then "primary"
-              elif (.score>=70) then "recommended"
-              elif (.score>=50) then "backup"
-              else "not_recommended" end
-            else "none" end
+        . +                                            # 【关键】保留原对象所有字段
+        {
+          protocol: (.protocol // .proto // ""),
+          name: (name_map(.protocol // .proto // "")),
+          health: (.status // .health // "unknown"),
+          latency_ms: ((.response_time // .latency_ms) | tonumber?),
+          score: ((.health_score // .score // 0) | tonumber),
+          recommendation: (
+            .recommendation // .recommended // (
+              if (.status // .health) == "healthy" or (.status // .health) == "alive" then
+                if   ((.health_score // .score // 0) | tonumber) >= 85 then "primary"
+                elif ((.health_score // .score // 0) | tonumber) >= 70 then "recommended"
+                elif ((.health_score // .score // 0) | tonumber) >= 50 then "backup"
+                else "not_recommended" end
+              else "none" end
+            )
           )
-        )
+        }
       )
     ' <<<"$protocols_health")
 
