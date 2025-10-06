@@ -11635,11 +11635,11 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         <code>edgeboxctl traffic reset</code> <span># 重置随机化参数为默认值</span><br>
         <strong>示例：</strong><br>
         <code style="display: inline-block; margin-left: 0; margin-top: 5px;">edgeboxctl traffic randomize medium</code>
-        <div style="margin-top: 10px; color: #ADD8E6; font-size: 0.95em;">
+        <div style="margin-top: 10px; color: #3b82f6; font-size: 0.95em;">
           <strong>level:</strong><br>
-          <code style="display: inline-block; margin-left: 0; color: #ADD8E6;">light(默认) - 轻度随机化，仅修改 Hysteria2 伪装站点</code><br>
-          <code style="display: inline-block; margin-left: 0; color: #ADD8E6;">medium  - 中度随机化，修改 Hysteria2 + TUIC 参数</code><br>
-          <code style="display: inline-block; margin-left: 0; color: #ADD8E6;">heavy  - 重度随机化，修改全协议参数</code>
+          <code style="display: inline-block; margin-left: 0; color: #3b82f6;">light(默认) - 轻度随机化，仅修改 Hysteria2 伪装站点</code><br>
+          <code style="display: inline-block; margin-left: 0; color: #3b82f6;">medium  - 中度随机化，修改 Hysteria2 + TUIC 参数</code><br>
+          <code style="display: inline-block; margin-left: 0; color: #3b82f6;">heavy  - 重度随机化，修改全协议参数</code>
         </div>
       </div>
     </div>
@@ -11656,12 +11656,12 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         <strong>示例：</strong><br>
         <code style="display: inline-block; margin-left: 0; margin-top: 5px;">edgeboxctl shunt direct-resi 'socks5://user:pass@host:port'</code><br>
         <code style="display: inline-block; margin-left: 0;">edgeboxctl shunt whitelist add netflix.com</code>
-        <div style="margin-top: 10px; color: #ADD8E6; font-size: 0.95em;">
+        <div style="margin-top: 10px; color: #3b82f6; font-size: 0.95em;">
           <strong>代理URL格式：</strong><br>
-          <code style="display: inline-block; margin-left: 0; color: #ADD8E6;">http://user:pass@host:port</code><br>
-          <code style="display: inline-block; margin-left: 0; color: #ADD8E6;">https://user:pass@host:port?sni=example.com</code><br>
-          <code style="display: inline-block; margin-left: 0; color: #ADD8E6;">socks5://user:pass@host:port</code><br>
-          <code style="display: inline-block; margin-left: 0; color: #ADD8E6;">socks5s://user:pass@host:port?sni=example.com</code>
+          <code style="display: inline-block; margin-left: 0; color: #3b82f6;">http://user:pass@host:port</code><br>
+          <code style="display: inline-block; margin-left: 0; color: #3b82f6;">https://user:pass@host:port?sni=example.com</code><br>
+          <code style="display: inline-block; margin-left: 0; color: #3b82f6;">socks5://user:pass@host:port</code><br>
+          <code style="display: inline-block; margin-left: 0; color: #3b82f6;">socks5s://user:pass@host:port?sni=example.com</code>
         </div>
       </div>
     </div>
@@ -13978,10 +13978,10 @@ ${YELLOW}■ 流量特征随机化 (Traffic Randomization)${NC}
   ${GREEN}edgeboxctl traffic reset${NC}                                      ${DIM}# 重置随机化参数为默认值${NC}
   ${CYAN}示例:${NC}
   ${GREEN}edgeboxctl traffic randomize${NC} ${CYAN}medium${NC}
-  ${CYAN}level:${NC}
-  ${CYAN}light${NC}  ${DIM}- 轻度随机化，仅修改 Hysteria2 伪装站点${NC}
-  ${CYAN}medium${NC} ${DIM}- 中度随机化，修改 Hysteria2 + TUIC 参数${NC}
-  ${CYAN}heavy${NC}  ${DIM}- 重度随机化，修改全协议参数${NC}
+${CYAN}level:${NC}
+${CYAN}light${NC}  ${DIM}- 轻度随机化，仅修改 Hysteria2 伪装站点${NC}
+${CYAN}medium${NC} ${DIM}- 中度随机化，修改 Hysteria2 + TUIC 参数${NC}
+${CYAN}heavy${NC}  ${DIM}- 重度随机化，修改全协议参数${NC}
 
 ${YELLOW}■ 出站分流 (Outbound Routing)${NC}
   ${GREEN}edgeboxctl shunt vps${NC}                               ${DIM}# [模式] VPS 直连出站 (默认)${NC}
@@ -13992,11 +13992,11 @@ ${YELLOW}■ 出站分流 (Outbound Routing)${NC}
   ${CYAN}示例:${NC}
   ${GREEN}edgeboxctl shunt direct-resi${NC} ${CYAN}'socks5://user:pass@host:port'${NC}
   ${GREEN}edgeboxctl shunt whitelist add${NC} ${CYAN}netflix.com${NC}
-  ${CYAN}代理URL格式:${NC}
-  ${CYAN}http://user:pass@host:port${NC}
-  ${CYAN}https://user:pass@host:port?sni=example.com${NC}
-  ${CYAN}socks5://user:pass@host:port${NC}
-  ${CYAN}socks5s://user:pass@host:port?sni=example.com${NC}
+${CYAN}代理URL格式:${NC}
+${CYAN}http://user:pass@host:port${NC}
+${CYAN}https://user:pass@host:port?sni=example.com${NC}
+${CYAN}socks5://user:pass@host:port${NC}
+${CYAN}socks5s://user:pass@host:port?sni=example.com${NC}
 
 ${YELLOW}■ 流量与预警 (Traffic & Alert)${NC}
   ${GREEN}edgeboxctl traffic show${NC}                            ${DIM}# 在终端查看流量使用统计${NC}
@@ -14992,8 +14992,8 @@ show_installation_info() {
 	
     echo -e "\n${CYAN}协议配置摘要：${NC}"
     echo -e "  VLESS-Reality  端口: 443  UUID: ${PURPLE}${UUID_VLESS:0:8}...${NC}"
-    echo -e "  VLESS-gRPC     端口: 443  UUID: ${PURPLE}${UUID_VLESS:0:8}...${NC}"  
-	echo -e "  VLESS-WS       端口: 443  UUID: ${PURPLE}${UUID_VLESS:0:8}...${NC}"  
+    echo -e "  VLESS-gRPC     端口: 443  UUID: ${PURPLE}${UUID_GRPC:0:8}...${NC}"  
+    echo -e "  VLESS-WS       端口: 443  UUID: ${PURPLE}${UUID_WS:0:8}...${NC}"  
     echo -e "  Trojan-TLS     端口: 443  密码: ${PURPLE}${PASSWORD_TROJAN:0:8}...${NC}"
     echo -e "  Hysteria2      端口: 443  密码: ${PURPLE}${PASSWORD_HYSTERIA2:0:8}...${NC}"
     echo -e "  TUIC           端口: 2053 UUID: ${PURPLE}${UUID_TUIC:0:8}...${NC}"
