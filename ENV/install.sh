@@ -11585,7 +11585,8 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         <code>edgeboxctl logs &lt;service&gt;</code> <span># 查看指定服务的实时日志 (Ctrl+C 退出)</span><br>
         <code>edgeboxctl update</code> <span># 在线更新 EdgeBox 至最新版本</span><br>
         <code>edgeboxctl help</code> <span># 显示帮助信息</span><br>
-        <strong>示例：</strong><code>edgeboxctl logs xray</code>
+        <strong>示例：</strong><br>
+        <code style="display: block; margin-left: 0; margin-top: 5px;">edgeboxctl logs xray</code>
       </div>
     </div>
 
@@ -11598,7 +11599,8 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         <code>edgeboxctl cert status</code> <span># 查看当前证书类型、域名及有效期</span><br>
         <code>edgeboxctl cert renew</code> <span># 手动续期 Let's Encrypt 证书</span><br>
         <code>edgeboxctl fix-permissions</code> <span># 修复证书文件的读写权限</span><br>
-        <strong>示例：</strong><code>edgeboxctl switch-to-domain my.domain.com</code>
+        <strong>示例：</strong><br>
+        <code style="display: block; margin-left: 0; margin-top: 5px;">edgeboxctl switch-to-domain my.domain.com</code>
       </div>
     </div>
 
@@ -11610,7 +11612,8 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         <code>edgeboxctl sni auto</code> <span># 智能测试并选择最优 SNI 域名</span><br>
         <code>edgeboxctl sni set &lt;domain&gt;</code> <span># 手动强制指定一个 SNI 域名</span><br>
         <code>edgeboxctl sni test-all</code> <span># 测试池中所有域名的可用性</span><br>
-        <strong>示例：</strong><code>edgeboxctl sni set www.apple.com</code>
+        <strong>示例：</strong><br>
+        <code style="display: block; margin-left: 0; margin-top: 5px;">edgeboxctl sni set www.apple.com</code>
       </div>
     </div>
 
@@ -11631,11 +11634,12 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         <code>edgeboxctl traffic status</code> <span># 查看随机化系统状态和定时任务</span><br>
         <code>edgeboxctl traffic reset</code> <span># 重置随机化参数为默认值</span><br>
         <strong>示例：</strong><br>
-        <code style="display: block; margin-left: 0;">edgeboxctl traffic randomize medium</code>
-        <div style="margin-top: 10px; color: #b0bec5;">
-          • <strong>light</strong> - 轻度随机化，仅修改 Hysteria2 伪装站点<br>
-          • <strong>medium</strong> - 中度随机化，修改 Hysteria2 + TUIC 参数<br>
-          • <strong>heavy</strong> - 重度随机化，修改全协议参数
+        <code style="display: block; margin-left: 0; margin-top: 5px;">edgeboxctl traffic randomize medium</code>
+        <div style="margin-top: 10px; color: #9fa8da; font-size: 0.95em;">
+          <strong>level:</strong><br>
+          <span style="display: block; margin-left: 0;">light &nbsp;(默认) - 轻度随机化，仅修改 Hysteria2 伪装站点</span>
+          <span style="display: block; margin-left: 0;">medium &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;- 中度随机化，修改 Hysteria2 + TUIC 参数</span>
+          <span style="display: block; margin-left: 0;">heavy &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;- 重度随机化，修改全协议参数</span>
         </div>
       </div>
     </div>
@@ -11650,14 +11654,14 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         <code>edgeboxctl shunt status</code> <span># 查看当前出站模式及代理健康状况</span><br>
         <code>edgeboxctl shunt whitelist &lt;action&gt; [domain]</code> <span># 管理白名单 (add|remove|list|reset)</span><br>
         <strong>示例：</strong><br>
-        <code style="display: block; margin-left: 0;">edgeboxctl shunt direct-resi 'socks5://user:pass@host:port'</code>
+        <code style="display: block; margin-left: 0; margin-top: 5px;">edgeboxctl shunt direct-resi 'socks5://user:pass@host:port'</code>
         <code style="display: block; margin-left: 0;">edgeboxctl shunt whitelist add netflix.com</code>
-        <div style="margin-top: 10px; color: #b0bec5;">
+        <div style="margin-top: 10px; color: #9fa8da; font-size: 0.95em;">
           <strong>代理URL格式：</strong><br>
-          <code style="color: #81c784;">http://user:pass@host:port</code><br>
-          <code style="color: #81c784;">https://user:pass@host:port?sni=example.com</code><br>
-          <code style="color: #81c784;">socks5://user:pass@host:port</code><br>
-          <code style="color: #81c784;">socks5s://user:pass@host:port?sni=example.com</code>
+          <code style="display: block; margin-left: 0; color: #9fa8da;">http://user:pass@host:port</code>
+          <code style="display: block; margin-left: 0; color: #9fa8da;">https://user:pass@host:port?sni=example.com</code>
+          <code style="display: block; margin-left: 0; color: #9fa8da;">socks5://user:pass@host:port</code>
+          <code style="display: block; margin-left: 0; color: #9fa8da;">socks5s://user:pass@host:port?sni=example.com</code>
         </div>
       </div>
     </div>
@@ -11675,10 +11679,11 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         <code>edgeboxctl alert wechat &lt;pushplus_token&gt;</code> <span># 配置微信 PushPlus 通知渠道</span><br>
         <code>edgeboxctl alert webhook &lt;url&gt; [format]</code> <span># 配置通用 Webhook (raw|slack|discord)</span><br>
         <code>edgeboxctl alert test [percent]</code> <span># 模拟触发预警以测试通知渠道</span><br>
-        <strong>示例：</strong><code>edgeboxctl alert monthly 1000</code><br>
-        <strong style="margin-left: 48px;"></strong><code>edgeboxctl alert steps 50,80,95</code><br>
-        <strong style="margin-left: 48px;"></strong><code>edgeboxctl alert telegram &lt;token&gt; &lt;chat_id&gt;</code><br>
-        <strong style="margin-left: 48px;"></strong><code>edgeboxctl alert test 80</code>
+        <strong>示例：</strong><br>
+        <code style="display: block; margin-left: 0; margin-top: 5px;">edgeboxctl alert monthly 1000</code>
+        <code style="display: block; margin-left: 0;">edgeboxctl alert steps 50,80,95</code>
+        <code style="display: block; margin-left: 0;">edgeboxctl alert telegram &lt;token&gt; &lt;chat_id&gt;</code>
+        <code style="display: block; margin-left: 0;">edgeboxctl alert test 80</code>
       </div>
     </div>
 
@@ -11693,8 +11698,9 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         <code>edgeboxctl backup create</code> <span># 创建当前系统配置的完整备份</span><br>
         <code>edgeboxctl backup list</code> <span># 列出所有可用的备份文件</span><br>
         <code>edgeboxctl backup restore &lt;file&gt;</code> <span># 从指定备份文件恢复系统配置</span><br>
-        <strong>示例：</strong><code>edgeboxctl alias "香港-CN2-主力"</code><br>
-        <strong style="margin-left: 48px;"></strong><code>edgeboxctl backup restore edgebox_backup_xxx.tar.gz</code>
+        <strong>示例：</strong><br>
+        <code style="display: block; margin-left: 0; margin-top: 5px;">edgeboxctl alias "香港-CN2-主力"</code>
+        <code style="display: block; margin-left: 0;">edgeboxctl backup restore edgebox_backup_xxx.tar.gz</code>
       </div>
     </div>
 
