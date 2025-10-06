@@ -631,20 +631,6 @@ install_dependencies() {
             fi
         fi
     done
-    
-    # 检查关键包是否安装成功
-# 检查关键包是否安装成功（增强版）
-local critical_packages=(
-    jq           # JSON 处理
-    curl         # 下载工具
-    wget         # 下载工具（备用）
-    nginx        # Web 服务器
-    openssl      # 加密工具
-    uuidgen      # UUID 生成
-)
-
-log_info "验证关键依赖安装状态..."
-local missing_critical=()
 
 for pkg in "${critical_packages[@]}"; do
     if ! command -v "$pkg" >/dev/null 2>&1; then
@@ -655,56 +641,60 @@ for pkg in "${critical_packages[@]}"; do
     fi
 done
 
-if [[ ${#missing_critical[@]} -gt 0 ]]; then
-    log_error "以下关键依赖缺失: ${missing_critical[*]}"
-    log_error "无法继续安装，请检查包管理器是否正常"
-    return 1
+# 最终状态报告
+if [[ ${#failed_packages[@]} -eq 0 ]]; then
+    log_success "所有依赖包安装验证完成"
+    # ...
+else
+    log_warn "依赖安装完成，但有 ${#failed_packages[@]} 个包安装失败"
+    # ...
 fi
 
-log_success "所有关键依赖验证通过"
+# 原本这里是一大段代码块，现在替换为函数调用
+verify_critical_dependencies
 
-}
+return 0
+} # install_dependencies 函数结束
 
-# [新增函数] 增强的包安装检查
+
+# [统一版] 判断包是否“已正确安装”（解耦全局PKG_MANAGER）
 is_package_properly_installed() {
     local pkg="$1"
-    
-    # 1. 优先检查命令是否可用（最重要的判断）
+    local pm="${2:-}"
+
+    # 1) 自动探测包管理器（当未显式传入时）
+    if [[ -z "$pm" ]]; then
+        if   command -v apt-get >/dev/null 2>&1; then pm="apt"
+        elif command -v yum     >/dev/null 2>&1; then pm="yum"
+        elif command -v dnf     >/dev/null 2>&1; then pm="dnf"
+        else pm=""; fi
+    fi
+
+    # 2) 命令可用性（最可靠）
     if command -v "$pkg" >/dev/null 2>&1; then
         return 0
     fi
-    
-    # 2. 特殊包名映射检查
-    local actual_command=""
+
+    # 3) 常见映射
+    local actual=""
     case "$pkg" in
-        "python3-certbot-nginx") actual_command="certbot" ;;
-        "msmtp-mta") actual_command="msmtp" ;;
-        "bsd-mailx") actual_command="mail" ;;
-        "libnginx-mod-stream") 
-            # 检查nginx模块是否已加载
+        python3-certbot-nginx) actual="certbot" ;;
+        msmtp-mta)             actual="msmtp"  ;;
+        bsd-mailx)             actual="mail"   ;;
+        libnginx-mod-stream)
             nginx -T 2>/dev/null | grep -q "stream" && return 0 || return 1
             ;;
-        *) actual_command="$pkg" ;;
+        *) actual="$pkg" ;;
     esac
-    
-    # 检查映射后的命令
-    if [[ -n "$actual_command" ]] && command -v "$actual_command" >/dev/null 2>&1; then
-        return 0
-    fi
-    
-    # 3. 检查包管理器记录
-    case "$PKG_MANAGER" in
-        "apt")
-            # 检查已安装且配置正确的包
-            dpkg -l 2>/dev/null | grep -q "^ii.*${pkg}" 
-            ;;
-        "yum"|"dnf")
-            rpm -q "$pkg" >/dev/null 2>&1
-            ;;
-        *)
-            return 1
-            ;;
+    [[ -n "$actual" ]] && command -v "$actual" >/dev/null 2>&1 && return 0
+
+    # 4) 包数据库记录（按pm区分）
+    case "$pm" in
+        apt) dpkg -l 2>/dev/null | grep -q "^ii\s\+$pkg\s" && return 0 ;;
+        yum|dnf) rpm -q "$pkg" >/dev/null 2>&1 && return 0 ;;
     esac
+
+    return 1
 }
 
 # [新增函数] 确保系统服务状态（完全幂等）
@@ -2286,20 +2276,21 @@ generate_dashboard_passcode() {
 # 配置信息保存函数
 #############################################
 
-# 保存完整配置信息到server.json（对齐控制面板数据口径）
+# 保存完整配置信息到server.json（对齐控制面板数据口径，安全JSON生成）
 save_config_info() {
-    log_info "保存配置信息到server.json..."
-    
-    # 确保配置目录存在
+    log_info "保存配置信息到server.json."
+
     mkdir -p "${CONFIG_DIR}"
-    
-    # 准备基础变量（带默认值）
+
+    # 基础信息（均为局部变量）
     local server_ip="${SERVER_IP:-127.0.0.1}"
     local version="${EDGEBOX_VER:-3.0.0}"
-    local install_date="$(date +%Y-%m-%d)"
-    local updated_at="$(date -Is)"
-    
-    # 系统信息变量（带默认值）
+    local install_date
+    install_date="$(date +%Y-%m-%d)"
+    local updated_at
+    updated_at="$(date -Is)"
+
+    # 系统信息
     local cloud_provider="${CLOUD_PROVIDER:-Unknown}"
     local cloud_region="${CLOUD_REGION:-Unknown}"
     local instance_id="${INSTANCE_ID:-Unknown}"
@@ -2308,113 +2299,93 @@ save_config_info() {
     local cpu_spec="${CPU_SPEC:-Unknown}"
     local memory_spec="${MEMORY_SPEC:-Unknown}"
     local disk_spec="${DISK_SPEC:-Unknown}"
-    
-    # ========== 关键修复1: 确保密码变量有效 ==========
-    # 如果DASHBOARD_PASSCODE为空,生成一个临时密码
+
+    # 确保面板口令存在
     if [[ -z "$DASHBOARD_PASSCODE" ]]; then
-        log_warn "DASHBOARD_PASSCODE变量为空,生成临时密码"
-        local random_digit=$((RANDOM % 10))
-        DASHBOARD_PASSCODE="${random_digit}${random_digit}${random_digit}${random_digit}${random_digit}${random_digit}"
+        log_warn "DASHBOARD_PASSCODE为空，生成临时6位数字口令"
+        local d=$((RANDOM % 10))
+        DASHBOARD_PASSCODE="${d}${d}${d}${d}${d}${d}"
         export DASHBOARD_PASSCODE
     fi
-    log_info "保存密码: $DASHBOARD_PASSCODE"
-    # ===============================================
-    
-    # 协议凭据变量验证
+
+    # 关键凭据校验（缺失即失败）
     if [[ -z "$UUID_VLESS_REALITY" || -z "$PASSWORD_TROJAN" || -z "$PASSWORD_HYSTERIA2" ]]; then
         log_error "关键凭据缺失，无法保存配置"
         return 1
     fi
-    
-    # 检查服务器IP有效性
+
+    # IP格式校验
     if [[ ! "$server_ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
         log_error "服务器IP格式无效: $server_ip"
         return 1
     fi
-    
-    log_info "生成server.json配置文件..."
-    
-    # ========== 关键修复2: JSON模板中包含dashboard_passcode ==========
-    # 生成完整的server.json配置
-    cat > "${CONFIG_DIR}/server.json" << EOF
-{
-  "version": "$version",
-  "install_date": "$install_date",
-  "updated_at": "$updated_at",
-  "server_ip": "$server_ip",
-  "eip": "${SERVER_EIP:-$server_ip}",
-  "hostname": "$hostname",
-  "instance_id": "$instance_id",
-  "user_alias": "$user_alias",
-  "dashboard_passcode": "$DASHBOARD_PASSCODE",
-  "dashboard_passcode": "$DASHBOARD_PASSCODE",
-  "cloud": {
-    "provider": "$cloud_provider",
-    "region": "$cloud_region"
-  },
-  "spec": {
-    "cpu": "$cpu_spec",
-    "memory": "$memory_spec",
-    "disk": "$disk_spec"
-  },
-  "uuid": {
-    "vless": {
-      "reality": "$UUID_VLESS_REALITY",
-      "grpc": "$UUID_VLESS_GRPC",
-      "ws": "$UUID_VLESS_WS"
-    },
-    "tuic": "$UUID_TUIC",
-    "hysteria2": "$UUID_HYSTERIA2",
-    "trojan": "$UUID_TROJAN"
-  },
-  "password": {
-    "trojan": "$PASSWORD_TROJAN",
-    "tuic": "$PASSWORD_TUIC",
-    "hysteria2": "$PASSWORD_HYSTERIA2"
-  },
-  "reality": {
-    "public_key": "$REALITY_PUBLIC_KEY",
-    "private_key": "$REALITY_PRIVATE_KEY",
-    "short_id": "$REALITY_SHORT_ID"
-  },
-  "cert": {
-    "mode": "self-signed",
-    "domain": null,
-    "auto_renew": false
-  }
-}
-EOF
-    # ================================================================
 
-    # 验证生成的JSON文件
-    if [[ ! -f "${CONFIG_DIR}/server.json" ]]; then
-        log_error "server.json文件创建失败"
+    log_info "使用 jq 生成 server.json（避免转义/注入问题）"
+
+    # 用 jq -n 生成 JSON（所有变量安全注入）
+    jq -n \
+      --arg version              "$version" \
+      --arg install_date         "$install_date" \
+      --arg updated_at           "$updated_at" \
+      --arg server_ip            "$server_ip" \
+      --arg eip                  "${SERVER_EIP:-$server_ip}" \
+      --arg hostname             "$hostname" \
+      --arg instance_id          "$instance_id" \
+      --arg user_alias           "$user_alias" \
+      --arg dashboard_passcode   "$DASHBOARD_PASSCODE" \
+      --arg cloud_provider       "$cloud_provider" \
+      --arg cloud_region         "$cloud_region" \
+      --arg cpu_spec             "$cpu_spec" \
+      --arg memory_spec          "$memory_spec" \
+      --arg disk_spec            "$disk_spec" \
+      --arg uuid_vless_reality   "$UUID_VLESS_REALITY" \
+      --arg uuid_vless_grpc      "$UUID_VLESS_GRPC" \
+      --arg uuid_vless_ws        "$UUID_VLESS_WS" \
+      --arg uuid_tuic            "$UUID_TUIC" \
+      --arg uuid_hysteria2       "$UUID_HYSTERIA2" \
+      --arg uuid_trojan          "$UUID_TROJAN" \
+      --arg password_trojan      "$PASSWORD_TROJAN" \
+      --arg password_tuic        "$PASSWORD_TUIC" \
+      --arg password_hysteria2   "$PASSWORD_HYSTERIA2" \
+      --arg reality_public_key   "$REALITY_PUBLIC_KEY" \
+      --arg reality_private_key  "$REALITY_PRIVATE_KEY" \
+      --arg reality_short_id     "$REALITY_SHORT_ID" \
+      '{
+         version: $version,
+         install_date: $install_date,
+         updated_at: $updated_at,
+         server_ip: $server_ip,
+         eip: $eip,
+         hostname: $hostname,
+         instance_id: $instance_id,
+         user_alias: $user_alias,
+         dashboard_passcode: $dashboard_passcode,
+         cloud: { provider: $cloud_provider, region: $cloud_region },
+         spec:  { cpu: $cpu_spec, memory: $memory_spec, disk: $disk_spec },
+         uuid:  { vless: { reality: $uuid_vless_reality, grpc: $uuid_vless_grpc, ws: $uuid_vless_ws },
+                  tuic: $uuid_tuic, hysteria2: $uuid_hysteria2, trojan: $uuid_trojan },
+         password: { trojan: $password_trojan, tuic: $password_tuic, hysteria2: $password_hysteria2 },
+         reality:  { public_key: $reality_public_key, private_key: $reality_private_key, short_id: $reality_short_id },
+         cert: { mode: "self-signed", domain: null, auto_renew: false }
+       }' > "${CONFIG_DIR}/server.json"
+
+    # 生成后校验
+    if ! jq . "${CONFIG_DIR}/server.json" >/dev/null 2>&1; then
+        log_error "server.json 验证失败"
         return 1
     fi
-    
-    if ! jq '.' "${CONFIG_DIR}/server.json" >/dev/null 2>&1; then
-        log_error "server.json验证失败"
+
+    # 确认口令已写入且不为空
+    local saved
+    saved="$(jq -r '.dashboard_passcode // empty' "${CONFIG_DIR}/server.json" 2>/dev/null)"
+    if [[ -z "$saved" || "$saved" != "$DASHBOARD_PASSCODE" ]]; then
+        log_error "密码保存验证失败（期望: $DASHBOARD_PASSCODE, 实际: ${saved:-空}）"
         return 1
     fi
-    
-    # ========== 关键修复3: 验证密码是否正确保存 ==========
-    local saved_password=$(jq -r '.dashboard_passcode // empty' "${CONFIG_DIR}/server.json" 2>/dev/null)
-    if [[ -z "$saved_password" || "$saved_password" != "$DASHBOARD_PASSCODE" ]]; then
-        log_error "密码保存验证失败!"
-        log_error "  期望密码: $DASHBOARD_PASSCODE"
-        log_error "  实际保存: ${saved_password:-空}"
-        return 1
-    else
-        log_success "密码保存验证通过: $saved_password"
-    fi
-    # =================================================
-    
-    # 设置文件权限
+
     chmod 600 "${CONFIG_DIR}/server.json"
     chown root:root "${CONFIG_DIR}/server.json"
-    
-    log_success "server.json配置文件保存完成"
-    
+    log_success "server.json配置文件保存完成（已安全写入）"
     return 0
 }
 
