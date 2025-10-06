@@ -8239,12 +8239,12 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   cursor: default;
 }
 
-/* 非激活标签的h3 - 黑色 */
+/* 非激活标签的h3 - 黑色，15px */
 #cert-panel .cert-mode-tab h3{
-  color: var(--heading-color);  /* 黑色 */
+  color: var(--heading-color);
   margin: 0;
-  font-size: inherit;
-  font-weight: inherit;
+  font-size: var(--h3-size);
+  font-weight: 600;
 }
 
 /* 激活标签 */
@@ -8254,9 +8254,9 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   border-color: var(--tag-active-bg);
 }
 
-/* 激活标签的h3 - 白色 */
+/* 激活标签的h3 - 白色，15px */
 #cert-panel .cert-mode-tab.active h3{
-  color: var(--tag-active-color);  /* 白色 */
+  color: var(--tag-active-color);
 }
 
 /* 内容卡片：白底 + 边框 + 阴影 */
@@ -9201,6 +9201,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   grid-template-columns:1fr 1fr;
   gap:20px;
 }
+
 @media (max-width:768px){
   .commands-grid{ grid-template-columns:1fr; }
 }
@@ -9211,6 +9212,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   border-radius:8px;
   padding:12px;
 }
+
 .command-section h4{
   margin:0 0 8px;
   font-size:.9rem;
@@ -9221,43 +9223,38 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   gap:6px;
 }
 
-.command-list{ font-size:.8rem; line-height:1.5; }
+/* 运维管理：行距 & 命令与注释的间距 */
+#ops-panel .command-list,
+.commands-grid .command-list,
+.command-list{
+  font-size:.8rem;
+  line-height:1.6;    /* ← 行与行的垂直距离，1.6~1.9 自行调 */
+}
+
 /* 深灰代码块（命令） */
+#ops-panel .command-list code,
+.commands-grid .command-list code,
 .command-list code{
-  background: #e2e8f0;          /* 改成你想要的灰，例如 newb 用的 #e2e8f0 */
-  color: #1f2937;
+  background:#e2e8f0;          /* 改成你想要的灰，例如 newb 用的 #e2e8f0 */
+  color:#1f2937;
   padding:1px 6px;
   border-radius:4px;
   font-family:monospace;
   font-size:.78rem;
   line-height:1.1;
   display:inline-block;
-}
-.command-list span{ color:#6b7280; margin-left:8px; }
-
-/* 运维管理：行距 & 命令与注释的间距 */
-#ops-panel .command-list,
-.commands-grid .command-list {
-  line-height: 1.6;    /* ← 行与行的垂直距离，1.6~1.9 自行调 */
+  margin-right:8px;    /* ← 命令小胶囊 与 注释 的水平间距 */
+  margin-bottom:2px;   /* 轻微增加行间距 */
 }
 
-#ops-panel .command-list code,
-.commands-grid .command-list code {
-  margin-right: 8px;    /* ← 命令小胶囊 与 注释 的水平间距 */
-  /* 可选：如果需要让 margin-bottom 生效，再打开下一行 */
-  /* display: inline-block; */
-}
-
-#ops-panel .command-list code,
-.commands-grid .command-list code {
-  display: inline-block;
-  margin-right: 8px;
-  margin-bottom: 2px;   /* 轻微增加行间距 */
+.command-list span{ 
+  color:#6b7280; 
+  margin-left:8px; 
 }
 
 
 /* =========================
-   弹窗 Modal 统一样式补丁（按您要求修正）
+   弹窗 Modal 统一样式补丁
    ========================= */
 
 /* 变量 */
@@ -9359,13 +9356,14 @@ dialog[open],
 
 /* ===仅限 #ipqModal，避免污染全局 .info-item======= */
 #ipqModal .info-item{
-  display: grid;                   /* 用 grid 管控两列 */
-  grid-template-columns: 144px 1fr;/* 左列固定宽度，右列自适应，与现有 kv-row 一致 */
+  display: grid;
+  grid-template-columns: 144px 1fr;
   gap: 12px;
   align-items: start;
   justify-content: start;
-  text-align: left;                /* 兜底，确保文本左对齐 */
+  text-align: left;
 }
+
 /* 标签列样式（更清晰） */
 #ipqModal .info-item label{
   text-align: left;
@@ -9373,11 +9371,12 @@ dialog[open],
   color: #6b7280;
   margin: 0;
 }
+
 /* 值列换行策略，避免超长内容撑破 */
 #ipqModal .info-item value{
-  display: block;                  /* 自定义标签也作为网格项，块级更稳 */
+  display: block;
   text-align: left;
-  overflow-wrap: anywhere;         /* 优先换行其一即可 */
+  overflow-wrap: anywhere;
   word-break: break-word;
 }
 
@@ -9385,7 +9384,7 @@ dialog[open],
 @supports not (display: grid){
   #ipqModal .info-item{
     display: flex;
-    justify-content: flex-start;   /* 覆写掉 space-between */
+    justify-content: flex-start;
     gap: 12px;
   }
   #ipqModal .info-item label{ min-width: 144px; }
@@ -9394,28 +9393,21 @@ dialog[open],
 
 /* —— IPQ 弹窗分组标题（<h5>）尺寸修正，仅作用 #ipqModal —— */
 #ipqModal .ipq-section > h5 {
-  font-size: var(--h3-size, 15px); /* 复用你前面定义的 --h3-size */
+  font-size: var(--h3-size, 15px);
   line-height: 22px;
   font-weight: 600;
   color: var(--heading-color, #111827);
   margin: 0 0 8px;
 }
+
+/* 弹窗内分组样式 */
 #detailModal .modal-section,
 #detailModal .detail-section,
-#ipqModal .ipq-section{
+#ipqModal .ipq-section,
+#configModal .modal-section,
+#configModal .config-section{
   padding:20px 0;
   border-bottom:1px solid #374151;
-}
-#detailModal .modal-section:first-child,
-#detailModal .detail-section:first-child,
-#ipqModal .ipq-section:first-child{ 
-  padding-top:0; 
-}
-#detailModal .modal-section:last-child,
-#detailModal .detail-section:last-child,
-#ipqModal .ipq-section:last-child{
-  padding-bottom:0; 
-  border-bottom:none;
 }
 
 #configModal .modal-section,
@@ -9424,15 +9416,30 @@ dialog[open],
   border-bottom:none; 
 }
 
+#detailModal .modal-section:first-child,
+#detailModal .detail-section:first-child,
+#ipqModal .ipq-section:first-child{ 
+  padding-top:0; 
+}
+
+#detailModal .modal-section:last-child,
+#detailModal .detail-section:last-child,
+#ipqModal .ipq-section:last-child{
+  padding-bottom:0; 
+  border-bottom:none;
+}
+
 /* 查看详情弹窗内容左对齐 */
 #detailModal .kv-key, 
-#ipqModal .kv-key { 
-  text-align:left !important; 
-  padding-right:0; 
-}
+#ipqModal .kv-key,
 #detailModal .kv-value,
 #ipqModal .kv-value { 
   text-align:left !important; 
+}
+
+#detailModal .kv-key, 
+#ipqModal .kv-key { 
+  padding-right:0; 
 }
 
 /* 键值对通用 */
@@ -9449,6 +9456,7 @@ dialog[open],
   padding:8px 0; 
   border-bottom:1px dashed #eef2f7;
 }
+
 .kv-row:last-child{ 
   border-bottom:none; 
 }
@@ -9510,7 +9518,9 @@ dialog[open],
 
 .modal-body .qr-container,
 .modal-body .qrcode,
-.modal-body [data-role="qrcode"]{
+.modal-body [data-role="qrcode"],
+.modal-body .qr-container div,
+.modal-body .qrcode div{
   text-align:center !important;
   margin: 16px auto !important;
 }
@@ -9528,12 +9538,6 @@ dialog[open],
   image-rendering:pixelated;
   /* 强制移除任何左对齐样式 */
   float: none !important;
-  text-align: center !important;
-}
-
-/* 确保二维码容器不被其他样式影响 */
-.modal-body .qr-container div,
-.modal-body .qrcode div {
   text-align: center !important;
 }
 
@@ -9706,7 +9710,6 @@ dialog[open],
     margin-bottom:4px; 
   }
 }
-
 
 /* =======================================================================
  按钮（查看详情、查看全部、查看配置、查看订阅）：白底蓝字，hover 浅灰，active 灰底 
