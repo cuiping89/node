@@ -223,33 +223,6 @@ DASHBOARD_PASSCODE=""      # 6位随机相同数字
 # 路径验证和创建函数
 #############################################
 
-# 创建所有必要目录
-create_directories() {
-    log_info "创建目录结构..."
-    
-    local dirs=(
-        "$INSTALL_DIR" "$CERT_DIR" "$CONFIG_DIR" 
-        "$TRAFFIC_DIR" "$SCRIPTS_DIR" "$BACKUP_DIR"
-        "$(dirname "$LOG_FILE")" "$WEB_ROOT"
-        "$TMP_DIR"
-    )
-    
-    for dir in "${dirs[@]}"; do
-        if ! mkdir -p "$dir" 2>/dev/null; then
-            log_error "创建目录失败: $dir"
-            return 1
-        fi
-    done
-    
-    # 设置适当的权限
-    chmod 755 "$INSTALL_DIR" "$CONFIG_DIR" "$WEB_ROOT"
-    chmod 700 "$CERT_DIR" "$BACKUP_DIR"
-    chmod 755 "$TRAFFIC_DIR" "$SCRIPTS_DIR"
-    
-    log_success "目录结构创建完成"
-    return 0
-}
-
 # 验证关键路径
 validate_paths() {
     log_info "验证关键路径..."
@@ -579,162 +552,6 @@ smart_download_script() {
         rm -f "$temp_script"
         return 1
     fi
-}
-
-
-install_dependencies() {
-    log_info "安装系统依赖（增强幂等性检查）..."
-    
-    # 检查包管理器并设置安装命令
-    if command -v apt-get >/dev/null 2>&1; then
-        PKG_MANAGER="apt"
-        INSTALL_CMD="DEBIAN_FRONTEND=noninteractive apt-get install -y"
-        UPDATE_CMD="apt-get update"
-    elif command -v yum >/dev/null 2>&1; then
-        PKG_MANAGER="yum"
-        INSTALL_CMD="yum install -y"
-        UPDATE_CMD="yum makecache"
-    elif command -v dnf >/dev/null 2>&1; then
-        PKG_MANAGER="dnf"
-        INSTALL_CMD="dnf install -y"
-        UPDATE_CMD="dnf makecache"
-    else
-        log_error "不支持的包管理器"
-        return 1
-    fi
-    
-    # 必要的依赖包列表
-    local base_packages=(
-        curl wget unzip gawk ca-certificates 
-        jq bc uuid-runtime dnsutils openssl
-        tar cron
-    )
-    
-    # 网络和防火墙包
-    local network_packages=(vnstat nftables)
-    local web_packages=(nginx)
-    local cert_mail_packages=(certbot msmtp-mta bsd-mailx)
-    local system_packages=(dmidecode htop iotop)
-
-    # 根据系统类型调整包名
-    if [[ "$PKG_MANAGER" == "apt" ]]; then
-        network_packages+=(libnginx-mod-stream)
-        cert_mail_packages+=(python3-certbot-nginx)
-    elif [[ "$PKG_MANAGER" =~ ^(yum|dnf)$ ]]; then
-        base_packages+=(epel-release)
-        cert_mail_packages+=(python3-certbot-nginx)
-    fi
-
-    # 合并所有包
-    local all_packages=(
-        "${base_packages[@]}" "${network_packages[@]}" 
-        "${web_packages[@]}" "${cert_mail_packages[@]}"
-        "${system_packages[@]}"
-    )
-    
-    # 更新包索引（幂等操作）
-    log_info "更新包索引..."
-    if ! eval "$UPDATE_CMD" >/dev/null 2>&1; then
-        log_warn "包索引更新失败，尝试清理缓存后重试..."
-        case "$PKG_MANAGER" in
-            "apt") 
-                apt-get clean >/dev/null 2>&1
-                eval "$UPDATE_CMD" >/dev/null 2>&1 || log_warn "包索引更新仍然失败，继续安装"
-                ;;
-            "yum") 
-                yum clean all >/dev/null 2>&1
-                eval "$UPDATE_CMD" >/dev/null 2>&1 || log_warn "包索引更新仍然失败，继续安装"
-                ;;
-            "dnf") 
-                dnf clean all >/dev/null 2>&1
-                eval "$UPDATE_CMD" >/dev/null 2>&1 || log_warn "包索引更新仍然失败，继续安装"
-                ;;
-        esac
-    fi
-    
-    # [改进] 增强的包安装检查 - 批次处理提高效率
-    local failed_packages=()
-    local skipped_packages=()
-    local installed_packages=()
-    
-    log_info "检查包安装状态..."
-    for pkg in "${all_packages[@]}"; do
-        if is_package_properly_installed "$pkg"; then
-            log_success "✓ ${pkg} 已正确安装"
-            skipped_packages+=("$pkg")
-        else
-            log_info "→ ${pkg} 需要安装"
-            installed_packages+=("$pkg")
-        fi
-    done
-    
-    # 统计信息
-    log_info "包状态统计: 已安装 ${#skipped_packages[@]}, 待安装 ${#installed_packages[@]}"
-    
-    # 批量安装未安装的包（提高效率）
-    if [[ ${#installed_packages[@]} -gt 0 ]]; then
-        log_info "开始批量安装 ${#installed_packages[@]} 个包..."
-        
-        # 构建批量安装命令
-        local install_list="${installed_packages[*]}"
-        
-        if eval "$INSTALL_CMD $install_list" >/dev/null 2>&1; then
-            log_success "批量安装命令执行成功，开始验证..."
-            
-            # 逐个验证安装结果
-            for pkg in "${installed_packages[@]}"; do
-                if is_package_properly_installed "$pkg"; then
-                    log_success "✓ ${pkg} 安装并验证成功"
-                else
-                    log_warn "⚠ ${pkg} 批量安装后验证失败，尝试单独安装"
-                    # 单独重试安装
-                    if eval "$INSTALL_CMD $pkg" >/dev/null 2>&1 && is_package_properly_installed "$pkg"; then
-                        log_success "✓ ${pkg} 单独安装成功"
-                    else
-                        log_error "✗ ${pkg} 安装失败"
-                        failed_packages+=("$pkg")
-                    fi
-                fi
-            done
-        else
-            log_warn "批量安装失败，改为逐个安装..."
-            # 批量安装失败时逐个安装
-            for pkg in "${installed_packages[@]}"; do
-                log_info "单独安装 ${pkg}..."
-                if eval "$INSTALL_CMD $pkg" >/dev/null 2>&1; then
-                    if is_package_properly_installed "$pkg"; then
-                        log_success "✓ ${pkg} 安装并验证成功"
-                    else
-                        log_warn "⚠ ${pkg} 安装似乎成功但验证失败"
-                        failed_packages+=("$pkg")
-                    fi
-                else
-                    log_error "✗ ${pkg} 安装失败"
-                    failed_packages+=("$pkg")
-                fi
-            done
-        fi
-    fi
-    
-    # 验证关键依赖（增强版）
-    verify_critical_dependencies
-    
-    # 确保系统服务状态
-    ensure_system_services
-    
-    # 最终状态报告
-    if [[ ${#failed_packages[@]} -eq 0 ]]; then
-        log_success "所有依赖包安装验证完成"
-        log_info "  ├─ 已安装: ${#skipped_packages[@]} 个"
-        log_info "  ├─ 新安装: ${#installed_packages[@]} 个"
-        log_info "  └─ 失败: 0 个"
-    else
-        log_warn "依赖安装完成，但有 ${#failed_packages[@]} 个包安装失败"
-        log_warn "失败的包: ${failed_packages[*]}"
-        log_warn "这可能不会影响核心功能，但建议检查"
-    fi
-    
-    return 0
 }
 
 
@@ -15175,7 +14992,7 @@ show_installation_info() {
     echo -e  "  IP地址: ${PURPLE}${server_ip}${NC}"
     
     # 打印时使用已验证的 DASHBOARD_PASSCODE 变量
-    echo -e  "  ${RED}🔑 访问密码:${NC} ${YELLOW}${DASHBOARD_PASSCODE}${NC} （6位相同数字）"
+    echo -e  "  ${RED}🔑 访问密码:${NC} ${YELLOW}${DASHBOARD_PASSCODE}${NC}"
     echo -e  "  🌐 控制面板: ${PURPLE}http://${server_ip}/traffic/?passcode=${DASHBOARD_PASSCODE}${NC}" 
     
 
