@@ -7850,80 +7850,64 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
    ======================================================================= */
 #cert-panel{
   /* 与 NetID 标签一致的参数 */
-  --tag-pad-y: 5px;
+  --tag-pad-y: 5px;        /* ← 改它=改标签高度 */
   --tag-pad-x: 16px;
   --tag-radius: 8px;
   --tag-font: 13px;
   --tag-gap: 8px;
-  --label-w: 80px;
+  --label-w: 80px;          /* 行布局与原来保持一致 */
   --row-gap: 10px;
   --h3-gap: 8px;
   /* 颜色 */
   --label: var(--heading-color);
   --value: var(--content-color);
-  --tag-active-bg: #10b981;
-  --tag-inactive-bg: #e2e8f0;
+  --tag-active-bg: #10b981;     /* 激活：绿色 */
+  --tag-inactive-bg: #e2e8f0;   /* 非当前：灰底 */
   --tag-active-color: #ffffff;
   --tag-inactive-color: #64748b;
   --card-br: #e5e7eb;
 }
-
 /* 顶部模式标签（两枚） */
 #cert-panel .cert-modes{
   display:flex;
   gap:5px;
-  margin-bottom: var(--tag-gap);
+  margin-bottom: var(--tag-gap);  /* 与下方内容的间距 */
 }
-
 #cert-panel .cert-mode-tab{
   flex:1;
   padding: var(--tag-pad-y) var(--tag-pad-x);
   border: 1px solid var(--card-br);
   border-radius: var(--tag-radius);
-  background: var(--tag-inactive-bg);
+  background: var(--tag-inactive-bg);       /* 非当前：#e2e8f0 */
   color: var(--tag-inactive-color);
   font-size: var(--tag-font);
   font-weight: 600;
   text-align:center;
   cursor: default;
 }
-
-/* 激活标签 - 外层div */
-#cert-panel .cert-mode-tab.active {
-  background: var(--tag-active-bg) !important;
-  color: var(--tag-active-color) !important;
-  border-color: var(--tag-active-bg) !important;
+#cert-panel .cert-mode-tab.active{
+  background: var(--tag-active-bg);
+  color: var(--tag-active-color);
+  border-color: var(--tag-active-bg);
 }
-
-/* 【关键修复】所有标签的h3统一样式 */
-#cert-panel .cert-mode-tab h3 {
+/* 【新增】标签内部h3继承外层颜色 */
+#cert-panel .cert-mode-tab h3{
   color: inherit;
   margin: 0;
-  font-size: var(--tag-font) !important;  /* ← 改为13px,与网络身份配置一致 */
-  font-weight: 600;
-  line-height: 1.2;
 }
-
-/* 激活标签的h3也是白色 */
-#cert-panel .cert-mode-tab.active h3 {
-  color: var(--tag-active-color) !important;
-}
-
-/* 内容卡片：白底 + 边框 + 阴影 */
+/* 内容卡片：白底 + 边框 + 阴影（去掉灰底） */
 #cert-panel .inner-block{
   display:block;
-  background:#fff;
+  background:#fff;                         /* ← 替换掉原来的灰底 */
   border:1px solid var(--card-br);
   border-radius:10px;
   padding:15px;
-  box-shadow:0 2px 6px rgba(0,0,0,.08);
+  box-shadow:0 2px 6px rgba(0,0,0,.08);    /* 阴影 */
 }
-
 #cert-panel .inner-block>h3{
   margin:0 0 var(--h3-gap);
 }
-
-/* 明细行 */
+/* 明细行：键名 | 值（保持原有行节奏） */
 #cert-panel .inner-block .info-item{
   display:grid;
   grid-template-columns: var(--label-w) 1fr;
@@ -7931,15 +7915,13 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   align-items:center;
   padding:6px 0;
 }
-
 /* 证书切换标题统一样式 */
 #cert-panel .inner-block .info-item label{
-  color: var(--subheading-color) !important;
+  color: var(--subheading-color) !important;  /* h4级别用灰色 */
   font-size: var(--h4-size) !important;
   font-weight: 600 !important;
   justify-self: start;
 }
-
 /* 证书切换内容统一样式 */
 #cert-panel .inner-block .info-item value{
   color: var(--content-color) !important;
@@ -7950,6 +7932,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
 
 /* =======================================================================
    网络身份配置
@@ -8477,7 +8460,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
     font-style: italic;
 }
 
-/* =====================协议健康状态 - 动画效果==================== */
+/* =====协议健康状态 - 动画效果========== */
 
 @keyframes pulse-healthy {
     0%, 100% { opacity: 1; }
@@ -8497,7 +8480,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
     animation: pulse-warning 2s ease-in-out infinite;
 }
 
-/* =====================响应式布局======================== */
+/* ===========响应式布局============= */
 
 /* 响应式：窄屏减小容器宽度，仍保持"列居中/内容左起" */
 @media (max-width: 768px) {
@@ -8538,7 +8521,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
     }
 }
 
-/* ===============暗色模式支持=============== */
+/* ========暗色模式支持========== */
 
 @media (prefers-color-scheme: dark) {
     #health-summary {
@@ -8573,7 +8556,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 
 /* =======================================================================
    流量统计 - 修复垂直居中问题
-   ======================================================================= */
+   =================================================================== */
 
 /* —— 全局口径：保持原有变量 —— */
 :root{
@@ -8636,26 +8619,39 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   padding-left:20px; 
 }
 
-/* —— 进度条（高度与 CPU 一致） —— */
-.traffic-card .traffic-progress-container{ 
+/* —— 进度条组件（高度与 CPU 一致）—— */
+.traffic-card .traffic-progress-container,
+.traffic-progress-container{ 
   display:flex; 
   align-items:center; 
   gap:10px; 
   height:var(--h-progress); 
   flex-shrink:0; 
 }
-.traffic-card .progress-wrapper{ 
+
+.progress-label { 
+  font-size:13px; 
+  color:#6b7280; 
+  white-space:nowrap; 
+}
+
+.traffic-card .progress-wrapper,
+.progress-wrapper{ 
   flex:1; 
   min-width:120px; 
 }
-.traffic-card .progress-bar{ 
+
+.traffic-card .progress-bar,
+.progress-bar{ 
   height:var(--meter-height); 
   background:#e2e8f0; 
   border-radius:999px; 
   overflow:hidden;  /* 保持 hidden，标签现在在内部 */
   position:relative; 
 }
-.traffic-card .progress-fill{ 
+
+.traffic-card .progress-fill,
+.progress-fill{ 
   height:100%; 
   background:linear-gradient(90deg,#10b981 0%,#059669 100%); 
   transition:width .3s ease; 
@@ -8664,12 +8660,24 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   justify-content:flex-end; 
   padding-right:8px; 
 }
-.traffic-card .progress-percentage{ 
+
+.progress-fill.warning { 
+  background:linear-gradient(90deg,#f59e0b 0%,#d97706 100%); 
+}
+
+.progress-fill.critical { 
+  background:linear-gradient(90deg,#ef4444 0%,#dc2626 100%); 
+}
+
+.traffic-card .progress-percentage,
+.progress-percentage{ 
   color:#fff; 
   font-size:11px; 
   font-weight:600; 
 }
-.traffic-card .progress-budget{ 
+
+.traffic-card .progress-budget,
+.progress-budget{ 
   color:#6b7280; 
   font-size:12px; 
   white-space:nowrap; 
@@ -8748,30 +8756,12 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   margin-left: 4px;
 }
 
-@media (max-width:1024px){
-  .traffic-charts{ 
-    grid-template-columns:1fr; 
-  }
-  .traffic-charts:not(.traffic--subcards) > :first-child{ 
-    border-right:0; 
-    padding-right:0; 
-  }
-  .traffic-charts:not(.traffic--subcards) > :last-child{  
-    padding-left:0; 
-  }
-  .chart-column:first-child .chart-container,
-  .chart-column:last-child  .chart-container{
-    height:250px;  /* 减少高度，确保图例不被截断 */
-    min-height:250px;
-  }
-}
-
 /* 仅隐藏 Chart.js 生成的 HTML 图例（如有）——避免误伤轴刻度 */
 .traffic-card .chartjs-legend {
   display: none !important;
 }
 
-/* 标题后的默认“圆点版”自定义图例（其它图表都用这个） */
+/* 标题后的默认"圆点版"自定义图例（其它图表都用这个） */
 .traffic-card .chart-container > h3::after {
   content: " 🔵 VPS 🟢 代理";
   font-size: 11px;
@@ -8779,7 +8769,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   margin-left: 8px;
 }
 
-/* 仅“近12月柱状图”使用“方块版”图例
+/* 仅"近12月柱状图"使用"方块版"图例
    精确到：同一个 .chart-container 里含有 <canvas id="monthly-chart"> 才生效 */
 @supports selector(.x:has(#monthly-chart)) {
   .chart-container:has(> canvas#monthly-chart) > h3::after {
@@ -8788,7 +8778,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 /* —— 可选：旧浏览器 fallback（如果不支持 :has()）——
-   若“近12月柱状图”的容器能加类名，请在 HTML 给该容器加 .is-monthly，
+   若"近12月柱状图"的容器能加类名，请在 HTML 给该容器加 .is-monthly，
    然后启用下面这条，更稳更准确。 */
 
 /*
@@ -8806,79 +8796,34 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 */
 
-/* ========================  流量进度条组件  ========================== */
-.traffic-progress-container { 
-    display: flex; 
-    align-items: center; 
-    gap: 10px; 
-}
+/* =====================响应式布局================ */
 
-.progress-label { 
-    font-size: 13px; 
-    color: #6b7280; 
-    white-space: nowrap; 
-}
-
-.progress-wrapper { 
-    flex: 1; 
-    min-width: 120px; 
-}
-
-.progress-bar { 
-    height: 20px; 
-    background: #f3f4f6; 
-    border-radius: 10px; 
-    overflow: hidden; 
-    position: relative; 
-}
-
-.progress-fill { 
-    height: 100%; 
-    background: linear-gradient(90deg, #10b981 0%, #059669 100%); 
-    transition: width .3s ease; 
-    display: flex; 
-    align-items: center; 
-    justify-content: flex-end; 
-    padding-right: 8px; 
-}
-
-.progress-fill.warning { 
-    background: linear-gradient(90deg, #f59e0b 0%, #d97706 100%); 
-}
-
-.progress-fill.critical { 
-    background: linear-gradient(90deg, #ef4444 0%, #dc2626 100%); 
-}
-
-.progress-percentage { 
-    color: #fff; 
-    font-size: 11px; 
-    font-weight: 600; 
-}
-
-.progress-budget { 
-    color: #6b7280; 
-    font-size: 12px; 
-    white-space: nowrap; 
-}
-
-/* =======================================================================
-   响应式布局 - 基础
-   ======================================================================= */
 @media (max-width: 1024px) {
-    .grid-3, .grid-1-2 { 
-        grid-template-columns: 1fr; 
-    }
-    .traffic-charts { 
-        grid-template-columns: 1fr; 
-    }
+  .grid-3, .grid-1-2 { 
+    grid-template-columns: 1fr; 
+  }
+  .traffic-charts { 
+    grid-template-columns: 1fr; 
+  }
+  .traffic-charts:not(.traffic--subcards) > :first-child{ 
+    border-right:0; 
+    padding-right:0; 
+  }
+  .traffic-charts:not(.traffic--subcards) > :last-child{  
+    padding-left:0; 
+  }
+  .chart-column:first-child .chart-container,
+  .chart-column:last-child .chart-container{
+    height:250px;  /* 减少高度，确保图例不被截断 */
+    min-height:250px;
+  }
 }
 
 @media (max-width: 768px) {
-    .modal-content { 
-        width: 95%; 
-        margin: 10px auto; 
-    }
+  .modal-content { 
+    width: 95%; 
+    margin: 10px auto; 
+  }
 }
 
 
