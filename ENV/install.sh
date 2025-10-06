@@ -6341,41 +6341,75 @@ generate_service_summary() {
         '{xray: $xray, "sing-box": $singbox}'
 }
 
-# 生成完整报告
+# 生成完整报告（规范化字段 + 补齐推荐等级）
 generate_health_report() {
     log_info "========== 开始协议健康检查与自愈 =========="
-    
-    local protocols_health
+
+    local protocols_health services_status
     protocols_health=$(check_all_protocols)
-    
-    local services_status
     services_status=$(generate_service_summary)
-    
-    local total=$(echo "$protocols_health" | jq 'length')
-    local healthy=$(echo "$protocols_health" | jq '[.[] | select(.status == "healthy")] | length')
-    local degraded=$(echo "$protocols_health" | jq '[.[] | select(.status == "degraded")] | length')
-    local down=$(echo "$protocols_health" | jq '[.[] | select(.status == "down")] | length')
-    
+
+    # 规范化字段，解决 name:null / 缺失 health/score；并为缺省记录补齐 recommendation
+    local normalized
+    normalized=$(jq -c '
+      # protocol → 人类可读名称
+      def name_map(p):
+        if    p=="reality"   then "VLESS-Reality"
+        elif  p=="grpc"      then "VLESS-gRPC"
+        elif  p=="ws"        then "VLESS-WebSocket"
+        elif  p=="trojan"    then "Trojan-TLS"
+        elif  p=="hysteria2" then "Hysteria2"
+        elif  p=="tuic"      then "TUIC"
+        else p end;
+
+      # 对数组中每一条记录做规范化
+      map(
+        .protocol = (.protocol // .proto // "") |
+        .name     = (name_map(.protocol))       |
+        .health   = (.status // .health // "unknown") |
+        .latency_ms = ((.response_time // .latency_ms) | tonumber?) |
+        .score      = ((.health_score // .score // 0) | tonumber)   |
+        .recommendation = (
+          .recommendation // .recommended // (
+            if (.health=="healthy" or .health=="alive") then
+              if   (.score>=85) then "primary"
+              elif (.score>=70) then "recommended"
+              elif (.score>=50) then "backup"
+              else "not_recommended" end
+            else "none" end
+          )
+        )
+      )
+    ' <<<"$protocols_health")
+
+    # 汇总统计（使用规范化后的字段）
+    local total healthy degraded down
+    total=$(jq 'length' <<<"$normalized")
+    healthy=$(jq '[.[] | select(.health=="healthy")] | length'   <<<"$normalized")
+    degraded=$(jq '[.[] | select(.health=="degraded")] | length' <<<"$normalized")
+    down=$(jq     '[.[] | select(.health=="down")]     | length' <<<"$normalized")
+
+    # 输出最终 JSON（保持原路径与落盘逻辑）
     jq -n \
-        --argjson protocols "$protocols_health" \
-        --argjson services "$services_status" \
-        --arg total "$total" \
-        --arg healthy "$healthy" \
-        --arg degraded "$degraded" \
-        --arg down "$down" \
-        --arg generated_at "$(date -Is)" \
-        '{
-            summary: {
-                total: ($total | tonumber),
-                healthy: ($healthy | tonumber),
-                degraded: ($degraded | tonumber),
-                down: ($down | tonumber)
-            },
-            protocols: $protocols,
-            services: $services,
-            generated_at: $generated_at
-        }' > "$TEMP_JSON"
-    
+      --argjson protocols "$normalized" \
+      --argjson services "$services_status" \
+      --arg total "$total" \
+      --arg healthy "$healthy" \
+      --arg degraded "$degraded" \
+      --arg down "$down" \
+      --arg generated_at "$(date -Is)" \
+      '{
+         summary: {
+           total:    ($total    | tonumber),
+           healthy:  ($healthy  | tonumber),
+           degraded: ($degraded | tonumber),
+           down:     ($down     | tonumber)
+         },
+         protocols:  $protocols,
+         services:   $services,
+         generated_at: $generated_at
+       }' > "$TEMP_JSON"
+
     if [[ -s "$TEMP_JSON" ]]; then
         mv "$TEMP_JSON" "$OUTPUT_JSON"
         chmod 644 "$OUTPUT_JSON"
