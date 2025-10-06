@@ -3584,6 +3584,9 @@ stream {
     }
 }
 NGINX_CONFIG
+
+# 替换密码占位符
+    sed -i "s/PLACEHOLDER_PASSCODE_HERE/${DASHBOARD_PASSCODE}/g" /etc/nginx/nginx.conf
     
 # 验证Nginx配置
 log_info "验证Nginx配置..."
