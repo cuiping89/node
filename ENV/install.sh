@@ -6420,40 +6420,39 @@ generate_health_report() {
     services_status=$(generate_service_summary)
 
     # 规范化字段，解决 name:null / 缺失 health/score；并为缺省记录补齐 recommendation
+    # 规范化字段并生成推荐徽章
     local normalized
-    normalized=$(jq -c '
-      # protocol → 人类可读名称
-      def name_map(p):
-        if    p=="reality"   then "VLESS-Reality"
-        elif  p=="grpc"      then "VLESS-gRPC"
-        elif  p=="ws"        then "VLESS-WebSocket"
-        elif  p=="trojan"    then "Trojan-TLS"
-        elif  p=="hysteria2" then "Hysteria2"
-        elif  p=="tuic"      then "TUIC"
-        else p end;
-
-      # 对数组中每一条记录做规范化，【保留原有所有字段】
+    normalized=$(echo "$protocols_health" | jq -c '
       map(
-        . +                                            # 【关键】保留原对象所有字段
-        {
-          protocol: (.protocol // .proto // ""),
-          name: (name_map(.protocol // .proto // "")),
-          health: (.status // .health // "unknown"),
-          latency_ms: ((.response_time // .latency_ms) | tonumber?),
-          score: ((.health_score // .score // 0) | tonumber),
-          recommendation: (
-            .recommendation // .recommended // (
-              if (.status // .health) == "healthy" or (.status // .health) == "alive" then
-                if   ((.health_score // .score // 0) | tonumber) >= 85 then "primary"
-                elif ((.health_score // .score // 0) | tonumber) >= 70 then "recommended"
-                elif ((.health_score // .score // 0) | tonumber) >= 50 then "backup"
-                else "not_recommended" end
-              else "none" end
-            )
-          )
-        }
+        # 生成推荐等级
+        .recommendation = (
+          if .recommendation and (.recommendation | type) == "string" then
+            (.recommendation | split("\n")[0])
+          elif (.status == "healthy" or .status == "alive") then
+            if (.health_score // .score // 0) >= 85 then "primary"
+            elif (.health_score // .score // 0) >= 70 then "recommended"
+            elif (.health_score // .score // 0) >= 50 then "backup"
+            else "not_recommended"
+            end
+          else "none"
+          end
+        ) |
+        # 生成推荐徽章
+        .recommendation_badge = (
+          if .recommendation == "primary" then "🏆 主推"
+          elif .recommendation == "recommended" then "👍 推荐"
+          elif .recommendation == "backup" then "🔄 备用可选"
+          elif .recommendation == "not_recommended" then "⛔ 暂不推荐"
+          else ""
+          end
+        ) |
+        # 确保其他字段存在
+        .protocol = (.protocol // .proto // "") |
+        .status = (.status // .health // "unknown") |
+        .health_score = ((.health_score // .score // 0) | tonumber) |
+        .response_time = ((.response_time // .latency_ms // 0) | tonumber)
       )
-    ' <<<"$protocols_health")
+    ')
 
     # 汇总统计（使用规范化后的字段）
     local total healthy degraded down
