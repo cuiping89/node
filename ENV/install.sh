@@ -15209,7 +15209,9 @@ main() {
     trap cleanup_all EXIT
 	
     clear
-    print_separator
+    # 在创建新脚本之前，先清理掉所有旧的 .sh 脚本文件
+    find /etc/edgebox/scripts/ -type f -name "*.sh" -delete 2>/dev/null || true
+	
     echo -e "${GREEN}EdgeBox 企业级安装脚本 v3.0.0${NC}"
     print_separator
     
