@@ -3464,10 +3464,11 @@ http {
         
 # 控制面板和数据API
         location ^~ /traffic/ {
-		
-		    if ($auth_required = 1) {
-        return 403;
-    }
+            # 密码验证
+            if ($auth_required = 1) {
+                return 403;
+            }
+            
             alias /etc/edgebox/traffic/;
             index index.html;
             autoindex off;
@@ -3480,7 +3481,7 @@ http {
                 text/html        html htm;
                 text/plain       txt;
                 application/json json;
-				text/css         css;
+                text/css         css;
                 application/javascript js;
             }
         }
@@ -5140,7 +5141,7 @@ cat <<EOF
   {
     "name": "Hysteria2",
     "scenario": "弱网/高丢包更佳",
-    "camouflage": " 好★★★☆☆",
+    "camouflage": "一般★★★☆☆",
     "status": "$udp443_status",
     "port": 443,
     "network": "udp",
@@ -11365,15 +11366,15 @@ function renderHealthSummary(healthData) {
                 <span class="summary-value">${summary.total}</span>
             </div>
             <div class="summary-item healthy">
-                <span class="summary-label">✅ 健康</span>
+                <span class="summary-label">健康 √</span>
                 <span class="summary-value">${summary.healthy}</span>
             </div>
             <div class="summary-item degraded">
-                <span class="summary-label">⚠️ 降级</span>
+                <span class="summary-label">降级 ⚠️</span>
                 <span class="summary-value">${summary.degraded}</span>
             </div>
             <div class="summary-item down">
-                <span class="summary-label">❌ 异常</span>
+                <span class="summary-label">异常 ❌</span>
                 <span class="summary-value">${summary.down}</span>
             </div>
             <div class="summary-item score">
