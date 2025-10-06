@@ -3415,7 +3415,7 @@ http {
     # 【新增】定义一个 map 变量 $auth_required，用于检查密码
     map \$arg_passcode \$auth_required {
         # 直接使用实际密码 (从环境变量)
-        "${DASHBOARD_PASSCODE}" 0;  # 设置为 0 (无需认证)
+        "PLACEHOLDER_PASSCODE_HERE" 0; # 设置为 0 (无需认证)
         # 其他任何情况，默认设置为 1 (需要认证)
         default 1;                      
     }
