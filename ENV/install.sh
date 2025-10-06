@@ -4890,23 +4890,35 @@ get_services_status() {
 }
 
 # 获取协议配置状态
+# 获取协议配置状态 (优化版 - 直接读取 protocol-health.json 的结果)
 get_protocols_status() {
-    # 获取服务器信息和订阅链接
-    local server_ip cert_mode domain
-    server_ip=$(safe_jq '.server_ip' "$SERVER_JSON" "")
-    cert_mode=$(get_current_cert_mode 2>/dev/null || echo "self-signed")
+    # 1. 定义健康报告的路径
+    local health_report_file="${TRAFFIC_DIR}/protocol-health.json"
     
-    if [[ "$cert_mode" == "self-signed" ]]; then
-        domain="$server_ip"
-    else
-        domain="${cert_mode##*:}"
+    # 2. 读取并解析健康报告 (如果存在)
+    local health_data="[]"
+    if [[ -f "$health_report_file" ]]; then
+        # 使用 jq 安全地读取 protocols 数组，如果不存在或文件格式错误则返回空数组
+        health_data=$(jq -c '.protocols // []' "$health_report_file" 2>/dev/null || echo "[]")
     fi
     
+    # 从 server.json 读取基础信息用于生成分享链接
+    local server_ip domain cert_mode
+    server_ip=$(safe_jq '.server_ip' "$SERVER_JSON" "127.0.0.1")
+    cert_mode=$(safe_jq '.cert.mode' "$SERVER_JSON" "self-signed")
+    domain=$(safe_jq '.cert.domain' "$SERVER_JSON" "$server_ip")
+    if [[ "$cert_mode" == "self-signed" ]]; then
+        domain="$server_ip"
+    fi
+
     # 获取凭据信息
-    local uuid_vless reality_public_key reality_short_id
+    local uuid_vless_reality uuid_vless_grpc uuid_vless_ws
     local uuid_tuic password_hysteria2 password_tuic password_trojan
+    local reality_public_key reality_short_id
     
-    uuid_vless=$(safe_jq '.uuid.vless.reality // .uuid.vless' "$SERVER_JSON" "")
+    uuid_vless_reality=$(safe_jq '.uuid.vless.reality // .uuid.vless' "$SERVER_JSON" "")
+    uuid_vless_grpc=$(safe_jq '.uuid.vless.grpc // .uuid.vless' "$SERVER_JSON" "")
+    uuid_vless_ws=$(safe_jq '.uuid.vless.ws // .uuid.vless' "$SERVER_JSON" "")
     uuid_tuic=$(safe_jq '.uuid.tuic' "$SERVER_JSON" "")
     password_hysteria2=$(safe_jq '.password.hysteria2' "$SERVER_JSON" "")
     password_tuic=$(safe_jq '.password.tuic' "$SERVER_JSON" "")
@@ -4920,76 +4932,80 @@ get_protocols_status() {
     tuic_pw_enc=$(printf '%s' "$password_tuic" | jq -rR @uri)
     trojan_pw_enc=$(printf '%s' "$password_trojan" | jq -rR @uri)
     
-    # 检查端口监听状态（保持原有逻辑）
-    local reality_status="未监听" grpc_status="未监听" ws_status="未监听" trojan_status="未监听"
-    local udp443_status="未监听" udp2053_status="未监听"
+    # 3. 定义协议列表和它们的映射键
+    declare -A protocol_map=(
+        ["VLESS-Reality"]="reality"
+        ["VLESS-gRPC"]="grpc"
+        ["VLESS-WebSocket"]="ws"
+        ["Trojan-TLS"]="trojan"
+        ["Hysteria2"]="hysteria2"
+        ["TUIC"]="tuic"
+    )
     
-    ss -tlnp 2>/dev/null | grep -q ":11443.*xray" && reality_status="运行中"
-    ss -tlnp 2>/dev/null | grep -q ":10085.*xray" && grpc_status="运行中"  
-    ss -tlnp 2>/dev/null | grep -q ":10086.*xray" && ws_status="运行中"
-    ss -tlnp 2>/dev/null | grep -q ":10143.*xray" && trojan_status="运行中"
-    ss -ulnp 2>/dev/null | grep -q ":443.*sing-box" && udp443_status="运行中"
-    ss -ulnp 2>/dev/null | grep -q ":2053.*sing-box" && udp2053_status="运行中"
+    # 4. 生成协议数组，状态从健康报告中动态获取
+    local protocols_json="["
+    local first=true
     
-# 生成协议数组，包含share_link（scenario=使用场景，camouflage=伪装效果）
-cat <<EOF
-[
-  {
-    "name": "VLESS-Reality",
-    "scenario": "强审查环境",
-    "camouflage": "极佳★★★★★",
-    "status": "$reality_status",
-    "port": 443,
-    "network": "tcp",
-    "share_link": "vless://${uuid_vless}@${server_ip}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.microsoft.com&pbk=${reality_public_key}&sid=${reality_short_id}&type=tcp#EdgeBox-REALITY"
-  },
-  {
-    "name": "VLESS-gRPC",
-    "scenario": "较严审查/走CDN",
-    "camouflage": "极佳★★★★★",
-    "status": "$grpc_status",
-    "port": 443,
-    "network": "tcp",
-    "share_link": "vless://${uuid_vless}@${domain}:443?encryption=none&security=tls&sni=${domain}&alpn=h2&type=grpc&serviceName=grpc&fp=chrome#EdgeBox-gRPC"
-  },
-  {
-    "name": "VLESS-WebSocket",
-    "scenario": "常规网络稳定",
-    "camouflage": "良好★★★★☆",
-    "status": "$ws_status",
-    "port": 443,
-    "network": "tcp",
-    "share_link": "vless://${uuid_vless}@${domain}:443?encryption=none&security=tls&sni=${domain}&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome#EdgeBox-WS"
-  },
-  {
-    "name": "Trojan-TLS",
-    "scenario": "移动网络可靠",
-    "camouflage": "良好★★★★☆",
-    "status": "$trojan_status",
-    "port": 443,
-    "network": "tcp",
-    "share_link": "trojan://${trojan_pw_enc}@${domain}:443?security=tls&sni=trojan.${domain}&alpn=http%2F1.1&fp=chrome#EdgeBox-TROJAN"
-  },
-  {
-    "name": "Hysteria2",
-    "scenario": "弱网/高丢包更佳",
-    "camouflage": "一般★★★☆☆",
-    "status": "$udp443_status",
-    "port": 443,
-    "network": "udp",
-    "share_link": "hysteria2://${hy2_pw_enc}@${domain}:443?sni=${domain}&alpn=h3#EdgeBox-HYSTERIA2"
-  },
-  {
-    "name": "TUIC",
-    "scenario": "大带宽/低时延",
-    "camouflage": "良好★★★★☆",
-    "status": "$udp2053_status",
-    "port": 2053,
-    "network": "udp",
-    "share_link": "tuic://${uuid_tuic}:${tuic_pw_enc}@${domain}:2053?congestion_control=bbr&alpn=h3&sni=${domain}#EdgeBox-TUIC"
-  }
-]
-EOF
+    # 预先生成分享链接
+    declare -A share_links=(
+      ["VLESS-Reality"]="vless://${uuid_vless_reality}@${domain}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.microsoft.com&pbk=${reality_public_key}&sid=${reality_short_id}&type=tcp#EdgeBox-REALITY"
+      ["VLESS-gRPC"]="vless://${uuid_vless_grpc}@${domain}:443?encryption=none&security=tls&sni=${domain}&alpn=h2&type=grpc&serviceName=grpc&fp=chrome#EdgeBox-gRPC"
+      ["VLESS-WebSocket"]="vless://${uuid_vless_ws}@${domain}:443?encryption=none&security=tls&sni=${domain}&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome#EdgeBox-WS"
+      ["Trojan-TLS"]="trojan://${trojan_pw_enc}@${domain}:443?security=tls&sni=trojan.${domain}&alpn=http%2F1.1&fp=chrome#EdgeBox-TROJAN"
+      ["Hysteria2"]="hysteria2://${hy2_pw_enc}@${domain}:443?sni=${domain}&alpn=h3#EdgeBox-HYSTERIA2"
+      ["TUIC"]="tuic://${uuid_tuic}:${tuic_pw_enc}@${domain}:2053?congestion_control=bbr&alpn=h3&sni=${domain}#EdgeBox-TUIC"
+    )
+
+    # 预定义协议元数据
+    declare -A protocol_meta=(
+        ["VLESS-Reality"]="强审查环境|极佳★★★★★|443|tcp"
+        ["VLESS-gRPC"]="较严审查/走CDN|极佳★★★★★|443|tcp"
+        ["VLESS-WebSocket"]="常规网络稳定|良好★★★★☆|443|tcp"
+        ["Trojan-TLS"]="移动网络可靠|良好★★★★☆|443|tcp"
+        ["Hysteria2"]="弱网/高丢包更佳|一般★★★☆☆|443|udp"
+        ["TUIC"]="大带宽/低时延|良好★★★★☆|2053|udp"
+    )
+
+    for name in "${!protocol_map[@]}"; do
+        local key=${protocol_map[$name]}
+        
+        # 从健康报告中查找状态，如果找不到则兜底为 "待检测"
+        local status=$(echo "$health_data" | jq -r --arg key "$key" '.[] | select(.protocol == $key) | .status // "待检测"')
+        status=${status:-"待检测"} # 如果jq失败，再次兜底
+        
+        # 分割元数据
+        IFS='|' read -r scenario camouflage port network <<< "${protocol_meta[$name]}"
+        
+        # 拼接 JSON 对象
+        if [[ "$first" == "false" ]]; then
+            protocols_json+=","
+        fi
+        
+        protocols_json+=$(jq -n \
+            --arg name "$name" \
+            --arg scenario "$scenario" \
+            --arg camouflage "$camouflage" \
+            --arg status "$status" \
+            --argjson port "$port" \
+            --arg network "$network" \
+            --arg share_link "${share_links[$name]}" \
+            '{
+                name: $name,
+                scenario: $scenario,
+                camouflage: $camouflage,
+                status: $status,
+                port: $port,
+                network: $network,
+                share_link: $share_link
+            }')
+        
+        first=false
+    done
+    
+    protocols_json+="]"
+    
+    # 5. 输出最终的 JSON 数组
+    echo "$protocols_json"
 }
 
 # 获取分流配置状态
@@ -13935,60 +13951,94 @@ case "$1" in
     esac
     ;;
 
-help|"") 
-  cat <<HLP
+help|"")
+    # —— 工具：在含 ANSI 颜色码时也能按列对齐注释列（#） ——
+    strip_ansi() { sed -r 's/\x1B\[[0-9;]*m//g' <<<"$1"; }
+    # $1=左侧文本(含颜色)  $2=注释文本  $3=注释列起始列(可每板块单独传值微调)
+    print_cmd() {
+      local left="$1" comment="$2" col="${3:-58}"
+      local plain="$(strip_ansi "$left")"
+      local len=${#plain}
+      local pad=$(( col - 2 - len ))   # 2 => 保持与原版相同的两格缩进
+      (( pad < 1 )) && pad=1
+      printf "  %b%*s${DIM}# %s${NC}\n" "$left" "$pad" "" "$comment"
+    }
+
+    # 为每个板块单独设定一个注释对齐列（不影响可见布局，仅影响#列起点）
+    _W_CORE=58
+    _W_CERT=62
+    _W_SNI=60
+    _W_REALITY=58
+    _W_TRAND=64
+    _W_SHUNT=66
+    _W_ALERT=66
+    _W_CONF=66
+    _W_DEBUG=62
+
+    cat <<HLP
 ${CYAN}════════════════════════════════════════════════════════════════
   EdgeBox 管理工具 v${VERSION}
 ════════════════════════════════════════════════════════════════${NC}
 
 ${YELLOW}■ 核心命令 (Core Commands)${NC}
-  ${GREEN}edgeboxctl status${NC}  ${DIM}# 查看所有服务及端口的健康状态${NC}
-  ${GREEN}edgeboxctl sub${NC}  ${DIM}# 显示订阅链接与 Web 面板信息${NC}
-  ${GREEN}edgeboxctl restart${NC}  ${DIM}# 优雅重启所有核心服务 (配置变更后使用)${NC}
-  ${GREEN}edgeboxctl logs${NC} ${CYAN}<service>${NC}  ${DIM}# 查看指定服务的实时日志 (Ctrl+C 退出)${NC}
-  ${GREEN}edgeboxctl update${NC}  ${DIM}# 在线更新 EdgeBox 至最新版本${NC}
-  ${GREEN}edgeboxctl help${NC}  ${DIM}# 显示此帮助信息${NC}
+HLP
+    print_cmd "${GREEN}edgeboxctl status${NC}"                        "查看所有服务及端口的健康状态"               $_W_CORE
+    print_cmd "${GREEN}edgeboxctl sub${NC}"                           "显示订阅链接与 Web 面板信息"                 $_W_CORE
+    print_cmd "${GREEN}edgeboxctl restart${NC}"                       "优雅重启所有核心服务 (配置变更后使用)"        $_W_CORE
+    print_cmd "${GREEN}edgeboxctl logs${NC} ${CYAN}<service>${NC}"    "查看指定服务的实时日志 (Ctrl+C 退出)"         $_W_CORE
+    print_cmd "${GREEN}edgeboxctl update${NC}"                        "在线更新 EdgeBox 至最新版本"                  $_W_CORE
+    print_cmd "${GREEN}edgeboxctl help${NC}"                          "显示此帮助信息"                              $_W_CORE
+    cat <<HLP
   ${CYAN}示例:${NC}
   ${GREEN}edgeboxctl logs${NC} ${CYAN}xray${NC}
 
 ${YELLOW}■ 证书管理 (Certificate Management)${NC}
-  ${GREEN}edgeboxctl switch-to-domain${NC} ${CYAN}<domain>${NC}  ${DIM}# 切换为域名模式，并申请 Let's Encrypt 证书${NC}
-  ${GREEN}edgeboxctl switch-to-ip${NC}  ${DIM}# 切换回 IP 模式，使用自签名证书${NC}
-  ${GREEN}edgeboxctl cert status${NC}  ${DIM}# 查看当前证书类型、域名及有效期${NC}
-  ${GREEN}edgeboxctl cert renew${NC}  ${DIM}# 手动续期 Let's Encrypt 证书${NC}
-  ${GREEN}edgeboxctl fix-permissions${NC}  ${DIM}# 修复证书文件的读写权限${NC}
+HLP
+    print_cmd "${GREEN}edgeboxctl switch-to-domain${NC} ${CYAN}<domain>${NC}"  "切换为域名模式，并申请 Let's Encrypt 证书"  $_W_CERT
+    print_cmd "${GREEN}edgeboxctl switch-to-ip${NC}"                            "切换回 IP 模式，使用自签名证书"            $_W_CERT
+    print_cmd "${GREEN}edgeboxctl cert status${NC}"                             "查看当前证书类型、域名及有效期"            $_W_CERT
+    print_cmd "${GREEN}edgeboxctl cert renew${NC}"                              "手动续期 Let's Encrypt 证书"               $_W_CERT
+    print_cmd "${GREEN}edgeboxctl fix-permissions${NC}"                         "修复证书文件的读写权限"                    $_W_CERT
+    cat <<HLP
   ${CYAN}示例:${NC}
   ${GREEN}edgeboxctl switch-to-domain${NC} ${CYAN}my.domain.com${NC}
 
 ${YELLOW}■ SNI 域名管理 (SNI Domain Management)${NC}
-  ${GREEN}edgeboxctl sni list${NC}  ${DIM}# 显示 SNI 域名池状态 (别名: pool)${NC}
-  ${GREEN}edgeboxctl sni auto${NC}  ${DIM}# 智能测试并选择最优 SNI 域名${NC}
-  ${GREEN}edgeboxctl sni set${NC} ${CYAN}<domain>${NC}  ${DIM}# 手动强制指定一个 SNI 域名${NC}
-  ${GREEN}edgeboxctl sni test-all${NC}  ${DIM}# 测试池中所有域名的可用性${NC}
+HLP
+    print_cmd "${GREEN}edgeboxctl sni list${NC}"                      "显示 SNI 域名池状态 (别名: pool)"             $_W_SNI
+    print_cmd "${GREEN}edgeboxctl sni auto${NC}"                      "智能测试并选择最优 SNI 域名"                   $_W_SNI
+    print_cmd "${GREEN}edgeboxctl sni set${NC} ${CYAN}<domain>${NC}"  "手动强制指定一个 SNI 域名"                     $_W_SNI
+    print_cmd "${GREEN}edgeboxctl sni test-all${NC}"                  "测试池中所有域名的可用性"                      $_W_SNI
+    cat <<HLP
   ${CYAN}示例:${NC}
   ${GREEN}edgeboxctl sni set${NC} ${CYAN}www.apple.com${NC}
 
 ${YELLOW}■ Reality 密钥轮换 (Reality Key Rotation)${NC}
-  ${GREEN}edgeboxctl rotate-reality${NC}  ${DIM}# 手动执行 Reality 密钥对轮换 (安全增强)${NC}
-  ${GREEN}edgeboxctl reality-status${NC}  ${DIM}# 查看 Reality 密钥轮换的周期状态${NC}
+HLP
+    print_cmd "${GREEN}edgeboxctl rotate-reality${NC}"  "手动执行 Reality 密钥对轮换 (安全增强)"                 $_W_REALITY
+    print_cmd "${GREEN}edgeboxctl reality-status${NC}"  "查看 Reality 密钥轮换的周期状态"                       $_W_REALITY
 
 ${YELLOW}■ 流量特征随机化 (Traffic Randomization)${NC}
-  ${GREEN}edgeboxctl traffic randomize${NC} ${CYAN}[light|medium|heavy]${NC}  ${DIM}# 执行流量特征随机化，增强隐蔽性${NC}
-  ${GREEN}edgeboxctl traffic status${NC}  ${DIM}# 查看随机化系统状态和定时任务${NC}
-  ${GREEN}edgeboxctl traffic reset${NC}  ${DIM}# 重置随机化参数为默认值${NC}
+HLP
+    print_cmd "${GREEN}edgeboxctl traffic randomize${NC} ${CYAN}[light|medium|heavy]${NC}"  "执行流量特征随机化，增强隐蔽性"  $_W_TRAND
+    print_cmd "${GREEN}edgeboxctl traffic status${NC}"                                      "查看随机化系统状态和定时任务"    $_W_TRAND
+    print_cmd "${GREEN}edgeboxctl traffic reset${NC}"                                       "重置随机化参数为默认值"          $_W_TRAND
+    cat <<HLP
   ${CYAN}示例:${NC}
   ${GREEN}edgeboxctl traffic randomize${NC} ${CYAN}medium${NC}
   ${CYAN}level:${NC}
   ${CYAN}light${NC}  ${DIM}- 轻度随机化，仅修改 Hysteria2 伪装站点${NC}
-  ${CYAN}medium${NC}  ${DIM}- 中度随机化，修改 Hysteria2 + TUIC 参数${NC}
+  ${CYAN}medium${NC} ${DIM}- 中度随机化，修改 Hysteria2 + TUIC 参数${NC}
   ${CYAN}heavy${NC}  ${DIM}- 重度随机化，修改全协议参数${NC}
 
 ${YELLOW}■ 出站分流 (Outbound Routing)${NC}
-  ${GREEN}edgeboxctl shunt vps${NC}  ${DIM}# [模式] VPS 直连出站 (默认)${NC}
-  ${GREEN}edgeboxctl shunt resi${NC} ${CYAN}'<URL>'${NC}  ${DIM}# [模式] 代理全量出站 (仅 Xray)${NC}
-  ${GREEN}edgeboxctl shunt direct-resi${NC} ${CYAN}'<URL>'${NC}  ${DIM}# [模式] 智能分流 (白名单直连，其余走代理)${NC}
-  ${GREEN}edgeboxctl shunt status${NC}  ${DIM}# 查看当前出站模式及代理健康状况${NC}
-  ${GREEN}edgeboxctl shunt whitelist${NC} ${CYAN}<action>${NC} ${CYAN}[domain]${NC}  ${DIM}# 管理白名单 (add|remove|list|reset)${NC}
+HLP
+    print_cmd "${GREEN}edgeboxctl shunt vps${NC}"                                  "[模式] VPS 直连出站 (默认)"          $_W_SHUNT
+    print_cmd "${GREEN}edgeboxctl shunt resi${NC} ${CYAN}'<URL>'${NC}"             "[模式] 代理全量出站 (仅 Xray)"        $_W_SHUNT
+    print_cmd "${GREEN}edgeboxctl shunt direct-resi${NC} ${CYAN}'<URL>'${NC}"      "[模式] 智能分流 (白名单直连，其余走代理)" $_W_SHUNT
+    print_cmd "${GREEN}edgeboxctl shunt status${NC}"                               "查看当前出站模式及代理健康状况"        $_W_SHUNT
+    print_cmd "${GREEN}edgeboxctl shunt whitelist${NC} ${CYAN}<action>${NC} ${CYAN}[domain]${NC}" "管理白名单 (add|remove|list|reset)" $_W_SHUNT
+    cat <<HLP
   ${CYAN}示例:${NC}
   ${GREEN}edgeboxctl shunt direct-resi${NC} ${CYAN}'socks5://user:pass@host:port'${NC}
   ${GREEN}edgeboxctl shunt whitelist add${NC} ${CYAN}netflix.com${NC}
@@ -13999,15 +14049,17 @@ ${YELLOW}■ 出站分流 (Outbound Routing)${NC}
   ${CYAN}socks5s://user:pass@host:port?sni=example.com${NC}
 
 ${YELLOW}■ 流量与预警 (Traffic & Alert)${NC}
-  ${GREEN}edgeboxctl traffic show${NC}  ${DIM}# 在终端查看流量使用统计${NC}
-  ${GREEN}edgeboxctl alert show${NC}  ${DIM}# 查看当前预警配置${NC}
-  ${GREEN}edgeboxctl alert monthly${NC} ${CYAN}<GiB>${NC}  ${DIM}# 设置月度流量预算${NC}
-  ${GREEN}edgeboxctl alert steps${NC} ${CYAN}<p1,p2,...>${NC}  ${DIM}# 设置百分比预警阈值 (逗号分隔)${NC}
-  ${GREEN}edgeboxctl alert telegram${NC} ${CYAN}<token>${NC} ${CYAN}<chat_id>${NC}  ${DIM}# 配置 Telegram 通知渠道${NC}
-  ${GREEN}edgeboxctl alert discord${NC} ${CYAN}<webhook_url>${NC}  ${DIM}# 配置 Discord 通知渠道${NC}
-  ${GREEN}edgeboxctl alert wechat${NC} ${CYAN}<pushplus_token>${NC}  ${DIM}# 配置微信 PushPlus 通知渠道${NC}
-  ${GREEN}edgeboxctl alert webhook${NC} ${CYAN}<url>${NC} ${CYAN}[format]${NC}  ${DIM}# 配置通用 Webhook (raw|slack|discord)${NC}
-  ${GREEN}edgeboxctl alert test${NC} ${CYAN}[percent]${NC}  ${DIM}# 模拟触发预警以测试通知渠道${NC}
+HLP
+    print_cmd "${GREEN}edgeboxctl traffic show${NC}"                             "在终端查看流量使用统计"                 $_W_ALERT
+    print_cmd "${GREEN}edgeboxctl alert show${NC}"                               "查看当前预警配置"                       $_W_ALERT
+    print_cmd "${GREEN}edgeboxctl alert monthly${NC} ${CYAN}<GiB>${NC}"          "设置月度流量预算"                       $_W_ALERT
+    print_cmd "${GREEN}edgeboxctl alert steps${NC} ${CYAN}<p1,p2,...>${NC}"      "设置百分比预警阈值 (逗号分隔)"           $_W_ALERT
+    print_cmd "${GREEN}edgeboxctl alert telegram${NC} ${CYAN}<token>${NC} ${CYAN}<chat_id>${NC}" "配置 Telegram 通知渠道" $_W_ALERT
+    print_cmd "${GREEN}edgeboxctl alert discord${NC} ${CYAN}<webhook_url>${NC}"  "配置 Discord 通知渠道"                  $_W_ALERT
+    print_cmd "${GREEN}edgeboxctl alert wechat${NC} ${CYAN}<pushplus_token>${NC}" "配置微信 PushPlus 通知渠道"            $_W_ALERT
+    print_cmd "${GREEN}edgeboxctl alert webhook${NC} ${CYAN}<url>${NC} ${CYAN}[format]${NC}"     "配置通用 Webhook (raw|slack|discord)" $_W_ALERT
+    print_cmd "${GREEN}edgeboxctl alert test${NC} ${CYAN}[percent]${NC}"         "模拟触发预警以测试通知渠道"             $_W_ALERT
+    cat <<HLP
   ${CYAN}示例:${NC}
   ${GREEN}edgeboxctl alert monthly${NC} ${CYAN}1000${NC}
   ${GREEN}edgeboxctl alert steps${NC} ${CYAN}50,80,95${NC}
@@ -14015,21 +14067,25 @@ ${YELLOW}■ 流量与预警 (Traffic & Alert)${NC}
   ${GREEN}edgeboxctl alert test${NC} ${CYAN}80${NC}
 
 ${YELLOW}■ 配置与维护 (Configuration & Maintenance)${NC}
-  ${GREEN}edgeboxctl config show${NC}  ${DIM}# 显示所有协议的 UUID、密码等详细配置${NC}
-  ${GREEN}edgeboxctl config regenerate-uuid${NC}  ${DIM}# 为所有协议重新生成 UUID 和密码${NC}
-  ${GREEN}edgeboxctl dashboard passcode${NC}  ${DIM}# 重置并显示 Web 控制面板的访问密码${NC}
-  ${GREEN}edgeboxctl alias${NC} ${CYAN}"我的备注"${NC}  ${DIM}# 为当前服务器设置一个易记的别名${NC}
-  ${GREEN}edgeboxctl backup create${NC}  ${DIM}# 创建当前系统配置的完整备份${NC}
-  ${GREEN}edgeboxctl backup list${NC}  ${DIM}# 列出所有可用的备份文件${NC}
-  ${GREEN}edgeboxctl backup restore${NC} ${CYAN}<file>${NC}  ${DIM}# 从指定备份文件恢复系统配置${NC}
+HLP
+    print_cmd "${GREEN}edgeboxctl config show${NC}"                 "显示所有协议的 UUID、密码等详细配置"  $_W_CONF
+    print_cmd "${GREEN}edgeboxctl config regenerate-uuid${NC}"      "为所有协议重新生成 UUID 和密码"      $_W_CONF
+    print_cmd "${GREEN}edgeboxctl dashboard passcode${NC}"          "重置并显示 Web 控制面板的访问密码"    $_W_CONF
+    print_cmd "${GREEN}edgeboxctl alias${NC} ${CYAN}\"我的备注\"${NC}" "为当前服务器设置一个易记的别名"     $_W_CONF
+    print_cmd "${GREEN}edgeboxctl backup create${NC}"               "创建当前系统配置的完整备份"          $_W_CONF
+    print_cmd "${GREEN}edgeboxctl backup list${NC}"                 "列出所有可用的备份文件"              $_W_CONF
+    print_cmd "${GREEN}edgeboxctl backup restore${NC} ${CYAN}<file>${NC}" "从指定备份文件恢复系统配置"    $_W_CONF
+    cat <<HLP
   ${CYAN}示例:${NC}
   ${GREEN}edgeboxctl alias${NC} ${CYAN}"香港-CN2-主力"${NC}
   ${GREEN}edgeboxctl backup restore${NC} ${CYAN}edgebox_backup_xxx.tar.gz${NC}
 
 ${YELLOW}■ 诊断与排障 (Diagnostics & Debug)${NC}
-  ${GREEN}edgeboxctl test${NC}  ${DIM}# 对各协议入口进行基础连通性测试${NC}
-  ${GREEN}edgeboxctl test-udp${NC} ${CYAN}<host>${NC} ${CYAN}<port>${NC} ${CYAN}[seconds]${NC}  ${DIM}# 使用 iperf3/socat 进行 UDP 连通性简测${NC}
-  ${GREEN}edgeboxctl debug-ports${NC}  ${DIM}# 检查核心端口 (80, 443, 2053) 是否被占用${NC}
+HLP
+    print_cmd "${GREEN}edgeboxctl test${NC}"                                               "对各协议入口进行基础连通性测试" $_W_DEBUG
+    print_cmd "${GREEN}edgeboxctl test-udp${NC} ${CYAN}<host>${NC} ${CYAN}<port>${NC} ${CYAN}[seconds]${NC}" "使用 iperf3/socat 进行 UDP 连通性简测" $_W_DEBUG
+    print_cmd "${GREEN}edgeboxctl debug-ports${NC}"                                        "检查核心端口 (80, 443, 2053) 是否被占用" $_W_DEBUG
+    cat <<HLP
   ${CYAN}示例 (排障流程):${NC}
   ${GREEN}edgeboxctl status${NC} → ${GREEN}edgeboxctl logs${NC} ${CYAN}xray${NC} → ${GREEN}edgeboxctl debug-ports${NC}
 
@@ -14041,7 +14097,8 @@ ${CYAN}────────────────────────�
   订阅链接: http://<你的IP>/sub
   查看日志: tail -f /var/log/edgebox-install.log
 HLP
-  ;;
+    ;;
+
 esac
 
 # 脚本启动时自动加载配置
