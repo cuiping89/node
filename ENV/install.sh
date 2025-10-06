@@ -5534,11 +5534,11 @@ check_port_listening() {
     local port=$1
     local proto=${2:-tcp}
     
-    if ss -${proto}ln 2>/dev/null | grep -qE "[:.]${port}[[:space:]]"; then
-        return 0
-    else
-        return 1
-    fi
+if ss -lnp -A "$proto" 2>/dev/null | grep -q ":${port} "; then
+    return 0
+else
+    return 1
+fi
 }
 
 
@@ -6415,7 +6415,8 @@ generate_service_summary() {
         '{xray: $xray, "sing-box": $singbox}'
 }
 
-# 生成完整报告（规范化字段 + 补齐推荐等级）
+
+# 生成完整报告（最终修复版 - 对齐前端数据口径）
 generate_health_report() {
     log_info "========== 开始协议健康检查与自愈 =========="
 
@@ -6423,59 +6424,39 @@ generate_health_report() {
     protocols_health=$(check_all_protocols)
     services_status=$(generate_service_summary)
 
-# 规范化字段，解决 name:null / 缺失 health/score；并为缺省记录补齐 recommendation
-normalized=$(echo "$protocols_health" | jq -c '
-  map(
-    # 生成推荐等级（只添加，不覆盖）
-    .recommendation = (
-      if .recommendation and (.recommendation | type) == "string" then
-        (.recommendation | split("\n")[0])
-      elif (.status == "healthy" or .status == "alive") then
-        if (.health_score // .score // 0) >= 85 then "primary"
-        elif (.health_score // .score // 0) >= 70 then "recommended"
-        elif (.health_score // .score // 0) >= 50 then "backup"
-        else "not_recommended"
-        end
-      else "none"
-      end
-    ) |
-    # 生成推荐徽章（只添加，不覆盖）
-    .recommendation_badge = (
-      if .recommendation == "primary" then "🏆 主推"
-      elif .recommendation == "recommended" then "👍 推荐"
-      elif .recommendation == "backup" then "🔄 备用可选"
-      elif .recommendation == "not_recommended" then "⛔ 暂不推荐"
-      else ""
-      end
-    )
-    # 不要再添加其他字段赋值了，保留原始数据
-  )
-')
+    # 修复统计代码：jq now processes the full rich object
+    local total=$(echo "$protocols_health" | jq 'length')
+    local healthy=$(echo "$protocols_health" | jq '[.[] | select(.status=="healthy")] | length')
+    local degraded=$(echo "$protocols_health" | jq '[.[] | select(.status=="degraded" or .status=="alive" or .status=="listening_unverified")] | length')
+    local down=$(echo "$protocols_health" | jq '[.[] | select(.status=="down")] | length')
 
-# 修复统计代码：.health 改为 .status
-total=$(jq 'length' <<<"$normalized")
-healthy=$(jq '[.[] | select(.status=="healthy")] | length' <<<"$normalized")
-degraded=$(jq '[.[] | select(.status=="degraded")] | length' <<<"$normalized")
-down=$(jq '[.[] | select(.status=="down")] | length' <<<"$normalized")
+    # 计算平均分和推荐协议
+    local avg_score=$(echo "$protocols_health" | jq '[.[] | .health_score] | add / length | round')
+    local recommended_protocols=$(echo "$protocols_health" | jq -r '[.[] | select(.recommendation == "primary" or .recommendation == "recommended") | .protocol] | join(", ")')
 
-    # 输出最终 JSON（保持原路径与落盘逻辑）
+
+    # 输出最终 JSON
     jq -n \
-      --argjson protocols "$normalized" \
+      --argjson protocols "$protocols_health" \
       --argjson services "$services_status" \
-      --arg total "$total" \
-      --arg healthy "$healthy" \
-      --arg degraded "$degraded" \
-      --arg down "$down" \
+      --argjson total "$total" \
+      --argjson healthy "$healthy" \
+      --argjson degraded "$degraded" \
+      --argjson down "$down" \
+      --argjson avg_score "$avg_score" \
+      --arg recommended "$recommended_protocols" \
       --arg generated_at "$(date -Is)" \
       '{
          summary: {
-           total:    ($total    | tonumber),
-           healthy:  ($healthy  | tonumber),
-           degraded: ($degraded | tonumber),
-           down:     ($down     | tonumber)
+           total: $total,
+           healthy: $healthy,
+           degraded: $degraded,
+           down: $down,
+           avg_health_score: $avg_score
          },
-         protocols:  $protocols,
-         services:   $services,
+         recommended: ($recommended | split(", ") | map(select(. != ""))),
+         protocols: $protocols,
+         services: $services,
          generated_at: $generated_at
        }' > "$TEMP_JSON"
 
@@ -6489,6 +6470,7 @@ down=$(jq '[.[] | select(.status=="down")] | length' <<<"$normalized")
         exit 1
     fi
 }
+
 
 # ==================== 主函数 ====================
 main() {
