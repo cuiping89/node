@@ -11628,14 +11628,15 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
       <h3>🎲 流量特征随机化 <span style="color: #9fa8da; font-size: 0.85em;">(Traffic Randomization)</span></h3>
       <div class="command-list">
         <code>edgeboxctl traffic randomize [light|medium|heavy]</code> <span># 执行流量特征随机化，增强隐蔽性</span><br>
-        <div style="margin-left: 20px; color: #b0bec5;">
+        <code>edgeboxctl traffic status</code> <span># 查看随机化系统状态和定时任务</span><br>
+        <code>edgeboxctl traffic reset</code> <span># 重置随机化参数为默认值</span><br>
+        <strong>示例：</strong><br>
+        <code style="display: block; margin-left: 0;">edgeboxctl traffic randomize medium</code>
+        <div style="margin-top: 10px; color: #b0bec5;">
           • <strong>light</strong> - 轻度随机化，仅修改 Hysteria2 伪装站点<br>
           • <strong>medium</strong> - 中度随机化，修改 Hysteria2 + TUIC 参数<br>
           • <strong>heavy</strong> - 重度随机化，修改全协议参数
         </div>
-        <code>edgeboxctl traffic status</code> <span># 查看随机化系统状态和定时任务</span><br>
-        <code>edgeboxctl traffic reset</code> <span># 重置随机化参数为默认值</span><br>
-        <strong>示例：</strong><code>edgeboxctl traffic randomize medium</code>
       </div>
     </div>
 
@@ -11648,15 +11649,16 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         <code>edgeboxctl shunt direct-resi '&lt;URL&gt;'</code> <span># [模式] 智能分流 (白名单直连，其余走代理)</span><br>
         <code>edgeboxctl shunt status</code> <span># 查看当前出站模式及代理健康状况</span><br>
         <code>edgeboxctl shunt whitelist &lt;action&gt; [domain]</code> <span># 管理白名单 (add|remove|list|reset)</span><br>
-        <div style="margin-top: 10px; padding: 10px; background: rgba(0,0,0,0.2); border-radius: 4px;">
+        <strong>示例：</strong><br>
+        <code style="display: block; margin-left: 0;">edgeboxctl shunt direct-resi 'socks5://user:pass@host:port'</code>
+        <code style="display: block; margin-left: 0;">edgeboxctl shunt whitelist add netflix.com</code>
+        <div style="margin-top: 10px; color: #b0bec5;">
           <strong>代理URL格式：</strong><br>
           <code style="color: #81c784;">http://user:pass@host:port</code><br>
           <code style="color: #81c784;">https://user:pass@host:port?sni=example.com</code><br>
           <code style="color: #81c784;">socks5://user:pass@host:port</code><br>
           <code style="color: #81c784;">socks5s://user:pass@host:port?sni=example.com</code>
         </div>
-        <strong>示例：</strong><code>edgeboxctl shunt direct-resi 'socks5://user:pass@host:port'</code><br>
-        <strong style="margin-left: 48px;"></strong><code>edgeboxctl shunt whitelist add netflix.com</code>
       </div>
     </div>
 
@@ -11703,7 +11705,8 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         <code>edgeboxctl test</code> <span># 对各协议入口进行基础连通性测试</span><br>
         <code>edgeboxctl test-udp &lt;host&gt; &lt;port&gt; [seconds]</code> <span># 使用 iperf3/socat 进行 UDP 连通性简测</span><br>
         <code>edgeboxctl debug-ports</code> <span># 检查核心端口 (80, 443, 2053) 是否被占用</span><br>
-        <strong>示例 (排障流程)：</strong><code>edgeboxctl status → edgeboxctl logs xray → edgeboxctl debug-ports</code>
+        <strong>示例 (排障流程)：</strong><br>
+        <code style="display: block; margin-left: 0;">edgeboxctl status → edgeboxctl logs xray → edgeboxctl debug-ports</code>
       </div>
     </div>
   </div>
