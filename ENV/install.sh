@@ -4890,7 +4890,7 @@ get_services_status() {
 }
 
 
-# 获取协议配置状态 (最终修复版 - 强制顺序 & 修正数据合并逻辑)
+# 获取协议配置状态 (最终修复版 - 重构数据合并逻辑)
 get_protocols_status() {
     # 1. 定义健康报告路径和默认状态
     local health_report_file="${TRAFFIC_DIR}/protocol-health.json"
@@ -4902,17 +4902,7 @@ get_protocols_status() {
         health_data=$(jq -c '.protocols // []' "$health_report_file" 2>/dev/null || echo "[]")
     fi
 
-    # 3. 强制定义协议显示顺序
-    local protocol_order=(
-        "VLESS-Reality"
-        "VLESS-gRPC"
-        "VLESS-WebSocket"
-        "Trojan-TLS"
-        "Hysteria2"
-        "TUIC"
-    )
-
-    # 4. 从 server.json 预加载所有需要的信息
+    # 3. 从 server.json 预加载所有需要的信息
     local server_config
     server_config=$(jq -c '{
         server_ip: .server_ip,
@@ -4929,64 +4919,55 @@ get_protocols_status() {
         reality_sid: .reality.short_id
     }' "$SERVER_JSON" 2>/dev/null || echo "{}")
 
-    # 5. 生成所有协议的分享链接
-    local server_ip domain cert_mode
-    server_ip=$(echo "$server_config" | jq -r '.server_ip // "127.0.0.1"')
-    domain=$(echo "$server_config" | jq -r '.domain // ""')
-    cert_mode=$(echo "$server_config" | jq -r '.cert_mode // "self-signed"')
-    [[ -z "$domain" || "$cert_mode" == "self-signed" ]] && domain="$server_ip"
+    # 4. ★★★ 使用 jq 强大能力，一次性生成包含所有基础信息的JSON数组 ★★★
+    local base_protocols_json
+    base_protocols_json=$(jq -n --argjson config "$server_config" '
+        ($config.domain | if . == "" or . == null or $config.cert_mode == "self-signed" then $config.server_ip else . end) as $domain |
+        [
+            {
+                "name": "VLESS-Reality", "key": "reality", "scenario": "强审查环境", "camouflage": "极佳★★★★★", "port": 443, "network": "tcp",
+                "share_link": ("vless://" + $config.uuid_vless_reality + "@" + $domain + ":443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.microsoft.com&pbk=" + $config.reality_pbk + "&sid=" + $config.reality_sid + "&type=tcp#EdgeBox-REALITY")
+            },
+            {
+                "name": "VLESS-gRPC", "key": "grpc", "scenario": "较严审查/走CDN", "camouflage": "极佳★★★★★", "port": 443, "network": "tcp",
+                "share_link": ("vless://" + $config.uuid_vless_grpc + "@" + $domain + ":443?encryption=none&security=tls&sni=" + $domain + "&alpn=h2&type=grpc&serviceName=grpc&fp=chrome#EdgeBox-gRPC")
+            },
+            {
+                "name": "VLESS-WebSocket", "key": "ws", "scenario": "常规网络稳定", "camouflage": "良好★★★★☆", "port": 443, "network": "tcp",
+                "share_link": ("vless://" + $config.uuid_vless_ws + "@" + $domain + ":443?encryption=none&security=tls&sni=" + $domain + "&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome#EdgeBox-WS")
+            },
+            {
+                "name": "Trojan-TLS", "key": "trojan", "scenario": "移动网络可靠", "camouflage": "良好★★★★☆", "port": 443, "network": "tcp",
+                "share_link": ("trojan://" + ($config.pw_trojan | @uri) + "@" + $domain + ":443?security=tls&sni=trojan." + $domain + "&alpn=http%2F1.1&fp=chrome#EdgeBox-TROJAN")
+            },
+            {
+                "name": "Hysteria2", "key": "hysteria2", "scenario": "弱网/高丢包更佳", "camouflage": "一般★★★☆☆", "port": 443, "network": "udp",
+                "share_link": ("hysteria2://" + ($config.pw_hy2 | @uri) + "@" + $domain + ":443?sni=" + $domain + "&alpn=h3#EdgeBox-HYSTERIA2")
+            },
+            {
+                "name": "TUIC", "key": "tuic", "scenario": "大带宽/低时延", "camouflage": "良好★★★★☆", "port": 2053, "network": "udp",
+                "share_link": ("tuic://" + $config.uuid_tuic + ":" + ($config.pw_tuic | @uri) + "@" + $domain + ":2053?congestion_control=bbr&alpn=h3&sni=" + $domain + "#EdgeBox-TUIC")
+            }
+        ]
+    ')
 
-    declare -A share_links
-    share_links["VLESS-Reality"]="vless://$(echo "$server_config" | jq -r '.uuid_vless_reality')@${domain}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.microsoft.com&pbk=$(echo "$server_config" | jq -r '.reality_pbk')&sid=$(echo "$server_config" | jq -r '.reality_sid')&type=tcp#EdgeBox-REALITY"
-    share_links["VLESS-gRPC"]="vless://$(echo "$server_config" | jq -r '.uuid_vless_grpc')@${domain}:443?encryption=none&security=tls&sni=${domain}&alpn=h2&type=grpc&serviceName=grpc&fp=chrome#EdgeBox-gRPC"
-    share_links["VLESS-WebSocket"]="vless://$(echo "$server_config" | jq -r '.uuid_vless_ws')@${domain}:443?encryption=none&security=tls&sni=${domain}&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome#EdgeBox-WS"
-    share_links["Trojan-TLS"]="trojan://$(printf '%s' "$(echo "$server_config" | jq -r '.pw_trojan')" | jq -sRr @uri)@${domain}:443?security=tls&sni=trojan.${domain}&alpn=http%2F1.1&fp=chrome#EdgeBox-TROJAN"
-    share_links["Hysteria2"]="hysteria2://$(printf '%s' "$(echo "$server_config" | jq -r '.pw_hy2')" | jq -sRr @uri)@${domain}:443?sni=${domain}&alpn=h3#EdgeBox-HYSTERIA2"
-    share_links["TUIC"]="tuic://$(echo "$server_config" | jq -r '.uuid_tuic'):$(printf '%s' "$(echo "$server_config" | jq -r '.pw_tuic')" | jq -sRr @uri)@${domain}:2053?congestion_control=bbr&alpn=h3&sni=${domain}#EdgeBox-TUIC"
+    # 5. ★★★ 使用 jq 的强大能力，将健康数据合并到基础数据中 ★★★
+    jq -n \
+        --argjson base "$base_protocols_json" \
+        --argjson health "$health_data" \
+        --argjson defaults "$default_status_json" \
+        '
+        # 创建一个以协议key为键的健康状态查找表
+        ($health | map({(.protocol): .}) | add) as $health_map
 
-    # 6. 预定义协议元数据
-    declare -A protocol_meta
-    protocol_meta["VLESS-Reality"]="reality|强审查环境|极佳★★★★★|443|tcp"
-    protocol_meta["VLESS-gRPC"]="grpc|较严审查/走CDN|极佳★★★★★|443|tcp"
-    protocol_meta["VLESS-WebSocket"]="ws|常规网络稳定|良好★★★★☆|443|tcp"
-    protocol_meta["Trojan-TLS"]="trojan|移动网络可靠|良好★★★★☆|443|tcp"
-    protocol_meta["Hysteria2"]="hysteria2|弱网/高丢包更佳|一般★★★☆☆|443|udp"
-    protocol_meta["TUIC"]="tuic|大带宽/低时延|良好★★★★☆|2053|udp"
-
-    # 7. 严格按照顺序生成最终的JSON数组
-    local protocols_json="["
-    local first=true
-    for name in "${protocol_order[@]}"; do
-        IFS='|' read -r key scenario camouflage port network <<< "${protocol_meta[$name]}"
-
-        # ★★★ 核心修复：在这里查找并合并健康状态 ★★★
-        local status_info
-        status_info=$(echo "$health_data" | jq -c --arg key "$key" '.[] | select(.protocol == $key) | {status, status_badge}')
-
-        if [[ -z "$status_info" || "$status_info" == "null" ]]; then
-            status_info="$default_status_json"
-        fi
-
-        if [[ "$first" == "false" ]]; then
-            protocols_json+=","
-        fi
-
-        # 使用jq将基础信息和健康状态信息合并成一个对象
-        protocols_json+=$(jq -n \
-            --arg name "$name" \
-            --arg scenario "$scenario" \
-            --arg camouflage "$camouflage" \
-            --argjson port "$port" \
-            --arg network "$network" \
-            --arg share_link "${share_links[$name]}" \
-            --argjson status_info "$status_info" \
-            '{name: $name, scenario: $scenario, camouflage: $camouflage, port: $port, network: $network, share_link: $share_link} + $status_info')
-
-        first=false
-    done
-    protocols_json+="]"
-
-    echo "$protocols_json"
+        # 遍历基础协议列表
+        $base | map(
+            # 对每个协议，查找其健康状态，如果找不到则使用默认值
+            . as $p | $health_map[$p.key] // $defaults |
+            # 将找到的状态与基础信息合并
+            $p + .
+        )
+        '
 }
 
 # 获取分流配置状态
