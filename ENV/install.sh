@@ -7658,6 +7658,357 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   border-color:#fecaca; 
 }
 
+/* =======================================================================
+   通知中心样式 - 完整修复版（靠左自动换行）
+   ======================================================================= */
+
+/* 主标题区域调整 */
+.main-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 16px;
+}
+
+.main-header h1 {
+    flex: 1;
+    margin: 0;
+}
+
+/* 通知中心容器 - 修复居中 */
+.notification-center {
+    position: relative;
+    display: flex;              /* 改为 flex */
+    width: 40px;                /* 略微放大容器 */
+    height: 40px;
+    margin-right: 22px;
+    align-items: center;        /* 垂直居中 */
+    justify-content: center;    /* 水平居中 */
+}
+
+/* 通知触发按钮 - 完美居中 */
+.notification-trigger {
+    position: relative;         /* 作为徽标的定位基准 */
+    width: 100%;
+    height: 100%;
+    display: flex;              /* 使用 flex 替代 grid */
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    color: #6b7280;
+    padding: 0;
+    line-height: 1;
+    transition: background-color .2s ease, color .2s ease;
+}
+
+/* 铃铛图标 - 确保居中 */
+.notification-trigger > .notification-icon {
+    font-size: 24px;            /* 铃铛尺寸 */
+    display: flex;              /* emoji 完美居中 */
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+}
+
+/* 悬停态 */
+.notification-trigger:hover {
+    background-color: rgba(16, 185, 129, 0.1);
+    color: #10b981;
+}
+
+.notification-trigger:hover > .notification-icon {
+    transform: scale(1.15);
+    transition: transform .2s ease;
+}
+
+/* 通知数量徽章 - 修复椭圆问题 */
+.notification-badge {
+    position: absolute;
+    top: 3px;                   /* 精确定位 */
+    right: 3px;
+    
+    /* 确保完美圆形 */
+    width: 16px;                /* 强制宽高相等 */
+    height: 16px;
+    min-width: 16px;            /* 防止被压缩 */
+    max-width: 16px;            /* 防止被拉伸 */
+    
+    background: #ef4444;
+    color: white;
+    border-radius: 50%;
+    border: 1.5px solid white;
+    
+    /* 文字居中 + 微调垂直位置 */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding-top: 1px;           /* ← 关键：数字向下偏移 1px */
+    font-size: 9px;
+    font-weight: 600;
+    line-height: 1;
+    
+    /* 防止变形 */
+    box-sizing: border-box;
+    flex-shrink: 0;             /* 防止 flex 压缩 */
+    overflow: hidden;
+    
+    z-index: 10;
+    
+    /* 修复后的动画 - 不破坏圆形 */
+    animation: notification-pulse-fixed 2s infinite;
+}
+
+/* 修复后的脉冲动画 - 保持圆形 */
+@keyframes notification-pulse-fixed {
+    0%, 100% { 
+        transform: scale(1);
+        opacity: 1;
+    }
+    50% { 
+        transform: scale(1.05);  /* 降低缩放幅度 */
+        opacity: 0.9;
+    }
+}
+
+/* 通知面板 - 复用弹窗样式 */
+.notification-panel {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    width: 380px;
+    max-height: 480px;
+    background: white;
+    border: 1px solid #d1d5db;
+    border-radius: 14px;
+    box-shadow: 0 10px 30px rgba(17, 24, 39, 0.18);
+    display: none;
+    z-index: 1000;
+    overflow: hidden;
+    margin-top: 8px;
+    flex-direction: column;
+}
+
+.notification-panel.show {
+    display: flex;
+    animation: notification-slide-in 0.2s ease-out;
+}
+
+@keyframes notification-slide-in {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* 通知面板头部 - 复用弹窗头部样式 */
+.notification-header {
+    flex-shrink: 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px;
+    border-bottom: 1px solid #e5e7eb;
+    background: #f9fafb;
+}
+
+.notification-header h3 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: #111827;
+}
+
+/* 清空按钮 - 复用弹窗按钮样式 */
+.notification-clear {
+    background: #ffffff;
+    border: 1px solid #d1d5db;
+    color: #6b7280;
+    font-size: 12px;
+    cursor: pointer;
+    padding: 6px 12px;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+    font-weight: 500;
+}
+
+.notification-clear:hover {
+    background-color: #f9fafb;
+    color: #374151;
+    border-color: #9ca3af;
+}
+
+.notification-clear:active {
+    background-color: #f3f4f6;
+}
+
+/* 通知列表容器 - 可滚动 */
+.notification-list {
+    flex: 1;
+    padding: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    min-height: 0;
+}
+
+/* 通知项 - 每条之间有分隔线，靠左自动换行 */
+.notification-item {
+    display: flex;
+    align-items: flex-start;    /* 顶部对齐 */
+    gap: 12px;
+    padding: 14px 16px;
+    border-bottom: 1px solid #e5e7eb;
+    transition: background-color 0.2s ease;
+    cursor: pointer;
+}
+
+.notification-item:last-child {
+    border-bottom: none;
+}
+
+.notification-item:hover {
+    background-color: #f9fafb;
+}
+
+.notification-item.unread {
+    background-color: #f0f9ff;
+}
+
+.notification-item.unread:hover {
+    background-color: #e0f2fe;
+}
+
+/* 通知图标 */
+.notification-item-icon {
+    flex-shrink: 0;
+    font-size: 18px;
+    line-height: 1;
+    margin-top: 2px;
+}
+
+/* 通知内容区 - 支持自动换行 */
+.notification-item-content {
+    flex: 1;
+    min-width: 0;               /* 关键：允许flex子元素缩小 */
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+/* 通知消息文字 - 靠左自动换行 */
+.notification-item-message {
+    font-size: 13px;
+    color: #374151;
+    line-height: 1.5;
+    text-align: left;           /* 靠左对齐 */
+    word-wrap: break-word;
+    word-break: break-word;
+    overflow-wrap: break-word;
+    white-space: normal;        /* 允许换行 */
+}
+
+/* 通知时间和操作按钮 - 统一靠左对齐 */
+.notification-item-time,
+.notification-item-action {
+    font-size: 11px;
+    text-align: left;
+}
+
+.notification-item-time {
+    color: #9ca3af;
+}
+
+.notification-item-action {
+    font-size: 12px;
+    color: #10b981;
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.notification-item-action:hover {
+    color: #059669;
+    text-decoration: underline;
+}
+
+/* 空状态和加载状态 */
+.notification-empty,
+.notification-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+    color: #9ca3af;
+    text-align: center;
+    gap: 8px;
+}
+
+/* 通知面板底部 */
+.notification-footer {
+    flex-shrink: 0;
+    padding: 12px 16px;
+    border-top: 1px solid #e5e7eb;
+    background: #f9fafb;
+    text-align: center;
+}
+
+.notification-footer small {
+    font-size: 11px;
+    color: #9ca3af;
+}
+
+/* 滚动条样式优化 */
+.notification-list::-webkit-scrollbar {
+    width: 6px;
+}
+
+.notification-list::-webkit-scrollbar-track {
+    background: #f9fafb;
+}
+
+.notification-list::-webkit-scrollbar-thumb {
+    background: #d1d5db;
+    border-radius: 3px;
+}
+
+.notification-list::-webkit-scrollbar-thumb:hover {
+    background: #9ca3af;
+}
+
+/* 响应式调整 */
+@media (max-width: 768px) {
+    .notification-center {
+        width: 36px;
+        height: 36px;
+    }
+    
+    .notification-trigger > .notification-icon {
+        font-size: 20px;
+    }
+    
+    .notification-badge {
+        width: 14px;
+        height: 14px;
+        min-width: 14px;
+        max-width: 14px;
+        font-size: 8px;
+        top: 2px;
+        right: 2px;
+    }
+    
+    .notification-panel {
+        width: calc(100vw - 32px);
+        max-width: 320px;
+        right: -20px;
+    }
+}
 
 /* =======================================================================
    系统概览
@@ -7850,64 +8201,79 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
    ======================================================================= */
 #cert-panel{
   /* 与 NetID 标签一致的参数 */
-  --tag-pad-y: 5px;        /* ← 改它=改标签高度 */
+  --tag-pad-y: 5px;
   --tag-pad-x: 16px;
   --tag-radius: 8px;
   --tag-font: 13px;
   --tag-gap: 8px;
-  --label-w: 80px;          /* 行布局与原来保持一致 */
+  --label-w: 80px;
   --row-gap: 10px;
   --h3-gap: 8px;
   /* 颜色 */
   --label: var(--heading-color);
   --value: var(--content-color);
-  --tag-active-bg: #10b981;     /* 激活：绿色 */
-  --tag-inactive-bg: #e2e8f0;   /* 非当前：灰底 */
+  --tag-active-bg: #10b981;
+  --tag-inactive-bg: #e2e8f0;
   --tag-active-color: #ffffff;
   --tag-inactive-color: #64748b;
   --card-br: #e5e7eb;
 }
+
 /* 顶部模式标签（两枚） */
 #cert-panel .cert-modes{
   display:flex;
   gap:5px;
-  margin-bottom: var(--tag-gap);  /* 与下方内容的间距 */
+  margin-bottom: var(--tag-gap);
 }
+
 #cert-panel .cert-mode-tab{
   flex:1;
   padding: var(--tag-pad-y) var(--tag-pad-x);
   border: 1px solid var(--card-br);
   border-radius: var(--tag-radius);
-  background: var(--tag-inactive-bg);       /* 非当前：#e2e8f0 */
+  background: var(--tag-inactive-bg);
   color: var(--tag-inactive-color);
   font-size: var(--tag-font);
   font-weight: 600;
   text-align:center;
   cursor: default;
 }
+
+/* 非激活标签的h3 - 黑色 */
+#cert-panel .cert-mode-tab h3{
+  color: var(--heading-color);  /* 黑色 */
+  margin: 0;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+/* 激活标签 */
 #cert-panel .cert-mode-tab.active{
   background: var(--tag-active-bg);
   color: var(--tag-active-color);
   border-color: var(--tag-active-bg);
 }
-/* 【新增】标签内部h3继承外层颜色 */
-#cert-panel .cert-mode-tab h3{
-  color: inherit;
-  margin: 0;
+
+/* 激活标签的h3 - 白色 */
+#cert-panel .cert-mode-tab.active h3{
+  color: var(--tag-active-color);  /* 白色 */
 }
-/* 内容卡片：白底 + 边框 + 阴影（去掉灰底） */
+
+/* 内容卡片：白底 + 边框 + 阴影 */
 #cert-panel .inner-block{
   display:block;
-  background:#fff;                         /* ← 替换掉原来的灰底 */
+  background:#fff;
   border:1px solid var(--card-br);
   border-radius:10px;
   padding:15px;
-  box-shadow:0 2px 6px rgba(0,0,0,.08);    /* 阴影 */
+  box-shadow:0 2px 6px rgba(0,0,0,.08);
 }
+
 #cert-panel .inner-block>h3{
   margin:0 0 var(--h3-gap);
 }
-/* 明细行：键名 | 值（保持原有行节奏） */
+
+/* 明细行：键名 | 值 */
 #cert-panel .inner-block .info-item{
   display:grid;
   grid-template-columns: var(--label-w) 1fr;
@@ -7915,13 +8281,15 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   align-items:center;
   padding:6px 0;
 }
+
 /* 证书切换标题统一样式 */
 #cert-panel .inner-block .info-item label{
-  color: var(--subheading-color) !important;  /* h4级别用灰色 */
+  color: var(--subheading-color) !important;
   font-size: var(--h4-size) !important;
   font-weight: 600 !important;
   justify-self: start;
 }
+
 /* 证书切换内容统一样式 */
 #cert-panel .inner-block .info-item value{
   color: var(--content-color) !important;
@@ -7933,10 +8301,9 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   text-overflow: ellipsis;
 }
 
-
 /* =======================================================================
    网络身份配置
-   ======================================================================= */
+   ============================================================ */
 #netid-panel{
   /* 行样式（与 #cert-panel 保持一致） */
   --label-w: 80px;          /* 键名列宽 */
@@ -8261,7 +8628,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
     font-weight: 500;
 }
 
-/* ====================协议配置卡片 - 间距修复=================== */
+/* ========协议配置卡片 - 间距修复============ */
 
 /* grid布局中的卡片不使用margin */
 .main-content .grid .card {
@@ -8825,358 +9192,6 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
     margin: 10px auto; 
   }
 }
-
-
-/* =======================================================================
-   通知中心样式 - 完整修复版（靠左自动换行）
-   ======================================================================= */
-
-/* 主标题区域调整 */
-.main-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 16px;
-}
-
-.main-header h1 {
-    flex: 1;
-    margin: 0;
-}
-
-/* 通知中心容器 - 修复居中 */
-.notification-center {
-    position: relative;
-    display: flex;              /* 改为 flex */
-    width: 40px;                /* 略微放大容器 */
-    height: 40px;
-    margin-right: 22px;
-    align-items: center;        /* 垂直居中 */
-    justify-content: center;    /* 水平居中 */
-}
-
-/* 通知触发按钮 - 完美居中 */
-.notification-trigger {
-    position: relative;         /* 作为徽标的定位基准 */
-    width: 100%;
-    height: 100%;
-    display: flex;              /* 使用 flex 替代 grid */
-    align-items: center;
-    justify-content: center;
-    background: none;
-    border: none;
-    border-radius: 8px;
-    cursor: pointer;
-    color: #6b7280;
-    padding: 0;
-    line-height: 1;
-    transition: background-color .2s ease, color .2s ease;
-}
-
-/* 铃铛图标 - 确保居中 */
-.notification-trigger > .notification-icon {
-    font-size: 24px;            /* 铃铛尺寸 */
-    display: flex;              /* emoji 完美居中 */
-    align-items: center;
-    justify-content: center;
-    line-height: 1;
-}
-
-/* 悬停态 */
-.notification-trigger:hover {
-    background-color: rgba(16, 185, 129, 0.1);
-    color: #10b981;
-}
-
-.notification-trigger:hover > .notification-icon {
-    transform: scale(1.15);
-    transition: transform .2s ease;
-}
-
-/* 通知数量徽章 - 修复椭圆问题 */
-.notification-badge {
-    position: absolute;
-    top: 3px;                   /* 精确定位 */
-    right: 3px;
-    
-    /* 确保完美圆形 */
-    width: 16px;                /* 强制宽高相等 */
-    height: 16px;
-    min-width: 16px;            /* 防止被压缩 */
-    max-width: 16px;            /* 防止被拉伸 */
-    
-    background: #ef4444;
-    color: white;
-    border-radius: 50%;
-    border: 1.5px solid white;
-    
-    /* 文字居中 + 微调垂直位置 */
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding-top: 1px;           /* ← 关键：数字向下偏移 1px */
-    font-size: 9px;
-    font-weight: 600;
-    line-height: 1;
-    
-    /* 防止变形 */
-    box-sizing: border-box;
-    flex-shrink: 0;             /* 防止 flex 压缩 */
-    overflow: hidden;
-    
-    z-index: 10;
-    
-    /* 修复后的动画 - 不破坏圆形 */
-    animation: notification-pulse-fixed 2s infinite;
-}
-
-/* 修复后的脉冲动画 - 保持圆形 */
-@keyframes notification-pulse-fixed {
-    0%, 100% { 
-        transform: scale(1);
-        opacity: 1;
-    }
-    50% { 
-        transform: scale(1.05);  /* 降低缩放幅度 */
-        opacity: 0.9;
-    }
-}
-
-/* 通知面板 - 复用弹窗样式 */
-.notification-panel {
-    position: absolute;
-    top: 100%;
-    right: 0;
-    width: 380px;
-    max-height: 480px;
-    background: white;
-    border: 1px solid #d1d5db;
-    border-radius: 14px;
-    box-shadow: 0 10px 30px rgba(17, 24, 39, 0.18);
-    display: none;
-    z-index: 1000;
-    overflow: hidden;
-    margin-top: 8px;
-    flex-direction: column;
-}
-
-.notification-panel.show {
-    display: flex;
-    animation: notification-slide-in 0.2s ease-out;
-}
-
-@keyframes notification-slide-in {
-    from {
-        opacity: 0;
-        transform: translateY(-10px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
-/* 通知面板头部 - 复用弹窗头部样式 */
-.notification-header {
-    flex-shrink: 0;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 16px;
-    border-bottom: 1px solid #e5e7eb;
-    background: #f9fafb;
-}
-
-.notification-header h3 {
-    margin: 0;
-    font-size: 15px;
-    font-weight: 600;
-    color: #111827;
-}
-
-/* 清空按钮 - 复用弹窗按钮样式 */
-.notification-clear {
-    background: #ffffff;
-    border: 1px solid #d1d5db;
-    color: #6b7280;
-    font-size: 12px;
-    cursor: pointer;
-    padding: 6px 12px;
-    border-radius: 6px;
-    transition: all 0.2s ease;
-    font-weight: 500;
-}
-
-.notification-clear:hover {
-    background-color: #f9fafb;
-    color: #374151;
-    border-color: #9ca3af;
-}
-
-.notification-clear:active {
-    background-color: #f3f4f6;
-}
-
-/* 通知列表容器 - 可滚动 */
-.notification-list {
-    flex: 1;
-    padding: 0;
-    overflow-y: auto;
-    overflow-x: hidden;
-    min-height: 0;
-}
-
-/* 通知项 - 每条之间有分隔线，靠左自动换行 */
-.notification-item {
-    display: flex;
-    align-items: flex-start;    /* 顶部对齐 */
-    gap: 12px;
-    padding: 14px 16px;
-    border-bottom: 1px solid #e5e7eb;
-    transition: background-color 0.2s ease;
-    cursor: pointer;
-}
-
-.notification-item:last-child {
-    border-bottom: none;
-}
-
-.notification-item:hover {
-    background-color: #f9fafb;
-}
-
-.notification-item.unread {
-    background-color: #f0f9ff;
-}
-
-.notification-item.unread:hover {
-    background-color: #e0f2fe;
-}
-
-/* 通知图标 */
-.notification-item-icon {
-    flex-shrink: 0;
-    font-size: 18px;
-    line-height: 1;
-    margin-top: 2px;
-}
-
-/* 通知内容区 - 支持自动换行 */
-.notification-item-content {
-    flex: 1;
-    min-width: 0;               /* 关键：允许flex子元素缩小 */
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
-
-/* 通知消息文字 - 靠左自动换行 */
-.notification-item-message {
-    font-size: 13px;
-    color: #374151;
-    line-height: 1.5;
-    text-align: left;           /* 靠左对齐 */
-    word-wrap: break-word;
-    word-break: break-word;
-    overflow-wrap: break-word;
-    white-space: normal;        /* 允许换行 */
-}
-
-/* 通知时间 */
-.notification-item-time {
-    font-size: 11px;
-    color: #9ca3af;
-    text-align: left;           /* 靠左对齐 */
-}
-
-/* 通知操作按钮 */
-.notification-item-action {
-    font-size: 12px;
-    color: #10b981;
-    text-decoration: none;
-    font-weight: 500;
-    text-align: left;           /* 靠左对齐 */
-}
-
-.notification-item-action:hover {
-    color: #059669;
-    text-decoration: underline;
-}
-
-/* 空状态和加载状态 */
-.notification-empty,
-.notification-loading {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 40px 20px;
-    color: #9ca3af;
-    text-align: center;
-    gap: 8px;
-}
-
-/* 通知面板底部 */
-.notification-footer {
-    flex-shrink: 0;
-    padding: 12px 16px;
-    border-top: 1px solid #e5e7eb;
-    background: #f9fafb;
-    text-align: center;
-}
-
-.notification-footer small {
-    font-size: 11px;
-    color: #9ca3af;
-}
-
-/* 滚动条样式优化 */
-.notification-list::-webkit-scrollbar {
-    width: 6px;
-}
-
-.notification-list::-webkit-scrollbar-track {
-    background: #f9fafb;
-}
-
-.notification-list::-webkit-scrollbar-thumb {
-    background: #d1d5db;
-    border-radius: 3px;
-}
-
-.notification-list::-webkit-scrollbar-thumb:hover {
-    background: #9ca3af;
-}
-
-/* 响应式调整 */
-@media (max-width: 768px) {
-    .notification-center {
-        width: 36px;
-        height: 36px;
-    }
-    
-    .notification-trigger > .notification-icon {
-        font-size: 20px;
-    }
-    
-    .notification-badge {
-        width: 14px;
-        height: 14px;
-        min-width: 14px;
-        max-width: 14px;
-        font-size: 8px;
-        top: 2px;
-        right: 2px;
-    }
-    
-    .notification-panel {
-        width: calc(100vw - 32px);
-        max-width: 320px;
-        right: -20px;
-    }
-}
-
 
 /* =======================================================================
    运维管理
