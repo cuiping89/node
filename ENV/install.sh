@@ -584,7 +584,7 @@ install_dependencies() {
     local network_packages=(vnstat nftables)
     local web_packages=(nginx)
     local cert_mail_packages=(certbot msmtp-mta bsd-mailx)
-    local system_packages=(dmidecode htop iotop)
+    local system_packages=(dmidecode htop iotop socat tcpdump)
 
     # 按系统补充包名
     if [[ "$PKG_MANAGER" == "apt" ]]; then
@@ -5259,9 +5259,9 @@ generate_dashboard_data() {
 # 统一生成 services_info（状态+版本号）
 services_info=$(
   jq -n \
-    --arg nstat "$(systemctl is-active --quiet nginx    && echo 运行中 || echo 已停止)" \
-    --arg xstat "$(systemctl is-active --quiet xray     && echo 运行中 || echo 已停止)" \
-    --arg sstat "$(systemctl is-active --quiet sing-box && echo 运行中 || echo 已停止)" \
+    --arg nstat "$(systemctl is-active --quiet nginx    && echo 运行中 √ || echo 已停止)" \
+    --arg xstat "$(systemctl is-active --quiet xray     && echo 运行中 √ || echo 已停止)" \
+    --arg sstat "$(systemctl is-active --quiet sing-box && echo 运行中 √ || echo 已停止)" \
     --arg nver  "$(nginx -v 2>&1 | grep -oE '[0-9]+(\.[0-9]+)+' | head -1)" \
     --arg xver  "$((xray -version 2>/dev/null || xray version 2>/dev/null) | head -n1 | grep -Eo 'v?[0-9]+(\.[0-9]+)+' | head -1)" \
     --arg sver  "$(sing-box version 2>/dev/null | head -n1 | grep -oE '[0-9]+(\.[0-9]+)+' | head -1)" \
@@ -9776,7 +9776,7 @@ dialog[open],
   border: 1px solid #d1d5db;
   border-radius: 6px;
   background: #fff;
-  color: #2563eb;                /* 蓝字 */
+  color: #3b82f6;                /* 蓝字 */
   font-size: 12px;
   text-decoration: none;
   cursor: pointer;
@@ -10046,7 +10046,7 @@ function renderOverview() {
   const toggleBadge = (sel, running) => {
     const el = document.querySelector(sel);
     if (!el) return;
-    el.textContent = running ? '运行中' : '已停止';
+    el.textContent = running ? '运行中 √' : '已停止';
     el.classList.toggle('status-running', !!running);
     el.classList.toggle('status-stopped', !running);
   };
@@ -10101,10 +10101,10 @@ function renderOverview() {
   setText('xray-version',    versions.xray ? `版本 ${versions.xray}` : '—', true);
   setText('singbox-version', versions.singbox ? `版本 ${versions.singbox}` : '—', true);
 
-  toggleBadge('#system-overview .core-services .service-item:nth-of-type(1) .status-badge', services.nginx?.status === '运行中');
-  toggleBadge('#system-overview .core-services .service-item:nth-of-type(2) .status-badge', services.xray?.status === '运行中');
+  toggleBadge('#system-overview .core-services .service-item:nth-of-type(1) .status-badge', services.nginx?.status === '运行中 √');
+  toggleBadge('#system-overview .core-services .service-item:nth-of-type(2) .status-badge', services.xray?.status === '运行中 √');
   toggleBadge('#system-overview .core-services .service-item:nth-of-type(3) .status-badge',
-              (services['sing-box']?.status || services.singbox?.status) === '运行中');
+              (services['sing-box']?.status || services.singbox?.status) === '运行中 √');
 
   // 顶部版本/日期摘要
   const metaText = `版本号: ${server.version || '—'} | 安装日期: ${toYMD(server.install_date)} | 更新时间: ${toYMD(dash.updated_at || Date.now())}`;
@@ -11581,7 +11581,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
   <div class="commands-grid">
     <!-- 核心命令 -->
     <div class="command-section">
-      <h3>🎯 核心命令 <span style="color: #9fa8da; font-size: 0.85em;">(Core Commands)</span></h3>
+      <h3>🎯 核心命令 <span style="color: #d1fae5; font-size: 0.85em;">(Core Commands)</span></h3>
       <div class="command-list">
         <code>edgeboxctl status</code> <span># 查看所有服务及端口的健康状态</span><br>
         <code>edgeboxctl sub</code> <span># 显示订阅链接与 Web 面板信息</span><br>
@@ -11596,7 +11596,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 
     <!-- 证书管理 -->
     <div class="command-section">
-      <h3>🔒 证书管理 <span style="color: #9fa8da; font-size: 0.85em;">(Certificate Management)</span></h3>
+      <h3>🔒 证书管理 <span style="color: #d1fae5; font-size: 0.85em;">(Certificate Management)</span></h3>
       <div class="command-list">
         <code>edgeboxctl switch-to-domain &lt;domain&gt;</code> <span># 切换为域名模式，并申请 Let's Encrypt 证书</span><br>
         <code>edgeboxctl switch-to-ip</code> <span># 切换回 IP 模式，使用自签名证书</span><br>
@@ -11610,7 +11610,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 
     <!-- SNI 域名管理 -->
     <div class="command-section">
-      <h3>🌐 SNI 域名管理 <span style="color: #9fa8da; font-size: 0.85em;">(SNI Domain Management)</span></h3>
+      <h3>🌐 SNI 域名管理 <span style="color: #d1fae5; font-size: 0.85em;">(SNI Domain Management)</span></h3>
       <div class="command-list">
         <code>edgeboxctl sni list</code> <span># 显示 SNI 域名池状态 (别名: pool)</span><br>
         <code>edgeboxctl sni auto</code> <span># 智能测试并选择最优 SNI 域名</span><br>
@@ -11623,7 +11623,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 
     <!-- Reality 密钥轮换 -->
     <div class="command-section">
-      <h3>🔐 Reality 密钥轮换 <span style="color: #9fa8da; font-size: 0.85em;">(Reality Key Rotation)</span></h3>
+      <h3>🔐 Reality 密钥轮换 <span style="color: #d1fae5; font-size: 0.85em;">(Reality Key Rotation)</span></h3>
       <div class="command-list">
         <code>edgeboxctl rotate-reality</code> <span># 手动执行 Reality 密钥对轮换 (安全增强)</span><br>
         <code>edgeboxctl reality-status</code> <span># 查看 Reality 密钥轮换的周期状态</span>
@@ -11632,7 +11632,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 
     <!-- 流量特征随机化 -->
     <div class="command-section">
-      <h3>🎲 流量特征随机化 <span style="color: #9fa8da; font-size: 0.85em;">(Traffic Randomization)</span></h3>
+      <h3>🎲 流量特征随机化 <span style="color: #d1fae5; font-size: 0.85em;">(Traffic Randomization)</span></h3>
       <div class="command-list">
         <code>edgeboxctl traffic randomize [light|medium|heavy]</code> <span># 执行流量特征随机化，增强隐蔽性</span><br>
         <code>edgeboxctl traffic status</code> <span># 查看随机化系统状态和定时任务</span><br>
@@ -11650,7 +11650,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 
     <!-- 出站分流 -->
     <div class="command-section">
-      <h3>🔀 出站分流 <span style="color: #9fa8da; font-size: 0.85em;">(Outbound Routing)</span></h3>
+      <h3>🔀 出站分流 <span style="color: #d1fae5; font-size: 0.85em;">(Outbound Routing)</span></h3>
       <div class="command-list">
         <code>edgeboxctl shunt vps</code> <span># [模式] VPS 直连出站 (默认)</span><br>
         <code>edgeboxctl shunt resi '&lt;URL&gt;'</code> <span># [模式] 代理全量出站 (仅 Xray)</span><br>
@@ -11672,7 +11672,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 
     <!-- 流量与预警 -->
     <div class="command-section">
-      <h3>📊 流量与预警 <span style="color: #9fa8da; font-size: 0.85em;">(Traffic & Alert)</span></h3>
+      <h3>📊 流量与预警 <span style="color: #d1fae5; font-size: 0.85em;">(Traffic & Alert)</span></h3>
       <div class="command-list">
         <code>edgeboxctl traffic show</code> <span># 在终端查看流量使用统计</span><br>
         <code>edgeboxctl alert show</code> <span># 查看当前预警配置</span><br>
@@ -11693,7 +11693,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 
     <!-- 配置与维护 -->
     <div class="command-section">
-      <h3>🧩 配置与维护 <span style="color: #9fa8da; font-size: 0.85em;">(Configuration & Maintenance)</span></h3>
+      <h3>🧩 配置与维护 <span style="color: #d1fae5; font-size: 0.85em;">(Configuration & Maintenance)</span></h3>
       <div class="command-list">
         <code>edgeboxctl config show</code> <span># 显示所有协议的 UUID、密码等详细配置</span><br>
         <code>edgeboxctl config regenerate-uuid</code> <span># 为所有协议重新生成 UUID 和密码</span><br>
@@ -11710,7 +11710,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 
     <!-- 诊断与排障 -->
     <div class="command-section">
-      <h3>🔍 诊断与排障 <span style="color: #9fa8da; font-size: 0.85em;">(Diagnostics & Debug)</span></h3>
+      <h3>🔍 诊断与排障 <span style="color: #d1fae5; font-size: 0.85em;">(Diagnostics & Debug)</span></h3>
       <div class="command-list">
         <code>edgeboxctl test</code> <span># 对各协议入口进行基础连通性测试</span><br>
         <code>edgeboxctl test-udp &lt;host&gt; &lt;port&gt; [seconds]</code> <span># 使用 iperf3/socat 进行 UDP 连通性简测</span><br>
@@ -12474,7 +12474,7 @@ traffic_reset() {
 show_status() {
   echo -e "${CYAN}EdgeBox 服务状态（v${VERSION}）：${NC}"
   for svc in nginx xray sing-box; do
-    systemctl is-active --quiet "$svc" && echo -e "  $svc: ${GREEN}运行中${NC}" || echo -e "  $svc: ${RED}已停止${NC}"
+    systemctl is-active --quiet "$svc" && echo -e "  $svc: ${GREEN}运行中 √${NC}" || echo -e "  $svc: ${RED}已停止${NC}"
   done
   echo -e "\n${CYAN}端口监听状态：${NC}\n${YELLOW}公网端口：${NC}"
   ss -tlnp 2>/dev/null | grep -q ":443 "  && echo -e "  TCP/443 (Nginx): ${GREEN}正常${NC}" || echo -e "  TCP/443: ${RED}异常${NC}"
