@@ -6243,6 +6243,76 @@ generate_detail_message() {
     echo "$message"
 }
 
+
+# 根据健康分数生成推荐等级
+get_recommendation_level() {
+    local health_score=$1
+    
+    if [[ $health_score -ge 85 ]]; then
+        echo "primary"
+    elif [[ $health_score -ge 70 ]]; then
+        echo "recommended"
+    elif [[ $health_score -ge 50 ]]; then
+        echo "backup"
+    elif [[ $health_score -gt 0 ]]; then
+        echo "not_recommended"
+    else
+        echo "none"
+    fi
+}
+
+# 生成推荐徽章文本
+generate_recommendation_badge() {
+    local recommendation=$1
+    
+    case "$recommendation" in
+        primary)
+            echo "🏆 主推"
+            ;;
+        recommended)
+            echo "👍 推荐"
+            ;;
+        backup)
+            echo "🔄 备用可选"
+            ;;
+        not_recommended)
+            echo "⛔ 暂不推荐"
+            ;;
+        none|*)
+            echo ""
+            ;;
+    esac
+}
+
+# 生成状态徽章文本
+generate_status_badge() {
+    local status=$1
+    
+    case "$status" in
+        healthy)
+            echo "✅ 健康"
+            ;;
+        alive)
+            echo "✅ 活跃"
+            ;;
+        listening_unverified)
+            echo "🟡 监听中"
+            ;;
+        degraded)
+            echo "⚠️ 降级"
+            ;;
+        firewall_blocked)
+            echo "🔥 防火墙阻断"
+            ;;
+        down)
+            echo "❌ 停止"
+            ;;
+        *)
+            echo "❓ 未知"
+            ;;
+    esac
+}
+
 # 检测单个协议(含自愈)
 check_and_heal_protocol() {
     local protocol=$1
