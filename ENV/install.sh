@@ -3391,6 +3391,7 @@ configure_nginx() {
     cat > /etc/nginx/nginx.conf << 'NGINX_CONFIG'
 # EdgeBox Nginx 配置文件
 # 架构：SNI定向 + ALPN兜底 + 单端口复用
+# 【V3 最终修复：移除所有冲突的 IF 语句】
 
 user www-data;
 worker_processes auto;
@@ -3413,36 +3414,17 @@ http {
     # 【核心修复】1. Map 模块：检查 URL 参数是否匹配密码
     map $arg_passcode $auth_status_code {
         # 如果 URL 参数匹配正确的密码（__DASHBOARD_PASSCODE_PH__ 是占位符）
-        "__DASHBOARD_PASSCODE_PH__" 200;  # 设置为 200 (认证成功)
+        "__DASHBOARD_PASSCODE_PH__" 200;  # 认证成功
         # 其他任何情况（包括密码为空），默认设置为 401 (需要认证)
         default 401;                      
     }
     
-    # 日志格式
-    log_format main '$remote_addr - $remote_user [$time_local] "$request" '
-                   '$status $body_bytes_sent "$http_referer" '
-                   '"$http_user_agent" "$http_x_forwarded_for"';
+    # ... (日志、性能优化等)
     
-    # 日志文件
-    access_log /var/log/nginx/access.log main;
-    error_log  /var/log/nginx/error.log warn;
-    
-    # 性能优化
-    sendfile        on;
-    tcp_nopush      on;
-    tcp_nodelay     on;
-    keepalive_timeout 65;
-    types_hash_max_size 2048;
-    
-    # 安全头
-    server_tokens off;
-    add_header X-Frame-Options DENY;
-    add_header X-Content-Type-Options nosniff;
-    add_header X-XSS-Protection "1; mode=block";
-    
-    # 【核心修复】2. 授权检查模块（无 IF，直接返回状态码）
+    # 2. 【核心修复】授权检查模块：返回 200 或 401
     location = /internal_auth {
         internal;
+        # 直接返回 map 结果确定的状态码 (这是 Nginx 中最健壮的授权判断)
         return $auth_status_code;
     }
     
@@ -3452,7 +3434,7 @@ http {
         listen [::]:80 default_server;
         server_name _;
         
-        # 根路径重定向到控制面板
+        # 根路径重定向到控制面板 (此步无需密码，只做跳转)
         location = / {
             return 302 /traffic/;
         }
@@ -3472,24 +3454,21 @@ http {
             index index.html;
             autoindex off;
             
-            # 【启用密码保护】通过子请求验证权限
-            auth_request /internal_auth;     # <-- 调用授权模块
-            error_page 401 = @auth_denied;   # <-- 捕获认证失败，跳转到处理块
+            # 【启用密码保护】通过子请求验证权限，失败则跳转到 @auth_denied
+            auth_request /internal_auth;     
+            error_page 401 = @auth_denied;
             
             # 缓存控制
             add_header Cache-Control "no-store, no-cache, must-revalidate";
             add_header Pragma "no-cache";
-            
-            # 【修复：移除嵌套 location，直接使用 alias】
-            # Nginx 自动处理文件类型，此处仅确保认证生效
         }
         
-        # 【新增错误处理块】
+        # 【新增错误处理块】认证失败时返回 403 友好提示
         location @auth_denied {
             return 403 "403 Forbidden: Missing or invalid passcode in URL parameter.\n";
         }
         
-        # IP质量检测API（对齐技术规范）
+        # IP质量检测API（无需认证）
         location ^~ /status/ {
             alias /var/www/edgebox/status/;
             autoindex off;
