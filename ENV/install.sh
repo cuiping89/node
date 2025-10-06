@@ -3412,18 +3412,23 @@ http {
     include       /etc/nginx/mime.types;
     default_type  application/octet-stream;
     
-    # 【新增】定义一个 map 变量 $auth_required，用于检查密码
-    map \$arg_passcode \$auth_required {
-        # 直接使用实际密码 (从环境变量)
-        "PLACEHOLDER_PASSCODE_HERE" 0; # 设置为 0 (无需认证)
-        # 其他任何情况，默认设置为 1 (需要认证)
-        default 1;                      
+    # 【新增】控制面板口令检查（fail-closed）
+    # 规则：默认拒绝；只有正确口令时放行
+    map $arg_passcode $deny_traffic {
+        default 1;                           # 默认拒绝
+        "__DASHBOARD_PASSCODE_PH__" 0;       # 正确口令 -> 不拒绝
+    }
+
+    # 统一的403处理（可按需换页面）
+    location = /_deny_traffic {
+        internal;
+        return 403;
     }
     
     # 日志格式
-    log_format main '$remote_addr - $remote_user [$time_local] "$request" '
-                   '$status $body_bytes_sent "$http_referer" '
-                   '"$http_user_agent" "$http_x_forwarded_for"';
+log_format main '$remote_addr - $remote_user [$time_local] "$request_method $uri $server_protocol" '
+               '$status $body_bytes_sent "$http_referer" '
+               '"$http_user_agent" "$http_x_forwarded_for"';
     
     # 日志文件
     access_log /var/log/nginx/access.log main;
@@ -3462,18 +3467,17 @@ http {
             try_files /sub =404;
         }
         
-# 控制面板和数据API
+        # 控制面板和数据API
         location ^~ /traffic/ {
-            # 密码验证
-            if ($auth_required = 1) {
-                return 403;
-            }
-            
+            # 无需使用 if；使用 error_page 跳转到内部403
+            error_page 418 = /_deny_traffic;
+            if ($deny_traffic) { return 418; }  # 仅用作触发器，语法安全
+
             alias /etc/edgebox/traffic/;
             index index.html;
             autoindex off;
 
-            # 统一缓存/编码
+            # 缓存/编码
             add_header Cache-Control "no-store, no-cache, must-revalidate";
             add_header Pragma "no-cache";
             charset utf-8;
@@ -3485,7 +3489,7 @@ http {
                 application/javascript js;
             }
         }
-        
+
         # IP质量检测API（对齐技术规范）
         location ^~ /status/ {
             alias /var/www/edgebox/status/;
@@ -3584,9 +3588,6 @@ stream {
     }
 }
 NGINX_CONFIG
-
-# 替换密码占位符
-    sed -i "s/PLACEHOLDER_PASSCODE_HERE/${DASHBOARD_PASSCODE}/g" /etc/nginx/nginx.conf
     
 # 验证Nginx配置
 log_info "验证Nginx配置..."
@@ -3597,6 +3598,20 @@ else
     nginx -t  # 显示详细错误信息
     return 1
 fi
+
+    # 用真实口令替换占位符并重载
+    if [[ -n "$DASHBOARD_PASSCODE" ]]; then
+        sed -ri "s#__DASHBOARD_PASSCODE_PH__#${DASHBOARD_PASSCODE}#g" /etc/nginx/nginx.conf
+        if nginx -t; then
+            systemctl reload nginx || systemctl restart nginx
+            log_success "已注入控制面板口令并重载 Nginx"
+        else
+            log_error "注入口令后 nginx -t 失败，请检查 /etc/nginx/nginx.conf"
+            return 1
+        fi
+    else
+        log_warn "DASHBOARD_PASSCODE 为空，未注入口令（将导致默认拒绝）"
+    fi
 
 # 对齐系统与 Xray 的 DNS（幂等，无则跳过）
 log_info "对齐 DNS 解析（系统 & Xray）..."
@@ -4484,13 +4499,78 @@ execute_module3() {
         return 1
     fi
     
-    # 验证控制面板密码已正确配置
-    if [[ -n "$DASHBOARD_PASSCODE" && ${#DASHBOARD_PASSCODE} -eq 6 ]]; then
-        log_success "✓ 控制面板密码已配置: ${DASHBOARD_PASSCODE}"
-    else
-        log_error "✗ 控制面板密码配置异常"
-        return 1
+    # ========== 修复点2: 改进密码替换逻辑 ==========
+    # 替换 Nginx 配置中的密码占位符 (修复版)
+    log_info "开始应用控制面板密码到Nginx配置..."
+    
+    # 1. 多种方式获取密码,增加容错性
+    local final_passcode=""
+    
+    # 尝试1: 从环境变量获取
+    if [[ -n "$DASHBOARD_PASSCODE" && "$DASHBOARD_PASSCODE" != "null" ]]; then
+        final_passcode="$DASHBOARD_PASSCODE"
+        log_info "从环境变量获取密码: ${final_passcode}"
+    # 尝试2: 从server.json读取
+    elif [[ -f "${CONFIG_DIR}/server.json" ]]; then
+        final_passcode=$(jq -r '.dashboard_passcode // empty' "${CONFIG_DIR}/server.json" 2>/dev/null)
+        if [[ -n "$final_passcode" && "$final_passcode" != "null" ]]; then
+            log_info "从server.json读取密码: ${final_passcode}"
+        else
+            final_passcode=""
+        fi
     fi
+    
+    # 2. 如果还是没有密码,重新生成
+    if [[ -z "$final_passcode" ]]; then
+        log_warn "未找到密码,重新生成..."
+        local random_digit=$((RANDOM % 10))
+        final_passcode="${random_digit}${random_digit}${random_digit}${random_digit}${random_digit}${random_digit}"
+        
+        # 写入server.json
+        local temp_file="${CONFIG_DIR}/server.json.tmp"
+        if jq --arg passcode "$final_passcode" '.dashboard_passcode = $passcode' "${CONFIG_DIR}/server.json" > "$temp_file"; then
+            mv "$temp_file" "${CONFIG_DIR}/server.json"
+            log_success "新密码已生成并写入: ${final_passcode}"
+        else
+            log_error "生成新密码失败"
+            rm -f "$temp_file"
+        fi
+    fi
+    
+    # 3. 验证密码有效性
+    if [[ -z "$final_passcode" || ${#final_passcode} -ne 6 ]]; then
+        log_error "密码无效或长度不正确: '${final_passcode}'"
+        log_error "Nginx配置将保留占位符,需要手动修复"
+    else
+        # 4. 执行替换
+        log_info "应用密码到Nginx配置: ${final_passcode}"
+        
+        # 创建备份
+        cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak.pre-password
+        
+        # 替换占位符
+        if sed -i "s/__DASHBOARD_PASSCODE_PH__/${final_passcode}/g" /etc/nginx/nginx.conf; then
+            log_success "密码已成功应用到Nginx配置"
+            
+            # 验证替换是否成功
+            if grep -q "__DASHBOARD_PASSCODE_PH__" /etc/nginx/nginx.conf; then
+                log_warn "警告: Nginx配置中仍存在占位符,可能替换不完整"
+            else
+                log_success "验证通过: 占位符已完全替换"
+            fi
+            
+            # 验证Nginx配置语法
+            if nginx -t 2>/dev/null; then
+                log_success "Nginx配置语法验证通过"
+            else
+                log_error "Nginx配置语法验证失败"
+                log_error "已创建备份: /etc/nginx/nginx.conf.bak.pre-password"
+            fi
+        else
+            log_error "sed替换失败"
+        fi
+    fi
+    # ========== 修复点2结束 ==========
     
     # 任务6：生成订阅链接
     if generate_subscription; then
