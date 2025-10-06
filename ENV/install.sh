@@ -3412,10 +3412,26 @@ http {
     include       /etc/nginx/mime.types;
     default_type  application/octet-stream;
     
-    # 【口令映射：默认拒绝，命中正确口令才放行】
-    map $arg_passcode $deny_traffic {
-        default 1;                           # 默认拒绝
-        "__DASHBOARD_PASSCODE_PH__" 0;       # 正确口令 -> 0（不拒绝）
+    # 口令 / 会话校验（fail-closed）
+    map $arg_passcode $pass_ok {
+        default                       0;        # 默认不通过
+        "__DASHBOARD_PASSCODE_PH__"   1;        # 正确口令 → 通过
+    }
+    map $cookie_ebp $cookie_ok {
+        default 0;
+        "1"     1;                               # 已登录会话
+    }
+    # 只要口令正确 或 已有会话cookie，就放行；否则拒绝
+    map "$pass_ok:$cookie_ok" $deny_traffic {
+        default 1;     # deny
+        "1:0"  0;      # 首次：口令对
+        "0:1"  0;      # 之后：有cookie
+        "1:1"  0;
+    }
+    # 首次口令正确时下发会话Cookie（1天）
+    map $pass_ok $set_cookie {
+        1 "ebp=1; Path=/traffic/; HttpOnly; SameSite=Lax; Max-Age=86400";
+        0 "";
     }
     
     # 日志格式
@@ -3468,25 +3484,37 @@ log_format main '$remote_addr - $remote_user [$time_local] "$request_method $uri
 		
         # 控制面板和数据API
         location ^~ /traffic/ {
-            # 口令校验：默认拒绝；命中则放行
+            # 口令门闸：默认拒绝；命中口令或已有会话通过
             error_page 418 = /_deny_traffic;
-            if ($deny_traffic) { return 418; }  # 仅作触发码，无嵌套location
+            if ($deny_traffic) { return 418; }
+
+            # 首次口令正确时发Cookie（之后静态/接口都不需要再带 ?passcode=）
+            add_header Set-Cookie $set_cookie;
 
             alias /etc/edgebox/traffic/;
             index index.html;
             autoindex off;
 
-            # 缓存/编码
-            add_header Cache-Control "no-store, no-cache, must-revalidate";
-            add_header Pragma "no-cache";
+            # 补全类型（避免 CSS/JS/字体识别失败）
             charset utf-8;
             types {
-                text/html        html htm;
-                text/plain       txt;
-                application/json json;
-                text/css         css;
-                application/javascript js;
+                text/html                    html htm;
+                text/plain                   txt log;
+                application/json             json;
+                text/css                     css;
+                application/javascript       js mjs;
+                image/svg+xml                svg;
+                image/png                    png;
+                image/jpeg                   jpg jpeg;
+                image/gif                    gif;
+                image/x-icon                 ico;
+                font/ttf                     ttf;
+                font/woff2                   woff2;
             }
+
+            # 缓存头（按你原策略）
+            add_header Cache-Control "no-store, no-cache, must-revalidate";
+            add_header Pragma "no-cache";
         }
 
         # IP质量检测API（对齐技术规范）
