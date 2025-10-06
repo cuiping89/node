@@ -6423,16 +6423,12 @@ generate_health_report() {
     protocols_health=$(check_all_protocols)
     services_status=$(generate_service_summary)
 
-    # 修复统计代码：jq now processes the full rich object
     local total=$(echo "$protocols_health" | jq 'length')
     local healthy=$(echo "$protocols_health" | jq '[.[] | select(.status=="healthy")] | length')
     local degraded=$(echo "$protocols_health" | jq '[.[] | select(.status=="degraded" or .status=="alive" or .status=="listening_unverified")] | length')
     local down=$(echo "$protocols_health" | jq '[.[] | select(.status=="down")] | length')
-
-    # 计算平均分和推荐协议
-    local avg_score=$(echo "$protocols_health" | jq '[.[] | .health_score] | add / length | round')
+    local avg_score=$(echo "$protocols_health" | jq '[.[] | .health_score] | add / length | round // 0')
     local recommended_protocols=$(echo "$protocols_health" | jq -r '[.[] | select(.recommendation == "primary" or .recommendation == "recommended") | .protocol] | join(", ")')
-
 
     # 输出最终 JSON
     jq -n \
@@ -6447,11 +6443,11 @@ generate_health_report() {
       --arg generated_at "$(date -Is)" \
       '{
          summary: {
-           total: $total,
-           healthy: $healthy,
-           degraded: $degraded,
-           down: $down,
-           avg_health_score: $avg_score
+           total: ($total | tonumber),
+           healthy: ($healthy | tonumber),
+           degraded: ($degraded | tonumber),
+           down: ($down | tonumber),
+           avg_health_score: ($avg_score | tonumber)
          },
          recommended: ($recommended | split(", ") | map(select(. != ""))),
          protocols: $protocols,
