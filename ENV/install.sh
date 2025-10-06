@@ -3388,7 +3388,6 @@ configure_nginx() {
         log_info "已备份原始Nginx配置"
     fi
     
-    # 生成新的Nginx配置
     cat > /etc/nginx/nginx.conf << 'NGINX_CONFIG'
 # EdgeBox Nginx 配置文件
 # 架构：SNI定向 + ALPN兜底 + 单端口复用
@@ -3400,7 +3399,6 @@ pid /run/nginx.pid;
 # 加载必要模块
 include /etc/nginx/modules-enabled/*.conf;
 
-# 事件处理
 events {
     worker_connections 1024;
     use epoll;
@@ -3412,12 +3410,12 @@ http {
     include       /etc/nginx/mime.types;
     default_type  application/octet-stream;
     
-    # 【新增】定义一个 map 变量 $auth_required，用于检查密码
-    map $arg_passcode $auth_required {
-        # 如果 URL 参数匹配正确的密码（__DASHBOARD_PASSCODE_PH__ 是占位符，将在安装后期被 sed 替换）
-        "__DASHBOARD_PASSCODE_PH__" 0;  # 设置为 0 (无需认证)
-        # 其他任何情况，默认设置为 1 (需要认证)
-        default 1;                      
+    # 【核心修复】1. Map 模块：检查 URL 参数是否匹配密码
+    map $arg_passcode $auth_status_code {
+        # 如果 URL 参数匹配正确的密码（__DASHBOARD_PASSCODE_PH__ 是占位符）
+        "__DASHBOARD_PASSCODE_PH__" 200;  # 设置为 200 (认证成功)
+        # 其他任何情况（包括密码为空），默认设置为 401 (需要认证)
+        default 401;                      
     }
     
     # 日志格式
@@ -3442,6 +3440,12 @@ http {
     add_header X-Content-Type-Options nosniff;
     add_header X-XSS-Protection "1; mode=block";
     
+    # 【核心修复】2. 授权检查模块（无 IF，直接返回状态码）
+    location = /internal_auth {
+        internal;
+        return $auth_status_code;
+    }
+    
     # HTTP 服务器（端口80）
     server {
         listen 80 default_server;
@@ -3453,7 +3457,7 @@ http {
             return 302 /traffic/;
         }
         
-        # 订阅链接服务
+        # 订阅链接服务 (无需认证)
         location = /sub {
             default_type text/plain;
             add_header Cache-Control "no-store, no-cache, must-revalidate";
@@ -3462,28 +3466,27 @@ http {
             try_files /sub =404;
         }
         
-# 控制面板和数据API
+        # 控制面板和数据API（需要认证）
         location ^~ /traffic/ {
-            # 密码验证
-            if ($auth_required = 1) {
-                return 403;
-            }
-            
             alias /etc/edgebox/traffic/;
             index index.html;
             autoindex off;
-
-            # 统一缓存/编码
+            
+            # 【启用密码保护】通过子请求验证权限
+            auth_request /internal_auth;     # <-- 调用授权模块
+            error_page 401 = @auth_denied;   # <-- 捕获认证失败，跳转到处理块
+            
+            # 缓存控制
             add_header Cache-Control "no-store, no-cache, must-revalidate";
             add_header Pragma "no-cache";
-            charset utf-8;
-            types {
-                text/html        html htm;
-                text/plain       txt;
-                application/json json;
-                text/css         css;
-                application/javascript js;
-            }
+            
+            # 【修复：移除嵌套 location，直接使用 alias】
+            # Nginx 自动处理文件类型，此处仅确保认证生效
+        }
+        
+        # 【新增错误处理块】
+        location @auth_denied {
+            return 403 "403 Forbidden: Missing or invalid passcode in URL parameter.\n";
         }
         
         # IP质量检测API（对齐技术规范）
@@ -3516,7 +3519,6 @@ http {
             log_not_found off;
         }
     }
-}
 
 # Stream 模块配置（TCP/443 端口分流）
 stream {
