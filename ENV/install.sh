@@ -3412,23 +3412,38 @@ http {
     include       /etc/nginx/mime.types;
     default_type  application/octet-stream;
     
-    # 口令 / 会话校验（fail-closed）
-    map $arg_passcode $pass_ok {
-        default                       0;        # 默认不通过
-        "__DASHBOARD_PASSCODE_PH__"   1;        # 正确口令 → 通过
+    # === 口令 / 会话映射（fail-closed）===
+    # 1) 检测是否提供了 passcode 参数
+    map $arg_passcode $arg_present {
+        default 0;
+        ~.+     1;   # 只要非空就算带参
     }
+    # 2) 口令是否正确（占位符会在脚本中被替换为真实口令）
+    map $arg_passcode $pass_ok {
+        "__DASHBOARD_PASSCODE_PH__" 1;
+        default                     0;
+    }
+    # 3) 是否已有有效会话 Cookie
     map $cookie_ebp $cookie_ok {
         default 0;
-        "1"     1;                               # 已登录会话
+        "1"     1;
     }
-    # 只要口令正确 或 已有会话cookie，就放行；否则拒绝
-    map "$pass_ok:$cookie_ok" $deny_traffic {
-        default 1;     # deny
-        "1:0"  0;      # 首次：口令对
-        "0:1"  0;      # 之后：有cookie
-        "1:1"  0;
+    # 4) 是否为“错误口令尝试”（带了参数但不正确）
+    map "$arg_present:$pass_ok" $bad_try {
+        default 0;      # 未带参 → 不是错误尝试
+        "1:0"   1;      # 带参且错误 → 错误尝试
+        "1:1"   0;      # 带参且正确
     }
-    # 首次口令正确时下发会话Cookie（1天）
+    # 5) 最终是否拒绝：
+    #    只列出“允许”的组合，其余一律拒绝（default 1）
+    #    允许的三种：①正确口令（首次）②已有会话③正确口令+已有会话
+    map "$bad_try:$pass_ok:$cookie_ok" $deny_traffic {
+        default 1;      # 默认为拒绝（更安全）
+        "0:1:0"  0;     # 正确口令
+        "0:0:1"  0;     # 有会话
+        "0:1:1"  0;     # 正确口令 + 有会话
+    }
+    # 6) 正确口令时下发会话 Cookie（1 天）
     map $pass_ok $set_cookie {
         1 "ebp=1; Path=/traffic/; HttpOnly; SameSite=Lax; Max-Age=86400";
         0 "";
