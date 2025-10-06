@@ -3464,6 +3464,10 @@ http {
         
 # 控制面板和数据API
         location ^~ /traffic/ {
+		
+		    if ($auth_required = 1) {
+        return 403;
+    }
             alias /etc/edgebox/traffic/;
             index index.html;
             autoindex off;
