@@ -7435,9 +7435,10 @@ chmod +x "${SCRIPTS_DIR}/traffic-alert.sh"
   # ========== 创建外置的CSS文件 ==========
   log_info "创建外置CSS文件..."
   cat > "${TRAFFIC_DIR}/assets/edgebox-panel.css" <<'EXTERNAL_CSS'
+  
 /* =======================================================================
    EdgeBox 控制面板 · 组件化（ops-panel 无 id 也生效）
-   ======================================================================= */
+   =================================================================== */
 
 /* ========== Reset / 基础皮肤 ========== */
 
@@ -7450,29 +7451,42 @@ body{
 
 .container{ max-width:1400px; margin:0 auto; }
 
-/* ===== 文字样式统一：h3黑色大字，h4灰色中字，内容灰色中字 ===== */
+/* ===== 全局变量和文字样式统一 ===== */
 :root {
-  --heading-color: #111827;      /* h3标题颜色（黑色） */
+  --heading-color: #111827;      /* h1-h4标题颜色（黑色） */
   --subheading-color: #6b7280;   /* h4标题颜色（灰色） */
   --content-color: #6b7280;      /* 内容颜色（灰色） */
+  --muted-color: #6b7280;        /* 内容灰（别名） */
   --h3-size: 15px;               /* h3字体大小 */
   --h4-size: 14px;               /* h4字体大小 */
 }
 
-/* 标题样式 */
-h1{ font-size:23px; font-weight:700; color:#1f2937; line-height:32px; }
-h2{ font-size:18px; font-weight:600; color:#1f2937; line-height:26px; }
+/* 标题样式统一 */
+h1{ font-size:23px; font-weight:700; color:var(--heading-color); line-height:32px; }
+h2{ font-size:18px; font-weight:600; color:var(--heading-color); line-height:26px; }
 h3{ 
-  font-size: var(--h3-size); 
-  line-height: 1.4; 
-  font-weight: 600; 
-  color: var(--heading-color);
+  font-size:var(--h3-size); 
+  line-height:1.4; 
+  font-weight:600; 
+  color:var(--heading-color);
 }
 h4{ 
-  font-size: var(--h4-size); 
-  line-height: 1.4; 
-  font-weight: 600; 
-  color: var(--subheading-color);
+  font-size:var(--h4-size); 
+  line-height:1.4; 
+  font-weight:600; 
+  color:var(--subheading-color);
+}
+
+/* 特殊容器内的标题保持黑色 */
+.traffic-card .chart-container h3,
+.traffic-card .progress-label h3,
+.card h3,
+#system-overview h3,
+#netid-panel h3,
+.note h3, 
+.muted h3, 
+.desc h3{ 
+  color:var(--heading-color); 
 }
 
 /* 文本样式 */
@@ -7522,87 +7536,87 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 
 /* 标题样式：从深灰到浅灰的渐变 + 圆角只在顶部 */
 .main-header {
-  text-align: center;
-  background: linear-gradient(135deg, #e2e8f0 0%, #f1f5f9 50%, #f8fafc 100%);
-  border: none;
-  border-radius: 0;
-  border-top-left-radius: 9px;
-  border-top-right-radius: 9px;
-  padding: 16px 20px;
-  position: relative;
-  margin: 0;
+  text-align:center;
+  background:linear-gradient(135deg, #e2e8f0 0%, #f1f5f9 50%, #f8fafc 100%);
+  border:none;
+  border-radius:0;
+  border-top-left-radius:9px;
+  border-top-right-radius:9px;
+  padding:16px 20px;
+  position:relative;
+  margin:0;
   box-shadow: 
     inset 0 -1px 0 rgba(0,0,0,0.1),
     inset 0 1px 0 rgba(255,255,255,0.9);
 }
 
 .main-header h1 {
-  text-align: center !important;
-  margin: 0 auto;
-  display: block;
-  width: 100%;
-  font-size: 24px;
-  font-weight: 700;
-  color: #1f2937;
-  line-height: 1.3;
-  text-shadow: 0 1px 2px rgba(0,0,0,0.1);
+  text-align:center !important;
+  margin:0 auto;
+  display:block;
+  width:100%;
+  font-size:24px;
+  font-weight:700;
+  color:#1f2937;
+  line-height:1.3;
+  text-shadow:0 1px 2px rgba(0,0,0,0.1);
 }
 
 /* 去掉紫色竖杠 */
 .main-header::before {
-  display: none !important;
+  display:none !important;
 }
 
 /* 底部装饰线 */
 .main-header::after {
-  content: "";
-  position: absolute;
-  left: 50%;
-  bottom: 0;
-  transform: translateX(-50%);
-  width: 60px;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, #10b981, transparent);
-  border-radius: 2px;
-  opacity: 0.6;
+  content:"";
+  position:absolute;
+  left:50%;
+  bottom:0;
+  transform:translateX(-50%);
+  width:60px;
+  height:2px;
+  background:linear-gradient(90deg, transparent, #10b981, transparent);
+  border-radius:2px;
+  opacity:0.6;
 }
 
 /* 鼠标悬停效果 */
 .main-header:hover {
-  background: linear-gradient(135deg, #d1d5db 0%, #e2e8f0 50%, #f1f5f9 100%);
+  background:linear-gradient(135deg, #d1d5db 0%, #e2e8f0 50%, #f1f5f9 100%);
   box-shadow: 
     inset 0 -1px 0 rgba(0,0,0,0.15),
     inset 0 1px 0 rgba(255,255,255,0.8);
-  transition: all 0.3s ease;
+  transition:all 0.3s ease;
 }
 
 /* 备选方案：更明显的深浅对比 */
 .main-header.dark-to-light {
-  background: linear-gradient(135deg, #94a3b8 0%, #cbd5e1 50%, #e2e8f0 100%);
+  background:linear-gradient(135deg, #94a3b8 0%, #cbd5e1 50%, #e2e8f0 100%);
 }
 .main-header.dark-to-light:hover {
-  background: linear-gradient(135deg, #64748b 0%, #94a3b8 50%, #cbd5e1 100%);
+  background:linear-gradient(135deg, #64748b 0%, #94a3b8 50%, #cbd5e1 100%);
 }
 
 /* =========内容区域 =========*/
 
 /* 大卡片内容区域恢复padding */
 .main-content {
-  padding: 20px !important;
-  margin: 0 !important;
+  padding:20px !important;
+  margin:0 !important;
 }
 
 /* 确保内部卡片间距正确 */
 .main-content .card {
-  margin-bottom: 20px !important;
+  margin-bottom:20px !important;
 }
 .main-content .card:last-child {
-  margin-bottom: 0 !important;
+  margin-bottom:0 !important;
 }
 
 /* grid布局特殊处理 */
 .main-content .grid .card {
-  margin-bottom: 0 !important;
+  margin-bottom:0 !important;
 }
 
 /* 内层块 */
@@ -7657,6 +7671,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   color:#ef4444; 
   border-color:#fecaca; 
 }
+
 
 /* =======================================================================
    通知中心样式 - 完整修复版（靠左自动换行）
@@ -8010,9 +8025,10 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
     }
 }
 
+
 /* =======================================================================
    系统概览
-   ======================================================================= */
+   ================================================================= */
 #system-overview{
   --label-w:72px;           /* 左侧键名列宽 */
   --percent-col:33px;       /* 右侧百分比列宽 */
@@ -8022,7 +8038,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   --meter-track:#e2e8f0; 
   --meter-start:#059669; 
   --meter-end:#10b981;
-    --label: var(--heading-color); 
+  --label: var(--heading-color); 
   --value: var(--content-color); 
   --muted: #6b7280;
 }
@@ -8030,8 +8046,8 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 /* ========== 覆盖全局 inner-block 样式，统一高度 ========== */
 #system-overview .inner-block {
   display: block;
-  padding: 12px !important;  /* 减小内边距 */
-  margin-bottom: 0 !important;  /* 去掉底部边距 */
+  padding: 12px !important;
+  margin-bottom: 0 !important;
 }
 
 /* 标题紧跟 */
@@ -8040,31 +8056,143 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   align-items:center; 
   white-space:nowrap; 
   margin:0 0 var(--h3-gap);
-  font-size: var(--h3-size) !important;  /* 使用h3标准大小 */
+  font-size: var(--h3-size) !important;
   line-height: 22px !important;
   height: 22px !important;
   color: var(--heading-color) !important;
 }
 
-/* 服务器信息：两列 */
-#system-overview .server-info .info-item{
-  display:grid; grid-template-columns:var(--label-w) 1fr; gap:8px; align-items:center; 
-  padding:5px 0;  /* 统一行高 */
+/* 标题右侧"版本号/安装日期/更新时间"内联备注 */
+#system-overview .card-header h2{
+  display:flex;
+  align-items:flex-end;
+}
+#system-overview .card-header #sys-meta{
+  color:#9ca3af !important;
+  font-weight:400;
+  font-size:12px;
+  line-height:1;
+  margin-right:1em;
+  transform:translateY(2px);
 }
 
-/* 系统概览标题统一样式 */
-#system-overview .server-info .label,
-#system-overview .progress-row .label,
-#system-overview .core-services .label { 
-  color: var(--subheading-color) !important;  /* h4级别用灰色 */
+/* —— 服务器信息：中文键名较长，单独设宽 —— */
+#system-overview .server-info { 
+  --label-w: 80px;
+}
+
+#system-overview .server-info .info-item{
+  display:grid; 
+  grid-template-columns:var(--label-w) 1fr; 
+  gap:8px; 
+  align-items:center; 
+  padding:5px 0;
+}
+
+#system-overview .server-info .label { 
+  white-space: nowrap;
+  color: var(--subheading-color) !important;
   font-size: var(--h4-size) !important; 
   font-weight: 600 !important;
   justify-self: start; 
 }
 
-/* 系统概览内容统一样式 */
-#system-overview .server-info .value,
-#system-overview .progress-row .value,
+#system-overview .server-info .value { 
+  color: var(--content-color) !important; 
+  font-size: var(--h4-size) !important; 
+  font-weight: 500 !important;
+  min-width: 0; 
+  white-space: nowrap; 
+  overflow: hidden; 
+  text-overflow: ellipsis; 
+}
+
+/* —— 服务器配置（进度条区）：独立宽度控制 —— */
+#system-overview .progress-row { 
+  --label-w: 50px;
+  --percent-col: 33px;
+  display:grid; 
+  grid-template-columns:var(--label-w) minmax(0,1fr) var(--percent-col);
+  column-gap:4px; 
+  align-items:center; 
+  padding:5px 0;
+}
+
+#system-overview .progress-label{ 
+  color:var(--subheading-color) !important;
+  font-size: var(--h4-size) !important; 
+  font-weight: 600 !important;
+  justify-self:start;
+  white-space:nowrap;
+}
+
+#system-overview .progress-bar{
+  position:relative; 
+  height:var(--meter-height);
+  background:var(--meter-track); 
+  border-radius:999px; 
+  overflow:hidden; 
+  align-self:center;
+}
+
+#system-overview .progress-fill{
+  height:100%; 
+  border-radius:999px; 
+  background:linear-gradient(90deg,var(--meter-start),var(--meter-end));
+  transition:width .25s ease;
+}
+
+#system-overview .progress-text{
+  position:absolute; 
+  left:4px; 
+  right:4px; 
+  top:50%; 
+  transform:translateY(-50%);
+  font-size:11px; 
+  color:#fff; 
+  white-space:nowrap; 
+  overflow:hidden; 
+  text-overflow:ellipsis; 
+  pointer-events:none;
+}
+
+#system-overview .progress-info{
+  min-width:var(--percent-col); 
+  text-align:right; 
+  color:var(--value);
+  font-variant-numeric:tabular-nums;
+}
+
+/* —— 核心服务：独立宽度控制 —— */
+#system-overview .core-services {
+  --label-w: 70px;
+  --svc-gap: 70px;
+}
+
+#system-overview .core-services .service-item{
+  display:grid; 
+  grid-template-columns:var(--label-w) max-content 1fr;
+  column-gap:var(--svc-gap);
+  align-items:center; 
+  padding:5px 0;
+}
+
+#system-overview .core-services .service-item:first-child {
+  padding-top: 6px !important;
+}
+
+#system-overview .core-services .service-item:last-child {
+  padding-bottom: 5px !important;
+}
+
+#system-overview .core-services .label {
+  color: var(--subheading-color) !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  line-height: 1.2 !important;
+  justify-self: start;
+}
+
 #system-overview .core-services .value { 
   color: var(--content-color) !important; 
   font-size: var(--h4-size) !important; 
@@ -8075,55 +8203,12 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   text-overflow: ellipsis; 
 }
 
-/* 服务器配置：键名 | 进度条 | 百分比 */
-#system-overview .progress-row{
-  display:grid; grid-template-columns:var(--label-w) minmax(0,1fr) var(--percent-col);
-  column-gap:4px; align-items:center; 
-  padding:5px 0;  /* 统一行高 */
-}
-#system-overview .progress-label{ color:var(--label); justify-self:start; }
-#system-overview .progress-bar{
-  position:relative; height:var(--meter-height);
-  background:var(--meter-track); border-radius:999px; overflow:hidden; align-self:center;
-}
-#system-overview .progress-fill{
-  height:100%; border-radius:999px; background:linear-gradient(90deg,var(--meter-start),var(--meter-end));
-  transition:width .25s ease;
-}
-#system-overview .progress-text{
-  position:absolute; left:4px; right:4px; top:50%; transform:translateY(-50%);
-  font-size:11px; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; pointer-events:none;
-}
-#system-overview .progress-info{
-  min-width:var(--percent-col); text-align:right; color:var(--value);
-  font-variant-numeric:tabular-nums;
-}
-
-/* ========== 核心服务：压缩布局 ========== */
-
-/* 核心服务：名称 | 徽标 | 版本号 */
-#system-overview .core-services .service-item{
-  display:grid; 
-  grid-template-columns:var(--label-w) max-content 1fr;
-  column-gap:var(--svc-gap);  /* 保持使用变量，不要用 !important */
-  align-items:center; 
-  padding:5px 0;  /* 调整行高 */
-}
-
-/* 新增：第一项和最后一项的微调 */
-#system-overview .core-services .service-item:first-child {
-  padding-top: 6px !important;
-}
-#system-overview .core-services .service-item:last-child {
-  padding-bottom: 5px !important;
-}
-
 /* 覆盖全局状态徽章样式，减小尺寸 */
 #system-overview .core-services .status-badge {
-  height: 18px !important;  /* 减小高度 */
+  height: 18px !important;
   line-height: 18px !important;
-  padding: 0 8px !important;  /* 减小内边距 */
-  font-size: 11px !important;  /* 减小字体 */
+  padding: 0 8px !important;
+  font-size: 11px !important;
 }
 
 #system-overview .core-services .version{
@@ -8136,65 +8221,28 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   font-size:12px;
 }
 
-/* 窄屏收窄 */
+/* —— 通用工具类（如果其他组件需要） —— */
+.progress-label { 
+  color: var(--muted-color); 
+}
+.progress-label h4 { 
+  color: var(--heading-color); 
+}
+
+.text-h4-muted { 
+  font-size: var(--h4-size);
+  color: var(--muted-color);
+  line-height: 1.4;
+  font-weight: 500;
+}
+
+/* —— 响应式：窄屏时分别覆盖 —— */
 @media (max-width:640px){
-  #system-overview{ --label-w:68px; --percent-col:32px; }
-  #system-overview .server-info .info-item{ grid-template-columns:68px 1fr; }
-  #system-overview .progress-row{ grid-template-columns:68px minmax(0,1fr) var(--percent-col); }
-  #system-overview .core-services .service-item{ grid-template-columns:68px max-content 1fr; }
-}
-
-/* —— 给三个区块各自的"标签列宽"开独立的开关 —— */
-/* 服务器信息：中文键名较长，单独设宽，并禁止换行 */
-#system-overview .server-info { 
-  --label-w: 80px;                 /* 这里按需改 */
-}
-#system-overview .server-info .label { 
-  white-space: nowrap;             /* 防止被压行 */
-}
-
-/* 服务器配置（进度条区）：只影响这一块的行 */
-#system-overview .progress-row { 
-  --label-w: 50px;                 /* 你想要的 50px 只作用在进度条这块 */
-  --percent-col: 33px;             /* 百分比列可一起调，避免太窄 */
-}
-#system-overview .progress-label { 
-  color: var(--subheading-color) !important;  /* 设置为灰色 */
-  white-space: nowrap;
-}
-
-/* 核心服务：单独控制服务名那一列宽度与间距 */
-#system-overview .core-services {
-  --label-w: 70px;                 /* 这块自己设，不受上面的影响 */
-  --svc-gap: 70px;
-}
-
-/* 核心服务的标签文字大小调整 */
-#system-overview .core-services .label {
-  font-size: 13px !important;  /* 与其他区块保持一致 */
-  line-height: 1.2 !important;
-}
-
-/* 窄屏时也分别覆盖，避免全局一刀切 */
-@media (max-width: 640px){
   #system-overview .server-info   { --label-w: 84px; }
   #system-overview .progress-row  { --label-w: 60px; --percent-col: 34px; }
   #system-overview .core-services { --label-w: 68px; }
 }
 
-/* 系统概览：标题右侧“版本号/安装日期/更新时间”内联备注（同 netid-panel 风格） */
-#system-overview .card-header h2{
-  display:flex;             /* 覆盖全局 .card-header h2 已是 flex 的对齐方式 */
-  align-items:flex-end;     /* 与标题下沿对齐（覆盖全局 align-items:center） */
-}
-#system-overview .card-header #sys-meta{
-  color:#9ca3af !important; /* 浅灰：同 .note-udp */
-  font-weight:400;
-  font-size:12px;
-  line-height:1;
-  margin-right:1em;         /* 右侧留出一个字宽 */
-  transform:translateY(2px);/* 轻微下沉，贴近标题底线 */
-}
 
 /* =======================================================================
    证书切换
@@ -9711,9 +9759,10 @@ dialog[open],
   }
 }
 
+
 /* =======================================================================
- 按钮（查看详情、查看全部、查看配置、查看订阅）：白底蓝字，hover 浅灰，active 灰底 
- ======================================================================= */
+   按钮（查看详情、查看全部、查看配置、查看订阅）：白底蓝字，hover 浅灰，active 灰底 
+   ======================================================================= */
 .btn-detail,
 .btn-viewall,
 .btn-link,
@@ -9721,14 +9770,12 @@ dialog[open],
 .whitelist-more{
   --btn-h: 28px;
   --btn-pad-x: 12px;
-
   display: inline-flex;
   align-items: center;
   justify-content: center;
   height: var(--btn-h);
   line-height: calc(var(--btn-h) - 2px); /* 扣掉边框 */
   padding: 0 var(--btn-pad-x);
-
   border: 1px solid #d1d5db;
   border-radius: 6px;
   background: #fff;
@@ -9736,7 +9783,6 @@ dialog[open],
   font-size: 12px;
   text-decoration: none;
   cursor: pointer;
-
   transition: background .15s ease, color .15s ease, border-color .15s ease, box-shadow .15s ease;
 }
 
@@ -9782,73 +9828,6 @@ dialog[open],
   opacity: .5;
   pointer-events: none;
 }
-
-/* ===== ANCHOR: HEADINGS-COLOR-FIX ===== */
-/* 统一面板内 h3 的标题色为纯黑（与其它卡片 h3 同色） */
-:root{ --heading-color: #111827; }  /* 需要更黑/更浅就改这里 */
-
-/* 1) 流量统计卡片内的图表标题（含 “📡 VPS出站IP / 🔄 代理出站IP / 🔀 分流出站”） */
-.traffic-card .chart-container h3{
-  color: var(--heading-color);
-}
-
-/* 2) 如果这些标题刚好放在 .progress-label 里，父级默认是灰色——在子级 h3 上强制还原为标题色 */
-.traffic-card .progress-label h3{
-  color: var(--heading-color);
-}
-
-/* 3) 兜底：其他卡片内 h3 也统一为标题色，避免被 note/muted 容器继承成灰 */
-.card h3,
-#system-overview h3,
-#netid-panel h3{
-  color: var(--heading-color);
-}
-
-/* 可选：只让“小字说明”保持灰，不再影响 h3（若你有 .note/.muted/.desc 之类父级） */
-.note h3, .muted h3, .desc h3{ color: var(--heading-color); }
-
-/* ===== 标题与内容层级统一（H1–H4 黑；内容用 H4 字号且灰） ===== */
-
-/* 全局口径变量（按需改） */
-:root{
-  --heading-color: #111827;   /* h1–h4 标题色（黑） */
-  --muted-color:   #6b7280;   /* 内容灰 */
-  --h4-size:       14px;      /* h4 字号口径（用于内容的字号基准） */
-}
-
-/* 标题统一：h1–h4 都用黑色；h4 的字号固定为 --h4-size */
-h1, h2, h3, h4 { color: var(--heading-color); }
-h4 { font-size: var(--h4-size); line-height: 1.4; font-weight: 600; }
-
-/* —— 系统概览里 CPU/内存/磁盘等：标签用 h4（黑），值/说明用 h4 字号（灰） —— */
-/* 标签（标题） */
-.system-overview .progress-label h4,
-.system-overview .meter-title h4,
-.system-overview .metric-label h4{
-  color: var(--heading-color);       /* 防被父级灰色继承 */
-  font-size: var(--h4-size);
-  line-height: 1.4;
-  font-weight: 600;
-  margin: 0;
-}
-
-/* 值/说明（内容）——用与 h4 相同的字号，但颜色灰 */
-.system-overview .meter-value,
-.system-overview .metric-desc,
-.system-overview .progress-extra,
-.system-overview .progress-budget{
-  font-size: var(--h4-size);
-  line-height: 1.4;
-  color: var(--muted-color);
-  font-weight: 500;                  /* 可按需 400/500 */
-}
-
-/* 兜底：任何 “.progress-label” 容器若本身是灰色，也不影响其内 h4 的黑色 */
-.progress-label { color: var(--muted-color); }
-.progress-label h4 { color: var(--heading-color); }
-
-/* 实用类：如果你在别处也要“内容=H4 字号 + 灰”，可直接加这个类 */
-.text-h4-muted { font-size: var(--h4-size); line-height: 1.4; color: var(--muted-color); }
 
 EXTERNAL_CSS
 
