@@ -3516,9 +3516,9 @@ configure_xray() {
         --arg cert_pem "${CERT_DIR}/current.pem" \
         --arg cert_key "${CERT_DIR}/current.key" \
         '{
-"log": {
-    "loglevel": "warning"
-},
+            "log": {
+                "loglevel": "warning"
+            },
             "inbounds": [
                 {
                     "tag": "vless-reality",
@@ -3527,10 +3527,7 @@ configure_xray() {
                     "protocol": "vless",
                     "settings": {
                         "clients": [
-                            {
-                                "id": $uuid_reality,
-                                "flow": "xtls-rprx-vision"
-                            }
+                            { "id": $uuid_reality, "flow": "xtls-rprx-vision" }
                         ],
                         "decryption": "none"
                     },
@@ -3546,131 +3543,69 @@ configure_xray() {
                         }
                     }
                 },
-{
-    "tag": "vless-grpc",
-    "listen": "127.0.0.1",
-    "port": 10085,
-    "protocol": "vless",
-    "settings": {
-        "clients": [
-            {
-                "id": $uuid_grpc
-            }
-        ],
-        "decryption": "none"
-    },
-    "streamSettings": {
-        "network": "grpc",
-        "security": "tls",
-        "tlsSettings": {
-            "certificates": [
                 {
-                    "certificateFile": $cert_pem,
-                    "keyFile": $cert_key
-                }
-            ]
-        },
-        "grpcSettings": {
-            "serviceName": "grpc",
-            "multiMode": false
-        }
-    }
-},
+                    "tag": "vless-grpc",
+                    "listen": "127.0.0.1",
+                    "port": 10085,
+                    "protocol": "vless",
+                    "settings": {
+                        "clients": [ { "id": $uuid_grpc } ],
+                        "decryption": "none"
+                    },
+                    "streamSettings": {
+                        "network": "grpc",
+                        "security": "tls",
+                        "tlsSettings": { "certificates": [ { "certificateFile": $cert_pem, "keyFile": $cert_key } ] },
+                        "grpcSettings": { "serviceName": "grpc", "multiMode": false }
+                    }
+                },
                 {
                     "tag": "vless-ws",
                     "listen": "127.0.0.1",
                     "port": 10086,
                     "protocol": "vless",
                     "settings": {
-                        "clients": [
-                            {
-                                "id": $uuid_ws
-                            }
-                        ],
+                        "clients": [ { "id": $uuid_ws } ],
                         "decryption": "none"
                     },
                     "streamSettings": {
                         "network": "ws",
                         "security": "tls",
-                        "tlsSettings": {
-                            "certificates": [
-                                {
-                                    "certificateFile": $cert_pem,
-                                    "keyFile": $cert_key
-                                }
-                            ]
-                        },
-                        "wsSettings": {
-                           "path": "/ws"
-                        }
+                        "tlsSettings": { "certificates": [ { "certificateFile": $cert_pem, "keyFile": $cert_key } ] },
+                        "wsSettings": { "path": "/ws" }
                     }
                 },
-{
-    "tag": "trojan-tcp",
-    "listen": "127.0.0.1",
-    "port": 10143,
-    "protocol": "trojan",
-    "settings": {
-        "clients": [
-            {
-                "password": $password_trojan
-            }
-        ]
-    },
-    "streamSettings": {
-        "network": "tcp",
-        "security": "tls",
-        "tcpSettings": {
-            "header": {
-                "type": "none"
-            }
-        },
-        "tlsSettings": {
-            "certificates": [
                 {
-                    "certificateFile": $cert_pem,
-                    "keyFile": $cert_key
+                    "tag": "trojan-tcp",
+                    "listen": "127.0.0.1",
+                    "port": 10143,
+                    "protocol": "trojan",
+                    "settings": {
+                        "clients": [ { "password": $password_trojan } ]
+                    },
+                    "streamSettings": {
+                        "network": "tcp",
+                        "security": "tls",
+                        "tcpSettings": { "header": { "type": "none" } },
+                        "tlsSettings": { "certificates": [ { "certificateFile": $cert_pem, "keyFile": $cert_key } ] }
+                    }
                 }
-            ]
-        }
-    }
-}
             ],
             "outbounds": [
-                {
-                    "tag": "direct",
-                    "protocol": "freedom",
-                    "settings": {}
-                },
-                {
-                    "tag": "block",
-                    "protocol": "blackhole",
-                    "settings": {}
-                }
+                { "tag": "direct", "protocol": "freedom", "settings": {} },
+                { "tag": "block", "protocol": "blackhole", "settings": {} }
             ],
-			"dns": {
-  "servers": [
-    "8.8.8.8",
-    "1.1.1.1",
-    {"address": "https://1.1.1.1/dns-query"},
-    {"address": "https://8.8.8.8/dns-query"}
-  ],
-  "queryStrategy": "UseIP"
-},
+            "dns": {
+                "servers": [ "8.8.8.8", "1.1.1.1", {"address": "https://1.1.1.1/dns-query"}, {"address": "https://8.8.8.8/dns-query"} ],
+                "queryStrategy": "UseIP"
+            },
             "routing": {
-                "domainStrategy": "UseIp",
+                "domainStrategy": "UseIp", # <<< CORRECTED from UseIP
                 "rules": [
-                    {
-                        "type": "field",
-                        "ip": ["geoip:private"],
-                        "outboundTag": "block"
-                    }
+                    { "type": "field", "ip": ["geoip:private"], "outboundTag": "block" }
                 ]
             },
-            "policy": {
-                "handshake": 4,
-                "connIdle": 30
-            }
+            "policy": { "handshake": 4, "connIdle": 30 }
         }' > "${CONFIG_DIR}/xray.json"; then
         log_error "使用jq生成Xray配置文件失败"
         return 1
@@ -5382,7 +5317,7 @@ export LANG=C LC_ALL=C
 CONFIG_DIR="${CONFIG_DIR:-/etc/edgebox/config}"
 TRAFFIC_DIR="${TRAFFIC_DIR:-/etc/edgebox/traffic}"
 LOG_DIR="/var/log/edgebox"
-CERT_DIR="/etc/edgebox/certs"
+CERT_DIR="/etc/edgebox/cert" # Corrected from /certs
 
 OUTPUT_JSON="${TRAFFIC_DIR}/protocol-health.json"
 TEMP_JSON="${OUTPUT_JSON}.tmp"
@@ -5463,6 +5398,46 @@ ensure_log_dir() {
     mkdir -p "$LOG_DIR" 2>/dev/null || true
     touch "$LOG_FILE" 2>/dev/null || true
 }
+
+# *** THIS IS THE MISSING FUNCTION ***
+# vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
+generate_self_signed_cert() {
+    log_info "(Healer) Generating self-signed certificate..."
+    
+    mkdir -p "${CERT_DIR}"
+    rm -f "${CERT_DIR}"/self-signed.{key,pem} "${CERT_DIR}"/current.{key,pem}
+    
+    if ! command -v openssl >/dev/null 2>&1; then
+        log_error "(Healer) openssl not found, cannot generate certificate"; return 1;
+    fi
+
+    local server_ip="127.0.0.1"
+    if [[ -f "/etc/edgebox/config/server.json" ]]; then
+        server_ip=$(jq -r '.server_ip // "127.0.0.1"' "/etc/edgebox/config/server.json")
+    fi
+    
+    openssl ecparam -genkey -name secp384r1 -out "${CERT_DIR}/self-signed.key" 2>/dev/null || { log_error "(Healer) Failed to generate ECC private key"; return 1; }
+    openssl req -new -x509 -key "${CERT_DIR}/self-signed.key" -out "${CERT_DIR}/self-signed.pem" -days 3650 -subj "/C=US/ST=CA/L=SF/O=EdgeBox/CN=${server_ip}" >/dev/null 2>&1 || { log_error "(Healer) Failed to generate self-signed certificate"; return 1; }
+    
+    ln -sf "${CERT_DIR}/self-signed.key" "${CERT_DIR}/current.key"
+    ln -sf "${CERT_DIR}/self-signed.pem" "${CERT_DIR}/current.pem"
+    
+    local NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
+    chown -R root:"${NOBODY_GRP}" "${CERT_DIR}"
+    chmod 750 "${CERT_DIR}"
+    chmod 640 "${CERT_DIR}"/self-signed.key
+    chmod 644 "${CERT_DIR}"/self-signed.pem
+
+    if openssl x509 -in "${CERT_DIR}/current.pem" -noout >/dev/null 2>&1; then
+        log_success "(Healer) Self-signed certificate generated successfully."
+        echo "self-signed" > "${CONFIG_DIR}/cert_mode"
+    else
+        log_error "(Healer) Certificate validation failed."; return 1;
+    fi
+    return 0
+}
+# ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+# *** END OF MISSING FUNCTION ***
 
 # 检查服务是否在冷却期内
 is_in_cooldown() {
