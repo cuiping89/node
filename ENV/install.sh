@@ -11517,7 +11517,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         <div class="commands-grid">
           <!-- 核心命令 -->
           <div class="command-section">
-            <h3>🎯 核心命令</h3>
+            <h3>🎯 核心命令 <span style="color: #a7f3d0; font-size: 0.85em;">(Core Commands)</span></h3>
             <div class="command-list">
               <code>edgeboxctl status</code> <span># 查看所有服务及端口的健康状态</span><br>
               <code>edgeboxctl sub</code> <span># 显示订阅链接与 Web 面板信息</span><br>
@@ -11532,7 +11532,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 
           <!-- 证书管理 -->
           <div class="command-section">
-            <h3>🔒 证书管理</h3>
+            <h3>🔒 证书管理 <span style="color: #a7f3d0; font-size: 0.85em;">(Certificate Management)</span></h3>
             <div class="command-list">
               <code>edgeboxctl switch-to-domain &lt;domain&gt;</code> <span># 切换为域名模式，并申请 Let's Encrypt 证书</span><br>
               <code>edgeboxctl switch-to-ip</code> <span># 切换回 IP 模式，使用自签名证书</span><br>
@@ -11546,7 +11546,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 
           <!-- SNI 域名管理 -->
           <div class="command-section">
-            <h3>🌐 SNI 域名管理</h3>
+            <h3>🌐 SNI 域名管理 <span style="color: #a7f3d0; font-size: 0.85em;">(SNI Domain Management)</span></h3>
             <div class="command-list">
               <code>edgeboxctl sni list</code> <span># 显示 SNI 域名池状态 (别名: pool)</span><br>
               <code>edgeboxctl sni auto</code> <span># 智能测试并选择最优 SNI 域名</span><br>
@@ -11559,7 +11559,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 
           <!-- Reality 密钥轮换 -->
           <div class="command-section">
-            <h3>🔐 Reality 密钥轮换</h3>
+            <h3>🔐 Reality 密钥轮换 <span style="color: #a7f3d0; font-size: 0.85em;">(Reality Key Rotation)</span></h3>
             <div class="command-list">
               <code>edgeboxctl rotate-reality</code> <span># 手动执行 Reality 密钥对轮换 (安全增强)</span><br>
               <code>edgeboxctl reality-status</code> <span># 查看 Reality 密钥轮换的周期状态</span>
@@ -11568,7 +11568,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 
           <!-- 流量特征随机化 -->
           <div class="command-section">
-            <h3>🎲 流量特征随机化</h3>
+            <h3>🎲 流量特征随机化 <span style="color: #a7f3d0; font-size: 0.85em;">(Traffic Randomization)</span></h3>
             <div class="command-list">
               <code>edgeboxctl traffic randomize [light|medium|heavy]</code> <span># 执行流量特征随机化，增强隐蔽性</span><br>
               <code>edgeboxctl traffic status</code> <span># 查看随机化系统状态和定时任务</span><br>
@@ -11586,7 +11586,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 
           <!-- 出站分流 -->
           <div class="command-section">
-            <h3>🔀 出站分流</h3>
+            <h3>🔀 出站分流 <span style="color: #a7f3d0; font-size: 0.85em;">(Outbound Routing)</span></h3>
             <div class="command-list">
               <code>edgeboxctl shunt vps</code> <span># [模式] VPS 直连出站 (默认)</span><br>
               <code>edgeboxctl shunt resi '&lt;URL&gt;'</code> <span># [模式] 代理全量出站 (仅 Xray)</span><br>
@@ -11608,7 +11608,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 
           <!-- 流量与预警 -->
           <div class="command-section">
-            <h3>📊 流量与预警</h3>
+            <h3>📊 流量与预警 <span style="color: #a7f3d0; font-size: 0.85em;">(Traffic & Alert)</span></h3>
             <div class="command-list">
               <code>edgeboxctl traffic show</code> <span># 在终端查看流量使用统计</span><br>
               <code>edgeboxctl alert show</code> <span># 查看当前预警配置</span><br>
@@ -11629,7 +11629,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 
           <!-- 配置与维护 -->
           <div class="command-section">
-            <h3>🧩 配置与维护</h3>
+            <h3>🧩 配置与维护 <span style="color: #a7f3d0; font-size: 0.85em;">(Configuration & Maintenance)</span></h3>
             <div class="command-list">
               <code>edgeboxctl config show</code> <span># 显示所有协议的 UUID、密码等详细配置</span><br>
               <code>edgeboxctl config regenerate-uuid</code> <span># 为所有协议重新生成 UUID 和密码</span><br>
@@ -11646,7 +11646,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 
           <!-- 诊断与排障 -->
           <div class="command-section">
-            <h3>🔍 诊断与排障</h3>
+            <h3>🔍 诊断与排障 <span style="color: #a7f3d0; font-size: 0.85em;">(Diagnostics & Debug)</span></h3>
             <div class="command-list">
               <code>edgeboxctl test</code> <span># 对各协议入口进行基础连通性测试</span><br>
               <code>edgeboxctl test-udp &lt;host&gt; &lt;port&gt; [seconds]</code> <span># 使用 iperf3/socat 进行 UDP 连通性简测</span><br>
@@ -11721,7 +11721,6 @@ chmod 644 "${TRAFFIC_DIR}/assets/edgebox-panel.js"
 chmod 644 "$TRAFFIC_DIR/index.html"
 
 log_success "流量监控系统设置完成（CSS和JS已外置）"
-
 
 
 #############################################
