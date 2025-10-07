@@ -4889,118 +4889,47 @@ get_services_status() {
         }'
 }
 
+
 get_protocols_status() {
     local TRAFFIC_DIR="${TRAFFIC_DIR:-/etc/edgebox/traffic}"
-    local CONFIG_DIR="${CONFIG_DIR:-/etc/edgebox/config}"
-    local SERVER_CONFIG="${SERVER_CONFIG:-${CONFIG_DIR}/server.json}"
-    local XRAY_CFG="${CONFIG_DIR}/xray.json"
     local health_report_file="${TRAFFIC_DIR}/protocol-health.json"
+    local default_status='{"status":"待检测","status_badge":"⚪ 待检测","detail_message":""}'
 
-    # 默认占位（只用于无健康数据时兜底）
-    local default_status='{
-      "status":"unknown",
-      "status_badge":"❓ 未知",
-      "detail_message":"",
-      "recommendation_badge":""
-    }'
-
-    # 读取健康报告，做成 {key:item} 的对象
-    local health_map="{}"
+    # 读取健康数据（允许为空）
+    local health_data="[]"
     if [[ -s "$health_report_file" ]]; then
-        health_map="$(jq -c '
-          def to_map: ( .protocols // [] )
-            | reduce .[] as $p ({}; .[$p.protocol] = $p);
-          to_map
-        ' "$health_report_file" 2>/dev/null || echo '{}')"
+        health_data="$(jq -c '.protocols // []' "$health_report_file" 2>/dev/null || echo '[]')"
     fi
 
-    # ---- 从实际配置中提取“可变参数” ----
-    # Reality SNI
-    local reality_sni
-    reality_sni="$(jq -r 'first(
-        .inbounds[]? |
-        select(.tag=="vless-reality" or .tag=="reality-in" or .protocol=="vless") |
-        (
-          .reality?.server_names?[0] // .reality?.serverNames?[0] //
-          .streamSettings?.realitySettings?.serverNames?[0] //
-          .tls?.server_name // .tls?.serverName
-        )
-      ) // empty' "$XRAY_CFG" 2>/dev/null)"
-    : "${reality_sni:=$(jq -r '.reality.sni // empty' "$SERVER_CONFIG" 2>/dev/null)}"
-    : "${reality_sni:=${REALITY_SNI:-www.microsoft.com}}"
+    # 协议顺序和 key，这个列表是正确的
+    local names=("VLESS-Reality" "VLESS-gRPC" "VLESS-WebSocket" "Trojan-TLS" "Hysteria2" "TUIC")
 
-    # WebSocket Path
-    local ws_path
-    ws_path="$(jq -r 'first(
-        .inbounds[]? |
-        select(.tag=="vless-ws" or (.protocol=="vless" and (.streamSettings?.wsSettings?))) |
-        .streamSettings.wsSettings.path
-      ) // empty' "$XRAY_CFG" 2>/dev/null)"
-    : "${ws_path:=/ws}"
-
-    # gRPC serviceName
-    local grpc_service
-    grpc_service="$(jq -r 'first(
-        .inbounds[]? |
-        select(.tag=="vless-grpc" or (.protocol=="vless" and (.streamSettings?.grpcSettings?))) |
-        .streamSettings.grpcSettings.serviceName
-      ) // empty' "$XRAY_CFG" 2>/dev/null)"
-    : "${grpc_service:=grpc}"
-
-    # Trojan TLS SNI（如未配，文案里用 "TLS + SNI" 即可）
-    local trojan_sni
-    trojan_sni="$(jq -r 'first(
-        .inbounds[]? |
-        select(.protocol=="trojan") |
-        (.tls?.server_name // .streamSettings?.tlsSettings?.serverName)
-      ) // empty' "$XRAY_CFG" 2>/dev/null)"
-
-    # 生成 protocols 数组（包含场景/伪装 + 健康字段）
-    jq -n \
-      --argjson H "$health_map" \
-      --arg sni "$reality_sni" \
-      --arg ws "$ws_path" \
-      --arg grpc "$grpc_service" \
-      --arg trojan_sni "${trojan_sni:-TLS}" \
-      --argjson DEF "$default_status" \
-      'def h($k): ($H[$k] // {});
-       [
-         {name:"VLESS-Reality", key:"reality",
-          scenario:"443直连 / 抗探测 / 综合推荐",
-          camouflage: ("REALITY SNI: " + $sni)},
-         {name:"VLESS-gRPC", key:"grpc",
-          scenario:"CDN友好 / HTTP/2 长连接",
-          camouflage: ("gRPC service: " + $grpc)},
-         {name:"VLESS-WebSocket", key:"ws",
-          scenario:"CDN回源 / 兼容备用",
-          camouflage: ("WS path: " + $ws)},
-         {name:"Trojan-TLS", key:"trojan",
-          scenario:"TLS 伪装 / 兼容传统客户端",
-          camouflage: ("TLS SNI: " + $trojan_sni)},
-         {name:"Hysteria2", key:"hysteria2",
-          scenario:"UDP 高速 / 弱网高丢包",
-          camouflage:"QUIC + Hysteria2"},
-         {name:"TUIC", key:"tuic",
-          scenario:"QUIC / 低延迟 / 弱网",
-          camouflage:"QUIC + TUIC"}
-       ]
-       | map({
-           # name 用于显示；protocol 用协议键供 dataset 使用
-           name,
-           protocol: .key,
-           scenario,
-           camouflage,
-
-           # 健康字段（透传 + 兜底）
-           status:                 (h(.key).status                 // $DEF.status),
-           status_badge:           (h(.key).status_badge           // $DEF.status_badge),
-           health_score:           (h(.key).health_score           // null),
-           response_time:          (h(.key).response_time          // null),
-           detail_message:         (h(.key).detail_message         // $DEF.detail_message),
-           recommendation_badge:   (h(.key).recommendation_badge   // $DEF.recommendation_badge)
-         })'
+    # 【【【 已修正字段名和逻辑 】】】
+    # 使用 jq -n 生成最终数组
+    jq -n --argjson H "${health_data}" --argjson DEF "${default_status}" --argjson N "$(printf '%s\n' "${names[@]}" | jq -R . | jq -s .)" '
+        [ $N[] as $k |
+            # 试图在健康数据里找到同名对象
+            ( $H[] | select(.protocol == $k) ) as $h |
+            
+            if $h != null then
+                # 从 $h 中提取并修正字段名
+                {
+                    name: $k,
+                    protocol: $k,
+                    status: ($h.status // "unknown"),
+                    status_badge: ($h.status_badge // "❓ 未知"),
+                    detail_message: ($h.detail_message // ""),
+                    recommendation_badge: ($h.recommendation_badge // "")
+                }
+            else
+                # 如果找不到健康数据，使用默认值
+                {
+                    name: $k, 
+                    protocol: $k
+                } + $DEF
+            end
+        ]'
 }
-
 
 
 # 获取分流配置状态
@@ -11568,7 +11497,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
   <div class="commands-grid">
     <!-- 核心命令 -->
     <div class="command-section">
-      <h3>🎯 核心命令</h3>
+      <h3>🎯 核心命令 <span style="color: #a7f3d0; font-size: 0.85em;">(Core Commands)</span></h3>
       <div class="command-list">
         <code>edgeboxctl status</code> <span># 查看所有服务及端口的健康状态</span><br>
         <code>edgeboxctl sub</code> <span># 显示订阅链接与 Web 面板信息</span><br>
@@ -11583,7 +11512,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 
     <!-- 证书管理 -->
     <div class="command-section">
-      <h3>🔒 证书管理</h3>
+      <h3>🔒 证书管理 <span style="color: #a7f3d0; font-size: 0.85em;">(Certificate Management)</span></h3>
       <div class="command-list">
         <code>edgeboxctl switch-to-domain &lt;domain&gt;</code> <span># 切换为域名模式，并申请 Let's Encrypt 证书</span><br>
         <code>edgeboxctl switch-to-ip</code> <span># 切换回 IP 模式，使用自签名证书</span><br>
