@@ -4826,7 +4826,7 @@ get_services_status() {
 
 
 # 获取协议配置状态 (修复版 - 完整合并健康数据 + JQ语法修正)
-# 获取协议配置状态 (修复版 - 完整合并健康数据 + JQ语法修正)
+# 获取协议配置状态 (最终修正版 - 兼容两种协议键名)
 get_protocols_status() {
     local health_report_file="${TRAFFIC_DIR}/protocol-health.json"
     local server_config_file="${CONFIG_DIR}/server.json"
@@ -4870,10 +4870,7 @@ get_protocols_status() {
             elif $name == "VLESS-WebSocket" then "vless://\($conf.uuid.vless.ws)@\($domain):443?encryption=none&security=tls&sni=\($domain)&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome#EdgeBox-WS"
             elif $name == "Trojan-TLS" then "trojan://\($conf.password.trojan | url_encode)@\($domain):443?security=tls&sni=trojan.\($domain)&alpn=http%2F1.1&fp=chrome#EdgeBox-TROJAN"
             elif $name == "Hysteria2" then "hysteria2://\($conf.password.hysteria2 | url_encode)@\($domain):443?sni=\($domain)&alpn=h3#EdgeBox-HYSTERIA2"
-            
-            # ### FIX IS HERE: Replaced the incorrect } with a correct ) ###
             elif $name == "TUIC" then "tuic://\($conf.uuid.tuic):\($conf.password.tuic | url_encode)@\($domain):2053?congestion_control=bbr&alpn=h3&sni=\($domain)#EdgeBox-TUIC"
-            
             else ""
             end
         ')
@@ -4886,11 +4883,10 @@ get_protocols_status() {
             --arg share_link "$share_link" \
             '{name: $name, protocol: $key, scenario: $scenario, camouflage: $camouflage, port: $port, network: $network, share_link: $share_link}')
         
-        # 从健康报告中查找动态信息
+        # ### 最终修正：使用 jq 同时匹配短名称和全名 ###
         local dynamic_info
-        dynamic_info=$(echo "$health_data" \
-  | jq -c --arg key "$key" --arg name "$name" \
-    '.[] | select((.protocol == $key) or (.protocol == $name))')
+        dynamic_info=$(echo "$health_data" | jq -c --arg key "$key" --arg fullname "$name" '.[] | select(.protocol == $key or .protocol == $fullname)')
+        ### END OF FIX ###
 
         # 如果找不到动态信息，使用默认值
         if [[ -z "$dynamic_info" || "$dynamic_info" == "null" ]]; then
