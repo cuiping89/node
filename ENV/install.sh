@@ -11229,270 +11229,266 @@ EXTERNAL_JS
 
 
 # ======= 创建HTML文件（引用外置的CSS和JS）========
-log_info "创建控制面板HTML文件..."
+  log_info "创建控制面板HTML文件..."
 cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>EdgeBox Control Panel</title>
-  <link rel="stylesheet" href="./assets/edgebox-panel.css">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EdgeBox Control Panel</title>
+<link rel="stylesheet" href="./assets/edgebox-panel.css">
 </head>
 <body>
 
 <div class="container">
   <div class="main-card">
-    <div class="main-header">
-      <h1>🌐 EdgeBox - 企业级多协议节点管理系统 ✨</h1>
-      <div class="notification-center">
-        <button class="notification-trigger" id="notificationTrigger" data-action="toggle-notifications">
-          <span class="notification-icon">🔔</span>
-          <span class="notification-badge" id="notificationBadge" style="display:none;">0</span>
-        </button>
-        <div class="notification-panel" id="notificationPanel">
-          <div class="notification-header">
-            <h3>通知中心</h3>
-            <button class="notification-clear" data-action="clear-notifications">清空</button>
-          </div>
-          <div class="notification-list" id="notificationList">
-            <div class="notification-loading">加载中...</div>
-          </div>
-          <div class="notification-footer">
-            <small>自动清理7天前的通知</small>
-          </div>
+        <div class="main-header">
+        <h1>🌐 EdgeBox - 企业级多协议节点管理系统 ✨</h1>
+        <div class="notification-center">
+            <button class="notification-trigger" id="notificationTrigger" data-action="toggle-notifications">
+                <span class="notification-icon">🔔</span>
+                <span class="notification-badge" id="notificationBadge" style="display:none;">0</span>
+            </button>
+            <div class="notification-panel" id="notificationPanel">
+                <div class="notification-header">
+                    <h3>通知中心</h3>
+                    <button class="notification-clear" data-action="clear-notifications">清空</button>
+                </div>
+                <div class="notification-list" id="notificationList">
+                    <div class="notification-loading">加载中...</div>
+                </div>
+                <div class="notification-footer">
+                    <small>自动清理7天前的通知</small>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="main-content">
+	
+<div class="card" id="system-overview">	
+        <div class="card-header">
+  <h2>
+    📊 系统概览
+    <span class="card-note" id="sys-meta">版本号: — | 安装日期: — | 更新时间: —</span>
+  </h2>
+</div>
+<div class="grid grid-3">
+		
+<!-- === 服务器信息（保持你的 h3 不变） === -->
+<div class="server-info inner-block">
+  <h3>服务器信息</h3>
+
+  <div class="info-item">
+    <div class="label">用户备注名:</div>
+    <div class="value" id="user-remark">—</div>
+  </div>
+  <div class="info-item">
+    <div class="label">云厂商|区域:</div>
+    <div class="value" id="cloud-region">—</div>
+  </div>
+  <div class="info-item">
+    <div class="label">Instance ID:</div>
+    <div class="value" id="instance-id">—</div>
+  </div>
+  <div class="info-item">
+    <div class="label">主机名:</div>
+    <div class="value" id="hostname">—</div>
+  </div>
+</div>
+
+<!-- === 服务器配置 === -->
+<div class="inner-block" id="server-config">
+  <h3>服务器配置</h3>
+
+  <div class="progress-row" id="cpu-row">
+    <span class="progress-label">CPU:</span>
+    <div class="progress-bar">
+      <span class="progress-text" id="cpu-info" title="—">—</span>
+      <div class="progress-fill" id="cpu-progress" style="width:0%"></div>
+    </div>
+    <span class="progress-info" id="cpu-percent">0%</span>
+  </div>
+
+  <div class="progress-row" id="mem-row">
+    <span class="progress-label">内存:</span>
+    <div class="progress-bar">
+      <span class="progress-text" id="mem-info" title="—">—</span>
+      <div class="progress-fill" id="mem-progress" style="width:0%"></div>
+    </div>
+    <span class="progress-info" id="mem-percent">0%</span>
+  </div>
+
+  <div class="progress-row" id="disk-row">
+    <span class="progress-label">磁盘:</span>
+    <div class="progress-bar">
+      <span class="progress-text" id="disk-info" title="—">—</span>
+      <div class="progress-fill" id="disk-progress" style="width:0%"></div>
+    </div>
+    <span class="progress-info" id="disk-percent">0%</span>
+  </div>
+</div>
+	  
+<!-- === 核心服务 === -->
+<div class="core-services inner-block">
+  <h3>核心服务</h3>
+
+  <div class="service-item">
+    <div class="label">Nginx:</div>
+    <div class="service-status">
+      <span class="status-badge status-stopped">已停止</span>
+    </div>
+    <div class="version" id="nginx-version">—</div>
+  </div>
+
+  <div class="service-item">
+    <div class="label">Xray:</div>
+    <div class="service-status">
+      <span class="status-badge status-stopped">已停止</span>
+    </div>
+    <div class="version" id="xray-version">—</div>
+  </div>
+
+  <div class="service-item">
+    <div class="label">Sing-box:</div>
+    <div class="service-status">
+      <span class="status-badge status-stopped">已停止</span>
+    </div>
+    <div class="version" id="singbox-version">—</div>
+  </div>
+</div>
+      </div>
+	  </div>
+	  
+<div class="grid grid-1-2">
+  <!-- 🔒 证书切换 -->
+  <div class="card" id="cert-panel">
+    <div class="card-header"><h2>🔒 证书切换</h2></div>
+
+    <div class="cert-modes">
+      <div class="cert-mode-tab" id="cert-self"><h3>自签证书</h3></div>
+      <div class="cert-mode-tab" id="cert-ca"><h3>CA证书</h3></div>
+    </div>
+
+    <div class="inner-block">
+      <div class="info-item cert__row">
+        <label class="cert__label">证书类型:</label>
+        <value class="cert__value" id="cert-type">—</value>
+      </div>
+      <div class="info-item cert__row">
+        <label class="cert__label">绑定域名:</label>
+        <value class="cert__value" id="cert-domain">—</value>
+      </div>
+      <div class="info-item cert__row">
+        <label class="cert__label">续期方式:</label>
+        <value class="cert__value" id="cert-renewal">—</value>
+      </div>
+      <div class="info-item cert__row">
+        <label class="cert__label">到期日期:</label>
+        <value class="cert__value" id="cert-expiry">—</value>
+      </div>
+    </div>
+  </div>
+
+  <!-- 👥 网络身份配置 -->
+  <div class="card" id="netid-panel">
+    <div class="card-header">
+      <h2>👥 网络身份配置 <span class="note-udp">注：HY2/TUIC为UDP通道，VPS直连，不参与分流配置.</span></h2>
+    </div>
+
+    <div class="network-blocks">
+      <!-- 📡 VPS出站IP -->
+      <div class="network-block" id="net-vps">
+        <h3>📡 VPS出站IP</h3>
+        <div class="info-item nid__row">
+          <label class="nid__label">公网身份:</label>
+          <value class="nid__value">直连</value>
+        </div>
+        <div class="info-item nid__row">
+          <label class="nid__label">VPS-IP:</label>
+          <value class="nid__value" id="vps-ip">—</value>
+        </div>
+        <div class="info-item nid__row">
+
+          <label class="nid__label">Geo:</label>
+          <value class="nid__value" id="vps-geo">—</value>
+        </div>
+        <div class="info-item nid__row">
+          <label class="nid__label">IP质量:</label>
+          <value class="nid__value">
+            <span id="vps-ipq-score">—</span>
+            <button class="btn-link" data-action="open-modal" data-modal="ipqModal" data-ipq="vps">查看详情</button>
+          </value>
+        </div>
+      </div>
+
+      <!-- 🔄 代理出站IP -->
+      <div class="network-block" id="net-proxy">
+        <h3>🔄 代理出站IP</h3>
+        <div class="info-item nid__row">
+          <label class="nid__label">代理身份:</label>
+          <value class="nid__value">全代理</value>
+        </div>
+        <div class="info-item nid__row">
+          <label class="nid__label">代理IP:</label>
+          <value class="nid__value" id="proxy-ip">—</value>
+        </div>
+        <div class="info-item nid__row">
+          <label class="nid__label">Geo:</label>
+          <value class="nid__value" id="proxy-geo">—</value>
+        </div>
+        <div class="info-item nid__row">
+          <label class="nid__label">IP质量:</label>
+          <value class="nid__value">
+            <span id="proxy-ipq-score">—</span>
+            <button class="btn-link" data-action="open-modal" data-modal="ipqModal" data-ipq="proxy">查看详情</button>
+          </value>
+        </div>
+      </div>
+
+<!-- 🔀 分流出站 -->
+      <div class="network-block" id="net-shunt">
+        <h3>🔀 分流出站</h3>
+        <div class="info-item nid__row">
+          <label class="nid__label">混合身份:</label>
+          <value class="nid__value">直连&代理</value>
+        </div>
+        <div class="info-item nid__row">
+          <label class="nid__label">VPS-IP:</label>
+          <value class="nid__value">同左</value>
+        </div>
+        <div class="info-item nid__row">
+          <label class="nid__label">代理IP:</label>
+          <value class="nid__value">同左</value>
+        </div>
+        <div class="info-item nid__row">
+          <label class="nid__label">白名单:</label>
+          <value class="nid__value whitelist-value">
+            <div class="whitelist-preview" id="whitelistPreview"></div>
+          </value>
         </div>
       </div>
     </div>
-    
-    <div class="main-content">
-      
-      <div class="card" id="system-overview">	
-        <div class="card-header">
-          <h2>
-            📊 系统概览
-            <span class="card-note" id="sys-meta">版本号: — | 安装日期: — | 更新时间: —</span>
-          </h2>
-        </div>
-        <div class="grid grid-3">
-          
-          <!-- === 服务器信息（保持你的 h3 不变） === -->
-          <div class="server-info inner-block">
-            <h3>服务器信息</h3>
-            <div class="info-item">
-              <div class="label">用户备注名:</div>
-              <div class="value" id="user-remark">—</div>
-            </div>
-            <div class="info-item">
-              <div class="label">云厂商|区域:</div>
-              <div class="value" id="cloud-region">—</div>
-            </div>
-            <div class="info-item">
-              <div class="label">Instance ID:</div>
-              <div class="value" id="instance-id">—</div>
-            </div>
-            <div class="info-item">
-              <div class="label">主机名:</div>
-              <div class="value" id="hostname">—</div>
-            </div>
-          </div>
-
-          <!-- === 服务器配置 === -->
-          <div class="inner-block" id="server-config">
-            <h3>服务器配置</h3>
-            <div class="progress-row" id="cpu-row">
-              <span class="progress-label">CPU:</span>
-              <div class="progress-bar">
-                <span class="progress-text" id="cpu-info" title="—">—</span>
-                <div class="progress-fill" id="cpu-progress" style="width:0%"></div>
-              </div>
-              <span class="progress-info" id="cpu-percent">0%</span>
-            </div>
-            <div class="progress-row" id="mem-row">
-              <span class="progress-label">内存:</span>
-              <div class="progress-bar">
-                <span class="progress-text" id="mem-info" title="—">—</span>
-                <div class="progress-fill" id="mem-progress" style="width:0%"></div>
-              </div>
-              <span class="progress-info" id="mem-percent">0%</span>
-            </div>
-            <div class="progress-row" id="disk-row">
-              <span class="progress-label">磁盘:</span>
-              <div class="progress-bar">
-                <span class="progress-text" id="disk-info" title="—">—</span>
-                <div class="progress-fill" id="disk-progress" style="width:0%"></div>
-              </div>
-              <span class="progress-info" id="disk-percent">0%</span>
-            </div>
-          </div>
-          
-          <!-- === 核心服务 === -->
-          <div class="core-services inner-block">
-            <h3>核心服务</h3>
-            <div class="service-item">
-              <div class="label">Nginx:</div>
-              <div class="service-status">
-                <span class="status-badge status-stopped">已停止</span>
-              </div>
-              <div class="version" id="nginx-version">—</div>
-            </div>
-            <div class="service-item">
-              <div class="label">Xray:</div>
-              <div class="service-status">
-                <span class="status-badge status-stopped">已停止</span>
-              </div>
-              <div class="version" id="xray-version">—</div>
-            </div>
-            <div class="service-item">
-              <div class="label">Sing-box:</div>
-              <div class="service-status">
-                <span class="status-badge status-stopped">已停止</span>
-              </div>
-              <div class="version" id="singbox-version">—</div>
-            </div>
-          </div>
-        </div>
-      </div>
-      
-      <div class="grid grid-1-2">
-        <!-- 🔒 证书切换 -->
-        <div class="card" id="cert-panel">
-          <div class="card-header"><h2>🔒 证书切换</h2></div>
-          <div class="cert-modes">
-            <div class="cert-mode-tab" id="cert-self"><h3>自签证书</h3></div>
-            <div class="cert-mode-tab" id="cert-ca"><h3>CA证书</h3></div>
-          </div>
-          <div class="inner-block">
-            <div class="info-item cert__row">
-              <label class="cert__label">证书类型:</label>
-              <value class="cert__value" id="cert-type">—</value>
-            </div>
-            <div class="info-item cert__row">
-              <label class="cert__label">绑定域名:</label>
-              <value class="cert__value" id="cert-domain">—</value>
-            </div>
-            <div class="info-item cert__row">
-              <label class="cert__label">续期方式:</label>
-              <value class="cert__value" id="cert-renewal">—</value>
-            </div>
-            <div class="info-item cert__row">
-              <label class="cert__label">到期日期:</label>
-              <value class="cert__value" id="cert-expiry">—</value>
-            </div>
-          </div>
-        </div>
-
-        <!-- 👥 网络身份配置 -->
-        <div class="card" id="netid-panel">
-          <div class="card-header">
-            <h2>👥 网络身份配置 <span class="note-udp">注：HY2/TUIC为UDP通道，VPS直连，不参与分流配置.</span></h2>
-          </div>
-          <div class="network-blocks">
-            <!-- 📡 VPS出站IP -->
-            <div class="network-block" id="net-vps">
-              <h3>📡 VPS出站IP</h3>
-              <div class="info-item nid__row">
-                <label class="nid__label">公网身份:</label>
-                <value class="nid__value">直连</value>
-              </div>
-              <div class="info-item nid__row">
-                <label class="nid__label">VPS-IP:</label>
-                <value class="nid__value" id="vps-ip">—</value>
-              </div>
-              <div class="info-item nid__row">
-                <label class="nid__label">Geo:</label>
-                <value class="nid__value" id="vps-geo">—</value>
-              </div>
-              <div class="info-item nid__row">
-                <label class="nid__label">IP质量:</label>
-                <value class="nid__value">
-                  <span id="vps-ipq-score">—</span>
-                  <button class="btn-link" data-action="open-modal" data-modal="ipqModal" data-ipq="vps">查看详情</button>
-                </value>
-              </div>
-            </div>
-
-            <!-- 🔄 代理出站IP -->
-            <div class="network-block" id="net-proxy">
-              <h3>🔄 代理出站IP</h3>
-              <div class="info-item nid__row">
-                <label class="nid__label">代理身份:</label>
-                <value class="nid__value">全代理</value>
-              </div>
-              <div class="info-item nid__row">
-                <label class="nid__label">代理IP:</label>
-                <value class="nid__value" id="proxy-ip">—</value>
-              </div>
-              <div class="info-item nid__row">
-                <label class="nid__label">Geo:</label>
-                <value class="nid__value" id="proxy-geo">—</value>
-              </div>
-              <div class="info-item nid__row">
-                <label class="nid__label">IP质量:</label>
-                <value class="nid__value">
-                  <span id="proxy-ipq-score">—</span>
-                  <button class="btn-link" data-action="open-modal" data-modal="ipqModal" data-ipq="proxy">查看详情</button>
-                </value>
-              </div>
-            </div>
-
-            <!-- 🔀 分流出站 -->
-            <div class="network-block" id="net-shunt">
-              <h3>🔀 分流出站</h3>
-              <div class="info-item nid__row">
-                <label class="nid__label">混合身份:</label>
-                <value class="nid__value">直连&代理</value>
-              </div>
-              <div class="info-item nid__row">
-                <label class="nid__label">VPS-IP:</label>
-                <value class="nid__value">同左</value>
-              </div>
-              <div class="info-item nid__row">
-                <label class="nid__label">代理IP:</label>
-                <value class="nid__value">同左</value>
-              </div>
-              <div class="info-item nid__row">
-                <label class="nid__label">白名单:</label>
-                <value class="nid__value whitelist-value">
-                  <div class="whitelist-preview" id="whitelistPreview"></div>
-                </value>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+  </div>
+</div>
 
       <div class="card">
         <div class="card-header"><h2>📡 协议配置</h2></div>
         <table class="data-table">
-          <thead>
-            <tr>
-              <th><h3>协议名称</h3></th>
-              <th><h3>使用场景</h3></th>
-              <th><h3>伪装效果</h3></th>
-              <th><h3>运行状态</h3></th>
-              <th><h3>客户端配置</h3></th>
-            </tr>
-          </thead>
+          <thead><tr><th><h3>协议名称</h3></th><th><h3>使用场景</h3></th><th><h3>伪装效果</h3></th><th><h3>运行状态</h3></th><th><h3>客户端配置</h3></th></tr></thead>
           <tbody id="protocol-tbody"></tbody>
         </table>
       </div>
 
-      <div class="card traffic-card">
+<div class="card traffic-card">
         <div class="card-header">
-          <h2>📊 流量统计</h2>
+            <h2>📊 流量统计</h2>
         </div>
         <div class="traffic-charts traffic--subcards">
           <div class="chart-column">
             <div class="traffic-progress-container">
               <span class="progress-label"><h3>本月进度</h3></span>
-              <div class="progress-wrapper">
-                <div class="progress-bar">
-                  <div class="progress-fill" id="progress-fill" style="width:0%">
-                    <span class="progress-percentage" id="progress-percentage">0%</span>
-                  </div>
-                </div>
-              </div>
+              <div class="progress-wrapper"><div class="progress-bar"><div class="progress-fill" id="progress-fill" style="width:0%"><span class="progress-percentage" id="progress-percentage">0%</span></div></div></div>
               <span class="progress-budget" id="progress-budget">0/100GiB</span>
             </div>
             <div class="chart-container">
@@ -11509,200 +11505,175 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         </div>
       </div>
 
-      <!-- 运维管理（对齐 help 分类） -->
-      <div class="card">
-        <div class="card-header">
-          <h2>⚙️ 运维管理</h2>
-        </div>
-        <div class="commands-grid">
-          <!-- 核心命令 -->
-          <div class="command-section">
-            <h3>🎯 核心命令 <span style="color: #a7f3d0; font-size: 0.85em;">(Core Commands)</span></h3>
-            <div class="command-list">
-              <code>edgeboxctl status</code> <span># 查看所有服务及端口的健康状态</span><br>
-              <code>edgeboxctl sub</code> <span># 显示订阅链接与 Web 面板信息</span><br>
-              <code>edgeboxctl restart</code> <span># 优雅重启所有核心服务 (配置变更后使用)</span><br>
-              <code>edgeboxctl logs &lt;service&gt;</code> <span># 查看指定服务的实时日志 (Ctrl+C 退出)</span><br>
-              <code>edgeboxctl update</code> <span># 在线更新 EdgeBox 至最新版本</span><br>
-              <code>edgeboxctl help</code> <span># 显示帮助信息</span><br>
-              <strong>示例：</strong><br>
-              <code style="display: inline-block; margin-left: 0; margin-top: 5px;">edgeboxctl logs xray</code>
-            </div>
-          </div>
 
-          <!-- 证书管理 -->
-          <div class="command-section">
-            <h3>🔒 证书管理 <span style="color: #a7f3d0; font-size: 0.85em;">(Certificate Management)</span></h3>
-            <div class="command-list">
-              <code>edgeboxctl switch-to-domain &lt;domain&gt;</code> <span># 切换为域名模式，并申请 Let's Encrypt 证书</span><br>
-              <code>edgeboxctl switch-to-ip</code> <span># 切换回 IP 模式，使用自签名证书</span><br>
-              <code>edgeboxctl cert status</code> <span># 查看当前证书类型、域名及有效期</span><br>
-              <code>edgeboxctl cert renew</code> <span># 手动续期 Let's Encrypt 证书</span><br>
-              <code>edgeboxctl fix-permissions</code> <span># 修复证书文件的读写权限</span><br>
-              <strong>示例：</strong><br>
-              <code style="display: inline-block; margin-left: 0; margin-top: 5px;">edgeboxctl switch-to-domain my.domain.com</code>
-            </div>
-          </div>
+<!-- 运维管理（对齐 help 分类） -->
+<div class="card">
+  <div class="card-header">
+    <h2>⚙️ 运维管理</h2>
+  </div>
 
-          <!-- SNI 域名管理 -->
-          <div class="command-section">
-            <h3>🌐 SNI 域名管理 <span style="color: #a7f3d0; font-size: 0.85em;">(SNI Domain Management)</span></h3>
-            <div class="command-list">
-              <code>edgeboxctl sni list</code> <span># 显示 SNI 域名池状态 (别名: pool)</span><br>
-              <code>edgeboxctl sni auto</code> <span># 智能测试并选择最优 SNI 域名</span><br>
-              <code>edgeboxctl sni set &lt;domain&gt;</code> <span># 手动强制指定一个 SNI 域名</span><br>
-              <code>edgeboxctl sni test-all</code> <span># 测试池中所有域名的可用性</span><br>
-              <strong>示例：</strong><br>
-              <code style="display: inline-block; margin-left: 0; margin-top: 5px;">edgeboxctl sni set www.apple.com</code>
-            </div>
-          </div>
+  <div class="commands-grid">
+    <!-- 核心命令 -->
+    <div class="command-section">
+      <h3>🎯 核心命令 <span style="color: #a7f3d0; font-size: 0.85em;">(Core Commands)</span></h3>
+      <div class="command-list">
+        <code>edgeboxctl status</code> <span># 查看所有服务及端口的健康状态</span><br>
+        <code>edgeboxctl sub</code> <span># 显示订阅链接与 Web 面板信息</span><br>
+        <code>edgeboxctl restart</code> <span># 优雅重启所有核心服务 (配置变更后使用)</span><br>
+        <code>edgeboxctl logs &lt;service&gt;</code> <span># 查看指定服务的实时日志 (Ctrl+C 退出)</span><br>
+        <code>edgeboxctl update</code> <span># 在线更新 EdgeBox 至最新版本</span><br>
+        <code>edgeboxctl help</code> <span># 显示帮助信息</span><br>
+        <strong>示例：</strong><br>
+        <code style="display: inline-block; margin-left: 0; margin-top: 5px;">edgeboxctl logs xray</code>
+      </div>
+    </div>
 
-          <!-- Reality 密钥轮换 -->
-          <div class="command-section">
-            <h3>🔐 Reality 密钥轮换 <span style="color: #a7f3d0; font-size: 0.85em;">(Reality Key Rotation)</span></h3>
-            <div class="command-list">
-              <code>edgeboxctl rotate-reality</code> <span># 手动执行 Reality 密钥对轮换 (安全增强)</span><br>
-              <code>edgeboxctl reality-status</code> <span># 查看 Reality 密钥轮换的周期状态</span>
-            </div>
-          </div>
+    <!-- 证书管理 -->
+    <div class="command-section">
+      <h3>🔒 证书管理 <span style="color: #a7f3d0; font-size: 0.85em;">(Certificate Management)</span></h3>
+      <div class="command-list">
+        <code>edgeboxctl switch-to-domain &lt;domain&gt;</code> <span># 切换为域名模式，并申请 Let's Encrypt 证书</span><br>
+        <code>edgeboxctl switch-to-ip</code> <span># 切换回 IP 模式，使用自签名证书</span><br>
+        <code>edgeboxctl cert status</code> <span># 查看当前证书类型、域名及有效期</span><br>
+        <code>edgeboxctl cert renew</code> <span># 手动续期 Let's Encrypt 证书</span><br>
+        <code>edgeboxctl fix-permissions</code> <span># 修复证书文件的读写权限</span><br>
+        <strong>示例：</strong><br>
+        <code style="display: inline-block; margin-left: 0; margin-top: 5px;">edgeboxctl switch-to-domain my.domain.com</code>
+      </div>
+    </div>
 
-          <!-- 流量特征随机化 -->
-          <div class="command-section">
-            <h3>🎲 流量特征随机化 <span style="color: #a7f3d0; font-size: 0.85em;">(Traffic Randomization)</span></h3>
-            <div class="command-list">
-              <code>edgeboxctl traffic randomize [light|medium|heavy]</code> <span># 执行流量特征随机化，增强隐蔽性</span><br>
-              <code>edgeboxctl traffic status</code> <span># 查看随机化系统状态和定时任务</span><br>
-              <code>edgeboxctl traffic reset</code> <span># 重置随机化参数为默认值</span><br>
-              <strong>示例：</strong><br>
-              <code style="display: inline-block; margin-left: 0; margin-top: 5px;">edgeboxctl traffic randomize medium</code>
-              <div style="margin-top: 10px; color: #3b82f6; font-size: 0.95em;">
-                <strong>level:</strong><br>
-                <code style="display: inline-block; margin-left: 0; color: #3b82f6;">light(默认) - 轻度随机化，仅修改 Hysteria2 伪装站点</code><br>
-                <code style="display: inline-block; margin-left: 0; color: #3b82f6;">medium  - 中度随机化，修改 Hysteria2 + TUIC 参数</code><br>
-                <code style="display: inline-block; margin-left: 0; color: #3b82f6;">heavy  - 重度随机化，修改全协议参数</code>
-              </div>
-            </div>
-          </div>
+    <!-- SNI 域名管理 -->
+    <div class="command-section">
+      <h3>🌐 SNI 域名管理 <span style="color: #a7f3d0; font-size: 0.85em;">(SNI Domain Management)</span></h3>
+      <div class="command-list">
+        <code>edgeboxctl sni list</code> <span># 显示 SNI 域名池状态 (别名: pool)</span><br>
+        <code>edgeboxctl sni auto</code> <span># 智能测试并选择最优 SNI 域名</span><br>
+        <code>edgeboxctl sni set &lt;domain&gt;</code> <span># 手动强制指定一个 SNI 域名</span><br>
+        <code>edgeboxctl sni test-all</code> <span># 测试池中所有域名的可用性</span><br>
+        <strong>示例：</strong><br>
+        <code style="display: inline-block; margin-left: 0; margin-top: 5px;">edgeboxctl sni set www.apple.com</code>
+      </div>
+    </div>
 
-          <!-- 出站分流 -->
-          <div class="command-section">
-            <h3>🔀 出站分流 <span style="color: #a7f3d0; font-size: 0.85em;">(Outbound Routing)</span></h3>
-            <div class="command-list">
-              <code>edgeboxctl shunt vps</code> <span># [模式] VPS 直连出站 (默认)</span><br>
-              <code>edgeboxctl shunt resi '&lt;URL&gt;'</code> <span># [模式] 代理全量出站 (仅 Xray)</span><br>
-              <code>edgeboxctl shunt direct-resi '&lt;URL&gt;'</code> <span># [模式] 智能分流 (白名单直连，其余走代理)</span><br>
-              <code>edgeboxctl shunt status</code> <span># 查看当前出站模式及代理健康状况</span><br>
-              <code>edgeboxctl shunt whitelist &lt;action&gt; [domain]</code> <span># 管理白名单 (add|remove|list|reset)</span><br>
-              <strong>示例：</strong><br>
-              <code style="display: inline-block; margin-left: 0; margin-top: 5px;">edgeboxctl shunt direct-resi 'socks5://user:pass@host:port'</code><br>
-              <code style="display: inline-block; margin-left: 0;">edgeboxctl shunt whitelist add netflix.com</code>
-              <div style="margin-top: 10px; color: #3b82f6; font-size: 0.95em;">
-                <strong>代理URL格式：</strong><br>
-                <code style="display: inline-block; margin-left: 0; color: #3b82f6;">http://user:pass@host:port</code><br>
-                <code style="display: inline-block; margin-left: 0; color: #3b82f6;">https://user:pass@host:port?sni=example.com</code><br>
-                <code style="display: inline-block; margin-left: 0; color: #3b82f6;">socks5://user:pass@host:port</code><br>
-                <code style="display: inline-block; margin-left: 0; color: #3b82f6;">socks5s://user:pass@host:port?sni=example.com</code>
-              </div>
-            </div>
-          </div>
+    <!-- Reality 密钥轮换 -->
+    <div class="command-section">
+      <h3>🔐 Reality 密钥轮换 <span style="color: #a7f3d0; font-size: 0.85em;">(Reality Key Rotation)</span></h3>
+      <div class="command-list">
+        <code>edgeboxctl rotate-reality</code> <span># 手动执行 Reality 密钥对轮换 (安全增强)</span><br>
+        <code>edgeboxctl reality-status</code> <span># 查看 Reality 密钥轮换的周期状态</span>
+      </div>
+    </div>
 
-          <!-- 流量与预警 -->
-          <div class="command-section">
-            <h3>📊 流量与预警 <span style="color: #a7f3d0; font-size: 0.85em;">(Traffic & Alert)</span></h3>
-            <div class="command-list">
-              <code>edgeboxctl traffic show</code> <span># 在终端查看流量使用统计</span><br>
-              <code>edgeboxctl alert show</code> <span># 查看当前预警配置</span><br>
-              <code>edgeboxctl alert monthly &lt;GiB&gt;</code> <span># 设置月度流量预算</span><br>
-              <code>edgeboxctl alert steps &lt;p1,p2,...&gt;</code> <span># 设置百分比预警阈值 (逗号分隔)</span><br>
-              <code>edgeboxctl alert telegram &lt;token&gt; &lt;chat_id&gt;</code> <span># 配置 Telegram 通知渠道</span><br>
-              <code>edgeboxctl alert discord &lt;webhook_url&gt;</code> <span># 配置 Discord 通知渠道</span><br>
-              <code>edgeboxctl alert wechat &lt;pushplus_token&gt;</code> <span># 配置微信 PushPlus 通知渠道</span><br>
-              <code>edgeboxctl alert webhook &lt;url&gt; [format]</code> <span># 配置通用 Webhook (raw|slack|discord)</span><br>
-              <code>edgeboxctl alert test [percent]</code> <span># 模拟触发预警以测试通知渠道</span><br>
-              <strong>示例：</strong><br>
-              <code style="display: inline-block; margin-left: 0; margin-top: 5px;">edgeboxctl alert monthly 1000</code><br>
-              <code style="display: inline-block; margin-left: 0;">edgeboxctl alert steps 50,80,95</code><br>
-              <code style="display: inline-block; margin-left: 0;">edgeboxctl alert telegram &lt;token&gt; &lt;chat_id&gt;</code><br>
-              <code style="display: inline-block; margin-left: 0;">edgeboxctl alert test 80</code>
-            </div>
-          </div>
-
-          <!-- 配置与维护 -->
-          <div class="command-section">
-            <h3>🧩 配置与维护 <span style="color: #a7f3d0; font-size: 0.85em;">(Configuration & Maintenance)</span></h3>
-            <div class="command-list">
-              <code>edgeboxctl config show</code> <span># 显示所有协议的 UUID、密码等详细配置</span><br>
-              <code>edgeboxctl config regenerate-uuid</code> <span># 为所有协议重新生成 UUID 和密码</span><br>
-              <code>edgeboxctl dashboard passcode</code> <span># 重置并显示 Web 控制面板的访问密码</span><br>
-              <code>edgeboxctl alias "我的备注"</code> <span># 为当前服务器设置一个易记的别名</span><br>
-              <code>edgeboxctl backup create</code> <span># 创建当前系统配置的完整备份</span><br>
-              <code>edgeboxctl backup list</code> <span># 列出所有可用的备份文件</span><br>
-              <code>edgeboxctl backup restore &lt;file&gt;</code> <span># 从指定备份文件恢复系统配置</span><br>
-              <strong>示例：</strong><br>
-              <code style="display: inline-block; margin-left: 0; margin-top: 5px;">edgeboxctl alias "香港-CN2-主力"</code><br>
-              <code style="display: inline-block; margin-left: 0;">edgeboxctl backup restore edgebox_backup_xxx.tar.gz</code>
-            </div>
-          </div>
-
-          <!-- 诊断与排障 -->
-          <div class="command-section">
-            <h3>🔍 诊断与排障 <span style="color: #a7f3d0; font-size: 0.85em;">(Diagnostics & Debug)</span></h3>
-            <div class="command-list">
-              <code>edgeboxctl test</code> <span># 对各协议入口进行基础连通性测试</span><br>
-              <code>edgeboxctl test-udp &lt;host&gt; &lt;port&gt; [seconds]</code> <span># 使用 iperf3/socat 进行 UDP 连通性简测</span><br>
-              <code>edgeboxctl debug-ports</code> <span># 检查核心端口 (80, 443, 2053) 是否被占用</span><br>
-              <strong>示例 (排障流程)：</strong><br>
-              <code style="display: inline-block; margin-left: 0;">edgeboxctl status → edgeboxctl logs xray → edgeboxctl debug-ports</code>
-            </div>
-          </div>
+    <!-- 流量特征随机化 -->
+    <div class="command-section">
+      <h3>🎲 流量特征随机化 <span style="color: #a7f3d0; font-size: 0.85em;">(Traffic Randomization)</span></h3>
+      <div class="command-list">
+        <code>edgeboxctl traffic randomize [light|medium|heavy]</code> <span># 执行流量特征随机化，增强隐蔽性</span><br>
+        <code>edgeboxctl traffic status</code> <span># 查看随机化系统状态和定时任务</span><br>
+        <code>edgeboxctl traffic reset</code> <span># 重置随机化参数为默认值</span><br>
+        <strong>示例：</strong><br>
+        <code style="display: inline-block; margin-left: 0; margin-top: 5px;">edgeboxctl traffic randomize medium</code>
+        <div style="margin-top: 10px; color: #3b82f6; font-size: 0.95em;">
+          <strong>level:</strong><br>
+          <code style="display: inline-block; margin-left: 0; color: #3b82f6;">light(默认) - 轻度随机化，仅修改 Hysteria2 伪装站点</code><br>
+          <code style="display: inline-block; margin-left: 0; color: #3b82f6;">medium  - 中度随机化，修改 Hysteria2 + TUIC 参数</code><br>
+          <code style="display: inline-block; margin-left: 0; color: #3b82f6;">heavy  - 重度随机化，修改全协议参数</code>
         </div>
       </div>
+    </div>
 
-      <!-- 白名单模态框 -->
-      <div id="whitelistModal" class="modal">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h3>白名单完整列表</h3>
-            <span class="close-btn" data-action="close-modal" data-modal="whitelistModal">×</span>
-          </div>
-          <div class="modal-body">
-            <div id="whitelistList"></div>
-          </div>
+    <!-- 出站分流 -->
+    <div class="command-section">
+      <h3>🔀 出站分流 <span style="color: #a7f3d0; font-size: 0.85em;">(Outbound Routing)</span></h3>
+      <div class="command-list">
+        <code>edgeboxctl shunt vps</code> <span># [模式] VPS 直连出站 (默认)</span><br>
+        <code>edgeboxctl shunt resi '&lt;URL&gt;'</code> <span># [模式] 代理全量出站 (仅 Xray)</span><br>
+        <code>edgeboxctl shunt direct-resi '&lt;URL&gt;'</code> <span># [模式] 智能分流 (白名单直连，其余走代理)</span><br>
+        <code>edgeboxctl shunt status</code> <span># 查看当前出站模式及代理健康状况</span><br>
+        <code>edgeboxctl shunt whitelist &lt;action&gt; [domain]</code> <span># 管理白名单 (add|remove|list|reset)</span><br>
+        <strong>示例：</strong><br>
+        <code style="display: inline-block; margin-left: 0; margin-top: 5px;">edgeboxctl shunt direct-resi 'socks5://user:pass@host:port'</code><br>
+        <code style="display: inline-block; margin-left: 0;">edgeboxctl shunt whitelist add netflix.com</code>
+        <div style="margin-top: 10px; color: #3b82f6; font-size: 0.95em;">
+          <strong>代理URL格式：</strong><br>
+          <code style="display: inline-block; margin-left: 0; color: #3b82f6;">http://user:pass@host:port</code><br>
+          <code style="display: inline-block; margin-left: 0; color: #3b82f6;">https://user:pass@host:port?sni=example.com</code><br>
+          <code style="display: inline-block; margin-left: 0; color: #3b82f6;">socks5://user:pass@host:port</code><br>
+          <code style="display: inline-block; margin-left: 0; color: #3b82f6;">socks5s://user:pass@host:port?sni=example.com</code>
         </div>
       </div>
+    </div>
 
-      <!-- IP质量模态框 -->
-      <div id="ipqModal" class="modal">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h3 id="ipqModalTitle">IP质量检测详情</h3>
-            <span class="close-btn" data-action="close-modal" data-modal="ipqModal">×</span>
-          </div>
-          <div class="modal-body">
-            <div id="ipqDetails"></div>
-          </div>
-        </div>
+    <!-- 流量与预警 -->
+    <div class="command-section">
+      <h3>📊 流量与预警 <span style="color: #a7f3d0; font-size: 0.85em;">(Traffic & Alert)</span></h3>
+      <div class="command-list">
+        <code>edgeboxctl traffic show</code> <span># 在终端查看流量使用统计</span><br>
+        <code>edgeboxctl alert show</code> <span># 查看当前预警配置</span><br>
+        <code>edgeboxctl alert monthly &lt;GiB&gt;</code> <span># 设置月度流量预算</span><br>
+        <code>edgeboxctl alert steps &lt;p1,p2,...&gt;</code> <span># 设置百分比预警阈值 (逗号分隔)</span><br>
+        <code>edgeboxctl alert telegram &lt;token&gt; &lt;chat_id&gt;</code> <span># 配置 Telegram 通知渠道</span><br>
+        <code>edgeboxctl alert discord &lt;webhook_url&gt;</code> <span># 配置 Discord 通知渠道</span><br>
+        <code>edgeboxctl alert wechat &lt;pushplus_token&gt;</code> <span># 配置微信 PushPlus 通知渠道</span><br>
+        <code>edgeboxctl alert webhook &lt;url&gt; [format]</code> <span># 配置通用 Webhook (raw|slack|discord)</span><br>
+        <code>edgeboxctl alert test [percent]</code> <span># 模拟触发预警以测试通知渠道</span><br>
+        <strong>示例：</strong><br>
+        <code style="display: inline-block; margin-left: 0; margin-top: 5px;">edgeboxctl alert monthly 1000</code><br>
+        <code style="display: inline-block; margin-left: 0;">edgeboxctl alert steps 50,80,95</code><br>
+        <code style="display: inline-block; margin-left: 0;">edgeboxctl alert telegram &lt;token&gt; &lt;chat_id&gt;</code><br>
+        <code style="display: inline-block; margin-left: 0;">edgeboxctl alert test 80</code>
       </div>
+    </div>
 
-      <!-- 配置详情模态框 -->
-      <div id="configModal" class="modal">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h3 id="configModalTitle">配置详情</h3>
-            <span class="close-btn" data-action="close-modal" data-modal="configModal">×</span>
-          </div>
-          <div class="modal-body">
-            <div id="configDetails"></div>
-          </div>
-          <div class="modal-footer">
-            <button class="btn btn-sm btn-secondary" data-action="copy" data-type="sub">复制订阅地址</button>
-            <button class="btn btn-sm btn-secondary" data-action="copy" data-type="plain">复制明文</button>
-            <button class="btn btn-sm btn-secondary" data-action="copy" data-type="json">复制JSON</button>
-            <button class="btn btn-sm btn-secondary" data-action="copy" data-type="base64">复制Base64</button>
-          </div>
-        </div>
+    <!-- 配置与维护 -->
+    <div class="command-section">
+      <h3>🧩 配置与维护 <span style="color: #a7f3d0; font-size: 0.85em;">(Configuration & Maintenance)</span></h3>
+      <div class="command-list">
+        <code>edgeboxctl config show</code> <span># 显示所有协议的 UUID、密码等详细配置</span><br>
+        <code>edgeboxctl config regenerate-uuid</code> <span># 为所有协议重新生成 UUID 和密码</span><br>
+        <code>edgeboxctl dashboard passcode</code> <span># 重置并显示 Web 控制面板的访问密码</span><br>
+        <code>edgeboxctl alias "我的备注"</code> <span># 为当前服务器设置一个易记的别名</span><br>
+        <code>edgeboxctl backup create</code> <span># 创建当前系统配置的完整备份</span><br>
+        <code>edgeboxctl backup list</code> <span># 列出所有可用的备份文件</span><br>
+        <code>edgeboxctl backup restore &lt;file&gt;</code> <span># 从指定备份文件恢复系统配置</span><br>
+        <strong>示例：</strong><br>
+        <code style="display: inline-block; margin-left: 0; margin-top: 5px;">edgeboxctl alias "香港-CN2-主力"</code><br>
+        <code style="display: inline-block; margin-left: 0;">edgeboxctl backup restore edgebox_backup_xxx.tar.gz</code>
       </div>
+    </div>
 
+    <!-- 诊断与排障 -->
+    <div class="command-section">
+      <h3>🔍 诊断与排障 <span style="color: #a7f3d0; font-size: 0.85em;">(Diagnostics & Debug)</span></h3>
+      <div class="command-list">
+        <code>edgeboxctl test</code> <span># 对各协议入口进行基础连通性测试</span><br>
+        <code>edgeboxctl test-udp &lt;host&gt; &lt;port&gt; [seconds]</code> <span># 使用 iperf3/socat 进行 UDP 连通性简测</span><br>
+        <code>edgeboxctl debug-ports</code> <span># 检查核心端口 (80, 443, 2053) 是否被占用</span><br>
+        <strong>示例 (排障流程)：</strong><br>
+        <code style="display: inline-block; margin-left: 0;">edgeboxctl status → edgeboxctl logs xray → edgeboxctl debug-ports</code>
+      </div>
+    </div>
+  </div>
+</div>
+
+		  
+<div id="whitelistModal" class="modal"><div class="modal-content"><div class="modal-header"><h3>白名单完整列表</h3><span class="close-btn" data-action="close-modal" data-modal="whitelistModal">×</span></div><div class="modal-body"><div id="whitelistList"></div></div></div></div>
+<div id="ipqModal" class="modal"><div class="modal-content"><div class="modal-header"><h3 id="ipqModalTitle">IP质量检测详情</h3><span class="close-btn" data-action="close-modal" data-modal="ipqModal">×</span></div><div class="modal-body"><div id="ipqDetails"></div></div></div></div>
+
+<div id="configModal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3 id="configModalTitle">配置详情</h3>
+      <span class="close-btn" data-action="close-modal" data-modal="configModal">×</span>
+    </div>
+<div class="modal-body">
+      <div id="configDetails"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-sm btn-secondary" data-action="copy" data-type="sub">复制订阅地址</button>
+      <button class="btn btn-sm btn-secondary" data-action="copy" data-type="plain">复制明文</button>
+      <button class="btn btn-sm btn-secondary" data-action="copy" data-type="json">复制JSON</button>
+      <button class="btn btn-sm btn-secondary" data-action="copy" data-type="base64">复制Base64</button>
     </div>
   </div>
 </div>
@@ -11710,7 +11681,6 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="./assets/edgebox-panel.js"></script>
-
 </body>
 </html>
 HTML
@@ -11720,7 +11690,8 @@ chmod 644 "${TRAFFIC_DIR}/assets/edgebox-panel.css"
 chmod 644 "${TRAFFIC_DIR}/assets/edgebox-panel.js"
 chmod 644 "$TRAFFIC_DIR/index.html"
 
-log_success "流量监控系统设置完成（CSS和JS已外置）"
+  log_success "流量监控系统设置完成（CSS和JS已外置）"
+}
 
 
 #############################################
