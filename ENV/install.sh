@@ -7019,7 +7019,7 @@ log_info "已创建favicon.ico文件"
     log_info "├─ nftables计数器配置"
     log_info "├─ 定时任务设置"
     log_info "├─ 初始数据生成"
-    log_info "└─ 初始流量数据生成"  # 新增这行
+    log_info "└─ 初始流量数据生成"
     
     return 0
 }
@@ -15148,7 +15148,6 @@ main() {
     trap cleanup_all EXIT
 	
     clear
-    # find /etc/edgebox/scripts/ -type f -name "*.sh" -delete 2>/dev/null || true  <-- DELETE THIS LINE
 	
     echo -e "${GREEN}EdgeBox 企业级安装脚本 v3.0.0${NC}"
     print_separator
