@@ -5297,10 +5297,10 @@ DASHBOARD_BACKEND_SCRIPT
 # 创建协议健康检查脚本
 create_protocol_health_check_script() {
     log_info "创建协议健康监控与自愈脚本..."
-    
+
     mkdir -p "${SCRIPTS_DIR}"
-    
-cat > /etc/edgebox/scripts/protocol-health-monitor.sh << 'HEALTH_MONITOR_SCRIPT'
+
+    cat > "${SCRIPTS_DIR}/protocol-health-monitor.sh" << 'HEALTH_MONITOR_SCRIPT'
 #!/usr/bin/env bash
 #############################################
 # EdgeBox 协议健康监控与自愈系统
@@ -5352,19 +5352,19 @@ EXTERNAL_TEST_TIMEOUT=5          # 外部测试超时(秒)
 
 # ==================== 日志函数 ====================
 log_info() { 
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] $*" | tee -a "$LOG_FILE" 
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] $*" >> "$LOG_FILE" 
 }
 log_warn() { 
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WARN] $*" | tee -a "$LOG_FILE" 
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WARN] $*" >> "$LOG_FILE" 
 }
 log_error() { 
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] $*" | tee -a "$LOG_FILE" >&2 
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] $*" >> "$LOG_FILE" >&2 
 }
 log_success() { 
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [SUCCESS] $*" | tee -a "$LOG_FILE" 
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [SUCCESS] $*" >> "$LOG_FILE" 
 }
 log_heal() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [HEAL] $*" | tee -a "$LOG_FILE"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [HEAL] $*" >> "$LOG_FILE"
 }
 
 # ==================== 协议配置 ====================
@@ -5403,10 +5403,10 @@ ensure_log_dir() {
 
 generate_self_signed_cert() {
     log_info "(Healer) Generating self-signed certificate..."
-    
+
     mkdir -p "${CERT_DIR}"
     rm -f "${CERT_DIR}"/self-signed.{key,pem} "${CERT_DIR}"/current.{key,pem}
-    
+
     if ! command -v openssl >/dev/null 2>&1; then
         log_error "(Healer) openssl not found, cannot generate certificate"; return 1;
     fi
@@ -5415,13 +5415,13 @@ generate_self_signed_cert() {
     if [[ -f "/etc/edgebox/config/server.json" ]]; then
         server_ip=$(jq -r '.server_ip // "127.0.0.1"' "/etc/edgebox/config/server.json" 2>/dev/null || echo "127.0.0.1")
     fi
-    
+
     openssl ecparam -genkey -name secp384r1 -out "${CERT_DIR}/self-signed.key" 2>/dev/null || { log_error "(Healer) Failed to generate ECC private key"; return 1; }
     openssl req -new -x509 -key "${CERT_DIR}/self-signed.key" -out "${CERT_DIR}/self-signed.pem" -days 3650 -subj "/C=US/ST=CA/L=SF/O=EdgeBox/CN=${server_ip}" >/dev/null 2>&1 || { log_error "(Healer) Failed to generate self-signed certificate"; return 1; }
-    
+
     ln -sf "${CERT_DIR}/self-signed.key" "${CERT_DIR}/current.key"
     ln -sf "${CERT_DIR}/self-signed.pem" "${CERT_DIR}/current.pem"
-    
+
     local NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
     chown -R root:"${NOBODY_GRP}" "${CERT_DIR}" 2>/dev/null || true
     chmod 750 "${CERT_DIR}" 2>/dev/null || true
@@ -5443,16 +5443,16 @@ is_in_cooldown() {
     if [[ ! -f "$LAST_RESTART_FILE" ]]; then
         return 1
     fi
-    
+
     local last_restart
     last_restart=$(grep "^${service}:" "$LAST_RESTART_FILE" 2>/dev/null | cut -d: -f2)
     if [[ -z "$last_restart" ]]; then
         return 1
     fi
-    
+
     local current_time=$(date +%s)
     local time_diff=$((current_time - last_restart))
-    
+
     if [[ $time_diff -lt $RESTART_COOLDOWN ]]; then
         log_warn "服务 $service 在冷却期内 (${time_diff}s/${RESTART_COOLDOWN}s)"
         return 0
@@ -5463,10 +5463,10 @@ is_in_cooldown() {
 record_restart_time() {
     local service=$1
     local timestamp=$(date +%s)
-    
+
     mkdir -p "$LOG_DIR"
     touch "$LAST_RESTART_FILE"
-    
+
     sed -i "/^${service}:/d" "$LAST_RESTART_FILE" 2>/dev/null || true
     echo "${service}:${timestamp}" >> "$LAST_RESTART_FILE"
 }
@@ -5483,7 +5483,7 @@ check_service_status() {
 check_port_listening() {
     local port=$1
     local proto=${2:-tcp}
-    
+
 if ss -lnp -A "$proto" 2>/dev/null | grep -q ":${port} "; then
     return 0
 else
@@ -5633,7 +5633,7 @@ test_udp_protocol() {
 # 检查UDP端口的系统防火墙规则
 check_udp_firewall_rules() {
     local port=$1
-    
+
     # 检查UFW
     if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
         if ! ufw status | grep -qE "${port}/udp.*ALLOW"; then
@@ -5651,7 +5651,7 @@ check_udp_firewall_rules() {
             return 1  # unknown
         fi
     fi
-    
+
     return 1  # not blocked or unknown
 }
 
@@ -5659,7 +5659,7 @@ check_udp_firewall_rules() {
 test_protocol_performance() {
     local protocol=$1
     local port=${PROTOCOL_PORTS[$protocol]}
-    
+
     case $protocol in
         reality|grpc|ws|trojan)
             test_tcp_protocol "$protocol"
@@ -5679,9 +5679,9 @@ test_protocol_performance() {
 repair_udp_firewall() {
     local port=$1
     log_heal "尝试修复UDP端口 $port 的防火墙规则..."
-    
+
     local success=false
-    
+
     # UFW
     if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
         if ufw allow "${port}/udp" comment "EdgeBox Auto-Heal" >/dev/null 2>&1; then
@@ -5689,7 +5689,7 @@ repair_udp_firewall() {
             success=true
         fi
     fi
-    
+
     # firewalld
     if command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then
         if firewall-cmd --permanent --add-port="${port}/udp" >/dev/null 2>&1; then
@@ -5698,7 +5698,7 @@ repair_udp_firewall() {
             success=true
         fi
     fi
-    
+
     # iptables (fallback)
     if ! $success && command -v iptables >/dev/null 2>&1; then
         if iptables -C INPUT -p udp --dport "$port" -j ACCEPT >/dev/null 2>&1; then
@@ -5714,7 +5714,7 @@ repair_udp_firewall() {
             success=true
         fi
     fi
-    
+
     if $success; then
         return 0
     else
@@ -5727,7 +5727,7 @@ repair_udp_firewall() {
 repair_service_config() {
     local service=$1
     log_heal "检查 $service 配置文件..."
-    
+
     case $service in
         sing-box)
             local config="${CONFIG_DIR}/sing-box.json"
@@ -5735,19 +5735,19 @@ repair_service_config() {
                 log_error "配置文件不存在: $config"
                 return 1
             fi
-            
+
             # 修复监听地址问题(IPv6 -> IPv4)
             if grep -q '"listen": "::"' "$config"; then
                 sed -i 's/"listen": "::"/"listen": "0.0.0.0"/g' "$config"
                 log_success "✓ 已修正 sing-box 监听地址为 0.0.0.0"
             fi
-            
+
             # 验证JSON格式
             if ! jq empty "$config" 2>/dev/null; then
                 log_error "配置文件JSON格式错误"
                 return 1
             fi
-            
+
             # 验证sing-box语法
             if command -v /usr/local/bin/sing-box >/dev/null 2>&1; then
                 if ! /usr/local/bin/sing-box check -c "$config" 2>/dev/null; then
@@ -5756,14 +5756,14 @@ repair_service_config() {
                 fi
             fi
             ;;
-        
+
         xray)
             local config="${CONFIG_DIR}/xray.json"
             if [[ ! -f "$config" ]]; then
                 log_error "配置文件不存在: $config"
                 return 1
             fi
-            
+
             # 验证JSON格式
             if ! jq empty "$config" 2>/dev/null; then
                 log_error "配置文件JSON格式错误"
@@ -5771,7 +5771,7 @@ repair_service_config() {
             fi
             ;;
     esac
-    
+
     log_success "✓ 配置文件检查通过"
     return 0
 }
@@ -5779,10 +5779,10 @@ repair_service_config() {
 # 修复证书问题
 repair_certificates() {
     log_heal "检查证书状态..."
-    
+
     if [[ ! -f "${CERT_DIR}/current.pem" ]] || [[ ! -f "${CERT_DIR}/current.key" ]]; then
         log_warn "证书文件缺失,尝试生成自签名证书..."
-        
+
         # 调用生成自签名证书函数(需要在install.sh中导出)
         if type generate_self_signed_cert >/dev/null 2>&1; then
             generate_self_signed_cert
@@ -5792,7 +5792,7 @@ repair_certificates() {
             return 1
         fi
     fi
-    
+
     log_success "✓ 证书文件存在"
     return 0
 }
@@ -6198,7 +6198,7 @@ generate_detail_message() {
 # 根据健康分数生成推荐等级
 get_recommendation_level() {
     local health_score=$1
-    
+
     if [[ $health_score -ge 85 ]]; then
         echo "primary"
     elif [[ $health_score -ge 70 ]]; then
@@ -6215,7 +6215,7 @@ get_recommendation_level() {
 # 生成推荐徽章文本
 generate_recommendation_badge() {
     local recommendation=$1
-    
+
     case "$recommendation" in
         primary)
             echo "🏆 主推"
@@ -6238,7 +6238,7 @@ generate_recommendation_badge() {
 # 生成状态徽章文本
 generate_status_badge() {
     local status=$1
-    
+
     case "$status" in
         healthy)
             echo "健康 √"
@@ -6280,24 +6280,24 @@ check_and_heal_protocol() {
     esac
 
     log_info "==================== 检测协议: $protocol_fullname ===================="
-    
+
     # 执行健康检查
     local test_result
     test_result=$(test_protocol_performance "$key")
-    
+
     local status="${test_result%%:*}"
     local rest="${test_result#*:}"
     local response_time="${rest%%:*}"
     local failure_reason="${rest#*:}"
-    
+
     log_info "检测结果: status=$status, response_time=$response_time, reason=$failure_reason"
-    
+
     # 判断是否需要自愈
     local repair_result=""
     if [[ "$status" == "down" ]] || [[ "$status" == "degraded" ]] || [[ "$status" == "firewall_blocked" ]]; then
         log_warn "⚠️  协议 $protocol_fullname 异常,触发自愈流程"
         repair_result=$(heal_protocol_failure "$key" "$failure_reason")
-        
+
         # 自愈后重新检测
         if [[ "$repair_result" == repaired:* ]]; then
             log_info "自愈完成,重新检测..."
@@ -6309,23 +6309,23 @@ check_and_heal_protocol() {
             failure_reason="${rest#*:}"
         fi
     fi
-    
+
     # 计算健康分数
     local health_score
     health_score=$(calculate_health_score "$key" "$status" "$response_time")
-    
+
     local recommendation
     recommendation=$(get_recommendation_level "$health_score")
-    
+
     local status_badge
     status_badge=$(generate_status_badge "$status")
-    
+
     local recommendation_badge
     recommendation_badge=$(generate_recommendation_badge "$recommendation")
-    
+
     local detail_message
     detail_message=$(generate_detail_message "$key" "$status" "$response_time" "$failure_reason")
-    
+
     # 生成JSON
     jq -n \
         --arg protocol_key "$key" \
@@ -6356,13 +6356,13 @@ check_and_heal_protocol() {
 check_all_protocols() {
     local protocols=("VLESS-Reality" "VLESS-gRPC" "VLESS-WebSocket" "Trojan-TLS" "Hysteria2" "TUIC")
     local results='[]'
-    
+
     for protocol_fullname in "${protocols[@]}"; do
         local result
         result=$(check_and_heal_protocol "$protocol_fullname")
         results=$(echo "$results" | jq --argjson item "$result" '. += [$item]')
     done
-    
+
     echo "$results"
 }
 
@@ -6438,7 +6438,7 @@ main "$@"
 HEALTH_MONITOR_SCRIPT
 
     chmod +x "${SCRIPTS_DIR}/protocol-health-monitor.sh"
-    
+
     log_success "✓ 协议健康监控与自愈脚本创建完成"
     return 0
 }
