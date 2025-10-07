@@ -12198,35 +12198,6 @@ fi
   [[ -s "${CONFIG_DIR}/subscription.txt" ]] && cat "${CONFIG_DIR}/subscription.txt"
 }
 
-show_sub() {
-  local CONFIG_DIR="/etc/edgebox/config"
-  echo "=== EdgeBox 节点订阅信息 ==="
-  echo
-
-  # 服务器信息（只做简单展示，不影响订阅）
-  local ip="$(jq -r '.server_ip // empty' "${CONFIG_DIR}/server.json" 2>/dev/null)"
-  local cert_mode="$(cat "${CONFIG_DIR}/cert_mode" 2>/dev/null || echo self-signed)"
-  echo "🌐 服务器信息:"
-  [[ -n "$ip" ]] && echo "   IP地址: $ip"
-  echo "   证书模式: ${cert_mode}"
-  echo
-
-  local txt="${CONFIG_DIR}/subscription.txt"
-  local b64="${CONFIG_DIR}/subscription.base64"
-
-  echo "# 明文链接"
-  if [[ -s "$txt" ]]; then
-    cat "$txt"; echo
-  else
-    echo "(暂无内容，可执行：edgeboxctl switch-to-domain <domain> 或 edgeboxctl switch-to-ip 以重新生成)"; echo
-  fi
-
-  if [[ -s "$b64" ]]; then
-    echo "# Base64（整包）"
-    cat "$b64"; echo
-  fi
-}
-
 
 # 流量随机化管理命令
 traffic_randomize() {
