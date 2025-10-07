@@ -5300,7 +5300,7 @@ create_protocol_health_check_script() {
     
     mkdir -p "${SCRIPTS_DIR}"
     
-    cat > "${SCRIPTS_DIR}/protocol-health-monitor.sh" << 'HEALTH_MONITOR_SCRIPT'
+cat > /etc/edgebox/scripts/protocol-health-monitor.sh << 'HEALTH_MONITOR_SCRIPT'
 #!/usr/bin/env bash
 #############################################
 # EdgeBox 协议健康监控与自愈系统
@@ -5498,9 +5498,6 @@ test_tcp_protocol() {
     local server_name
 
     ### FIX STARTS HERE: Read from the primary source, not the final output ###
-    # OLD: server_name=$(jq -r '.server.cert.domain // ""' "${TRAFFIC_DIR}/dashboard.json" 2>/dev/null)
-    # OLD: [[ -z "$server_name" ]] && server_name=$(jq -r '.server.server_ip // "www.cloudflare.com"' "${TRAFFIC_DIR}/dashboard.json" 2>/dev/null)
-    # NEW: Read from server.json, which is the source of truth
     server_name=$(jq -r '.cert.domain // ""' "${CONFIG_DIR}/server.json" 2>/dev/null)
     [[ -z "$server_name" ]] && server_name=$(jq -r '.server_ip // "127.0.0.1"' "${CONFIG_DIR}/server.json" 2>/dev/null)
     ### FIX ENDS HERE ###
