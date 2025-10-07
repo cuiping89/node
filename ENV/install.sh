@@ -4891,49 +4891,44 @@ get_services_status() {
 
 
 get_protocols_status() {
-  local TRAFFIC_DIR="${TRAFFIC_DIR:-/etc/edgebox/traffic}"
-  local health_report_file="${TRAFFIC_DIR}/protocol-health.json"
-  local default_status='{"status":"待检测","status_badge":"⚪ 待检测","detail_message":""}'
+    local TRAFFIC_DIR="${TRAFFIC_DIR:-/etc/edgebox/traffic}"
+    local health_report_file="${TRAFFIC_DIR}/protocol-health.json"
+    local default_status='{"status":"待检测","status_badge":"⚪ 待检测","detail_message":""}'
 
-  # 读取健康数据（允许为空）
-  local health_data="[]"
-  if [[ -s "$health_report_file" ]]; then
-    health_data="$(jq -c '.protocols // []' "$health_report_file" 2>/dev/null || echo '[]')"
-  fi
+    # 读取健康数据（允许为空）
+    local health_data="[]"
+    if [[ -s "$health_report_file" ]]; then
+        health_data="$(jq -c '.protocols // []' "$health_report_file" 2>/dev/null || echo '[]')"
+    fi
 
-  # 协议顺序和 key，务必与 monitor 输出里的 "protocol" 对齐
-  local names=("VLESS-Reality" "VLESS-gRPC" "VLESS-WebSocket" "Trojan-TLS" "Hysteria2" "TUIC")
+    # 协议顺序和 key，这个列表是正确的
+    local names=("VLESS-Reality" "VLESS-gRPC" "VLESS-WebSocket" "Trojan-TLS" "Hysteria2" "TUIC")
 
-  # 生成最终数组（合并健康状态 -> status/status_badge）
-  jq -n --argjson H "${health_data}" --argjson DEF "${default_status}" --argjson N "$(printf '%s\n' "${names[@]}" | jq -R . | jq -s .)" '
-    def badge($s; $ms):
-      if $s == "healthy" and ($ms|type=="number") then "🟢 响应正常 \($ms)ms延迟"
-      elif $s == "healthy" then "🟢 响应正常"
-      elif $s == "slow"     then "🟡 响应较慢"
-      else "🔴 异常"
-      end;
-
-    [ $N[] as $k |
-      # 试图在健康数据里找到同名对象
-      ( $H[] | select(.protocol == $k) ) as $h ?
-      |
-      if $h != null then
-        # healthy + latency -> status
-        ( if ($h.healthy==true) then
-            ( if ($h.latency_ms|type=="number" and $h.latency_ms>150) then "slow" else "healthy" end )
-          else "down" end ) as $s
-        |
-        {
-          name: $k,
-          protocol: $k,
-          status: $s,
-          status_badge: badge($s; $h.latency_ms),
-          detail_message: ($h.note // "")
-        }
-      else
-        {name:$k, protocol:$k} + $DEF
-      end
-    ]'
+    # 【【【 已修正字段名和逻辑 】】】
+    # 使用 jq -n 生成最终数组
+    jq -n --argjson H "${health_data}" --argjson DEF "${default_status}" --argjson N "$(printf '%s\n' "${names[@]}" | jq -R . | jq -s .)" '
+        [ $N[] as $k |
+            # 试图在健康数据里找到同名对象
+            ( $H[] | select(.protocol == $k) ) as $h |
+            
+            if $h != null then
+                # 从 $h 中提取并修正字段名
+                {
+                    name: $k,
+                    protocol: $k,
+                    status: ($h.status // "unknown"),
+                    status_badge: ($h.status_badge // "❓ 未知"),
+                    detail_message: ($h.detail_message // ""),
+                    recommendation_badge: ($h.recommendation_badge // "")
+                }
+            else
+                # 如果找不到健康数据，使用默认值
+                {
+                    name: $k, 
+                    protocol: $k
+                } + $DEF
+            end
+        ]'
 }
 
 
