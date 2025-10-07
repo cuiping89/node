@@ -4889,14 +4889,14 @@ get_services_status() {
         }'
 }
 
-
 get_protocols_status() {
     local TRAFFIC_DIR="${TRAFFIC_DIR:-/etc/edgebox/traffic}"
     local CONFIG_DIR="${CONFIG_DIR:-/etc/edgebox/config}"
     local SERVER_CONFIG="${SERVER_CONFIG:-${CONFIG_DIR}/server.json}"
+    local XRAY_CFG="${CONFIG_DIR}/xray.json"
     local health_report_file="${TRAFFIC_DIR}/protocol-health.json"
 
-    # 默认占位（仅用于无健康数据时兜底）
+    # 默认占位（只用于无健康数据时兜底）
     local default_status='{
       "status":"unknown",
       "status_badge":"❓ 未知",
@@ -4904,34 +4904,64 @@ get_protocols_status() {
       "recommendation_badge":""
     }'
 
-    # 读取健康报告 → 做成 {key: item} 的对象，便于 O(1) 查找
+    # 读取健康报告，做成 {key:item} 的对象
     local health_map="{}"
     if [[ -s "$health_report_file" ]]; then
         health_map="$(jq -c '
-          def to_map: ( .protocols // [] ) 
+          def to_map: ( .protocols // [] )
             | reduce .[] as $p ({}; .[$p.protocol] = $p);
           to_map
         ' "$health_report_file" 2>/dev/null || echo '{}')"
     fi
 
-    # 取 Reality 的 SNI（xray.json → server.json → 默认）
+    # ---- 从实际配置中提取“可变参数” ----
+    # Reality SNI
     local reality_sni
     reality_sni="$(jq -r 'first(
-        .inbounds[]? 
-        | select(.tag=="vless-reality" or .tag=="reality-in") 
-        | (
-            .reality?.server_names?[0] // .reality?.serverNames?[0] //
-            .streamSettings?.realitySettings?.serverNames?[0] //
-            .tls?.server_name // .tls?.serverName
-          )
-      ) // empty' "${CONFIG_DIR}/xray.json" 2>/dev/null)"
-    : "${reality_sni:=$(jq -r '.reality.sni // empty' "${SERVER_CONFIG}" 2>/dev/null)}"
+        .inbounds[]? |
+        select(.tag=="vless-reality" or .tag=="reality-in" or .protocol=="vless") |
+        (
+          .reality?.server_names?[0] // .reality?.serverNames?[0] //
+          .streamSettings?.realitySettings?.serverNames?[0] //
+          .tls?.server_name // .tls?.serverName
+        )
+      ) // empty' "$XRAY_CFG" 2>/dev/null)"
+    : "${reality_sni:=$(jq -r '.reality.sni // empty' "$SERVER_CONFIG" 2>/dev/null)}"
     : "${reality_sni:=${REALITY_SNI:-www.microsoft.com}}"
 
-    # 用 jq 生成 protocols 数组（包含场景/伪装 + 健康字段）
+    # WebSocket Path
+    local ws_path
+    ws_path="$(jq -r 'first(
+        .inbounds[]? |
+        select(.tag=="vless-ws" or (.protocol=="vless" and (.streamSettings?.wsSettings?))) |
+        .streamSettings.wsSettings.path
+      ) // empty' "$XRAY_CFG" 2>/dev/null)"
+    : "${ws_path:=/ws}"
+
+    # gRPC serviceName
+    local grpc_service
+    grpc_service="$(jq -r 'first(
+        .inbounds[]? |
+        select(.tag=="vless-grpc" or (.protocol=="vless" and (.streamSettings?.grpcSettings?))) |
+        .streamSettings.grpcSettings.serviceName
+      ) // empty' "$XRAY_CFG" 2>/dev/null)"
+    : "${grpc_service:=grpc}"
+
+    # Trojan TLS SNI（如未配，文案里用 "TLS + SNI" 即可）
+    local trojan_sni
+    trojan_sni="$(jq -r 'first(
+        .inbounds[]? |
+        select(.protocol=="trojan") |
+        (.tls?.server_name // .streamSettings?.tlsSettings?.serverName)
+      ) // empty' "$XRAY_CFG" 2>/dev/null)"
+
+    # 生成 protocols 数组（包含场景/伪装 + 健康字段）
     jq -n \
       --argjson H "$health_map" \
       --arg sni "$reality_sni" \
+      --arg ws "$ws_path" \
+      --arg grpc "$grpc_service" \
+      --arg trojan_sni "${trojan_sni:-TLS}" \
       --argjson DEF "$default_status" \
       'def h($k): ($H[$k] // {});
        [
@@ -4940,13 +4970,13 @@ get_protocols_status() {
           camouflage: ("REALITY SNI: " + $sni)},
          {name:"VLESS-gRPC", key:"grpc",
           scenario:"CDN友好 / HTTP/2 长连接",
-          camouflage:"gRPC service: grpc"},
+          camouflage: ("gRPC service: " + $grpc)},
          {name:"VLESS-WebSocket", key:"ws",
           scenario:"CDN回源 / 兼容备用",
-          camouflage:"WS path: /ws"},
+          camouflage: ("WS path: " + $ws)},
          {name:"Trojan-TLS", key:"trojan",
           scenario:"TLS 伪装 / 兼容传统客户端",
-          camouflage:"TLS + SNI"},
+          camouflage: ("TLS SNI: " + $trojan_sni)},
          {name:"Hysteria2", key:"hysteria2",
           scenario:"UDP 高速 / 弱网高丢包",
           camouflage:"QUIC + Hysteria2"},
@@ -4955,19 +4985,19 @@ get_protocols_status() {
           camouflage:"QUIC + TUIC"}
        ]
        | map({
-           # 给前端：name 用于显示；protocol 给 dataset；并直接带上两列描述
+           # name 用于显示；protocol 用协议键供 dataset 使用
            name,
            protocol: .key,
            scenario,
            camouflage,
 
            # 健康字段（透传 + 兜底）
-           status:            (h(.key).status            // $DEF.status),
-           status_badge:      (h(.key).status_badge      // $DEF.status_badge),
-           health_score:      (h(.key).health_score      // null),
-           response_time:     (h(.key).response_time     // null),
-           detail_message:    (h(.key).detail_message    // $DEF.detail_message),
-           recommendation_badge: (h(.key).recommendation_badge // $DEF.recommendation_badge)
+           status:                 (h(.key).status                 // $DEF.status),
+           status_badge:           (h(.key).status_badge           // $DEF.status_badge),
+           health_score:           (h(.key).health_score           // null),
+           response_time:          (h(.key).response_time          // null),
+           detail_message:         (h(.key).detail_message         // $DEF.detail_message),
+           recommendation_badge:   (h(.key).recommendation_badge   // $DEF.recommendation_badge)
          })'
 }
 
