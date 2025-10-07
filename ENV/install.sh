@@ -4825,7 +4825,7 @@ get_services_status() {
 }
 
 
-# 获取协议配置状态 (修复版 - 完整合并健康数据)
+# 获取协议配置状态 (修复版 - 完整合并健康数据 + JQ语法修正)
 get_protocols_status() {
     local health_report_file="${TRAFFIC_DIR}/protocol-health.json"
     local server_config_file="${CONFIG_DIR}/server.json"
@@ -4869,7 +4869,10 @@ get_protocols_status() {
             elif $name == "VLESS-WebSocket" then "vless://\($conf.uuid.vless.ws)@\($domain):443?encryption=none&security=tls&sni=\($domain)&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome#EdgeBox-WS"
             elif $name == "Trojan-TLS" then "trojan://\($conf.password.trojan | url_encode)@\($domain):443?security=tls&sni=trojan.\($domain)&alpn=http%2F1.1&fp=chrome#EdgeBox-TROJAN"
             elif $name == "Hysteria2" then "hysteria2://\($conf.password.hysteria2 | url_encode)@\($domain):443?sni=\($domain)&alpn=h3#EdgeBox-HYSTERIA2"
-            elif $name == "TUIC" then "tuic://\($conf.uuid.tuic):\($conf.password.tuic | url_encode)@\($domain):2053?congestion_control=bbr&alpn=h3&sni=\($domain}#EdgeBox-TUIC"
+            
+            ### FIX IS HERE: Replaced } with ) ###
+            elif $name == "TUIC" then "tuic://\($conf.uuid.tuic):\($conf.password.tuic | url_encode)@\($domain):2053?congestion_control=bbr&alpn=h3&sni=\($domain)#EdgeBox-TUIC"
+            
             else ""
             end
         ')
