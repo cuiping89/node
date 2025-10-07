@@ -5317,15 +5317,15 @@ export LANG=C LC_ALL=C
 CONFIG_DIR="${CONFIG_DIR:-/etc/edgebox/config}"
 TRAFFIC_DIR="${TRAFFIC_DIR:-/etc/edgebox/traffic}"
 LOG_DIR="/var/log/edgebox"
-CERT_DIR="/etc/edgebox/cert" # Corrected from /certs
+CERT_DIR="/etc/edgebox/cert"
 
 OUTPUT_JSON="${TRAFFIC_DIR}/protocol-health.json"
 TEMP_JSON="${OUTPUT_JSON}.tmp"
 LOG_FILE="${LOG_DIR}/health-monitor.log"
 
 # 自愈配置
-MAX_RESTART_ATTEMPTS=3           # 最大重启尝试次数
-RESTART_COOLDOWN=300             # 重启冷却期(秒,5分钟内不重复重启)
+MAX_RESTART_ATTEMPTS=3
+RESTART_COOLDOWN=300
 LAST_RESTART_FILE="${LOG_DIR}/.last_restart_timestamp"
 
 # ==================== 增强配置常量 ====================
@@ -5399,7 +5399,6 @@ ensure_log_dir() {
     touch "$LOG_FILE" 2>/dev/null || true
 }
 
-### FIX STARTS HERE: This function was missing ###
 generate_self_signed_cert() {
     log_info "(Healer) Generating self-signed certificate..."
     
@@ -5435,7 +5434,6 @@ generate_self_signed_cert() {
     fi
     return 0
 }
-### FIX ENDS HERE ###
 
 # 检查服务是否在冷却期内
 is_in_cooldown() {
@@ -5460,7 +5458,6 @@ is_in_cooldown() {
     return 1
 }
 
-# 记录服务重启时间
 record_restart_time() {
     local service=$1
     local timestamp=$(date +%s)
@@ -5468,12 +5465,9 @@ record_restart_time() {
     mkdir -p "$LOG_DIR"
     touch "$LAST_RESTART_FILE"
     
-    # 删除旧记录
     sed -i "/^${service}:/d" "$LAST_RESTART_FILE" 2>/dev/null || true
-    # 添加新记录
     echo "${service}:${timestamp}" >> "$LAST_RESTART_FILE"
 }
-
 # ==================== 健康检查函数 ====================
 check_service_status() {
     local service=$1
@@ -5495,16 +5489,19 @@ else
 fi
 }
 
-
 # TCP协议深度检查(增强版 - 含全链路延迟测试)
 test_tcp_protocol() {
     local protocol=$1
     local port=${PROTOCOL_PORTS[$protocol]}
-    # 修正SERVER_NAME的获取方式，优先从配置文件读取
     local server_name
-    server_name=$(jq -r '.server.cert.domain // ""' "${TRAFFIC_DIR}/dashboard.json" 2>/dev/null)
-    [[ -z "$server_name" ]] && server_name=$(jq -r '.server.server_ip // "www.cloudflare.com"' "${TRAFFIC_DIR}/dashboard.json" 2>/dev/null)
 
+    ### FIX STARTS HERE: Read from the primary source, not the final output ###
+    # OLD: server_name=$(jq -r '.server.cert.domain // ""' "${TRAFFIC_DIR}/dashboard.json" 2>/dev/null)
+    # OLD: [[ -z "$server_name" ]] && server_name=$(jq -r '.server.server_ip // "www.cloudflare.com"' "${TRAFFIC_DIR}/dashboard.json" 2>/dev/null)
+    # NEW: Read from server.json, which is the source of truth
+    server_name=$(jq -r '.cert.domain // ""' "${CONFIG_DIR}/server.json" 2>/dev/null)
+    [[ -z "$server_name" ]] && server_name=$(jq -r '.server_ip // "127.0.0.1"' "${CONFIG_DIR}/server.json" 2>/dev/null)
+    ### FIX ENDS HERE ###
 
     log_info "TCP检查: $protocol"
 
@@ -5529,7 +5526,6 @@ test_tcp_protocol() {
     # Level 2: TLS握手测试 (经由Nginx)
     local handshake_time=0
     local start_ms=$(date +%s%3N)
-    # 修正-alpn参数，使其更通用
     if echo | timeout 3 openssl s_client \
         -connect 127.0.0.1:443 \
         -servername "$server_name" \
@@ -5544,7 +5540,7 @@ test_tcp_protocol() {
 
     # Level 3: 全链路延迟测试 (经由Nginx)
     local full_chain_time=0
-    local test_url="https://127.0.0.1/health" # 使用Nginx内置的健康检查路径
+    local test_url="https://127.0.0.1/health"
 
     local curl_time
     curl_time=$(timeout 5 curl -s -w "%{time_total}" \
@@ -5558,8 +5554,6 @@ test_tcp_protocol() {
     if [[ -n "$curl_time" ]] && [[ "$curl_time" != "0.000" ]]; then
         full_chain_time=$(echo "$curl_time" | awk '{printf "%.0f", $1 * 1000}')
         log_info "全链路延迟: ${full_chain_time}ms"
-
-        # 综合加权延迟，握手占40%，全链路占60%
         local weighted_time=$(( (handshake_time * 4 + full_chain_time * 6) / 10 ))
         echo "healthy:${weighted_time}:full_chain_verified"
     else
@@ -6426,15 +6420,10 @@ generate_health_report() {
 main() {
     ensure_log_dir
     log_info "EdgeBox 协议健康监控与自愈系统启动"
-    
-    # 生成健康报告(含自愈)
     generate_health_report
-    
     log_info "协议健康检查与自愈完成"
 }
-
 main "$@"
-
 HEALTH_MONITOR_SCRIPT
 
     chmod +x "${SCRIPTS_DIR}/protocol-health-monitor.sh"
