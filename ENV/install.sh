@@ -4890,97 +4890,86 @@ get_services_status() {
 }
 
 
-# 获取协议配置状态 (最终稳健版 - 回归Bash循环确保可靠性)
+# 获取协议配置状态 (修复版 - 完整合并健康数据)
 get_protocols_status() {
-    # 1. 定义健康报告路径和默认状态
     local health_report_file="${TRAFFIC_DIR}/protocol-health.json"
-    local default_status_json='{"status": "待检测", "status_badge": "⚪ 待检测"}'
+    local server_config_file="${CONFIG_DIR}/server.json"
 
-    # 2. 读取健康报告
+    # 1. 读取健康报告和服务器配置
     local health_data="[]"
     if [[ -s "$health_report_file" ]]; then
         health_data=$(jq -c '.protocols // []' "$health_report_file" 2>/dev/null || echo "[]")
     fi
+    
+    local server_config="{}"
+    if [[ -s "$server_config_file" ]]; then
+        server_config=$(jq -c '.' "$server_config_file" 2>/dev/null || echo "{}")
+    fi
 
-    # 3. 强制定义协议显示顺序和元数据
+    # 2. 定义协议元数据和顺序
     local protocol_order=(
-        "VLESS-Reality"
-        "VLESS-gRPC"
-        "VLESS-WebSocket"
-        "Trojan-TLS"
-        "Hysteria2"
-        "TUIC"
+        "VLESS-Reality" "VLESS-gRPC" "VLESS-WebSocket" 
+        "Trojan-TLS" "Hysteria2" "TUIC"
     )
     declare -A protocol_meta
-    protocol_meta["VLESS-Reality"]="reality|强审查环境|极佳★★★★★|443|tcp"
-    protocol_meta["VLESS-gRPC"]="grpc|较严审查/走CDN|极佳★★★★★|443|tcp"
-    protocol_meta["VLESS-WebSocket"]="ws|常规网络稳定|良好★★★★☆|443|tcp"
-    protocol_meta["Trojan-TLS"]="trojan|移动网络可靠|良好★★★★☆|443|tcp"
-    protocol_meta["Hysteria2"]="hysteria2|弱网/高丢包更佳|一般★★★☆☆|443|udp"
-    protocol_meta["TUIC"]="tuic|大带宽/低时延|良好★★★★☆|2053|udp"
+    protocol_meta["VLESS-Reality"]="reality|443直连 / 抗探测 / 综合推荐|极佳★★★★★|443|tcp"
+    protocol_meta["VLESS-gRPC"]="grpc|CDN友好 / HTTP/2 长连接|极佳★★★★★|443|tcp"
+    protocol_meta["VLESS-WebSocket"]="ws|CDN回源 / 兼容备用|良好★★★★☆|443|tcp"
+    protocol_meta["Trojan-TLS"]="trojan|TLS 伪装 / 兼容传统客户端|良好★★★★☆|443|tcp"
+    protocol_meta["Hysteria2"]="hysteria2|UDP 高速 / 弱网高丢包|一般★★★☆☆|443|udp"
+    protocol_meta["TUIC"]="tuic|QUIC / 低延迟 / 弱网|良好★★★★☆|2053|udp"
 
-    # 4. 从 server.json 预加载所有需要的凭据和信息
-    local server_config
-    server_config=$(jq -c . "$SERVER_JSON" 2>/dev/null || echo "{}")
-
-    local server_ip domain
-    server_ip=$(echo "$server_config" | jq -r '.server_ip // "127.0.0.1"')
-    domain=$(echo "$server_config" | jq -r '.cert.domain // ""')
-    [[ -z "$domain" || "$(echo "$server_config" | jq -r '.cert.mode')" == "self-signed" ]] && domain="$server_ip"
-
-    # 5. 严格按照顺序循环，为每个协议生成独立的JSON对象
-    local protocols_json_array=()
+    # 3. 循环生成最终的协议列表
+    local final_protocols="[]"
     for name in "${protocol_order[@]}"; do
         IFS='|' read -r key scenario camouflage port network <<< "${protocol_meta[$name]}"
 
-        # 生成分享链接
-        local share_link=""
-        case "$name" in
-            "VLESS-Reality")
-                share_link="vless://$(echo "$server_config" | jq -r '.uuid.vless.reality')@${domain}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.microsoft.com&pbk=$(echo "$server_config" | jq -r '.reality.public_key')&sid=$(echo "$server_config" | jq -r '.reality.short_id')&type=tcp#EdgeBox-REALITY"
-                ;;
-            "VLESS-gRPC")
-                share_link="vless://$(echo "$server_config" | jq -r '.uuid.vless.grpc')@${domain}:443?encryption=none&security=tls&sni=${domain}&alpn=h2&type=grpc&serviceName=grpc&fp=chrome#EdgeBox-gRPC"
-                ;;
-            "VLESS-WebSocket")
-                share_link="vless://$(echo "$server_config" | jq -r '.uuid.vless.ws')@${domain}:443?encryption=none&security=tls&sni=${domain}&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome#EdgeBox-WS"
-                ;;
-            "Trojan-TLS")
-                share_link="trojan://$(printf '%s' "$(echo "$server_config" | jq -r '.password.trojan')" | jq -sRr @uri)@${domain}:443?security=tls&sni=trojan.${domain}&alpn=http%2F1.1&fp=chrome#EdgeBox-TROJAN"
-                ;;
-            "Hysteria2")
-                share_link="hysteria2://$(printf '%s' "$(echo "$server_config" | jq -r '.password.hysteria2')" | jq -sRr @uri)@${domain}:443?sni=${domain}&alpn=h3#EdgeBox-HYSTERIA2"
-                ;;
-            "TUIC")
-                share_link="tuic://$(echo "$server_config" | jq -r '.uuid.tuic'):$(printf '%s' "$(echo "$server_config" | jq -r '.password.tuic')" | jq -sRr @uri)@${domain}:2053?congestion_control=bbr&alpn=h3&sni=${domain}#EdgeBox-TUIC"
-                ;;
-        esac
+        # 从 server.json 提取凭据生成分享链接 (这是静态部分)
+        local share_link
+        share_link=$(jq -n -r --arg name "$name" --argjson conf "$server_config" '
+            def url_encode: @uri;
+            ($conf.server_ip // "127.0.0.1") as $domain |
+            if $name == "VLESS-Reality" then "vless://\($conf.uuid.vless.reality)@\($domain):443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.microsoft.com&pbk=\($conf.reality.public_key)&sid=\($conf.reality.short_id)&type=tcp#EdgeBox-REALITY"
+            elif $name == "VLESS-gRPC" then "vless://\($conf.uuid.vless.grpc)@\($domain):443?encryption=none&security=tls&sni=\($domain)&alpn=h2&type=grpc&serviceName=grpc&fp=chrome#EdgeBox-gRPC"
+            elif $name == "VLESS-WebSocket" then "vless://\($conf.uuid.vless.ws)@\($domain):443?encryption=none&security=tls&sni=\($domain)&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome#EdgeBox-WS"
+            elif $name == "Trojan-TLS" then "trojan://\($conf.password.trojan | url_encode)@\($domain):443?security=tls&sni=trojan.\($domain)&alpn=http%2F1.1&fp=chrome#EdgeBox-TROJAN"
+            elif $name == "Hysteria2" then "hysteria2://\($conf.password.hysteria2 | url_encode)@\($domain):443?sni=\($domain)&alpn=h3#EdgeBox-HYSTERIA2"
+            elif $name == "TUIC" then "tuic://\($conf.uuid.tuic):\($conf.password.tuic | url_encode)@\($domain):2053?congestion_control=bbr&alpn=h3&sni=\($domain}#EdgeBox-TUIC"
+            else ""
+            end
+        ')
 
-        # 生成基础信息JSON对象
-        local base_info
-        base_info=$(jq -n \
-            --arg name "$name" \
-            --arg scenario "$scenario" \
-            --arg camouflage "$camouflage" \
-            --argjson port "$port" \
-            --arg network "$network" \
+        # 构造静态信息
+        local static_info
+        static_info=$(jq -n \
+            --arg name "$name" --arg key "$key" --arg scenario "$scenario" \
+            --arg camouflage "$camouflage" --argjson port "$port" --arg network "$network" \
             --arg share_link "$share_link" \
-            '{name: $name, scenario: $scenario, camouflage: $camouflage, port: $port, network: $network, share_link: $share_link}')
+            '{name: $name, protocol: $key, scenario: $scenario, camouflage: $camouflage, port: $port, network: $network, share_link: $share_link}')
+        
+        # 从健康报告中查找动态信息
+        local dynamic_info
+        dynamic_info=$(echo "$health_data" | jq -c --arg key "$key" '.[] | select(.protocol == $key)')
 
-        # 查找健康状态
-        local status_info
-        status_info=$(echo "$health_data" | jq -c --arg key "$key" '.[] | select(.protocol == $key) | {status, status_badge}')
-        if [[ -z "$status_info" || "$status_info" == "null" ]]; then
-            status_info="$default_status_json"
+        # 如果找不到动态信息，使用默认值
+        if [[ -z "$dynamic_info" || "$dynamic_info" == "null" ]]; then
+            dynamic_info='{
+                "status": "待检测", "status_badge": "⚪ 待检测", "health_score": 0, "response_time": -1,
+                "detail_message": "等待健康检查...", "recommendation": "none", "recommendation_badge": ""
+            }'
         fi
-
-        # 使用 jq 合并两个JSON对象，并将结果添加到数组中
-        protocols_json_array+=( "$(jq -n --argjson base "$base_info" --argjson status "$status_info" '$base + $status')" )
+        
+        # 合并静态和动态信息
+        local full_protocol_info
+        full_protocol_info=$(jq -n --argjson s "$static_info" --argjson d "$dynamic_info" '$s + $d')
+        
+        # 添加到最终列表
+        final_protocols=$(echo "$final_protocols" | jq --argjson item "$full_protocol_info" '. += [$item]')
     done
 
-    # 6. 将数组中的所有JSON对象合并成一个JSON数组字符串
-    (IFS=,; echo "[${protocols_json_array[*]}]")
+    echo "$final_protocols"
 }
+
 
 # 获取分流配置状态
 get_shunt_status() {
