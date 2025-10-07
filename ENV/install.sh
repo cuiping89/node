@@ -6271,12 +6271,24 @@ generate_status_badge() {
 
 # 检测单个协议(含自愈)
 check_and_heal_protocol() {
-    local protocol=$1
-    log_info "==================== 检测协议: $protocol ===================="
+    local protocol_fullname=$1
+    local key=""
+    # 根据全名映射到短key
+    case "$protocol_fullname" in
+        "VLESS-Reality")   key="reality" ;;
+        "VLESS-gRPC")      key="grpc" ;;
+        "VLESS-WebSocket") key="ws" ;;
+        "Trojan-TLS")      key="trojan" ;;
+        "Hysteria2")       key="hysteria2" ;;
+        "TUIC")            key="tuic" ;;
+        *)                 key="$protocol_fullname" ;;
+    esac
+
+    log_info "==================== 检测协议: $protocol_fullname ===================="
     
     # 执行健康检查
     local test_result
-    test_result=$(test_protocol_performance "$protocol")
+    test_result=$(test_protocol_performance "$key")
     
     local status="${test_result%%:*}"
     local rest="${test_result#*:}"
@@ -6288,14 +6300,14 @@ check_and_heal_protocol() {
     # 判断是否需要自愈
     local repair_result=""
     if [[ "$status" == "down" ]] || [[ "$status" == "degraded" ]] || [[ "$status" == "firewall_blocked" ]]; then
-        log_warn "⚠️  协议 $protocol 异常,触发自愈流程"
-        repair_result=$(heal_protocol_failure "$protocol" "$failure_reason")
+        log_warn "⚠️  协议 $protocol_fullname 异常,触发自愈流程"
+        repair_result=$(heal_protocol_failure "$key" "$failure_reason")
         
         # 自愈后重新检测
         if [[ "$repair_result" == repaired:* ]]; then
             log_info "自愈完成,重新检测..."
             sleep 3
-            test_result=$(test_protocol_performance "$protocol")
+            test_result=$(test_protocol_performance "$key")
             status="${test_result%%:*}"
             rest="${test_result#*:}"
             response_time="${rest%%:*}"
@@ -6305,7 +6317,7 @@ check_and_heal_protocol() {
     
     # 计算健康分数
     local health_score
-    health_score=$(calculate_health_score "$protocol" "$status" "$response_time")
+    health_score=$(calculate_health_score "$key" "$status" "$response_time")
     
     local recommendation
     recommendation=$(get_recommendation_level "$health_score")
@@ -6317,11 +6329,11 @@ check_and_heal_protocol() {
     recommendation_badge=$(generate_recommendation_badge "$recommendation")
     
     local detail_message
-    detail_message=$(generate_detail_message "$protocol" "$status" "$response_time" "$failure_reason")
+    detail_message=$(generate_detail_message "$key" "$status" "$response_time" "$failure_reason")
     
     # 生成JSON
     jq -n \
-        --arg protocol "$protocol" \
+        --arg protocol_key "$key" \
         --arg status "$status" \
         --arg status_badge "$status_badge" \
         --arg health_score "$health_score" \
@@ -6332,27 +6344,27 @@ check_and_heal_protocol() {
         --arg repair_result "$repair_result" \
         --arg checked_at "$(date -Is)" \
         '{
-            protocol: $protocol,
-            status: $status,
-            status_badge: $status_badge,
-            health_score: ($health_score | tonumber),
-            response_time: ($response_time | tonumber),
-            recommendation: $recommendation,
-            recommendation_badge: $recommendation_badge,
-            detail_message: $detail_message,
-            repair_result: $repair_result,
-            checked_at: $checked_at
+            "protocol": $protocol_key,
+            "status": $status,
+            "status_badge": $status_badge,
+            "health_score": ($health_score | tonumber),
+            "response_time": ($response_time | tonumber),
+            "recommendation": $recommendation,
+            "recommendation_badge": $recommendation_badge,
+            "detail_message": $detail_message,
+            "repair_result": $repair_result,
+            "checked_at": $checked_at
         }'
 }
 
 # 检测所有协议
 check_all_protocols() {
-    local protocols=("reality" "grpc" "ws" "trojan" "hysteria2" "tuic")
+    local protocols=("VLESS-Reality" "VLESS-gRPC" "VLESS-WebSocket" "Trojan-TLS" "Hysteria2" "TUIC")
     local results='[]'
     
-    for protocol in "${protocols[@]}"; do
+    for protocol_fullname in "${protocols[@]}"; do
         local result
-        result=$(check_and_heal_protocol "$protocol")
+        result=$(check_and_heal_protocol "$protocol_fullname")
         results=$(echo "$results" | jq --argjson item "$result" '. += [$item]')
     done
     
@@ -15023,7 +15035,7 @@ show_installation_info() {
 
 }
 
-# 简化版清理函数 - 成功就是成功，不提及小问题
+# 简化版清理函数
 cleanup() {
     local rc=$?
     
