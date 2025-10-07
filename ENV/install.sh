@@ -6158,6 +6158,17 @@ get_performance_grade() {
     fi
 }
 
+
+map_failure_reason() {
+  case "$1" in
+    firewall_blocked) echo "防火墙阻断" ;;
+    rate_limited)     echo "频控" ;;
+    dns_failed|dns_error) echo "DNS失败" ;;
+    icmp_blocked)     echo "ICMP受限" ;;
+    *) echo "" ;;
+  esac
+}
+
 # 增强的详细消息生成(含性能等级)
 generate_detail_message() {
     local protocol=$1 status=$2 response_time=$3 failure_reason=${4:-""} message=""
@@ -6179,7 +6190,8 @@ generate_detail_message() {
             message="🟡 服务监听中(待验证)"
             ;;
         degraded)
-            message="⚠️  服务降级(${failure_reason})"
+            reason_label="$(map_failure_reason "$failure_reason")"
+			message="⚠️ 服务降级${reason_label:+ · $reason_label}"
             ;;
         firewall_blocked)
             message="🔥 防火墙阻断"
@@ -8660,7 +8672,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
     box-shadow: 0 2px 6px rgba(0,0,0,.08) !important;
 }
 
-/* ========== 协议健康状态 - 单行布局(与核心服务徽标统一) ========== */
+/* ========== 协议健康状态 ========== */
 
 /* 仅第4列 td：横向保持居中 + 垂直居中（不动 th 标题） */
 .data-table td:nth-child(4) {
@@ -8825,6 +8837,19 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 
 .health-status-badge.degraded {
     animation: pulse-warning 2s ease-in-out infinite;
+}
+
+/* 单行省略号保险：允许消息项收缩，容器不换行 */
+.data-table td:nth-child(4) .health-status-container{
+  flex-wrap: nowrap;
+  min-width: 0; /* 允许子项收缩 */
+}
+
+.health-detail-message{
+  flex: 1 1 auto;  /* 允许收缩 */
+  min-width: 0;   /* 否则 ellipsis 无效 */
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* ===========响应式布局============= */
@@ -10992,7 +11017,7 @@ function renderProtocolTable(protocolsOpt) { // 只接收一个参数
           <div class="health-status-badge ${escapeHtml(p.status || 'unknown')}">
             ${p.status_badge || escapeHtml(p.status || '—')}
           </div>
-          <div class="health-detail-message">
+          <div class="health-detail-message" title="${escapeHtml(p.detail_message || '')}">
             ${escapeHtml(p.detail_message || '')}
           </div>
           ${recBadge}
