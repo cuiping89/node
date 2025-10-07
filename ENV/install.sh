@@ -5399,8 +5399,7 @@ ensure_log_dir() {
     touch "$LOG_FILE" 2>/dev/null || true
 }
 
-# *** THIS IS THE MISSING FUNCTION ***
-# vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
+### FIX STARTS HERE: This function was missing ###
 generate_self_signed_cert() {
     log_info "(Healer) Generating self-signed certificate..."
     
@@ -5413,7 +5412,7 @@ generate_self_signed_cert() {
 
     local server_ip="127.0.0.1"
     if [[ -f "/etc/edgebox/config/server.json" ]]; then
-        server_ip=$(jq -r '.server_ip // "127.0.0.1"' "/etc/edgebox/config/server.json")
+        server_ip=$(jq -r '.server_ip // "127.0.0.1"' "/etc/edgebox/config/server.json" 2>/dev/null || echo "127.0.0.1")
     fi
     
     openssl ecparam -genkey -name secp384r1 -out "${CERT_DIR}/self-signed.key" 2>/dev/null || { log_error "(Healer) Failed to generate ECC private key"; return 1; }
@@ -5423,10 +5422,10 @@ generate_self_signed_cert() {
     ln -sf "${CERT_DIR}/self-signed.pem" "${CERT_DIR}/current.pem"
     
     local NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
-    chown -R root:"${NOBODY_GRP}" "${CERT_DIR}"
-    chmod 750 "${CERT_DIR}"
-    chmod 640 "${CERT_DIR}"/self-signed.key
-    chmod 644 "${CERT_DIR}"/self-signed.pem
+    chown -R root:"${NOBODY_GRP}" "${CERT_DIR}" 2>/dev/null || true
+    chmod 750 "${CERT_DIR}" 2>/dev/null || true
+    chmod 640 "${CERT_DIR}"/self-signed.key 2>/dev/null || true
+    chmod 644 "${CERT_DIR}"/self-signed.pem 2>/dev/null || true
 
     if openssl x509 -in "${CERT_DIR}/current.pem" -noout >/dev/null 2>&1; then
         log_success "(Healer) Self-signed certificate generated successfully."
@@ -5436,8 +5435,7 @@ generate_self_signed_cert() {
     fi
     return 0
 }
-# ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-# *** END OF MISSING FUNCTION ***
+### FIX ENDS HERE ###
 
 # 检查服务是否在冷却期内
 is_in_cooldown() {
