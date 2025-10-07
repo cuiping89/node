@@ -3858,98 +3858,116 @@ chown root:nobody "${CERT_DIR}"/*.key 2>/dev/null || true
 # 订阅生成函数
 #############################################
 
-# 生成订阅链接（支持 IP / 域名 两种模式）
+# === 统一订阅生成 ===
 # 用法：
-#   generate_subscription            # 按 server.json 中的 server_ip（IP模式）
-#   generate_subscription <domain>   # 域名模式
+#   generate_subscription               # IP 模式（默认）
+#   generate_subscription <domain>      # 域名模式
 generate_subscription() {
-  local domain_or_ip="${1:-}"
+  local host="${1:-$SERVER_IP}"
 
+  # 基本环境
   local CONFIG_DIR="/etc/edgebox/config"
   local WEB_ROOT="/var/www/html"
-  local cfg="${CONFIG_DIR}/server.json"
+  mkdir -p "$CONFIG_DIR" "$WEB_ROOT"
 
-  [[ -f "$cfg" ]] || { log_error "配置文件不存在: $cfg"; return 1; }
+  # 载入凭据（以你现有的 server.json 字段为准）
+  local server_json="${CONFIG_DIR}/server.json"
+  local uuid_reality uuid_grpc uuid_ws uuid_tuic pw_trojan pw_tuic pw_hy2 \
+        reality_pub reality_sid reality_sni sni_grpc sni_ws sni_trojan sni_hy2 sni_tuic \
+        tls_insecure hy2_insecure
 
-  # 基础参数
-  local server_ip uuid_reality uuid_grpc uuid_ws uuid_tuic
-  local pw_trojan pw_hy2 pw_tuic reality_pub reality_sid
-  server_ip=$(jq -r '.server_ip // empty' "$cfg")
-  uuid_reality=$(jq -r '.uuid.vless.reality // empty' "$cfg")
-  uuid_grpc=$(jq -r '.uuid.vless.grpc // empty' "$cfg")
-  uuid_ws=$(jq -r '.uuid.vless.ws // empty' "$cfg")
-  uuid_tuic=$(jq -r '.uuid.tuic // empty' "$cfg")
-  pw_trojan=$(jq -r '.password.trojan // empty' "$cfg")
-  pw_hy2=$(jq -r '.password.hysteria2 // empty' "$cfg")
-  pw_tuic=$(jq -r '.password.tuic // empty' "$cfg")
-  reality_pub=$(jq -r '.reality.public_key // empty' "$cfg")
-  reality_sid=$(jq -r '.reality.short_id // empty' "$cfg")
+  uuid_reality="$(jq -r '.uuid.vless.reality // ""' "$server_json" 2>/dev/null)"
+  uuid_grpc="$(jq -r '.uuid.vless.grpc // ""' "$server_json" 2>/dev/null)"
+  uuid_ws="$(jq -r '.uuid.vless.ws // ""' "$server_json" 2>/dev/null)"
+  uuid_tuic="$(jq -r '.uuid.tuic // ""' "$server_json" 2>/dev/null)"
+  pw_trojan="$(jq -r '.password.trojan // ""' "$server_json" 2>/dev/null)"
+  pw_tuic="$(jq -r '.password.tuic // ""' "$server_json" 2>/dev/null)"
+  pw_hy2="$(jq -r '.password.hysteria2 // ""' "$server_json" 2>/dev/null)"
 
-  # Reality 的 SNI：优先 xray.json，其次 server.json.reality.sni，最后 www.microsoft.com
-  local reality_sni
-  reality_sni="$(jq -r '
-      first(.inbounds[]? | select(.tag=="vless-reality")
-            | .streamSettings.realitySettings.serverNames[0])
+  reality_pub="$(jq -r '.reality.public_key  // ""' "$server_json" 2>/dev/null)"
+  reality_sid="$(jq -r '.reality.short_id    // ""' "$server_json" 2>/dev/null)"
+
+  # 真实的 Reality SNI 优先从运行配置里捞（和你现网一致）
+  reality_sni="$(
+    jq -r 'first(.inbounds[]? | select(.tag=="vless-reality")
+      | .streamSettings.realitySettings.serverNames[0])
       // (first(.inbounds[]? | select(.tag=="vless-reality")
-            | .streamSettings.realitySettings.dest) | split(":")[0])
-      // empty' "/etc/edgebox/config/xray.json" 2>/dev/null)"
-  : "${reality_sni:=$(jq -r '.reality.sni // empty' "$cfg" 2>/dev/null)}"
-  : "${reality_sni:=www.microsoft.com}"
+      | .streamSettings.realitySettings.dest) | split(":")[0])
+      // empty' /etc/edgebox/config/xray.json 2>/dev/null
+  )"
+  [[ -z "$reality_sni" ]] && reality_sni="${REALITY_SNI:-www.microsoft.com}"
 
-  # host / SNI 选择：不传参=IP模式；传参=域名模式
-  local host mode sni_grpc sni_ws sni_trojan sni_hy2 sni_tuic tls_insecure hy2_insecure
-  if [[ -n "$domain_or_ip" ]]; then
-    host="$domain_or_ip"; mode="DOMAIN"
-    sni_grpc="$host"; sni_ws="$host"; sni_trojan="trojan.$host"
-    sni_hy2="$host"; sni_tuic="$host"
-    tls_insecure=""; hy2_insecure=""
+  # TLS 场景：IP模式使用“内部域名”做SNI；域名模式直接用 host
+  if [[ "$host" == "$SERVER_IP" ]]; then
+    sni_grpc="grpc.edgebox.internal"
+    sni_ws="ws.edgebox.internal"
+    sni_trojan="trojan.edgebox.internal"
+    sni_hy2="$SERVER_IP"
+    sni_tuic="$SERVER_IP"
+    tls_insecure="&allowInsecure=1"
+    hy2_insecure="&insecure=1"
   else
-    host="$server_ip"; mode="IP"
-    sni_grpc="grpc.edgebox.internal"; sni_ws="ws.edgebox.internal"; sni_trojan="trojan.edgebox.internal"
-    sni_hy2="$host"; sni_tuic="$host"
-    tls_insecure="&allowInsecure=1"; hy2_insecure="&insecure=1"
+    sni_grpc="$host"
+    sni_ws="$host"
+    sni_trojan="trojan.$host"
+    sni_hy2="$host"
+    sni_tuic="$host"
+    tls_insecure=""
+    hy2_insecure=""
   fi
-  [[ -n "$host" && -n "$uuid_reality" ]] || { log_error "缺少 host/uuid_reality"; return 1; }
 
-  # URL 编码
-  url_encode(){ local s="$1" o= c; for((i=0;i<${#s};i++)){ c="${s:i:1}"; case "$c" in [-_.~a-zA-Z0-9]) o+="$c";; *) printf -v o "%s%%%02X" "$o" "'$c";; esac; } printf "%s" "$o"; }
+  # URL 编码（安全实现）
+  url_encode() {
+    local s="$1" o='' c hex i
+    for ((i=0; i<${#s}; i++)); do
+      c="${s:i:1}"
+      case "$c" in
+        [a-zA-Z0-9.~_-]) o+="$c" ;;
+        *) printf -v hex '%02X' "'$c"; o+="%$hex" ;;
+      esac
+    done
+    printf '%s' "$o"
+  }
 
-  # 拼接订阅（一次性落盘）
+  # 拼接订阅
   local links=""
   [[ -n "$uuid_reality" && -n "$reality_pub" && -n "$reality_sid" ]] && \
     links+="vless://${uuid_reality}@${host}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${reality_sni}&fp=chrome&pbk=${reality_pub}&sid=${reality_sid}&type=tcp#EdgeBox-REALITY\n"
+
   [[ -n "$uuid_grpc" ]] && \
     links+="vless://${uuid_grpc}@${host}:443?encryption=none&security=tls&sni=${sni_grpc}&alpn=h2&type=grpc&serviceName=grpc&fp=chrome${tls_insecure}#EdgeBox-gRPC\n"
+
   [[ -n "$uuid_ws" ]] && \
     links+="vless://${uuid_ws}@${host}:443?encryption=none&security=tls&sni=${sni_ws}&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome${tls_insecure}#EdgeBox-WS\n"
+
   if [[ -n "$pw_trojan" ]]; then
     local trojan_pw; trojan_pw="$(url_encode "$pw_trojan")"
     links+="trojan://${trojan_pw}@${host}:443?security=tls&sni=${sni_trojan}&fp=chrome${tls_insecure}#EdgeBox-TROJAN\n"
   fi
+
   if [[ -n "$pw_hy2" ]]; then
     local hy2_pw; hy2_pw="$(url_encode "$pw_hy2")"
     links+="hysteria2://${hy2_pw}@${host}:443?sni=${sni_hy2}&alpn=h3${hy2_insecure}#EdgeBox-HYSTERIA2\n"
   fi
+
   if [[ -n "$uuid_tuic" && -n "$pw_tuic" ]]; then
     local tuic_pw; tuic_pw="$(url_encode "$pw_tuic")"
     links+="tuic://${uuid_tuic}:${tuic_pw}@${host}:2053?congestion_control=bbr&alpn=h3&sni=${sni_tuic}${tls_insecure}#EdgeBox-TUIC\n"
   fi
 
-  mkdir -p "$CONFIG_DIR" "$WEB_ROOT"
+  # 落盘（仅保留“明文 + 整包Base64”，不再生成“逐行Base64”）
   printf "%b" "$links" > "${CONFIG_DIR}/subscription.txt"
-
-  # 只保留「整包」Base64；不再生成“逐行”
   if base64 --help 2>&1 | grep -q -- ' -w'; then
     printf "%b" "$links" | base64 -w0 > "${CONFIG_DIR}/subscription.base64"
   else
     printf "%b" "$links" | base64 | tr -d '\n' > "${CONFIG_DIR}/subscription.base64"
   fi
 
-  # Web 软链 /sub 指向明文文件
+  # 对外 /sub -> 明文软链
   ln -sfn "${CONFIG_DIR}/subscription.txt" "${WEB_ROOT}/sub"
   chmod 644 "${CONFIG_DIR}/subscription.txt" "${CONFIG_DIR}/subscription.base64" 2>/dev/null || true
 
-  log_success "订阅链接生成完成（mode=${mode}, host=${host}）"
+  log_success "订阅链接生成完成（模式：${host})"
 }
 
 
@@ -12097,15 +12115,14 @@ get_server_info() {
     return 0
 }
 
-# 修改后的订阅显示函数 - 不再重复读取配置
+# 订阅展示（精简版）
 show_sub() {
   local CONFIG_DIR="/etc/edgebox/config"
-  echo "=== EdgeBox 节点订阅信息 ==="
-  echo
-
-  # 服务器信息（只做简单展示，不影响订阅）
   local ip="$(jq -r '.server_ip // empty' "${CONFIG_DIR}/server.json" 2>/dev/null)"
   local cert_mode="$(cat "${CONFIG_DIR}/cert_mode" 2>/dev/null || echo self-signed)"
+
+  echo "=== EdgeBox 节点订阅信息 ==="
+  echo
   echo "🌐 服务器信息:"
   [[ -n "$ip" ]] && echo "   IP地址: $ip"
   echo "   证书模式: ${cert_mode}"
@@ -12127,9 +12144,9 @@ show_sub() {
   fi
 }
 
-# 主函数 - 在执行任何命令前先加载配置
+
+# 主函数（先加载配置，再分发）
 main() {
-  # 在脚本开始时一次性加载所有配置
   if ! load_config_once; then
     echo "配置加载失败，退出"
     exit 1
@@ -12138,6 +12155,16 @@ main() {
   case "$1" in
     sub|subscription)
       show_sub
+      ;;
+
+    switch-to-domain)
+      shift
+      [[ -z "$1" ]] && { echo "用法: edgeboxctl switch-to-domain <domain>"; exit 1; }
+      switch_to_domain "$1"
+      ;;
+
+    switch-to-ip)
+      switch_to_ip
       ;;
 
     status)
@@ -12154,13 +12181,13 @@ main() {
       ;;
 
     *)
-      echo "用法: edgeboxctl [sub|status|logs|restart|...]"
+      echo "用法: edgeboxctl [sub|switch-to-domain <domain>|switch-to-ip|status|reload]"
       ;;
   esac
 }
-
-# 脚本入口
+# 入口
 main "$@"
+
 
 
 #############################################
