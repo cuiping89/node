@@ -15193,16 +15193,9 @@ main() {
     configure_sing_box
     configure_nginx
     
-    # --- 模块4 & 5: 后台、监控与运维工具 ---
-    show_progress 6 10 "安装后台面板和监控脚本"
-    create_dashboard_backend
-    setup_traffic_monitoring
-    
-    show_progress 7 10 "创建管理工具和初始化服务"
-    create_enhanced_edgeboxctl
-    setup_email_system
-    install_ipq_stack
-    create_init_script
+# --- 模块4: 后台、监控与运维工具 ---
+show_progress 6 10 "安装后台面板和监控脚本"
+execute_module4 || { log_error "模块4执行失败"; exit 1; }
 	
 	if ! setup_traffic_randomization; then
     log_error "流量特征随机化系统设置失败"
