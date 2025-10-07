@@ -12099,30 +12099,32 @@ get_server_info() {
 
 # 修改后的订阅显示函数 - 不再重复读取配置
 show_sub() {
-    ensure_config_loaded || return 1
-    
-    log_info "生成订阅链接..."
-    
-    echo "=== EdgeBox 节点订阅信息 ==="
-    echo
-    echo "🌐 服务器信息:"
-    echo "   IP地址: $SERVER_IP"
-    echo
-    echo "📋 订阅链接 (复制到客户端):"
-    
-    # 生成各协议链接（使用已加载的全局变量）
-    local vless_reality="vless://${UUID_VLESS_REALITY}@${SERVER_IP}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=$(jq -r 'first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.serverNames[0]) // (first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.dest) | split(":")[0]) // empty' ${CONFIG_DIR}/xray.json 2>/dev/null || echo ${REALITY_SNI:-www.microsoft.com})&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&type=tcp&headerType=none#EdgeBox-Reality"
+  local CONFIG_DIR="/etc/edgebox/config"
+  echo "=== EdgeBox 节点订阅信息 ==="
+  echo
 
-    
-    local hysteria2="hy2://${PASSWORD_HYSTERIA2}@${SERVER_IP}:443/?sni=${SERVER_IP}#EdgeBox-Hysteria2"
-    
-    echo "1️⃣  VLESS+Reality:"
-    echo "   $vless_reality"
-    echo
-    echo "2️⃣  Hysteria2:"
-    echo "   $hysteria2"
-    echo
-    # ... 其他协议类似处理
+  # 服务器信息（只做简单展示，不影响订阅）
+  local ip="$(jq -r '.server_ip // empty' "${CONFIG_DIR}/server.json" 2>/dev/null)"
+  local cert_mode="$(cat "${CONFIG_DIR}/cert_mode" 2>/dev/null || echo self-signed)"
+  echo "🌐 服务器信息:"
+  [[ -n "$ip" ]] && echo "   IP地址: $ip"
+  echo "   证书模式: ${cert_mode}"
+  echo
+
+  local txt="${CONFIG_DIR}/subscription.txt"
+  local b64="${CONFIG_DIR}/subscription.base64"
+
+  echo "# 明文链接"
+  if [[ -s "$txt" ]]; then
+    cat "$txt"; echo
+  else
+    echo "(暂无内容，可执行：edgeboxctl switch-to-domain <domain> 或 edgeboxctl switch-to-ip 以重新生成)"; echo
+  fi
+
+  if [[ -s "$b64" ]]; then
+    echo "# Base64（整包）"
+    cat "$b64"; echo
+  fi
 }
 
 # 主函数 - 在执行任何命令前先加载配置
@@ -12194,6 +12196,35 @@ fi
 
   # 3) 生成后输出（存在即输出）
   [[ -s "${CONFIG_DIR}/subscription.txt" ]] && cat "${CONFIG_DIR}/subscription.txt"
+}
+
+show_sub() {
+  local CONFIG_DIR="/etc/edgebox/config"
+  echo "=== EdgeBox 节点订阅信息 ==="
+  echo
+
+  # 服务器信息（只做简单展示，不影响订阅）
+  local ip="$(jq -r '.server_ip // empty' "${CONFIG_DIR}/server.json" 2>/dev/null)"
+  local cert_mode="$(cat "${CONFIG_DIR}/cert_mode" 2>/dev/null || echo self-signed)"
+  echo "🌐 服务器信息:"
+  [[ -n "$ip" ]] && echo "   IP地址: $ip"
+  echo "   证书模式: ${cert_mode}"
+  echo
+
+  local txt="${CONFIG_DIR}/subscription.txt"
+  local b64="${CONFIG_DIR}/subscription.base64"
+
+  echo "# 明文链接"
+  if [[ -s "$txt" ]]; then
+    cat "$txt"; echo
+  else
+    echo "(暂无内容，可执行：edgeboxctl switch-to-domain <domain> 或 edgeboxctl switch-to-ip 以重新生成)"; echo
+  fi
+
+  if [[ -s "$b64" ]]; then
+    echo "# Base64（整包）"
+    cat "$b64"; echo
+  fi
 }
 
 
