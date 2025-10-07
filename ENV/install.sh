@@ -11244,7 +11244,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 <div class="container">
   <div class="main-card">
         <div class="main-header">
-        <h1>🌐 EdgeBox - 企业级多协议节点管理系统 ✨</h1>
+        <h1>🕵️‍♂️🌐 EdgeBox - 企业级多协议节点管理系统 ✨</h1>
         <div class="notification-center">
             <button class="notification-trigger" id="notificationTrigger" data-action="toggle-notifications">
                 <span class="notification-icon">🔔</span>
