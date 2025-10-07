@@ -4888,7 +4888,9 @@ get_protocols_status() {
         
         # 从健康报告中查找动态信息
         local dynamic_info
-        dynamic_info=$(echo "$health_data" | jq -c --arg key "$key" '.[] | select(.protocol == $key)')
+        dynamic_info=$(echo "$health_data" \
+  | jq -c --arg key "$key" --arg name "$name" \
+    '.[] | select((.protocol == $key) or (.protocol == $name))')
 
         # 如果找不到动态信息，使用默认值
         if [[ -z "$dynamic_info" || "$dynamic_info" == "null" ]]; then
