@@ -4826,6 +4826,7 @@ get_services_status() {
 
 
 # 获取协议配置状态 (修复版 - 完整合并健康数据 + JQ语法修正)
+# 获取协议配置状态 (修复版 - 完整合并健康数据 + JQ语法修正)
 get_protocols_status() {
     local health_report_file="${TRAFFIC_DIR}/protocol-health.json"
     local server_config_file="${CONFIG_DIR}/server.json"
@@ -4870,7 +4871,7 @@ get_protocols_status() {
             elif $name == "Trojan-TLS" then "trojan://\($conf.password.trojan | url_encode)@\($domain):443?security=tls&sni=trojan.\($domain)&alpn=http%2F1.1&fp=chrome#EdgeBox-TROJAN"
             elif $name == "Hysteria2" then "hysteria2://\($conf.password.hysteria2 | url_encode)@\($domain):443?sni=\($domain)&alpn=h3#EdgeBox-HYSTERIA2"
             
-            ### FIX IS HERE: Replaced } with ) ###
+            # ### FIX IS HERE: Replaced the incorrect } with a correct ) ###
             elif $name == "TUIC" then "tuic://\($conf.uuid.tuic):\($conf.password.tuic | url_encode)@\($domain):2053?congestion_control=bbr&alpn=h3&sni=\($domain)#EdgeBox-TUIC"
             
             else ""
@@ -6939,6 +6940,9 @@ generate_initial_traffic_data() {
 
 # 执行模块4的所有任务
 execute_module4() {
+    # 在创建新脚本之前，先清理掉所有旧的 .sh 脚本文件
+    find /etc/edgebox/scripts/ -type f -name "*.sh" -delete 2>/dev/null || true
+
     log_info "======== 开始执行模块4：Dashboard后端脚本生成 ========"
     
     # 任务1：生成Dashboard后端脚本
@@ -15144,8 +15148,7 @@ main() {
     trap cleanup_all EXIT
 	
     clear
-    # 在创建新脚本之前，先清理掉所有旧的 .sh 脚本文件
-    find /etc/edgebox/scripts/ -type f -name "*.sh" -delete 2>/dev/null || true
+    # find /etc/edgebox/scripts/ -type f -name "*.sh" -delete 2>/dev/null || true  <-- DELETE THIS LINE
 	
     echo -e "${GREEN}EdgeBox 企业级安装脚本 v3.0.0${NC}"
     print_separator
