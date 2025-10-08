@@ -6988,6 +6988,14 @@ execute_module4() {
         return 1
     fi
     
+	# 调用 edgeboxctl 创建函数
+    if create_enhanced_edgeboxctl; then
+        log_success "✓ edgeboxctl 管理工具创建完成"
+    else
+        log_error "✗ edgeboxctl 管理工具创建失败"
+        return 1
+    fi
+	
     # 任务3：设置定时任务
     if setup_cron_jobs; then
         log_success "✓ 定时任务设置完成"
