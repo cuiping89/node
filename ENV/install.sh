@@ -6999,6 +6999,14 @@ execute_module4() {
     else
         log_warn "协议健康检查初始化失败，但定时任务将重试"
     fi
+	
+	    # 任务4：创建edgeboxctl管理工具
+    if create_enhanced_edgeboxctl; then
+        log_success "✓ edgeboxctl管理工具创建完成"
+    else
+        log_error "✗ edgeboxctl管理工具创建失败"
+        return 1
+    fi
 
     # 任务5：初始化流量采集
     if "${SCRIPTS_DIR}/traffic-collector.sh"; then
