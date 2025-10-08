@@ -12624,9 +12624,6 @@ PLAIN
   mkdir -p /var/www/html
   {
     printf '%s\n\n' "$sub"
-    echo "# Base64（逐行，每行一个链接；多数客户端不支持一次粘贴多行）"
-    cat "${CONFIG_DIR}/subscription.b64lines"
-    echo
     echo "# Base64（整包，单行）"
     cat "${CONFIG_DIR}/subscription.base64"
     echo
@@ -12674,9 +12671,6 @@ PLAIN
   mkdir -p /var/www/html
   {
     printf '%s\n\n' "$sub"
-    echo "# Base64（逐行，每行一个链接；多数客户端不支持一次粘贴多行）"
-    cat "${CONFIG_DIR}/subscription.b64lines"
-    echo
     echo "# Base64（整包，单行）"
     cat "${CONFIG_DIR}/subscription.base64"
     echo
@@ -12697,6 +12691,9 @@ switch_to_domain(){
   fix_permissions
   regen_sub_domain "$domain"
   reload_or_restart_services nginx xray sing-box
+  # 强制刷新控制面板数据
+  log_info "刷新控制面板配置..."
+  /etc/edgebox/scripts/dashboard-backend.sh --now >/dev/null 2>&1 || true
   log_success "已切换到域名模式（${domain}）"
   post_switch_report
   # 【增加此行】强制刷新 dashboard.json 缓存
@@ -12712,6 +12709,9 @@ switch_to_ip(){
   [[ -z "$ip" ]] && ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
   regen_sub_ip "$ip"
   reload_or_restart_services nginx xray sing-box
+  # 强制刷新控制面板数据
+  log_info "刷新控制面板配置..."
+  /etc/edgebox/scripts/dashboard-backend.sh --now >/dev/null 2>&1 || true
   log_success "已切换到 IP 模式"
   post_switch_report
   # 【增加此行】强制刷新 dashboard.json 缓存
