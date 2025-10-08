@@ -12167,41 +12167,6 @@ show_sub() {
     # ... 其他协议类似处理
 }
 
-# 主函数 - 在执行任何命令前先加载配置
-main() {
-    # 在脚本开始时一次性加载所有配置
-    if ! load_config_once; then
-        echo "配置加载失败，退出"
-        exit 1
-    fi
-    
-    case "$1" in
-        sub|subscription)
-            show_sub
-            ;;
-        status)
-            show_status
-            ;;
-        # ... 其他命令
-        *)
-            echo "用法: edgeboxctl [sub|status|logs|restart|...]"
-            ;;
-			
-		  reload)
-    shift
-    if [ $# -gt 0 ]; then
-      reload_or_restart_services "$@"
-    else
-      reload_or_restart_services nginx xray sing-box
-    fi
-    ;;
-
-    esac
-}
-
-# 脚本入口
-main "$@"
-
 
 #############################################
 # 基础功能
@@ -12524,6 +12489,81 @@ fix_permissions(){
   stat -L -c '  %a %n' "${CERT_DIR}/current.pem" 2>/dev/null || true
 }
 
+check_domain_resolution(){
+  local domain=$1; log_info "检查域名解析: $domain"
+  need nslookup && nslookup "$domain" >/dev/null 2>&1 || { log_error "域名无法解析"; return 1; }
+  get_server_info
+  local resolved_ip; resolved_ip=$(dig +short "$domain" 2>/dev/null | tail -n1)
+  if [[ -n "$resolved_ip" && "$resolved_ip" != "$SERVER_IP" ]]; then
+    log_warn "解析IP ($resolved_ip) 与服务器IP ($SERVER_IP) 不匹配，可能导致 LE 校验失败"
+    read -p "是否继续？[y/N]: " -n 1 -r; echo; [[ $REPLY =~ ^[Yy]$ ]] || return 1
+  fi
+  log_success "域名解析检查通过"
+}
+
+request_letsencrypt_cert(){
+  local domain="$1"
+  [[ -z "$domain" ]] && { log_error "缺少域名"; return 1; }
+
+  # 先检查 apex 是否解析;子域 trojan.<domain> 解析不到就先不申请它
+  if ! getent hosts "$domain" >/dev/null; then
+    log_error "${domain} 未解析到本机,无法申请证书"; return 1
+  fi
+
+  local trojan="trojan.${domain}"
+  local have_trojan=0
+  if getent hosts "$trojan" >/dev/null; then
+    have_trojan=1
+  else
+    log_warn "未检测到 ${trojan} 的 A/AAAA 记录,将先只为 ${domain} 申请证书。"
+    log_warn "等你把 ${trojan} 解析到本机后,再运行同样命令会自动 --expand 加上子域。"
+  fi
+
+  # 首选 nginx 插件(不停机),失败则回落 standalone(临停 80)
+  # 1) 组装域名参数
+  local cert_args=(-d "${domain}")
+  [[ ${have_trojan:-0} -eq 1 ]] && cert_args+=(-d "${trojan}")
+
+  # 2) 是否需要 --expand(已有同名证书时)
+  local expand=""
+  [[ -d "/etc/letsencrypt/live/${domain}" ]] && expand="--expand"
+
+  # 3) 选择验证方式
+  local CERTBOT_AUTH="--nginx"
+  if ! command -v nginx >/dev/null 2>&1 || ! dpkg -l | grep -q '^ii\s\+python3-certbot-nginx'; then
+    CERTBOT_AUTH="--standalone --preferred-challenges http"
+  fi
+
+  # 4) 执行签发
+  if [[ "$CERTBOT_AUTH" == "--nginx" ]]; then
+    certbot certonly --nginx ${expand} \
+      --cert-name "${domain}" "${cert_args[@]}" \
+      -n --agree-tos --register-unsafely-without-email || return 1
+  else
+    # standalone 需临时释放 80 端口
+    systemctl stop nginx >/dev/null 2>&1 || true
+    certbot certonly --standalone --preferred-challenges http --http-01-port 80 ${expand} \
+      --cert-name "${domain}" "${cert_args[@]}" \
+      -n --agree-tos --register-unsafely-without-email || { systemctl start nginx >/dev/null 2>&1 || true; return 1; }
+    systemctl start nginx >/dev/null 2>&1 || true
+  fi
+
+  # 切换软链并热加载
+  [[ -f "/etc/letsencrypt/live/${domain}/fullchain.pem" && -f "/etc/letsencrypt/live/${domain}/privkey.pem" ]] \
+    || { log_error "证书文件缺失"; return 1; }
+
+  ln -sf "/etc/letsencrypt/live/${domain}/fullchain.pem" "${CERT_DIR}/current.pem"
+  ln -sf "/etc/letsencrypt/live/${domain}/privkey.pem"  "${CERT_DIR}/current.key"
+  echo "letsencrypt:${domain}" > "${CONFIG_DIR}/cert_mode"
+
+  reload_or_restart_services nginx xray sing-box
+
+  if [[ ${have_trojan} -eq 1 ]]; then
+    log_success "Let's Encrypt 证书已生效(包含 trojan.${domain})"
+  else
+    log_success "Let's Encrypt 证书已生效(仅 ${domain};trojan 子域暂未包含)"
+  fi
+}
 
 # 生成订阅（域名 / IP模式）
 regen_sub_domain(){
@@ -12625,81 +12665,6 @@ PLAIN
   log_success "IP 模式订阅已更新"
 }
 
-check_domain_resolution(){
-  local domain=$1; log_info "检查域名解析: $domain"
-  need nslookup && nslookup "$domain" >/dev/null 2>&1 || { log_error "域名无法解析"; return 1; }
-  get_server_info
-  local resolved_ip; resolved_ip=$(dig +short "$domain" 2>/dev/null | tail -n1)
-  if [[ -n "$resolved_ip" && "$resolved_ip" != "$SERVER_IP" ]]; then
-    log_warn "解析IP ($resolved_ip) 与服务器IP ($SERVER_IP) 不匹配，可能导致 LE 校验失败"
-    read -p "是否继续？[y/N]: " -n 1 -r; echo; [[ $REPLY =~ ^[Yy]$ ]] || return 1
-  fi
-  log_success "域名解析检查通过"
-}
-
-request_letsencrypt_cert(){
-  local domain="$1"
-  [[ -z "$domain" ]] && { log_error "缺少域名"; return 1; }
-
-  # 先检查 apex 是否解析;子域 trojan.<domain> 解析不到就先不申请它
-  if ! getent hosts "$domain" >/dev/null; then
-    log_error "${domain} 未解析到本机,无法申请证书"; return 1
-  fi
-
-  local trojan="trojan.${domain}"
-  local have_trojan=0
-  if getent hosts "$trojan" >/dev/null; then
-    have_trojan=1
-  else
-    log_warn "未检测到 ${trojan} 的 A/AAAA 记录,将先只为 ${domain} 申请证书。"
-    log_warn "等你把 ${trojan} 解析到本机后,再运行同样命令会自动 --expand 加上子域。"
-  fi
-
-  # 首选 nginx 插件(不停机),失败则回落 standalone(临停 80)
-  # 1) 组装域名参数
-  local cert_args=(-d "${domain}")
-  [[ ${have_trojan:-0} -eq 1 ]] && cert_args+=(-d "${trojan}")
-
-  # 2) 是否需要 --expand(已有同名证书时)
-  local expand=""
-  [[ -d "/etc/letsencrypt/live/${domain}" ]] && expand="--expand"
-
-  # 3) 选择验证方式
-  local CERTBOT_AUTH="--nginx"
-  if ! command -v nginx >/dev/null 2>&1 || ! dpkg -l | grep -q '^ii\s\+python3-certbot-nginx'; then
-    CERTBOT_AUTH="--standalone --preferred-challenges http"
-  fi
-
-  # 4) 执行签发
-  if [[ "$CERTBOT_AUTH" == "--nginx" ]]; then
-    certbot certonly --nginx ${expand} \
-      --cert-name "${domain}" "${cert_args[@]}" \
-      -n --agree-tos --register-unsafely-without-email || return 1
-  else
-    # standalone 需临时释放 80 端口
-    systemctl stop nginx >/dev/null 2>&1 || true
-    certbot certonly --standalone --preferred-challenges http --http-01-port 80 ${expand} \
-      --cert-name "${domain}" "${cert_args[@]}" \
-      -n --agree-tos --register-unsafely-without-email || { systemctl start nginx >/dev/null 2>&1 || true; return 1; }
-    systemctl start nginx >/dev/null 2>&1 || true
-  fi
-
-  # 切换软链并热加载
-  [[ -f "/etc/letsencrypt/live/${domain}/fullchain.pem" && -f "/etc/letsencrypt/live/${domain}/privkey.pem" ]] \
-    || { log_error "证书文件缺失"; return 1; }
-
-  ln -sf "/etc/letsencrypt/live/${domain}/fullchain.pem" "${CERT_DIR}/current.pem"
-  ln -sf "/etc/letsencrypt/live/${domain}/privkey.pem"  "${CERT_DIR}/current.key"
-  echo "letsencrypt:${domain}" > "${CONFIG_DIR}/cert_mode"
-
-  reload_or_restart_services nginx xray sing-box
-
-  if [[ ${have_trojan} -eq 1 ]]; then
-    log_success "Let's Encrypt 证书已生效(包含 trojan.${domain})"
-  else
-    log_success "Let's Encrypt 证书已生效(仅 ${domain};trojan 子域暂未包含)"
-  fi
-}
 
 switch_to_domain(){
   local domain="$1"
@@ -12713,6 +12678,8 @@ switch_to_domain(){
 
   log_info "为 ${domain} 申请/扩展 Let's Encrypt 证书"
   request_letsencrypt_cert "$domain" || return 1
+  # ★ 证书切域名成功后：立即生成“域名模式”订阅
+  regen_sub_domain "$domain"
 
   # 验收报告
   post_switch_report
