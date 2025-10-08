@@ -4825,7 +4825,6 @@ get_services_status() {
 }
 
 
-# 获取协议配置状态 (修复版 - 完整合并健康数据 + JQ语法修正)
 # 获取协议配置状态 (最终修正版 - 兼容两种协议键名)
 get_protocols_status() {
     local health_report_file="${TRAFFIC_DIR}/protocol-health.json"
@@ -4864,7 +4863,8 @@ get_protocols_status() {
         local share_link
         share_link=$(jq -n -r --arg name "$name" --argjson conf "$server_config" '
             def url_encode: @uri;
-            ($conf.server_ip // "127.0.0.1") as $domain |
+            # 关键修复：优先使用 cert.domain，再用 server_ip
+            ($conf.cert.domain // $conf.server_ip // "127.0.0.1") as $domain |
             if $name == "VLESS-Reality" then "vless://\($conf.uuid.vless.reality)@\($domain):443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.microsoft.com&pbk=\($conf.reality.public_key)&sid=\($conf.reality.short_id)&type=tcp#EdgeBox-REALITY"
             elif $name == "VLESS-gRPC" then "vless://\($conf.uuid.vless.grpc)@\($domain):443?encryption=none&security=tls&sni=\($domain)&alpn=h2&type=grpc&serviceName=grpc&fp=chrome#EdgeBox-gRPC"
             elif $name == "VLESS-WebSocket" then "vless://\($conf.uuid.vless.ws)@\($domain):443?encryption=none&security=tls&sni=\($domain)&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome#EdgeBox-WS"
@@ -12159,34 +12159,6 @@ get_server_info() {
     return 0
 }
 
-# 修改后的订阅显示函数 - 不再重复读取配置
-show_sub() {
-    ensure_config_loaded || return 1
-    
-    log_info "生成订阅链接..."
-    
-    echo "=== EdgeBox 节点订阅信息 ==="
-    echo
-    echo "🌐 服务器信息:"
-    echo "   IP地址: $SERVER_IP"
-    echo
-    echo "📋 订阅链接 (复制到客户端):"
-    
-    # 生成各协议链接（使用已加载的全局变量）
-    local vless_reality="vless://${UUID_VLESS_REALITY}@${SERVER_IP}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=$(jq -r 'first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.serverNames[0]) // (first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.dest) | split(":")[0]) // empty' ${CONFIG_DIR}/xray.json 2>/dev/null || echo ${REALITY_SNI:-www.microsoft.com})&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&type=tcp&headerType=none#EdgeBox-Reality"
-
-    
-    local hysteria2="hy2://${PASSWORD_HYSTERIA2}@${SERVER_IP}:443/?sni=${SERVER_IP}#EdgeBox-Hysteria2"
-    
-    echo "1️⃣  VLESS+Reality:"
-    echo "   $vless_reality"
-    echo
-    echo "2️⃣  Hysteria2:"
-    echo "   $hysteria2"
-    echo
-    # ... 其他协议类似处理
-}
-
 
 #############################################
 # 基础功能
@@ -12225,86 +12197,65 @@ build_sub_payload(){
 }
 
 
+# === 订阅：统一生成 + 落盘 + 对外暴露 ===
+SUB_TXT="/etc/edgebox/traffic/sub.txt"     # 规范内部文件（可不直接使用）
+WEB_SUB="/var/www/html/sub"                 # Web 根下暴露 /sub
+ensure_traffic_dir(){ mkdir -p /etc/edgebox/traffic; }
+
+# 优先读取安装阶段写入的 subscription.txt；没有就根据 cert 模式现生成
+build_sub_payload(){
+  # 1) 已有订阅（安装时 generate_subscription() 写入）
+  if [[ -s "${CONFIG_DIR}/subscription.txt" ]]; then
+    cat "${CONFIG_DIR}/subscription.txt"
+    return 0
+  fi
+
+  # 2) 没有就按当前证书模式生成（不再依赖 server.json 存在与否）
+  local mode domain
+  mode="$(get_current_cert_mode 2>/dev/null || echo self-signed)"
+  if [[ "$mode" == "self-signed" ]]; then
+    regen_sub_ip
+  else
+    # letsencrypt:<domain>
+    domain="${mode##*:}"
+    if [[ -n "$domain" ]]; then
+      regen_sub_domain "$domain" || regen_sub_ip
+    else
+      regen_sub_ip
+    fi
+  fi
+
+  # 3) 生成后输出（存在即输出）
+  [[ -s "${CONFIG_DIR}/subscription.txt" ]] && cat "${CONFIG_DIR}/subscription.txt"
+}
+
+
 show_sub(){
   ensure_traffic_dir
 
-  # 1) 优先从 dashboard.json 读三段
-  if [[ -s "${TRAFFIC_DIR}/dashboard.json" ]]; then
-    local sub_plain sub_lines sub_b64
-    sub_plain=$(jq -r '.subscription.plain // empty'     "${TRAFFIC_DIR}/dashboard.json" 2>/dev/null || true)
-    sub_lines=$(jq -r '.subscription.b64_lines // empty' "${TRAFFIC_DIR}/dashboard.json" 2>/dev/null || true)
-    sub_b64=$(jq -r '.subscription.base64 // empty'      "${TRAFFIC_DIR}/dashboard.json" 2>/dev/null || true)
+  # 优先调用构建函数，确保订阅文件最新
+  build_sub_payload >/dev/null 2>&1
 
-    if [[ -n "$sub_plain$sub_lines$sub_b64" ]]; then
-      if [[ -n "$sub_plain" ]]; then
-        echo
-        echo "# 明文链接"
-        printf '%s\n\n' "$sub_plain"
-      fi
-      if [[ -n "$sub_lines" ]]; then
-        echo "# Base64（逐行，每行一个链接；多数客户端不支持一次粘贴多行）"
-        printf '%s\n\n' "$sub_lines"
-      fi
-      if [[ -n "$sub_b64" ]]; then
-        echo "# Base64（整包）"
-        printf '%s\n' "$sub_b64"
-        echo
-      fi
-      return 0
-    fi
-  fi
+  local txt_file="${CONFIG_DIR}/subscription.txt"
+  local b64_file="${CONFIG_DIR}/subscription.base64"
 
-  # 2) 回落：按安装阶段产生的三个文件拼装（若存在）
-  local txt="${CONFIG_DIR}/subscription.txt"
-  local b64lines="${CONFIG_DIR}/subscription.b64lines"
-  local b64all="${CONFIG_DIR}/subscription.base64"
-  if [[ -s "$txt" || -s "$b64lines" || -s "$b64all" ]]; then
-    if [[ -s "$txt" ]]; then
-      echo
-      echo "# 明文链接"
-      cat "$txt"; echo
-    fi
-    if [[ -s "$b64lines" ]]; then
-      echo "# Base64（逐行，每行一个链接；多数客户端不支持一次粘贴多行）"
-      cat "$b64lines"; echo
-    fi
-    if [[ -s "$b64all" ]]; then
-      echo "# Base64（整包）"
-      cat "$b64all"; echo
-    fi
-    return 0
-  fi
-
-  # 3) 兜底：现生成一次（读取 CONFIG_DIR/server.json；若缺省则用 self-signed/IP）
-  local cert_mode domain
-  cert_mode=$(safe_jq '.cert.mode'   "${CONFIG_DIR}/server.json" "self-signed")
-  domain=$(    safe_jq '.cert.domain' "${CONFIG_DIR}/server.json" "")
-
-  if [[ "$cert_mode" == letsencrypt* ]] && [[ -n "$domain" ]]; then
-    regen_sub_domain "$domain" || regen_sub_ip
+  echo
+  if [[ -s "$txt_file" ]]; then
+    echo -e "${YELLOW}# 明文链接${NC}"
+    cat "$txt_file"
+    echo
   else
-    regen_sub_ip
+    log_warn "未能生成或找到明文订阅文件。"
   fi
-
-  # 生成后以与“回落分支”一致的格式输出三段
-  if [[ -s "$txt" || -s "$b64lines" || -s "$b64all" ]]; then
-    if [[ -s "$txt" ]]; then
-      echo
-      echo "# 明文链接"
-      cat "$txt"; echo
-    fi
-    if [[ -s "$b64lines" ]]; then
-      echo "# Base64（逐行，每行一个链接；多数客户端不支持一次粘贴多行）"
-      cat "$b64lines"; echo
-    fi
-    if [[ -s "$b64all" ]]; then
-      echo "# Base64（整包）"
-      cat "$b64all"; echo
-    fi
-    return 0
+  
+  if [[ -s "$b64_file" ]]; then
+    echo -e "${YELLOW}# Base64（整包）${NC}"
+    cat "$b64_file"
+    echo
+  else
+     log_warn "未能生成或找到Base64订阅文件。"
   fi
 }
-
 
 # 流量随机化管理命令
 traffic_randomize() {
@@ -12593,9 +12544,7 @@ regen_sub_domain(){
   TUIC_PW_ENC=$(printf '%s' "$PASSWORD_TUIC"     | jq -rR @uri)
   TROJAN_PW_ENC=$(printf '%s' "$PASSWORD_TROJAN" | jq -rR @uri)
 
-  # 从 xray.json -> server.json -> 环境变量 依次获取真实的 Reality SNI
   reality_sni="$(jq -r 'first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.serverNames[0]) // (first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.dest) | split(":")[0]) // empty' "${CONFIG_DIR}/xray.json" 2>/dev/null)"
-  : "${reality_sni:=$(jq -r '.reality.sni // empty' "${SERVER_CONFIG}" 2>/dev/null)}"
   : "${reality_sni:=${REALITY_SNI:-www.microsoft.com}}"
 
   local sub=$(
@@ -12612,26 +12561,16 @@ PLAIN
   _b64_line(){ if base64 --help 2>&1 | grep -q -- '-w'; then base64 -w0; else base64 | tr -d '\n'; fi; }
   _ensure_nl(){ sed -e '$a\'; }
 
+  # 只生成明文和整包Base64
   printf '%s\n' "$sub" > "${CONFIG_DIR}/subscription.txt"
   _ensure_nl <<<"$sub" | _b64_line > "${CONFIG_DIR}/subscription.base64"
-  : > "${CONFIG_DIR}/subscription.b64lines"
-  while IFS= read -r line; do
-    [[ -n "$line" ]] || continue
-    printf '%s\n' "$line" | _ensure_nl | _b64_line >> "${CONFIG_DIR}/subscription.b64lines"
-    printf '\n' >> "${CONFIG_DIR}/subscription.b64lines"
-  done <<<"$sub"
-
+  
+  # 同步到Web目录
   mkdir -p /var/www/html
-  {
-    printf '%s\n\n' "$sub"
-    echo "# Base64（整包，单行）"
-    cat "${CONFIG_DIR}/subscription.base64"
-    echo
-  } > /var/www/html/sub
+  printf '%s\n' "$sub" > /var/www/html/sub
 
   log_success "域名模式订阅已更新"
 }
-
 
 regen_sub_ip(){
   get_server_info
@@ -12640,9 +12579,7 @@ regen_sub_ip(){
   TUIC_PW_ENC=$(printf '%s' "$PASSWORD_TUIC"     | jq -rR @uri)
   TROJAN_PW_ENC=$(printf '%s' "$PASSWORD_TROJAN" | jq -rR @uri)
 
-  # 从 xray.json -> server.json -> 环境变量 依次获取真实的 Reality SNI
   reality_sni="$(jq -r 'first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.serverNames[0]) // (first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.dest) | split(":")[0]) // empty' "${CONFIG_DIR}/xray.json" 2>/dev/null)"
-  : "${reality_sni:=$(jq -r '.reality.sni // empty' "${SERVER_CONFIG}" 2>/dev/null)}"
   : "${reality_sni:=${REALITY_SNI:-www.microsoft.com}}"
 
   local sub=$(
@@ -12659,66 +12596,64 @@ PLAIN
   _b64_line(){ if base64 --help 2>&1 | grep -q -- '-w'; then base64 -w0; else base64 | tr -d '\n'; fi; }
   _ensure_nl(){ sed -e '$a\'; }
 
+  # 只生成明文和整包Base64
   printf '%s\n' "$sub" > "${CONFIG_DIR}/subscription.txt"
   _ensure_nl <<<"$sub" | _b64_line > "${CONFIG_DIR}/subscription.base64"
-  : > "${CONFIG_DIR}/subscription.b64lines"
-  while IFS= read -r line; do
-    [[ -n "$line" ]] || continue
-    printf '%s\n' "$line" | _ensure_nl | _b64_line >> "${CONFIG_DIR}/subscription.b64lines"
-    printf '\n' >> "${CONFIG_DIR}/subscription.b64lines"
-  done <<<"$sub"
 
+  # 同步到Web目录
   mkdir -p /var/www/html
-  {
-    printf '%s\n\n' "$sub"
-    echo "# Base64（整包，单行）"
-    cat "${CONFIG_DIR}/subscription.base64"
-    echo
-  } > /var/www/html/sub
-
+  printf '%s\n' "$sub" > /var/www/html/sub
+  
   log_success "IP 模式订阅已更新"
-}
-
-switch_to_domain(){
-  local domain="$1"
-  [[ -z "$domain" ]] && { echo "用法: edgeboxctl switch-to-domain <domain>"; return 1; }
-  log_info "检查域名解析: ${domain}"
-  getent hosts "$domain" >/dev/null || { log_error "${domain} 未解析"; return 1; }
-  log_info "为 ${domain} 申请/扩展 Let's Encrypt 证书"
-  request_letsencrypt_cert "$domain" || return 1
-  ln -sf "/etc/letsencrypt/live/${domain}/privkey.pem"   "${CERT_DIR}/current.key"
-  ln -sf "/etc/letsencrypt/live/${domain}/fullchain.pem" "${CERT_DIR}/current.pem"
-  fix_permissions
-  regen_sub_domain "$domain"
-  reload_or_restart_services nginx xray sing-box
-  # 强制刷新控制面板数据
-  log_info "刷新控制面板配置..."
-  /etc/edgebox/scripts/dashboard-backend.sh --now >/dev/null 2>&1 || true
-  log_success "已切换到域名模式（${domain}）"
-  post_switch_report
-  # 【增加此行】强制刷新 dashboard.json 缓存
-  /etc/edgebox/scripts/dashboard-backend.sh --now >/dev/null 2>&1
-  echo; echo "=== 新订阅（域名模式） ==="; show_sub
 }
 
 switch_to_ip(){
   ln -sf "${CERT_DIR}/self-signed.key" "${CERT_DIR}/current.key"
   ln -sf "${CERT_DIR}/self-signed.pem" "${CERT_DIR}/current.pem"
+  
+  # 关键修复：更新 server.json
+  local temp_json="${CONFIG_DIR}/server.json.tmp"
+  jq '
+      .cert.mode = "self-signed" | .cert.domain = null
+  ' "${CONFIG_DIR}/server.json" > "$temp_json" && mv "$temp_json" "${CONFIG_DIR}/server.json"
+      
   fix_permissions
   local ip; ip="$(curl -fsS4 --max-time 2 https://ipv4.icanhazip.com 2>/dev/null | tr -d '\r\n')"
   [[ -z "$ip" ]] && ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
   regen_sub_ip "$ip"
   reload_or_restart_services nginx xray sing-box
-  # 强制刷新控制面板数据
-  log_info "刷新控制面板配置..."
-  /etc/edgebox/scripts/dashboard-backend.sh --now >/dev/null 2>&1 || true
   log_success "已切换到 IP 模式"
   post_switch_report
-  # 【增加此行】强制刷新 dashboard.json 缓存
+
+  # 关键修复：强制刷新 dashboard.json 缓存
   /etc/edgebox/scripts/dashboard-backend.sh --now >/dev/null 2>&1
+
   echo; echo "=== 新订阅（IP 模式） ==="; show_sub
 }
 
+switch_to_ip(){
+  ln -sf "${CERT_DIR}/self-signed.key" "${CERT_DIR}/current.key"
+  ln -sf "${CERT_DIR}/self-signed.pem" "${CERT_DIR}/current.pem"
+  
+  # 关键修复：更新 server.json
+  local temp_json="${CONFIG_DIR}/server.json.tmp"
+  jq '
+      .cert.mode = "self-signed" | .cert.domain = null
+  ' "${CONFIG_DIR}/server.json" > "$temp_json" && mv "$temp_json" "${CONFIG_DIR}/server.json"
+      
+  fix_permissions
+  local ip; ip="$(curl -fsS4 --max-time 2 https://ipv4.icanhazip.com 2>/dev/null | tr -d '\r\n')"
+  [[ -z "$ip" ]] && ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  regen_sub_ip "$ip"
+  reload_or_restart_services nginx xray sing-box
+  log_success "已切换到 IP 模式"
+  post_switch_report
+
+  # 关键修复：强制刷新 dashboard.json 缓存
+  /etc/edgebox/scripts/dashboard-backend.sh --now >/dev/null 2>&1
+
+  echo; echo "=== 新订阅（IP 模式） ==="; show_sub
+}
 
 cert_status(){
   local mode=$(get_current_cert_mode)
