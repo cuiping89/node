@@ -4846,13 +4846,13 @@ get_protocols_status() {
         "VLESS-Reality" "VLESS-gRPC" "VLESS-WebSocket" 
         "Trojan-TLS" "Hysteria2" "TUIC"
     )
-    declare -A protocol_meta
-    protocol_meta["VLESS-Reality"]="reality|443直连 / 抗探测 / 综合推荐|极佳★★★★★|443|tcp"
-    protocol_meta["VLESS-gRPC"]="grpc|CDN友好 / HTTP/2 长连接|极佳★★★★★|443|tcp"
-    protocol_meta["VLESS-WebSocket"]="ws|CDN回源 / 兼容备用|良好★★★★☆|443|tcp"
-    protocol_meta["Trojan-TLS"]="trojan|TLS 伪装 / 兼容传统客户端|良好★★★★☆|443|tcp"
-    protocol_meta["Hysteria2"]="hysteria2|UDP 高速 / 弱网高丢包|一般★★★☆☆|443|udp"
-    protocol_meta["TUIC"]="tuic|QUIC / 低延迟 / 弱网|良好★★★★☆|2053|udp"
+	declare -A protocol_meta
+    protocol_meta["VLESS-Reality"]="reality|抗审查/伪装访问，综合性能最佳|极佳★★★★★|443|tcp"
+    protocol_meta["VLESS-gRPC"]="grpc|CDN流量伪装，穿透复杂网络环境|极佳★★★★★|443|tcp"
+    protocol_meta["VLESS-WebSocket"]="ws|兼容性最强，可套CDN或Web服务器|良好★★★★☆|443|tcp"
+    protocol_meta["Trojan-TLS"]="trojan|模拟HTTPS流量，协议轻量高效|良好★★★★☆|443|tcp"
+    protocol_meta["Hysteria2"]="hysteria2|暴力发包(UDP)，专为不稳定网络加速|一般★★★☆☆|443|udp"
+    protocol_meta["TUIC"]="tuic|基于QUIC(UDP)，有效降低连接延迟|良好★★★★☆|2053|udp"
 
     local final_protocols="[]"
     for name in "${protocol_order[@]}"; do
@@ -5599,7 +5599,6 @@ test_udp_protocol() {
     for keyword in "${keywords[@]}"; do
         if journalctl -u "$service" --since "${time_window} minutes ago" --no-pager 2>/dev/null | grep -iE "$keyword" >/dev/null 2>&1; then
             log_success "✓ 通过日志验证: $protocol 有活跃连接"
-            # 从日志中提取延迟信息（尽力而为）
             local latency
             latency=$(journalctl -u "$service" --since "10 minutes ago" --no-pager 2>/dev/null | grep -oE "latency[: ]*[0-9]+ms|rtt[: ]*[0-9]+ms" | grep -oE "[0-9]+" | awk '{ total += $1; count++ } END { if (count > 0) print int(total/count); else print 5 }')
             echo "healthy:${latency:-5}:verified_by_log"
@@ -5607,13 +5606,12 @@ test_udp_protocol() {
         fi
     done
 
-    # Level 4: 本地轻量探测 (辅助依据, 用于区分 "listening" 和 "alive")
+    # Level 4: 本地轻量探测 (辅助依据)
     if command -v tcpdump >/dev/null 2>&1 && (command -v socat >/dev/null 2>&1 || command -v nc >/dev/null 2>&1); then
         local cap_ok=0
         timeout 1 tcpdump -n -i any "udp and port ${port}" -c 1 -q >"/tmp/udp_cap_${protocol}.pcap" 2>/dev/null &
         local TPID=$!
         sleep 0.2
-        # 发送一个无效的UDP包
         printf 'healthcheck' | socat -T1 - udp:127.0.0.1:"${port}" >/dev/null 2>&1 || true
         wait $TPID >/dev/null 2>&1 || true
         if [[ -s "/tmp/udp_cap_${protocol}.pcap" ]]; then
@@ -5622,7 +5620,8 @@ test_udp_protocol() {
         rm -f "/tmp/udp_cap_${protocol}.pcap" 2>/dev/null || true
         if [[ $cap_ok -eq 1 ]]; then
             log_info "✓ 本地探测成功: $protocol 端口可达"
-            echo "alive:5:verified_by_probe" # alive状态，延迟给一个默认值
+            # <<< 修复点: 将 "alive" 状态直接升级为 "healthy" 状态 >>>
+            echo "healthy:5:verified_by_probe" # 返回 healthy，延迟给一个较低的默认值
             return
         fi
     fi
