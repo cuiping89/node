@@ -6243,7 +6243,7 @@ generate_recommendation_badge() {
             echo "👍 推荐"
             ;;
         backup)
-            echo "🔄 备用可选"
+            echo "🔄 备用"
             ;;
         not_recommended)
             echo "⛔ 暂不推荐"
@@ -10984,7 +10984,7 @@ function fallbackRecBadge(recRaw) {
   if (!rec) return '';
   const text = rec === 'primary' ? '🏆 主推'
              : rec === 'recommended' ? '👍 推荐'
-             : rec === 'backup' ? '🔄 备用可选'
+             : rec === 'backup' ? '🔄 备用'
              : rec === 'not_recommended' ? '⛔ 暂不推荐'
              : '';
   return text ? `<div class="health-recommendation-badge">${text}</div>` : '';
@@ -11959,17 +11959,7 @@ SCRIPTS_DIR="/etc/edgebox/scripts"
 SNI_CONFIG_DIR="${CONFIG_DIR}/sni"
 SNI_DOMAINS_CONFIG="${SNI_CONFIG_DIR}/domains.json"
 SNI_MANAGER_SCRIPT="${SCRIPTS_DIR}/sni-manager.sh"
-WHITELIST_DOMAINS="
-googlevideo.com,  # YouTube
-nflxvideo.net,    # Netflix
-dssott.com,       # Disney+ / Hulu
-aiv-cdn.net,      # Amazon Prime Video
-aiv-delivery.net,
-ttvnw.net,        # Twitch
-hbo-cdn.com,      # HBO Max (Max)
-hls.itunes.apple.com,  # Apple TV+ / Music
-scdn.co,               # Spotify
-tiktokcdn.com"         # TikTok
+WHITELIST_DOMAINS="googlevideo.com,nflxvideo.net,dssott.com,aiv-cdn.net,aiv-delivery.net,ttvnw.net,hbo-cdn.com,hls.itunes.apple.com,scdn.co,tiktokcdn.com"
 
 # ===== 日志函数（完整）=====
 ESC=$'\033'
