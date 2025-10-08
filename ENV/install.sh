@@ -5155,16 +5155,24 @@ collect_notifications() {
 generate_dashboard_data() {
     log_info "开始生成Dashboard数据..."
 
+    # <<< 修复点 1: 同样增加动态主机判断逻辑 >>>
+    local host_or_ip
+    local cert_mode_file="${CONFIG_DIR}/cert_mode"
+    if [[ -f "$cert_mode_file" ]] && grep -q "letsencrypt:" "$cert_mode_file"; then
+        host_or_ip=$(cat "$cert_mode_file" | cut -d: -f2)
+    else
+        host_or_ip=$(jq -r '.server_ip // "127.0.0.1"' "${CONFIG_DIR}/server.json" 2>/dev/null || echo "127.0.0.1")
+    fi
+    # <<< 修复点结束 >>>
+
     # 1. 优先执行健康检查，确保 protocol-health.json 是最新的
     if [[ -x "${SCRIPTS_DIR}/protocol-health-monitor.sh" ]]; then
         log_info "正在刷新协议健康状态..."
         "${SCRIPTS_DIR}/protocol-health-monitor.sh" >/dev/null 2>&1 || log_warn "协议健康检查失败"
     fi
 
-    # 确保目录存在
     mkdir -p "$TRAFFIC_DIR"
 
-    # 获取各模块数据
     local timestamp system_info cert_info services_info protocols_info shunt_info subscription_info secrets_info
 
     timestamp=$(date -Is)
@@ -5176,7 +5184,6 @@ generate_dashboard_data() {
     subscription_info=$(get_subscription_info)
     secrets_info=$(get_secrets_info)
 
-# 统一生成 services_info（状态+版本号）
 services_info=$(
   jq -n \
     --arg nstat "$(systemctl is-active --quiet nginx    && echo '运行中 √' || echo '已停止')" \
@@ -5190,29 +5197,29 @@ services_info=$(
       "sing-box":{status:$sstat,version:$sver}}'
 )
 
-    # 合并所有数据生成dashboard.json
-jq -n \
-    --arg timestamp "$timestamp" \
-    --argjson system "$system_info" \
-    --argjson cert "$cert_info" \
-    --argjson services "$services_info" \
-    --argjson protocols "$protocols_info" \
-    --argjson shunt "$shunt_info" \
-    --argjson subscription "$subscription_info" \
-    --argjson secrets "$secrets_info" \
-    '{
-        updated_at: $timestamp,
-        # 直接用 system.server_ip 拼接订阅地址（80端口走HTTP）
-        subscription_url: ("http://" + $system.server_ip + "/sub"),
-        server: ($system + {cert: $cert}),
-        services: $services,
-        protocols: $protocols,
-        shunt: $shunt,
-        subscription: $subscription,
-        secrets: $secrets
-    }' > "${TRAFFIC_DIR}/dashboard.json.tmp"
+    # <<< 修复点 2: 将动态主机名传入jq并使用 >>>
+    jq -n \
+        --arg timestamp "$timestamp" \
+        --argjson system "$system_info" \
+        --argjson cert "$cert_info" \
+        --argjson services "$services_info" \
+        --argjson protocols "$protocols_info" \
+        --argjson shunt "$shunt_info" \
+        --argjson subscription "$subscription_info" \
+        --argjson secrets "$secrets_info" \
+        --arg host_or_ip "$host_or_ip" \
+        '{
+            updated_at: $timestamp,
+            subscription_url: ("http://" + $host_or_ip + "/sub"),
+            server: ($system + {cert: $cert}),
+            services: $services,
+            protocols: $protocols,
+            shunt: $shunt,
+            subscription: $subscription,
+            secrets: $secrets
+        }' > "${TRAFFIC_DIR}/dashboard.json.tmp"
+    # <<< 修复点结束 >>>
 
-    # 原子替换，避免读取时文件不完整
     if [[ -s "${TRAFFIC_DIR}/dashboard.json.tmp" ]]; then
         mv "${TRAFFIC_DIR}/dashboard.json.tmp" "${TRAFFIC_DIR}/dashboard.json"
         chmod 644 "${TRAFFIC_DIR}/dashboard.json"
