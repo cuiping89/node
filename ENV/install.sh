@@ -3862,12 +3862,9 @@ chown root:nobody "${CERT_DIR}"/*.key 2>/dev/null || true
 
 # 生成订阅链接（支持IP模式和域名模式）
 generate_subscription() {
-    local domain_or_ip="${1:-}" # 接收可选的域名参数
-
-    log_info "生成协议订阅链接 (模式: ${1:-IP})..."
-    
-    # 从server.json读取配置（确保数据一致性）
+    local domain_or_ip="${1:-}"
     local config_file="${CONFIG_DIR}/server.json"
+    
     if [[ ! -f "$config_file" ]]; then
         log_error "配置文件 $config_file 不存在"
         return 1
@@ -3894,6 +3891,12 @@ generate_subscription() {
         domain_or_ip="$server_ip"
     fi
     
+    # ★★★ 判断是否为域名模式 ★★★
+    local is_domain_mode=false
+    if [[ -n "$domain_or_ip" ]] && [[ "$domain_or_ip" != "$server_ip" ]]; then
+        is_domain_mode=true
+    fi
+    
     # 验证必要参数
     if [[ -z "$domain_or_ip" || -z "$uuid_reality" || -z "$password_hysteria2" ]]; then
         log_error "生成订阅所需的关键参数缺失"
@@ -3918,78 +3921,81 @@ generate_subscription() {
         echo "${encoded}"
     }
     
-	# 计算 Reality 使用的 SNI（与服务端 xray.json 保持一致）
+    # 计算 Reality 使用的 SNI
     local reality_sni
-    reality_sni="$(jq -r 'first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.serverNames[0])
-                           // (first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.dest) | split(":")[0])
-                           // empty' "${CONFIG_DIR}/xray.json" 2>/dev/null)"
-    : "${reality_sni:=${REALITY_SNI:-www.microsoft.com}}"
-	
+    reality_sni="$(jq -r 'first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.serverNames[0]) // empty' "${CONFIG_DIR}/xray.json" 2>/dev/null)"
+    : "${reality_sni:=www.microsoft.com}"
+    
     # 生成协议链接
     local subscription_links=""
     
-    # 1. VLESS-Reality
+    # 1. VLESS-Reality (始终使用伪装域名)
     if [[ -n "$uuid_reality" && -n "$reality_public_key" && -n "$reality_short_id" ]]; then
         subscription_links+="vless://${uuid_reality}@${domain_or_ip}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${reality_sni}&fp=chrome&pbk=${reality_public_key}&sid=${reality_short_id}&type=tcp#EdgeBox-REALITY\n"
     fi
     
-    # 2. VLESS-gRPC
+    # 2. VLESS-gRPC (域名模式用真实域名，IP模式用内部SNI)
     if [[ -n "$uuid_grpc" ]]; then
-        # IP模式使用内部SNI，域名模式使用真实域名
-        local grpc_sni="grpc.edgebox.internal"
-        [[ -n "$1" ]] && grpc_sni="$domain_or_ip"
+        local grpc_sni
+        if [[ "$is_domain_mode" == "true" ]]; then
+            grpc_sni="$domain_or_ip"
+        else
+            grpc_sni="grpc.edgebox.internal"
+        fi
         subscription_links+="vless://${uuid_grpc}@${domain_or_ip}:443?encryption=none&security=tls&sni=${grpc_sni}&alpn=h2&type=grpc&serviceName=grpc&fp=chrome&allowInsecure=1#EdgeBox-gRPC\n"
     fi
     
-    # 3. VLESS-WebSocket
+    # 3. VLESS-WebSocket (域名模式用真实域名，IP模式用内部SNI)
     if [[ -n "$uuid_ws" ]]; then
-        # IP模式使用内部SNI和Host，域名模式使用真实域名
-        local ws_sni_host="ws.edgebox.internal"
-        [[ -n "$1" ]] && ws_sni_host="$domain_or_ip"
+        local ws_sni_host
+        if [[ "$is_domain_mode" == "true" ]]; then
+            ws_sni_host="$domain_or_ip"
+        else
+            ws_sni_host="ws.edgebox.internal"
+        fi
         subscription_links+="vless://${uuid_ws}@${domain_or_ip}:443?encryption=none&security=tls&sni=${ws_sni_host}&host=${ws_sni_host}&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome&allowInsecure=1#EdgeBox-WS\n"
     fi
     
-    # 4. Trojan
+    # 4. Trojan (域名模式用trojan子域名，IP模式用内部SNI)
     if [[ -n "$password_trojan" ]]; then
         local encoded_trojan_password=$(url_encode "$password_trojan")
-        # IP模式使用内部SNI，域名模式使用真实子域名
-        local trojan_sni="trojan.edgebox.internal"
-        [[ -n "$1" ]] && trojan_sni="trojan.${domain_or_ip}"
+        local trojan_sni
+        if [[ "$is_domain_mode" == "true" ]]; then
+            trojan_sni="trojan.${domain_or_ip}"
+        else
+            trojan_sni="trojan.edgebox.internal"
+        fi
         subscription_links+="trojan://${encoded_trojan_password}@${domain_or_ip}:443?security=tls&sni=${trojan_sni}&fp=chrome&allowInsecure=1#EdgeBox-TROJAN\n"
     fi
     
-    # 5. Hysteria2
+    # 5. Hysteria2 (始终使用连接地址作为SNI)
     if [[ -n "$password_hysteria2" ]]; then
         local encoded_hy2_password=$(url_encode "$password_hysteria2")
         subscription_links+="hysteria2://${encoded_hy2_password}@${domain_or_ip}:443?sni=${domain_or_ip}&alpn=h3&insecure=1#EdgeBox-HYSTERIA2\n"
     fi
     
-    # 6. TUIC
+    # 6. TUIC (始终使用连接地址作为SNI)
     if [[ -n "$uuid_tuic" && -n "$password_tuic" ]]; then
         local encoded_tuic_password=$(url_encode "$password_tuic")
         subscription_links+="tuic://${uuid_tuic}:${encoded_tuic_password}@${domain_or_ip}:2053?congestion_control=bbr&alpn=h3&sni=${domain_or_ip}&allowInsecure=1#EdgeBox-TUIC\n"
     fi
     
-    # 保存订阅文件
-    mkdir -p "${WEB_ROOT}"
-    printf "%b" "$subscription_links" > "${CONFIG_DIR}/subscription.txt"
-    ln -sfn "${CONFIG_DIR}/subscription.txt" "${WEB_ROOT}/sub"
-    chmod 644 "${CONFIG_DIR}/subscription.txt"
+    # 保存订阅链接到文件
+    echo -e "$subscription_links" > "${CONFIG_DIR}/subscription.txt"
     
-    # 生成Base64编码的订阅
-    if command -v base64 >/dev/null 2>&1; then
-        if base64 --help 2>&1 | grep -q -- ' -w'; then
-            printf "%b" "$subscription_links" | base64 -w0 > "${CONFIG_DIR}/subscription.base64"
-        else
-            printf "%b" "$subscription_links" | base64 | tr -d '\n' > "${CONFIG_DIR}/subscription.base64"
-        fi
-        chmod 644 "${CONFIG_DIR}/subscription.base64"
+    # 生成Base64编码
+    if base64 --help 2>&1 | grep -q -- ' -w'; then
+        echo -e "$subscription_links" | base64 -w0 > "${CONFIG_DIR}/subscription.base64"
+    else
+        echo -e "$subscription_links" | base64 | tr -d '\n' > "${CONFIG_DIR}/subscription.base64"
     fi
     
-    log_success "订阅链接生成完成"
+    # 同步到Web目录
+    cp "${CONFIG_DIR}/subscription.txt" "${TRAFFIC_DIR}/sub.txt" 2>/dev/null || true
+    
+    log_success "订阅链接已生成并保存"
     return 0
 }
-
 
 #############################################
 # 服务启动和验证函数
@@ -12185,11 +12191,37 @@ main() {
       show_sub
       ;;
 
-    switch-to-domain)
-      shift
-      [[ -z "$1" ]] && { echo "用法: edgeboxctl switch-to-domain <domain>"; exit 1; }
-      switch_to_domain "$1"
-      ;;
+switch-to-domain)
+  shift
+  local domain="$1"
+  [[ -z "$domain" ]] && { echo "用法: edgeboxctl switch-to-domain <domain>"; exit 1; }
+
+  # 直接内联执行，避免函数作用域问题
+  log_info "检查域名解析: ${domain}"
+  if ! getent hosts "$domain" >/dev/null; then
+    log_error "${domain} 未解析"
+    exit 1
+  fi
+  log_success "域名解析通过"
+
+  log_info "为 ${domain} 申请/扩展 Let's Encrypt 证书"
+  request_letsencrypt_cert "$domain" || exit 1
+
+  # ★★★ 关键修复: 重新生成域名模式订阅 ★★★
+  log_info "重新生成域名模式订阅..."
+  generate_subscription "$domain"
+  
+  # 热更新服务
+  reload_or_restart_services nginx xray sing-box
+
+  # 显示验收报告
+  post_switch_report
+  
+  # ★★★ 关键修复: 只显示一次订阅信息 ★★★
+  echo ""
+  echo "=== 域名切换完成，新订阅链接 ==="
+  show_sub
+  ;;
 
     switch-to-ip)
       switch_to_ip
