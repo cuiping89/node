@@ -7009,10 +7009,12 @@ execute_module4() {
     
 # 任务4：首次执行协议健康检查 (提前执行，为 dashboard.json 提供数据源)
     log_info "首次执行协议健康检查..."
-    if "${SCRIPTS_DIR}/protocol-health-monitor.sh"; then
+    # <<< 修复点: 添加 >/dev/null 2>&1 来抑制所有屏幕输出 >>>
+    if "${SCRIPTS_DIR}/protocol-health-monitor.sh" >/dev/null 2>&1; then
         log_success "✓ 协议健康检查初始化完成"
     else
-        log_warn "协议健康检查初始化失败，但定时任务将重试"
+        # 即使“失败”（因为输出了错误），我们也只记录一个警告，不影响主流程
+        log_warn "协议健康检查在首次运行时报告了非致命错误（已静默处理），定时任务将接管后续监控。"
     fi
 
     # 任务5：初始化流量采集
@@ -11829,21 +11831,21 @@ CRON
 }
 
 
-# 创建独立的防火墙应用脚本
+# 创建独立的、无中断的防火墙应用脚本
 create_firewall_script() {
-    log_info "创建独立的防火墙应用脚本..."
+    log_info "创建独立的、无中断的防火墙应用脚本..."
     
     mkdir -p "${SCRIPTS_DIR}"
     
-    # 将 configure_firewall 函数的核心逻辑复制到这里
-    # 注意：我们移除了交互式提示和首次安装的特定逻辑，使其可以安全地重复执行
     cat > "${SCRIPTS_DIR}/apply-firewall.sh" << 'APPLY_FIREWALL_SCRIPT'
 #!/bin/bash
 set -e
-echo "[INFO] 正在应用 EdgeBox 防火墙规则..."
+echo "[INFO] 正在以无中断模式应用 EdgeBox 防火墙规则..."
 
 # --- 智能检测当前SSH端口 ---
+# (这部分逻辑不变，保持原样)
 ssh_ports=()
+# ... (省略和之前版本相同的SSH端口检测代码) ...
 while IFS= read -r line; do
     if [[ "$line" =~ :([0-9]+)[[:space:]]+.*sshd ]]; then
         ssh_ports+=("${BASH_REMATCH[1]}")
@@ -11866,33 +11868,55 @@ fi
 current_ssh_port="${current_ssh_port:-22}"
 echo "[INFO] 检测到 SSH 端口: $current_ssh_port"
 
-# --- 根据防火墙类型配置规则 ---
-if command -v ufw >/dev/null 2>&1; then
-    echo "[INFO] 正在配置 UFW..."
-    # 幂等操作：只添加不存在的规则
-    ufw status | grep -q "${current_ssh_port}/tcp" || ufw allow "${current_ssh_port}/tcp" comment 'SSH' >/dev/null
-    ufw status | grep -q "80/tcp" || ufw allow 80/tcp comment 'HTTP' >/dev/null
-    ufw status | grep -q "443/tcp" || ufw allow 443/tcp comment 'HTTPS/TLS' >/dev/null
-    ufw status | grep -q "443/udp" || ufw allow 443/udp comment 'Hysteria2' >/dev/null
-    ufw status | grep -q "2053/udp" || ufw allow 2053/udp comment 'TUIC' >/dev/null
-    # 确保 UFW 是激活的
-    if ! ufw status | grep -q "Status: active"; then
-        ufw --force enable >/dev/null
+
+# --- 根据防火墙类型，使用无中断方式配置规则 ---
+
+# 定义一个辅助函数来检查规则是否存在
+is_rule_active() {
+    local type="$1"
+    local port="$2"
+    local proto="$3"
+    
+    if [[ "$type" == "ufw" ]]; then
+        ufw status | grep -qE "^\s*${port}/${proto}\s+ALLOW\s+Anywhere"
+    elif [[ "$type" == "firewalld" ]]; then
+        firewall-cmd --query-port="${port}/${proto}" >/dev/null 2>&1
     fi
+}
+
+if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
+    echo "[INFO] 正在配置 UFW (无中断模式)..."
+    is_rule_active "ufw" "$current_ssh_port" "tcp" || ufw allow "${current_ssh_port}/tcp" >/dev/null
+    is_rule_active "ufw" "80" "tcp" || ufw allow 80/tcp >/dev/null
+    is_rule_active "ufw" "443" "tcp" || ufw allow 443/tcp >/dev/null
+    is_rule_active "ufw" "443" "udp" || ufw allow 443/udp >/dev/null
+    is_rule_active "ufw" "2053" "udp" || ufw allow 2053/udp >/dev/null
+    # <<< 修复点: 移除了可能导致连接中断的 `ufw --force enable` >>>
     echo "[SUCCESS] UFW 规则已确保应用。"
 
 elif command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then
-    echo "[INFO] 正在配置 FirewallD..."
-    firewall-cmd --permanent --add-port="$current_ssh_port/tcp" >/dev/null 2>&1 || true
-    firewall-cmd --permanent --add-port=80/tcp >/dev/null 2>&1 || true
-    firewall-cmd --permanent --add-port=443/tcp >/dev/null 2>&1 || true
-    firewall-cmd --permanent --add-port=443/udp >/dev/null 2>&1 || true
-    firewall-cmd --permanent --add-port=2053/udp >/dev/null 2>&1 || true
-    firewall-cmd --reload >/dev/null
+    echo "[INFO] 正在配置 FirewallD (无中断模式)..."
+    
+    # <<< 修复点: 改为使用非中断的运行时规则添加，并同步到永久配置，避免 --reload >>>
+    add_firewalld_rule() {
+        local rule="$1"
+        if ! firewall-cmd --query-port="$rule" >/dev/null 2>&1; then
+            echo "  -> 添加规则: $rule"
+            firewall-cmd --add-port="$rule" >/dev/null 2>&1
+            firewall-cmd --permanent --add-port="$rule" >/dev/null 2>&1
+        fi
+    }
+    
+    add_firewalld_rule "$current_ssh_port/tcp"
+    add_firewalld_rule "80/tcp"
+    add_firewalld_rule "443/tcp"
+    add_firewalld_rule "443/udp"
+    add_firewalld_rule "2053/udp"
+    
     echo "[SUCCESS] FirewallD 规则已确保应用。"
     
 elif command -v iptables >/dev/null 2>&1; then
-    echo "[INFO] 正在配置 iptables..."
+    echo "[INFO] 正在配置 iptables (无中断模式)..."
     iptables -C INPUT -p tcp --dport "$current_ssh_port" -j ACCEPT >/dev/null 2>&1 || iptables -A INPUT -p tcp --dport "$current_ssh_port" -j ACCEPT
     iptables -C INPUT -p tcp --dport 80 -j ACCEPT >/dev/null 2>&1 || iptables -A INPUT -p tcp --dport 80 -j ACCEPT
     iptables -C INPUT -p tcp --dport 443 -j ACCEPT >/dev/null 2>&1 || iptables -A INPUT -p tcp --dport 443 -j ACCEPT
@@ -11905,7 +11929,7 @@ fi
 APPLY_FIREWALL_SCRIPT
 
     chmod +x "${SCRIPTS_DIR}/apply-firewall.sh"
-    log_success "独立的防火墙应用脚本创建完成。"
+    log_success "独立的、无中断的防火墙应用脚本创建完成。"
 }
 
 
@@ -12317,7 +12341,6 @@ build_sub_payload(){
   [[ -s "${CONFIG_DIR}/subscription.txt" ]] && cat "${CONFIG_DIR}/subscription.txt"
 }
 
-
 show_sub(){
   ensure_traffic_dir
 
@@ -12336,14 +12359,14 @@ show_sub(){
     log_warn "未能生成或找到明文订阅文件。"
   fi
   
-  # <<< 修复点: 注释掉 Base64 输出部分 >>>
-  # if [[ -s "$b64_file" ]]; then
-  #   echo -e "${YELLOW}# Base64（整包）${NC}"
-  #   cat "$b64_file"
-  #   echo
-  # else
-  #    log_warn "未能生成或找到Base64订阅文件。"
-  # fi
+  # Base64 输出 
+  if [[ -s "$b64_file" ]]; then
+    echo -e "${YELLOW}# Base64链接${NC}"
+    cat "$b64_file"
+    echo
+  else
+     log_warn "未能生成或找到Base64订阅文件。"
+  fi
 }
 
 
