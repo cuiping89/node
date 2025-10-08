@@ -11570,29 +11570,24 @@ APPLY_FIREWALL_SCRIPT
 
 
 # 创建完整的edgeboxctl管理工具（集成SNI功能）
+# === Anchor-2: 打造功能内聚的 `edgeboxctl` ===
+
+# 创建完整的edgeboxctl管理工具（集成SNI功能）
 create_enhanced_edgeboxctl() {
     log_info "创建增强版edgeboxctl管理工具..."
     
     cat > /usr/local/bin/edgeboxctl << 'EDGEBOXCTL_SCRIPT'
 #!/bin/bash
-# EdgeBox 增强版控制脚本
-# Version: 3.0.0 - 包含流量统计、预警、备份恢复等高级运维功能
+# EdgeBox 增强版控制脚本 v3.0.0
 VERSION="3.0.0"
 CONFIG_DIR="/etc/edgebox/config"
 CERT_DIR="/etc/edgebox/cert"
 INSTALL_DIR="/etc/edgebox"
 LOG_FILE="/var/log/edgebox.log"
-SHUNT_CONFIG="${CONFIG_DIR}/shunt/state.json"
-BACKUP_DIR="/root/edgebox-backup"
-TRAFFIC_DIR="/etc/edgebox/traffic"
-SCRIPTS_DIR="/etc/edgebox/scripts"
-# SNI相关路径变量
-SNI_CONFIG_DIR="${CONFIG_DIR}/sni"
-SNI_DOMAINS_CONFIG="${SNI_CONFIG_DIR}/domains.json"
-XRAY_CONFIG="${CONFIG_DIR}/xray.json" # SNI函数需要
-SNI_HEALTH_LOG="/var/log/edgebox/sni-health.log" # SNI函数需要
+SERVER_CONFIG="${CONFIG_DIR}/server.json"
+XRAY_CONFIG="${CONFIG_DIR}/xray.json"
+SNI_DOMAINS_CONFIG="${CONFIG_DIR}/sni/domains.json"
 
-WHITELIST_DOMAINS="googlevideo.com,nflxvideo.net,dssott.com,aiv-cdn.net,aiv-delivery.net,ttvnw.net,hbo-cdn.com,hls.itunes.apple.com,scdn.co,tiktokcdn.com"
 
 # ===== 日志函数（完整）=====
 # ... (此处省略，保持您脚本中的原样即可) ...
@@ -11612,187 +11607,206 @@ log()      { log_info "$@"; }
 log_ok()   { log_success "$@"; }
 error()    { log_error "$@"; }
 
-# <<< 新增: SNI管理核心函数 (从 sni-manager.sh 整合) >>>
+# === Anchor-2: 打造功能内聚的 `edgeboxctl` ===
+
+# 创建完整的edgeboxctl管理工具（集成SNI功能）
+create_enhanced_edgeboxctl() {
+    log_info "创建增强版edgeboxctl管理工具..."
+    
+    cat > /usr/local/bin/edgeboxctl << 'EDGEBOXCTL_SCRIPT'
+#!/bin/bash
+# EdgeBox 增强版控制脚本 v3.0.0
+VERSION="3.0.0"
+CONFIG_DIR="/etc/edgebox/config"
+CERT_DIR="/etc/edgebox/cert"
+INSTALL_DIR="/etc/edgebox"
+LOG_FILE="/var/log/edgebox.log"
+SERVER_CONFIG="${CONFIG_DIR}/server.json"
+XRAY_CONFIG="${CONFIG_DIR}/xray.json"
+SNI_DOMAINS_CONFIG="${CONFIG_DIR}/sni/domains.json"
+
+# ... (此处省略了您脚本中已有的、无需改动的日志函数、颜色定义等) ...
+ESC=$'\033'
+BLUE="${ESC}[0;34m"; PURPLE="${ESC}[0;35m"; CYAN="${ESC}[0;36m"
+YELLOW="${ESC}[1;33m"; GREEN="${ESC}[0;32m"; RED="${ESC}[0;31m"; NC="${ESC}[0m"
+log_info()    { echo -e "${GREEN}[INFO]${NC} $*"; }
+log_warn()    { echo -e "${YELLOW}[WARN]${NC} $*"; }
+log_error()   { echo -e "${RED}[ERROR]${NC} $*"; }
+log_success() { echo -e "${GREEN}[SUCCESS]${NC} $*"; }
+
+# --- 辅助函数 ---
+get_current_cert_mode(){ [[ -f ${CONFIG_DIR}/cert_mode ]] && cat ${CONFIG_DIR}/cert_mode || echo "self-signed"; }
+url_encode() {
+    local string="${1}"
+    local strlen=${#string}
+    local encoded=""
+    local pos c o
+    for (( pos=0 ; pos<strlen ; pos++ )); do
+        c=${string:$pos:1}
+        case "$c" in
+            [-_.~a-zA-Z0-9] ) o="${c}" ;;
+            * ) printf -v o '%%%02x' "'$c" ;;
+        esac
+        encoded+="${o}"
+    done
+    echo "${encoded}"
+}
+
+# <<< 修复点 1: 将所有依赖函数植入 edgeboxctl 内部 >>>
 # -------------------------------------------------------------------
-# SNI 日志函数
+CONFIG_LOADED=false
+load_config_once() {
+    if [[ "$CONFIG_LOADED" == "true" ]]; then return 0; fi
+    if [[ ! -f "$SERVER_CONFIG" ]]; then log_error "配置文件不存在: $SERVER_CONFIG"; return 1; fi
+    
+    local config_json
+    config_json=$(jq -c '{
+        server_ip: .server_ip, uuid_vless_reality: .uuid.vless.reality, uuid_vless_grpc: .uuid.vless.grpc,
+        uuid_vless_ws: .uuid.vless.ws, uuid_tuic: .uuid.tuic, password_trojan: .password.trojan,
+        password_hysteria2: .password.hysteria2, password_tuic: .password.tuic,
+        reality_public_key: .reality.public_key, reality_short_id: .reality.short_id
+    }' "$SERVER_CONFIG" 2>/dev/null) || { log_error "配置文件解析失败"; return 1; }
+
+    SERVER_IP=$(echo "$config_json" | jq -r '.server_ip')
+    UUID_VLESS_REALITY=$(echo "$config_json" | jq -r '.uuid_vless_reality')
+    UUID_VLESS_GRPC=$(echo "$config_json" | jq -r '.uuid_vless_grpc')
+    UUID_VLESS_WS=$(echo "$config_json" | jq -r '.uuid_vless_ws')
+    UUID_TUIC=$(echo "$config_json" | jq -r '.uuid_tuic')
+    PASSWORD_TROJAN=$(echo "$config_json" | jq -r '.password_trojan')
+    PASSWORD_HYSTERIA2=$(echo "$config_json" | jq -r '.password_hysteria2')
+    PASSWORD_TUIC=$(echo "$config_json" | jq -r '.password_tuic')
+    REALITY_PUBLIC_KEY=$(echo "$config_json" | jq -r '.reality_public_key')
+    REALITY_SHORT_ID=$(echo "$config_json" | jq -r '.reality_short_id')
+    
+    CONFIG_LOADED=true
+}
+get_server_info() { load_config_once; }
+
+regen_sub_domain(){
+    local domain=$1; get_server_info
+    local reality_sni
+    reality_sni="$(jq -r 'first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.serverNames[0])' "$XRAY_CONFIG" 2>/dev/null || echo "www.microsoft.com")"
+    
+    local sub
+    sub=$(cat <<PLAIN
+vless://${UUID_VLESS_REALITY}@${domain}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${reality_sni}&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&type=tcp#EdgeBox-REALITY
+vless://${UUID_VLESS_GRPC}@${domain}:443?encryption=none&security=tls&sni=${domain}&alpn=h2&type=grpc&serviceName=grpc&fp=chrome#EdgeBox-gRPC
+vless://${UUID_VLESS_WS}@${domain}:443?encryption=none&security=tls&sni=${domain}&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome#EdgeBox-WS
+trojan://$(url_encode "$PASSWORD_TROJAN")@${domain}:443?security=tls&sni=trojan.${domain}&fp=chrome#EdgeBox-TROJAN
+hysteria2://$(url_encode "$PASSWORD_HYSTERIA2")@${domain}:443?sni=${domain}&alpn=h3#EdgeBox-HYSTERIA2
+tuic://${UUID_TUIC}:$(url_encode "$PASSWORD_TUIC")@${domain}:2053?congestion_control=bbr&alpn=h3&sni=${domain}#EdgeBox-TUIC
+PLAIN
+)
+    echo "$sub" > "${CONFIG_DIR}/subscription.txt"
+    echo "$sub" | base64 -w0 > "${CONFIG_DIR}/subscription.base64"
+    log_success "域名模式订阅已更新"
+}
+
+regen_sub_ip(){
+    get_server_info
+    local reality_sni
+    reality_sni="$(jq -r 'first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.serverNames[0])' "$XRAY_CONFIG" 2>/dev/null || echo "www.microsoft.com")"
+    
+    local sub
+    sub=$(cat <<PLAIN
+vless://${UUID_VLESS_REALITY}@${SERVER_IP}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${reality_sni}&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&type=tcp#EdgeBox-REALITY
+vless://${UUID_VLESS_GRPC}@${SERVER_IP}:443?encryption=none&security=tls&sni=grpc.edgebox.internal&alpn=h2&type=grpc&serviceName=grpc&fp=chrome&allowInsecure=1#EdgeBox-gRPC
+vless://${UUID_VLESS_WS}@${SERVER_IP}:443?encryption=none&security=tls&sni=ws.edgebox.internal&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome&allowInsecure=1#EdgeBox-WS
+trojan://$(url_encode "$PASSWORD_TROJAN")@${SERVER_IP}:443?security=tls&sni=trojan.edgebox.internal&fp=chrome&allowInsecure=1#EdgeBox-TROJAN
+hysteria2://$(url_encode "$PASSWORD_HYSTERIA2")@${SERVER_IP}:443?sni=${SERVER_IP}&alpn=h3&insecure=1#EdgeBox-HYSTERIA2
+tuic://${UUID_TUIC}:$(url_encode "$PASSWORD_TUIC")@${SERVER_IP}:2053?congestion_control=bbr&alpn=h3&sni=${SERVER_IP}&allowInsecure=1#EdgeBox-TUIC
+PLAIN
+)
+    echo "$sub" > "${CONFIG_DIR}/subscription.txt"
+    echo "$sub" | base64 -w0 > "${CONFIG_DIR}/subscription.base64"
+    log_success "IP 模式订阅已更新"
+}
+# -------------------------------------------------------------------
+
+# <<< SNI管理核心函数 (整合 & 修复) >>>
+# -------------------------------------------------------------------
 sni_log_info() { log_info "SNI: $*"; }
-sni_log_warn() { log_warn "SNI: $*"; }
 sni_log_error() { log_error "SNI: $*"; }
 sni_log_success() { log_success "SNI: $*"; }
 
-# 域名评分函数
 evaluate_sni_domain() {
-    local domain="$1"
-    local score=0
-    
-    # <<< 修复点: 将进度信息输出到 stderr (>&2)，避免污染返回值 >>>
+    local domain="$1" score=0
     echo "  -> 评估域名: $domain" >&2
-    
-    # 1. 可达性
-    if ! timeout 5 curl -s --connect-timeout 3 --max-time 5 "https://${domain}" >/dev/null 2>&1; then
-        echo 0
-        return
-    fi
+    if ! timeout 5 curl -s --connect-timeout 3 --max-time 5 "https://${domain}" >/dev/null 2>&1; then echo 0; return; fi
     score=$((score + 30))
-    
-    # 2. 响应时间
-    local response_time
-    response_time=$(timeout 5 curl -o /dev/null -s -w '%{time_total}' --connect-timeout 3 "https://${domain}" 2>/dev/null || echo "99")
-    local time_int=${response_time%.*}
-    if [[ "$time_int" -lt 1 ]]; then score=$((score + 25));
-    elif [[ "$time_int" -lt 2 ]]; then score=$((score + 20));
-    elif [[ "$time_int" -lt 3 ]]; then score=$((score + 15));
-    else score=$((score + 5)); fi
-    
-    # 3. SSL证书
-    if timeout 5 openssl s_client -connect "${domain}:443" -servername "$domain" </dev/null 2>/dev/null | grep -q "Verify return code: 0"; then
-        score=$((score + 20))
-    else
-        score=$((score + 5))
-    fi
-
-    # 4. CDN检测
-    if timeout 5 curl -sI "https://${domain}" 2>/dev/null | grep -qiE "(cloudflare|akamai|fastly|cloudfront|cdn)"; then
-        score=$((score + 15))
-    else
-        score=$((score + 5))
-    fi
-    
-    # 5. 域名类别
-    case "$domain" in
-        *microsoft*|*apple*|*google*) score=$((score + 10));;
-        *cloudflare*|*akamai*|*fastly*) score=$((score + 9));;
-        *azure*|*aws*|*cloud*) score=$((score + 8));;
-        *) score=$((score + 5));;
-    esac
-    
-    echo "$score" # <<< 关键: 只有分数通过 stdout 返回
+    local response_time; response_time=$(timeout 5 curl -o /dev/null -s -w '%{time_total}' --connect-timeout 3 "https://${domain}" 2>/dev/null || echo "99")
+    local time_int=${response_time%.*}; if [[ "$time_int" -lt 1 ]]; then score=$((score + 25)); elif [[ "$time_int" -lt 2 ]]; then score=$((score + 20)); elif [[ "$time_int" -lt 3 ]]; then score=$((score + 15)); else score=$((score + 5)); fi
+    if timeout 5 openssl s_client -connect "${domain}:443" -servername "$domain" </dev/null 2>/dev/null | grep -q "Verify return code: 0"; then score=$((score + 20)); else score=$((score + 5)); fi
+    if timeout 5 curl -sI "https://${domain}" 2>/dev/null | grep -qiE "(cloudflare|akamai|fastly|cloudfront|cdn)"; then score=$((score + 15)); else score=$((score + 5)); fi
+    case "$domain" in *microsoft*|*apple*|*google*) score=$((score + 10));; *cloudflare*|*akamai*|*fastly*) score=$((score + 9));; *azure*|*aws*|*cloud*) score=$((score + 8));; *) score=$((score + 5));; esac
+    echo "$score"
 }
 
-# 获取当前SNI域名
 get_current_sni_domain() {
     [[ ! -f "$XRAY_CONFIG" ]] && return
     jq -r 'first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.serverNames[0]) // (first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.dest) | split(":")[0]) // empty' "$XRAY_CONFIG" 2>/dev/null
 }
 
-# 更新SNI域名配置
 update_sni_domain() {
     local new_domain="$1"
     local temp_config="${XRAY_CONFIG}.tmp"
-
     sni_log_info "准备更新SNI为: $new_domain"
-    # 备份不是必须的，但保留是好习惯
     cp "$XRAY_CONFIG" "${XRAY_CONFIG}.backup.$(date +%s)" 2>/dev/null || true
-
     if jq --arg domain "$new_domain" '(.inbounds[] | select(.tag=="vless-reality") | .streamSettings.realitySettings.dest) = ($domain + ":443") | (.inbounds[] | select(.tag=="vless-reality") | .streamSettings.realitySettings.serverNames) |= ( (.[0] = $domain) // [$domain] )' "$XRAY_CONFIG" > "$temp_config"; then
         if jq empty "$temp_config" >/dev/null 2>&1; then
             mv "$temp_config" "$XRAY_CONFIG"
             sni_log_success "Xray配置文件更新成功。"
             if reload_or_restart_services xray; then
                 sni_log_success "Xray服务已重载。"
-                
-                # <<< 修复点: 在服务重载成功后，立即刷新订阅文件 >>>
                 sni_log_info "SNI 变更，正在刷新订阅文件..."
-                local mode domain
-                mode=$(get_current_cert_mode 2>/dev/null || echo self-signed)
-                if [[ "$mode" == "self-signed" ]]; then
-                  regen_sub_ip
-                else
-                  domain="${mode##*:}"
-                  [[ -n "$domain" ]] && regen_sub_domain "$domain" || regen_sub_ip
-                fi
+                local mode domain; mode=$(get_current_cert_mode 2>/dev/null || echo self-signed)
+                if [[ "$mode" == "self-signed" ]]; then regen_sub_ip; else domain="${mode##*:}"; [[ -n "$domain" ]] && regen_sub_domain "$domain" || regen_sub_ip; fi
                 sni_log_success "订阅文件刷新完成。"
-                # <<< 修复点结束 >>>
-                
                 return 0
-            else
-                sni_log_error "Xray服务重载失败。"
-                return 1
-            fi
-        else
-            sni_log_error "生成的Xray配置JSON格式错误。"
-            rm -f "$temp_config"
-            return 1
-        fi
-    else
-        sni_log_error "使用jq更新Xray配置失败。"
-        rm -f "$temp_config"
-        return 1
-    fi
+            else sni_log_error "Xray服务重载失败。"; return 1; fi
+        else sni_log_error "生成的Xray配置JSON格式错误。"; rm -f "$temp_config"; return 1; fi
+    else sni_log_error "使用jq更新Xray配置失败。"; rm -f "$temp_config"; return 1; fi
 }
 
-# 智能选择最优域名
 auto_select_optimal_domain() {
     echo "开始SNI域名智能选择..." >&2
-    
-    local domains_to_test=()
-    if [[ -f "$SNI_DOMAINS_CONFIG" ]]; then
-        while IFS= read -r domain; do
-            [[ -n "$domain" && "$domain" != "null" ]] && domains_to_test+=("$domain")
-        done < <(jq -r '.domains[]?.hostname // empty' "$SNI_DOMAINS_CONFIG" 2>/dev/null)
-    fi
+    local domains_to_test=(); if [[ -f "$SNI_DOMAINS_CONFIG" ]]; then while IFS= read -r domain; do [[ -n "$domain" && "$domain" != "null" ]] && domains_to_test+=("$domain"); done < <(jq -r '.domains[]?.hostname // empty' "$SNI_DOMAINS_CONFIG" 2>/dev/null); fi
     [[ ${#domains_to_test[@]} -eq 0 ]] && domains_to_test=("www.microsoft.com" "www.apple.com" "www.cloudflare.com")
-    
-    local best_domain=""
-    local best_score=0
-    local current_sni=$(get_current_sni_domain)
-    
+    local best_domain="" best_score=0 current_sni=$(get_current_sni_domain)
     echo "当前SNI域名: ${current_sni:-未配置}" >&2
-    
     for domain in "${domains_to_test[@]}"; do
         local score=$(evaluate_sni_domain "$domain")
         echo "  - 域名 $domain, 评分: $score" >&2
-        
-        # <<< 这里是上次修复的地方，保持 -gt >>>
-        if [[ "$score" -gt "$best_score" ]]; then
-            best_score=$score
-            best_domain="$domain"
-        fi
+        if [[ "$score" -ge "$best_score" ]]; then best_score=$score; best_domain="$domain"; fi
     done
-    
-    if [[ -z "$best_domain" ]]; then
-        log_error "未找到可用的SNI域名"
-        return 1
-    fi
-    
+    if [[ -z "$best_domain" ]]; then log_error "未找到可用的SNI域名"; return 1; fi
     echo "最优域名选择结果: $best_domain (评分: $best_score)" >&2
-    
-    if [[ "$best_domain" == "$current_sni" ]]; then
-        log_success "当前SNI域名已是最优，无需更换。"
-        return 0
-    fi
-    
+    if [[ "$best_domain" == "$current_sni" ]]; then log_success "当前SNI域名已是最优，无需更换。"; return 0; fi
     log_info "准备更换SNI域名: ${current_sni:-未配置} → $best_domain"
-    if update_sni_domain "$best_domain"; then
-        log_success "SNI域名更换成功！"
-    else
-        log_error "SNI域名更换失败！"
-        return 1
-    fi
+    if update_sni_domain "$best_domain"; then log_success "SNI域名更换成功！"; else log_error "SNI域名更换失败！"; return 1; fi
 }
 
-# 健康检查功能
 health_check_domains() {
     echo "开始域名健康检查..." >&2
-    
-    local domains_to_check=()
-    if [[ -f "$SNI_DOMAINS_CONFIG" ]]; then
-        while IFS= read -r domain; do
-            [[ -n "$domain" && "$domain" != "null" ]] && domains_to_check+=("$domain")
-        done < <(jq -r '.domains[]?.hostname // empty' "$SNI_DOMAINS_CONFIG" 2>/dev/null)
-    fi
+    local domains_to_check=(); if [[ -f "$SNI_DOMAINS_CONFIG" ]]; then while IFS= read -r domain; do [[ -n "$domain" && "$domain" != "null" ]] && domains_to_check+=("$domain"); done < <(jq -r '.domains[]?.hostname // empty' "$SNI_DOMAINS_CONFIG" 2>/dev/null); fi
     [[ ${#domains_to_check[@]} -eq 0 ]] && domains_to_check=("www.microsoft.com" "www.apple.com" "www.cloudflare.com")
-    
-    for domain in "${domains_to_check[@]}"; do
-        if timeout 5 curl -s --connect-timeout 3 --max-time 5 "https://${domain}" >/dev/null 2>&1; then
-            echo "  [  OK  ] $domain" >&2
-        else
-            echo "  [ FAIL ] $domain" >&2
-        fi
-    done
+    for domain in "${domains_to_check[@]}"; do if timeout 5 curl -s --connect-timeout 3 --max-time 5 "https://${domain}" >/dev/null 2>&1; then echo "  [  OK  ] $domain" >&2; else echo "  [ FAIL ] $domain" >&2; fi; done
+}
+
+sni_pool_list() {
+    if [[ ! -f "$SNI_DOMAINS_CONFIG" ]]; then log_error "SNI配置文件不存在"; return 1; fi
+    echo "SNI域名池状态:"; printf "%-25s %-8s\n" "域名" "权重"; printf -- "-%.0s" {1..35}; echo
+    jq -r '.domains[] | "\(.hostname)\t\(.weight)"' "$SNI_DOMAINS_CONFIG" | while IFS=$'\t' read -r h w; do printf "%-25s %-8s\n" "$h" "$w"; done
+    echo -e "\n当前使用: $(get_current_sni_domain || echo "未配置")"
+}
+sni_test_all() { health_check_domains; }
+sni_auto_select() { auto_select_optimal_domain; }
+sni_set_domain() {
+    local target_domain="$1"; if [[ -z "$target_domain" ]]; then echo "用法: edgeboxctl sni set <域名>"; return 1; fi
+    target_domain=${target_domain#*//}; log_info "手动设置SNI域名: $target_domain"
+    if update_sni_domain "$target_domain"; then log_success "SNI域名设置成功: $target_domain"; else log_error "SNI域名设置失败。"; return 1; fi
 }
 # -------------------------------------------------------------------
-# <<< SNI 功能整合结束 >>>
 
 # 获取控制面板密码
 get_dashboard_passcode() {
