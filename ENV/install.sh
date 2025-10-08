@@ -11960,7 +11960,17 @@ SCRIPTS_DIR="/etc/edgebox/scripts"
 SNI_CONFIG_DIR="${CONFIG_DIR}/sni"
 SNI_DOMAINS_CONFIG="${SNI_CONFIG_DIR}/domains.json"
 SNI_MANAGER_SCRIPT="${SCRIPTS_DIR}/sni-manager.sh"
-WHITELIST_DOMAINS="ytimg.com,ggpht.com,youtube.com,youtu.be,googleapis.com,gstatic.com"
+WHITELIST_DOMAINS="
+googlevideo.com,  # YouTube
+nflxvideo.net,    # Netflix
+dssott.com,       # Disney+ / Hulu
+aiv-cdn.net,      # Amazon Prime Video
+aiv-delivery.net,
+ttvnw.net,        # Twitch
+hbo-cdn.com,      # HBO Max (Max)
+hls.itunes.apple.com,  # Apple TV+ / Music
+scdn.co,               # Spotify
+tiktokcdn.com"         # TikTok
 
 # ===== 日志函数（完整）=====
 ESC=$'\033'
