@@ -3160,6 +3160,9 @@ configure_nginx() {
         log_info "已备份原始Nginx配置"
     fi
     
+    # <<< 修复点 1: 确保 conf.d 目录存在 >>>
+    mkdir -p /etc/nginx/conf.d
+
     # 生成新的Nginx配置
     cat > /etc/nginx/nginx.conf << 'NGINX_CONFIG'
 # EdgeBox Nginx 配置文件
@@ -3184,16 +3187,15 @@ http {
     include       /etc/nginx/mime.types;
     default_type  application/octet-stream;
     
-    # === 口令 / 会话映射（fail-closed）===
+    # <<< 修复点 2: 移除硬编码的密码 map，改为 include 外部文件 >>>
+    # 该文件将由脚本动态生成，内容为: map $arg_passcode $pass_ok { ... }
+    include /etc/nginx/conf.d/edgebox_passcode.conf;
+
+    # === 会话映射（fail-closed）===
     # 1) 检测是否提供了 passcode 参数
     map $arg_passcode $arg_present {
         default 0;
         ~.+     1;   # 只要非空就算带参
-    }
-    # 2) 口令是否正确（占位符会在脚本中被替换为真实口令）
-    map $arg_passcode $pass_ok {
-        "__DASHBOARD_PASSCODE_PH__" 1;
-        default                     0;
     }
     # 3) 是否已有有效会话 Cookie
     map $cookie_ebp $cookie_ok {
@@ -3402,40 +3404,52 @@ stream {
     }
 }
 NGINX_CONFIG
-    
-# 验证Nginx配置
-log_info "验证Nginx配置..."
-if nginx -t 2>/dev/null; then
-    log_success "Nginx配置验证通过"
-else
-    log_error "Nginx配置验证失败"
-    nginx -t  # 显示详细错误信息
-    return 1
-fi
 
-    # 用真实口令替换占位符并重载
+    # <<< 修复点 4: 将 sed 替换为直接生成独立的密码配置文件 >>>
+    log_info "生成并注入控制面板密码..."
+    local passcode_conf="/etc/nginx/conf.d/edgebox_passcode.conf"
+    
     if [[ -n "$DASHBOARD_PASSCODE" ]]; then
-        sed -ri "s#__DASHBOARD_PASSCODE_PH__#${DASHBOARD_PASSCODE}#g" /etc/nginx/nginx.conf
-        if nginx -t; then
-            systemctl reload nginx || systemctl restart nginx
-            log_success "已注入控制面板口令并重载 Nginx"
-        else
-            log_error "注入口令后 nginx -t 失败，请检查 /etc/nginx/nginx.conf"
-            return 1
-        fi
+        # 直接生成密码配置文件
+        cat > "$passcode_conf" << EOF
+# 由 EdgeBox 自动生成于 $(date)
+map \$arg_passcode \$pass_ok {
+    "${DASHBOARD_PASSCODE}" 1;
+    default 0;
+}
+EOF
+        log_success "密码配置文件已生成: ${passcode_conf}"
     else
-        log_warn "DASHBOARD_PASSCODE 为空，未注入口令（将导致默认拒绝）"
+        # 如果密码为空，生成一个默认拒绝的配置，保证安全
+        cat > "$passcode_conf" << EOF
+# [WARN] 未生成密码，默认拒绝所有访问
+map \$arg_passcode \$pass_ok {
+    default 0;
+}
+EOF
+        log_warn "DASHBOARD_PASSCODE 为空，面板访问将被默认拒绝。"
     fi
 
-# 对齐系统与 Xray 的 DNS（幂等，无则跳过）
-log_info "对齐 DNS 解析（系统 & Xray）..."
-ensure_system_dns
-ensure_xray_dns_alignment
+    # 验证Nginx配置并重载
+    log_info "验证Nginx配置..."
+    if nginx -t; then
+        log_success "Nginx配置验证通过"
+        systemctl reload nginx || systemctl restart nginx
+        log_success "Nginx 已重载新配置"
+    else
+        log_error "Nginx配置验证失败，请检查 /etc/nginx/nginx.conf 和 /etc/nginx/conf.d/"
+        nginx -t # 显示详细错误
+        return 1
+    fi
     
-log_success "Nginx配置文件创建完成"
-return 0
+    # 对齐系统与 Xray 的 DNS（此部分逻辑不变）
+    log_info "对齐 DNS 解析（系统 & Xray）..."
+    ensure_system_dns
+    ensure_xray_dns_alignment
+    
+    log_success "Nginx配置文件创建完成"
+    return 0
 }
-
 
 #############################################
 # Xray 配置函数
@@ -11988,6 +12002,9 @@ get_dashboard_passcode() {
     jq -r '.dashboard_passcode // empty' "${CONFIG_DIR}/server.json" 2>/dev/null || echo ""
 }
 
+
+# === Anchor-2: 简化 edgeboxctl 中的 update_dashboard_passcode 函数 ===
+
 # 更新控制面板密码
 update_dashboard_passcode() {
     local old_passcode=$(get_dashboard_passcode)
@@ -12003,23 +12020,21 @@ update_dashboard_passcode() {
         log_success "server.json 中的密码已更新"
     else
         log_error "更新 server.json 失败"
+        rm -f "$temp_file"
         return 1
     fi
     
-    # 3. 更新 Nginx 配置
-    local nginx_conf="/etc/nginx/nginx.conf"
-    local nginx_tmp="${nginx_conf}.tmp"
-    
-    if grep -q "set \$passcode_ok" "$nginx_conf"; then
-        # 替换旧密码（使用 $passcode_ok 占位符作为标记）
-        sed -i "s/\(if (\$arg_passcode = \).*/\1\"${new_passcode}\") {/g" "$nginx_conf"
-        sed -i "s/\(return 302 \/traffic\/\?passcode=\).*/\1${new_passcode};/g" "$nginx_conf"
-    else
-        # 如果是首次运行（可能未在安装时应用），直接替换占位符（假设占位符存在）
-        # 这种场景应该在安装时避免，此处仅为兜底
-        sed -i "s/__DASHBOARD_PASSCODE_PH__/${new_passcode}/g" "$nginx_conf"
-    fi
-    
+    # <<< 修复点: 不再使用 sed，直接覆盖密码配置文件 >>>
+    local passcode_conf="/etc/nginx/conf.d/edgebox_passcode.conf"
+    cat > "$passcode_conf" << EOF
+# 由 edgeboxctl 自动生成于 $(date)
+map \$arg_passcode \$pass_ok {
+    "${new_passcode}" 1;
+    default 0;
+}
+EOF
+    log_success "Nginx 密码配置文件已更新"
+
     # 4. 重载 Nginx
     if reload_or_restart_services nginx; then
         log_success "Nginx 配置重载成功"
@@ -12027,7 +12042,7 @@ update_dashboard_passcode() {
         log_info "原密码：${old_passcode:-无}"
         return 0
     else
-        log_error "Nginx 重载失败，请检查 /etc/nginx/nginx.conf"
+        log_error "Nginx 重载失败，请检查配置"
         return 1
     fi
 }
