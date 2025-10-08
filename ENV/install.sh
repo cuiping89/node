@@ -4825,6 +4825,7 @@ get_services_status() {
 }
 
 
+# 获取协议配置状态 (修复版 - 完整合并健康数据 + JQ语法修正)
 # 获取协议配置状态 (最终修正版 - 兼容两种协议键名)
 get_protocols_status() {
     local health_report_file="${TRAFFIC_DIR}/protocol-health.json"
@@ -4863,8 +4864,7 @@ get_protocols_status() {
         local share_link
         share_link=$(jq -n -r --arg name "$name" --argjson conf "$server_config" '
             def url_encode: @uri;
-            # 关键修复：优先使用 cert.domain，再用 server_ip
-            ($conf.cert.domain // $conf.server_ip // "127.0.0.1") as $domain |
+            ($conf.server_ip // "127.0.0.1") as $domain |
             if $name == "VLESS-Reality" then "vless://\($conf.uuid.vless.reality)@\($domain):443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.microsoft.com&pbk=\($conf.reality.public_key)&sid=\($conf.reality.short_id)&type=tcp#EdgeBox-REALITY"
             elif $name == "VLESS-gRPC" then "vless://\($conf.uuid.vless.grpc)@\($domain):443?encryption=none&security=tls&sni=\($domain)&alpn=h2&type=grpc&serviceName=grpc&fp=chrome#EdgeBox-gRPC"
             elif $name == "VLESS-WebSocket" then "vless://\($conf.uuid.vless.ws)@\($domain):443?encryption=none&security=tls&sni=\($domain)&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome#EdgeBox-WS"
@@ -12544,7 +12544,9 @@ regen_sub_domain(){
   TUIC_PW_ENC=$(printf '%s' "$PASSWORD_TUIC"     | jq -rR @uri)
   TROJAN_PW_ENC=$(printf '%s' "$PASSWORD_TROJAN" | jq -rR @uri)
 
+  # 从 xray.json -> server.json -> 环境变量 依次获取真实的 Reality SNI
   reality_sni="$(jq -r 'first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.serverNames[0]) // (first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.dest) | split(":")[0]) // empty' "${CONFIG_DIR}/xray.json" 2>/dev/null)"
+  : "${reality_sni:=$(jq -r '.reality.sni // empty' "${SERVER_CONFIG}" 2>/dev/null)}"
   : "${reality_sni:=${REALITY_SNI:-www.microsoft.com}}"
 
   local sub=$(
@@ -12561,16 +12563,26 @@ PLAIN
   _b64_line(){ if base64 --help 2>&1 | grep -q -- '-w'; then base64 -w0; else base64 | tr -d '\n'; fi; }
   _ensure_nl(){ sed -e '$a\'; }
 
-  # 只生成明文和整包Base64
   printf '%s\n' "$sub" > "${CONFIG_DIR}/subscription.txt"
   _ensure_nl <<<"$sub" | _b64_line > "${CONFIG_DIR}/subscription.base64"
-  
-  # 同步到Web目录
+  : > "${CONFIG_DIR}/subscription.b64lines"
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    printf '%s\n' "$line" | _ensure_nl | _b64_line >> "${CONFIG_DIR}/subscription.b64lines"
+    printf '\n' >> "${CONFIG_DIR}/subscription.b64lines"
+  done <<<"$sub"
+
   mkdir -p /var/www/html
-  printf '%s\n' "$sub" > /var/www/html/sub
+  {
+    printf '%s\n\n' "$sub"
+    echo "# Base64（整包，单行）"
+    cat "${CONFIG_DIR}/subscription.base64"
+    echo
+  } > /var/www/html/sub
 
   log_success "域名模式订阅已更新"
 }
+
 
 regen_sub_ip(){
   get_server_info
@@ -12579,7 +12591,9 @@ regen_sub_ip(){
   TUIC_PW_ENC=$(printf '%s' "$PASSWORD_TUIC"     | jq -rR @uri)
   TROJAN_PW_ENC=$(printf '%s' "$PASSWORD_TROJAN" | jq -rR @uri)
 
+  # 从 xray.json -> server.json -> 环境变量 依次获取真实的 Reality SNI
   reality_sni="$(jq -r 'first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.serverNames[0]) // (first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.dest) | split(":")[0]) // empty' "${CONFIG_DIR}/xray.json" 2>/dev/null)"
+  : "${reality_sni:=$(jq -r '.reality.sni // empty' "${SERVER_CONFIG}" 2>/dev/null)}"
   : "${reality_sni:=${REALITY_SNI:-www.microsoft.com}}"
 
   local sub=$(
@@ -12596,27 +12610,48 @@ PLAIN
   _b64_line(){ if base64 --help 2>&1 | grep -q -- '-w'; then base64 -w0; else base64 | tr -d '\n'; fi; }
   _ensure_nl(){ sed -e '$a\'; }
 
-  # 只生成明文和整包Base64
   printf '%s\n' "$sub" > "${CONFIG_DIR}/subscription.txt"
   _ensure_nl <<<"$sub" | _b64_line > "${CONFIG_DIR}/subscription.base64"
+  : > "${CONFIG_DIR}/subscription.b64lines"
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    printf '%s\n' "$line" | _ensure_nl | _b64_line >> "${CONFIG_DIR}/subscription.b64lines"
+    printf '\n' >> "${CONFIG_DIR}/subscription.b64lines"
+  done <<<"$sub"
 
-  # 同步到Web目录
   mkdir -p /var/www/html
-  printf '%s\n' "$sub" > /var/www/html/sub
-  
+  {
+    printf '%s\n\n' "$sub"
+    echo "# Base64（整包，单行）"
+    cat "${CONFIG_DIR}/subscription.base64"
+    echo
+  } > /var/www/html/sub
+
   log_success "IP 模式订阅已更新"
 }
 
+switch_to_domain(){
+  local domain="$1"
+  [[ -z "$domain" ]] && { echo "用法: edgeboxctl switch-to-domain <domain>"; return 1; }
+  log_info "检查域名解析: ${domain}"
+  getent hosts "$domain" >/dev/null || { log_error "${domain} 未解析"; return 1; }
+  log_info "为 ${domain} 申请/扩展 Let's Encrypt 证书"
+  request_letsencrypt_cert "$domain" || return 1
+  ln -sf "/etc/letsencrypt/live/${domain}/privkey.pem"   "${CERT_DIR}/current.key"
+  ln -sf "/etc/letsencrypt/live/${domain}/fullchain.pem" "${CERT_DIR}/current.pem"
+  fix_permissions
+  regen_sub_domain "$domain"
+  reload_or_restart_services nginx xray sing-box
+  log_success "已切换到域名模式（${domain}）"
+  post_switch_report
+  # 【增加此行】强制刷新 dashboard.json 缓存
+  /etc/edgebox/scripts/dashboard-backend.sh --now >/dev/null 2>&1
+  echo; echo "=== 新订阅（域名模式） ==="; show_sub
+}
+
 switch_to_ip(){
   ln -sf "${CERT_DIR}/self-signed.key" "${CERT_DIR}/current.key"
   ln -sf "${CERT_DIR}/self-signed.pem" "${CERT_DIR}/current.pem"
-  
-  # 关键修复：更新 server.json
-  local temp_json="${CONFIG_DIR}/server.json.tmp"
-  jq '
-      .cert.mode = "self-signed" | .cert.domain = null
-  ' "${CONFIG_DIR}/server.json" > "$temp_json" && mv "$temp_json" "${CONFIG_DIR}/server.json"
-      
   fix_permissions
   local ip; ip="$(curl -fsS4 --max-time 2 https://ipv4.icanhazip.com 2>/dev/null | tr -d '\r\n')"
   [[ -z "$ip" ]] && ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
@@ -12624,36 +12659,11 @@ switch_to_ip(){
   reload_or_restart_services nginx xray sing-box
   log_success "已切换到 IP 模式"
   post_switch_report
-
-  # 关键修复：强制刷新 dashboard.json 缓存
+  # 【增加此行】强制刷新 dashboard.json 缓存
   /etc/edgebox/scripts/dashboard-backend.sh --now >/dev/null 2>&1
-
   echo; echo "=== 新订阅（IP 模式） ==="; show_sub
 }
 
-switch_to_ip(){
-  ln -sf "${CERT_DIR}/self-signed.key" "${CERT_DIR}/current.key"
-  ln -sf "${CERT_DIR}/self-signed.pem" "${CERT_DIR}/current.pem"
-  
-  # 关键修复：更新 server.json
-  local temp_json="${CONFIG_DIR}/server.json.tmp"
-  jq '
-      .cert.mode = "self-signed" | .cert.domain = null
-  ' "${CONFIG_DIR}/server.json" > "$temp_json" && mv "$temp_json" "${CONFIG_DIR}/server.json"
-      
-  fix_permissions
-  local ip; ip="$(curl -fsS4 --max-time 2 https://ipv4.icanhazip.com 2>/dev/null | tr -d '\r\n')"
-  [[ -z "$ip" ]] && ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
-  regen_sub_ip "$ip"
-  reload_or_restart_services nginx xray sing-box
-  log_success "已切换到 IP 模式"
-  post_switch_report
-
-  # 关键修复：强制刷新 dashboard.json 缓存
-  /etc/edgebox/scripts/dashboard-backend.sh --now >/dev/null 2>&1
-
-  echo; echo "=== 新订阅（IP 模式） ==="; show_sub
-}
 
 cert_status(){
   local mode=$(get_current_cert_mode)
