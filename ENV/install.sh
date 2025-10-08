@@ -12699,6 +12699,8 @@ switch_to_domain(){
   reload_or_restart_services nginx xray sing-box
   log_success "已切换到域名模式（${domain}）"
   post_switch_report
+  # 【增加此行】强制刷新 dashboard.json 缓存
+  /etc/edgebox/scripts/dashboard-backend.sh --now >/dev/null 2>&1
   echo; echo "=== 新订阅（域名模式） ==="; show_sub
 }
 
@@ -12712,6 +12714,8 @@ switch_to_ip(){
   reload_or_restart_services nginx xray sing-box
   log_success "已切换到 IP 模式"
   post_switch_report
+  # 【增加此行】强制刷新 dashboard.json 缓存
+  /etc/edgebox/scripts/dashboard-backend.sh --now >/dev/null 2>&1
   echo; echo "=== 新订阅（IP 模式） ==="; show_sub
 }
 
