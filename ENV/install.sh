@@ -11710,6 +11710,7 @@ update_sni_domain() {
     fi
 }
 
+
 # 智能选择最优域名
 auto_select_optimal_domain() {
     echo "开始SNI域名智能选择..."
@@ -11731,7 +11732,9 @@ auto_select_optimal_domain() {
     for domain in "${domains_to_test[@]}"; do
         local score=$(evaluate_sni_domain "$domain")
         echo "  - 域名 $domain, 评分: $score"
-        if [[ "$score" -gt $best_score ]]; then
+        
+        # <<< 修复点: 使用 -gt进行整数比较，而不是 > >>>
+        if [[ "$score" -gt "$best_score" ]]; then
             best_score=$score
             best_domain="$domain"
         fi
