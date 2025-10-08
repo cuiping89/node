@@ -11194,10 +11194,10 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
     <div class="command-section">
       <h3>🎯 核心命令</h3>
       <div class="command-list">
-        <code>edgeboxctl status</code> <span># 查看所有服务及端口的健康状态</span><br>
-        <code>edgeboxctl sub</code> <span># 显示订阅链接与 Web 面板信息</span><br>
+        <code>edgeboxctl sub</code> <span># 查看订阅链接与 控制面板URL</span><br>
+		<code>edgeboxctl status</code> <span># 查看所有服务及端口的健康状态</span><br>
+		<code>edgeboxctl logs &lt;service&gt;</code> <span># 查看指定服务的实时日志 (Ctrl+C 退出)</span><br>
         <code>edgeboxctl restart</code> <span># 优雅重启所有核心服务 (配置变更后使用)</span><br>
-        <code>edgeboxctl logs &lt;service&gt;</code> <span># 查看指定服务的实时日志 (Ctrl+C 退出)</span><br>
         <code>edgeboxctl update</code> <span># 在线更新 EdgeBox 至最新版本</span><br>
         <code>edgeboxctl help</code> <span># 显示帮助信息</span><br>
         <div style="margin-top: 10px; color: #3b82f6; font-size: 0.95em;">
@@ -11211,10 +11211,10 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
     <div class="command-section">
       <h3>🔒 证书管理</h3>
       <div class="command-list">
-        <code>edgeboxctl switch-to-domain &lt;domain&gt;</code> <span># 切换为域名模式，并申请 Let's Encrypt 证书</span><br>
-        <code>edgeboxctl switch-to-ip</code> <span># 切换回 IP 模式，使用自签名证书</span><br>
         <code>edgeboxctl cert status</code> <span># 查看当前证书类型、域名及有效期</span><br>
+        <code>edgeboxctl switch-to-domain &lt;domain&gt;</code> <span># 切换为域名模式，并申请 Let's Encrypt 证书</span><br>
         <code>edgeboxctl cert renew</code> <span># 手动续期 Let's Encrypt 证书</span><br>
+		<code>edgeboxctl switch-to-ip</code> <span># 切换回 IP 模式，使用自签名证书</span><br>
         <code>edgeboxctl fix-permissions</code> <span># 修复证书文件的读写权限</span><br>
         <div style="margin-top: 10px; color: #3b82f6; font-size: 0.95em;">
           <strong>示例：</strong><br>
@@ -11228,9 +11228,9 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
       <h3>🌐 SNI 域名管理</h3>
       <div class="command-list">
         <code>edgeboxctl sni list</code> <span># 显示 SNI 域名池状态 (别名: pool)</span><br>
+		<code>edgeboxctl sni test-all</code> <span># 测试池中所有域名的可用性</span><br>
         <code>edgeboxctl sni auto</code> <span># 智能测试并选择最优 SNI 域名</span><br>
         <code>edgeboxctl sni set &lt;domain&gt;</code> <span># 手动强制指定一个 SNI 域名</span><br>
-        <code>edgeboxctl sni test-all</code> <span># 测试池中所有域名的可用性</span><br>
         <div style="margin-top: 10px; color: #3b82f6; font-size: 0.95em;">
           <strong>示例：</strong><br>
           <code style="display: inline-block; margin-left: 0; color: #3b82f6;">edgeboxctl sni set www.apple.com</code>
@@ -11242,8 +11242,8 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
     <div class="command-section">
       <h3>🔐 Reality 密钥轮换</h3>
       <div class="command-list">
+	    <code>edgeboxctl reality-status</code> <span># 查看 Reality 密钥轮换的周期状态</span>
         <code>edgeboxctl rotate-reality</code> <span># 手动执行 Reality 密钥对轮换 (安全增强)</span><br>
-        <code>edgeboxctl reality-status</code> <span># 查看 Reality 密钥轮换的周期状态</span>
       </div>
     </div>
 
@@ -11251,9 +11251,9 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
     <div class="command-section">
       <h3>🎲 流量特征随机化</h3>
       <div class="command-list">
-        <code>edgeboxctl traffic randomize [light|medium|heavy]</code> <span># 执行流量特征随机化，增强隐蔽性</span><br>
         <code>edgeboxctl traffic status</code> <span># 查看随机化系统状态和定时任务</span><br>
         <code>edgeboxctl traffic reset</code> <span># 重置随机化参数为默认值</span><br>
+		<code>edgeboxctl traffic randomize [light|medium|heavy]</code> <span># 执行流量特征随机化，增强隐蔽性</span><br>
         <div style="margin-top: 10px; color: #3b82f6; font-size: 0.95em;">
           <strong>示例：</strong><br>
           <code style="display: inline-block; margin-left: 0; color: #3b82f6;">edgeboxctl traffic randomize medium</code><br><br>
@@ -11314,10 +11314,10 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
     <div class="command-section">
       <h3>🧩 配置与维护</h3>
       <div class="command-list">
-        <code>edgeboxctl config show</code> <span># 显示所有协议的 UUID、密码等详细配置</span><br>
+        <code>edgeboxctl dashboard passcode</code> <span># 重置 Web 控制面板的访问密码</span><br>
+        <code>edgeboxctl alias &lt;我的备注&gt;</code> <span># 为当前服务器设置一个易记的别名</span><br>
+		<code>edgeboxctl config show</code> <span># 显示所有协议的 UUID、密码等详细配置</span><br>
         <code>edgeboxctl config regenerate-uuid</code> <span># 为所有协议重新生成 UUID 和密码</span><br>
-        <code>edgeboxctl dashboard passcode</code> <span># 重置并显示 Web 控制面板的访问密码</span><br>
-        <code>edgeboxctl alias "我的备注"</code> <span># 为当前服务器设置一个易记的别名</span><br>
         <code>edgeboxctl backup create</code> <span># 创建当前系统配置的完整备份</span><br>
         <code>edgeboxctl backup list</code> <span># 列出所有可用的备份文件</span><br>
         <code>edgeboxctl backup restore &lt;file&gt;</code> <span># 从指定备份文件恢复系统配置</span><br>
@@ -11333,9 +11333,9 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
     <div class="command-section">
       <h3>🔍 诊断与排障</h3>
       <div class="command-list">
-        <code>edgeboxctl test</code> <span># 对各协议入口进行基础连通性测试</span><br>
-        <code>edgeboxctl test-udp &lt;host&gt; &lt;port&gt; [seconds]</code> <span># 使用 iperf3/socat 进行 UDP 连通性简测</span><br>
         <code>edgeboxctl debug-ports</code> <span># 检查核心端口 (80, 443, 2053) 是否被占用</span><br>
+		<code>edgeboxctl test</code> <span># 对各协议入口进行基础连通性测试</span><br>
+        <code>edgeboxctl test-udp &lt;host&gt; &lt;port&gt; [seconds]</code> <span># 使用 iperf3/socat 进行 UDP 连通性简测</span><br>
         <div style="margin-top: 10px; color: #3b82f6; font-size: 0.95em;">
           <strong>示例 (排障流程)：</strong><br>
           <code style="display: inline-block; margin-left: 0; color: #3b82f6;">edgeboxctl status → edgeboxctl logs xray → edgeboxctl debug-ports</code>
