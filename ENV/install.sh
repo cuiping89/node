@@ -10466,8 +10466,16 @@ function showConfigModal(protocolKey) {
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const toB64 = s => btoa(unescape(encodeURIComponent(s)));
   const get = (o, p, fb = '') => p.split('.').reduce((a, k) => (a && a[k] !== undefined ? a[k] : undefined), o) ?? fb;
+  
+  // <<< 修复点 1: 动态判断主机地址 >>>
+  const certMode = String(get(dd, 'server.cert.mode', 'self-signed'));
+  const isLE = certMode.startsWith('letsencrypt');
+  const serverIp = get(dd, 'server.server_ip', '');
+  const domain = get(dd, 'server.cert.domain', '');
+  const hostAddress = isLE && domain ? domain : serverIp; // 动态选择 host
 
   function annotateAligned(obj, comments = {}) {
+    // ... (内部函数保持不变)
     const lines = JSON.stringify(obj, null, 2).split('\n');
     const metas = lines.map(line => {
       const m = line.match(/^(\s*)"([^"]+)"\s*:\s*(.*?)(,?)$/);
@@ -10504,8 +10512,8 @@ function showConfigModal(protocolKey) {
 
   let qrText = '';
 
-  // 整包订阅
   if (protocolKey === '__SUBS__') {
+    // ... (整包订阅部分逻辑不变)
     const subsUrl = get(dd, 'subscription_url', '') ||
                     (get(dd, 'server.server_ip', '') ? `http://${get(dd, 'server.server_ip')}/sub` : '');
     const plain6 = get(dd, 'subscription.plain', '');
@@ -10543,44 +10551,42 @@ function showConfigModal(protocolKey) {
     qrText = subsUrl || '';
 
   } else {
-    // 单协议配置
     const protocols = Array.isArray(dd.protocols) ? dd.protocols : [];
     const p = protocols.find(x =>
-      x && (x.name === protocolKey || x.key === protocolKey || x.id === protocolKey || x.type === protocolKey)
+      x && (x.name === protocolKey || x.protocol === protocolKey)
     );
 
     if (!p) {
       title.textContent = '配置详情';
       details.innerHTML = `<div class="empty">未找到协议: <code>${esc(String(protocolKey))}</code></div>`;
-      footer.innerHTML = `<button class="btn btn-sm" data-action="close-config-modal">关闭</button>`;
+      footer.innerHTML = `<button class="btn btn-sm" data-action="close-modal" data-modal="configModal">关闭</button>`;
       return;
     }
 
-    const certMode = String(get(dd, 'server.cert.mode', 'self-signed'));
-    const isLE = certMode.startsWith('letsencrypt');
-    const serverIp = get(dd, 'server.server_ip', '');
-
+    // <<< 修复点 2: 使用动态的 hostAddress 变量构建 JSON >>>
     const obj = {
       protocol: p.name,
-      host: serverIp,
+      host: hostAddress, // 使用动态地址
       port: p.port ?? 443,
-      uuid: get(dd, 'secrets.vless.reality', '') ||
-            get(dd, 'secrets.vless.grpc', '') ||
-            get(dd, 'secrets.vless.ws', ''),
-      sni: isLE ? get(dd, 'server.cert.domain', '') : serverIp,
+      uuid: get(dd, `secrets.vless.${p.protocol}`) || get(dd, `secrets.password.${p.protocol}`) || get(dd, `secrets.tuic_uuid`),
+      sni: isLE ? domain : hostAddress,
       alpn: (p.name || '').toLowerCase().includes('grpc') ? 'h2'
             : ((p.name || '').toLowerCase().includes('ws') ? 'http/1.1' : '')
     };
-
+    if (p.protocol === 'hysteria2') {
+        obj.uuid = get(dd, 'secrets.password.hysteria2');
+    }
+    
     const comments = {
-      protocol: '协议类型(例: VLESS-Reality)',
+      protocol: '协议类型',
       host: '服务器地址(IP/域名)',
       port: '端口',
-      uuid: '认证 UUID / 密钥',
-      sni: 'TLS/SNI(域名模式用域名)',
-      alpn: 'ALPN(gRPC=h2, WS=http/1.1)'
+      uuid: '认证 UUID / 密码',
+      sni: 'TLS/SNI',
+      alpn: 'ALPN(gRPC=h2, ws=http/1.1)'
     };
     const jsonAligned = annotateAligned(obj, comments);
+    // <<< 修复点结束 >>>
 
     const plain = p.share_link || '';
     const base64 = plain ? toB64(plain) : '';
@@ -10617,7 +10623,7 @@ function showConfigModal(protocolKey) {
     qrText = plain || '';
   }
 
-  // 生成二维码
+  // 生成二维码 (逻辑不变)
   if (qrText && window.QRCode) {
     const holderId = (protocolKey === '__SUBS__') ? 'qrcode-sub' : 'qrcode-protocol';
     const holder = document.getElementById(holderId);
@@ -12654,6 +12660,9 @@ switch_to_domain(){
 }
 
 switch_to_ip(){
+  # <<< 修复点 3: 增加写 cert_mode 文件的步骤 >>>
+  echo "self-signed" > "${CONFIG_DIR}/cert_mode"
+
   ln -sf "${CERT_DIR}/self-signed.key" "${CERT_DIR}/current.key"
   ln -sf "${CERT_DIR}/self-signed.pem" "${CERT_DIR}/current.pem"
   fix_permissions
@@ -12663,11 +12672,10 @@ switch_to_ip(){
   reload_or_restart_services nginx xray sing-box
   log_success "已切换到 IP 模式"
   post_switch_report
-  # 【增加此行】强制刷新 dashboard.json 缓存
+  # 强制刷新 dashboard.json 缓存
   /etc/edgebox/scripts/dashboard-backend.sh --now >/dev/null 2>&1
   echo; echo "=== 新订阅（IP 模式） ==="; show_sub
 }
-
 
 cert_status(){
   local mode=$(get_current_cert_mode)
