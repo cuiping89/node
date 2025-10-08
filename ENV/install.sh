@@ -5638,23 +5638,29 @@ check_udp_firewall_rules() {
 
     # 检查UFW
     if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
-        if ! ufw status | grep -qE "${port}/udp.*ALLOW"; then
-            return 0  # blocked
+        if ufw status | grep -qE "${port}/udp.*ALLOW"; then
+            return 0  # <<< 修复点: 规则存在，代表成功，返回 0
+        else
+            return 1  # <<< 修复点: 规则不存在，代表失败，返回 1
         fi
     # 检查firewalld
     elif command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then
-        if ! firewall-cmd --list-ports 2>/dev/null | grep -qE "${port}/udp"; then
-            return 0  # blocked
+        if firewall-cmd --list-ports 2>/dev/null | grep -qE "${port}/udp"; then
+            return 0  # <<< 修复点: 规则存在，代表成功，返回 0
+        else
+            return 1  # <<< 修复点: 规则不存在，代表失败，返回 1
         fi
     # 检查iptables
     elif command -v iptables >/dev/null 2>&1; then
-        if ! iptables -L INPUT -n 2>/dev/null | grep -qE "udp.*dpt:${port}.*ACCEPT"; then
-            # iptables规则不明确时,无法确定
-            return 1  # unknown
+        if iptables -L INPUT -n 2>/dev/null | grep -qE "udp.*dpt:${port}.*ACCEPT"; then
+            return 0  # <<< 修复点: 规则存在，代表成功，返回 0
+        else
+            return 1  # <<< 修复点: 规则不明确或不存在，返回 1
         fi
     fi
 
-    return 1  # not blocked or unknown
+    # 如果没有检测到防火墙软件，也视为成功（无阻断）
+    return 0  # <<< 修复点: 默认返回成功
 }
 
 # 统一的协议性能测试入口
