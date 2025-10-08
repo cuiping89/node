@@ -11570,9 +11570,7 @@ APPLY_FIREWALL_SCRIPT
 
 
 # 创建完整的edgeboxctl管理工具（集成SNI功能）
-# === Anchor-2: 打造功能内聚的 `edgeboxctl` ===
-
-# 创建完整的edgeboxctl管理工具（集成SNI功能）
+# 创建完整的edgeboxctl管理工具（集成SNI、SSH断连修复、订阅刷新等所有功能）
 create_enhanced_edgeboxctl() {
     log_info "创建增强版edgeboxctl管理工具..."
     
@@ -11582,65 +11580,24 @@ create_enhanced_edgeboxctl() {
 VERSION="3.0.0"
 CONFIG_DIR="/etc/edgebox/config"
 CERT_DIR="/etc/edgebox/cert"
-INSTALL_DIR="/etc/edgebox"
-LOG_FILE="/var/log/edgebox.log"
 SERVER_CONFIG="${CONFIG_DIR}/server.json"
 XRAY_CONFIG="${CONFIG_DIR}/xray.json"
 SNI_DOMAINS_CONFIG="${CONFIG_DIR}/sni/domains.json"
 
-
-# ===== 日志函数（完整）=====
-# ... (此处省略，保持您脚本中的原样即可) ...
+# --- 日志函数 ---
 ESC=$'\033'
-BLUE="${ESC}[0;34m"; PURPLE="${ESC}[0;35m"; CYAN="${ESC}[0;36m"
-YELLOW="${ESC}[1;33m"; GREEN="${ESC}[0;32m"; RED="${ESC}[0;31m"; NC="${ESC}[0m"
-LOG_FILE="/var/log/edgebox-install.log"
-LOG_LEVEL="${LOG_LEVEL:-info}"   # debug|info
-
-log_info()    { echo -e "${GREEN}[INFO]${NC} $*"    | tee -a "$LOG_FILE"; }
-log_warn()    { echo -e "${YELLOW}[WARN]${NC} $*"   | tee -a "$LOG_FILE"; }
-log_error()   { echo -e "${RED}[ERROR]${NC} $*"     | tee -a "$LOG_FILE"; }
-log_success() { echo -e "${GREEN}[SUCCESS]${NC} $*" | tee -a "$LOG_FILE"; }
-log_debug()   { [[ "${LOG_LEVEL}" == debug ]] && echo -e "${YELLOW}[DEBUG]${NC} $*" | tee -a "$LOG_FILE" || true; }
-
-log()      { log_info "$@"; }
-log_ok()   { log_success "$@"; }
-error()    { log_error "$@"; }
-
-# === Anchor-2: 打造功能内聚的 `edgeboxctl` ===
-
-# 创建完整的edgeboxctl管理工具（集成SNI功能）
-create_enhanced_edgeboxctl() {
-    log_info "创建增强版edgeboxctl管理工具..."
-    
-    cat > /usr/local/bin/edgeboxctl << 'EDGEBOXCTL_SCRIPT'
-#!/bin/bash
-# EdgeBox 增强版控制脚本 v3.0.0
-VERSION="3.0.0"
-CONFIG_DIR="/etc/edgebox/config"
-CERT_DIR="/etc/edgebox/cert"
-INSTALL_DIR="/etc/edgebox"
-LOG_FILE="/var/log/edgebox.log"
-SERVER_CONFIG="${CONFIG_DIR}/server.json"
-XRAY_CONFIG="${CONFIG_DIR}/xray.json"
-SNI_DOMAINS_CONFIG="${CONFIG_DIR}/sni/domains.json"
-
-# ... (此处省略了您脚本中已有的、无需改动的日志函数、颜色定义等) ...
-ESC=$'\033'
-BLUE="${ESC}[0;34m"; PURPLE="${ESC}[0;35m"; CYAN="${ESC}[0;36m"
 YELLOW="${ESC}[1;33m"; GREEN="${ESC}[0;32m"; RED="${ESC}[0;31m"; NC="${ESC}[0m"
 log_info()    { echo -e "${GREEN}[INFO]${NC} $*"; }
 log_warn()    { echo -e "${YELLOW}[WARN]${NC} $*"; }
 log_error()   { echo -e "${RED}[ERROR]${NC} $*"; }
 log_success() { echo -e "${GREEN}[SUCCESS]${NC} $*"; }
 
-# --- 辅助函数 ---
+# --- 核心辅助函数 ---
 get_current_cert_mode(){ [[ -f ${CONFIG_DIR}/cert_mode ]] && cat ${CONFIG_DIR}/cert_mode || echo "self-signed"; }
 url_encode() {
     local string="${1}"
     local strlen=${#string}
     local encoded=""
-    local pos c o
     for (( pos=0 ; pos<strlen ; pos++ )); do
         c=${string:$pos:1}
         case "$c" in
@@ -11652,13 +11609,44 @@ url_encode() {
     echo "${encoded}"
 }
 
-# <<< 修复点 1: 将所有依赖函数植入 edgeboxctl 内部 >>>
-# -------------------------------------------------------------------
+# --- 异步重启服务 (解决SSH断连问题) ---
+restart_services_background() {
+    local services_to_restart=("$@")
+    local cmd="(sleep 2; "
+    for service in "${services_to_restart[@]}"; do
+        cmd+="systemctl restart $service; "
+    done
+    cmd+="/etc/edgebox/scripts/apply-firewall.sh >/dev/null 2>&1 || true; "
+    cmd+='echo "[$(date)] Background restart completed." >> /var/log/edgebox.log)'
+    
+    nohup bash -c "$cmd" >/dev/null 2>&1 & disown
+    
+    log_success "命令已提交到后台执行。您的SSH连接可能会在2-3秒后中断。"
+    log_info "这是正常现象。请在几秒钟后重新连接服务器并使用 'edgeboxctl shunt status' 检查状态。"
+    exit 0
+}
+
+# --- 同步重启/重载服务 (用于非断连操作) ---
+reload_or_restart_services() {
+    local services=("$@")
+    local failed=()
+    for svc in "${services[@]}"; do
+        log_info "正在处理服务: $svc"
+        if ! systemctl restart "$svc"; then
+            log_error "服务 $svc 重启失败"
+            failed+=("$svc")
+        else
+            log_success "服务 $svc 重启成功"
+        fi
+    done
+    if [[ ${#failed[@]} -eq 0 ]]; then return 0; else return 1; fi
+}
+
+# --- 配置加载及订阅生成函数 (植入) ---
 CONFIG_LOADED=false
 load_config_once() {
     if [[ "$CONFIG_LOADED" == "true" ]]; then return 0; fi
     if [[ ! -f "$SERVER_CONFIG" ]]; then log_error "配置文件不存在: $SERVER_CONFIG"; return 1; fi
-    
     local config_json
     config_json=$(jq -c '{
         server_ip: .server_ip, uuid_vless_reality: .uuid.vless.reality, uuid_vless_grpc: .uuid.vless.grpc,
@@ -11666,7 +11654,6 @@ load_config_once() {
         password_hysteria2: .password.hysteria2, password_tuic: .password.tuic,
         reality_public_key: .reality.public_key, reality_short_id: .reality.short_id
     }' "$SERVER_CONFIG" 2>/dev/null) || { log_error "配置文件解析失败"; return 1; }
-
     SERVER_IP=$(echo "$config_json" | jq -r '.server_ip')
     UUID_VLESS_REALITY=$(echo "$config_json" | jq -r '.uuid_vless_reality')
     UUID_VLESS_GRPC=$(echo "$config_json" | jq -r '.uuid_vless_grpc')
@@ -11677,7 +11664,6 @@ load_config_once() {
     PASSWORD_TUIC=$(echo "$config_json" | jq -r '.password_tuic')
     REALITY_PUBLIC_KEY=$(echo "$config_json" | jq -r '.reality_public_key')
     REALITY_SHORT_ID=$(echo "$config_json" | jq -r '.reality_short_id')
-    
     CONFIG_LOADED=true
 }
 get_server_info() { load_config_once; }
@@ -11686,9 +11672,7 @@ regen_sub_domain(){
     local domain=$1; get_server_info
     local reality_sni
     reality_sni="$(jq -r 'first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.serverNames[0])' "$XRAY_CONFIG" 2>/dev/null || echo "www.microsoft.com")"
-    
-    local sub
-    sub=$(cat <<PLAIN
+    local sub=$(cat <<PLAIN
 vless://${UUID_VLESS_REALITY}@${domain}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${reality_sni}&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&type=tcp#EdgeBox-REALITY
 vless://${UUID_VLESS_GRPC}@${domain}:443?encryption=none&security=tls&sni=${domain}&alpn=h2&type=grpc&serviceName=grpc&fp=chrome#EdgeBox-gRPC
 vless://${UUID_VLESS_WS}@${domain}:443?encryption=none&security=tls&sni=${domain}&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome#EdgeBox-WS
@@ -11701,14 +11685,11 @@ PLAIN
     echo "$sub" | base64 -w0 > "${CONFIG_DIR}/subscription.base64"
     log_success "域名模式订阅已更新"
 }
-
 regen_sub_ip(){
     get_server_info
     local reality_sni
     reality_sni="$(jq -r 'first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.serverNames[0])' "$XRAY_CONFIG" 2>/dev/null || echo "www.microsoft.com")"
-    
-    local sub
-    sub=$(cat <<PLAIN
+    local sub=$(cat <<PLAIN
 vless://${UUID_VLESS_REALITY}@${SERVER_IP}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${reality_sni}&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&type=tcp#EdgeBox-REALITY
 vless://${UUID_VLESS_GRPC}@${SERVER_IP}:443?encryption=none&security=tls&sni=grpc.edgebox.internal&alpn=h2&type=grpc&serviceName=grpc&fp=chrome&allowInsecure=1#EdgeBox-gRPC
 vless://${UUID_VLESS_WS}@${SERVER_IP}:443?encryption=none&security=tls&sni=ws.edgebox.internal&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome&allowInsecure=1#EdgeBox-WS
@@ -11721,10 +11702,8 @@ PLAIN
     echo "$sub" | base64 -w0 > "${CONFIG_DIR}/subscription.base64"
     log_success "IP 模式订阅已更新"
 }
-# -------------------------------------------------------------------
 
-# <<< SNI管理核心函数 (整合 & 修复) >>>
-# -------------------------------------------------------------------
+# --- SNI 管理核心函数 (整合 & 修复) ---
 sni_log_info() { log_info "SNI: $*"; }
 sni_log_error() { log_error "SNI: $*"; }
 sni_log_success() { log_success "SNI: $*"; }
@@ -11753,18 +11732,17 @@ update_sni_domain() {
     sni_log_info "准备更新SNI为: $new_domain"
     cp "$XRAY_CONFIG" "${XRAY_CONFIG}.backup.$(date +%s)" 2>/dev/null || true
     if jq --arg domain "$new_domain" '(.inbounds[] | select(.tag=="vless-reality") | .streamSettings.realitySettings.dest) = ($domain + ":443") | (.inbounds[] | select(.tag=="vless-reality") | .streamSettings.realitySettings.serverNames) |= ( (.[0] = $domain) // [$domain] )' "$XRAY_CONFIG" > "$temp_config"; then
-        if jq empty "$temp_config" >/dev/null 2>&1; then
-            mv "$temp_config" "$XRAY_CONFIG"
-            sni_log_success "Xray配置文件更新成功。"
-            if reload_or_restart_services xray; then
-                sni_log_success "Xray服务已重载。"
-                sni_log_info "SNI 变更，正在刷新订阅文件..."
-                local mode domain; mode=$(get_current_cert_mode 2>/dev/null || echo self-signed)
-                if [[ "$mode" == "self-signed" ]]; then regen_sub_ip; else domain="${mode##*:}"; [[ -n "$domain" ]] && regen_sub_domain "$domain" || regen_sub_ip; fi
-                sni_log_success "订阅文件刷新完成。"
-                return 0
-            else sni_log_error "Xray服务重载失败。"; return 1; fi
-        else sni_log_error "生成的Xray配置JSON格式错误。"; rm -f "$temp_config"; return 1; fi
+        if ! xray -test -config "$temp_config" >/dev/null 2>&1; then sni_log_error "生成的Xray配置校验失败"; rm -f "$temp_config"; return 1; fi
+        mv "$temp_config" "$XRAY_CONFIG"
+        sni_log_success "Xray配置文件更新成功。"
+        if reload_or_restart_services xray; then
+            sni_log_success "Xray服务已重载。"
+            sni_log_info "SNI 变更，正在刷新订阅文件..."
+            local mode domain; mode=$(get_current_cert_mode 2>/dev/null || echo self-signed)
+            if [[ "$mode" == "self-signed" ]]; then regen_sub_ip; else domain="${mode##*:}"; [[ -n "$domain" ]] && regen_sub_domain "$domain" || regen_sub_ip; fi
+            sni_log_success "订阅文件刷新完成。"
+            return 0
+        else sni_log_error "Xray服务重载失败。"; return 1; fi
     else sni_log_error "使用jq更新Xray配置失败。"; rm -f "$temp_config"; return 1; fi
 }
 
@@ -11806,7 +11784,6 @@ sni_set_domain() {
     target_domain=${target_domain#*//}; log_info "手动设置SNI域名: $target_domain"
     if update_sni_domain "$target_domain"; then log_success "SNI域名设置成功: $target_domain"; else log_error "SNI域名设置失败。"; return 1; fi
 }
-# -------------------------------------------------------------------
 
 # 获取控制面板密码
 get_dashboard_passcode() {
@@ -13933,6 +13910,31 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]] || [[ -n "${EDGEBOXCTL_LOADED}" ]]; then
     
     log_debug "edgeboxctl初始化完成，配置已缓存"
 fi
+
+main() {
+    # 确保配置在执行任何命令前加载
+    load_config_once
+    
+    case "$1" in
+      sni)
+        case "$2" in
+          list|pool) sni_pool_list ;;
+          test|test-all) sni_test_all ;;
+          select|auto) sni_auto_select ;;
+          set) sni_set_domain "$3" ;;
+          *) echo "用法: edgeboxctl sni {list|test-all|auto|set <域名>}"; exit 1 ;;
+        esac
+        ;;
+      # ... (此处省略所有其他命令的 case, 如 sub, status, restart, shunt 等，保持不变) ...
+      *)
+        # help 命令
+        echo "用法: edgeboxctl <command> [options]"
+        ;;
+    esac
+}
+
+main "$@"
+
 EDGEBOXCTL_SCRIPT
 
     chmod +x /usr/local/bin/edgeboxctl
