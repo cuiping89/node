@@ -12677,61 +12677,36 @@ PLAIN
   log_success "IP 模式订阅已更新"
 }
 
-
 switch_to_domain(){
   local domain="$1"
   [[ -z "$domain" ]] && { echo "用法: edgeboxctl switch-to-domain <domain>"; return 1; }
-
   log_info "检查域名解析: ${domain}"
-  if ! getent hosts "$domain" >/dev/null; then
-    log_error "${domain} 未解析"
-    return 1
-  fi
-  log_success "域名解析通过"
-
+  getent hosts "$domain" >/dev/null || { log_error "${domain} 未解析"; return 1; }
   log_info "为 ${domain} 申请/扩展 Let's Encrypt 证书"
   request_letsencrypt_cert "$domain" || return 1
-
-  # 切到 LE 证书软链
   ln -sf "/etc/letsencrypt/live/${domain}/privkey.pem"   "${CERT_DIR}/current.key"
   ln -sf "/etc/letsencrypt/live/${domain}/fullchain.pem" "${CERT_DIR}/current.pem"
   fix_permissions
-
-  # 生成“域名模式”订阅并热更新
   regen_sub_domain "$domain"
   reload_or_restart_services nginx xray sing-box
-
   log_success "已切换到域名模式（${domain}）"
   post_switch_report
-
-  echo
-  echo "=== 新订阅（域名模式） ==="
-  show_sub
+  echo; echo "=== 新订阅（域名模式） ==="; show_sub
 }
 
-
 switch_to_ip(){
-  # 切回自签证书
   ln -sf "${CERT_DIR}/self-signed.key" "${CERT_DIR}/current.key"
   ln -sf "${CERT_DIR}/self-signed.pem" "${CERT_DIR}/current.pem"
   fix_permissions
-
-  # 检出当前出口 IP（用于订阅）
-  local ip
-  ip="$(curl -fsS4 --max-time 2 https://ipv4.icanhazip.com 2>/dev/null | tr -d '\r\n')"
+  local ip; ip="$(curl -fsS4 --max-time 2 https://ipv4.icanhazip.com 2>/dev/null | tr -d '\r\n')"
   [[ -z "$ip" ]] && ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
-
-  # 生成“IP模式”订阅并热更新
   regen_sub_ip "$ip"
   reload_or_restart_services nginx xray sing-box
-
   log_success "已切换到 IP 模式"
   post_switch_report
-
-  echo
-  echo "=== 新订阅（IP 模式） ==="
-  show_sub
+  echo; echo "=== 新订阅（IP 模式） ==="; show_sub
 }
+
 
 cert_status(){
   local mode=$(get_current_cert_mode)
@@ -13911,15 +13886,15 @@ help|"")
   }
 
   # 每个板块的注释列（# 起始列），仅影响注释对齐，不改变你原有缩进层级
-  _W_CORE=58
-  _W_CERT=62
-  _W_SNI=60
-  _W_REALITY=58
-  _W_TRAND=64
-  _W_SHUNT=66
-  _W_ALERT=66
-  _W_CONF=66
-  _W_DEBUG=62
+  _W_CORE=48
+  _W_CERT=52
+  _W_SNI=50
+  _W_REALITY=48
+  _W_TRAND=54
+  _W_SHUNT=56
+  _W_ALERT=56
+  _W_CONF=56
+  _W_DEBUG=52
 
   # 头部框线
   printf "%b\n" "${CYAN}════════════════════════════════════════════════════════════════"
@@ -14960,6 +14935,8 @@ show_installation_info() {
     # 确保 jq 命令和文件路径正确
     local server_ip=$(jq -r '.server_ip // empty' "$config_file" 2>/dev/null)
     local UUID_VLESS=$(jq -r '.uuid.vless.reality // .uuid.vless // empty' "$config_file" 2>/dev/null)
+    local UUID_GRPC=$(jq -r '.uuid_vless_grpc // .uuid.vless.grpc // empty' "$config_file" 2>/dev/null)  # ← 添加这行
+    local UUID_WS=$(jq -r '.uuid_vless_ws // .uuid.vless.ws // empty' "$config_file" 2>/dev/null)      # ← 添加这行
     local UUID_TUIC=$(jq -r '.uuid.tuic // empty' "$config_file" 2>/dev/null)
     local PASSWORD_HYSTERIA2=$(jq -r '.password.hysteria2 // empty' "$config_file" 2>/dev/null)
     local PASSWORD_TUIC=$(jq -r '.password.tuic // empty' "$config_file" 2>/dev/null)
