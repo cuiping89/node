@@ -11595,6 +11595,7 @@ SNI_HEALTH_LOG="/var/log/edgebox/sni-health.log" # SNI函数需要
 WHITELIST_DOMAINS="googlevideo.com,nflxvideo.net,dssott.com,aiv-cdn.net,aiv-delivery.net,ttvnw.net,hbo-cdn.com,hls.itunes.apple.com,scdn.co,tiktokcdn.com"
 
 # ===== 日志函数（完整）=====
+# ... (此处省略，保持您脚本中的原样即可) ...
 ESC=$'\033'
 BLUE="${ESC}[0;34m"; PURPLE="${ESC}[0;35m"; CYAN="${ESC}[0;36m"
 YELLOW="${ESC}[1;33m"; GREEN="${ESC}[0;32m"; RED="${ESC}[0;31m"; NC="${ESC}[0m"
@@ -11607,19 +11608,13 @@ log_error()   { echo -e "${RED}[ERROR]${NC} $*"     | tee -a "$LOG_FILE"; }
 log_success() { echo -e "${GREEN}[SUCCESS]${NC} $*" | tee -a "$LOG_FILE"; }
 log_debug()   { [[ "${LOG_LEVEL}" == debug ]] && echo -e "${YELLOW}[DEBUG]${NC} $*" | tee -a "$LOG_FILE" || true; }
 
-# 兼容别名
 log()      { log_info "$@"; }
 log_ok()   { log_success "$@"; }
 error()    { log_error "$@"; }
 
-# 工具函数
-get_current_cert_mode(){ [[ -f ${CONFIG_DIR}/cert_mode ]] && cat ${CONFIG_DIR}/cert_mode || echo "self-signed"; }
-need(){ command -v "$1" >/dev/null 2>&1; }
-
-
 # <<< 新增: SNI管理核心函数 (从 sni-manager.sh 整合) >>>
-# ---------------------------------------------------
-# SNI 日志函数 (为了区分，输出到 edgeboxctl 的主日志)
+# -------------------------------------------------------------------
+# SNI 日志函数
 sni_log_info() { log_info "SNI: $*"; }
 sni_log_warn() { log_warn "SNI: $*"; }
 sni_log_error() { log_error "SNI: $*"; }
@@ -11630,7 +11625,8 @@ evaluate_sni_domain() {
     local domain="$1"
     local score=0
     
-    echo "  -> 评估域名: $domain"
+    # <<< 修复点: 将进度信息输出到 stderr (>&2)，避免污染返回值 >>>
+    echo "  -> 评估域名: $domain" >&2
     
     # 1. 可达性
     if ! timeout 5 curl -s --connect-timeout 3 --max-time 5 "https://${domain}" >/dev/null 2>&1; then
@@ -11670,7 +11666,7 @@ evaluate_sni_domain() {
         *) score=$((score + 5));;
     esac
     
-    echo "$score"
+    echo "$score" # <<< 关键: 只有分数通过 stdout 返回
 }
 
 # 获取当前SNI域名
@@ -11710,10 +11706,9 @@ update_sni_domain() {
     fi
 }
 
-
 # 智能选择最优域名
 auto_select_optimal_domain() {
-    echo "开始SNI域名智能选择..."
+    echo "开始SNI域名智能选择..." >&2
     
     local domains_to_test=()
     if [[ -f "$SNI_DOMAINS_CONFIG" ]]; then
@@ -11727,13 +11722,13 @@ auto_select_optimal_domain() {
     local best_score=0
     local current_sni=$(get_current_sni_domain)
     
-    echo "当前SNI域名: ${current_sni:-未配置}"
+    echo "当前SNI域名: ${current_sni:-未配置}" >&2
     
     for domain in "${domains_to_test[@]}"; do
         local score=$(evaluate_sni_domain "$domain")
-        echo "  - 域名 $domain, 评分: $score"
+        echo "  - 域名 $domain, 评分: $score" >&2
         
-        # <<< 修复点: 使用 -gt进行整数比较，而不是 > >>>
+        # <<< 这里是上次修复的地方，保持 -gt >>>
         if [[ "$score" -gt "$best_score" ]]; then
             best_score=$score
             best_domain="$domain"
@@ -11745,7 +11740,7 @@ auto_select_optimal_domain() {
         return 1
     fi
     
-    echo "最优域名选择结果: $best_domain (评分: $best_score)"
+    echo "最优域名选择结果: $best_domain (评分: $best_score)" >&2
     
     if [[ "$best_domain" == "$current_sni" ]]; then
         log_success "当前SNI域名已是最优，无需更换。"
@@ -11763,7 +11758,7 @@ auto_select_optimal_domain() {
 
 # 健康检查功能
 health_check_domains() {
-    echo "开始域名健康检查..."
+    echo "开始域名健康检查..." >&2
     
     local domains_to_check=()
     if [[ -f "$SNI_DOMAINS_CONFIG" ]]; then
@@ -11775,15 +11770,14 @@ health_check_domains() {
     
     for domain in "${domains_to_check[@]}"; do
         if timeout 5 curl -s --connect-timeout 3 --max-time 5 "https://${domain}" >/dev/null 2>&1; then
-            echo "  [  OK  ] $domain"
+            echo "  [  OK  ] $domain" >&2
         else
-            echo "  [ FAIL ] $domain"
+            echo "  [ FAIL ] $domain" >&2
         fi
     done
 }
-# -------------------------
+# -------------------------------------------------------------------
 # <<< SNI 功能整合结束 >>>
-
 
 # 获取控制面板密码
 get_dashboard_passcode() {
@@ -13501,7 +13495,8 @@ show_reality_rotation_status() {
 #############################################
 # SNI域名管理
 #############################################
-# SNI域名池管理函数
+
+# --- SNI域名管理 (这是调用部分，逻辑不变，但现在调用的是内部函数) ---
 sni_pool_list() {
     if [[ ! -f "$SNI_DOMAINS_CONFIG" ]]; then
         log_error "SNI配置文件不存在: $SNI_DOMAINS_CONFIG"
@@ -13520,32 +13515,28 @@ sni_pool_list() {
     done
     
     echo ""
-    echo "当前使用: $(jq -r '.current_domain // "未配置"' "$SNI_DOMAINS_CONFIG" 2>/dev/null || echo "配置读取失败")"
+    echo "当前使用: $(get_current_sni_domain || echo "未配置")"
 }
 
 sni_test_all() {
-    # <<< 修复点: 直接调用内部函数 >>>
     health_check_domains
 }
 
 sni_auto_select() {
-    # <<< 修复点: 直接调用内部函数 >>>
     auto_select_optimal_domain
 }
 
 sni_set_domain() {
     local target_domain="$1"
     
-    # <<< 修复点: 增加输入验证，去除协议头 >>>
     if [[ -z "$target_domain" ]]; then
         echo "用法: edgeboxctl sni set <域名>"
         return 1
     fi
-    target_domain=${target_domain#*//} # 去除 http://, https:// 等
+    target_domain=${target_domain#*//}
     
     log_info "手动设置SNI域名: $target_domain"
 
-    # <<< 修复点: 直接调用内部更新函数 >>>
     if update_sni_domain "$target_domain"; then
         log_success "SNI域名设置成功: $target_domain"
     else
@@ -13553,7 +13544,6 @@ sni_set_domain() {
         return 1
     fi
 }
-
 
 #############################################
 # 主命令处理
