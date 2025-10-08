@@ -12672,30 +12672,54 @@ switch_to_domain(){
 
   log_info "检查域名解析: ${domain}"
   if ! getent hosts "$domain" >/dev/null; then
-    log_error "${domain} 未解析"; return 1
+    log_error "${domain} 未解析"
+    return 1
   fi
   log_success "域名解析通过"
 
   log_info "为 ${domain} 申请/扩展 Let's Encrypt 证书"
   request_letsencrypt_cert "$domain" || return 1
-  # ★ 证书切域名成功后：立即生成“域名模式”订阅
-  regen_sub_domain "$domain"
 
-  # 验收报告
+  # 证书软链切到 LE
+  ln -sf "/etc/letsencrypt/live/${domain}/privkey.pem"   /etc/edgebox/cert/current.key
+  ln -sf "/etc/letsencrypt/live/${domain}/fullchain.pem" /etc/edgebox/cert/current.pem
+  fix_permissions
+
+  # 生成“域名模式”订阅并热更新
+  regen_sub_domain "$domain"
+  reload_or_restart_services nginx xray sing-box
+
+  log_success "已切换到域名模式（${domain}）"
   post_switch_report
+
+  # 显示一次订阅摘要即可（防止重复）
+  echo
+  echo "=== 新订阅（域名模式） ==="
+  show_sub
 }
 
-switch_to_ip(){
-  get_server_info || return 1
-  ln -sf ${CERT_DIR}/self-signed.key ${CERT_DIR}/current.key
-  ln -sf ${CERT_DIR}/self-signed.pem ${CERT_DIR}/current.pem
-  echo "self-signed" > ${CONFIG_DIR}/cert_mode
-  regen_sub_ip
-  reload_or_restart_services xray sing-box
-  log_success "已切换到 IP 模式"
 
-  # 验收报告
+switch_to_ip(){
+  # 切回自签证书
+  ln -sf /etc/edgebox/cert/self-signed.key /etc/edgebox/cert/current.key
+  ln -sf /etc/edgebox/cert/self-signed.pem /etc/edgebox/cert/current.pem
+  fix_permissions
+
+  # 获取当前出口 IP（供订阅重生）
+  local ip
+  ip="$(curl -fsS4 --max-time 2 https://ipv4.icanhazip.com 2>/dev/null | tr -d '\r\n')"
+  [[ -z "$ip" ]] && ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+
+  # 生成“IP模式”订阅并热更新
+  regen_sub_ip "$ip"
+  reload_or_restart_services nginx xray sing-box
+
+  log_success "已切换到 IP 模式"
   post_switch_report
+
+  echo
+  echo "=== 新订阅（IP 模式） ==="
+  show_sub
 }
 
 
@@ -13707,8 +13731,15 @@ case "$1" in
     ;;
   fix-permissions) fix_permissions ;;
   cert-status) cert_status ;;                 # 兼容旧命令
-  switch-to-domain) shift; switch_to_domain "$1" ;;
-  switch-to-ip) switch_to_ip ;;
+  
+  switch-to-domain)
+        shift
+        switch_to_domain "$1"
+        ;;
+
+  switch-to-ip)
+        switch_to_ip
+        ;;
   
   # 配置管理
   config)
