@@ -12045,7 +12045,32 @@ get_server_info() {
     return 0
 }
 
-# --- hot-reload: begin ---
+
+# 异步重启服务并安全退出
+restart_services_background() {
+    local services_to_restart=("$@")
+    
+    # 构造一个将在后台执行的命令字符串
+    # 核心：sleep 2秒，给予当前SSH会话足够的时间在断网前正常退出
+    local cmd="(sleep 2; "
+    for service in "${services_to_restart[@]}"; do
+        cmd+="systemctl restart $service; "
+    done
+    # 在所有服务重启后，依然执行一次无中断的防火墙加固，作为双重保险
+    cmd+="/etc/edgebox/scripts/apply-firewall.sh >/dev/null 2>&1 || true; "
+    cmd+='echo "[$(date)] Background restart completed." >> /var/log/edgebox.log)'
+    
+    # 使用 nohup & disown 将命令彻底送入后台，即使我们退出登录也会继续执行
+    nohup bash -c "$cmd" >/dev/null 2>&1 & disown
+    
+    log_success "命令已提交到后台执行。您的SSH连接可能会在2-3秒后中断。"
+    log_info "这是正常现象。请在几秒钟后重新连接服务器并使用 'edgeboxctl shunt status' 检查状态。"
+    
+    # 立即退出脚本
+    exit 0
+}
+
+
 reload_or_restart_services() {
   local services=("$@")
   local failed=()
@@ -12105,7 +12130,7 @@ reload_or_restart_services() {
   done
   ((${#failed[@]}==0)) || return 1
 }
-# --- hot-reload: end ---
+
 
 # ===== 性能优化的全局配置变量 =====
 # 这些变量在脚本启动时加载一次，后续直接使用
@@ -12367,6 +12392,7 @@ show_sub(){
   else
      log_warn "未能生成或找到Base64订阅文件。"
   fi
+  
 }
 
 
@@ -13072,9 +13098,10 @@ EOF
 
     setup_shunt_directories
     update_shunt_state "vps" "" "healthy"
-    reload_or_restart_services xray sing-box && log_success "VPS全量出站模式配置成功" || { log_error "配置失败"; return 1; }
-	post_shunt_report "VPS 全量" ""
     flush_nft_resi_sets
+    
+    # <<< 修复点: 调用异步重启函数 >>>
+    restart_services_background xray sing-box
 }
 
 # 代理全量出站
@@ -13116,8 +13143,10 @@ EOF
   echo "$url" > "${CONFIG_DIR}/shunt/resi.conf"
   setup_shunt_directories
   update_shunt_state "resi(xray-only)" "$url" "healthy"
-  reload_or_restart_services xray sing-box && log_success "代理全量出站已生效（Xray 分流，sing-box 直连）" || { log_error "失败"; return 1; }
+
+  # <<< 修复点: 先报告，再调用异步重启函数 >>>
   post_shunt_report "代理全量（Xray-only）" "$url"
+  restart_services_background xray sing-box
 }
 
 # 智能分流
@@ -13161,8 +13190,10 @@ EOF
 
   echo "$url" > "${CONFIG_DIR}/shunt/resi.conf"
   update_shunt_state "direct_resi(xray-only)" "$url" "healthy"
-  reload_or_restart_services xray sing-box && log_success "智能分流已生效（Xray 分流，sing-box 直连）" || { log_error "失败"; return 1; }
+  
+  # <<< 修复点: 先报告，再调用异步重启函数 >>>
   post_shunt_report "智能分流（白名单直连）" "$url"
+  restart_services_background xray sing-box
 }
 
 manage_whitelist() {
