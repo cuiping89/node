@@ -4825,22 +4825,19 @@ get_services_status() {
 }
 
 
-# 获取协议配置状态 (最终修正版 - 动态主机名)
+# 获取协议配置状态 (最终修正版 - 动态主机名 + 语法修复)
 get_protocols_status() {
     local health_report_file="${TRAFFIC_DIR}/protocol-health.json"
     local server_config_file="${CONFIG_DIR}/server.json"
 
-    # <<< 修复点 1: 动态判断使用域名还是IP >>>
+    # 动态判断使用域名还是IP
     local host_or_ip
     local cert_mode_file="${CONFIG_DIR}/cert_mode"
     if [[ -f "$cert_mode_file" ]] && grep -q "letsencrypt:" "$cert_mode_file"; then
-        # 域名模式
         host_or_ip=$(cat "$cert_mode_file" | cut -d: -f2)
     else
-        # IP 模式
         host_or_ip=$(jq -r '.server_ip // "127.0.0.1"' "$server_config_file" 2>/dev/null || echo "127.0.0.1")
     fi
-    # <<< 修复点结束 >>>
 
     local health_data="[]"
     if [[ -s "$health_report_file" ]]; then
@@ -4868,7 +4865,6 @@ get_protocols_status() {
     for name in "${protocol_order[@]}"; do
         IFS='|' read -r key scenario camouflage port network <<< "${protocol_meta[$name]}"
 
-        # <<< 修复点 2: 将动态主机名传入jq，并替换原有的 $conf.server_ip >>>
         local share_link
         share_link=$(jq -n -r \
             --arg name "$name" \
@@ -4881,11 +4877,11 @@ get_protocols_status() {
             elif $name == "VLESS-WebSocket" then "vless://\($conf.uuid.vless.ws)@\($domain):443?encryption=none&security=tls&sni=\($domain)&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome#EdgeBox-WS"
             elif $name == "Trojan-TLS" then "trojan://\($conf.password.trojan | url_encode)@\($domain):443?security=tls&sni=trojan.\($domain)&alpn=http%2F1.1&fp=chrome#EdgeBox-TROJAN"
             elif $name == "Hysteria2" then "hysteria2://\($conf.password.hysteria2 | url_encode)@\($domain):443?sni=\($domain)&alpn=h3#EdgeBox-HYSTERIA2"
-            elif $name == "TUIC" then "tuic://\($conf.uuid.tuic):\($conf.password.tuic | url_encode)@\($domain):2053?congestion_control=bbr&alpn=h3&sni=\($domain}#EdgeBox-TUIC"
+            # <<< 修复点: 修正了 TUIC 链接中的拼写错误 \($domain} -> \($domain) >>>
+            elif $name == "TUIC" then "tuic://\($conf.uuid.tuic):\($conf.password.tuic | url_encode)@\($domain):2053?congestion_control=bbr&alpn=h3&sni=\($domain)#EdgeBox-TUIC"
             else ""
             end
         ')
-        # <<< 修复点结束 >>>
 
         local static_info
         static_info=$(jq -n \
@@ -12583,7 +12579,7 @@ PLAIN
   mkdir -p /var/www/html
   {
     printf '%s\n\n' "$sub"
-    echo "# Base64（整包，单行）"
+    echo "# Base64链接"
     cat "${CONFIG_DIR}/subscription.base64"
     echo
   } > /var/www/html/sub
@@ -12630,7 +12626,7 @@ PLAIN
   mkdir -p /var/www/html
   {
     printf '%s\n\n' "$sub"
-    echo "# Base64（整包，单行）"
+    echo "# Base64链接"
     cat "${CONFIG_DIR}/subscription.base64"
     echo
   } > /var/www/html/sub
