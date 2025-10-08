@@ -11681,7 +11681,6 @@ update_sni_domain() {
     local temp_config="${XRAY_CONFIG}.tmp"
 
     sni_log_info "准备更新SNI为: $new_domain"
-    # 备份不是必须的，但保留是好习惯
     cp "$XRAY_CONFIG" "${XRAY_CONFIG}.backup.$(date +%s)" 2>/dev/null || true
 
     if jq --arg domain "$new_domain" '(.inbounds[] | select(.tag=="vless-reality") | .streamSettings.realitySettings.dest) = ($domain + ":443") | (.inbounds[] | select(.tag=="vless-reality") | .streamSettings.realitySettings.serverNames) |= ( (.[0] = $domain) // [$domain] )' "$XRAY_CONFIG" > "$temp_config"; then
@@ -11691,18 +11690,17 @@ update_sni_domain() {
             if reload_or_restart_services xray; then
                 sni_log_success "Xray服务已重载。"
                 
-                # <<< 修复点: 在服务重载成功后，立即刷新订阅文件 >>>
+                # <<< 修复点 2: 现在 regen 函数已存在，可以成功调用了 >>>
                 sni_log_info "SNI 变更，正在刷新订阅文件..."
                 local mode domain
-                mode=$(get_current_cert_mode 2>/dev/null || echo self-signed)
-                if [[ "$mode" == "self-signed" ]]; then
+                mode=\$(get_current_cert_mode 2>/dev/null || echo self-signed)
+                if [[ "\$mode" == "self-signed" ]]; then
                   regen_sub_ip
                 else
-                  domain="${mode##*:}"
-                  [[ -n "$domain" ]] && regen_sub_domain "$domain" || regen_sub_ip
+                  domain="\${mode##*:}"
+                  [[ -n "\$domain" ]] && regen_sub_domain "\$domain" || regen_sub_ip
                 fi
                 sni_log_success "订阅文件刷新完成。"
-                # <<< 修复点结束 >>>
                 
                 return 0
             else
@@ -11721,54 +11719,30 @@ update_sni_domain() {
     fi
 }
 
-# 智能选择最优域名
 auto_select_optimal_domain() {
     echo "开始SNI域名智能选择..." >&2
-    
     local domains_to_test=()
     if [[ -f "$SNI_DOMAINS_CONFIG" ]]; then
         while IFS= read -r domain; do
             [[ -n "$domain" && "$domain" != "null" ]] && domains_to_test+=("$domain")
         done < <(jq -r '.domains[]?.hostname // empty' "$SNI_DOMAINS_CONFIG" 2>/dev/null)
     fi
-    [[ ${#domains_to_test[@]} -eq 0 ]] && domains_to_test=("www.microsoft.com" "www.apple.com" "www.cloudflare.com")
-    
-    local best_domain=""
-    local best_score=0
-    local current_sni=$(get_current_sni_domain)
-    
-    echo "当前SNI域名: ${current_sni:-未配置}" >&2
-    
-    for domain in "${domains_to_test[@]}"; do
-        local score=$(evaluate_sni_domain "$domain")
-        echo "  - 域名 $domain, 评分: $score" >&2
-        
-        # <<< 这里是上次修复的地方，保持 -gt >>>
-        if [[ "$score" -gt "$best_score" ]]; then
-            best_score=$score
-            best_domain="$domain"
+    [[ \${#domains_to_test[@]} -eq 0 ]] && domains_to_test=("www.microsoft.com" "www.apple.com" "www.cloudflare.com")
+    local best_domain="" best_score=0 current_sni=\$(get_current_sni_domain)
+    echo "当前SNI域名: \${current_sni:-未配置}" >&2
+    for domain in "\${domains_to_test[@]}"; do
+        local score=\$(evaluate_sni_domain "\$domain")
+        echo "  - 域名 \$domain, 评分: \$score" >&2
+        if [[ "\$score" -ge "\$best_score" ]]; then
+            best_score=\$score
+            best_domain="\$domain"
         fi
     done
-    
-    if [[ -z "$best_domain" ]]; then
-        log_error "未找到可用的SNI域名"
-        return 1
-    fi
-    
-    echo "最优域名选择结果: $best_domain (评分: $best_score)" >&2
-    
-    if [[ "$best_domain" == "$current_sni" ]]; then
-        log_success "当前SNI域名已是最优，无需更换。"
-        return 0
-    fi
-    
-    log_info "准备更换SNI域名: ${current_sni:-未配置} → $best_domain"
-    if update_sni_domain "$best_domain"; then
-        log_success "SNI域名更换成功！"
-    else
-        log_error "SNI域名更换失败！"
-        return 1
-    fi
+    if [[ -z "\$best_domain" ]]; then log_error "未找到可用的SNI域名"; return 1; fi
+    echo "最优域名选择结果: \$best_domain (评分: \$best_score)" >&2
+    if [[ "\$best_domain" == "\$current_sni" ]]; then log_success "当前SNI域名已是最优，无需更换。"; return 0; fi
+    log_info "准备更换SNI域名: \${current_sni:-未配置} → \$best_domain"
+    if update_sni_domain "\$best_domain"; then log_success "SNI域名更换成功！"; else log_error "SNI域名更换失败！"; return 1; fi
 }
 
 # 健康检查功能
