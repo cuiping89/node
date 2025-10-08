@@ -4002,6 +4002,7 @@ chmod 644 "${CONFIG_DIR}/subscription.txt"
 # --- hot-reload: begin ---
 # 智能热加载/回退重启（nginx / sing-box / xray 等）
 # 用法：reload_or_restart_services nginx sing-box xray
+# --- hot-reload: begin (带防火墙安全锁的版本) ---
 reload_or_restart_services() {
   local services=("$@")
   local failed=()
@@ -4017,26 +4018,21 @@ reload_or_restart_services() {
         fi
         systemctl reload nginx || { action="restart"; systemctl restart nginx; }
         ;;
-
       sing-box|sing-box.service|sing-box@*)
-        # 当前脚本 sing-box 配置在 /etc/edgebox/config/sing-box.json
         if command -v sing-box >/dev/null 2>&1; then
-          local sb_cfg="/etc/edgebox/config/sing-box.json"
+          local sb_cfg="${CONFIG_DIR}/sing-box.json"
           [ -f "$sb_cfg" ] && ! sing-box check -c "$sb_cfg" >/dev/null 2>&1 && {
             log_error "[hot-reload] sing-box 配置校验失败（sing-box check）"
             failed+=("$svc"); continue
           }
         fi
-        # 优先 ExecReload，其次 HUP，最后重启
         systemctl reload "$svc" 2>/dev/null \
           || systemctl kill -s HUP "$svc" 2>/dev/null \
           || { action="restart"; systemctl restart "$svc"; }
         ;;
-
       xray|xray.service|xray@*)
-        # xray 一般不支持真正 reload：先 -test 再 restart
         if command -v xray >/dev/null 2>&1; then
-          local xr_cfg="/etc/edgebox/config/xray.json"
+          local xr_cfg="${CONFIG_DIR}/xray.json"
           [ -f "$xr_cfg" ] && ! xray -test -config "$xr_cfg" >/dev/null 2>&1 && {
             log_error "[hot-reload] xray 配置校验失败（xray -test）"
             failed+=("$svc"); continue
@@ -4045,21 +4041,10 @@ reload_or_restart_services() {
         action="restart"
         systemctl restart "$svc"
         ;;
-
-      hysteria*|hy2*|hysteria-server*)
-        systemctl reload "$svc" 2>/dev/null || { action="restart"; systemctl restart "$svc"; }
-        ;;
-
-      tuic*)
-        action="restart"
-        systemctl restart "$svc"
-        ;;
-
       *)
         systemctl reload "$svc" 2>/dev/null || { action="restart"; systemctl restart "$svc"; }
         ;;
     esac
-
     if ! systemctl is-active --quiet "$svc"; then
       log_error "[hot-reload] $svc 在 ${action} 后仍未 active"
       journalctl -u "$svc" -n 50 --no-pager || true
@@ -4068,6 +4053,14 @@ reload_or_restart_services() {
       log_info "[hot-reload] $svc ${action}ed"
     fi
   done
+  
+  # <<< 修复点: 在所有服务重启/重载后，立即强制应用正确的防火墙规则 >>>
+  if [[ -x "/etc/edgebox/scripts/apply-firewall.sh" ]]; then
+      log_info "正在重新应用防火墙规则以防止连接中断..."
+      /etc/edgebox/scripts/apply-firewall.sh >/dev/null 2>&1 || log_warn "防火墙规则应用失败，但不中断流程。"
+  fi
+  # <<< 修复点结束 >>>
+
   ((${#failed[@]}==0)) || return 1
 }
 # --- hot-reload: end ---
@@ -6970,9 +6963,10 @@ generate_initial_traffic_data() {
 execute_module4() {
     # 在创建新脚本之前，先清理掉所有旧的 .sh 脚本文件
     find /etc/edgebox/scripts/ -type f -name "*.sh" -delete 2>/dev/null || true
-
+  
+	    create_firewall_script 
     log_info "======== 开始执行模块4：Dashboard后端脚本生成 ========"
-    
+	
     # 任务1：生成Dashboard后端脚本
     if create_dashboard_backend; then
         log_success "✓ Dashboard后端脚本生成完成"
@@ -11834,6 +11828,85 @@ CRON
     log_success "定时任务已优化并设置完成"
 }
 
+
+# 创建独立的防火墙应用脚本
+create_firewall_script() {
+    log_info "创建独立的防火墙应用脚本..."
+    
+    mkdir -p "${SCRIPTS_DIR}"
+    
+    # 将 configure_firewall 函数的核心逻辑复制到这里
+    # 注意：我们移除了交互式提示和首次安装的特定逻辑，使其可以安全地重复执行
+    cat > "${SCRIPTS_DIR}/apply-firewall.sh" << 'APPLY_FIREWALL_SCRIPT'
+#!/bin/bash
+set -e
+echo "[INFO] 正在应用 EdgeBox 防火墙规则..."
+
+# --- 智能检测当前SSH端口 ---
+ssh_ports=()
+while IFS= read -r line; do
+    if [[ "$line" =~ :([0-9]+)[[:space:]]+.*sshd ]]; then
+        ssh_ports+=("${BASH_REMATCH[1]}")
+    fi
+done < <(ss -tlnp 2>/dev/null | grep sshd || true)
+if [[ -f /etc/ssh/sshd_config ]]; then
+    config_port=$(grep -E "^[[:space:]]*Port[[:space:]]+" /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}' | head -1)
+    [[ -n "$config_port" && "$config_port" =~ ^[0-9]+$ ]] && ssh_ports+=("$config_port")
+fi
+if [[ -n "${SSH_CONNECTION:-}" ]]; then
+    connection_port=$(echo "$SSH_CONNECTION" | awk '{print $4}')
+    [[ -n "$connection_port" && "$connection_port" =~ ^[0-9]+$ ]] && ssh_ports+=("$connection_port")
+fi
+if [[ ${#ssh_ports[@]} -gt 0 ]]; then
+    temp_file=$(mktemp)
+    printf "%s\n" "${ssh_ports[@]}" | sort -u > "$temp_file"
+    current_ssh_port=$(head -1 "$temp_file")
+    rm -f "$temp_file"
+fi
+current_ssh_port="${current_ssh_port:-22}"
+echo "[INFO] 检测到 SSH 端口: $current_ssh_port"
+
+# --- 根据防火墙类型配置规则 ---
+if command -v ufw >/dev/null 2>&1; then
+    echo "[INFO] 正在配置 UFW..."
+    # 幂等操作：只添加不存在的规则
+    ufw status | grep -q "${current_ssh_port}/tcp" || ufw allow "${current_ssh_port}/tcp" comment 'SSH' >/dev/null
+    ufw status | grep -q "80/tcp" || ufw allow 80/tcp comment 'HTTP' >/dev/null
+    ufw status | grep -q "443/tcp" || ufw allow 443/tcp comment 'HTTPS/TLS' >/dev/null
+    ufw status | grep -q "443/udp" || ufw allow 443/udp comment 'Hysteria2' >/dev/null
+    ufw status | grep -q "2053/udp" || ufw allow 2053/udp comment 'TUIC' >/dev/null
+    # 确保 UFW 是激活的
+    if ! ufw status | grep -q "Status: active"; then
+        ufw --force enable >/dev/null
+    fi
+    echo "[SUCCESS] UFW 规则已确保应用。"
+
+elif command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then
+    echo "[INFO] 正在配置 FirewallD..."
+    firewall-cmd --permanent --add-port="$current_ssh_port/tcp" >/dev/null 2>&1 || true
+    firewall-cmd --permanent --add-port=80/tcp >/dev/null 2>&1 || true
+    firewall-cmd --permanent --add-port=443/tcp >/dev/null 2>&1 || true
+    firewall-cmd --permanent --add-port=443/udp >/dev/null 2>&1 || true
+    firewall-cmd --permanent --add-port=2053/udp >/dev/null 2>&1 || true
+    firewall-cmd --reload >/dev/null
+    echo "[SUCCESS] FirewallD 规则已确保应用。"
+    
+elif command -v iptables >/dev/null 2>&1; then
+    echo "[INFO] 正在配置 iptables..."
+    iptables -C INPUT -p tcp --dport "$current_ssh_port" -j ACCEPT >/dev/null 2>&1 || iptables -A INPUT -p tcp --dport "$current_ssh_port" -j ACCEPT
+    iptables -C INPUT -p tcp --dport 80 -j ACCEPT >/dev/null 2>&1 || iptables -A INPUT -p tcp --dport 80 -j ACCEPT
+    iptables -C INPUT -p tcp --dport 443 -j ACCEPT >/dev/null 2>&1 || iptables -A INPUT -p tcp --dport 443 -j ACCEPT
+    iptables -C INPUT -p udp --dport 443 -j ACCEPT >/dev/null 2>&1 || iptables -A INPUT -p udp --dport 443 -j ACCEPT
+    iptables -C INPUT -p udp --dport 2053 -j ACCEPT >/dev/null 2>&1 || iptables -A INPUT -p udp --dport 2053 -j ACCEPT
+    echo "[SUCCESS] iptables 规则已确保应用。"
+else
+    echo "[WARN] 未检测到支持的防火墙软件，请手动确保端口开放。"
+fi
+APPLY_FIREWALL_SCRIPT
+
+    chmod +x "${SCRIPTS_DIR}/apply-firewall.sh"
+    log_success "独立的防火墙应用脚本创建完成。"
+}
 
 
 # 创建完整的edgeboxctl管理工具
