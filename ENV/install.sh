@@ -4825,13 +4825,23 @@ get_services_status() {
 }
 
 
-# 获取协议配置状态 (修复版 - 完整合并健康数据 + JQ语法修正)
-# 获取协议配置状态 (最终修正版 - 兼容两种协议键名)
+# 获取协议配置状态 (最终修正版 - 动态主机名)
 get_protocols_status() {
     local health_report_file="${TRAFFIC_DIR}/protocol-health.json"
     local server_config_file="${CONFIG_DIR}/server.json"
 
-    # 1. 读取健康报告和服务器配置
+    # <<< 修复点 1: 动态判断使用域名还是IP >>>
+    local host_or_ip
+    local cert_mode_file="${CONFIG_DIR}/cert_mode"
+    if [[ -f "$cert_mode_file" ]] && grep -q "letsencrypt:" "$cert_mode_file"; then
+        # 域名模式
+        host_or_ip=$(cat "$cert_mode_file" | cut -d: -f2)
+    else
+        # IP 模式
+        host_or_ip=$(jq -r '.server_ip // "127.0.0.1"' "$server_config_file" 2>/dev/null || echo "127.0.0.1")
+    fi
+    # <<< 修复点结束 >>>
+
     local health_data="[]"
     if [[ -s "$health_report_file" ]]; then
         health_data=$(jq -c '.protocols // []' "$health_report_file" 2>/dev/null || echo "[]")
@@ -4842,7 +4852,6 @@ get_protocols_status() {
         server_config=$(jq -c '.' "$server_config_file" 2>/dev/null || echo "{}")
     fi
 
-    # 2. 定义协议元数据和顺序
     local protocol_order=(
         "VLESS-Reality" "VLESS-gRPC" "VLESS-WebSocket" 
         "Trojan-TLS" "Hysteria2" "TUIC"
@@ -4855,27 +4864,29 @@ get_protocols_status() {
     protocol_meta["Hysteria2"]="hysteria2|UDP 高速 / 弱网高丢包|一般★★★☆☆|443|udp"
     protocol_meta["TUIC"]="tuic|QUIC / 低延迟 / 弱网|良好★★★★☆|2053|udp"
 
-    # 3. 循环生成最终的协议列表
     local final_protocols="[]"
     for name in "${protocol_order[@]}"; do
         IFS='|' read -r key scenario camouflage port network <<< "${protocol_meta[$name]}"
 
-        # 从 server.json 提取凭据生成分享链接 (这是静态部分)
+        # <<< 修复点 2: 将动态主机名传入jq，并替换原有的 $conf.server_ip >>>
         local share_link
-        share_link=$(jq -n -r --arg name "$name" --argjson conf "$server_config" '
+        share_link=$(jq -n -r \
+            --arg name "$name" \
+            --argjson conf "$server_config" \
+            --arg domain "$host_or_ip" \
+            '
             def url_encode: @uri;
-            ($conf.server_ip // "127.0.0.1") as $domain |
             if $name == "VLESS-Reality" then "vless://\($conf.uuid.vless.reality)@\($domain):443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.microsoft.com&pbk=\($conf.reality.public_key)&sid=\($conf.reality.short_id)&type=tcp#EdgeBox-REALITY"
             elif $name == "VLESS-gRPC" then "vless://\($conf.uuid.vless.grpc)@\($domain):443?encryption=none&security=tls&sni=\($domain)&alpn=h2&type=grpc&serviceName=grpc&fp=chrome#EdgeBox-gRPC"
             elif $name == "VLESS-WebSocket" then "vless://\($conf.uuid.vless.ws)@\($domain):443?encryption=none&security=tls&sni=\($domain)&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome#EdgeBox-WS"
             elif $name == "Trojan-TLS" then "trojan://\($conf.password.trojan | url_encode)@\($domain):443?security=tls&sni=trojan.\($domain)&alpn=http%2F1.1&fp=chrome#EdgeBox-TROJAN"
             elif $name == "Hysteria2" then "hysteria2://\($conf.password.hysteria2 | url_encode)@\($domain):443?sni=\($domain)&alpn=h3#EdgeBox-HYSTERIA2"
-            elif $name == "TUIC" then "tuic://\($conf.uuid.tuic):\($conf.password.tuic | url_encode)@\($domain):2053?congestion_control=bbr&alpn=h3&sni=\($domain)#EdgeBox-TUIC"
+            elif $name == "TUIC" then "tuic://\($conf.uuid.tuic):\($conf.password.tuic | url_encode)@\($domain):2053?congestion_control=bbr&alpn=h3&sni=\($domain}#EdgeBox-TUIC"
             else ""
             end
         ')
+        # <<< 修复点结束 >>>
 
-        # 构造静态信息
         local static_info
         static_info=$(jq -n \
             --arg name "$name" --arg key "$key" --arg scenario "$scenario" \
@@ -4883,12 +4894,9 @@ get_protocols_status() {
             --arg share_link "$share_link" \
             '{name: $name, protocol: $key, scenario: $scenario, camouflage: $camouflage, port: $port, network: $network, share_link: $share_link}')
         
-        # ### 最终修正：使用 jq 同时匹配短名称和全名 ###
         local dynamic_info
         dynamic_info=$(echo "$health_data" | jq -c --arg key "$key" --arg fullname "$name" '.[] | select(.protocol == $key or .protocol == $fullname)')
-        ### END OF FIX ###
 
-        # 如果找不到动态信息，使用默认值
         if [[ -z "$dynamic_info" || "$dynamic_info" == "null" ]]; then
             dynamic_info='{
                 "status": "待检测", "status_badge": "⚪ 待检测", "health_score": 0, "response_time": -1,
@@ -4896,11 +4904,9 @@ get_protocols_status() {
             }'
         fi
         
-        # 合并静态和动态信息
         local full_protocol_info
         full_protocol_info=$(jq -n --argjson s "$static_info" --argjson d "$dynamic_info" '$s + $d')
         
-        # 添加到最终列表
         final_protocols=$(echo "$final_protocols" | jq --argjson item "$full_protocol_info" '. += [$item]')
     done
 
@@ -12248,14 +12254,16 @@ show_sub(){
     log_warn "未能生成或找到明文订阅文件。"
   fi
   
-  if [[ -s "$b64_file" ]]; then
-    echo -e "${YELLOW}# Base64（整包）${NC}"
-    cat "$b64_file"
-    echo
-  else
-     log_warn "未能生成或找到Base64订阅文件。"
-  fi
+  # <<< 修复点: 注释掉 Base64 输出部分 >>>
+  # if [[ -s "$b64_file" ]]; then
+  #   echo -e "${YELLOW}# Base64（整包）${NC}"
+  #   cat "$b64_file"
+  #   echo
+  # else
+  #    log_warn "未能生成或找到Base64订阅文件。"
+  # fi
 }
+
 
 # 流量随机化管理命令
 traffic_randomize() {
