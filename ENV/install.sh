@@ -11681,7 +11681,8 @@ update_sni_domain() {
     local temp_config="${XRAY_CONFIG}.tmp"
 
     sni_log_info "准备更新SNI为: $new_domain"
-    cp "$XRAY_CONFIG" "${XRAY_CONFIG}.backup.$(date +%s)"
+    # 备份不是必须的，但保留是好习惯
+    cp "$XRAY_CONFIG" "${XRAY_CONFIG}.backup.$(date +%s)" 2>/dev/null || true
 
     if jq --arg domain "$new_domain" '(.inbounds[] | select(.tag=="vless-reality") | .streamSettings.realitySettings.dest) = ($domain + ":443") | (.inbounds[] | select(.tag=="vless-reality") | .streamSettings.realitySettings.serverNames) |= ( (.[0] = $domain) // [$domain] )' "$XRAY_CONFIG" > "$temp_config"; then
         if jq empty "$temp_config" >/dev/null 2>&1; then
@@ -11689,6 +11690,20 @@ update_sni_domain() {
             sni_log_success "Xray配置文件更新成功。"
             if reload_or_restart_services xray; then
                 sni_log_success "Xray服务已重载。"
+                
+                # <<< 修复点: 在服务重载成功后，立即刷新订阅文件 >>>
+                sni_log_info "SNI 变更，正在刷新订阅文件..."
+                local mode domain
+                mode=$(get_current_cert_mode 2>/dev/null || echo self-signed)
+                if [[ "$mode" == "self-signed" ]]; then
+                  regen_sub_ip
+                else
+                  domain="${mode##*:}"
+                  [[ -n "$domain" ]] && regen_sub_domain "$domain" || regen_sub_ip
+                fi
+                sni_log_success "订阅文件刷新完成。"
+                # <<< 修复点结束 >>>
+                
                 return 0
             else
                 sni_log_error "Xray服务重载失败。"
