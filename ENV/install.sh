@@ -13276,17 +13276,23 @@ echo -e "  VLESS WS UUID: $(jq -r '.uuid.vless.ws // .uuid.vless' ${CONFIG_DIR}/
 
 
 #############################################
-# Reality密钥轮换 (Self-Contained in edgeboxctl)
+# Reality密钥轮换 (Self-Contained & Fully Corrected)
 #############################################
 
 # 辅助函数：检查是否需要轮换
 check_reality_rotation_needed() {
+    # <<< FIX: Define constants locally to be self-contained >>>
+    local REALITY_ROTATION_STATE="${CONFIG_DIR}/reality-rotation.json"
+    local REALITY_ROTATION_DAYS=90
+    
     local force_rotation=${1:-false}
     [[ "$force_rotation" == "true" ]] && return 0
 
     if [[ ! -f "$REALITY_ROTATION_STATE" ]]; then
         log_info "首次运行，创建轮换状态文件..."
-        local next_rotation=$(date -d "+${REALITY_ROTATION_DAYS:-90} days" -Iseconds)
+        mkdir -p "$(dirname "$REALITY_ROTATION_STATE")" # Ensure directory exists
+        local next_rotation
+        next_rotation=$(date -d "+${REALITY_ROTATION_DAYS} days" -Iseconds)
         echo "{\"next_rotation\":\"$next_rotation\",\"last_rotation\":\"$(date -Iseconds)\"}" > "$REALITY_ROTATION_STATE"
         log_info "下次轮换将在: $next_rotation"
         return 1
@@ -13296,8 +13302,10 @@ check_reality_rotation_needed() {
     next_rotation_time=$(jq -r '.next_rotation' "$REALITY_ROTATION_STATE" 2>/dev/null)
     
     if [[ -n "$next_rotation_time" && "$next_rotation_time" != "null" ]]; then
-        local next_timestamp=$(date -d "$next_rotation_time" +%s 2>/dev/null || echo 0)
-        local current_timestamp=$(date +%s)
+        local next_timestamp
+        next_timestamp=$(date -d "$next_rotation_time" +%s 2>/dev/null || echo 0)
+        local current_timestamp
+        current_timestamp=$(date +%s)
         
         if [[ $current_timestamp -ge $next_timestamp ]]; then
             log_info "Reality密钥已到轮换时间。"
@@ -13307,7 +13315,7 @@ check_reality_rotation_needed() {
         fi
     fi
     
-    return 1 # 默认不需要轮换
+    return 1 # Default to no rotation needed
 }
 
 # 辅助函数：更新Xray配置
@@ -13318,8 +13326,8 @@ update_xray_reality_keys() {
     
     jq --arg private_key "$new_private_key" \
        --arg short_id "$new_short_id" \
-       '(.inbounds[]? | select(.tag? | contains("reality")) | .streamSettings.realitySettings.privateKey) = $private_key |
-        (.inbounds[]? | select(.tag? | contains("reality")) | .streamSettings.realitySettings.shortIds) = [$short_id]' \
+       '(.inbounds[]? | select(.tag? | test("reality"; "i")) | .streamSettings.realitySettings.privateKey) = $private_key |
+        (.inbounds[]? | select(.tag? | test("reality"; "i")) | .streamSettings.realitySettings.shortIds) = [$short_id]' \
        "${XRAY_CONFIG}" > "$temp_config" && mv "$temp_config" "${XRAY_CONFIG}"
 }
 
@@ -13341,14 +13349,20 @@ update_server_reality_keys() {
 
 # 辅助函数：更新轮换状态文件
 update_reality_rotation_state() {
+    # <<< FIX: Define constants locally >>>
+    local REALITY_ROTATION_STATE="${CONFIG_DIR}/reality-rotation.json"
+    local REALITY_ROTATION_DAYS=90
+    
     local new_public_key="$1"
-    local current_time=$(date -Iseconds)
-    local next_rotation=$(date -d "+${REALITY_ROTATION_DAYS:-90} days" -Iseconds)
+    local current_time
+    current_time=$(date -Iseconds)
+    local next_rotation
+    next_rotation=$(date -d "+${REALITY_ROTATION_DAYS} days" -Iseconds)
     
     echo "{\"last_rotation\":\"$current_time\",\"next_rotation\":\"$next_rotation\",\"last_public_key\":\"$new_public_key\"}" > "$REALITY_ROTATION_STATE"
 }
 
-# 主函数：执行密钥轮换 (已修正并包含所有依赖)
+# 主函数：执行密钥轮换
 rotate_reality_keys() {
     local force_rotation=${1:-false}
     log_info "开始Reality密钥轮换流程..."
@@ -13390,7 +13404,6 @@ rotate_reality_keys() {
     log_success "Xray服务已应用新密钥。"
     
     log_info "正在刷新订阅链接..."
-    # 使用内部函数刷新订阅，保持独立性
     local mode
     mode=$(get_current_cert_mode 2>/dev/null || echo self-signed)
     if [[ "$mode" == "self-signed" ]]; then
@@ -13408,13 +13421,15 @@ rotate_reality_keys() {
     echo -e "  新短ID (sid): ${GREEN}${new_short_id}${NC}"
 }
 
-# 主函数：显示轮换状态 (已修正并包含所有依赖)
+# 主函数：显示轮换状态
 show_reality_rotation_status() {
     log_info "查看Reality密钥轮换状态..."
+    # <<< FIX: Define constants locally >>>
+    local REALITY_ROTATION_STATE="${CONFIG_DIR}/reality-rotation.json"
     
-    # 如果状态文件不存在，则调用check_reality_rotation_needed来创建它
+    # If the state file doesn't exist, call check_reality_rotation_needed to create it
     if [[ ! -f "$REALITY_ROTATION_STATE" ]]; then
-        check_reality_rotation_needed >/dev/null 2>&1
+        check_reality_rotation_needed "false" >/dev/null 2>&1
     fi
 
     if [[ ! -f "$REALITY_ROTATION_STATE" ]]; then
