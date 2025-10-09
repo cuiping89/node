@@ -8821,18 +8821,15 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   grid-template-columns:1fr 1fr;
   gap:20px;
 }
-
 @media (max-width:768px){
   .commands-grid{ grid-template-columns:1fr; }
 }
-
 .command-section{
   background:#f5f5f5;
   border:1px solid #d1d5db;
   border-radius:8px;
   padding:12px;
 }
-
 .command-section h4{
   margin:0 0 8px;
   font-size:.9rem;
@@ -8842,20 +8839,18 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   align-items:center;
   gap:6px;
 }
-
 /* 运维管理：行距 & 命令与注释的间距 */
 #ops-panel .command-list,
 .commands-grid .command-list,
 .command-list{
   font-size:.8rem;
-  line-height:1.6;    /* ← 行与行的垂直距离，1.6~1.9 自行调 */
+  line-height:1.6;
 }
-
 /* 深灰代码块（命令） */
 #ops-panel .command-list code,
 .commands-grid .command-list code,
 .command-list code{
-  background:#e2e8f0;          /* 改成你想要的灰，例如 newb 用的 #e2e8f0 */
+  background:#e2e8f0;
   color:#1f2937;
   padding:1px 6px;
   border-radius:4px;
@@ -8863,13 +8858,13 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   font-size:.78rem;
   line-height:1.1;
   display:inline-block;
-  margin-right:8px;    /* ← 命令小胶囊 与 注释 的水平间距 */
-  margin-bottom:2px;   /* 轻微增加行间距 */
+  min-width:300px;     /* 命令固定宽度，注释左对齐 */
+  margin-right:0;      /* 缩短间距 */
+  margin-bottom:2px;
 }
-
 .command-list span{ 
   color:#6b7280; 
-  margin-left:8px; 
+  margin-left:0;       /* 注释紧跟命令 */
 }
 
 
