@@ -11757,31 +11757,33 @@ get_server_info() {
     return 0
 }
 
-
-# 异步重启服务并安全退出
+# 异步重启服务并安全退出 (Upgraded to include data refresh)
 restart_services_background() {
     local services_to_restart=("$@")
     
-    # 构造一个将在后台执行的命令字符串
-    # 核心：sleep 2秒，给予当前SSH会话足够的时间在断网前正常退出
-    local cmd="(sleep 2; "
+    # Export the refresh function so the subshell can find it
+    export -f run_post_change_refreshes
+
+    # Build a command string that will be executed in the background
+    # Sequence: Sleep -> Restart Services -> Apply Firewall -> Refresh Data
+    local cmd="(sleep 3; "
     for service in "${services_to_restart[@]}"; do
         cmd+="systemctl restart $service; "
     done
-    # 在所有服务重启后，依然执行一次无中断的防火墙加固，作为双重保险
+    cmd+="sleep 2; " # Wait a bit for services to stabilize
     cmd+="/etc/edgebox/scripts/apply-firewall.sh >/dev/null 2>&1 || true; "
-    cmd+='echo "[$(date)] Background restart completed." >> /var/log/edgebox.log)'
+    cmd+="run_post_change_refreshes; " # This is the new crucial step
+    cmd+='echo \"[$(date)] Background restart and refresh completed.\" >> /var/log/edgebox.log)'
     
-    # 使用 nohup & disown 将命令彻底送入后台，即使我们退出登录也会继续执行
+    # Use nohup & disown to send the command completely to the background
     nohup bash -c "$cmd" >/dev/null 2>&1 & disown
     
-    log_success "命令已提交到后台执行。您的SSH连接可能会在2-3秒后中断。"
-    log_info "这是正常现象。请在几秒钟后重新连接服务器并使用 'edgeboxctl shunt status' 检查状态。"
+    log_success "命令已提交到后台执行。您的SSH连接可能会在几秒后中断。"
+    log_info "这是正常现象。请在约10-15秒后刷新Web面板查看最新状态。"
     
-    # 立即退出脚本
+    # Exit the script immediately
     exit 0
 }
-
 
 reload_or_restart_services() {
   local services=("$@")
@@ -12735,6 +12737,16 @@ post_switch_report() {
   echo -e "${CYAN}--------------------------------${NC}\n"
 }
 
+# === [NEW] Unified function to refresh all frontend data sources ===
+run_post_change_refreshes() {
+    log_info "Submitting background jobs for dashboard and IPQ refresh..."
+    # dashboard-backend.sh reads the new state and updates dashboard.json
+    bash "${SCRIPTS_DIR}/dashboard-backend.sh" --now >/dev/null 2>&1 || true
+    # edgebox-ipq.sh reads the new proxy state and tests the new IP
+    bash /usr/local/bin/edgebox-ipq.sh >/dev/null 2>&1 || true
+    log_info "Background refresh jobs completed."
+}
+
 post_shunt_report() {
   # mode: 文案标签；url: 上游代理 URL（VPS 模式可空）
   local mode="$1" url="$2"
@@ -12842,33 +12854,15 @@ setup_outbound_vps() {
     log_info "配置VPS全量出站模式..."
     get_server_info || return 1
 
-    # === sing-box：恢复直连（修改 listen 为 0.0.0.0）===
-    cp ${CONFIG_DIR}/sing-box.json ${CONFIG_DIR}/sing-box.json.bak 2>/dev/null || true
-    cat > ${CONFIG_DIR}/sing-box.json <<EOF
-{"log":{"level":"info","timestamp":true},
- "inbounds":[
-  {"type":"hysteria2","tag":"hysteria2-in","listen":"0.0.0.0","listen_port":443,
-   "users":[{"password":"${PASSWORD_HYSTERIA2}"}],
-   "tls":{"enabled":true,"alpn":["h3"],"certificate_path":"${CERT_DIR}/current.pem","key_path":"${CERT_DIR}/current.key"}},
-  {"type":"tuic","tag":"tuic-in","listen":"0.0.0.0","listen_port":2053,
-   "users":[{"uuid":"${UUID_TUIC}","password":"${PASSWORD_TUIC}"}],
-   "congestion_control":"bbr",
-   "tls":{"enabled":true,"alpn":["h3"],"certificate_path":"${CERT_DIR}/current.pem","key_path":"${CERT_DIR}/current.key"}}],
- "outbounds":[{"type":"direct","tag":"direct"}]}
-EOF
-
-    # === Xray：恢复直连（删掉任何代理出站/路由） ===
+    # Restore Xray to direct outbound
     local xray_tmp="${CONFIG_DIR}/xray.json.tmp"
-    jq '
-      .outbounds = [ { "protocol":"freedom", "tag":"direct" } ] |
-      .routing   = { "rules": [] }
-    ' ${CONFIG_DIR}/xray.json > "$xray_tmp" && mv "$xray_tmp" ${CONFIG_DIR}/xray.json
+    jq '.outbounds = [ { "protocol":"freedom", "tag":"direct" } ] | .routing = { "rules": [] }' "${CONFIG_DIR}/xray.json" > "$xray_tmp" && mv "$xray_tmp" "${CONFIG_DIR}/xray.json"
 
     setup_shunt_directories
     update_shunt_state "vps" "" "healthy"
     flush_nft_resi_sets
     
-    # <<< 修复点: 调用异步重启函数 >>>
+    # Call the background restart and refresh process
     restart_services_background xray sing-box
 }
 
