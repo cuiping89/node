@@ -11759,29 +11759,42 @@ get_server_info() {
 
 
 # 异步重启服务并安全退出 (Final Bulletproof Version)
+# 异步重启服务并安全退出 (Final Bulletproof Version with stable delay)
 restart_services_background() {
     local services_to_restart=("$@")
     
     # 将要后台执行的完整命令序列
     local cmd_sequence="
-        log_info 'Background restart started.';
+        log_info '后台任务：开始执行服务重启与数据刷新...';
+        
+        # 1. 重启服务
         for service in ${services_to_restart[*]}; do
+            log_info \"后台任务：正在重启 \$service ...\";
             systemctl restart \$service;
         done;
-        sleep 2;
+        
+        # <<< FIX: Increase delay significantly to wait for services to stabilize >>>
+        log_info '后台任务：等待10秒，确保服务完全启动...';
+        sleep 10;
+        
+        # 2. 重新应用防火墙规则 (安全保障)
         /etc/edgebox/scripts/apply-firewall.sh >/dev/null 2>&1 || true;
         
-        log_info 'Triggering post-change data refresh...';
+        # 3. 刷新Web面板和IP质量数据
+        log_info '后台任务：正在刷新面板数据...';
         bash /etc/edgebox/scripts/dashboard-backend.sh --now >/dev/null 2>&1 || true;
+        
+        log_info '后台任务：正在执行IP质量检测...';
         bash /usr/local/bin/edgebox-ipq.sh >/dev/null 2>&1 || true;
-        log_info 'Background restart and refresh finished.';
+        
+        log_info '后台任务：所有操作已完成。';
     "
     
-    # 使用 nohup 将整个命令序列送入后台
+    # 使用 nohup 将整个命令序列送入后台，并将日志输出到edgebox.log
     nohup bash -c "eval \"$cmd_sequence\"" >> /var/log/edgebox.log 2>&1 & disown
     
     log_success "命令已提交到后台执行。您的SSH连接可能会在几秒后中断。"
-    log_info "这是正常现象。请在约15-20秒后刷新Web面板以查看最新状态。"
+    log_info "这是正常现象。请在约20秒后刷新Web面板以查看最新状态。"
     
     exit 0
 }
