@@ -10659,7 +10659,7 @@ function renderProtocolTable(protocolsOpt) { // 只接收一个参数
   const subRow = document.createElement('tr');
   subRow.className = 'subs-row';
   subRow.innerHTML = `
-    <td style="font-weight:500;">订阅URL|整包节点链接</td><td></td><td></td><td></td>
+    <td style="font-weight:500;">订阅URL | 整包链接</td><td></td><td></td><td></td>
     <td><button class="btn btn-sm btn-link" data-action="open-modal" data-modal="configModal" data-protocol="__SUBS__">查看@订阅</button></td>`;
   tbody.appendChild(subRow);
 }
