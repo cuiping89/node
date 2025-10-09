@@ -13926,13 +13926,11 @@ curl_json() {
   | jq -c . 2>/dev/null || echo "{}"
 }
 
-# 带宽测试函数（支持VPS和代理）
 test_bandwidth_correct() {
   local proxy_args="$1"
   local test_type="$2"
   local dl_speed=0 ul_speed=0
   
-  # 下载测试
   if dl_result=$(eval "curl $proxy_args -o /dev/null -s -w '%{time_total}:%{speed_download}' --max-time 15 'http://speedtest.tele2.net/1MB.zip'" 2>/dev/null); then
     IFS=':' read -r dl_time dl_bytes_per_sec <<<"$dl_result"
     if [[ -n "$dl_bytes_per_sec" && "$dl_bytes_per_sec" != "0" ]]; then
@@ -13940,7 +13938,6 @@ test_bandwidth_correct() {
     fi
   fi
   
-  # 上传测试
   local test_data=$(printf '%*s' 10240 '' | tr ' ' 'x')
   if ul_result=$(eval "curl $proxy_args -X POST -d '$test_data' -o /dev/null -s -w '%{time_total}' --max-time 10 'https://httpbin.org/post'" 2>/dev/null); then
     if [[ -n "$ul_result" && "$ul_result" != "0.000000" ]]; then
@@ -13951,7 +13948,6 @@ test_bandwidth_correct() {
   echo "${dl_speed}/${ul_speed}"
 }
 
-# 增强版rDNS查询
 get_rdns() {
   local ip="$1"
   local rdns=""
@@ -13967,7 +13963,6 @@ get_rdns() {
   echo "$rdns"
 }
 
-# 智能特征识别
 detect_network_features() {
   local asn="$1"
   local isp="$2"
@@ -13980,7 +13975,6 @@ detect_network_features() {
   local proxy="false"
   local network_type="Unknown"
   
-  # 云服务商检测
   if [[ "$asn" =~ (Google|AWS|Amazon|Microsoft|Azure|DigitalOcean|Linode|Vultr|Hetzner|OVH) ]] || \
      [[ "$isp" =~ (Google|AWS|Amazon|Microsoft|Azure|DigitalOcean|Linode|Vultr|Hetzner|OVH) ]]; then
     hosting="true"
@@ -13991,15 +13985,13 @@ detect_network_features() {
     fi
   fi
   
-  # 住宅网络检测
   if [[ "$vantage" == "proxy" && "$hosting" == "false" ]]; then
-    if [[ "$isp" =~ (NTT|Comcast|Verizon|AT&T|Charter|Spectrum|Cox|Residential|Cable|Fiber|DSL|Broadband) ]]; then
+    if [[ "$isp" =~ (NTT|Comcast|Verizon|AT\&T|Charter|Spectrum|Cox|Residential|Cable|Fiber|DSL|Broadband) ]]; then
       residential="true"
       network_type="Residential"
     fi
   fi
   
-  # 移动网络检测
   if [[ "$asn" =~ (Mobile|Cellular|LTE|5G|4G|T-Mobile|Verizon Wireless) ]]; then
     mobile="true"
     network_type="Mobile"
@@ -14014,7 +14006,6 @@ get_proxy_url(){ local s="${SHUNT_DIR}/state.json"
 collect_one(){ 
   local V="$1" P="$2" J1="{}" J2="{}" J3="{}" ok1=false ok2=false ok3=false
   
-  # API调用
   if out=$(curl_json "$P" "https://ipinfo.io/json"); then J1="$out"; ok1=true; fi
   
   if out=$(curl_json "$P" "https://api.ip.sb/geoip"); then
@@ -14037,7 +14028,6 @@ collect_one(){
     fi
   fi
 
-  # 检查API成功率
   if [[ "$ok1" == "false" && "$ok2" == "false" && "$ok3" == "false" ]]; then
     if [[ "$V" == "proxy" ]]; then
       jq -n --arg ts "$(ts)" '{detected_at:$ts,vantage:"proxy",status:"api_failed",error:"All APIs failed"}'
@@ -14045,10 +14035,8 @@ collect_one(){
     fi
   fi
 
-  # 数据提取
   local ip=""; for j in "$J2" "$J1" "$J3"; do ip="$(jq -r '(.ip // .query // empty)' <<<"$j" 2>/dev/null || echo "")"; [[ -n "$ip" && "$ip" != "null" ]] && break; done
   
-  # 增强版rDNS查询
   local rdns="$(jq -r '.reverse // empty' <<<"$J3" 2>/dev/null || echo "")"
   if [[ -z "$rdns" && -n "$ip" ]]; then
     rdns="$(get_rdns "$ip")"
@@ -14059,7 +14047,6 @@ collect_one(){
   local country="$(jq -r '(.country // empty)' <<<"$J3" 2>/dev/null || echo "")"; [[ -z "$country" || "$country" == "null" ]] && country="$(jq -r '(.country // empty)' <<<"$J1" 2>/dev/null || echo "")"
   local city="$(jq -r '(.city // empty)' <<<"$J3" 2>/dev/null || echo "")"; [[ -z "$city" || "$city" == "null" ]] && city="$(jq -r '(.city // empty)' <<<"$J1" 2>/dev/null || echo "")"
 
-  # DNSBL检查
   declare -a hits=(); 
   if [[ -n "$ip" ]]; then 
     IFS=. read -r a b c d <<<"$ip"; rip="${d}.${c}.${b}.${a}"
@@ -14068,7 +14055,6 @@ collect_one(){
     done
   fi
 
-  # 延迟测试
   local lat=999
   if [[ "$V" == "vps" ]]; then
     if r=$(ping -c 3 -W 4 1.1.1.1 2>/dev/null | awk -F'/' '/rtt|round-trip/ {print int($5+0.5); exit}' 2>/dev/null); then
@@ -14080,16 +14066,13 @@ collect_one(){
     fi
   fi
 
-  # 带宽测试（VPS和代理都测试）
   local bandwidth_up="0" bandwidth_down="0"
   local bw_result=$(test_bandwidth_correct "$P" "$V")
   IFS='/' read -r bandwidth_down bandwidth_up <<<"$bw_result"
 
-  # 特征检测
   local features=$(detect_network_features "$asn" "$isp" "$ip" "$V")
   IFS=':' read -r hosting residential mobile proxy network_type <<<"$features"
 
-  # 评分计算
   local score=100; declare -a notes=()
   [[ "$proxy" == "true"   ]] && score=$((score-25)) && notes+=("proxy_flag")
   [[ "$hosting"  == "true"   ]] && score=$((score-5)) && notes+=("datacenter_ip")
@@ -14108,7 +14091,6 @@ collect_one(){
   (( score>100 )) && score=100
   local grade="D"; ((score>=80)) && grade="A" || { ((score>=60)) && grade="B" || { ((score>=40)) && grade="C"; }; }
 
-  # 生成结论
   local conclusion="基于多维度评估："
   [[ "$hosting" == "true" ]] && conclusion="${conclusion} 数据中心IP;"
   [[ "$residential" == "true" ]] && conclusion="${conclusion} 住宅网络;"
@@ -14117,7 +14099,6 @@ collect_one(){
   [[ "$bandwidth_down" != "0" ]] && conclusion="${conclusion} 带宽${bandwidth_down}/${bandwidth_up}MB/s;"
   conclusion="${conclusion} 综合评分${score}分，等级${grade}。"
 
-  # 生成JSON输出
   local hits_json="$(printf '%s\n' "${hits[@]:-}" | jq -R -s 'split("\n")|map(select(length>0))' 2>/dev/null || echo '[]')"
   local notes_json="$(printf '%s\n' "${notes[@]:-}" | jq -R -s 'split("\n")|map(select(length>0))' 2>/dev/null || echo '[]')"
 
@@ -14185,6 +14166,7 @@ main(){
 
 main "$@"
 IPQ
+
   chmod +x /usr/local/bin/edgebox-ipq.sh
 
   ( crontab -l 2>/dev/null | grep -v '/usr/local/bin/edgebox-ipq.sh' ) | crontab - || true
