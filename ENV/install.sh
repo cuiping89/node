@@ -13182,53 +13182,173 @@ backup_restore(){
 # 配置管理
 #############################################
 
-regenerate_uuid(){
-    log_info "重新生成UUID..."
-    get_server_info || return 1
+# 重新生成所有协议的UUID和密码
+regenerate_uuid() {
+    log_info "重新生成所有协议凭据..."
     
-    # 生成新UUID
-    local new_vless_uuid=$(uuidgen)
-    local new_tuic_uuid=$(uuidgen)
-    local new_trojan_uuid=$(uuidgen)
-    local new_hy2_pass=$(openssl rand -base64 16)
-    local new_tuic_pass=$(openssl rand -base64 16)
-    local new_trojan_pass=$(openssl rand -base64 16)
-    
-    # 更新server.json
-    jq --arg vless "$new_vless_uuid" \
-       --arg tuic "$new_tuic_uuid" \
-       --arg trojan "$new_trojan_uuid" \
-       --arg hy2_pass "$new_hy2_pass" \
-       --arg tuic_pass "$new_tuic_pass" \
-       --arg trojan_pass "$new_trojan_pass" \
-       '.uuid.vless.reality = $vless | .uuid.tuic = $tuic | .password.hysteria2 = $hy2_pass | .password.tuic = $tuic_pass | .password.trojan = $trojan_pass' \
-       ${CONFIG_DIR}/server.json > ${CONFIG_DIR}/server.json.tmp && \
-       mv ${CONFIG_DIR}/server.json.tmp ${CONFIG_DIR}/server.json
-    
-    # 更新配置文件
-    sed -i "s/\"id\": \".*\"/\"id\": \"$new_vless_uuid\"/g" ${CONFIG_DIR}/xray.json
-    sed -i "s/\"uuid\": \".*\"/\"uuid\": \"$new_tuic_uuid\"/g" ${CONFIG_DIR}/sing-box.json
-    sed -i "s/\"password\": \".*\"/\"password\": \"$new_hy2_pass\"/g" ${CONFIG_DIR}/sing-box.json
-    sed -i "s/\"password\": \".*\"/\"password\": \"$new_trojan_pass\"/g" ${CONFIG_DIR}/xray.json
-    
-    # 重新生成订阅
-    local cert_mode=$(get_current_cert_mode)
-    if [[ "$cert_mode" == "self-signed" ]]; then
-        regen_sub_ip
-    else
-        local domain=${cert_mode##*:}
-        regen_sub_domain "$domain"
+    # 检查必要工具
+    if ! command -v uuidgen >/dev/null 2>&1 || ! command -v openssl >/dev/null 2>&1; then
+        log_error "缺少必要工具（uuidgen 或 openssl）"
+        return 1
     fi
     
-    # 重启服务
-    reload_or_restart_services xray sing-box
-    log_success "UUID重新生成完成"
-    echo -e "${YELLOW}新的UUID：${NC}"
-    echo -e "  VLESS: $new_vless_uuid"
-    echo -e "  TUIC: $new_tuic_uuid"
-    echo -e "  Hysteria2 密码: $new_hy2_pass"
-    echo -e "  TUIC 密码: $new_tuic_pass"
-    echo -e "  Trojan 密码: $new_trojan_pass"
+    # 重新生成所有UUID
+    local NEW_UUID_VLESS_REALITY=$(uuidgen)
+    local NEW_UUID_VLESS_GRPC=$(uuidgen)
+    local NEW_UUID_VLESS_WS=$(uuidgen)
+    local NEW_UUID_TUIC=$(uuidgen)
+    local NEW_UUID_HYSTERIA2=$(uuidgen)
+    local NEW_UUID_TROJAN=$(uuidgen)
+    
+    # 重新生成所有密码
+    local NEW_PASSWORD_HYSTERIA2=$(openssl rand -base64 32 | tr -d '\n')
+    local NEW_PASSWORD_TUIC=$(openssl rand -base64 32 | tr -d '\n')
+    local NEW_PASSWORD_TROJAN=$(openssl rand -base64 32 | tr -d '\n')
+    
+    # 验证生成结果
+    if [[ -z "$NEW_UUID_VLESS_REALITY" || -z "$NEW_PASSWORD_HYSTERIA2" ]]; then
+        log_error "凭据生成失败"
+        return 1
+    fi
+    
+    # 更新 server.json 使用 jq
+    log_info "更新 server.json..."
+    local temp_file="${CONFIG_DIR}/server.json.tmp"
+    if jq \
+        --arg uuid_reality "$NEW_UUID_VLESS_REALITY" \
+        --arg uuid_grpc "$NEW_UUID_VLESS_GRPC" \
+        --arg uuid_ws "$NEW_UUID_VLESS_WS" \
+        --arg uuid_tuic "$NEW_UUID_TUIC" \
+        --arg uuid_hysteria2 "$NEW_UUID_HYSTERIA2" \
+        --arg uuid_trojan "$NEW_UUID_TROJAN" \
+        --arg pass_hysteria2 "$NEW_PASSWORD_HYSTERIA2" \
+        --arg pass_tuic "$NEW_PASSWORD_TUIC" \
+        --arg pass_trojan "$NEW_PASSWORD_TROJAN" \
+        '.uuid.vless.reality = $uuid_reality |
+         .uuid.vless.grpc = $uuid_grpc |
+         .uuid.vless.ws = $uuid_ws |
+         .uuid.tuic = $uuid_tuic |
+         .uuid.hysteria2 = $uuid_hysteria2 |
+         .uuid.trojan = $uuid_trojan |
+         .password.hysteria2 = $pass_hysteria2 |
+         .password.tuic = $pass_tuic |
+         .password.trojan = $pass_trojan |
+         .updated_at = (now | todate)' \
+        "${CONFIG_DIR}/server.json" > "$temp_file"; then
+        mv "$temp_file" "${CONFIG_DIR}/server.json"
+        log_success "server.json 中的密码已更新"
+    else
+        log_error "更新 server.json 失败"
+        rm -f "$temp_file"
+        return 1
+    fi
+    
+    # 更新 Xray 配置
+    if [[ -f "${CONFIG_DIR}/xray.json" ]]; then
+        log_info "更新 Xray 配置..."
+        local xray_temp="${CONFIG_DIR}/xray.json.tmp"
+        if jq \
+            --arg uuid_reality "$NEW_UUID_VLESS_REALITY" \
+            --arg uuid_grpc "$NEW_UUID_VLESS_GRPC" \
+            --arg uuid_ws "$NEW_UUID_VLESS_WS" \
+            --arg pass_trojan "$NEW_PASSWORD_TROJAN" \
+            '(.inbounds[] | select(.tag=="vless-reality") | .settings.clients[0].id) = $uuid_reality |
+             (.inbounds[] | select(.tag=="vless-grpc") | .settings.clients[0].id) = $uuid_grpc |
+             (.inbounds[] | select(.tag=="vless-ws") | .settings.clients[0].id) = $uuid_ws |
+             (.inbounds[] | select(.tag=="trojan-tcp") | .settings.clients[0].password) = $pass_trojan' \
+            "${CONFIG_DIR}/xray.json" > "$xray_temp"; then
+            mv "$xray_temp" "${CONFIG_DIR}/xray.json"
+            log_success "Xray 配置已更新"
+        else
+            log_warn "更新 Xray 配置失败，可能配置结构不同"
+            rm -f "$xray_temp"
+        fi
+    fi
+    
+    # 更新 sing-box 配置
+    if [[ -f "${CONFIG_DIR}/sing-box.json" ]]; then
+        log_info "更新 sing-box 配置..."
+        local singbox_temp="${CONFIG_DIR}/sing-box.json.tmp"
+        if jq \
+            --arg uuid_tuic "$NEW_UUID_TUIC" \
+            --arg pass_tuic "$NEW_PASSWORD_TUIC" \
+            --arg pass_hysteria2 "$NEW_PASSWORD_HYSTERIA2" \
+            '(.inbounds[] | select(.type=="tuic") | .users[0].uuid) = $uuid_tuic |
+             (.inbounds[] | select(.type=="tuic") | .users[0].password) = $pass_tuic |
+             (.inbounds[] | select(.type=="hysteria2") | .users[0].password) = $pass_hysteria2' \
+            "${CONFIG_DIR}/sing-box.json" > "$singbox_temp"; then
+            mv "$singbox_temp" "${CONFIG_DIR}/sing-box.json"
+            log_success "sing-box 配置已更新"
+        else
+            log_warn "更新 sing-box 配置失败，可能配置结构不同"
+            rm -f "$singbox_temp"
+        fi
+    fi
+    
+    # 重新生成订阅链接
+    log_info "重新生成订阅链接..."
+    
+    # 加载新凭据到环境变量（供订阅生成函数使用）
+    export UUID_VLESS_REALITY="$NEW_UUID_VLESS_REALITY"
+    export UUID_VLESS_GRPC="$NEW_UUID_VLESS_GRPC"
+    export UUID_VLESS_WS="$NEW_UUID_VLESS_WS"
+    export UUID_TUIC="$NEW_UUID_TUIC"
+    export PASSWORD_HYSTERIA2="$NEW_PASSWORD_HYSTERIA2"
+    export PASSWORD_TUIC="$NEW_PASSWORD_TUIC"
+    export PASSWORD_TROJAN="$NEW_PASSWORD_TROJAN"
+    
+    # 重新生成订阅（根据当前证书模式）
+    local mode
+    mode="$(get_current_cert_mode 2>/dev/null || echo self-signed)"
+    if [[ "$mode" == "self-signed" ]]; then
+        regen_sub_ip
+    else
+        local domain="${mode##*:}"
+        if [[ -n "$domain" ]]; then
+            regen_sub_domain "$domain"
+        else
+            regen_sub_ip
+        fi
+    fi
+    
+    log_success "订阅链接已更新"
+    
+    # 重载服务
+    log_info "重载代理服务..."
+    if reload_or_restart_services xray sing-box; then
+        log_success "服务重载成功"
+    else
+        log_warn "服务重载失败，请手动检查服务状态"
+    fi
+    
+    # 显示完整的新凭据
+    echo ""
+    echo -e "${CYAN}════════════════════════════════════════════════════════════${NC}"
+    echo -e "${GREEN}                    🔑 新的UUID                             ${NC}"
+    echo -e "${CYAN}════════════════════════════════════════════════════════════${NC}"
+    echo -e "  ${YELLOW}VLESS Reality:${NC}  ${GREEN}$NEW_UUID_VLESS_REALITY${NC}"
+    echo -e "  ${YELLOW}VLESS gRPC:${NC}     ${GREEN}$NEW_UUID_VLESS_GRPC${NC}"
+    echo -e "  ${YELLOW}VLESS WS:${NC}       ${GREEN}$NEW_UUID_VLESS_WS${NC}"
+    echo -e "  ${YELLOW}TUIC:${NC}           ${GREEN}$NEW_UUID_TUIC${NC}"
+    echo -e "  ${YELLOW}Hysteria2:${NC}      ${DIM}$NEW_UUID_HYSTERIA2 (备用标识)${NC}"
+    echo -e "  ${YELLOW}Trojan:${NC}         ${DIM}$NEW_UUID_TROJAN (备用标识)${NC}"
+    echo ""
+    echo -e "${CYAN}════════════════════════════════════════════════════════════${NC}"
+    echo -e "${GREEN}                    🔐 新的密码                             ${NC}"
+    echo -e "${CYAN}════════════════════════════════════════════════════════════${NC}"
+    echo -e "  ${YELLOW}Hysteria2:${NC}      ${GREEN}$NEW_PASSWORD_HYSTERIA2${NC}"
+    echo -e "  ${YELLOW}TUIC:${NC}           ${GREEN}$NEW_PASSWORD_TUIC${NC}"
+    echo -e "  ${YELLOW}Trojan:${NC}         ${GREEN}$NEW_PASSWORD_TROJAN${NC}"
+    echo -e "${CYAN}════════════════════════════════════════════════════════════${NC}"
+    echo ""
+    echo -e "${RED}⚠️  重要提示：${NC}"
+    echo -e "  ${YELLOW}1.${NC} 旧的订阅链接已失效，请通知所有用户更新订阅"
+    echo -e "  ${YELLOW}2.${NC} 新订阅地址: ${GREEN}http://$(jq -r .server_ip ${CONFIG_DIR}/server.json 2>/dev/null || echo 'YOUR_IP')/sub${NC}"
+    echo -e "  ${YELLOW}3.${NC} 查看完整订阅: ${GREEN}edgeboxctl sub${NC}"
+    echo -e "  ${YELLOW}4.${NC} 查看配置信息: ${GREEN}edgeboxctl config show${NC}"
+    echo ""
+    
+    return 0
 }
 
 show_config(){
