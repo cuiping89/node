@@ -8892,17 +8892,36 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   color:#6b7280;
   text-align:left;
   margin:0;
-  line-height:1.25;  /* 让单行更贴合，可按需改 1.2~1.3 */
+  line-height:1.25;  /* 单行更贴合，可按需 1.2~1.3 */
 }
 
-/* 其它整行元素（示例/说明/链接等）跨两列显示 */
-#ops-panel .command-list > :not(code):not(span),
-.commands-grid .command-list > :not(code):not(span),
-.command-list > :not(code):not(span){
+/* ——改动①：其它整行元素（示例/说明/文本等）跨两列显示，行距与普通行一致 —— */
+#ops-panel .command-list > :not(code):not(span):not(a),
+.commands-grid .command-list > :not(code):not(span):not(a),
+.command-list > :not(code):not(span):not(a){
   grid-column:1 / -1;
-  margin:4px 0 0 0;  /* 取消浏览器默认的大外边距；不再像“空一行” */
+  margin:0;          /* 不再额外留空，由 row-gap 控制，与普通行一致 */
   line-height:1.4;
 }
+
+/* ——改动②：“示例”里的命令链接也使用同款灰底胶囊，放在第 1 列 —— */
+#ops-panel .command-list > a,
+.commands-grid .command-list > a,
+.command-list > a{
+  grid-column:1;             /* 位于命令列 */
+  display:inline-block;
+  background:#e2e8f0;
+  padding:1px 6px;
+  border-radius:4px;
+  font-family:monospace;
+  font-size:.78rem;
+  line-height:1.1;
+  white-space:pre-wrap;
+  max-width:100%;
+  text-decoration:none;      /* 去下划线，更像命令胶囊 */
+  margin:0;                  /* 行距交给 row-gap 控制 */
+}
+
 
 
 /* =========================
