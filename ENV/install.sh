@@ -196,16 +196,11 @@ XRAY_INSTALL_SCRIPT="https://raw.githubusercontent.com/XTLS/Xray-install/main/in
 TMP_DIR="/tmp/edgebox"
 LOCK_FILE="/var/lock/edgebox-install.lock"
 
-# === Reality密钥轮换配置 ===
-REALITY_ROTATION_DAYS=90
-REALITY_ROTATION_STATE="${CONFIG_DIR}/reality-rotation.json"
-REALITY_BACKUP_DIR="${BACKUP_DIR}/reality-keys"
-
 # === SNI域名池管理相关路径 ===
 SNI_CONFIG_DIR="${CONFIG_DIR}/sni"
 SNI_DOMAINS_CONFIG="${SNI_CONFIG_DIR}/domains.json"
 SNI_LOG_FILE="/var/log/edgebox/sni-management.log"
-SNI_MANAGER_SCRIPT="${SCRIPTS_DIR}/sni-manager.sh"
+
 # SNI域名池配置
 SNI_DOMAIN_POOL=(
     "www.microsoft.com"      # 权重: 25 (稳定性高)
@@ -11214,7 +11209,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
       <h3>🔐 Reality 密钥轮换</h3>
       <div class="command-list">
 	    <code>edgeboxctl reality-status</code> <span># 查看 Reality 密钥轮换的周期状态</span><br>
-        <code>edgeboxctl rotate-reality &lt;--force&gt;</code> <span># 手动执行 Reality 密钥对轮换 (安全增强)</span><br>
+        <code>edgeboxctl rotate-reality --force</code> <span># 手动执行 Reality 密钥对轮换 (安全增强)</span><br>
       </div>
     </div>
 
@@ -11354,54 +11349,24 @@ chmod 644 "$TRAFFIC_DIR/index.html"
 }
 
 
-# 设置定时任务
+# 设置定时任务 (Final Cleaned Version)
 setup_cron_jobs() {
-    log_info "设置定时任务（new11清理模式）..."
+    log_info "设置统一的定时任务..."
 
-    # ---- A) 预警配置兜底
-    # 会优先调用你现有的 ensure_alert_conf；然后用 patch 方式把缺的键补上
-    ensure_alert_conf_full_patch() {
-        local f="/etc/edgebox/traffic/alert.conf"
-        mkdir -p /etc/edgebox/traffic
-        [[ -f "$f" ]] || : > "$f"   # 保证文件存在
-
-        # 小工具：如缺失则追加默认值（不覆盖已有值）
-        ensure_key() {
-            local k="$1" v="$2"
-            grep -q "^${k}=" "$f" || echo "${k}=${v}" >> "$f"
-        }
-
-        # 8 个必备键（与您脚本口径一致）
-        ensure_key "ALERT_MONTHLY_GIB"     "100"
-        ensure_key "ALERT_TG_BOT_TOKEN"    ""
-        ensure_key "ALERT_TG_CHAT_ID"      ""
-        ensure_key "ALERT_DISCORD_WEBHOOK" ""
-        ensure_key "ALERT_PUSHPLUS_TOKEN"  ""
-        ensure_key "ALERT_WEBHOOK"         ""
-        ensure_key "ALERT_WEBHOOK_FORMAT"  "raw"
-        ensure_key "ALERT_STEPS"           "30,60,90"
-
-        # 兼容项（可选）：有的老段落默认写了 EMAIL，这里补上不影响你 8 项口径
-        ensure_key "ALERT_EMAIL"           ""
-    }
-
+    # 预警配置兜底
     ensure_alert_conf_full() {
         local f="/etc/edgebox/traffic/alert.conf"
         mkdir -p /etc/edgebox/traffic
         [[ -s "$f" ]] || cat >"$f" <<'CONF'
 # EdgeBox traffic alert thresholds & channels
-# 月度预算（单位 GiB）
 ALERT_MONTHLY_GIB=100
-# 通知渠道（留空即不启用）
 ALERT_TG_BOT_TOKEN=
 ALERT_TG_CHAT_ID=
 ALERT_DISCORD_WEBHOOK=
 ALERT_PUSHPLUS_TOKEN=
 ALERT_WEBHOOK=
 ALERT_WEBHOOK_FORMAT=raw
-# 阈值（百分比，逗号分隔）
 ALERT_STEPS=30,60,90
-# 可选：邮件（若 traffic-alert.sh 支持 mail 命令）
 ALERT_EMAIL=
 CONF
     }
@@ -11411,21 +11376,28 @@ CONF
     crontab -l > ~/crontab.backup.$(date +%Y%m%d%H%M%S) 2>/dev/null || true
     ( crontab -l 2>/dev/null | grep -vE '(/etc/edgebox/|\bedgebox\b|\bEdgeBox\b)' ) | crontab - || true
 
-    # 写入优化后的新任务集
+    # 写入最终的、统一的新任务集
     ( crontab -l 2>/dev/null || true; cat <<CRON
-# EdgeBox 定时任务 v3.0 (优化版)
-# 统一数据刷新 (包含协议健康检查)
+# EdgeBox Cron Jobs v3.0 (Unified)
+#
+# 每5分钟：刷新Web面板的动态数据 (系统负载、服务状态等)
 */5 * * * * bash -lc '/etc/edgebox/scripts/dashboard-backend.sh --now' >/dev/null 2>&1
-# 流量采集
-0  * * * * bash -lc '/etc/edgebox/scripts/traffic-collector.sh'        >/dev/null 2>&1
-# 流量预警
-7  * * * * bash -lc '/etc/edgebox/scripts/traffic-alert.sh'            >/dev/null 2>&1
-# IP质量检测
-15 2 * * * bash -lc '/usr/local/bin/edgebox-ipq.sh'                    >/dev/null 2>&1
-# Reality密钥自动轮换
-0  2 * * * bash -lc '/usr/local/bin/edgeboxctl rotate-reality'         >/dev/null 2>&1
-# 每周日的凌晨3点，自动选择最优SNI域名
+#
+# 每小时整点：采集流量数据
+0  * * * * bash -lc '/etc/edgebox/scripts/traffic-collector.sh' >/dev/null 2>&1
+#
+# 每小时的第7分钟：检查流量是否触发预警
+7  * * * * bash -lc '/etc/edgebox/scripts/traffic-alert.sh' >/dev/null 2>&1
+#
+# 每天凌晨2:15：执行IP质量检测
+15 2 * * * bash -lc '/usr/local/bin/edgebox-ipq.sh' >/dev/null 2>&1
+#
+# 每天凌晨2点：检查并自动轮换Reality密钥 (如果到期)
+0  2 * * * bash -lc '/usr/local/bin/edgeboxctl rotate-reality' >/dev/null 2>&1
+#
+# 每周日凌晨3点：自动选择最优SNI域名
 0 3 * * 0 /usr/local/bin/edgeboxctl sni auto >/dev/null 2>&1
+#
 # 流量特征随机化
 0 4 * * * bash -lc '/etc/edgebox/scripts/edgebox-traffic-randomize.sh light' >/dev/null 2>&1
 0 5 * * 0 bash -lc '/etc/edgebox/scripts/edgebox-traffic-randomize.sh medium' >/dev/null 2>&1
@@ -11433,7 +11405,7 @@ CONF
 CRON
     ) | crontab -
 
-    log_success "定时任务已优化并设置完成"
+    log_success "统一的定时任务已设置完成。"
 }
 
 
@@ -12504,7 +12476,7 @@ PLAIN
   log_success "IP mode subscription updated successfully."
 }
 
-# === [CORRECTED] SNI Update Logic ===
+# === [CORRECTED] SNI Update Logic with Dashboard Refresh ===
 update_sni_domain() {
     local new_domain="$1"
     local temp_config="${XRAY_CONFIG}.tmp"
@@ -12532,6 +12504,14 @@ update_sni_domain() {
                   [[ -n "$domain" ]] && regen_sub_domain "$domain" || regen_sub_ip
                 fi
                 sni_log_success "Subscription file refreshed."
+
+                # <<< FINAL FIX: Immediately refresh the dashboard data file after changes >>>
+                log_info "正在刷新Web面板数据..."
+                if [[ -x "${SCRIPTS_DIR}/dashboard-backend.sh" ]]; then
+                    bash "${SCRIPTS_DIR}/dashboard-backend.sh" --now >/dev/null 2>&1 || log_warn "Dashboard data refresh failed."
+                    log_success "Web面板数据已刷新。"
+                fi
+                
                 return 0
             else
                 sni_log_error "Xray service failed to reload."
