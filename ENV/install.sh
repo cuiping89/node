@@ -11757,31 +11757,32 @@ get_server_info() {
     return 0
 }
 
-# 异步重启服务并安全退出 (Upgraded to include data refresh)
+
+# 异步重启服务并安全退出 (Final Bulletproof Version)
 restart_services_background() {
     local services_to_restart=("$@")
     
-    # Export the refresh function so the subshell can find it
-    export -f run_post_change_refreshes
-
-    # Build a command string that will be executed in the background
-    # Sequence: Sleep -> Restart Services -> Apply Firewall -> Refresh Data
-    local cmd="(sleep 3; "
-    for service in "${services_to_restart[@]}"; do
-        cmd+="systemctl restart $service; "
-    done
-    cmd+="sleep 2; " # Wait a bit for services to stabilize
-    cmd+="/etc/edgebox/scripts/apply-firewall.sh >/dev/null 2>&1 || true; "
-    cmd+="run_post_change_refreshes; " # This is the new crucial step
-    cmd+='echo \"[$(date)] Background restart and refresh completed.\" >> /var/log/edgebox.log)'
+    # 将要后台执行的完整命令序列
+    local cmd_sequence="
+        log_info 'Background restart started.';
+        for service in ${services_to_restart[*]}; do
+            systemctl restart \$service;
+        done;
+        sleep 2;
+        /etc/edgebox/scripts/apply-firewall.sh >/dev/null 2>&1 || true;
+        
+        log_info 'Triggering post-change data refresh...';
+        bash /etc/edgebox/scripts/dashboard-backend.sh --now >/dev/null 2>&1 || true;
+        bash /usr/local/bin/edgebox-ipq.sh >/dev/null 2>&1 || true;
+        log_info 'Background restart and refresh finished.';
+    "
     
-    # Use nohup & disown to send the command completely to the background
-    nohup bash -c "$cmd" >/dev/null 2>&1 & disown
+    # 使用 nohup 将整个命令序列送入后台
+    nohup bash -c "eval \"$cmd_sequence\"" >> /var/log/edgebox.log 2>&1 & disown
     
     log_success "命令已提交到后台执行。您的SSH连接可能会在几秒后中断。"
-    log_info "这是正常现象。请在约10-15秒后刷新Web面板查看最新状态。"
+    log_info "这是正常现象。请在约15-20秒后刷新Web面板以查看最新状态。"
     
-    # Exit the script immediately
     exit 0
 }
 
@@ -12748,21 +12749,16 @@ run_post_change_refreshes() {
 }
 
 post_shunt_report() {
-  # mode: 文案标签；url: 上游代理 URL（VPS 模式可空）
   local mode="$1" url="$2"
+  # ... (函数内部的报告逻辑保持不变) ...
   : "${CYAN:=}"; : "${GREEN:=}"; : "${RED:=}"; : "${YELLOW:=}"; : "${NC:=}"
-
   echo -e "\n${CYAN}----- 出站分流配置 · 验收报告（${mode}） -----${NC}"
-
-  # 1) 上游连通（仅当提供 url）
   echo -n "1) 上游连通性: "
   if [[ -n "$url" ]]; then
     if check_proxy_health_url "$url"; then echo -e "${GREEN}OK${NC}"; else echo -e "${RED}FAIL${NC}"; fi
   else
     echo -e "${YELLOW}（VPS 模式，跳过）${NC}"
   fi
-
-  # 2) 出口 IP 对比（仅当提供 url）
   echo -n "2) 出口 IP: "
   if [[ -n "$url" ]]; then
     local via_vps via_resi proxy_uri
@@ -12779,21 +12775,18 @@ post_shunt_report() {
   else
     echo -e "${YELLOW}（VPS 模式，跳过）${NC}"
   fi
-
-  # 3) 路由生效
   echo -n "3) Xray 路由: "
   jq -e '.outbounds[]?|select(.tag=="resi-proxy")' ${CONFIG_DIR}/xray.json >/dev/null 2>&1 \
     && echo -e "${GREEN}存在 resi-proxy 出站${NC}" || echo -e "${YELLOW}未发现 resi-proxy（VPS 模式正常）${NC}"
   echo -e "   sing-box 路由: ${YELLOW}设计为直连（HY2/TUIC 走 UDP，不参与分流）${NC}"
-
-  # 4) nftables 采集集（如已启用）
   local set4 set6
   set4=$(nft list set inet edgebox resi_addr4 2>/dev/null | sed -n 's/.*elements = {\(.*\)}/\1/p' | xargs)
   set6=$(nft list set inet edgebox resi_addr6 2>/dev/null | sed -n 's/.*elements = {\(.*\)}/\1/p' | xargs)
   echo -e "4) 采集集: IPv4={${set4:-}}  IPv6={${set6:-}}"
-
   echo -e "${CYAN}------------------------------------------${NC}\n"
 }
+
+
 # === Anchor-1 INSERT END ===
 
 # 生成 Xray 的代理 outbound JSON（单个）
@@ -12853,109 +12846,49 @@ show_shunt_status() {
 setup_outbound_vps() {
     log_info "配置VPS全量出站模式..."
     get_server_info || return 1
-
-    # Restore Xray to direct outbound
     local xray_tmp="${CONFIG_DIR}/xray.json.tmp"
     jq '.outbounds = [ { "protocol":"freedom", "tag":"direct" } ] | .routing = { "rules": [] }' "${CONFIG_DIR}/xray.json" > "$xray_tmp" && mv "$xray_tmp" "${CONFIG_DIR}/xray.json"
-
     setup_shunt_directories
     update_shunt_state "vps" "" "healthy"
     flush_nft_resi_sets
-    
-    # Call the background restart and refresh process
-    restart_services_background xray sing-box
+    post_shunt_report "VPS 全量出站" "" # Display report first
+    restart_services_background xray sing-box # Then call background restart
 }
 
-# 代理全量出站
 setup_outbound_resi() {
   local url="$1"
   [[ -z "$url" ]] && { echo "用法: edgeboxctl shunt resi '<URL>'"; return 1; }
-
   log_info "配置代理IP全量出站: ${url}"
   if ! check_proxy_health_url "$url"; then log_error "代理不可用：$url"; return 1; fi
   get_server_info || return 1
   parse_proxy_url "$url"
-
-  # Xray: 所有 TCP/UDP 流量走代理，53 直连
-  local xob; xob="$(build_xray_resi_outbound)"
-  jq --argjson ob "$xob" '
-    .outbounds=[{"protocol":"freedom","tag":"direct"}, $ob] |
-    .routing={
-      "domainStrategy":"AsIs",
-      "rules":[
-        {"type":"field","port":"53","outboundTag":"direct"},
-        {"type":"field","network":"tcp,udp","outboundTag":"resi-proxy"}
-      ]
-    }' ${CONFIG_DIR}/xray.json > ${CONFIG_DIR}/xray.json.tmp && mv ${CONFIG_DIR}/xray.json.tmp ${CONFIG_DIR}/xray.json
-
-  # sing-box: 固定直连（HY2/TUIC 需要 UDP）
-  cat > ${CONFIG_DIR}/sing-box.json <<EOF
-{"log":{"level":"info","timestamp":true},
- "inbounds":[
-  {"type":"hysteria2","tag":"hysteria2-in","listen":"0.0.0.0","listen_port":443,
-   "users":[{"password":"${PASSWORD_HYSTERIA2}"}],
-   "tls":{"enabled":true,"alpn":["h3"],"certificate_path":"${CERT_DIR}/current.pem","key_path":"${CERT_DIR}/current.key"}},
-  {"type":"tuic","tag":"tuic-in","listen":"0.0.0.0","listen_port":2053,
-   "users":[{"uuid":"${UUID_TUIC}","password":"${PASSWORD_TUIC}"}],
-   "congestion_control":"bbr",
-   "tls":{"enabled":true,"alpn":["h3"],"certificate_path":"${CERT_DIR}/current.pem","key_path":"${CERT_DIR}/current.key"}}],
- "outbounds":[{"type":"direct","tag":"direct"}]}
-EOF
-
+  local xob
+  xob="$(build_xray_resi_outbound)"
+  jq --argjson ob "$xob" '.outbounds=[{"protocol":"freedom","tag":"direct"}, $ob] | .routing={"domainStrategy":"AsIs","rules":[{"type":"field","port":"53","outboundTag":"direct"},{"type":"field","network":"tcp,udp","outboundTag":"resi-proxy"}]}' ${CONFIG_DIR}/xray.json > ${CONFIG_DIR}/xray.json.tmp && mv ${CONFIG_DIR}/xray.json.tmp ${CONFIG_DIR}/xray.json
+  # sing-box remains direct
   echo "$url" > "${CONFIG_DIR}/shunt/resi.conf"
   setup_shunt_directories
-  update_shunt_state "resi(xray-only)" "$url" "healthy"
-
-  # <<< 修复点: 先报告，再调用异步重启函数 >>>
-  post_shunt_report "代理全量（Xray-only）" "$url"
-  restart_services_background xray sing-box
+  update_shunt_state "resi" "$url" "healthy"
+  post_shunt_report "代理全量（Xray-only）" "$url" # Display report first
+  restart_services_background xray # Then call background restart
 }
 
-# 智能分流
 setup_outbound_direct_resi() {
   local url="$1"
   [[ -z "$url" ]] && { echo "用法: edgeboxctl shunt direct-resi '<URL>'"; return 1; }
-
   log_info "配置智能分流（白名单直连，其余代理）: ${url}"
   if ! check_proxy_health_url "$url"; then log_error "代理不可用：$url"; return 1; fi
   get_server_info || return 1; setup_shunt_directories
   parse_proxy_url "$url"
-
   local xob wl; xob="$(build_xray_resi_outbound)"
   wl='[]'
   [[ -s "${CONFIG_DIR}/shunt/whitelist.txt" ]] && wl="$(cat "${CONFIG_DIR}/shunt/whitelist.txt" | jq -R -s 'split("\n")|map(select(length>0))|map("domain:"+.)')"
-
-  jq --argjson ob "$xob" --argjson wl "$wl" '
-    .outbounds=[{"protocol":"freedom","tag":"direct"}, $ob] |
-    .routing={
-      "domainStrategy":"AsIs",
-      "rules":[
-        {"type":"field","port":"53","outboundTag":"direct"},
-        {"type":"field","domain":$wl,"outboundTag":"direct"},
-        {"type":"field","network":"tcp,udp","outboundTag":"resi-proxy"}
-      ]
-    }' ${CONFIG_DIR}/xray.json > ${CONFIG_DIR}/xray.json.tmp && mv ${CONFIG_DIR}/xray.json.tmp ${CONFIG_DIR}/xray.json
-
-  # sing-box: 固定直连
-  cat > ${CONFIG_DIR}/sing-box.json <<EOF
-{"log":{"level":"info","timestamp":true},
- "inbounds":[
-  {"type":"hysteria2","tag":"hysteria2-in","listen":"0.0.0.0","listen_port":443,
-   "users":[{"password":"${PASSWORD_HYSTERIA2}"}],
-   "tls":{"enabled":true,"alpn":["h3"],"certificate_path":"${CERT_DIR}/current.pem","key_path":"${CERT_DIR}/current.key"}},
-  {"type":"tuic","tag":"tuic-in","listen":"0.0.0.0","listen_port":2053,
-   "users":[{"uuid":"${UUID_TUIC}","password":"${PASSWORD_TUIC}"}],
-   "congestion_control":"bbr",
-   "tls":{"enabled":true,"alpn":["h3"],"certificate_path":"${CERT_DIR}/current.pem","key_path":"${CERT_DIR}/current.key"}}],
- "outbounds":[{"type":"direct","tag":"direct"}]}
-EOF
-
+  jq --argjson ob "$xob" --argjson wl "$wl" '.outbounds=[{"protocol":"freedom","tag":"direct"}, $ob] | .routing={"domainStrategy":"AsIs","rules":[{"type":"field","port":"53","outboundTag":"direct"},{"type":"field","domain":$wl,"outboundTag":"direct"},{"type":"field","network":"tcp,udp","outboundTag":"resi-proxy"}]}' ${CONFIG_DIR}/xray.json > ${CONFIG_DIR}/xray.json.tmp && mv ${CONFIG_DIR}/xray.json.tmp ${CONFIG_DIR}/xray.json
+  # sing-box remains direct
   echo "$url" > "${CONFIG_DIR}/shunt/resi.conf"
-  update_shunt_state "direct_resi(xray-only)" "$url" "healthy"
-  
-  # <<< 修复点: 先报告，再调用异步重启函数 >>>
-  post_shunt_report "智能分流（白名单直连）" "$url"
-  restart_services_background xray sing-box
+  update_shunt_state "direct-resi" "$url" "healthy"
+  post_shunt_report "智能分流（白名单直连）" "$url" # Display report first
+  restart_services_background xray # Then call background restart
 }
 
 manage_whitelist() {
