@@ -8857,7 +8857,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   display: grid;
   /* 修正2: 限制命令列最大宽度为50%，解决长命令挤压注释的问题 */
   grid-template-columns: minmax(auto, 50%) 1fr;
-  column-gap: 8px; /* 您可以在这里调节命令与注释的水平间距 */
+  column-gap: 10px; /* 您可以在这里调节命令与注释的水平间距 */
   row-gap: 4px;
   align-items: center;
   grid-auto-flow: row dense;
