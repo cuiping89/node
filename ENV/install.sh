@@ -8857,9 +8857,14 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   font-family:monospace;
   font-size:.78rem;
   line-height:1.1;
-  display:inline-block;
-  min-width:300px;     /* 命令固定宽度，注释左对齐 */
-  margin-right:0;      /* 缩短间距 */
+
+  /* 关键修改：让灰底随内容宽度，不再被强制拉长 */
+  display:inline-block;    /* 维持内边距与圆角效果 */
+  min-width:auto;          /* 取消固定最小宽度（原为 300px） */
+  max-width:100%;          /* 超长时不超出容器 */
+  white-space:pre-wrap;    /* 按空格/连字符换行，灰底随换行一起包裹 */
+
+  margin-right:6px;        /* 给后面的注释留一点点间距 */
   margin-bottom:2px;
 }
 .command-list span{ 
