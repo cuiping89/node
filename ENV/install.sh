@@ -8813,7 +8813,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 /* =======================================================================
-   运维管理 (2025-10-09 最终修正版)
+   运维管理 (字体统一最终版)
    ======================================================================= */
 
 .commands-grid {
@@ -8833,7 +8833,6 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   border-radius: 8px;
   padding: 12px;
 }
-/* 修正1: 增加标题与内容的间距 */
 .command-section h3 {
   margin: 0 0 16px;
   font-size: 0.9rem;
@@ -8855,7 +8854,6 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   list-style: none;
 
   display: grid;
-  /* 修正2: 限制命令列最大宽度，解决长命令挤压注释的问题 */
   grid-template-columns: minmax(auto, 50%) 1fr;
   column-gap: 8px; /* 在这里调节命令与注释的水平间距 */
   row-gap: 4px;
@@ -8905,21 +8903,21 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 .commands-grid .command-list > :not(code):not(span):not(a),
 .command-list > :not(code):not(span):not(a) {
   grid-column: 1 / -1;
-  margin: 0; /* 修正3: 移除固定margin-top，确保行距统一 */
+  margin: 0;
   line-height: 1.4;
-  color: #2563eb; /* 修正3: 统一为蓝色 */
+  color: #2563eb; 
   font-size: 0.78rem;
   font-weight: 600;
 }
 
-/* 修正4: 将“示例命令”和“level说明”等内容统一为【蓝字灰底】胶囊样式 */
+/* 【关键修正】将“示例命令”和“level说明”等内容统一为【蓝字灰底等宽字体】胶囊样式 */
 #ops-panel .command-list > a,
 .commands-grid .command-list > a,
 .command-list > a,
 #ops-panel .command-list > div + div,
 .commands-grid .command-list > div + div,
 .command-list > div + div {
-  grid-column: 1; /* 确保它们都在第一列 */
+  grid-column: 1;
   display: inline-block;
   justify-self: start;
   background: #e2e8f0;
@@ -8927,13 +8925,14 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   border-radius: 4px;
   text-decoration: none;
   margin: 0;
-  color: #2563eb; /* 文字为蓝色 */
+  color: #2563eb;
+  white-space: pre-wrap;
+  max-width: 100%;
+  font-weight: 500;
+  /* 统一使用等宽字体和字号 */
   font-family: monospace;
   font-size: 0.78rem;
   line-height: 1.2;
-  white-space: pre-wrap;
-  max-width: 100%;
-  font-weight: 500; /* 恢复为常规字重 */
 }
 
 
