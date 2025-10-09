@@ -8813,7 +8813,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 /* =======================================================================
-   运维管理
+   运维管理 (最终修正版)
    ======================================================================= */
 
 .commands-grid {
@@ -8833,9 +8833,9 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   border-radius: 8px;
   padding: 12px;
 }
-/* 修正5: 标题选择器从h4改为h3，并增加间距 */
+/* 修正1: 修正标题选择器(h3)并增加与内容的间距 */
 .command-section h3 {
-  margin: 0 0 16px; /* 进一步增加底部间距 */
+  margin: 0 0 16px; /* 增加底部间距至16px */
   font-size: 0.9rem;
   font-weight: 600;
   color: #1e293b;
@@ -8855,9 +8855,9 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   list-style: none;
 
   display: grid;
-  /* 修正4: 限制命令列最大宽度，防止长命令挤压注释导致换行 */
+  /* 修正2: 限制命令列最大宽度为50%，解决长命令挤压注释的问题 */
   grid-template-columns: minmax(auto, 50%) 1fr;
-  column-gap: 8px;
+  column-gap: 8px; /* 您可以在这里调节命令与注释的水平间距 */
   row-gap: 4px;
   align-items: center;
   grid-auto-flow: row dense;
@@ -8901,7 +8901,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   border-radius: 4px;
   text-decoration: none;
   margin: 0;
-  /* 修正1: 统一为蓝色 */
+  /* 修正3: 示例命令的文字统一为蓝色 */
   color: #2563eb;
   font-family: monospace;
   font-size: 0.78rem;
@@ -8921,19 +8921,29 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   line-height: 1.25;
 }
 
-/* “示例”等整行元素 */
+/* “示例”、“level”等标题行样式 */
 #ops-panel .command-list > :not(code):not(span):not(a),
 .commands-grid .command-list > :not(code):not(span):not(a),
 .command-list > :not(code):not(span):not(a) {
   grid-column: 1 / -1;
-  /* 修正2: 移除固定margin-top，使其行距与普通行完全统一 */
+  /* 修正3: 移除固定margin-top，确保行距与普通行完全统一 */
   margin: 0;
   line-height: 1.4;
-  /* 修正1: 统一为蓝色 */
+  /* 修正3: 示例标题统一为蓝色 */
   color: #2563eb; 
   font-size: 0.78rem;
   font-weight: 600; /* 加粗以示区别 */
 }
+
+/* 新增规则: 将“level”、“代理URL格式”下的说明文字恢复为灰色 */
+#ops-panel .command-list > div + div,
+.commands-grid .command-list > div + div,
+.command-list > div + div {
+  /* 修正4: 将说明内容的样式恢复为注释的灰色和常规字体 */
+  color: #6b7280;
+  font-weight: 500;
+}
+
 
 /* =========================
    弹窗 Modal 统一样式补丁
