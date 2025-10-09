@@ -8813,153 +8813,117 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 /* =======================================================================
-   运维管理 (最终修正版)
+   运维管理（命令灰底随内容 + 注释列左对齐 + 标题/示例/level/代理URL统一风格）
    ======================================================================= */
 
-.commands-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 20px;
+.commands-grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:20px;
 }
-@media (max-width: 768px) {
-  .commands-grid { grid-template-columns: 1fr; }
-}
-
-.command-section {
-  background: #f5f5f5;
-  border: 1px solid #d1d5db;
-  border-radius: 8px;
-  padding: 12px;
-}
-/* 修正1: 标题(h3) */
-.command-section h3 {
-  margin: 0 0 16px;
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: #1e293b;
-  display: flex;
-  align-items: center;
-  gap: 6px;
+@media (max-width:768px){
+  .commands-grid{ grid-template-columns:1fr; }
 }
 
-/* 列表整体：两列网格（左列命令 / 右列注释） */
+.command-section{
+  background:#f5f5f5;
+  border:1px solid #d1d5db;
+  border-radius:8px;
+  padding:12px;
+}
+
+/* 标题（面板卡片标题） */
+.command-section h3{
+  margin:0 0 16px;
+  font-size:.9rem;
+  font-weight:600;
+  color:#1e293b;
+  display:flex;
+  align-items:center;
+  gap:6px;
+}
+
+/* 列表整体：两列网格 —— 左列命令，右列注释 */
 #ops-panel .command-list,
 .commands-grid .command-list,
-.command-list {
-  font-size: 0.8rem;
-  line-height: 1.3;
-  margin: 0;
-  padding: 0;
-  list-style: none;
+.command-list{
+  font-size:.8rem;
+  line-height:1.3;
+  margin:0;
+  padding:0;
+  list-style:none;
 
-  display: grid;
-  /* 修正2: 左列最多占 50%，避免长命令挤压注释 */
-  grid-template-columns: minmax(auto,50%) 1fr;
-  column-gap: 10px;
-  row-gap: 4px;
-  align-items: center;
-  grid-auto-flow: row dense;
+  display:grid;
+  /* 左列最多占 50%，避免超长命令把注释挤没 */
+  grid-template-columns:minmax(auto,50%) 1fr;
+  column-gap:10px;
+  row-gap:4px;
+  align-items:center;
+  grid-auto-flow:row dense;
 }
 
-/* 隐藏 <br> 产生的额外空白 */
+/* 不让 <br> 产生空白行 —— 行距完全交给 row-gap 控制 */
 #ops-panel .command-list > br,
 .commands-grid .command-list > br,
-.command-list > br { display: none; }
+.command-list > br{ display:none; }
 
-/* 普通命令 <code>：灰底胶囊 */
+/* 命令（灰底小胶囊，随内容宽度） */
 #ops-panel .command-list > code,
 .commands-grid .command-list > code,
-.command-list > code {
-  grid-column: 1;
-  display: inline-block;
-  justify-self: start;
-  background: #e2e8f0;
-  color: #1f2937;
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-family: monospace;
-  font-size: 0.78rem;
-  line-height: 1.2;
-  white-space: pre-wrap;
-  max-width: 100%;
-  margin: 0;
+.command-list > code{
+  grid-column:1;
+  display:inline-block;
+  justify-self:start;
+  background:#e2e8f0;
+  color:#1f2937;
+  padding:2px 6px;
+  border-radius:4px;
+  font-family:monospace;
+  font-size:.78rem;
+  line-height:1.2;
+  white-space:pre-wrap;
+  max-width:100%;
+  margin:0;
 }
 
-/* 示例命令 <a>：与 <code> 同款灰底胶囊（蓝字） */
-#ops-panel .command-list > a,
-.commands-grid .command-list > a,
-.command-list > a {
-  grid-column: 1;
-  display: inline-block;
-  justify-self: start;
-  background: #e2e8f0;
-  padding: 2px 6px;
-  border-radius: 4px;
-  text-decoration: none;
-  margin: 0;
-
-  color: #2563eb;
-  font-family: monospace;
-  font-size: 0.78rem;
-  line-height: 1.2;
-  white-space: pre-wrap;
-  max-width: 100%;
-}
-
-/* 注释 <span>（右列左对齐） */
+/* 注释（右列统一左对齐） */
 #ops-panel .command-list > span,
 .commands-grid .command-list > span,
-.command-list > span {
-  grid-column: 2;
-  color: #6b7280;
-  text-align: left;
-  margin: 0;
-  line-height: 1.25;
+.command-list > span{
+  grid-column:2;
+  color:#6b7280;
+  text-align:left;
+  margin:0;
+  line-height:1.25;
 }
 
-/* 标题行（如 “示例：”“level:”“代理URL格式：”）——统一成蓝字，无灰底 */
-#ops-panel .command-list > :not(code):not(span):not(a),
-.commands-grid .command-list > :not(code):not(span):not(a),
-.command-list > :not(code):not(span):not(a) {
-  grid-column: 1 / -1;
-  margin: 0;
-  line-height: 1.3;
-  color: #2563eb;           /* 标题蓝字 */
-  font-size: 0.78rem;       /* 与示例一致 */
-  font-weight: 600;
+/* 标题行（如：示例 / level / 代理URL格式）——蓝字，无灰底，跨两列 */
+.command-list .cmd-label{
+  grid-column:1 / -1;
+  margin:0;
+  line-height:1.3;
+  color:#2563eb;
+  font-size:.78rem;
+  font-weight:600;
 }
 
-/* 关键改动①：标题后的“内容块”(div)里若没有链接 <a>（例如 level 列表），
-   也做成蓝字灰底的小胶囊，按行断开。*/
-#ops-panel .command-list > div + div:not(:has(a)),
-.commands-grid .command-list > div + div:not(:has(a)),
-.command-list > div + div:not(:has(a)) {
-  grid-column: 1 / -1;
-  display: inline;                 /* 让一个块按行内渲染，配合 clone 逐行成胶囊 */
-  background: #e2e8f0;
-  color: #2563eb;
-  font-family: monospace;
-  font-size: 0.78rem;
-  line-height: 1.2;
-  padding: 2px 6px;
-  border-radius: 4px;
-  box-decoration-break: clone;     /* 每个换行(<br>)单独成一枚胶囊 */
+/* 胶囊行（用于示例命令、level 内容、代理URL等）——蓝字+灰底，等宽字体 */
+.command-list > .cmd-pill{
+  grid-column:1;                /* 放在命令列 */
+  display:inline-block;
+  justify-self:start;
+  background:#e2e8f0;
+  color:#2563eb;
+  padding:2px 6px;
+  border-radius:4px;
+  font-family:monospace;
+  font-size:.78rem;
+  line-height:1.2;
+  white-space:pre-wrap;
+  max-width:100%;
+  margin:0;
+  text-decoration:none;         /* 若为 <a>，去下划线 */
 }
-
-/* 关键改动②：标题后的“内容块”里若包含链接 <a>（例如 代理URL格式），
-   链接本身已由上面的 a 规则渲染为蓝字灰底胶囊；确保整体与普通行同等行距。*/
-#ops-panel .command-list > div + div:has(a),
-.commands-grid .command-list > div + div:has(a),
-.command-list > div + div:has(a) {
-  grid-column: 1 / -1;
-  margin: 0;
-  line-height: 1.3;
-}
-
-/* 防止内容块内部的段落自带外边距 */
-#ops-panel .command-list p,
-.commands-grid .command-list p,
-.command-list p { margin: 0; }
 
 /* =========================
    弹窗 Modal 统一样式补丁
@@ -11234,39 +11198,62 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
       </div>
     </div>
 
+<div id="ops-panel">
+  <div class="commands-grid">
+
+    <!-- 🧬 流量特征随机化 -->
     <div class="command-section">
-      <h3>🎲 流量特征随机化</h3>
+      <h3>🧬 流量特征随机化</h3>
       <div class="command-list">
-        <code>edgeboxctl traffic status</code> <span># 查看随机化系统状态和定时任务</span>
-        <code>edgeboxctl traffic reset</code> <span># 重置随机化参数为默认值</span>
-		<code>edgeboxctl traffic randomize [light|medium|heavy]</code> <span># 执行流量特征随机化，增强隐蔽性</span>
-        <div>示例：</div>
-        <a>edgeboxctl traffic randomize medium</a>
-        <div>level:</div>
-        <div>light(默认) - 轻度随机化，仅修改 Hysteria2 伪装站点</div>
-        <div>medium  - 中度随机化，修改 Hysteria2 + TUIC 参数</div>
-        <div>heavy  - 重度随机化，修改全协议参数</div>
+
+        <!-- 命令 + 注释 -->
+        <code>edgeboxctl traffic status</code><span>查看随机化系统状态和定时任务</span><br>
+        <code>edgeboxctl traffic reset</code><span>重置随机化参数为默认值</span><br>
+        <code>edgeboxctl traffic randomize [light|medium|heavy]</code><span>执行流量特征随机化，增强隐蔽性</span><br>
+
+        <!-- 示例 -->
+        <p class="cmd-label">示例：</p>
+        <a class="cmd-pill" href="#">edgeboxctl traffic randomize medium</a><br>
+
+        <!-- 等级说明（与示例一致的“蓝字灰底胶囊”） -->
+        <p class="cmd-label">level:</p>
+        <span class="cmd-pill">light（默认）— 轻度随机化，仅修改 Hysteria2 仿装站点</span><br>
+        <span class="cmd-pill">medium — 中度随机化，修改 Hysteria2 + TUIC 参数</span><br>
+        <span class="cmd-pill">heavy — 重度随机化，修改全协议参数</span>
+
       </div>
     </div>
 
+
+   <!-- 🚏 出站分流 -->
     <div class="command-section">
-      <h3>🔀 出站分流</h3>
+      <h3>🚏 出站分流</h3>
       <div class="command-list">
-        <code>edgeboxctl shunt vps</code> <span># [模式] VPS 直连出站 (默认)</span>
-        <code>edgeboxctl shunt resi '&lt;URL&gt;'</code> <span># [模式] 代理全量出站 (仅 Xray)</span>
-        <code>edgeboxctl shunt direct-resi '&lt;URL&gt;'</code> <span># [模式] 智能分流 (白名单直连，其余走代理)</span>
-        <code>edgeboxctl shunt status</code> <span># 查看当前出站模式及代理健康状况</span>
-        <code>edgeboxctl shunt whitelist &lt;action&gt; [domain]</code> <span># 管理白名单 (add|remove|list|reset)</span>
-        <div>示例：</div>
-        <a>edgeboxctl shunt direct-resi 'socks5://user:pass@host:port'</a>
-        <a>edgeboxctl shunt whitelist add netflix.com</a>
-        <div>代理URL格式：</div>
-        <div>http://user:pass@host:port</div>
-        <div>https://user:pass@host:port?sni=example.com</div>
-        <div>socks5://user:pass@host:port</div>
-        <div>socks5s://user:pass@host:port?sni=example.com</div>
+
+        <!-- 命令 + 注释 -->
+        <code>edgeboxctl shunt vps</code><span>【模式】VPS 直连出站（默认）</span><br>
+        <code>edgeboxctl shunt resi `&lt;URL&gt;`</code><span>【模式】代理全量出站（仅 Xray）</span><br>
+        <code>edgeboxctl shunt direct-resi `&lt;URL&gt;`</code><span>【模式】智能分流（白名单直连，其余走代理）</span><br>
+        <code>edgeboxctl shunt status</code><span>查看当前出站模式及代理健康状态</span><br>
+        <code>edgeboxctl shunt whitelist {action} [domain]</code><span>管理白名单（add|remove|list|reset）</span><br>
+
+        <!-- 示例 -->
+        <p class="cmd-label">示例：</p>
+        <a class="cmd-pill" href="#">edgeboxctl shunt direct-resi 'socks5://user:pass@host:port'</a><br>
+        <a class="cmd-pill" href="#">edgeboxctl shunt whitelist add netflix.com</a><br>
+
+        <!-- 代理URL格式（与示例一致的“蓝字灰底胶囊”） -->
+        <p class="cmd-label">代理URL格式：</p>
+        <a class="cmd-pill" href="#">http://user:pass@host:port</a><br>
+        <a class="cmd-pill" href="#">https://user:pass@host:port</a><br>
+        <a class="cmd-pill" href="#">socks5://user:pass@host:port</a><br>
+        <a class="cmd-pill" href="#">socks5://user:pass@host:port?sni=example.com</a>
+
       </div>
     </div>
+
+  </div>
+</div>
 
     <div class="command-section">
       <h3>📊 流量与预警</h3>
