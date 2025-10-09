@@ -8813,8 +8813,51 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 /* =======================================================================
+   基础卡片和标题样式 (运维管理模块依赖这些通用样式)
+   =================================================================== */
+
+.card {
+  background: #fff;
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, .08);
+  padding: 20px;
+  margin-bottom: 20px;
+  transition: box-shadow .2s;
+}
+
+.card:hover {
+  box-shadow: 0 4px 8px rgba(0, 0, 0, .08);
+}
+
+.card-header {
+  margin-bottom: 20px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.card-header h2 {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 18px;
+  font-weight: 600;
+  color: #111827;
+  line-height: 26px;
+}
+
+h3 {
+  font-size: 15px;
+  line-height: 1.4;
+  font-weight: 600;
+  color: #111827;
+}
+
+
+/* =======================================================================
    运维管理 (最终修正版)
    ======================================================================= */
+
 .commands-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -8822,14 +8865,15 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 /* 修复：允许每张卡在网格里收缩，避免长内容把相邻列挤爆 */
-.commands-grid > .command-section { 
+.commands-grid > .command-section {
   min-width: 0;
-  overflow: hidden; /* 防止内容溢出导致布局错乱 */
+  overflow: hidden;
+  /* 防止内容溢出导致布局错乱 */
 }
 
 @media (max-width: 768px) {
-  .commands-grid { 
-    grid-template-columns: 1fr; 
+  .commands-grid {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -8867,14 +8911,15 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   row-gap: 4px;
   align-items: start;
   grid-auto-flow: row dense;
-  width: 100%; /* 确保列表不超出卡片宽度 */
+  width: 100%;
+  /* 确保列表不超出卡片宽度 */
 }
 
 /* 不让 <br> 产生空白行 —— 行距交给 row-gap 控制 */
 #ops-panel .command-list > br,
 .commands-grid .command-list > br,
-.command-list > br { 
-  display: none; 
+.command-list > br {
+  display: none;
 }
 
 /* 普通命令 <code>：灰底胶囊，随内容宽度 */
@@ -8893,11 +8938,13 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   line-height: 1.2;
   white-space: pre-wrap;
   max-width: 100%;
-  min-width: 0; /* 允许收缩 */
+  min-width: 0;
+  /* 允许收缩 */
   margin: 0;
   /* 修复：长 URL/参数可在任意位置断行，不会把布局顶乱 */
   overflow-wrap: anywhere;
-  word-break: break-word; /* 改为 break-word，比 break-all 更友好 */
+  word-break: break-word;
+  /* 改为 break-word，比 break-all 更友好 */
 }
 
 /* 示例命令 <a>：与 <code> 同款灰底胶囊（蓝字） */
@@ -8918,7 +8965,8 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   line-height: 1.2;
   white-space: pre-wrap;
   max-width: 100%;
-  min-width: 0; /* 允许收缩 */
+  min-width: 0;
+  /* 允许收缩 */
   overflow-wrap: anywhere;
   word-break: break-word;
 }
@@ -8932,8 +8980,10 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   text-align: left;
   margin: 0;
   line-height: 1.25;
-  min-width: 0; /* 允许收缩 */
-  overflow-wrap: break-word; /* 防止长文本溢出 */
+  min-width: 0;
+  /* 允许收缩 */
+  overflow-wrap: break-word;
+  /* 防止长文本溢出 */
 }
 
 /* "示例 / level / 代理URL格式"标题行：蓝字，无灰底，跨两列 */
@@ -11264,21 +11314,17 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 <div id="ops-panel">
   <div class="commands-grid">
 
-    <!-- 🧬 流量特征随机化 -->
     <div class="command-section">
       <h3>🧬 流量特征随机化</h3>
       <div class="command-list">
 
-        <!-- 命令 + 注释 -->
         <code>edgeboxctl traffic status</code><span>查看随机化系统状态和定时任务</span><br>
         <code>edgeboxctl traffic reset</code><span>重置随机化参数为默认值</span><br>
         <code>edgeboxctl traffic randomize [light|medium|heavy]</code><span>执行流量特征随机化，增强隐蔽性</span><br>
 
-        <!-- 示例 -->
         <p class="cmd-label">示例：</p>
         <a class="cmd-pill" href="#">edgeboxctl traffic randomize medium</a><br>
 
-        <!-- 等级说明（与示例一致的“蓝字灰底胶囊”） -->
         <p class="cmd-label">level:</p>
         <span class="cmd-pill">light（默认）— 轻度随机化，仅修改 Hysteria2 仿装站点</span><br>
         <span class="cmd-pill">medium — 中度随机化，修改 Hysteria2 + TUIC 参数</span><br>
@@ -11288,24 +11334,20 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
     </div>
 
 
-   <!-- 🚏 出站分流 -->
-    <div class="command-section">
+   <div class="command-section">
       <h3>🚏 出站分流</h3>
       <div class="command-list">
 
-        <!-- 命令 + 注释 -->
         <code>edgeboxctl shunt vps</code><span>【模式】VPS 直连出站（默认）</span><br>
         <code>edgeboxctl shunt resi `&lt;URL&gt;`</code><span>【模式】代理全量出站（仅 Xray）</span><br>
         <code>edgeboxctl shunt direct-resi `&lt;URL&gt;`</code><span>【模式】智能分流（白名单直连，其余走代理）</span><br>
         <code>edgeboxctl shunt status</code><span>查看当前出站模式及代理健康状态</span><br>
         <code>edgeboxctl shunt whitelist {action} [domain]</code><span>管理白名单（add|remove|list|reset）</span><br>
 
-        <!-- 示例 -->
         <p class="cmd-label">示例：</p>
         <a class="cmd-pill" href="#">edgeboxctl shunt direct-resi 'socks5://user:pass@host:port'</a><br>
         <a class="cmd-pill" href="#">edgeboxctl shunt whitelist add netflix.com</a><br>
 
-        <!-- 代理URL格式（与示例一致的“蓝字灰底胶囊”） -->
         <p class="cmd-label">代理URL格式：</p>
         <a class="cmd-pill" href="#">http://user:pass@host:port</a><br>
         <a class="cmd-pill" href="#">https://user:pass@host:port</a><br>
