@@ -8845,6 +8845,10 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 .command-list{
   font-size:.8rem;
   line-height:1.6;
+  display:grid;
+  grid-template-columns:max-content 1fr;
+  column-gap:12px;
+  row-gap:4px;
 }
 /* 深灰代码块（命令） */
 #ops-panel .command-list code,
@@ -8858,13 +8862,13 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   font-size:.78rem;
   line-height:1.1;
   display:inline-block;
-  min-width:300px;     /* 命令固定宽度，注释左对齐 */
-  margin-right:0;      /* 缩短间距 */
-  margin-bottom:2px;
+  margin-right:0;
+  margin-bottom:0;
 }
 .command-list span{ 
   color:#6b7280; 
-  margin-left:0;       /* 注释紧跟命令 */
+  margin-left:0;
+  align-self:center;
 }
 
 
@@ -9722,7 +9726,24 @@ if (shuntMode.includes('resi') || shuntMode.includes('direct')) {
     document.getElementById('net-proxy')?.classList.add('active');
   }
   const proxyRaw = String(shunt.proxy_info || '');
-  function formatProxy(raw){/* 原格式化函数保持不变 */} // 省略：用你现有的实现
+  
+function formatProxy(raw) {
+  if (!raw) return '—';
+  try {
+    // 允许：http/https/socks/socks5，也兼容“host:port / host”
+    const m = String(raw).trim().match(
+      /^(?:(https?|socks5?)\:\/\/)?(?:[^@\/\s]+@)?(\[[^\]]+\]|[^:\/?#\s]+)(?::(\d+))?$/i
+    );
+    if (!m) return raw;
+    const scheme = (m[1] || 'socks5').toLowerCase();
+    const host   = m[2];
+    const port   = m[3] ? `:${m[3]}` : '';
+    return `${scheme}://${host}${port}`;
+  } catch {
+    return raw;
+  }
+}
+
   setText('proxy-ip', formatProxy(proxyRaw));
 
   // 异步拉取代理的 IPQ 详情
