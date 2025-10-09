@@ -8821,10 +8821,11 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   grid-template-columns: 1fr 1fr;
   gap: 20px;
 }
+/* 修复：允许每张卡在网格里收缩，避免长内容把相邻列挤爆 */
+.commands-grid > .command-section { min-width: 0; }
+
 @media (max-width: 768px) {
-  .commands-grid {
-    grid-template-columns: 1fr;
-  }
+  .commands-grid { grid-template-columns: 1fr; }
 }
 
 .command-section {
@@ -8833,9 +8834,10 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   border-radius: 8px;
   padding: 12px;
 }
-/* 修正1: 修正标题选择器(h3)并增加与内容的间距 */
+
+/* 标题 */
 .command-section h3 {
-  margin: 0 0 16px; /* 增加底部间距至16px */
+  margin: 0 0 16px;
   font-size: 0.9rem;
   font-weight: 600;
   color: #1e293b;
@@ -8844,7 +8846,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   gap: 6px;
 }
 
-/* 列表整体：两列网格 */
+/* 列表整体：两列网格（左列命令 / 右列注释） */
 #ops-panel .command-list,
 .commands-grid .command-list,
 .command-list {
@@ -8855,22 +8857,20 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   list-style: none;
 
   display: grid;
-  /* 修正2: 限制命令列最大宽度为50%，解决长命令挤压注释的问题 */
+  /* 左列最多占 50%，避免超长命令把注释挤没 */
   grid-template-columns: minmax(auto, 50%) 1fr;
-  column-gap: 10px; /* 您可以在这里调节命令与注释的水平间距 */
+  column-gap: 10px;
   row-gap: 4px;
-  align-items: center;
+  align-items: start;            /* 修复：多行时顶部对齐更稳 */
   grid-auto-flow: row dense;
 }
 
-/* 隐藏不必要的 <br> 标签 */
+/* 不让 <br> 产生空白行 —— 行距交给 row-gap 控制 */
 #ops-panel .command-list > br,
 .commands-grid .command-list > br,
-.command-list > br {
-  display: none;
-}
+.command-list > br { display: none; }
 
-/* 普通命令 <code>：保持完整的灰色胶囊样式 */
+/* 普通命令 <code>：灰底胶囊，随内容宽度 */
 #ops-panel .command-list > code,
 .commands-grid .command-list > code,
 .command-list > code {
@@ -8887,9 +8887,13 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   white-space: pre-wrap;
   max-width: 100%;
   margin: 0;
+
+  /* 修复：长 URL/参数可在任意位置断行，不会把布局顶乱 */
+  overflow-wrap: anywhere;
+  word-break: break-all;
 }
 
-/* 示例命令 <a> */
+/* 示例命令 <a>：与 <code> 同款灰底胶囊（蓝字） */
 #ops-panel .command-list > a,
 .commands-grid .command-list > a,
 .command-list > a {
@@ -8901,16 +8905,18 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   border-radius: 4px;
   text-decoration: none;
   margin: 0;
-  /* 修正3: 示例命令的文字统一为蓝色 */
+
   color: #2563eb;
   font-family: monospace;
   font-size: 0.78rem;
   line-height: 1.2;
   white-space: pre-wrap;
   max-width: 100%;
+  overflow-wrap: anywhere;    /* 同步断行策略 */
+  word-break: break-all;
 }
 
-/* 注释 <span> */
+/* 注释 <span>：右列左对齐 */
 #ops-panel .command-list > span,
 .commands-grid .command-list > span,
 .command-list > span {
@@ -8921,28 +8927,56 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   line-height: 1.25;
 }
 
-/* “示例”、“level”等标题行样式 */
+/* “示例 / level / 代理URL格式”标题行：蓝字，无灰底，跨两列 */
 #ops-panel .command-list > :not(code):not(span):not(a),
 .commands-grid .command-list > :not(code):not(span):not(a),
 .command-list > :not(code):not(span):not(a) {
   grid-column: 1 / -1;
-  /* 修正3: 移除固定margin-top，确保行距与普通行完全统一 */
-  margin: 0;
+  margin: 0;                 /* 行距与普通行一致 */
   line-height: 1.4;
-  /* 修正3: 示例标题统一为蓝色 */
-  color: #2563eb; 
+  color: #2563eb;
   font-size: 0.78rem;
-  font-weight: 600; /* 加粗以示区别 */
+  font-weight: 600;
 }
 
-/* 新增规则: 将“level”、“代理URL格式”下的说明文字恢复为灰色 */
+/* “level / 代理URL格式”内容块（旧结构）：保持说明为灰色文本 */
 #ops-panel .command-list > div + div,
 .commands-grid .command-list > div + div,
 .command-list > div + div {
-  /* 修正4: 将说明内容的样式恢复为注释的灰色和常规字体 */
   color: #6b7280;
   font-weight: 500;
+  margin: 0;
+  line-height: 1.3;
 }
+
+/* 兼容：若你已按统一结构使用 .cmd-label / .cmd-pill，这里也提供样式 */
+.command-list .cmd-label {
+  grid-column: 1 / -1;
+  margin: 0;
+  line-height: 1.3;
+  color: #2563eb;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.command-list > .cmd-pill {
+  grid-column: 1;
+  display: inline-block;
+  justify-self: start;
+  background: #e2e8f0;
+  color: #2563eb;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 0.78rem;
+  line-height: 1.2;
+  white-space: pre-wrap;
+  max-width: 100%;
+  margin: 0;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+
 
 /* =========================
    弹窗 Modal 统一样式补丁
