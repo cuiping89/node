@@ -4450,11 +4450,11 @@ get_services_status() {
         }'
 }
 
-
-# 获取协议配置状态 (最终修正版 - 动态主机名 + 语法修复)
+# 获取协议配置状态 (最终修正版 - 动态主机名 + 动态SNI)
 get_protocols_status() {
     local health_report_file="${TRAFFIC_DIR}/protocol-health.json"
     local server_config_file="${CONFIG_DIR}/server.json"
+    local xray_config_file="${CONFIG_DIR}/xray.json"
 
     # 动态判断使用域名还是IP
     local host_or_ip
@@ -4464,6 +4464,11 @@ get_protocols_status() {
     else
         host_or_ip=$(jq -r '.server_ip // "127.0.0.1"' "$server_config_file" 2>/dev/null || echo "127.0.0.1")
     fi
+
+    # <<< FIX: Dynamically read the current Reality SNI from xray.json >>>
+    local reality_sni
+    reality_sni="$(jq -r 'first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.serverNames[0]) // (first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.dest) | split(":")[0]) // empty' "$xray_config_file" 2>/dev/null)"
+    : "${reality_sni:=www.microsoft.com}" # Fallback to a default
 
     local health_data="[]"
     if [[ -s "$health_report_file" ]]; then
@@ -4496,15 +4501,15 @@ get_protocols_status() {
             --arg name "$name" \
             --argjson conf "$server_config" \
             --arg domain "$host_or_ip" \
+            --arg reality_sni "$reality_sni" \
             '
             def url_encode: @uri;
-            if $name == "VLESS-Reality" then "vless://\($conf.uuid.vless.reality)@\($domain):443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.microsoft.com&pbk=\($conf.reality.public_key)&sid=\($conf.reality.short_id)&type=tcp#EdgeBox-REALITY"
+            if $name == "VLESS-Reality" then "vless://\($conf.uuid.vless.reality)@\($domain):443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=\($reality_sni)&pbk=\($conf.reality.public_key)&sid=\($conf.reality.short_id)&type=tcp#EdgeBox-REALITY"
             elif $name == "VLESS-gRPC" then "vless://\($conf.uuid.vless.grpc)@\($domain):443?encryption=none&security=tls&sni=\($domain)&alpn=h2&type=grpc&serviceName=grpc&fp=chrome#EdgeBox-gRPC"
             elif $name == "VLESS-WebSocket" then "vless://\($conf.uuid.vless.ws)@\($domain):443?encryption=none&security=tls&sni=\($domain)&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome#EdgeBox-WS"
             elif $name == "Trojan-TLS" then "trojan://\($conf.password.trojan | url_encode)@\($domain):443?security=tls&sni=trojan.\($domain)&alpn=http%2F1.1&fp=chrome#EdgeBox-TROJAN"
             elif $name == "Hysteria2" then "hysteria2://\($conf.password.hysteria2 | url_encode)@\($domain):443?sni=\($domain)&alpn=h3#EdgeBox-HYSTERIA2"
-            # <<< 修复点: 修正了 TUIC 链接中的拼写错误 \($domain} -> \($domain) >>>
-            elif $name == "TUIC" then "tuic://\($conf.uuid.tuic):\($conf.password.tuic | url_encode)@\($domain):2053?congestion_control=bbr&alpn=h3&sni=\($domain)#EdgeBox-TUIC"
+            elif $name == "TUIC" then "tuic://\($conf.uuid.tuic):\($conf.password.tuic | url_encode)@\($domain):2053?congestion_control=bbr&alpn=h3&sni=\($domain}#EdgeBox-TUIC"
             else ""
             end
         ')
@@ -10689,7 +10694,7 @@ function renderProtocolTable(protocolsOpt) { // 只接收一个参数
   const subRow = document.createElement('tr');
   subRow.className = 'subs-row';
   subRow.innerHTML = `
-    <td style="font-weight:500;">整包协议</td><td></td><td></td><td></td>
+    <td style="font-weight:500;">订阅URL|整包节点链接</td><td></td><td></td><td></td>
     <td><button class="btn btn-sm btn-link" data-action="open-modal" data-modal="configModal" data-protocol="__SUBS__">查看@订阅</button></td>`;
   tbody.appendChild(subRow);
 }
@@ -11688,17 +11693,19 @@ auto_select_optimal_domain() {
     [[ ${#domains_to_test[@]} -eq 0 ]] && domains_to_test=("www.microsoft.com" "www.apple.com" "www.cloudflare.com")
     
     local best_domain=""
-    local best_score=0
-    local current_sni=$(get_current_sni_domain)
+    local best_score=-1 # Start with -1 to ensure the first valid domain is always chosen
+    local current_sni
+    current_sni=$(get_current_sni_domain)
     
     echo "当前SNI域名: ${current_sni:-未配置}" >&2
     
     for domain in "${domains_to_test[@]}"; do
-        local score=$(evaluate_sni_domain "$domain")
+        local score
+        score=$(evaluate_sni_domain "$domain")
         echo "  - 域名 $domain, 评分: $score" >&2
         
-        # <<< 这里是上次修复的地方，保持 -gt >>>
-        if [[ "$score" -gt "$best_score" ]]; then
+        # <<< FIX: Changed from -gt to -ge to allow rotation between equally optimal domains >>>
+        if [[ "$score" -ge "$best_score" ]]; then
             best_score=$score
             best_domain="$domain"
         fi
@@ -12698,6 +12705,14 @@ format_curl_proxy_uri() {
     uri="socks5h://${auth}${PROXY_HOST}:${PROXY_PORT}"
   fi
   printf -v "$__retvar" '%s' "$uri"
+}
+
+get_current_cert_mode(){
+  if [[ -f "${CONFIG_DIR}/cert_mode" ]]; then
+    cat "${CONFIG_DIR}/cert_mode"
+  else
+    echo "self-signed"
+  fi
 }
 
 post_switch_report() {
