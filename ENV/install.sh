@@ -8845,10 +8845,6 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 .command-list{
   font-size:.8rem;
   line-height:1.6;
-  display:grid;
-  grid-template-columns:max-content 1fr;
-  column-gap:12px;
-  row-gap:4px;
 }
 /* 深灰代码块（命令） */
 #ops-panel .command-list code,
@@ -8862,13 +8858,13 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   font-size:.78rem;
   line-height:1.1;
   display:inline-block;
-  margin-right:0;
-  margin-bottom:0;
+  min-width:300px;     /* 命令固定宽度，注释左对齐 */
+  margin-right:0;      /* 缩短间距 */
+  margin-bottom:2px;
 }
 .command-list span{ 
   color:#6b7280; 
-  margin-left:0;
-  align-self:center;
+  margin-left:0;       /* 注释紧跟命令 */
 }
 
 
@@ -9709,73 +9705,58 @@ function renderCertificateAndNetwork() {
   setText('cert-renewal', certMode.startsWith('letsencrypt') ? '自动' : '手动');
   setText('cert-expiry', safeGet(cert, 'expires_at', '—'));
 
-// Outbound mode highlighting
-const shunt = (dashboardData && dashboardData.shunt) || {};
-const shuntMode = String((shunt.mode || 'vps')).toLowerCase();
-['net-vps', 'net-proxy', 'net-shunt'].forEach(id => document.getElementById(id)?.classList.remove('active'));
-
-const vpsIp = (dashboardData?.server?.eip) || (dashboardData?.server?.server_ip) || '—';
-setText('vps-ip', vpsIp);
-
-// <<< FIX: 进入 VPS 模式时清空代理卡片 >>>
-if (shuntMode.includes('resi') || shuntMode.includes('direct')) {
-  // 代理/分流模式：渲染代理卡片
-  if (shuntMode.includes('direct')) {
-    document.getElementById('net-shunt')?.classList.add('active');
-  } else {
-    document.getElementById('net-proxy')?.classList.add('active');
-  }
-  const proxyRaw = String(shunt.proxy_info || '');
+  // Outbound mode highlighting
+  const shuntMode = String(safeGet(shunt, 'mode', 'vps')).toLowerCase();
+  ['net-vps', 'net-proxy', 'net-shunt'].forEach(id => document.getElementById(id)?.classList.remove('active'));
   
-function formatProxy(raw) {
-  if (!raw) return '—';
-  try {
-    // 允许：http/https/socks/socks5，也兼容“host:port / host”
-    const m = String(raw).trim().match(
-      /^(?:(https?|socks5?)\:\/\/)?(?:[^@\/\s]+@)?(\[[^\]]+\]|[^:\/?#\s]+)(?::(\d+))?$/i
-    );
-    if (!m) return raw;
-    const scheme = (m[1] || 'socks5').toLowerCase();
-    const host   = m[2];
-    const port   = m[3] ? `:${m[3]}` : '';
-    return `${scheme}://${host}${port}`;
-  } catch {
-    return raw;
+  const vpsIp = safeGet(data, 'server.eip') || safeGet(data, 'server.server_ip') || '—';
+  setText('vps-ip', vpsIp);
+
+  // <<< FIX: Logic to clear or populate the proxy card >>>
+  if (shuntMode.includes('resi') || shuntMode.includes('direct')) {
+    // Populate proxy card for resi or direct-resi modes
+    if (shuntMode.includes('direct')) {
+        document.getElementById('net-shunt')?.classList.add('active');
+    } else {
+        document.getElementById('net-proxy')?.classList.add('active');
+    }
+    
+    const proxyRaw = String(safeGet(shunt, 'proxy_info', ''));
+    // (formatProxy function remains the same as in your script)
+    function formatProxy(raw){if(!raw)return"—";try{const o=/^[a-z][a-z0-9+.\-]*:\/\//i.test(raw)?raw:"socks5://"+raw,t=new URL(o),e=t.protocol.replace(/:$/,""),r=t.hostname||"",l=t.port||"";return r&&l?`${e}//${r}:${l}`:r?`${e}//${r}`:"—"}catch(o){const t=/^([a-z0-9+.\-]+):\/\/(?:[^@\/\s]+@)?(\[[^\]]+\]|[^:/?#]+)(?::(\d+))?/i,e=raw.match(t);if(e){const o=e[1],t=e[2],r=e[3]||"";return r?`${o}//${t}:${r}`:`${o}//${t}`}const r=/^(?:([a-z0-9+.\-]+)\s+)?(\[[^\]]+\]|[^:\/?#\s]+)(?::(\d+))?$/i,l=raw.match(r);return l?(l[3]||""?`${l[1]||"socks5"}//${l[2]}:${l[3]}`:`${l[1]||"socks5"}//${l[2]}`):"—"}}
+    setText('proxy-ip', formatProxy(proxyRaw));
+
+    // Async fetch for proxy details
+    fetch('/status/ipq_proxy.json', { cache: 'no-store' })
+        .then(r => r.ok ? r.json() : null)
+        .then(j => {
+            if (j && j.status !== 'not_configured') {
+                const geo = [j.country, j.city].filter(Boolean).join(' · ');
+                setText('proxy-geo', geo);
+                setText('proxy-ipq-score', j.score != null ? `${j.score} (${j.grade})` : '—');
+            } else {
+                setText('proxy-geo', '—');
+                setText('proxy-ipq-score', '检测中...');
+            }
+        });
+  } else {
+    // Clear proxy card for VPS mode
+    document.getElementById('net-vps')?.classList.add('active');
+    setText('proxy-ip', '—');
+    setText('proxy-geo', '—');
+    setText('proxy-ipq-score', '—');
   }
-}
 
-  setText('proxy-ip', formatProxy(proxyRaw));
-
-  // 异步拉取代理的 IPQ 详情
-  fetch('/status/ipq_proxy.json', { cache: 'no-store' })
-    .then(r => r.ok ? r.json() : null)
-    .then(j => {
-      if (j && j.status !== 'not_configured') {
-        const geo = [j.country, j.city].filter(Boolean).join(' · ');
-        setText('proxy-geo', geo);
-        setText('proxy-ipq-score', j.score != null ? `${j.score} (${j.grade})` : '—');
-      } else {
-        setText('proxy-geo', '—');
-        setText('proxy-ipq-score', '未配置');
-      }
-    });
-} else {
-  // VPS 模式：明确把代理卡片置空
-  document.getElementById('net-vps')?.classList.add('active');
-  setText('proxy-ip', '—');
-  setText('proxy-geo', '—');
-  setText('proxy-ipq-score', '—');
-}
-
-// VPS 详情（始终更新）
-fetch('/status/ipq_vps.json', { cache: 'no-store' })
-  .then(r => r.ok ? r.json() : null)
-  .then(j => {
-    if (!j) return;
-    const geo = [j.country, j.city].filter(Boolean).join(' · ');
-    setText('vps-geo', geo || '—');
-    setText('vps-ipq-score', j.score != null ? `${j.score} (${j.grade})` : '—');
-  });
+  // Async fetch for VPS details (always runs)
+  fetch('/status/ipq_vps.json', { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : null)
+      .then(j => {
+          if (j) {
+              const geo = [j.country, j.city].filter(Boolean).join(' · ');
+              setText('vps-geo', geo);
+              setText('vps-ipq-score', j.score != null ? `${j.score} (${j.grade})` : '—');
+          }
+      });
   
   const whitelist = data.shunt?.whitelist || [];
   const preview = document.getElementById('whitelistPreview');
@@ -10622,7 +10603,7 @@ function renderProtocolTable(protocolsOpt) { // 只接收一个参数
   const subRow = document.createElement('tr');
   subRow.className = 'subs-row';
   subRow.innerHTML = `
-    <td style="font-weight:500;">订阅URL ＋ 整包链接</td><td></td><td></td><td></td>
+    <td style="font-weight:500;">订阅URL|整包节点链接</td><td></td><td></td><td></td>
     <td><button class="btn btn-sm btn-link" data-action="open-modal" data-modal="configModal" data-protocol="__SUBS__">查看@订阅</button></td>`;
   tbody.appendChild(subRow);
 }
@@ -12819,7 +12800,6 @@ setup_outbound_vps() {
     flush_nft_resi_sets
     post_shunt_report "VPS 全量出站" "" # Display report first
     restart_services_background xray sing-box # Then call background restart
-	run_post_change_refreshes
 }
 
 setup_outbound_resi() {
@@ -12838,7 +12818,6 @@ setup_outbound_resi() {
   update_shunt_state "resi" "$url" "healthy"
   post_shunt_report "代理全量（Xray-only）" "$url" # Display report first
   restart_services_background xray # Then call background restart
-  run_post_change_refreshes
 }
 
 setup_outbound_direct_resi() {
@@ -12857,7 +12836,6 @@ setup_outbound_direct_resi() {
   update_shunt_state "direct-resi" "$url" "healthy"
   post_shunt_report "智能分流（白名单直连）" "$url" # Display report first
   restart_services_background xray # Then call background restart
-  run_post_change_refreshes
 }
 
 manage_whitelist() {
