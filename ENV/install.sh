@@ -13719,13 +13719,20 @@ case "$1" in
     fi
     ;;
 	
-	# 控制面板密码管理
+# 控制面板密码管理
 dashboard)
     case "$2" in
       passcode)
         shift 2
         update_dashboard_passcode "$@"
         ;;
+      *)
+        echo "用法: edgeboxctl dashboard passcode [新密码]"
+        echo "  - 不提供密码则提示输入，留空则随机生成"
+        echo "  - 密码必须是6位数字"
+        ;;
+    esac
+    ;;
 
 help|"")
   # --- 工具：带 ANSI 颜色时也能精确对齐注释列 ---
