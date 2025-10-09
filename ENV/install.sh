@@ -8814,10 +8814,9 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 /* =======================================================================
-   运维管理
+   运维管理（命令灰底随内容 + 注释列左对齐）
    ======================================================================= */
 
-/* 区块网格（左/右两列卡片） */
 .commands-grid{
   display:grid;
   grid-template-columns:1fr 1fr;
@@ -8827,7 +8826,6 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   .commands-grid{ grid-template-columns:1fr; }
 }
 
-/* 卡片外观 */
 .command-section{
   background:#f5f5f5;
   border:1px solid #d1d5db;
@@ -8844,7 +8842,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   gap:6px;
 }
 
-/* 行距 */
+/* 列表整体：两列网格 —— 1 列放命令，2 列放注释 */
 #ops-panel .command-list,
 .commands-grid .command-list,
 .command-list{
@@ -8853,22 +8851,25 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   margin:0;
   padding:0;
   list-style:none;
-}
 
-/* 每一行：两列网格 —— 列1=命令(按内容宽)，列2=注释(占余宽并左对齐) */
-#ops-panel .command-list li,
-.commands-grid .command-list li,
-.command-list li{
   display:grid;
-  grid-template-columns:max-content 1fr;
+  grid-template-columns:max-content 1fr; /* 命令列按“最长命令宽度”自适应 */
   column-gap:8px;
+  row-gap:2px;
   align-items:start;
+  grid-auto-flow:row dense;
 }
 
-/* 深灰代码块（命令）——灰底随内容、不被拉伸；超长可换行 */
-#ops-panel .command-list code,
-.commands-grid .command-list code,
-.command-list code{
+/* 处理换行符：让 <br> 不再插空行（行距由 row-gap 控制） */
+#ops-panel .command-list > br,
+.commands-grid .command-list > br,
+.command-list > br{ display:none; }
+
+/* 命令灰底：仅包裹文本，放在第 1 列 */
+#ops-panel .command-list > code,
+.commands-grid .command-list > code,
+.command-list > code{
+  grid-column:1;
   background:#e2e8f0;
   color:#1f2937;
   padding:1px 6px;
@@ -8876,22 +8877,29 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   font-family:monospace;
   font-size:.78rem;
   line-height:1.1;
-  display:inline-block;   /* 保留内边距/圆角 */
-  justify-self:start;     /* 在网格中不拉伸 */
-  white-space:pre-wrap;   /* 允许按空格换行，灰底跟随 */
+  display:inline-block;     /* 保留圆角与内边距 */
+  justify-self:start;       /* 不被拉伸 */
+  white-space:pre-wrap;     /* 超长命令可换行，灰底随行 */
   max-width:100%;
   margin:0 0 2px 0;
 }
 
-/* 注释：始终左对齐到第2列起点 */
-#ops-panel .command-list span,
-.commands-grid .command-list span,
-.command-list span{
+/* 注释：固定在第 2 列，统一左对齐 */
+#ops-panel .command-list > span,
+.commands-grid .command-list > span,
+.command-list > span{
+  grid-column:2;
   color:#6b7280;
   text-align:left;
   margin:0 0 2px 0;
 }
 
+/* 其它整行元素（示例/说明/链接等）跨两列显示 */
+#ops-panel .command-list > :not(code):not(span),
+.commands-grid .command-list > :not(code):not(span),
+.command-list > :not(code):not(span){
+  grid-column:1 / -1;
+}
 
 
 /* =========================
