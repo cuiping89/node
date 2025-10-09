@@ -8816,31 +8816,14 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
    基础卡片和标题样式 (运维管理模块依赖这些通用样式)
    =================================================================== */
 
-/* 容器样式保持不变 */
-.cards-container {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 20px; /* 卡片间距 */
-  padding: 20px; /* 容器内边距（可选） */
-}
-
-/* 卡片样式（强制覆盖版本） */
 .card {
-  /* * 关键修复：使用 !important 强制提升优先级。
-   * flex: 1 1 30%; 表示：
-   * - flex-grow: 1 (允许放大以填充剩余空间)
-   * - flex-shrink: 1 (允许缩小以适应容器)
-   * - flex-basis: 30% (基础宽度为30%，为三列布局留出间隙)
-   */
-  flex: 1 1 30% !important;
-
-  /* 确保盒模型正确，防止 padding 和 border 撑破布局 */
-  box-sizing: border-box !important;
-  
-  /* 修复：这是一个flexbox常见问题，防止卡片内的长内容（如长命令）导致卡片无法按预期缩小 */
-  min-width: 0 !important;
-
-  /* (请保留您其他的卡片样式，如 padding, border, box-shadow等) */
+  background: #fff;
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, .08);
+  padding: 20px;
+  margin-bottom: 20px;
+  transition: box-shadow .2s;
 }
 
 .card:hover {
@@ -11328,54 +11311,39 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
       </div>
     </div>
 
-<div id="ops-panel">
-  <div class="commands-grid">
-
     <div class="command-section">
       <h3>🧬 流量特征随机化</h3>
       <div class="command-list">
-
         <code>edgeboxctl traffic status</code><span>查看随机化系统状态和定时任务</span><br>
         <code>edgeboxctl traffic reset</code><span>重置随机化参数为默认值</span><br>
         <code>edgeboxctl traffic randomize [light|medium|heavy]</code><span>执行流量特征随机化，增强隐蔽性</span><br>
-
         <p class="cmd-label">示例：</p>
         <a class="cmd-pill" href="#">edgeboxctl traffic randomize medium</a><br>
-
         <p class="cmd-label">level:</p>
         <span class="cmd-pill">light（默认）— 轻度随机化，仅修改 Hysteria2 仿装站点</span><br>
         <span class="cmd-pill">medium — 中度随机化，修改 Hysteria2 + TUIC 参数</span><br>
         <span class="cmd-pill">heavy — 重度随机化，修改全协议参数</span>
-
       </div>
     </div>
 
-
-   <div class="command-section">
+    <div class="command-section">
       <h3>🚏 出站分流</h3>
       <div class="command-list">
-
         <code>edgeboxctl shunt vps</code><span>【模式】VPS 直连出站（默认）</span><br>
         <code>edgeboxctl shunt resi `&lt;URL&gt;`</code><span>【模式】代理全量出站（仅 Xray）</span><br>
         <code>edgeboxctl shunt direct-resi `&lt;URL&gt;`</code><span>【模式】智能分流（白名单直连，其余走代理）</span><br>
         <code>edgeboxctl shunt status</code><span>查看当前出站模式及代理健康状态</span><br>
         <code>edgeboxctl shunt whitelist {action} [domain]</code><span>管理白名单（add|remove|list|reset）</span><br>
-
         <p class="cmd-label">示例：</p>
         <a class="cmd-pill" href="#">edgeboxctl shunt direct-resi 'socks5://user:pass@host:port'</a><br>
         <a class="cmd-pill" href="#">edgeboxctl shunt whitelist add netflix.com</a><br>
-
         <p class="cmd-label">代理URL格式：</p>
         <a class="cmd-pill" href="#">http://user:pass@host:port</a><br>
         <a class="cmd-pill" href="#">https://user:pass@host:port</a><br>
         <a class="cmd-pill" href="#">socks5://user:pass@host:port</a><br>
         <a class="cmd-pill" href="#">socks5://user:pass@host:port?sni=example.com</a>
-
       </div>
     </div>
-
-  </div>
-</div>
 
     <div class="command-section">
       <h3>📊 流量与预警</h3>
