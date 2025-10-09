@@ -8813,116 +8813,135 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 /* =======================================================================
-   运维管理（命令灰底随内容 + 注释列左对齐 + 标题/示例/level/代理URL统一风格）
+   运维管理 (最终修正版)
    ======================================================================= */
 
-.commands-grid{
-  display:grid;
-  grid-template-columns:1fr 1fr;
-  gap:20px;
+.commands-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
 }
-@media (max-width:768px){
-  .commands-grid{ grid-template-columns:1fr; }
-}
-
-.command-section{
-  background:#f5f5f5;
-  border:1px solid #d1d5db;
-  border-radius:8px;
-  padding:12px;
+@media (max-width: 768px) {
+  .commands-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
-/* 标题（面板卡片标题） */
-.command-section h3{
-  margin:0 0 16px;
-  font-size:.9rem;
-  font-weight:600;
-  color:#1e293b;
-  display:flex;
-  align-items:center;
-  gap:6px;
+.command-section {
+  background: #f5f5f5;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 12px;
+}
+/* 修正1: 修正标题选择器(h3)并增加与内容的间距 */
+.command-section h3 {
+  margin: 0 0 16px; /* 增加底部间距至16px */
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #1e293b;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
-/* 列表整体：两列网格 —— 左列命令，右列注释 */
+/* 列表整体：两列网格 */
 #ops-panel .command-list,
 .commands-grid .command-list,
-.command-list{
-  font-size:.8rem;
-  line-height:1.3;
-  margin:0;
-  padding:0;
-  list-style:none;
+.command-list {
+  font-size: 0.8rem;
+  line-height: 1.3;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 
-  display:grid;
-  /* 左列最多占 50%，避免超长命令把注释挤没 */
-  grid-template-columns:minmax(auto,50%) 1fr;
-  column-gap:10px;
-  row-gap:4px;
-  align-items:center;
-  grid-auto-flow:row dense;
+  display: grid;
+  /* 修正2: 限制命令列最大宽度为50%，解决长命令挤压注释的问题 */
+  grid-template-columns: minmax(auto, 50%) 1fr;
+  column-gap: 10px; /* 您可以在这里调节命令与注释的水平间距 */
+  row-gap: 4px;
+  align-items: center;
+  grid-auto-flow: row dense;
 }
 
-/* 不让 <br> 产生空白行 —— 行距完全交给 row-gap 控制 */
+/* 隐藏不必要的 <br> 标签 */
 #ops-panel .command-list > br,
 .commands-grid .command-list > br,
-.command-list > br{ display:none; }
+.command-list > br {
+  display: none;
+}
 
-/* 命令（灰底小胶囊，随内容宽度） */
+/* 普通命令 <code>：保持完整的灰色胶囊样式 */
 #ops-panel .command-list > code,
 .commands-grid .command-list > code,
-.command-list > code{
-  grid-column:1;
-  display:inline-block;
-  justify-self:start;
-  background:#e2e8f0;
-  color:#1f2937;
-  padding:2px 6px;
-  border-radius:4px;
-  font-family:monospace;
-  font-size:.78rem;
-  line-height:1.2;
-  white-space:pre-wrap;
-  max-width:100%;
-  margin:0;
+.command-list > code {
+  grid-column: 1;
+  display: inline-block;
+  justify-self: start;
+  background: #e2e8f0;
+  color: #1f2937;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 0.78rem;
+  line-height: 1.2;
+  white-space: pre-wrap;
+  max-width: 100%;
+  margin: 0;
 }
 
-/* 注释（右列统一左对齐） */
+/* 示例命令 <a> */
+#ops-panel .command-list > a,
+.commands-grid .command-list > a,
+.command-list > a {
+  grid-column: 1;
+  display: inline-block;
+  justify-self: start;
+  background: #e2e8f0;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-decoration: none;
+  margin: 0;
+  /* 修正3: 示例命令的文字统一为蓝色 */
+  color: #2563eb;
+  font-family: monospace;
+  font-size: 0.78rem;
+  line-height: 1.2;
+  white-space: pre-wrap;
+  max-width: 100%;
+}
+
+/* 注释 <span> */
 #ops-panel .command-list > span,
 .commands-grid .command-list > span,
-.command-list > span{
-  grid-column:2;
-  color:#6b7280;
-  text-align:left;
-  margin:0;
-  line-height:1.25;
+.command-list > span {
+  grid-column: 2;
+  color: #6b7280;
+  text-align: left;
+  margin: 0;
+  line-height: 1.25;
 }
 
-/* 标题行（如：示例 / level / 代理URL格式）——蓝字，无灰底，跨两列 */
-.command-list .cmd-label{
-  grid-column:1 / -1;
-  margin:0;
-  line-height:1.3;
-  color:#2563eb;
-  font-size:.78rem;
-  font-weight:600;
+/* “示例”、“level”等标题行样式 */
+#ops-panel .command-list > :not(code):not(span):not(a),
+.commands-grid .command-list > :not(code):not(span):not(a),
+.command-list > :not(code):not(span):not(a) {
+  grid-column: 1 / -1;
+  /* 修正3: 移除固定margin-top，确保行距与普通行完全统一 */
+  margin: 0;
+  line-height: 1.4;
+  /* 修正3: 示例标题统一为蓝色 */
+  color: #2563eb; 
+  font-size: 0.78rem;
+  font-weight: 600; /* 加粗以示区别 */
 }
 
-/* 胶囊行（用于示例命令、level 内容、代理URL等）——蓝字+灰底，等宽字体 */
-.command-list > .cmd-pill{
-  grid-column:1;                /* 放在命令列 */
-  display:inline-block;
-  justify-self:start;
-  background:#e2e8f0;
-  color:#2563eb;
-  padding:2px 6px;
-  border-radius:4px;
-  font-family:monospace;
-  font-size:.78rem;
-  line-height:1.2;
-  white-space:pre-wrap;
-  max-width:100%;
-  margin:0;
-  text-decoration:none;         /* 若为 <a>，去下划线 */
+/* 新增规则: 将“level”、“代理URL格式”下的说明文字恢复为灰色 */
+#ops-panel .command-list > div + div,
+.commands-grid .command-list > div + div,
+.command-list > div + div {
+  /* 修正4: 将说明内容的样式恢复为注释的灰色和常规字体 */
+  color: #6b7280;
+  font-weight: 500;
 }
 
 /* =========================
