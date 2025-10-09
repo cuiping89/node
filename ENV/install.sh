@@ -11793,11 +11793,31 @@ get_dashboard_passcode() {
 
 # 更新控制面板密码
 update_dashboard_passcode() {
-    local old_passcode=$(get_dashboard_passcode)
+    # 读取旧密码
+    local old_passcode
+    old_passcode=$(jq -r '.dashboard_passcode // "无"' "${CONFIG_DIR}/server.json" 2>/dev/null || echo "无")
     
-    # 1. 随机生成新密码
-    local random_digit=$((RANDOM % 10))
-    local new_passcode="${random_digit}${random_digit}${random_digit}${random_digit}${random_digit}${random_digit}"
+    # 获取新密码参数
+    local new_passcode="$1"
+    
+    # 如果没有提供密码，提示用户输入
+    if [[ -z "$new_passcode" ]]; then
+        echo -e "${YELLOW}请输入新密码（6位数字），留空则随机生成：${NC}"
+        read -r new_passcode
+    fi
+    
+    # 如果用户输入为空，自动生成
+    if [[ -z "$new_passcode" ]]; then
+        local random_digit=$((RANDOM % 10))
+        new_passcode="${random_digit}${random_digit}${random_digit}${random_digit}${random_digit}${random_digit}"
+        log_info "未输入密码，自动生成: $new_passcode"
+    else
+        # 验证密码格式（6位数字）
+        if ! [[ "$new_passcode" =~ ^[0-9]{6}$ ]]; then
+            log_error "密码格式错误！必须是6位数字"
+            return 1
+        fi
+    fi
     
     # 2. 更新 server.json
     local temp_file="${CONFIG_DIR}/server.json.tmp"
@@ -13700,18 +13720,12 @@ case "$1" in
     ;;
 	
 	# 控制面板密码管理
-  dashboard)
+dashboard)
     case "$2" in
       passcode)
         shift 2
-        update_dashboard_passcode
+        update_dashboard_passcode "$@"
         ;;
-      *)
-        echo "用法: edgeboxctl dashboard passcode"
-        echo "  - 更新并显示控制面板访问密码"
-        ;;
-    esac
-    ;;
 
 help|"")
   # --- 工具：带 ANSI 颜色时也能精确对齐注释列 ---
