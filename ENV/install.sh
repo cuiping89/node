@@ -8842,7 +8842,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   gap:6px;
 }
 
-/* 列表整体：两列网格 —— 1 列放命令，2 列放注释 */
+/* 列表整体：两列网格 —— 左列命令，右列注释（保持你现有行距） */
 #ops-panel .command-list,
 .commands-grid .command-list,
 .command-list{
@@ -8853,14 +8853,14 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   list-style:none;
 
   display:grid;
-  grid-template-columns:max-content 1fr; /* 命令列按“最长命令宽度”自适应 */
+  grid-template-columns:max-content 1fr;
   column-gap:8px;
   row-gap:1px;
   align-items:start;
   grid-auto-flow:row dense;
 }
 
-/* 处理换行符：让 <br> 不再插空行（行距由 row-gap 控制） */
+/* 不让 <br> 造成额外空白，行距仅由 row-gap 控制 */
 #ops-panel .command-list > br,
 .commands-grid .command-list > br,
 .command-list > br{ display:none; }
@@ -8877,11 +8877,11 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   font-family:monospace;
   font-size:.78rem;
   line-height:1.1;
-  display:inline-block;     /* 保留圆角与内边距 */
-  justify-self:start;       /* 不被拉伸 */
-  white-space:pre-wrap;     /* 超长命令可换行，灰底随行 */
+  display:inline-block;
+  justify-self:start;
+  white-space:pre-wrap;
   max-width:100%;
-  margin:0 0 2px 0;
+  margin:0;
 }
 
 /* 注释：固定在第 2 列，统一左对齐 */
@@ -8892,23 +8892,26 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   color:#6b7280;
   text-align:left;
   margin:0;
-  line-height:1.25;  /* 单行更贴合，可按需 1.2~1.3 */
+  line-height:1.25;
 }
 
-/* ——改动①：其它整行元素（示例/说明/文本等）跨两列显示，行距与普通行一致 —— */
+/* ——改动①：示例/说明等整行元素——与普通行相同的行距（去掉额外外边距） */
 #ops-panel .command-list > :not(code):not(span):not(a),
 .commands-grid .command-list > :not(code):not(span):not(a),
 .command-list > :not(code):not(span):not(a){
   grid-column:1 / -1;
-  margin:0;          /* 不再额外留空，由 row-gap 控制，与普通行一致 */
-  line-height:1.4;
+  margin:0;              /* 关键：取消 p 等默认外边距 */
+  line-height:1.3;       /* 与列表行距一致 */
 }
+/* 防止内层段落也引入默认外边距（示例：<p>示例：</p>） */
+#ops-panel .command-list p,
+.commands-grid .command-list p,
+.command-list p{ margin:0; }
 
-/* ——改动②：“示例”里的命令链接也使用同款灰底胶囊，放在第 1 列 —— */
-#ops-panel .command-list > a,
-.commands-grid .command-list > a,
-.command-list > a{
-  grid-column:1;             /* 位于命令列 */
+/* ——改动②：示例里的命令链接也使用同款灰底（不改链接颜色/下划线） */
+#ops-panel .command-list a,
+.commands-grid .command-list a,
+.command-list a{
   display:inline-block;
   background:#e2e8f0;
   padding:1px 6px;
@@ -8918,10 +8921,12 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   line-height:1.1;
   white-space:pre-wrap;
   max-width:100%;
-  text-decoration:none;      /* 去下划线，更像命令胶囊 */
-  margin:0;                  /* 行距交给 row-gap 控制 */
+  margin:0;
 }
-
+/* 若示例链接是直接子元素，则放到第1列；否则保持原流式布局 */
+#ops-panel .command-list > a,
+.commands-grid .command-list > a,
+.command-list > a{ grid-column:1; }
 
 
 /* =========================
