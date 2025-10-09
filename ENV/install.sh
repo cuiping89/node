@@ -11322,14 +11322,17 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         <p class="cmd-label">示例：</p>
         <a class="cmd-pill" href="#">edgeboxctl traffic randomize medium</a>
 
-        <code></code>
-        <span>
-            <p class="cmd-label" style="margin: 0; padding: 0; text-align: left;">level:</p>
-            <span class="cmd-pill">light（默认）— 轻度随机化，仅修改 Hysteria2 仿装站点</span><br>
-            <span class="cmd-pill">medium — 中度随机化，修改 Hysteria2 + TUIC 参数</span><br>
-            <span class="cmd-pill">heavy — 重度随机化，修改全协议参数</span>
-        </span>
-      </div>
+        <p class="cmd-label">level:</p>
+        
+        <span class="cmd-pill">light（默认）</span>
+        <span>— 轻度随机化，仅修改 Hysteria2 仿装站点</span>
+        
+        <span class="cmd-pill">medium</span>
+        <span>— 中度随机化，修改 Hysteria2 + TUIC 参数</span>
+        
+        <span class="cmd-pill">heavy</span>
+        <span>— 重度随机化，修改全协议参数</span>
+        </div>
     </div>
 
     <div class="command-section">
