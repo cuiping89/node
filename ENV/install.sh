@@ -8814,14 +8814,14 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 /* =======================================================================
-   运维管理
+   运维管理（命令灰底随内容 + 注释列左对齐）
    ======================================================================= */
+
 .commands-grid{
   display:grid;
   grid-template-columns:1fr 1fr;
   gap:20px;
 }
-
 @media (max-width:768px){
   .commands-grid{ grid-template-columns:1fr; }
 }
@@ -8832,7 +8832,6 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   border-radius:8px;
   padding:12px;
 }
-
 .command-section h4{
   margin:0 0 8px;
   font-size:.9rem;
@@ -8843,27 +8842,30 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   gap:6px;
 }
 
-/* 运维管理：行距（保持原值） */
+/* 列表整体：两列网格 —— 1 列放命令，2 列放注释 */
 #ops-panel .command-list,
 .commands-grid .command-list,
 .command-list{
   font-size:.8rem;
-  line-height:1.6;    /* 保持原始行距样式 */
-  
-  /* 仅为“注释左对齐”做的布局：两列网格 */
+  line-height:1.3;
+  margin:0;
+  padding:0;
+  list-style:none;
+
   display:grid;
-  grid-template-columns:max-content 1fr; /* 左列=命令(按内容宽)，右列=注释 */
+  grid-template-columns:max-content 1fr; /* 命令列按“最长命令宽度”自适应 */
   column-gap:8px;
+  row-gap:1px;
   align-items:start;
   grid-auto-flow:row dense;
 }
 
-/* 让每对 <code> 命令 + <span> 注释 成为一行；<br> 不再占空行 */
+/* 处理换行符：让 <br> 不再插空行（行距由 row-gap 控制） */
 #ops-panel .command-list > br,
 .commands-grid .command-list > br,
 .command-list > br{ display:none; }
 
-/* 深灰代码块（命令）——灰底随内容，放在左列 */
+/* 命令灰底：仅包裹文本，放在第 1 列 */
 #ops-panel .command-list > code,
 .commands-grid .command-list > code,
 .command-list > code{
@@ -8875,29 +8877,31 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   font-family:monospace;
   font-size:.78rem;
   line-height:1.1;
-  display:inline-block;
-  margin-right:0;         /* 由 column-gap 控制间距 */
-  margin-bottom:2px;      /* 保持原始视觉紧凑度 */
-  white-space:pre-wrap;   /* 超长命令可换行，灰底跟随 */
+  display:inline-block;     /* 保留圆角与内边距 */
+  justify-self:start;       /* 不被拉伸 */
+  white-space:pre-wrap;     /* 超长命令可换行，灰底随行 */
   max-width:100%;
+  margin:0 0 2px 0;
 }
 
-/* 注释：固定在右列，统一左对齐 */
+/* 注释：固定在第 2 列，统一左对齐 */
 #ops-panel .command-list > span,
 .commands-grid .command-list > span,
 .command-list > span{
   grid-column:2;
   color:#6b7280;
   text-align:left;
-  margin-left:0;          /* 由 column-gap 控制间距 */
-  margin-bottom:2px;
+  margin:0;
+  line-height:1.25;  /* 让单行更贴合，可按需改 1.2~1.3 */
 }
 
-/* 其它整行元素（如“示例：”“level:”等）跨两列显示 */
+/* 其它整行元素（示例/说明/链接等）跨两列显示 */
 #ops-panel .command-list > :not(code):not(span),
 .commands-grid .command-list > :not(code):not(span),
 .command-list > :not(code):not(span){
   grid-column:1 / -1;
+  margin:4px 0 0 0;  /* 取消浏览器默认的大外边距；不再像“空一行” */
+  line-height:1.4;
 }
 
 
