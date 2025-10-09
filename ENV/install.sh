@@ -13276,244 +13276,173 @@ echo -e "  VLESS WS UUID: $(jq -r '.uuid.vless.ws // .uuid.vless' ${CONFIG_DIR}/
 
 
 #############################################
-# Reality密钥轮换函数
+# Reality密钥轮换 (Self-Contained in edgeboxctl)
 #############################################
 
-rotate_reality_keys() {
+# 辅助函数：检查是否需要轮换
+check_reality_rotation_needed() {
     local force_rotation=${1:-false}
-    
-    log_info "开始Reality密钥轮换流程..."
-    
-    # 步骤1: 检查是否需要轮换
-    if [[ "$force_rotation" != "true" ]]; then
-        if ! check_reality_rotation_needed; then
-            log_info "当前不需要轮换Reality密钥"
-            return 0
-        fi
-    fi
-    
-    # 步骤2: 测试备用协议（新增）
-    log_info "测试备用协议连接..."
-    local backup_protocols_ok=true
-    
-    # 检查 Hysteria2
-    if ! ss -tulnp | grep -q ":443.*sing-box"; then
-        log_warn "Hysteria2 (UDP 443) 未监听"
-        backup_protocols_ok=false
-    fi
-    
-    # 检查 TUIC
-    if ! ss -tulnp | grep -q ":2053.*sing-box"; then
-        log_warn "TUIC (UDP 2053) 未监听"
-        backup_protocols_ok=false
-    fi
-    
-    if ! $backup_protocols_ok && [[ "$force_rotation" != "true" ]]; then
-        log_error "备用协议测试失败，建议先修复后再轮换"
-        log_info "强制执行: edgeboxctl rotate-reality --force"
+    [[ "$force_rotation" == "true" ]] && return 0
+
+    if [[ ! -f "$REALITY_ROTATION_STATE" ]]; then
+        log_info "首次运行，创建轮换状态文件..."
+        local next_rotation=$(date -d "+${REALITY_ROTATION_DAYS:-90} days" -Iseconds)
+        echo "{\"next_rotation\":\"$next_rotation\",\"last_rotation\":\"$(date -Iseconds)\"}" > "$REALITY_ROTATION_STATE"
+        log_info "下次轮换将在: $next_rotation"
         return 1
     fi
     
-    # 步骤3: 创建完整备份（增强）
-    log_info "创建配置备份..."
-    local backup_file="${CONFIG_DIR}/reality_backup_$(date +%Y%m%d_%H%M%S).tar.gz"
-    tar -czf "$backup_file" \
-        -C / \
-        etc/edgebox/config/xray.json \
-        etc/edgebox/config/server.json \
-        etc/edgebox/config/subscription.txt \
-        2>/dev/null || {
-        log_error "备份创建失败"
-        return 1
-    }
+    local next_rotation_time
+    next_rotation_time=$(jq -r '.next_rotation' "$REALITY_ROTATION_STATE" 2>/dev/null)
     
-    # 步骤4: 生成新密钥
-    local reality_output
-    if command -v sing-box >/dev/null 2>&1; then
-        reality_output="$(sing-box generate reality-keypair 2>/dev/null)"
-    else
-        log_error "sing-box未安装，无法生成密钥"
-        return 1
-    fi
-    
-    if [[ -z "$reality_output" ]]; then
-        log_error "Reality密钥生成失败"
-        return 1
-    fi
-    
-    # 步骤5: 提取并验证新密钥
-    local new_private_key new_public_key new_short_id
-    new_private_key="$(echo "$reality_output" | grep -oP 'PrivateKey: \K[a-zA-Z0-9_-]+' | head -1)"
-    new_public_key="$(echo "$reality_output" | grep -oP 'PublicKey: \K[a-zA-Z0-9_-]+' | head -1)"
-    new_short_id="$(openssl rand -hex 4 2>/dev/null || echo "$(date +%s | sha256sum | head -c 8)")"
-    
-    # 密钥验证（增强）
-    if [[ -z "$new_private_key" || -z "$new_public_key" || ${#new_private_key} -lt 32 || ${#new_public_key} -lt 32 ]]; then
-        log_error "新密钥生成不完整或格式错误"
-        log_error "Private Key 长度: ${#new_private_key}, Public Key 长度: ${#new_public_key}"
-        return 1
-    fi
-    
-    log_success "新Reality密钥生成成功"
-    log_info "新公钥: ${new_public_key:0:20}..."
-    
-    # 步骤6: 更新配置文件（带完整验证）
-    log_info "更新Xray配置..."
-    if ! update_xray_reality_keys "$new_private_key" "$new_short_id"; then
-        log_error "Xray配置更新失败，恢复备份"
-        tar -xzf "$backup_file" -C / 2>/dev/null
-        reload_or_restart_services xray
-        return 1
-    fi
-    
-    # 验证Xray配置语法（新增）
-    if ! xray -test -config="${CONFIG_DIR}/xray.json" >/dev/null 2>&1; then
-        log_error "Xray配置验证失败，恢复备份"
-        tar -xzf "$backup_file" -C / 2>/dev/null
-        reload_or_restart_services xray
-        return 1
-    fi
-    
-    log_info "更新server.json..."
-    if ! update_server_reality_keys "$new_private_key" "$new_public_key" "$new_short_id"; then
-        log_error "server.json更新失败，恢复备份"
-        tar -xzf "$backup_file" -C / 2>/dev/null
-        reload_or_restart_services xray
-        return 1
-    fi
-    
-    # 步骤7: 重启服务并验证（增强）
-    log_info "重启Xray服务..."
-    if ! reload_or_restart_services xray; then
-        log_error "Xray服务重启失败，恢复备份"
-        tar -xzf "$backup_file" -C / 2>/dev/null
-        reload_or_restart_services xray
-        return 1
-    fi
-    
-    # 等待服务稳定
-    sleep 5
-    
-    # 验证服务状态（新增多次重试）
-    local retry_count=0
-    local max_retries=3
-    while [[ $retry_count -lt $max_retries ]]; do
-        if systemctl is-active --quiet xray; then
-            log_success "Xray服务运行正常"
-            break
-        fi
+    if [[ -n "$next_rotation_time" && "$next_rotation_time" != "null" ]]; then
+        local next_timestamp=$(date -d "$next_rotation_time" +%s 2>/dev/null || echo 0)
+        local current_timestamp=$(date +%s)
         
-        retry_count=$((retry_count + 1))
-        if [[ $retry_count -lt $max_retries ]]; then
-            log_warn "Xray服务未就绪，等待重试 ($retry_count/$max_retries)..."
-            sleep 3
+        if [[ $current_timestamp -ge $next_timestamp ]]; then
+            log_info "Reality密钥已到轮换时间。"
+            return 0
         else
-            log_error "Xray服务启动失败，恢复备份"
-            tar -xzf "$backup_file" -C / 2>/dev/null
-            reload_or_restart_services xray
             return 1
         fi
-    done
+    fi
     
-    # 步骤8: 验证端口监听（新增）
-    if ! ss -tlnp | grep -q ":443.*xray"; then
-        log_error "Xray未监听443端口，恢复备份"
-        tar -xzf "$backup_file" -C / 2>/dev/null
+    return 1 # 默认不需要轮换
+}
+
+# 辅助函数：更新Xray配置
+update_xray_reality_keys() {
+    local new_private_key="$1"
+    local new_short_id="$2"
+    local temp_config="${XRAY_CONFIG}.tmp"
+    
+    jq --arg private_key "$new_private_key" \
+       --arg short_id "$new_short_id" \
+       '(.inbounds[]? | select(.tag? | contains("reality")) | .streamSettings.realitySettings.privateKey) = $private_key |
+        (.inbounds[]? | select(.tag? | contains("reality")) | .streamSettings.realitySettings.shortIds) = [$short_id]' \
+       "${XRAY_CONFIG}" > "$temp_config" && mv "$temp_config" "${XRAY_CONFIG}"
+}
+
+# 辅助函数：更新server.json
+update_server_reality_keys() {
+    local new_private_key="$1"
+    local new_public_key="$2"
+    local new_short_id="$3"
+    local temp_server="${CONFIG_DIR}/server.json.tmp"
+    
+    jq --arg private_key "$new_private_key" \
+       --arg public_key "$new_public_key" \
+       --arg short_id "$new_short_id" \
+       '.reality.private_key = $private_key |
+        .reality.public_key = $public_key |
+        .reality.short_id = $short_id' \
+       "${CONFIG_DIR}/server.json" > "$temp_server" && mv "$temp_server" "${CONFIG_DIR}/server.json"
+}
+
+# 辅助函数：更新轮换状态文件
+update_reality_rotation_state() {
+    local new_public_key="$1"
+    local current_time=$(date -Iseconds)
+    local next_rotation=$(date -d "+${REALITY_ROTATION_DAYS:-90} days" -Iseconds)
+    
+    echo "{\"last_rotation\":\"$current_time\",\"next_rotation\":\"$next_rotation\",\"last_public_key\":\"$new_public_key\"}" > "$REALITY_ROTATION_STATE"
+}
+
+# 主函数：执行密钥轮换 (已修正并包含所有依赖)
+rotate_reality_keys() {
+    local force_rotation=${1:-false}
+    log_info "开始Reality密钥轮换流程..."
+    
+    if ! check_reality_rotation_needed "$force_rotation"; then
+        log_info "当前不需要轮换Reality密钥。"
+        return 0
+    fi
+    
+    log_info "正在备份当前配置..."
+    local backup_file="${CONFIG_DIR}/reality_backup_$(date +%Y%m%d_%H%M%S).json"
+    cp "${XRAY_CONFIG}" "$backup_file"
+    
+    log_info "正在生成新的密钥对..."
+    local reality_output
+    reality_output=$(sing-box generate reality-keypair 2>/dev/null) || { log_error "sing-box命令执行失败"; return 1; }
+    
+    local new_private_key new_public_key new_short_id
+    new_private_key="$(echo "$reality_output" | grep -oP 'PrivateKey: \K[a-zA-Z0-9_-]+')"
+    new_public_key="$(echo "$reality_output" | grep -oP 'PublicKey: \K[a-zA-Z0-9_-]+')"
+    new_short_id="$(openssl rand -hex 4)"
+    
+    if [[ -z "$new_private_key" || -z "$new_public_key" ]]; then
+        log_error "新密钥生成失败，已中止轮换。"
+        return 1
+    fi
+    log_success "新密钥生成成功。"
+    
+    update_xray_reality_keys "$new_private_key" "$new_short_id"
+    update_server_reality_keys "$new_private_key" "$new_public_key" "$new_short_id"
+    
+    log_info "正在重载Xray服务..."
+    if ! reload_or_restart_services xray; then
+        log_error "Xray服务重载失败！正在从备份恢复..."
+        cp "$backup_file" "${XRAY_CONFIG}"
         reload_or_restart_services xray
         return 1
     fi
+    log_success "Xray服务已应用新密钥。"
     
-    # 步骤9: 更新订阅链接
-    log_info "更新订阅链接..."
-    REALITY_PUBLIC_KEY="$new_public_key"
-    REALITY_SHORT_ID="$new_short_id"
-    
-    if ! generate_subscription 2>/dev/null; then
-        log_warn "订阅链接更新失败，请手动执行: edgeboxctl sub"
+    log_info "正在刷新订阅链接..."
+    # 使用内部函数刷新订阅，保持独立性
+    local mode
+    mode=$(get_current_cert_mode 2>/dev/null || echo self-signed)
+    if [[ "$mode" == "self-signed" ]]; then
+      regen_sub_ip
+    else
+      local d="${mode##*:}"
+      [[ -n "$d" ]] && regen_sub_domain "$d" || regen_sub_ip
     fi
-    
-    # 步骤10: 更新轮换状态
+
     update_reality_rotation_state "$new_public_key"
     
-    # 步骤11: 清理旧备份（保留最近5个）
-    ls -t "${CONFIG_DIR}"/reality_backup_*.tar.gz 2>/dev/null | tail -n +6 | xargs rm -f 2>/dev/null || true
-    
-    # 步骤12: 发送完成通知（增强）
-    local message="✅ Reality密钥轮换完成
-
-新公钥: ${new_public_key:0:20}...
-完整公钥: $new_public_key
-Short ID: $new_short_id
-完成时间: $(date '+%Y-%m-%d %H:%M:%S')
-下次轮换: $(date -d "+${REALITY_ROTATION_DAYS} days" '+%Y-%m-%d')
-
-⚠️ 重要提醒:
-请通知所有用户更新客户端配置！
-
-更新方式:
-1. 访问订阅链接获取最新配置（推荐）
-2. 手动更新公钥和Short ID
-
-备用连接:
-- Hysteria2 (UDP 443) - 无需更新
-- TUIC (UDP 2053) - 无需更新"
-
-    # 保存到dashboard通知
-    if [[ -f "${TRAFFIC_DIR}/dashboard.json" ]]; then
-        local timestamp=$(date -Iseconds)
-        jq --arg time "$timestamp" \
-           --arg msg "$message" \
-           '.notifications += [{
-               "timestamp": $time,
-               "type": "reality_rotation",
-               "level": "success",
-               "message": $msg,
-               "read": false
-           }]' "${TRAFFIC_DIR}/dashboard.json" > "${TRAFFIC_DIR}/dashboard.json.tmp"
-        
-        mv "${TRAFFIC_DIR}/dashboard.json.tmp" "${TRAFFIC_DIR}/dashboard.json"
-    fi
-    
-    log_success "✅ Reality密钥轮换成功完成！"
-    log_info "⚠️ 请通知用户更新客户端配置"
-    log_info "新公钥: $new_public_key"
-    log_info "新Short ID: $new_short_id"
-    log_info "备份文件: $backup_file"
-    
-    return 0
+    log_success "Reality密钥轮换成功！"
+    echo -e "  ${YELLOW}重要: 请通知用户更新订阅以获取新配置。${NC}"
+    echo -e "  新公钥 (pbk): ${GREEN}${new_public_key}${NC}"
+    echo -e "  新短ID (sid): ${GREEN}${new_short_id}${NC}"
 }
 
-# Reality轮换状态查看函数（在edgeboxctl中）
+# 主函数：显示轮换状态 (已修正并包含所有依赖)
 show_reality_rotation_status() {
     log_info "查看Reality密钥轮换状态..."
     
-    local rotation_state="${CONFIG_DIR}/reality-rotation.json"
-    
-    if [[ ! -f "$rotation_state" ]]; then
-        echo "Reality轮换状态文件不存在"
+    # 如果状态文件不存在，则调用check_reality_rotation_needed来创建它
+    if [[ ! -f "$REALITY_ROTATION_STATE" ]]; then
+        check_reality_rotation_needed >/dev/null 2>&1
+    fi
+
+    if [[ ! -f "$REALITY_ROTATION_STATE" ]]; then
+        log_error "无法读取或创建Reality轮换状态文件。"
         return 1
     fi
-    
-    local next_rotation_time last_rotation_time last_public_key
-    next_rotation_time=$(jq -r '.next_rotation' "$rotation_state" 2>/dev/null)
-    last_rotation_time=$(jq -r '.last_rotation' "$rotation_state" 2>/dev/null)
-    last_public_key=$(jq -r '.last_public_key' "$rotation_state" 2>/dev/null)
-    
+
+    local next_rotation last_rotation pubkey
+    next_rotation=$(jq -r '.next_rotation' "$REALITY_ROTATION_STATE")
+    last_rotation=$(jq -r '.last_rotation' "$REALITY_ROTATION_STATE")
+    pubkey=$(jq -r '.last_public_key // "N/A"' "$REALITY_ROTATION_STATE")
+
     echo "=== Reality密钥轮换状态 ==="
-    echo "上次轮换: $(date -d "$last_rotation_time" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "$last_rotation_time")"
-    echo "下次轮换: $(date -d "$next_rotation_time" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "$next_rotation_time")"
-    echo "当前公钥: ${last_public_key:0:20}..."
-    
-    local next_timestamp=$(date -d "$next_rotation_time" +%s 2>/dev/null || echo 0)
-    local current_timestamp=$(date +%s)
-    local days_remaining=$(( (next_timestamp - current_timestamp) / 86400 ))
-    
-    if [[ $days_remaining -gt 0 ]]; then
-        echo "剩余时间: $days_remaining 天"
-    elif [[ $days_remaining -eq 0 ]]; then
-        echo "状态: 今日应执行轮换"
+    echo "  上次轮换: ${last_rotation}"
+    echo "  下次轮换: ${next_rotation}"
+    echo "  当前公钥: ${pubkey:0:20}..."
+
+    local next_ts current_ts days_rem
+    next_ts=$(date -d "$next_rotation" +%s 2>/dev/null || echo 0)
+    current_ts=$(date +%s)
+    days_rem=$(( (next_ts - current_ts) / 86400 ))
+
+    if [[ "$next_ts" -eq 0 ]]; then
+        echo "  状态: 日期格式无效"
+    elif [[ "$days_rem" -gt 0 ]]; then
+        echo "  剩余时间: ${days_rem} 天"
     else
-        echo "状态: 轮换已过期 $((-days_remaining)) 天"
+        echo "  状态: ${RED}已到期或过期，建议立即轮换！${NC}"
     fi
 }
 
