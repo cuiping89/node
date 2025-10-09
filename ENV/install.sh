@@ -11250,7 +11250,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
       <h3>🔐 Reality 密钥轮换</h3>
       <div class="command-list">
 	    <code>edgeboxctl reality-status</code> <span># 查看 Reality 密钥轮换的周期状态</span><br>
-        <code>edgeboxctl rotate-reality</code> <span># 手动执行 Reality 密钥对轮换 (安全增强)</span><br>
+        <code>edgeboxctl rotate-reality &lt;--force&gt;</code> <span># 手动执行 Reality 密钥对轮换 (安全增强)</span><br>
       </div>
     </div>
 
@@ -13291,11 +13291,22 @@ check_reality_rotation_needed() {
 
     if [[ ! -f "$REALITY_ROTATION_STATE" ]]; then
         log_info "首次运行，创建轮换状态文件..."
-        # Ensure directory exists before writing
-        mkdir -p "$(dirname "$REALITY_ROTATION_STATE")"
+        mkdir -p "$(dirname "$REALITY_ROTATION_STATE")" # Ensure directory exists
+        
+        # <<< FIX: Read current public key from server.json on first run >>>
+        local current_pubkey
+        current_pubkey=$(jq -r '.reality.public_key // ""' "${CONFIG_DIR}/server.json" 2>/dev/null)
+        
         local next_rotation
         next_rotation=$(date -d "+${REALITY_ROTATION_DAYS} days" -Iseconds)
-        echo "{\"next_rotation\":\"$next_rotation\",\"last_rotation\":\"$(date -Iseconds)\"}" > "$REALITY_ROTATION_STATE"
+        
+        # Write all three fields to the initial state file
+        jq -n \
+          --arg next_rotation "$next_rotation" \
+          --arg last_rotation "$(date -Iseconds)" \
+          --arg pubkey "$current_pubkey" \
+          '{next_rotation: $next_rotation, last_rotation: $last_rotation, last_public_key: $pubkey}' > "$REALITY_ROTATION_STATE"
+
         log_info "下次轮换将在: $next_rotation"
         return 1
     fi
@@ -13628,9 +13639,18 @@ case "$1" in
     curl -fsSL https://raw.githubusercontent.com/cuiping89/node/main/ENV/install.sh | bash
     ;;
 	
- # Reality 密钥轮换
+# Reality 密钥轮换
   rotate-reality)
-    rotate_reality_keys
+    # <<< FIX: Add --force flag support >>>
+    if [[ "$2" == "--force" ]]; then
+        rotate_reality_keys "true"
+    else
+        rotate_reality_keys "false"
+    fi
+    ;;
+    
+  reality-status)
+    show_reality_rotation_status
     ;;
     
   reality-status)
@@ -13780,9 +13800,9 @@ help|"")
   printf "  %b\n" "${CYAN}示例:${NC}"
   printf "  %b %b\n\n" "${GREEN}edgeboxctl sni set${NC}" "${CYAN}www.apple.com${NC}"
 
-  # Reality 密钥轮换
+    # Reality 密钥轮换
   printf "%b\n" "${YELLOW}■ Reality 密钥轮换 (Reality Key Rotation)${NC}"
-  print_cmd "${GREEN}edgeboxctl rotate-reality${NC}"  "手动执行 Reality 密钥对轮换 (安全增强)"                 $_W_REALITY
+  print_cmd "${GREEN}edgeboxctl rotate-reality${NC} ${CYAN}[--force]${NC}"  "手动执行 Reality 密钥对轮换 (安全增强)"                 $_W_REALITY
   print_cmd "${GREEN}edgeboxctl reality-status${NC}"  "查看 Reality 密钥轮换的周期状态"                       $_W_REALITY
   printf "\n"
 
