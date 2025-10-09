@@ -12225,9 +12225,8 @@ show_sub(){
   fi
   
   echo
-  echo -e "${YELLOW}# 订阅URL${NC}"
+  echo -e "${YELLOW}# 订阅URL${NC}${DIM}(复制此链接到客户端订阅地址)${NC}"
   echo -e "  ${GREEN}${sub_url}${NC}"
-  echo -e "  ${DIM}(复制此链接到客户端订阅地址)${NC}"
   echo
   
   if [[ -s "$txt_file" ]]; then
@@ -12241,7 +12240,6 @@ show_sub(){
   # Base64 输出 
   if [[ -s "$b64_file" ]]; then
     echo -e "${YELLOW}# Base64链接${NC}"
-    echo
     cat "$b64_file"
     echo
     echo
