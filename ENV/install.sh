@@ -4451,12 +4451,13 @@ get_services_status() {
 }
 
 # 获取协议配置状态 (最终修正版 - 动态主机名 + 动态SNI)
+# Get protocol configuration status (Final corrected version - dynamic hostname + dynamic SNI)
 get_protocols_status() {
     local health_report_file="${TRAFFIC_DIR}/protocol-health.json"
     local server_config_file="${CONFIG_DIR}/server.json"
     local xray_config_file="${CONFIG_DIR}/xray.json"
 
-    # 动态判断使用域名还是IP
+    # Dynamically determine to use domain or IP
     local host_or_ip
     local cert_mode_file="${CONFIG_DIR}/cert_mode"
     if [[ -f "$cert_mode_file" ]] && grep -q "letsencrypt:" "$cert_mode_file"; then
@@ -4465,7 +4466,7 @@ get_protocols_status() {
         host_or_ip=$(jq -r '.server_ip // "127.0.0.1"' "$server_config_file" 2>/dev/null || echo "127.0.0.1")
     fi
 
-    # <<< FIX: Dynamically read the current Reality SNI from xray.json >>>
+    # Dynamically read the current Reality SNI from xray.json
     local reality_sni
     reality_sni="$(jq -r 'first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.serverNames[0]) // (first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.dest) | split(":")[0]) // empty' "$xray_config_file" 2>/dev/null)"
     : "${reality_sni:=www.microsoft.com}" # Fallback to a default
@@ -4509,7 +4510,8 @@ get_protocols_status() {
             elif $name == "VLESS-WebSocket" then "vless://\($conf.uuid.vless.ws)@\($domain):443?encryption=none&security=tls&sni=\($domain)&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome#EdgeBox-WS"
             elif $name == "Trojan-TLS" then "trojan://\($conf.password.trojan | url_encode)@\($domain):443?security=tls&sni=trojan.\($domain)&alpn=http%2F1.1&fp=chrome#EdgeBox-TROJAN"
             elif $name == "Hysteria2" then "hysteria2://\($conf.password.hysteria2 | url_encode)@\($domain):443?sni=\($domain)&alpn=h3#EdgeBox-HYSTERIA2"
-            elif $name == "TUIC" then "tuic://\($conf.uuid.tuic):\($conf.password.tuic | url_encode)@\($domain):2053?congestion_control=bbr&alpn=h3&sni=\($domain}#EdgeBox-TUIC"
+            # <<< FIX: Corrected the stray brace from \($domain}} to \($domain) >>>
+            elif $name == "TUIC" then "tuic://\($conf.uuid.tuic):\($conf.password.tuic | url_encode)@\($domain):2053?congestion_control=bbr&alpn=h3&sni=\($domain)#EdgeBox-TUIC"
             else ""
             end
         ')
@@ -11247,7 +11249,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
     <div class="command-section">
       <h3>🔐 Reality 密钥轮换</h3>
       <div class="command-list">
-	    <code>edgeboxctl reality-status</code> <span># 查看 Reality 密钥轮换的周期状态</span>
+	    <code>edgeboxctl reality-status</code> <span># 查看 Reality 密钥轮换的周期状态</span><br>
         <code>edgeboxctl rotate-reality</code> <span># 手动执行 Reality 密钥对轮换 (安全增强)</span><br>
       </div>
     </div>
@@ -12468,18 +12470,18 @@ write_subscription() {
 }
 
 sync_subscription_files() {
-  mkdir -p "${WEB_ROOT}" "${TRAFFIC_DIR}"
+  # <<< FIX: Add path definitions to ensure the function works standalone >>>
+  local WEB_ROOT="/var/www/html"
+  local TRAFFIC_DIR="/etc/edgebox/traffic"
   
-  # Ensure the web file is a symlink to the single source of truth
+  mkdir -p "${WEB_ROOT}" "${TRAFFIC_DIR}"
+  # Let the web-facing /sub always point to subscription.txt (single source of truth)
   if [[ -e "${WEB_ROOT}/sub" && ! -L "${WEB_ROOT}/sub" ]]; then
     rm -f "${WEB_ROOT}/sub"
   fi
   ln -sfn "${CONFIG_DIR}/subscription.txt" "${WEB_ROOT}/sub"
-  
-  # Create a copy for the dashboard backend to read, avoiding symlink issues
-  if [[ -f "${CONFIG_DIR}/subscription.txt" ]]; then
-      install -m 0644 -T "${CONFIG_DIR}/subscription.txt" "${TRAFFIC_DIR}/sub.txt" 2>/dev/null || true
-  fi
+  # Panel copy
+  install -m 0644 -T "${CONFIG_DIR}/subscription.txt" "${TRAFFIC_DIR}/sub.txt" 2>/dev/null || true
 }
 
 # === [CORRECTED] Subscription Generation: Domain Mode ===
