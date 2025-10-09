@@ -6734,7 +6734,6 @@ log_info "└─ show_traffic_stats()       # 查看流量统计"
 #############################################
 
 # 设置流量监控系统
-# 设置流量监控系统
 setup_traffic_monitoring() {
   log_info "设置流量采集与前端渲染（vnStat + nftables + CSV/JSON + Chart.js + 预警）..."
 
@@ -10923,7 +10922,6 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 </div>
 <div class="grid grid-3">
 		
-<!-- === 服务器信息（保持你的 h3 不变） === -->
 <div class="server-info inner-block">
   <h3>服务器信息</h3>
 
@@ -10945,7 +10943,6 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
   </div>
 </div>
 
-<!-- === 服务器配置 === -->
 <div class="inner-block" id="server-config">
   <h3>服务器配置</h3>
 
@@ -10977,7 +10974,6 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
   </div>
 </div>
 	  
-<!-- === 核心服务 === -->
 <div class="core-services inner-block">
   <h3>核心服务</h3>
 
@@ -11009,7 +11005,6 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 	  </div>
 	  
 <div class="grid grid-1-2">
-  <!-- 🔒 证书切换 -->
   <div class="card" id="cert-panel">
     <div class="card-header"><h2>🔒 证书切换</h2></div>
 
@@ -11038,14 +11033,12 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
     </div>
   </div>
 
-  <!-- 👥 网络身份配置 -->
   <div class="card" id="netid-panel">
     <div class="card-header">
       <h2>👥 网络身份配置 <span class="note-udp">注：HY2/TUIC为UDP通道，VPS直连，不参与分流配置.</span></h2>
     </div>
 
     <div class="network-blocks">
-      <!-- 📡 VPS出站IP -->
       <div class="network-block" id="net-vps">
         <h3>📡 VPS出站IP</h3>
         <div class="info-item nid__row">
@@ -11070,7 +11063,6 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         </div>
       </div>
 
-      <!-- 🔄 代理出站IP -->
       <div class="network-block" id="net-proxy">
         <h3>🔄 代理出站IP</h3>
         <div class="info-item nid__row">
@@ -11094,8 +11086,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         </div>
       </div>
 
-<!-- 🔀 分流出站 -->
-      <div class="network-block" id="net-shunt">
+<div class="network-block" id="net-shunt">
         <h3>🔀 分流出站</h3>
         <div class="info-item nid__row">
           <label class="nid__label">混合身份:</label>
@@ -11154,163 +11145,137 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
       </div>
 
 
-<!-- 运维管理（对齐 help 分类） -->
 <div class="card">
   <div class="card-header">
     <h2>⚙️ 运维管理</h2>
   </div>
 
   <div class="commands-grid">
-    <!-- 核心命令 -->
     <div class="command-section">
       <h3>🎯 核心命令</h3>
       <div class="command-list">
-        <code>edgeboxctl sub</code> <span># 查看订阅链接与 控制面板URL</span><br>
-		<code>edgeboxctl status</code> <span># 查看所有服务及端口的健康状态</span><br>
-		<code>edgeboxctl logs &lt;service&gt;</code> <span># 查看指定服务的实时日志 (Ctrl+C 退出)</span><br>
-        <code>edgeboxctl restart</code> <span># 优雅重启所有核心服务 (配置变更后使用)</span><br>
-        <code>edgeboxctl update</code> <span># 在线更新 EdgeBox 至最新版本</span><br>
-        <code>edgeboxctl help</code> <span># 显示帮助信息</span><br>
-        <div style="margin-top: 10px; color: #3b82f6; font-size: 0.95em;">
-          <strong>示例：</strong><br>
-          <code style="display: inline-block; margin-left: 0; color: #3b82f6;">edgeboxctl logs xray</code>
-        </div>
+        <code>edgeboxctl sub</code> <span># 查看订阅链接与 控制面板URL</span>
+        <code>edgeboxctl status</code> <span># 查看所有服务及端口的健康状态</span>
+        <code>edgeboxctl logs &lt;service&gt;</code> <span># 查看指定服务的实时日志 (Ctrl+C 退出)</span>
+        <code>edgeboxctl restart</code> <span># 优雅重启所有核心服务 (配置变更后使用)</span>
+        <code>edgeboxctl update</code> <span># 在线更新 EdgeBox 至最新版本</span>
+        <code>edgeboxctl help</code> <span># 显示帮助信息</span>
+        <div>示例：</div>
+        <a>edgeboxctl logs xray</a>
       </div>
     </div>
 
-    <!-- 证书管理 -->
     <div class="command-section">
       <h3>🔒 证书管理</h3>
       <div class="command-list">
-        <code>edgeboxctl cert status</code> <span># 查看当前证书类型、域名及有效期</span><br>
-        <code>edgeboxctl switch-to-domain &lt;domain&gt;</code> <span># 切换为域名模式，并申请 Let's Encrypt 证书</span><br>
-        <code>edgeboxctl cert renew</code> <span># 手动续期 Let's Encrypt 证书</span><br>
-		<code>edgeboxctl switch-to-ip</code> <span># 切换回 IP 模式，使用自签名证书</span><br>
-        <code>edgeboxctl fix-permissions</code> <span># 修复证书文件的读写权限</span><br>
-        <div style="margin-top: 10px; color: #3b82f6; font-size: 0.95em;">
-          <strong>示例：</strong><br>
-          <code style="display: inline-block; margin-left: 0; color: #3b82f6;">edgeboxctl switch-to-domain my.domain.com</code>
-        </div>
+        <code>edgeboxctl cert status</code> <span># 查看当前证书类型、域名及有效期</span>
+        <code>edgeboxctl switch-to-domain &lt;domain&gt;</code> <span># 切换为域名模式，并申请 Let's Encrypt 证书</span>
+        <code>edgeboxctl cert renew</code> <span># 手动续期 Let's Encrypt 证书</span>
+		<code>edgeboxctl switch-to-ip</code> <span># 切换回 IP 模式，使用自签名证书</span>
+        <code>edgeboxctl fix-permissions</code> <span># 修复证书文件的读写权限</span>
+        <div>示例：</div>
+        <a>edgeboxctl switch-to-domain my.domain.com</a>
       </div>
     </div>
 
-    <!-- SNI 域名管理 -->
     <div class="command-section">
       <h3>🌐 SNI 域名管理</h3>
       <div class="command-list">
-        <code>edgeboxctl sni list</code> <span># 显示 SNI 域名池状态 (别名: pool)</span><br>
-		<code>edgeboxctl sni test-all</code> <span># 测试池中所有域名的可用性</span><br>
-        <code>edgeboxctl sni auto</code> <span># 智能测试并选择最优 SNI 域名</span><br>
-        <code>edgeboxctl sni set &lt;domain&gt;</code> <span># 手动强制指定一个 SNI 域名</span><br>
-        <div style="margin-top: 10px; color: #3b82f6; font-size: 0.95em;">
-          <strong>示例：</strong><br>
-          <code style="display: inline-block; margin-left: 0; color: #3b82f6;">edgeboxctl sni set www.apple.com</code>
-        </div>
+        <code>edgeboxctl sni list</code> <span># 显示 SNI 域名池状态 (别名: pool)</span>
+		<code>edgeboxctl sni test-all</code> <span># 测试池中所有域名的可用性</span>
+        <code>edgeboxctl sni auto</code> <span># 智能测试并选择最优 SNI 域名</span>
+        <code>edgeboxctl sni set &lt;domain&gt;</code> <span># 手动强制指定一个 SNI 域名</span>
+        <div>示例：</div>
+        <a>edgeboxctl sni set www.apple.com</a>
       </div>
     </div>
 
-    <!-- Reality 密钥轮换 -->
     <div class="command-section">
       <h3>🔐 Reality 密钥轮换</h3>
       <div class="command-list">
-	    <code>edgeboxctl reality-status</code> <span># 查看 Reality 密钥轮换的周期状态</span><br>
-        <code>edgeboxctl rotate-reality --force</code> <span># 手动执行 Reality 密钥对轮换 (安全增强)</span><br>
+	    <code>edgeboxctl reality-status</code> <span># 查看 Reality 密钥轮换的周期状态</span>
+        <code>edgeboxctl rotate-reality --force</code> <span># 手动执行 Reality 密钥对轮换 (安全增强)</span>
       </div>
     </div>
 
-    <!-- 流量特征随机化 -->
     <div class="command-section">
       <h3>🎲 流量特征随机化</h3>
       <div class="command-list">
-        <code>edgeboxctl traffic status</code> <span># 查看随机化系统状态和定时任务</span><br>
-        <code>edgeboxctl traffic reset</code> <span># 重置随机化参数为默认值</span><br>
-		<code>edgeboxctl traffic randomize [light|medium|heavy]</code> <span># 执行流量特征随机化，增强隐蔽性</span><br>
-        <div style="margin-top: 10px; color: #3b82f6; font-size: 0.95em;">
-          <strong>示例：</strong><br>
-          <code style="display: inline-block; margin-left: 0; color: #3b82f6;">edgeboxctl traffic randomize medium</code><br><br>
-          <strong>level:</strong><br>
-          <code style="display: inline-block; margin-left: 0; color: #3b82f6;">light(默认) - 轻度随机化，仅修改 Hysteria2 伪装站点</code><br>
-          <code style="display: inline-block; margin-left: 0; color: #3b82f6;">medium  - 中度随机化，修改 Hysteria2 + TUIC 参数</code><br>
-          <code style="display: inline-block; margin-left: 0; color: #3b82f6;">heavy  - 重度随机化，修改全协议参数</code>
-        </div>
+        <code>edgeboxctl traffic status</code> <span># 查看随机化系统状态和定时任务</span>
+        <code>edgeboxctl traffic reset</code> <span># 重置随机化参数为默认值</span>
+		<code>edgeboxctl traffic randomize [light|medium|heavy]</code> <span># 执行流量特征随机化，增强隐蔽性</span>
+        <div>示例：</div>
+        <a>edgeboxctl traffic randomize medium</a>
+        <div>level:</div>
+        <span>light(默认) - 轻度随机化，仅修改 Hysteria2 伪装站点</span>
+        <span>medium  - 中度随机化，修改 Hysteria2 + TUIC 参数</span>
+        <span>heavy  - 重度随机化，修改全协议参数</span>
       </div>
     </div>
 
-    <!-- 出站分流 -->
     <div class="command-section">
       <h3>🔀 出站分流</h3>
       <div class="command-list">
-        <code>edgeboxctl shunt vps</code> <span># [模式] VPS 直连出站 (默认)</span><br>
-        <code>edgeboxctl shunt resi '&lt;URL&gt;'</code> <span># [模式] 代理全量出站 (仅 Xray)</span><br>
-        <code>edgeboxctl shunt direct-resi '&lt;URL&gt;'</code> <span># [模式] 智能分流 (白名单直连，其余走代理)</span><br>
-        <code>edgeboxctl shunt status</code> <span># 查看当前出站模式及代理健康状况</span><br>
-        <code>edgeboxctl shunt whitelist &lt;action&gt; [domain]</code> <span># 管理白名单 (add|remove|list|reset)</span><br>
-        <div style="margin-top: 10px; color: #3b82f6; font-size: 0.95em;">
-          <strong>示例：</strong><br>
-          <code style="display: inline-block; margin-left: 0; color: #3b82f6;">edgeboxctl shunt direct-resi 'socks5://user:pass@host:port'</code><br>
-          <code style="display: inline-block; margin-left: 0; color: #3b82f6;">edgeboxctl shunt whitelist add netflix.com</code><br><br>
-          <strong>代理URL格式：</strong><br>
-          <code style="display: inline-block; margin-left: 0; color: #3b82f6;">http://user:pass@host:port</code><br>
-          <code style="display: inline-block; margin-left: 0; color: #3b82f6;">https://user:pass@host:port?sni=example.com</code><br>
-          <code style="display: inline-block; margin-left: 0; color: #3b82f6;">socks5://user:pass@host:port</code><br>
-          <code style="display: inline-block; margin-left: 0; color: #3b82f6;">socks5s://user:pass@host:port?sni=example.com</code>
-        </div>
+        <code>edgeboxctl shunt vps</code> <span># [模式] VPS 直连出站 (默认)</span>
+        <code>edgeboxctl shunt resi '&lt;URL&gt;'</code> <span># [模式] 代理全量出站 (仅 Xray)</span>
+        <code>edgeboxctl shunt direct-resi '&lt;URL&gt;'</code> <span># [模式] 智能分流 (白名单直连，其余走代理)</span>
+        <code>edgeboxctl shunt status</code> <span># 查看当前出站模式及代理健康状况</span>
+        <code>edgeboxctl shunt whitelist &lt;action&gt; [domain]</code> <span># 管理白名单 (add|remove|list|reset)</span>
+        <div>示例：</div>
+        <a>edgeboxctl shunt direct-resi 'socks5://user:pass@host:port'</a>
+        <a>edgeboxctl shunt whitelist add netflix.com</a>
+        <div>代理URL格式：</div>
+        <span>http://user:pass@host:port</span>
+        <span>https://user:pass@host:port?sni=example.com</span>
+        <span>socks5://user:pass@host:port</span>
+        <span>socks5s://user:pass@host:port?sni=example.com</span>
       </div>
     </div>
 
-    <!-- 流量与预警 -->
     <div class="command-section">
       <h3>📊 流量与预警</h3>
       <div class="command-list">
-        <code>edgeboxctl traffic show</code> <span># 在终端查看流量使用统计</span><br>
-        <code>edgeboxctl alert show</code> <span># 查看当前预警配置</span><br>
-        <code>edgeboxctl alert monthly &lt;GiB&gt;</code> <span># 设置月度流量预算</span><br>
-        <code>edgeboxctl alert steps &lt;p1,p2,...&gt;</code> <span># 设置百分比预警阈值 (逗号分隔)</span><br>
-        <code>edgeboxctl alert telegram &lt;token&gt; &lt;chat_id&gt;</code> <span># 配置 Telegram 通知渠道</span><br>
-        <code>edgeboxctl alert discord &lt;webhook_url&gt;</code> <span># 配置 Discord 通知渠道</span><br>
-        <code>edgeboxctl alert wechat &lt;pushplus_token&gt;</code> <span># 配置微信 PushPlus 通知渠道</span><br>
-        <code>edgeboxctl alert webhook &lt;url&gt; [format]</code> <span># 配置通用 Webhook (raw|slack|discord)</span><br>
-        <code>edgeboxctl alert test [percent]</code> <span># 模拟触发预警以测试通知渠道</span><br>
-        <div style="margin-top: 10px; color: #3b82f6; font-size: 0.95em;">
-          <strong>示例：</strong><br>
-          <code style="display: inline-block; margin-left: 0; color: #3b82f6;">edgeboxctl alert monthly 1000</code><br>
-          <code style="display: inline-block; margin-left: 0; color: #3b82f6;">edgeboxctl alert steps 50,80,95</code><br>
-          <code style="display: inline-block; margin-left: 0; color: #3b82f6;">edgeboxctl alert telegram &lt;token&gt; &lt;chat_id&gt;</code><br>
-          <code style="display: inline-block; margin-left: 0; color: #3b82f6;">edgeboxctl alert test 80</code>
-        </div>
+        <code>edgeboxctl traffic show</code> <span># 在终端查看流量使用统计</span>
+        <code>edgeboxctl alert show</code> <span># 查看当前预警配置</span>
+        <code>edgeboxctl alert monthly &lt;GiB&gt;</code> <span># 设置月度流量预算</span>
+        <code>edgeboxctl alert steps &lt;p1,p2,...&gt;</code> <span># 设置百分比预警阈值 (逗号分隔)</span>
+        <code>edgeboxctl alert telegram &lt;token&gt; &lt;chat_id&gt;</code> <span># 配置 Telegram 通知渠道</span>
+        <code>edgeboxctl alert discord &lt;webhook_url&gt;</code> <span># 配置 Discord 通知渠道</span>
+        <code>edgeboxctl alert wechat &lt;pushplus_token&gt;</code> <span># 配置微信 PushPlus 通知渠道</span>
+        <code>edgeboxctl alert webhook &lt;url&gt; [format]</code> <span># 配置通用 Webhook (raw|slack|discord)</span>
+        <code>edgeboxctl alert test [percent]</code> <span># 模拟触发预警以测试通知渠道</span>
+        <div>示例：</div>
+        <a>edgeboxctl alert monthly 1000</a>
+        <a>edgeboxctl alert steps 50,80,95</a>
+        <a>edgeboxctl alert telegram &lt;token&gt; &lt;chat_id&gt;</a>
+        <a>edgeboxctl alert test 80</a>
       </div>
     </div>
 
-    <!-- 配置与维护 -->
     <div class="command-section">
       <h3>🧩 配置与维护</h3>
       <div class="command-list">
-        <code>edgeboxctl dashboard passcode</code> <span># 重置 Web 控制面板的访问密码</span><br>
-        <code>edgeboxctl alias &lt;我的备注&gt;</code> <span># 为当前服务器设置一个易记的别名</span><br>
-		<code>edgeboxctl config show</code> <span># 显示所有协议的 UUID、密码等详细配置</span><br>
-        <code>edgeboxctl config regenerate-uuid</code> <span># 为所有协议重新生成 UUID 和密码</span><br>
-        <code>edgeboxctl backup create</code> <span># 创建当前系统配置的完整备份</span><br>
-        <code>edgeboxctl backup list</code> <span># 列出所有可用的备份文件</span><br>
-        <code>edgeboxctl backup restore &lt;file&gt;</code> <span># 从指定备份文件恢复系统配置</span><br>
-        <div style="margin-top: 10px; color: #3b82f6; font-size: 0.95em;">
-          <strong>示例：</strong><br>
-          <code style="display: inline-block; margin-left: 0; color: #3b82f6;">edgeboxctl alias "香港-CN2-主力"</code><br>
-          <code style="display: inline-block; margin-left: 0; color: #3b82f6;">edgeboxctl backup restore edgebox_backup_xxx.tar.gz</code>
-        </div>
+        <code>edgeboxctl dashboard passcode</code> <span># 重置 Web 控制面板的访问密码</span>
+        <code>edgeboxctl alias &lt;我的备注&gt;</code> <span># 为当前服务器设置一个易记的别名</span>
+		<code>edgeboxctl config show</code> <span># 显示所有协议的 UUID、密码等详细配置</span>
+        <code>edgeboxctl config regenerate-uuid</code> <span># 为所有协议重新生成 UUID 和密码</span>
+        <code>edgeboxctl backup create</code> <span># 创建当前系统配置的完整备份</span>
+        <code>edgeboxctl backup list</code> <span># 列出所有可用的备份文件</span>
+        <code>edgeboxctl backup restore &lt;file&gt;</code> <span># 从指定备份文件恢复系统配置</span>
+        <div>示例：</div>
+        <a>edgeboxctl alias "香港-CN2-主力"</a>
+        <a>edgeboxctl backup restore edgebox_backup_xxx.tar.gz</a>
       </div>
     </div>
 
-    <!-- 诊断与排障 -->
     <div class="command-section">
       <h3>🔍 诊断与排障</h3>
       <div class="command-list">
-        <code>edgeboxctl debug-ports</code> <span># 检查核心端口 (80, 443, 2053) 是否被占用</span><br>
-		<code>edgeboxctl test</code> <span># 对各协议入口进行基础连通性测试</span><br>
-        <code>edgeboxctl test-udp &lt;host&gt; &lt;port&gt; [seconds]</code> <span># 使用 iperf3/socat 进行 UDP 连通性简测</span><br>
-        <div style="margin-top: 10px; color: #3b82f6; font-size: 0.95em;">
-          <strong>示例 (排障流程)：</strong><br>
-          <code style="display: inline-block; margin-left: 0; color: #3b82f6;">edgeboxctl status → edgeboxctl logs xray → edgeboxctl debug-ports</code>
-        </div>
+        <code>edgeboxctl debug-ports</code> <span># 检查核心端口 (80, 443, 2053) 是否被占用</span>
+		<code>edgeboxctl test</code> <span># 对各协议入口进行基础连通性测试</span>
+        <code>edgeboxctl test-udp &lt;host&gt; &lt;port&gt; [seconds]</code> <span># 使用 iperf3/socat 进行 UDP 连通性简测</span>
+        <div>示例 (排障流程)：</div>
+        <a>edgeboxctl status → edgeboxctl logs xray → edgeboxctl debug-ports</a>
       </div>
     </div>
   </div>
@@ -11352,7 +11317,6 @@ chmod 644 "$TRAFFIC_DIR/index.html"
 
   log_success "流量监控系统设置完成（CSS和JS已外置）"
 }
-
 
 # 设置定时任务 (Final Cleaned Version)
 setup_cron_jobs() {
