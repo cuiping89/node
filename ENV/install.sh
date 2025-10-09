@@ -11314,24 +11314,15 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 <div class="command-section">
       <h3>🧬 流量特征随机化</h3>
       <div class="command-list">
-
         <code>edgeboxctl traffic status</code><span># 查看随机化系统状态和定时任务</span>
         <code>edgeboxctl traffic reset</code><span># 重置随机化参数为默认值</span>
         <code>edgeboxctl traffic randomize [light|medium|heavy]</code><span># 执行流量特征随机化，增强隐蔽性</span>
-
         <p class="cmd-label">示例：</p>
         <a class="cmd-pill" href="#">edgeboxctl traffic randomize medium</a>
-
         <p class="cmd-label">level:</p>
-        
-        <span class="cmd-pill">light（默认）</span>
-        <span>— 轻度随机化，仅修改 Hysteria2 仿装站点</span>
-        
-        <span class="cmd-pill">medium</span>
-        <span>— 中度随机化，修改 Hysteria2 + TUIC 参数</span>
-        
-        <span class="cmd-pill">heavy</span>
-        <span>— 重度随机化，修改全协议参数</span>
+        <a class="cmd-pill" href="#">light（默认）— 轻度随机化，仅修改 Hysteria2 仿装站点</a><br>
+        <a class="cmd-pill" href="#">medium — 中度随机化，修改 Hysteria2 + TUIC 参数</a><br>
+        <a class="cmd-pill" href="#">heavy — 重度随机化，修改全协议参数</a><br>
         </div>
     </div>
 
