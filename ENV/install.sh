@@ -8813,7 +8813,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 /* =======================================================================
-   运维管理 (最终修正版)
+   运维管理 (2025-10-09 最终修正版)
    ======================================================================= */
 
 .commands-grid {
@@ -8833,9 +8833,9 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   border-radius: 8px;
   padding: 12px;
 }
-/* 修正1: 修正标题选择器(h3)并增加与内容的间距 */
+/* 修正1: 增加标题与内容的间距 */
 .command-section h3 {
-  margin: 0 0 16px; /* 增加底部间距至16px */
+  margin: 0 0 16px;
   font-size: 0.9rem;
   font-weight: 600;
   color: #1e293b;
@@ -8855,9 +8855,9 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   list-style: none;
 
   display: grid;
-  /* 修正2: 限制命令列最大宽度为50%，解决长命令挤压注释的问题 */
+  /* 修正2: 限制命令列最大宽度，解决长命令挤压注释的问题 */
   grid-template-columns: minmax(auto, 50%) 1fr;
-  column-gap: 10px; /* 您可以在这里调节命令与注释的水平间距 */
+  column-gap: 8px; /* 在这里调节命令与注释的水平间距 */
   row-gap: 4px;
   align-items: center;
   grid-auto-flow: row dense;
@@ -8870,7 +8870,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   display: none;
 }
 
-/* 普通命令 <code>：保持完整的灰色胶囊样式 */
+/* 普通命令 <code>：灰色胶囊，黑色文字 */
 #ops-panel .command-list > code,
 .commands-grid .command-list > code,
 .command-list > code {
@@ -8889,27 +8889,6 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   margin: 0;
 }
 
-/* 示例命令 <a> */
-#ops-panel .command-list > a,
-.commands-grid .command-list > a,
-.command-list > a {
-  grid-column: 1;
-  display: inline-block;
-  justify-self: start;
-  background: #e2e8f0;
-  padding: 2px 6px;
-  border-radius: 4px;
-  text-decoration: none;
-  margin: 0;
-  /* 修正3: 示例命令的文字统一为蓝色 */
-  color: #2563eb;
-  font-family: monospace;
-  font-size: 0.78rem;
-  line-height: 1.2;
-  white-space: pre-wrap;
-  max-width: 100%;
-}
-
 /* 注释 <span> */
 #ops-panel .command-list > span,
 .commands-grid .command-list > span,
@@ -8921,27 +8900,40 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   line-height: 1.25;
 }
 
-/* “示例”、“level”等标题行样式 */
+/* “示例”、“level”等标题行 (<div>) */
 #ops-panel .command-list > :not(code):not(span):not(a),
 .commands-grid .command-list > :not(code):not(span):not(a),
 .command-list > :not(code):not(span):not(a) {
   grid-column: 1 / -1;
-  /* 修正3: 移除固定margin-top，确保行距与普通行完全统一 */
-  margin: 0;
+  margin: 0; /* 修正3: 移除固定margin-top，确保行距统一 */
   line-height: 1.4;
-  /* 修正3: 示例标题统一为蓝色 */
-  color: #2563eb; 
+  color: #2563eb; /* 修正3: 统一为蓝色 */
   font-size: 0.78rem;
-  font-weight: 600; /* 加粗以示区别 */
+  font-weight: 600;
 }
 
-/* 新增规则: 将“level”、“代理URL格式”下的说明文字恢复为灰色 */
+/* 修正4: 将“示例命令”和“level说明”等内容统一为【蓝字灰底】胶囊样式 */
+#ops-panel .command-list > a,
+.commands-grid .command-list > a,
+.command-list > a,
 #ops-panel .command-list > div + div,
 .commands-grid .command-list > div + div,
 .command-list > div + div {
-  /* 修正4: 将说明内容的样式恢复为注释的灰色和常规字体 */
-  color: #6b7280;
-  font-weight: 500;
+  grid-column: 1; /* 确保它们都在第一列 */
+  display: inline-block;
+  justify-self: start;
+  background: #e2e8f0;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-decoration: none;
+  margin: 0;
+  color: #2563eb; /* 文字为蓝色 */
+  font-family: monospace;
+  font-size: 0.78rem;
+  line-height: 1.2;
+  white-space: pre-wrap;
+  max-width: 100%;
+  font-weight: 500; /* 恢复为常规字重 */
 }
 
 
