@@ -11282,7 +11282,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
       <h3>🔒 证书管理</h3>
       <div class="command-list">
         <code>edgeboxctl cert status</code> <span># 查看当前证书类型、域名及有效期</span>
-        <code>edgeboxctl switch-to-domain &lt;domain&gt;</code> <span># 切换为域名模式，并申请 Let's Encrypt 证书</span>
+        <code>edgeboxctl switch-to-domain &lt;domain&gt;</code> <span># 切换为域名并申请 Let's Encrypt 证书</span>
         <code>edgeboxctl cert renew</code> <span># 手动续期 Let's Encrypt 证书</span>
 		<code>edgeboxctl switch-to-ip</code> <span># 切换回 IP 模式，使用自签名证书</span>
         <code>edgeboxctl fix-permissions</code> <span># 修复证书文件的读写权限</span>
@@ -11311,29 +11311,35 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
       </div>
     </div>
 
-    <div class="command-section">
+<div class="command-section">
       <h3>🧬 流量特征随机化</h3>
       <div class="command-list">
-        <code>edgeboxctl traffic status</code><span>查看随机化系统状态和定时任务</span><br>
-        <code>edgeboxctl traffic reset</code><span>重置随机化参数为默认值</span><br>
-        <code>edgeboxctl traffic randomize [light|medium|heavy]</code><span>执行流量特征随机化，增强隐蔽性</span><br>
+
+        <code>edgeboxctl traffic status</code><span># 查看随机化系统状态和定时任务</span>
+        <code>edgeboxctl traffic reset</code><span># 重置随机化参数为默认值</span>
+        <code>edgeboxctl traffic randomize [light|medium|heavy]</code><span># 执行流量特征随机化，增强隐蔽性</span>
+
         <p class="cmd-label">示例：</p>
-        <a class="cmd-pill" href="#">edgeboxctl traffic randomize medium</a><br>
-        <p class="cmd-label">level:</p>
-        <span class="cmd-pill">light（默认）— 轻度随机化，仅修改 Hysteria2 仿装站点</span><br>
-        <span class="cmd-pill">medium — 中度随机化，修改 Hysteria2 + TUIC 参数</span><br>
-        <span class="cmd-pill">heavy — 重度随机化，修改全协议参数</span>
+        <a class="cmd-pill" href="#">edgeboxctl traffic randomize medium</a>
+
+        <code></code>
+        <span>
+            <p class="cmd-label" style="margin: 0; padding: 0; text-align: left;">level:</p>
+            <span class="cmd-pill">light（默认）— 轻度随机化，仅修改 Hysteria2 仿装站点</span><br>
+            <span class="cmd-pill">medium — 中度随机化，修改 Hysteria2 + TUIC 参数</span><br>
+            <span class="cmd-pill">heavy — 重度随机化，修改全协议参数</span>
+        </span>
       </div>
     </div>
 
     <div class="command-section">
       <h3>🚏 出站分流</h3>
       <div class="command-list">
-        <code>edgeboxctl shunt vps</code><span>【模式】VPS 直连出站（默认）</span><br>
-        <code>edgeboxctl shunt resi `&lt;URL&gt;`</code><span>【模式】代理全量出站（仅 Xray）</span><br>
-        <code>edgeboxctl shunt direct-resi `&lt;URL&gt;`</code><span>【模式】智能分流（白名单直连，其余走代理）</span><br>
-        <code>edgeboxctl shunt status</code><span>查看当前出站模式及代理健康状态</span><br>
-        <code>edgeboxctl shunt whitelist {action} [domain]</code><span>管理白名单（add|remove|list|reset）</span><br>
+        <code>edgeboxctl shunt vps</code><span># VPS 直连出站（默认）</span><br>
+        <code>edgeboxctl shunt resi `&lt;URL&gt;`</code><span># 代理全量出站（仅 Xray）</span><br>
+        <code>edgeboxctl shunt direct-resi `&lt;URL&gt;`</code><span># 智能分流（白名单直连，其余走代理）</span><br>
+        <code>edgeboxctl shunt status</code><span># 查看当前出站模式及代理健康状态</span><br>
+        <code>edgeboxctl shunt whitelist {action} [domain]</code><span># 管理白名单（add|remove|list|reset）</span><br>
         <p class="cmd-label">示例：</p>
         <a class="cmd-pill" href="#">edgeboxctl shunt direct-resi 'socks5://user:pass@host:port'</a><br>
         <a class="cmd-pill" href="#">edgeboxctl shunt whitelist add netflix.com</a><br>
