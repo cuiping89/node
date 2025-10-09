@@ -13276,12 +13276,13 @@ echo -e "  VLESS WS UUID: $(jq -r '.uuid.vless.ws // .uuid.vless' ${CONFIG_DIR}/
 
 
 #############################################
-# Reality密钥轮换 (Self-Contained & Fully Corrected)
+# Reality密钥轮换 (Bulletproof & Self-Contained)
 #############################################
 
 # 辅助函数：检查是否需要轮换
 check_reality_rotation_needed() {
-    # <<< FIX: Define constants locally to be self-contained >>>
+    # <<< FIX: Define all required variables LOCALLY to be fully self-contained >>>
+    local CONFIG_DIR="/etc/edgebox/config"
     local REALITY_ROTATION_STATE="${CONFIG_DIR}/reality-rotation.json"
     local REALITY_ROTATION_DAYS=90
     
@@ -13290,7 +13291,8 @@ check_reality_rotation_needed() {
 
     if [[ ! -f "$REALITY_ROTATION_STATE" ]]; then
         log_info "首次运行，创建轮换状态文件..."
-        mkdir -p "$(dirname "$REALITY_ROTATION_STATE")" # Ensure directory exists
+        # Ensure directory exists before writing
+        mkdir -p "$(dirname "$REALITY_ROTATION_STATE")"
         local next_rotation
         next_rotation=$(date -d "+${REALITY_ROTATION_DAYS} days" -Iseconds)
         echo "{\"next_rotation\":\"$next_rotation\",\"last_rotation\":\"$(date -Iseconds)\"}" > "$REALITY_ROTATION_STATE"
@@ -13322,6 +13324,8 @@ check_reality_rotation_needed() {
 update_xray_reality_keys() {
     local new_private_key="$1"
     local new_short_id="$2"
+    local CONFIG_DIR="/etc/edgebox/config" # Self-contained
+    local XRAY_CONFIG="${CONFIG_DIR}/xray.json"
     local temp_config="${XRAY_CONFIG}.tmp"
     
     jq --arg private_key "$new_private_key" \
@@ -13336,6 +13340,7 @@ update_server_reality_keys() {
     local new_private_key="$1"
     local new_public_key="$2"
     local new_short_id="$3"
+    local CONFIG_DIR="/etc/edgebox/config" # Self-contained
     local temp_server="${CONFIG_DIR}/server.json.tmp"
     
     jq --arg private_key "$new_private_key" \
@@ -13349,11 +13354,11 @@ update_server_reality_keys() {
 
 # 辅助函数：更新轮换状态文件
 update_reality_rotation_state() {
-    # <<< FIX: Define constants locally >>>
+    local new_public_key="$1"
+    local CONFIG_DIR="/etc/edgebox/config" # Self-contained
     local REALITY_ROTATION_STATE="${CONFIG_DIR}/reality-rotation.json"
     local REALITY_ROTATION_DAYS=90
     
-    local new_public_key="$1"
     local current_time
     current_time=$(date -Iseconds)
     local next_rotation
@@ -13424,11 +13429,11 @@ rotate_reality_keys() {
 # 主函数：显示轮换状态
 show_reality_rotation_status() {
     log_info "查看Reality密钥轮换状态..."
-    # <<< FIX: Define constants locally >>>
+    local CONFIG_DIR="/etc/edgebox/config" # Self-contained
     local REALITY_ROTATION_STATE="${CONFIG_DIR}/reality-rotation.json"
     
-    # If the state file doesn't exist, call check_reality_rotation_needed to create it
     if [[ ! -f "$REALITY_ROTATION_STATE" ]]; then
+        # Call the check function which will create the file on first run
         check_reality_rotation_needed "false" >/dev/null 2>&1
     fi
 
