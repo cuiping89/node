@@ -8816,6 +8816,8 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 /* =======================================================================
    运维管理
    ======================================================================= */
+
+/* 区块网格（左/右两列卡片） */
 .commands-grid{
   display:grid;
   grid-template-columns:1fr 1fr;
@@ -8824,6 +8826,8 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 @media (max-width:768px){
   .commands-grid{ grid-template-columns:1fr; }
 }
+
+/* 卡片外观 */
 .command-section{
   background:#f5f5f5;
   border:1px solid #d1d5db;
@@ -8839,14 +8843,29 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   align-items:center;
   gap:6px;
 }
-/* 运维管理：行距 & 命令与注释的间距 */
+
+/* 行距 */
 #ops-panel .command-list,
 .commands-grid .command-list,
 .command-list{
   font-size:.8rem;
   line-height:1.6;
+  margin:0;
+  padding:0;
+  list-style:none;
 }
-/* 深灰代码块（命令） */
+
+/* 每一行：两列网格 —— 列1=命令(按内容宽)，列2=注释(占余宽并左对齐) */
+#ops-panel .command-list li,
+.commands-grid .command-list li,
+.command-list li{
+  display:grid;
+  grid-template-columns:max-content 1fr;
+  column-gap:8px;
+  align-items:start;
+}
+
+/* 深灰代码块（命令）——灰底随内容、不被拉伸；超长可换行 */
 #ops-panel .command-list code,
 .commands-grid .command-list code,
 .command-list code{
@@ -8857,20 +8876,22 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   font-family:monospace;
   font-size:.78rem;
   line-height:1.1;
-
-  /* 关键修改：让灰底随内容宽度，不再被强制拉长 */
-  display:inline-block;    /* 维持内边距与圆角效果 */
-  min-width:auto;          /* 取消固定最小宽度（原为 300px） */
-  max-width:100%;          /* 超长时不超出容器 */
-  white-space:pre-wrap;    /* 按空格/连字符换行，灰底随换行一起包裹 */
-
-  margin-right:6px;        /* 给后面的注释留一点点间距 */
-  margin-bottom:2px;
+  display:inline-block;   /* 保留内边距/圆角 */
+  justify-self:start;     /* 在网格中不拉伸 */
+  white-space:pre-wrap;   /* 允许按空格换行，灰底跟随 */
+  max-width:100%;
+  margin:0 0 2px 0;
 }
-.command-list span{ 
-  color:#6b7280; 
-  margin-left:0;       /* 注释紧跟命令 */
+
+/* 注释：始终左对齐到第2列起点 */
+#ops-panel .command-list span,
+.commands-grid .command-list span,
+.command-list span{
+  color:#6b7280;
+  text-align:left;
+  margin:0 0 2px 0;
 }
+
 
 
 /* =========================
