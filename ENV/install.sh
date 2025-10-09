@@ -8813,7 +8813,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 /* =======================================================================
-   运维管理（命令灰底随内容 + 注释列左对齐）
+   运维管理
    ======================================================================= */
 
 .commands-grid {
@@ -8833,9 +8833,9 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   border-radius: 8px;
   padding: 12px;
 }
-/* 改动③：增加标题和下方内容的间距 */
-.command-section h4 {
-  margin: 0 0 12px; /* 将底部间距从 8px 增加到 12px */
+/* 修正5: 标题选择器从h4改为h3，并增加间距 */
+.command-section h3 {
+  margin: 0 0 16px; /* 进一步增加底部间距 */
   font-size: 0.9rem;
   font-weight: 600;
   color: #1e293b;
@@ -8855,10 +8855,11 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   list-style: none;
 
   display: grid;
-  grid-template-columns: max-content 1fr;
+  /* 修正4: 限制命令列最大宽度，防止长命令挤压注释导致换行 */
+  grid-template-columns: minmax(auto, 50%) 1fr;
   column-gap: 8px;
   row-gap: 4px;
-  align-items: center; /* 改为 center 使对齐更美观 */
+  align-items: center;
   grid-auto-flow: row dense;
 }
 
@@ -8888,18 +8889,25 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   margin: 0;
 }
 
-/* 改动②：示例命令 <a> 只应用背景、边距和圆角，保留链接原有文字样式 */
+/* 示例命令 <a> */
 #ops-panel .command-list > a,
 .commands-grid .command-list > a,
 .command-list > a {
   grid-column: 1;
   display: inline-block;
   justify-self: start;
-  background: #e2e8f0; /* 应用同款灰色背景 */
+  background: #e2e8f0;
   padding: 2px 6px;
   border-radius: 4px;
-  text-decoration: none; /* 去除下划线 */
+  text-decoration: none;
   margin: 0;
+  /* 修正1: 统一为蓝色 */
+  color: #2563eb;
+  font-family: monospace;
+  font-size: 0.78rem;
+  line-height: 1.2;
+  white-space: pre-wrap;
+  max-width: 100%;
 }
 
 /* 注释 <span> */
@@ -8913,15 +8921,18 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   line-height: 1.25;
 }
 
-/* 改动①：为“示例”等整行元素（如“示例：”）添加适当的顶部间距 */
+/* “示例”等整行元素 */
 #ops-panel .command-list > :not(code):not(span):not(a),
 .commands-grid .command-list > :not(code):not(span):not(a),
 .command-list > :not(code):not(span):not(a) {
   grid-column: 1 / -1;
-  margin: 8px 0 0 0; /* 新增 8px 的上边距来控制与上方命令的间距 */
+  /* 修正2: 移除固定margin-top，使其行距与普通行完全统一 */
+  margin: 0;
   line-height: 1.4;
-  color: #6b7280; /* 建议给示例文字一个和注释类似的颜色 */
+  /* 修正1: 统一为蓝色 */
+  color: #2563eb; 
   font-size: 0.78rem;
+  font-weight: 600; /* 加粗以示区别 */
 }
 
 /* =========================
@@ -11144,7 +11155,6 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         </div>
       </div>
 
-
 <div class="card">
   <div class="card-header">
     <h2>⚙️ 运维管理</h2>
@@ -11207,9 +11217,9 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         <div>示例：</div>
         <a>edgeboxctl traffic randomize medium</a>
         <div>level:</div>
-        <span>light(默认) - 轻度随机化，仅修改 Hysteria2 伪装站点</span>
-        <span>medium  - 中度随机化，修改 Hysteria2 + TUIC 参数</span>
-        <span>heavy  - 重度随机化，修改全协议参数</span>
+        <div>light(默认) - 轻度随机化，仅修改 Hysteria2 伪装站点</div>
+        <div>medium  - 中度随机化，修改 Hysteria2 + TUIC 参数</div>
+        <div>heavy  - 重度随机化，修改全协议参数</div>
       </div>
     </div>
 
@@ -11225,10 +11235,10 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         <a>edgeboxctl shunt direct-resi 'socks5://user:pass@host:port'</a>
         <a>edgeboxctl shunt whitelist add netflix.com</a>
         <div>代理URL格式：</div>
-        <span>http://user:pass@host:port</span>
-        <span>https://user:pass@host:port?sni=example.com</span>
-        <span>socks5://user:pass@host:port</span>
-        <span>socks5s://user:pass@host:port?sni=example.com</span>
+        <div>http://user:pass@host:port</div>
+        <div>https://user:pass@host:port?sni=example.com</div>
+        <div>socks5://user:pass@host:port</div>
+        <div>socks5s://user:pass@host:port?sni=example.com</div>
       </div>
     </div>
 
@@ -11280,7 +11290,6 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
     </div>
   </div>
 </div>
-
 		  
 <div id="whitelistModal" class="modal"><div class="modal-content"><div class="modal-header"><h3>白名单完整列表</h3><span class="close-btn" data-action="close-modal" data-modal="whitelistModal">×</span></div><div class="modal-body"><div id="whitelistList"></div></div></div></div>
 <div id="ipqModal" class="modal"><div class="modal-content"><div class="modal-header"><h3 id="ipqModalTitle">IP质量检测详情</h3><span class="close-btn" data-action="close-modal" data-modal="ipqModal">×</span></div><div class="modal-body"><div id="ipqDetails"></div></div></div></div>
