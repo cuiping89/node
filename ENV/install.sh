@@ -8815,17 +8815,22 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 /* =======================================================================
    运维管理 (最终修正版)
    ======================================================================= */
-
 .commands-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 20px;
 }
+
 /* 修复：允许每张卡在网格里收缩，避免长内容把相邻列挤爆 */
-.commands-grid > .command-section { min-width: 0; }
+.commands-grid > .command-section { 
+  min-width: 0;
+  overflow: hidden; /* 防止内容溢出导致布局错乱 */
+}
 
 @media (max-width: 768px) {
-  .commands-grid { grid-template-columns: 1fr; }
+  .commands-grid { 
+    grid-template-columns: 1fr; 
+  }
 }
 
 .command-section {
@@ -8855,20 +8860,22 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   margin: 0;
   padding: 0;
   list-style: none;
-
   display: grid;
-  /* 左列最多占 50%，避免超长命令把注释挤没 */
-  grid-template-columns: minmax(auto, 50%) 1fr;
+  /* 修改：左列自适应但不超过容器宽度，右列填充剩余空间 */
+  grid-template-columns: minmax(auto, 45%) 1fr;
   column-gap: 10px;
   row-gap: 4px;
-  align-items: start;            /* 修复：多行时顶部对齐更稳 */
+  align-items: start;
   grid-auto-flow: row dense;
+  width: 100%; /* 确保列表不超出卡片宽度 */
 }
 
 /* 不让 <br> 产生空白行 —— 行距交给 row-gap 控制 */
 #ops-panel .command-list > br,
 .commands-grid .command-list > br,
-.command-list > br { display: none; }
+.command-list > br { 
+  display: none; 
+}
 
 /* 普通命令 <code>：灰底胶囊，随内容宽度 */
 #ops-panel .command-list > code,
@@ -8886,11 +8893,11 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   line-height: 1.2;
   white-space: pre-wrap;
   max-width: 100%;
+  min-width: 0; /* 允许收缩 */
   margin: 0;
-
   /* 修复：长 URL/参数可在任意位置断行，不会把布局顶乱 */
   overflow-wrap: anywhere;
-  word-break: break-all;
+  word-break: break-word; /* 改为 break-word，比 break-all 更友好 */
 }
 
 /* 示例命令 <a>：与 <code> 同款灰底胶囊（蓝字） */
@@ -8905,15 +8912,15 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   border-radius: 4px;
   text-decoration: none;
   margin: 0;
-
   color: #2563eb;
   font-family: monospace;
   font-size: 0.78rem;
   line-height: 1.2;
   white-space: pre-wrap;
   max-width: 100%;
-  overflow-wrap: anywhere;    /* 同步断行策略 */
-  word-break: break-all;
+  min-width: 0; /* 允许收缩 */
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 /* 注释 <span>：右列左对齐 */
@@ -8925,21 +8932,23 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   text-align: left;
   margin: 0;
   line-height: 1.25;
+  min-width: 0; /* 允许收缩 */
+  overflow-wrap: break-word; /* 防止长文本溢出 */
 }
 
-/* “示例 / level / 代理URL格式”标题行：蓝字，无灰底，跨两列 */
+/* "示例 / level / 代理URL格式"标题行：蓝字，无灰底，跨两列 */
 #ops-panel .command-list > :not(code):not(span):not(a),
 .commands-grid .command-list > :not(code):not(span):not(a),
 .command-list > :not(code):not(span):not(a) {
   grid-column: 1 / -1;
-  margin: 0;                 /* 行距与普通行一致 */
+  margin: 0;
   line-height: 1.4;
   color: #2563eb;
   font-size: 0.78rem;
   font-weight: 600;
 }
 
-/* “level / 代理URL格式”内容块（旧结构）：保持说明为灰色文本 */
+/* "level / 代理URL格式"内容块（旧结构）：保持说明为灰色文本 */
 #ops-panel .command-list > div + div,
 .commands-grid .command-list > div + div,
 .command-list > div + div {
@@ -8958,6 +8967,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   font-size: 0.78rem;
   font-weight: 600;
 }
+
 .command-list > .cmd-pill {
   grid-column: 1;
   display: inline-block;
@@ -8971,12 +8981,12 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   line-height: 1.2;
   white-space: pre-wrap;
   max-width: 100%;
+  min-width: 0;
   margin: 0;
   text-decoration: none;
   overflow-wrap: anywhere;
-  word-break: break-all;
+  word-break: break-word;
 }
-
 
 /* =========================
    弹窗 Modal 统一样式补丁
