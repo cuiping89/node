@@ -8817,117 +8817,113 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
    运维管理（命令灰底随内容 + 注释列左对齐）
    ======================================================================= */
 
-.commands-grid{
-  display:grid;
-  grid-template-columns:1fr 1fr;
-  gap:20px;
+.commands-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
 }
-@media (max-width:768px){
-  .commands-grid{ grid-template-columns:1fr; }
-}
-
-.command-section{
-  background:#f5f5f5;
-  border:1px solid #d1d5db;
-  border-radius:8px;
-  padding:12px;
-}
-.command-section h4{
-  margin:0 0 8px;
-  font-size:.9rem;
-  font-weight:600;
-  color:#1e293b;
-  display:flex;
-  align-items:center;
-  gap:6px;
+@media (max-width: 768px) {
+  .commands-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
-/* 列表整体：两列网格 —— 左列命令，右列注释（保持你现有行距） */
+.command-section {
+  background: #f5f5f5;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 12px;
+}
+/* 改动③：增加标题和下方内容的间距 */
+.command-section h4 {
+  margin: 0 0 12px; /* 将底部间距从 8px 增加到 12px */
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #1e293b;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 列表整体：两列网格 */
 #ops-panel .command-list,
 .commands-grid .command-list,
-.command-list{
-  font-size:.8rem;
-  line-height:1.3;
-  margin:0;
-  padding:0;
-  list-style:none;
+.command-list {
+  font-size: 0.8rem;
+  line-height: 1.3;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 
-  display:grid;
-  grid-template-columns:max-content 1fr;
-  column-gap:8px;
-  row-gap:1px;
-  align-items:start;
-  grid-auto-flow:row dense;
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  column-gap: 8px;
+  row-gap: 4px;
+  align-items: center; /* 改为 center 使对齐更美观 */
+  grid-auto-flow: row dense;
 }
 
-/* 不让 <br> 造成额外空白，行距仅由 row-gap 控制 */
+/* 隐藏不必要的 <br> 标签 */
 #ops-panel .command-list > br,
 .commands-grid .command-list > br,
-.command-list > br{ display:none; }
+.command-list > br {
+  display: none;
+}
 
-/* 命令灰底：仅包裹文本，放在第 1 列 */
+/* 普通命令 <code>：保持完整的灰色胶囊样式 */
 #ops-panel .command-list > code,
 .commands-grid .command-list > code,
-.command-list > code{
-  grid-column:1;
-  background:#e2e8f0;
-  color:#1f2937;
-  padding:1px 6px;
-  border-radius:4px;
-  font-family:monospace;
-  font-size:.78rem;
-  line-height:1.1;
-  display:inline-block;
-  justify-self:start;
-  white-space:pre-wrap;
-  max-width:100%;
-  margin:0;
+.command-list > code {
+  grid-column: 1;
+  display: inline-block;
+  justify-self: start;
+  background: #e2e8f0;
+  color: #1f2937;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 0.78rem;
+  line-height: 1.2;
+  white-space: pre-wrap;
+  max-width: 100%;
+  margin: 0;
 }
 
-/* 注释：固定在第 2 列，统一左对齐 */
-#ops-panel .command-list > span,
-.commands-grid .command-list > span,
-.command-list > span{
-  grid-column:2;
-  color:#6b7280;
-  text-align:left;
-  margin:0;
-  line-height:1.25;
-}
-
-/* ——改动①：示例/说明等整行元素——与普通行相同的行距（去掉额外外边距） */
-#ops-panel .command-list > :not(code):not(span):not(a),
-.commands-grid .command-list > :not(code):not(span):not(a),
-.command-list > :not(code):not(span):not(a){
-  grid-column:1 / -1;
-  margin:0;              /* 关键：取消 p 等默认外边距 */
-  line-height:1.3;       /* 与列表行距一致 */
-}
-/* 防止内层段落也引入默认外边距（示例：<p>示例：</p>） */
-#ops-panel .command-list p,
-.commands-grid .command-list p,
-.command-list p{ margin:0; }
-
-/* ——改动②：示例里的命令链接也使用同款灰底（不改链接颜色/下划线） */
-#ops-panel .command-list a,
-.commands-grid .command-list a,
-.command-list a{
-  display:inline-block;
-  background:#e2e8f0;
-  padding:1px 6px;
-  border-radius:4px;
-  font-family:monospace;
-  font-size:.78rem;
-  line-height:1.1;
-  white-space:pre-wrap;
-  max-width:100%;
-  margin:0;
-}
-/* 若示例链接是直接子元素，则放到第1列；否则保持原流式布局 */
+/* 改动②：示例命令 <a> 只应用背景、边距和圆角，保留链接原有文字样式 */
 #ops-panel .command-list > a,
 .commands-grid .command-list > a,
-.command-list > a{ grid-column:1; }
+.command-list > a {
+  grid-column: 1;
+  display: inline-block;
+  justify-self: start;
+  background: #e2e8f0; /* 应用同款灰色背景 */
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-decoration: none; /* 去除下划线 */
+  margin: 0;
+}
 
+/* 注释 <span> */
+#ops-panel .command-list > span,
+.commands-grid .command-list > span,
+.command-list > span {
+  grid-column: 2;
+  color: #6b7280;
+  text-align: left;
+  margin: 0;
+  line-height: 1.25;
+}
+
+/* 改动①：为“示例”等整行元素（如“示例：”）添加适当的顶部间距 */
+#ops-panel .command-list > :not(code):not(span):not(a),
+.commands-grid .command-list > :not(code):not(span):not(a),
+.command-list > :not(code):not(span):not(a) {
+  grid-column: 1 / -1;
+  margin: 8px 0 0 0; /* 新增 8px 的上边距来控制与上方命令的间距 */
+  line-height: 1.4;
+  color: #6b7280; /* 建议给示例文字一个和注释类似的颜色 */
+  font-size: 0.78rem;
+}
 
 /* =========================
    弹窗 Modal 统一样式补丁
