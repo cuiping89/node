@@ -12202,8 +12202,34 @@ show_sub(){
 
   local txt_file="${CONFIG_DIR}/subscription.txt"
   local b64_file="${CONFIG_DIR}/subscription.base64"
-
+  
+  # 获取当前证书模式
+  local cert_mode=$(get_current_cert_mode 2>/dev/null || echo "self-signed")
+  local sub_url=""
+  
+  # 根据证书模式生成订阅URL
+  if [[ "$cert_mode" == "self-signed" ]]; then
+    # IP模式
+    local server_ip=$(jq -r '.server_ip // "YOUR_IP"' "${CONFIG_DIR}/server.json" 2>/dev/null)
+    sub_url="http://${server_ip}/sub"
+  else
+    # 域名模式 (格式: letsencrypt:domain.com)
+    local domain="${cert_mode##*:}"
+    if [[ -n "$domain" && "$domain" != "self-signed" ]]; then
+      sub_url="https://${domain}/sub"
+    else
+      # 兜底：如果解析失败，使用IP
+      local server_ip=$(jq -r '.server_ip // "YOUR_IP"' "${CONFIG_DIR}/server.json" 2>/dev/null)
+      sub_url="http://${server_ip}/sub"
+    fi
+  fi
+  
   echo
+  echo -e "${YELLOW}# 订阅URL${NC}"
+  echo -e "  ${GREEN}${sub_url}${NC}"
+  echo -e "  ${DIM}(复制此链接到客户端订阅地址)${NC}"
+  echo
+  
   if [[ -s "$txt_file" ]]; then
     echo -e "${YELLOW}# 明文链接${NC}"
     cat "$txt_file"
@@ -12215,7 +12241,9 @@ show_sub(){
   # Base64 输出 
   if [[ -s "$b64_file" ]]; then
     echo -e "${YELLOW}# Base64链接${NC}"
+    echo
     cat "$b64_file"
+    echo
     echo
   else
      log_warn "未能生成或找到Base64订阅文件。"
