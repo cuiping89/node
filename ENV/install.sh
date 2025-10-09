@@ -13378,7 +13378,7 @@ update_reality_rotation_state() {
     echo "{\"last_rotation\":\"$current_time\",\"next_rotation\":\"$next_rotation\",\"last_public_key\":\"$new_public_key\"}" > "$REALITY_ROTATION_STATE"
 }
 
-# 主函数：执行密钥轮换
+# 主函数：执行密钥轮换 (已修正并包含所有依赖和即时面板刷新)
 rotate_reality_keys() {
     local force_rotation=${1:-false}
     log_info "开始Reality密钥轮换流程..."
@@ -13430,6 +13430,15 @@ rotate_reality_keys() {
     fi
 
     update_reality_rotation_state "$new_public_key"
+
+    # <<< FIX: Immediately refresh the dashboard data file after changes >>>
+    log_info "正在刷新Web面板数据..."
+    if [[ -x "${SCRIPTS_DIR}/dashboard-backend.sh" ]]; then
+        bash "${SCRIPTS_DIR}/dashboard-backend.sh" --now >/dev/null 2>&1 || log_warn "Dashboard data refresh failed, will update on next cron run."
+        log_success "Web面板数据已刷新。"
+    else
+        log_warn "dashboard-backend.sh not found, panel will update on next cron run."
+    fi
     
     log_success "Reality密钥轮换成功！"
     echo -e "  ${YELLOW}重要: 请通知用户更新订阅以获取新配置。${NC}"
