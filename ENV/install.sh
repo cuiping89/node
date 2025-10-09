@@ -11675,52 +11675,6 @@ get_current_sni_domain() {
     jq -r 'first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.serverNames[0]) // (first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.dest) | split(":")[0]) // empty' "$XRAY_CONFIG" 2>/dev/null
 }
 
-# 更新SNI域名配置
-update_sni_domain() {
-    local new_domain="$1"
-    local temp_config="${XRAY_CONFIG}.tmp"
-
-    sni_log_info "准备更新SNI为: $new_domain"
-    # 备份不是必须的，但保留是好习惯
-    cp "$XRAY_CONFIG" "${XRAY_CONFIG}.backup.$(date +%s)" 2>/dev/null || true
-
-    if jq --arg domain "$new_domain" '(.inbounds[] | select(.tag=="vless-reality") | .streamSettings.realitySettings.dest) = ($domain + ":443") | (.inbounds[] | select(.tag=="vless-reality") | .streamSettings.realitySettings.serverNames) |= ( (.[0] = $domain) // [$domain] )' "$XRAY_CONFIG" > "$temp_config"; then
-        if jq empty "$temp_config" >/dev/null 2>&1; then
-            mv "$temp_config" "$XRAY_CONFIG"
-            sni_log_success "Xray配置文件更新成功。"
-            if reload_or_restart_services xray; then
-                sni_log_success "Xray服务已重载。"
-                
-                # <<< 修复点: 在服务重载成功后，立即刷新订阅文件 >>>
-                sni_log_info "SNI 变更，正在刷新订阅文件..."
-                local mode domain
-                mode=$(get_current_cert_mode 2>/dev/null || echo self-signed)
-                if [[ "$mode" == "self-signed" ]]; then
-                  regen_sub_ip
-                else
-                  domain="${mode##*:}"
-                  [[ -n "$domain" ]] && regen_sub_domain "$domain" || regen_sub_ip
-                fi
-                sni_log_success "订阅文件刷新完成。"
-                # <<< 修复点结束 >>>
-                
-                return 0
-            else
-                sni_log_error "Xray服务重载失败。"
-                return 1
-            fi
-        else
-            sni_log_error "生成的Xray配置JSON格式错误。"
-            rm -f "$temp_config"
-            return 1
-        fi
-    else
-        sni_log_error "使用jq更新Xray配置失败。"
-        rm -f "$temp_config"
-        return 1
-    fi
-}
-
 # 智能选择最优域名
 auto_select_optimal_domain() {
     echo "开始SNI域名智能选择..." >&2
@@ -12489,21 +12443,53 @@ request_letsencrypt_cert(){
   fi
 }
 
-# 生成订阅（域名 / IP模式）
-regen_sub_domain(){
-  local domain=$1; get_server_info
+write_subscription() {
+  local content="$1"
+  [[ -z "$content" ]] && return 1
+
+  # 1) Write plain text to the source of truth
+  printf '%s\n' "$content" > "${CONFIG_DIR}/subscription.txt"
+
+  # 2) Generate single-line Base64
+  if base64 --help 2>&1 | grep -q -- '-w'; then
+    printf '%s\n' "$content" | sed -e '$a\' | base64 -w0 > "${CONFIG_DIR}/subscription.base64"
+  else
+    printf '%s\n' "$content" | sed -e '$a\' | base64 | tr -d '\n' > "${CONFIG_DIR}/subscription.base64"
+  fi
+
+  chmod 644 "${CONFIG_DIR}/subscription.txt" "${CONFIG_DIR}/subscription.base64" 2>/dev/null || true
+}
+
+sync_subscription_files() {
+  mkdir -p "${WEB_ROOT}" "${TRAFFIC_DIR}"
+  
+  # Ensure the web file is a symlink to the single source of truth
+  if [[ -e "${WEB_ROOT}/sub" && ! -L "${WEB_ROOT}/sub" ]]; then
+    rm -f "${WEB_ROOT}/sub"
+  fi
+  ln -sfn "${CONFIG_DIR}/subscription.txt" "${WEB_ROOT}/sub"
+  
+  # Create a copy for the dashboard backend to read, avoiding symlink issues
+  if [[ -f "${CONFIG_DIR}/subscription.txt" ]]; then
+      install -m 0644 -T "${CONFIG_DIR}/subscription.txt" "${TRAFFIC_DIR}/sub.txt" 2>/dev/null || true
+  fi
+}
+
+# === [CORRECTED] Subscription Generation: Domain Mode ===
+regen_sub_domain() {
+  local domain="$1"
+  ensure_config_loaded || return 1
+
   local HY2_PW_ENC TUIC_PW_ENC TROJAN_PW_ENC reality_sni
   HY2_PW_ENC=$(printf '%s' "$PASSWORD_HYSTERIA2" | jq -rR @uri)
   TUIC_PW_ENC=$(printf '%s' "$PASSWORD_TUIC"     | jq -rR @uri)
-  TROJAN_PW_ENC=$(printf '%s' "$PASSWORD_TROJAN" | jq -rR @uri)
+  TROJAN_PW_ENC=$(printf '%s' "$PASSWORD_TROJAN"  | jq -rR @uri)
 
-  # 从 xray.json -> server.json -> 环境变量 依次获取真实的 Reality SNI
-  reality_sni="$(jq -r 'first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.serverNames[0]) // (first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.dest) | split(":")[0]) // empty' "${CONFIG_DIR}/xray.json" 2>/dev/null)"
-  : "${reality_sni:=$(jq -r '.reality.sni // empty' "${SERVER_CONFIG}" 2>/dev/null)}"
+  reality_sni="$(jq -r 'first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.serverNames[0]) // (first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.dest) | split(":")[0]) // empty' "${XRAY_CONFIG}" 2>/dev/null)"
   : "${reality_sni:=${REALITY_SNI:-www.microsoft.com}}"
 
-  local sub=$(
-    cat <<PLAIN
+  local sub_content
+  sub_content=$(cat <<PLAIN
 vless://${UUID_VLESS_REALITY}@${domain}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${reality_sni}&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&type=tcp#EdgeBox-REALITY
 vless://${UUID_VLESS_GRPC}@${domain}:443?encryption=none&security=tls&sni=${domain}&alpn=h2&type=grpc&serviceName=grpc&fp=chrome#EdgeBox-gRPC
 vless://${UUID_VLESS_WS}@${domain}:443?encryption=none&security=tls&sni=${domain}&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome#EdgeBox-WS
@@ -12511,46 +12497,27 @@ trojan://${TROJAN_PW_ENC}@${domain}:443?security=tls&sni=trojan.${domain}&fp=chr
 hysteria2://${HY2_PW_ENC}@${domain}:443?sni=${domain}&alpn=h3#EdgeBox-HYSTERIA2
 tuic://${UUID_TUIC}:${TUIC_PW_ENC}@${domain}:2053?congestion_control=bbr&alpn=h3&sni=${domain}#EdgeBox-TUIC
 PLAIN
-  )
+)
 
-  _b64_line(){ if base64 --help 2>&1 | grep -q -- '-w'; then base64 -w0; else base64 | tr -d '\n'; fi; }
-  _ensure_nl(){ sed -e '$a\'; }
-
-  printf '%s\n' "$sub" > "${CONFIG_DIR}/subscription.txt"
-  _ensure_nl <<<"$sub" | _b64_line > "${CONFIG_DIR}/subscription.base64"
-  : > "${CONFIG_DIR}/subscription.b64lines"
-  while IFS= read -r line; do
-    [[ -n "$line" ]] || continue
-    printf '%s\n' "$line" | _ensure_nl | _b64_line >> "${CONFIG_DIR}/subscription.b64lines"
-    printf '\n' >> "${CONFIG_DIR}/subscription.b64lines"
-  done <<<"$sub"
-
-  mkdir -p /var/www/html
-  {
-    printf '%s\n\n' "$sub"
-    echo "# Base64链接"
-    cat "${CONFIG_DIR}/subscription.base64"
-    echo
-  } > /var/www/html/sub
-
-  log_success "域名模式订阅已更新"
+  write_subscription "$sub_content"
+  sync_subscription_files
+  log_success "Domain mode subscription updated successfully."
 }
 
+# === [CORRECTED] Subscription Generation: IP Mode ===
+regen_sub_ip() {
+  ensure_config_loaded || return 1
 
-regen_sub_ip(){
-  get_server_info
   local HY2_PW_ENC TUIC_PW_ENC TROJAN_PW_ENC reality_sni
   HY2_PW_ENC=$(printf '%s' "$PASSWORD_HYSTERIA2" | jq -rR @uri)
   TUIC_PW_ENC=$(printf '%s' "$PASSWORD_TUIC"     | jq -rR @uri)
-  TROJAN_PW_ENC=$(printf '%s' "$PASSWORD_TROJAN" | jq -rR @uri)
+  TROJAN_PW_ENC=$(printf '%s' "$PASSWORD_TROJAN"  | jq -rR @uri)
 
-  # 从 xray.json -> server.json -> 环境变量 依次获取真实的 Reality SNI
-  reality_sni="$(jq -r 'first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.serverNames[0]) // (first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.dest) | split(":")[0]) // empty' "${CONFIG_DIR}/xray.json" 2>/dev/null)"
-  : "${reality_sni:=$(jq -r '.reality.sni // empty' "${SERVER_CONFIG}" 2>/dev/null)}"
+  reality_sni="$(jq -r 'first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.serverNames[0]) // (first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.dest) | split(":")[0]) // empty' "${XRAY_CONFIG}" 2>/dev/null)"
   : "${reality_sni:=${REALITY_SNI:-www.microsoft.com}}"
 
-  local sub=$(
-    cat <<PLAIN
+  local sub_content
+  sub_content=$(cat <<PLAIN
 vless://${UUID_VLESS_REALITY}@${SERVER_IP}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${reality_sni}&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&type=tcp#EdgeBox-REALITY
 vless://${UUID_VLESS_GRPC}@${SERVER_IP}:443?encryption=none&security=tls&sni=grpc.edgebox.internal&alpn=h2&type=grpc&serviceName=grpc&fp=chrome&allowInsecure=1#EdgeBox-gRPC
 vless://${UUID_VLESS_WS}@${SERVER_IP}:443?encryption=none&security=tls&sni=ws.edgebox.internal&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome&allowInsecure=1#EdgeBox-WS
@@ -12558,29 +12525,56 @@ trojan://${TROJAN_PW_ENC}@${SERVER_IP}:443?security=tls&sni=trojan.edgebox.inter
 hysteria2://${HY2_PW_ENC}@${SERVER_IP}:443?sni=${SERVER_IP}&alpn=h3&insecure=1#EdgeBox-HYSTERIA2
 tuic://${UUID_TUIC}:${TUIC_PW_ENC}@${SERVER_IP}:2053?congestion_control=bbr&alpn=h3&sni=${SERVER_IP}&allowInsecure=1#EdgeBox-TUIC
 PLAIN
-  )
+)
 
-  _b64_line(){ if base64 --help 2>&1 | grep -q -- '-w'; then base64 -w0; else base64 | tr -d '\n'; fi; }
-  _ensure_nl(){ sed -e '$a\'; }
+  write_subscription "$sub_content"
+  sync_subscription_files
+  log_success "IP mode subscription updated successfully."
+}
 
-  printf '%s\n' "$sub" > "${CONFIG_DIR}/subscription.txt"
-  _ensure_nl <<<"$sub" | _b64_line > "${CONFIG_DIR}/subscription.base64"
-  : > "${CONFIG_DIR}/subscription.b64lines"
-  while IFS= read -r line; do
-    [[ -n "$line" ]] || continue
-    printf '%s\n' "$line" | _ensure_nl | _b64_line >> "${CONFIG_DIR}/subscription.b64lines"
-    printf '\n' >> "${CONFIG_DIR}/subscription.b64lines"
-  done <<<"$sub"
+# === [CORRECTED] SNI Update Logic ===
+update_sni_domain() {
+    local new_domain="$1"
+    local temp_config="${XRAY_CONFIG}.tmp"
 
-  mkdir -p /var/www/html
-  {
-    printf '%s\n\n' "$sub"
-    echo "# Base64链接"
-    cat "${CONFIG_DIR}/subscription.base64"
-    echo
-  } > /var/www/html/sub
+    sni_log_info "Preparing to update SNI to: $new_domain"
+    cp "$XRAY_CONFIG" "${XRAY_CONFIG}.backup.$(date +%s)" 2>/dev/null || true
 
-  log_success "IP 模式订阅已更新"
+    if jq --arg domain "$new_domain" '
+      (.inbounds[] | select(.tag=="vless-reality") | .streamSettings.realitySettings.dest) = ($domain + ":443") |
+      (.inbounds[] | select(.tag=="vless-reality") | .streamSettings.realitySettings.serverNames) |= ( (.[0] = $domain) // [$domain] )
+    ' "$XRAY_CONFIG" > "$temp_config"; then
+        if jq empty "$temp_config" >/dev/null 2>&1; then
+            mv "$temp_config" "$XRAY_CONFIG"
+            sni_log_success "Xray config file updated successfully."
+            if reload_or_restart_services xray; then
+                sni_log_success "Xray service has been reloaded."
+                
+                sni_log_info "SNI changed, refreshing subscription file..."
+                local mode domain
+                mode=$(get_current_cert_mode 2>/dev/null || echo self-signed)
+                if [[ "$mode" == "self-signed" ]]; then
+                  regen_sub_ip
+                else
+                  domain="${mode##*:}"
+                  [[ -n "$domain" ]] && regen_sub_domain "$domain" || regen_sub_ip
+                fi
+                sni_log_success "Subscription file refreshed."
+                return 0
+            else
+                sni_log_error "Xray service failed to reload."
+                return 1
+            fi
+        else
+            sni_log_error "Generated Xray config has invalid JSON format."
+            rm -f "$temp_config"
+            return 1
+        fi
+    else
+        sni_log_error "Failed to update Xray config using jq."
+        rm -f "$temp_config"
+        return 1
+    fi
 }
 
 switch_to_domain(){
