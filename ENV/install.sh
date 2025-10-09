@@ -6346,13 +6346,27 @@ create_config_backup() {
 restart_services_safely() {
     log_info "安全重启代理服务..."
     
-    # sing-box 支持 reload
-    if systemctl is-active --quiet sing-box; then
-	
-    # 应用更改并热加载（不支持的会回退重启）
-reload_or_restart_services sing-box xray
-sleep 5
-
+    # 定义reload_or_restart_services函数（如果不存在）
+    if ! command -v reload_or_restart_services >/dev/null 2>&1; then
+        reload_or_restart_services() {
+            for svc in "$@"; do
+                if systemctl is-active --quiet "$svc"; then
+                    if systemctl reload "$svc" 2>/dev/null; then
+                        log_info "${svc} 已热加载"
+                    else
+                        systemctl restart "$svc"
+                        log_info "${svc} 已重启"
+                    fi
+                fi
+            done
+        }
+    fi
+    
+    # 应用更改并热加载
+    reload_or_restart_services sing-box xray
+    sleep 5
+    
+    log_success "服务已安全重启"
 }
 
 # 验证随机化结果
@@ -11315,8 +11329,8 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         <p class="cmd-label">示例：</p>
         <a class="cmd-pill" href="#">edgeboxctl traffic randomize medium</a>
         <p class="cmd-label">level:</p>
-        <a class="cmd-pill" href="#">light（默认）— 轻度随机化，仅修改 Hysteria2 仿装站点</a><br>
-        <a class="cmd-pill" href="#">medium — 中度随机化，修改 Hysteria2 + TUIC 参数</a><br>
+        <a class="cmd-pill" href="#">light(默认) —轻度随机化，仅Hysteria2 仿装站点</a><br>
+        <a class="cmd-pill" href="#">medium — 中度随机化，修改Hysteria2 + TUIC 参数</a><br>
         <a class="cmd-pill" href="#">heavy — 重度随机化，修改全协议参数</a><br>
         </div>
     </div>
