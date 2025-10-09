@@ -13905,9 +13905,33 @@ mkdir -p "$STATUS_DIR"
 ts(){ date -Is; }
 jqget(){ jq -r "$1" 2>/dev/null || echo ""; }
 
-build_proxy_args(){ local u="${1:-}"; [[ -z "$u" || "$u" == "null" ]] && return 0
-  case "$u" in socks5://*|socks5h://*) echo "--socks5-hostname ${u#*://}";;
-           http://*|https://*) echo "--proxy $u";; *) :;; esac; }
+
+build_proxy_args() {
+  local u="${1:-}"
+  [[ -z "$u" || "$u" == "null" ]] && return 0
+  
+  local proxy_param=""
+  case "$u" in
+    socks5://*)
+      proxy_param="--socks5-hostname ${u#socks5://}"
+      ;;
+    socks5h://*)
+      proxy_param="--socks5-hostname ${u#socks5h://}"
+      ;;
+    http://*)
+      proxy_param="--proxy $u"
+      ;;
+    https://*)
+      proxy_param="--proxy $u"
+      ;;
+    *)
+      # 未知协议，尝试作为socks5处理
+      proxy_param="--socks5-hostname $u"
+      ;;
+  esac
+  
+  echo "$proxy_param"
+}
 
 CURL_UA="Mozilla/5.0 (EdgeBox IPQ)"
 CURL_CONN_TIMEOUT="${CURL_CONN_TIMEOUT:-3}"
@@ -13917,13 +13941,36 @@ CURL_RETRY_DELAY="${CURL_RETRY_DELAY:-1}"
 
 curl_json() {
   local p="$1" u="$2"
-  curl -fsL -s \
-       --connect-timeout "$CURL_CONN_TIMEOUT" \
-       --max-time "$CURL_MAX_TIME" \
-       --retry "$CURL_RETRY" \
-       --retry-delay "$CURL_RETRY_DELAY" \
-       -A "$CURL_UA" $p "$u" 2>/dev/null \
-  | jq -c . 2>/dev/null || echo "{}"
+  local result
+  
+  # 关键修复: 使用 eval 正确展开代理参数
+  if [[ -n "$p" ]]; then
+    result=$(curl -fsL -s \
+         --connect-timeout "$CURL_CONN_TIMEOUT" \
+         --max-time "$CURL_MAX_TIME" \
+         --retry "$CURL_RETRY" \
+         --retry-delay "$CURL_RETRY_DELAY" \
+         -A "$CURL_UA" \
+         $p "$u" 2>&1)
+  else
+    result=$(curl -fsL -s \
+         --connect-timeout "$CURL_CONN_TIMEOUT" \
+         --max-time "$CURL_MAX_TIME" \
+         --retry "$CURL_RETRY" \
+         --retry-delay "$CURL_RETRY_DELAY" \
+         -A "$CURL_UA" \
+         "$u" 2>&1)
+  fi
+  
+  # 验证返回是否为有效JSON
+  if echo "$result" | jq -e . >/dev/null 2>&1; then
+    echo "$result" | jq -c .
+    return 0
+  else
+    # 返回空JSON以便后续处理
+    echo "{}"
+    return 1
+  fi
 }
 
 # 带宽测试函数（支持VPS和代理）
@@ -14011,42 +14058,70 @@ detect_network_features() {
 get_proxy_url(){ local s="${SHUNT_DIR}/state.json"
   [[ -s "$s" ]] && jqget '.proxy_info' <"$s" || echo ""; }
 
-collect_one(){ 
+
+collect_one_enhanced() { 
   local V="$1" P="$2" J1="{}" J2="{}" J3="{}" ok1=false ok2=false ok3=false
   
-  # API调用
-  if out=$(curl_json "$P" "https://ipinfo.io/json"); then J1="$out"; ok1=true; fi
+  # API调用 - 增加详细日志
+  echo "[DEBUG] Vantage=$V, Proxy Args=$P" >> /tmp/ipq-debug.log 2>&1
+  
+  if out=$(curl_json "$P" "https://ipinfo.io/json"); then 
+    J1="$out"
+    ok1=true
+    echo "[DEBUG] ipinfo.io success: ${out:0:100}..." >> /tmp/ipq-debug.log 2>&1
+  else
+    echo "[DEBUG] ipinfo.io failed" >> /tmp/ipq-debug.log 2>&1
+  fi
   
   if out=$(curl_json "$P" "https://api.ip.sb/geoip"); then
-    J2="$out"; ok2=true
+    J2="$out"
+    ok2=true
+    echo "[DEBUG] ip.sb success: ${out:0:100}..." >> /tmp/ipq-debug.log 2>&1
   else
+    echo "[DEBUG] ip.sb failed, trying alternatives..." >> /tmp/ipq-debug.log 2>&1
     for alt in \
       "https://ifconfig.co/json" \
       "https://api.myip.com" \
       "https://ipapi.co/json/"
     do
-      if out=$(curl_json "$P" "$alt"); then J2="$out"; ok2=true; break; fi
+      if out=$(curl_json "$P" "$alt"); then 
+        J2="$out"
+        ok2=true
+        echo "[DEBUG] Alternative $alt success" >> /tmp/ipq-debug.log 2>&1
+        break
+      fi
     done
   fi
 
   if out=$(curl_json "$P" "http://ip-api.com/json/?fields=status,message,continent,country,regionName,city,lat,lon,isp,org,as,reverse,query"); then
-    J3="$out"; ok3=true
+    J3="$out"
+    ok3=true
+    echo "[DEBUG] ip-api success: ${out:0:100}..." >> /tmp/ipq-debug.log 2>&1
   else
     if out=$(curl_json "$P" "https://ipwho.is/?lang=en"); then
-      J3="$out"; ok3=true
+      J3="$out"
+      ok3=true
+      echo "[DEBUG] ipwho.is success" >> /tmp/ipq-debug.log 2>&1
     fi
   fi
 
   # 检查API成功率
   if [[ "$ok1" == "false" && "$ok2" == "false" && "$ok3" == "false" ]]; then
+    echo "[ERROR] All APIs failed for vantage=$V" >> /tmp/ipq-debug.log 2>&1
     if [[ "$V" == "proxy" ]]; then
-      jq -n --arg ts "$(ts)" '{detected_at:$ts,vantage:"proxy",status:"api_failed",error:"All APIs failed"}'
+      jq -n --arg ts "$(ts)" '{detected_at:$ts,vantage:"proxy",status:"api_failed",error:"All APIs failed - check proxy connectivity"}'
       return 0
     fi
   fi
 
-  # 数据提取
-  local ip=""; for j in "$J2" "$J1" "$J3"; do ip="$(jq -r '(.ip // .query // empty)' <<<"$j" 2>/dev/null || echo "")"; [[ -n "$ip" && "$ip" != "null" ]] && break; done
+  # 数据提取 (保持原逻辑不变)
+  local ip=""
+  for j in "$J2" "$J1" "$J3"; do 
+    ip="$(jq -r '(.ip // .query // empty)' <<<"$j" 2>/dev/null || echo "")"
+    [[ -n "$ip" && "$ip" != "null" ]] && break
+  done
+  
+  echo "[DEBUG] Extracted IP=$ip" >> /tmp/ipq-debug.log 2>&1
   
   # 增强版rDNS查询
   local rdns="$(jq -r '.reverse // empty' <<<"$J3" 2>/dev/null || echo "")"
