@@ -8816,14 +8816,31 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
    基础卡片和标题样式 (运维管理模块依赖这些通用样式)
    =================================================================== */
 
+/* 容器样式保持不变 */
+.cards-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px; /* 卡片间距 */
+  padding: 20px; /* 容器内边距（可选） */
+}
+
+/* 卡片样式（强制覆盖版本） */
 .card {
-  background: #fff;
-  border: 1px solid #d1d5db;
-  border-radius: 10px;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, .08);
-  padding: 20px;
-  margin-bottom: 20px;
-  transition: box-shadow .2s;
+  /* * 关键修复：使用 !important 强制提升优先级。
+   * flex: 1 1 30%; 表示：
+   * - flex-grow: 1 (允许放大以填充剩余空间)
+   * - flex-shrink: 1 (允许缩小以适应容器)
+   * - flex-basis: 30% (基础宽度为30%，为三列布局留出间隙)
+   */
+  flex: 1 1 30% !important;
+
+  /* 确保盒模型正确，防止 padding 和 border 撑破布局 */
+  box-sizing: border-box !important;
+  
+  /* 修复：这是一个flexbox常见问题，防止卡片内的长内容（如长命令）导致卡片无法按预期缩小 */
+  min-width: 0 !important;
+
+  /* (请保留您其他的卡片样式，如 padding, border, box-shadow等) */
 }
 
 .card:hover {
