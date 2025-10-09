@@ -8843,32 +8843,38 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   gap: 6px;
 }
 
-/* 列表整体：两列网格布局 */
+/* 列表整体：两列网格 */
+#ops-panel .command-list,
+.commands-grid .command-list,
 .command-list {
   font-size: 0.8rem;
   line-height: 1.3;
   margin: 0;
   padding: 0;
   list-style: none;
+
   display: grid;
   grid-template-columns: minmax(auto, 50%) 1fr;
-  column-gap: 8px; /* 命令与注释的水平间距 */
+  column-gap: 8px; /* 在这里调节命令与注释的水平间距 */
   row-gap: 4px;
   align-items: center;
   grid-auto-flow: row dense;
 }
 
 /* 隐藏不必要的 <br> 标签 */
+#ops-panel .command-list > br,
+.commands-grid .command-list > br,
 .command-list > br {
   display: none;
 }
 
-/* 样式 1: 普通命令 <code> */
-/* 黑色文字，灰色背景胶囊 */
+/* 普通命令 <code>：灰色胶囊，黑色文字 */
+#ops-panel .command-list > code,
+.commands-grid .command-list > code,
 .command-list > code {
-  grid-column: 1; /* 放置在第一列 */
-  justify-self: start;
+  grid-column: 1;
   display: inline-block;
+  justify-self: start;
   background: #e2e8f0;
   color: #1f2937;
   padding: 2px 6px;
@@ -8881,34 +8887,43 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   margin: 0;
 }
 
-/* 样式 2: 示例/标题行 (如 <div>, <a> 等) */
-/* 蓝色文字，灰色背景胶囊。统一“示例：”、“level:”等所有标题和内容的样式 */
-.command-list > :not(code):not(span):not(br) {
-  grid-column: 1; /* 放置在第一列 */
-  justify-self: start;
-  display: inline-block;
-  background: #e2e8f0; /* 统一灰色背景 */
-  color: #2563eb; /* 统一蓝色文字 */
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-family: monospace; /* 统一等宽字体 */
-  font-size: 0.78rem; /* 统一字号 */
-  line-height: 1.2;
-  white-space: pre-wrap;
-  text-decoration: none;
-  max-width: 100%;
-  margin: 0;
-  font-weight: 500;
-}
-
-/* 样式 3: 注释 <span> */
-/* 灰色文字 */
+/* 注释 <span> */
+#ops-panel .command-list > span,
+.commands-grid .command-list > span,
 .command-list > span {
-  grid-column: 2; /* 放置在第二列 */
+  grid-column: 2;
   color: #6b7280;
   text-align: left;
   margin: 0;
   line-height: 1.25;
+}
+
+/* 【修改部分】将“示例”、“level”等标题行与示例内容统一为【蓝字灰底等宽字体】胶囊样式 */
+#ops-panel .command-list > :not(code):not(span):not(a),
+.commands-grid .command-list > :not(code):not(span):not(a),
+.command-list > :not(code):not(span):not(a),
+#ops-panel .command-list > a,
+.commands-grid .command-list > a,
+.command-list > a,
+#ops-panel .command-list > div + div,
+.commands-grid .command-list > div + div,
+.command-list > div + div {
+  grid-column: 1;
+  display: inline-block;
+  justify-self: start;
+  background: #e2e8f0;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-decoration: none;
+  margin: 0;
+  color: #2563eb;
+  white-space: pre-wrap;
+  max-width: 100%;
+  font-weight: 500;
+  /* 统一使用等宽字体和字号 */
+  font-family: monospace;
+  font-size: 0.78rem;
+  line-height: 1.2;
 }
 
 
