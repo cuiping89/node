@@ -11334,7 +11334,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         <a class="cmd-pill" href="#">edgeboxctl traffic randomize medium</a>
         <p class="cmd-label">level:</p>
         <a class="cmd-pill" href="#">light(默认) —轻度随机化，仅Hysteria2 仿装站点</a><br>
-        <a class="cmd-pill" href="#">medium — 中度随机化，修改Hysteria2 + TUIC 参数</a><br>
+        <a class="cmd-pill" href="#">medium — 中度随机化，修改Hysteria2 +TUIC参数</a><br>
         <a class="cmd-pill" href="#">heavy — 重度随机化，修改全协议参数</a><br>
         </div>
     </div>
@@ -11612,8 +11612,8 @@ create_enhanced_edgeboxctl() {
     cat > /usr/local/bin/edgeboxctl << 'EDGEBOXCTL_SCRIPT'
 #!/bin/bash
 # EdgeBox 增强版控制脚本
-# Version: 3.0.0 - 包含流量统计、预警、备份恢复等高级运维功能
-VERSION="3.0.0"
+# Version: 3.0.1 (Patched for Dynamic Nginx SNI)
+VERSION="3.0.1"
 CONFIG_DIR="/etc/edgebox/config"
 CERT_DIR="/etc/edgebox/cert"
 INSTALL_DIR="/etc/edgebox"
@@ -11631,7 +11631,7 @@ SNI_HEALTH_LOG="/var/log/edgebox/sni-health.log" # SNI函数需要
 WHITELIST_DOMAINS="googlevideo.com,nflxvideo.net,dssott.com,aiv-cdn.net,aiv-delivery.net,ttvnw.net,hbo-cdn.com,hls.itunes.apple.com,scdn.co,tiktokcdn.com"
 
 # ===== 日志函数（完整）=====
-# ... (此处省略，保持您脚本中的原样即可) ...
+
 ESC=$'\033'
 BLUE="${ESC}[0;34m"; PURPLE="${ESC}[0;35m"; CYAN="${ESC}[0;36m"
 YELLOW="${ESC}[1;33m"; GREEN="${ESC}[0;32m"; RED="${ESC}[0;31m"; NC="${ESC}[0m"
@@ -11899,65 +11899,64 @@ restart_services_background() {
     exit 0
 }
 
+ESC=$'\033'
+BLUE="${ESC}[0;34m"; PURPLE="${ESC}[0;35m"; CYAN="${ESC}[0;36m"
+YELLOW="${ESC}[1;33m"; GREEN="${ESC}[0;32m"; RED="${ESC}[0;31m"; NC="${ESC}[0m"
+LOG_FILE="/var/log/edgebox-install.log"
+log_info()    { echo -e "${GREEN}[INFO]${NC} $*"    | tee -a "$LOG_FILE"; }
+log_warn()    { echo -e "${YELLOW}[WARN]${NC} $*"   | tee -a "$LOG_FILE"; }
+log_error()   { echo -e "${RED}[ERROR]${NC} $*"     | tee -a "$LOG_FILE"; }
+log_success() { echo -e "${GREEN}[SUCCESS]${NC} $*" | tee -a "$LOG_FILE"; }
 reload_or_restart_services() {
   local services=("$@")
-  local failed=()
   for svc in "${services[@]}"; do
-    local action="reload"
-    case "$svc" in
-      nginx|nginx.service)
-        if command -v nginx >/dev/null 2>&1; then
-          if ! nginx -t >/dev/null 2>&1; then
-            log_error "[hot-reload] nginx 配置校验失败（nginx -t）"
-            failed+=("$svc"); continue
-          fi
-        fi
-        systemctl reload nginx || { action="restart"; systemctl restart nginx; }
-        ;;
-      sing-box|sing-box.service|sing-box@*)
-        if command -v sing-box >/dev/null 2>&1; then
-          local sb_cfg="${CONFIG_DIR}/sing-box.json"
-          [ -f "$sb_cfg" ] && ! sing-box check -c "$sb_cfg" >/dev/null 2>&1 && {
-            log_error "[hot-reload] sing-box 配置校验失败（sing-box check）"
-            failed+=("$svc"); continue
-          }
-        fi
-        systemctl reload "$svc" 2>/dev/null \
-          || systemctl kill -s HUP "$svc" 2>/dev/null \
-          || { action="restart"; systemctl restart "$svc"; }
-        ;;
-      xray|xray.service|xray@*)
-        if command -v xray >/dev/null 2>&1; then
-          local xr_cfg="${CONFIG_DIR}/xray.json"
-          [ -f "$xr_cfg" ] && ! xray -test -config "$xr_cfg" >/dev/null 2>&1 && {
-            log_error "[hot-reload] xray 配置校验失败（xray -test）"
-            failed+=("$svc"); continue
-          }
-        fi
-        action="restart"
-        systemctl restart "$svc"
-        ;;
-      hysteria*|hy2*|hysteria-server*)
-        systemctl reload "$svc" 2>/dev/null || { action="restart"; systemctl restart "$svc"; }
-        ;;
-      tuic*)
-        action="restart"
-        systemctl restart "$svc"
-        ;;
-      *)
-        systemctl reload "$svc" 2>/dev/null || { action="restart"; systemctl restart "$svc"; }
-        ;;
-    esac
-    if ! systemctl is-active --quiet "$svc"; then
-      log_error "[hot-reload] $svc 在 ${action} 后仍未 active"
-      journalctl -u "$svc" -n 50 --no-pager || true
-      failed+=("$svc")
+    if systemctl reload "$svc" 2>/dev/null; then
+      log_info "$svc 已热加载"
     else
-      log_info "[hot-reload] $svc ${action}ed"
+      systemctl restart "$svc"
+      log_info "$svc 已重启"
     fi
   done
-  ((${#failed[@]}==0)) || return 1
 }
+
+# ###########################################
+# ### MODIFICATION START: regen_sub_domain ###
+# ###########################################
+# === [CORRECTED] Subscription Generation: Domain Mode ===
+regen_sub_domain() {
+  local domain="$1"
+  # This function relies on globally loaded config variables by ensure_config_loaded
+  ensure_config_loaded || return 1
+
+  # URL-encode passwords
+  local HY2_PW_ENC TUIC_PW_ENC TROJAN_PW_ENC reality_sni
+  HY2_PW_ENC=$(printf '%s' "$PASSWORD_HYSTERIA2" | jq -rR @uri)
+  TUIC_PW_ENC=$(printf '%s' "$PASSWORD_TUIC"     | jq -rR @uri)
+  TROJAN_PW_ENC=$(printf '%s' "$PASSWORD_TROJAN"  | jq -rR @uri)
+
+  # Get current Reality SNI
+  reality_sni="$(jq -r 'first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.serverNames[0]) // empty' "${XRAY_CONFIG}" 2>/dev/null)"
+  : "${reality_sni:=${REALITY_SNI:-www.microsoft.com}}"
+
+  # ### FIX: Changed Trojan SNI to trojan.${domain} to match Nginx rule expectation ###
+  local sub_content
+  sub_content=$(cat <<PLAIN
+vless://${UUID_VLESS_REALITY}@${domain}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${reality_sni}&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&type=tcp#EdgeBox-REALITY
+vless://${UUID_VLESS_GRPC}@${domain}:443?encryption=none&security=tls&sni=${domain}&alpn=h2&type=grpc&serviceName=grpc&fp=chrome#EdgeBox-gRPC
+vless://${UUID_VLESS_WS}@${domain}:443?encryption=none&security=tls&sni=${domain}&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome#EdgeBox-WS
+trojan://${TROJAN_PW_ENC}@${domain}:443?security=tls&sni=trojan.${domain}&fp=chrome#EdgeBox-TROJAN
+hysteria2://${HY2_PW_ENC}@${domain}:443?sni=${domain}&alpn=h3#EdgeBox-HYSTERIA2
+tuic://${UUID_TUIC}:${TUIC_PW_ENC}@${domain}:2053?congestion_control=bbr&alpn=h3&sni=${domain}#EdgeBox-TUIC
+PLAIN
+)
+
+  write_subscription "$sub_content"
+  sync_subscription_files
+  log_success "Domain mode subscription updated successfully."
+}
+# #########################################
+# ### MODIFICATION END: regen_sub_domain ###
+# #########################################
 
 
 # ===== 性能优化的全局配置变量 =====
@@ -12671,35 +12670,107 @@ update_sni_domain() {
     fi
 }
 
+# ##############################################
+# ### MODIFICATION START: switch_to_domain ###
+# ##############################################
 switch_to_domain(){
   local domain="$1"
   [[ -z "$domain" ]] && { echo "用法: edgeboxctl switch-to-domain <domain>"; return 1; }
   log_info "检查域名解析: ${domain}"
   getent hosts "$domain" >/dev/null || { log_error "${domain} 未解析"; return 1; }
+
+  ### FIX: Added DNS check and user prompt for Trojan subdomain ###
+  log_info "检查 Trojan 子域名解析: trojan.${domain}"
+  if ! getent hosts "trojan.${domain}" >/dev/null; then
+    log_warn "未检测到 'trojan.${domain}' 的 DNS 解析记录。"
+    echo -e "${YELLOW}为了使 Trojan 协议正常工作，您需要为 'trojan.${domain}' 添加一条指向您服务器 IP 的 A 或 AAAA 记录。${NC}"
+    read -p "您确定要继续吗？(如果您稍后添加解析，现在可以继续) [y/N]: " -n 1 -r; echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        log_error "操作已取消。请先设置 DNS 解析。"
+        return 1
+    fi
+  fi
+  ### END FIX ###
+
   log_info "为 ${domain} 申请/扩展 Let's Encrypt 证书"
   request_letsencrypt_cert "$domain" || return 1
   ln -sf "/etc/letsencrypt/live/${domain}/privkey.pem"   "${CERT_DIR}/current.key"
   ln -sf "/etc/letsencrypt/live/${domain}/fullchain.pem" "${CERT_DIR}/current.pem"
   fix_permissions
+
+  ### FIX: Dynamically update Nginx SNI map ###
+  log_info "动态更新 Nginx 的 SNI 分流规则..."
+  local nginx_conf="/etc/nginx/nginx.conf"
+  if [[ -f "$nginx_conf" ]]; then
+      # Create a backup before modifying
+      cp "$nginx_conf" "${nginx_conf}.bak.$(date +%s)"
+      
+      # Escape dots in the domain for sed
+      local escaped_domain=$(echo "$domain" | sed 's/\./\\./g')
+
+      # Replace hardcoded internal SNIs with the real domain
+      sed -i -e "s/^\( *\)grpc\.edgebox\.internal grpc;/\1${escaped_domain} grpc;/" \
+             -e "s/^\( *\)ws\.edgebox\.internal websocket;/\1${escaped_domain} websocket;/" \
+             "$nginx_conf"
+      
+      log_success "Nginx 配置已更新为使用域名 '${domain}' 进行 SNI 分流。"
+  else
+      log_error "未找到 Nginx 配置文件，跳过更新。"
+  fi
+  ### END FIX ###
+
   regen_sub_domain "$domain"
   reload_or_restart_services nginx xray sing-box
   log_success "已切换到域名模式（${domain}）"
   post_switch_report
-  # 【增加此行】强制刷新 dashboard.json 缓存
+  # 强制刷新 dashboard.json 缓存
   /etc/edgebox/scripts/dashboard-backend.sh --now >/dev/null 2>&1
   echo; echo "=== 新订阅（域名模式） ==="; show_sub
 }
+# ############################################
+# ### MODIFICATION END: switch_to_domain ###
+# ############################################
 
+# ##########################################
+# ### MODIFICATION START: switch_to_ip ###
+# ##########################################
 switch_to_ip(){
-  # <<< 修复点 3: 增加写 cert_mode 文件的步骤 >>>
-  echo "self-signed" > "${CONFIG_DIR}/cert_mode"
+  log_info "正在切换回 IP 模式..."
+  
+  ### FIX: Revert Nginx SNI map to its original state ###
+  log_info "正在还原 Nginx 的 SNI 分流规则为内部模式..."
+  local nginx_conf="/etc/nginx/nginx.conf"
+  if [[ -f "$nginx_conf" ]]; then
+      # Create a backup before modifying
+      cp "$nginx_conf" "${nginx_conf}.bak.$(date +%s)"
 
+      # Get the current domain from the cert_mode file to replace it
+      local current_domain
+      current_domain=$(get_current_cert_mode | cut -d: -f2)
+      
+      if [[ -n "$current_domain" && "$current_domain" != "self-signed" ]]; then
+          local escaped_domain=$(echo "$current_domain" | sed 's/\./\\./g')
+          sed -i -e "s/^\( *\)${escaped_domain} grpc;/\1grpc.edgebox.internal grpc;/" \
+                 -e "s/^\( *\)${escaped_domain} websocket;/\1ws.edgebox.internal websocket;/" \
+                 "$nginx_conf"
+          log_success "Nginx 配置已还原为内部 SNI 模式。"
+      else
+          log_info "Nginx 配置已经是内部模式，无需修改。"
+      fi
+  else
+      log_warn "未找到 Nginx 配置文件，跳过还原。"
+  fi
+  ### END FIX ###
+
+  echo "self-signed" > "${CONFIG_DIR}/cert_mode"
   ln -sf "${CERT_DIR}/self-signed.key" "${CERT_DIR}/current.key"
   ln -sf "${CERT_DIR}/self-signed.pem" "${CERT_DIR}/current.pem"
   fix_permissions
-  local ip; ip="$(curl -fsS4 --max-time 2 https://ipv4.icanhazip.com 2>/dev/null | tr -d '\r\n')"
-  [[ -z "$ip" ]] && ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
-  regen_sub_ip "$ip"
+  
+  # Ensure config is loaded to get SERVER_IP
+  ensure_config_loaded || regen_sub_ip "YOUR_IP"
+  
+  regen_sub_ip
   reload_or_restart_services nginx xray sing-box
   log_success "已切换到 IP 模式"
   post_switch_report
@@ -12707,6 +12778,9 @@ switch_to_ip(){
   /etc/edgebox/scripts/dashboard-backend.sh --now >/dev/null 2>&1
   echo; echo "=== 新订阅（IP 模式） ==="; show_sub
 }
+# ########################################
+# ### MODIFICATION END: switch_to_ip ###
+# ########################################
 
 cert_status(){
   local mode=$(get_current_cert_mode)
