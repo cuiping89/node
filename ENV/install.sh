@@ -13105,58 +13105,91 @@ format_bytes(){
     ([[ $b -ge 1024 ]] && echo "$(bc<<<"scale=1;$b/1024")KB" || echo "${b}B"))
 }
 
-# [最终修正版] 流量统计函数 (增强接口检测)
-traffic_show(){
-    echo -e "${CYAN}流量统计 (基于 vnStat)：${NC}"
-    
-    # 1. 检查 vnstat 是否安装
-    if ! command -v vnstat >/dev/null 2>&1; then
-        log_error "vnstat 未安装，无法显示流量统计。"
-        echo "  请尝试运行: sudo apt-get install vnstat 或 sudo yum install vnstat"
-        return 1
+# ===== edgeboxctl subcommand: traffic show =====
+traffic_show() {
+  # 1) 选网卡：参数 > 默认路由
+  local nic="${1:-$(ip -o -4 route show to default 2>/dev/null | awk '{print $5}' | head -1)}"
+  [[ -z "$nic" ]] && nic="eth0"
+
+  echo -e "流量统计（基于 vnStat）:"
+  echo -e "  接口： ${nic}"
+
+  # 2) 依赖检查
+  if ! command -v vnstat >/dev/null 2>&1; then
+    echo "  vnstat 未安装"; return 1
+  fi
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "  jq 未安装"; return 1
+  fi
+
+  # 3) 确保服务/数据库就绪（幂等）
+  systemctl is-active --quiet vnstat  || systemctl start vnstat  2>/dev/null || true
+  systemctl is-active --quiet vnstatd || systemctl start vnstatd 2>/dev/null || true
+
+  # 如果数据库不存在，尝试创建并做一次手动更新
+  if ! vnstat --iflist 2>/dev/null | awk '{print $1}' | grep -qx "$nic"; then
+    vnstat --add -i "$nic" >/dev/null 2>&1 || true
+  fi
+  vnstat -u -i "$nic" >/dev/null 2>&1 || true
+
+  # 4) 读取 JSON（兼容 v1/v2 字段）
+  local nowY nowM nowD json
+  nowY=$(date +%Y); nowM=$(date +%-m); nowD=$(date +%-d)
+  json="$(vnstat --json -i "$nic" 2>/dev/null)"
+  if [[ -z "$json" ]]; then
+    echo "  无法获取 vnstat JSON"; return 1
+  fi
+
+  # helper：从 day/month 两种数组名里取到 rx/tx；不存在则给 0
+  _pick_today_rx() {
+    jq -r '
+      ( .interfaces[0].traffic.day // .interfaces[0].traffic.days // [] )
+      | map(select(.date.year=='"$nowY"' and (.date.month|tonumber)=='"$nowM"' and (.date.day|tonumber)=='"$nowD"'))
+      | if length>0 then (.[-1].rx // .[-1].received // 0) else 0 end
+    ' 2>/dev/null
+  }
+  _pick_today_tx() {
+    jq -r '
+      ( .interfaces[0].traffic.day // .interfaces[0].traffic.days // [] )
+      | map(select(.date.year=='"$nowY"' and (.date.month|tonumber)=='"$nowM"' and (.date.day|tonumber)=='"$nowD"'))
+      | if length>0 then (.[-1].tx // .[-1].transmitted // 0) else 0 end
+    ' 2>/dev/null
+  }
+  _pick_month_rx() {
+    jq -r '
+      ( .interfaces[0].traffic.month // .interfaces[0].traffic.months // [] )
+      | map(select(.date.year=='"$nowY"' and (.date.month|tonumber)=='"$nowM"'))
+      | if length>0 then (.[-1].rx // .[-1].received // 0) else 0 end
+    ' 2>/dev/null
+  }
+  _pick_month_tx() {
+    jq -r '
+      ( .interfaces[0].traffic.month // .interfaces[0].traffic.months // [] )
+      | map(select(.date.year=='"$nowY"' and (.date.month|tonumber)=='"$nowM"'))
+      | if length>0 then (.[-1].tx // .[-1].transmitted // 0) else 0 end
+    ' 2>/dev/null
+  }
+
+  # 5) 取数（拿不到一律用 0）
+  local day_rx day_tx mon_rx mon_tx
+  day_rx="$(_pick_today_rx <<<"$json")"; [[ "$day_rx" == "null" || -z "$day_rx" ]] && day_rx=0
+  day_tx="$(_pick_today_tx <<<"$json")"; [[ "$day_tx" == "null" || -z "$day_tx" ]] && day_tx=0
+  mon_rx="$(_pick_month_rx <<<"$json")"; [[ "$mon_rx" == "null" || -z "$mon_rx" ]] && mon_rx=0
+  mon_tx="$(_pick_month_tx <<<"$json")"; [[ "$mon_tx" == "null" || -z "$mon_tx" ]] && mon_tx=0
+
+  # 6) 格式化输出（numfmt 可选，无则直接字节数）
+  _fmt() {
+    if command -v numfmt >/dev/null 2>&1; then
+      numfmt --to=iec --suffix=B --padding=0 "$1" 2>/dev/null
+    else
+      echo "${1}B"
     fi
+  }
 
-    # 2. 增强的网络接口检测
-    local iface=""
-    #   方法一：通过路由表快速获取 (通常最快)
-    iface=$(ip route get 1.1.1.1 | awk -F"dev " 'NR==1{split($2,a," ");print a[1]}' 2>/dev/null)
-
-    #   方法二：如果方法一失败，则直接从 vnstat 数据库中获取已监控的接口
-    if [[ -z "$iface" ]]; then
-        log_warn "标准接口检测失败，尝试从 vnstat 数据库获取接口..."
-        iface=$(vnstat --dbiflist 2>/dev/null | head -n 1)
-    fi
-    
-    #   方法三：如果仍然失败，则报错退出
-    if [[ -z "$iface" ]]; then
-        log_error "无法找到 vnstat 正在监控的网络接口。"
-        echo "  请运行 'vnstat' 命令确认哪个接口有数据，然后手动查询，例如: vnstat -i eth0"
-        return 1
-    fi
-    
-    # 3. 使用 vnstat 的 JSON 输出，更稳定可靠
-    local daily_json monthly_json
-    daily_json=$(vnstat -i "$iface" --json d 1 2>/dev/null)
-    monthly_json=$(vnstat -i "$iface" --json m 1 2>/dev/null)
-
-    if [[ -z "$daily_json" || "$monthly_json" == "null" || $(echo "$daily_json" | jq '.interfaces | length') -eq 0 ]]; then
-        log_error "无法从 vnstat 获取接口 '${iface}' 的流量数据。"
-        echo "  可能原因及解决方法："
-        echo "  1. vnstat 服务未运行，请尝试: systemctl restart vnstat"
-        echo "  2. 数据库尚未为该接口创建，请等待5-10分钟后重试。"
-        return 1
-    fi
-
-    # 4. 使用 jq 安全地解析并格式化输出
-    local today_tx=$(echo "$daily_json" | jq -r '.interfaces[0].traffic.days[0].tx')
-    local today_rx=$(echo "$daily_json" | jq -r '.interfaces[0].traffic.days[0].rx')
-    local month_tx=$(echo "$monthly_json" | jq -r '.interfaces[0].traffic.months[0].tx')
-    local month_rx=$(echo "$monthly_json" | jq -r '.interfaces[0].traffic.months[0].rx')
-
-    echo "  接口: ${YELLOW}${iface}${NC}"
-    echo -e "  今日流量:  ${GREEN}$(format_bytes "$today_tx") ↑${NC} / ${CYAN}$(format_bytes "$today_rx") ↓${NC}"
-    echo -e "  本月流量:  ${GREEN}$(format_bytes "$month_tx") ↑${NC} / ${CYAN}$(format_bytes "$month_rx") ↓${NC}"
+  echo -e "  今日流量： $(_fmt "$day_tx") ↑ / $(_fmt "$day_rx") ↓"
+  echo -e "  本月流量： $(_fmt "$mon_tx") ↑ / $(_fmt "$mon_rx") ↓"
 }
+
 
 #############################################
 # 预警配置（极简）
