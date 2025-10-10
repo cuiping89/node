@@ -11919,46 +11919,6 @@ reload_or_restart_services() {
   done
 }
 
-# ###########################################
-# ### MODIFICATION START: regen_sub_domain ###
-# ###########################################
-# === [CORRECTED] Subscription Generation: Domain Mode ===
-regen_sub_domain() {
-  local domain="$1"
-  # This function relies on globally loaded config variables by ensure_config_loaded
-  ensure_config_loaded || return 1
-
-  # URL-encode passwords
-  local HY2_PW_ENC TUIC_PW_ENC TROJAN_PW_ENC reality_sni
-  HY2_PW_ENC=$(printf '%s' "$PASSWORD_HYSTERIA2" | jq -rR @uri)
-  TUIC_PW_ENC=$(printf '%s' "$PASSWORD_TUIC"     | jq -rR @uri)
-  TROJAN_PW_ENC=$(printf '%s' "$PASSWORD_TROJAN"  | jq -rR @uri)
-
-  # Get current Reality SNI
-  reality_sni="$(jq -r 'first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.serverNames[0]) // empty' "${XRAY_CONFIG}" 2>/dev/null)"
-  : "${reality_sni:=${REALITY_SNI:-www.microsoft.com}}"
-
-  # ### FIX: Changed Trojan SNI to trojan.${domain} to match Nginx rule expectation ###
-  local sub_content
-  sub_content=$(cat <<PLAIN
-vless://${UUID_VLESS_REALITY}@${domain}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${reality_sni}&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&type=tcp#EdgeBox-REALITY
-vless://${UUID_VLESS_GRPC}@${domain}:443?encryption=none&security=tls&sni=${domain}&alpn=h2&type=grpc&serviceName=grpc&fp=chrome#EdgeBox-gRPC
-vless://${UUID_VLESS_WS}@${domain}:443?encryption=none&security=tls&sni=${domain}&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome#EdgeBox-WS
-trojan://${TROJAN_PW_ENC}@${domain}:443?security=tls&sni=trojan.${domain}&fp=chrome#EdgeBox-TROJAN
-hysteria2://${HY2_PW_ENC}@${domain}:443?sni=${domain}&alpn=h3#EdgeBox-HYSTERIA2
-tuic://${UUID_TUIC}:${TUIC_PW_ENC}@${domain}:2053?congestion_control=bbr&alpn=h3&sni=${domain}#EdgeBox-TUIC
-PLAIN
-)
-
-  write_subscription "$sub_content"
-  sync_subscription_files
-  log_success "Domain mode subscription updated successfully."
-}
-# #########################################
-# ### MODIFICATION END: regen_sub_domain ###
-# #########################################
-
-
 # ===== 性能优化的全局配置变量 =====
 # 这些变量在脚本启动时加载一次，后续直接使用
 CONFIG_LOADED=false
@@ -12563,22 +12523,26 @@ sync_subscription_files() {
 # === [CORRECTED] Subscription Generation: Domain Mode ===
 regen_sub_domain() {
   local domain="$1"
+  # This function relies on globally loaded config variables by ensure_config_loaded
   ensure_config_loaded || return 1
 
+  # URL-encode passwords
   local HY2_PW_ENC TUIC_PW_ENC TROJAN_PW_ENC reality_sni
   HY2_PW_ENC=$(printf '%s' "$PASSWORD_HYSTERIA2" | jq -rR @uri)
   TUIC_PW_ENC=$(printf '%s' "$PASSWORD_TUIC"     | jq -rR @uri)
   TROJAN_PW_ENC=$(printf '%s' "$PASSWORD_TROJAN"  | jq -rR @uri)
 
-  reality_sni="$(jq -r 'first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.serverNames[0]) // (first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.dest) | split(":")[0]) // empty' "${XRAY_CONFIG}" 2>/dev/null)"
+  # Get current Reality SNI
+  reality_sni="$(jq -r 'first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.serverNames[0]) // empty' "${XRAY_CONFIG}" 2>/dev/null)"
   : "${reality_sni:=${REALITY_SNI:-www.microsoft.com}}"
 
+  # ### FIX: Changed Trojan SNI to trojan.${domain} to match Nginx rule expectation ###
   local sub_content
   sub_content=$(cat <<PLAIN
 vless://${UUID_VLESS_REALITY}@${domain}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${reality_sni}&fp=chrome&pbk=${REALITY_PUBLIC_KEY}&sid=${REALITY_SHORT_ID}&type=tcp#EdgeBox-REALITY
 vless://${UUID_VLESS_GRPC}@${domain}:443?encryption=none&security=tls&sni=${domain}&alpn=h2&type=grpc&serviceName=grpc&fp=chrome#EdgeBox-gRPC
 vless://${UUID_VLESS_WS}@${domain}:443?encryption=none&security=tls&sni=${domain}&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome#EdgeBox-WS
-trojan://${TROJAN_PW_ENC}@${domain}:443?security=tls&sni=${domain}&fp=chrome#EdgeBox-TROJAN
+trojan://${TROJAN_PW_ENC}@${domain}:443?security=tls&sni=trojan.${domain}&fp=chrome#EdgeBox-TROJAN
 hysteria2://${HY2_PW_ENC}@${domain}:443?sni=${domain}&alpn=h3#EdgeBox-HYSTERIA2
 tuic://${UUID_TUIC}:${TUIC_PW_ENC}@${domain}:2053?congestion_control=bbr&alpn=h3&sni=${domain}#EdgeBox-TUIC
 PLAIN
@@ -12670,9 +12634,7 @@ update_sni_domain() {
     fi
 }
 
-# ##############################################
-# ### MODIFICATION START: switch_to_domain ###
-# ##############################################
+
 switch_to_domain(){
   local domain="$1"
   [[ -z "$domain" ]] && { echo "用法: edgeboxctl switch-to-domain <domain>"; return 1; }
@@ -12727,13 +12689,8 @@ switch_to_domain(){
   /etc/edgebox/scripts/dashboard-backend.sh --now >/dev/null 2>&1
   echo; echo "=== 新订阅（域名模式） ==="; show_sub
 }
-# ############################################
-# ### MODIFICATION END: switch_to_domain ###
-# ############################################
 
-# ##########################################
-# ### MODIFICATION START: switch_to_ip ###
-# ##########################################
+
 switch_to_ip(){
   log_info "正在切换回 IP 模式..."
   
@@ -12778,9 +12735,7 @@ switch_to_ip(){
   /etc/edgebox/scripts/dashboard-backend.sh --now >/dev/null 2>&1
   echo; echo "=== 新订阅（IP 模式） ==="; show_sub
 }
-# ########################################
-# ### MODIFICATION END: switch_to_ip ###
-# ########################################
+
 
 cert_status(){
   local mode=$(get_current_cert_mode)
