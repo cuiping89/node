@@ -2861,14 +2861,24 @@ log_format main '$remote_addr - $remote_user [$time_local] "$request_method $uri
             return 302 /traffic/;
         }
         
-        # 订阅链接服务
-        location = /sub {
-            default_type text/plain;
-            add_header Cache-Control "no-store, no-cache, must-revalidate";
-            add_header Pragma "no-cache";
-            root /var/www/html;
-            try_files /sub =404;
-        }
+# 管理员专用：保留 /sub 精确匹配（不做设备限制）
+location = /sub {
+    default_type text/plain;
+    add_header Cache-Control "no-store, no-cache, must-revalidate";
+    add_header Pragma "no-cache";
+    root /var/www/html;
+    try_files /sub =404;
+}
+
+# 普通用户：/sub/u-<token> 高熵私有路径（软链到同一份 subscription.txt）
+location ^~ /sub/ {
+    default_type text/plain;
+    add_header Cache-Control "no-store, no-cache, must-revalidate";
+    add_header Pragma "no-cache";
+    root /var/www/html;
+    # 只允许已有文件（软链）被访问；没有对应 token 文件则 404
+    try_files $uri =404;
+}
         
 	    # 内部403页面（只在本server内有效）
         location = /_deny_traffic {
@@ -12252,7 +12262,10 @@ show_sub(){
 }
 
 
+#############################################
 # 流量随机化管理命令
+#############################################
+
 traffic_randomize() {
     local level="${1:-light}"
     
@@ -12409,7 +12422,11 @@ debug_ports(){
   echo "  TCP/10143 (Trojan内部): $(ss -tln | grep -q '127.0.0.1:10143 ' && echo '✓' || echo '✗')"
 }
 
+
+#############################################
 # 设置用户备注名
+#############################################
+
 set_user_alias() {
     local new_alias="$1"
     local config_file="/etc/edgebox/config/server.json"
@@ -12440,8 +12457,253 @@ set_user_alias() {
     fi
 }
 
+
 #############################################
-# 证书管理
+# 订阅子系统
+#############################################
+
+# === SUBSYS-BEGIN: Per-user Subscription Management ==========================
+SUB_DB="/etc/edgebox/sub/users.json"
+SUB_DIR="/var/www/html/sub"           # Nginx 根下的 /sub 目录
+SUB_SRC="${CONFIG_DIR}/subscription.txt"  # 订阅“单一事实源”（已存在）
+NGINX_LOG="${NGINX_ACCESS_LOG:-/var/log/nginx/access.log}"
+
+sub_ts(){ date +%s; }
+sub_now_iso(){ date -Is; }
+
+ensure_sub_dirs(){
+  mkdir -p "$(dirname "$SUB_DB")" "$SUB_DIR"
+  [[ -f "$SUB_SRC" ]] || {
+    log_error "订阅源不存在: $SUB_SRC"; return 1;
+  }
+  [[ -f "$SUB_DB" ]] || echo '{"users":{},"defaults":{"limit":3,"release_days":7,"dual_grace_hours":24}}' > "$SUB_DB"
+}
+
+gen_token(){
+  # 生成 URL-safe 高熵 token（长度 ~ 32）
+  tr -dc 'A-Za-z0-9_-' </dev/urandom | head -c 32
+}
+
+ip_family(){
+  local ip="$1"
+  [[ "$ip" == *:* ]] && echo v6 || echo v4
+}
+
+ip_bucket(){
+  local ip="$1"
+  if [[ "$ip" == *:* ]]; then
+    # IPv6 取前 4 组（/48 粗粒度）
+    awk -F: '{printf "%s:%s:%s:%s\n",$1,$2,$3,$4}' <<<"$ip"
+  else
+    # IPv4 取前三段（/24 粗粒度）
+    awk -F. '{printf "%s.%s.%s\n",$1,$2,$3}' <<<"$ip"
+  fi
+}
+
+ua_norm(){
+  # 归一化 UA，去前后空格并转小写
+  tr '[:upper:]' '[:lower:]' <<<"${1:-}" | sed -E 's/^[[:space:]]+|[[:space:]]+$//g'
+}
+
+sha1(){ printf "%s" "$1" | sha1sum | awk '{print $1}'; }
+
+token_path(){ echo "${SUB_DIR}/u-$1"; }
+
+sub_db_jq(){ jq -c "$1" "$SUB_DB"; }             # 只读
+sub_db_apply(){ # $1=jq filter 表达式
+  local tmp; tmp="$(mktemp)"
+  if jq "$1" "$SUB_DB" > "$tmp"; then mv "$tmp" "$SUB_DB"; else rm -f "$tmp"; return 1; fi
+}
+
+sub_print_url(){
+  local token="$1"
+  # 依据当前证书/域名模式，保持原 show_sub 的策略生成基础 host
+  local cert_mode host
+  cert_mode="$(get_current_cert_mode 2>/dev/null || echo self-signed)"
+  if [[ "$cert_mode" == "self-signed" ]]; then
+    host="$(jq -r '.server_ip // "YOUR_IP"' "${CONFIG_DIR}/server.json" 2>/dev/null || echo "YOUR_IP")"
+  else
+    host="${cert_mode##*:}"
+  fi
+  echo "http://${host}/sub/u-${token}"
+}
+
+sub_issue(){
+  local user="$1" limit="${2:-}"
+  [[ -z "$user" ]] && { echo "用法: edgeboxctl sub issue <user> [limit]"; return 1; }
+
+  ensure_sub_dirs || return 1
+
+  # 读取默认参数
+  local def_limit def_days def_grace
+  def_limit="$(jq -r '.defaults.limit' "$SUB_DB")"
+  def_days="$(jq -r '.defaults.release_days' "$SUB_DB")"
+  def_grace="$(jq -r '.defaults.dual_grace_hours' "$SUB_DB")"
+  [[ "$limit" =~ ^[0-9]+$ ]] || limit="$def_limit"
+
+  # 若已存在且 active，则直接回显
+  local exists active token
+  exists="$(jq -r --arg u "$user" '.users[$u] // empty' "$SUB_DB")"
+  if [[ -n "$exists" ]]; then
+    active="$(jq -r --arg u "$user" '.users[$u].active // false' "$SUB_DB")"
+    token="$(jq -r --arg u "$user" '.users[$u].token' "$SUB_DB")"
+    if [[ "$active" == "true" && -n "$token" && -e "$(token_path "$token")" ]]; then
+      echo "[INFO] 用户已存在且处于激活状态：$user"
+      echo "URL: $(sub_print_url "$token")"
+      return 0
+    fi
+  fi
+
+  # 生成/复用 token
+  token="$(gen_token)"
+  ln -sfn "$SUB_SRC" "$(token_path "$token")"
+
+  # 写入 DB
+  sub_db_apply \
+    --arg u "$user" --arg t "$token" \
+    --argjson lim "$limit" \
+    --arg now "$(sub_now_iso)" \
+    --argjson days "$def_days" --argjson grace "$def_grace" '
+    .users[$u] = {
+      token: $t,
+      active: true,
+      limit: $lim,
+      created_at: $now,
+      devices: {},
+      release_days: $days,
+      dual_grace_hours: $grace
+    }' || { echo "[ERR] 写入订阅数据库失败"; return 1; }
+
+  echo "[OK] 已为 <$user> 下发订阅（上限 ${limit} 台）"
+  echo "URL: $(sub_print_url "$token")"
+}
+
+sub_revoke(){
+  local user="$1"
+  [[ -z "$user" ]] && { echo "用法: edgeboxctl sub revoke <user>"; return 1; }
+  ensure_sub_dirs || return 1
+
+  local token
+  token="$(jq -r --arg u "$user" '.users[$u].token // empty' "$SUB_DB")"
+  [[ -z "$token" ]] && { echo "[ERR] 用户不存在或未签发：$user"; return 1; }
+
+  # 移除 token 文件，标记 inactive
+  rm -f "$(token_path "$token")" 2>/dev/null || true
+  sub_db_apply --arg u "$user" --arg now "$(sub_now_iso)" '
+    .users[$u].active = false
+    | .users[$u].revoked_at = $now' || return 1
+
+  echo "[OK] 已停用 <$user> 的订阅"
+}
+
+sub_limit(){
+  local user="$1" limit="$2"
+  [[ -z "$user" || -z "$limit" || ! "$limit" =~ ^[0-9]+$ ]] && { echo "用法: edgeboxctl sub limit <user> <N>"; return 1; }
+  ensure_sub_dirs || return 1
+
+  sub_db_apply --arg u "$user" --argjson lim "$limit" '
+    if .users[$u] then .users[$u].limit = $lim else . end' || return 1
+  echo "[OK] <$user> 设备上限已改为 $limit 台"
+}
+
+# 从 Nginx access.log 采样 /sub/u-<token> 访问，回填设备指纹占坑
+sub_scan_devices(){
+  local user="$1" token="$2" now epoch_now ua ip fam bucket key dual_grace_secs release_secs
+  epoch_now="$(sub_ts)"
+
+  dual_grace_secs="$(jq -r --arg u "$user" ".users[\$u].dual_grace_hours" "$SUB_DB")"
+  release_secs="$(jq -r --arg u "$user" ".users[\$u].release_days" "$SUB_DB")"
+  dual_grace_secs=$(( dual_grace_secs * 3600 ))
+  release_secs=$(( release_secs * 86400 ))
+
+  # 使用 awk 提取 [time]、remote_addr、request_uri、user_agent
+  # 仅匹配目标 token 的行，避免全量扫描
+  grep -F "/sub/u-${token}" "$NGINX_LOG" 2>/dev/null | awk '{
+    # 典型格式：IP - - [10/Oct/2025:08:12:22 +0000] "GET /sub/u-xxx HTTP/1.1" 200 ... "UA..."
+    time=""; ip=""; uri=""; ua="";
+    for(i=1;i<=NF;i++){
+      if($i ~ /^\[/){time=$i" "$(i+1); gsub(/^\[|\]$/,"",time);}
+      if(i==1){ip=$i;}
+    }
+    match($0, /"GET ([^ ]+) HTTP/, m); if(m[1]!="") uri=m[1];
+    match($0, /"[^"]*" "([^"]*)"$/, u); if(u[1]!="") ua=u[1];
+    if(uri!=""){printf "%s\t%s\t%s\t%s\n", time, ip, uri, ua;}
+  }' | while IFS=$'\t' read -r t ip _ uri ua; do
+      [[ -z "$ua" || -z "$ip" ]] && continue
+      fam="$(ip_family "$ip")"
+      bucket="$(ip_bucket "$ip")"
+      ua_n="$(ua_norm "$ua")"
+      # 指纹：ua_norm + ip 粗粒度段
+      key="$(sha1 "${ua_n}|${bucket}")"
+
+      # 设备第一次出现：登记 first_seen + family
+      # 双栈宽限：同 UA 在 dual_grace 窗口内出现另一栈，不新增占坑，只补记 family
+      sub_db_apply --arg u "$user" --arg k "$key" \
+        --arg ua "$ua_n" --arg fam "$fam" --arg now "$(sub_now_iso)" \
+        --argjson now_e "$epoch_now" --argjson grace "$dual_grace_secs" '
+        . as $root
+        | ( .users[$u].devices[$k] // {
+              ua: $ua, first_seen: $now, last_seen: $now,
+              first_seen_epoch: $now_e, last_seen_epoch: $now_e,
+              family: {v4:false, v6:false}
+            } ) as $d
+        | ($d.family[$fam] = true) as $d2
+        | $d2.last_seen = $now | $d2.last_seen_epoch = $now_e
+        | .users[$u].devices[$k] = $d2
+      ' >/dev/null || true
+  done
+
+  # GC：7 天未见释放
+  sub_db_apply --arg u "$user" --argjson now "$epoch_now" --argjson ttl "$release_secs" '
+    .users[$u].devices as $D
+    | ($D|to_entries | map( select(.value.last_seen_epoch != null) )) as $E
+    | ( $E | map( select( ($now - .value.last_seen_epoch) < $ttl ) ) | from_entries ) as $alive
+    | .users[$u].devices = $alive
+  ' >/dev/null || true
+}
+
+sub_show(){
+  local user="$1"
+  [[ -z "$user" ]] && { echo "用法: edgeboxctl sub show <user>"; return 1; }
+  ensure_sub_dirs || return 1
+
+  local ujson token active limit used url
+  ujson="$(jq -c --arg u "$user" '.users[$u]' "$SUB_DB")"
+  [[ -z "$ujson" || "$ujson" == "null" ]] && { echo "[ERR] 用户不存在：$user"; return 1; }
+
+  token="$(jq -r '._ref.token // .token' <<<"$ujson" 2>/dev/null || jq -r '.token' <<<"$ujson")"
+  active="$(jq -r '.active' <<<"$ujson")"
+  limit="$(jq -r '.limit'  <<<"$ujson")"
+
+  # 扫描日志回填设备，并执行 7 天 GC
+  [[ "$active" == "true" && -n "$token" ]] && sub_scan_devices "$user" "$token"
+
+  # 重新读取统计
+  ujson="$(jq -c --arg u "$user" '.users[$u]' "$SUB_DB")"
+  used="$(jq -r '.devices | keys | length' <<<"$ujson")"
+  url="$(sub_print_url "$token")"
+
+  echo "User: $user"
+  echo "Active: $active"
+  echo "URL: $url"
+  echo "Limit: $used / $limit（7天自动释放，占坑按“UA+粗粒度IP段”，24h 双栈宽限）"
+  echo ""
+  echo "Devices:"
+  jq -r '
+    .devices
+    | to_entries
+    | sort_by(.value.last_seen) | reverse
+    | .[]
+    | "- " + (.value.ua[0:80]) + "  | last_seen=" + (.value.last_seen // "") +
+      "  | v4=" + (if .value.family.v4 then "✓" else "-" end) +
+      " v6=" + (if .value.family.v6 then "✓" else "-" end)
+  ' <<<"$ujson"
+}
+# === SUBSYS-END ==============================================================
+
+
+#############################################
+# 证书切换
 #############################################
 
 fix_permissions(){
@@ -13726,13 +13988,30 @@ sni_set_domain() {
 
 case "$1" in
   # 基础功能
-  sub|subscription) show_sub ;;
   status) show_status ;;
   restart) restart_services ;;
   logs|log) show_logs "$2" ;;
   test) test_connection ;;
   debug-ports) debug_ports ;;
   
+    sub|subscription)
+    ensure_sub_dirs >/dev/null 2>&1 || true
+    case "$2" in
+      issue)   shift 2; sub_issue "$1" "${2:-}";;
+      show)    shift 2; sub_show "$1";;
+      revoke)  shift 2; sub_revoke "$1";;
+      limit)   shift 2; sub_limit "$1" "$2";;
+      ""|list) show_sub ;;   # 兼容：不带参数仍显示整份订阅（管理员/自用）
+      *) echo "用法:
+  edgeboxctl sub issue  <user> [limit]    # 下发专属订阅（默认限 3 台）
+  edgeboxctl sub show   <user>            # 查看订阅与已登记设备（含7天释放、24h双栈宽限）
+  edgeboxctl sub revoke <user>            # 一键停用该用户订阅
+  edgeboxctl sub limit  <user> <N>        # 动态调整设备上限
+  (空参) 仍显示全量订阅文本（管理员自用）"
+      ;;
+    esac
+    ;;
+	
   # 备注服务器名称
    "alias")
         if [[ -n "$2" ]]; then
