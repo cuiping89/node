@@ -2952,8 +2952,8 @@ stream {
     include /etc/nginx/conf.d/edgebox_stream_map.conf;
     
     map $ssl_preread_alpn_protocols $backend_alpn {
+	    ~\bh2\b            grpc;
         ~\bhttp/1\.1\b     websocket;
-        ~\bh2\b            grpc;
         default            reality;
     }
     
