@@ -11300,7 +11300,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
     </div>
 
     <div class="command-section">
-      <h3>🔒 证书管理</h3>
+      <h3>🔒 证书切换</h3>
       <div class="command-list">
         <code>edgeboxctl cert status</code> <span># 查看当前证书类型、域名及有效期</span>
         <code>edgeboxctl switch-to-domain &lt;domain&gt;</code> <span># 切换为域名并申请 Let's Encrypt 证书</span>
@@ -11313,7 +11313,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
     </div>
 
     <div class="command-section">
-      <h3>🌐 SNI 域名管理</h3>
+      <h3>🌐 SNI 域名轮换</h3>
       <div class="command-list">
         <code>edgeboxctl sni list</code> <span># 显示 SNI 域名池状态 (别名: pool)</span>
 		<code>edgeboxctl sni test-all</code> <span># 测试池中所有域名的可用性</span>
@@ -11348,7 +11348,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
     </div>
 
     <div class="command-section">
-      <h3>🚏 出站分流</h3>
+      <h3>👥 网络身份配置</h3>
       <div class="command-list">
         <code>edgeboxctl shunt vps</code><span># VPS 直连出站（默认）</span><br>
         <code>edgeboxctl shunt resi `&lt;URL&gt;`</code><span># 代理全量出站（仅 Xray）</span><br>
@@ -13105,7 +13105,7 @@ format_bytes(){
     ([[ $b -ge 1024 ]] && echo "$(bc<<<"scale=1;$b/1024")KB" || echo "${b}B"))
 }
 
-# 流量统计函数
+# [最终修正版] 流量统计函数 (增强接口检测)
 traffic_show(){
     echo -e "${CYAN}流量统计 (基于 vnStat)：${NC}"
     
@@ -13116,12 +13116,22 @@ traffic_show(){
         return 1
     fi
 
-    # 2. 自动获取默认网络接口
-    local iface
-    iface=$(ip route get 1.1.1.1 | awk -F"dev " 'NR==1{split($2,a," ");print a[1]}')
+    # 2. 增强的网络接口检测
+    local iface=""
+    #   方法一：通过路由表快速获取 (通常最快)
+    iface=$(ip route get 1.1.1.1 | awk -F"dev " 'NR==1{split($2,a," ");print a[1]}' 2>/dev/null)
+
+    #   方法二：如果方法一失败，则直接从 vnstat 数据库中获取已监控的接口
     if [[ -z "$iface" ]]; then
-        log_warn "无法自动检测到默认网络接口，将尝试 'eth0'。"
-        iface="eth0"
+        log_warn "标准接口检测失败，尝试从 vnstat 数据库获取接口..."
+        iface=$(vnstat --dbiflist 2>/dev/null | head -n 1)
+    fi
+    
+    #   方法三：如果仍然失败，则报错退出
+    if [[ -z "$iface" ]]; then
+        log_error "无法找到 vnstat 正在监控的网络接口。"
+        echo "  请运行 'vnstat' 命令确认哪个接口有数据，然后手动查询，例如: vnstat -i eth0"
+        return 1
     fi
     
     # 3. 使用 vnstat 的 JSON 输出，更稳定可靠
@@ -13129,10 +13139,11 @@ traffic_show(){
     daily_json=$(vnstat -i "$iface" --json d 1 2>/dev/null)
     monthly_json=$(vnstat -i "$iface" --json m 1 2>/dev/null)
 
-    if [[ -z "$daily_json" || -z "$monthly_json" ]]; then
-        log_error "无法从 vnstat 获取流量数据。"
-        echo "  请确认 vnstat 服务正在运行 (可尝试 systemctl restart vnstat)"
-        echo "  并已为接口 '${iface}' 收集数据 (可使用 vnstat --iflist 查看)"
+    if [[ -z "$daily_json" || "$monthly_json" == "null" || $(echo "$daily_json" | jq '.interfaces | length') -eq 0 ]]; then
+        log_error "无法从 vnstat 获取接口 '${iface}' 的流量数据。"
+        echo "  可能原因及解决方法："
+        echo "  1. vnstat 服务未运行，请尝试: systemctl restart vnstat"
+        echo "  2. 数据库尚未为该接口创建，请等待5-10分钟后重试。"
         return 1
     fi
 
