@@ -6947,7 +6947,7 @@ chmod +x "${SCRIPTS_DIR}/traffic-collector.sh"
 # 3. 预警配置（默认）
 cat > "${TRAFFIC_DIR}/alert.conf" <<'CONF'
 # 月度预算（GiB）
-ALERT_MONTHLY_GIB=100
+ALERT_MONTHLY_GIB=200
 # 邮件/Hook（可留空）
 ALERT_EMAIL=
 ALERT_WEBHOOK=
@@ -13105,20 +13105,46 @@ format_bytes(){
     ([[ $b -ge 1024 ]] && echo "$(bc<<<"scale=1;$b/1024")KB" || echo "${b}B"))
 }
 
+# 流量统计函数
 traffic_show(){
-    echo -e "${CYAN}流量统计：${NC}"
-    if need vnstat; then 
-        local iface=$(ip route | awk '/default/{print $5; exit}')
-        vnstat -i "$iface" --oneline 2>/dev/null | tail -1 | awk -F';' '{print "  今日: "$4" ↑, "$5" ↓\n  本月: "$8" ↑, "$9" ↓\n  总计: "$11" ↑, "$12" ↓"}' || echo "  vnStat 数据获取失败"
-    else 
-        echo "  vnStat 未安装"; 
+    echo -e "${CYAN}流量统计 (基于 vnStat)：${NC}"
+    
+    # 1. 检查 vnstat 是否安装
+    if ! command -v vnstat >/dev/null 2>&1; then
+        log_error "vnstat 未安装，无法显示流量统计。"
+        echo "  请尝试运行: sudo apt-get install vnstat 或 sudo yum install vnstat"
+        return 1
     fi
-    echo -e "\n${YELLOW}端口维度:${NC}"
-    for kv in "tcp 443 Nginx" "udp 443 Hysteria2" "udp 2053 TUIC"; do 
-        set -- $kv
-        local line=$(iptables -L INPUT -v -n 2>/dev/null | grep "dpt:$2 " | grep $1 | head -1)
-        [[ -n "$line" ]] && echo "  $1/$2 ($3): $(echo $line|awk '{print $1}') 包, $(format_bytes $(echo $line|awk '{print $2}'))" || echo "  $1/$2 ($3): 无数据"
-    done
+
+    # 2. 自动获取默认网络接口
+    local iface
+    iface=$(ip route get 1.1.1.1 | awk -F"dev " 'NR==1{split($2,a," ");print a[1]}')
+    if [[ -z "$iface" ]]; then
+        log_warn "无法自动检测到默认网络接口，将尝试 'eth0'。"
+        iface="eth0"
+    fi
+    
+    # 3. 使用 vnstat 的 JSON 输出，更稳定可靠
+    local daily_json monthly_json
+    daily_json=$(vnstat -i "$iface" --json d 1 2>/dev/null)
+    monthly_json=$(vnstat -i "$iface" --json m 1 2>/dev/null)
+
+    if [[ -z "$daily_json" || -z "$monthly_json" ]]; then
+        log_error "无法从 vnstat 获取流量数据。"
+        echo "  请确认 vnstat 服务正在运行 (可尝试 systemctl restart vnstat)"
+        echo "  并已为接口 '${iface}' 收集数据 (可使用 vnstat --iflist 查看)"
+        return 1
+    fi
+
+    # 4. 使用 jq 安全地解析并格式化输出
+    local today_tx=$(echo "$daily_json" | jq -r '.interfaces[0].traffic.days[0].tx')
+    local today_rx=$(echo "$daily_json" | jq -r '.interfaces[0].traffic.days[0].rx')
+    local month_tx=$(echo "$monthly_json" | jq -r '.interfaces[0].traffic.months[0].tx')
+    local month_rx=$(echo "$monthly_json" | jq -r '.interfaces[0].traffic.months[0].rx')
+
+    echo "  接口: ${YELLOW}${iface}${NC}"
+    echo -e "  今日流量:  ${GREEN}$(format_bytes "$today_tx") ↑${NC} / ${CYAN}$(format_bytes "$today_rx") ↓${NC}"
+    echo -e "  本月流量:  ${GREEN}$(format_bytes "$month_tx") ↑${NC} / ${CYAN}$(format_bytes "$month_rx") ↓${NC}"
 }
 
 #############################################
