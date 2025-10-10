@@ -13105,89 +13105,48 @@ format_bytes(){
     ([[ $b -ge 1024 ]] && echo "$(bc<<<"scale=1;$b/1024")KB" || echo "${b}B"))
 }
 
-# ===== edgeboxctl subcommand: traffic show (robust) =====
+# >>> traffic_show begin
 traffic_show() {
-  # 1) 选网卡：参数优先，否则取默认路由的网卡
-  local nic="${1:-$(ip -o -4 route show to default 2>/dev/null | awk '{print $5}' | head -1)}"
-  [[ -z "$nic" ]] && nic="eth0"
+  echo -e "流量统计（基于 vnStat）："
 
-  echo -e "流量统计（基于 vnStat） :"
-  echo -e "  接口： ${nic}"
+  # 选网卡：参数 > 默认路由 > vnstat数据库
+  local nic="${1:-$(ip -o route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1);exit}}')}"
+  [[ -z "$nic" ]] && nic="$(vnstat --dbiflist 2>/dev/null | head -n1)"
+  [[ -z "$nic" ]] && { echo "  无法确定网卡"; return 1; }
 
-  # 2) 依赖检查
-  if ! command -v vnstat >/dev/null 2>&1; then
-    echo "  vnstat 未安装"; return 1
-  fi
-  if ! command -v jq >/dev/null 2>&1; then
-    echo "  jq 未安装"; return 1
-  fi
+  # 依赖
+  command -v vnstat >/dev/null || { echo "  vnstat 未安装"; return 1; }
+  command -v jq >/dev/null     || { echo "  jq 未安装"; return 1; }
 
-  # 3) 数据库登记与一次更新（幂等）
-  vnstat --iflist 2>/dev/null | awk '{print $1}' | grep -qx "$nic" || vnstat --add -i "$nic" >/dev/null 2>&1 || true
-  vnstat -u -i "$nic" >/dev/null 2>&1 || true
+  # 拉 JSON（限制只取最新 1 条）
+  local dj mj
+  dj="$(vnstat -i "$nic" --json d 1 2>/dev/null)" || { echo "  无法获取今日数据"; return 1; }
+  mj="$(vnstat -i "$nic" --json m 1 2>/dev/null)" || { echo "  无法获取本月数据"; return 1; }
 
-  # 4) 拉 JSON
-  local json nowY nowM nowD
-  json="$(vnstat --json -i "$nic" 2>/dev/null)"
-  [[ -z "$json" ]] && { echo "  无法获取 vnstat JSON"; return 1; }
+  # 直接按“字节”读取（vnStat --json 的 rx/tx 默认就是 bytes）
+  local today_tx today_rx month_tx month_rx
+  today_tx="$(jq -r '( .interfaces[0].traffic.day // .interfaces[0].traffic.days )[0].tx // 0' <<<"$dj")"
+  today_rx="$(jq -r '( .interfaces[0].traffic.day // .interfaces[0].traffic.days )[0].rx // 0' <<<"$dj")"
+  month_tx="$(jq -r '( .interfaces[0].traffic.month // .interfaces[0].traffic.months )[0].tx // 0' <<<"$mj")"
+  month_rx="$(jq -r '( .interfaces[0].traffic.month // .interfaces[0].traffic.months )[0].rx // 0' <<<"$mj")"
 
-  nowY=$(date +%Y); nowM=$(date +%-m); nowD=$(date +%-d)
-
-  # 5) 取“今日 / 本月”的 KiB 值（兼容 day/days, month/months, rx/received, tx/transmitted）
-  local day_rx_kib day_tx_kib mon_rx_kib mon_tx_kib
-
-  day_rx_kib="$(jq -r '
-    ( .interfaces[0].traffic.day // .interfaces[0].traffic.days // [] ) as $d |
-    ($d | map(select(.date.year=='"$nowY"' and (.date.month|tonumber)=='"$nowM"' and (.date.day|tonumber)=='"$nowD"'))) as $t |
-    if ($t|length)>0 then ($t[-1].rx // $t[-1].received // 0)
-    else ( ($d[-1].rx // $d[-1].received // 0) // 0 ) end
-  ' <<<"$json")"
-
-  day_tx_kib="$(jq -r '
-    ( .interfaces[0].traffic.day // .interfaces[0].traffic.days // [] ) as $d |
-    ($d | map(select(.date.year=='"$nowY"' and (.date.month|tonumber)=='"$nowM"' and (.date.day|tonumber)=='"$nowD"'))) as $t |
-    if ($t|length)>0 then ($t[-1].tx // $t[-1].transmitted // 0)
-    else ( ($d[-1].tx // $d[-1].transmitted // 0) // 0 ) end
-  ' <<<"$json")"
-
-  mon_rx_kib="$(jq -r '
-    ( .interfaces[0].traffic.month // .interfaces[0].traffic.months // [] ) as $m |
-    ($m | map(select(.date.year=='"$nowY"' and (.date.month|tonumber)=='"$nowM"'))) as $t |
-    if ($t|length)>0 then ($t[-1].rx // $t[-1].received // 0)
-    else ( ($m[-1].rx // $m[-1].received // 0) // 0 ) end
-  ' <<<"$json")"
-
-  mon_tx_kib="$(jq -r '
-    ( .interfaces[0].traffic.month // .interfaces[0].traffic.months // [] ) as $m |
-    ($m | map(select(.date.year=='"$nowY"' and (.date.month|tonumber)=='"$nowM"'))) as $t |
-    if ($t|length)>0 then ($t[-1].tx // $t[-1].transmitted // 0)
-    else ( ($m[-1].tx // $m[-1].transmitted // 0) // 0 ) end
-  ' <<<"$json")"
-
-  # 6) 兜底：空/非数 -> 0
-  [[ -z "$day_rx_kib" || "$day_rx_kib" == "null" ]] && day_rx_kib=0
-  [[ -z "$day_tx_kib" || "$day_tx_kib" == "null" ]] && day_tx_kib=0
-  [[ -z "$mon_rx_kib" || "$mon_rx_kib" == "null" ]] && mon_rx_kib=0
-  [[ -z "$mon_tx_kib" || "$mon_tx_kib" == "null" ]] && mon_tx_kib=0
-
-  # 7) 无依赖格式化（KiB -> 友好单位）
-  _fmt_kib() {
-    awk -v kib="$1" 'BEGIN{
-      if (kib=="" || kib<0) kib=0;
-      b=kib*1024;
-      u[0]="B"; u[1]="KiB"; u[2]="MiB"; u[3]="GiB"; u[4]="TiB";
-      i=0; while (b>=1024 && i<4){ b/=1024; i++ }
-      # 0/整值时不保留多余小数
+  # 无依赖友好格式化（字节 -> B/KiB/MiB/GiB/TiB）
+  _fmt_bytes() {
+    awk -v b="$1" 'BEGIN{
+      if (b<0 || b=="") b=0
+      u[0]="B";u[1]="KiB";u[2]="MiB";u[3]="GiB";u[4]="TiB"
+      i=0; while (b>=1024 && i<4) { b/=1024; i++ }
       if (b==0 || b>=100) printf("%.0f%s", b, u[i]);
       else if (b>=10)     printf("%.1f%s", b, u[i]);
       else                printf("%.2f%s", b, u[i]);
     }'
   }
 
-  # 8) 输出
-  echo -e "  今日流量： $(_fmt_kib "$day_tx_kib") ↑ / $(_fmt_kib "$day_rx_kib") ↓"
-  echo -e "  本月流量： $(_fmt_kib "$mon_tx_kib") ↑ / $(_fmt_kib "$mon_rx_kib") ↓"
+  echo "  接口： $nic"
+  echo "  今日流量： $(_fmt_bytes "$today_tx") ↑ / $(_fmt_bytes "$today_rx") ↓"
+  echo "  本月流量： $(_fmt_bytes "$month_tx") ↑ / $(_fmt_bytes "$month_rx") ↓"
 }
+# <<< traffic_show end
 
 
 #############################################
