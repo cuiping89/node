@@ -2755,9 +2755,13 @@ EOF
 
 # 配置Nginx（SNI定向 + ALPN兜底架构）
 #
+# 锚点：configure_nginx 函数 (最终修正版)
+#
+# 配置Nginx（SNI定向 + ALPN兜底架构）
 configure_nginx() {
     log_info "配置Nginx（SNI定向 + ALPN兜底架构）..."
     
+    # 备份原始配置
     if [[ -f /etc/nginx/nginx.conf ]]; then
         cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak.$(date +%s)
         log_info "已备份原始Nginx配置"
@@ -2765,8 +2769,11 @@ configure_nginx() {
     
     mkdir -p /etc/nginx/conf.d
 
-    # --- 修改点: 将Nginx配置中的 /sub 路径替换为带Token的路径 ---
-    # 需要确保 MASTER_SUB_TOKEN 变量已从模块2导出
+    # 确保 MASTER_SUB_TOKEN 存在，如果为空则生成一个
+    if [[ -z "$MASTER_SUB_TOKEN" ]]; then
+        log_warn "MASTER_SUB_TOKEN为空，正在生成临时Token..."
+        MASTER_SUB_TOKEN=$(openssl rand -hex 16)
+    fi
     local master_sub_path="/sub-${MASTER_SUB_TOKEN}"
 
     # 生成新的Nginx主配置
@@ -2814,7 +2821,6 @@ http {
         
         location = / { return 302 /traffic/; }
         
-        # --- 修改点: 使用带Token的管理员订阅路径 ---
         location = ${master_sub_path} {
             default_type text/plain;
             add_header Cache-Control "no-store, no-cache, must-revalidate";
@@ -2841,7 +2847,7 @@ http {
             index index.html;
             autoindex off;
             charset utf-8;
-            types { text/html html; application/json json; text/css css; application/javascript js; }
+            types { text/html html htm; text/plain txt log; application/json json; text/css css; application/javascript js mjs; image/svg+xml svg; image/png png; image/jpeg jpg jpeg; image/gif gif; image/x-icon ico; font/ttf ttf; font/woff2 woff2; }
             add_header Cache-Control "no-store, no-cache, must-revalidate";
             add_header Pragma "no-cache";
         }
@@ -2873,22 +2879,40 @@ stream {
         proxy_pass \$final_upstream;
         proxy_timeout 300s;
         proxy_connect_timeout 5s;
+        proxy_protocol_timeout 5s;
+        proxy_responses 1;
+        proxy_next_upstream_tries 1;
     }
 }
 NGINX_CONFIG
 
+    # 生成独立的密码配置文件
     log_info "生成并注入控制面板密码..."
     local passcode_conf="/etc/nginx/conf.d/edgebox_passcode.conf"
     if [[ -n "$DASHBOARD_PASSCODE" ]]; then
-        echo "map \\\$arg_passcode \\\$pass_ok { \"${DASHBOARD_PASSCODE}\" 1; default 0; }" > "$passcode_conf"
+        # --- 致命错误修复点: 移除 $pass_ok 前的 `$` ---
+        cat > "$passcode_conf" << EOF
+# 由 EdgeBox 自动生成于 $(date)
+map \\\$arg_passcode pass_ok {
+    "${DASHBOARD_PASSCODE}" 1;
+    default 0;
+}
+EOF
         log_success "密码配置文件已生成: ${passcode_conf}"
     else
-        echo "map \\\$arg_passcode \\\$pass_ok { default 0; }" > "$passcode_conf"
+        # --- 致命错误修复点: 移除 $pass_ok 前的 `$` ---
+        cat > "$passcode_conf" << EOF
+# [WARN] 未生成密码，默认拒绝所有访问
+map \\\$arg_passcode pass_ok {
+    default 0;
+}
+EOF
         log_warn "DASHBOARD_PASSCODE 为空，面板访问将被默认拒绝。"
     fi
     
     generate_initial_nginx_stream_map
     
+    # 验证Nginx配置并重载
     log_info "验证Nginx配置..."
     if nginx -t; then
         log_success "Nginx配置验证通过"
@@ -2896,7 +2920,7 @@ NGINX_CONFIG
         log_success "Nginx 已重载新配置"
     else
         log_error "Nginx配置验证失败，请检查 /etc/nginx/nginx.conf 和 /etc/nginx/conf.d/"
-        nginx -t
+        nginx -t # 显示详细错误
         return 1
     fi
     
@@ -2907,7 +2931,6 @@ NGINX_CONFIG
     log_success "Nginx配置文件创建完成"
     return 0
 }
-
 
 #############################################
 # Xray 配置函数
