@@ -1874,17 +1874,21 @@ generate_dashboard_passcode() {
 # 配置信息保存函数
 #############################################
 
-#
-# 锚点2：save_config_info 函数
-#
+# 保存完整配置信息到server.json（对齐控制面板数据口径，安全JSON生成）
 save_config_info() {
     log_info "保存配置信息到server.json."
 
     mkdir -p "${CONFIG_DIR}"
+
+    # 基础信息（均为局部变量）
     local server_ip="${SERVER_IP:-127.0.0.1}"
     local version="${EDGEBOX_VER:-3.0.0}"
-    local install_date; install_date="$(date +%Y-%m-%d)"
-    local updated_at; updated_at="$(date -Is)"
+    local install_date
+    install_date="$(date +%Y-%m-%d)"
+    local updated_at
+    updated_at="$(date -Is)"
+
+    # 系统信息
     local cloud_provider="${CLOUD_PROVIDER:-Unknown}"
     local cloud_region="${CLOUD_REGION:-Unknown}"
     local instance_id="${INSTANCE_ID:-Unknown}"
@@ -1894,22 +1898,29 @@ save_config_info() {
     local memory_spec="${MEMORY_SPEC:-Unknown}"
     local disk_spec="${DISK_SPEC:-Unknown}"
 
+    # 确保面板口令存在
     if [[ -z "$DASHBOARD_PASSCODE" ]]; then
         log_warn "DASHBOARD_PASSCODE为空，生成临时6位数字口令"
-        local d=$((RANDOM % 10)); DASHBOARD_PASSCODE="${d}${d}${d}${d}${d}${d}"; export DASHBOARD_PASSCODE
+        local d=$((RANDOM % 10))
+        DASHBOARD_PASSCODE="${d}${d}${d}${d}${d}${d}"
+        export DASHBOARD_PASSCODE
     fi
 
-    if [[ -z "$UUID_VLESS_REALITY" || -z "$PASSWORD_TROJAN" || -z "$MASTER_SUB_TOKEN" ]]; then
-        log_error "关键凭据(UUID/密码/Token)缺失，无法保存配置"
+    # 关键凭据校验（缺失即失败）
+    if [[ -z "$UUID_VLESS_REALITY" || -z "$PASSWORD_TROJAN" || -z "$PASSWORD_HYSTERIA2" ]]; then
+        log_error "关键凭据缺失，无法保存配置"
         return 1
     fi
 
+    # IP格式校验
     if [[ ! "$server_ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
-        log_error "服务器IP格式无效: $server_ip"; return 1;
+        log_error "服务器IP格式无效: $server_ip"
+        return 1
     fi
 
     log_info "使用 jq 生成 server.json（避免转义/注入问题）"
 
+    # 用 jq -n 生成 JSON（所有变量安全注入）
     jq -n \
       --arg version              "$version" \
       --arg install_date         "$install_date" \
@@ -1920,7 +1931,6 @@ save_config_info() {
       --arg instance_id          "$instance_id" \
       --arg user_alias           "$user_alias" \
       --arg dashboard_passcode   "$DASHBOARD_PASSCODE" \
-      --arg master_sub_token     "$MASTER_SUB_TOKEN" \
       --arg cloud_provider       "$cloud_provider" \
       --arg cloud_region         "$cloud_region" \
       --arg cpu_spec             "$cpu_spec" \
@@ -1948,7 +1958,6 @@ save_config_info() {
          instance_id: $instance_id,
          user_alias: $user_alias,
          dashboard_passcode: $dashboard_passcode,
-         master_sub_token: $master_sub_token,
          cloud: { provider: $cloud_provider, region: $cloud_region },
          spec:  { cpu: $cpu_spec, memory: $memory_spec, disk: $disk_spec },
          uuid:  { vless: { reality: $uuid_vless_reality, grpc: $uuid_vless_grpc, ws: $uuid_vless_ws },
@@ -1958,13 +1967,18 @@ save_config_info() {
          cert: { mode: "self-signed", domain: null, auto_renew: false }
        }' > "${CONFIG_DIR}/server.json"
 
+    # 生成后校验
     if ! jq . "${CONFIG_DIR}/server.json" >/dev/null 2>&1; then
-        log_error "server.json 验证失败"; return 1;
+        log_error "server.json 验证失败"
+        return 1
     fi
 
-    local saved; saved="$(jq -r '.dashboard_passcode // empty' "${CONFIG_DIR}/server.json" 2>/dev/null)"
+    # 确认口令已写入且不为空
+    local saved
+    saved="$(jq -r '.dashboard_passcode // empty' "${CONFIG_DIR}/server.json" 2>/dev/null)"
     if [[ -z "$saved" || "$saved" != "$DASHBOARD_PASSCODE" ]]; then
-        log_error "密码保存验证失败"; return 1;
+        log_error "密码保存验证失败（期望: $DASHBOARD_PASSCODE, 实际: ${saved:-空}）"
+        return 1
     fi
 
     chmod 600 "${CONFIG_DIR}/server.json"
@@ -1972,6 +1986,7 @@ save_config_info() {
     log_success "server.json配置文件保存完成（已安全写入）"
     return 0
 }
+
 
 
 # 生成自签名证书（基础版本，模块3会有完整版本）
@@ -2171,9 +2186,7 @@ verify_module2_data() {
 # 模块2主执行函数
 #############################################
 
-#
-# 锚点1：execute_module2 函数
-#
+# 执行模块2的所有任务
 execute_module2() {
     log_info "======== 开始执行模块2：系统信息收集+凭据生成 ========"
     
@@ -2192,28 +2205,18 @@ execute_module2() {
         log_error "✗ 协议凭据生成失败"
         return 1
     fi
-
+    
+    # ========== 关键修复: 密码生成在save_config_info之前 ==========
     # 任务2.5：生成控制面板密码(只生成不写入)
     if generate_dashboard_passcode; then
         log_success "✓ 控制面板密码生成完成: ${DASHBOARD_PASSCODE}"
-        export DASHBOARD_PASSCODE
+        export DASHBOARD_PASSCODE  # 确保导出
     else
         log_error "✗ 控制面板密码生成失败"
         return 1
     fi
+    # ==============================================================
 
-    # --- 新增任务: 生成高熵管理员订阅Token ---
-    log_info "生成高熵管理员订阅Token..."
-    MASTER_SUB_TOKEN=$(openssl rand -hex 16)
-    if [[ -n "$MASTER_SUB_TOKEN" ]]; then
-        log_success "✓ 管理员Token生成完成: sub-${MASTER_SUB_TOKEN:0:8}..."
-        export MASTER_SUB_TOKEN
-    else
-        log_error "✗ 管理员Token生成失败"
-        return 1
-    fi
-    # --- 新增结束 ---
-    
     # 任务3：生成Reality密钥
     if generate_reality_keys; then
         log_success "✓ Reality密钥生成完成"
@@ -2229,9 +2232,12 @@ execute_module2() {
         return 1
     fi
     
-    # 任务5：保存配置信息(统一写入所有配置包括密码和Token)
+    # ========== 关键修复: save_config_info在密码生成之后 ==========
+    # 任务5：保存配置信息(统一写入所有配置包括密码)
     if save_config_info; then
         log_success "✓ 配置信息保存完成"
+        
+        # 再次验证密码
         local verify_password=$(jq -r '.dashboard_passcode // empty' "${CONFIG_DIR}/server.json" 2>/dev/null)
         if [[ "$verify_password" == "$DASHBOARD_PASSCODE" ]]; then
             log_success "✓ 密码二次验证通过"
@@ -2243,6 +2249,7 @@ execute_module2() {
         log_error "✗ 配置信息保存失败"
         return 1
     fi
+    # ===========================================================
     
     # 任务6：验证数据完整性
     if verify_module2_data; then
@@ -2255,7 +2262,7 @@ execute_module2() {
     export UUID_VLESS_REALITY UUID_VLESS_GRPC UUID_VLESS_WS
     export UUID_TUIC PASSWORD_HYSTERIA2 PASSWORD_TUIC PASSWORD_TROJAN
     export REALITY_PRIVATE_KEY REALITY_PUBLIC_KEY REALITY_SHORT_ID
-    export SERVER_IP DASHBOARD_PASSCODE MASTER_SUB_TOKEN
+    export SERVER_IP DASHBOARD_PASSCODE
     
     log_info "已导出所有必要变量供后续模块使用"
     
@@ -2266,7 +2273,6 @@ execute_module2() {
     log_info "├─ Reality密钥对"
     log_info "├─ 自签名证书"
     log_info "├─ 控制面板密码: ${DASHBOARD_PASSCODE}"
-    log_info "├─ 管理员订阅Token"
     log_info "└─ 完整的server.json配置文件"
     
     return 0
@@ -3463,16 +3469,20 @@ chown root:nobody "${CERT_DIR}"/*.key 2>/dev/null || true
 #############################################
 
 # 生成订阅链接（支持IP模式和域名模式）
-
 generate_subscription() {
     log_info "生成协议订阅链接..."
     
+    # 从server.json读取配置（确保数据一致性）
     local config_file="${CONFIG_DIR}/server.json"
-    if [[ ! -f "$config_file" ]]; then log_error "配置文件 $config_file 不存在"; return 1; fi
+    if [[ ! -f "$config_file" ]]; then
+        log_error "配置文件 $config_file 不存在"
+        return 1
+    fi
     
+    # 读取配置参数
     local server_ip uuid_reality uuid_grpc uuid_ws uuid_tuic
     local password_trojan password_hysteria2 password_tuic
-    local reality_public_key reality_short_id master_sub_token
+    local reality_public_key reality_short_id
     
     server_ip=$(jq -r '.server_ip // empty' "$config_file")
     uuid_reality=$(jq -r '.uuid.vless.reality // empty' "$config_file")
@@ -3484,10 +3494,11 @@ generate_subscription() {
     password_tuic=$(jq -r '.password.tuic // empty' "$config_file")
     reality_public_key=$(jq -r '.reality.public_key // empty' "$config_file")
     reality_short_id=$(jq -r '.reality.short_id // empty' "$config_file")
-    master_sub_token=$(jq -r '.master_sub_token // empty' "$config_file")
     
-    if [[ -z "$server_ip" || -z "$uuid_reality" || -z "$password_hysteria2" || -z "$master_sub_token" ]]; then
-        log_error "生成订阅所需的关键参数(IP/UUID/密码/Token)缺失"; return 1;
+    # 验证必要参数
+    if [[ -z "$server_ip" || -z "$uuid_reality" || -z "$password_hysteria2" ]]; then
+        log_error "生成订阅所需的关键参数缺失"
+        return 1
     fi
     
     # URL编码函数
@@ -3508,184 +3519,89 @@ generate_subscription() {
         echo "${encoded}"
     }
     
-#
-# 锚点：configure_nginx 函数 (最终修正版 v3)
-#
-# 配置Nginx（SNI定向 + ALPN兜底架构）
-configure_nginx() {
-    log_info "配置Nginx（SNI定向 + ALPN兜底架构）..."
+	# 计算 Reality 使用的 SNI（与服务端 xray.json 保持一致）
+    local reality_sni
+    reality_sni="$(jq -r 'first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.serverNames[0])
+                           // (first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.dest) | split(":")[0])
+                           // empty' "${CONFIG_DIR}/xray.json" 2>/dev/null)"
+    : "${reality_sni:=${REALITY_SNI:-www.microsoft.com}}"
+	
+    # 生成协议链接
+    local subscription_links=""
     
-    # 备份原始配置
-    if [[ -f /etc/nginx/nginx.conf ]]; then
-        cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak.$(date +%s)
-        log_info "已备份原始Nginx配置"
+    # 1. VLESS-Reality
+    if [[ -n "$uuid_reality" && -n "$reality_public_key" && -n "$reality_short_id" ]]; then
+        subscription_links+="vless://${uuid_reality}@${server_ip}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${reality_sni}&fp=chrome&pbk=${reality_public_key}&sid=${reality_short_id}&type=tcp#EdgeBox-REALITY\n"
     fi
     
-    mkdir -p /etc/nginx/conf.d
-
-    # 确保 MASTER_SUB_TOKEN 存在，如果为空则生成一个
-    if [[ -z "$MASTER_SUB_TOKEN" ]]; then
-        log_warn "MASTER_SUB_TOKEN为空，正在生成临时Token..."
-        MASTER_SUB_TOKEN=$(openssl rand -hex 16)
-    fi
-    local master_sub_path="/sub-${MASTER_SUB_TOKEN}"
-
-    # 生成新的Nginx主配置
-    cat > /etc/nginx/nginx.conf << 'NGINX_CONFIG'
-# EdgeBox Nginx 配置文件 v3.0.2 (Patched for Dynamic SNI)
-# 架构：SNI定向 + ALPN兜底 + 单端口复用
-
-user www-data;
-worker_processes auto;
-pid /run/nginx.pid;
-include /etc/nginx/modules-enabled/*.conf;
-
-events {
-    worker_connections 1024;
-    use epoll;
-    multi_accept on;
-}
-
-http {
-    include       /etc/nginx/mime.types;
-    default_type  application/octet-stream;
-    include /etc/nginx/conf.d/edgebox_passcode.conf;
-
-    map $arg_passcode $arg_present { default 0; ~.+ 1; }
-    map $cookie_ebp $cookie_ok { default 0; "1" 1; }
-    map "$arg_present:$pass_ok" $bad_try { default 0; "1:0" 1; "1:1" 0; }
-    map "$bad_try:$pass_ok:$cookie_ok" $deny_traffic { default 1; "0:1:0" 0; "0:0:1" 0; "0:1:1" 0; }
-    map $pass_ok $set_cookie { 1 "ebp=1; Path=/traffic/; HttpOnly; SameSite=Lax; Max-Age=86400"; 0 ""; }
-    
-    log_format main '$remote_addr - $remote_user [$time_local] "$request_method $uri $server_protocol" '
-                   '$status $body_bytes_sent "$http_referer" '
-                   '"$http_user_agent" "$http_x_forwarded_for"';
-    
-    access_log /var/log/nginx/access.log main;
-    error_log  /var/log/nginx/error.log warn;
-    
-    sendfile on; tcp_nopush on; tcp_nodelay on; keepalive_timeout 65; types_hash_max_size 2048;
-    server_tokens off;
-    add_header X-Frame-Options DENY; add_header X-Content-Type-Options nosniff; add_header X-XSS-Protection "1; mode=block";
-    
-    server {
-        listen 80 default_server;
-        listen [::]:80 default_server;
-        server_name _;
-        
-        location = / { return 302 /traffic/; }
-        
-        location = /sub-__REPLACE_TOKEN__ {
-            default_type text/plain;
-            add_header Cache-Control "no-store, no-cache, must-revalidate";
-            add_header Pragma "no-cache";
-            root /var/www/html;
-            try_files /sub-__REPLACE_TOKEN__ =404;
-        }
-
-        location ^~ /share/ {
-            default_type text/plain;
-            add_header Cache-Control "no-store, no-cache, must-revalidate";
-            add_header Pragma "no-cache";
-            root /var/www/html;
-            try_files $uri =404;
-        }
-        
-	    location = /_deny_traffic { internal; return 403; }
-		
-        location ^~ /traffic/ {
-            error_page 418 = /_deny_traffic;
-            if ($deny_traffic) { return 418; }
-            add_header Set-Cookie $set_cookie;
-            alias /etc/edgebox/traffic/;
-            index index.html;
-            autoindex off;
-            charset utf-8;
-            types { text/html html htm; text/plain txt log; application/json json; text/css css; application/javascript js mjs; image/svg+xml svg; image/png png; image/jpeg jpg jpeg; image/gif gif; image/x-icon ico; font/ttf ttf; font/woff2 woff2; }
-            add_header Cache-Control "no-store, no-cache, must-revalidate";
-            add_header Pragma "no-cache";
-        }
-
-        location ^~ /status/ {
-            alias /var/www/edgebox/status/;
-            autoindex off;
-            add_header Cache-Control "no-store, no-cache, must-revalidate";
-            add_header Content-Type "application/json; charset=utf-8";
-        }
-        
-        location = /health { access_log off; return 200 "OK\n"; add_header Content-Type text/plain; }
-		location = /favicon.ico { access_log off; log_not_found off; expires 1y; add_header Cache-Control "public, immutable"; }
-        location ~ /\. { deny all; access_log off; log_not_found off; }
-    }
-}
-
-stream {
-    error_log /var/log/nginx/stream.log warn;
-    include /etc/nginx/conf.d/edgebox_stream_map.conf;
-    map $ssl_preread_alpn_protocols $backend_alpn { ~\bh2\b grpc; ~\bhttp/1\.1\b websocket; default reality; }
-    map $backend_pool $upstream_server { reality 127.0.0.1:11443; trojan 127.0.0.1:10143; grpc 127.0.0.1:10085; websocket 127.0.0.1:10086; default ""; }
-    map $backend_alpn $upstream_alpn { grpc 127.0.0.1:10085; websocket 127.0.0.1:10086; reality 127.0.0.1:11443; default 127.0.0.1:11443; }
-    map $upstream_server $final_upstream { "" $upstream_alpn; default $upstream_server; }
-    
-    server {
-        listen 443 reuseport;
-        ssl_preread on;
-        proxy_pass $final_upstream;
-        proxy_timeout 300s;
-        proxy_connect_timeout 5s;
-        proxy_protocol_timeout 5s;
-        proxy_responses 1;
-        proxy_next_upstream_tries 1;
-    }
-}
-NGINX_CONFIG
-
-    # --- 修复点: 由于HEREDOC使用了 ' ' 引用，变量不会展开，我们需要用 sed 替换占位符 ---
-    sed -i "s|/sub-__REPLACE_TOKEN__|${master_sub_path}|g" /etc/nginx/nginx.conf
-
-    # 生成独立的密码配置文件
-    log_info "生成并注入控制面板密码..."
-    local passcode_conf="/etc/nginx/conf.d/edgebox_passcode.conf"
-    if [[ -n "$DASHBOARD_PASSCODE" ]]; then
-        # --- 致命错误修复点: 移除 pass_ok 前的 `$` ---
-        cat > "$passcode_conf" << EOF
-# 由 EdgeBox 自动生成于 $(date)
-map \$arg_passcode pass_ok {
-    "${DASHBOARD_PASSCODE}" 1;
-    default 0;
-}
-EOF
-        log_success "密码配置文件已生成: ${passcode_conf}"
-    else
-        # --- 致命错误修复点: 移除 pass_ok 前的 `$` ---
-        cat > "$passcode_conf" << EOF
-# [WARN] 未生成密码，默认拒绝所有访问
-map \$arg_passcode pass_ok {
-    default 0;
-}
-EOF
-        log_warn "DASHBOARD_PASSCODE 为空，面板访问将被默认拒绝。"
+    # 2. VLESS-gRPC (IP模式使用内部域名)
+    if [[ -n "$uuid_grpc" ]]; then
+        subscription_links+="vless://${uuid_grpc}@${server_ip}:443?encryption=none&security=tls&sni=grpc.edgebox.internal&alpn=h2&type=grpc&serviceName=grpc&fp=chrome&allowInsecure=1#EdgeBox-gRPC\n"
     fi
     
-    generate_initial_nginx_stream_map
-    
-    # 验证Nginx配置并重载
-    log_info "验证Nginx配置..."
-    if nginx -t; then
-        log_success "Nginx配置验证通过"
-        systemctl reload nginx || systemctl restart nginx
-        log_success "Nginx 已重载新配置"
-    else
-        log_error "Nginx配置验证失败，请检查 /etc/nginx/nginx.conf 和 /etc/nginx/conf.d/"
-        nginx -t # 显示详细错误
-        return 1
+    # 3. VLESS-WebSocket (IP模式使用内部域名)
+    if [[ -n "$uuid_ws" ]]; then
+        subscription_links+="vless://${uuid_ws}@${server_ip}:443?encryption=none&security=tls&sni=ws.edgebox.internal&host=ws.edgebox.internal&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome&allowInsecure=1#EdgeBox-WS\n"
     fi
     
-    log_info "对齐 DNS 解析（系统 & Xray）..."
-    ensure_system_dns
-    ensure_xray_dns_alignment
+# 4. Trojan (IP模式使用内部域名)
+if [[ -n "$password_trojan" ]]; then
+    local encoded_trojan_password
+    encoded_trojan_password=$(url_encode "$password_trojan")
+    subscription_links+="trojan://${encoded_trojan_password}@${server_ip}:443?security=tls&sni=trojan.edgebox.internal&fp=chrome&allowInsecure=1#EdgeBox-TROJAN\n"
+fi
     
-    log_success "Nginx配置文件创建完成"
+    # 5. Hysteria2
+    if [[ -n "$password_hysteria2" ]]; then
+        local encoded_hy2_password
+        encoded_hy2_password=$(url_encode "$password_hysteria2")
+        subscription_links+="hysteria2://${encoded_hy2_password}@${server_ip}:443?sni=${server_ip}&alpn=h3&insecure=1#EdgeBox-HYSTERIA2\n"
+    fi
+    
+    # 6. TUIC
+    if [[ -n "$uuid_tuic" && -n "$password_tuic" ]]; then
+        local encoded_tuic_password
+        encoded_tuic_password=$(url_encode "$password_tuic")
+        subscription_links+="tuic://${uuid_tuic}:${encoded_tuic_password}@${server_ip}:2053?congestion_control=bbr&alpn=h3&sni=${server_ip}&allowInsecure=1#EdgeBox-TUIC\n"
+    fi
+    
+# 保存订阅文件（改为软链同步到 Web，避免 "are the same file"）
+mkdir -p "${WEB_ROOT}"
+printf "%b" "$subscription_links" > "${CONFIG_DIR}/subscription.txt"
+
+# 将 Web 目录的 /sub 作为 subscription.txt 的软链接
+# 若已存在普通文件或错误链接，先移除再创建
+if [[ -e "${WEB_ROOT}/sub" && ! -L "${WEB_ROOT}/sub" ]]; then
+  rm -f "${WEB_ROOT}/sub"
+fi
+ln -sfn "${CONFIG_DIR}/subscription.txt" "${WEB_ROOT}/sub"
+
+# 设置权限（chmod 作用于目标文件；软链本身无需 chmod）
+chmod 644 "${CONFIG_DIR}/subscription.txt"
+    
+    # 生成Base64编码的订阅（可选）
+    if command -v base64 >/dev/null 2>&1; then
+        if base64 --help 2>&1 | grep -q -- ' -w'; then
+            # GNU base64 支持 -w 参数
+            printf "%b" "$subscription_links" | base64 -w0 > "${CONFIG_DIR}/subscription.base64"
+        else
+            # macOS base64 不支持 -w 参数
+            printf "%b" "$subscription_links" | base64 | tr -d '\n' > "${CONFIG_DIR}/subscription.base64"
+        fi
+        chmod 644 "${CONFIG_DIR}/subscription.base64"
+    fi
+    
+    log_success "订阅链接生成完成"
+    log_info "订阅文件位置:"
+    log_info "├─ 明文: ${CONFIG_DIR}/subscription.txt"
+    log_info "├─ Web: ${WEB_ROOT}/sub"
+    log_info "└─ Base64: ${CONFIG_DIR}/subscription.base64"
+    
+    # 显示生成的协议数量
+    local protocol_count
+    protocol_count=$(printf "%b" "$subscription_links" | grep -c '^[a-z]' || echo "0")
+    log_info "生成协议数量: $protocol_count"
+    
     return 0
 }
 
