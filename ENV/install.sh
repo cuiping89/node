@@ -2754,10 +2754,6 @@ EOF
 }
 
 # 配置Nginx（SNI定向 + ALPN兜底架构）
-#
-# 锚点：configure_nginx 函数 (最终修正版)
-#
-# 配置Nginx（SNI定向 + ALPN兜底架构）
 configure_nginx() {
     log_info "配置Nginx（SNI定向 + ALPN兜底架构）..."
     
@@ -2769,15 +2765,8 @@ configure_nginx() {
     
     mkdir -p /etc/nginx/conf.d
 
-    # 确保 MASTER_SUB_TOKEN 存在，如果为空则生成一个
-    if [[ -z "$MASTER_SUB_TOKEN" ]]; then
-        log_warn "MASTER_SUB_TOKEN为空，正在生成临时Token..."
-        MASTER_SUB_TOKEN=$(openssl rand -hex 16)
-    fi
-    local master_sub_path="/sub-${MASTER_SUB_TOKEN}"
-
-    # 生成新的Nginx主配置
-    cat > /etc/nginx/nginx.conf << NGINX_CONFIG
+    # 生成新的Nginx主配置，使用 include 指令
+    cat > /etc/nginx/nginx.conf << 'NGINX_CONFIG'
 # EdgeBox Nginx 配置文件 v3.0.2 (Patched for Dynamic SNI)
 # 架构：SNI定向 + ALPN兜底 + 单端口复用
 
@@ -2792,66 +2781,141 @@ events {
     multi_accept on;
 }
 
+# HTTP 服务器配置
 http {
     include       /etc/nginx/mime.types;
     default_type  application/octet-stream;
+    
+    # <<< 修复点 2: 移除硬编码的密码 map，改为 include 外部文件 >>>
+    # 该文件将由脚本动态生成，内容为: map $arg_passcode $pass_ok { ... }
     include /etc/nginx/conf.d/edgebox_passcode.conf;
 
-    map \$arg_passcode \$arg_present { default 0; ~.+ 1; }
-    map \$cookie_ebp \$cookie_ok { default 0; "1" 1; }
-    map "\$arg_present:\$pass_ok" \$bad_try { default 0; "1:0" 1; "1:1" 0; }
-    map "\$bad_try:\$pass_ok:\$cookie_ok" \$deny_traffic { default 1; "0:1:0" 0; "0:0:1" 0; "0:1:1" 0; }
-    map \$pass_ok \$set_cookie { 1 "ebp=1; Path=/traffic/; HttpOnly; SameSite=Lax; Max-Age=86400"; 0 ""; }
+    # === 会话映射（fail-closed）===
+    # 1) 检测是否提供了 passcode 参数
+    map $arg_passcode $arg_present {
+        default 0;
+        ~.+     1;   # 只要非空就算带参
+    }
+    # 3) 是否已有有效会话 Cookie
+    map $cookie_ebp $cookie_ok {
+        default 0;
+        "1"     1;
+    }
+    # 4) 是否为“错误口令尝试”（带了参数但不正确）
+    map "$arg_present:$pass_ok" $bad_try {
+        default 0;      # 未带参 → 不是错误尝试
+        "1:0"   1;      # 带参且错误 → 错误尝试
+        "1:1"   0;      # 带参且正确
+    }
+    # 5) 最终是否拒绝：
+    #    只列出“允许”的组合，其余一律拒绝（default 1）
+    #    允许的三种：①正确口令（首次）②已有会话③正确口令+已有会话
+    map "$bad_try:$pass_ok:$cookie_ok" $deny_traffic {
+        default 1;      # 默认为拒绝（更安全）
+        "0:1:0"  0;     # 正确口令
+        "0:0:1"  0;     # 有会话
+        "0:1:1"  0;     # 正确口令 + 有会话
+    }
+    # 6) 正确口令时下发会话 Cookie（1 天）
+    map $pass_ok $set_cookie {
+        1 "ebp=1; Path=/traffic/; HttpOnly; SameSite=Lax; Max-Age=86400";
+        0 "";
+    }
     
-    log_format main '\$remote_addr - \$remote_user [\$time_local] "\$request_method \$uri \$server_protocol" '
-                   '\$status \$body_bytes_sent "\$http_referer" '
-                   '"\$http_user_agent" "\$http_x_forwarded_for"';
+    # 日志格式
+log_format main '$remote_addr - $remote_user [$time_local] "$request_method $uri $server_protocol" '
+               '$status $body_bytes_sent "$http_referer" '
+               '"$http_user_agent" "$http_x_forwarded_for"';
     
+    # 日志文件
     access_log /var/log/nginx/access.log main;
     error_log  /var/log/nginx/error.log warn;
     
-    sendfile on; tcp_nopush on; tcp_nodelay on; keepalive_timeout 65; types_hash_max_size 2048;
-    server_tokens off;
-    add_header X-Frame-Options DENY; add_header X-Content-Type-Options nosniff; add_header X-XSS-Protection "1; mode=block";
+    # 性能优化
+    sendfile        on;
+    tcp_nopush      on;
+    tcp_nodelay     on;
+    keepalive_timeout 65;
+    types_hash_max_size 2048;
     
+    # 安全头
+    server_tokens off;
+    add_header X-Frame-Options DENY;
+    add_header X-Content-Type-Options nosniff;
+    add_header X-XSS-Protection "1; mode=block";
+    
+    # HTTP 服务器（端口80）
     server {
         listen 80 default_server;
         listen [::]:80 default_server;
         server_name _;
         
-        location = / { return 302 /traffic/; }
-        
-        location = ${master_sub_path} {
-            default_type text/plain;
-            add_header Cache-Control "no-store, no-cache, must-revalidate";
-            add_header Pragma "no-cache";
-            root /var/www/html;
-            try_files ${master_sub_path} =404;
+        # 根路径重定向到控制面板
+        location = / {
+            return 302 /traffic/;
         }
+        
+# 管理员专用：保留 /sub 精确匹配（不做设备限制）
+location = /sub {
+    default_type text/plain;
+    add_header Cache-Control "no-store, no-cache, must-revalidate";
+    add_header Pragma "no-cache";
+    root /var/www/html;
+    try_files /sub =404;
+}
 
-        location ^~ /share/ {
-            default_type text/plain;
-            add_header Cache-Control "no-store, no-cache, must-revalidate";
-            add_header Pragma "no-cache";
-            root /var/www/html;
-            try_files \$uri =404;
-        }
+# 普通用户：/share/u-<token> 高熵私有路径
+location ^~ /share/ {
+    default_type text/plain;
+    add_header Cache-Control "no-store, no-cache, must-revalidate";
+    add_header Pragma "no-cache";
+    root /var/www/html;
+    # 只允许已有文件（软链）被访问；没有对应 token 文件则 404
+    try_files $uri =404;
+}
         
-	    location = /_deny_traffic { internal; return 403; }
+	    # 内部403页面（只在本server内有效）
+        location = /_deny_traffic {
+            internal;
+            return 403;
+        }
 		
+        # 控制面板和数据API
         location ^~ /traffic/ {
+            # 口令门闸：默认拒绝；命中口令或已有会话通过
             error_page 418 = /_deny_traffic;
-            if (\$deny_traffic) { return 418; }
-            add_header Set-Cookie \$set_cookie;
+            if ($deny_traffic) { return 418; }
+
+            # 首次口令正确时发Cookie（之后静态/接口都不需要再带 ?passcode=）
+            add_header Set-Cookie $set_cookie;
+
             alias /etc/edgebox/traffic/;
             index index.html;
             autoindex off;
+
+            # 补全类型（避免 CSS/JS/字体识别失败）
             charset utf-8;
-            types { text/html html htm; text/plain txt log; application/json json; text/css css; application/javascript js mjs; image/svg+xml svg; image/png png; image/jpeg jpg jpeg; image/gif gif; image/x-icon ico; font/ttf ttf; font/woff2 woff2; }
+            types {
+                text/html                    html htm;
+                text/plain                   txt log;
+                application/json             json;
+                text/css                     css;
+                application/javascript       js mjs;
+                image/svg+xml                svg;
+                image/png                    png;
+                image/jpeg                   jpg jpeg;
+                image/gif                    gif;
+                image/x-icon                 ico;
+                font/ttf                     ttf;
+                font/woff2                   woff2;
+            }
+
+            # 缓存头（按你原策略）
             add_header Cache-Control "no-store, no-cache, must-revalidate";
             add_header Pragma "no-cache";
         }
 
+        # IP质量检测API（对齐技术规范）
         location ^~ /status/ {
             alias /var/www/edgebox/status/;
             autoindex off;
@@ -2859,24 +2923,68 @@ http {
             add_header Content-Type "application/json; charset=utf-8";
         }
         
-        location = /health { access_log off; return 200 "OK\\n"; add_header Content-Type text/plain; }
-		location = /favicon.ico { access_log off; log_not_found off; expires 1y; add_header Cache-Control "public, immutable"; }
-        location ~ /\\. { deny all; access_log off; log_not_found off; }
+        # 健康检查
+        location = /health {
+            access_log off;
+            return 200 "OK\n";
+            add_header Content-Type text/plain;
+        }
+        
+		# Favicon支持
+        location = /favicon.ico {
+            access_log off;
+            log_not_found off;
+            expires 1y;
+            add_header Cache-Control "public, immutable";
+        }
+		
+        # 拒绝访问隐藏文件
+        location ~ /\. {
+            deny all;
+            access_log off;
+            log_not_found off;
+        }
     }
 }
 
+
+# Stream 模块配置（TCP/443 端口分流）
 stream {
     error_log /var/log/nginx/stream.log warn;
+    
+    ### ULTIMATE FIX: Include the dynamic map file ###
     include /etc/nginx/conf.d/edgebox_stream_map.conf;
-    map \$ssl_preread_alpn_protocols \$backend_alpn { ~\\bh2\\b grpc; ~\\bhttp/1\\.1\\b websocket; default reality; }
-    map \$backend_pool \$upstream_server { reality 127.0.0.1:11443; trojan 127.0.0.1:10143; grpc 127.0.0.1:10085; websocket 127.0.0.1:10086; default ""; }
-    map \$backend_alpn \$upstream_alpn { grpc 127.0.0.1:10085; websocket 127.0.0.1:10086; reality 127.0.0.1:11443; default 127.0.0.1:11443; }
-    map \$upstream_server \$final_upstream { "" \$upstream_alpn; default \$upstream_server; }
+    
+    map $ssl_preread_alpn_protocols $backend_alpn {
+	    ~\bh2\b            grpc;
+        ~\bhttp/1\.1\b     websocket;
+        default            reality;
+    }
+    
+    map $backend_pool $upstream_server {
+        reality   127.0.0.1:11443;
+        trojan    127.0.0.1:10143;
+        grpc      127.0.0.1:10085;
+        websocket 127.0.0.1:10086;
+        default   "";
+    }
+    
+    map $backend_alpn $upstream_alpn {
+        grpc      127.0.0.1:10085;
+        websocket 127.0.0.1:10086;
+        reality   127.0.0.1:11443;
+        default   127.0.0.1:11443;
+    }
+    
+    map $upstream_server $final_upstream {
+        ""      $upstream_alpn;
+        default $upstream_server;
+    }
     
     server {
         listen 443 reuseport;
         ssl_preread on;
-        proxy_pass \$final_upstream;
+        proxy_pass $final_upstream;
         proxy_timeout 300s;
         proxy_connect_timeout 5s;
         proxy_protocol_timeout 5s;
@@ -2890,26 +2998,27 @@ NGINX_CONFIG
     log_info "生成并注入控制面板密码..."
     local passcode_conf="/etc/nginx/conf.d/edgebox_passcode.conf"
     if [[ -n "$DASHBOARD_PASSCODE" ]]; then
-        # --- 致命错误修复点: 移除 $pass_ok 前的 `$` ---
         cat > "$passcode_conf" << EOF
 # 由 EdgeBox 自动生成于 $(date)
-map \\\$arg_passcode pass_ok {
+map \$arg_passcode \$pass_ok {
     "${DASHBOARD_PASSCODE}" 1;
     default 0;
 }
 EOF
         log_success "密码配置文件已生成: ${passcode_conf}"
     else
-        # --- 致命错误修复点: 移除 $pass_ok 前的 `$` ---
         cat > "$passcode_conf" << EOF
 # [WARN] 未生成密码，默认拒绝所有访问
-map \\\$arg_passcode pass_ok {
+map \$arg_passcode \$pass_ok {
     default 0;
 }
 EOF
         log_warn "DASHBOARD_PASSCODE 为空，面板访问将被默认拒绝。"
     fi
     
+    # =================================================================
+    # ### NEW FIX: Generate the initial map file before validating  ###
+    # =================================================================
     generate_initial_nginx_stream_map
     
     # 验证Nginx配置并重载
@@ -3399,39 +3508,184 @@ generate_subscription() {
         echo "${encoded}"
     }
     
-	local reality_sni; reality_sni="$(jq -r 'first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.serverNames[0]) // "www.microsoft.com"' "${CONFIG_DIR}/xray.json" 2>/dev/null)"
-
-    local subscription_links=""
-    subscription_links+="vless://${uuid_reality}@${server_ip}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${reality_sni}&fp=chrome&pbk=${reality_public_key}&sid=${reality_short_id}&type=tcp#EdgeBox-REALITY\n"
-    subscription_links+="vless://${uuid_grpc}@${server_ip}:443?encryption=none&security=tls&sni=grpc.edgebox.internal&alpn=h2&type=grpc&serviceName=grpc&fp=chrome&allowInsecure=1#EdgeBox-gRPC\n"
-    subscription_links+="vless://${uuid_ws}@${server_ip}:443?encryption=none&security=tls&sni=ws.edgebox.internal&host=ws.edgebox.internal&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome&allowInsecure=1#EdgeBox-WS\n"
-    subscription_links+="trojan://$(url_encode "$password_trojan")@${server_ip}:443?security=tls&sni=trojan.edgebox.internal&fp=chrome&allowInsecure=1#EdgeBox-TROJAN\n"
-    subscription_links+="hysteria2://$(url_encode "$password_hysteria2")@${server_ip}:443?sni=${server_ip}&alpn=h3&insecure=1#EdgeBox-HYSTERIA2\n"
-    subscription_links+="tuic://$(url_encode "$uuid_tuic"):$(url_encode "$password_tuic")@${server_ip}:2053?congestion_control=bbr&alpn=h3&sni=${server_ip}&allowInsecure=1#EdgeBox-TUIC\n"
+#
+# 锚点：configure_nginx 函数 (最终修正版 v3)
+#
+# 配置Nginx（SNI定向 + ALPN兜底架构）
+configure_nginx() {
+    log_info "配置Nginx（SNI定向 + ALPN兜底架构）..."
     
-    mkdir -p "${WEB_ROOT}"
-    printf "%b" "$subscription_links" > "${CONFIG_DIR}/subscription.txt"
-
-    # --- 修改点: 将 Web 目录的软链接指向带Token的路径 ---
-    local master_sub_path="sub-${master_sub_token}"
-    if [[ -e "${WEB_ROOT}/${master_sub_path}" && ! -L "${WEB_ROOT}/${master_sub_path}" ]]; then
-      rm -f "${WEB_ROOT}/${master_sub_path}"
+    # 备份原始配置
+    if [[ -f /etc/nginx/nginx.conf ]]; then
+        cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak.$(date +%s)
+        log_info "已备份原始Nginx配置"
     fi
-    ln -sfn "${CONFIG_DIR}/subscription.txt" "${WEB_ROOT}/${master_sub_path}"
+    
+    mkdir -p /etc/nginx/conf.d
 
-    chmod 644 "${CONFIG_DIR}/subscription.txt"
-    
-    # ... (Base64 generation remains the same)
+    # 确保 MASTER_SUB_TOKEN 存在，如果为空则生成一个
+    if [[ -z "$MASTER_SUB_TOKEN" ]]; then
+        log_warn "MASTER_SUB_TOKEN为空，正在生成临时Token..."
+        MASTER_SUB_TOKEN=$(openssl rand -hex 16)
+    fi
+    local master_sub_path="/sub-${MASTER_SUB_TOKEN}"
 
-    log_success "订阅链接生成完成"
-    log_info "订阅文件位置:"
-    log_info "├─ 明文: ${CONFIG_DIR}/subscription.txt"
-    log_info "├─ Web: ${WEB_ROOT}/${master_sub_path}"
-    log_info "└─ Base64: ${CONFIG_DIR}/subscription.base64"
+    # 生成新的Nginx主配置
+    cat > /etc/nginx/nginx.conf << 'NGINX_CONFIG'
+# EdgeBox Nginx 配置文件 v3.0.2 (Patched for Dynamic SNI)
+# 架构：SNI定向 + ALPN兜底 + 单端口复用
+
+user www-data;
+worker_processes auto;
+pid /run/nginx.pid;
+include /etc/nginx/modules-enabled/*.conf;
+
+events {
+    worker_connections 1024;
+    use epoll;
+    multi_accept on;
+}
+
+http {
+    include       /etc/nginx/mime.types;
+    default_type  application/octet-stream;
+    include /etc/nginx/conf.d/edgebox_passcode.conf;
+
+    map $arg_passcode $arg_present { default 0; ~.+ 1; }
+    map $cookie_ebp $cookie_ok { default 0; "1" 1; }
+    map "$arg_present:$pass_ok" $bad_try { default 0; "1:0" 1; "1:1" 0; }
+    map "$bad_try:$pass_ok:$cookie_ok" $deny_traffic { default 1; "0:1:0" 0; "0:0:1" 0; "0:1:1" 0; }
+    map $pass_ok $set_cookie { 1 "ebp=1; Path=/traffic/; HttpOnly; SameSite=Lax; Max-Age=86400"; 0 ""; }
     
-    local protocol_count; protocol_count=$(printf "%b" "$subscription_links" | grep -c '^[a-z]' || echo "0")
-    log_info "生成协议数量: $protocol_count"
+    log_format main '$remote_addr - $remote_user [$time_local] "$request_method $uri $server_protocol" '
+                   '$status $body_bytes_sent "$http_referer" '
+                   '"$http_user_agent" "$http_x_forwarded_for"';
     
+    access_log /var/log/nginx/access.log main;
+    error_log  /var/log/nginx/error.log warn;
+    
+    sendfile on; tcp_nopush on; tcp_nodelay on; keepalive_timeout 65; types_hash_max_size 2048;
+    server_tokens off;
+    add_header X-Frame-Options DENY; add_header X-Content-Type-Options nosniff; add_header X-XSS-Protection "1; mode=block";
+    
+    server {
+        listen 80 default_server;
+        listen [::]:80 default_server;
+        server_name _;
+        
+        location = / { return 302 /traffic/; }
+        
+        location = /sub-__REPLACE_TOKEN__ {
+            default_type text/plain;
+            add_header Cache-Control "no-store, no-cache, must-revalidate";
+            add_header Pragma "no-cache";
+            root /var/www/html;
+            try_files /sub-__REPLACE_TOKEN__ =404;
+        }
+
+        location ^~ /share/ {
+            default_type text/plain;
+            add_header Cache-Control "no-store, no-cache, must-revalidate";
+            add_header Pragma "no-cache";
+            root /var/www/html;
+            try_files $uri =404;
+        }
+        
+	    location = /_deny_traffic { internal; return 403; }
+		
+        location ^~ /traffic/ {
+            error_page 418 = /_deny_traffic;
+            if ($deny_traffic) { return 418; }
+            add_header Set-Cookie $set_cookie;
+            alias /etc/edgebox/traffic/;
+            index index.html;
+            autoindex off;
+            charset utf-8;
+            types { text/html html htm; text/plain txt log; application/json json; text/css css; application/javascript js mjs; image/svg+xml svg; image/png png; image/jpeg jpg jpeg; image/gif gif; image/x-icon ico; font/ttf ttf; font/woff2 woff2; }
+            add_header Cache-Control "no-store, no-cache, must-revalidate";
+            add_header Pragma "no-cache";
+        }
+
+        location ^~ /status/ {
+            alias /var/www/edgebox/status/;
+            autoindex off;
+            add_header Cache-Control "no-store, no-cache, must-revalidate";
+            add_header Content-Type "application/json; charset=utf-8";
+        }
+        
+        location = /health { access_log off; return 200 "OK\n"; add_header Content-Type text/plain; }
+		location = /favicon.ico { access_log off; log_not_found off; expires 1y; add_header Cache-Control "public, immutable"; }
+        location ~ /\. { deny all; access_log off; log_not_found off; }
+    }
+}
+
+stream {
+    error_log /var/log/nginx/stream.log warn;
+    include /etc/nginx/conf.d/edgebox_stream_map.conf;
+    map $ssl_preread_alpn_protocols $backend_alpn { ~\bh2\b grpc; ~\bhttp/1\.1\b websocket; default reality; }
+    map $backend_pool $upstream_server { reality 127.0.0.1:11443; trojan 127.0.0.1:10143; grpc 127.0.0.1:10085; websocket 127.0.0.1:10086; default ""; }
+    map $backend_alpn $upstream_alpn { grpc 127.0.0.1:10085; websocket 127.0.0.1:10086; reality 127.0.0.1:11443; default 127.0.0.1:11443; }
+    map $upstream_server $final_upstream { "" $upstream_alpn; default $upstream_server; }
+    
+    server {
+        listen 443 reuseport;
+        ssl_preread on;
+        proxy_pass $final_upstream;
+        proxy_timeout 300s;
+        proxy_connect_timeout 5s;
+        proxy_protocol_timeout 5s;
+        proxy_responses 1;
+        proxy_next_upstream_tries 1;
+    }
+}
+NGINX_CONFIG
+
+    # --- 修复点: 由于HEREDOC使用了 ' ' 引用，变量不会展开，我们需要用 sed 替换占位符 ---
+    sed -i "s|/sub-__REPLACE_TOKEN__|${master_sub_path}|g" /etc/nginx/nginx.conf
+
+    # 生成独立的密码配置文件
+    log_info "生成并注入控制面板密码..."
+    local passcode_conf="/etc/nginx/conf.d/edgebox_passcode.conf"
+    if [[ -n "$DASHBOARD_PASSCODE" ]]; then
+        # --- 致命错误修复点: 移除 pass_ok 前的 `$` ---
+        cat > "$passcode_conf" << EOF
+# 由 EdgeBox 自动生成于 $(date)
+map \$arg_passcode pass_ok {
+    "${DASHBOARD_PASSCODE}" 1;
+    default 0;
+}
+EOF
+        log_success "密码配置文件已生成: ${passcode_conf}"
+    else
+        # --- 致命错误修复点: 移除 pass_ok 前的 `$` ---
+        cat > "$passcode_conf" << EOF
+# [WARN] 未生成密码，默认拒绝所有访问
+map \$arg_passcode pass_ok {
+    default 0;
+}
+EOF
+        log_warn "DASHBOARD_PASSCODE 为空，面板访问将被默认拒绝。"
+    fi
+    
+    generate_initial_nginx_stream_map
+    
+    # 验证Nginx配置并重载
+    log_info "验证Nginx配置..."
+    if nginx -t; then
+        log_success "Nginx配置验证通过"
+        systemctl reload nginx || systemctl restart nginx
+        log_success "Nginx 已重载新配置"
+    else
+        log_error "Nginx配置验证失败，请检查 /etc/nginx/nginx.conf 和 /etc/nginx/conf.d/"
+        nginx -t # 显示详细错误
+        return 1
+    fi
+    
+    log_info "对齐 DNS 解析（系统 & Xray）..."
+    ensure_system_dns
+    ensure_xray_dns_alignment
+    
+    log_success "Nginx配置文件创建完成"
     return 0
 }
 
