@@ -2870,8 +2870,8 @@ location = /sub {
     try_files /sub =404;
 }
 
-# 普通用户：/sub/u-<token> 高熵私有路径（软链到同一份 subscription.txt）
-location ^~ /sub/ {
+# 普通用户：/share/u-<token> 高熵私有路径
+location ^~ /share/ {
     default_type text/plain;
     add_header Cache-Control "no-store, no-cache, must-revalidate";
     add_header Pragma "no-cache";
@@ -11357,6 +11357,19 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         </div>
     </div>
 
+<div class="command-section">
+      <h3>👥 独立用户订阅 (User Subscriptions)</h3>
+      <div class="command-list">
+        <code>edgeboxctl sub issue &lt;user&gt; [limit]</code> <span># 为指定用户下发专属订阅链接</span>
+        <code>edgeboxctl sub show &lt;user&gt;</code> <span># 查看用户订阅及已绑定的设备</span>
+        <code>edgeboxctl sub revoke &lt;user&gt;</code> <span># 停用指定用户的订阅链接</span>
+        <code>edgeboxctl sub limit &lt;user&gt; &lt;N&gt;</code> <span># 修改用户的设备上限</span>
+        <p class="cmd-label">示例：</p>
+        <a class="cmd-pill" href="#">edgeboxctl sub issue alice 5</a>
+        <a class="cmd-pill" href="#">edgeboxctl sub show alice</a>
+      </div>
+    </div>
+	
     <div class="command-section">
       <h3>👥 网络身份配置</h3>
       <div class="command-list">
@@ -12464,7 +12477,7 @@ set_user_alias() {
 
 # === SUBSYS-BEGIN: Per-user Subscription Management ==========================
 SUB_DB="/etc/edgebox/sub/users.json"
-SUB_DIR="/var/www/html/sub"           # Nginx 根下的 /sub 目录
+SUB_DIR="/var/www/html/share"         # Nginx 根下的 /share 目录 (已修改)
 SUB_SRC="${CONFIG_DIR}/subscription.txt"  # 订阅“单一事实源”（已存在）
 NGINX_LOG="${NGINX_ACCESS_LOG:-/var/log/nginx/access.log}"
 
@@ -12525,7 +12538,7 @@ sub_print_url(){
   else
     host="${cert_mode##*:}"
   fi
-  echo "http://${host}/sub/u-${token}"
+  echo "http://${host}/share/u-${token}"
 }
 
 sub_issue(){
@@ -14002,13 +14015,13 @@ case "$1" in
       revoke)  shift 2; sub_revoke "$1";;
       limit)   shift 2; sub_limit "$1" "$2";;
       ""|list) show_sub ;;   # 兼容：不带参数仍显示整份订阅（管理员/自用）
-      *) echo "用法:
-  edgeboxctl sub issue  <user> [limit]    # 下发专属订阅（默认限 3 台）
-  edgeboxctl sub show   <user>            # 查看订阅与已登记设备（含7天释放、24h双栈宽限）
-  edgeboxctl sub revoke <user>            # 一键停用该用户订阅
-  edgeboxctl sub limit  <user> <N>        # 动态调整设备上限
-  (空参) 仍显示全量订阅文本（管理员自用）"
-      ;;
+*) echo "用法:
+edgeboxctl sub                         # 显示并刷新全局订阅链接 (/sub)
+edgeboxctl sub issue  <user> [limit]   # 为用户下发专属订阅链接 (/share/u-...)
+edgeboxctl sub show   <user>           # 查看专属订阅与已登记设备
+edgeboxctl sub revoke <user>           # 停用用户的专属订阅
+edgeboxctl sub limit  <user> <N>       # 调整用户的设备上限"
+;;
     esac
     ;;
 	
@@ -14228,6 +14241,7 @@ help|"")
   _W_SNI=50
   _W_REALITY=48
   _W_TRAND=54
+  _W_SUB=56
   _W_SHUNT=56
   _W_ALERT=56
   _W_CONF=56
@@ -14286,6 +14300,16 @@ help|"")
   printf "  %b  %b\n" "${CYAN}medium${NC}" "${DIM}- 中度随机化，修改 Hysteria2 + TUIC 参数${NC}"
   printf "  %b  %b\n\n" "${CYAN}heavy${NC}"  "${DIM}- 重度随机化，修改全协议参数${NC}"
 
+# 独立用户订阅
+  printf "%b\n" "${YELLOW}■ 独立用户订阅 (User Subscriptions)${NC}"
+  print_cmd "${GREEN}edgeboxctl sub issue${NC} ${CYAN}<user> [limit]${NC}"  "为指定用户下发专属订阅链接"       $_W_SUB
+  print_cmd "${GREEN}edgeboxctl sub show${NC} ${CYAN}<user>${NC}"           "查看用户订阅及已绑定的设备"         $_W_SUB
+  print_cmd "${GREEN}edgeboxctl sub revoke${NC} ${CYAN}<user>${NC}"         "停用指定用户的订阅链接"             $_W_SUB
+  print_cmd "${GREEN}edgeboxctl sub limit${NC} ${CYAN}<user> <N>${NC}"      "修改用户的设备上限"                 $_W_SUB
+  printf "  %b\n" "${CYAN}示例:${NC}"
+  printf "  %b %b\n" "${GREEN}edgeboxctl sub issue${NC}" "${CYAN}alice 5${NC}"
+  printf "  %b %b\n\n" "${GREEN}edgeboxctl sub show${NC}" "${CYAN}alice${NC}"
+  
   # 出站分流
   printf "%b\n" "${YELLOW}■ 出站分流 (Outbound Routing)${NC}"
   print_cmd "${GREEN}edgeboxctl shunt vps${NC}"                                  "[模式] VPS 直连出站 (默认)"          $_W_SHUNT
