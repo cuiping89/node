@@ -14040,7 +14040,7 @@ case "$1" in
     case "$2" in
       issue)   shift 2; sub_issue "$1" "${2:-}";;
       show)    shift 2; sub_show "$1";;
-      revoke)  shift 2; sub_revoke "$1";;
+      revoke)  shift 2; sub_revoke "$@";;
       limit)   shift 2; sub_limit "$1" "$2";;
       ""|list) show_sub ;;   # 兼容：不带参数仍显示整份订阅（管理员/自用）
 *) echo "用法:
