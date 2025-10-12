@@ -11159,7 +11159,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 <div class="command-section">
       <h3>🔗 独立用户订阅URL</h3>
       <div class="command-list">
-        <code>edgeboxctl sub issue &lt;user&gt;</code> <span># 为指定用户下发专属订阅链接</span>
+        <code>edgeboxctl sub issue &lt;user&gt; &lt;[limit]&gt;</code> <span># 为指定用户下发专属订阅链接</span>
         <code>edgeboxctl sub show &lt;user&gt;</code> <span># 查看用户订阅及已绑定的设备</span>
         <code>edgeboxctl sub revoke &lt;user&gt;</code> <span># 停用指定用户的订阅链接</span>
         <code>edgeboxctl sub limit &lt;user&gt; &lt;N&gt;</code> <span># 修改用户的设备上限</span>
@@ -12739,7 +12739,7 @@ update_sni_domain() {
                 | map(select(. != $new and . != ""))
                 | (if ($old != "" and $old != $new) then [ $old ] + . else . end)
               )
-            ) | unique ) # <<< CORRECTED: 'unique' is now inside the assignment parenthesis
+            ) | unique ) 
           )
         else . end
       )
@@ -12802,12 +12802,18 @@ tmp=\"\${cfg}.tmp\"; \
         log_info "[SNI] 旧 SNI 为空或与新相同，无需清理调度"
     fi
 
-    # 刷新仪表盘（保留你现有逻辑）
-    [[ -x "${SCRIPTS_DIR}/dashboard-backend.sh" ]] && bash "${SCRIPTS_DIR}/dashboard-backend.sh" --now >/dev/null 2>&1 || true
+    # ==================== 关键修复点 ====================
+    # 在所有后端变更完成后，立即刷新前端数据源 dashboard.json
+    log_info "[SNI] 正在刷新Web面板数据以同步SNI变更..."
+    if [[ -x "${SCRIPTS_DIR}/dashboard-backend.sh" ]]; then
+        bash "${SCRIPTS_DIR}/dashboard-backend.sh" --now >/dev/null 2>&1 || log_warn "[SNI] 面板数据刷新失败，将在下个周期自动更新。"
+    fi
+    # ======================================================
 
     log_success "[SNI] ✅ 无缝轮换完成：新 SNI 已生效，旧 SNI 在宽限期内继续可用"
     return 0
 }
+
 
 switch_to_domain(){
   local domain="$1"
@@ -14373,6 +14379,7 @@ help|"")
   printf "  Web 面板: http://<你的IP>/traffic/?passcode=<你的密码>\n"
   printf "  订阅链接: http://<你的IP>/sub\n"
   printf "  查看日志: tail -f /var/log/edgebox-install.log\n"
+  
   ;;
 
 esac
