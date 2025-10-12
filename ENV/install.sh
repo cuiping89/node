@@ -15119,16 +15119,11 @@ show_installation_info() {
 
     # TUIC（UDP）
     TUIC_PORT_REAL="${PORT_TUIC:-2053}"
-    if ss -uln 2>/dev/null | awk '{print $5}' | grep -qE "[:.]${TUIC_PORT_REAL}($|[^0-9])"; then
+ if ss -uln 2>/dev/null | awk '{print $5}' | grep -qE "[:.]${TUIC_PORT_REAL}($|[^0-9])"; then
         echo -e "  ✅ ${TUIC_PORT_REAL}/udp   TUIC"
     else
         echo -e "  ⚠️  ${TUIC_PORT_REAL}/udp   TUIC（未监听）"
     fi
-
-    echo
-    echo -e "${GREEN}安装完成${NC} ✅  （详细检查请执行：${PURPLE}edgeboxctl status${NC}）"
-
-    print_separator
 
 }
 
@@ -15318,7 +15313,7 @@ fi
 # 显示安装信息
 show_installation_info
 
-log_success "EdgeBox v3.0.0 安装成功完成！"
+log_success "EdgeBox v${EDGEBOX_VER} 安装成功完成！ (详细检查请执行: ${PURPLE}edgeboxctl status${NC})"
 
 # 将所有耗时的收尾工作放入后台静默执行。
 (
