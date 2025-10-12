@@ -15313,7 +15313,12 @@ fi
 # 显示安装信息
 show_installation_info
 
-log_success "EdgeBox v${EDGEBOX_VER} 安装成功完成！ (详细检查请执行: ${PURPLE}edgeboxctl status${NC})"
+echo
+echo -e "${GREEN}EdgeBox v${EDGEBOX_VER} 安装成功完成！ (详细检查请执行: ${PURPLE}edgeboxctl status${NC})${NC}"
+echo
+
+# 手动将成功记录写入日志文件
+echo "[SUCCESS] EdgeBox v${EDGEBOX_VER} 安装成功完成！" >> "${LOG_FILE}"
 
 # 将所有耗时的收尾工作放入后台静默执行。
 (
