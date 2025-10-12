@@ -15315,15 +15315,31 @@ fi
     show_progress 10 10 "最终数据生成与同步"
     finalize_data_generation
 
-    # 显示安装信息
-    show_installation_info
+# 显示安装信息
+show_installation_info
 
-	# [新增] 最终系统状态修复（幂等性保证）
-    log_info "执行最终系统状态检查..."
+log_success "EdgeBox v3.0.0 安装成功完成！"
+
+# 将所有耗时的收尾工作放入后台执行，立即返回终端给用户
+(
+    log_info "[后台任务] 开始执行系统最终状态修复与优化..."
+    sleep 3 # 给予主进程退出和终端显示的时间
+
+    # [新增] 最终系统状态修复（幂等性保证）
     repair_system_state
 
-    log_success "EdgeBox v3.0.0 安装成功完成！"
-    exit 0
+    # [新增] 后台执行初始SNI域名选择
+    log_info "[后台任务] 正在为您自动选择最优SNI域名..."
+    if /usr/local/bin/edgeboxctl sni auto >/dev/null 2>&1; then
+         log_info "[后台任务] SNI域名初始选择完成"
+    else
+         log_warn "[后台任务] SNI域名初始选择失败"
+    fi
+
+    log_info "[后台任务] 所有优化已完成。"
+) &
+
+exit 0
 }
 
 # 系统状态检查和修复函数
