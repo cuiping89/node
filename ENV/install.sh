@@ -1748,8 +1748,8 @@ generate_reality_keys() {
     log_info "生成Reality密钥对..."
     
     # 检查sing-box是否可用（Reality密钥生成需要）
-    if ! command -v sing-box >/dev/null 2>&1 && ! command -v /usr/local/bin/sing-box >/dev/null 2>&1; then
-        log_warn "sing-box未安装，将在模块3中安装后重新生成Reality密钥"
+if ! command -v sing-box >/dev/null 2>&1 && ! command -v /usr/local/bin/sing-box >/dev/null 2>&1; then
+    log_info "sing-box 尚未安装，将先生成临时Reality密钥"
         # 生成临时密钥，后续会被正确密钥替换
         REALITY_PRIVATE_KEY="temp_private_key_will_be_replaced"
         REALITY_PUBLIC_KEY="temp_public_key_will_be_replaced"
@@ -2609,16 +2609,15 @@ fi
                 log_debug "校验文件下载失败（可能不存在或网络问题），跳过SHA256校验"
             fi
         fi
-    else
-        log_debug "版本 v${version_to_install} 不提供统一校验文件，跳过SHA256校验"
+else
+        log_info "此版本无统一校验文件，将使用文件大小进行验证"
     fi
     
     # 7.3 验证总结
     if [[ "$sha256_verified" == "true" ]]; then
         log_success "✅ 文件完整性验证通过（大小 + SHA256）"
     else
-        log_success "✅ 文件完整性验证通过（仅大小验证）"
-        log_debug "SHA256校验未执行或不可用（非致命问题）"
+    log_success "✅ 文件完整性验证通过（仅大小验证）"
     fi
 	
 
@@ -12172,19 +12171,19 @@ show_sub(){
   fi
 
   echo
-  echo -e "${YELLOW}# 订阅URL${NC}${DIM}(复制此链接到客户端订阅地址)${NC}"
+  echo -e "${YELLOW}# 订阅URL:${NC}${DIM}(复制此订阅地址到客户端)${NC}"
   echo -e "  ${GREEN}${sub_url}${NC}"
   echo
 
   if [[ -s "$txt_file" ]]; then
-    echo -e "${YELLOW}# 明文链接${NC}"
+    echo -e "${YELLOW}# 明文链接:${NC}"
     cat "$txt_file"; echo
   else
     log_warn "未能生成或找到明文订阅文件。"
   fi
 
   if [[ -s "$b64_file" ]]; then
-    echo -e "${YELLOW}# Base64链接${NC}"
+    echo -e "${YELLOW}# Base64链接:${NC}"
     cat "$b64_file"; echo; echo
   fi
 }
