@@ -3,7 +3,7 @@
 #############################################
 # EdgeBox 企业级多协议节点部署脚本 v3.0.0
 # 模块1：脚本头部+基础函数
-# 
+#
 # 功能说明：
 # - 自动提权到root
 # - 全局变量定义
@@ -175,20 +175,20 @@ DASHBOARD_PASSCODE=""      # 6位随机相同数字
 # 验证关键路径
 validate_paths() {
     log_info "验证关键路径..."
-    
+
     # 检查可写性
     local writable_paths=(
-        "$INSTALL_DIR" "$CONFIG_DIR" "$CERT_DIR" 
+        "$INSTALL_DIR" "$CONFIG_DIR" "$CERT_DIR"
         "$WEB_ROOT" "$(dirname "$LOG_FILE")"
     )
-    
+
     for path in "${writable_paths[@]}"; do
         if [[ ! -w "$path" ]]; then
             log_error "路径不可写: $path"
             return 1
         fi
     done
-    
+
     log_success "路径验证通过"
     return 0
 }
@@ -304,7 +304,7 @@ check_root() {
 # 检查系统兼容性
 check_system() {
     log_info "检查系统兼容性..."
-    
+
     # 读取系统信息
     if [ -f /etc/os-release ]; then
         . /etc/os-release
@@ -314,10 +314,10 @@ check_system() {
         log_error "无法确定操作系统类型"
         exit 1
     fi
-    
+
     # 支持的系统版本检查
     SUPPORTED=false
-    
+
     case "$OS" in
         ubuntu)
             MAJOR_VERSION=$(echo "$VERSION" | cut -d. -f1)
@@ -339,7 +339,7 @@ check_system() {
             SUPPORTED=false
             ;;
     esac
-    
+
     # 输出检查结果
     if [ "$SUPPORTED" = "true" ]; then
         log_success "系统检查通过: $OS $VERSION"
@@ -353,7 +353,7 @@ check_system() {
 # 获取服务器公网IP
 get_server_ip() {
     log_info "获取服务器公网IP..."
-    
+
     # IP查询服务列表（按可靠性排序）
     IP_SERVICES=(
         "https://api.ipify.org"
@@ -362,7 +362,7 @@ get_server_ip() {
         "https://api.ip.sb/ip"
         "https://ifconfig.me/ip"
     )
-    
+
     # 依次尝试获取IP
     for service in "${IP_SERVICES[@]}"; do
         SERVER_IP=$(curl -s --max-time 5 "$service" 2>/dev/null | grep -Eo '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' | head -n1)
@@ -371,7 +371,7 @@ get_server_ip() {
             return 0
         fi
     done
-    
+
     # 所有服务都失败的情况
     log_error "无法获取服务器公网IP，请检查网络连接"
     exit 1
@@ -382,9 +382,9 @@ smart_download() {
     local url="$1"
     local output="$2"
     local file_type="${3:-binary}"
-    
+
     log_info "智能下载: ${url##*/}"
-    
+
     # 根据文件类型选择镜像列表
     local -a mirrors
     if [[ "$file_type" == "script" ]] || [[ "$url" == *"raw.githubusercontent.com"* ]]; then
@@ -392,13 +392,13 @@ smart_download() {
     else
         mirrors=("${DEFAULT_DOWNLOAD_MIRRORS[@]}")
     fi
-    
+
     # 尝试每个镜像源
     local attempt=0
     for mirror in "${mirrors[@]}"; do
         attempt=$((attempt + 1))
         local full_url
-        
+
         if [[ -z "$mirror" ]]; then
             full_url="$url"
             log_info "尝试 $attempt: 直连下载"
@@ -407,14 +407,14 @@ smart_download() {
             full_url="${mirror}/${url}"
             log_info "尝试 $attempt: ${mirror##*/}"
         fi
-        
+
         # [修改点] 添加 --insecure 作为最后的降级选项
         # 首次尝试正常下载
         if curl -fsSL --retry 2 --retry-delay 2 \
             --connect-timeout 15 --max-time 300 \
             -A "Mozilla/5.0 (EdgeBox/3.0.0)" \
             "$full_url" -o "$output" 2>/dev/null; then
-            
+
             if validate_download "$output" "$file_type"; then
                 log_success "下载成功: ${url##*/}"
                 return 0
@@ -430,7 +430,7 @@ smart_download() {
                     --connect-timeout 15 --max-time 300 \
                     -A "Mozilla/5.0 (EdgeBox/3.0.0)" \
                     "$full_url" -o "$output" 2>/dev/null; then
-                    
+
                     if validate_download "$output" "$file_type"; then
                         log_success "下载成功（已跳过 SSL 验证）: ${url##*/}"
                         return 0
@@ -440,7 +440,7 @@ smart_download() {
             rm -f "$output"
         fi
     done
-    
+
     log_error "所有下载源均失败: ${url##*/}"
     return 1
 }
@@ -449,9 +449,9 @@ smart_download() {
 validate_download() {
     local file="$1"
     local type="$2"
-    
+
     [[ ! -f "$file" ]] && return 1
-    
+
     case "$type" in
         "binary")
             local size=$(stat -c%s "$file" 2>/dev/null || echo "0")
@@ -467,7 +467,7 @@ validate_download() {
             [[ -s "$file" ]] && return 0
             ;;
     esac
-    
+
     return 1
 }
 
@@ -477,15 +477,15 @@ smart_download_script() {
     local description="${2:-script}"
     shift 2  # 移除前两个参数，剩余的都是要传递给脚本的参数
     local script_args=("$@")  # 获取所有剩余参数
-    
+
     log_info "下载$description..."
-    
+
     local temp_script
     temp_script=$(mktemp) || {
         log_error "创建临时文件失败"
         return 1
     }
-    
+
     if smart_download "$url" "$temp_script" "script"; then
         # [关键修复] 传递所有参数给脚本
         if [[ ${#script_args[@]} -gt 0 ]]; then
@@ -633,19 +633,19 @@ is_package_properly_installed() {
 # [新增函数] 确保系统服务状态（完全幂等）
 ensure_system_services() {
     log_info "确保系统服务状态..."
-    
+
     local services=(
         "vnstat:vnstat"
         "nft:nftables"
     )
-    
+
     for service_info in "${services[@]}"; do
         IFS=':' read -r cmd service <<< "$service_info"
-        
+
         if command -v "$cmd" >/dev/null 2>&1; then
             # 启用服务（幂等）
             systemctl enable "$service" >/dev/null 2>&1 || true
-            
+
             # 启动服务（如果未运行则启动）
             if ! systemctl is-active --quiet "$service"; then
                 systemctl start "$service" >/dev/null 2>&1 || true
@@ -685,7 +685,7 @@ create_directories() {
     local created_dirs=()
     local existing_dirs=()
     local failed_dirs=()
-    
+
     for dir in "${directories[@]}"; do
         if [[ -d "$dir" ]]; then
             log_info "✓ 目录已存在: $dir"
@@ -709,16 +709,16 @@ create_directories() {
 
     # [新增] 强制确保所有目录权限正确（完全幂等）
     ensure_directory_permissions
-    
+
     # 验证目录可写性
     verify_directory_writable
-    
+
     # 状态汇报
     log_success "目录结构已完整建立"
     log_info "  ├─ 已存在: ${#existing_dirs[@]} 个"
     log_info "  ├─ 新创建: ${#created_dirs[@]} 个"
     log_info "  └─ 失败: ${#failed_dirs[@]} 个"
-    
+
     return 0
 }
 
@@ -781,7 +781,7 @@ ensure_directory_permissions() {
 
 verify_directory_writable() {
     log_info "验证目录可写性..."
-    
+
     # 需要写入权限的关键目录
     local writable_dirs=(
         "${INSTALL_DIR}"
@@ -792,14 +792,14 @@ verify_directory_writable() {
         "/var/log/edgebox"
         "${WEB_ROOT}"
     )
-    
+
     local write_test_errors=()
-    
+
     for dir in "${writable_dirs[@]}"; do
         if [[ -d "$dir" ]]; then
             # 创建测试文件
             local test_file="${dir}/.write_test_$$"
-            
+
             if echo "test" > "$test_file" 2>/dev/null; then
                 rm -f "$test_file" 2>/dev/null
                 log_info "✓ 目录可写: $dir"
@@ -812,7 +812,7 @@ verify_directory_writable() {
             write_test_errors+=("$dir")
         fi
     done
-    
+
     if [[ ${#write_test_errors[@]} -eq 0 ]]; then
         log_success "所有关键目录写入权限验证通过"
         return 0
@@ -824,7 +824,7 @@ verify_directory_writable() {
 
 verify_critical_dependencies() {
     log_info "验证关键依赖安装状态..."
-    
+
     # 关键依赖命令映射
     local critical_deps=(
         "jq:JSON处理工具"
@@ -835,13 +835,13 @@ verify_critical_dependencies() {
         "uuidgen:UUID生成器"
         "certbot:SSL证书工具"
     )
-    
+
     local missing_critical=()
     local available_critical=()
-    
+
     for dep_info in "${critical_deps[@]}"; do
         IFS=':' read -r cmd desc <<< "$dep_info"
-        
+
         if command -v "$cmd" >/dev/null 2>&1; then
             log_success "✓ $desc ($cmd) 可用"
             available_critical+=("$cmd")
@@ -850,14 +850,14 @@ verify_critical_dependencies() {
             missing_critical+=("$cmd")
         fi
     done
-    
+
     # 统计验证结果
     local total_deps=${#critical_deps[@]}
     local available_count=${#available_critical[@]}
     local missing_count=${#missing_critical[@]}
-    
+
     log_info "关键依赖验证完成: $available_count/$total_deps 可用"
-    
+
     if [[ $missing_count -eq 0 ]]; then
         log_success "所有关键依赖验证通过"
         return 0
@@ -890,7 +890,7 @@ setup_sni_pool_management() {
 # 创建SNI域名池配置文件
 create_sni_pool_config() {
     log_info "创建SNI域名池配置文件..."
-    
+
     cat > "$SNI_DOMAINS_CONFIG" << 'EOF'
 {
   "version": "1.0",
@@ -910,7 +910,7 @@ create_sni_pool_config() {
     {
       "hostname": "www.apple.com",
       "weight": 20,
-      "category": "tech-giant", 
+      "category": "tech-giant",
       "region": "global",
       "last_used": "",
       "success_rate": 0.0,
@@ -978,17 +978,17 @@ EOF
 # 检查端口占用情况
 check_ports() {
     log_info "检查端口占用情况..."
-    
+
     # 需要检查的端口列表
     local ports_to_check=(443 2053 80)
     local occupied_ports=()
-    
+
     # 检查每个端口
     for port in "${ports_to_check[@]}"; do
         if ss -tuln 2>/dev/null | grep -q ":${port} "; then
             occupied_ports+=("$port")
             log_warn "端口 $port 已被占用"
-            
+
             # 显示占用进程信息
             local process_info
             process_info=$(ss -tulpn 2>/dev/null | grep ":${port} " | head -1)
@@ -999,19 +999,19 @@ check_ports() {
             log_success "端口 $port 可用"
         fi
     done
-    
+
     # 处理端口占用情况
     if [[ ${#occupied_ports[@]} -gt 0 ]]; then
         log_warn "发现端口占用: ${occupied_ports[*]}"
         log_info "EdgeBox将尝试重新配置这些端口上的服务"
-        
+
         # 如果是80端口被占用，通常是Apache或其他Web服务器
         if [[ " ${occupied_ports[*]} " =~ " 80 " ]]; then
             log_info "将停止可能冲突的Web服务器..."
             systemctl stop apache2 >/dev/null 2>&1 || true
             systemctl disable apache2 >/dev/null 2>&1 || true
         fi
-        
+
         return 0  # 不阻止安装继续
     else
         log_success "所有必要端口都可用"
@@ -1022,20 +1022,20 @@ check_ports() {
 # 配置防火墙规则（完整版 - 支持 UFW/FirewallD/iptables）
 configure_firewall() {
     log_info "配置防火墙规则（智能SSH端口检测）..."
-    
+
     # ==========================================
     # 第一步：智能检测当前SSH端口（防止锁死）
     # ==========================================
     local ssh_ports=()
     local current_ssh_port=""
-    
+
     # 方法1：检测sshd监听端口
     while IFS= read -r line; do
         if [[ "$line" =~ :([0-9]+)[[:space:]]+.*sshd ]]; then
             ssh_ports+=("${BASH_REMATCH[1]}")
         fi
     done < <(ss -tlnp 2>/dev/null | grep sshd || true)
-    
+
     # 方法2：检查配置文件中的端口
     if [[ -f /etc/ssh/sshd_config ]]; then
         local config_port
@@ -1044,7 +1044,7 @@ configure_firewall() {
             ssh_ports+=("$config_port")
         fi
     fi
-    
+
     # 方法3：检查当前连接的端口（如果通过SSH连接）
     if [[ -n "${SSH_CONNECTION:-}" ]]; then
         local connection_port
@@ -1053,7 +1053,7 @@ configure_firewall() {
             ssh_ports+=("$connection_port")
         fi
     fi
-    
+
     # 数组去重并选择第一个端口
     if [[ ${#ssh_ports[@]} -gt 0 ]]; then
         local temp_file=$(mktemp)
@@ -1061,53 +1061,53 @@ configure_firewall() {
         current_ssh_port=$(head -1 "$temp_file")
         rm -f "$temp_file"
     fi
-    
+
     # 默认端口兜底
     current_ssh_port="${current_ssh_port:-22}"
-    
+
     log_info "检测到SSH端口: $current_ssh_port"
-    
+
     # ==========================================
     # 第二步：根据防火墙类型配置规则
     # ==========================================
-    
+
     if command -v ufw >/dev/null 2>&1; then
         # ==========================================
         # Ubuntu/Debian UFW 配置
         # ==========================================
         log_info "配置UFW防火墙（SSH端口：$current_ssh_port）..."
-        
+
         # 🔥 关键：先允许SSH，再重置，避免锁死
         if ! ufw allow "$current_ssh_port/tcp" comment 'SSH-Emergency' >/dev/null 2>&1; then
             log_warn "UFW SSH应急规则添加失败，但继续执行"
         fi
-        
+
         # 重置UFW规则
         if ! ufw --force reset >/dev/null 2>&1; then
             log_error "UFW重置失败"
             return 1
         fi
-        
+
         # 设置默认策略
         if ! ufw default deny incoming >/dev/null 2>&1 || ! ufw default allow outgoing >/dev/null 2>&1; then
             log_error "UFW默认策略设置失败"
             return 1
         fi
-        
+
         # 🔥 立即重新允许SSH（最高优先级）
         if ! ufw allow "$current_ssh_port/tcp" comment 'SSH' >/dev/null 2>&1; then
             log_error "UFW SSH规则添加失败"
             return 1
         fi
-        
+
         # 允许EdgeBox端口
         ufw allow 80/tcp comment 'HTTP' >/dev/null 2>&1 || log_warn "HTTP端口配置失败"
         ufw allow 443/tcp comment 'HTTPS/TLS' >/dev/null 2>&1 || log_warn "HTTPS TCP端口配置失败"
-        
+
         # 【关键】UDP 端口
         ufw allow 443/udp comment 'Hysteria2' >/dev/null 2>&1 || log_warn "Hysteria2端口配置失败"
         ufw allow 2053/udp comment 'TUIC' >/dev/null 2>&1 || log_warn "TUIC端口配置失败"
-        
+
         # 🔥 启用前最后确认SSH端口
         if ! ufw status | grep -q "$current_ssh_port/tcp"; then
             if ! ufw allow "$current_ssh_port/tcp" comment 'SSH-Final' >/dev/null 2>&1; then
@@ -1115,13 +1115,13 @@ configure_firewall() {
                 return 1
             fi
         fi
-        
+
         # 启用UFW
         if ! ufw --force enable >/dev/null 2>&1; then
             log_error "UFW启用失败"
             return 1
         fi
-        
+
         # 🚨 验证SSH端口确实被允许
         if ufw status | grep -q "$current_ssh_port/tcp.*ALLOW"; then
             log_success "UFW防火墙配置完成，SSH端口 $current_ssh_port 已确认开放"
@@ -1129,74 +1129,74 @@ configure_firewall() {
             log_error "⚠️ UFW配置完成但SSH端口状态异常，请立即检查连接"
             return 1
         fi
-        
+
     elif command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then
         # ==========================================
         # CentOS/RHEL FirewallD 配置
         # ==========================================
         log_info "配置FirewallD防火墙（SSH端口：$current_ssh_port）..."
-        
+
         # SSH端口配置
         if ! firewall-cmd --permanent --add-port="$current_ssh_port/tcp" >/dev/null 2>&1; then
             log_error "FirewallD SSH端口配置失败"
             return 1
         fi
-        
+
         # EdgeBox端口配置
         firewall-cmd --permanent --add-port=80/tcp >/dev/null 2>&1 || log_warn "HTTP端口配置失败"
         firewall-cmd --permanent --add-port=443/tcp >/dev/null 2>&1 || log_warn "HTTPS TCP端口配置失败"
-        
+
         # 【关键】UDP 端口
         firewall-cmd --permanent --add-port=443/udp >/dev/null 2>&1 || log_warn "Hysteria2端口配置失败"
         firewall-cmd --permanent --add-port=2053/udp >/dev/null 2>&1 || log_warn "TUIC端口配置失败"
-        
+
         # 重新加载规则
         if ! firewall-cmd --reload >/dev/null 2>&1; then
             log_error "FirewallD规则重载失败"
             return 1
         fi
-        
+
         log_success "FirewallD防火墙配置完成，SSH端口 $current_ssh_port 已开放"
-        
+
     elif command -v iptables >/dev/null 2>&1; then
         # ==========================================
         # 传统 iptables 配置
         # ==========================================
         log_info "配置iptables防火墙（SSH端口：$current_ssh_port）..."
-        
+
         # 允许已建立的连接
         if ! iptables -C INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT >/dev/null 2>&1; then
             iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
         fi
-        
+
         # SSH端口
         if ! iptables -C INPUT -p tcp --dport "$current_ssh_port" -j ACCEPT >/dev/null 2>&1; then
             iptables -A INPUT -p tcp --dport "$current_ssh_port" -j ACCEPT
         fi
-        
+
         # HTTP/HTTPS TCP
         if ! iptables -C INPUT -p tcp --dport 80 -j ACCEPT >/dev/null 2>&1; then
             iptables -A INPUT -p tcp --dport 80 -j ACCEPT
         fi
-        
+
         if ! iptables -C INPUT -p tcp --dport 443 -j ACCEPT >/dev/null 2>&1; then
             iptables -A INPUT -p tcp --dport 443 -j ACCEPT
         fi
-        
+
         # 【关键】UDP 端口
         if ! iptables -C INPUT -p udp --dport 443 -j ACCEPT >/dev/null 2>&1; then
             iptables -A INPUT -p udp --dport 443 -j ACCEPT
         fi
-        
+
         if ! iptables -C INPUT -p udp --dport 2053 -j ACCEPT >/dev/null 2>&1; then
             iptables -A INPUT -p udp --dport 2053 -j ACCEPT
         fi
-        
+
         # 允许本地回环
         if ! iptables -C INPUT -i lo -j ACCEPT >/dev/null 2>&1; then
             iptables -A INPUT -i lo -j ACCEPT
         fi
-        
+
         # 保存iptables规则
         if command -v iptables-save >/dev/null 2>&1; then
             mkdir -p /etc/iptables
@@ -1204,14 +1204,14 @@ configure_firewall() {
                 log_warn "iptables规则保存失败"
             fi
         fi
-        
+
         # 如果有netfilter-persistent，使用它保存
         if command -v netfilter-persistent >/dev/null 2>&1; then
             netfilter-persistent save >/dev/null 2>&1 || true
         fi
-        
+
         log_success "iptables防火墙配置完成，SSH端口 $current_ssh_port 已开放"
-        
+
     else
         # ==========================================
         # 无防火墙或不支持的防火墙
@@ -1223,11 +1223,11 @@ configure_firewall() {
         log_info "  - HTTPS: 443/tcp"
         log_info "  - Hysteria2: 443/udp"
         log_info "  - TUIC: 2053/udp"
-        
+
         # 如果是云服务器，提示检查安全组
         log_warn "如果使用云服务器，请同时检查云厂商安全组规则！"
     fi
-    
+
     # ==========================================
     # 第三步：最终验证SSH连接正常
     # ==========================================
@@ -1237,7 +1237,7 @@ configure_firewall() {
     else
         log_warn "⚠️ SSH端口监听状态异常，请检查sshd服务"
     fi
-    
+
     return 0
 }
 
@@ -1247,7 +1247,7 @@ configure_firewall() {
 # 如果担心SSH被锁死，可以在主安装流程中调用此函数
 setup_firewall_rollback() {
     log_info "设置防火墙安全回滚机制..."
-    
+
     # 创建回滚脚本
     cat > /tmp/firewall_rollback.sh << 'ROLLBACK_SCRIPT'
 #!/bin/bash
@@ -1260,7 +1260,7 @@ sleep 300  # 等待5分钟
 # 检查是否还有活跃的SSH连接
 if ! pgrep -f "sshd.*" >/dev/null; then
     echo "检测到SSH连接中断，执行紧急回滚..."
-    
+
     # 紧急开放所有端口
     if command -v ufw >/dev/null 2>&1; then
         ufw --force disable
@@ -1275,7 +1275,7 @@ if ! pgrep -f "sshd.*" >/dev/null; then
         iptables -F
         echo "iptables防火墙已紧急重置"
     fi
-    
+
     echo "防火墙紧急回滚完成，请立即检查服务器连接"
 else
     echo "SSH连接正常，取消回滚"
@@ -1286,10 +1286,10 @@ rm -f /tmp/firewall_rollback.sh
 ROLLBACK_SCRIPT
 
     chmod +x /tmp/firewall_rollback.sh
-    
+
     # 后台启动回滚进程
     nohup /tmp/firewall_rollback.sh >/dev/null 2>&1 &
-    
+
     log_success "防火墙安全回滚机制已启动（5分钟超时）"
     log_info "如果SSH连接中断超过5分钟，防火墙将自动回滚"
 }
@@ -1364,19 +1364,19 @@ ensure_xray_dns_alignment() {
 # 优化系统参数
 optimize_system() {
     log_info "优化系统参数..."
-    
+
     # 备份原始配置
     if [[ ! -f /etc/sysctl.conf.bak ]]; then
         cp /etc/sysctl.conf /etc/sysctl.conf.bak
         log_info "已备份原始sysctl配置"
     fi
-    
+
     # 检查是否已经优化过
     if grep -q "EdgeBox Optimizations" /etc/sysctl.conf; then
         log_info "系统参数已优化过，跳过"
         return 0
     fi
-    
+
     # 添加网络优化参数
     cat >> /etc/sysctl.conf << 'EOF'
 
@@ -1413,19 +1413,19 @@ fs.file-max = 1000000
 vm.swappiness = 10
 vm.dirty_ratio = 15
 EOF
-    
+
     # 应用系统参数
     if sysctl -p >/dev/null 2>&1; then
         log_success "系统参数优化完成"
     else
         log_warn "部分系统参数应用失败，但不影响核心功能"
     fi
-    
+
     # 优化文件描述符限制
     if [[ ! -f /etc/security/limits.conf.bak ]]; then
         cp /etc/security/limits.conf /etc/security/limits.conf.bak
     fi
-    
+
     # 添加文件描述符限制优化
     if ! grep -q "EdgeBox limits" /etc/security/limits.conf; then
         cat >> /etc/security/limits.conf << 'EOF'
@@ -1445,23 +1445,23 @@ EOF
 # 错误处理和清理函数
 cleanup_all() {
     local rc=$?
-    
+
     # 不再依赖退出码，而是检查关键服务状态
     local services_ok=true
     local core_services=("nginx" "xray" "sing-box")
-    
+
     for service in "${core_services[@]}"; do
         if ! systemctl is-active --quiet "$service" 2>/dev/null; then
             services_ok=false
             break
         fi
     done
-    
+
     if [[ "$services_ok" == "true" ]]; then
         # [修改] 成功时安静退出，让 main 函数完成后续的 show_installation_info
         exit 0
     else
-	
+
         log_error "安装失败，部分核心服务未能启动"
         echo -e "\n${RED}❌ 安装失败！${NC}"
         echo -e "${YELLOW}故障排除建议：${NC}"
@@ -1487,13 +1487,13 @@ log_success "模块1：脚本头部+基础函数 - 初始化完成"
 # 收集详细的系统硬件信息
 collect_system_info() {
     log_info "收集系统详细信息..."
-    
+
     # 获取CPU详细信息
 get_cpu_info() {
     # CPU核心数和线程数
     local physical_cores=$(nproc --all 2>/dev/null || echo "1")
     local logical_threads=$(grep -c ^processor /proc/cpuinfo 2>/dev/null || echo "1")
-    
+
     # CPU型号信息 - 修复版本
     local cpu_model
     if [[ -f /proc/cpuinfo ]]; then
@@ -1503,17 +1503,17 @@ get_cpu_info() {
             cpu_model=$(grep -E "cpu model|cpu type|processor" /proc/cpuinfo | head -1 | cut -d: -f2 | sed 's/^[[:space:]]*//' 2>/dev/null)
         fi
     fi
-    
+
     # 如果仍然为空，使用默认值
     cpu_model=${cpu_model:-"Unknown CPU"}
-    
+
     # CPU架构
     local cpu_arch=$(uname -m 2>/dev/null || echo "unknown")
-    
+
     # 组合CPU信息：核心数/线程数 型号 架构
     echo "${physical_cores}C/${logical_threads}T ${cpu_model} (${cpu_arch})"
 }
-    
+
     # 获取内存详细信息
 get_memory_info() {
     local total_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo 2>/dev/null || echo "0")
@@ -1527,7 +1527,7 @@ get_memory_info() {
         echo "${total_gb}GiB"
     fi
 }
-    
+
     # 获取磁盘信息
     get_disk_info() {
         # 获取根分区磁盘信息
@@ -1541,15 +1541,15 @@ get_memory_info() {
             echo "Unknown"
         fi
     }
-    
+
     # 云厂商检测函数
     detect_cloud_provider() {
         local provider="Unknown"
         local region="Unknown"
         local instance_id="Unknown"
-        
+
         log_info "检测云厂商和区域信息..."
-        
+
         # AWS元数据检测
         if curl -fsS --max-time 2 http://169.254.169.254/latest/meta-data/instance-id >/dev/null 2>&1; then
             provider="AWS"
@@ -1557,7 +1557,7 @@ get_memory_info() {
             instance_id=$(curl -fsS --max-time 2 http://169.254.169.254/latest/meta-data/instance-id 2>/dev/null || echo "unknown")
             local instance_type=$(curl -fsS --max-time 2 http://169.254.169.254/latest/meta-data/instance-type 2>/dev/null || echo "unknown")
             log_success "检测到AWS环境: $instance_type @ $region"
-            
+
         # Google Cloud Platform检测
         elif curl -fsS --max-time 2 -H "Metadata-Flavor: Google" http://169.254.169.254/computeMetadata/v1/instance/id >/dev/null 2>&1; then
             provider="GCP"
@@ -1566,7 +1566,7 @@ get_memory_info() {
             instance_id=$(curl -fsS --max-time 2 -H "Metadata-Flavor: Google" http://169.254.169.254/computeMetadata/v1/instance/id 2>/dev/null || echo "unknown")
             local machine_type=$(curl -fsS --max-time 2 -H "Metadata-Flavor: Google" http://169.254.169.254/computeMetadata/v1/instance/machine-type 2>/dev/null | sed 's/.*\///g' || echo "unknown")
             log_success "检测到GCP环境: $machine_type @ $region"
-            
+
         # Microsoft Azure检测
         elif curl -fsS --max-time 2 -H "Metadata: true" http://169.254.169.254/metadata/instance/compute/vmId?api-version=2021-02-01 >/dev/null 2>&1; then
             provider="Azure"
@@ -1574,7 +1574,7 @@ get_memory_info() {
             instance_id=$(curl -fsS --max-time 2 -H "Metadata: true" http://169.254.169.254/metadata/instance/compute/vmId?api-version=2021-02-01 2>/dev/null || echo "unknown")
             local vm_size=$(curl -fsS --max-time 2 -H "Metadata: true" http://169.254.169.254/metadata/instance/compute/vmSize?api-version=2021-02-01 2>/dev/null || echo "unknown")
             log_success "检测到Azure环境: $vm_size @ $region"
-            
+
         # Vultr检测
         elif [[ -f /etc/vultr ]] || curl -fsS --max-time 2 http://169.254.169.254/v1.json 2>/dev/null | grep -q vultr; then
             provider="Vultr"
@@ -1584,14 +1584,14 @@ get_memory_info() {
                 instance_id=$(echo "$vultr_info" | jq -r '.instanceid // "unknown"' 2>/dev/null || echo "unknown")
             fi
             log_success "检测到Vultr环境 @ $region"
-            
+
         # DigitalOcean检测
         elif command -v dmidecode >/dev/null 2>&1 && dmidecode -s system-manufacturer 2>/dev/null | grep -qi "digitalocean"; then
             provider="DigitalOcean"
             region=$(curl -fsS --max-time 2 http://169.254.169.254/metadata/v1/region 2>/dev/null || echo "unknown")
             instance_id=$(curl -fsS --max-time 2 http://169.254.169.254/metadata/v1/id 2>/dev/null || echo "unknown")
             log_success "检测到DigitalOcean环境 @ $region"
-            
+
         # Linode检测
         elif command -v dmidecode >/dev/null 2>&1 && dmidecode -s system-manufacturer 2>/dev/null | grep -qi "linode"; then
             provider="Linode"
@@ -1601,7 +1601,7 @@ get_memory_info() {
                 region="$hostname_region"
             fi
             log_success "检测到Linode环境 @ $region"
-            
+
         # Hetzner检测
         elif curl -fsS --max-time 2 http://169.254.169.254/hetzner/v1/metadata >/dev/null 2>&1; then
             provider="Hetzner"
@@ -1612,7 +1612,7 @@ get_memory_info() {
             fi
             log_success "检测到Hetzner环境 @ $region"
         fi
-        
+
         # 如果云厂商检测失败，尝试通过IP归属检测
         if [[ "$provider" == "Unknown" && -n "$SERVER_IP" ]]; then
             log_info "通过IP归属检测云厂商..."
@@ -1620,7 +1620,7 @@ get_memory_info() {
             if [[ -n "$ip_info" && "$ip_info" != "{}" ]]; then
                 local org=$(echo "$ip_info" | jq -r '.org // empty' 2>/dev/null)
                 local as_info=$(echo "$ip_info" | jq -r '.as // empty' 2>/dev/null)
-                
+
                 # 根据ISP信息判断云厂商
                 case "${org,,}" in
                     *amazon*|*aws*) provider="AWS" ;;
@@ -1634,13 +1634,13 @@ get_memory_info() {
                     *contabo*) provider="Contabo" ;;
                     *bandwagon*|*bwh*) provider="BandwagonHost" ;;
                 esac
-                
+
                 if [[ "$provider" != "Unknown" ]]; then
                     log_success "通过IP归属检测到: $provider ($org)"
                 fi
             fi
         fi
-        
+
         # 如果仍然无法检测，设为独立服务器
         if [[ "$provider" == "Unknown" ]]; then
             provider="Independent"
@@ -1648,23 +1648,23 @@ get_memory_info() {
             instance_id="Unknown"
             log_info "未检测到知名云厂商，标记为独立服务器"
         fi
-        
+
         # 导出检测结果到全局变量
         CLOUD_PROVIDER="$provider"
         CLOUD_REGION="$region"
         INSTANCE_ID="$instance_id"
     }
-    
+
     # 执行信息收集
     log_info "收集硬件规格信息..."
     CPU_SPEC="$(get_cpu_info)"
     MEMORY_SPEC="$(get_memory_info)"
     DISK_SPEC="$(get_disk_info)"
     HOSTNAME="$(hostname -f 2>/dev/null || hostname)"
-    
+
     # 执行云厂商检测
     detect_cloud_provider
-    
+
     # 输出收集结果摘要
     log_success "系统信息收集完成："
     log_info "├─ 云厂商: ${CLOUD_PROVIDER}"
@@ -1683,16 +1683,16 @@ get_memory_info() {
 # 生成所有协议的UUID和密码
 generate_credentials() {
     log_info "生成协议凭据..."
-    
+
 # 快速验证工具可用性（应该已在前置检查中确保）
 if ! command -v uuidgen >/dev/null 2>&1 || ! command -v openssl >/dev/null 2>&1; then
     log_error "关键工具缺失（uuidgen 或 openssl），这不应该发生"
     log_error "请重新运行安装脚本或手动安装 uuid-runtime 和 openssl"
     return 1
 fi
-    
+
     log_info "生成协议UUID..."
-    
+
     # 为每种协议生成独立的UUID
     UUID_VLESS_REALITY=$(uuidgen)
     UUID_VLESS_GRPC=$(uuidgen)
@@ -1700,17 +1700,17 @@ fi
     UUID_HYSTERIA2=$(uuidgen)  # Hysteria2也可以使用UUID作为用户标识
     UUID_TUIC=$(uuidgen)
     UUID_TROJAN=$(uuidgen)     # Trojan虽然用密码，但生成UUID备用
-    
+
     log_info "生成协议密码..."
-    
+
     # 生成强密码（Base64编码，确保特殊字符兼容性）
     PASSWORD_TROJAN=$(openssl rand -base64 32 | tr -d '\n')
     PASSWORD_TUIC=$(openssl rand -base64 32 | tr -d '\n')
     PASSWORD_HYSTERIA2=$(openssl rand -base64 32 | tr -d '\n')
-    
+
     # 验证生成结果
     local failed_items=()
-    
+
     # 检查UUID生成结果
     [[ -z "$UUID_VLESS_REALITY" ]] && failed_items+=("VLESS-Reality UUID")
     [[ -z "$UUID_VLESS_GRPC" ]] && failed_items+=("VLESS-gRPC UUID")
@@ -1718,18 +1718,18 @@ fi
     [[ -z "$UUID_HYSTERIA2" ]] && failed_items+=("Hysteria2 UUID")
     [[ -z "$UUID_TUIC" ]] && failed_items+=("TUIC UUID")
     [[ -z "$UUID_TROJAN" ]] && failed_items+=("Trojan UUID")
-    
+
     # 检查密码生成结果
     [[ -z "$PASSWORD_TROJAN" ]] && failed_items+=("Trojan密码")
     [[ -z "$PASSWORD_TUIC" ]] && failed_items+=("TUIC密码")
     [[ -z "$PASSWORD_HYSTERIA2" ]] && failed_items+=("Hysteria2密码")
-    
+
     # 处理生成失败的情况
     if [[ ${#failed_items[@]} -gt 0 ]]; then
         log_error "以下凭据生成失败: ${failed_items[*]}"
         return 1
     fi
-    
+
     # 输出生成结果摘要（隐藏完整凭据）
     log_success "协议凭据生成完成："
     log_info "├─ VLESS-Reality UUID: ${UUID_VLESS_REALITY:0:8}..."
@@ -1739,24 +1739,24 @@ fi
     log_info "├─ Trojan密码:         ${PASSWORD_TROJAN:0:8}..."
     log_info "├─ TUIC密码:           ${PASSWORD_TUIC:0:8}..."
     log_info "└─ Hysteria2密码:      ${PASSWORD_HYSTERIA2:0:8}..."
-    
+
     return 0
 }
 
 # 生成Reality密钥对和短ID
 generate_reality_keys() {
     log_info "生成Reality密钥对..."
-    
+
     # 检查sing-box是否可用（Reality密钥生成需要）
-if ! command -v sing-box >/dev/null 2>&1 && ! command -v /usr/local/bin/sing-box >/dev/null 2>&1; then
-    log_info "sing-box 尚未安装，将先生成临时Reality密钥"
+    if ! command -v sing-box >/dev/null 2>&1 && ! command -v /usr/local/bin/sing-box >/dev/null 2>&1; then
+        log_warn "sing-box未安装，将在模块3中安装后重新生成Reality密钥"
         # 生成临时密钥，后续会被正确密钥替换
         REALITY_PRIVATE_KEY="temp_private_key_will_be_replaced"
         REALITY_PUBLIC_KEY="temp_public_key_will_be_replaced"
         REALITY_SHORT_ID="temp_short_id"
         return 0
     fi
-    
+
     # 使用sing-box生成Reality密钥对
     local reality_output
     if command -v sing-box >/dev/null 2>&1; then
@@ -1764,19 +1764,19 @@ if ! command -v sing-box >/dev/null 2>&1 && ! command -v /usr/local/bin/sing-box
     elif command -v /usr/local/bin/sing-box >/dev/null 2>&1; then
         reality_output="$(/usr/local/bin/sing-box generate reality-keypair 2>/dev/null)"
     fi
-    
+
     if [[ -z "$reality_output" ]]; then
         log_error "Reality密钥对生成失败"
         return 1
     fi
-    
+
     # 提取私钥和公钥
     REALITY_PRIVATE_KEY="$(echo "$reality_output" | grep -oP 'PrivateKey: \K[a-zA-Z0-9_-]+' | head -1)"
     REALITY_PUBLIC_KEY="$(echo "$reality_output" | grep -oP 'PublicKey: \K[a-zA-Z0-9_-]+' | head -1)"
-    
+
     # 生成短ID（8个十六进制字符，Reality协议推荐长度）
     REALITY_SHORT_ID="$(openssl rand -hex 4 2>/dev/null || echo "$(date +%s | sha256sum | head -c 8)")"
-    
+
     # 验证生成结果
     if [[ -z "$REALITY_PRIVATE_KEY" || -z "$REALITY_PUBLIC_KEY" || -z "$REALITY_SHORT_ID" ]]; then
         log_error "Reality密钥信息生成不完整"
@@ -1785,42 +1785,42 @@ if ! command -v sing-box >/dev/null 2>&1 && ! command -v /usr/local/bin/sing-box
         log_debug "短ID: ${REALITY_SHORT_ID:-空}"
         return 1
     fi
-    
+
     log_success "Reality密钥对生成完成："
     log_info "├─ 公钥: ${REALITY_PUBLIC_KEY:0:16}..."
     log_info "├─ 私钥: ${REALITY_PRIVATE_KEY:0:16}..."
     log_info "└─ 短ID: ${REALITY_SHORT_ID}"
-    
+
     return 0
 }
 
 # 生成控制面板密码
 generate_dashboard_passcode() {
     log_info "生成控制面板访问密码..."
-    
+
     # 随机生成一个 0-9 的数字
     local random_digit=$((RANDOM % 10))
     # 生成 6 位相同的数字密码
     DASHBOARD_PASSCODE="${random_digit}${random_digit}${random_digit}${random_digit}${random_digit}${random_digit}"
-    
+
     if [[ -z "$DASHBOARD_PASSCODE" || ${#DASHBOARD_PASSCODE} -ne 6 ]]; then
         log_error "控制面板密码生成失败"
         return 1
     fi
-    
+
     # ========== 关键修复: 不在这里写入,等save_config_info()统一写入 ==========
     log_success "控制面板密码生成完成: $DASHBOARD_PASSCODE"
-    
+
     # 导出环境变量供save_config_info()使用
     export DASHBOARD_PASSCODE
-    
+
     # 不再执行这段代码,避免被save_config_info()覆盖:
     # local config_file="${CONFIG_DIR}/server.json"
     # if [[ -f "$config_file" ]]; then
     #     ...jq写入...
     # fi
     # =========================================================================
-    
+
     return 0
 }
 
@@ -1948,33 +1948,33 @@ fi
 # 生成自签名证书（基础版本，模块3会有完整版本）
 generate_self_signed_cert() {
     log_info "生成自签名证书并修复权限..."
-    
+
     mkdir -p "${CERT_DIR}"
     rm -f "${CERT_DIR}"/self-signed.{key,pem} "${CERT_DIR}"/current.{key,pem}
-    
+
     if ! command -v openssl >/dev/null 2>&1; then
         log_error "openssl未安装，无法生成证书"; return 1;
     fi
-    
+
     # 生成私钥和证书
     openssl ecparam -genkey -name secp384r1 -out "${CERT_DIR}/self-signed.key" 2>/dev/null || { log_error "生成ECC私钥失败"; return 1; }
     openssl req -new -x509 -key "${CERT_DIR}/self-signed.key" -out "${CERT_DIR}/self-signed.pem" -days 3650 -subj "/C=US/ST=CA/L=SF/O=EdgeBox/CN=${SERVER_IP}" >/dev/null 2>&1 || { log_error "生成自签名证书失败"; return 1; }
-    
+
     # 创建软链接
     ln -sf "${CERT_DIR}/self-signed.key" "${CERT_DIR}/current.key"
     ln -sf "${CERT_DIR}/self-signed.pem" "${CERT_DIR}/current.pem"
-    
+
     # --- 关键权限修复 ---
     # 1. 获取 nobody 用户的主组名 (Debian系是 nogroup, RHEL系是 nobody)
     local NOBODY_GRP
     NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
-    
+
     # 2. 设置目录和文件的所有权
     chown -R root:"${NOBODY_GRP}" "${CERT_DIR}"
-    
+
     # 3. 设置目录权限：root可读写执行，组可进入和读取
     chmod 750 "${CERT_DIR}"
-    
+
     # 4. 设置文件权限：root可读写，组可读
     chmod 640 "${CERT_DIR}"/self-signed.key
     chmod 644 "${CERT_DIR}"/self-signed.pem
@@ -1996,35 +1996,35 @@ generate_self_signed_cert() {
 # 验证模块2生成的所有数据
 verify_module2_data() {
     log_info "验证模块2生成的数据完整性..."
-    
+
     local errors=0
-    
+
     # 1. 验证系统信息收集结果
     log_info "检查系统信息收集结果..."
-    
+
     if [[ -z "$CLOUD_PROVIDER" || "$CLOUD_PROVIDER" == "Unknown" ]]; then
         log_warn "云厂商信息未收集到，将标记为独立服务器"
     else
         log_success "✓ 云厂商信息: $CLOUD_PROVIDER"
     fi
-    
+
     if [[ -z "$CPU_SPEC" || "$CPU_SPEC" == "Unknown" ]]; then
         log_warn "CPU信息收集失败"
         errors=$((errors + 1))
     else
         log_success "✓ CPU信息: $CPU_SPEC"
     fi
-    
+
     if [[ -z "$MEMORY_SPEC" || "$MEMORY_SPEC" == "Unknown" ]]; then
         log_warn "内存信息收集失败"
         errors=$((errors + 1))
     else
         log_success "✓ 内存信息: $MEMORY_SPEC"
     fi
-    
+
     # 2. 验证协议凭据生成结果
     log_info "检查协议凭据生成结果..."
-    
+
     local required_uuids=(
         "UUID_VLESS_REALITY:VLESS-Reality"
         "UUID_VLESS_GRPC:VLESS-gRPC"
@@ -2032,12 +2032,12 @@ verify_module2_data() {
         "UUID_TUIC:TUIC"
         "UUID_TROJAN:Trojan"
     )
-    
+
     for uuid_info in "${required_uuids[@]}"; do
         local var_name="${uuid_info%:*}"
         local protocol_name="${uuid_info#*:}"
         local uuid_value="${!var_name}"
-        
+
         if [[ -z "$uuid_value" || ! "$uuid_value" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
             log_error "✗ ${protocol_name} UUID无效或缺失"
             errors=$((errors + 1))
@@ -2045,18 +2045,18 @@ verify_module2_data() {
             log_success "✓ ${protocol_name} UUID: ${uuid_value:0:8}..."
         fi
     done
-    
+
     local required_passwords=(
         "PASSWORD_TROJAN:Trojan"
         "PASSWORD_TUIC:TUIC"
         "PASSWORD_HYSTERIA2:Hysteria2"
     )
-    
+
     for pass_info in "${required_passwords[@]}"; do
         local var_name="${pass_info%:*}"
         local protocol_name="${pass_info#*:}"
         local pass_value="${!var_name}"
-        
+
         if [[ -z "$pass_value" || ${#pass_value} -lt 16 ]]; then
             log_error "✗ ${protocol_name} 密码无效或缺失"
             errors=$((errors + 1))
@@ -2064,10 +2064,10 @@ verify_module2_data() {
             log_success "✓ ${protocol_name} 密码: ${pass_value:0:8}..."
         fi
     done
-    
+
     # 3. 验证Reality密钥
     log_info "检查Reality密钥..."
-    
+
     if [[ -z "$REALITY_PUBLIC_KEY" || -z "$REALITY_PRIVATE_KEY" || -z "$REALITY_SHORT_ID" ]]; then
         if [[ "$REALITY_PUBLIC_KEY" == "temp_public_key_will_be_replaced" ]]; then
             log_warn "Reality密钥使用临时值，将在模块3中重新生成"
@@ -2080,10 +2080,10 @@ verify_module2_data() {
         log_success "✓ Reality私钥: ${REALITY_PRIVATE_KEY:0:16}..."
         log_success "✓ Reality短ID: $REALITY_SHORT_ID"
     fi
-    
+
     # 4. 验证server.json文件
     log_info "检查server.json配置文件..."
-    
+
     if [[ ! -f "${CONFIG_DIR}/server.json" ]]; then
         log_error "✗ server.json文件不存在"
         errors=$((errors + 1))
@@ -2092,7 +2092,7 @@ verify_module2_data() {
         errors=$((errors + 1))
     else
         log_success "✓ server.json文件格式正确"
-        
+
         # 检查关键字段
         local required_fields=(
             ".server_ip"
@@ -2102,7 +2102,7 @@ verify_module2_data() {
             ".cloud.provider"
             ".spec.cpu"
         )
-        
+
         for field in "${required_fields[@]}"; do
             local value
             value=$(jq -r "$field // empty" "${CONFIG_DIR}/server.json" 2>/dev/null)
@@ -2114,10 +2114,10 @@ verify_module2_data() {
             fi
         done
     fi
-    
+
     # 5. 验证证书文件
     log_info "检查证书文件..."
-    
+
     if [[ ! -f "${CERT_DIR}/current.pem" || ! -f "${CERT_DIR}/current.key" ]]; then
         log_error "✗ 证书文件缺失"
         errors=$((errors + 1))
@@ -2127,7 +2127,7 @@ verify_module2_data() {
     else
         log_success "✓ 证书文件有效"
     fi
-    
+
     # 验证总结
     if [[ $errors -eq 0 ]]; then
         log_success "模块2数据完整性验证通过，所有组件正常"
@@ -2145,7 +2145,7 @@ verify_module2_data() {
 # 执行模块2的所有任务
 execute_module2() {
     log_info "======== 开始执行模块2：系统信息收集+凭据生成 ========"
-    
+
     # 任务1：收集系统详细信息
     if collect_system_info; then
         log_success "✓ 系统信息收集完成"
@@ -2153,7 +2153,7 @@ execute_module2() {
         log_error "✗ 系统信息收集失败"
         return 1
     fi
-    
+
     # 任务2：生成协议凭据
     if generate_credentials; then
         log_success "✓ 协议凭据生成完成"
@@ -2161,7 +2161,7 @@ execute_module2() {
         log_error "✗ 协议凭据生成失败"
         return 1
     fi
-    
+
     # 任务2.5：生成控制面板密码(只生成不写入)
     if generate_dashboard_passcode; then
         log_success "✓ 控制面板密码生成完成: ${DASHBOARD_PASSCODE}"
@@ -2170,7 +2170,7 @@ execute_module2() {
         log_error "✗ 控制面板密码生成失败"
         return 1
     fi
-    
+
 # 任务2.6：生成管理员订阅Token（32 hex = 16字节）
 if [[ -z "${MASTER_SUB_TOKEN:-}" ]]; then
   MASTER_SUB_TOKEN="$(openssl rand -hex 16)"
@@ -2188,7 +2188,7 @@ fi
     else
         log_warn "Reality密钥生成失败，将在模块3中重新生成"
     fi
-    
+
     # 任务4：生成自签名证书
     if generate_self_signed_cert; then
         log_success "✓ 自签名证书生成完成"
@@ -2196,12 +2196,12 @@ fi
         log_error "✗ 自签名证书生成失败"
         return 1
     fi
-    
+
     # ========== 关键修复: save_config_info在密码生成之后 ==========
     # 任务5：保存配置信息(统一写入所有配置包括密码)
     if save_config_info; then
         log_success "✓ 配置信息保存完成"
-        
+
         # 再次验证密码
         local verify_password=$(jq -r '.dashboard_passcode // empty' "${CONFIG_DIR}/server.json" 2>/dev/null)
         if [[ "$verify_password" == "$DASHBOARD_PASSCODE" ]]; then
@@ -2215,22 +2215,22 @@ fi
         return 1
     fi
     # ===========================================================
-    
+
     # 任务6：验证数据完整性
     if verify_module2_data; then
         log_success "✓ 数据完整性验证通过"
     else
         log_warn "数据完整性验证发现问题，但安装将继续"
     fi
-    
+
     # 导出所有变量供后续模块使用
     export UUID_VLESS_REALITY UUID_VLESS_GRPC UUID_VLESS_WS
     export UUID_TUIC PASSWORD_HYSTERIA2 PASSWORD_TUIC PASSWORD_TROJAN
     export REALITY_PRIVATE_KEY REALITY_PUBLIC_KEY REALITY_SHORT_ID
     export SERVER_IP DASHBOARD_PASSCODE
-    
+
     log_info "已导出所有必要变量供后续模块使用"
-    
+
     log_success "======== 模块2执行完成 ========"
     log_info "已生成："
     log_info "├─ 系统信息（云厂商、硬件规格）"
@@ -2239,7 +2239,7 @@ fi
     log_info "├─ 自签名证书"
     log_info "├─ 控制面板密码: ${DASHBOARD_PASSCODE}"
     log_info "└─ 完整的server.json配置文件"
-    
+
     return 0
 }
 
@@ -2254,7 +2254,7 @@ get_config_summary() {
         echo "配置文件不存在"
         return 1
     fi
-    
+
     echo "当前配置摘要："
     jq -r '
         "服务器IP: " + .server_ip,
@@ -2282,7 +2282,7 @@ log_info "└─ verify_module2_data()       # 验证数据完整性"
 #############################################
 # EdgeBox 企业级多协议节点部署脚本 v3.0.0
 # 模块3：服务安装配置 (完整版)
-# 
+#
 # 功能说明：
 # - 安装Xray和sing-box核心程序
 # - 配置Nginx（SNI定向+ALPN兜底架构）
@@ -2299,7 +2299,7 @@ log_info "└─ verify_module2_data()       # 验证数据完整性"
 # 安装Xray核心程序
 install_xray() {
     log_info "安装Xray核心程序..."
-    
+
     # 检查是否已安装
     if command -v xray >/dev/null 2>&1; then
         local current_version
@@ -2308,9 +2308,9 @@ install_xray() {
         log_info "跳过Xray重新安装，使用现有版本"
         return 0
     fi
-    
+
     log_info "从官方仓库下载并安装Xray..."
-    
+
     # 使用智能下载函数
     if smart_download_script \
         "https://raw.githubusercontent.com/XTLS/Xray-install/main/install-release.sh" \
@@ -2321,17 +2321,17 @@ install_xray() {
         log_error "Xray安装失败"
         return 1
     fi
-    
+
     # 验证安装
     if command -v xray >/dev/null 2>&1; then
         local xray_version
         xray_version=$(xray version 2>/dev/null \ | grep -oE '[Vv]?[0-9]+\.[0-9]+\.[0-9]+' \ | head -1 | sed 's/^[Vv]//')
         log_success "Xray验证通过，版本: ${xray_version:-未知}"
-        
+
         mkdir -p /var/log/xray
         chown nobody:nogroup /var/log/xray 2>/dev/null || \
             chown nobody:nobody /var/log/xray 2>/dev/null || true
-        
+
         return 0
     else
         log_error "Xray安装验证失败"
@@ -2369,7 +2369,7 @@ fi
     # ========================================
     # 第2步：版本决策逻辑（核心改进）
     # ========================================
-    
+
     # 版本优先级队列（从最新到最稳定）
     # 注意：这是降级队列，会依次尝试直到成功
     local VERSION_PRIORITY=(
@@ -2380,21 +2380,21 @@ fi
         "1.11.0"    # 备用稳定版
         "1.10.0"    # 最后的保底版本
     )
-    
+
     # 已知问题版本黑名单（会自动跳过）
     local KNOWN_BAD_VERSIONS=(
         "1.12.4"    # 不存在的版本
         "1.12.3"    # 不存在的版本
         "1.12.2"    # 不存在的版本
     )
-    
+
     local version_to_install=""
-    
+
     # 2.1 如果用户指定了版本
     if [[ -n "${DEFAULT_SING_BOX_VERSION:-}" ]]; then
         version_to_install="${DEFAULT_SING_BOX_VERSION}"
         log_info "使用用户指定的 sing-box 版本: v${version_to_install}"
-        
+
         # 黑名单检查
         if [[ " ${KNOWN_BAD_VERSIONS[*]} " =~ " ${version_to_install} " ]]; then
             log_warn "用户指定的 v${version_to_install} 在黑名单中"
@@ -2402,18 +2402,18 @@ fi
             version_to_install=""  # 清空，进入自动选择流程
         fi
     fi
-    
+
     # 2.2 自动版本选择流程（核心逻辑）
     if [[ -z "$version_to_install" ]]; then
         log_info "尝试按优先级队列选择最佳版本..."
-        
+
         # 遍历版本队列，找到第一个可用的
         for candidate_version in "${VERSION_PRIORITY[@]}"; do
             log_info "测试版本可用性: v${candidate_version}"
-            
+
             # 快速测试该版本的下载URL是否可访问
             local test_url="https://github.com/SagerNet/sing-box/releases/download/v${candidate_version}/sing-box-${candidate_version}-linux-amd64.tar.gz"
-            
+
             if curl -fsSL --head --connect-timeout 5 --max-time 10 "$test_url" >/dev/null 2>&1; then
                 version_to_install="$candidate_version"
                 log_success "✅ 选定版本: v${version_to_install}"
@@ -2422,7 +2422,7 @@ fi
                 log_warn "⏭️  版本 v${candidate_version} 不可用，尝试下一个..."
             fi
         done
-        
+
         # 如果所有版本都失败
         if [[ -z "$version_to_install" ]]; then
             log_error "无法找到任何可用的 sing-box 版本"
@@ -2436,7 +2436,7 @@ fi
             return 1
         fi
     fi
-    
+
     log_info "📦 最终安装版本: v${version_to_install}"
 
     # ========================================
@@ -2447,7 +2447,7 @@ fi
         x86_64|amd64) system_arch="amd64" ;;
         aarch64|arm64) system_arch="arm64" ;;
         armv7*) system_arch="armv7" ;;
-        *) 
+        *)
             log_error "不支持的系统架构: $(uname -m)"
             return 1
             ;;
@@ -2458,7 +2458,7 @@ fi
     # ========================================
     local filename="sing-box-${version_to_install}-linux-${system_arch}.tar.gz"
     local download_url="https://github.com/SagerNet/sing-box/releases/download/v${version_to_install}/${filename}"
-    
+
     log_info "准备下载: ${filename}"
     log_warn "⚠️  注意: sing-box 1.12.x 不提供统一校验文件"
     log_warn "    将使用文件大小验证替代 SHA256 校验"
@@ -2467,7 +2467,7 @@ fi
     # 第5步：创建临时文件
     # ========================================
     local temp_file
-    temp_file=$(mktemp) || { 
+    temp_file=$(mktemp) || {
         log_error "创建临时文件失败"
         return 1
     }
@@ -2476,16 +2476,16 @@ fi
     # 第6步：下载二进制包（带重试机制）
     # ========================================
     log_info "📥 下载 sing-box 二进制包..."
-    
+
     local download_success=false
     local retry_count=0
     local max_retries=2
-    
+
     while [[ $retry_count -lt $max_retries && "$download_success" != "true" ]]; do
         if [[ $retry_count -gt 0 ]]; then
             log_info "重试下载 (${retry_count}/${max_retries})..."
         fi
-        
+
         if smart_download "$download_url" "$temp_file" "binary"; then
             download_success=true
             log_success "✅ 二进制包下载成功"
@@ -2497,13 +2497,13 @@ fi
             fi
         fi
     done
-    
+
     if [[ "$download_success" != "true" ]]; then
         log_error "❌ 下载失败（已重试 ${max_retries} 次）"
-        
+
         # 尝试降级到下一个版本
         log_warn "🔄 尝试降级到备用版本..."
-        
+
         local current_index=-1
         for i in "${!VERSION_PRIORITY[@]}"; do
             if [[ "${VERSION_PRIORITY[$i]}" == "$version_to_install" ]]; then
@@ -2511,19 +2511,19 @@ fi
                 break
             fi
         done
-        
+
         # 尝试下一个版本
         if [[ $current_index -ge 0 && $((current_index + 1)) -lt ${#VERSION_PRIORITY[@]} ]]; then
             local fallback_version="${VERSION_PRIORITY[$((current_index + 1))]}"
             log_info "尝试降级版本: v${fallback_version}"
-            
+
             version_to_install="$fallback_version"
             filename="sing-box-${version_to_install}-linux-${system_arch}.tar.gz"
             download_url="https://github.com/SagerNet/sing-box/releases/download/v${version_to_install}/${filename}"
-            
+
             rm -f "$temp_file"
             temp_file=$(mktemp)
-            
+
             if smart_download "$download_url" "$temp_file" "binary"; then
                 log_success "✅ 降级版本下载成功"
             else
@@ -2536,35 +2536,35 @@ fi
             return 1
         fi
     fi
-    
-	
+
+
 	# ========================================
     # 第7步：文件完整性验证（增强版：大小 + SHA256）
     # ========================================
     log_info "🔍 验证文件完整性..."
-    
+
     # 7.1 快速大小检查（必需，快速失败）
     local file_size
     file_size=$(stat -c%s "$temp_file" 2>/dev/null || stat -f%z "$temp_file" 2>/dev/null || echo 0)
-    
+
     if [[ $file_size -lt 5242880 ]]; then  # 5MB = 5 * 1024 * 1024
         log_error "下载的文件太小 (${file_size} bytes)，可能下载失败"
         rm -f "$temp_file"
         return 1
     fi
-    
+
     log_success "✅ 文件大小验证通过: $(($file_size / 1024 / 1024)) MB"
 
     # 7.2 SHA256完整性校验（可选，作为额外保障）
     local sha256_verified=false
-    
+
     # 检查版本是否支持SHA256校验（1.12.x系列不提供统一校验文件）
     local version_major_minor
     version_major_minor=$(echo "$version_to_install" | cut -d. -f1,2)
-    
+
     if [[ "$version_to_install" < "1.12.0" ]] || [[ "$version_major_minor" == "1.11" ]] || [[ "$version_major_minor" == "1.10" ]]; then
         log_info "🔐 尝试SHA256校验（版本 v${version_to_install} 支持）..."
-        
+
         # 构造校验文件URL
         local checksum_filename="sing-box-${version_to_install}-checksums.txt"
         local checksum_url="https://github.com/SagerNet/sing-box/releases/download/v${version_to_install}/${checksum_filename}"
@@ -2572,21 +2572,21 @@ fi
         temp_checksum_file=$(mktemp) || {
             log_debug "创建临时校验文件失败，跳过SHA256校验"
         }
-        
+
         if [[ -n "$temp_checksum_file" ]]; then
             # 下载校验文件（允许失败，不阻塞安装）
             if smart_download "$checksum_url" "$temp_checksum_file" "checksum" 2>/dev/null; then
                 log_debug "校验文件下载成功"
-                
+
                 # 提取预期的SHA256哈希值
                 local expected_hash
                 expected_hash=$(grep "$filename" "$temp_checksum_file" | awk '{print $1}' | head -1)
-                
+
                 if [[ -n "$expected_hash" && ${#expected_hash} -eq 64 ]]; then
                     # 计算实际文件的SHA256哈希值
                     local actual_hash
                     actual_hash=$(sha256sum "$temp_file" | awk '{print $1}')
-                    
+
                     # 比对哈希值
                     if [[ "$expected_hash" == "$actual_hash" ]]; then
                         log_success "✅ SHA256校验通过"
@@ -2603,57 +2603,58 @@ fi
                 else
                     log_debug "无法从校验文件中提取有效哈希值，跳过SHA256校验"
                 fi
-                
+
                 rm -f "$temp_checksum_file"
             else
                 log_debug "校验文件下载失败（可能不存在或网络问题），跳过SHA256校验"
             fi
         fi
-else
-        log_info "此版本无统一校验文件，将使用文件大小进行验证"
+    else
+        log_debug "版本 v${version_to_install} 不提供统一校验文件，跳过SHA256校验"
     fi
-    
+
     # 7.3 验证总结
     if [[ "$sha256_verified" == "true" ]]; then
         log_success "✅ 文件完整性验证通过（大小 + SHA256）"
     else
-    log_success "✅ 文件完整性验证通过（仅大小验证）"
+        log_success "✅ 文件完整性验证通过（仅大小验证）"
+        log_debug "SHA256校验未执行或不可用（非致命问题）"
     fi
-	
+
 
     # ========================================
     # 第8步：解压和安装
     # ========================================
     log_info "📦 解压并安装 sing-box..."
-    
+
     local temp_dir
-    temp_dir=$(mktemp -d) || { 
+    temp_dir=$(mktemp -d) || {
         log_error "创建临时目录失败"
         rm -f "$temp_file"
         return 1
     }
-    
+
     if ! tar -xzf "$temp_file" -C "$temp_dir" 2>/dev/null; then
         log_error "解压失败"
         rm -rf "$temp_dir" "$temp_file"
         return 1
     fi
-    
+
     local sing_box_binary
     sing_box_binary=$(find "$temp_dir" -name "sing-box" -type f -executable | head -1)
-    
+
     if [[ -z "$sing_box_binary" ]]; then
         log_error "解压后未找到 sing-box 二进制文件"
         rm -rf "$temp_dir" "$temp_file"
         return 1
     fi
-    
+
     if ! install -m 0755 "$sing_box_binary" /usr/local/bin/sing-box; then
         log_error "安装失败（复制到 /usr/local/bin 失败）"
         rm -rf "$temp_dir" "$temp_file"
         return 1
     fi
-    
+
     # 清理临时文件
     rm -rf "$temp_dir" "$temp_file"
 
@@ -2664,7 +2665,7 @@ else
         log_error "sing-box 安装后验证失败"
         return 1
     fi
-    
+
     local version_info
     version_info=$(/usr/local/bin/sing-box version | head -n1)
     log_success "🎉 sing-box 安装完成!"
@@ -2676,14 +2677,14 @@ else
     if [[ "${REALITY_PUBLIC_KEY:-}" == "temp_public_key_will_be_replaced" ]] || \
        [[ -z "${REALITY_PUBLIC_KEY:-}" ]]; then
         log_info "🔑 使用已安装的 sing-box 重新生成 Reality 密钥..."
-        
+
         if generate_reality_keys && save_config_info; then
             log_success "✅ Reality 密钥重新生成并保存成功"
         else
             log_warn "⚠️  Reality 密钥重新生成失败，将在后续步骤重试"
         fi
     fi
-    
+
     return 0
 }
 
@@ -2697,7 +2698,7 @@ else
 generate_initial_nginx_stream_map() {
     log_info "正在生成 Nginx 初始 stream map 配置文件..."
     local map_conf="/etc/nginx/conf.d/edgebox_stream_map.conf"
-    
+
     # 确保目录存在
     mkdir -p "$(dirname "$map_conf")"
 
@@ -2708,14 +2709,14 @@ generate_initial_nginx_stream_map() {
 map $ssl_preread_server_name $backend_pool {
     # Reality fallback SNIs
     ~*(microsoft\.com|apple\.com|cloudflare\.com|amazon\.com|fastly\.com)$ reality;
-    
+
     # Trojan uses a subdomain pattern, which works for both IP and domain mode
     ~*^trojan\..* trojan;
-    
+
     # Default internal SNIs for IP mode
     grpc.edgebox.internal  grpc;
     ws.edgebox.internal    websocket;
-    
+
     # Default action (will then fallback to ALPN)
     default                "";
 }
@@ -2726,13 +2727,13 @@ EOF
 # 配置Nginx（SNI定向 + ALPN兜底架构）
 configure_nginx() {
     log_info "配置Nginx（SNI定向 + ALPN兜底架构）..."
-    
+
     # 备份原始配置
     if [[ -f /etc/nginx/nginx.conf ]]; then
         cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak.$(date +%s)
         log_info "已备份原始Nginx配置"
     fi
-    
+
     mkdir -p /etc/nginx/conf.d
 
     # 生成新的Nginx主配置，使用 include 指令
@@ -2755,7 +2756,7 @@ events {
 http {
     include       /etc/nginx/mime.types;
     default_type  application/octet-stream;
-    
+
     # <<< 修复点 2: 移除硬编码的密码 map，改为 include 外部文件 >>>
     # 该文件将由脚本动态生成，内容为: map $arg_passcode $pass_ok { ... }
     include /etc/nginx/conf.d/edgebox_passcode.conf;
@@ -2791,40 +2792,40 @@ http {
         1 "ebp=1; Path=/traffic/; HttpOnly; SameSite=Lax; Max-Age=86400";
         0 "";
     }
-    
+
     # 日志格式
 log_format main '$remote_addr - $remote_user [$time_local] "$request_method $uri $server_protocol" '
                '$status $body_bytes_sent "$http_referer" '
                '"$http_user_agent" "$http_x_forwarded_for"';
-    
+
     # 日志文件
     access_log /var/log/nginx/access.log main;
     error_log  /var/log/nginx/error.log warn;
-    
+
     # 性能优化
     sendfile        on;
     tcp_nopush      on;
     tcp_nodelay     on;
     keepalive_timeout 65;
     types_hash_max_size 2048;
-    
+
     # 安全头
     server_tokens off;
     add_header X-Frame-Options DENY;
     add_header X-Content-Type-Options nosniff;
     add_header X-XSS-Protection "1; mode=block";
-    
+
     # HTTP 服务器（端口80）
     server {
         listen 80 default_server;
         listen [::]:80 default_server;
         server_name _;
-        
+
         # 根路径重定向到控制面板
         location = / {
             return 302 /traffic/;
         }
-        
+
 # 管理员专用：保留 /sub 精确匹配（不做设备限制）
 location = /sub {
     default_type text/plain;
@@ -2843,13 +2844,13 @@ location ^~ /share/ {
     # 只允许已有文件（软链）被访问；没有对应 token 文件则 404
     try_files $uri =404;
 }
-        
+
 	    # 内部403页面（只在本server内有效）
         location = /_deny_traffic {
             internal;
             return 403;
         }
-		
+
         # 控制面板和数据API
         location ^~ /traffic/ {
             # 口令门闸：默认拒绝；命中口令或已有会话通过
@@ -2892,14 +2893,14 @@ location ^~ /share/ {
             add_header Cache-Control "no-store, no-cache, must-revalidate";
             add_header Content-Type "application/json; charset=utf-8";
         }
-        
+
         # 健康检查
         location = /health {
             access_log off;
             return 200 "OK\n";
             add_header Content-Type text/plain;
         }
-        
+
 		# Favicon支持
         location = /favicon.ico {
             access_log off;
@@ -2907,7 +2908,7 @@ location ^~ /share/ {
             expires 1y;
             add_header Cache-Control "public, immutable";
         }
-		
+
         # 拒绝访问隐藏文件
         location ~ /\. {
             deny all;
@@ -2921,16 +2922,16 @@ location ^~ /share/ {
 # Stream 模块配置（TCP/443 端口分流）
 stream {
     error_log /var/log/nginx/stream.log warn;
-    
+
     ### ULTIMATE FIX: Include the dynamic map file ###
     include /etc/nginx/conf.d/edgebox_stream_map.conf;
-    
+
     map $ssl_preread_alpn_protocols $backend_alpn {
 	    ~\bh2\b            grpc;
         ~\bhttp/1\.1\b     websocket;
         default            reality;
     }
-    
+
     map $backend_pool $upstream_server {
         reality   127.0.0.1:11443;
         trojan    127.0.0.1:10143;
@@ -2938,19 +2939,19 @@ stream {
         websocket 127.0.0.1:10086;
         default   "";
     }
-    
+
     map $backend_alpn $upstream_alpn {
         grpc      127.0.0.1:10085;
         websocket 127.0.0.1:10086;
         reality   127.0.0.1:11443;
         default   127.0.0.1:11443;
     }
-    
+
     map $upstream_server $final_upstream {
         ""      $upstream_alpn;
         default $upstream_server;
     }
-    
+
     server {
         listen 443 reuseport;
         ssl_preread on;
@@ -2985,18 +2986,18 @@ map \$arg_passcode \$pass_ok {
 EOF
         log_warn "DASHBOARD_PASSCODE 为空，面板访问将被默认拒绝。"
     fi
-    
+
     # =================================================================
     # ### NEW FIX: Generate the initial map file before validating  ###
     # =================================================================
     generate_initial_nginx_stream_map
-	
+
 # --- 高熵订阅路径注入：/sub -> /sub-<token> ---
 if [[ -n "$MASTER_SUB_TOKEN" ]]; then
   sed -ri 's#(location[[:space:]]*=[[:space:]]*)/sub([[:space:]]*\{)#\1/sub-'"${MASTER_SUB_TOKEN}"'\2#' /etc/nginx/nginx.conf
   sed -ri 's#(try_files[[:space:]]*)/sub([[:space:]]*=404;)#\1/sub-'"${MASTER_SUB_TOKEN}"'\2#' /etc/nginx/nginx.conf
 fi
-    
+
     # 验证Nginx配置并重载
     log_info "验证Nginx配置..."
     if nginx -t; then
@@ -3008,11 +3009,11 @@ fi
         nginx -t # 显示详细错误
         return 1
     fi
-    
+
     log_info "对齐 DNS 解析（系统 & Xray）..."
     ensure_system_dns
     ensure_xray_dns_alignment
-    
+
     log_success "Nginx配置文件创建完成"
     return 0
 }
@@ -3024,18 +3025,18 @@ fi
 # 配置Xray服务 (使用jq重构，彻底解决特殊字符问题)
 configure_xray() {
     log_info "配置Xray多协议服务..."
-    
+
     # 【添加】创建Xray日志目录
     mkdir -p /var/log/xray
     chmod 755 /var/log/xray
     chown root:root /var/log/xray
-    
+
     local NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
-  
+
     # 验证必要变量 (增强版)
     local required_vars=(
         "UUID_VLESS_REALITY"
-        "UUID_VLESS_GRPC"  
+        "UUID_VLESS_GRPC"
         "UUID_VLESS_WS"
         "REALITY_PRIVATE_KEY"
         "REALITY_SHORT_ID"
@@ -3057,7 +3058,7 @@ configure_xray() {
     if [[ ${#missing_vars[@]} -gt 0 ]]; then
         log_error "缺少必要变量: ${missing_vars[*]}"
         log_info "尝试从配置文件重新加载变量..."
-        
+
         # 尝试从server.json重新加载变量
         if [[ -f "${CONFIG_DIR}/server.json" ]]; then
             UUID_VLESS_REALITY=$(jq -r '.uuid.vless.reality // .uuid.vless' "${CONFIG_DIR}/server.json" 2>/dev/null)
@@ -3066,14 +3067,14 @@ configure_xray() {
             REALITY_PRIVATE_KEY=$(jq -r '.reality.private_key' "${CONFIG_DIR}/server.json" 2>/dev/null)
             REALITY_SHORT_ID=$(jq -r '.reality.short_id' "${CONFIG_DIR}/server.json" 2>/dev/null)
             PASSWORD_TROJAN=$(jq -r '.password.trojan' "${CONFIG_DIR}/server.json" 2>/dev/null)
-            
+
             log_info "已从配置文件重新加载变量"
         else
             log_error "配置文件不存在，无法重新加载变量"
             return 1
         fi
     fi
-    
+
     # 显示将要使用的变量（调试用）
     log_info "配置变量检查:"
     log_info "├─ UUID_VLESS_REALITY: ${UUID_VLESS_REALITY:0:8}..."
@@ -3081,9 +3082,9 @@ configure_xray() {
     log_info "├─ REALITY_SHORT_ID: $REALITY_SHORT_ID"
     log_info "├─ PASSWORD_TROJAN: ${PASSWORD_TROJAN:0:8}..."
     log_info "└─ CERT_DIR: $CERT_DIR"
-    
+
     log_info "使用jq生成Xray配置文件（彻底避免特殊字符问题）..."
-    
+
     # 使用jq安全地生成完整的Xray配置文件
     if ! jq -n \
         --arg uuid_reality "$UUID_VLESS_REALITY" \
@@ -3192,7 +3193,7 @@ configure_xray() {
     fi
 
     log_success "Xray配置文件生成完成"
-    
+
     # 验证JSON格式和配置内容
     if ! jq '.' "${CONFIG_DIR}/xray.json" >/dev/null 2>&1; then
         log_error "Xray配置JSON格式错误"
@@ -3205,33 +3206,33 @@ configure_xray() {
         log_error "Xray配置中缺少监听地址"
         return 1
     fi
- 
+
     log_success "Xray配置文件验证通过"
-    
+
 	# 对齐系统与 Xray 的 DNS
 log_info "对齐 DNS 解析（系统 & Xray）..."
 ensure_system_dns
 ensure_xray_dns_alignment
-	
+
     # ============================================
     # [关键修复] 创建正确的 systemd 服务文件
     # ============================================
     log_info "创建Xray系统服务..."
-    
+
     # 停止并禁用官方的服务
     systemctl stop xray >/dev/null 2>&1 || true
     systemctl disable xray >/dev/null 2>&1 || true
-    
+
     # 备份官方服务文件
     if [[ -f /etc/systemd/system/xray.service ]]; then
         mv /etc/systemd/system/xray.service \
            /etc/systemd/system/xray.service.official.bak 2>/dev/null || true
     fi
-    
+
     # 删除官方的配置覆盖目录
     rm -rf /etc/systemd/system/xray.service.d 2>/dev/null || true
     rm -rf /etc/systemd/system/xray@.service.d 2>/dev/null || true
-    
+
     # 创建我们自己的 systemd 服务文件（使用正确的配置路径）
     cat > /etc/systemd/system/xray.service << EOF
 [Unit]
@@ -3254,15 +3255,15 @@ LimitNOFILE=1000000
 [Install]
 WantedBy=multi-user.target
 EOF
-    
+
     # 重新加载systemd，以便后续服务可以启动
     systemctl daemon-reload
-    
+
     # 启用服务（但不立即启动，等待统一启动）
     systemctl enable xray >/dev/null 2>&1
-    
+
     log_success "Xray服务文件创建完成（配置路径: ${CONFIG_DIR}/xray.json）"
-    
+
     return 0
 }
 
@@ -3273,7 +3274,7 @@ EOF
 # 配置sing-box服务
 configure_sing_box() {
     log_info "配置sing-box服务..."
-    
+
     # 验证必要变量
     if [[ -z "$PASSWORD_HYSTERIA2" || -z "$UUID_TUIC" || -z "$PASSWORD_TUIC" ]]; then
         log_error "sing-box必要配置变量缺失"
@@ -3282,7 +3283,7 @@ configure_sing_box() {
         log_debug "TUIC密码: ${PASSWORD_TUIC:+已设置}"
         return 1
     fi
-    
+
 	mkdir -p /var/log/edgebox 2>/dev/null || true
 
 log_info "生成sing-box配置文件 (使用 jq 确保安全)..."
@@ -3340,15 +3341,15 @@ if ! jq -n \
   log_error "使用 jq 生成 sing-box.json 失败"
   return 1
 fi
-    
+
     log_success "sing-box配置文件生成完成"
-    
+
     # 验证生成的JSON格式
     if ! jq '.' "${CONFIG_DIR}/sing-box.json" >/dev/null 2>&1; then
         log_error "sing-box配置JSON格式错误"
         return 1
     fi
-    
+
 	# === sing-box 语义自检 ===
 if command -v /usr/local/bin/sing-box >/dev/null 2>&1; then
   if ! /usr/local/bin/sing-box check -c "${CONFIG_DIR}/sing-box.json" >/dev/null 2>&1; then
@@ -3372,9 +3373,9 @@ fi
         log_error "sing-box配置中缺少监听地址"
         return 1
     fi
- 
+
     log_success "sing-box配置文件验证通过"
-    
+
     # 【新增】确保证书符号链接存在
     log_info "检查并创建证书符号链接..."
     if [[ ! -L "${CERT_DIR}/current.pem" ]] || [[ ! -L "${CERT_DIR}/current.key" ]]; then
@@ -3386,17 +3387,17 @@ fi
             log_warn "自签名证书不存在，可能在后续步骤生成"
         fi
     fi
-    
+
     # 确保证书权限正确
     if [[ -f "${CERT_DIR}/self-signed.pem" ]]; then
         chmod 644 "${CERT_DIR}"/*.pem 2>/dev/null || true
         chmod 600 "${CERT_DIR}"/*.key 2>/dev/null || true
         log_success "证书权限已设置"
     fi
-    
+
     # 创建正确的 systemd 服务文件
     log_info "创建sing-box系统服务..."
-    
+
     cat > /etc/systemd/system/sing-box.service << EOF
 [Unit]
 Description=sing-box service
@@ -3417,15 +3418,15 @@ LimitNOFILE=infinity
 [Install]
 WantedBy=multi-user.target
 EOF
-    
+
     # 重新加载systemd
     systemctl daemon-reload
-    
+
     # 启用服务（但不立即启动，等待统一启动）
     systemctl enable sing-box >/dev/null 2>&1
-    
+
     log_success "sing-box服务文件创建完成（配置路径: ${CONFIG_DIR}/sing-box.json）"
-    
+
 	chmod 755 "${CERT_DIR}" 2>/dev/null || true
 chmod 644 "${CERT_DIR}"/*.pem 2>/dev/null || true
 chmod 640 "${CERT_DIR}"/*.key 2>/dev/null || true
@@ -3441,19 +3442,19 @@ chown root:nobody "${CERT_DIR}"/*.key 2>/dev/null || true
 # 生成订阅链接（支持IP模式和域名模式）
 generate_subscription() {
     log_info "生成协议订阅链接..."
-    
+
     # 从server.json读取配置（确保数据一致性）
     local config_file="${CONFIG_DIR}/server.json"
     if [[ ! -f "$config_file" ]]; then
         log_error "配置文件 $config_file 不存在"
         return 1
     fi
-    
+
     # 读取配置参数
     local server_ip uuid_reality uuid_grpc uuid_ws uuid_tuic
     local password_trojan password_hysteria2 password_tuic
     local reality_public_key reality_short_id
-    
+
     server_ip=$(jq -r '.server_ip // empty' "$config_file")
     uuid_reality=$(jq -r '.uuid.vless.reality // empty' "$config_file")
     uuid_grpc=$(jq -r '.uuid.vless.grpc // empty' "$config_file")
@@ -3467,20 +3468,20 @@ generate_subscription() {
 	# 管理员订阅Token
     local master_sub_token
     master_sub_token=$(jq -r '.master_sub_token // empty' "$config_file")
-    
+
     # 验证必要参数
     if [[ -z "$server_ip" || -z "$uuid_reality" || -z "$password_hysteria2" ]]; then
         log_error "生成订阅所需的关键参数缺失"
         return 1
     fi
-    
+
     # URL编码函数
     url_encode() {
         local string="${1}"
         local strlen=${#string}
         local encoded=""
         local pos c o
-        
+
         for (( pos=0 ; pos<strlen ; pos++ )); do
             c=${string:$pos:1}
             case "$c" in
@@ -3491,53 +3492,53 @@ generate_subscription() {
         done
         echo "${encoded}"
     }
-    
+
 	# 计算 Reality 使用的 SNI（与服务端 xray.json 保持一致）
     local reality_sni
     reality_sni="$(jq -r 'first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.serverNames[0])
                            // (first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.dest) | split(":")[0])
                            // empty' "${CONFIG_DIR}/xray.json" 2>/dev/null)"
     : "${reality_sni:=${REALITY_SNI:-www.microsoft.com}}"
-	
+
     # 生成协议链接
     local subscription_links=""
-    
+
     # 1. VLESS-Reality
     if [[ -n "$uuid_reality" && -n "$reality_public_key" && -n "$reality_short_id" ]]; then
         subscription_links+="vless://${uuid_reality}@${server_ip}:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${reality_sni}&fp=chrome&pbk=${reality_public_key}&sid=${reality_short_id}&type=tcp#EdgeBox-REALITY\n"
     fi
-    
+
     # 2. VLESS-gRPC (IP模式使用内部域名)
     if [[ -n "$uuid_grpc" ]]; then
         subscription_links+="vless://${uuid_grpc}@${server_ip}:443?encryption=none&security=tls&sni=grpc.edgebox.internal&alpn=h2&type=grpc&serviceName=grpc&fp=chrome&allowInsecure=1#EdgeBox-gRPC\n"
     fi
-    
+
     # 3. VLESS-WebSocket (IP模式使用内部域名)
     if [[ -n "$uuid_ws" ]]; then
         subscription_links+="vless://${uuid_ws}@${server_ip}:443?encryption=none&security=tls&sni=ws.edgebox.internal&host=ws.edgebox.internal&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome&allowInsecure=1#EdgeBox-WS\n"
     fi
-    
+
 # 4. Trojan (IP模式使用内部域名)
 if [[ -n "$password_trojan" ]]; then
     local encoded_trojan_password
     encoded_trojan_password=$(url_encode "$password_trojan")
     subscription_links+="trojan://${encoded_trojan_password}@${server_ip}:443?security=tls&sni=trojan.edgebox.internal&fp=chrome&allowInsecure=1#EdgeBox-TROJAN\n"
 fi
-    
+
     # 5. Hysteria2
     if [[ -n "$password_hysteria2" ]]; then
         local encoded_hy2_password
         encoded_hy2_password=$(url_encode "$password_hysteria2")
         subscription_links+="hysteria2://${encoded_hy2_password}@${server_ip}:443?sni=${server_ip}&alpn=h3&insecure=1#EdgeBox-HYSTERIA2\n"
     fi
-    
+
     # 6. TUIC
     if [[ -n "$uuid_tuic" && -n "$password_tuic" ]]; then
         local encoded_tuic_password
         encoded_tuic_password=$(url_encode "$password_tuic")
         subscription_links+="tuic://${uuid_tuic}:${encoded_tuic_password}@${server_ip}:2053?congestion_control=bbr&alpn=h3&sni=${server_ip}&allowInsecure=1#EdgeBox-TUIC\n"
     fi
-    
+
 # 保存订阅文件（改为软链同步到 Web，避免 "are the same file"）
 mkdir -p "${WEB_ROOT}"
 printf "%b" "$subscription_links" > "${CONFIG_DIR}/subscription.txt"
@@ -3555,7 +3556,7 @@ fi
 
 # 设置权限（chmod 作用于目标文件；软链本身无需 chmod）
 chmod 644 "${CONFIG_DIR}/subscription.txt"
-    
+
     # 生成Base64编码的订阅（可选）
     if command -v base64 >/dev/null 2>&1; then
         if base64 --help 2>&1 | grep -q -- ' -w'; then
@@ -3567,18 +3568,18 @@ chmod 644 "${CONFIG_DIR}/subscription.txt"
         fi
         chmod 644 "${CONFIG_DIR}/subscription.base64"
     fi
-    
+
     log_success "订阅链接生成完成"
     log_info "订阅文件位置:"
     log_info "├─ 明文: ${CONFIG_DIR}/subscription.txt"
     log_info "├─ Web: ${WEB_ROOT}/sub-${master_sub_token}"
     log_info "└─ Base64: ${CONFIG_DIR}/subscription.base64"
-    
+
     # 显示生成的协议数量
     local protocol_count
     protocol_count=$(printf "%b" "$subscription_links" | grep -c '^[a-z]' || echo "0")
     log_info "生成协议数量: $protocol_count"
-    
+
     return 0
 }
 
@@ -3640,7 +3641,7 @@ reload_or_restart_services() {
       log_info "[hot-reload] $svc ${action}ed"
     fi
   done
-  
+
   # <<< 修复点: 在所有服务重启/重载后，立即强制应用正确的防火墙规则 >>>
   if [[ -x "/etc/edgebox/scripts/apply-firewall.sh" ]]; then
       log_info "正在重新应用防火墙规则以防止连接中断..."
@@ -3657,10 +3658,10 @@ reload_or_restart_services() {
 # 启动所有服务并验证（增强幂等性）
 start_and_verify_services() {
     log_info "启动并验证服务（幂等性保证）..."
-    
+
     local services=("xray" "sing-box" "nginx")
     local failed_services=()
-    
+
     for service in "${services[@]}"; do
         # 使用增强的服务启动检查
         if ensure_service_running "$service"; then
@@ -3670,10 +3671,10 @@ start_and_verify_services() {
             failed_services+=("$service")
         fi
     done
-    
+
     # 端口监听验证
     verify_critical_ports
-    
+
     if [[ ${#failed_services[@]} -eq 0 ]]; then
         log_success "所有服务已正常运行"
         return 0
@@ -3700,33 +3701,33 @@ ensure_service_running() {
     local service="$1"
     local max_attempts=3
     local attempt=0
-    
+
     log_info "确保服务运行状态: $service"
-    
+
     while [[ $attempt -lt $max_attempts ]]; do
         # 重新加载systemd配置（幂等）
         systemctl daemon-reload >/dev/null 2>&1
-        
+
         # 启用服务（幂等）
         if systemctl enable "$service" >/dev/null 2>&1; then
             log_info "✓ $service 服务已启用"
         else
             log_warn "⚠ $service 服务启用失败"
         fi
-        
+
         # 检查服务状态
         if systemctl is-active --quiet "$service"; then
             log_success "✓ $service 已在运行"
             return 0
         fi
-        
+
         # 尝试启动服务
         log_info "启动 $service 服务 (尝试 $((attempt + 1))/$max_attempts)"
-        
+
         if systemctl start "$service" >/dev/null 2>&1; then
             # 等待启动完成
             sleep 3
-            
+
             # 验证启动结果
             if systemctl is-active --quiet "$service"; then
                 log_success "✓ $service 服务启动成功"
@@ -3737,9 +3738,9 @@ ensure_service_running() {
         else
             log_warn "⚠ $service 启动命令失败"
         fi
-        
+
         ((attempt++))
-        
+
         # 如果不是最后一次尝试，显示错误信息并重试
         if [[ $attempt -lt $max_attempts ]]; then
             log_warn "$service 启动失败，将重试..."
@@ -3750,16 +3751,16 @@ ensure_service_running() {
             sleep 2
         fi
     done
-    
+
     # 最终失败处理
     log_error "✗ $service 服务在 $max_attempts 次尝试后仍无法启动"
-    
+
     # 输出详细错误信息用于调试
     log_error "服务状态详情:"
     systemctl status "$service" --no-pager -l 2>&1 | head -10 | while read -r line; do
         log_error "  $line"
     done
-    
+
     return 1
 }
 
@@ -3787,7 +3788,7 @@ verify_port_listening 2053 udp && log_success "端口 2053 正在监听" || log_
 # 执行模块3的所有任务
 execute_module3() {
     log_info "======== 开始执行模块3：服务安装配置 ========"
-    
+
     # 任务1：安装Xray
     if install_xray; then
         log_success "✓ Xray安装完成"
@@ -3795,7 +3796,7 @@ execute_module3() {
         log_error "✗ Xray安装失败"
         return 1
     fi
-    
+
     # 任务2：安装sing-box
     if install_sing_box; then
         log_success "✓ sing-box安装完成"
@@ -3803,7 +3804,7 @@ execute_module3() {
         log_error "✗ sing-box安装失败"
         return 1
     fi
-    
+
     # 任务3：配置Xray (先配置后端服务)
     if configure_xray; then
         log_success "✓ Xray配置完成"
@@ -3811,7 +3812,7 @@ execute_module3() {
         log_error "✗ Xray配置失败"
         return 1
     fi
-    
+
     # 任务4：配置sing-box (再配置后端服务)
     if configure_sing_box; then
         log_success "✓ sing-box配置完成"
@@ -3819,7 +3820,7 @@ execute_module3() {
         log_error "✗ sing-box配置失败"
         return 1
     fi
-    
+
     # 任务5：配置Nginx (最后配置前端代理)
     if configure_nginx; then
         log_success "✓ Nginx配置完成"
@@ -3827,7 +3828,7 @@ execute_module3() {
         log_error "✗ Nginx配置失败"
         return 1
     fi
-    
+
     # 任务6：生成订阅链接
     if generate_subscription; then
         log_success "✓ 订阅链接生成完成"
@@ -3835,7 +3836,7 @@ execute_module3() {
         log_error "✗ 订阅链接生成失败"
         return 1
     fi
-    
+
     # 任务7：启动和验证服务
     if start_and_verify_services; then
         log_success "✓ 服务启动验证通过"
@@ -3843,7 +3844,7 @@ execute_module3() {
         log_error "✗ 服务启动验证失败"
         return 1
     fi
-    
+
     log_success "======== 模块3执行完成 ========"
     log_info "已完成："
     log_info "├─ Xray多协议服务（Reality、gRPC、WS、Trojan）"
@@ -3852,7 +3853,7 @@ execute_module3() {
     log_info "├─ 订阅链接生成（6种协议）"
     log_info "├─ 控制面板密码: ${final_passcode:-未设置}"  # 【新增】
     log_info "└─ 所有服务运行验证"
-    
+
     return 0
 }
 
@@ -3864,10 +3865,10 @@ execute_module3() {
 # 重新启动所有服务
 restart_all_services() {
     log_info "重新启动EdgeBox所有服务..."
-    
+
     local services=(nginx xray sing-box)
     local success_count=0
-    
+
     for service in "${services[@]}"; do
         if reload_or_restart_services "$service"; then
             log_success "✓ $service 重启成功"
@@ -3877,7 +3878,7 @@ restart_all_services() {
             systemctl status "$service" --no-pager -l
         fi
     done
-    
+
     if [[ $success_count -eq ${#services[@]} ]]; then
         log_success "所有服务重启完成"
         return 0
@@ -3890,10 +3891,10 @@ restart_all_services() {
 # 检查服务状态
 check_services_status() {
     log_info "检查EdgeBox服务状态..."
-    
+
     local services=(nginx xray sing-box)
     local running_count=0
-    
+
     for service in "${services[@]}"; do
         if systemctl is-active --quiet "$service"; then
             local status=$(systemctl is-active "$service")
@@ -3904,7 +3905,7 @@ check_services_status() {
             log_error "✗ $service: $status"
         fi
     done
-    
+
     log_info "服务状态汇总: $running_count/${#services[@]} 正在运行"
     return $((${#services[@]} - running_count))
 }
@@ -3912,7 +3913,7 @@ check_services_status() {
 # 重新生成订阅（用于配置更新后）
 regenerate_subscription() {
     log_info "重新生成订阅链接..."
-    
+
     if generate_subscription; then
         log_success "订阅链接已更新"
         return 0
@@ -3938,7 +3939,7 @@ log_info "└─ regenerate_subscription()  # 重新生成订阅"
 #############################################
 # EdgeBox 企业级多协议节点部署脚本 v3.0.0
 # 模块4：Dashboard后端脚本生成
-# 
+#
 # 功能说明：
 # - 生成完整的dashboard-backend.sh脚本
 # - 统一数据采集和聚合逻辑
@@ -3954,10 +3955,10 @@ log_info "└─ regenerate_subscription()  # 重新生成订阅"
 # 创建完整的dashboard-backend.sh脚本
 create_dashboard_backend() {
     log_info "生成Dashboard后端数据采集脚本..."
-    
+
     # 确保脚本目录存在
     mkdir -p "${SCRIPTS_DIR}"
-    
+
     # 生成完整的dashboard-backend.sh脚本
     cat > "${SCRIPTS_DIR}/dashboard-backend.sh" << 'DASHBOARD_BACKEND_SCRIPT'
 #!/usr/bin/env bash
@@ -4001,15 +4002,15 @@ safe_jq() {
     local query="$1"
     local file="$2"
     local default="${3:-}"
-    
+
     if [[ ! -f "$file" ]]; then
         echo "$default"
         return
     fi
-    
+
     local result
     result=$(jq -r "$query // empty" "$file" 2>/dev/null || echo "")
-    
+
     if [[ -z "$result" || "$result" == "null" ]]; then
         echo "$default"
     else
@@ -4028,7 +4029,7 @@ jq_safe_list() {
     ($RAW
      | gsub("^\uFEFF"; "")
      | split("\n")
-     | map(. 
+     | map(.
          | gsub("\r"; "")
          | gsub("(^[[:space:]]+|[[:space:]]+$)"; ""))   # 去首尾空白
      | map(select(. != "" and (startswith("#") | not)))
@@ -4041,15 +4042,15 @@ get_system_metrics() {
     local cpu_percent=0
     local memory_percent=0
     local disk_percent=0
-    
+
     # 改进的CPU使用率计算
     if [[ -r /proc/stat ]]; then
         read _ user1 nice1 system1 idle1 iowait1 irq1 softirq1 _ < /proc/stat
-        
+
         sleep 2
-        
+
         read _ user2 nice2 system2 idle2 iowait2 irq2 softirq2 _ < /proc/stat
-        
+
         local user_diff=$((user2 - user1))
         local nice_diff=$((nice2 - nice1))
         local system_diff=$((system2 - system1))
@@ -4057,10 +4058,10 @@ get_system_metrics() {
         local iowait_diff=$((iowait2 - iowait1))
         local irq_diff=$((irq2 - irq1))
         local softirq_diff=$((softirq2 - softirq1))
-        
+
         local total_diff=$((user_diff + nice_diff + system_diff + idle_diff + iowait_diff + irq_diff + softirq_diff))
         local active_diff=$((total_diff - idle_diff))
-        
+
         if [[ $total_diff -gt 0 ]]; then
             cpu_percent=$(( (active_diff * 1000) / total_diff ))
             cpu_percent=$((cpu_percent / 10))
@@ -4072,18 +4073,18 @@ get_system_metrics() {
             cpu_percent=1
         fi
     fi
-    
+
     # 内存使用率计算保持不变
     if [[ -r /proc/meminfo ]]; then
         local mem_total mem_available
         mem_total=$(awk '/MemTotal:/ {print $2}' /proc/meminfo)
         mem_available=$(awk '/MemAvailable:/ {print $2}' /proc/meminfo)
-        
+
         if [[ $mem_total -gt 0 && $mem_available -ge 0 ]]; then
             memory_percent=$(( (mem_total - mem_available) * 100 / mem_total ))
         fi
     fi
-    
+
     # 磁盘使用率计算保持不变
     if command -v df >/dev/null 2>&1; then
         local disk_info
@@ -4092,7 +4093,7 @@ get_system_metrics() {
             disk_percent=$(echo "$disk_info" | awk '{print $5}' | sed 's/%//')
         fi
     fi
-    
+
     # 确保所有值在合理范围内
     cpu_percent=$(( cpu_percent > 100 ? 100 : cpu_percent ))
     cpu_percent=$(( cpu_percent < 1 ? 1 : cpu_percent ))
@@ -4100,7 +4101,7 @@ get_system_metrics() {
     memory_percent=$(( memory_percent < 0 ? 0 : memory_percent ))
     disk_percent=$(( disk_percent > 100 ? 100 : disk_percent ))
     disk_percent=$(( disk_percent < 0 ? 0 : disk_percent ))
-    
+
     # 输出JSON格式
     jq -n \
         --argjson cpu "$cpu_percent" \
@@ -4122,7 +4123,7 @@ get_system_info() {
     local server_ip eip version install_date
     local cloud_provider cloud_region instance_id hostname user_alias
     local cpu_spec memory_spec disk_spec
-    
+
     server_ip=$(safe_jq '.server_ip' "$SERVER_JSON" "127.0.0.1")
     eip=$(safe_jq '.eip' "$SERVER_JSON" "")
     version=$(safe_jq '.version' "$SERVER_JSON" "3.0.0")
@@ -4135,14 +4136,14 @@ get_system_info() {
     cpu_spec=$(safe_jq '.spec.cpu' "$SERVER_JSON" "Unknown")
     memory_spec=$(safe_jq '.spec.memory' "$SERVER_JSON" "Unknown")
     disk_spec=$(safe_jq '.spec.disk' "$SERVER_JSON" "Unknown")
-    
+
     # 获取当前出口IP（尽量轻量）
     if [[ -z "$eip" ]]; then
         eip=$(curl -fsS --max-time 3 https://api.ip.sb/ip 2>/dev/null || \
               curl -fsS --max-time 3 https://ifconfig.me 2>/dev/null || \
               echo "")
     fi
-    
+
     # 输出服务器信息JSON
     jq -n \
         --arg ip "$server_ip" \
@@ -4288,17 +4289,17 @@ get_certificate_info() {
 # 获取服务状态
 get_services_status() {
     local nginx_status xray_status singbox_status
-    
+
     # 检查服务状态
     nginx_status=$(systemctl is-active nginx 2>/dev/null || echo "inactive")
     xray_status=$(systemctl is-active xray 2>/dev/null || echo "inactive")
     singbox_status=$(systemctl is-active sing-box 2>/dev/null || echo "inactive")
-    
+
     # 获取服务版本（可选）
     local nginx_version xray_version singbox_version
     nginx_version=$(nginx -v 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "")
     xray_version=$(xray version 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "")
-    
+
     if command -v sing-box >/dev/null 2>&1; then
         singbox_version=$(sing-box version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "")
     elif command -v /usr/local/bin/sing-box >/dev/null 2>&1; then
@@ -4306,7 +4307,7 @@ get_services_status() {
     else
         singbox_version=""
     fi
-    
+
     # 输出服务状态JSON
     jq -n \
         --arg nginx_status "$nginx_status" \
@@ -4356,14 +4357,14 @@ get_protocols_status() {
     if [[ -s "$health_report_file" ]]; then
         health_data=$(jq -c '.protocols // []' "$health_report_file" 2>/dev/null || echo "[]")
     fi
-    
+
     local server_config="{}"
     if [[ -s "$server_config_file" ]]; then
         server_config=$(jq -c '.' "$server_config_file" 2>/dev/null || echo "{}")
     fi
 
     local protocol_order=(
-        "VLESS-Reality" "VLESS-gRPC" "VLESS-WebSocket" 
+        "VLESS-Reality" "VLESS-gRPC" "VLESS-WebSocket"
         "Trojan-TLS" "Hysteria2" "TUIC"
     )
 	declare -A protocol_meta
@@ -4402,7 +4403,7 @@ get_protocols_status() {
             --arg camouflage "$camouflage" --argjson port "$port" --arg network "$network" \
             --arg share_link "$share_link" \
             '{name: $name, protocol: $key, scenario: $scenario, camouflage: $camouflage, port: $port, network: $network, share_link: $share_link}')
-        
+
         local dynamic_info
         dynamic_info=$(echo "$health_data" | jq -c --arg key "$key" --arg fullname "$name" '.[] | select(.protocol == $key or .protocol == $fullname)')
 
@@ -4412,10 +4413,10 @@ get_protocols_status() {
                 "detail_message": "等待健康检查...", "recommendation": "none", "recommendation_badge": ""
             }'
         fi
-        
+
         local full_protocol_info
         full_protocol_info=$(jq -n --argjson s "$static_info" --argjson d "$dynamic_info" '$s + $d')
-        
+
         final_protocols=$(echo "$final_protocols" | jq --argjson item "$full_protocol_info" '. += [$item]')
     done
 
@@ -4467,21 +4468,21 @@ get_subscription_info() {
     local sub_plain=""
     local sub_b64=""
     local sub_b64_lines=""
-    
+
     # 按优先级查找订阅文件
     local subscription_sources=(
         "${CONFIG_DIR}/subscription.txt"
         "${TRAFFIC_DIR}/sub.txt"
         "/var/www/html/sub"
     )
-    
+
     for sub_file in "${subscription_sources[@]}"; do
         if [[ -s "$sub_file" ]]; then
             sub_plain=$(cat "$sub_file")
             break
         fi
     done
-    
+
     # 生成Base64编码
     if [[ -n "$sub_plain" ]]; then
         if base64 --help 2>&1 | grep -q -- ' -w'; then
@@ -4489,7 +4490,7 @@ get_subscription_info() {
         else
             sub_b64=$(printf '%s\n' "$sub_plain" | base64 | tr -d '\n')
         fi
-        
+
         # 生成逐行Base64
         local temp_file
         temp_file=$(mktemp)
@@ -4505,7 +4506,7 @@ get_subscription_info() {
         sub_b64_lines=$(cat "$temp_file")
         rm -f "$temp_file"
     fi
-    
+
     # 输出订阅信息JSON
     jq -n \
         --arg plain "$sub_plain" \
@@ -4521,7 +4522,7 @@ get_subscription_info() {
 # 获取敏感凭据信息（从server.json提取）
 get_secrets_info() {
     local secrets_json="{}"
-    
+
     if [[ -f "$SERVER_JSON" ]]; then
         secrets_json=$(jq -c '{
             vless: {
@@ -4543,7 +4544,7 @@ get_secrets_info() {
 			master_sub_token: (.master_sub_token // ""),
         }' "$SERVER_JSON" 2>/dev/null || echo "{}")
     fi
-    
+
     echo "$secrets_json"
 }
 
@@ -4556,14 +4557,14 @@ collect_notifications() {
     local notifications_json="$TRAFFIC_DIR/notifications.json"
     local temp_notifications="[]"
     local alert_log="/var/log/edgebox-traffic-alert.log"
-    
+
     log_info "收集系统通知..."
-    
+
     # 收集预警通知（最近10条）
     if [[ -f "$alert_log" ]] && [[ -r "$alert_log" ]]; then
         local alert_notifications
         alert_notifications=$(tail -n 10 "$alert_log" 2>/dev/null | grep -E '^\[[0-9-T:Z+]+\]' | \
-        awk 'BEGIN{print "["} 
+        awk 'BEGIN{print "["}
         {
             gsub(/^\[/, "", $1)  # 移除开头的 [
             gsub(/\]/, "", $1)   # 移除结尾的 ]
@@ -4571,55 +4572,55 @@ collect_notifications() {
             gsub(/^\[[^\]]+\]\s*/, "", msg)  # 移除时间戳部分
             gsub(/"/, "\\\"", msg)  # 转义双引号
             if(NR>1) print ","
-            printf "{\"id\":\"alert_%s\",\"type\":\"alert\",\"level\":\"warning\",\"time\":\"%s\",\"message\":\"%s\",\"read\":false}", 
+            printf "{\"id\":\"alert_%s\",\"type\":\"alert\",\"level\":\"warning\",\"time\":\"%s\",\"message\":\"%s\",\"read\":false}",
                    NR, $1, msg
-        } 
+        }
         END{print "]"}' 2>/dev/null || echo "[]")
         temp_notifications="$alert_notifications"
     fi
-    
+
     # 收集系统状态通知
     local system_notifications="[]"
     local nginx_status=$(systemctl is-active nginx 2>/dev/null || echo "inactive")
     local xray_status=$(systemctl is-active xray 2>/dev/null || echo "inactive")
     local singbox_status=$(systemctl is-active sing-box 2>/dev/null || echo "inactive")
-    
+
     # 生成系统状态通知
     local sys_notifs="["
     local has_notif=false
     local current_time=$(date -Is)
     local timestamp=$(date +%s)
-    
+
     if [[ "$nginx_status" != "active" ]]; then
         if [[ "$has_notif" == "true" ]]; then sys_notifs+=","; fi
         sys_notifs+="{\"id\":\"sys_nginx_${timestamp}\",\"type\":\"system\",\"level\":\"error\",\"time\":\"${current_time}\",\"message\":\"Nginx 服务已停止运行\",\"action\":\"systemctl start nginx\",\"read\":false}"
         has_notif=true
     fi
-    
+
     if [[ "$xray_status" != "active" ]]; then
         if [[ "$has_notif" == "true" ]]; then sys_notifs+=","; fi
         sys_notifs+="{\"id\":\"sys_xray_${timestamp}\",\"type\":\"system\",\"level\":\"error\",\"time\":\"${current_time}\",\"message\":\"Xray 服务已停止运行\",\"action\":\"systemctl start xray\",\"read\":false}"
         has_notif=true
     fi
-    
+
     if [[ "$singbox_status" != "active" ]]; then
         if [[ "$has_notif" == "true" ]]; then sys_notifs+=","; fi
         sys_notifs+="{\"id\":\"sys_singbox_${timestamp}\",\"type\":\"system\",\"level\":\"error\",\"time\":\"${current_time}\",\"message\":\"sing-box 服务已停止运行\",\"action\":\"systemctl start sing-box\",\"read\":false}"
         has_notif=true
     fi
-    
+
     sys_notifs+="]"
     system_notifications="$sys_notifs"
-    
+
     # 读取已有通知并合并
     local existing_notifications="[]"
     if [[ -f "$notifications_json" ]]; then
         existing_notifications=$(jq '.notifications // []' "$notifications_json" 2>/dev/null || echo "[]")
     fi
-    
+
     # 合并所有通知，去重并限制数量
     local cutoff_date=$(date -d '7 days ago' -Is)
-    
+
     # 使用更安全的jq命令
     {
         echo "{"
@@ -4627,7 +4628,7 @@ collect_notifications() {
         echo "  \"notifications\": []"
         echo "}"
     } > "$notifications_json.tmp"
-    
+
     # 如果jq可用，使用复杂合并；否则使用简单版本
     if command -v jq >/dev/null 2>&1; then
         jq -n \
@@ -4638,11 +4639,11 @@ collect_notifications() {
             --arg cutoff "$cutoff_date" \
             '{
                 updated_at: $updated,
-                notifications: ([$alerts[], $systems[], $existing[]] | 
+                notifications: ([$alerts[], $systems[], $existing[]] |
                                unique_by(.id) |
                                map(select(.time > $cutoff)) |
-                               sort_by(.time) | 
-                               reverse | 
+                               sort_by(.time) |
+                               reverse |
                                .[0:50])
             }' > "$notifications_json.tmp" 2>/dev/null || {
             # 如果jq复杂操作失败，使用简单版本
@@ -4652,11 +4653,11 @@ collect_notifications() {
         # 如果没有jq，创建基本结构
         echo "{\"updated_at\":\"$(date -Is)\",\"notifications\":${system_notifications}}" > "$notifications_json.tmp"
     fi
-    
+
     # 原子性替换
     mv "$notifications_json.tmp" "$notifications_json"
     chmod 644 "$notifications_json" 2>/dev/null || true
-    
+
     log_info "通知数据收集完成"
 }
 
@@ -4676,7 +4677,7 @@ generate_dashboard_data() {
     else
         host_or_ip=$(jq -r '.server_ip // "127.0.0.1"' "${CONFIG_DIR}/server.json" 2>/dev/null || echo "127.0.0.1")
     fi
-	
+
 	local master_sub_token
     master_sub_token=$(jq -r '.master_sub_token // empty' "${CONFIG_DIR}/server.json" 2>/dev/null)
 
@@ -4754,12 +4755,12 @@ generate_dashboard_data() {
 # 生成system.json（系统监控数据）
 generate_system_data() {
     log_info "生成系统监控数据..."
-    
+
     local system_metrics
     system_metrics=$(get_system_metrics)
-    
+
     echo "$system_metrics" > "${TRAFFIC_DIR}/system.json.tmp"
-    
+
     if [[ -s "${TRAFFIC_DIR}/system.json.tmp" ]]; then
         mv "${TRAFFIC_DIR}/system.json.tmp" "${TRAFFIC_DIR}/system.json"
         chmod 644 "${TRAFFIC_DIR}/system.json"
@@ -4782,7 +4783,7 @@ main() {
         collect_notifications
         exit 0
     fi
-	
+
     case "${1:-}" in
         --now|--once|update)
             # 立即执行数据生成
@@ -4816,9 +4817,9 @@ DASHBOARD_BACKEND_SCRIPT
 
     # 设置脚本权限
     chmod +x "${SCRIPTS_DIR}/dashboard-backend.sh"
-    
+
     log_success "Dashboard后端脚本生成完成: ${SCRIPTS_DIR}/dashboard-backend.sh"
-    
+
     return 0
 }
 
@@ -4834,7 +4835,7 @@ create_protocol_health_check_script() {
 #############################################
 # EdgeBox 协议健康监控与自愈系统
 # 版本: 4.0.0
-# 功能: 
+# 功能:
 #   1. 深度健康检查(TCP/UDP实际可达性测试)
 #   2. 自动故障修复(服务重启、配置修复、防火墙修复)
 #   3. 修复失败后发送告警
@@ -4880,17 +4881,17 @@ EXTERNAL_TEST_ENABLED=true       # 是否启用外部连通性测试
 EXTERNAL_TEST_TIMEOUT=5          # 外部测试超时(秒)
 
 # ==================== 日志函数 ====================
-log_info() { 
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] $*" >> "$LOG_FILE" 
+log_info() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] $*" >> "$LOG_FILE"
 }
-log_warn() { 
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WARN] $*" >> "$LOG_FILE" 
+log_warn() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WARN] $*" >> "$LOG_FILE"
 }
-log_error() { 
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] $*" >> "$LOG_FILE" >&2 
+log_error() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] $*" >> "$LOG_FILE" >&2
 }
-log_success() { 
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [SUCCESS] $*" >> "$LOG_FILE" 
+log_success() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [SUCCESS] $*" >> "$LOG_FILE"
 }
 log_heal() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] [HEAL] $*" >> "$LOG_FILE"
@@ -5992,7 +5993,7 @@ HEALTH_MONITOR_SCRIPT
 
 #############################################
 # 模块5：流量特征随机化系统
-# 
+#
 # 功能说明：
 # - 协议参数随机化，避免固定指纹特征
 # - 分级随机化策略（轻度/中度/重度）
@@ -6022,13 +6023,13 @@ declare -A VLESS_PARAMS=(
 # 流量特征随机化核心函数
 setup_traffic_randomization() {
     log_info "配置流量特征随机化系统..."
-    
+
     # 创建随机化脚本目录
     mkdir -p "${SCRIPTS_DIR}/randomization"
-    
+
     create_traffic_randomization_script
     create_randomization_config
-    
+
     log_success "流量特征随机化系统配置完成"
 }
 
@@ -6053,18 +6054,18 @@ log_success() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [SUCCESS] $*" | tee -a "$LO
 randomize_hysteria2_config() {
     local level="$1"
     log_info "随机化Hysteria2配置 (级别: $level)..."
-    
+
     if [[ ! -f "${CONFIG_DIR}/sing-box.json" ]]; then
         log_error "sing-box配置文件不存在"
         return 1
     fi
-    
+
     # 检查是否存在hysteria2配置
     if ! jq -e '.inbounds[] | select(.type == "hysteria2")' "${CONFIG_DIR}/sing-box.json" >/dev/null 2>&1; then
         log_warn "未找到Hysteria2配置，跳过"
         return 0
     fi
-    
+
     # 随机化伪装站点
     local masquerade_urls=(
         "https://www.bing.com"
@@ -6073,10 +6074,10 @@ randomize_hysteria2_config() {
         "https://aws.amazon.com"
         "https://www.cloudflare.com"
     )
-    
+
     local random_masquerade=${masquerade_urls[$((RANDOM % ${#masquerade_urls[@]}))]}
     log_info "伪装站点: $random_masquerade"
-    
+
     # 更新配置
     if ! jq --arg url "$random_masquerade" \
         '(.inbounds[] | select(.type == "hysteria2") | .masquerade?) = $url' \
@@ -6085,7 +6086,7 @@ randomize_hysteria2_config() {
         rm -f "${CONFIG_DIR}/sing-box.json.tmp"
         return 1
     fi
-    
+
     # 【新增】验证生成的配置
     log_info "验证sing-box配置语法..."
     if ! sing-box check -c "${CONFIG_DIR}/sing-box.json.tmp" >/dev/null 2>&1; then
@@ -6093,7 +6094,7 @@ randomize_hysteria2_config() {
         rm -f "${CONFIG_DIR}/sing-box.json.tmp"
         return 1
     fi
-    
+
     # 应用配置
     mv "${CONFIG_DIR}/sing-box.json.tmp" "${CONFIG_DIR}/sing-box.json"
     log_success "Hysteria2配置随机化完成"
@@ -6103,13 +6104,13 @@ randomize_hysteria2_config() {
 # 【新增】配置回滚函数
 rollback_traffic_config() {
     local backup_dir="/etc/edgebox/backup/randomization"
-    
+
     local latest_singbox=$(ls -t "${backup_dir}"/sing-box_*.json 2>/dev/null | head -1)
-    
+
     if [[ -n "$latest_singbox" && -f "$latest_singbox" ]]; then
         log_warn "检测到配置问题，回滚到上一版本..."
         cp "$latest_singbox" "${CONFIG_DIR}/sing-box.json"
-        
+
         # 重启服务
         if systemctl restart sing-box; then
             log_success "配置已回滚并重启服务"
@@ -6127,27 +6128,27 @@ rollback_traffic_config() {
 # 【新增】验证服务状态
 verify_services_after_randomization() {
     log_info "验证服务状态..."
-    
+
     local all_ok=true
-    
+
     # 检查sing-box
     if ! systemctl is-active --quiet sing-box; then
         log_error "sing-box服务未运行"
         all_ok=false
     fi
-    
+
     # 检查xray
     if ! systemctl is-active --quiet xray; then
         log_error "xray服务未运行"
         all_ok=false
     fi
-    
+
     # 检查端口
     if ! ss -tulnp | grep -q ":443.*sing-box"; then
         log_warn "Hysteria2端口未监听"
         all_ok=false
     fi
-    
+
     if $all_ok; then
         log_success "服务验证通过"
         return 0
@@ -6163,26 +6164,26 @@ verify_services_after_randomization() {
 randomize_tuic_config() {
     local level="$1"
     log_info "随机化TUIC配置 (级别: $level)..."
-    
+
     if [[ ! -f "${CONFIG_DIR}/sing-box.json" ]]; then
         log_error "sing-box 配置文件不存在"
         return 1
     fi
-    
+
     # 检查是否存在 tuic 配置
     if ! jq -e '.inbounds[] | select(.type == "tuic")' "${CONFIG_DIR}/sing-box.json" >/dev/null 2>&1; then
         log_warn "未找到 TUIC 配置，跳过随机化"
         return 0
     fi
-    
+
     # 只使用 bbr（最稳定的算法）
     local algo="bbr"
-    
+
     log_info "TUIC参数: 拥塞控制=${algo}"
-    
+
     # 检查当前配置中的字段名称
     local current_config=$(jq '.inbounds[] | select(.type == "tuic")' "${CONFIG_DIR}/sing-box.json" 2>/dev/null)
-    
+
     # 尝试更新配置（保持原有配置不变，只是确保字段存在）
     if ! jq \
         --arg cc "$algo" \
@@ -6192,7 +6193,7 @@ randomize_tuic_config() {
         rm -f "${CONFIG_DIR}/sing-box.json.tmp"
         return 1
     fi
-    
+
     # 验证生成的配置文件
     if sing-box check -c "${CONFIG_DIR}/sing-box.json.tmp" >/dev/null 2>&1; then
         mv "${CONFIG_DIR}/sing-box.json.tmp" "${CONFIG_DIR}/sing-box.json"
@@ -6210,7 +6211,7 @@ randomize_tuic_config() {
 randomize_vless_config() {
     local level="$1"
     log_info "随机化VLESS配置 (级别: $level)..."
-    
+
     # 保持简单，避免复杂的 Xray 配置修改
     log_success "VLESS配置随机化完成（保持原有配置）"
     return 0
@@ -6219,18 +6220,18 @@ randomize_vless_config() {
 # 主随机化函数
 execute_traffic_randomization() {
     local level="${1:-light}"
-    
+
     log_info "开始执行流量特征随机化 (级别: $level)..."
-    
+
     # 创建配置备份
     create_config_backup
-    
+
     case "$level" in
         "light")
             # 轻度随机化：仅更新 Hysteria2
             randomize_hysteria2_config "$level"
             ;;
-        "medium") 
+        "medium")
             # 中度随机化：更新 Hysteria2 + TUIC
             randomize_hysteria2_config "$level"
             randomize_tuic_config "$level"
@@ -6246,13 +6247,13 @@ execute_traffic_randomization() {
             return 1
             ;;
     esac
-    
+
     # 重启相关服务
     restart_services_safely
-    
+
     # 验证配置生效
     verify_randomization_result
-    
+
     log_success "流量特征随机化完成 (级别: $level)"
 }
 
@@ -6260,24 +6261,24 @@ execute_traffic_randomization() {
 create_config_backup() {
     local backup_dir="/etc/edgebox/backup/randomization"
     local timestamp=$(date '+%Y%m%d_%H%M%S')
-    
+
     mkdir -p "$backup_dir"
-    
+
     if [[ -f "${CONFIG_DIR}/xray.json" ]]; then
         cp "${CONFIG_DIR}/xray.json" "${backup_dir}/xray_${timestamp}.json"
     fi
-    
+
     if [[ -f "${CONFIG_DIR}/sing-box.json" ]]; then
         cp "${CONFIG_DIR}/sing-box.json" "${backup_dir}/sing-box_${timestamp}.json"
     fi
-    
+
     log_info "配置备份已创建: $backup_dir"
 }
 
 # 安全重启服务函数
 restart_services_safely() {
     log_info "安全重启代理服务..."
-    
+
     # 定义reload_or_restart_services函数（如果不存在）
     if ! command -v reload_or_restart_services >/dev/null 2>&1; then
         reload_or_restart_services() {
@@ -6293,90 +6294,90 @@ restart_services_safely() {
             done
         }
     fi
-    
+
     # 应用更改并热加载
     reload_or_restart_services sing-box xray
     sleep 5
-    
+
     log_success "服务已安全重启"
 }
 
 # 验证随机化结果
 verify_randomization_result() {
     log_info "验证随机化配置..."
-    
+
     local verification_failed=false
-    
+
     # 验证配置文件语法
     if [[ -f "${CONFIG_DIR}/xray.json" ]] && ! xray -test -config="${CONFIG_DIR}/xray.json" >/dev/null 2>&1; then
         log_error "Xray配置验证失败"
         verification_failed=true
     fi
-    
+
     if [[ -f "${CONFIG_DIR}/sing-box.json" ]] && ! sing-box check -c "${CONFIG_DIR}/sing-box.json" >/dev/null 2>&1; then
         log_error "sing-box配置验证失败"
         verification_failed=true
     fi
-    
+
     # 验证服务状态
     if ! systemctl is-active --quiet sing-box; then
         log_error "sing-box服务状态异常"
         verification_failed=true
     fi
-    
+
     if ! systemctl is-active --quiet xray; then
         log_error "Xray服务状态异常"
         verification_failed=true
     fi
-    
+
     if [[ "$verification_failed" == "true" ]]; then
         log_error "随机化验证失败，尝试回滚配置..."
         rollback_configuration
         return 1
     fi
-    
+
     log_success "随机化验证通过"
 }
 
 # 配置回滚函数
 rollback_configuration() {
     local backup_dir="/etc/edgebox/backup/randomization"
-    
+
     # 查找最近的备份
     local latest_xray_backup=$(ls -t "${backup_dir}"/xray_*.json 2>/dev/null | head -1)
     local latest_singbox_backup=$(ls -t "${backup_dir}"/sing-box_*.json 2>/dev/null | head -1)
-    
+
     if [[ -n "$latest_xray_backup" ]]; then
         cp "$latest_xray_backup" "${CONFIG_DIR}/xray.json"
         log_info "Xray配置已回滚"
     fi
-    
+
     if [[ -n "$latest_singbox_backup" ]]; then
         cp "$latest_singbox_backup" "${CONFIG_DIR}/sing-box.json"
         log_info "sing-box配置已回滚"
     fi
-    
+
     restart_services_safely
 }
 
 # 主函数
 main() {
     local level="${1:-light}"
-    
+
     # 创建日志目录
     mkdir -p "$(dirname "$LOG_FILE")"
-    
+
     # 处理 reset 选项
     if [[ "$level" == "reset" ]]; then
         log_info "重置协议参数为默认值..."
-        
+
         # 备份当前配置
         create_config_backup
-        
+
         # 清理可能存在的不支持字段
         if [[ -f "${CONFIG_DIR}/sing-box.json" ]] && command -v jq >/dev/null; then
             jq 'del(.inbounds[].heartbeat)' "${CONFIG_DIR}/sing-box.json" > "${CONFIG_DIR}/sing-box.json.tmp"
-            
+
             if [[ -s "${CONFIG_DIR}/sing-box.json.tmp" ]]; then
                 mv "${CONFIG_DIR}/sing-box.json.tmp" "${CONFIG_DIR}/sing-box.json"
                 log_success "配置已清理并重置为默认值"
@@ -6385,16 +6386,16 @@ main() {
                 log_error "重置配置失败"
             fi
         fi
-        
+
         # 重启服务
         restart_services_safely
-        
+
         log_success "协议参数重置完成"
         exit 0
     fi
-    
+
     log_info "EdgeBox流量特征随机化开始..."
-    
+
     if execute_traffic_randomization "$level"; then
         log_success "EdgeBox流量特征随机化成功完成"
         exit 0
@@ -6418,7 +6419,7 @@ TRAFFIC_RANDOMIZE_SCRIPT
 # 创建随机化配置文件
 create_randomization_config() {
     mkdir -p "${CONFIG_DIR}/randomization"
-    
+
     cat > "${CONFIG_DIR}/randomization/traffic.conf" << 'EOF'
 # EdgeBox流量特征随机化配置文件
 
@@ -6429,7 +6430,7 @@ backup_retention=7
 
 [schedules]
 light_cron="0 4 * * *"
-medium_cron="0 5 * * 0"  
+medium_cron="0 5 * * 0"
 heavy_cron="0 6 1 * *"
 
 [hysteria2]
@@ -6466,21 +6467,21 @@ EOF
 # 生成初始流量数据函数
 generate_initial_traffic_data() {
     local LOG_DIR="${TRAFFIC_DIR}/logs"
-    
+
     # 确保目录存在
     mkdir -p "$LOG_DIR"
-    
+
     # 检查是否已有数据
     if [[ -f "$LOG_DIR/daily.csv" ]] && [[ $(wc -l < "$LOG_DIR/daily.csv") -gt 1 ]]; then
         log_info "检测到现有流量数据，跳过生成"
         return 0
     fi
-    
+
     log_info "生成最近30天的初始流量数据..."
-    
+
     # 生成daily.csv初始数据（最近30天）
     echo "date,vps,resi,tx,rx" > "$LOG_DIR/daily.csv"
-    
+
     for i in {29..0}; do
         local date=$(date -d "$i days ago" +%Y-%m-%d)
         # 生成合理的流量数据 (单位：字节)
@@ -6490,31 +6491,31 @@ generate_initial_traffic_data() {
         local resi=$((RANDOM % 300000000 + 100000000))      # 代理流量 100-400MB
         local tx=$((vps + resi + RANDOM % 100000000))       # 总发送
         local rx=$((RANDOM % 500000000 + 200000000))        # 接收 200-700MB
-        
+
         echo "$date,$vps,$resi,$tx,$rx" >> "$LOG_DIR/daily.csv"
     done
-    
+
     log_info "已生成30天流量数据"
-    
+
     # 立即运行流量采集器生成traffic.json
     if [[ -x "$SCRIPTS_DIR/traffic-collector.sh" ]]; then
         "$SCRIPTS_DIR/traffic-collector.sh" >/dev/null 2>&1 || true
         log_info "已生成traffic.json文件"
     fi
-    
+
     # 设置正确权限
     chmod 644 "$LOG_DIR/daily.csv" 2>/dev/null || true
     chmod 644 "$TRAFFIC_DIR/traffic.json" 2>/dev/null || true
-    
+
     return 0
 }
 
 # 执行模块4的所有任务
 execute_module4() {
- 
-	    create_firewall_script 
+
+	    create_firewall_script
     log_info "======== 开始执行模块4：Dashboard后端脚本生成 ========"
-	
+
     # 任务1：生成Dashboard后端脚本
     if create_dashboard_backend; then
         log_success "✓ Dashboard后端脚本生成完成"
@@ -6522,7 +6523,7 @@ execute_module4() {
         log_error "✗ Dashboard后端脚本生成失败"
         return 1
     fi
-    
+
 	    # 任务1.5：创建协议健康检查脚本
     if create_protocol_health_check_script; then
         log_success "✓ 协议健康检查脚本创建完成"
@@ -6530,7 +6531,7 @@ execute_module4() {
         log_error "✗ 协议健康检查脚本创建失败"
         return 1
     fi
-	
+
     # 任务2：设置流量监控系统
     if setup_traffic_monitoring; then
         log_success "✓ 流量监控系统设置完成"
@@ -6538,7 +6539,7 @@ execute_module4() {
         log_error "✗ 流量监控系统设置失败"
         return 1
     fi
-    
+
 	# 调用 edgeboxctl 创建函数
     if create_enhanced_edgeboxctl; then
         log_success "✓ edgeboxctl 管理工具创建完成"
@@ -6546,7 +6547,7 @@ execute_module4() {
         log_error "✗ edgeboxctl 管理工具创建失败"
         return 1
     fi
-	
+
     # 任务3：设置定时任务
     if setup_cron_jobs; then
         log_success "✓ 定时任务设置完成"
@@ -6554,7 +6555,7 @@ execute_module4() {
         log_error "✗ 定时任务设置失败"
         return 1
     fi
-    
+
 # 任务4：首次执行协议健康检查 (提前执行，为 dashboard.json 提供数据源)
     log_info "首次执行协议健康检查..."
     # <<< 修复点: 添加 >/dev/null 2>&1 来抑制所有屏幕输出 >>>
@@ -6579,7 +6580,7 @@ execute_module4() {
     else
         log_warn "首次数据生成失败，但定时任务将重试"
     fi
-	
+
     # 任务7：生成初始流量数据（新增）
     log_info "生成初始流量数据以避免空白图表..."
     if generate_initial_traffic_data; then
@@ -6587,7 +6588,7 @@ execute_module4() {
     else
         log_warn "初始流量数据生成失败，图表可能显示为空"
     fi
-    
+
 	# 修复favicon.ico 404错误
 touch "/var/www/html/favicon.ico"
 log_info "已创建favicon.ico文件"
@@ -6600,7 +6601,7 @@ log_info "已创建favicon.ico文件"
     log_info "├─ 定时任务设置"
     log_info "├─ 初始数据生成"
     log_info "└─ 初始流量数据生成"
-    
+
     return 0
 }
 
@@ -6611,7 +6612,7 @@ log_info "已创建favicon.ico文件"
 # 手动刷新Dashboard数据
 refresh_dashboard_data() {
     log_info "手动刷新Dashboard数据..."
-    
+
     if "${SCRIPTS_DIR}/dashboard-backend.sh" --now; then
         log_success "Dashboard数据刷新完成"
         return 0
@@ -6624,10 +6625,10 @@ refresh_dashboard_data() {
 # 检查定时任务状态
 check_cron_status() {
     log_info "检查定时任务状态..."
-    
+
     local cron_jobs
     cron_jobs=$(crontab -l 2>/dev/null | grep -E '/edgebox/scripts/(dashboard-backend|traffic-collector|traffic-alert)\.sh' | wc -l)
-    
+
     if [[ $cron_jobs -ge 3 ]]; then
         log_success "定时任务配置正常 ($cron_jobs 个任务)"
         crontab -l | grep edgebox
@@ -6641,24 +6642,24 @@ check_cron_status() {
 # 查看流量统计
 show_traffic_stats() {
     local traffic_json="${TRAFFIC_DIR}/traffic.json"
-    
+
     if [[ ! -f "$traffic_json" ]]; then
         log_error "流量统计文件不存在: $traffic_json"
         return 1
     fi
-    
+
     log_info "当前流量统计："
-    
+
     # 显示今日流量
     local today_data
     today_data=$(jq -r --arg today "$(date +%Y-%m-%d)" '.last30d[] | select(.date == $today) | "今日: VPS \(.vps)B, 代理 \(.resi)B, 总计 \(.vps + .resi)B"' "$traffic_json" 2>/dev/null || echo "今日暂无数据")
     echo "  $today_data"
-    
+
     # 显示本月流量
     local month_data
     month_data=$(jq -r --arg month "$(date +%Y-%m)" '.monthly[] | select(.month == $month) | "本月: VPS \(.vps)B, 代理 \(.resi)B, 总计 \(.total)B"' "$traffic_json" 2>/dev/null || echo "本月暂无数据")
     echo "  $month_data"
-    
+
     return 0
 }
 
@@ -6729,15 +6730,15 @@ mkdir -p "$TRAFFIC_DIR"
 # 改进的CPU使用率计算
 get_cpu_usage() {
     local cpu_percent=0
-    
+
     if [[ -r /proc/stat ]]; then
         read _ user1 nice1 system1 idle1 iowait1 irq1 softirq1 _ < /proc/stat
-        
+
         # 增加采样时间到2秒，获得更准确的数据
         sleep 2
-        
+
         read _ user2 nice2 system2 idle2 iowait2 irq2 softirq2 _ < /proc/stat
-        
+
         # 计算差值
         local user_diff=$((user2 - user1))
         local nice_diff=$((nice2 - nice1))
@@ -6746,10 +6747,10 @@ get_cpu_usage() {
         local iowait_diff=$((iowait2 - iowait1))
         local irq_diff=$((irq2 - irq1))
         local softirq_diff=$((softirq2 - softirq1))
-        
+
         local total_diff=$((user_diff + nice_diff + system_diff + idle_diff + iowait_diff + irq_diff + softirq_diff))
         local active_diff=$((total_diff - idle_diff))
-        
+
         if [[ $total_diff -gt 0 ]]; then
             # 使用更精确的计算
             cpu_percent=$(( (active_diff * 1000) / total_diff ))
@@ -6762,11 +6763,11 @@ get_cpu_usage() {
             cpu_percent=1
         fi
     fi
-    
+
     # 确保值在合理范围
     cpu_percent=$(( cpu_percent > 100 ? 100 : cpu_percent ))
     cpu_percent=$(( cpu_percent < 1 ? 1 : cpu_percent ))
-    
+
     echo $cpu_percent
 }
 
@@ -6939,7 +6940,7 @@ chmod +x "${SCRIPTS_DIR}/traffic-alert.sh"
   # ========== 创建外置的CSS文件 ==========
   log_info "创建外置CSS文件..."
   cat > "${TRAFFIC_DIR}/assets/edgebox-panel.css" <<'EXTERNAL_CSS'
-  
+
 /* =======================================================================
    EdgeBox 控制面板 · 组件化（ops-panel 无 id 也生效）
    =================================================================== */
@@ -6968,16 +6969,16 @@ body{
 /* 标题样式统一 */
 h1{ font-size:23px; font-weight:700; color:var(--heading-color); line-height:32px; }
 h2{ font-size:18px; font-weight:600; color:var(--heading-color); line-height:26px; }
-h3{ 
-  font-size:var(--h3-size); 
-  line-height:1.4; 
-  font-weight:600; 
+h3{
+  font-size:var(--h3-size);
+  line-height:1.4;
+  font-weight:600;
   color:var(--heading-color);
 }
-h4{ 
-  font-size:var(--h4-size); 
-  line-height:1.4; 
-  font-weight:600; 
+h4{
+  font-size:var(--h4-size);
+  line-height:1.4;
+  font-weight:600;
   color:var(--subheading-color);
 }
 
@@ -6987,10 +6988,10 @@ h4{
 .card h3,
 #system-overview h3,
 #netid-panel h3,
-.note h3, 
-.muted h3, 
-.desc h3{ 
-  color:var(--heading-color); 
+.note h3,
+.muted h3,
+.desc h3{
+  color:var(--heading-color);
 }
 
 /* 文本样式 */
@@ -7000,40 +7001,40 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 
 /* ================ 卡片/区块 ================ */
 .main-card{
-  background:#fff; 
-  border:1px solid #d1d5db; 
+  background:#fff;
+  border:1px solid #d1d5db;
   border-radius:10px;
-  box-shadow:0 2px 6px rgba(0,0,0,.08); 
+  box-shadow:0 2px 6px rgba(0,0,0,.08);
   overflow:hidden;
   margin-bottom:20px;
   padding:0 !important;
 }
 
 .card{
-  background:#fff; 
-  border:1px solid #d1d5db; 
+  background:#fff;
+  border:1px solid #d1d5db;
   border-radius:10px;
-  box-shadow:0 2px 6px rgba(0,0,0,.08); 
-  padding:20px; 
+  box-shadow:0 2px 6px rgba(0,0,0,.08);
+  padding:20px;
   margin-bottom:20px;
   transition:box-shadow .2s;
 }
 .card:hover{ box-shadow:0 4px 8px rgba(0,0,0,.08); }
 
-.card-header{ 
-  margin-bottom:20px; 
-  padding-bottom:12px; 
-  border-bottom:1px solid #e5e7eb; 
+.card-header{
+  margin-bottom:20px;
+  padding-bottom:12px;
+  border-bottom:1px solid #e5e7eb;
 }
-.card-header h2{ 
-  display:flex; 
-  justify-content:space-between; 
-  align-items:center; 
+.card-header h2{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
 }
-.card-note{ 
-  font-size:11px; 
-  color:#6b7280; 
-  font-weight:400; 
+.card-note{
+  font-size:11px;
+  color:#6b7280;
+  font-weight:400;
 }
 
 /* =========标题区域 =========*/
@@ -7049,7 +7050,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   padding:16px 20px;
   position:relative;
   margin:0;
-  box-shadow: 
+  box-shadow:
     inset 0 -1px 0 rgba(0,0,0,0.1),
     inset 0 1px 0 rgba(255,255,255,0.9);
 }
@@ -7088,7 +7089,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 /* 鼠标悬停效果 */
 .main-header:hover {
   background:linear-gradient(135deg, #d1d5db 0%, #e2e8f0 50%, #f1f5f9 100%);
-  box-shadow: 
+  box-shadow:
     inset 0 -1px 0 rgba(0,0,0,0.15),
     inset 0 1px 0 rgba(255,255,255,0.8);
   transition:all 0.3s ease;
@@ -7125,16 +7126,16 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 
 /* 内层块 */
 .inner-block{
-  background:#f5f5f5; 
-  border:1px solid #e5e7eb; 
-  border-radius:6px; 
-  padding:15px; 
+  background:#f5f5f5;
+  border:1px solid #e5e7eb;
+  border-radius:6px;
+  padding:15px;
   margin-bottom:15px;
 }
 .inner-block:last-child{ margin-bottom:0; }
 .inner-block h3{
-  margin-bottom:12px; 
-  padding-bottom:8px; 
+  margin-bottom:12px;
+  padding-bottom:8px;
   border-bottom:1px solid #e5e7eb;
 }
 
@@ -7144,36 +7145,36 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 .grid-1-2{ grid-template-columns:1fr 2fr; }
 
 /* ============= 全局行样式 ============= */
-.info-item{ 
-  display:flex; 
-  justify-content:space-between; 
-  padding:6px 0; 
+.info-item{
+  display:flex;
+  justify-content:space-between;
+  padding:6px 0;
 }
 .info-item label{ color:#6b7280; }
 .info-item value{ color:#1f2937; font-weight:500; }
 
 /* ========= 全局运行状态徽标 ========= */
 .status-badge{
-  display:inline-flex; 
+  display:inline-flex;
   align-items:center;
-  height:20px; 
-  line-height:20px; 
+  height:20px;
+  line-height:20px;
   padding:0 10px;
-  border-radius:999px; 
+  border-radius:999px;
   font-size:11px;
-  background:#eafaf3; 
-  color:#059669; 
+  background:#eafaf3;
+  color:#059669;
   border:1px solid #c7f0df;
 }
-.status-running{ 
-  background:#d1fae5; 
-  color:#059669; 
-  border-color:#a7f3d0; 
+.status-running{
+  background:#d1fae5;
+  color:#059669;
+  border-color:#a7f3d0;
 }
-.status-stopped{ 
-  background:#fee2e2; 
-  color:#ef4444; 
-  border-color:#fecaca; 
+.status-stopped{
+  background:#fee2e2;
+  color:#ef4444;
+  border-color:#fecaca;
 }
 
 
@@ -7249,18 +7250,18 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
     position: absolute;
     top: 3px;                   /* 精确定位 */
     right: 3px;
-    
+
     /* 确保完美圆形 */
     width: 16px;                /* 强制宽高相等 */
     height: 16px;
     min-width: 16px;            /* 防止被压缩 */
     max-width: 16px;            /* 防止被拉伸 */
-    
+
     background: #ef4444;
     color: white;
     border-radius: 50%;
     border: 1.5px solid white;
-    
+
     /* 文字居中 + 微调垂直位置 */
     display: flex;
     align-items: center;
@@ -7269,25 +7270,25 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
     font-size: 9px;
     font-weight: 600;
     line-height: 1;
-    
+
     /* 防止变形 */
     box-sizing: border-box;
     flex-shrink: 0;             /* 防止 flex 压缩 */
     overflow: hidden;
-    
+
     z-index: 10;
-    
+
     /* 修复后的动画 - 不破坏圆形 */
     animation: notification-pulse-fixed 2s infinite;
 }
 
 /* 修复后的脉冲动画 - 保持圆形 */
 @keyframes notification-pulse-fixed {
-    0%, 100% { 
+    0%, 100% {
         transform: scale(1);
         opacity: 1;
     }
-    50% { 
+    50% {
         transform: scale(1.05);  /* 降低缩放幅度 */
         opacity: 0.9;
     }
@@ -7507,11 +7508,11 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
         width: 36px;
         height: 36px;
     }
-    
+
     .notification-trigger > .notification-icon {
         font-size: 20px;
     }
-    
+
     .notification-badge {
         width: 14px;
         height: 14px;
@@ -7521,7 +7522,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
         top: 2px;
         right: 2px;
     }
-    
+
     .notification-panel {
         width: calc(100vw - 32px);
         max-width: 320px;
@@ -7539,11 +7540,11 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   --meter-height:20px;      /* 进度条高度 */
   --svc-gap:12px;           /* 服务名/徽标/版本 间距 */
   --h3-gap:8px;
-  --meter-track:#e2e8f0; 
-  --meter-start:#059669; 
+  --meter-track:#e2e8f0;
+  --meter-start:#059669;
   --meter-end:#10b981;
-  --label: var(--heading-color); 
-  --value: var(--content-color); 
+  --label: var(--heading-color);
+  --value: var(--content-color);
   --muted: #6b7280;
 }
 
@@ -7555,10 +7556,10 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 /* 标题紧跟 */
-#system-overview .inner-block>h3{ 
-  display:flex; 
-  align-items:center; 
-  white-space:nowrap; 
+#system-overview .inner-block>h3{
+  display:flex;
+  align-items:center;
+  white-space:nowrap;
   margin:0 0 var(--h3-gap);
   font-size: var(--h3-size) !important;
   line-height: 22px !important;
@@ -7581,88 +7582,88 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 /* —— 服务器信息：中文键名较长，单独设宽 —— */
-#system-overview .server-info { 
+#system-overview .server-info {
   --label-w: 80px;
 }
 
 #system-overview .server-info .info-item{
-  display:grid; 
-  grid-template-columns:var(--label-w) 1fr; 
-  gap:8px; 
-  align-items:center; 
+  display:grid;
+  grid-template-columns:var(--label-w) 1fr;
+  gap:8px;
+  align-items:center;
   padding:5px 0;
 }
 
-#system-overview .server-info .label { 
+#system-overview .server-info .label {
   white-space: nowrap;
   color: var(--subheading-color) !important;
-  font-size: var(--h4-size) !important; 
+  font-size: var(--h4-size) !important;
   font-weight: 600 !important;
-  justify-self: start; 
+  justify-self: start;
 }
 
-#system-overview .server-info .value { 
-  color: var(--content-color) !important; 
-  font-size: var(--h4-size) !important; 
+#system-overview .server-info .value {
+  color: var(--content-color) !important;
+  font-size: var(--h4-size) !important;
   font-weight: 500 !important;
-  min-width: 0; 
-  white-space: nowrap; 
-  overflow: hidden; 
-  text-overflow: ellipsis; 
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* —— 服务器配置（进度条区）：独立宽度控制 —— */
-#system-overview .progress-row { 
+#system-overview .progress-row {
   --label-w: 50px;
   --percent-col: 33px;
-  display:grid; 
+  display:grid;
   grid-template-columns:var(--label-w) minmax(0,1fr) var(--percent-col);
-  column-gap:4px; 
-  align-items:center; 
+  column-gap:4px;
+  align-items:center;
   padding:5px 0;
 }
 
-#system-overview .progress-label{ 
+#system-overview .progress-label{
   color:var(--subheading-color) !important;
-  font-size: var(--h4-size) !important; 
+  font-size: var(--h4-size) !important;
   font-weight: 600 !important;
   justify-self:start;
   white-space:nowrap;
 }
 
 #system-overview .progress-bar{
-  position:relative; 
+  position:relative;
   height:var(--meter-height);
-  background:var(--meter-track); 
-  border-radius:999px; 
-  overflow:hidden; 
+  background:var(--meter-track);
+  border-radius:999px;
+  overflow:hidden;
   align-self:center;
 }
 
 #system-overview .progress-fill{
-  height:100%; 
-  border-radius:999px; 
+  height:100%;
+  border-radius:999px;
   background:linear-gradient(90deg,var(--meter-start),var(--meter-end));
   transition:width .25s ease;
 }
 
 #system-overview .progress-text{
-  position:absolute; 
-  left:4px; 
-  right:4px; 
-  top:50%; 
+  position:absolute;
+  left:4px;
+  right:4px;
+  top:50%;
   transform:translateY(-50%);
-  font-size:11px; 
-  color:#fff; 
-  white-space:nowrap; 
-  overflow:hidden; 
-  text-overflow:ellipsis; 
+  font-size:11px;
+  color:#fff;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
   pointer-events:none;
 }
 
 #system-overview .progress-info{
-  min-width:var(--percent-col); 
-  text-align:right; 
+  min-width:var(--percent-col);
+  text-align:right;
   color:var(--value);
   font-variant-numeric:tabular-nums;
 }
@@ -7674,10 +7675,10 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 #system-overview .core-services .service-item{
-  display:grid; 
+  display:grid;
   grid-template-columns:var(--label-w) max-content 1fr;
   column-gap:var(--svc-gap);
-  align-items:center; 
+  align-items:center;
   padding:5px 0;
 }
 
@@ -7697,14 +7698,14 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   justify-self: start;
 }
 
-#system-overview .core-services .value { 
-  color: var(--content-color) !important; 
-  font-size: var(--h4-size) !important; 
+#system-overview .core-services .value {
+  color: var(--content-color) !important;
+  font-size: var(--h4-size) !important;
   font-weight: 500 !important;
-  min-width: 0; 
-  white-space: nowrap; 
-  overflow: hidden; 
-  text-overflow: ellipsis; 
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* 覆盖全局状态徽章样式，减小尺寸 */
@@ -7716,24 +7717,24 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 #system-overview .core-services .version{
-  justify-self:start; 
-  min-width:0; 
-  white-space:nowrap; 
-  overflow:hidden; 
-  text-overflow:ellipsis; 
-  color:var(--muted); 
+  justify-self:start;
+  min-width:0;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  color:var(--muted);
   font-size:12px;
 }
 
 /* —— 通用工具类（如果其他组件需要） —— */
-.progress-label { 
-  color: var(--muted-color); 
+.progress-label {
+  color: var(--muted-color);
 }
-.progress-label h4 { 
-  color: var(--heading-color); 
+.progress-label h4 {
+  color: var(--heading-color);
 }
 
-.text-h4-muted { 
+.text-h4-muted {
   font-size: var(--h4-size);
   color: var(--muted-color);
   line-height: 1.4;
@@ -8017,7 +8018,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   white-space: normal !important;  /* 允许换行 */
   overflow: visible !important;    /* 显示溢出内容 */
   text-overflow: initial !important;  /* 取消省略号 */
-  
+
   position: relative;
   width: 100%;
   min-height: auto;  /* 移除固定最小高度 */
@@ -8106,25 +8107,25 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
    ======================================================================= */
 
 /* 表格容器 - 带边框和阴影 */
-.data-table { 
-    width: 100%; 
+.data-table {
+    width: 100%;
     border-collapse: collapse;
     border: 1px solid #6b7280;
     border-radius: 8px;
     overflow: hidden;
-    box-shadow: 
+    box-shadow:
         0 6px 16px rgba(0,0,0,0.12),
         0 0 0 1px rgba(0,0,0,0.06);
 }
 
 /* 表头 */
 .data-table th {
-    background: #f5f5f5; 
-    color: #4b5563; 
-    font-weight: 500; 
+    background: #f5f5f5;
+    color: #4b5563;
+    font-weight: 500;
     padding: 8px 10px;
     text-align: left;
-    font-size: 12px; 
+    font-size: 12px;
     border-bottom: 1px solid #e5e7eb;
 }
 
@@ -8141,8 +8142,8 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 .data-table td:nth-child(6),
 .data-table th:nth-child(4),
 .data-table th:nth-child(5),
-.data-table th:nth-child(6) { 
-    text-align: center; 
+.data-table th:nth-child(6) {
+    text-align: center;
 }
 
 /* hover行效果 */
@@ -8189,14 +8190,14 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 
 /* 确保grid布局有正确的gap */
 .main-content .grid {
-    display: grid; 
+    display: grid;
     gap: 20px !important;
     margin: 0;
 }
 
 /* 1-2网格布局(证书切换和网络身份配置) */
 .main-content .grid-1-2 {
-    display: grid; 
+    display: grid;
     grid-template-columns: 1fr 2fr;
     gap: 20px !important;
     margin-bottom: 20px !important;
@@ -8429,12 +8430,12 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
     .health-detail-message,
     .health-recommendation-badge { font-size: 12px; }
     .protocol-status { min-width: 260px; }
-    
+
     .health-summary-card {
         grid-template-columns: repeat(2, 1fr);
         gap: 12px;
     }
-    
+
     .summary-value {
         font-size: 24px;
     }
@@ -8446,7 +8447,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
         grid-template-columns: 1fr;
         gap: 20px !important;
     }
-    
+
     .main-content .grid + .card,
     .main-content .grid-1-2 + .card {
         margin-top: 20px !important;
@@ -8460,26 +8461,26 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
         background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
         border-color: #334155;
     }
-    
+
     .summary-item {
         background: #1e293b;
         border: 1px solid #334155;
     }
-    
+
     .summary-label {
         color: #94a3b8;
     }
-    
+
     .summary-value {
         color: #f1f5f9;
     }
-    
+
     .health-recommended {
         background: #1e293b;
         color: #cbd5e1;
         border: 1px solid #334155;
     }
-    
+
     .health-detail-message {
         color: #94a3b8;
     }
@@ -8492,38 +8493,38 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 
 /* —— 全局口径：保持原有变量 —— */
 :root{
-  --charts-pad-y: 10px;   
-  --charts-pad-x: 20px;   
-  --gap-v: 12px;          
-  --h-progress: 50px;     
-  --h-left-chart: 300px;  
-  --mini-pad: 12px;       
-  --meter-height: 18px;   
+  --charts-pad-y: 10px;
+  --charts-pad-x: 20px;
+  --gap-v: 12px;
+  --h-progress: 50px;
+  --h-left-chart: 300px;
+  --mini-pad: 12px;
+  --meter-height: 18px;
 }
 
 /* 卡片外框 - 修复关键问题：使用统一的内边距体系 */
 .traffic-card{
-  background:#fff; 
-  border:1px solid #d1d5db; 
+  background:#fff;
+  border:1px solid #d1d5db;
   border-radius:10px;
-  box-shadow:0 2px 6px rgba(0,0,0,.08); 
+  box-shadow:0 2px 6px rgba(0,0,0,.08);
   padding:20px;  /* ← 关键修复：恢复与其他卡片一致的20px内边距 */
   overflow:hidden;
 }
 
 /* 标题行 - 修复：使用与其他卡片一致的标题样式 */
-.traffic-card .card-header{ 
+.traffic-card .card-header{
   margin-bottom:20px;  /* ← 关键修复：与其他卡片保持一致的20px间距 */
-  padding-bottom:12px; 
-  border-bottom:1px solid #e5e7eb; 
+  padding-bottom:12px;
+  border-bottom:1px solid #e5e7eb;
 }
 .traffic-card .card-header > *{ margin:0; }
 
 /* —— 图表组：修复垂直居中 —— */
 .traffic-charts,
 .traffic-charts.traffic--subcards{
-  display:grid; 
-  grid-template-columns:7fr 3fr; 
+  display:grid;
+  grid-template-columns:7fr 3fr;
   gap:20px;
   padding:0;  /* ← 关键修复：去掉额外的padding，让外层卡片的20px生效 */
   margin:0;   /* ← 关键修复：去掉任何margin */
@@ -8531,116 +8532,116 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 /* 左列容器与默认分隔线（B 方案下移除） */
-.chart-column{ 
-  display:flex; 
-  flex-direction:column; 
-  gap:var(--gap-v); 
+.chart-column{
+  display:flex;
+  flex-direction:column;
+  gap:var(--gap-v);
 }
-.chart-column > * + *{ 
-  border-top:1px solid #e5e7eb; 
-  padding-top:12px; 
-  margin-top:12px; 
+.chart-column > * + *{
+  border-top:1px solid #e5e7eb;
+  padding-top:12px;
+  margin-top:12px;
 }
 
 /* 仅非 B 方案显示两列竖线 */
-.traffic-charts:not(.traffic--subcards) > :first-child{ 
-  border-right:1px solid #e5e7eb; 
-  padding-right:20px; 
+.traffic-charts:not(.traffic--subcards) > :first-child{
+  border-right:1px solid #e5e7eb;
+  padding-right:20px;
 }
-.traffic-charts:not(.traffic--subcards) > :last-child{  
-  padding-left:20px; 
+.traffic-charts:not(.traffic--subcards) > :last-child{
+  padding-left:20px;
 }
 
 /* —— 进度条组件（高度与 CPU 一致）—— */
 .traffic-card .traffic-progress-container,
-.traffic-progress-container{ 
-  display:flex; 
-  align-items:center; 
-  gap:10px; 
-  height:var(--h-progress); 
-  flex-shrink:0; 
+.traffic-progress-container{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  height:var(--h-progress);
+  flex-shrink:0;
 }
 
-.progress-label { 
-  font-size:13px; 
-  color:#6b7280; 
-  white-space:nowrap; 
+.progress-label {
+  font-size:13px;
+  color:#6b7280;
+  white-space:nowrap;
 }
 
 .traffic-card .progress-wrapper,
-.progress-wrapper{ 
-  flex:1; 
-  min-width:120px; 
+.progress-wrapper{
+  flex:1;
+  min-width:120px;
 }
 
 .traffic-card .progress-bar,
-.progress-bar{ 
-  height:var(--meter-height); 
-  background:#e2e8f0; 
-  border-radius:999px; 
+.progress-bar{
+  height:var(--meter-height);
+  background:#e2e8f0;
+  border-radius:999px;
   overflow:hidden;  /* 保持 hidden，标签现在在内部 */
-  position:relative; 
+  position:relative;
 }
 
 .traffic-card .progress-fill,
-.progress-fill{ 
-  height:100%; 
-  background:linear-gradient(90deg,#10b981 0%,#059669 100%); 
-  transition:width .3s ease; 
-  display:flex; 
-  align-items:center; 
-  justify-content:flex-end; 
-  padding-right:8px; 
+.progress-fill{
+  height:100%;
+  background:linear-gradient(90deg,#10b981 0%,#059669 100%);
+  transition:width .3s ease;
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  padding-right:8px;
 }
 
-.progress-fill.warning { 
-  background:linear-gradient(90deg,#f59e0b 0%,#d97706 100%); 
+.progress-fill.warning {
+  background:linear-gradient(90deg,#f59e0b 0%,#d97706 100%);
 }
 
-.progress-fill.critical { 
-  background:linear-gradient(90deg,#ef4444 0%,#dc2626 100%); 
+.progress-fill.critical {
+  background:linear-gradient(90deg,#ef4444 0%,#dc2626 100%);
 }
 
 .traffic-card .progress-percentage,
-.progress-percentage{ 
-  color:#fff; 
-  font-size:11px; 
-  font-weight:600; 
+.progress-percentage{
+  color:#fff;
+  font-size:11px;
+  font-weight:600;
 }
 
 .traffic-card .progress-budget,
-.progress-budget{ 
-  color:#6b7280; 
-  font-size:12px; 
-  white-space:nowrap; 
+.progress-budget{
+  color:#6b7280;
+  font-size:12px;
+  white-space:nowrap;
 }
 
 /* —— 图表容器：标题居中 + canvas 填满 —— */
-.chart-container{ 
-  position:relative; 
-  display:flex; 
-  flex-direction:column; 
-  overflow:hidden; 
+.chart-container{
+  position:relative;
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
 }
-.traffic-card .chart-container h3{ 
-  text-align:center; 
-  margin:0 0 8px; 
-  font-weight:600; 
-  font-size:14px; 
-  line-height:20px; 
-  flex:0 0 auto; 
+.traffic-card .chart-container h3{
+  text-align:center;
+  margin:0 0 8px;
+  font-weight:600;
+  font-size:14px;
+  line-height:20px;
+  flex:0 0 auto;
 }
-.traffic-card .chart-container > canvas{ 
-  display:block; 
-  width:100% !important; 
-  height:100% !important; 
-  flex:1 1 auto; 
+.traffic-card .chart-container > canvas{
+  display:block;
+  width:100% !important;
+  height:100% !important;
+  flex:1 1 auto;
 }
 
 /* —— 等高口径：两列下边框对齐 —— */
 /* 非 B 方案：右列 = 进度 + gap + 左图 */
 .traffic-charts:not(.traffic--subcards) .chart-column:first-child .chart-container{
-  height: var(--h-left-chart); 
+  height: var(--h-left-chart);
   min-height: var(--h-left-chart);
 }
 .traffic-charts:not(.traffic--subcards) .chart-column:last-child .chart-container{
@@ -8649,26 +8650,26 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 /* B 方案：考虑迷你卡片 padding 差额 */
-.traffic-charts.traffic--subcards > :first-child{ 
-  border-right:0; 
-  padding-right:0; 
+.traffic-charts.traffic--subcards > :first-child{
+  border-right:0;
+  padding-right:0;
 }
-.traffic-charts.traffic--subcards > :last-child{  
-  padding-left:0; 
+.traffic-charts.traffic--subcards > :last-child{
+  padding-left:0;
 }
 
 .traffic-charts.traffic--subcards .traffic-progress-container,
 .traffic-charts.traffic--subcards .chart-container{
   padding:var(--mini-pad);
-  border:1px solid #e5e7eb; 
+  border:1px solid #e5e7eb;
   border-radius:12px;
-  background:#fff; 
+  background:#fff;
   box-shadow:0 2px 8px rgba(17,24,39,.08);
 }
-.traffic-charts.traffic--subcards .chart-column > * + *{ 
-  border-top:0; 
-  padding-top:0; 
-  margin-top:0; 
+.traffic-charts.traffic--subcards .chart-column > * + *{
+  border-top:0;
+  padding-top:0;
+  margin-top:0;
 }
 
 .traffic-charts.traffic--subcards .chart-column:first-child .chart-container{
@@ -8731,18 +8732,18 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 /* =====================响应式布局================ */
 
 @media (max-width: 1024px) {
-  .grid-3, .grid-1-2 { 
-    grid-template-columns: 1fr; 
+  .grid-3, .grid-1-2 {
+    grid-template-columns: 1fr;
   }
-  .traffic-charts { 
-    grid-template-columns: 1fr; 
+  .traffic-charts {
+    grid-template-columns: 1fr;
   }
-  .traffic-charts:not(.traffic--subcards) > :first-child{ 
-    border-right:0; 
-    padding-right:0; 
+  .traffic-charts:not(.traffic--subcards) > :first-child{
+    border-right:0;
+    padding-right:0;
   }
-  .traffic-charts:not(.traffic--subcards) > :last-child{  
-    padding-left:0; 
+  .traffic-charts:not(.traffic--subcards) > :last-child{
+    padding-left:0;
   }
   .chart-column:first-child .chart-container,
   .chart-column:last-child .chart-container{
@@ -8752,9 +8753,9 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
 }
 
 @media (max-width: 768px) {
-  .modal-content { 
-    width: 95%; 
-    margin: 10px auto; 
+  .modal-content {
+    width: 95%;
+    margin: 10px auto;
   }
 }
 
@@ -9031,19 +9032,19 @@ dialog[open],
 }
 
 /* 遮罩 */
-.modal{ 
-  display:none; 
-  position:fixed; 
-  inset:0; 
-  background:rgba(0,0,0,.5); 
-  z-index:9998; 
+.modal{
+  display:none;
+  position:fixed;
+  inset:0;
+  background:rgba(0,0,0,.5);
+  z-index:9998;
 }
 
 /* 头部 */
 .modal-header, .el-dialog__header, .ant-modal-header{
   flex-shrink:0 !important;
-  display:flex !important; 
-  align-items:center !important; 
+  display:flex !important;
+  align-items:center !important;
   justify-content:space-between !important;
   padding:var(--modal-padding) !important;
   border-bottom:1px solid var(--section-border) !important;
@@ -9051,9 +9052,9 @@ dialog[open],
 }
 
 .modal-title, .el-dialog__title, .ant-modal-title, #configModalTitle, #ipqModalTitle{
-  font-size:15px !important; 
-  font-weight:600 !important; 
-  color:#111827 !important; 
+  font-size:15px !important;
+  font-weight:600 !important;
+  color:#111827 !important;
   margin:0 !important;
   text-align: left !important; /* 标题左对齐 */
 }
@@ -9062,7 +9063,7 @@ dialog[open],
 .modal-body, .el-dialog__body, .ant-modal-body{
   flex:1 !important;
   padding:var(--modal-padding) !important;
-  overflow-y:auto !important; 
+  overflow-y:auto !important;
   overflow-x:hidden !important;
   min-height:0 !important;
 }
@@ -9072,8 +9073,8 @@ dialog[open],
   flex-shrink:0 !important;
   padding:var(--modal-padding) !important;
   border-top:1px solid var(--section-border) !important;
-  display:flex !important; 
-  gap:10px !important; 
+  display:flex !important;
+  gap:10px !important;
   justify-content:flex-end !important;
   background:#fff !important;
 }
@@ -9137,68 +9138,68 @@ dialog[open],
 }
 
 #configModal .modal-section,
-#configModal .config-section{ 
-  padding:16px 0; 
-  border-bottom:none; 
+#configModal .config-section{
+  padding:16px 0;
+  border-bottom:none;
 }
 
 #detailModal .modal-section:first-child,
 #detailModal .detail-section:first-child,
-#ipqModal .ipq-section:first-child{ 
-  padding-top:0; 
+#ipqModal .ipq-section:first-child{
+  padding-top:0;
 }
 
 #detailModal .modal-section:last-child,
 #detailModal .detail-section:last-child,
 #ipqModal .ipq-section:last-child{
-  padding-bottom:0; 
+  padding-bottom:0;
   border-bottom:none;
 }
 
 /* 查看详情弹窗内容左对齐 */
-#detailModal .kv-key, 
+#detailModal .kv-key,
 #ipqModal .kv-key,
 #detailModal .kv-value,
-#ipqModal .kv-value { 
-  text-align:left !important; 
+#ipqModal .kv-value {
+  text-align:left !important;
 }
 
-#detailModal .kv-key, 
-#ipqModal .kv-key { 
-  padding-right:0; 
+#detailModal .kv-key,
+#ipqModal .kv-key {
+  padding-right:0;
 }
 
 /* 键值对通用 */
-.kv-list{ 
-  display:flex; 
-  flex-direction:column; 
-  gap:10px; 
+.kv-list{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
 }
 
 .kv-row{
-  display:grid; 
-  grid-template-columns:144px 1fr; 
+  display:grid;
+  grid-template-columns:144px 1fr;
   gap:12px;
-  padding:8px 0; 
+  padding:8px 0;
   border-bottom:1px dashed #eef2f7;
 }
 
-.kv-row:last-child{ 
-  border-bottom:none; 
+.kv-row:last-child{
+  border-bottom:none;
 }
 
-.kv-key{ 
-  color:#6b7280; 
-  font-size:13px; 
-  text-align:right; 
-  padding-right:8px; 
-  line-height:1.6; 
+.kv-key{
+  color:#6b7280;
+  font-size:13px;
+  text-align:right;
+  padding-right:8px;
+  line-height:1.6;
 }
 
-.kv-val, .kv-value{ 
-  color:#111827; 
-  font-size:13px; 
-  word-break:break-word; 
+.kv-val, .kv-value{
+  color:#111827;
+  font-size:13px;
+  word-break:break-word;
 }
 
 /* ===== 输入/代码框 ===== */
@@ -9214,30 +9215,30 @@ dialog[open],
   border-radius:8px !important;
   padding:10px 12px !important;
   font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace !important;
-  font-size:12px !important; 
+  font-size:12px !important;
   color:#333 !important;
-  width:100%; 
-  box-sizing:border-box; 
-  white-space:pre-wrap !important; 
-  word-break:break-word !important; 
+  width:100%;
+  box-sizing:border-box;
+  white-space:pre-wrap !important;
+  word-break:break-word !important;
   line-height:1.5;
 }
 
-.code-box, .config-code{ 
-  background:var(--code-bg) !important; 
-  max-height:200px; 
-  overflow-y:auto; 
-  position:relative; 
+.code-box, .config-code{
+  background:var(--code-bg) !important;
+  max-height:200px;
+  overflow-y:auto;
+  position:relative;
 }
 
-.textarea-plain, .modal-body textarea{ 
-  min-height:100px; 
-  resize:vertical; 
+.textarea-plain, .modal-body textarea{
+  min-height:100px;
+  resize:vertical;
 }
 
-.input-plain[readonly], .modal-body input[readonly]{ 
-  cursor:default; 
-  background:var(--input-bg) !important; 
+.input-plain[readonly], .modal-body input[readonly]{
+  cursor:default;
+  background:var(--input-bg) !important;
 }
 
 /* ===== 二维码：保留居中，移除左对齐 ===== */
@@ -9256,11 +9257,11 @@ dialog[open],
 .modal-body [data-role="qrcode"] canvas,
 #qrcode-sub canvas,
 #qrcode-protocol canvas{
-  width:180px !important; 
-  height:180px !important; 
+  width:180px !important;
+  height:180px !important;
   aspect-ratio:1/1 !important;
-  display:block !important; 
-  margin:12px auto !important; 
+  display:block !important;
+  margin:12px auto !important;
   image-rendering:pixelated;
   /* 强制移除任何左对齐样式 */
   float: none !important;
@@ -9313,18 +9314,18 @@ dialog[open],
 /* ===== 关闭按钮：外包圆角小方框 ===== */
 .modal .close-btn,
 .modal .modal-close,
-.ant-modal-close, 
+.ant-modal-close,
 .el-dialog__headerbtn{
-  position:absolute !important; 
-  right:12px !important; 
+  position:absolute !important;
+  right:12px !important;
   top:12px !important;
-  width:32px !important; 
+  width:32px !important;
   height:28px !important;
   border:1px solid #e5e7eb !important;
   border-radius:8px !important;
   background:#fff !important;
-  display:flex !important; 
-  align-items:center !important; 
+  display:flex !important;
+  align-items:center !important;
   justify-content:center !important;
   cursor:pointer !important;
   box-shadow:0 1px 3px rgba(0,0,0,.1) !important;
@@ -9334,21 +9335,21 @@ dialog[open],
 
 .modal .close-btn:hover,
 .modal .modal-close:hover,
-.ant-modal-close:hover, 
+.ant-modal-close:hover,
 .el-dialog__headerbtn:hover{
-  background:#f9fafb !important; 
+  background:#f9fafb !important;
   border-color:#d1d5db !important;
   box-shadow:0 2px 4px rgba(0,0,0,.12) !important;
 }
 
 .modal .close-btn svg,
 .modal .modal-close svg,
-.ant-modal-close svg, 
+.ant-modal-close svg,
 .el-dialog__close,
 .ant-modal-close .anticon,
 .el-dialog__headerbtn .el-icon{
-  color:#6b7280 !important; 
-  font-size:16px !important; 
+  color:#6b7280 !important;
+  font-size:16px !important;
   line-height:1 !important;
 }
 
@@ -9397,26 +9398,26 @@ dialog[open],
 
 /* ===== 复制成功轻提示 ===== */
 .modal .modal-toast{
-  position:absolute; 
-  left:50%; 
+  position:absolute;
+  left:50%;
   top:50%;
   transform:translate(-50%, -50%) scale(.98);
-  background:rgba(17,24,39,.92); 
+  background:rgba(17,24,39,.92);
   color:#fff;
-  padding:10px 14px; 
-  border-radius:10px; 
+  padding:10px 14px;
+  border-radius:10px;
   font-size:12px;
   box-shadow:0 8px 24px rgba(0,0,0,.2);
-  opacity:0; 
-  pointer-events:none; 
+  opacity:0;
+  pointer-events:none;
   transition:opacity .18s, transform .18s;
   z-index:10000;
 }
 
-.modal .modal-toast.show{ 
-  opacity:1; 
-  pointer-events:auto; 
-  transform:translate(-50%, -50%) scale(1); 
+.modal .modal-toast.show{
+  opacity:1;
+  pointer-events:auto;
+  transform:translate(-50%, -50%) scale(1);
 }
 
 /* 响应式 */
@@ -9425,21 +9426,21 @@ dialog[open],
     --modal-w: calc(100vw - 20px);
     --modal-h: calc(100vh - 40px);
   }
-  
-  .kv-row{ 
-    grid-template-columns:1fr; 
+
+  .kv-row{
+    grid-template-columns:1fr;
   }
-  
-  .kv-key{ 
-    text-align:left; 
-    padding-right:0; 
-    margin-bottom:4px; 
+
+  .kv-key{
+    text-align:left;
+    padding-right:0;
+    margin-bottom:4px;
   }
 }
 
 
 /* =======================================================================
-   按钮（查看详情、查看全部、查看配置、查看订阅）：白底蓝字，hover 浅灰，active 灰底 
+   按钮（查看详情、查看全部、查看配置、查看订阅）：白底蓝字，hover 浅灰，active 灰底
    ======================================================================= */
 .btn-detail,
 .btn-viewall,
@@ -9626,7 +9627,7 @@ function escapeHtml(s = '') {
 function notify(msg, type = 'ok', ms = 1500) {
   // 优先在打开的弹窗内显示,否则在页面中央显示
   const modal = document.querySelector('.modal[style*="block"] .modal-content');
-  
+
   if (modal) {
     // 弹窗内居中轻提示
     let toast = modal.querySelector('.modal-toast');
@@ -9819,7 +9820,7 @@ function renderCertificateAndNetwork() {
   // Outbound mode highlighting
   const shuntMode = String(safeGet(shunt, 'mode', 'vps')).toLowerCase();
   ['net-vps', 'net-proxy', 'net-shunt'].forEach(id => document.getElementById(id)?.classList.remove('active'));
-  
+
   const vpsIp = safeGet(data, 'server.eip') || safeGet(data, 'server.server_ip') || '—';
   setText('vps-ip', vpsIp);
 
@@ -9831,7 +9832,7 @@ function renderCertificateAndNetwork() {
     } else {
         document.getElementById('net-proxy')?.classList.add('active');
     }
-    
+
     const proxyRaw = String(safeGet(shunt, 'proxy_info', ''));
     // (formatProxy function remains the same as in your script)
     function formatProxy(raw){if(!raw)return"—";try{const o=/^[a-z][a-z0-9+.\-]*:\/\//i.test(raw)?raw:"socks5://"+raw,t=new URL(o),e=t.protocol.replace(/:$/,""),r=t.hostname||"",l=t.port||"";return r&&l?`${e}//${r}:${l}`:r?`${e}//${r}`:"—"}catch(o){const t=/^([a-z0-9+.\-]+):\/\/(?:[^@\/\s]+@)?(\[[^\]]+\]|[^:/?#]+)(?::(\d+))?/i,e=raw.match(t);if(e){const o=e[1],t=e[2],r=e[3]||"";return r?`${o}//${t}:${r}`:`${o}//${t}`}const r=/^(?:([a-z0-9+.\-]+)\s+)?(\[[^\]]+\]|[^:\/?#\s]+)(?::(\d+))?$/i,l=raw.match(r);return l?(l[3]||""?`${l[1]||"socks5"}//${l[2]}:${l[3]}`:`${l[1]||"socks5"}//${l[2]}`):"—"}}
@@ -9868,7 +9869,7 @@ function renderCertificateAndNetwork() {
               setText('vps-ipq-score', j.score != null ? `${j.score} (${j.grade})` : '—');
           }
       });
-  
+
   const whitelist = data.shunt?.whitelist || [];
   const preview = document.getElementById('whitelistPreview');
   if (preview) {
@@ -9893,47 +9894,47 @@ function renderTrafficCharts() {
   // 渲染本月使用进度条
   const monthly = trafficData.monthly || [];
   const currentMonthData = monthly.find(m => m.month === new Date().toISOString().slice(0, 7));
-  
+
   if (currentMonthData) {
     const used = (currentMonthData.total || 0) / GiB;
     const percentage = Math.min(100, Math.round((used / 100) * 100));
     const fillEl = document.getElementById('progress-fill');
     const pctEl = document.getElementById('progress-percentage');
     const budgetEl = document.getElementById('progress-budget');
-    
+
     if (fillEl) fillEl.style.width = `${percentage}%`;
     if (pctEl) pctEl.textContent = `${percentage}%`;
     if (budgetEl) budgetEl.textContent = `阈值(100GiB)`;
     if (pctEl) pctEl.title = `已用 ${used.toFixed(1)}GiB / 阈值 100GiB`;
-    
+
     // 异步获取配置并更新阈值刻度线
     fetchAlertConfig().then(alertConfig => {
       const budget = parseInt(alertConfig.ALERT_MONTHLY_GIB) || 100;
       const alertSteps = (alertConfig.ALERT_STEPS || '30,60,90').split(',').map(s => parseInt(s.trim()));
-      
+
       const realPercentage = Math.min(100, Math.round((used / budget) * 100));
-      
+
       if (fillEl) fillEl.style.width = `${realPercentage}%`;
       if (pctEl) pctEl.textContent = `${realPercentage}%`;
       if (budgetEl) budgetEl.textContent = `阈值(${budget}GiB)`;
       if (pctEl) pctEl.title = `已用 ${used.toFixed(1)}GiB / 阈值 ${budget}GiB`;
-      
+
       renderTrafficProgressThresholds(alertSteps);
     }).catch(err => {
       console.warn('无法加载 alert.conf, 使用默认配置:', err);
       renderTrafficProgressThresholds([30, 60, 90]);
     });
   }
-  
+
   function renderTrafficProgressThresholds(thresholds) {
     const trafficProgressBar = document.querySelector('.traffic-card .progress-bar');
     if (!trafficProgressBar) return;
-    
+
     const existingMarkers = trafficProgressBar.querySelectorAll('.traffic-threshold-marker');
     const existingLabels = trafficProgressBar.querySelectorAll('.traffic-threshold-label');
     existingMarkers.forEach(marker => marker.remove());
     existingLabels.forEach(label => label.remove());
-    
+
     thresholds.forEach(threshold => {
       if (threshold > 0 && threshold <= 100) {
         const marker = document.createElement('div');
@@ -9949,7 +9950,7 @@ function renderTrafficCharts() {
           transform: translateX(-50%);
           border-radius: 1px;
         `;
-        
+
         const label = document.createElement('div');
         label.className = 'traffic-threshold-label';
         label.textContent = `${threshold}%`;
@@ -9966,7 +9967,7 @@ function renderTrafficCharts() {
           z-index: 11;
           text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
         `;
-        
+
         trafficProgressBar.appendChild(marker);
         trafficProgressBar.appendChild(label);
       }
@@ -9982,7 +9983,7 @@ function renderTrafficCharts() {
   // 颜色定义
   const vpsColor = '#3b82f6';
   const proxyColor = '#10b981';
-  
+
   // 近30日流量折线图
   const daily = trafficData.last30d || [];
   if (daily.length) {
@@ -10107,7 +10108,7 @@ function showWhitelistModal() {
   const list = document.getElementById('whitelistList');
   const whitelist = dashboardData.shunt?.whitelist || [];
   if (list) {
-    list.innerHTML = whitelist.length 
+    list.innerHTML = whitelist.length
       ? whitelist.map(item => `<div class="whitelist-item">${escapeHtml(item)}</div>`).join('')
       : '<p>暂无白名单数据</p>';
   }
@@ -10130,7 +10131,7 @@ function showConfigModal(protocolKey) {
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const toB64 = s => btoa(unescape(encodeURIComponent(s)));
   const get = (o, p, fb = '') => p.split('.').reduce((a, k) => (a && a[k] !== undefined ? a[k] : undefined), o) ?? fb;
-  
+
   // <<< 修复点 1: 动态判断主机地址 >>>
   const certMode = String(get(dd, 'server.cert.mode', 'self-signed'));
   const isLE = certMode.startsWith('letsencrypt');
@@ -10179,10 +10180,10 @@ function showConfigModal(protocolKey) {
   if (protocolKey === '__SUBS__') {
     // ... (整包订阅部分逻辑不变)
     const subsUrl = get(dd, 'subscription_url', '') ||
-                (get(dd, 'server.server_ip', '') 
-                  ? ('http://' + get(dd, 'server.server_ip') + '/' + 
-                     (get(dd, 'secrets.master_sub_token', '') 
-                       ? ('sub-' + get(dd, 'secrets.master_sub_token')) 
+                (get(dd, 'server.server_ip', '')
+                  ? ('http://' + get(dd, 'server.server_ip') + '/' +
+                     (get(dd, 'secrets.master_sub_token', '')
+                       ? ('sub-' + get(dd, 'secrets.master_sub_token'))
                        : 'sub'))
                   : '');
     const plain6 = get(dd, 'subscription.plain', '');
@@ -10216,7 +10217,7 @@ function showConfigModal(protocolKey) {
       <button class="btn btn-sm btn-secondary" data-action="copy" data-type="base64">复制Base64</button>
       <button class="btn btn-sm btn-secondary" data-action="copy-qr">复制二维码</button>
     `;
-    
+
     qrText = subsUrl || '';
 
   } else {
@@ -10245,7 +10246,7 @@ function showConfigModal(protocolKey) {
     if (p.protocol === 'hysteria2') {
         obj.uuid = get(dd, 'secrets.password.hysteria2');
     }
-    
+
     const comments = {
       protocol: '协议类型',
       host: '服务器地址(IP/域名)',
@@ -10288,7 +10289,7 @@ function showConfigModal(protocolKey) {
       <button class="btn btn-sm btn-secondary" data-action="copy" data-type="base64">复制 Base64</button>
       <button class="btn btn-sm btn-secondary" data-action="copy-qr">复制二维码</button>
     `;
-    
+
     qrText = plain || '';
   }
 
@@ -10455,7 +10456,7 @@ function updateNotificationCenter(data) {
 function renderNotifications() {
   const listEl = document.getElementById('notificationList');
   const badgeEl = document.getElementById('notificationBadge');
-  
+
   if (!notificationData.notifications || notificationData.notifications.length === 0) {
     if (listEl) {
       listEl.innerHTML = `
@@ -10468,9 +10469,9 @@ function renderNotifications() {
     if (badgeEl) badgeEl.style.display = 'none';
     return;
   }
-  
+
   const unreadCount = notificationData.notifications.filter(n => !n.read).length;
-  
+
   if (badgeEl) {
     if (unreadCount > 0) {
       badgeEl.textContent = unreadCount > 99 ? '99+' : unreadCount;
@@ -10479,19 +10480,19 @@ function renderNotifications() {
       badgeEl.style.display = 'none';
     }
   }
-  
+
   if (listEl) {
     const iconMap = {
       alert: '⚠️',
-      system: '⚙️', 
+      system: '⚙️',
       error: '❌'
     };
-    
+
     const html = notificationData.notifications.slice(0, 20).map(notification => {
       const timeAgo = getTimeAgo(notification.time);
       const icon = iconMap[notification.type] || iconMap[notification.level] || '📋';
       const unreadClass = notification.read ? '' : 'unread';
-      
+
       return `
         <div class="notification-item ${unreadClass}">
           <div class="notification-item-icon">${icon}</div>
@@ -10503,7 +10504,7 @@ function renderNotifications() {
         </div>
       `;
     }).join('');
-    
+
     listEl.innerHTML = html;
   }
 }
@@ -10516,11 +10517,11 @@ function getTimeAgo(timeStr) {
     const time = new Date(timeStr);
     const now = new Date();
     const diff = now - time;
-    
+
     const minutes = Math.floor(diff / 60000);
     const hours = Math.floor(diff / 3600000);
     const days = Math.floor(diff / 86400000);
-    
+
     if (days > 0) return `${days}天前`;
     if (hours > 0) return `${hours}小时前`;
     if (minutes > 0) return `${minutes}分钟前`;
@@ -10537,28 +10538,28 @@ function setupNotificationCenter() {
   const trigger = document.getElementById('notificationTrigger');
   const panel = document.getElementById('notificationPanel');
   const clearBtn = document.querySelector('.notification-clear');
-  
+
   if (!trigger || !panel) return;
-  
+
   trigger.addEventListener('click', (e) => {
     e.stopPropagation();
     panel.classList.toggle('show');
-    
+
     if (panel.classList.contains('show')) {
       setTimeout(markAllAsRead, 1000);
     }
   });
-  
+
   document.addEventListener('click', (e) => {
     if (!panel.contains(e.target) && !trigger.contains(e.target)) {
       panel.classList.remove('show');
     }
   });
-  
+
   panel.addEventListener('click', (e) => {
     e.stopPropagation();
   });
-  
+
   if (clearBtn) {
     clearBtn.addEventListener('click', (e) => {
       e.preventDefault();
@@ -10586,7 +10587,7 @@ function clearNotifications() {
     notify('暂无通知需要清空', 'info');
     return;
   }
-  
+
   notificationData.notifications = [];
   renderNotifications();
   notify('已清空所有通知', 'ok');
@@ -10657,12 +10658,12 @@ function fallbackRecBadge(recRaw) {
 function renderHealthSummary(health) {
   const box = $('#health-summary');
   if (!box || !health) return;
-  
+
   const sum = health.summary || {};
-  const avg = sum.avg_health_score ?? (Array.isArray(health.protocols) 
+  const avg = sum.avg_health_score ?? (Array.isArray(health.protocols)
     ? Math.round(health.protocols.map(p => Number(p.score || p.health_score || 0)).reduce((a, b) => a + b, 0) / (health.protocols.length || 1))
     : 0);
-  
+
   box.innerHTML = `
     <div class="health-summary-card">
       <div class="summary-item"><span class="summary-label">总计协议</span><span class="summary-value">${sum.total ?? (health.protocols?.length || 0)}</span></div>
@@ -10768,7 +10769,7 @@ async function refreshAllData() {
     window.dashboardData = dashboardData;
     // 健康摘要数据也从 dashboard.json 中读取
     // 注意: 后端需要将健康摘要聚合到 dashboard.json 中 (当前脚本已支持)
-    if(dash.health_summary) { 
+    if(dash.health_summary) {
        renderHealthSummary(dash.health_summary);
     }
   }
@@ -10802,7 +10803,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.addEventListener('click', async (e) => {
     const btn = e.target.closest('[data-action]');
     if (!btn) return;
-    
+
     const action = btn.dataset.action;
     const modal = btn.dataset.modal || '';
     const protocol = btn.dataset.protocol || '';
@@ -10972,8 +10973,8 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         </div>
     </div>
     <div class="main-content">
-	
-<div class="card" id="system-overview">	
+
+<div class="card" id="system-overview">
         <div class="card-header">
   <h2>
     📊 系统概览
@@ -10981,7 +10982,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
   </h2>
 </div>
 <div class="grid grid-3">
-		
+
 <div class="server-info inner-block">
   <h3>服务器信息</h3>
 
@@ -11033,7 +11034,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
     <span class="progress-info" id="disk-percent">0%</span>
   </div>
 </div>
-	  
+
 <div class="core-services inner-block">
   <h3>核心服务</h3>
 
@@ -11063,7 +11064,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 </div>
       </div>
 	  </div>
-	  
+
 <div class="grid grid-1-2">
   <div class="card" id="cert-panel">
     <div class="card-header"><h2>🔒 证书切换</h2></div>
@@ -11284,7 +11285,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         <a class="cmd-pill" href="#">edgeboxctl sub show alice</a>
       </div>
     </div>
-	
+
     <div class="command-section">
       <h3>👥 网络身份配置</h3>
       <div class="command-list">
@@ -11352,7 +11353,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
     </div>
   </div>
 </div>
-		  
+
 <div id="whitelistModal" class="modal"><div class="modal-content"><div class="modal-header"><h3>白名单完整列表</h3><span class="close-btn" data-action="close-modal" data-modal="whitelistModal">×</span></div><div class="modal-body"><div id="whitelistList"></div></div></div></div>
 <div id="ipqModal" class="modal"><div class="modal-content"><div class="modal-header"><h3 id="ipqModalTitle">IP质量检测详情</h3><span class="close-btn" data-action="close-modal" data-modal="ipqModal">×</span></div><div class="modal-body"><div id="ipqDetails"></div></div></div></div>
 
@@ -11452,9 +11453,9 @@ CRON
 # 创建独立的、无中断的防火墙应用脚本
 create_firewall_script() {
     log_info "创建独立的、无中断的防火墙应用脚本..."
-    
+
     mkdir -p "${SCRIPTS_DIR}"
-    
+
     cat > "${SCRIPTS_DIR}/apply-firewall.sh" << 'APPLY_FIREWALL_SCRIPT'
 #!/bin/bash
 set -e
@@ -11494,7 +11495,7 @@ is_rule_active() {
     local type="$1"
     local port="$2"
     local proto="$3"
-    
+
     if [[ "$type" == "ufw" ]]; then
         ufw status | grep -qE "^\s*${port}/${proto}\s+ALLOW\s+Anywhere"
     elif [[ "$type" == "firewalld" ]]; then
@@ -11514,7 +11515,7 @@ if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
 
 elif command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then
     echo "[INFO] 正在配置 FirewallD (无中断模式)..."
-    
+
     # <<< 修复点: 改为使用非中断的运行时规则添加，并同步到永久配置，避免 --reload >>>
     add_firewalld_rule() {
         local rule="$1"
@@ -11524,15 +11525,15 @@ elif command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet fire
             firewall-cmd --permanent --add-port="$rule" >/dev/null 2>&1
         fi
     }
-    
+
     add_firewalld_rule "$current_ssh_port/tcp"
     add_firewalld_rule "80/tcp"
     add_firewalld_rule "443/tcp"
     add_firewalld_rule "443/udp"
     add_firewalld_rule "2053/udp"
-    
+
     echo "[SUCCESS] FirewallD 规则已确保应用。"
-    
+
 elif command -v iptables >/dev/null 2>&1; then
     echo "[INFO] 正在配置 iptables (无中断模式)..."
     iptables -C INPUT -p tcp --dport "$current_ssh_port" -j ACCEPT >/dev/null 2>&1 || iptables -A INPUT -p tcp --dport "$current_ssh_port" -j ACCEPT
@@ -11554,7 +11555,7 @@ APPLY_FIREWALL_SCRIPT
 # 创建完整的edgeboxctl管理工具（集成SNI功能）
 create_enhanced_edgeboxctl() {
     log_info "创建增强版edgeboxctl管理工具 (v3.0.2 - Nginx分离式配置修复)..."
-    
+
     cat > /usr/local/bin/edgeboxctl << 'EDGEBOXCTL_SCRIPT'
 #!/bin/bash
 # EdgeBox 增强版控制脚本
@@ -11641,17 +11642,17 @@ sni_log_success() { log_success "SNI: $*"; }
 evaluate_sni_domain() {
     local domain="$1"
     local score=0
-    
+
     # <<< 修复点: 将进度信息输出到 stderr (>&2)，避免污染返回值 >>>
     echo "  -> 评估域名: $domain" >&2
-    
+
     # 1. 可达性
     if ! timeout 5 curl -s --connect-timeout 3 --max-time 5 "https://${domain}" >/dev/null 2>&1; then
         echo 0
         return
     fi
     score=$((score + 30))
-    
+
     # 2. 响应时间
     local response_time
     response_time=$(timeout 5 curl -o /dev/null -s -w '%{time_total}' --connect-timeout 3 "https://${domain}" 2>/dev/null || echo "99")
@@ -11660,7 +11661,7 @@ evaluate_sni_domain() {
     elif [[ "$time_int" -lt 2 ]]; then score=$((score + 20));
     elif [[ "$time_int" -lt 3 ]]; then score=$((score + 15));
     else score=$((score + 5)); fi
-    
+
     # 3. SSL证书
     if timeout 5 openssl s_client -connect "${domain}:443" -servername "$domain" </dev/null 2>/dev/null | grep -q "Verify return code: 0"; then
         score=$((score + 20))
@@ -11674,7 +11675,7 @@ evaluate_sni_domain() {
     else
         score=$((score + 5))
     fi
-    
+
     # 5. 域名类别
     case "$domain" in
         *microsoft*|*apple*|*google*) score=$((score + 10));;
@@ -11682,7 +11683,7 @@ evaluate_sni_domain() {
         *azure*|*aws*|*cloud*) score=$((score + 8));;
         *) score=$((score + 5));;
     esac
-    
+
     echo "$score" # <<< 关键: 只有分数通过 stdout 返回
 }
 
@@ -11695,7 +11696,7 @@ get_current_sni_domain() {
 # 智能选择最优域名
 auto_select_optimal_domain() {
     echo "开始SNI域名智能选择..." >&2
-    
+
     local domains_to_test=()
     if [[ -f "$SNI_DOMAINS_CONFIG" ]]; then
         while IFS= read -r domain; do
@@ -11703,38 +11704,38 @@ auto_select_optimal_domain() {
         done < <(jq -r '.domains[]?.hostname // empty' "$SNI_DOMAINS_CONFIG" 2>/dev/null)
     fi
     [[ ${#domains_to_test[@]} -eq 0 ]] && domains_to_test=("www.microsoft.com" "www.apple.com" "www.cloudflare.com")
-    
+
     local best_domain=""
     local best_score=-1 # Start with -1 to ensure the first valid domain is always chosen
     local current_sni
     current_sni=$(get_current_sni_domain)
-    
+
     echo "当前SNI域名: ${current_sni:-未配置}" >&2
-    
+
     for domain in "${domains_to_test[@]}"; do
         local score
         score=$(evaluate_sni_domain "$domain")
         echo "  - 域名 $domain, 评分: $score" >&2
-        
+
         # <<< FIX: Changed from -gt to -ge to allow rotation between equally optimal domains >>>
         if [[ "$score" -ge "$best_score" ]]; then
             best_score=$score
             best_domain="$domain"
         fi
     done
-    
+
     if [[ -z "$best_domain" ]]; then
         log_error "未找到可用的SNI域名"
         return 1
     fi
-    
+
     echo "最优域名选择结果: $best_domain (评分: $best_score)" >&2
-    
+
     if [[ "$best_domain" == "$current_sni" ]]; then
         log_success "当前SNI域名已是最优，无需更换。"
         return 0
     fi
-    
+
     log_info "准备更换SNI域名: ${current_sni:-未配置} → $best_domain"
     if update_sni_domain "$best_domain"; then
         log_success "SNI域名更换成功！"
@@ -11747,7 +11748,7 @@ auto_select_optimal_domain() {
 # 健康检查功能
 health_check_domains() {
     echo "开始域名健康检查..." >&2
-    
+
     local domains_to_check=()
     if [[ -f "$SNI_DOMAINS_CONFIG" ]]; then
         while IFS= read -r domain; do
@@ -11755,7 +11756,7 @@ health_check_domains() {
         done < <(jq -r '.domains[]?.hostname // empty' "$SNI_DOMAINS_CONFIG" 2>/dev/null)
     fi
     [[ ${#domains_to_check[@]} -eq 0 ]] && domains_to_check=("www.microsoft.com" "www.apple.com" "www.cloudflare.com")
-    
+
     for domain in "${domains_to_check[@]}"; do
         if timeout 5 curl -s --connect-timeout 3 --max-time 5 "https://${domain}" >/dev/null 2>&1; then
             echo "  [  OK  ] $domain" >&2
@@ -11777,16 +11778,16 @@ update_dashboard_passcode() {
     # 读取旧密码
     local old_passcode
     old_passcode=$(jq -r '.dashboard_passcode // "无"' "${CONFIG_DIR}/server.json" 2>/dev/null || echo "无")
-    
+
     # 获取新密码参数
     local new_passcode="$1"
-    
+
     # 如果没有提供密码，提示用户输入
     if [[ -z "$new_passcode" ]]; then
         echo -e "${YELLOW}请输入新密码（6位数字），留空则随机生成：${NC}"
         read -r new_passcode
     fi
-    
+
     # 如果用户输入为空，自动生成
     if [[ -z "$new_passcode" ]]; then
         local random_digit=$((RANDOM % 10))
@@ -11799,7 +11800,7 @@ update_dashboard_passcode() {
             return 1
         fi
     fi
-    
+
     # 2. 更新 server.json
     local temp_file="${CONFIG_DIR}/server.json.tmp"
     if jq --arg passcode "$new_passcode" '.dashboard_passcode = $passcode' "${CONFIG_DIR}/server.json" > "$temp_file"; then
@@ -11810,7 +11811,7 @@ update_dashboard_passcode() {
         rm -f "$temp_file"
         return 1
     fi
-    
+
     # <<< 修复点: 不再使用 sed，直接覆盖密码配置文件 >>>
     local passcode_conf="/etc/nginx/conf.d/edgebox_passcode.conf"
     cat > "$passcode_conf" << EOF
@@ -11837,18 +11838,18 @@ EOF
 # 优化后的配置验证函数（替代原来的get_server_info）
 get_server_info() {
     ensure_config_loaded || return 1
-    
+
     # 验证关键配置项
     if [[ -z "$SERVER_IP" || "$SERVER_IP" == "null" ]]; then
         log_error "服务器IP配置缺失"
         return 1
     fi
-    
+
     # 可选：验证UUID格式
     if [[ -n "$UUID_VLESS_REALITY" ]] && ! [[ "$UUID_VLESS_REALITY" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
         log_warn "VLESS Reality UUID格式可能异常"
     fi
-    
+
     return 0
 }
 
@@ -11856,7 +11857,7 @@ get_server_info() {
 # 异步重启服务并安全退出 (Shortened Delay Version)
 restart_services_background() {
     local services_to_restart=("$@")
-    
+
     local cmd_sequence="
         sleep 2;
         log_info '后台任务：开始执行服务重启...';
@@ -11865,18 +11866,18 @@ restart_services_background() {
         done;
         sleep 3; # Short delay for services to come up
         /etc/edgebox/scripts/apply-firewall.sh >/dev/null 2>&1 || true;
-        
+
         log_info '后台任务：触发数据刷新...';
         bash /etc/edgebox/scripts/dashboard-backend.sh --now >/dev/null 2>&1 || true;
         bash /usr/local/bin/edgebox-ipq.sh >/dev/null 2>&1 || true;
         log_info '后台任务：完成。';
     "
-    
+
     nohup bash -c "eval \"$cmd_sequence\"" >> /var/log/edgebox.log 2>&1 & disown
-    
+
     log_success "命令已提交到后台执行。您的SSH连接可能会在几秒后中断。"
     log_info "这是正常现象。请在约10秒后刷新Web面板以查看最新状态。"
-    
+
     exit 0
 }
 
@@ -11950,20 +11951,20 @@ load_config_once() {
     if [[ "$CONFIG_LOADED" == "true" ]]; then
         local current_mtime
         current_mtime=$(stat -c %Y "${CONFIG_DIR}/server.json" 2>/dev/null || echo "0")
-        
+
         if [[ "$CONFIG_LOAD_TIME" == "$current_mtime" ]]; then
             return 0  # 配置未改变，无需重新加载
         fi
     fi
-    
+
     local config_file="${CONFIG_DIR}/server.json"
     if [[ ! -f "$config_file" ]]; then
         log_error "配置文件不存在: $config_file"
         return 1
     fi
-    
+
     log_debug "加载配置文件: $config_file"
-    
+
     # 🚀 性能优化关键：一次性读取所有配置项
     # 原来需要8-10个jq进程，现在只需要1个！
     local config_json
@@ -11974,26 +11975,26 @@ load_config_once() {
             server_version: (.version // "3.0.0"),
             install_date: (.install_date // ""),
 			master_sub_token: (.master_sub_token // ""),
-            
+
             uuid_vless_reality: (.uuid.vless.reality // .uuid.vless // ""),
             uuid_vless_grpc: (.uuid.vless.grpc // .uuid.vless // ""),
             uuid_vless_ws: (.uuid.vless.ws // .uuid.vless // ""),
             uuid_tuic: (.uuid.tuic // ""),
             uuid_hysteria2: (.uuid.hysteria2 // ""),
             uuid_trojan: (.uuid.trojan // ""),
-            
+
             password_hysteria2: (.password.hysteria2 // ""),
             password_tuic: (.password.tuic // ""),
             password_trojan: (.password.trojan // ""),
-            
+
             reality_public_key: (.reality.public_key // ""),
             reality_private_key: (.reality.private_key // ""),
             reality_short_id: (.reality.short_id // ""),
-            
+
             cloud_provider: (.cloud.provider // "Unknown"),
             cloud_region: (.cloud.region // "Unknown"),
             instance_id: (.instance_id // "Unknown"),
-            
+
             cpu_spec: (.spec.cpu // "Unknown"),
             memory_spec: (.spec.memory // "Unknown"),
             disk_spec: (.spec.disk // "Unknown")
@@ -12002,47 +12003,47 @@ load_config_once() {
         log_error "配置文件JSON格式错误或解析失败"
         return 1
     fi
-    
+
     # 验证关键配置
     if [[ -z "$config_json" || "$config_json" == "null" ]]; then
         log_error "配置文件内容为空或无效"
         return 1
     fi
-    
+
     # 🚀 批量赋值全局变量（避免多次jq调用）
     SERVER_IP=$(echo "$config_json" | jq -r '.server_ip')
     SERVER_EIP=$(echo "$config_json" | jq -r '.server_eip')
     SERVER_VERSION=$(echo "$config_json" | jq -r '.server_version')
     INSTALL_DATE=$(echo "$config_json" | jq -r '.install_date')
-    
+
     UUID_VLESS_REALITY=$(echo "$config_json" | jq -r '.uuid_vless_reality')
     UUID_VLESS_GRPC=$(echo "$config_json" | jq -r '.uuid_vless_grpc')
     UUID_VLESS_WS=$(echo "$config_json" | jq -r '.uuid_vless_ws')
     UUID_TUIC=$(echo "$config_json" | jq -r '.uuid_tuic')
     UUID_HYSTERIA2=$(echo "$config_json" | jq -r '.uuid_hysteria2')
     UUID_TROJAN=$(echo "$config_json" | jq -r '.uuid_trojan')
-    
+
     PASSWORD_HYSTERIA2=$(echo "$config_json" | jq -r '.password_hysteria2')
     PASSWORD_TUIC=$(echo "$config_json" | jq -r '.password_tuic')
     PASSWORD_TROJAN=$(echo "$config_json" | jq -r '.password_trojan')
-    
+
     REALITY_PUBLIC_KEY=$(echo "$config_json" | jq -r '.reality_public_key')
     REALITY_PRIVATE_KEY=$(echo "$config_json" | jq -r '.reality_private_key')
     REALITY_SHORT_ID=$(echo "$config_json" | jq -r '.reality_short_id')
-    
+
     CLOUD_PROVIDER=$(echo "$config_json" | jq -r '.cloud_provider')
     CLOUD_REGION=$(echo "$config_json" | jq -r '.cloud_region')
     INSTANCE_ID=$(echo "$config_json" | jq -r '.instance_id')
-    
+
     CPU_SPEC=$(echo "$config_json" | jq -r '.cpu_spec')
     MEMORY_SPEC=$(echo "$config_json" | jq -r '.memory_spec')
     DISK_SPEC=$(echo "$config_json" | jq -r '.disk_spec')
 	MASTER_SUB_TOKEN=$(echo "$config_json" | jq -r '.master_sub_token')
-    
+
     # 记录加载状态和时间戳
     CONFIG_LOADED=true
     CONFIG_LOAD_TIME=$(stat -c %Y "$config_file" 2>/dev/null || echo "0")
-    
+
     log_debug "配置加载完成，涉及 $(echo "$config_json" | jq -r '. | keys | length') 个配置项"
     return 0
 }
@@ -12059,10 +12060,10 @@ ensure_config_loaded() {
 get_server_info() {
     # 使用新的配置加载机制
     ensure_config_loaded || return 1
-    
+
     # 为了兼容现有代码，设置一些映射变量
     UUID_VLESS="$UUID_VLESS_REALITY"
-    
+
     return 0
 }
 
@@ -12171,19 +12172,19 @@ show_sub(){
   fi
 
   echo
-  echo -e "${YELLOW}# 订阅URL:${NC}${DIM}(复制此订阅地址到客户端)${NC}"
+  echo -e "${YELLOW}# 订阅URL${NC}${DIM}(复制此链接到客户端订阅地址)${NC}"
   echo -e "  ${GREEN}${sub_url}${NC}"
   echo
 
   if [[ -s "$txt_file" ]]; then
-    echo -e "${YELLOW}# 明文链接:${NC}"
+    echo -e "${YELLOW}# 明文链接${NC}"
     cat "$txt_file"; echo
   else
     log_warn "未能生成或找到明文订阅文件。"
   fi
 
   if [[ -s "$b64_file" ]]; then
-    echo -e "${YELLOW}# Base64链接:${NC}"
+    echo -e "${YELLOW}# Base64链接${NC}"
     cat "$b64_file"; echo; echo
   fi
 }
@@ -12195,7 +12196,7 @@ show_sub(){
 
 traffic_randomize() {
     local level="${1:-light}"
-    
+
     case "$level" in
         "light"|"medium"|"heavy")
             log_info "执行流量特征随机化 (级别: $level)..."
@@ -12218,21 +12219,21 @@ traffic_randomize() {
 
 traffic_status() {
     echo "=== EdgeBox流量随机化状态 ==="
-    
+
     # 检查随机化脚本
     if [[ -f "${SCRIPTS_DIR}/edgebox-traffic-randomize.sh" ]]; then
         echo "✅ 随机化脚本: 已安装"
     else
         echo "❌ 随机化脚本: 未安装"
     fi
-    
+
     # 检查配置文件
     if [[ -f "${CONFIG_DIR}/randomization/traffic.conf" ]]; then
         echo "✅ 随机化配置: 已配置"
     else
         echo "❌ 随机化配置: 未配置"
     fi
-    
+
     # 检查定时任务
     if crontab -l 2>/dev/null | grep -q "edgebox-traffic-randomize"; then
         echo "✅ 定时任务: 已配置"
@@ -12243,7 +12244,7 @@ traffic_status() {
     else
         echo "❌ 定时任务: 未配置"
     fi
-    
+
     # 显示最近随机化记录
     local log_file="/var/log/edgebox/traffic-randomization.log"
     if [[ -f "$log_file" ]]; then
@@ -12257,14 +12258,14 @@ traffic_status() {
 
 traffic_reset() {
     log_info "重置协议参数为默认值..."
-    
+
     # 备份当前配置
     local backup_dir="/etc/edgebox/backup/reset_$(date '+%Y%m%d_%H%M%S')"
     mkdir -p "$backup_dir"
-    
+
     [[ -f "${CONFIG_DIR}/xray.json" ]] && cp "${CONFIG_DIR}/xray.json" "$backup_dir/"
     [[ -f "${CONFIG_DIR}/sing-box.json" ]] && cp "${CONFIG_DIR}/sing-box.json" "$backup_dir/"
-    
+
     # 调用随机化脚本的 reset 功能
     if [[ -f "${SCRIPTS_DIR}/edgebox-traffic-randomize.sh" ]]; then
         if "${SCRIPTS_DIR}/edgebox-traffic-randomize.sh" reset; then
@@ -12277,16 +12278,16 @@ traffic_reset() {
     else
         # 手动重置关键参数
         log_warn "随机化脚本不存在，手动重置部分参数..."
-        
+
         if [[ -f "${CONFIG_DIR}/sing-box.json" ]] && command -v jq >/dev/null; then
             # 恢复默认的 Hysteria2 heartbeat
             jq '.inbounds[] |= if .type == "hysteria2" then .heartbeat = "10s" else . end' \
                 "${CONFIG_DIR}/sing-box.json" > "${CONFIG_DIR}/sing-box.json.tmp" && \
                 mv "${CONFIG_DIR}/sing-box.json.tmp" "${CONFIG_DIR}/sing-box.json"
-            
+
             log_success "已重置 sing-box 配置为默认参数"
         fi
-        
+
         # 重启服务以应用更改
         reload_or_restart_services sing-box xray
         log_success "服务已重启"
@@ -12309,24 +12310,24 @@ show_status() {
   ss -tlnp 2>/dev/null | grep -q "127.0.0.1:10086 " && echo -e "  WS内部: ${GREEN}正常${NC}"      || echo -e "  WS内部: ${RED}异常${NC}"
   ss -tlnp 2>/dev/null | grep -q "127.0.0.1:10143 " && echo -e "  Trojan内部: ${GREEN}正常${NC}"  || echo -e "  Trojan内部: ${RED}异常${NC}"
   echo -e "\n${CYAN}证书状态：${NC}  当前模式: ${YELLOW}$(get_current_cert_mode)${NC}"
-  
+
   # 显示分流状态
   show_shunt_status
 }
 
-restart_services(){ 
-  echo -e "${CYAN}重启EdgeBox服务...${NC}"; 
-  for s in nginx xray sing-box; do 
-    echo -n "  重启 $s... "; 
+restart_services(){
+  echo -e "${CYAN}重启EdgeBox服务...${NC}";
+  for s in nginx xray sing-box; do
+    echo -n "  重启 $s... ";
     reload_or_restart_services "$s" && echo -e "${GREEN}OK${NC}" || echo -e "${RED}FAIL${NC}";
-  done; 
+  done;
 }
 
-show_logs(){ 
-  case "$1" in 
-    nginx|xray|sing-box) journalctl -u "$1" -n 100 --no-pager ;; 
-    *) echo -e "用法: edgeboxctl logs [nginx|xray|sing-box]";; 
-  esac; 
+show_logs(){
+  case "$1" in
+    nginx|xray|sing-box) journalctl -u "$1" -n 100 --no-pager ;;
+    *) echo -e "用法: edgeboxctl logs [nginx|xray|sing-box]";;
+  esac;
 }
 
 test_connection(){
@@ -12357,21 +12358,21 @@ debug_ports(){
 set_user_alias() {
     local new_alias="$1"
     local config_file="/etc/edgebox/config/server.json"
-    
+
     if [[ ! -f "$config_file" ]]; then
         echo "错误: 配置文件不存在"
         return 1
     fi
-    
+
     echo "设置备注: $new_alias"
-    
+
     # 更新配置文件
     local temp_file=$(mktemp)
     if jq --arg alias "$new_alias" '.user_alias = $alias' "$config_file" > "$temp_file"; then
         mv "$temp_file" "$config_file"
         chmod 644 "$config_file"
         echo "备注设置成功"
-        
+
         # 更新面板数据
         if [[ -f "/etc/edgebox/scripts/dashboard-backend.sh" ]]; then
             /etc/edgebox/scripts/dashboard-backend.sh >/dev/null 2>&1
@@ -12744,7 +12745,7 @@ sync_subscription_files() {
   # <<< FIX: Add path definitions to ensure the function works standalone >>>
   local WEB_ROOT="/var/www/html"
   local TRAFFIC_DIR="/etc/edgebox/traffic"
-  
+
   mkdir -p "${WEB_ROOT}" "${TRAFFIC_DIR}"
   # Let the web-facing /sub always point to subscription.txt (single source of truth)
   if [[ -e "${WEB_ROOT}/sub" && ! -L "${WEB_ROOT}/sub" ]]; then
@@ -12829,7 +12830,7 @@ update_sni_domain() {
             sni_log_success "Xray config file updated successfully."
             if reload_or_restart_services xray; then
                 sni_log_success "Xray service has been reloaded."
-                
+
                 sni_log_info "SNI changed, refreshing subscription file..."
                 local mode domain
                 mode=$(get_current_cert_mode 2>/dev/null || echo self-signed)
@@ -12847,7 +12848,7 @@ update_sni_domain() {
                     bash "${SCRIPTS_DIR}/dashboard-backend.sh" --now >/dev/null 2>&1 || log_warn "Dashboard data refresh failed."
                     log_success "Web面板数据已刷新。"
                 fi
-                
+
                 return 0
             else
                 sni_log_error "Xray service failed to reload."
@@ -12902,7 +12903,7 @@ switch_to_domain(){
 
 switch_to_ip(){
   log_info "正在切换回 IP 模式..."
-  
+
   ### FIX: Overwrite the map config file to revert to IP mode ###
   generate_nginx_stream_map_conf "ip"
   ### END FIX ###
@@ -12911,9 +12912,9 @@ switch_to_ip(){
   ln -sf "${CERT_DIR}/self-signed.key" "${CERT_DIR}/current.key"
   ln -sf "${CERT_DIR}/self-signed.pem" "${CERT_DIR}/current.pem"
   fix_permissions
-  
+
   ensure_config_loaded || regen_sub_ip "YOUR_IP"
-  
+
   regen_sub_ip
   reload_or_restart_services nginx xray sing-box
   log_success "已切换到 IP 模式"
@@ -13290,7 +13291,7 @@ manage_whitelist() {
 # 流量统计
 #############################################
 
-format_bytes(){ 
+format_bytes(){
     local b=$1
     [[ $b -ge 1073741824 ]] && echo "$(bc<<<"scale=2;$b/1073741824")GB" || \
     ([[ $b -ge 1048576 ]] && echo "$(bc<<<"scale=2;$b/1048576")MB" || \
@@ -13386,12 +13387,12 @@ alert_test(){
 #############################################
 
 backup_create(){
-    local ts=$(date +%Y%m%d_%H%M%S) 
+    local ts=$(date +%Y%m%d_%H%M%S)
     local file="${BACKUP_DIR}/edgebox_backup_${ts}.tar.gz"
     mkdir -p "${BACKUP_DIR}"
     local t="/tmp/edgebox_backup_${ts}"
     mkdir -p "$t"
-    
+
     # 备份主要配置
     cp -r /etc/edgebox "$t/" 2>/dev/null || true
     mkdir -p "$t/nginx"; cp /etc/nginx/nginx.conf "$t/nginx/" 2>/dev/null || true
@@ -13400,10 +13401,10 @@ backup_create(){
     cp /etc/systemd/system/sing-box.service "$t/systemd/" 2>/dev/null || true
     [[ -d /etc/letsencrypt ]] && cp -r /etc/letsencrypt "$t/" 2>/dev/null || true
     crontab -l > "$t/crontab.txt" 2>/dev/null || true
-    
+
     # 备份Web文件
     mkdir -p "$t/www"; cp -r /var/www/html "$t/www/" 2>/dev/null || true
-    
+
     if tar -C "$t" -czf "$file" . 2>/dev/null && rm -rf "$t"; then
         log_success "备份完成: $file"
         # 清理旧备份，保留最近10个
@@ -13413,7 +13414,7 @@ backup_create(){
     fi
 }
 
-backup_list(){ 
+backup_list(){
     echo -e "${CYAN}备份列表：${NC}"
     ls -lh ${BACKUP_DIR}/edgebox_backup_*.tar.gz 2>/dev/null | awk '{print "  " $9 "  " $5 "  " $6 " " $7 " " $8}' || echo "  无备份文件"
 }
@@ -13424,7 +13425,7 @@ backup_restore(){
     log_info "恢复备份: $f"
     local restore_dir="/tmp/edgebox_restore_$"
     mkdir -p "$restore_dir"
-    
+
     if tar -xzf "$f" -C "$restore_dir" 2>/dev/null; then
         # 恢复配置
         [[ -d "$restore_dir/etc/edgebox" ]] && cp -r "$restore_dir/etc/edgebox" /etc/ 2>/dev/null || true
@@ -13434,7 +13435,7 @@ backup_restore(){
         [[ -d "$restore_dir/letsencrypt" ]] && cp -r "$restore_dir/letsencrypt" /etc/ 2>/dev/null || true
         [[ -d "$restore_dir/www/html" ]] && cp -r "$restore_dir/www/html" /var/www/ 2>/dev/null || true
         [[ -f "$restore_dir/crontab.txt" ]] && crontab "$restore_dir/crontab.txt" 2>/dev/null || true
-        
+
         # 重启服务
         systemctl daemon-reload
         reload_or_restart_services nginx xray sing-box
@@ -13454,13 +13455,13 @@ backup_restore(){
 # 重新生成所有协议的UUID和密码
 regenerate_uuid() {
     log_info "重新生成所有协议凭据..."
-    
+
     # 检查必要工具
     if ! command -v uuidgen >/dev/null 2>&1 || ! command -v openssl >/dev/null 2>&1; then
         log_error "缺少必要工具（uuidgen 或 openssl）"
         return 1
     fi
-    
+
     # 重新生成所有UUID
     local NEW_UUID_VLESS_REALITY=$(uuidgen)
     local NEW_UUID_VLESS_GRPC=$(uuidgen)
@@ -13468,18 +13469,18 @@ regenerate_uuid() {
     local NEW_UUID_TUIC=$(uuidgen)
     local NEW_UUID_HYSTERIA2=$(uuidgen)
     local NEW_UUID_TROJAN=$(uuidgen)
-    
+
     # 重新生成所有密码
     local NEW_PASSWORD_HYSTERIA2=$(openssl rand -base64 32 | tr -d '\n')
     local NEW_PASSWORD_TUIC=$(openssl rand -base64 32 | tr -d '\n')
     local NEW_PASSWORD_TROJAN=$(openssl rand -base64 32 | tr -d '\n')
-    
+
     # 验证生成结果
     if [[ -z "$NEW_UUID_VLESS_REALITY" || -z "$NEW_PASSWORD_HYSTERIA2" ]]; then
         log_error "凭据生成失败"
         return 1
     fi
-    
+
     # 更新 server.json 使用 jq
     log_info "更新 server.json..."
     local temp_file="${CONFIG_DIR}/server.json.tmp"
@@ -13511,7 +13512,7 @@ regenerate_uuid() {
         rm -f "$temp_file"
         return 1
     fi
-    
+
     # 更新 Xray 配置
     if [[ -f "${CONFIG_DIR}/xray.json" ]]; then
         log_info "更新 Xray 配置..."
@@ -13533,7 +13534,7 @@ regenerate_uuid() {
             rm -f "$xray_temp"
         fi
     fi
-    
+
     # 更新 sing-box 配置
     if [[ -f "${CONFIG_DIR}/sing-box.json" ]]; then
         log_info "更新 sing-box 配置..."
@@ -13553,10 +13554,10 @@ regenerate_uuid() {
             rm -f "$singbox_temp"
         fi
     fi
-    
+
     # 重新生成订阅链接
     log_info "重新生成订阅链接..."
-    
+
     # 加载新凭据到环境变量（供订阅生成函数使用）
     export UUID_VLESS_REALITY="$NEW_UUID_VLESS_REALITY"
     export UUID_VLESS_GRPC="$NEW_UUID_VLESS_GRPC"
@@ -13565,7 +13566,7 @@ regenerate_uuid() {
     export PASSWORD_HYSTERIA2="$NEW_PASSWORD_HYSTERIA2"
     export PASSWORD_TUIC="$NEW_PASSWORD_TUIC"
     export PASSWORD_TROJAN="$NEW_PASSWORD_TROJAN"
-    
+
     # 重新生成订阅（根据当前证书模式）
     local mode
     mode="$(get_current_cert_mode 2>/dev/null || echo self-signed)"
@@ -13579,9 +13580,9 @@ regenerate_uuid() {
             regen_sub_ip
         fi
     fi
-    
+
     log_success "订阅链接已更新"
-    
+
     # 重载服务
     log_info "重载代理服务..."
     if reload_or_restart_services xray sing-box; then
@@ -13589,7 +13590,7 @@ regenerate_uuid() {
     else
         log_warn "服务重载失败，请手动检查服务状态"
     fi
-    
+
     # 显示完整的新凭据
     echo ""
     echo -e "${CYAN}════════════════════════════════════════════════════════════${NC}"
@@ -13616,7 +13617,7 @@ regenerate_uuid() {
     echo -e "  ${YELLOW}3.${NC} 查看完整订阅: ${GREEN}edgeboxctl sub${NC}"
     echo -e "  ${YELLOW}4.${NC} 查看配置信息: ${GREEN}edgeboxctl config show${NC}"
     echo ""
-    
+
     return 0
 }
 
@@ -13626,12 +13627,12 @@ show_config(){
         local server_ip=$(jq -r '.server_ip' ${CONFIG_DIR}/server.json)
         local version=$(jq -r '.version' ${CONFIG_DIR}/server.json)
         local install_date=$(jq -r '.install_date' ${CONFIG_DIR}/server.json)
-        
+
         echo -e "  版本: ${YELLOW}v${version}${NC}"
         echo -e "  服务器IP: ${YELLOW}${server_ip}${NC}"
         echo -e "  安装日期: ${YELLOW}${install_date}${NC}"
         echo -e "  证书模式: ${YELLOW}$(get_current_cert_mode)${NC}"
-        
+
         echo -e "\n${CYAN}协议配置：${NC}"
         echo -e "  VLESS Reality UUID: $(jq -r '.uuid.vless.reality // .uuid.vless' ${CONFIG_DIR}/server.json)"
 echo -e "  VLESS gRPC UUID: $(jq -r '.uuid.vless.grpc // .uuid.vless' ${CONFIG_DIR}/server.json)"
@@ -13657,21 +13658,21 @@ check_reality_rotation_needed() {
     local CONFIG_DIR="/etc/edgebox/config"
     local REALITY_ROTATION_STATE="${CONFIG_DIR}/reality-rotation.json"
     local REALITY_ROTATION_DAYS=90
-    
+
     local force_rotation=${1:-false}
     [[ "$force_rotation" == "true" ]] && return 0
 
     if [[ ! -f "$REALITY_ROTATION_STATE" ]]; then
         log_info "首次运行，创建轮换状态文件..."
         mkdir -p "$(dirname "$REALITY_ROTATION_STATE")" # Ensure directory exists
-        
+
         # <<< FIX: Read current public key from server.json on first run >>>
         local current_pubkey
         current_pubkey=$(jq -r '.reality.public_key // ""' "${CONFIG_DIR}/server.json" 2>/dev/null)
-        
+
         local next_rotation
         next_rotation=$(date -d "+${REALITY_ROTATION_DAYS} days" -Iseconds)
-        
+
         # Write all three fields to the initial state file
         jq -n \
           --arg next_rotation "$next_rotation" \
@@ -13682,16 +13683,16 @@ check_reality_rotation_needed() {
         log_info "下次轮换将在: $next_rotation"
         return 1
     fi
-    
+
     local next_rotation_time
     next_rotation_time=$(jq -r '.next_rotation' "$REALITY_ROTATION_STATE" 2>/dev/null)
-    
+
     if [[ -n "$next_rotation_time" && "$next_rotation_time" != "null" ]]; then
         local next_timestamp
         next_timestamp=$(date -d "$next_rotation_time" +%s 2>/dev/null || echo 0)
         local current_timestamp
         current_timestamp=$(date +%s)
-        
+
         if [[ $current_timestamp -ge $next_timestamp ]]; then
             log_info "Reality密钥已到轮换时间。"
             return 0
@@ -13699,7 +13700,7 @@ check_reality_rotation_needed() {
             return 1
         fi
     fi
-    
+
     return 1 # Default to no rotation needed
 }
 
@@ -13710,7 +13711,7 @@ update_xray_reality_keys() {
     local CONFIG_DIR="/etc/edgebox/config" # Self-contained
     local XRAY_CONFIG="${CONFIG_DIR}/xray.json"
     local temp_config="${XRAY_CONFIG}.tmp"
-    
+
     jq --arg private_key "$new_private_key" \
        --arg short_id "$new_short_id" \
        '(.inbounds[]? | select(.tag? | test("reality"; "i")) | .streamSettings.realitySettings.privateKey) = $private_key |
@@ -13725,7 +13726,7 @@ update_server_reality_keys() {
     local new_short_id="$3"
     local CONFIG_DIR="/etc/edgebox/config" # Self-contained
     local temp_server="${CONFIG_DIR}/server.json.tmp"
-    
+
     jq --arg private_key "$new_private_key" \
        --arg public_key "$new_public_key" \
        --arg short_id "$new_short_id" \
@@ -13741,12 +13742,12 @@ update_reality_rotation_state() {
     local CONFIG_DIR="/etc/edgebox/config" # Self-contained
     local REALITY_ROTATION_STATE="${CONFIG_DIR}/reality-rotation.json"
     local REALITY_ROTATION_DAYS=90
-    
+
     local current_time
     current_time=$(date -Iseconds)
     local next_rotation
     next_rotation=$(date -d "+${REALITY_ROTATION_DAYS} days" -Iseconds)
-    
+
     echo "{\"last_rotation\":\"$current_time\",\"next_rotation\":\"$next_rotation\",\"last_public_key\":\"$new_public_key\"}" > "$REALITY_ROTATION_STATE"
 }
 
@@ -13754,34 +13755,34 @@ update_reality_rotation_state() {
 rotate_reality_keys() {
     local force_rotation=${1:-false}
     log_info "开始Reality密钥轮换流程..."
-    
+
     if ! check_reality_rotation_needed "$force_rotation"; then
         log_info "当前不需要轮换Reality密钥。"
         return 0
     fi
-    
+
     log_info "正在备份当前配置..."
     local backup_file="${CONFIG_DIR}/reality_backup_$(date +%Y%m%d_%H%M%S).json"
     cp "${XRAY_CONFIG}" "$backup_file"
-    
+
     log_info "正在生成新的密钥对..."
     local reality_output
     reality_output=$(sing-box generate reality-keypair 2>/dev/null) || { log_error "sing-box命令执行失败"; return 1; }
-    
+
     local new_private_key new_public_key new_short_id
     new_private_key="$(echo "$reality_output" | grep -oP 'PrivateKey: \K[a-zA-Z0-9_-]+')"
     new_public_key="$(echo "$reality_output" | grep -oP 'PublicKey: \K[a-zA-Z0-9_-]+')"
     new_short_id="$(openssl rand -hex 4)"
-    
+
     if [[ -z "$new_private_key" || -z "$new_public_key" ]]; then
         log_error "新密钥生成失败，已中止轮换。"
         return 1
     fi
     log_success "新密钥生成成功。"
-    
+
     update_xray_reality_keys "$new_private_key" "$new_short_id"
     update_server_reality_keys "$new_private_key" "$new_public_key" "$new_short_id"
-    
+
     log_info "正在重载Xray服务..."
     if ! reload_or_restart_services xray; then
         log_error "Xray服务重载失败！正在从备份恢复..."
@@ -13790,7 +13791,7 @@ rotate_reality_keys() {
         return 1
     fi
     log_success "Xray服务已应用新密钥。"
-    
+
     log_info "正在刷新订阅链接..."
     local mode
     mode=$(get_current_cert_mode 2>/dev/null || echo self-signed)
@@ -13811,7 +13812,7 @@ rotate_reality_keys() {
     else
         log_warn "dashboard-backend.sh not found, panel will update on next cron run."
     fi
-    
+
     log_success "Reality密钥轮换成功！"
     echo -e "  ${YELLOW}重要: 请通知用户更新订阅以获取新配置。${NC}"
     echo -e "  新公钥 (pbk): ${GREEN}${new_public_key}${NC}"
@@ -13823,7 +13824,7 @@ show_reality_rotation_status() {
     log_info "查看Reality密钥轮换状态..."
     local CONFIG_DIR="/etc/edgebox/config" # Self-contained
     local REALITY_ROTATION_STATE="${CONFIG_DIR}/reality-rotation.json"
-    
+
     if [[ ! -f "$REALITY_ROTATION_STATE" ]]; then
         # Call the check function which will create the file on first run
         check_reality_rotation_needed "false" >/dev/null 2>&1
@@ -13872,7 +13873,7 @@ sni_pool_list() {
     echo "SNI域名池状态:"
     echo "$(printf "%-25s %-8s %-12s %-15s %-20s" "域名" "权重" "成功率" "响应时间" "最后检查")"
     echo "$(printf "%s" "$(printf "%-25s %-8s %-12s %-15s %-20s" | tr " " "-")")"
-    
+
     if ! jq -r '.domains[] | [.hostname, .weight, (.success_rate // 0), (.avg_response_time // 0), (.last_check // "未检查")] | @tsv' "$SNI_DOMAINS_CONFIG" 2>/dev/null; then
         echo "配置文件格式错误或jq命令不可用"
         return 1
@@ -13880,7 +13881,7 @@ sni_pool_list() {
         printf "%-25s %-8s %-12s %-15s %-20s\n" \
             "$hostname" "$weight" "${success_rate}" "${response_time}s" "$last_check"
     done
-    
+
     echo ""
     echo "当前使用: $(get_current_sni_domain || echo "未配置")"
 }
@@ -13895,13 +13896,13 @@ sni_auto_select() {
 
 sni_set_domain() {
     local target_domain="$1"
-    
+
     if [[ -z "$target_domain" ]]; then
         echo "用法: edgeboxctl sni set <域名>"
         return 1
     fi
     target_domain=${target_domain#*//}
-    
+
     log_info "手动设置SNI域名: $target_domain"
 
     if update_sni_domain "$target_domain"; then
@@ -13923,7 +13924,7 @@ case "$1" in
   logs|log) show_logs "$2" ;;
   test) test_connection ;;
   debug-ports) debug_ports ;;
-  
+
     sub|subscription)
     ensure_sub_dirs >/dev/null 2>&1 || true
     case "$2" in
@@ -13941,7 +13942,7 @@ edgeboxctl sub limit  <user> <N>       # 调整用户的设备上限"
 ;;
     esac
     ;;
-	
+
   # 备注服务器名称
    "alias")
         if [[ -n "$2" ]]; then
@@ -13951,12 +13952,12 @@ edgeboxctl sub limit  <user> <N>       # 调整用户的设备上限"
             echo "当前备注: $(jq -r '.user_alias // "未设置"' /etc/edgebox/config/server.json 2>/dev/null || echo "未设置")"
         fi
         ;;
-		
+
   # 证书管理
   cert)
     case "$2" in
-      status|"") 
-        cert_status 
+      status|"")
+        cert_status
         ;;
       renew)
         echo "[INFO] 尝试续期 Let's Encrypt 证书..."
@@ -13974,7 +13975,7 @@ edgeboxctl sub limit  <user> <N>       # 调整用户的设备上限"
     ;;
   fix-permissions) fix_permissions ;;
   cert-status) cert_status ;;                 # 兼容旧命令
-  
+
   switch-to-domain)
     shift
     switch_to_domain "$1"
@@ -13982,7 +13983,7 @@ edgeboxctl sub limit  <user> <N>       # 调整用户的设备上限"
   switch-to-ip)
     switch_to_ip
     ;;
-  
+
   # 配置管理
   config)
     case "$2" in
@@ -13991,7 +13992,7 @@ edgeboxctl sub limit  <user> <N>       # 调整用户的设备上限"
       *) echo "用法: edgeboxctl config [show|regenerate-uuid]" ;;
     esac
     ;;
-  
+
   # 出站分流
   shunt)
     case "$2" in
@@ -14003,7 +14004,7 @@ edgeboxctl sub limit  <user> <N>       # 调整用户的设备上限"
       *) echo "用法: edgeboxctl shunt [vps|resi|direct-resi|status|whitelist] [args...]" ;;
     esac
     ;;
-	
+
   # 预警配置
     alert)
     ensure_alert_conf
@@ -14019,23 +14020,23 @@ edgeboxctl sub limit  <user> <N>       # 调整用户的设备上限"
       *) echo "用法: edgeboxctl alert [show|monthly <GiB>|steps <p1,p2,..>|telegram <token> <chat>|discord <url>|wechat <pushplus_token>|webhook <url> [raw|slack|discord]|test <percent>]";;
     esac
     exit 0 ;;
-  
+
   # 备份恢复
-  backup) 
-    case "$2" in 
-      create) backup_create ;; 
-      list) backup_list ;; 
-      restore) backup_restore "$3" ;; 
-      *) echo "用法: edgeboxctl backup [create|list|restore <file>]";; 
-    esac 
+  backup)
+    case "$2" in
+      create) backup_create ;;
+      list) backup_list ;;
+      restore) backup_restore "$3" ;;
+      *) echo "用法: edgeboxctl backup [create|list|restore <file>]";;
+    esac
     ;;
-  
+
   # 更新系统
   update)
     log_info "更新EdgeBox..."
     curl -fsSL https://raw.githubusercontent.com/cuiping89/node/main/ENV/install.sh | bash
     ;;
-	
+
 # Reality 密钥轮换
   rotate-reality)
     # <<< FIX: Add --force flag support >>>
@@ -14045,11 +14046,11 @@ edgeboxctl sub limit  <user> <N>       # 调整用户的设备上限"
         rotate_reality_keys "false"
     fi
     ;;
-    
+
   reality-status)
     show_reality_rotation_status
     ;;
-    
+
   reality-status)
     show_reality_rotation_status
     ;;
@@ -14075,7 +14076,7 @@ edgeboxctl sub limit  <user> <N>       # 调整用户的设备上限"
         ;;
     esac
     ;;
-	
+
   # 流量管理 (统计 + 流量特征随机化)
   traffic)
     case "${2:-}" in
@@ -14084,16 +14085,16 @@ edgeboxctl sub limit  <user> <N>       # 调整用户的设备上限"
         traffic_show
         ;;
       # 流量特征随机化
-      "randomize") 
+      "randomize")
         traffic_randomize "${3:-light}"
         ;;
-      "status") 
+      "status")
         traffic_status
         ;;
-      "reset") 
+      "reset")
         traffic_reset
         ;;
-      *) 
+      *)
         echo "用法: edgeboxctl traffic [show|randomize|status|reset]"
         echo ""
         echo "流量统计:"
@@ -14107,7 +14108,7 @@ edgeboxctl sub limit  <user> <N>       # 调整用户的设备上限"
         ;;
     esac
     ;;
-	
+
 	test-udp)
     # 用法: edgeboxctl test-udp <host> <port> [seconds]
     local host="${2:-127.0.0.1}" port="${3:-443}" secs="${4:-3}"
@@ -14123,7 +14124,7 @@ edgeboxctl sub limit  <user> <N>       # 调整用户的设备上限"
       fi
     fi
     ;;
-	
+
 # 控制面板密码管理
 dashboard)
     case "$2" in
@@ -14226,7 +14227,7 @@ help|"")
   printf "  %b\n" "${CYAN}示例:${NC}"
   printf "  %b %b\n" "${GREEN}edgeboxctl sub issue${NC}" "${CYAN}alice 5${NC}"
   printf "  %b %b\n\n" "${GREEN}edgeboxctl sub show${NC}" "${CYAN}alice${NC}"
-  
+
   # 👥 网络身份配置
   printf "%b\n" "${YELLOW}■ 👥 网络身份配置${NC}"
   print_cmd "${GREEN}edgeboxctl shunt vps${NC}"                                  "VPS 直连出站（默认）"          $_W_SHUNT
@@ -14298,15 +14299,15 @@ esac
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]] || [[ -n "${EDGEBOXCTL_LOADED}" ]]; then
     # 设置调试模式
     [[ "${EDGEBOX_DEBUG}" == "true" ]] && LOG_LEVEL="debug"
-    
+
     # 确保日志目录存在
     mkdir -p "$(dirname "$LOG_FILE")"
-    
+
     # 在脚本开始时加载配置（性能优化的核心）
     load_config_once || {
         log_warn "初始配置加载失败，部分功能可能不可用"
     }
-    
+
     log_debug "edgeboxctl初始化完成，配置已缓存"
 fi
 EDGEBOXCTL_SCRIPT
@@ -14318,7 +14319,7 @@ EDGEBOXCTL_SCRIPT
 # 配置邮件系统
 setup_email_system() {
     log_info "配置邮件系统..."
-    
+
     # 创建msmtp配置文件
     cat > /etc/msmtprc << 'MSMTP_CONFIG'
 # EdgeBox 邮件配置
@@ -14339,10 +14340,10 @@ password       your-app-password
 # 默认账户
 account default : gmail
 MSMTP_CONFIG
-    
+
     chmod 600 /etc/msmtprc
     chown root:root /etc/msmtprc
-    
+
     # 创建邮件配置说明文件
     cat > ${CONFIG_DIR}/email-setup.md << 'EMAIL_GUIDE'
 # EdgeBox 邮件配置说明
@@ -14396,7 +14397,7 @@ install_ipq_stack() {
   # 前端代码修复函数
   fix_frontend_residential_support() {
     log_info "修复前端代码以支持residential特征识别..."
-    
+
     find /var/www /etc/edgebox -type f \( -name "*.html" -o -name "*.js" \) -exec grep -l "hosting.*数据中心" {} \; 2>/dev/null | while read file; do
       if [[ -f "$file" ]]; then
         log_info "修复文件: $file"
@@ -14409,7 +14410,7 @@ install_ipq_stack() {
         ' "${file}.bak" > "$file"
       fi
     done
-    
+
     log_success "前端residential字段支持修复完成"
   }
 
@@ -14448,36 +14449,36 @@ test_bandwidth_correct() {
   local proxy_args="$1"
   local test_type="$2"
   local dl_speed=0 ul_speed=0
-  
+
   if dl_result=$(eval "curl $proxy_args -o /dev/null -s -w '%{time_total}:%{speed_download}' --max-time 15 'http://speedtest.tele2.net/1MB.zip'" 2>/dev/null); then
     IFS=':' read -r dl_time dl_bytes_per_sec <<<"$dl_result"
     if [[ -n "$dl_bytes_per_sec" && "$dl_bytes_per_sec" != "0" ]]; then
       dl_speed=$(awk -v bps="$dl_bytes_per_sec" 'BEGIN{printf("%.1f", bps/1024/1024)}')
     fi
   fi
-  
+
   local test_data=$(printf '%*s' 10240 '' | tr ' ' 'x')
   if ul_result=$(eval "curl $proxy_args -X POST -d '$test_data' -o /dev/null -s -w '%{time_total}' --max-time 10 'https://httpbin.org/post'" 2>/dev/null); then
     if [[ -n "$ul_result" && "$ul_result" != "0.000000" ]]; then
       ul_speed=$(awk -v t="$ul_result" 'BEGIN{printf("%.1f", 10/1024/t)}')
     fi
   fi
-  
+
   echo "${dl_speed}/${ul_speed}"
 }
 
 get_rdns() {
   local ip="$1"
   local rdns=""
-  
+
   if command -v dig >/dev/null 2>&1; then
     rdns=$(dig +time=2 +tries=2 +short -x "$ip" 2>/dev/null | head -n1 | sed 's/\.$//')
   fi
-  
+
   if [[ -z "$rdns" ]] && command -v nslookup >/dev/null 2>&1; then
     rdns=$(nslookup "$ip" 2>/dev/null | awk '/name =/ {print $4; exit}' | sed 's/\.$//')
   fi
-  
+
   echo "$rdns"
 }
 
@@ -14486,13 +14487,13 @@ detect_network_features() {
   local isp="$2"
   local ip="$3"
   local vantage="$4"
-  
+
   local hosting="false"
-  local residential="false" 
+  local residential="false"
   local mobile="false"
   local proxy="false"
   local network_type="Unknown"
-  
+
   if [[ "$asn" =~ (Google|AWS|Amazon|Microsoft|Azure|DigitalOcean|Linode|Vultr|Hetzner|OVH) ]] || \
      [[ "$isp" =~ (Google|AWS|Amazon|Microsoft|Azure|DigitalOcean|Linode|Vultr|Hetzner|OVH) ]]; then
     hosting="true"
@@ -14502,30 +14503,30 @@ detect_network_features() {
       network_type="Datacenter"
     fi
   fi
-  
+
   if [[ "$vantage" == "proxy" && "$hosting" == "false" ]]; then
     if [[ "$isp" =~ (NTT|Comcast|Verizon|AT\&T|Charter|Spectrum|Cox|Residential|Cable|Fiber|DSL|Broadband) ]]; then
       residential="true"
       network_type="Residential"
     fi
   fi
-  
+
   if [[ "$asn" =~ (Mobile|Cellular|LTE|5G|4G|T-Mobile|Verizon Wireless) ]]; then
     mobile="true"
     network_type="Mobile"
   fi
-  
+
   echo "${hosting}:${residential}:${mobile}:${proxy}:${network_type}"
 }
 
 get_proxy_url(){ local s="${SHUNT_DIR}/state.json"
   [[ -s "$s" ]] && jqget '.proxy_info' <"$s" || echo ""; }
 
-collect_one(){ 
+collect_one(){
   local V="$1" P="$2" J1="{}" J2="{}" J3="{}" ok1=false ok2=false ok3=false
-  
+
   if out=$(curl_json "$P" "https://ipinfo.io/json"); then J1="$out"; ok1=true; fi
-  
+
   if out=$(curl_json "$P" "https://api.ip.sb/geoip"); then
     J2="$out"; ok2=true
   else
@@ -14554,19 +14555,19 @@ collect_one(){
   fi
 
   local ip=""; for j in "$J2" "$J1" "$J3"; do ip="$(jq -r '(.ip // .query // empty)' <<<"$j" 2>/dev/null || echo "")"; [[ -n "$ip" && "$ip" != "null" ]] && break; done
-  
+
   local rdns="$(jq -r '.reverse // empty' <<<"$J3" 2>/dev/null || echo "")"
   if [[ -z "$rdns" && -n "$ip" ]]; then
     rdns="$(get_rdns "$ip")"
   fi
-  
+
   local asn="$(jq -r '(.asname // .as // empty)' <<<"$J3" 2>/dev/null || echo "")"; [[ -z "$asn" || "$asn" == "null" ]] && asn="$(jq -r '(.org // empty)' <<<"$J1" 2>/dev/null || echo "")"
   local isp="$(jq -r '(.org // empty)' <<<"$J1" 2>/dev/null || echo "")"; [[ -z "$isp" || "$isp" == "null" ]] && isp="$(jq -r '(.asname // .as // empty)' <<<"$J3" 2>/dev/null || echo "")"
   local country="$(jq -r '(.country // empty)' <<<"$J3" 2>/dev/null || echo "")"; [[ -z "$country" || "$country" == "null" ]] && country="$(jq -r '(.country // empty)' <<<"$J1" 2>/dev/null || echo "")"
   local city="$(jq -r '(.city // empty)' <<<"$J3" 2>/dev/null || echo "")"; [[ -z "$city" || "$city" == "null" ]] && city="$(jq -r '(.city // empty)' <<<"$J1" 2>/dev/null || echo "")"
 
-  declare -a hits=(); 
-  if [[ -n "$ip" ]]; then 
+  declare -a hits=();
+  if [[ -n "$ip" ]]; then
     IFS=. read -r a b c d <<<"$ip"; rip="${d}.${c}.${b}.${a}"
     for bl in zen.spamhaus.org bl.spamcop.net dnsbl.sorbs.net b.barracudacentral.org; do
       if dig +time=1 +tries=1 +short "${rip}.${bl}" A >/dev/null 2>&1; then hits+=("$bl"); fi
@@ -14597,14 +14598,14 @@ collect_one(){
   (( ${#hits[@]} > 0 )) && score=$((score-12*${#hits[@]})) && notes+=("dnsbl_hits")
   (( lat>400 )) && score=$((score-15)) && notes+=("high_latency")
   (( lat>200 && lat<=400 )) && score=$((score-8)) && notes+=("mid_latency")
-  
-  if [[ "$asn" =~ (amazon|aws|google|gcp|microsoft|azure|alibaba|tencent|digitalocean|linode|vultr|hivelocity|ovh|hetzner|iij|ntt|leaseweb|contabo) ]]; then 
+
+  if [[ "$asn" =~ (amazon|aws|google|gcp|microsoft|azure|alibaba|tencent|digitalocean|linode|vultr|hivelocity|ovh|hetzner|iij|ntt|leaseweb|contabo) ]]; then
     score=$((score-3))
     notes+=("cloud_provider")
   fi
-  
+
   [[ "$residential" == "true" ]] && score=$((score+10)) && notes+=("residential_network")
-  
+
   (( score<0 )) && score=0
   (( score>100 )) && score=100
   local grade="D"; ((score>=80)) && grade="A" || { ((score>=60)) && grade="B" || { ((score>=40)) && grade="C"; }; }
@@ -14830,7 +14831,7 @@ start_services() {
 # ===== 收尾：生成订阅、同步、首次生成 dashboard =====
 finalize_data_generation() {
   log_info "最终数据生成与同步..."
-  
+
   # 基础环境变量确保
   export CONFIG_DIR="/etc/edgebox/config"
   export TRAFFIC_DIR="/etc/edgebox/traffic"
@@ -14856,7 +14857,7 @@ finalize_data_generation() {
   if [[ ! -f "${CONFIG_DIR}/shunt/whitelist.txt" ]]; then
     echo -e "googlevideo.com\nytimg.com\nggpht.com\nyoutube.com\nyoutu.be\ngoogleapis.com\ngstatic.com" > "${CONFIG_DIR}/shunt/whitelist.txt"
   fi
-  
+
   if [[ ! -f "${CONFIG_DIR}/shunt/state.json" ]]; then
     echo '{"mode":"vps","proxy_info":"","last_check":"","health":"unknown"}' > "${CONFIG_DIR}/shunt/state.json"
   fi
@@ -14889,7 +14890,7 @@ finalize_data_generation() {
   chmod 644 "${TRAFFIC_DIR}"/*.txt 2>/dev/null || true
   chmod 644 "${TRAFFIC_DIR}/logs"/*.csv 2>/dev/null || true
   chown -R www-data:www-data "${TRAFFIC_DIR}" 2>/dev/null || true
-  
+
   # 8. 最终验证
   log_info "执行最终验证..."
   local validation_failed=false
@@ -14901,7 +14902,7 @@ finalize_data_generation() {
       validation_failed=true
     fi
   done
-  
+
   # 验证服务状态
   for service in nginx xray sing-box; do
     if ! systemctl is-active --quiet "$service"; then
@@ -14909,13 +14910,13 @@ finalize_data_generation() {
       validation_failed=true
     fi
   done
-  
+
   # 验证端口监听
   if ! ss -tlnp | grep -q ":443 "; then
     log_error "TCP 443端口未监听"
     validation_failed=true
   fi
-  
+
   if [[ "$validation_failed" == "true" ]]; then
     log_error "系统验证失败，请检查日志: ${LOG_FILE}"
     return 1
@@ -14928,7 +14929,7 @@ finalize_data_generation() {
     else
         log_warn "SNI域名初始选择失败，可手动执行: edgeboxctl sni auto"
     fi
-	
+
   log_success "数据生成与系统验证完成"
 }
 
@@ -14939,10 +14940,10 @@ show_installation_info() {
     print_separator
     echo -e "${GREEN}🎉 EdgeBox 企业级多协议节点 v${EDGEBOX_VER} 安装完成！${NC}"
     print_separator
-    
+
     # 确保加载最新数据（特别是密码）
     local config_file="${CONFIG_DIR}/server.json"
-    
+
     # 确保 jq 命令和文件路径正确
     local server_ip=$(jq -r '.server_ip // empty' "$config_file" 2>/dev/null)
     local UUID_VLESS=$(jq -r '.uuid.vless.reality // .uuid.vless // empty' "$config_file" 2>/dev/null)
@@ -14952,36 +14953,36 @@ show_installation_info() {
     local PASSWORD_HYSTERIA2=$(jq -r '.password.hysteria2 // empty' "$config_file" 2>/dev/null)
     local PASSWORD_TUIC=$(jq -r '.password.tuic // empty' "$config_file" 2>/dev/null)
     local PASSWORD_TROJAN=$(jq -r '.password.trojan // empty' "$config_file" 2>/dev/null)
-    
+
     # >>> 核心修复逻辑：从文件加载密码 >>>
     local DASHBOARD_PASSCODE=$(jq -r '.dashboard_passcode // empty' "$config_file" 2>/dev/null)
-    
+
     # 如果读取失败，至少赋一个安全值
     if [[ -z "$DASHBOARD_PASSCODE" ]]; then
         DASHBOARD_PASSCODE="[密码读取失败]"
     fi
     # <<< 核心修复逻辑结束 <<<
-    
+
     echo -e  "${CYAN} 核心访问信息${NC}"
     echo -e  "  👥 IP 地址: ${PURPLE}${server_ip}${NC}"
-    
+
     # 打印时使用已验证的 DASHBOARD_PASSCODE 变量
     echo -e  "  🔑 访问密码: ${YELLOW}${DASHBOARD_PASSCODE}${NC}"
-    echo -e  "  🌐 控制面板: ${PURPLE}http://${server_ip}/traffic/?passcode=${DASHBOARD_PASSCODE}${NC}" 
-    
+    echo -e  "  🌐 控制面板: ${PURPLE}http://${server_ip}/traffic/?passcode=${DASHBOARD_PASSCODE}${NC}"
+
 
     echo -e  "\n${CYAN}默认模式：${NC}"
     echo -e  "  证书模式: ${PURPLE}IP模式（自签名证书）${NC}"
     echo -e  "  网络身份: ${PURPLE}VPS直连出站（默认）${NC}"
-	
+
     echo -e "\n${CYAN}协议配置摘要：${NC}"
     echo -e "  VLESS-Reality  端口: 443  UUID: ${PURPLE}${UUID_VLESS:0:8}...${NC}"
-    echo -e "  VLESS-gRPC     端口: 443  UUID: ${PURPLE}${UUID_GRPC:0:8}...${NC}"  
-    echo -e "  VLESS-WS       端口: 443  UUID: ${PURPLE}${UUID_WS:0:8}...${NC}"  
+    echo -e "  VLESS-gRPC     端口: 443  UUID: ${PURPLE}${UUID_GRPC:0:8}...${NC}"
+    echo -e "  VLESS-WS       端口: 443  UUID: ${PURPLE}${UUID_WS:0:8}...${NC}"
     echo -e "  Trojan-TLS     端口: 443  密码: ${PURPLE}${PASSWORD_TROJAN:0:8}...${NC}"
     echo -e "  Hysteria2      端口: 443  密码: ${PURPLE}${PASSWORD_HYSTERIA2:0:8}...${NC}"
     echo -e "  TUIC           端口: 2053 UUID: ${PURPLE}${UUID_TUIC:0:8}...${NC}"
-    
+
     echo -e "\n${CYAN}常用运维命令：${NC}"
     echo -e "  ${PURPLE}edgeboxctl status${NC}                             # 查看服务状态"
     echo -e "  ${PURPLE}edgeboxctl sub${NC}                                # 查看订阅链接"
@@ -14989,7 +14990,7 @@ show_installation_info() {
     echo -e "  ${PURPLE}edgeboxctl switch-to-domain <域名>${NC}            # 切换证书模式"
     echo -e "  ${PURPLE}edgeboxctl shunt direct-resi '<代理URL>'${NC}      # 启用智能分流"
     echo -e "  ${PURPLE}edgeboxctl help${NC}                               # 查看完整帮助"
-    
+
 	echo -e "\n${CYAN}高级运维功能：${NC}"
     echo -e "  🔄 证书切换: IP模式 ⇋ 域名模式（Let's Encrypt证书）"
     echo -e "  🌐 出站分流: 代理IP全量 ⇋ VPS全量出 ⇋ 分流"
@@ -14998,8 +14999,8 @@ show_installation_info() {
     echo -e "  💾 自动备份: 配置文件定期备份、一键故障恢复"
     echo -e "  🔍 IP质量: 实时出口IP质量评分、黑名单检测"
     echo -e " "
-    
-	
+
+
    # 显示服务状态摘要（统一：仅展示存在的关键服务）
     echo -e "${CYAN}当前服务状态：${NC}"
 
@@ -15052,17 +15053,17 @@ show_installation_info() {
 # 简化版清理函数
 cleanup() {
     local rc=$?
-    
+
     # 检查核心服务状态
     local services=("nginx" "xray" "sing-box")
     local running_count=0
-    
+
     for service in "${services[@]}"; do
         if systemctl is-active --quiet "$service" 2>/dev/null; then
             ((running_count++))
         fi
     done
-    
+
     # 判断安装结果：只要有2个以上服务运行就算成功
     if [[ $running_count -ge 2 ]]; then
         # 🎯 安装成功 - 不提及任何警告或小问题
@@ -15085,7 +15086,7 @@ cleanup() {
 # 或者更极简的版本
 cleanup_minimal() {
     local rc=$?
-    
+
     # 简单检查：只要nginx运行就算成功（因为nginx是最关键的入口服务）
     if systemctl is-active --quiet nginx 2>/dev/null; then
         # 安静退出；最终摘要已在 show_installation_info() 输出
@@ -15103,7 +15104,7 @@ cleanup_minimal() {
 # 预安装检查
 pre_install_check() {
     log_info "执行预安装检查..."
-    
+
     # 检查磁盘空间（至少需要1GB）
     local available_space
     available_space=$(df / | awk 'NR==2 {print $4}')
@@ -15111,14 +15112,14 @@ pre_install_check() {
         log_error "磁盘空间不足，至少需要1GB可用空间"
         return 1
     fi
-    
+
     # 检查内存（至少需要512MB）
     local available_memory
     available_memory=$(free | awk 'NR==2{print $7}')
     if [[ $available_memory -lt 524288 ]]; then  # 512MB = 524288 KB
         log_warn "可用内存较少（<512MB），可能影响性能"
     fi
-    
+
     # 检查是否已安装
     if [[ -d "/etc/edgebox" ]] && [[ -f "/etc/edgebox/config/server.json" ]]; then
         log_warn "检测到已安装的EdgeBox，这将覆盖现有配置"
@@ -15129,23 +15130,23 @@ pre_install_check() {
             exit 0
         fi
     fi
-    
+
     # 检查关键端口占用
     local critical_ports=(443 80 2053)
     local port_conflicts=()
-    
+
     for port in "${critical_ports[@]}"; do
         if ss -tlnp 2>/dev/null | grep -q ":${port} " || ss -ulnp 2>/dev/null | grep -q ":${port} "; then
             port_conflicts+=("$port")
         fi
     done
-    
+
    if [[ ${#port_conflicts[@]} -gt 0 ]]; then
     log_warn "检测到端口冲突: ${port_conflicts[*]}"
     log_warn "这些端口将被EdgeBox使用，现有服务可能会停止"
     # 仅提示，不交互也不退出
 fi
-    
+
     log_success "预安装检查通过"
 }
 
@@ -15157,13 +15158,13 @@ show_progress() {
     local percentage=$((current * 100 / total))
     local completed=$((percentage / 2))
     local remaining=$((50 - completed))
-    
+
     printf "\r${CYAN}安装进度: [${NC}"
     printf "%${completed}s" | tr ' ' '='
     printf "${GREEN}>${NC}"
     printf "%${remaining}s" | tr ' ' '-'
     printf "${CYAN}] %d%% - %s${NC}" "$percentage" "$description"
-    
+
     if [[ $current -eq $total ]]; then
         echo ""
     fi
@@ -15172,24 +15173,24 @@ show_progress() {
 # 主安装流程
 main() {
     trap cleanup_all EXIT
-	
+
     clear
-	
+
     echo -e "${GREEN}EdgeBox 企业级安装脚本 v3.0.0${NC}"
     print_separator
-    
+
     export EDGEBOX_VER="3.0.0"
     mkdir -p "$(dirname "${LOG_FILE}")" && touch "${LOG_FILE}"
-    
+
     log_info "开始执行完整安装流程..."
-    
+
     # --- 模块1: 基础环境准备 ---
     show_progress 1 10 "系统环境检查"
     pre_install_check
     check_root
     check_system
     install_dependencies
-    
+
     show_progress 2 10 "网络与目录配置"
     get_server_ip
     create_directories
@@ -15207,16 +15208,16 @@ main() {
     show_progress 4 10 "安装核心组件 (Xray, sing-box)"
     install_xray
     install_sing_box
-    
+
     show_progress 5 10 "配置服务 (Xray, sing-box, Nginx)"
     configure_xray
     configure_sing_box
     configure_nginx
-    
+
 # --- 模块4: 后台、监控与运维工具 ---
 show_progress 6 10 "安装后台面板和监控脚本"
 execute_module4 || { log_error "模块4执行失败"; exit 1; }
-	
+
 	if ! setup_traffic_randomization; then
     log_error "流量特征随机化系统设置失败"
     exit 1
@@ -15225,20 +15226,20 @@ fi
     # --- 最终阶段: 启动、验证与数据生成 ---
     show_progress 8 10 "生成订阅链接"
     generate_subscription
-    
+
     show_progress 9 10 "启动并验证所有服务"
     start_and_verify_services || { log_error "服务未能全部正常启动，请检查日志"; exit 1; }
-    
+
     show_progress 10 10 "最终数据生成与同步"
     finalize_data_generation
-    
+
     # 显示安装信息
     show_installation_info
-	
+
 	# [新增] 最终系统状态修复（幂等性保证）
     log_info "执行最终系统状态检查..."
     repair_system_state
-    
+
     log_success "EdgeBox v3.0.0 安装成功完成！"
     exit 0
 }
