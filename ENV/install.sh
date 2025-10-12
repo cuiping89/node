@@ -1931,6 +1931,7 @@ save_config_info() {
       --arg instance_id          "$instance_id" \
       --arg user_alias           "$user_alias" \
       --arg dashboard_passcode   "$DASHBOARD_PASSCODE" \
+	  --arg master_sub_token     "$MASTER_SUB_TOKEN" \
       --arg cloud_provider       "$cloud_provider" \
       --arg cloud_region         "$cloud_region" \
       --arg cpu_spec             "$cpu_spec" \
@@ -1958,6 +1959,7 @@ save_config_info() {
          instance_id: $instance_id,
          user_alias: $user_alias,
          dashboard_passcode: $dashboard_passcode,
+		 master_sub_token: $master_sub_token,
          cloud: { provider: $cloud_provider, region: $cloud_region },
          spec:  { cpu: $cpu_spec, memory: $memory_spec, disk: $disk_spec },
          uuid:  { vless: { reality: $uuid_vless_reality, grpc: $uuid_vless_grpc, ws: $uuid_vless_ws },
@@ -2206,7 +2208,6 @@ execute_module2() {
         return 1
     fi
     
-    # ========== 关键修复: 密码生成在save_config_info之前 ==========
     # 任务2.5：生成控制面板密码(只生成不写入)
     if generate_dashboard_passcode; then
         log_success "✓ 控制面板密码生成完成: ${DASHBOARD_PASSCODE}"
@@ -2215,7 +2216,18 @@ execute_module2() {
         log_error "✗ 控制面板密码生成失败"
         return 1
     fi
-    # ==============================================================
+    
+	    # 任务2.6：生成管理员订阅高熵Token（32 hex = 16字节）
+    if [[ -z "${MASTER_SUB_TOKEN:-}" ]]; then
+        MASTER_SUB_TOKEN="$(openssl rand -hex 16)"
+    fi
+    if [[ -n "$MASTER_SUB_TOKEN" ]]; then
+        export MASTER_SUB_TOKEN
+        log_success "✓ 管理员Token: ${MASTER_SUB_TOKEN:0:8}..."
+    else
+        log_error "✗ 管理员Token生成失败"
+        return 1
+    fi
 
     # 任务3：生成Reality密钥
     if generate_reality_keys; then
@@ -3026,6 +3038,12 @@ EOF
     # ### NEW FIX: Generate the initial map file before validating  ###
     # =================================================================
     generate_initial_nginx_stream_map
+	
+	# --- 高熵订阅路径注入：把 /sub -> /sub-${MASTER_SUB_TOKEN} ---
+    if [[ -n "$MASTER_SUB_TOKEN" ]]; then
+        sed -ri 's#(location[[:space:]]*=[[:space:]]*)/sub([[:space:]]*\{)#\1/sub-'"${MASTER_SUB_TOKEN}"'\2#' /etc/nginx/nginx.conf
+        sed -ri 's#(try_files[[:space:]]*)/sub([[:space:]]*=404;)#\1/sub-'"${MASTER_SUB_TOKEN}"'\2#' /etc/nginx/nginx.conf
+    fi
     
     # 验证Nginx配置并重载
     log_info "验证Nginx配置..."
@@ -3494,6 +3512,9 @@ generate_subscription() {
     password_tuic=$(jq -r '.password.tuic // empty' "$config_file")
     reality_public_key=$(jq -r '.reality.public_key // empty' "$config_file")
     reality_short_id=$(jq -r '.reality.short_id // empty' "$config_file")
+	# 管理员订阅Token
+    local master_sub_token
+    master_sub_token=$(jq -r '.master_sub_token // empty' "$config_file")
     
     # 验证必要参数
     if [[ -z "$server_ip" || -z "$uuid_reality" || -z "$password_hysteria2" ]]; then
@@ -3569,12 +3590,17 @@ fi
 mkdir -p "${WEB_ROOT}"
 printf "%b" "$subscription_links" > "${CONFIG_DIR}/subscription.txt"
 
-# 将 Web 目录的 /sub 作为 subscription.txt 的软链接
+# 将 Web 目录的 /sub 作为 subscription.txt 的软链接（兼容旧路径）
 # 若已存在普通文件或错误链接，先移除再创建
 if [[ -e "${WEB_ROOT}/sub" && ! -L "${WEB_ROOT}/sub" ]]; then
   rm -f "${WEB_ROOT}/sub"
 fi
 ln -sfn "${CONFIG_DIR}/subscription.txt" "${WEB_ROOT}/sub"
+
+# 新的高熵管理员订阅路径 /sub-<token>
+if [[ -n "$master_sub_token" ]]; then
+  ln -sfn "${CONFIG_DIR}/subscription.txt" "${WEB_ROOT}/sub-${master_sub_token}"
+fi
 
 # 设置权限（chmod 作用于目标文件；软链本身无需 chmod）
 chmod 644 "${CONFIG_DIR}/subscription.txt"
@@ -12058,6 +12084,7 @@ load_config_once() {
             server_eip: (.eip // ""),
             server_version: (.version // "3.0.0"),
             install_date: (.install_date // ""),
+			master_sub_token: (.master_sub_token // ""),
             
             uuid_vless_reality: (.uuid.vless.reality // .uuid.vless // ""),
             uuid_vless_grpc: (.uuid.vless.grpc // .uuid.vless // ""),
@@ -12121,6 +12148,7 @@ load_config_once() {
     CPU_SPEC=$(echo "$config_json" | jq -r '.cpu_spec')
     MEMORY_SPEC=$(echo "$config_json" | jq -r '.memory_spec')
     DISK_SPEC=$(echo "$config_json" | jq -r '.disk_spec')
+	MASTER_SUB_TOKEN=$(echo "$config_json" | jq -r '.master_sub_token')
     
     # 记录加载状态和时间戳
     CONFIG_LOADED=true
@@ -12221,57 +12249,54 @@ build_sub_payload(){
 
 show_sub(){
   ensure_traffic_dir
-
-  # 优先调用构建函数，确保订阅文件最新
   build_sub_payload >/dev/null 2>&1
 
   local txt_file="${CONFIG_DIR}/subscription.txt"
   local b64_file="${CONFIG_DIR}/subscription.base64"
-  
-  # 获取当前证书模式
+
+  # 若有配置缓存函数则调用以加载全局变量
+  if declare -F ensure_config_loaded >/dev/null 2>&1; then
+    ensure_config_loaded || true
+  fi
+
+  # 计算路径：有 token 用 sub-<token>，否则回退 /sub
+  local SUB_PATH="sub"
+  if [[ -z "${MASTER_SUB_TOKEN:-}" ]]; then
+    MASTER_SUB_TOKEN="$(jq -r '.master_sub_token // empty' "${CONFIG_DIR}/server.json" 2>/dev/null)"
+  fi
+  [[ -n "$MASTER_SUB_TOKEN" ]] && SUB_PATH="sub-${MASTER_SUB_TOKEN}"
+
+  # 获取证书模式并生成URL
   local cert_mode=$(get_current_cert_mode 2>/dev/null || echo "self-signed")
   local sub_url=""
-  
-  # 根据证书模式生成订阅URL
   if [[ "$cert_mode" == "self-signed" ]]; then
-    # IP模式
-    local server_ip=$(jq -r '.server_ip // "YOUR_IP"' "${CONFIG_DIR}/server.json" 2>/dev/null)
-    sub_url="http://${server_ip}/sub"
+    sub_url="http://${SERVER_IP}/${SUB_PATH}"
   else
-    # 域名模式 (格式: letsencrypt:domain.com)
     local domain="${cert_mode##*:}"
     if [[ -n "$domain" && "$domain" != "self-signed" ]]; then
-      sub_url="https://${domain}/sub"
+      sub_url="https://${domain}/${SUB_PATH}"
     else
-      # 兜底：如果解析失败，使用IP
       local server_ip=$(jq -r '.server_ip // "YOUR_IP"' "${CONFIG_DIR}/server.json" 2>/dev/null)
-      sub_url="http://${server_ip}/sub"
+      sub_url="http://${server_ip}/${SUB_PATH}"
     fi
   fi
-  
+
   echo
   echo -e "${YELLOW}# 订阅URL${NC}${DIM}(复制此链接到客户端订阅地址)${NC}"
   echo -e "  ${GREEN}${sub_url}${NC}"
   echo
-  
+
   if [[ -s "$txt_file" ]]; then
     echo -e "${YELLOW}# 明文链接${NC}"
-    cat "$txt_file"
-    echo
+    cat "$txt_file"; echo
   else
     log_warn "未能生成或找到明文订阅文件。"
   fi
-  
-  # Base64 输出 
+
   if [[ -s "$b64_file" ]]; then
     echo -e "${YELLOW}# Base64链接${NC}"
-    cat "$b64_file"
-    echo
-    echo
-  else
-     log_warn "未能生成或找到Base64订阅文件。"
+    cat "$b64_file"; echo; echo
   fi
-  
 }
 
 
