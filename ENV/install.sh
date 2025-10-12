@@ -14290,29 +14290,29 @@ help|"")
   printf "  EdgeBox 管理工具 v%s\n" "${VERSION}"
   printf "%b\n\n" "════════════════════════════════════════════════════════════════${NC}"
 
-  # 核心命令
-  printf "%b\n" "${YELLOW}■ 核心命令 (Core Commands)${NC}"
-  print_cmd "${GREEN}edgeboxctl sub${NC}"                           "显示订阅链接与 Web 面板信息"                 $_W_CORE
+  # 🎯 核心命令
+  printf "%b\n" "${YELLOW}■ 🎯 核心命令${NC}"
+  print_cmd "${GREEN}edgeboxctl sub${NC}"                           "查看订阅链接与 控制面板URL"                 $_W_CORE
   print_cmd "${GREEN}edgeboxctl status${NC}"                        "查看所有服务及端口的健康状态"               $_W_CORE
   print_cmd "${GREEN}edgeboxctl logs${NC} ${CYAN}<service>${NC}"    "查看指定服务的实时日志 (Ctrl+C 退出)"         $_W_CORE
   print_cmd "${GREEN}edgeboxctl restart${NC}"                       "优雅重启所有核心服务 (配置变更后使用)"        $_W_CORE
   print_cmd "${GREEN}edgeboxctl update${NC}"                        "在线更新 EdgeBox 至最新版本"                  $_W_CORE
-  print_cmd "${GREEN}edgeboxctl help${NC}"                          "显示此帮助信息"                              $_W_CORE
+  print_cmd "${GREEN}edgeboxctl help${NC}"                          "显示帮助信息"                              $_W_CORE
   printf "  %b\n" "${CYAN}示例:${NC}"
   printf "  %b %b\n\n" "${GREEN}edgeboxctl logs${NC}" "${CYAN}xray${NC}"
 
-  # 证书管理
-  printf "%b\n" "${YELLOW}■ 证书管理 (Certificate Management)${NC}"
+  # 🔒 证书切换
+  printf "%b\n" "${YELLOW}■ 🔒 证书切换${NC}"
   print_cmd "${GREEN}edgeboxctl cert status${NC}"                             "查看当前证书类型、域名及有效期"            $_W_CERT
-  print_cmd "${GREEN}edgeboxctl switch-to-domain${NC} ${CYAN}<domain>${NC}"  "切换为域名模式，并申请 Let's Encrypt 证书"  $_W_CERT
+  print_cmd "${GREEN}edgeboxctl switch-to-domain${NC} ${CYAN}<domain>${NC}"  "切换为域名并申请 Let's Encrypt 证书"  $_W_CERT
   print_cmd "${GREEN}edgeboxctl cert renew${NC}"                              "手动续期 Let's Encrypt 证书"               $_W_CERT
   print_cmd "${GREEN}edgeboxctl switch-to-ip${NC}"                            "切换回 IP 模式，使用自签名证书"            $_W_CERT
   print_cmd "${GREEN}edgeboxctl fix-permissions${NC}"                         "修复证书文件的读写权限"                    $_W_CERT
   printf "  %b\n" "${CYAN}示例:${NC}"
   printf "  %b %b\n\n" "${GREEN}edgeboxctl switch-to-domain${NC}" "${CYAN}my.domain.com${NC}"
 
-  # SNI 域名管理
-  printf "%b\n" "${YELLOW}■ SNI 域名管理 (SNI Domain Management)${NC}"
+  # 🌐 SNI 域名轮换
+  printf "%b\n" "${YELLOW}■ 🌐 SNI 域名轮换${NC}"
   print_cmd "${GREEN}edgeboxctl sni list${NC}"                      "显示 SNI 域名池状态 (别名: pool)"             $_W_SNI
   print_cmd "${GREEN}edgeboxctl sni test-all${NC}"                  "测试池中所有域名的可用性"                      $_W_SNI
   print_cmd "${GREEN}edgeboxctl sni auto${NC}"                      "智能测试并选择最优 SNI 域名"                   $_W_SNI
@@ -14320,27 +14320,27 @@ help|"")
   printf "  %b\n" "${CYAN}示例:${NC}"
   printf "  %b %b\n\n" "${GREEN}edgeboxctl sni set${NC}" "${CYAN}www.apple.com${NC}"
 
-  # Reality 密钥轮换
-  printf "%b\n" "${YELLOW}■ Reality 密钥轮换 (Reality Key Rotation)${NC}"
+  # 🔐 Reality 密钥轮换
+  printf "%b\n" "${YELLOW}■ 🔐 Reality 密钥轮换${NC}"
   print_cmd "${GREEN}edgeboxctl reality-status${NC}"  "查看 Reality 密钥轮换的周期状态"                       $_W_REALITY
   print_cmd "${GREEN}edgeboxctl rotate-reality${NC} ${CYAN}[--force]${NC}"  "手动执行 Reality 密钥对轮换 (安全增强)"                 $_W_REALITY
   printf "\n"
 
-  # 流量特征随机化
-  printf "%b\n" "${YELLOW}■ 流量特征随机化 (Traffic Randomization)${NC}"
+  # 🧬 流量特征随机化
+  printf "%b\n" "${YELLOW}■ 🧬 流量特征随机化${NC}"
   print_cmd "${GREEN}edgeboxctl traffic status${NC}"                                      "查看随机化系统状态和定时任务"    $_W_TRAND
   print_cmd "${GREEN}edgeboxctl traffic reset${NC}"                                       "重置随机化参数为默认值"          $_W_TRAND
   print_cmd "${GREEN}edgeboxctl traffic randomize${NC} ${CYAN}[light|medium|heavy]${NC}"  "执行流量特征随机化，增强隐蔽性"  $_W_TRAND
   printf "  %b\n" "${CYAN}示例:${NC}"
   printf "  %b %b\n" "${GREEN}edgeboxctl traffic randomize${NC}" "${CYAN}medium${NC}"
   printf "  %b\n" "${CYAN}level:${NC}"
-  printf "  %b  %b\n" "${CYAN}light${NC}"  "${DIM}- 轻度随机化，仅修改 Hysteria2 伪装站点${NC}"
-  printf "  %b  %b\n" "${CYAN}medium${NC}" "${DIM}- 中度随机化，修改 Hysteria2 + TUIC 参数${NC}"
-  printf "  %b  %b\n\n" "${CYAN}heavy${NC}"  "${DIM}- 重度随机化，修改全协议参数${NC}"
+  printf "  %b  %b\n" "${CYAN}light(默认)${NC}"  "${DIM}—轻度随机化，仅Hysteria2 仿装站点${NC}"
+  printf "  %b  %b\n" "${CYAN}medium${NC}" "${DIM}— 中度随机化，修改Hysteria2 +TUIC参数${NC}"
+  printf "  %b  %b\n\n" "${CYAN}heavy${NC}"  "${DIM}— 重度随机化，修改全协议参数${NC}"
 
-  # 独立用户订阅
-  printf "%b\n" "${YELLOW}■ 独立用户订阅 (User Subscriptions)${NC}"
-  print_cmd "${GREEN}edgeboxctl sub issue${NC} ${CYAN}<user>${NC}"          "为指定用户下发专属订阅链接"       $_W_SUB
+  # 🔗 独立用户订阅URL
+  printf "%b\n" "${YELLOW}■ 🔗 独立用户订阅URL${NC}"
+  print_cmd "${GREEN}edgeboxctl sub issue${NC} ${CYAN}<user> [limit]${NC}"  "为指定用户下发专属订阅链接"       $_W_SUB
   print_cmd "${GREEN}edgeboxctl sub show${NC} ${CYAN}<user>${NC}"           "查看用户订阅及已绑定的设备"         $_W_SUB
   print_cmd "${GREEN}edgeboxctl sub revoke${NC} ${CYAN}<user>${NC}"         "停用指定用户的订阅链接"             $_W_SUB
   print_cmd "${GREEN}edgeboxctl sub limit${NC} ${CYAN}<user> <N>${NC}"      "修改用户的设备上限"                 $_W_SUB
@@ -14348,13 +14348,13 @@ help|"")
   printf "  %b %b\n" "${GREEN}edgeboxctl sub issue${NC}" "${CYAN}alice 5${NC}"
   printf "  %b %b\n\n" "${GREEN}edgeboxctl sub show${NC}" "${CYAN}alice${NC}"
   
-  # 出站分流
-  printf "%b\n" "${YELLOW}■ 出站分流 (Outbound Routing)${NC}"
-  print_cmd "${GREEN}edgeboxctl shunt vps${NC}"                                  "[模式] VPS 直连出站 (默认)"          $_W_SHUNT
-  print_cmd "${GREEN}edgeboxctl shunt resi${NC} ${CYAN}'<URL>'${NC}"             "[模式] 代理全量出站 (仅 Xray)"        $_W_SHUNT
-  print_cmd "${GREEN}edgeboxctl shunt direct-resi${NC} ${CYAN}'<URL>'${NC}"      "[模式] 智能分流 (白名单直连，其余走代理)" $_W_SHUNT
-  print_cmd "${GREEN}edgeboxctl shunt status${NC}"                               "查看当前出站模式及代理健康状况"        $_W_SHUNT
-  print_cmd "${GREEN}edgeboxctl shunt whitelist${NC} ${CYAN}<action>${NC} ${CYAN}[domain]${NC}" "管理白名单 (add|remove|list|reset)" $_W_SHUNT
+  # 👥 网络身份配置
+  printf "%b\n" "${YELLOW}■ 👥 网络身份配置${NC}"
+  print_cmd "${GREEN}edgeboxctl shunt vps${NC}"                                  "VPS 直连出站（默认）"          $_W_SHUNT
+  print_cmd "${GREEN}edgeboxctl shunt resi${NC} ${CYAN}'<URL>'${NC}"             "代理全量出站（仅 Xray）"        $_W_SHUNT
+  print_cmd "${GREEN}edgeboxctl shunt direct-resi${NC} ${CYAN}'<URL>'${NC}"      "智能分流（白名单直连，其余走代理）" $_W_SHUNT
+  print_cmd "${GREEN}edgeboxctl shunt status${NC}"                               "查看当前出站模式及代理健康状态"        $_W_SHUNT
+  print_cmd "${GREEN}edgeboxctl shunt whitelist${NC} ${CYAN}{action} [domain]${NC}" "管理白名单（add|remove|list|reset）" $_W_SHUNT
   printf "  %b\n" "${CYAN}示例:${NC}"
   printf "  %b %b\n" "${GREEN}edgeboxctl shunt direct-resi${NC}" "${CYAN}'socks5://user:pass@host:port'${NC}"
   printf "  %b %b\n" "${GREEN}edgeboxctl shunt whitelist add${NC}" "${CYAN}netflix.com${NC}"
@@ -14364,8 +14364,8 @@ help|"")
   printf "  %b\n" "${CYAN}socks5://user:pass@host:port${NC}"
   printf "  %b\n\n" "${CYAN}socks5://user:pass@host:port?sni=example.com${NC}"
 
-  # 流量与预警
-  printf "%b\n" "${YELLOW}■ 流量与预警 (Traffic & Alert)${NC}"
+  # 📊 流量与预警
+  printf "%b\n" "${YELLOW}■ 📊 流量与预警${NC}"
   print_cmd "${GREEN}edgeboxctl traffic show${NC}"                             "在终端查看流量使用统计"                 $_W_ALERT
   print_cmd "${GREEN}edgeboxctl alert show${NC}"                               "查看当前预警配置"                       $_W_ALERT
   print_cmd "${GREEN}edgeboxctl alert monthly${NC} ${CYAN}<GiB>${NC}"          "设置月度流量预算"                       $_W_ALERT
@@ -14373,7 +14373,7 @@ help|"")
   print_cmd "${GREEN}edgeboxctl alert telegram${NC} ${CYAN}<token>${NC} ${CYAN}<chat_id>${NC}" "配置 Telegram 通知渠道" $_W_ALERT
   print_cmd "${GREEN}edgeboxctl alert discord${NC} ${CYAN}<webhook_url>${NC}"  "配置 Discord 通知渠道"                  $_W_ALERT
   print_cmd "${GREEN}edgeboxctl alert wechat${NC} ${CYAN}<pushplus_token>${NC}" "配置微信 PushPlus 通知渠道"            $_W_ALERT
-  print_cmd "${GREEN}edgeboxctl alert webhook${NC} ${CYAN}<url>${NC} ${CYAN}[format]${NC}"     "配置通用 Webhook (raw|slack|discord)" $_W_ALERT
+  print_cmd "${GREEN}edgeboxctl alert webhook${NC} ${CYAN}<url> [format]${NC}"     "配置通用 Webhook (raw|slack|discord)" $_W_ALERT
   print_cmd "${GREEN}edgeboxctl alert test${NC} ${CYAN}[percent]${NC}"         "模拟触发预警以测试通知渠道"             $_W_ALERT
   printf "  %b\n" "${CYAN}示例:${NC}"
   printf "  %b %b\n" "${GREEN}edgeboxctl alert monthly${NC}" "${CYAN}1000${NC}"
@@ -14381,9 +14381,9 @@ help|"")
   printf "  %b %b %b\n" "${GREEN}edgeboxctl alert telegram${NC}" "${CYAN}<token>${NC}" "${CYAN}<chat_id>${NC}"
   printf "  %b %b\n\n" "${GREEN}edgeboxctl alert test${NC}"  "${CYAN}80${NC}"
 
-  # 配置与维护
-  printf "%b\n" "${YELLOW}■ 配置与维护 (Configuration & Maintenance)${NC}"
-  print_cmd "${GREEN}edgeboxctl dashboard passcode${NC}"          "重置并显示 Web 控制面板的访问密码"    $_W_CONF
+  # 🧩 配置与维护
+  printf "%b\n" "${YELLOW}■ 🧩 配置与维护${NC}"
+  print_cmd "${GREEN}edgeboxctl dashboard passcode${NC}"          "重置 Web 控制面板的访问密码"    $_W_CONF
   print_cmd "${GREEN}edgeboxctl alias${NC} ${CYAN}\"我的备注\"${NC}" "为当前服务器设置一个易记的别名"     $_W_CONF
   print_cmd "${GREEN}edgeboxctl config show${NC}"                 "显示所有协议的 UUID、密码等详细配置"  $_W_CONF
   print_cmd "${GREEN}edgeboxctl config regenerate-uuid${NC}"      "为所有协议重新生成 UUID 和密码"      $_W_CONF
@@ -14394,8 +14394,8 @@ help|"")
   printf "  %b %b\n" "${GREEN}edgeboxctl alias${NC}" "${CYAN}\"香港-CN2-主力\"${NC}"
   printf "  %b %b\n\n" "${GREEN}edgeboxctl backup restore${NC}" "${CYAN}edgebox_backup_xxx.tar.gz${NC}"
 
-  # 诊断与排障
-  printf "%b\n" "${YELLOW}■ 诊断与排障 (Diagnostics & Debug)${NC}"
+  # 🔍 诊断与排障
+  printf "%b\n" "${YELLOW}■ 🔍 诊断与排障${NC}"
   print_cmd "${GREEN}edgeboxctl debug-ports${NC}"                                        "检查核心端口 (80, 443, 2053) 是否被占用" $_W_DEBUG
   print_cmd "${GREEN}edgeboxctl test${NC}"                                               "对各协议入口进行基础连通性测试" $_W_DEBUG
   print_cmd "${GREEN}edgeboxctl test-udp${NC} ${CYAN}<host>${NC} ${CYAN}<port>${NC} ${CYAN}[seconds]${NC}" "使用 iperf3/socat 进行 UDP 连通性简测" $_W_DEBUG
