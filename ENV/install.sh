@@ -15007,15 +15007,12 @@ finalize_data_generation() {
     return 1
   fi
 
-    # 执行初始SNI域名选择
-    log_info "执行初始SNI域名选择..."
-    if "$SNI_MANAGER_SCRIPT" select >/dev/null 2>&1; then
-        log_success "✓ SNI域名初始选择完成"
-    else
-        log_warn "SNI域名初始选择失败，可手动执行: edgeboxctl sni auto"
-    fi
-
-  log_success "数据生成与系统验证完成"
+# 在后台执行初始SNI域名选择，不阻塞安装流程
+log_info "正在后台为您自动选择最优SNI域名，这不会影响您立即使用..."
+(
+    sleep 5 # 等待几秒，确保所有服务完全启动
+    /usr/local/bin/edgeboxctl sni auto >/dev/null 2>&1
+) &
 }
 
 
