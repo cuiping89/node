@@ -1,14 +1,6 @@
 #!/bin/bash
 
 #############################################
-# Transcribed & Tidy Copy (STANDARD MODE)
-# - No semantic/behavior changes
-# - Only formatting hygiene: line-endings LF, trailing spaces trimmed, single EOF newline
-# - Generated at 2025-10-12 05:14:25
-#############################################
-
-
-#############################################
 # EdgeBox 企业级多协议节点部署脚本 v3.0.0
 # 模块1：脚本头部+基础函数
 #
@@ -15145,10 +15137,8 @@ fi
 repair_system_state() {
     log_info "检查并修复系统状态..."
 
-    # 1) 目录与日志
-    ensure_directory_permissions
-    mkdir -p /var/log/edgebox 2>/dev/null || true
-    [[ -f /var/log/edgebox/sing-box.log ]] || touch /var/log/edgebox/sing-box.log
+    # 1) 目录与日志 (使用新的统一函数)
+    setup_directories
 
     # 2) 服务自愈（保持你的逻辑）
     local services=("xray" "sing-box" "nginx")
@@ -15198,7 +15188,6 @@ repair_system_state() {
 
     log_success "系统状态修复完成"
 }
-
 
 # 脚本入口点检查
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
