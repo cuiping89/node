@@ -11150,11 +11150,9 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         <code>edgeboxctl traffic reset</code><span># 重置随机化参数为默认值</span>
         <code>edgeboxctl traffic randomize [light|medium|heavy]</code><span># 执行流量特征随机化，增强隐蔽性</span>
         <p class="cmd-label">示例：</p>
-        <a class="cmd-pill" href="#">edgeboxctl traffic randomize medium</a>
-        <p class="cmd-label">level:</p>
-        <a class="cmd-pill" href="#">light(默认) —轻度随机化，仅Hysteria2 仿装站点</a><br>
-        <a class="cmd-pill" href="#">medium — 中度随机化，修改Hysteria2 +TUIC参数</a><br>
-        <a class="cmd-pill" href="#">heavy — 重度随机化，修改全协议参数</a><br>
+        <a class="cmd-pill" href="#">edgeboxctl traffic randomize light</a><span># 轻度随机化，仅Hysteria2 仿装站点</span>
+		<a class="cmd-pill" href="#">edgeboxctl traffic randomize medium</a><span># 中度随机化，修改Hysteria2 +TUIC参</span>
+		<a class="cmd-pill" href="#">edgeboxctl traffic randomize heavy</a><span># 重度随机化，修改全协议参数</span>
         </div>
     </div>
 
@@ -11182,7 +11180,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         <p class="cmd-label">示例：</p>
         <a class="cmd-pill" href="#">edgeboxctl shunt direct-resi 'socks5://user:pass@host:port'</a><br>
         <a class="cmd-pill" href="#">edgeboxctl shunt whitelist add netflix.com</a><br>
-        <p class="cmd-label">代理URL格式：</p>
+        <p class="cmd-label">URL格式：</p>
         <a class="cmd-pill" href="#">http://user:pass@host:port</a><br>
         <a class="cmd-pill" href="#">https://user:pass@host:port</a><br>
         <a class="cmd-pill" href="#">socks5://user:pass@host:port</a><br>
