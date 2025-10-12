@@ -1907,10 +1907,10 @@ save_config_info() {
     fi
 
     # 关键凭据校验（缺失即失败）
-    if [[ -z "$UUID_VLESS_REALITY" || -z "$PASSWORD_TROJAN" || -z "$PASSWORD_HYSTERIA2" ]]; then
-        log_error "关键凭据缺失，无法保存配置"
-        return 1
-    fi
+if [[ -z "$UUID_VLESS_REALITY" || -z "$PASSWORD_TROJAN" || -z "$PASSWORD_HYSTERIA2" || -z "$MASTER_SUB_TOKEN" ]]; then
+    log_error "关键凭据缺失（含管理员订阅Token），无法保存配置"
+    return 1
+fi
 
     # IP格式校验
     if [[ ! "$server_ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
@@ -2217,17 +2217,16 @@ execute_module2() {
         return 1
     fi
     
-	    # 任务2.6：生成管理员订阅高熵Token（32 hex = 16字节）
-    if [[ -z "${MASTER_SUB_TOKEN:-}" ]]; then
-        MASTER_SUB_TOKEN="$(openssl rand -hex 16)"
-    fi
-    if [[ -n "$MASTER_SUB_TOKEN" ]]; then
-        export MASTER_SUB_TOKEN
-        log_success "✓ 管理员Token: ${MASTER_SUB_TOKEN:0:8}..."
-    else
-        log_error "✗ 管理员Token生成失败"
-        return 1
-    fi
+# 任务2.6：生成管理员订阅Token（32 hex = 16字节）
+if [[ -z "${MASTER_SUB_TOKEN:-}" ]]; then
+  MASTER_SUB_TOKEN="$(openssl rand -hex 16)"
+fi
+if [[ -n "$MASTER_SUB_TOKEN" ]]; then
+  export MASTER_SUB_TOKEN
+  log_success "✓ 管理员Token: ${MASTER_SUB_TOKEN:0:8}..."
+else
+  log_error "✗ 管理员Token生成失败"; return 1
+fi
 
     # 任务3：生成Reality密钥
     if generate_reality_keys; then
@@ -3039,11 +3038,11 @@ EOF
     # =================================================================
     generate_initial_nginx_stream_map
 	
-	# --- 高熵订阅路径注入：把 /sub -> /sub-${MASTER_SUB_TOKEN} ---
-    if [[ -n "$MASTER_SUB_TOKEN" ]]; then
-        sed -ri 's#(location[[:space:]]*=[[:space:]]*)/sub([[:space:]]*\{)#\1/sub-'"${MASTER_SUB_TOKEN}"'\2#' /etc/nginx/nginx.conf
-        sed -ri 's#(try_files[[:space:]]*)/sub([[:space:]]*=404;)#\1/sub-'"${MASTER_SUB_TOKEN}"'\2#' /etc/nginx/nginx.conf
-    fi
+# --- 高熵订阅路径注入：/sub -> /sub-<token> ---
+if [[ -n "$MASTER_SUB_TOKEN" ]]; then
+  sed -ri 's#(location[[:space:]]*=[[:space:]]*)/sub([[:space:]]*\{)#\1/sub-'"${MASTER_SUB_TOKEN}"'\2#' /etc/nginx/nginx.conf
+  sed -ri 's#(try_files[[:space:]]*)/sub([[:space:]]*=404;)#\1/sub-'"${MASTER_SUB_TOKEN}"'\2#' /etc/nginx/nginx.conf
+fi
     
     # 验证Nginx配置并重载
     log_info "验证Nginx配置..."
@@ -3590,12 +3589,11 @@ fi
 mkdir -p "${WEB_ROOT}"
 printf "%b" "$subscription_links" > "${CONFIG_DIR}/subscription.txt"
 
-# 将 Web 目录的 /sub 作为 subscription.txt 的软链接（兼容旧路径）
-# 若已存在普通文件或错误链接，先移除再创建
-if [[ -e "${WEB_ROOT}/sub" && ! -L "${WEB_ROOT}/sub" ]]; then
-  rm -f "${WEB_ROOT}/sub"
+# 只暴露高熵路径 /sub-<token>
+if [[ -z "$master_sub_token" ]]; then
+  log_error "master_sub_token 缺失，无法创建高熵订阅路径"; return 1
 fi
-ln -sfn "${CONFIG_DIR}/subscription.txt" "${WEB_ROOT}/sub"
+ln -sfn "${CONFIG_DIR}/subscription.txt" "${WEB_ROOT}/sub-${master_sub_token}"
 
 # 新的高熵管理员订阅路径 /sub-<token>
 if [[ -n "$master_sub_token" ]]; then
@@ -3620,7 +3618,7 @@ chmod 644 "${CONFIG_DIR}/subscription.txt"
     log_success "订阅链接生成完成"
     log_info "订阅文件位置:"
     log_info "├─ 明文: ${CONFIG_DIR}/subscription.txt"
-    log_info "├─ Web: ${WEB_ROOT}/sub"
+    log_info "├─ Web: ${WEB_ROOT}/sub-${master_sub_token}"
     log_info "└─ Base64: ${CONFIG_DIR}/subscription.base64"
     
     # 显示生成的协议数量
@@ -4663,6 +4661,7 @@ get_secrets_info() {
                 private_key: (.reality.private_key // ""),
                 short_id: (.reality.short_id // "")
             }
+			master_sub_token: (.master_sub_token // ""),
         }' "$SERVER_JSON" 2>/dev/null || echo "{}")
     fi
     
@@ -4800,6 +4799,10 @@ generate_dashboard_data() {
         host_or_ip=$(jq -r '.server_ip // "127.0.0.1"' "${CONFIG_DIR}/server.json" 2>/dev/null || echo "127.0.0.1")
     fi
     # <<< 修复点结束 >>>
+	
+	# 读取 Token（用于拼接订阅URL）
+local master_sub_token
+master_sub_token=$(jq -r '.master_sub_token // empty' "${CONFIG_DIR}/server.json" 2>/dev/null)
 
     # 1. 优先执行健康检查，确保 protocol-health.json 是最新的
     if [[ -x "${SCRIPTS_DIR}/protocol-health-monitor.sh" ]]; then
@@ -4844,9 +4847,12 @@ services_info=$(
         --argjson subscription "$subscription_info" \
         --argjson secrets "$secrets_info" \
         --arg host_or_ip "$host_or_ip" \
+		--arg master_sub_token "$master_sub_token" \
         '{
             updated_at: $timestamp,
-            subscription_url: ("http://" + $host_or_ip + "/sub"),
+            subscription_url: ( ($master_sub_token|length) > 0 
+                    ? ("http://" + $host_or_ip + "/sub-" + $master_sub_token)
+                    : ("http://" + $host_or_ip + "/sub") ),
             server: ($system + {cert: $cert}),
             services: $services,
             protocols: $protocols,
@@ -10295,7 +10301,12 @@ function showConfigModal(protocolKey) {
   if (protocolKey === '__SUBS__') {
     // ... (整包订阅部分逻辑不变)
     const subsUrl = get(dd, 'subscription_url', '') ||
-                    (get(dd, 'server.server_ip', '') ? `http://${get(dd, 'server.server_ip')}/sub` : '');
+                (get(dd, 'server.server_ip', '') 
+                  ? ('http://' + get(dd, 'server.server_ip') + '/' + 
+                     (get(dd, 'secrets.master_sub_token', '') 
+                       ? ('sub-' + get(dd, 'secrets.master_sub_token')) 
+                       : 'sub'))
+                  : '');
     const plain6 = get(dd, 'subscription.plain', '');
     const base64 = get(dd, 'subscription.base64', '') || (plain6 ? toB64(plain6) : '');
 
