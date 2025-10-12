@@ -1,6 +1,14 @@
 #!/bin/bash
 
 #############################################
+# Transcribed & Tidy Copy (STANDARD MODE)
+# - No semantic/behavior changes
+# - Only formatting hygiene: line-endings LF, trailing spaces trimmed, single EOF newline
+# - Generated at 2025-10-12 05:14:25
+#############################################
+
+
+#############################################
 # EdgeBox 企业级多协议节点部署脚本 v3.0.0
 # 模块1：脚本头部+基础函数
 #
@@ -12172,19 +12180,19 @@ show_sub(){
   fi
 
   echo
-  echo -e "${YELLOW}# 订阅URL${NC}${DIM}(复制此链接到客户端订阅地址)${NC}"
+  echo -e "${YELLOW}# 订阅URL${NC}${DIM}(复制此订阅地址到客户端)${NC}"
   echo -e "  ${GREEN}${sub_url}${NC}"
   echo
 
   if [[ -s "$txt_file" ]]; then
-    echo -e "${YELLOW}# 明文链接${NC}"
+    echo -e "${YELLOW}# 明文链接:${NC}"
     cat "$txt_file"; echo
   else
     log_warn "未能生成或找到明文订阅文件。"
   fi
 
   if [[ -s "$b64_file" ]]; then
-    echo -e "${YELLOW}# Base64链接${NC}"
+    echo -e "${YELLOW}# Base64链接:${NC}"
     cat "$b64_file"; echo; echo
   fi
 }
