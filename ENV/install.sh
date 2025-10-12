@@ -12398,7 +12398,14 @@ sub_issue(){
 
 sub_revoke(){
   local user="$1"
-  [[ -z "$user" ]] && { echo "用法: edgeboxctl sub revoke <user>"; return 1; }
+  local force=false
+  
+  # 检查是否存在 --force 或 --immediate 标志
+  if [[ "$2" == "--force" || "$2" == "--immediate" ]]; then
+    force=true
+  fi
+
+  [[ -z "$user" ]] && { echo "用法: edgeboxctl sub revoke <user> [--force]"; return 1; }
   ensure_sub_dirs || return 1
 
   local token
@@ -12411,7 +12418,21 @@ sub_revoke(){
     .users[$u].active = false
     | .users[$u].revoked_at = $now' || return 1
 
-  echo "[OK] 已停用 <$user> 的订阅"
+  echo "[OK] 已停用 <$user> 的订阅链接。"
+  
+  # ==================== 关键决策逻辑 ====================
+  if [[ "$force" == "true" ]]; then
+    # 紧急模式：立即轮换，0小时宽限期
+    echo "[WARN] 启动紧急模式！正在立即轮换全局凭据..."
+    regenerate_uuid 0
+    echo -e "${RED}[SUCCESS] 全局凭据已立即更新！所有用户（包括管理员）都需要更新订阅才能重新连接。${NC}"
+  else
+    # 标准模式：24小时无缝轮换
+    echo "[INFO] 正在启动24小时无缝凭据轮换..."
+    regenerate_uuid 24
+    echo "[SUCCESS] 无缝轮换已启动。被撤销的用户将在24小时后被阻止，其他用户无影响。"
+  fi
+  # ======================================================
 }
 
 sub_limit(){
