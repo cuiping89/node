@@ -11394,7 +11394,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
     </div>
 
 <div class="command-section">
-      <h3>👥 独立用户订阅 (User Subscriptions)</h3>
+      <h3>🔗 独立用户订阅URL</h3>
       <div class="command-list">
         <code>edgeboxctl sub issue &lt;user&gt; [limit]</code> <span># 为指定用户下发专属订阅链接</span>
         <code>edgeboxctl sub show &lt;user&gt;</code> <span># 查看用户订阅及已绑定的设备</span>
