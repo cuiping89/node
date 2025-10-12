@@ -4790,7 +4790,6 @@ collect_notifications() {
 generate_dashboard_data() {
     log_info "开始生成Dashboard数据..."
 
-    # <<< 修复点 1: 同样增加动态主机判断逻辑 >>>
     local host_or_ip
     local cert_mode_file="${CONFIG_DIR}/cert_mode"
     if [[ -f "$cert_mode_file" ]] && grep -q "letsencrypt:" "$cert_mode_file"; then
@@ -4798,13 +4797,10 @@ generate_dashboard_data() {
     else
         host_or_ip=$(jq -r '.server_ip // "127.0.0.1"' "${CONFIG_DIR}/server.json" 2>/dev/null || echo "127.0.0.1")
     fi
-    # <<< 修复点结束 >>>
 	
-	# 读取 Token（用于拼接订阅URL）
-local master_sub_token
-master_sub_token=$(jq -r '.master_sub_token // empty' "${CONFIG_DIR}/server.json" 2>/dev/null)
+	local master_sub_token
+    master_sub_token=$(jq -r '.master_sub_token // empty' "${CONFIG_DIR}/server.json" 2>/dev/null)
 
-    # 1. 优先执行健康检查，确保 protocol-health.json 是最新的
     if [[ -x "${SCRIPTS_DIR}/protocol-health-monitor.sh" ]]; then
         log_info "正在刷新协议健康状态..."
         "${SCRIPTS_DIR}/protocol-health-monitor.sh" >/dev/null 2>&1 || log_warn "协议健康检查失败"
@@ -4823,20 +4819,20 @@ master_sub_token=$(jq -r '.master_sub_token // empty' "${CONFIG_DIR}/server.json
     subscription_info=$(get_subscription_info)
     secrets_info=$(get_secrets_info)
 
-services_info=$(
-  jq -n \
-    --arg nstat "$(systemctl is-active --quiet nginx    && echo '运行中 √' || echo '已停止')" \
-    --arg xstat "$(systemctl is-active --quiet xray     && echo '运行中 √' || echo '已停止')" \
-    --arg sstat "$(systemctl is-active --quiet sing-box && echo '运行中 √' || echo '已停止')" \
-    --arg nver  "$(nginx -v 2>&1 | grep -oE '[0-9]+(\.[0-9]+)+' | head -1)" \
-    --arg xver  "$((xray -version 2>/dev/null || xray version 2>/dev/null) | head -n1 | grep -Eo 'v?[0-9]+(\.[0-9]+)+' | head -1)" \
-    --arg sver  "$(sing-box version 2>/dev/null | head -n1 | grep -oE '[0-9]+(\.[0-9]+)+' | head -1)" \
-    '{nginx:{status:$nstat,version:$nver},
-      xray:{status:$xstat,version:$xver},
-      "sing-box":{status:$sstat,version:$sver}}'
-)
+    services_info=$(
+      jq -n \
+        --arg nstat "$(systemctl is-active --quiet nginx    && echo '运行中 √' || echo '已停止')" \
+        --arg xstat "$(systemctl is-active --quiet xray     && echo '运行中 √' || echo '已停止')" \
+        --arg sstat "$(systemctl is-active --quiet sing-box && echo '运行中 √' || echo '已停止')" \
+        --arg nver  "$(nginx -v 2>&1 | grep -oE '[0-9]+(\.[0-9]+)+' | head -1)" \
+        --arg xver  "$((xray -version 2>/dev/null || xray version 2>/dev/null) | head -n1 | grep -Eo 'v?[0-9]+(\.[0-9]+)+' | head -1)" \
+        --arg sver  "$(sing-box version 2>/dev/null | head -n1 | grep -oE '[0-9]+(\.[0-9]+)+' | head -1)" \
+        '{nginx:{status:$nstat,version:$nver},
+          xray:{status:$xstat,version:$xver},
+          "sing-box":{status:$sstat,version:$sver}}'
+    )
 
-    # <<< 修复点 2: 将动态主机名传入jq并使用 >>>
+    # --- 修复点：将 C 风格的三元运算符 A ? B : C 改为 jq 的 if-then-else-end ---
     jq -n \
         --arg timestamp "$timestamp" \
         --argjson system "$system_info" \
@@ -4850,9 +4846,12 @@ services_info=$(
 		--arg master_sub_token "$master_sub_token" \
         '{
             updated_at: $timestamp,
-            subscription_url: ( ($master_sub_token|length) > 0 
-                    ? ("http://" + $host_or_ip + "/sub-" + $master_sub_token)
-                    : ("http://" + $host_or_ip + "/sub") ),
+            subscription_url: (
+                if ($master_sub_token | length) > 0
+                then ("http://" + $host_or_ip + "/sub-" + $master_sub_token)
+                else ("http://" + $host_or_ip + "/sub")
+                end
+            ),
             server: ($system + {cert: $cert}),
             services: $services,
             protocols: $protocols,
@@ -4860,7 +4859,7 @@ services_info=$(
             subscription: $subscription,
             secrets: $secrets
         }' > "${TRAFFIC_DIR}/dashboard.json.tmp"
-    # <<< 修复点结束 >>>
+    # --- 修复结束 ---
 
     if [[ -s "${TRAFFIC_DIR}/dashboard.json.tmp" ]]; then
         mv "${TRAFFIC_DIR}/dashboard.json.tmp" "${TRAFFIC_DIR}/dashboard.json"
