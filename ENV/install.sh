@@ -529,7 +529,7 @@ install_dependencies() {
     fi
 
     # 依赖列表
-    local base_packages=(curl wget unzip gawk ca-certificates jq bc uuid-runtime dnsutils openssl tar cron)
+    local base_packages=(curl wget unzip gawk ca-certificates jq bc uuid-runtime dnsutils openssl tar cron at)
     local network_packages=(vnstat nftables)
     local web_packages=(nginx)
     local cert_mail_packages=(certbot msmtp-mta bsd-mailx)
@@ -12702,57 +12702,114 @@ PLAIN
   log_success "IP mode subscription updated successfully."
 }
 
-# === [CORRECTED] SNI Update Logic with Dashboard Refresh ===
+
+# - 这是对 update_sni_domain() 的“同名替换”，支持 SNI 24 小时宽限期并行。
+# - 订阅文件将仅包含新的 SNI（serverNames[0]），但服务端在宽限期内同时接受旧 SNI。
+# - 若 at/atd 不可用，会给出“手动清理命令”提示，不影响即时切换。
+
 update_sni_domain() {
     local new_domain="$1"
-    local temp_config="${XRAY_CONFIG}.tmp"
+    local grace_hours="24"
+    local tmp="${XRAY_CONFIG}.tmp"
 
-    sni_log_info "Preparing to update SNI to: $new_domain"
+    if [[ -z "$new_domain" ]]; then
+        log_error "[SNI] update_sni_domain: 缺少新域名参数"; return 1
+    fi
+
+    # 获取当前 SNI：优先 serverNames[0]，回退 dest 主机名
+    local old_domain
+    old_domain="$(jq -r '
+      first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.serverNames[0])
+      // (first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.dest)
+          | select(.) | split(":")[0])
+      // empty
+    ' "$XRAY_CONFIG" 2>/dev/null)"
+
+    log_info "[SNI] 无缝轮换开始：${old_domain:-<无>} -> ${new_domain}（宽限期 ${grace_hours}h）"
     cp "$XRAY_CONFIG" "${XRAY_CONFIG}.backup.$(date +%s)" 2>/dev/null || true
 
-    if jq --arg domain "$new_domain" '
-      (.inbounds[] | select(.tag=="vless-reality") | .streamSettings.realitySettings.dest) = ($domain + ":443") |
-      (.inbounds[] | select(.tag=="vless-reality") | .streamSettings.realitySettings.serverNames) |= ( (.[0] = $domain) // [$domain] )
-    ' "$XRAY_CONFIG" > "$temp_config"; then
-        if jq empty "$temp_config" >/dev/null 2>&1; then
-            mv "$temp_config" "$XRAY_CONFIG"
-            sni_log_success "Xray config file updated successfully."
-            if reload_or_restart_services xray; then
-                sni_log_success "Xray service has been reloaded."
+    # 并行策略：
+    # - dest 立即切到新域名:443
+    # - serverNames = [新] + 去重(历史列表)，若旧与新不同则把旧也纳入（居后）；订阅生成只取第一个（新）。
+    if jq --arg new "$new_domain" --arg old "${old_domain:-}" '
+      .inbounds |= map(
+        if .tag=="vless-reality" then
+          .streamSettings.realitySettings.dest = ($new + ":443")
+          |
+          (.streamSettings.realitySettings.serverNames =
+            ( [ $new ] + (
+                (.streamSettings.realitySettings.serverNames // [])
+                | map(select(. != $new and . != ""))
+                | (if ($old != "" and $old != $new) then [ $old ] + . else . end)
+              )
+            ) | unique
+          )
+        else . end
+      )
+    ' "$XRAY_CONFIG" > "$tmp"; then
+        mv "$tmp" "$XRAY_CONFIG"
+    else
+        log_error "[SNI] 生成新配置失败（jq 阶段）"; rm -f "$tmp"; return 1
+    fi
 
-                sni_log_info "SNI changed, refreshing subscription file..."
-                local mode domain
-                mode=$(get_current_cert_mode 2>/dev/null || echo self-signed)
-                if [[ "$mode" == "self-signed" ]]; then
-                  regen_sub_ip
-                else
-                  domain="${mode##*:}"
-                  [[ -n "$domain" ]] && regen_sub_domain "$domain" || regen_sub_ip
-                fi
-                sni_log_success "Subscription file refreshed."
+    # 重载：新旧 SNI 并行生效
+    if reload_or_restart_services xray; then
+        log_success "[SNI] Xray 已重载（新旧 SNI 并行）"
+    else
+        log_error "[SNI] Xray 重载失败"; return 1
+    fi
 
-                # <<< FINAL FIX: Immediately refresh the dashboard data file after changes >>>
-                log_info "正在刷新Web面板数据..."
-                if [[ -x "${SCRIPTS_DIR}/dashboard-backend.sh" ]]; then
-                    bash "${SCRIPTS_DIR}/dashboard-backend.sh" --now >/dev/null 2>&1 || log_warn "Dashboard data refresh failed."
-                    log_success "Web面板数据已刷新。"
-                fi
+    # 刷新订阅（只含新 SNI = serverNames[0]）
+    local mode; mode="$(get_current_cert_mode 2>/dev/null || echo self-signed)"
+    if [[ "$mode" == "self-signed" ]]; then
+        regen_sub_ip
+    else
+        local domain="${mode##*:}"
+        [[ -n "$domain" ]] && regen_sub_domain "$domain" || regen_sub_ip
+    fi
+    log_success "[SNI] 订阅文件已刷新（仅含新 SNI：$new_domain）"
 
-                return 0
-            else
-                sni_log_error "Xray service failed to reload."
-                return 1
-            fi
-        else
-            sni_log_error "Generated Xray config has invalid JSON format."
-            rm -f "$temp_config"
-            return 1
+    # 宽限期结束后自动清除旧 SNI（从 serverNames 里剔除）
+    if [[ -n "$old_domain" && "$old_domain" != "$new_domain" ]]; then
+        local jq_cleanup_filter='
+          .inbounds |= map(
+            if .tag=="vless-reality" then
+              .streamSettings.realitySettings.serverNames |=
+                ((. // []) | map(select(. != $old and . != "")))
+            else . end
+          )'
+        local b64; b64="$(printf "%s" "$jq_cleanup_filter" | (base64 -w0 2>/dev/null || base64))"
+
+        local at_payload
+        at_payload="b64='$b64'; \
+filter=\$(echo \"\$b64\" | base64 -d); \
+jqbin=\$(command -v jq); \
+cfg='${XRAY_CONFIG}'; \
+tmp=\"\${cfg}.tmp\"; \
+\"\$jqbin\" --arg old '$old_domain' \"\$filter\" \"\$cfg\" > \"\$tmp\" \
+  && mv \"\$tmp\" \"\$cfg\" \
+  && (systemctl reload xray 2>/dev/null || systemctl restart xray 2>/dev/null || service xray reload 2>/dev/null || service xray restart 2>/dev/null) >/dev/null 2>&1"
+
+        if command -v at >/dev/null 2>&1 && systemctl is-active --quiet atd; then
+            echo "$at_payload" | at now + ${grace_hours} hours >/dev/null 2>&1 \
+              && log_success "[SNI] 已安排 ${grace_hours}h 后清理旧 SNI：$old_domain" \
+              || log_warn "[SNI] at 调度失败（将打印手动清理命令）"
+        fi
+
+        # 如 at 失败或未启用，给出可复制的手动命令
+        if ! systemctl is-active --quiet atd 2>/dev/null; then
+            log_warn "[SNI] atd 未运行，以下为手动清理命令："
+            echo "bash -lc \"${at_payload//\"/\\\"}\""
         fi
     else
-        sni_log_error "Failed to update Xray config using jq."
-        rm -f "$temp_config"
-        return 1
+        log_info "[SNI] 旧 SNI 为空或与新相同，无需清理调度"
     fi
+
+    # 刷新仪表盘（保留你现有逻辑）
+    [[ -x "${SCRIPTS_DIR}/dashboard-backend.sh" ]] && bash "${SCRIPTS_DIR}/dashboard-backend.sh" --now >/dev/null 2>&1 || true
+
+    log_success "[SNI] ✅ 无缝轮换完成：新 SNI 已生效，旧 SNI 在宽限期内继续可用"
+    return 0
 }
 
 
@@ -13343,37 +13400,74 @@ backup_restore(){
 
 # 重新生成所有协议的UUID和密码
 regenerate_uuid() {
-    log_info "重新生成所有协议凭据..."
+    local grace_hours="${1:-24}"
 
-    # 检查必要工具
-    if ! command -v uuidgen >/dev/null 2>&1 || ! command -v openssl >/dev/null 2>&1; then
-        log_error "缺少必要工具（uuidgen 或 openssl）"
-        return 1
+    log_info "重新生成所有协议凭据（无缝：并行 ${grace_hours}h 后自动清理旧凭据）..."
+
+    # 依赖检查
+    for bin in jq openssl; do
+      command -v "$bin" >/dev/null 2>&1 || { log_error "缺少必要工具：$bin"; return 1; }
+    done
+    if ! command -v uuidgen >/dev/null 2>&1; then
+      log_warn "未找到 uuidgen，将使用 openssl 生成 32 位十六进制 UUID"
     fi
 
-    # 重新生成所有UUID
-    local NEW_UUID_VLESS_REALITY=$(uuidgen)
-    local NEW_UUID_VLESS_GRPC=$(uuidgen)
-    local NEW_UUID_VLESS_WS=$(uuidgen)
-    local NEW_UUID_TUIC=$(uuidgen)
-    local NEW_UUID_HYSTERIA2=$(uuidgen)
-    local NEW_UUID_TROJAN=$(uuidgen)
+    # 文件路径
+    local server_json="${CONFIG_DIR}/server.json"
+    local xray_json="${CONFIG_DIR}/xray.json"
+    local sbox_json="${CONFIG_DIR}/sing-box.json"
+    local XRAY_CFG_PATH="${XRAY_CONFIG:-$xray_json}"
 
-    # 重新生成所有密码
-    local NEW_PASSWORD_HYSTERIA2=$(openssl rand -base64 32 | tr -d '\n')
-    local NEW_PASSWORD_TUIC=$(openssl rand -base64 32 | tr -d '\n')
-    local NEW_PASSWORD_TROJAN=$(openssl rand -base64 32 | tr -d '\n')
+    # 读取旧凭据（用于 at 清理）
+    local OLD_UUID_VLESS_REALITY OLD_UUID_VLESS_GRPC OLD_UUID_VLESS_WS OLD_PASS_TROJAN OLD_UUID_TUIC OLD_PASS_TUIC OLD_PASS_HYSTERIA2
+    if [[ -f "$server_json" ]]; then
+      OLD_UUID_VLESS_REALITY="$(jq -r '.uuid.vless.reality // empty' "$server_json" 2>/dev/null)"
+      OLD_UUID_VLESS_GRPC="$(jq -r '.uuid.vless.grpc // empty' "$server_json" 2>/dev/null)"
+      OLD_UUID_VLESS_WS="$(jq -r '.uuid.vless.ws // empty' "$server_json" 2>/dev/null)"
+      OLD_UUID_TUIC="$(jq -r '.uuid.tuic // empty' "$server_json" 2>/dev/null)"
+      OLD_PASS_HYSTERIA2="$(jq -r '.password.hysteria2 // empty' "$server_json" 2>/dev/null)"
+      OLD_PASS_TUIC="$(jq -r '.password.tuic // empty' "$server_json" 2>/dev/null)"
+      OLD_PASS_TROJAN="$(jq -r '.password.trojan // empty' "$server_json" 2>/dev/null)"
+    fi
 
-    # 验证生成结果
+    # 生成新凭据
+    local NEW_UUID_VLESS_REALITY NEW_UUID_VLESS_GRPC NEW_UUID_VLESS_WS NEW_UUID_TUIC NEW_UUID_HYSTERIA2 NEW_UUID_TROJAN
+    local NEW_PASSWORD_HYSTERIA2 NEW_PASSWORD_TUIC NEW_PASSWORD_TROJAN
+
+    if command -v uuidgen >/dev/null 2>&1; then
+      NEW_UUID_VLESS_REALITY=$(uuidgen)
+      NEW_UUID_VLESS_GRPC=$(uuidgen)
+      NEW_UUID_VLESS_WS=$(uuidgen)
+      NEW_UUID_TUIC=$(uuidgen)
+      NEW_UUID_HYSTERIA2=$(uuidgen)
+      NEW_UUID_TROJAN=$(uuidgen)
+    else
+      NEW_UUID_VLESS_REALITY=$(openssl rand -hex 16)
+      NEW_UUID_VLESS_GRPC=$(openssl rand -hex 16)
+      NEW_UUID_VLESS_WS=$(openssl rand -hex 16)
+      NEW_UUID_TUIC=$(openssl rand -hex 16)
+      NEW_UUID_HYSTERIA2=$(openssl rand -hex 16)
+      NEW_UUID_TROJAN=$(openssl rand -hex 16)
+    fi
+
+    NEW_PASSWORD_HYSTERIA2=$(openssl rand -base64 32 | tr -d '\n')
+    NEW_PASSWORD_TUIC=$(openssl rand -base64 32 | tr -d '\n')
+    NEW_PASSWORD_TROJAN=$(openssl rand -base64 32 | tr -d '\n')
+
+    # 基本校验
     if [[ -z "$NEW_UUID_VLESS_REALITY" || -z "$NEW_PASSWORD_HYSTERIA2" ]]; then
-        log_error "凭据生成失败"
-        return 1
+      log_error "凭据生成失败"; return 1
     fi
 
-    # 更新 server.json 使用 jq
-    log_info "更新 server.json..."
-    local temp_file="${CONFIG_DIR}/server.json.tmp"
-    if jq \
+    # 备份配置
+    [[ -f "$XRAY_CFG_PATH" ]] && cp "$XRAY_CFG_PATH" "${XRAY_CFG_PATH}.backup.$(date +%s)" 2>/dev/null || true
+    [[ -f "$sbox_json"   ]] && cp "$sbox_json"   "${sbox_json}.backup.$(date +%s)" 2>/dev/null || true
+
+    # --- 更新 server.json：只写“新”值，订阅将只下发新凭据 ---
+    if [[ -f "$server_json" ]]; then
+      log_info "更新 server.json..."
+      local tmp_srv="${server_json}.tmp"
+      if jq \
         --arg uuid_reality "$NEW_UUID_VLESS_REALITY" \
         --arg uuid_grpc "$NEW_UUID_VLESS_GRPC" \
         --arg uuid_ws "$NEW_UUID_VLESS_WS" \
@@ -13384,70 +13478,105 @@ regenerate_uuid() {
         --arg pass_tuic "$NEW_PASSWORD_TUIC" \
         --arg pass_trojan "$NEW_PASSWORD_TROJAN" \
         '.uuid.vless.reality = $uuid_reality |
-         .uuid.vless.grpc = $uuid_grpc |
-         .uuid.vless.ws = $uuid_ws |
-         .uuid.tuic = $uuid_tuic |
-         .uuid.hysteria2 = $uuid_hysteria2 |
-         .uuid.trojan = $uuid_trojan |
+         .uuid.vless.grpc    = $uuid_grpc |
+         .uuid.vless.ws      = $uuid_ws |
+         .uuid.tuic          = $uuid_tuic |
+         .uuid.hysteria2     = $uuid_hysteria2 |
+         .uuid.trojan        = $uuid_trojan |
          .password.hysteria2 = $pass_hysteria2 |
-         .password.tuic = $pass_tuic |
-         .password.trojan = $pass_trojan |
-         .updated_at = (now | todate)' \
-        "${CONFIG_DIR}/server.json" > "$temp_file"; then
-        mv "$temp_file" "${CONFIG_DIR}/server.json"
-        log_success "server.json 中的密码已更新"
+         .password.tuic      = $pass_tuic |
+         .password.trojan    = $pass_trojan |
+         .updated_at         = (now | todate)' \
+        "$server_json" > "$tmp_srv"; then
+        mv "$tmp_srv" "$server_json"
+        log_success "server.json 已更新为新凭据（订阅将只含新值）"
+      else
+        rm -f "$tmp_srv"; log_error "更新 server.json 失败"; return 1
+      fi
     else
-        log_error "更新 server.json 失败"
-        rm -f "$temp_file"
-        return 1
+      log_warn "未找到 server.json，跳过订阅侧凭据更新"
     fi
 
-    # 更新 Xray 配置
-    if [[ -f "${CONFIG_DIR}/xray.json" ]]; then
-        log_info "更新 Xray 配置..."
-        local xray_temp="${CONFIG_DIR}/xray.json.tmp"
-        if jq \
-            --arg uuid_reality "$NEW_UUID_VLESS_REALITY" \
-            --arg uuid_grpc "$NEW_UUID_VLESS_GRPC" \
-            --arg uuid_ws "$NEW_UUID_VLESS_WS" \
-            --arg pass_trojan "$NEW_PASSWORD_TROJAN" \
-            '(.inbounds[] | select(.tag=="vless-reality") | .settings.clients[0].id) = $uuid_reality |
-             (.inbounds[] | select(.tag=="vless-grpc") | .settings.clients[0].id) = $uuid_grpc |
-             (.inbounds[] | select(.tag=="vless-ws") | .settings.clients[0].id) = $uuid_ws |
-             (.inbounds[] | select(.tag=="trojan-tcp") | .settings.clients[0].password) = $pass_trojan' \
-            "${CONFIG_DIR}/xray.json" > "$xray_temp"; then
-            mv "$xray_temp" "${CONFIG_DIR}/xray.json"
-            log_success "Xray 配置已更新"
-        else
-            log_warn "更新 Xray 配置失败，可能配置结构不同"
-            rm -f "$xray_temp"
-        fi
+    # --- Xray：为 vless-* 与 trojan-tcp 追加“新用户”，实现并行 ---
+    if [[ -f "$XRAY_CFG_PATH" ]]; then
+      log_info "更新 Xray（并行新增新用户）..."
+      local tmp_x="$XRAY_CFG_PATH.tmp"
+      if jq \
+        --arg nu_reality "$NEW_UUID_VLESS_REALITY" \
+        --arg nu_grpc    "$NEW_UUID_VLESS_GRPC" \
+        --arg nu_ws      "$NEW_UUID_VLESS_WS" \
+        --arg np_trojan  "$NEW_PASSWORD_TROJAN" \
+        '
+        .inbounds |= map(
+          if .tag=="vless-reality" then
+            if ((.settings.clients // []) | length) > 0
+            then .settings.clients += [ (.settings.clients[0] | .id = $nu_reality) ]
+            else .settings.clients = [ {"id": $nu_reality, "flow":"xtls-rprx-vision"} ]
+            end
+          elif .tag=="vless-grpc" then
+            if ((.settings.clients // []) | length) > 0
+            then .settings.clients += [ (.settings.clients[0] | .id = $nu_grpc) ]
+            else .settings.clients = [ {"id": $nu_grpc} ]
+            end
+          elif .tag=="vless-ws" then
+            if ((.settings.clients // []) | length) > 0
+            then .settings.clients += [ (.settings.clients[0] | .id = $nu_ws) ]
+            else .settings.clients = [ {"id": $nu_ws} ]
+            end
+          elif .tag=="trojan-tcp" then
+            if ((.settings.clients // []) | length) > 0
+            then .settings.clients += [ (.settings.clients[0] | .password = $np_trojan) ]
+            else .settings.clients = [ {"password": $np_trojan} ]
+            end
+          else . end
+        )
+        ' "$XRAY_CFG_PATH" > "$tmp_x" && jq empty "$tmp_x" >/dev/null 2>&1; then
+        mv "$tmp_x" "$XRAY_CFG_PATH"
+        log_success "Xray：新旧用户并行已写入"
+      else
+        rm -f "$tmp_x"; log_warn "更新 Xray 失败（配置结构可能不同）"
+      fi
     fi
 
-    # 更新 sing-box 配置
-    if [[ -f "${CONFIG_DIR}/sing-box.json" ]]; then
-        log_info "更新 sing-box 配置..."
-        local singbox_temp="${CONFIG_DIR}/sing-box.json.tmp"
-        if jq \
-            --arg uuid_tuic "$NEW_UUID_TUIC" \
-            --arg pass_tuic "$NEW_PASSWORD_TUIC" \
-            --arg pass_hysteria2 "$NEW_PASSWORD_HYSTERIA2" \
-            '(.inbounds[] | select(.type=="tuic") | .users[0].uuid) = $uuid_tuic |
-             (.inbounds[] | select(.type=="tuic") | .users[0].password) = $pass_tuic |
-             (.inbounds[] | select(.type=="hysteria2") | .users[0].password) = $pass_hysteria2' \
-            "${CONFIG_DIR}/sing-box.json" > "$singbox_temp"; then
-            mv "$singbox_temp" "${CONFIG_DIR}/sing-box.json"
-            log_success "sing-box 配置已更新"
-        else
-            log_warn "更新 sing-box 配置失败，可能配置结构不同"
-            rm -f "$singbox_temp"
-        fi
+    # --- sing-box：为 tuic/hysteria2 追加“新用户”，实现并行 ---
+    if [[ -f "$sbox_json" ]]; then
+      log_info "更新 sing-box（并行新增新用户）..."
+      local tmp_s="$sbox_json.tmp"
+      if jq \
+        --arg tu_uuid "$NEW_UUID_TUIC" \
+        --arg tu_pass "$NEW_PASSWORD_TUIC" \
+        --arg hy2_pass "$NEW_PASSWORD_HYSTERIA2" \
+        '
+        .inbounds |= map(
+          if .type=="tuic" then
+            if ((.users // []) | length) > 0
+            then .users += [ (.users[0] | .uuid = $tu_uuid | .password = $tu_pass) ]
+            else .users = [ {"uuid": $tu_uuid, "password": $tu_pass} ]
+            end
+          elif .type=="hysteria2" then
+            if ((.users // []) | length) > 0
+            then .users += [ (.users[0] | .password = $hy2_pass) ]
+            else .users = [ {"password": $hy2_pass} ]
+            end
+          else . end
+        )
+        ' "$sbox_json" > "$tmp_s" && jq empty "$tmp_s" >/dev/null 2>&1; then
+        mv "$tmp_s" "$sbox_json"
+        log_success "sing-box：新旧用户并行已写入"
+      else
+        rm -f "$tmp_s"; log_warn "更新 sing-box 失败（配置结构可能不同）"
+      fi
     fi
 
-    # 重新生成订阅链接
-    log_info "重新生成订阅链接..."
+    # --- 立刻重载服务：新旧并行生效 ---
+    log_info "重载代理服务（并行生效）..."
+    if reload_or_restart_services xray sing-box; then
+      log_success "服务重载成功（新旧并行）"
+    else
+      log_warn "服务重载失败，请手动检查"
+    fi
 
-    # 加载新凭据到环境变量（供订阅生成函数使用）
+    # --- 导出新凭据供订阅函数使用，并刷新订阅（只含新值） ---
     export UUID_VLESS_REALITY="$NEW_UUID_VLESS_REALITY"
     export UUID_VLESS_GRPC="$NEW_UUID_VLESS_GRPC"
     export UUID_VLESS_WS="$NEW_UUID_VLESS_WS"
@@ -13456,59 +13585,128 @@ regenerate_uuid() {
     export PASSWORD_TUIC="$NEW_PASSWORD_TUIC"
     export PASSWORD_TROJAN="$NEW_PASSWORD_TROJAN"
 
-    # 重新生成订阅（根据当前证书模式）
-    local mode
-    mode="$(get_current_cert_mode 2>/dev/null || echo self-signed)"
+    log_info "重新生成订阅（仅含新凭据）..."
+    local mode; mode="$(get_current_cert_mode 2>/dev/null || echo self-signed)"
     if [[ "$mode" == "self-signed" ]]; then
-        regen_sub_ip
+      regen_sub_ip
     else
-        local domain="${mode##*:}"
-        if [[ -n "$domain" ]]; then
-            regen_sub_domain "$domain"
-        else
-            regen_sub_ip
-        fi
+      local domain="${mode##*:}"
+      [[ -n "$domain" ]] && regen_sub_domain "$domain" || regen_sub_ip
+    fi
+    log_success "订阅已刷新（仅新凭据）"
+
+    # --- 调度清理任务（到点移除旧用户并重载） ---
+    if command -v at >/dev/null 2>&1 && systemctl is-active --quiet atd; then
+      log_info "安排 ${grace_hours}h 后自动清理旧凭据..."
+
+      # 通用 at 任务函数（内联，避免依赖内部函数）
+      _schedule_cleanup() {
+        local cfg="$1" jq_filter="$2" var_k="$3" var_v="$4" svc="$5"
+        local b64; b64="$(printf "%s" "$jq_filter" | (base64 -w0 2>/dev/null || base64))"
+        local payload
+        payload="b64='$b64'; \
+filter=\$(echo \"\$b64\" | base64 -d); \
+jqbin=\$(command -v jq); \
+cfg='$cfg'; tmp=\"\${cfg}.tmp\"; \
+\"\$jqbin\" --arg $var_k '$var_v' \"\$filter\" \"\$cfg\" > \"\$tmp\" \
+  && mv \"\$tmp\" \"\$cfg\" \
+  && (systemctl reload $svc 2>/dev/null || systemctl restart $svc 2>/dev/null || service $svc reload 2>/dev/null || service $svc restart 2>/dev/null) >/dev/null 2>&1"
+        echo "$payload" | at now + ${grace_hours} hours >/dev/null 2>&1 || true
+      }
+
+      # Xray：按 tag 清理旧用户
+      [[ -n "$OLD_UUID_VLESS_REALITY" && "$OLD_UUID_VLESS_REALITY" != "$NEW_UUID_VLESS_REALITY" ]] && \
+      _schedule_cleanup "$XRAY_CFG_PATH" '
+        .inbounds |= map(
+          if .tag=="vless-reality" then
+            .settings.clients |= ((. // []) | map(select(.id != $old)))
+          else . end
+        )' "old" "$OLD_UUID_VLESS_REALITY" "xray"
+
+      [[ -n "$OLD_UUID_VLESS_GRPC" && "$OLD_UUID_VLESS_GRPC" != "$NEW_UUID_VLESS_GRPC" ]] && \
+      _schedule_cleanup "$XRAY_CFG_PATH" '
+        .inbounds |= map(
+          if .tag=="vless-grpc" then
+            .settings.clients |= ((. // []) | map(select(.id != $old)))
+          else . end
+        )' "old" "$OLD_UUID_VLESS_GRPC" "xray"
+
+      [[ -n "$OLD_UUID_VLESS_WS" && "$OLD_UUID_VLESS_WS" != "$NEW_UUID_VLESS_WS" ]] && \
+      _schedule_cleanup "$XRAY_CFG_PATH" '
+        .inbounds |= map(
+          if .tag=="vless-ws" then
+            .settings.clients |= ((. // []) | map(select(.id != $old)))
+          else . end
+        )' "old" "$OLD_UUID_VLESS_WS" "xray"
+
+      [[ -n "$OLD_PASS_TROJAN" && "$OLD_PASS_TROJAN" != "$NEW_PASSWORD_TROJAN" ]] && \
+      _schedule_cleanup "$XRAY_CFG_PATH" '
+        .inbounds |= map(
+          if .tag=="trojan-tcp" then
+            .settings.clients |= ((. // []) | map(select(.password != $old)))
+          else . end
+        )' "old" "$OLD_PASS_TROJAN" "xray"
+
+      # sing-box：按 type 清理旧用户
+      if [[ -f "$sbox_json" ]]; then
+        [[ -n "$OLD_UUID_TUIC" && "$OLD_UUID_TUIC" != "$NEW_UUID_TUIC" ]] && \
+        _schedule_cleanup "$sbox_json" '
+          .inbounds |= map(
+            if .type=="tuic" then
+              .users |= ((. // []) | map(select(.uuid != $old)))
+            else . end
+          )' "old" "$OLD_UUID_TUIC" "sing-box"
+
+        [[ -n "$OLD_PASS_TUIC" && "$OLD_PASS_TUIC" != "$NEW_PASSWORD_TUIC" ]] && \
+        _schedule_cleanup "$sbox_json" '
+          .inbounds |= map(
+            if .type=="tuic" then
+              .users |= ((. // []) | map(select(.password != $old)))
+            else . end
+          )' "old" "$OLD_PASS_TUIC" "sing-box"
+
+        [[ -n "$OLD_PASS_HYSTERIA2" && "$OLD_PASS_HYSTERIA2" != "$NEW_PASSWORD_HYSTERIA2" ]] && \
+        _schedule_cleanup "$sbox_json" '
+          .inbounds |= map(
+            if .type=="hysteria2" then
+              .users |= ((. // []) | map(select(.password != $old)))
+            else . end
+          )' "old" "$OLD_PASS_HYSTERIA2" "sing-box"
+      fi
+
+      log_success "清理任务已安排，将在 ${grace_hours} 小时后移除旧用户并重载服务"
+    else
+      log_warn "at/atd 不可用或未运行：不会自动清理旧凭据（并行仍然已启用）。"
+      log_warn "如需，我可以为你打印对应的手动清理命令。"
     fi
 
-    log_success "订阅链接已更新"
+    # 仪表盘刷新（若有）
+    [[ -x "${SCRIPTS_DIR}/dashboard-backend.sh" ]] && bash "${SCRIPTS_DIR}/dashboard-backend.sh" --now >/dev/null 2>&1 || true
 
-    # 重载服务
-    log_info "重载代理服务..."
-    if reload_or_restart_services xray sing-box; then
-        log_success "服务重载成功"
-    else
-        log_warn "服务重载失败，请手动检查服务状态"
-    fi
-
-    # 显示完整的新凭据
+    # 展示新凭据概览
     echo ""
     echo -e "${CYAN}════════════════════════════════════════════════════════════${NC}"
-    echo -e "${GREEN}                    🔑 新的UUID                             ${NC}"
+    echo -e "${GREEN}                    🔑 新的 UUID                             ${NC}"
     echo -e "${CYAN}════════════════════════════════════════════════════════════${NC}"
     echo -e "  ${YELLOW}VLESS Reality:${NC}  ${GREEN}$NEW_UUID_VLESS_REALITY${NC}"
     echo -e "  ${YELLOW}VLESS gRPC:${NC}     ${GREEN}$NEW_UUID_VLESS_GRPC${NC}"
     echo -e "  ${YELLOW}VLESS WS:${NC}       ${GREEN}$NEW_UUID_VLESS_WS${NC}"
     echo -e "  ${YELLOW}TUIC:${NC}           ${GREEN}$NEW_UUID_TUIC${NC}"
-    echo -e "  ${YELLOW}Hysteria2:${NC}      ${DIM}$NEW_UUID_HYSTERIA2 (备用标识)${NC}"
-    echo -e "  ${YELLOW}Trojan:${NC}         ${DIM}$NEW_UUID_TROJAN (备用标识)${NC}"
+    echo -e "  ${YELLOW}Hysteria2(UUID占位):${NC} ${DIM}$NEW_UUID_HYSTERIA2${NC}"
+    echo -e "  ${YELLOW}Trojan(UUID占位):${NC}   ${DIM}$NEW_UUID_TROJAN${NC}"
     echo ""
     echo -e "${CYAN}════════════════════════════════════════════════════════════${NC}"
-    echo -e "${GREEN}                    🔐 新的密码                             ${NC}"
+    echo -e "${GREEN}                    🔐 新的密码                              ${NC}"
     echo -e "${CYAN}════════════════════════════════════════════════════════════${NC}"
     echo -e "  ${YELLOW}Hysteria2:${NC}      ${GREEN}$NEW_PASSWORD_HYSTERIA2${NC}"
     echo -e "  ${YELLOW}TUIC:${NC}           ${GREEN}$NEW_PASSWORD_TUIC${NC}"
     echo -e "  ${YELLOW}Trojan:${NC}         ${GREEN}$NEW_PASSWORD_TROJAN${NC}"
     echo -e "${CYAN}════════════════════════════════════════════════════════════${NC}"
     echo ""
-    echo -e "${RED}⚠️  重要提示：${NC}"
-    echo -e "  ${YELLOW}1.${NC} 旧的订阅链接已失效，请通知所有用户更新订阅"
-    echo -e "  ${YELLOW}2.${NC} 新订阅地址: ${GREEN}http://$(jq -r .server_ip ${CONFIG_DIR}/server.json 2>/dev/null || echo 'YOUR_IP')/sub${NC}"
-    echo -e "  ${YELLOW}3.${NC} 查看完整订阅: ${GREEN}edgeboxctl sub${NC}"
-    echo -e "  ${YELLOW}4.${NC} 查看配置信息: ${GREEN}edgeboxctl config show${NC}"
-    echo ""
-
+    echo -e "${YELLOW}提示：${NC} 新旧凭据将并行 ${grace_hours} 小时，客户端在此期间自动更新订阅即可无感切换；到点旧凭据会自动清理。"
     return 0
 }
+
 
 show_config(){
     echo -e "${CYAN}EdgeBox 配置信息：${NC}"
