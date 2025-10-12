@@ -13742,7 +13742,7 @@ check_reality_rotation_needed() {
     # <<< FIX: Define all required variables LOCALLY to be fully self-contained >>>
     local CONFIG_DIR="/etc/edgebox/config"
     local REALITY_ROTATION_STATE="${CONFIG_DIR}/reality-rotation.json"
-    local REALITY_ROTATION_DAYS=90
+    local REALITY_ROTATION_DAYS=60
 
     local force_rotation=${1:-false}
     [[ "$force_rotation" == "true" ]] && return 0
@@ -13826,7 +13826,7 @@ update_reality_rotation_state() {
     local new_public_key="$1"
     local CONFIG_DIR="/etc/edgebox/config" # Self-contained
     local REALITY_ROTATION_STATE="${CONFIG_DIR}/reality-rotation.json"
-    local REALITY_ROTATION_DAYS=90
+    local REALITY_ROTATION_DAYS=60
 
     local current_time
     current_time=$(date -Iseconds)
