@@ -50,52 +50,6 @@ NC="${ESC}[0m"  # No Color
 
 
 #############################################
-# 智能版本管理 - 自动获取最新稳定版本
-#############################################
-
-# 获取sing-box最新稳定版本
-get_latest_sing_box_version() {
-    local fallback="1.10.3"
-    local latest=""
-    
-    # 尝试从 GitHub API 获取最新版本
-    latest=$(curl -fsSL --connect-timeout 5 --max-time 10 \
-        "https://api.github.com/repos/SagerNet/sing-box/releases/latest" 2>/dev/null \
-        | grep '"tag_name":' \
-        | sed -E 's/.*"v?([^"]+)".*/\1/' \
-        | head -1)
-    
-    # 验证版本格式
-    if [[ "$latest" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-        # 验证该版本是否真的可下载
-        local test_url="https://github.com/SagerNet/sing-box/releases/download/v${latest}/sing-box-${latest}-linux-amd64.tar.gz"
-        if curl -fsSL --head --connect-timeout 3 --max-time 5 "$test_url" >/dev/null 2>&1; then
-            echo "$latest"
-            return 0
-        fi
-    fi
-    
-    # 如果获取失败，返回稳定版本
-    log_warn "无法获取最新版本，使用稳定版本: v${fallback}"
-    echo "$fallback"
-}
-
-# 设置版本变量（支持用户覆盖）- 移除log_info调用
-if [[ -n "${DEFAULT_SING_BOX_VERSION:-}" ]]; then
-    # 用户指定了版本
-    DEFAULT_SING_BOX_VERSION="${DEFAULT_SING_BOX_VERSION}"
-    # 注意：这里移除了 log_info
-else
-    # 自动获取最新版本
-    DEFAULT_SING_BOX_VERSION=$(get_latest_sing_box_version)
-    # 注意：这里移除了 log_info
-fi
-
-# 保存版本信息到变量，稍后在日志函数定义后再输出
-SING_BOX_VERSION_SOURCE="auto"
-[[ -n "${DEFAULT_SING_BOX_VERSION:-}" ]] && SING_BOX_VERSION_SOURCE="user"
-
-#############################################
 # 下载加速配置（可通过环境变量自定义）
 #############################################
 
@@ -3875,79 +3829,6 @@ execute_module3() {
         return 1
     fi
     
-    # ========== 修复点2: 改进密码替换逻辑 ==========
-    # 替换 Nginx 配置中的密码占位符 (修复版)
-    log_info "开始应用控制面板密码到Nginx配置..."
-    
-    # 1. 多种方式获取密码,增加容错性
-    local final_passcode=""
-    
-    # 尝试1: 从环境变量获取
-    if [[ -n "$DASHBOARD_PASSCODE" && "$DASHBOARD_PASSCODE" != "null" ]]; then
-        final_passcode="$DASHBOARD_PASSCODE"
-        log_info "从环境变量获取密码: ${final_passcode}"
-    # 尝试2: 从server.json读取
-    elif [[ -f "${CONFIG_DIR}/server.json" ]]; then
-        final_passcode=$(jq -r '.dashboard_passcode // empty' "${CONFIG_DIR}/server.json" 2>/dev/null)
-        if [[ -n "$final_passcode" && "$final_passcode" != "null" ]]; then
-            log_info "从server.json读取密码: ${final_passcode}"
-        else
-            final_passcode=""
-        fi
-    fi
-    
-    # 2. 如果还是没有密码,重新生成
-    if [[ -z "$final_passcode" ]]; then
-        log_warn "未找到密码,重新生成..."
-        local random_digit=$((RANDOM % 10))
-        final_passcode="${random_digit}${random_digit}${random_digit}${random_digit}${random_digit}${random_digit}"
-        
-        # 写入server.json
-        local temp_file="${CONFIG_DIR}/server.json.tmp"
-        if jq --arg passcode "$final_passcode" '.dashboard_passcode = $passcode' "${CONFIG_DIR}/server.json" > "$temp_file"; then
-            mv "$temp_file" "${CONFIG_DIR}/server.json"
-            log_success "新密码已生成并写入: ${final_passcode}"
-        else
-            log_error "生成新密码失败"
-            rm -f "$temp_file"
-        fi
-    fi
-    
-    # 3. 验证密码有效性
-    if [[ -z "$final_passcode" || ${#final_passcode} -ne 6 ]]; then
-        log_error "密码无效或长度不正确: '${final_passcode}'"
-        log_error "Nginx配置将保留占位符,需要手动修复"
-    else
-        # 4. 执行替换
-        log_info "应用密码到Nginx配置: ${final_passcode}"
-        
-        # 创建备份
-        cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak.pre-password
-        
-        # 替换占位符
-        if sed -i "s/__DASHBOARD_PASSCODE_PH__/${final_passcode}/g" /etc/nginx/nginx.conf; then
-            log_success "密码已成功应用到Nginx配置"
-            
-            # 验证替换是否成功
-            if grep -q "__DASHBOARD_PASSCODE_PH__" /etc/nginx/nginx.conf; then
-                log_warn "警告: Nginx配置中仍存在占位符,可能替换不完整"
-            else
-                log_success "验证通过: 占位符已完全替换"
-            fi
-            
-            # 验证Nginx配置语法
-            if nginx -t 2>/dev/null; then
-                log_success "Nginx配置语法验证通过"
-            else
-                log_error "Nginx配置语法验证失败"
-                log_error "已创建备份: /etc/nginx/nginx.conf.bak.pre-password"
-            fi
-        else
-            log_error "sed替换失败"
-        fi
-    fi
-    # ========== 修复点2结束 ==========
-    
     # 任务6：生成订阅链接
     if generate_subscription; then
         log_success "✓ 订阅链接生成完成"
@@ -4511,7 +4392,6 @@ get_protocols_status() {
             elif $name == "VLESS-WebSocket" then "vless://\($conf.uuid.vless.ws)@\($domain):443?encryption=none&security=tls&sni=\($domain)&alpn=http%2F1.1&type=ws&path=/ws&fp=chrome#EdgeBox-WS"
             elif $name == "Trojan-TLS" then "trojan://\($conf.password.trojan | url_encode)@\($domain):443?security=tls&sni=trojan.\($domain)&alpn=http%2F1.1&fp=chrome#EdgeBox-TROJAN"
             elif $name == "Hysteria2" then "hysteria2://\($conf.password.hysteria2 | url_encode)@\($domain):443?sni=\($domain)&alpn=h3#EdgeBox-HYSTERIA2"
-            # <<< FIX: Corrected the stray brace from \($domain}} to \($domain) >>>
             elif $name == "TUIC" then "tuic://\($conf.uuid.tuic):\($conf.password.tuic | url_encode)@\($domain):2053?congestion_control=bbr&alpn=h3&sni=\($domain)#EdgeBox-TUIC"
             else ""
             end
@@ -15316,6 +15196,7 @@ main() {
     create_directories
 	setup_sni_pool_management
     check_ports
+	setup_firewall_rollback
     configure_firewall
     optimize_system
 
