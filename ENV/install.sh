@@ -670,165 +670,70 @@ ensure_system_services() {
 }
 
 # 创建目录结构
-create_directories() {
-    log_info "创建目录结构（幂等性保证）..."
+setup_directories() {
+    log_info "设置并验证目录结构..."
 
-    # 主要目录结构
+    # 定义目录及其权限
     local directories=(
-        "${INSTALL_DIR}"
-        "${CERT_DIR}"
-        "${CONFIG_DIR}"
-        "${CONFIG_DIR}/shunt"
-        "${TRAFFIC_DIR}"
-        "${TRAFFIC_DIR}/logs"
-        "${SCRIPTS_DIR}"
-        "${BACKUP_DIR}"
-        "/var/log/edgebox"
-        "/var/log/xray"
-        "${WEB_ROOT}"
-        "${SNI_CONFIG_DIR}"
+        "${INSTALL_DIR}:755:root:root"
+        "${CERT_DIR}:750:root:$(id -gn nobody 2>/dev/null || echo nogroup)"
+        "${CONFIG_DIR}:755:root:root"
+        "${TRAFFIC_DIR}:755:root:root"
+        "${SCRIPTS_DIR}:755:root:root"
+        "${BACKUP_DIR}:700:root:root"
+        "/var/log/edgebox:755:root:root"
+        "/var/log/xray:755:root:root"
+        "${WEB_ROOT}:755:www-data:www-data"
+        "${SNI_CONFIG_DIR}:755:root:root"
     )
 
-    # 创建所有必要目录（幂等操作）
-    local created_dirs=()
-    local existing_dirs=()
-    local failed_dirs=()
+    local errors=0
+    for item in "${directories[@]}"; do
+        local dir="${item%%:*}"
+        local perm_and_owner="${item#*:}"
+        local perm="${perm_and_owner%%:*}"
+        local owner_and_group="${perm_and_owner#*:}"
+        local owner="${owner_and_group%%:*}"
+        local group="${owner_and_group#*:}"
 
-    for dir in "${directories[@]}"; do
-        if [[ -d "$dir" ]]; then
-            log_info "✓ 目录已存在: $dir"
-            existing_dirs+=("$dir")
-        else
-            if mkdir -p "$dir" 2>/dev/null; then
-                log_success "✓ 目录创建成功: $dir"
-                created_dirs+=("$dir")
-            else
-                log_error "✗ 目录创建失败: $dir"
-                failed_dirs+=("$dir")
-            fi
+        # 1. 创建目录
+        if ! mkdir -p "$dir"; then
+            log_error "✗ 创建目录失败: $dir"
+            ((errors++))
+            continue
         fi
-    done
 
-    # 如果有目录创建失败，返回错误
-    if [[ ${#failed_dirs[@]} -gt 0 ]]; then
-        log_error "以下目录创建失败: ${failed_dirs[*]}"
-        return 1
-    fi
-
-    # [新增] 强制确保所有目录权限正确（完全幂等）
-    ensure_directory_permissions
-
-    # 验证目录可写性
-    verify_directory_writable
-
-    # 状态汇报
-    log_success "目录结构已完整建立"
-    log_info "  ├─ 已存在: ${#existing_dirs[@]} 个"
-    log_info "  ├─ 新创建: ${#created_dirs[@]} 个"
-    log_info "  └─ 失败: ${#failed_dirs[@]} 个"
-
-    return 0
-}
-
-ensure_directory_permissions() {
-    log_info "确保目录权限正确（幂等操作）..."
-
-    # 需要存在的目录及权限
-    local dir_permissions=(
-        "${INSTALL_DIR}:755"
-        "${CONFIG_DIR}:755"
-        "${SCRIPTS_DIR}:755"
-        "${TRAFFIC_DIR}:755"
-        "/var/log/edgebox:755"
-        "${WEB_ROOT}:755"
-        "${SNI_CONFIG_DIR}:755"
-        "${CERT_DIR}:750"      # 证书目录
-        "${BACKUP_DIR}:700"    # 备份目录
-    )
-
-    local permission_errors=()
-
-    for dp in "${dir_permissions[@]}"; do
-        IFS=':' read -r d perm <<< "$dp"
-        [[ -d "$d" ]] || mkdir -p "$d"
-        if chmod "$perm" "$d" 2>/dev/null; then
-            log_info "✓ 目录就绪: $d ($perm)"
-        else
-            log_error "✗ 目录权限设置失败: $d"
-            permission_errors+=("$d")
+        # 2. 设置权限和所有权
+        if ! chown "${owner}:${group}" "$dir" 2>/dev/null; then
+            log_warn "  设置所有权失败: $dir -> ${owner}:${group} (非致命错误)"
         fi
+        if ! chmod "$perm" "$dir"; then
+            log_error "✗ 设置权限失败: $dir -> $perm"
+            ((errors++))
+            continue
+        fi
+        
+        log_info "✓ 目录就绪: $dir ($perm, ${owner}:${group})"
     done
 
-    # 证书目录组权限（nobody/nogroup）
-    if [[ -d "${CERT_DIR}" ]]; then
-        local nobody_group="$(id -gn nobody 2>/dev/null || echo nogroup)"
-        chgrp "${nobody_group}" "${CERT_DIR}" 2>/dev/null || true
-    fi
-
-    # 必要日志文件（会自动创建父目录）
-    local log_files=(
-        "/var/log/edgebox-install.log"
-        "/var/log/edgebox/sing-box.log"
-        "/var/log/xray/access.log"
-        "/var/log/xray/error.log"
-    )
-    for lf in "${log_files[@]}"; do
-        mkdir -p "$(dirname "$lf")"
-        [[ -f "$lf" ]] || touch "$lf"
-        chmod 644 "$lf" 2>/dev/null || true
-        log_info "✓ 日志就绪: $lf"
-    done
-
-    if [[ ${#permission_errors[@]} -eq 0 ]]; then
-        log_success "所有目录/日志已就绪"
+    # 验证可写性
+    local test_file="${CONFIG_DIR}/.write_test_$$"
+    if ! echo "test" > "$test_file" 2>/dev/null; then
+        log_error "✗ 关键目录不可写: ${CONFIG_DIR}"
+        ((errors++))
     else
-        log_warn "部分目录权限设置失败: ${permission_errors[*]}"
+        rm -f "$test_file"
     fi
-}
-
-
-verify_directory_writable() {
-    log_info "验证目录可写性..."
-
-    # 需要写入权限的关键目录
-    local writable_dirs=(
-        "${INSTALL_DIR}"
-        "${CONFIG_DIR}"
-        "${TRAFFIC_DIR}"
-        "${SCRIPTS_DIR}"
-        "${BACKUP_DIR}"
-        "/var/log/edgebox"
-        "${WEB_ROOT}"
-    )
-
-    local write_test_errors=()
-
-    for dir in "${writable_dirs[@]}"; do
-        if [[ -d "$dir" ]]; then
-            # 创建测试文件
-            local test_file="${dir}/.write_test_$$"
-
-            if echo "test" > "$test_file" 2>/dev/null; then
-                rm -f "$test_file" 2>/dev/null
-                log_info "✓ 目录可写: $dir"
-            else
-                log_error "✗ 目录不可写: $dir"
-                write_test_errors+=("$dir")
-            fi
-        else
-            log_warn "⚠ 目录不存在: $dir"
-            write_test_errors+=("$dir")
-        fi
-    done
-
-    if [[ ${#write_test_errors[@]} -eq 0 ]]; then
-        log_success "所有关键目录写入权限验证通过"
+    
+    if [[ $errors -eq 0 ]]; then
+        log_success "目录结构设置与验证完成"
         return 0
     else
-        log_error "以下目录写入权限验证失败: ${write_test_errors[*]}"
+        log_error "目录设置过程中出现 $errors 个错误"
         return 1
     fi
 }
+
 
 verify_critical_dependencies() {
     log_info "验证关键依赖安装状态..."
@@ -1079,59 +984,39 @@ configure_firewall() {
     # 第二步：根据防火墙类型配置规则
     # ==========================================
 
-    if command -v ufw >/dev/null 2>&1; then
+        if command -v ufw >/dev/null 2>&1; then
         # ==========================================
-        # Ubuntu/Debian UFW 配置
+        # Ubuntu/Debian UFW 配置 (安全幂等模式)
         # ==========================================
-        log_info "配置UFW防火墙（SSH端口：$current_ssh_port）..."
+        log_info "以安全模式配置UFW防火墙（SSH端口：$current_ssh_port）..."
 
-        # 🔥 关键：先允许SSH，再重置，避免锁死
-        if ! ufw allow "$current_ssh_port/tcp" comment 'SSH-Emergency' >/dev/null 2>&1; then
-            log_warn "UFW SSH应急规则添加失败，但继续执行"
-        fi
+        # 1. 设置默认策略 (幂等操作)
+        ufw default deny incoming >/dev/null 2>&1
+        ufw default allow outgoing >/dev/null 2>&1
 
-        # 重置UFW规则
-        if ! ufw --force reset >/dev/null 2>&1; then
-            log_error "UFW重置失败"
-            return 1
-        fi
+        # 2. 逐条检查并添加规则，如果不存在的话
+        log_info "确保核心规则已添加..."
+        ufw status | grep -qw "${current_ssh_port}/tcp" || ufw allow "${current_ssh_port}/tcp" comment 'SSH'
+        ufw status | grep -qw '80/tcp' || ufw allow 80/tcp comment 'HTTP'
+        ufw status | grep -qw '443/tcp' || ufw allow 443/tcp comment 'HTTPS/TLS'
+        ufw status | grep -qw '443/udp' || ufw allow 443/udp comment 'Hysteria2'
+        ufw status | grep -qw '2053/udp' || ufw allow 2053/udp comment 'TUIC'
 
-        # 设置默认策略
-        if ! ufw default deny incoming >/dev/null 2>&1 || ! ufw default allow outgoing >/dev/null 2>&1; then
-            log_error "UFW默认策略设置失败"
-            return 1
-        fi
-
-        # 🔥 立即重新允许SSH（最高优先级）
-        if ! ufw allow "$current_ssh_port/tcp" comment 'SSH' >/dev/null 2>&1; then
-            log_error "UFW SSH规则添加失败"
-            return 1
-        fi
-
-        # 允许EdgeBox端口
-        ufw allow 80/tcp comment 'HTTP' >/dev/null 2>&1 || log_warn "HTTP端口配置失败"
-        ufw allow 443/tcp comment 'HTTPS/TLS' >/dev/null 2>&1 || log_warn "HTTPS TCP端口配置失败"
-
-        # 【关键】UDP 端口
-        ufw allow 443/udp comment 'Hysteria2' >/dev/null 2>&1 || log_warn "Hysteria2端口配置失败"
-        ufw allow 2053/udp comment 'TUIC' >/dev/null 2>&1 || log_warn "TUIC端口配置失败"
-
-        # 🔥 启用前最后确认SSH端口
-        if ! ufw status | grep -q "$current_ssh_port/tcp"; then
-            if ! ufw allow "$current_ssh_port/tcp" comment 'SSH-Final' >/dev/null 2>&1; then
-                log_error "最终SSH规则确认失败"
+        # 3. 如果防火墙未激活，则启用它
+        if ! ufw status | grep -q "Status: active"; then
+            log_info "UFW未激活，正在启用..."
+            if ufw --force enable; then
+                log_success "UFW已成功启用"
+            else
+                log_error "UFW启用失败"
                 return 1
             fi
+        else
+            log_info "UFW已处于激活状态"
         fi
 
-        # 启用UFW
-        if ! ufw --force enable >/dev/null 2>&1; then
-            log_error "UFW启用失败"
-            return 1
-        fi
-
-        # 🚨 验证SSH端口确实被允许
-        if ufw status | grep -q "$current_ssh_port/tcp.*ALLOW"; then
+        # 4. 最终验证SSH端口
+        if ufw status | grep -q "${current_ssh_port}/tcp.*ALLOW"; then
             log_success "UFW防火墙配置完成，SSH端口 $current_ssh_port 已确认开放"
         else
             log_error "⚠️ UFW配置完成但SSH端口状态异常，请立即检查连接"
@@ -11656,7 +11541,7 @@ evaluate_sni_domain() {
 
     # 1. 可达性
     if ! timeout 5 curl -s --connect-timeout 3 --max-time 5 "https://${domain}" >/dev/null 2>&1; then
-        echo 0
+        echo 0 # 最终分数输出到 stdout
         return
     fi
     score=$((score + 30))
@@ -12018,35 +11903,39 @@ load_config_once() {
         return 1
     fi
 
-    # 🚀 批量赋值全局变量（避免多次jq调用）
-    SERVER_IP=$(echo "$config_json" | jq -r '.server_ip')
-    SERVER_EIP=$(echo "$config_json" | jq -r '.server_eip')
-    SERVER_VERSION=$(echo "$config_json" | jq -r '.server_version')
-    INSTALL_DATE=$(echo "$config_json" | jq -r '.install_date')
+# 🚀 性能优化关键：一次性读取所有配置项
+    local vars_to_eval
+    if ! vars_to_eval=$(jq -r '
+        "SERVER_IP=\(.server_ip | @sh)\n" +
+        "SERVER_EIP=\(.eip | @sh)\n" +
+        "SERVER_VERSION=\(.version | @sh)\n" +
+        "INSTALL_DATE=\(.install_date | @sh)\n" +
+        "MASTER_SUB_TOKEN=\(.master_sub_token | @sh)\n" +
+        "UUID_VLESS_REALITY=\(.uuid.vless.reality // .uuid.vless | @sh)\n" +
+        "UUID_VLESS_GRPC=\(.uuid.vless.grpc // .uuid.vless | @sh)\n" +
+        "UUID_VLESS_WS=\(.uuid.vless.ws // .uuid.vless | @sh)\n" +
+        "UUID_TUIC=\(.uuid.tuic | @sh)\n" +
+        "UUID_HYSTERIA2=\(.uuid.hysteria2 | @sh)\n" +
+        "UUID_TROJAN=\(.uuid.trojan | @sh)\n" +
+        "PASSWORD_HYSTERIA2=\(.password.hysteria2 | @sh)\n" +
+        "PASSWORD_TUIC=\(.password.tuic | @sh)\n" +
+        "PASSWORD_TROJAN=\(.password.trojan | @sh)\n" +
+        "REALITY_PUBLIC_KEY=\(.reality.public_key | @sh)\n" +
+        "REALITY_PRIVATE_KEY=\(.reality.private_key | @sh)\n" +
+        "REALITY_SHORT_ID=\(.reality.short_id | @sh)\n" +
+        "CLOUD_PROVIDER=\(.cloud.provider | @sh)\n" +
+        "CLOUD_REGION=\(.cloud.region | @sh)\n" +
+        "INSTANCE_ID=\(.instance_id | @sh)\n" +
+        "CPU_SPEC=\(.spec.cpu | @sh)\n" +
+        "MEMORY_SPEC=\(.spec.memory | @sh)\n" +
+        "DISK_SPEC=\(.spec.disk | @sh)\n"
+    ' "$config_file" 2>/dev/null); then
+        log_error "配置文件JSON格式错误或解析失败"
+        return 1
+    fi
 
-    UUID_VLESS_REALITY=$(echo "$config_json" | jq -r '.uuid_vless_reality')
-    UUID_VLESS_GRPC=$(echo "$config_json" | jq -r '.uuid_vless_grpc')
-    UUID_VLESS_WS=$(echo "$config_json" | jq -r '.uuid_vless_ws')
-    UUID_TUIC=$(echo "$config_json" | jq -r '.uuid_tuic')
-    UUID_HYSTERIA2=$(echo "$config_json" | jq -r '.uuid_hysteria2')
-    UUID_TROJAN=$(echo "$config_json" | jq -r '.uuid_trojan')
-
-    PASSWORD_HYSTERIA2=$(echo "$config_json" | jq -r '.password_hysteria2')
-    PASSWORD_TUIC=$(echo "$config_json" | jq -r '.password_tuic')
-    PASSWORD_TROJAN=$(echo "$config_json" | jq -r '.password_trojan')
-
-    REALITY_PUBLIC_KEY=$(echo "$config_json" | jq -r '.reality_public_key')
-    REALITY_PRIVATE_KEY=$(echo "$config_json" | jq -r '.reality_private_key')
-    REALITY_SHORT_ID=$(echo "$config_json" | jq -r '.reality_short_id')
-
-    CLOUD_PROVIDER=$(echo "$config_json" | jq -r '.cloud_provider')
-    CLOUD_REGION=$(echo "$config_json" | jq -r '.cloud_region')
-    INSTANCE_ID=$(echo "$config_json" | jq -r '.instance_id')
-
-    CPU_SPEC=$(echo "$config_json" | jq -r '.cpu_spec')
-    MEMORY_SPEC=$(echo "$config_json" | jq -r '.memory_spec')
-    DISK_SPEC=$(echo "$config_json" | jq -r '.disk_spec')
-	MASTER_SUB_TOKEN=$(echo "$config_json" | jq -r '.master_sub_token')
+    # 使用eval一次性赋值所有变量，@sh确保了值的安全性
+    eval "$vars_to_eval"
 
     # 记录加载状态和时间戳
     CONFIG_LOADED=true
@@ -15201,7 +15090,7 @@ main() {
 
     show_progress 2 10 "网络与目录配置"
     get_server_ip
-    create_directories
+    setup_directories
 	setup_sni_pool_management
     check_ports
 	setup_firewall_rollback
