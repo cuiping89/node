@@ -3066,7 +3066,7 @@ configure_xray() {
                 "queryStrategy": "UseIP"
             },
             "routing": {
-                "domainStrategy": "UseIp", # <<< CORRECTED from UseIP
+                "domainStrategy": "IPOnDemand", # <<< CORRECTED from UseIP
                 "rules": [
                     { "type": "field", "ip": ["geoip:private"], "outboundTag": "block" }
                 ]
@@ -13197,16 +13197,31 @@ show_shunt_status() {
 }
 
 setup_outbound_vps() {
-    log_info "配置VPS全量出站模式..."
-    get_server_info || return 1
-    local xray_tmp="${CONFIG_DIR}/xray.json.tmp"
-    jq '.outbounds = [ { "protocol":"freedom", "tag":"direct" } ] | .routing = { "rules": [] }' "${CONFIG_DIR}/xray.json" > "$xray_tmp" && mv "$xray_tmp" "${CONFIG_DIR}/xray.json"
-    setup_shunt_directories
-    update_shunt_state "vps" "" "healthy"
-    flush_nft_resi_sets
-    post_shunt_report "VPS 全量出站" "" # Display report first
-    restart_services_background xray sing-box # Then call background restart
+  log_info "配置VPS全量出站模式..."
+  get_server_info || return 1
+
+  # 防御式修复 xray.json：若被包成字符串先解包；解析失败直接退出
+  local xcfg="${CONFIG_DIR}/xray.json"
+  local tmp="${xcfg}.tmp"
+  if jq -e 'type=="string"' "$xcfg" >/dev/null 2>&1; then
+    jq -r 'fromjson' "$xcfg" > "$tmp" || { log_error "xray.json 解包失败"; return 1; }
+    mv "$tmp" "$xcfg"
+  fi
+  jq . "$xcfg" >/dev/null 2>&1 || { log_error "xray.json 解析失败"; return 1; }
+
+  # 写入最小出站/路由骨架
+  if ! jq '.outbounds=[{"protocol":"freedom","tag":"direct"}] | .routing={"rules":[]}' "$xcfg" > "$tmp"; then
+    log_error "写入 xray.json 失败"; return 1;
+  fi
+  mv "$tmp" "$xcfg"
+
+  setup_shunt_directories
+  update_shunt_state "vps" "" "healthy"
+  flush_nft_resi_sets
+  post_shunt_report "VPS 全量出站" ""
+  restart_services_background xray sing-box
 }
+
 
 setup_outbound_resi() {
   local url="$1"
@@ -13215,34 +13230,80 @@ setup_outbound_resi() {
   if ! check_proxy_health_url "$url"; then log_error "代理不可用：$url"; return 1; fi
   get_server_info || return 1
   parse_proxy_url "$url"
-  local xob
-  xob="$(build_xray_resi_outbound)"
-  jq --argjson ob "$xob" '.outbounds=[{"protocol":"freedom","tag":"direct"}, $ob] | .routing={"domainStrategy":"AsIs","rules":[{"type":"field","port":"53","outboundTag":"direct"},{"type":"field","network":"tcp,udp","outboundTag":"resi-proxy"}]}' ${CONFIG_DIR}/xray.json > ${CONFIG_DIR}/xray.json.tmp && mv ${CONFIG_DIR}/xray.json.tmp ${CONFIG_DIR}/xray.json
-  # sing-box remains direct
+  local xob; xob="$(build_xray_resi_outbound)"
+
+  # 防御式修复 xray.json
+  local xcfg="${CONFIG_DIR}/xray.json"
+  local tmp="${xcfg}.tmp"
+  if jq -e 'type=="string"' "$xcfg" >/dev/null 2>&1; then
+    jq -r 'fromjson' "$xcfg" > "$tmp" || { log_error "xray.json 解包失败"; return 1; }
+    mv "$tmp" "$xcfg"
+  fi
+  jq . "$xcfg" >/dev/null 2>&1 || { log_error "xray.json 解析失败"; return 1; }
+
+  # 应用路由（AsIs 合法，保持你的原意）
+  if ! jq --argjson ob "$xob" \
+    '.outbounds=[{"protocol":"freedom","tag":"direct"}, $ob]
+     | .routing={"domainStrategy":"AsIs","rules":[
+         {"type":"field","port":"53","outboundTag":"direct"},
+         {"type":"field","network":"tcp,udp","outboundTag":"resi-proxy"}
+       ]}' "$xcfg" > "$tmp"; then
+    log_error "写入 xray.json 失败"; return 1;
+  fi
+  mv "$tmp" "$xcfg"
+
+  # sing-box 保持直连
   echo "$url" > "${CONFIG_DIR}/shunt/resi.conf"
   setup_shunt_directories
   update_shunt_state "resi" "$url" "healthy"
-  post_shunt_report "代理全量（Xray-only）" "$url" # Display report first
-  restart_services_background xray # Then call background restart
+  post_shunt_report "代理全量（Xray-only）" "$url"
+  restart_services_background xray
 }
+
 
 setup_outbound_direct_resi() {
   local url="$1"
   [[ -z "$url" ]] && { echo "用法: edgeboxctl shunt direct-resi '<URL>'"; return 1; }
   log_info "配置智能分流（白名单直连，其余代理）: ${url}"
   if ! check_proxy_health_url "$url"; then log_error "代理不可用：$url"; return 1; fi
-  get_server_info || return 1; setup_shunt_directories
+  get_server_info || return 1
+  setup_shunt_directories
   parse_proxy_url "$url"
-  local xob wl; xob="$(build_xray_resi_outbound)"
+
+  local xob wl
+  xob="$(build_xray_resi_outbound)"
   wl='[]'
-  [[ -s "${CONFIG_DIR}/shunt/whitelist.txt" ]] && wl="$(cat "${CONFIG_DIR}/shunt/whitelist.txt" | jq -R -s 'split("\n")|map(select(length>0))|map("domain:"+.)')"
-  jq --argjson ob "$xob" --argjson wl "$wl" '.outbounds=[{"protocol":"freedom","tag":"direct"}, $ob] | .routing={"domainStrategy":"AsIs","rules":[{"type":"field","port":"53","outboundTag":"direct"},{"type":"field","domain":$wl,"outboundTag":"direct"},{"type":"field","network":"tcp,udp","outboundTag":"resi-proxy"}]}' ${CONFIG_DIR}/xray.json > ${CONFIG_DIR}/xray.json.tmp && mv ${CONFIG_DIR}/xray.json.tmp ${CONFIG_DIR}/xray.json
-  # sing-box remains direct
+  [[ -s "${CONFIG_DIR}/shunt/whitelist.txt" ]] && \
+    wl="$(cat "${CONFIG_DIR}/shunt/whitelist.txt" | jq -R -s 'split("\n")|map(select(length>0))|map("domain:"+.)')"
+
+  # 防御式修复 xray.json
+  local xcfg="${CONFIG_DIR}/xray.json"
+  local tmp="${xcfg}.tmp"
+  if jq -e 'type=="string"' "$xcfg" >/dev/null 2>&1; then
+    jq -r 'fromjson' "$xcfg" > "$tmp" || { log_error "xray.json 解包失败"; return 1; }
+    mv "$tmp" "$xcfg"
+  fi
+  jq . "$xcfg" >/dev/null 2>&1 || { log_error "xray.json 解析失败"; return 1; }
+
+  # 应用“白名单直连，其余代理”策略
+  if ! jq --argjson ob "$xob" --argjson wl "$wl" \
+    '.outbounds=[{"protocol":"freedom","tag":"direct"}, $ob]
+     | .routing={"domainStrategy":"AsIs","rules":[
+         {"type":"field","port":"53","outboundTag":"direct"},
+         {"type":"field","domain":$wl,"outboundTag":"direct"},
+         {"type":"field","network":"tcp,udp","outboundTag":"resi-proxy"}
+       ]}' "$xcfg" > "$tmp"; then
+    log_error "写入 xray.json 失败"; return 1;
+  fi
+  mv "$tmp" "$xcfg"
+
+  # sing-box 保持直连
   echo "$url" > "${CONFIG_DIR}/shunt/resi.conf"
   update_shunt_state "direct-resi" "$url" "healthy"
-  post_shunt_report "智能分流（白名单直连）" "$url" # Display report first
-  restart_services_background xray # Then call background restart
+  post_shunt_report "智能分流（白名单直连）" "$url"
+  restart_services_background xray
 }
+
 
 manage_whitelist() {
     local action="$1"
@@ -14429,7 +14490,7 @@ help|"")
   printf "  Web 面板: http://<你的IP>/traffic/?passcode=<你的密码>\n"
   printf "  订阅链接: http://<你的IP>/sub\n"
   printf "  查看日志: tail -f /var/log/edgebox-install.log\n"
-  printf "%b\n"
+  
   ;;
 
 esac
