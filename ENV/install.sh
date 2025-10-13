@@ -13196,7 +13196,7 @@ show_shunt_status() {
     fi
 }
 
-# CORRECTED AND ROBUST VERSION
+# FINAL CORRECTED VERSION - Uses Synchronous Restart
 setup_outbound_vps() {
     log_info "配置VPS全量出站模式..."
     get_server_info || return 1
@@ -13208,21 +13208,24 @@ setup_outbound_vps() {
         .routing = { "domainStrategy":"AsIs", "rules": [
             { "type": "field", "ip": ["geoip:private"], "outboundTag": "block" }
         ] }
-    ' "$xray_config" > "$xray_tmp" || {
-        log_error "使用jq修改Xray配置失败 (VPS模式)"
-        rm -f "$xray_tmp"
-        return 1
-    }
+    ' "$xray_config" > "$xray_tmp" || { log_error "jq修改Xray配置失败(VPS)"; rm -f "$xray_tmp"; return 1; }
 
     mv "$xray_tmp" "$xray_config"
     setup_shunt_directories
     update_shunt_state "vps" "" "healthy"
     flush_nft_resi_sets
-    post_shunt_report "VPS 全量出站" ""
-    restart_services_background xray
+    
+    log_info "配置已写入，正在重启Xray服务以应用更改..."
+    systemctl daemon-reload
+    if systemctl restart xray; then
+        log_success "Xray服务已重启。"
+        post_shunt_report "VPS 全量出站" ""
+    else
+        log_error "Xray服务重启失败！"
+    fi
 }
 
-# CORRECTED AND ROBUST VERSION
+# FINAL CORRECTED VERSION - Uses Synchronous Restart
 setup_outbound_resi() {
     local url="$1"
     [[ -z "$url" ]] && { echo "用法: edgeboxctl shunt resi '<URL>'"; return 1; }
@@ -13233,7 +13236,6 @@ setup_outbound_resi() {
     parse_proxy_url "$url"
     local xray_config="${CONFIG_DIR}/xray.json"
     local xray_tmp="${xray_config}.tmp"
-
     local xob; xob="$(build_xray_resi_outbound)"
 
     jq --argjson ob "$xob" '
@@ -13246,24 +13248,27 @@ setup_outbound_resi() {
                 {"type": "field", "network": "tcp,udp", "outboundTag": "resi-proxy"}
             ]
         }
-    ' "$xray_config" > "$xray_tmp" || {
-        log_error "使用jq修改Xray配置失败 (resi模式)"
-        rm -f "$xray_tmp"
-        return 1
-    }
+    ' "$xray_config" > "$xray_tmp" || { log_error "jq修改Xray配置失败(resi)"; rm -f "$xray_tmp"; return 1; }
 
     mv "$xray_tmp" "$xray_config"
     setup_shunt_directories
     update_shunt_state "resi" "$url" "healthy"
-    post_shunt_report "代理全量（Xray-only）" "$url"
-    restart_services_background xray
+    
+    log_info "配置已写入，正在重启Xray服务以应用更改..."
+    systemctl daemon-reload
+    if systemctl restart xray; then
+        log_success "Xray服务已重启。"
+        post_shunt_report "代理全量（Xray-only）" "$url"
+    else
+        log_error "Xray服务重启失败！"
+    fi
 }
 
-# CORRECTED AND ROBUST VERSION
+# FINAL CORRECTED VERSION - Uses Synchronous Restart
 setup_outbound_direct_resi() {
     local url="$1"
     [[ -z "$url" ]] && { echo "用法: edgeboxctl shunt direct-resi '<URL>'"; return 1; }
-    log_info "配置智能分流（白名单直连，其余代理）: ${url}"
+    log_info "配置智能分流: ${url}"
     if ! check_proxy_health_url "$url"; then log_error "代理不可用：$url"; return 1; fi
 
     get_server_info || return 1
@@ -13286,16 +13291,19 @@ setup_outbound_direct_resi() {
                 {"type": "field", "network": "tcp,udp", "outboundTag": "resi-proxy"}
             ]
         }
-    ' "$xray_config" > "$xray_tmp" || {
-        log_error "使用jq修改Xray配置失败 (direct-resi模式)"
-        rm -f "$xray_tmp"
-        return 1
-    }
+    ' "$xray_config" > "$xray_tmp" || { log_error "jq修改Xray配置失败(direct-resi)"; rm -f "$xray_tmp"; return 1; }
 
     mv "$xray_tmp" "$xray_config"
     update_shunt_state "direct-resi" "$url" "healthy"
-    post_shunt_report "智能分流（白名单直连）" "$url"
-    restart_services_background xray
+
+    log_info "配置已写入，正在重启Xray服务以应用更改..."
+    systemctl daemon-reload
+    if systemctl restart xray; then
+        log_success "Xray服务已重启。"
+        post_shunt_report "智能分流（白名单直连）" "$url"
+    else
+        log_error "Xray服务重启失败！"
+    fi
 }
 
 manage_whitelist() {
