@@ -12859,6 +12859,19 @@ tmp=\"\${cfg}.tmp\"; \
         bash "${SCRIPTS_DIR}/dashboard-backend.sh" --now >/dev/null 2>&1 || log_warn "[SNI] 面板数据刷新失败，将在下个周期自动更新。"
     fi
     # ======================================================
+	
+	log_info "[SNI] 同步更新 server.json 配置文件..."
+local server_json_tmp="${CONFIG_DIR}/server.json.tmp"
+if jq --arg new_sni "$new_domain" '
+    .reality.sni = $new_sni |
+    .updated_at = (now | todate)
+' "${CONFIG_DIR}/server.json" > "$server_json_tmp"; then
+    mv "$server_json_tmp" "${CONFIG_DIR}/server.json"
+    log_success "[SNI] server.json 已同步更新。"
+else
+    log_warn "[SNI] server.json 同步失败。"
+    rm -f "$server_json_tmp"
+fi
 
     log_success "[SNI] ✅ 无缝轮换完成：新 SNI 已生效，旧 SNI 在宽限期内继续可用"
     return 0
