@@ -13089,8 +13089,8 @@ post_shunt_report() {
     via_vps=$(curl -fsS --max-time 6 --noproxy '*' https://api.ipify.org 2>/dev/null || true)
     parse_proxy_url "$url" >/dev/null 2>&1 || true
     format_curl_proxy_uri proxy_uri
-    # 通过指定的代理检测上游IP（也强制忽略环境变量）
-    via_resi=$(curl -fsS --max-time 8 --noproxy '*' --proxy "$proxy_uri" https://api.ipify.org 2>/dev/null || true)
+    # 通过指定的代理检测上游IP（不使用 --noproxy，让 --proxy 生效）
+    via_resi=$(curl -fsS --max-time 8 --proxy "$proxy_uri" https://api.ipify.org 2>/dev/null || true)
     echo -e "VPS=${via_vps:-?}  上游=${via_resi:-?}"
     if [[ -n "$via_vps" && -n "$via_resi" && "$via_vps" != "$via_resi" ]]; then
       echo -e "   => ${GREEN}出口已切换${NC}"
@@ -13112,7 +13112,6 @@ post_shunt_report() {
   echo -e "${CYAN}------------------------------------------${NC}\n"
 }
 
-# === Anchor-1 INSERT END ===
 
 # 生成 Xray 的代理 outbound JSON（单个）
 build_xray_resi_outbound() {
