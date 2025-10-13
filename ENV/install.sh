@@ -13216,9 +13216,13 @@ setup_outbound_resi() {
   # 应用路由（所有流量包括DNS都走代理 - 方案A完全匿名）
 if ! jq --argjson ob "$xob" \
   '.outbounds=[{"protocol":"freedom","tag":"direct"}, $ob]
-   | .routing={"domainStrategy":"AsIs","rules":[
-       {"type":"field","network":"tcp,udp","outboundTag":"resi-proxy"}
-     ]}' "$xcfg" > "$tmp"; then
+   | .routing={
+       "domainStrategy":"AsIs",
+       "rules":[
+         {"type":"field","network":"tcp,udp","outboundTag":"resi-proxy"}
+       ],
+       "final":"resi-proxy"
+     }' "$xcfg" > "$tmp"; then
     log_error "写入 xray.json 失败"; return 1;
   fi
   mv "$tmp" "$xcfg"
@@ -13259,10 +13263,14 @@ setup_outbound_direct_resi() {
   # 应用"白名单直连，其余代理"策略（DNS也走代理 - 方案A）
 if ! jq --argjson ob "$xob" --argjson wl "$wl" \
   '.outbounds=[{"protocol":"freedom","tag":"direct"}, $ob]
-   | .routing={"domainStrategy":"AsIs","rules":[
-       {"type":"field","domain":$wl,"outboundTag":"direct"},
-       {"type":"field","network":"tcp,udp","outboundTag":"resi-proxy"}
-     ]}' "$xcfg" > "$tmp"; then
+   | .routing={
+       "domainStrategy":"AsIs",
+       "rules":[
+         {"type":"field","domain":$wl,"outboundTag":"direct"},
+         {"type":"field","network":"tcp,udp","outboundTag":"resi-proxy"}
+       ],
+       "final":"resi-proxy"
+     }' "$xcfg" > "$tmp"; then
     log_error "写入 xray.json 失败"; return 1;
   fi
   mv "$tmp" "$xcfg"
