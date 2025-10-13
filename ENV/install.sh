@@ -350,7 +350,8 @@ check_system() {
     fi
 }
 
-# 获取服务器公网IP
+
+# 获取服务器公网IP（强制不使用代理，确保获取VPS真实IP）
 get_server_ip() {
     log_info "获取服务器公网IP..."
 
@@ -363,9 +364,9 @@ get_server_ip() {
         "https://ifconfig.me/ip"
     )
 
-    # 依次尝试获取IP
+    # 依次尝试获取IP（强制不使用代理）
     for service in "${IP_SERVICES[@]}"; do
-        SERVER_IP=$(curl -s --max-time 5 "$service" 2>/dev/null | grep -Eo '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' | head -n1)
+        SERVER_IP=$(curl -s --max-time 5 --noproxy '*' "$service" 2>/dev/null | grep -Eo '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}')
         if [[ -n "$SERVER_IP" ]]; then
             log_success "获取到服务器IP: $SERVER_IP"
             return 0
@@ -1522,7 +1523,7 @@ get_memory_info() {
         # 如果云厂商检测失败，尝试通过IP归属检测
         if [[ "$provider" == "Unknown" && -n "$SERVER_IP" ]]; then
             log_info "通过IP归属检测云厂商..."
-            local ip_info=$(curl -fsS --max-time 5 "http://ip-api.com/json/${SERVER_IP}?fields=org,as" 2>/dev/null || echo '{}')
+            local ip_info=$(curl -fsS --max-time 5 --noproxy '*' "http://ip-api.com/json/${SERVER_IP}?fields=org,as" 2>/dev/null || echo '{}')
             if [[ -n "$ip_info" && "$ip_info" != "{}" ]]; then
                 local org=$(echo "$ip_info" | jq -r '.org // empty' 2>/dev/null)
                 local as_info=$(echo "$ip_info" | jq -r '.as // empty' 2>/dev/null)
@@ -4043,12 +4044,12 @@ get_system_info() {
     memory_spec=$(safe_jq '.spec.memory' "$SERVER_JSON" "Unknown")
     disk_spec=$(safe_jq '.spec.disk' "$SERVER_JSON" "Unknown")
 
-    # 获取当前出口IP（尽量轻量）
-    if [[ -z "$eip" ]]; then
-        eip=$(curl -fsS --max-time 3 https://api.ip.sb/ip 2>/dev/null || \
-              curl -fsS --max-time 3 https://ifconfig.me 2>/dev/null || \
-              echo "")
-    fi
+# 获取当前出口IP（尽量轻量，强制不使用代理）
+if [[ -z "$eip" ]]; then
+    eip=$(curl -fsS --max-time 3 --noproxy '*' https://api.ip.sb/ip 2>/dev/null || \
+          curl -fsS --max-time 3 --noproxy '*' https://ifconfig.me 2>/dev/null || \
+          echo "")
+fi
 
     # 输出服务器信息JSON
     jq -n \
