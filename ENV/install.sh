@@ -12750,7 +12750,6 @@ PLAIN
 # - 这是对 update_sni_domain() 的“同名替换”，支持 SNI 24 小时宽限期并行。
 # - 订阅文件将仅包含新的 SNI（serverNames[0]），但服务端在宽限期内同时接受旧 SNI。
 # - 若 at/atd 不可用，会给出“手动清理命令”提示，不影响即时切换。
-
 update_sni_domain() {
     local new_domain="$1"
     local grace_hours="24"
@@ -12786,7 +12785,7 @@ update_sni_domain() {
                 | map(select(. != $new and . != ""))
                 | (if ($old != "" and $old != $new) then [ $old ] + . else . end)
               )
-            ) | unique ) 
+            ) | unique )
           )
         else . end
       )
@@ -12860,7 +12859,6 @@ tmp=\"\${cfg}.tmp\"; \
     log_success "[SNI] ✅ 无缝轮换完成：新 SNI 已生效，旧 SNI 在宽限期内继续可用"
     return 0
 }
-
 
 switch_to_domain(){
   local domain="$1"
