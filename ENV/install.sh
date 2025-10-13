@@ -12777,25 +12777,27 @@ update_sni_domain() {
 if jq --arg new "$new_domain" --arg old "${old_domain:-}" '
   .inbounds |= map(
     if .tag == "vless-reality" then
+      # 核心修复逻辑：
+      # 1. 直接设置 dest 为新域名
       .streamSettings.realitySettings.dest = ($new + ":443") |
-      .streamSettings.realitySettings.serverNames |= (
-        # 核心修复逻辑：
-        # 1. 始终将新域名和旧域名放在最前面
-        # 2. 加上原有的其他域名
-        # 3. 使用 unique 去重，并过滤掉空值和null
-        ([$new, $old] + (. // []))
-        | unique
-        | map(select(. != null and . != ""))
+      # 2. 彻底重构 serverNames 数组，确保新域名在第一位
+      .streamSettings.realitySettings.serverNames = (
+        # a. 将新域名和旧域名放在数组最前面
+        [$new, $old] + 
+        # b. 加上原有的其他域名（过滤掉新旧域名，避免重复）
+        (.streamSettings.realitySettings.serverNames // [] | map(select(. != $new and . != $old)))
+        # c. 使用 unique 去重，并过滤掉所有空值和null
+        | unique | map(select(. != null and . != ""))
       )
     else
       .
     end
   )
 ' "$XRAY_CONFIG" > "$tmp"; then
-        mv "$tmp" "$XRAY_CONFIG"
-    else
-        log_error "[SNI] 生成新配置失败（jq 阶段）"; rm -f "$tmp"; return 1
-    fi
+    mv "$tmp" "$XRAY_CONFIG"
+else
+    log_error "[SNI] 生成新配置失败（jq 阶段）"; rm -f "$tmp"; return 1
+fi
 
     # 重载：新旧 SNI 并行生效
     if reload_or_restart_services xray; then
