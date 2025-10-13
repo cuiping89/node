@@ -4219,7 +4219,6 @@ get_services_status() {
 
 
 # 获取协议配置状态 (最终修正版 - 动态主机名 + 动态SNI)
-# Get protocol configuration status (Final corrected version - dynamic hostname + dynamic SNI)
 get_protocols_status() {
     local health_report_file="${TRAFFIC_DIR}/protocol-health.json"
     local server_config_file="${CONFIG_DIR}/server.json"
@@ -15365,22 +15364,18 @@ fi
 show_installation_info
 
 echo
-echo -e "${GREEN}EdgeBox v${EDGEBOX_VER} 安装成功完成！ (详细检查请执行: ${PURPLE}edgeboxctl status${NC})${NC}"
-echo
-
-# 手动将成功记录写入日志文件
-echo "[SUCCESS] EdgeBox v${EDGEBOX_VER} 安装成功完成！" >> "${LOG_FILE}"
+echo -e "${GREEN}EdgeBox v${EDGEBOX_VER} 安装成功完成！${NC}"
 
 # 在前台执行初始SNI选择，并立即刷新面板数据
 echo
 log_info "正在为您自动选择最优SNI域名，请稍候..."
 if /usr/local/bin/edgeboxctl sni auto; then
-    log_success "初始SNI域名选择完成！"
+    log_success "初始SNI域名选择完成！现在面板将显示最新配置。"
 else
     log_warn "初始SNI域名选择失败，您可稍后手动执行 'edgeboxctl sni auto'"
 fi
 
-# 将剩余的耗时任务放入后台
+# 将剩余的非关键修复任务放入后台
 (
     sleep 3
     log_info "[后台任务] 开始执行系统最终状态修复与优化..."
