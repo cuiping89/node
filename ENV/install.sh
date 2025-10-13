@@ -350,8 +350,7 @@ check_system() {
     fi
 }
 
-
-# 获取服务器公网IP（强制不使用代理，确保获取VPS真实IP）
+# 获取服务器公网IP
 get_server_ip() {
     log_info "获取服务器公网IP..."
 
@@ -364,9 +363,9 @@ get_server_ip() {
         "https://ifconfig.me/ip"
     )
 
-    # 依次尝试获取IP（强制不使用代理）
+    # 依次尝试获取IP
     for service in "${IP_SERVICES[@]}"; do
-        SERVER_IP=$(curl -s --max-time 5 --noproxy '*' "$service" 2>/dev/null | grep -Eo '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}')
+        SERVER_IP=$(curl -s --max-time 5 "$service" 2>/dev/null | grep -Eo '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' | head -n1)
         if [[ -n "$SERVER_IP" ]]; then
             log_success "获取到服务器IP: $SERVER_IP"
             return 0
@@ -1219,6 +1218,34 @@ EOF
 }
 
 
+# --- Xray DNS 对齐 ---
+ensure_xray_dns_alignment() {
+  local cfg="${CONFIG_DIR}/xray.json"
+  [[ -f "$cfg" ]] || return 0
+  local tmp="${cfg}.tmp.$$"
+
+  # 注入 dns.servers（含 IP 直连 DoH），并把 routing.domainStrategy 置为 UseIp
+  if jq '
+    .dns = {
+      servers: [
+        "8.8.8.8",
+        "1.1.1.1",
+        {"address":"https://1.1.1.1/dns-query"},
+        {"address":"https://8.8.8.8/dns-query"}
+      ],
+      queryStrategy: "UseIP"
+    }
+    |
+    (.routing.domainStrategy = "UseIp")
+  ' "$cfg" > "$tmp" 2>/dev/null; then
+    mv "$tmp" "$cfg"
+  else
+    rm -f "$tmp"
+    return 1
+  fi
+}
+
+
 # 优化系统参数
 optimize_system() {
     log_info "优化系统参数..."
@@ -1474,7 +1501,7 @@ get_memory_info() {
         # 如果云厂商检测失败，尝试通过IP归属检测
         if [[ "$provider" == "Unknown" && -n "$SERVER_IP" ]]; then
             log_info "通过IP归属检测云厂商..."
-            local ip_info=$(curl -fsS --max-time 5 --noproxy '*' "http://ip-api.com/json/${SERVER_IP}?fields=org,as" 2>/dev/null || echo '{}')
+            local ip_info=$(curl -fsS --max-time 5 "http://ip-api.com/json/${SERVER_IP}?fields=org,as" 2>/dev/null || echo '{}')
             if [[ -n "$ip_info" && "$ip_info" != "{}" ]]; then
                 local org=$(echo "$ip_info" | jq -r '.org // empty' 2>/dev/null)
                 local as_info=$(echo "$ip_info" | jq -r '.as // empty' 2>/dev/null)
@@ -2868,8 +2895,9 @@ fi
         return 1
     fi
 
-log_info "确保系统DNS可用..."
-ensure_system_dns
+    log_info "对齐 DNS 解析（系统 & Xray）..."
+    ensure_system_dns
+    ensure_xray_dns_alignment
 
     log_success "Nginx配置文件创建完成"
     return 0
@@ -3038,8 +3066,8 @@ configure_xray() {
                 "queryStrategy": "UseIP"
             },
             "routing": {
-    "domainStrategy": "AsIs",
-    "rules": [
+                "domainStrategy": "UseIp", # <<< CORRECTED from UseIP
+                "rules": [
                     { "type": "field", "ip": ["geoip:private"], "outboundTag": "block" }
                 ]
             },
@@ -3066,9 +3094,10 @@ configure_xray() {
 
     log_success "Xray配置文件验证通过"
 
-# 方案A：确保系统DNS可用
-log_info "确保系统DNS可用..."
+	# 对齐系统与 Xray 的 DNS
+log_info "对齐 DNS 解析（系统 & Xray）..."
 ensure_system_dns
+ensure_xray_dns_alignment
 
     # ============================================
     # [关键修复] 创建正确的 systemd 服务文件
@@ -3993,12 +4022,12 @@ get_system_info() {
     memory_spec=$(safe_jq '.spec.memory' "$SERVER_JSON" "Unknown")
     disk_spec=$(safe_jq '.spec.disk' "$SERVER_JSON" "Unknown")
 
-# 获取当前出口IP（尽量轻量，强制不使用代理）
-if [[ -z "$eip" ]]; then
-    eip=$(curl -fsS --max-time 3 --noproxy '*' https://api.ip.sb/ip 2>/dev/null || \
-          curl -fsS --max-time 3 --noproxy '*' https://ifconfig.me 2>/dev/null || \
-          echo "")
-fi
+    # 获取当前出口IP（尽量轻量）
+    if [[ -z "$eip" ]]; then
+        eip=$(curl -fsS --max-time 3 https://api.ip.sb/ip 2>/dev/null || \
+              curl -fsS --max-time 3 https://ifconfig.me 2>/dev/null || \
+              echo "")
+    fi
 
     # 输出服务器信息JSON
     jq -n \
@@ -13074,6 +13103,7 @@ run_post_change_refreshes() {
 
 post_shunt_report() {
   local mode="$1" url="$2"
+  # ... (函数内部的报告逻辑保持不变) ...
   : "${CYAN:=}"; : "${GREEN:=}"; : "${RED:=}"; : "${YELLOW:=}"; : "${NC:=}"
   echo -e "\n${CYAN}----- 出站分流配置 · 验收报告（${mode}） -----${NC}"
   echo -n "1) 上游连通性: "
@@ -13085,11 +13115,9 @@ post_shunt_report() {
   echo -n "2) 出口 IP: "
   if [[ -n "$url" ]]; then
     local via_vps via_resi proxy_uri
-    # 强制不使用环境变量中的代理，确保获取VPS真实IP
-    via_vps=$(curl -fsS --max-time 6 --noproxy '*' https://api.ipify.org 2>/dev/null || true)
+    via_vps=$(curl -fsS --max-time 6 https://api.ipify.org 2>/dev/null || true)
     parse_proxy_url "$url" >/dev/null 2>&1 || true
     format_curl_proxy_uri proxy_uri
-    # 通过指定的代理检测上游IP（不使用 --noproxy，让 --proxy 生效）
     via_resi=$(curl -fsS --max-time 8 --proxy "$proxy_uri" https://api.ipify.org 2>/dev/null || true)
     echo -e "VPS=${via_vps:-?}  上游=${via_resi:-?}"
     if [[ -n "$via_vps" && -n "$via_resi" && "$via_vps" != "$via_resi" ]]; then
@@ -13104,7 +13132,6 @@ post_shunt_report() {
   jq -e '.outbounds[]?|select(.tag=="resi-proxy")' ${CONFIG_DIR}/xray.json >/dev/null 2>&1 \
     && echo -e "${GREEN}存在 resi-proxy 出站${NC}" || echo -e "${YELLOW}未发现 resi-proxy（VPS 模式正常）${NC}"
   echo -e "   sing-box 路由: ${YELLOW}设计为直连（HY2/TUIC 走 UDP，不参与分流）${NC}"
-  echo -e "   DNS 策略: ${GREEN}随流量走代理（完全匿名）${NC}"
   local set4 set6
   set4=$(nft list set inet edgebox resi_addr4 2>/dev/null | sed -n 's/.*elements = {\(.*\)}/\1/p' | xargs)
   set6=$(nft list set inet edgebox resi_addr6 2>/dev/null | sed -n 's/.*elements = {\(.*\)}/\1/p' | xargs)
@@ -13112,6 +13139,8 @@ post_shunt_report() {
   echo -e "${CYAN}------------------------------------------${NC}\n"
 }
 
+
+# === Anchor-1 INSERT END ===
 
 # 生成 Xray 的代理 outbound JSON（单个）
 build_xray_resi_outbound() {
@@ -13168,31 +13197,16 @@ show_shunt_status() {
 }
 
 setup_outbound_vps() {
-  log_info "配置VPS全量出站模式..."
-  get_server_info || return 1
-
-  # 防御式修复 xray.json：若被包成字符串先解包；解析失败直接退出
-  local xcfg="${CONFIG_DIR}/xray.json"
-  local tmp="${xcfg}.tmp"
-  if jq -e 'type=="string"' "$xcfg" >/dev/null 2>&1; then
-    jq -r 'fromjson' "$xcfg" > "$tmp" || { log_error "xray.json 解包失败"; return 1; }
-    mv "$tmp" "$xcfg"
-  fi
-  jq . "$xcfg" >/dev/null 2>&1 || { log_error "xray.json 解析失败"; return 1; }
-
-  # 写入最小出站/路由骨架
-  if ! jq '.outbounds=[{"protocol":"freedom","tag":"direct"}] | .routing={"rules":[]}' "$xcfg" > "$tmp"; then
-    log_error "写入 xray.json 失败"; return 1;
-  fi
-  mv "$tmp" "$xcfg"
-
-  setup_shunt_directories
-  update_shunt_state "vps" "" "healthy"
-  flush_nft_resi_sets
-  post_shunt_report "VPS 全量出站" ""
-  restart_services_background xray sing-box
+    log_info "配置VPS全量出站模式..."
+    get_server_info || return 1
+    local xray_tmp="${CONFIG_DIR}/xray.json.tmp"
+    jq '.outbounds = [ { "protocol":"freedom", "tag":"direct" } ] | .routing = { "rules": [] }' "${CONFIG_DIR}/xray.json" > "$xray_tmp" && mv "$xray_tmp" "${CONFIG_DIR}/xray.json"
+    setup_shunt_directories
+    update_shunt_state "vps" "" "healthy"
+    flush_nft_resi_sets
+    post_shunt_report "VPS 全量出站" "" # Display report first
+    restart_services_background xray sing-box # Then call background restart
 }
-
 
 setup_outbound_resi() {
   local url="$1"
@@ -13201,88 +13215,34 @@ setup_outbound_resi() {
   if ! check_proxy_health_url "$url"; then log_error "代理不可用：$url"; return 1; fi
   get_server_info || return 1
   parse_proxy_url "$url"
-  local xob; xob="$(build_xray_resi_outbound)"
-
-  # 防御式修复 xray.json
-  local xcfg="${CONFIG_DIR}/xray.json"
-  local tmp="${xcfg}.tmp"
-  if jq -e 'type=="string"' "$xcfg" >/dev/null 2>&1; then
-    jq -r 'fromjson' "$xcfg" > "$tmp" || { log_error "xray.json 解包失败"; return 1; }
-    mv "$tmp" "$xcfg"
-  fi
-  jq . "$xcfg" >/dev/null 2>&1 || { log_error "xray.json 解析失败"; return 1; }
-
-  # 应用路由（所有流量包括DNS都走代理 - 方案A完全匿名）
-if ! jq --argjson ob "$xob" \
-  '.outbounds=[{"protocol":"freedom","tag":"direct"}, $ob]
-   | .routing={
-       "domainStrategy":"AsIs",
-       "rules":[
-         {"type":"field","inboundTag":["vless-reality","vless-grpc","vless-ws","trojan-tcp"],"outboundTag":"resi-proxy"},
-         {"type":"field","network":"tcp,udp","outboundTag":"resi-proxy"}
-       ],
-       "final":"resi-proxy"
-     }' "$xcfg" > "$tmp"; then
-    log_error "写入 xray.json 失败"; return 1;
-  fi
-  mv "$tmp" "$xcfg"
-
-  # sing-box 保持直连
+  local xob
+  xob="$(build_xray_resi_outbound)"
+  jq --argjson ob "$xob" '.outbounds=[{"protocol":"freedom","tag":"direct"}, $ob] | .routing={"domainStrategy":"AsIs","rules":[{"type":"field","port":"53","outboundTag":"direct"},{"type":"field","network":"tcp,udp","outboundTag":"resi-proxy"}]}' ${CONFIG_DIR}/xray.json > ${CONFIG_DIR}/xray.json.tmp && mv ${CONFIG_DIR}/xray.json.tmp ${CONFIG_DIR}/xray.json
+  # sing-box remains direct
   echo "$url" > "${CONFIG_DIR}/shunt/resi.conf"
   setup_shunt_directories
   update_shunt_state "resi" "$url" "healthy"
-  post_shunt_report "代理全量（Xray-only，含DNS）" "$url"
-  restart_services_background xray
+  post_shunt_report "代理全量（Xray-only）" "$url" # Display report first
+  restart_services_background xray # Then call background restart
 }
-
 
 setup_outbound_direct_resi() {
   local url="$1"
   [[ -z "$url" ]] && { echo "用法: edgeboxctl shunt direct-resi '<URL>'"; return 1; }
   log_info "配置智能分流（白名单直连，其余代理）: ${url}"
   if ! check_proxy_health_url "$url"; then log_error "代理不可用：$url"; return 1; fi
-  get_server_info || return 1
-  setup_shunt_directories
+  get_server_info || return 1; setup_shunt_directories
   parse_proxy_url "$url"
-
-  local xob wl
-  xob="$(build_xray_resi_outbound)"
+  local xob wl; xob="$(build_xray_resi_outbound)"
   wl='[]'
-  [[ -s "${CONFIG_DIR}/shunt/whitelist.txt" ]] && \
-    wl="$(cat "${CONFIG_DIR}/shunt/whitelist.txt" | jq -R -s 'split("\n")|map(select(length>0))|map("domain:"+.)')"
-
-  # 防御式修复 xray.json
-  local xcfg="${CONFIG_DIR}/xray.json"
-  local tmp="${xcfg}.tmp"
-  if jq -e 'type=="string"' "$xcfg" >/dev/null 2>&1; then
-    jq -r 'fromjson' "$xcfg" > "$tmp" || { log_error "xray.json 解包失败"; return 1; }
-    mv "$tmp" "$xcfg"
-  fi
-  jq . "$xcfg" >/dev/null 2>&1 || { log_error "xray.json 解析失败"; return 1; }
-
-  # 应用"白名单直连，其余代理"策略（DNS也走代理 - 方案A）
-if ! jq --argjson ob "$xob" --argjson wl "$wl" \
-  '.outbounds=[{"protocol":"freedom","tag":"direct"}, $ob]
-   | .routing={
-       "domainStrategy":"AsIs",
-       "rules":[
-         {"type":"field","inboundTag":["vless-reality","vless-grpc","vless-ws","trojan-tcp"],"domain":$wl,"outboundTag":"direct"},
-         {"type":"field","inboundTag":["vless-reality","vless-grpc","vless-ws","trojan-tcp"],"outboundTag":"resi-proxy"},
-         {"type":"field","network":"tcp,udp","outboundTag":"resi-proxy"}
-       ],
-       "final":"resi-proxy"
-     }' "$xcfg" > "$tmp"; then
-    log_error "写入 xray.json 失败"; return 1;
-  fi
-  mv "$tmp" "$xcfg"
-
-  # sing-box 保持直连
+  [[ -s "${CONFIG_DIR}/shunt/whitelist.txt" ]] && wl="$(cat "${CONFIG_DIR}/shunt/whitelist.txt" | jq -R -s 'split("\n")|map(select(length>0))|map("domain:"+.)')"
+  jq --argjson ob "$xob" --argjson wl "$wl" '.outbounds=[{"protocol":"freedom","tag":"direct"}, $ob] | .routing={"domainStrategy":"AsIs","rules":[{"type":"field","port":"53","outboundTag":"direct"},{"type":"field","domain":$wl,"outboundTag":"direct"},{"type":"field","network":"tcp,udp","outboundTag":"resi-proxy"}]}' ${CONFIG_DIR}/xray.json > ${CONFIG_DIR}/xray.json.tmp && mv ${CONFIG_DIR}/xray.json.tmp ${CONFIG_DIR}/xray.json
+  # sing-box remains direct
   echo "$url" > "${CONFIG_DIR}/shunt/resi.conf"
   update_shunt_state "direct-resi" "$url" "healthy"
-  post_shunt_report "智能分流（白名单直连，DNS走代理）" "$url"
-  restart_services_background xray
+  post_shunt_report "智能分流（白名单直连）" "$url" # Display report first
+  restart_services_background xray # Then call background restart
 }
-
 
 manage_whitelist() {
     local action="$1"
