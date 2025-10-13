@@ -4217,6 +4217,7 @@ get_services_status() {
         }'
 }
 
+
 # 获取协议配置状态 (最终修正版 - 动态主机名 + 动态SNI)
 # Get protocol configuration status (Final corrected version - dynamic hostname + dynamic SNI)
 get_protocols_status() {
@@ -4252,7 +4253,7 @@ get_protocols_status() {
         "VLESS-Reality" "VLESS-gRPC" "VLESS-WebSocket"
         "Trojan-TLS" "Hysteria2" "TUIC"
     )
-	declare -A protocol_meta
+    declare -A protocol_meta
     protocol_meta["VLESS-Reality"]="reality|抗审查/伪装访问，综合性能最佳|极佳★★★★★|443|tcp"
     protocol_meta["VLESS-gRPC"]="grpc|CDN流量伪装，穿透复杂网络环境|极佳★★★★★|443|tcp"
     protocol_meta["VLESS-WebSocket"]="ws|兼容性最强，可套CDN或Web服务器|良好★★★★☆|443|tcp"
@@ -4307,6 +4308,7 @@ get_protocols_status() {
 
     echo "$final_protocols"
 }
+
 
 # 获取分流配置状态
 get_shunt_status() {
@@ -15369,21 +15371,20 @@ echo
 # 手动将成功记录写入日志文件
 echo "[SUCCESS] EdgeBox v${EDGEBOX_VER} 安装成功完成！" >> "${LOG_FILE}"
 
-# 将所有耗时的收尾工作放入后台静默执行。
-(
-    sleep 3 # 给予主进程退出和终端显示的时间
+# 在前台执行初始SNI选择，并立即刷新面板数据
+echo
+log_info "正在为您自动选择最优SNI域名，请稍候..."
+if /usr/local/bin/edgeboxctl sni auto; then
+    log_success "初始SNI域名选择完成！"
+else
+    log_warn "初始SNI域名选择失败，您可稍后手动执行 'edgeboxctl sni auto'"
+fi
 
-    # 这些任务中的log_*函数仍会写入日志文件，但不会显示在屏幕上
+# 将剩余的耗时任务放入后台
+(
+    sleep 3
     log_info "[后台任务] 开始执行系统最终状态修复与优化..."
     repair_system_state
-
-    log_info "[后台任务] 正在为您自动选择最优SNI域名..."
-    if /usr/local/bin/edgeboxctl sni auto >/dev/null 2>&1; then
-         log_info "[后台任务] SNI域名初始选择完成"
-    else
-         log_warn "[后台任务] SNI域名初始选择失败"
-    fi
-
     log_info "[后台任务] 所有优化已完成。"
 ) >/dev/null 2>&1 &
 
