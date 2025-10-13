@@ -352,18 +352,9 @@ check_system() {
 
 # 获取服务器公网IP
 get_server_ip() {
-  log_info "获取服务器公网IP(避开代理，优先本机路由)..."
+  log_info "获取服务器公网IP(优先外部服务，避开代理)..."
 
-  # --- A. 路由直探（不受代理影响）---
-  local route_ip=""
-  route_ip=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++){ if($i=="src"){print $(i+1); exit}}}')
-  if [[ -n "$route_ip" && "$route_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ && "$route_ip" != "127.0.0.1" ]]; then
-      SERVER_IP="$route_ip"
-      log_success "通过路由获取到服务器IP: $SERVER_IP"
-      return 0
-  fi
-
-  # --- B. 外部服务兜底（临时禁用代理环境变量）---
+  # --- A. 外部服务优先 ---
   local IP_SERVICES=(
       "https://api.ipify.org"
       "https://icanhazip.com"
@@ -377,12 +368,21 @@ get_server_ip() {
                   curl -s --max-time 5 "$service" 2>/dev/null \
                   | grep -Eo '[0-9]{1,3}(\.[0-9]{1,3}){3}' | head -n1)
       if [[ -n "$SERVER_IP" ]]; then
-          log_success "获取到服务器IP: $SERVER_IP (外部校验)"
+          log_success "通过外部服务获取到服务器公网IP: $SERVER_IP"
           return 0
       fi
   done
 
-  log_error "无法获取服务器公网IP，请检查网络"
+  # --- B. 兜底方案: 本机路由 ---
+  local route_ip=""
+  route_ip=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++){ if($i=="src"){print $(i+1); exit}}}')
+  if [[ -n "$route_ip" && "$route_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ && "$route_ip" != "127.0.0.1" && ! "$route_ip" =~ ^10\. && ! "$route_ip" =~ ^172\.1[6-9]\.|^172\.2[0-9]\.|^172\.3[0-1]\.|^192\.168\. ]]; then
+      SERVER_IP="$route_ip"
+      log_success "通过路由获取到公网IP: $SERVER_IP"
+      return 0
+  fi
+
+  log_error "无法获取公网IP，请检查网络"
   return 1
 }
 
