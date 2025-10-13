@@ -352,30 +352,40 @@ check_system() {
 
 # 获取服务器公网IP
 get_server_ip() {
-    log_info "获取服务器公网IP..."
+  log_info "获取服务器公网IP(避开代理，优先本机路由)..."
 
-    # IP查询服务列表（按可靠性排序）
-    IP_SERVICES=(
-        "https://api.ipify.org"
-        "https://icanhazip.com"
-        "https://ipecho.net/plain"
-        "https://api.ip.sb/ip"
-        "https://ifconfig.me/ip"
-    )
+  # --- A. 路由直探（不受代理影响）---
+  local route_ip=""
+  route_ip=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++){ if($i=="src"){print $(i+1); exit}}}')
+  if [[ -n "$route_ip" && "$route_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ && "$route_ip" != "127.0.0.1" ]]; then
+      SERVER_IP="$route_ip"
+      log_success "通过路由获取到服务器IP: $SERVER_IP"
+      return 0
+  fi
 
-    # 依次尝试获取IP
-    for service in "${IP_SERVICES[@]}"; do
-        SERVER_IP=$(curl -s --max-time 5 "$service" 2>/dev/null | grep -Eo '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' | head -n1)
-        if [[ -n "$SERVER_IP" ]]; then
-            log_success "获取到服务器IP: $SERVER_IP"
-            return 0
-        fi
-    done
+  # --- B. 外部服务兜底（临时禁用代理环境变量）---
+  local IP_SERVICES=(
+      "https://api.ipify.org"
+      "https://icanhazip.com"
+      "https://checkip.amazonaws.com"
+      "https://api.ip.sb/ip"
+      "https://ifconfig.me/ip"
+      "https://ipecho.net/plain"
+  )
+  for service in "${IP_SERVICES[@]}"; do
+      SERVER_IP=$(env -u ALL_PROXY -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy -u all_proxy \
+                  curl -s --max-time 5 "$service" 2>/dev/null \
+                  | grep -Eo '[0-9]{1,3}(\.[0-9]{1,3}){3}' | head -n1)
+      if [[ -n "$SERVER_IP" ]]; then
+          log_success "获取到服务器IP: $SERVER_IP (外部校验)"
+          return 0
+      fi
+  done
 
-    # 所有服务都失败的情况
-    log_error "无法获取服务器公网IP，请检查网络连接"
-    exit 1
+  log_error "无法获取服务器公网IP，请检查网络"
+  return 1
 }
+
 
 # 智能下载函数：自动尝试多个镜像源
 smart_download() {
@@ -12781,8 +12791,10 @@ update_sni_domain() {
           .streamSettings.realitySettings.dest = ($new + ":443") |
           .streamSettings.realitySettings.serverNames = (
             # 健壮的数组重构逻辑: [新, 旧, ...其他] -> 去重 -> 过滤空值
-            [$new, $old] + (.streamSettings.realitySettings.serverNames // [])
-            | unique | map(select(. != null and . != ""))
+            ([$new, $old] + (.streamSettings.realitySettings.serverNames // []))
+| reduce .[] as $x ( [];
+    if ($x|type=="string") and ($x|length>0) and (index($x) == null)
+    then . + [$x] else . end )
           )
         else . end
       )
