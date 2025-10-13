@@ -12774,22 +12774,24 @@ update_sni_domain() {
     # 并行策略：
     # - dest 立即切到新域名:443
     # - serverNames = [新] + 去重(历史列表)，若旧与新不同则把旧也纳入（居后）；订阅生成只取第一个（新）。
-    if jq --arg new "$new_domain" --arg old "${old_domain:-}" '
-      .inbounds |= map(
-        if .tag=="vless-reality" then
-          .streamSettings.realitySettings.dest = ($new + ":443")
-          |
-          (.streamSettings.realitySettings.serverNames =
-            ( ( [ $new ] + (
-                (.streamSettings.realitySettings.serverNames // [])
-                | map(select(. != $new and . != ""))
-                | (if ($old != "" and $old != $new) then [ $old ] + . else . end)
-              )
-            ) | unique )
-          )
-        else . end
+if jq --arg new "$new_domain" --arg old "${old_domain:-}" '
+  .inbounds |= map(
+    if .tag == "vless-reality" then
+      .streamSettings.realitySettings.dest = ($new + ":443") |
+      .streamSettings.realitySettings.serverNames |= (
+        # 核心修复逻辑：
+        # 1. 始终将新域名和旧域名放在最前面
+        # 2. 加上原有的其他域名
+        # 3. 使用 unique 去重，并过滤掉空值和null
+        ([$new, $old] + (. // []))
+        | unique
+        | map(select(. != null and . != ""))
       )
-    ' "$XRAY_CONFIG" > "$tmp"; then
+    else
+      .
+    end
+  )
+' "$XRAY_CONFIG" > "$tmp"; then
         mv "$tmp" "$XRAY_CONFIG"
     else
         log_error "[SNI] 生成新配置失败（jq 阶段）"; rm -f "$tmp"; return 1
