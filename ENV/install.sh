@@ -1218,31 +1218,52 @@ EOF
 }
 
 
-# --- Xray DNS 对齐 ---
+# --- Xray DNS 对齐（智能策略：VPS模式优化DNS，代理模式保持原样）---
 ensure_xray_dns_alignment() {
   local cfg="${CONFIG_DIR}/xray.json"
   [[ -f "$cfg" ]] || return 0
-  local tmp="${cfg}.tmp.$$"
-
-  # 注入 dns.servers（含 IP 直连 DoH），并把 routing.domainStrategy 置为 UseIp
-  if jq '
-    .dns = {
-      servers: [
-        "8.8.8.8",
-        "1.1.1.1",
-        {"address":"https://1.1.1.1/dns-query"},
-        {"address":"https://8.8.8.8/dns-query"}
-      ],
-      queryStrategy: "UseIP"
-    }
-    |
-    (.routing.domainStrategy = "UseIp")
-  ' "$cfg" > "$tmp" 2>/dev/null; then
-    mv "$tmp" "$cfg"
-  else
-    rm -f "$tmp"
-    return 1
+  
+  # 检查当前出站模式
+  local shunt_mode="vps"
+  if [[ -f "${CONFIG_DIR}/shunt/state.json" ]]; then
+    shunt_mode=$(jq -r '.mode // "vps"' "${CONFIG_DIR}/shunt/state.json" 2>/dev/null || echo "vps")
   fi
+  
+  case "$shunt_mode" in
+    vps)
+      # VPS模式：优化DNS配置，确保快速解析
+      local tmp="${cfg}.tmp.$$"
+      if jq '
+        .dns = {
+          servers: [
+            "8.8.8.8",
+            "1.1.1.1",
+            {"address":"https://1.1.1.1/dns-query"},
+            {"address":"https://8.8.8.8/dns-query"}
+          ],
+          queryStrategy: "UseIP"
+        }
+        | (.routing.domainStrategy = "AsIs")
+      ' "$cfg" > "$tmp" 2>/dev/null; then
+        mv "$tmp" "$cfg"
+        log_info "VPS模式：DNS配置已优化（直连公共DNS，快速稳定）"
+      else
+        rm -f "$tmp"
+        log_warn "DNS配置更新失败，但不影响正常使用"
+        return 1
+      fi
+      ;;
+    resi|direct-resi)
+      # 住宅代理模式：DNS已由routing规则控制走代理，无需修改
+      log_info "住宅代理模式：DNS将随流量走代理（完全匿名，防泄露）"
+      return 0
+      ;;
+    *)
+      # 未知模式：保持现有配置不变
+      log_debug "未知的出站模式: $shunt_mode，跳过DNS配置变更"
+      return 0
+      ;;
+  esac
 }
 
 
