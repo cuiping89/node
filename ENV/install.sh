@@ -13132,6 +13132,7 @@ post_shunt_report() {
   jq -e '.outbounds[]?|select(.tag=="resi-proxy")' ${CONFIG_DIR}/xray.json >/dev/null 2>&1 \
     && echo -e "${GREEN}存在 resi-proxy 出站${NC}" || echo -e "${YELLOW}未发现 resi-proxy（VPS 模式正常）${NC}"
   echo -e "   sing-box 路由: ${YELLOW}设计为直连（HY2/TUIC 走 UDP，不参与分流）${NC}"
+  echo -e "   DNS 策略: ${GREEN}随流量走代理（完全匿名）${NC}"
   local set4 set6
   set4=$(nft list set inet edgebox resi_addr4 2>/dev/null | sed -n 's/.*elements = {\(.*\)}/\1/p' | xargs)
   set6=$(nft list set inet edgebox resi_addr6 2>/dev/null | sed -n 's/.*elements = {\(.*\)}/\1/p' | xargs)
@@ -13241,11 +13242,10 @@ setup_outbound_resi() {
   fi
   jq . "$xcfg" >/dev/null 2>&1 || { log_error "xray.json 解析失败"; return 1; }
 
-  # 应用路由（AsIs 合法，保持你的原意）
+  # 应用路由（所有流量包括DNS都走代理 - 方案A完全匿名）
   if ! jq --argjson ob "$xob" \
     '.outbounds=[{"protocol":"freedom","tag":"direct"}, $ob]
      | .routing={"domainStrategy":"AsIs","rules":[
-         {"type":"field","port":"53","outboundTag":"direct"},
          {"type":"field","network":"tcp,udp","outboundTag":"resi-proxy"}
        ]}' "$xcfg" > "$tmp"; then
     log_error "写入 xray.json 失败"; return 1;
@@ -13256,7 +13256,7 @@ setup_outbound_resi() {
   echo "$url" > "${CONFIG_DIR}/shunt/resi.conf"
   setup_shunt_directories
   update_shunt_state "resi" "$url" "healthy"
-  post_shunt_report "代理全量（Xray-only）" "$url"
+  post_shunt_report "代理全量（Xray-only，含DNS）" "$url"
   restart_services_background xray
 }
 
@@ -13285,11 +13285,10 @@ setup_outbound_direct_resi() {
   fi
   jq . "$xcfg" >/dev/null 2>&1 || { log_error "xray.json 解析失败"; return 1; }
 
-  # 应用“白名单直连，其余代理”策略
+  # 应用"白名单直连，其余代理"策略（DNS也走代理 - 方案A）
   if ! jq --argjson ob "$xob" --argjson wl "$wl" \
     '.outbounds=[{"protocol":"freedom","tag":"direct"}, $ob]
      | .routing={"domainStrategy":"AsIs","rules":[
-         {"type":"field","port":"53","outboundTag":"direct"},
          {"type":"field","domain":$wl,"outboundTag":"direct"},
          {"type":"field","network":"tcp,udp","outboundTag":"resi-proxy"}
        ]}' "$xcfg" > "$tmp"; then
@@ -13300,7 +13299,7 @@ setup_outbound_direct_resi() {
   # sing-box 保持直连
   echo "$url" > "${CONFIG_DIR}/shunt/resi.conf"
   update_shunt_state "direct-resi" "$url" "healthy"
-  post_shunt_report "智能分流（白名单直连）" "$url"
+  post_shunt_report "智能分流（白名单直连，DNS走代理）" "$url"
   restart_services_background xray
 }
 
