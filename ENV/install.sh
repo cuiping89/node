@@ -12781,8 +12781,10 @@ update_sni_domain() {
           .streamSettings.realitySettings.dest = ($new + ":443") |
           .streamSettings.realitySettings.serverNames = (
             # 健壮的数组重构逻辑: [新, 旧, ...其他] -> 去重 -> 过滤空值
-            [$new, $old] + (.streamSettings.realitySettings.serverNames // [])
-            | unique | map(select(. != null and . != ""))
+            ([$new, $old] + (.streamSettings.realitySettings.serverNames // []))
+| reduce .[] as $x ( [];
+    if ($x|type=="string") and ($x|length>0) and (index($x) == null)
+    then . + [$x] else . end )
           )
         else . end
       )
