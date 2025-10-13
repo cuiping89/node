@@ -13218,6 +13218,7 @@ if ! jq --argjson ob "$xob" \
    | .routing={
        "domainStrategy":"AsIs",
        "rules":[
+         {"type":"field","inboundTag":["vless-reality","vless-grpc","vless-ws","trojan-tcp"],"outboundTag":"resi-proxy"},
          {"type":"field","network":"tcp,udp","outboundTag":"resi-proxy"}
        ],
        "final":"resi-proxy"
@@ -13265,7 +13266,8 @@ if ! jq --argjson ob "$xob" --argjson wl "$wl" \
    | .routing={
        "domainStrategy":"AsIs",
        "rules":[
-         {"type":"field","domain":$wl,"outboundTag":"direct"},
+         {"type":"field","inboundTag":["vless-reality","vless-grpc","vless-ws","trojan-tcp"],"domain":$wl,"outboundTag":"direct"},
+         {"type":"field","inboundTag":["vless-reality","vless-grpc","vless-ws","trojan-tcp"],"outboundTag":"resi-proxy"},
          {"type":"field","network":"tcp,udp","outboundTag":"resi-proxy"}
        ],
        "final":"resi-proxy"
