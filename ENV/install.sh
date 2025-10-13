@@ -12747,66 +12747,74 @@ PLAIN
   log_success "IP mode subscription updated successfully."
 }
 
-# - 这是对 update_sni_domain() 的“同名替换”，支持 SNI 24 小时宽限期并行。
-# - 订阅文件将仅包含新的 SNI（serverNames[0]），但服务端在宽限期内同时接受旧 SNI。
-# - 若 at/atd 不可用，会给出“手动清理命令”提示，不影响即时切换。
+# ==============================================================================
+# 最终修复版 update_sni_domain() 函数
+# 功能: 原子化更新SNI，确保后端、前端数据源和UI完全同步
+# ==============================================================================
 update_sni_domain() {
     local new_domain="$1"
     local grace_hours="24"
-    local tmp="${XRAY_CONFIG}.tmp"
+    local xray_tmp="${XRAY_CONFIG}.tmp"
+    local server_json_tmp="${CONFIG_DIR}/server.json.tmp"
 
     if [[ -z "$new_domain" ]]; then
         log_error "[SNI] update_sni_domain: 缺少新域名参数"; return 1
     fi
 
-    # 获取当前 SNI：优先 serverNames[0]，回退 dest 主机名
+    # 1. 获取旧域名，用于无缝切换和清理计划
     local old_domain
-    old_domain="$(jq -r '
-      first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.serverNames[0])
-      // (first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.dest)
-          | select(.) | split(":")[0])
-      // empty
-    ' "$XRAY_CONFIG" 2>/dev/null)"
+    old_domain=$(get_current_sni_domain)
+
+    # 如果新旧域名相同，则无需执行任何操作
+    if [[ "$new_domain" == "$old_domain" ]]; then
+        log_success "[SNI] 当前SNI已是 $new_domain，无需更换。"
+        return 0
+    fi
 
     log_info "[SNI] 无缝轮换开始：${old_domain:-<无>} -> ${new_domain}（宽限期 ${grace_hours}h）"
     cp "$XRAY_CONFIG" "${XRAY_CONFIG}.backup.$(date +%s)" 2>/dev/null || true
 
-    # 并行策略：
-    # - dest 立即切到新域名:443
-    # - serverNames = [新] + 去重(历史列表)，若旧与新不同则把旧也纳入（居后）；订阅生成只取第一个（新）。
-if jq --arg new "$new_domain" --arg old "${old_domain:-}" '
-  .inbounds |= map(
-    if .tag == "vless-reality" then
-      # 核心修复逻辑：
-      # 1. 直接设置 dest 为新域名
-      .streamSettings.realitySettings.dest = ($new + ":443") |
-      # 2. 彻底重构 serverNames 数组，确保新域名在第一位
-      .streamSettings.realitySettings.serverNames = (
-        # a. 将新域名和旧域名放在数组最前面
-        [$new, $old] + 
-        # b. 加上原有的其他域名（过滤掉新旧域名，避免重复）
-        (.streamSettings.realitySettings.serverNames // [] | map(select(. != $new and . != $old)))
-        # c. 使用 unique 去重，并过滤掉所有空值和null
-        | unique | map(select(. != null and . != ""))
+    # 2. 原子化更新 xray.json (后端服务配置文件)
+    if jq --arg new "$new_domain" --arg old "${old_domain:-}" '
+      .inbounds |= map(
+        if .tag == "vless-reality" then
+          .streamSettings.realitySettings.dest = ($new + ":443") |
+          .streamSettings.realitySettings.serverNames = (
+            # 健壮的数组重构逻辑: [新, 旧, ...其他] -> 去重 -> 过滤空值
+            [$new, $old] + (.streamSettings.realitySettings.serverNames // [])
+            | unique | map(select(. != null and . != ""))
+          )
+        else . end
       )
+    ' "$XRAY_CONFIG" > "$xray_tmp"; then
+        mv "$xray_tmp" "$XRAY_CONFIG"
+        log_success "[SNI] Xray 核心配置已更新。"
     else
-      .
-    end
-  )
-' "$XRAY_CONFIG" > "$tmp"; then
-    mv "$tmp" "$XRAY_CONFIG"
-else
-    log_error "[SNI] 生成新配置失败（jq 阶段）"; rm -f "$tmp"; return 1
-fi
-
-    # 重载：新旧 SNI 并行生效
-    if reload_or_restart_services xray; then
-        log_success "[SNI] Xray 已重载（新旧 SNI 并行）"
-    else
-        log_error "[SNI] Xray 重载失败"; return 1
+        log_error "[SNI] 生成新 Xray 配置失败"; rm -f "$xray_tmp"; return 1
     fi
 
-    # 刷新订阅（只含新 SNI = serverNames[0]）
+    # 3. 同步更新 server.json (前端数据源之一)
+    if jq --arg new_sni "$new_domain" '
+        # 确保.reality对象存在
+        if .reality == null then .reality = {} else . end |
+        .reality.sni = $new_sni |
+        .updated_at = (now | todate)
+    ' "${CONFIG_DIR}/server.json" > "$server_json_tmp"; then
+        mv "$server_json_tmp" "${CONFIG_DIR}/server.json"
+        log_success "[SNI] server.json 状态已同步更新。"
+    else
+        log_warn "[SNI] server.json 同步更新失败。"; rm -f "$server_json_tmp"
+    fi
+
+    # 4. 重载服务以应用新配置
+    if ! reload_or_restart_services xray; then
+        log_error "[SNI] Xray 服务重载失败，请手动检查！"
+        # 注意：此处可以选择是否回滚，为安全起见，暂时只报错提示
+        return 1
+    fi
+
+    # 5. 刷新订阅文件 (确保新订阅立即生效)
+    log_info "[SNI] 正在刷新订阅链接..."
     local mode; mode="$(get_current_cert_mode 2>/dev/null || echo self-signed)"
     if [[ "$mode" == "self-signed" ]]; then
         regen_sub_ip
@@ -12814,9 +12822,8 @@ fi
         local domain="${mode##*:}"
         [[ -n "$domain" ]] && regen_sub_domain "$domain" || regen_sub_ip
     fi
-    log_success "[SNI] 订阅文件已刷新（仅含新 SNI：$new_domain）"
 
-    # 宽限期结束后自动清除旧 SNI（从 serverNames 里剔除）
+    # 6. 安排清理旧SNI (24小时后)
     if [[ -n "$old_domain" && "$old_domain" != "$new_domain" ]]; then
         local jq_cleanup_filter='
           .inbounds |= map(
@@ -12835,43 +12842,22 @@ cfg='${XRAY_CONFIG}'; \
 tmp=\"\${cfg}.tmp\"; \
 \"\$jqbin\" --arg old '$old_domain' \"\$filter\" \"\$cfg\" > \"\$tmp\" \
   && mv \"\$tmp\" \"\$cfg\" \
-  && (systemctl reload xray 2>/dev/null || systemctl restart xray 2>/dev/null || service xray reload 2>/dev/null || service xray restart 2>/dev/null) >/dev/null 2>&1"
+  && (systemctl reload xray 2>/dev/null || systemctl restart xray 2>/dev/null) >/dev/null 2>&1"
 
         if command -v at >/dev/null 2>&1 && systemctl is-active --quiet atd; then
             echo "$at_payload" | at now + ${grace_hours} hours >/dev/null 2>&1 \
-              && log_success "[SNI] 已安排 ${grace_hours}h 后清理旧 SNI：$old_domain" \
-              || log_warn "[SNI] at 调度失败（将打印手动清理命令）"
-        fi
-
-        # 如 at 失败或未启用，给出可复制的手动命令
-        if ! systemctl is-active --quiet atd 2>/dev/null; then
-            log_warn "[SNI] atd 未运行，以下为手动清理命令："
+              && log_success "[SNI] 已安排 ${grace_hours}h 后清理旧 SNI: $old_domain"
+        else
+            log_warn "[SNI] atd 服务未运行，将不会自动清理旧 SNI。手动清理命令如下："
             echo "bash -lc \"${at_payload//\"/\\\"}\""
         fi
-    else
-        log_info "[SNI] 旧 SNI 为空或与新相同，无需清理调度"
     fi
 
-    # ==================== 关键修复点 ====================
-    # 在所有后端变更完成后，立即刷新前端数据源 dashboard.json
+    # 7. 立即刷新Web面板数据 (最终确保UI同步)
     log_info "[SNI] 正在刷新Web面板数据以同步SNI变更..."
     if [[ -x "${SCRIPTS_DIR}/dashboard-backend.sh" ]]; then
         bash "${SCRIPTS_DIR}/dashboard-backend.sh" --now >/dev/null 2>&1 || log_warn "[SNI] 面板数据刷新失败，将在下个周期自动更新。"
     fi
-    # ======================================================
-	
-	log_info "[SNI] 同步更新 server.json 配置文件..."
-local server_json_tmp="${CONFIG_DIR}/server.json.tmp"
-if jq --arg new_sni "$new_domain" '
-    .reality.sni = $new_sni |
-    .updated_at = (now | todate)
-' "${CONFIG_DIR}/server.json" > "$server_json_tmp"; then
-    mv "$server_json_tmp" "${CONFIG_DIR}/server.json"
-    log_success "[SNI] server.json 已同步更新。"
-else
-    log_warn "[SNI] server.json 同步失败。"
-    rm -f "$server_json_tmp"
-fi
 
     log_success "[SNI] ✅ 无缝轮换完成：新 SNI 已生效，旧 SNI 在宽限期内继续可用"
     return 0
