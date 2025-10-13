@@ -13196,52 +13196,103 @@ show_shunt_status() {
     fi
 }
 
+# 修正后的 setup_outbound_vps 函数
 setup_outbound_vps() {
     log_info "配置VPS全量出站模式..."
     get_server_info || return 1
-    local xray_tmp="${CONFIG_DIR}/xray.json.tmp"
-    jq '.outbounds = [ { "protocol":"freedom", "tag":"direct" } ] | .routing = { "rules": [] }' "${CONFIG_DIR}/xray.json" > "$xray_tmp" && mv "$xray_tmp" "${CONFIG_DIR}/xray.json"
+    local xray_config="${CONFIG_DIR}/xray.json"
+    local xray_tmp="${xray_config}.tmp"
+
+    # 健壮的读取和修改
+    jq '
+        .outbounds = [ { "protocol":"freedom", "tag":"direct" } ] |
+        .routing = { "domainStrategy":"AsIs", "rules": [] }
+    ' "$xray_config" > "$xray_tmp" || {
+        log_error "使用jq修改Xray配置失败 (VPS模式)"
+        rm -f "$xray_tmp"
+        return 1
+    }
+
+    mv "$xray_tmp" "$xray_config"
     setup_shunt_directories
     update_shunt_state "vps" "" "healthy"
     flush_nft_resi_sets
-    post_shunt_report "VPS 全量出站" "" # Display report first
-    restart_services_background xray sing-box # Then call background restart
+    post_shunt_report "VPS 全量出站" ""
+    restart_services_background xray sing-box
 }
 
+# 修正后的 setup_outbound_resi 函数
 setup_outbound_resi() {
-  local url="$1"
-  [[ -z "$url" ]] && { echo "用法: edgeboxctl shunt resi '<URL>'"; return 1; }
-  log_info "配置代理IP全量出站: ${url}"
-  if ! check_proxy_health_url "$url"; then log_error "代理不可用：$url"; return 1; fi
-  get_server_info || return 1
-  parse_proxy_url "$url"
-  local xob
-  xob="$(build_xray_resi_outbound)"
-  jq --argjson ob "$xob" '.outbounds=[{"protocol":"freedom","tag":"direct"}, $ob] | .routing={"domainStrategy":"AsIs","rules":[{"type":"field","port":"53","outboundTag":"direct"},{"type":"field","network":"tcp,udp","outboundTag":"resi-proxy"}]}' ${CONFIG_DIR}/xray.json > ${CONFIG_DIR}/xray.json.tmp && mv ${CONFIG_DIR}/xray.json.tmp ${CONFIG_DIR}/xray.json
-  # sing-box remains direct
-  echo "$url" > "${CONFIG_DIR}/shunt/resi.conf"
-  setup_shunt_directories
-  update_shunt_state "resi" "$url" "healthy"
-  post_shunt_report "代理全量（Xray-only）" "$url" # Display report first
-  restart_services_background xray # Then call background restart
+    local url="$1"
+    [[ -z "$url" ]] && { echo "用法: edgeboxctl shunt resi '<URL>'"; return 1; }
+    log_info "配置代理IP全量出站: ${url}"
+    if ! check_proxy_health_url "$url"; then log_error "代理不可用：$url"; return 1; fi
+
+    get_server_info || return 1
+    parse_proxy_url "$url"
+    local xray_config="${CONFIG_DIR}/xray.json"
+    local xray_tmp="${xray_config}.tmp"
+
+    local xob; xob="$(build_xray_resi_outbound)"
+
+    jq --argjson ob "$xob" '
+        .outbounds = [{"protocol":"freedom","tag":"direct"}, $ob] |
+        .routing = {
+            "domainStrategy": "AsIs",
+            "rules": [
+                {"type": "field", "port": "53", "outboundTag": "direct"},
+                {"type": "field", "network": "tcp,udp", "outboundTag": "resi-proxy"}
+            ]
+        }
+    ' "$xray_config" > "$xray_tmp" || {
+        log_error "使用jq修改Xray配置失败 (resi模式)"
+        rm -f "$xray_tmp"
+        return 1
+    }
+
+    mv "$xray_tmp" "$xray_config"
+    setup_shunt_directories
+    update_shunt_state "resi" "$url" "healthy"
+    post_shunt_report "代理全量（Xray-only）" "$url"
+    restart_services_background xray
 }
 
+# 修正后的 setup_outbound_direct_resi 函数
 setup_outbound_direct_resi() {
-  local url="$1"
-  [[ -z "$url" ]] && { echo "用法: edgeboxctl shunt direct-resi '<URL>'"; return 1; }
-  log_info "配置智能分流（白名单直连，其余代理）: ${url}"
-  if ! check_proxy_health_url "$url"; then log_error "代理不可用：$url"; return 1; fi
-  get_server_info || return 1; setup_shunt_directories
-  parse_proxy_url "$url"
-  local xob wl; xob="$(build_xray_resi_outbound)"
-  wl='[]'
-  [[ -s "${CONFIG_DIR}/shunt/whitelist.txt" ]] && wl="$(cat "${CONFIG_DIR}/shunt/whitelist.txt" | jq -R -s 'split("\n")|map(select(length>0))|map("domain:"+.)')"
-  jq --argjson ob "$xob" --argjson wl "$wl" '.outbounds=[{"protocol":"freedom","tag":"direct"}, $ob] | .routing={"domainStrategy":"AsIs","rules":[{"type":"field","port":"53","outboundTag":"direct"},{"type":"field","domain":$wl,"outboundTag":"direct"},{"type":"field","network":"tcp,udp","outboundTag":"resi-proxy"}]}' ${CONFIG_DIR}/xray.json > ${CONFIG_DIR}/xray.json.tmp && mv ${CONFIG_DIR}/xray.json.tmp ${CONFIG_DIR}/xray.json
-  # sing-box remains direct
-  echo "$url" > "${CONFIG_DIR}/shunt/resi.conf"
-  update_shunt_state "direct-resi" "$url" "healthy"
-  post_shunt_report "智能分流（白名单直连）" "$url" # Display report first
-  restart_services_background xray # Then call background restart
+    local url="$1"
+    [[ -z "$url" ]] && { echo "用法: edgeboxctl shunt direct-resi '<URL>'"; return 1; }
+    log_info "配置智能分流（白名单直连，其余代理）: ${url}"
+    if ! check_proxy_health_url "$url"; then log_error "代理不可用：$url"; return 1; fi
+
+    get_server_info || return 1
+    setup_shunt_directories
+    parse_proxy_url "$url"
+    local xray_config="${CONFIG_DIR}/xray.json"
+    local xray_tmp="${xray_config}.tmp"
+    local xob; xob="$(build_xray_resi_outbound)"
+    local wl='[]'
+    [[ -s "${CONFIG_DIR}/shunt/whitelist.txt" ]] && wl="$(cat "${CONFIG_DIR}/shunt/whitelist.txt" | jq -R -s 'split("\n")|map(select(length>0))|map("domain:"+.)')"
+
+    jq --argjson ob "$xob" --argjson wl "$wl" '
+        .outbounds = [{"protocol":"freedom","tag":"direct"}, $ob] |
+        .routing = {
+            "domainStrategy": "AsIs",
+            "rules": [
+                {"type": "field", "port": "53", "outboundTag": "direct"},
+                {"type": "field", "domain": $wl, "outboundTag": "direct"},
+                {"type": "field", "network": "tcp,udp", "outboundTag": "resi-proxy"}
+            ]
+        }
+    ' "$xray_config" > "$xray_tmp" || {
+        log_error "使用jq修改Xray配置失败 (direct-resi模式)"
+        rm -f "$xray_tmp"
+        return 1
+    }
+
+    mv "$xray_tmp" "$xray_config"
+    update_shunt_state "direct-resi" "$url" "healthy"
+    post_shunt_report "智能分流（白名单直连）" "$url"
+    restart_services_background xray
 }
 
 manage_whitelist() {
@@ -14429,7 +14480,7 @@ help|"")
   printf "  Web 面板: http://<你的IP>/traffic/?passcode=<你的密码>\n"
   printf "  订阅链接: http://<你的IP>/sub\n"
   printf "  查看日志: tail -f /var/log/edgebox-install.log\n"
-  
+  printf "%b\n"
   ;;
 
 esac
