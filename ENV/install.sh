@@ -1219,55 +1219,6 @@ EOF
 }
 
 
-# --- Xray DNS 对齐（智能策略：VPS模式优化DNS，代理模式保持原样）---
-ensure_xray_dns_alignment() {
-  local cfg="${CONFIG_DIR}/xray.json"
-  [[ -f "$cfg" ]] || return 0
-  
-  # 检查当前出站模式
-  local shunt_mode="vps"
-  if [[ -f "${CONFIG_DIR}/shunt/state.json" ]]; then
-    shunt_mode=$(jq -r '.mode // "vps"' "${CONFIG_DIR}/shunt/state.json" 2>/dev/null || echo "vps")
-  fi
-  
-  case "$shunt_mode" in
-    vps)
-      # VPS模式：优化DNS配置，确保快速解析
-      local tmp="${cfg}.tmp.$$"
-      if jq '
-        .dns = {
-          servers: [
-            "8.8.8.8",
-            "1.1.1.1",
-            {"address":"https://1.1.1.1/dns-query"},
-            {"address":"https://8.8.8.8/dns-query"}
-          ],
-          queryStrategy: "UseIP"
-        }
-        | (.routing.domainStrategy = "AsIs")
-      ' "$cfg" > "$tmp" 2>/dev/null; then
-        mv "$tmp" "$cfg"
-        log_info "VPS模式：DNS配置已优化（直连公共DNS，快速稳定）"
-      else
-        rm -f "$tmp"
-        log_warn "DNS配置更新失败，但不影响正常使用"
-        return 1
-      fi
-      ;;
-    resi|direct-resi)
-      # 住宅代理模式：DNS已由routing规则控制走代理，无需修改
-      log_info "住宅代理模式：DNS将随流量走代理（完全匿名，防泄露）"
-      return 0
-      ;;
-    *)
-      # 未知模式：保持现有配置不变
-      log_debug "未知的出站模式: $shunt_mode，跳过DNS配置变更"
-      return 0
-      ;;
-  esac
-}
-
-
 # 优化系统参数
 optimize_system() {
     log_info "优化系统参数..."
@@ -2917,9 +2868,8 @@ fi
         return 1
     fi
 
-    log_info "对齐 DNS 解析（系统 & Xray）..."
-    ensure_system_dns
-    ensure_xray_dns_alignment
+log_info "确保系统DNS可用..."
+ensure_system_dns
 
     log_success "Nginx配置文件创建完成"
     return 0
@@ -3088,8 +3038,8 @@ configure_xray() {
                 "queryStrategy": "UseIP"
             },
             "routing": {
-                "domainStrategy": "IPOnDemand", # <<< CORRECTED from UseIP
-                "rules": [
+    "domainStrategy": "AsIs",
+    "rules": [
                     { "type": "field", "ip": ["geoip:private"], "outboundTag": "block" }
                 ]
             },
@@ -3116,10 +3066,9 @@ configure_xray() {
 
     log_success "Xray配置文件验证通过"
 
-	# 对齐系统与 Xray 的 DNS
-log_info "对齐 DNS 解析（系统 & Xray）..."
+# 方案A：确保系统DNS可用
+log_info "确保系统DNS可用..."
 ensure_system_dns
-ensure_xray_dns_alignment
 
     # ============================================
     # [关键修复] 创建正确的 systemd 服务文件
@@ -13265,11 +13214,11 @@ setup_outbound_resi() {
   jq . "$xcfg" >/dev/null 2>&1 || { log_error "xray.json 解析失败"; return 1; }
 
   # 应用路由（所有流量包括DNS都走代理 - 方案A完全匿名）
-  if ! jq --argjson ob "$xob" \
-    '.outbounds=[{"protocol":"freedom","tag":"direct"}, $ob]
-     | .routing={"domainStrategy":"AsIs","rules":[
-         {"type":"field","network":"tcp,udp","outboundTag":"resi-proxy"}
-       ]}' "$xcfg" > "$tmp"; then
+if ! jq --argjson ob "$xob" \
+  '.outbounds=[{"protocol":"freedom","tag":"direct"}, $ob]
+   | .routing={"domainStrategy":"AsIs","rules":[
+       {"type":"field","network":"tcp,udp","outboundTag":"resi-proxy"}
+     ]}' "$xcfg" > "$tmp"; then
     log_error "写入 xray.json 失败"; return 1;
   fi
   mv "$tmp" "$xcfg"
@@ -13308,12 +13257,12 @@ setup_outbound_direct_resi() {
   jq . "$xcfg" >/dev/null 2>&1 || { log_error "xray.json 解析失败"; return 1; }
 
   # 应用"白名单直连，其余代理"策略（DNS也走代理 - 方案A）
-  if ! jq --argjson ob "$xob" --argjson wl "$wl" \
-    '.outbounds=[{"protocol":"freedom","tag":"direct"}, $ob]
-     | .routing={"domainStrategy":"AsIs","rules":[
-         {"type":"field","domain":$wl,"outboundTag":"direct"},
-         {"type":"field","network":"tcp,udp","outboundTag":"resi-proxy"}
-       ]}' "$xcfg" > "$tmp"; then
+if ! jq --argjson ob "$xob" --argjson wl "$wl" \
+  '.outbounds=[{"protocol":"freedom","tag":"direct"}, $ob]
+   | .routing={"domainStrategy":"AsIs","rules":[
+       {"type":"field","domain":$wl,"outboundTag":"direct"},
+       {"type":"field","network":"tcp,udp","outboundTag":"resi-proxy"}
+     ]}' "$xcfg" > "$tmp"; then
     log_error "写入 xray.json 失败"; return 1;
   fi
   mv "$tmp" "$xcfg"
