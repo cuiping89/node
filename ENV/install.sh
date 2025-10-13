@@ -13125,7 +13125,6 @@ run_post_change_refreshes() {
 
 post_shunt_report() {
   local mode="$1" url="$2"
-  # ... (函数内部的报告逻辑保持不变) ...
   : "${CYAN:=}"; : "${GREEN:=}"; : "${RED:=}"; : "${YELLOW:=}"; : "${NC:=}"
   echo -e "\n${CYAN}----- 出站分流配置 · 验收报告（${mode}） -----${NC}"
   echo -n "1) 上游连通性: "
@@ -13137,10 +13136,12 @@ post_shunt_report() {
   echo -n "2) 出口 IP: "
   if [[ -n "$url" ]]; then
     local via_vps via_resi proxy_uri
-    via_vps=$(curl -fsS --max-time 6 https://api.ipify.org 2>/dev/null || true)
+    # 强制不使用环境变量中的代理，确保获取VPS真实IP
+    via_vps=$(curl -fsS --max-time 6 --noproxy '*' https://api.ipify.org 2>/dev/null || true)
     parse_proxy_url "$url" >/dev/null 2>&1 || true
     format_curl_proxy_uri proxy_uri
-    via_resi=$(curl -fsS --max-time 8 --proxy "$proxy_uri" https://api.ipify.org 2>/dev/null || true)
+    # 通过指定的代理检测上游IP（也强制忽略环境变量）
+    via_resi=$(curl -fsS --max-time 8 --noproxy '*' --proxy "$proxy_uri" https://api.ipify.org 2>/dev/null || true)
     echo -e "VPS=${via_vps:-?}  上游=${via_resi:-?}"
     if [[ -n "$via_vps" && -n "$via_resi" && "$via_vps" != "$via_resi" ]]; then
       echo -e "   => ${GREEN}出口已切换${NC}"
@@ -13161,7 +13162,6 @@ post_shunt_report() {
   echo -e "4) 采集集: IPv4={${set4:-}}  IPv6={${set6:-}}"
   echo -e "${CYAN}------------------------------------------${NC}\n"
 }
-
 
 # === Anchor-1 INSERT END ===
 
