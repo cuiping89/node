@@ -13196,114 +13196,52 @@ show_shunt_status() {
     fi
 }
 
-# FINAL CORRECTED VERSION - Uses Synchronous Restart
 setup_outbound_vps() {
     log_info "配置VPS全量出站模式..."
     get_server_info || return 1
-    local xray_config="${CONFIG_DIR}/xray.json"
-    local xray_tmp="${xray_config}.tmp"
-
-    jq '
-        .outbounds |= [ .[] | select(.tag == "direct" or .tag == "block") ] |
-        .routing = { "domainStrategy":"AsIs", "rules": [
-            { "type": "field", "ip": ["geoip:private"], "outboundTag": "block" }
-        ] }
-    ' "$xray_config" > "$xray_tmp" || { log_error "jq修改Xray配置失败(VPS)"; rm -f "$xray_tmp"; return 1; }
-
-    mv "$xray_tmp" "$xray_config"
+    local xray_tmp="${CONFIG_DIR}/xray.json.tmp"
+    jq '.outbounds = [ { "protocol":"freedom", "tag":"direct" } ] | .routing = { "rules": [] }' "${CONFIG_DIR}/xray.json" > "$xray_tmp" && mv "$xray_tmp" "${CONFIG_DIR}/xray.json"
     setup_shunt_directories
     update_shunt_state "vps" "" "healthy"
     flush_nft_resi_sets
-    
-    log_info "配置已写入，正在重启Xray服务以应用更改..."
-    systemctl daemon-reload
-    if systemctl restart xray; then
-        log_success "Xray服务已重启。"
-        post_shunt_report "VPS 全量出站" ""
-    else
-        log_error "Xray服务重启失败！"
-    fi
+    post_shunt_report "VPS 全量出站" "" # Display report first
+    restart_services_background xray sing-box # Then call background restart
 }
 
-# FINAL CORRECTED VERSION - Uses Synchronous Restart
 setup_outbound_resi() {
-    local url="$1"
-    [[ -z "$url" ]] && { echo "用法: edgeboxctl shunt resi '<URL>'"; return 1; }
-    log_info "配置代理IP全量出站: ${url}"
-    if ! check_proxy_health_url "$url"; then log_error "代理不可用：$url"; return 1; fi
-
-    get_server_info || return 1
-    parse_proxy_url "$url"
-    local xray_config="${CONFIG_DIR}/xray.json"
-    local xray_tmp="${xray_config}.tmp"
-    local xob; xob="$(build_xray_resi_outbound)"
-
-    jq --argjson ob "$xob" '
-        .outbounds = ([.outbounds[] | select(.tag == "direct" or .tag == "block")] + [$ob] | unique_by(.tag)) |
-        .routing = {
-            "domainStrategy": "AsIs",
-            "rules": [
-                {"type": "field", "port": "53", "outboundTag": "direct"},
-                {"type": "field", "ip": ["geoip:private"], "outboundTag": "block"},
-                {"type": "field", "network": "tcp,udp", "outboundTag": "resi-proxy"}
-            ]
-        }
-    ' "$xray_config" > "$xray_tmp" || { log_error "jq修改Xray配置失败(resi)"; rm -f "$xray_tmp"; return 1; }
-
-    mv "$xray_tmp" "$xray_config"
-    setup_shunt_directories
-    update_shunt_state "resi" "$url" "healthy"
-    
-    log_info "配置已写入，正在重启Xray服务以应用更改..."
-    systemctl daemon-reload
-    if systemctl restart xray; then
-        log_success "Xray服务已重启。"
-        post_shunt_report "代理全量（Xray-only）" "$url"
-    else
-        log_error "Xray服务重启失败！"
-    fi
+  local url="$1"
+  [[ -z "$url" ]] && { echo "用法: edgeboxctl shunt resi '<URL>'"; return 1; }
+  log_info "配置代理IP全量出站: ${url}"
+  if ! check_proxy_health_url "$url"; then log_error "代理不可用：$url"; return 1; fi
+  get_server_info || return 1
+  parse_proxy_url "$url"
+  local xob
+  xob="$(build_xray_resi_outbound)"
+  jq --argjson ob "$xob" '.outbounds=[{"protocol":"freedom","tag":"direct"}, $ob] | .routing={"domainStrategy":"AsIs","rules":[{"type":"field","port":"53","outboundTag":"direct"},{"type":"field","network":"tcp,udp","outboundTag":"resi-proxy"}]}' ${CONFIG_DIR}/xray.json > ${CONFIG_DIR}/xray.json.tmp && mv ${CONFIG_DIR}/xray.json.tmp ${CONFIG_DIR}/xray.json
+  # sing-box remains direct
+  echo "$url" > "${CONFIG_DIR}/shunt/resi.conf"
+  setup_shunt_directories
+  update_shunt_state "resi" "$url" "healthy"
+  post_shunt_report "代理全量（Xray-only）" "$url" # Display report first
+  restart_services_background xray # Then call background restart
 }
 
-# FINAL CORRECTED VERSION - Uses Synchronous Restart
 setup_outbound_direct_resi() {
-    local url="$1"
-    [[ -z "$url" ]] && { echo "用法: edgeboxctl shunt direct-resi '<URL>'"; return 1; }
-    log_info "配置智能分流: ${url}"
-    if ! check_proxy_health_url "$url"; then log_error "代理不可用：$url"; return 1; fi
-
-    get_server_info || return 1
-    setup_shunt_directories
-    parse_proxy_url "$url"
-    local xray_config="${CONFIG_DIR}/xray.json"
-    local xray_tmp="${xray_config}.tmp"
-    local xob; xob="$(build_xray_resi_outbound)"
-    local wl='[]'
-    [[ -s "${CONFIG_DIR}/shunt/whitelist.txt" ]] && wl="$(cat "${CONFIG_DIR}/shunt/whitelist.txt" | jq -R -s 'split("\n")|map(select(length>0))|map("domain:"+.)')"
-
-    jq --argjson ob "$xob" --argjson wl "$wl" '
-        .outbounds = ([.outbounds[] | select(.tag == "direct" or .tag == "block")] + [$ob] | unique_by(.tag)) |
-        .routing = {
-            "domainStrategy": "AsIs",
-            "rules": [
-                {"type": "field", "port": "53", "outboundTag": "direct"},
-                {"type": "field", "ip": ["geoip:private"], "outboundTag": "block"},
-                {"type": "field", "domain": $wl, "outboundTag": "direct"},
-                {"type": "field", "network": "tcp,udp", "outboundTag": "resi-proxy"}
-            ]
-        }
-    ' "$xray_config" > "$xray_tmp" || { log_error "jq修改Xray配置失败(direct-resi)"; rm -f "$xray_tmp"; return 1; }
-
-    mv "$xray_tmp" "$xray_config"
-    update_shunt_state "direct-resi" "$url" "healthy"
-
-    log_info "配置已写入，正在重启Xray服务以应用更改..."
-    systemctl daemon-reload
-    if systemctl restart xray; then
-        log_success "Xray服务已重启。"
-        post_shunt_report "智能分流（白名单直连）" "$url"
-    else
-        log_error "Xray服务重启失败！"
-    fi
+  local url="$1"
+  [[ -z "$url" ]] && { echo "用法: edgeboxctl shunt direct-resi '<URL>'"; return 1; }
+  log_info "配置智能分流（白名单直连，其余代理）: ${url}"
+  if ! check_proxy_health_url "$url"; then log_error "代理不可用：$url"; return 1; fi
+  get_server_info || return 1; setup_shunt_directories
+  parse_proxy_url "$url"
+  local xob wl; xob="$(build_xray_resi_outbound)"
+  wl='[]'
+  [[ -s "${CONFIG_DIR}/shunt/whitelist.txt" ]] && wl="$(cat "${CONFIG_DIR}/shunt/whitelist.txt" | jq -R -s 'split("\n")|map(select(length>0))|map("domain:"+.)')"
+  jq --argjson ob "$xob" --argjson wl "$wl" '.outbounds=[{"protocol":"freedom","tag":"direct"}, $ob] | .routing={"domainStrategy":"AsIs","rules":[{"type":"field","port":"53","outboundTag":"direct"},{"type":"field","domain":$wl,"outboundTag":"direct"},{"type":"field","network":"tcp,udp","outboundTag":"resi-proxy"}]}' ${CONFIG_DIR}/xray.json > ${CONFIG_DIR}/xray.json.tmp && mv ${CONFIG_DIR}/xray.json.tmp ${CONFIG_DIR}/xray.json
+  # sing-box remains direct
+  echo "$url" > "${CONFIG_DIR}/shunt/resi.conf"
+  update_shunt_state "direct-resi" "$url" "healthy"
+  post_shunt_report "智能分流（白名单直连）" "$url" # Display report first
+  restart_services_background xray # Then call background restart
 }
 
 manage_whitelist() {
