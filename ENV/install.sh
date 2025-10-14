@@ -1361,31 +1361,59 @@ EOF
 
 
 # --- Xray DNS 对齐 ---
+# 按当前出站模式自动对齐 Xray 的 DNS：
+# - VPS 直出：DNS 直连（最快、最稳）
+# - 住宅/代理出站(resi)：DNS 也走代理（解析来源与连接来源一致）
 ensure_xray_dns_alignment() {
-  local cfg="${CONFIG_DIR}/xray.json"
-  [[ -f "$cfg" ]] || return 0
-  local tmp="${cfg}.tmp.$$"
+  local cfg="/etc/edgebox/config/xray.json"
+  local tmp="$(mktemp)"
+  [[ -f "$cfg" ]] || { log_warn "未找到 $cfg，跳过 Xray DNS 对齐"; return 0; }
 
-  # 注入 dns.servers（含 IP 直连 DoH），并把 routing.domainStrategy 置为 UseIp
-  if jq '
-    .dns = {
-      servers: [
-        "8.8.8.8",
-        "1.1.1.1",
-        {"address":"https://1.1.1.1/dns-query"},
-        {"address":"https://8.8.8.8/dns-query"}
-      ],
-      queryStrategy: "UseIP"
-    }
-    |
-    (.routing.domainStrategy = "UseIp")
-  ' "$cfg" > "$tmp" 2>/dev/null; then
-    mv "$tmp" "$cfg"
+  # 探测是否处于 “代理出站(resi)” 模式：
+  # 1) 优先看 server.json 是否包含关键字 "resi"
+  # 2) 回落：xray.json 里是否存在 tag=resi-proxy 的出站 且 有路由指向它
+  local mode="vps"
+  if [[ -f /etc/edgebox/config/server.json ]] && grep -qi '"resi"' /etc/edgebox/config/server.json; then
+    mode="resi"
   else
-    rm -f "$tmp"
-    return 1
+    if jq -e '.outbounds[]?|select(.tag=="resi-proxy")' "$cfg" >/dev/null 2>&1 \
+       && jq -e '.routing.rules[]?|select(.outboundTag=="resi-proxy")' "$cfg" >/dev/null 2>&1; then
+      mode="resi"
+    fi
   fi
+
+  if [[ "$mode" == "resi" ]]; then
+    log_info "DNS 对齐：检测到代理出站(resi)，将把 Xray 的 DNS 也走代理（DoH via resi-proxy）。"
+    jq '
+      .dns.servers =
+        [
+          {"address":"https://1.1.1.1/dns-query","outboundTag":"resi-proxy"},
+          {"address":"https://8.8.8.8/dns-query","outboundTag":"resi-proxy"}
+        ]
+      # 先移除已有的 53 端口规则，避免重复
+      | .routing.rules = ((.routing.rules // []) | map(select(.port != "53")))
+      # 再置顶添加一条 53 端口走 resi-proxy（兜住明文 DNS）
+      | .routing.rules = ([{"type":"field","port":"53","outboundTag":"resi-proxy"}] + .routing.rules)
+    ' "$cfg" > "$tmp" && mv "$tmp" "$cfg" || { rm -f "$tmp"; log_error "写入 Xray DNS(代理) 失败"; return 1; }
+
+  else
+    log_info "DNS 对齐：检测到 VPS 直出，将把 Xray 的 DNS 设为直连（含 DoH 直连）。"
+    jq '
+      .dns.servers =
+        [
+          "8.8.8.8", "1.1.1.1",
+          {"address":"https://1.1.1.1/dns-query"},
+          {"address":"https://8.8.8.8/dns-query"}
+        ]
+      # 清除我们可能加过的 53→resi-proxy 规则
+      | .routing.rules = ((.routing.rules // []) | map(select(.port != "53")))
+    ' "$cfg" > "$tmp" && mv "$tmp" "$cfg" || { rm -f "$tmp"; log_error "写入 Xray DNS(直连) 失败"; return 1; }
+  fi
+
+  # 轻量热加载，失败再重启
+  systemctl reload xray 2>/dev/null || systemctl restart xray 2>/dev/null || true
 }
+
 
 
 # 优化系统参数
@@ -2307,7 +2335,6 @@ log_info "└─ verify_module2_data()       # 验证数据完整性"
 
 
 #############################################
-# EdgeBox 企业级多协议节点部署脚本 v3.0.0
 # 模块3：服务安装配置 (完整版)
 #
 # 功能说明：
@@ -2352,7 +2379,9 @@ install_xray() {
     # 验证安装
     if command -v xray >/dev/null 2>&1; then
         local xray_version
-        xray_version=$(xray version 2>/dev/null \ | grep -oE '[Vv]?[0-9]+\.[0-9]+\.[0-9]+' \ | head -1 | sed 's/^[Vv]//')
+        current_version=$(xray version 2>/dev/null \
+		| head -n1 \
+		| sed -E 's/[^0-9]*([0-9.]+).*/\1/')
         log_success "Xray验证通过，版本: ${xray_version:-未知}"
 
         mkdir -p /var/log/xray
@@ -3891,7 +3920,7 @@ execute_module3() {
     log_info "├─ sing-box服务（Hysteria2、TUIC）"
     log_info "├─ Nginx分流代理（SNI+ALPN架构）"
     log_info "├─ 订阅链接生成（6种协议）"
-    log_info "├─ 控制面板密码: ${final_passcode:-未设置}"  # 【新增】
+    log_info "├─ 控制面板密码: DASHBOARD_PASSCODE:-未设置}"  # 【新增】
     log_info "└─ 所有服务运行验证"
 
     return 0
@@ -15584,7 +15613,7 @@ fi
 show_installation_info
 
 echo
-echo -e "${GREEN}EdgeBox v${EDGEBOX_VER} 安装成功完成！🎉🎉🎉${NC}"
+echo -e "${GREEN}EdgeBox-企业级多协议节点 v${EDGEBOX_VER} 安装成功完成！🎉🎉🎉${NC}"
 echo
 
 # 将剩余的非关键修复任务放入后台
