@@ -680,7 +680,7 @@ install_dependencies() {
     fi
 
     # 依赖列表
-    local base_packages=(curl wget unzip gawk ca-certificates jq bc uuid-runtime dnsutils openssl tar cron)
+    local base_packages=(curl wget unzip gawk ca-certificates jq bc uuid-runtime dnsutils openssl tar cron python3-socks)
     local network_packages=(vnstat nftables)
     local web_packages=(nginx)
     local cert_mail_packages=(certbot msmtp-mta bsd-mailx)
