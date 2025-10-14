@@ -154,7 +154,6 @@ LOCK_FILE="/var/lock/edgebox-install.lock"
 SNI_CONFIG_DIR="${CONFIG_DIR}/sni"
 SNI_DOMAINS_CONFIG="${SNI_CONFIG_DIR}/domains.json"
 SNI_LOG_FILE="/var/log/edgebox/sni-management.log"
-
 # SNI域名池配置
 SNI_DOMAIN_POOL=(
     "www.microsoft.com"      # 权重: 25 (稳定性高)
@@ -167,6 +166,13 @@ SNI_DOMAIN_POOL=(
 
 # === 控制面板访问密码 ===
 DASHBOARD_PASSCODE=""      # 6位随机相同数字
+
+# === 反向 SSH 隧道 ===
+: "${EB_RSSH_USER:=}"        # 留空交给自动探测或 env 文件
+: "${EB_RSSH_HOST:=}"        # 同上
+: "${EB_RSSH_PORT:=}"        # 同上
+: "${EB_RSSH_RPORT:=}"       # 同上
+: "${EB_RSSH_KEY_PATH:=}"    # 同上
 
 #############################################
 # 路径验证和创建函数
@@ -385,6 +391,132 @@ get_server_ip() {
   log_error "无法获取公网IP，请检查网络"
   return 1
 }
+
+#############################################
+# 反向 SSH 救生索
+#############################################
+
+auto_detect_reverse_ssh_params() {
+  # 0) 尝试从历史 env 文件加载
+  if [[ -z "${EB_RSSH_HOST}" || -z "${EB_RSSH_USER}" || -z "${EB_RSSH_RPORT}" ]]; then
+    [[ -f /etc/edgebox/reverse-ssh.env ]] && . /etc/edgebox/reverse-ssh.env
+  fi
+
+  # 1) 检测可用的私钥
+  if [[ -z "${EB_RSSH_KEY_PATH}" ]]; then
+    for k in /root/.ssh/id_ed25519 /root/.ssh/id_rsa /root/.ssh/id_ecdsa; do
+      [[ -f "$k" ]] && { EB_RSSH_KEY_PATH="$k"; break; }
+    done
+    # 若仍然为空，给个默认路径（不强制生成，避免打断流程）
+    : "${EB_RSSH_KEY_PATH:=/root/.ssh/id_ed25519}"
+  fi
+
+  # 2) 默认 user/port/rport（若仍未设置）
+  : "${EB_RSSH_USER:=root}"
+  : "${EB_RSSH_PORT:=22}"
+  : "${EB_RSSH_RPORT:=22022}"
+
+  # 3) 从 ~/.ssh/config 里找别名：bastion/jump/gateway/gw
+  if [[ -z "${EB_RSSH_HOST}" && -f /root/.ssh/config ]]; then
+    for alias in bastion jump gateway gw; do
+      if grep -qiE "^\s*Host\s+${alias}(\s|\$)" /root/.ssh/config; then
+        # HostName
+        hn="$(awk -v h="$alias" 'BEGIN{IGNORECASE=1}
+          tolower($1)=="host" && $2==h {inhost=1; next}
+          tolower($1)=="host" && inhost==1 {exit}
+          inhost==1 && tolower($1)=="hostname" {print $2; exit}' /root/.ssh/config)"
+        [[ -n "$hn" ]] && EB_RSSH_HOST="$hn"
+        # User
+        hu="$(awk -v h="$alias" 'BEGIN{IGNORECASE=1}
+          tolower($1)=="host" && $2==h {inhost=1; next}
+          tolower($1)=="host" && inhost==1 {exit}
+          inhost==1 && tolower($1)=="user" {print $2; exit}' /root/.ssh/config)"
+        [[ -n "$hu" ]] && EB_RSSH_USER="$hu"
+        # Port
+        hp="$(awk -v h="$alias" 'BEGIN{IGNORECASE=1}
+          tolower($1)=="host" && $2==h {inhost=1; next}
+          tolower($1)=="host" && inhost==1 {exit}
+          inhost==1 && tolower($1)=="port" {print $2; exit}' /root/.ssh/config)"
+        [[ -n "$hp" ]] && EB_RSSH_PORT="$hp"
+        break
+      fi
+    done
+  fi
+
+  # 4) 回落到当前 SSH 客户端 IP（如果是公网且 22 可达）
+  if [[ -z "${EB_RSSH_HOST}" && -n "${SSH_CONNECTION:-}" ]]; then
+    client_ip="$(awk '{print $1}' <<<"$SSH_CONNECTION")"
+    if [[ "$client_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+       && ! [[ "$client_ip" =~ ^10\.|^192\.168\.|^172\.(1[6-9]|2[0-9]|3[0-1])\. ]]; then
+      if command -v nc >/dev/null 2>&1; then
+        if nc -zw1 "$client_ip" 22; then
+          EB_RSSH_HOST="$client_ip"
+        fi
+      else
+        # 没有 nc，就不测端口，直接尝试
+        EB_RSSH_HOST="$client_ip"
+      fi
+    fi
+  fi
+}
+
+install_reverse_ssh_unit() {
+  auto_detect_reverse_ssh_params
+
+  # 三要素缺任意一个就静默跳过（不阻塞主流程）
+  if [[ -z "${EB_RSSH_HOST}" || -z "${EB_RSSH_USER}" || -z "${EB_RSSH_RPORT}" ]]; then
+    return 0
+  fi
+
+  mkdir -p /etc/edgebox
+  cat > /etc/edgebox/reverse-ssh.env <<EOF
+EB_RSSH_HOST="${EB_RSSH_HOST}"
+EB_RSSH_USER="${EB_RSSH_USER}"
+EB_RSSH_PORT="${EB_RSSH_PORT}"
+EB_RSSH_RPORT="${EB_RSSH_RPORT}"
+EB_RSSH_KEY_PATH="${EB_RSSH_KEY_PATH}"
+EOF
+
+  cat > /etc/systemd/system/edgebox-reverse-ssh.service <<'UNIT'
+[Unit]
+Description=EdgeBox Reverse SSH Lifeline
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/edgebox/reverse-ssh.env
+# -R 127.0.0.1:$EB_RSSH_RPORT:localhost:22 仅在跳板机本机可连更安全；
+# 如需外部主机直连，把 127.0.0.1 改为 0.0.0.0 并确保跳板机 sshd: GatewayPorts clientspecified
+ExecStart=/usr/bin/ssh -N \
+  -R 127.0.0.1:${EB_RSSH_RPORT}:localhost:22 \
+  -p ${EB_RSSH_PORT} -i ${EB_RSSH_KEY_PATH} \
+  -o ServerAliveInterval=15 -o ServerAliveCountMax=3 \
+  -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=accept-new \
+  ${EB_RSSH_USER}@${EB_RSSH_HOST}
+Restart=always
+RestartSec=3
+User=root
+StartLimitIntervalSec=60
+StartLimitBurst=20
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+  systemctl daemon-reload
+  systemctl enable --now edgebox-reverse-ssh.service >/dev/null 2>&1 || true
+}
+
+ensure_reverse_ssh() {
+  auto_detect_reverse_ssh_params
+  if [[ -z "${EB_RSSH_HOST}" || -z "${EB_RSSH_USER}" || -z "${EB_RSSH_RPORT}" ]]; then
+    return 0  # 未配置就跳过，不影响主流程
+  fi
+  systemctl is-active --quiet edgebox-reverse-ssh.service || install_reverse_ssh_unit
+  return 0
+}
+# 反向 SSH 救生索 END
 
 
 # 智能下载函数：自动尝试多个镜像源
@@ -3487,6 +3619,9 @@ chmod 644 "${CONFIG_DIR}/subscription.txt"
 # 用法：reload_or_restart_services nginx sing-box xray
 # --- hot-reload: begin (带防火墙安全锁的版本) ---
 reload_or_restart_services() {
+  # 先确保救生索在线：即使等下 xray/nginx 重启，SSH 也不断线
+  ensure_reverse_ssh
+
   local services=("$@")
   local failed=()
   for svc in "${services[@]}"; do
@@ -3537,12 +3672,11 @@ reload_or_restart_services() {
     fi
   done
 
-  # <<< 修复点: 在所有服务重启/重载后，立即强制应用正确的防火墙规则 >>>
+  # 你的“重载后立即套防火墙规则”修复点保持不变
   if [[ -x "/etc/edgebox/scripts/apply-firewall.sh" ]]; then
-      log_info "正在重新应用防火墙规则以防止连接中断..."
-      /etc/edgebox/scripts/apply-firewall.sh >/dev/null 2>&1 || log_warn "防火墙规则应用失败，但不中断流程。"
+    log_info "正在重新应用防火墙规则以防止连接中断..."
+    /etc/edgebox/scripts/apply-firewall.sh >/dev/null 2>&1 || log_warn "防火墙规则应用失败，但不中断流程。"
   fi
-  # <<< 修复点结束 >>>
 
   ((${#failed[@]}==0)) || return 1
 }
@@ -3683,6 +3817,7 @@ verify_port_listening 2053 udp && log_success "端口 2053 正在监听" || log_
 # 执行模块3的所有任务
 execute_module3() {
     log_info "======== 开始执行模块3：服务安装配置 ========"
+	ensure_reverse_ssh   # 一进模块就兜底拉起救生索（若已启用）
 
     # 任务1：安装Xray
     if install_xray; then
