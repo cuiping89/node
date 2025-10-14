@@ -1369,7 +1369,6 @@ EOF
 }
 
 
-# --- Xray DNS 对齐 ---
 # 按当前出站模式自动对齐 Xray 的 DNS：
 # - VPS 直出：DNS 直连（最快、最稳）
 # - 住宅/代理出站(resi)：DNS 也走代理（解析来源与连接来源一致）
@@ -1422,6 +1421,7 @@ ensure_xray_dns_alignment() {
   # 轻量热加载，失败再重启
   systemctl reload xray 2>/dev/null || systemctl restart xray 2>/dev/null || true
 }
+
 
 
 
@@ -3912,6 +3912,8 @@ execute_module3() {
         log_error "✗ 服务启动验证失败"
         return 1
     fi
+	
+	ensure_xray_dns_alignment
 	
 	# 新增：安装阶段就完成 SNI 智能选择 + 宽限轮换（避免尾部再跑一遍）
     ensure_reverse_ssh || true
@@ -13396,8 +13398,9 @@ setup_outbound_vps() {
     setup_shunt_directories
     update_shunt_state "vps" "" "healthy"
     flush_nft_resi_sets
-    post_shunt_report "VPS 全量出站" "" # Display report first
-    restart_services_background xray sing-box # Then call background restart
+ensure_xray_dns_alignment # 新增：对齐DNS配置
+post_shunt_report "VPS 全量出站" "" # Display report first
+restart_services_background nginx xray sing-box # 修改：增加 nginx
 }
 
 setup_outbound_resi() {
@@ -13414,8 +13417,9 @@ setup_outbound_resi() {
   echo "$url" > "${CONFIG_DIR}/shunt/resi.conf"
   setup_shunt_directories
   update_shunt_state "resi" "$url" "healthy"
-  post_shunt_report "代理全量（Xray-only）" "$url" # Display report first
-  restart_services_background xray # Then call background restart
+ensure_xray_dns_alignment # 新增：对齐DNS配置
+post_shunt_report "代理全量（Xray-only）" "$url" # Display report first
+restart_services_background nginx xray # 修改：增加 nginx
 }
 
 setup_outbound_direct_resi() {
@@ -13432,8 +13436,9 @@ setup_outbound_direct_resi() {
   # sing-box remains direct
   echo "$url" > "${CONFIG_DIR}/shunt/resi.conf"
   update_shunt_state "direct-resi" "$url" "healthy"
-  post_shunt_report "智能分流（白名单直连）" "$url" # Display report first
-  restart_services_background xray # Then call background restart
+ensure_xray_dns_alignment # 新增：对齐DNS配置
+post_shunt_report "智能分流（白名单直连）" "$url" # Display report first
+restart_services_background nginx xray # 修改：增加 nginx
 }
 
 manage_whitelist() {
