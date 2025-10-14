@@ -12809,13 +12809,15 @@ request_letsencrypt_cert(){
 
   # 4) 执行签发
   if [[ "$CERTBOT_AUTH" == "--nginx" ]]; then
-env -u ALL_PROXY -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy certbot certonly --nginx ${expand} \
+certbot certonly --nginx ${expand} \
+  --pre-hook "unset http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY" \
   --cert-name "${domain}" "${cert_args[@]}" \
   -n --agree-tos --register-unsafely-without-email || return 1
   else
     # standalone 需临时释放 80 端口
     systemctl stop nginx >/dev/null 2>&1 || true
-env -u ALL_PROXY -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy certbot certonly --standalone --preferred-challenges http --http-01-port 80 ${expand} \
+certbot certonly --standalone --preferred-challenges http --http-01-port 80 ${expand} \
+  --pre-hook "unset http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY" \
   --cert-name "${domain}" "${cert_args[@]}" \
   -n --agree-tos --register-unsafely-without-email || { systemctl start nginx >/dev/null 2>&1 || true; return 1; }
     systemctl start nginx >/dev/null 2>&1 || true
