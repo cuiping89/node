@@ -3874,6 +3874,16 @@ execute_module3() {
         log_error "✗ 服务启动验证失败"
         return 1
     fi
+	
+	# 新增：安装阶段就完成 SNI 智能选择 + 宽限轮换（避免尾部再跑一遍）
+    ensure_reverse_ssh || true
+    log_info "初始化 SNI 域名智能选择..."
+    if /usr/local/bin/edgeboxctl sni auto; then
+        log_success "SNI 初始化完成（已评估并按需进入 ${EB_SNI_GRACE_HOURS:-24}h 宽限期）。"
+    else
+        log_warn "SNI 初始化失败；可稍后手动执行：edgeboxctl sni auto"
+    fi
+
 
     log_success "======== 模块3执行完成 ========"
     log_info "已完成："
@@ -11790,7 +11800,7 @@ auto_select_optimal_domain() {
         return 0
     fi
 
-    log_info "准备更换SNI域名: ${current_sni:-未配置} → $best_domain"
+    log_info "准备更换SNI域名: ${current_sni:-未配置} → $best_domain（将进入 ${EB_SNI_GRACE_HOURS:-24}h 宽限期）"
     if update_sni_domain "$best_domain"; then
         log_success "SNI域名更换成功！"
     else
@@ -12898,7 +12908,7 @@ PLAIN
 # ==============================================================================
 update_sni_domain() {
     local new_domain="$1"
-    local grace_hours="24"
+    local grace_hours="${EB_SNI_GRACE_HOURS:-24}"
     local xray_tmp="${XRAY_CONFIG}.tmp"
     local server_json_tmp="${CONFIG_DIR}/server.json.tmp"
 
@@ -12910,11 +12920,11 @@ update_sni_domain() {
     local old_domain
     old_domain=$(get_current_sni_domain)
 
-    # 如果新旧域名相同，则无需执行任何操作
-    if [[ "$new_domain" == "$old_domain" ]]; then
-        log_success "[SNI] 当前SNI已是 $new_domain，无需更换。"
-        return 0
-    fi
+# 如果新旧域名相同：仅记录评估，不触发轮换
+if [[ "$new_domain" == "$old_domain" ]]; then
+    log_info "[SNI] 评估结果：候选域名与当前一致（$new_domain），保持不变（不进入宽限期）。"
+    return 0
+fi
 
     log_info "[SNI] 无缝轮换开始：${old_domain:-<无>} -> ${new_domain}（宽限期 ${grace_hours}h）"
     cp "$XRAY_CONFIG" "${XRAY_CONFIG}.backup.$(date +%s)" 2>/dev/null || true
@@ -15515,15 +15525,7 @@ show_installation_info
 
 echo
 echo -e "${GREEN}EdgeBox v${EDGEBOX_VER} 安装成功完成！${NC}"
-
-# 在前台执行初始SNI选择，并立即刷新面板数据
 echo
-log_info "正在为您自动选择最优SNI域名，请稍候..."
-if /usr/local/bin/edgeboxctl sni auto; then
-    log_success "初始SNI域名选择完成！现在面板将显示最新配置。"
-else
-    log_warn "初始SNI域名选择失败，您可稍后手动执行 'edgeboxctl sni auto'"
-fi
 
 # 将剩余的非关键修复任务放入后台
 (
