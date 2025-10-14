@@ -12776,6 +12776,16 @@ check_domain_resolution(){
 
 request_letsencrypt_cert(){
   local domain="$1"
+  
+# === 终极修复：创建一个 certbot pre-hook 脚本来清理代理环境变量 ===
+local pre_hook_script=$(mktemp)
+cat > "$pre_hook_script" << EOF
+#!/bin/sh
+unset http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY
+EOF
+chmod +x "$pre_hook_script"
+# ====================================================================
+
   [[ -z "$domain" ]] && { log_error "缺少域名"; return 1; }
 
   # 先检查 apex 是否解析;子域 trojan.<domain> 解析不到就先不申请它
@@ -12810,14 +12820,14 @@ request_letsencrypt_cert(){
   # 4) 执行签发
   if [[ "$CERTBOT_AUTH" == "--nginx" ]]; then
 certbot certonly --nginx ${expand} \
-  --pre-hook "unset http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY" \
+  --pre-hook "$pre_hook_script" \
   --cert-name "${domain}" "${cert_args[@]}" \
   -n --agree-tos --register-unsafely-without-email || return 1
   else
     # standalone 需临时释放 80 端口
     systemctl stop nginx >/dev/null 2>&1 || true
 certbot certonly --standalone --preferred-challenges http --http-01-port 80 ${expand} \
-  --pre-hook "unset http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY" \
+  --pre-hook "$pre_hook_script" \
   --cert-name "${domain}" "${cert_args[@]}" \
   -n --agree-tos --register-unsafely-without-email || { systemctl start nginx >/dev/null 2>&1 || true; return 1; }
     systemctl start nginx >/dev/null 2>&1 || true
@@ -12838,6 +12848,9 @@ certbot certonly --standalone --preferred-challenges http --http-01-port 80 ${ex
   else
     log_success "Let's Encrypt 证书已生效(仅 ${domain};trojan 子域暂未包含)"
   fi
+  
+  # === 终极修复：清理临时的 pre-hook 脚本 ===
+  rm -f "$pre_hook_script"
 }
 
 write_subscription() {
