@@ -671,7 +671,7 @@ install_dependencies() {
     fi
 
     # 依赖列表
-    local base_packages=(curl wget unzip gawk ca-certificates jq bc uuid-runtime dnsutils openssl tar cron at)
+    local base_packages=(curl wget unzip gawk ca-certificates jq bc uuid-runtime dnsutils openssl tar cron)
     local network_packages=(vnstat nftables)
     local web_packages=(nginx)
     local cert_mail_packages=(certbot msmtp-mta bsd-mailx)
@@ -13001,13 +13001,14 @@ tmp=\"\${cfg}.tmp\"; \
   && mv \"\$tmp\" \"\$cfg\" \
   && (systemctl reload xray 2>/dev/null || systemctl restart xray 2>/dev/null) >/dev/null 2>&1"
 
-        if command -v at >/dev/null 2>&1 && systemctl is-active --quiet atd; then
-            echo "$at_payload" | at now + ${grace_hours} hours >/dev/null 2>&1 \
-              && log_success "[SNI] 已安排 ${grace_hours}h 后清理旧 SNI: $old_domain"
-        else
-            log_warn "[SNI] atd 服务未运行，将不会自动清理旧 SNI。手动清理命令如下："
-            echo "bash -lc \"${at_payload//\"/\\\"}\""
-        fi
+if command -v systemd-run >/dev/null 2>&1; then
+    systemd-run --on-active="${grace_hours}h" --timer-property=Persistent=true --property=Type=oneshot \
+      /bin/bash -lc "$at_payload" >/dev/null 2>&1 \
+      && log_success "[SNI] 已安排 ${grace_hours}h 后清理旧 SNI: $old_domain"
+else
+    log_warn "[SNI] systemd-run 不可用：不会自动清理旧 SNI。手动清理命令如下："
+    echo "bash -lc \"${at_payload//\"/\\\"}\" &"
+fi
     fi
 
     # 7. 立即刷新Web面板数据 (最终确保UI同步)
@@ -13803,23 +13804,24 @@ regenerate_uuid() {
     log_success "订阅已刷新（仅新凭据）"
 
     # --- 调度清理任务（到点移除旧用户并重载） ---
-    if command -v at >/dev/null 2>&1 && systemctl is-active --quiet atd; then
-      log_info "安排 ${grace_hours}h 后自动清理旧凭据..."
+if command -v systemd-run >/dev/null 2>&1; then
+  log_info "安排 ${grace_hours}h 后自动清理旧凭据..."
 
-      # 通用 at 任务函数（内联，避免依赖内部函数）
-      _schedule_cleanup() {
-        local cfg="$1" jq_filter="$2" var_k="$3" var_v="$4" svc="$5"
-        local b64; b64="$(printf "%s" "$jq_filter" | (base64 -w0 2>/dev/null || base64))"
-        local payload
-        payload="b64='$b64'; \
+  # 通用延时任务（systemd-run transient timer）
+  _schedule_cleanup() {
+    local cfg="$1" jq_filter="$2" var_k="$3" var_v="$4" svc="$5"
+    local b64; b64="$(printf "%s" "$jq_filter" | (base64 -w0 2>/dev/null || base64))"
+    local payload
+    payload="b64='$b64'; \
 filter=\$(echo \"\$b64\" | base64 -d); \
 jqbin=\$(command -v jq); \
 cfg='$cfg'; tmp=\"\${cfg}.tmp\"; \
 \"\$jqbin\" --arg $var_k '$var_v' \"\$filter\" \"\$cfg\" > \"\$tmp\" \
   && mv \"\$tmp\" \"\$cfg\" \
-  && (systemctl reload $svc 2>/dev/null || systemctl restart $svc 2>/dev/null || service $svc reload 2>/dev/null || service $svc restart 2>/dev/null) >/dev/null 2>&1"
-        echo "$payload" | at now + ${grace_hours} hours >/dev/null 2>&1 || true
-      }
+  && (systemctl reload $svc 2>/dev/null || systemctl restart $svc 2>/dev/null || service $svc restart 2>/dev/null) >/dev/null 2>&1"
+    systemd-run --on-active="${grace_hours}h" --timer-property=Persistent=true --property=Type=oneshot \
+      /bin/bash -lc "$payload" >/dev/null 2>&1 || true
+  }
 
       # Xray：按 tag 清理旧用户
       [[ -n "$OLD_UUID_VLESS_REALITY" && "$OLD_UUID_VLESS_REALITY" != "$NEW_UUID_VLESS_REALITY" ]] && \
@@ -13882,10 +13884,10 @@ cfg='$cfg'; tmp=\"\${cfg}.tmp\"; \
       fi
 
       log_success "清理任务已安排，将在 ${grace_hours} 小时后移除旧用户并重载服务"
-    else
-      log_warn "at/atd 不可用或未运行：不会自动清理旧凭据（并行仍然已启用）。"
-      log_warn "如需，我可以为你打印对应的手动清理命令。"
-    fi
+else
+  log_warn "systemd-run 不可用：不会自动清理旧凭据（并行仍然已启用）。"
+  log_warn "如需，我可以为你打印对应的手动清理命令。"
+fi
 
     # 仪表盘刷新（若有）
     [[ -x "${SCRIPTS_DIR}/dashboard-backend.sh" ]] && bash "${SCRIPTS_DIR}/dashboard-backend.sh" --now >/dev/null 2>&1 || true
@@ -15524,7 +15526,7 @@ fi
 show_installation_info
 
 echo
-echo -e "${GREEN}EdgeBox v${EDGEBOX_VER} 安装成功完成！${NC}"
+echo -e "${GREEN}EdgeBox v${EDGEBOX_VER} 安装成功完成！🎉🎉🎉${NC}"
 echo
 
 # 将剩余的非关键修复任务放入后台
