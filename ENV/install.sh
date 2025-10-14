@@ -3246,7 +3246,7 @@ configure_xray() {
                 "queryStrategy": "UseIP"
             },
             "routing": {
-                "domainStrategy": "UseIp", # <<< CORRECTED from UseIP
+                "domainStrategy": "UseIP",
                 "rules": [
                     { "type": "field", "ip": ["geoip:private"], "outboundTag": "block" }
                 ]
