@@ -617,21 +617,29 @@ validate_download() {
 smart_download_script() {
     local url="$1"
     local description="${2:-script}"
-    shift 2  # 移除前两个参数，剩余的都是要传递给脚本的参数
-    local script_args=("$@")  # 获取所有剩余参数
+    shift 2
+    local script_args=("$@")
 
-    log_info "下载$description..."
+    log_info "Downloading $description..."
 
     local temp_script
     temp_script=$(mktemp) || {
-        log_error "创建临时文件失败"
+        log_error "Failed to create temporary file"
         return 1
     }
 
-    if smart_download "$url" "$temp_script" "script"; then
-        # [关键修复] 传递所有参数给脚本
+    # Use --fail to ensure curl exits with an error on HTTP failure (e.g., 404)
+    if smart_download "$url" "$temp_script" "script" && [[ -s "$temp_script" ]]; then
+        # Ensure the downloaded file is actually a script
+        if ! head -n 1 "$temp_script" | grep -q "^#!"; then
+            log_error "Downloaded file is not a valid script: $url"
+            rm -f "$temp_script"
+            return 1
+        fi
+
+        log_debug "Executing script with sanitized arguments..."
+        # Pass arguments securely. Each argument is a separate string.
         if [[ ${#script_args[@]} -gt 0 ]]; then
-            log_debug "执行脚本参数: ${script_args[*]}"
             bash "$temp_script" "${script_args[@]}"
         else
             bash "$temp_script"
@@ -640,6 +648,7 @@ smart_download_script() {
         rm -f "$temp_script"
         return $exit_code
     else
+        log_error "Failed to download or received empty script for: $description"
         rm -f "$temp_script"
         return 1
     fi
@@ -11732,53 +11741,38 @@ sni_log_warn() { log_warn "SNI: $*"; }
 sni_log_error() { log_error "SNI: $*"; }
 sni_log_success() { log_success "SNI: $*"; }
 
-# 域名评分函数
+# [修复版] 域名评分函数 - 确保输出纯净
 evaluate_sni_domain() {
     local domain="$1"
     local score=0
 
-    # <<< 修复点: 将进度信息输出到 stderr (>&2)，避免污染返回值 >>>
+    # 将进度信息输出到 stderr，避免污染 stdout
     echo "  -> 评估域名: $domain" >&2
 
-    # 1. 可达性
+    # 1. 可达性 (5s超时)
     if ! timeout 5 curl -s --connect-timeout 3 --max-time 5 "https://${domain}" >/dev/null 2>&1; then
         echo 0 # 最终分数输出到 stdout
         return
     fi
-    score=$((score + 30))
+    score=$((score + 40))
 
     # 2. 响应时间
-    local response_time
-    response_time=$(timeout 5 curl -o /dev/null -s -w '%{time_total}' --connect-timeout 3 "https://${domain}" 2>/dev/null || echo "99")
-    local time_int=${response_time%.*}
-    if [[ "$time_int" -lt 1 ]]; then score=$((score + 25));
-    elif [[ "$time_int" -lt 2 ]]; then score=$((score + 20));
-    elif [[ "$time_int" -lt 3 ]]; then score=$((score + 15));
-    else score=$((score + 5)); fi
+    local response_time=$(timeout 5 curl -o /dev/null -s -w '%{time_total}' --connect-timeout 3 "https://${domain}" 2>/dev/null || echo "99")
+    if (( $(echo "$response_time < 0.5" | bc -l) )); then score=$((score + 30));
+    elif (( $(echo "$response_time < 1.5" | bc -l) )); then score=$((score + 20));
+    else score=$((score + 10)); fi
 
-    # 3. SSL证书
+    # 3. SSL证书验证
     if timeout 5 openssl s_client -connect "${domain}:443" -servername "$domain" </dev/null 2>/dev/null | grep -q "Verify return code: 0"; then
         score=$((score + 20))
-    else
-        score=$((score + 5))
     fi
 
-    # 4. CDN检测
-    if timeout 5 curl -sI "https://${domain}" 2>/dev/null | grep -qiE "(cloudflare|akamai|fastly|cloudfront|cdn)"; then
-        score=$((score + 15))
-    else
-        score=$((score + 5))
-    fi
-
-    # 5. 域名类别
+    # 4. 类别加分
     case "$domain" in
-        *microsoft*|*apple*|*google*) score=$((score + 10));;
-        *cloudflare*|*akamai*|*fastly*) score=$((score + 9));;
-        *azure*|*aws*|*cloud*) score=$((score + 8));;
-        *) score=$((score + 5));;
+        *microsoft.com|*apple.com|*cloudflare.com) score=$((score + 10));;
     esac
 
-    echo "$score" # <<< 关键: 只有分数通过 stdout 返回
+    echo "$score" # 确保只有分数通过 stdout 返回
 }
 
 # 获取当前SNI域名
@@ -11797,30 +11791,31 @@ auto_select_optimal_domain() {
             [[ -n "$domain" && "$domain" != "null" ]] && domains_to_test+=("$domain")
         done < <(jq -r '.domains[]?.hostname // empty' "$SNI_DOMAINS_CONFIG" 2>/dev/null)
     fi
-    [[ ${#domains_to_test[@]} -eq 0 ]] && domains_to_test=("www.microsoft.com" "www.apple.com" "www.cloudflare.com")
+    # 如果配置文件为空或不存在，使用内置的安全列表
+    if [[ ${#domains_to_test[@]} -eq 0 ]]; then
+        domains_to_test=("www.microsoft.com" "www.apple.com" "www.cloudflare.com" "azure.microsoft.com")
+    fi
 
     local best_domain=""
-    local best_score=-1 # Start with -1 to ensure the first valid domain is always chosen
-    local current_sni
-    current_sni=$(get_current_sni_domain)
+    local best_score=-1
+    local current_sni=$(get_current_sni_domain)
 
     echo "当前SNI域名: ${current_sni:-未配置}" >&2
 
     for domain in "${domains_to_test[@]}"; do
-        local score
-        score=$(evaluate_sni_domain "$domain")
+        local score=$(evaluate_sni_domain "$domain")
         echo "  - 域名 $domain, 评分: $score" >&2
 
-        # <<< FIX: Changed from -gt to -ge to allow rotation between equally optimal domains >>>
-        if [[ "$score" -ge "$best_score" ]]; then
+        if [[ "$score" -gt "$best_score" ]]; then
             best_score=$score
             best_domain="$domain"
         fi
     done
 
-    if [[ -z "$best_domain" ]]; then
-        log_error "未找到可用的SNI域名"
-        return 1
+    # <<< 关键修复点：如果所有测试都失败，回退到一个安全的默认值 >>>
+    if [[ -z "$best_domain" || "$best_score" -le 0 ]]; then
+        log_warn "所有SNI域名评估失败或分数过低，将使用默认值 www.microsoft.com"
+        best_domain="www.microsoft.com"
     fi
 
     echo "最优域名选择结果: $best_domain (评分: $best_score)" >&2
@@ -11830,7 +11825,7 @@ auto_select_optimal_domain() {
         return 0
     fi
 
-    log_info "准备更换SNI域名: ${current_sni:-未配置} → $best_domain（将进入 ${EB_SNI_GRACE_HOURS:-24}h 宽限期）"
+    log_info "准备更换SNI域名: ${current_sni:-未配置} → $best_domain"
     if update_sni_domain "$best_domain"; then
         log_success "SNI域名更换成功！"
     else
@@ -12938,38 +12933,36 @@ PLAIN
 # ==============================================================================
 update_sni_domain() {
     local new_domain="$1"
-    local grace_hours="${EB_SNI_GRACE_HOURS:-24}"
-    local xray_tmp="${XRAY_CONFIG}.tmp"
-    local server_json_tmp="${CONFIG_DIR}/server.json.tmp"
-
+    
+    # <<< 关键修复点：增加函数入口的输入验证 >>>
     if [[ -z "$new_domain" ]]; then
-        log_error "[SNI] update_sni_domain: 缺少新域名参数"; return 1
+        log_error "[SNI] update_sni_domain: 拒绝使用空域名进行更新！操作已中止。"
+        return 1
     fi
 
-    # 1. 获取旧域名，用于无缝切换和清理计划
-    local old_domain
-    old_domain=$(get_current_sni_domain)
+    local grace_hours="${EB_SNI_GRACE_HOURS:-24}"
+    local xray_tmp="${XRAY_CONFIG}.tmp"
+    local old_domain=$(get_current_sni_domain)
 
-# 如果新旧域名相同：仅记录评估，不触发轮换
-if [[ "$new_domain" == "$old_domain" ]]; then
-    log_info "[SNI] 评估结果：候选域名与当前一致（$new_domain），保持不变（不进入宽限期）。"
-    return 0
-fi
+    # 如果新旧域名相同，则无需操作
+    if [[ "$new_domain" == "$old_domain" ]]; then
+        log_info "[SNI] 新域名与当前域名相同 ($new_domain)，无需更新。"
+        return 0
+    fi
 
     log_info "[SNI] 无缝轮换开始：${old_domain:-<无>} -> ${new_domain}（宽限期 ${grace_hours}h）"
     cp "$XRAY_CONFIG" "${XRAY_CONFIG}.backup.$(date +%s)" 2>/dev/null || true
 
-    # 2. 原子化更新 xray.json (后端服务配置文件)
+  # 2. 原子化更新 xray.json (后端服务配置文件)
     if jq --arg new "$new_domain" --arg old "${old_domain:-}" '
       .inbounds |= map(
         if .tag == "vless-reality" then
           .streamSettings.realitySettings.dest = ($new + ":443") |
           .streamSettings.realitySettings.serverNames = (
-            # 健壮的数组重构逻辑: [新, 旧, ...其他] -> 去重 -> 过滤空值
             ([$new, $old] + (.streamSettings.realitySettings.serverNames // []))
-| reduce .[] as $x ( [];
-    if ($x|type=="string") and ($x|length>0) and (index($x) == null)
-    then . + [$x] else . end )
+            | reduce .[] as $x ( [];
+                if ($x|type=="string") and ($x|length>0) and (index($x) == null)
+                then . + [$x] else . end )
           )
         else . end
       )
