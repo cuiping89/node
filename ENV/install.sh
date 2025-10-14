@@ -15310,7 +15310,7 @@ log_info "正在后台为您自动选择最优SNI域名，这不会影响您立�
 show_installation_info() {
     clear
     print_separator
-    echo -e "${GREEN}🎉 EdgeBox 企业级多协议节点 v${EDGEBOX_VER}${NC}"
+    echo -e "${GREEN}🌐 EdgeBox 企业级多协议节点 v${EDGEBOX_VER}${NC}"
     print_separator
 
     # 确保加载最新数据（特别是密码）
@@ -15347,7 +15347,7 @@ local SUB_URL="http://${show_host}/${SUB_PATH}"
     # 打印时使用已验证的 DASHBOARD_PASSCODE 变量
     echo -e  "  🌐 控制面板: ${PURPLE}http://${server_ip}/traffic/?passcode=${DASHBOARD_PASSCODE}${NC}"
     echo -e  "  🔑 访问密码: ${YELLOW}${DASHBOARD_PASSCODE}${NC}"
-	echo -e  "  🔗 订阅URL: ${PURPLE}${SUB_URL}${NC}"
+	echo -e  "  🔗 订阅 URL: ${PURPLE}${SUB_URL}${NC}"
 
     echo -e  "\n${CYAN}默认模式：${NC}"
     echo -e  "  证书模式: ${PURPLE}IP模式（自签名证书）${NC}"
