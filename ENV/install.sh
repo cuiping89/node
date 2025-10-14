@@ -11351,7 +11351,6 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 	    <code>edgeboxctl reality-status</code> <span># 查看 Reality 密钥轮换的周期状态</span>
         <code>edgeboxctl rotate-reality --force</code> <span># 手动执行 Reality 密钥对轮换 (安全增强)</span>
 		<code>edgeboxctl rotate-sid</code> <span># 无感轮换 Reality shortId（24h宽限期）</span>
-        <code>edgeboxctl sid-rotate</code> <span># 同上（按分层风格调用）</span>
       </div>
     </div>
 
@@ -14586,7 +14585,6 @@ help|"")
   print_cmd "${GREEN}edgeboxctl reality-status${NC}"  "查看 Reality 密钥轮换的周期状态"                       $_W_REALITY
   print_cmd "${GREEN}edgeboxctl rotate-reality${NC} ${CYAN}[--force]${NC}"  "手动执行 Reality 密钥对轮换 (安全增强)"                 $_W_REALITY
   print_cmd "${GREEN}edgeboxctl rotate-sid${NC}"  "无感轮换 Reality shortId（24h宽限期）"                       $_W_REALITY
-  print_cmd "${GREEN}edgeboxctl sid-rotate${NC}"  "同上（按分层风格调用）"                       $_W_REALITY
   printf "\n"
 
   # 🧬 流量特征随机化
