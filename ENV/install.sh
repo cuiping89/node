@@ -11321,6 +11321,8 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
       <div class="command-list">
 	    <code>edgeboxctl reality-status</code> <span># 查看 Reality 密钥轮换的周期状态</span>
         <code>edgeboxctl rotate-reality --force</code> <span># 手动执行 Reality 密钥对轮换 (安全增强)</span>
+		<code>edgeboxctl rotate-sid</code> <span># 无感轮换 Reality shortId（24h宽限期）</span>
+        <code>edgeboxctl sid-rotate</code> <span># 同上（按分层风格调用）</span>
       </div>
     </div>
 
@@ -14115,6 +14117,55 @@ rotate_reality_keys() {
     echo -e "  新短ID (sid): ${GREEN}${new_short_id}${NC}"
 }
 
+# === Reality 无感 SID 轮换（追加新 SID，24h 后自动清理旧 SID）===
+rotate_reality_sid_graceful() {
+  # 配置路径（按你的项目习惯可改）
+  local XRAY_CONFIG="${XRAY_CONFIG:-/etc/edgebox/config/xray.json}"
+  local tmp="${XRAY_CONFIG}.tmp"
+  local grace_hours="${EB_SID_GRACE_HOURS:-24}"
+
+  # 读取“当前第一个旧 SID”（若有多个，先清理第一个；可按需扩展）
+  local old_sid
+  old_sid="$(jq -r '.inbounds[]?|select(.tag=="vless-reality")|.streamSettings.realitySettings.shortIds[0] // empty' "$XRAY_CONFIG")"
+
+  # 生成并【追加】新 SID（去重）
+  local new_sid; new_sid="$(openssl rand -hex 4)"
+  jq --arg sid "$new_sid" '
+    .inbounds |= map(
+      if .tag=="vless-reality" then
+        .streamSettings.realitySettings.shortIds =
+          (((.streamSettings.realitySettings.shortIds // []) + [$sid]) | unique)
+      else . end
+    )' "$XRAY_CONFIG" > "$tmp" && mv "$tmp" "$XRAY_CONFIG" || {
+      echo "[ERR] 写入新 SID 失败" >&2; return 1; }
+
+  # 轻量重载（失败则重启）
+  systemctl reload xray 2>/dev/null || systemctl restart xray 2>/dev/null || true
+  echo "[OK] Reality 新 SID 已生效：$new_sid   （将宽限 ${grace_hours}h）"
+
+  # 24h 后用 systemd-run 清理旧 SID
+  if [[ -n "$old_sid" ]]; then
+    # 构造清理 payload：把 != old_sid 的都保留（即移除 old_sid）
+    local jq_cleanup='
+      .inbounds |= map(
+        if .tag=="vless-reality" then
+          .streamSettings.realitySettings.shortIds |= ((. // []) | map(select(. != $old)))
+        else . end
+      )'
+    local b64; b64="$(printf "%s" "$jq_cleanup" | (base64 -w0 2>/dev/null || base64))"
+    local payload
+    payload="b64='$b64';f=\$(echo \"\$b64\" | base64 -d);cfg='$XRAY_CONFIG';tmp=\"\${cfg}.tmp\";jqbin=\$(command -v jq);
+\"\$jqbin\" --arg old \"$old_sid\" \"\$f\" \"\$cfg\" > \"\$tmp\" && mv \"\$tmp\" \"\$cfg\" && (systemctl reload xray 2>/dev/null || systemctl restart xray 2>/dev/null) >/dev/null 2>&1"
+
+    systemd-run --on-active="${grace_hours}h" --timer-property=Persistent=true --property=Type=oneshot \
+      /bin/bash -lc "$payload" >/dev/null 2>&1 || true
+
+    echo "[INFO] 已安排 ${grace_hours}h 后清理旧 SID：$old_sid    （systemd-run 持久定时器）"
+  else
+    echo "[INFO] 没有检测到旧 SID；这次无需安排清理任务。"
+  fi
+}
+
 # 主函数：显示轮换状态
 show_reality_rotation_status() {
     log_info "查看Reality密钥轮换状态..."
@@ -14351,6 +14402,11 @@ edgeboxctl sub limit  <user> <N>       # 调整用户的设备上限"
     show_reality_rotation_status
     ;;
 
+  rotate-sid)
+    # 用法：edgeboxctl rotate-sid   （可选：EB_SID_GRACE_HOURS=12 edgeboxctl rotate-sid）
+    rotate_reality_sid_graceful
+    ;;
+	
    # SNI域名池管理
   sni)
     case "$2" in
@@ -14500,6 +14556,8 @@ help|"")
   printf "%b\n" "${YELLOW}■ 🔐 Reality 密钥轮换${NC}"
   print_cmd "${GREEN}edgeboxctl reality-status${NC}"  "查看 Reality 密钥轮换的周期状态"                       $_W_REALITY
   print_cmd "${GREEN}edgeboxctl rotate-reality${NC} ${CYAN}[--force]${NC}"  "手动执行 Reality 密钥对轮换 (安全增强)"                 $_W_REALITY
+  print_cmd "${GREEN}edgeboxctl rotate-sid${NC}"  "无感轮换 Reality shortId（24h宽限期）"                       $_W_REALITY
+  print_cmd "${GREEN}edgeboxctl sid-rotate${NC}"  "同上（按分层风格调用）"                       $_W_REALITY
   printf "\n"
 
   # 🧬 流量特征随机化
