@@ -15334,14 +15334,20 @@ show_installation_info() {
         DASHBOARD_PASSCODE="[密码读取失败]"
     fi
     # <<< 核心修复逻辑结束 <<<
+	
+	# —— 首次安装（默认 IP 模式）固定展示 —— 
+local show_host="$server_ip"
+local MASTER_SUB_TOKEN
+MASTER_SUB_TOKEN="$(jq -r '.master_sub_token // empty' "$config_file" 2>/dev/null)"
+local SUB_PATH="sub"
+[[ -n "$MASTER_SUB_TOKEN" ]] && SUB_PATH="sub-${MASTER_SUB_TOKEN}"
+local SUB_URL="http://${show_host}/${SUB_PATH}"
 
     echo -e  "${CYAN} 核心访问信息${NC}"
-    echo -e  "  👥 IP 地址: ${PURPLE}${server_ip}${NC}"
-
     # 打印时使用已验证的 DASHBOARD_PASSCODE 变量
-    echo -e  "  🔑 访问密码: ${YELLOW}${DASHBOARD_PASSCODE}${NC}"
     echo -e  "  🌐 控制面板: ${PURPLE}http://${server_ip}/traffic/?passcode=${DASHBOARD_PASSCODE}${NC}"
-
+    echo -e  "  🔑 访问密码: ${YELLOW}${DASHBOARD_PASSCODE}${NC}"
+	echo -e  "  🔗 订阅URL: ${PURPLE}${SUB_URL}${NC}"
 
     echo -e  "\n${CYAN}默认模式：${NC}"
     echo -e  "  证书模式: ${PURPLE}IP模式（自签名证书）${NC}"
@@ -15358,7 +15364,7 @@ show_installation_info() {
     echo -e "\n${CYAN}常用运维命令：${NC}"
     echo -e "  ${PURPLE}edgeboxctl status${NC}                             # 查看服务状态"
     echo -e "  ${PURPLE}edgeboxctl sub${NC}                                # 查看订阅链接"
-    echo -e "  ${PURPLE}edgeboxctl dashboard passcode${NC}                 # ${RED}更新控制面板密码${NC}"
+    echo -e "  ${PURPLE}edgeboxctl dashboard passcode${NC}                 # 更改控制面板密码"
     echo -e "  ${PURPLE}edgeboxctl switch-to-domain <域名>${NC}            # 切换证书模式"
     echo -e "  ${PURPLE}edgeboxctl shunt direct-resi '<代理URL>'${NC}      # 启用智能分流"
     echo -e "  ${PURPLE}edgeboxctl help${NC}                               # 查看完整帮助"
@@ -15366,7 +15372,7 @@ show_installation_info() {
 	echo -e "\n${CYAN}高级运维功能：${NC}"
     echo -e "  🔄 证书切换: IP模式 ⇋ 域名模式（Let's Encrypt证书）"
     echo -e "  🌐 出站分流: 代理IP全量 ⇋ VPS全量出 ⇋ 分流"
-    echo -e "  📊 流量监控: 实时流量统计、历史趋势图表、协议分析"
+    echo -e "  📊 流量监控: 实时流量统计、历史趋势图表"
     echo -e "  🔔 预警通知: 流量阈值告警（30%/60%/90%）多渠道推送"
     echo -e "  💾 自动备份: 配置文件定期备份、一键故障恢复"
     echo -e "  🔍 IP质量: 实时出口IP质量评分、黑名单检测"
@@ -15604,7 +15610,7 @@ fi
 show_installation_info
 
 echo
-echo -e "${GREEN}EdgeBox-企业级多协议节点 v${EDGEBOX_VER} 安装成功完成！🎉🎉🎉${NC}"
+echo -e "${GREEN}🌐 EdgeBox-企业级多协议节点 v${EDGEBOX_VER} 安装成功完成！🎉🎉🎉${NC}"
 echo
 
 # 将剩余的非关键修复任务放入后台
