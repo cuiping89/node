@@ -11656,8 +11656,10 @@ APPLY_FIREWALL_SCRIPT
     log_success "独立的、无中断的防火墙应用脚本创建完成。"
 }
 
-
+##########################################
 # 创建完整的edgeboxctl管理工具（集成SNI功能）
+##########################################
+
 create_enhanced_edgeboxctl() {
     log_info "创建增强版edgeboxctl管理工具 (v3.0.2 - Nginx分离式配置修复)..."
 
@@ -13400,6 +13402,60 @@ show_shunt_status() {
     else
         echo -e "  当前模式: ${GREEN}VPS全量出（默认）${NC}"
     fi
+}
+
+
+# 在 edgeboxctl 文件中的 setup_outbound_resi 函数之前添加：
+
+ensure_xray_dns_alignment() {
+  local cfg="/etc/edgebox/config/xray.json"
+  local tmp="$(mktemp)"
+  [[ -f "$cfg" ]] || { log_warn "未找到 $cfg，跳过 Xray DNS 对齐"; return 0; }
+
+  # 探测是否处于代理出站模式
+  local mode="vps"
+  if [[ -f /etc/edgebox/config/shunt/state.json ]]; then
+    local state_mode=$(jq -r '.mode' /etc/edgebox/config/shunt/state.json 2>/dev/null)
+    [[ "$state_mode" == "resi" || "$state_mode" == "direct-resi" ]] && mode="resi"
+  fi
+
+  if [[ "$mode" == "resi" ]]; then
+    log_info "DNS 对齐：检测到代理出站，将 DNS 也走代理"
+    jq '
+      .dns.servers = [
+        {"address":"https://1.1.1.1/dns-query","outboundTag":"resi-proxy"},
+        {"address":"https://8.8.8.8/dns-query","outboundTag":"resi-proxy"}
+      ] |
+      .routing.rules = (
+        (.routing.rules // []) | 
+        map(select(.port != "53")) |
+        [{"type":"field","port":"53","outboundTag":"resi-proxy"}] + .
+      )
+    ' "$cfg" > "$tmp" && mv "$tmp" "$cfg" || { 
+      rm -f "$tmp"; 
+      log_error "写入 Xray DNS(代理) 失败"; 
+      return 1; 
+    }
+  else
+    log_info "DNS 对齐：检测到 VPS 直出，将 DNS 设为直连"
+    jq '
+      .dns.servers = [
+        "8.8.8.8", "1.1.1.1",
+        {"address":"https://1.1.1.1/dns-query"},
+        {"address":"https://8.8.8.8/dns-query"}
+      ] |
+      .routing.rules = (
+        (.routing.rules // []) | 
+        map(select(.port != "53"))
+      )
+    ' "$cfg" > "$tmp" && mv "$tmp" "$cfg" || { 
+      rm -f "$tmp"; 
+      log_error "写入 Xray DNS(直连) 失败"; 
+      return 1; 
+    }
+  fi
+
+  systemctl reload xray 2>/dev/null || systemctl restart xray 2>/dev/null || true
 }
 
 setup_outbound_vps() {
