@@ -13418,20 +13418,42 @@ restart_services_background nginx xray sing-box # 修改：增加 nginx
 setup_outbound_resi() {
   local url="$1"
   [[ -z "$url" ]] && { echo "用法: edgeboxctl shunt resi '<URL>'"; return 1; }
+  
   log_info "配置代理IP全量出站: ${url}"
-  if ! check_proxy_health_url "$url"; then log_error "代理不可用：$url"; return 1; fi
+  if ! check_proxy_health_url "$url"; then 
+    log_error "代理不可用：$url"; 
+    return 1; 
+  fi
+  
   get_server_info || return 1
   parse_proxy_url "$url"
   local xob
   xob="$(build_xray_resi_outbound)"
-  jq --argjson ob "$xob" '.outbounds=[{"protocol":"freedom","tag":"direct"}, $ob] | .routing={"domainStrategy":"AsIs","rules":[{"type":"field","port":"53","outboundTag":"direct"},{"type":"field","network":"tcp,udp","outboundTag":"resi-proxy"}]}' ${CONFIG_DIR}/xray.json > ${CONFIG_DIR}/xray.json.tmp && mv ${CONFIG_DIR}/xray.json.tmp ${CONFIG_DIR}/xray.json
-  # sing-box remains direct
+  
+  # 🔥 关键修复：DNS也走代理
+  jq --argjson ob "$xob" '
+    .outbounds=[{"protocol":"freedom","tag":"direct"}, $ob] | 
+    .routing={
+      "domainStrategy":"AsIs",
+      "rules":[
+        {"type":"field","port":"53","outboundTag":"resi-proxy"},  # 改为resi-proxy
+        {"type":"field","network":"tcp,udp","outboundTag":"resi-proxy"}
+      ]
+    } |
+    .dns.servers=[
+      {"address":"https://1.1.1.1/dns-query","outboundTag":"resi-proxy"},
+      {"address":"https://8.8.8.8/dns-query","outboundTag":"resi-proxy"}
+    ]
+  ' ${CONFIG_DIR}/xray.json > ${CONFIG_DIR}/xray.json.tmp && \
+  mv ${CONFIG_DIR}/xray.json.tmp ${CONFIG_DIR}/xray.json
+  
   echo "$url" > "${CONFIG_DIR}/shunt/resi.conf"
   setup_shunt_directories
   update_shunt_state "resi" "$url" "healthy"
-ensure_xray_dns_alignment # 新增：对齐DNS配置
-post_shunt_report "代理全量（Xray-only）" "$url" # Display report first
-restart_services_background nginx xray # 修改：增加 nginx
+  
+  ensure_xray_dns_alignment
+  post_shunt_report "代理全量（Xray-only）" "$url"
+  restart_services_background nginx xray
 }
 
 setup_outbound_direct_resi() {
