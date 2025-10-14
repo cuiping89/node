@@ -13464,11 +13464,13 @@ setup_outbound_vps() {
     local xray_tmp="${CONFIG_DIR}/xray.json.tmp"
     jq '.outbounds = [ { "protocol":"freedom", "tag":"direct" } ] | .routing = { "rules": [] }' "${CONFIG_DIR}/xray.json" > "$xray_tmp" && mv "$xray_tmp" "${CONFIG_DIR}/xray.json"
     setup_shunt_directories
-    update_shunt_state "vps" "" "healthy"
-    flush_nft_resi_sets
-ensure_xray_dns_alignment # 新增：对齐DNS配置
-post_shunt_report "VPS 全量出站" "" # Display report first
-restart_services_background nginx xray sing-box # 修改：增加 nginx
+update_shunt_state "vps" "" "healthy"
+flush_nft_resi_sets
+ensure_xray_dns_alignment # 确保DNS也切换回直连
+log_info "正在应用配置并重启服务..."
+reload_or_restart_services nginx xray sing-box # 使用同步重启
+log_info "服务重启完成，开始生成验收报告..."
+post_shunt_report "VPS 全量出站" "" # 移到最后执行
 }
 
 setup_outbound_resi() {
@@ -13505,11 +13507,12 @@ setup_outbound_resi() {
   
   echo "$url" > "${CONFIG_DIR}/shunt/resi.conf"
   setup_shunt_directories
-  update_shunt_state "resi" "$url" "healthy"
-  
-  ensure_xray_dns_alignment
-  post_shunt_report "代理全量（Xray-only）" "$url"
-  restart_services_background nginx xray
+update_shunt_state "resi" "$url" "healthy"
+ensure_xray_dns_alignment
+log_info "正在应用配置并重启服务..."
+reload_or_restart_services nginx xray # 使用同步重启
+log_info "服务重启完成，开始生成验收报告..."
+post_shunt_report "代理全量（Xray-only）" "$url" # 移到最后执行
 }
 
 setup_outbound_direct_resi() {
@@ -13525,10 +13528,12 @@ setup_outbound_direct_resi() {
   jq --argjson ob "$xob" --argjson wl "$wl" '.outbounds=[{"protocol":"freedom","tag":"direct"}, $ob] | .routing={"domainStrategy":"AsIs","rules":[{"type":"field","port":"53","outboundTag":"direct"},{"type":"field","domain":$wl,"outboundTag":"direct"},{"type":"field","network":"tcp,udp","outboundTag":"resi-proxy"}]}' ${CONFIG_DIR}/xray.json > ${CONFIG_DIR}/xray.json.tmp && mv ${CONFIG_DIR}/xray.json.tmp ${CONFIG_DIR}/xray.json
   # sing-box remains direct
   echo "$url" > "${CONFIG_DIR}/shunt/resi.conf"
-  update_shunt_state "direct-resi" "$url" "healthy"
-ensure_xray_dns_alignment # 新增：对齐DNS配置
-post_shunt_report "智能分流（白名单直连）" "$url" # Display report first
-restart_services_background nginx xray # 修改：增加 nginx
+update_shunt_state "direct-resi" "$url" "healthy"
+ensure_xray_dns_alignment
+log_info "正在应用配置并重启服务..."
+reload_or_restart_services nginx xray # 使用同步重启
+log_info "服务重启完成，开始生成验收报告..."
+post_shunt_report "智能分流（白名单直连）" "$url" # 移到最后执行
 }
 
 manage_whitelist() {
