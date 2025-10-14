@@ -13309,31 +13309,23 @@ post_shunt_report() {
   echo -n "2) 出口 IP: "
   if [[ -n "$url" ]]; then
     local via_vps via_resi proxy_uri
-    via_vps=$(env -u ALL_PROXY -u HTTP_PROXY -u HTTPS_PROXY -u NO_PROXY -u http_proxy -u https_proxy -u no_proxy \
-              curl -fsS --max-time 6 https://api.ipify.org 2>/dev/null || true)
+local via_vps via_resi
 
-    if [[ -n "$url" ]]; then
-        parse_proxy_url "$url" >/dev/null 2>&1 || true
-        format_curl_proxy_uri proxy_uri
+# Test VPS IP by calling the curl binary directly, bypassing any aliases.
+via_vps=$(command curl -fsS --max-time 6 https://api.ipify.org 2>/dev/null || true)
 
-        # 核心修复：使用 env 创建一个干净的环境，只设置我们需要的代理变量
-        local proxy_scheme="${proxy_uri%%://*}"
-        local proxy_host_port="${proxy_uri#*://}"
+if [[ -n "$url" ]]; then
+    parse_proxy_url "$url" >/dev/null 2>&1 || true
+    format_curl_proxy_uri proxy_uri
 
-        if [[ "$proxy_scheme" == "socks5h" ]]; then
-            # 对于SOCKS代理，设置 ALL_PROXY
-            via_resi=$(env -i ALL_PROXY="socks5h://${proxy_host_port}" \
-                       curl -fsS --max-time 8 https://api.ipify.org 2>/dev/null || true)
-        else
-            # 对于HTTP/HTTPS代理，设置 https_proxy
-            via_resi=$(env -i https_proxy="http://${proxy_host_port}" http_proxy="http://${proxy_host_port}" \
-                       curl -fsS --max-time 8 https://api.ipify.org 2>/dev/null || true)
-        fi
-    else
-        via_resi=""
-    fi
+    # Test Upstream IP by calling the curl binary directly with the --proxy flag.
+    # This is the most direct and least ambiguous way.
+    via_resi=$(command curl -fsS --max-time 8 --proxy "$proxy_uri" https://api.ipify.org 2>/dev/null || true)
+else
+    via_resi=""
+fi
 
-    echo -e "VPS=${via_vps:-?}  上游=${via_resi:-?}"
+echo -e "VPS=${via_vps:-?}  上游=${via_resi:-?}"
     if [[ -n "$via_vps" && -n "$via_resi" && "$via_vps" != "$via_resi" ]]; then
       echo -e "   => ${GREEN}出口已切换${NC}"
     else
