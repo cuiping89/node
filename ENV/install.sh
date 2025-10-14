@@ -12818,20 +12818,18 @@ chmod +x "$pre_hook_script"
   fi
 
   # 4) 执行签发
-  if [[ "$CERTBOT_AUTH" == "--nginx" ]]; then
-certbot certonly --nginx ${expand} \
-  --pre-hook "$pre_hook_script" \
-  --cert-name "${domain}" "${cert_args[@]}" \
-  -n --agree-tos --register-unsafely-without-email || return 1
-  else
+if [[ "$CERTBOT_AUTH" == "--nginx" ]]; then
+    env -u ALL_PROXY -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy certbot certonly --nginx ${expand} \
+      --cert-name "${domain}" "${cert_args[@]}" \
+      -n --agree-tos --register-unsafely-without-email || return 1
+else
     # standalone 需临时释放 80 端口
     systemctl stop nginx >/dev/null 2>&1 || true
-certbot certonly --standalone --preferred-challenges http --http-01-port 80 ${expand} \
-  --pre-hook "$pre_hook_script" \
-  --cert-name "${domain}" "${cert_args[@]}" \
-  -n --agree-tos --register-unsafely-without-email || { systemctl start nginx >/dev/null 2>&1 || true; return 1; }
+    env -u ALL_PROXY -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy certbot certonly --standalone --preferred-challenges http --http-01-port 80 ${expand} \
+      --cert-name "${domain}" "${cert_args[@]}" \
+      -n --agree-tos --register-unsafely-without-email || { systemctl start nginx >/dev/null 2>&1 || true; return 1; }
     systemctl start nginx >/dev/null 2>&1 || true
-  fi
+fi
 
   # 切换软链并热加载
   [[ -f "/etc/letsencrypt/live/${domain}/fullchain.pem" && -f "/etc/letsencrypt/live/${domain}/privkey.pem" ]] \
