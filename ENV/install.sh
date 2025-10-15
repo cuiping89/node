@@ -7022,12 +7022,13 @@ notify() {
       -d "$tg_payload" "$tg_api_url" >> "$LOG" 2>&1 || true
   fi
 
-  # --- Discord 通知逻辑 (新增) ---
+  # --- Discord 通知逻辑 (补全) ---
   if [[ -n "${ALERT_DISCORD_WEBHOOK:-}" ]]; then
     # Discord 使用 "content" 字段而不是 "text"
     local discord_payload
     discord_payload=$(jq -n --arg content "$msg" '{content: $content}')
 
+    # ↓↓↓ 这是之前缺失的关键发送命令 ↓↓↓
     env -u ALL_PROXY -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy \
     curl -m 5 -s -X POST -H 'Content-Type: application/json' \
       -d "$discord_payload" "$ALERT_DISCORD_WEBHOOK" >> "$LOG" 2>&1 || true
