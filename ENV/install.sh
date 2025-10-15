@@ -7006,7 +7006,7 @@ pct=$(( used * 100 / budget_bytes ))
 sent=""
 [[ -f "$STATE" ]] && sent="$(cat "$STATE")"
 
-# --- 核心修复：全新的、功能完整的 notify 函数 ---
+# --- 核心修复：功能更完整的 notify 函数 ---
 notify() {
   local msg="$1"
   echo "[$(date -Is)] $msg" | tee -a "$LOG" >/dev/null
@@ -7015,13 +7015,22 @@ notify() {
   if [[ -n "${ALERT_TG_BOT_TOKEN:-}" && -n "${ALERT_TG_CHAT_ID:-}" ]]; then
     local tg_api_url="https://api.telegram.org/bot${ALERT_TG_BOT_TOKEN}/sendMessage"
     local tg_payload
-    # 使用 jq 安全地构建 JSON
     tg_payload=$(jq -n --arg chat_id "${ALERT_TG_CHAT_ID}" --arg text "$msg" '{chat_id: $chat_id, text: $text}')
     
-    # 强制禁用代理发送
     env -u ALL_PROXY -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy \
     curl -m 10 -s -X POST -H 'Content-Type: application/json' \
       -d "$tg_payload" "$tg_api_url" >> "$LOG" 2>&1 || true
+  fi
+
+  # --- Discord 通知逻辑 (新增) ---
+  if [[ -n "${ALERT_DISCORD_WEBHOOK:-}" ]]; then
+    # Discord 使用 "content" 字段而不是 "text"
+    local discord_payload
+    discord_payload=$(jq -n --arg content "$msg" '{content: $content}')
+
+    env -u ALL_PROXY -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy \
+    curl -m 5 -s -X POST -H 'Content-Type: application/json' \
+      -d "$discord_payload" "$ALERT_DISCORD_WEBHOOK" >> "$LOG" 2>&1 || true
   fi
 
   # --- 通用 Webhook 通知逻辑 ---
@@ -7029,7 +7038,6 @@ notify() {
     local webhook_payload
     webhook_payload=$(jq -n --arg text "$msg" '{text:$text}')
     
-    # 强制禁用代理发送
     env -u ALL_PROXY -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy \
     curl -m 5 -s -X POST -H 'Content-Type: application/json' \
       -d "$webhook_payload" "$ALERT_WEBHOOK" >> "$LOG" 2>&1 || true
