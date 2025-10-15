@@ -6966,36 +6966,75 @@ LOG_DIR="$TRAFFIC_DIR/logs"
 CONF="$TRAFFIC_DIR/alert.conf"
 STATE="$TRAFFIC_DIR/alert.state"
 LOG="/var/log/edgebox-traffic-alert.log"
-[[ -r "$CONF" ]] || { echo "no alert.conf"; exit 0; }
-# shellcheck source=/dev/null
-. "$CONF"
+
+# 确保配置文件存在
+if [[ ! -r "$CONF" ]]; then
+  echo "[$(date -Is)] [ERROR] alert.conf not found or not readable." >> "$LOG"
+  exit 1
+fi
+
+# 加载配置
+source "$CONF"
 
 month="$(date +%Y-%m)"
 row="$(grep "^${month}," "$LOG_DIR/monthly.csv" 2>/dev/null || true)"
-[[ -z "$row" ]] && { echo "[$(date -Is)] no-monthly" >> "$LOG"; exit 0; }
+if [[ -z "$row" ]]; then
+  echo "[$(date -Is)] [INFO] No traffic data for current month yet." >> "$LOG"
+  exit 0
+fi
 
 # CSV: month,vps,resi,total,tx,rx
 IFS=',' read -r _ vps resi total tx rx <<<"$row"
 budget_bytes=$(( ${ALERT_MONTHLY_GIB:-100} * 1024 * 1024 * 1024 ))
 used=$total
+
+# 防止除以0
+if [[ $budget_bytes -eq 0 ]]; then
+    echo "[$(date -Is)] [WARN] Monthly budget is 0, cannot calculate percentage." >> "$LOG"
+    exit 0
+fi
+
 pct=$(( used * 100 / budget_bytes ))
 
 sent=""
 [[ -f "$STATE" ]] && sent="$(cat "$STATE")"
 
-parse_steps() { IFS=',' read -ra a <<<"${ALERT_STEPS:-30,60,90}"; for s in "${a[@]}"; do echo "$s"; done; }
+# --- 核心修复：全新的、功能完整的 notify 函数 ---
 notify() {
   local msg="$1"
   echo "[$(date -Is)] $msg" | tee -a "$LOG" >/dev/null
-if [[ -n "${ALERT_WEBHOOK:-}" ]]; then
-  env -u ALL_PROXY -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy \
-  curl -m 5 -s -X POST -H 'Content-Type: application/json' \
-    -d "$(jq -n --arg text "$msg" '{text:$text}')" "$ALERT_WEBHOOK" >/dev/null 2>&1 || true
-fi
+
+  # --- Telegram 通知逻辑 ---
+  if [[ -n "${ALERT_TG_BOT_TOKEN:-}" && -n "${ALERT_TG_CHAT_ID:-}" ]]; then
+    local tg_api_url="https://api.telegram.org/bot${ALERT_TG_BOT_TOKEN}/sendMessage"
+    local tg_payload
+    # 使用 jq 安全地构建 JSON
+    tg_payload=$(jq -n --arg chat_id "${ALERT_TG_CHAT_ID}" --arg text "$msg" '{chat_id: $chat_id, text: $text}')
+    
+    # 强制禁用代理发送
+    env -u ALL_PROXY -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy \
+    curl -m 10 -s -X POST -H 'Content-Type: application/json' \
+      -d "$tg_payload" "$tg_api_url" >> "$LOG" 2>&1 || true
+  fi
+
+  # --- 通用 Webhook 通知逻辑 ---
+  if [[ -n "${ALERT_WEBHOOK:-}" ]]; then
+    local webhook_payload
+    webhook_payload=$(jq -n --arg text "$msg" '{text:$text}')
+    
+    # 强制禁用代理发送
+    env -u ALL_PROXY -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy \
+    curl -m 5 -s -X POST -H 'Content-Type: application/json' \
+      -d "$webhook_payload" "$ALERT_WEBHOOK" >> "$LOG" 2>&1 || true
+  fi
+
+  # --- 邮件通知逻辑 (保持不变) ---
   if command -v mail >/dev/null 2>&1 && [[ -n "${ALERT_EMAIL:-}" ]]; then
     echo "$msg" | mail -s "EdgeBox 流量预警 (${month})" "$ALERT_EMAIL" || true
   fi
 }
+
+parse_steps() { IFS=',' read -ra a <<<"${ALERT_STEPS:-30,60,90}"; for s in "${a[@]}"; do echo "$s"; done; }
 
 new_sent="$sent"
 for s in $(parse_steps); do
