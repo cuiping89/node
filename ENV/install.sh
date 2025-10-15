@@ -655,6 +655,58 @@ smart_download_script() {
 }
 
 
+#==============================================================================
+# 强语义的热重载/重启函数 (全局唯一)
+# - 行为: 先校验配置，再执行操作，最后确认服务状态。
+# - 目的: 避免因函数重复定义导致的行为覆盖和混乱。
+#==============================================================================
+reload_or_restart_services() {
+  ensure_reverse_ssh # 确保救生索在线
+
+  local services=("$@"); local failed=()
+  for svc in "${services[@]}"; do
+    local action="reload"
+    case "$svc" in
+      nginx|nginx.service)
+        command -v nginx >/dev/null 2>&1 && nginx -t >/dev/null 2>&1 || { log_error "[hotfix] nginx config check failed (nginx -t)"; failed+=("$svc"); continue; }
+        systemctl reload nginx || { action="restart"; systemctl restart nginx; }
+        ;;
+      sing-box|sing-box.service|sing-box@*)
+        if command -v sing-box >/dev/null 2>&1; then
+          local sb_cfg="$CONFIG_DIR/sing-box.json"
+          [ -f "$sb_cfg" ] && ! sing-box check -c "$sb_cfg" >/dev/null 2>&1 && { log_error "[hotfix] sing-box config check failed"; failed+=("$svc"); continue; }
+        fi
+        systemctl reload "$svc" 2>/dev/null || systemctl kill -s HUP "$svc" 2>/dev/null || { action="restart"; systemctl restart "$svc"; }
+        ;;
+      xray|xray.service|xray@*)
+        if command -v xray >/dev/null 2>&1; then
+          local xr_cfg="$XRAY_CONFIG"
+          [ -f "$xr_cfg" ] && ! xray -test -config "$xr_cfg" >/dev/null 2>&1 && { log_error "[hotfix] xray config check failed (xray -test)"; failed+=("$svc"); continue; }
+        fi
+        action="restart"; systemctl restart "$svc"
+        ;;
+      *)
+        systemctl reload "$svc" 2>/dev/null || { action="restart"; systemctl restart "$svc"; }
+        ;;
+    esac
+    if ! systemctl is-active --quiet "$svc"; then
+      log_error "[hotfix] $svc is not active after $action"
+      journalctl -u "$svc" -n 50 --no-pager || true
+      failed+=("$svc")
+    else
+      log_success "[hotfix] $svc successfully ${action}ed."
+    fi
+  done
+
+  # 应用防火墙规则
+  if [[ -x "/etc/edgebox/scripts/apply-firewall.sh" ]]; then
+    log_info "正在重新应用防火墙规则..."
+    /etc/edgebox/scripts/apply-firewall.sh >/dev/null 2>&1 || log_warn "防火墙规则应用失败。"
+  fi
+
+  ((${#failed[@]}==0)) || return 1
+}
+
 # 安装系统依赖包（增强幂等性）
 install_dependencies() {
     log_info "安装系统依赖（幂等性检查）..."
@@ -2029,19 +2081,13 @@ generate_self_signed_cert() {
     ln -sf "${CERT_DIR}/self-signed.pem" "${CERT_DIR}/current.pem"
 
     # --- 关键权限修复 ---
-    # 1. 获取 nobody 用户的主组名 (Debian系是 nogroup, RHEL系是 nobody)
     local NOBODY_GRP
     NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
 
-    # 2. 设置目录和文件的所有权
     chown -R root:"${NOBODY_GRP}" "${CERT_DIR}"
-
-    # 3. 设置目录权限：root可读写执行，组可进入和读取
-    chmod 750 "${CERT_DIR}"
-
-    # 4. 设置文件权限：root可读写，组可读
-    chmod 640 "${CERT_DIR}"/self-signed.key
-    chmod 644 "${CERT_DIR}"/self-signed.pem
+    chmod 750 "${CERT_DIR}" # 目录权限：root=rwx, group=r-x, other=---
+    chmod 640 "${CERT_DIR}"/self-signed.key # 私钥权限：root=rw, group=r, other=---
+    chmod 644 "${CERT_DIR}"/self-signed.pem # 公钥权限
     # ---------------------
 
     if openssl x509 -in "${CERT_DIR}/current.pem" -noout >/dev/null 2>&1; then
@@ -2366,9 +2412,7 @@ install_xray() {
     # 检查是否已安装
     if command -v xray >/dev/null 2>&1; then
         local current_version
-        xray_version=$(xray version 2>/dev/null \
-        | head -n1 \
-        | sed -E 's/[^0-9]*([0-9.]+).*/\1/')
+        current_version=$(xray version 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)
         log_info "检测到已安装的Xray版本: ${current_version:-未知}"
         log_info "跳过Xray重新安装，使用现有版本"
         return 0
@@ -2395,9 +2439,9 @@ install_xray() {
 		| sed -E 's/[^0-9]*([0-9.]+).*/\1/')
         log_success "Xray验证通过，版本: ${xray_version:-未知}"
 
-        mkdir -p /var/log/xray
-        chown nobody:nogroup /var/log/xray 2>/dev/null || \
-            chown nobody:nobody /var/log/xray 2>/dev/null || true
+mkdir -p /var/log/xray
+chown nobody:nogroup /var/log/xray 2>/dev/null || chown nobody:nobody /var/log/xray
+log_success "Xray log directory created and permissions set."
 
         return 0
     else
@@ -2791,6 +2835,23 @@ EOF
     log_success "Nginx 初始 stream map 已生成: $map_conf"
 }
 
+
+# // 为Nginx创建systemd依赖
+create_nginx_systemd_override() {
+    log_info "创建systemd override以强制Nginx依赖..."
+    local override_dir="/etc/systemd/system/nginx.service.d"
+    mkdir -p "$override_dir"
+    cat > "${override_dir}/edgebox-deps.conf" << EOF
+[Unit]
+# Nginx must start after xray and sing-box are ready
+Wants=xray.service sing-box.service
+After=xray.service sing-box.service
+EOF
+    systemctl daemon-reload
+    log_success "Nginx服务依赖关系已建立"
+}
+
+
 # 配置Nginx（SNI定向 + ALPN兜底架构）
 configure_nginx() {
     log_info "配置Nginx（SNI定向 + ALPN兜底架构）..."
@@ -3059,15 +3120,8 @@ EOF
     # =================================================================
     generate_initial_nginx_stream_map
 	
-	# --- 保证 Nginx 在 xray / sing-box 就绪后再启 ---
-local override_dir="/etc/systemd/system/nginx.service.d"
-mkdir -p "$override_dir"
-cat > "${override_dir}/override.conf" << 'EOF'
-[Unit]
-Requires=xray.service sing-box.service
-After=xray.service sing-box.service
-EOF
-systemctl daemon-reload
+	# 调用依赖注入函数
+	create_nginx_systemd_override
 
 # --- 高熵订阅路径注入：/sub -> /sub-<token> ---
 if [[ -n "$MASTER_SUB_TOKEN" ]]; then
@@ -3103,12 +3157,12 @@ fi
 configure_xray() {
     log_info "配置Xray多协议服务..."
 
-# 【添加】创建Xray日志目录（先定义组，再改权限）
-local NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
-mkdir -p /var/log/xray
-chmod 750 /var/log/xray
-chown nobody:${NOBODY_GRP} /var/log/xray
+    # 【添加】创建Xray日志目录
+    mkdir -p /var/log/xray
+    chmod 755 /var/log/xray
+    chown root:root /var/log/xray
 
+    local NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
 
     # 验证必要变量 (增强版)
     local required_vars=(
@@ -3175,9 +3229,9 @@ chown nobody:${NOBODY_GRP} /var/log/xray
         --arg cert_key "${CERT_DIR}/current.key" \
         '{
             "log": {
-				  "access": "/var/log/xray/access.log",
-				  "error":  "/var/log/xray/error.log",
-				  "loglevel": "info"
+                "access": "/var/log/xray/access.log",
+                "error": "/var/log/xray/error.log",
+                "loglevel": "info"
             },
             "inbounds": [
                 {
@@ -3312,8 +3366,9 @@ ensure_xray_dns_alignment
     rm -rf /etc/systemd/system/xray.service.d 2>/dev/null || true
     rm -rf /etc/systemd/system/xray@.service.d 2>/dev/null || true
 
-    # 创建我们自己的 systemd 服务文件（使用正确的配置路径）
-cat > /etc/systemd/system/xray.service << EOF
+# // ANCHOR: [FIX-2-PERMISSIONS] - 修改Xray服务单元，使用非root用户
+    # 创建我们自己的 systemd 服务文件
+    cat > /etc/systemd/system/xray.service << EOF
 [Unit]
 Description=Xray Service (EdgeBox)
 Documentation=https://github.com/xtls
@@ -3322,9 +3377,9 @@ After=network.target nss-lookup.target
 [Service]
 Type=simple
 User=nobody
-Group=${NOBODY_GRP}
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
-AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+Group=$(id -gn nobody 2>/dev/null || echo nogroup)
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_BIND_SERVICE
 NoNewPrivileges=true
 ExecStart=/usr/local/bin/xray run -config ${CONFIG_DIR}/xray.json
 Restart=on-failure
@@ -3335,6 +3390,10 @@ LimitNOFILE=1000000
 [Install]
 WantedBy=multi-user.target
 EOF
+
+    # 强力屏蔽官方单元，防止被意外激活
+    systemctl disable xray.service >/dev/null 2>&1 || true
+    systemctl mask xray.service >/dev/null 2>&1 || true
 
     # 重新加载systemd，以便后续服务可以启动
     systemctl daemon-reload
@@ -3468,21 +3527,12 @@ fi
         fi
     fi
 
-# 确保证书权限正确（允许 nobody 读私钥）
-if [[ -d "${CERT_DIR}" ]]; then
-    local NOBODY_GRP
-    NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
-
-    # 目录需可被组遍历；key 仅组可读；pem 可 644
-    chmod 750 "${CERT_DIR}" 2>/dev/null || true
-    chown -R root:"${NOBODY_GRP}" "${CERT_DIR}" 2>/dev/null || true
-
-    chmod 644 "${CERT_DIR}"/*.pem 2>/dev/null || true
-    chown root:"${NOBODY_GRP}" "${CERT_DIR}"/*.key 2>/dev/null || true
-    chmod 640 "${CERT_DIR}"/*.key 2>/dev/null || true
-
-    log_success "证书权限已设置（组=${NOBODY_GRP}，key=640）"
-fi
+    # 确保证书权限正确
+    if [[ -f "${CERT_DIR}/self-signed.pem" ]]; then
+        chmod 644 "${CERT_DIR}"/*.pem 2>/dev/null || true
+        chmod 600 "${CERT_DIR}"/*.key 2>/dev/null || true
+        log_success "证书权限已设置"
+    fi
 
     # 创建正确的 systemd 服务文件
     log_info "创建sing-box系统服务..."
@@ -3675,75 +3725,6 @@ chmod 644 "${CONFIG_DIR}/subscription.txt"
 #############################################
 # 服务启动和验证函数
 #############################################
-
-# --- hot-reload: begin ---
-# 智能热加载/回退重启（nginx / sing-box / xray 等）
-# 用法：reload_or_restart_services nginx sing-box xray
-# --- hot-reload: begin (带防火墙安全锁的版本) ---
-reload_or_restart_services() {
-  # 先确保救生索在线：即使等下 xray/nginx 重启，SSH 也不断线
-  ensure_reverse_ssh
-
-  local services=("$@")
-  local failed=()
-  for svc in "${services[@]}"; do
-    local action="reload"
-    case "$svc" in
-      nginx|nginx.service)
-        if command -v nginx >/dev/null 2>&1; then
-          if ! nginx -t >/dev/null 2>&1; then
-            log_error "[hot-reload] nginx 配置校验失败（nginx -t）"
-            failed+=("$svc"); continue
-          fi
-        fi
-        systemctl reload nginx || { action="restart"; systemctl restart nginx; }
-        ;;
-      sing-box|sing-box.service|sing-box@*)
-        if command -v sing-box >/dev/null 2>&1; then
-          local sb_cfg="${CONFIG_DIR}/sing-box.json"
-          [ -f "$sb_cfg" ] && ! sing-box check -c "$sb_cfg" >/dev/null 2>&1 && {
-            log_error "[hot-reload] sing-box 配置校验失败（sing-box check）"
-            failed+=("$svc"); continue
-          }
-        fi
-        systemctl reload "$svc" 2>/dev/null \
-          || systemctl kill -s HUP "$svc" 2>/dev/null \
-          || { action="restart"; systemctl restart "$svc"; }
-        ;;
-      xray|xray.service|xray@*)
-        if command -v xray >/dev/null 2>&1; then
-          local xr_cfg="${CONFIG_DIR}/xray.json"
-          [ -f "$xr_cfg" ] && ! xray -test -config "$xr_cfg" >/dev/null 2>&1 && {
-            log_error "[hot-reload] xray 配置校验失败（xray -test）"
-            failed+=("$svc"); continue
-          }
-        fi
-        action="restart"
-        systemctl restart "$svc"
-        ;;
-      *)
-        systemctl reload "$svc" 2>/dev/null || { action="restart"; systemctl restart "$svc"; }
-        ;;
-    esac
-    if ! systemctl is-active --quiet "$svc"; then
-      log_error "[hot-reload] $svc 在 ${action} 后仍未 active"
-      journalctl -u "$svc" -n 50 --no-pager || true
-      failed+=("$svc")
-    else
-      log_info "[hot-reload] $svc ${action}ed"
-    fi
-  done
-
-  # 你的“重载后立即套防火墙规则”修复点保持不变
-  if [[ -x "/etc/edgebox/scripts/apply-firewall.sh" ]]; then
-    log_info "正在重新应用防火墙规则以防止连接中断..."
-    /etc/edgebox/scripts/apply-firewall.sh >/dev/null 2>&1 || log_warn "防火墙规则应用失败，但不中断流程。"
-  fi
-
-  ((${#failed[@]}==0)) || return 1
-}
-# --- hot-reload: end ---
-
 
 
 # 启动所有服务并验证（增强幂等性）
@@ -3939,14 +3920,15 @@ execute_module3() {
 	
 	ensure_xray_dns_alignment
 	
-	# 新增：安装阶段就完成 SNI 智能选择 + 宽限轮换（避免尾部再跑一遍）
-    ensure_reverse_ssh || true
-    log_info "初始化 SNI 域名智能选择..."
-    if /usr/local/bin/edgeboxctl sni auto; then
-        log_success "SNI 初始化完成（已评估并按需进入 ${EB_SNI_GRACE_HOURS:-24}h 宽限期）。"
-    else
-        log_warn "SNI 初始化失败；可稍后手动执行：edgeboxctl sni auto"
-    fi
+    # // ANCHOR: [FIX-4-RACE-CONDITION] - 将非紧急优化任务放入后台延迟执行
+    (
+      sleep 15 # 等待核心服务稳定
+      log_info "[后台任务] 执行安装后优化 (SNI auto-selection)..."
+      if [[ -x /usr/local/bin/edgeboxctl ]]; then
+        /usr/local/bin/edgeboxctl sni auto >/dev/null 2>&1 || true
+      fi
+      log_info "[后台任务] 优化完成。"
+    ) &
 
 
     log_success "======== 模块3执行完成 ========"
@@ -12866,27 +12848,6 @@ fi
   ln -sf "/etc/letsencrypt/live/${domain}/fullchain.pem" "${CERT_DIR}/current.pem"
   ln -sf "/etc/letsencrypt/live/${domain}/privkey.pem"  "${CERT_DIR}/current.key"
   echo "letsencrypt:${domain}" > "${CONFIG_DIR}/cert_mode"
-  
-  # --- 部署续期 deploy-hook：更新软链并重载服务 ---
-mkdir -p /etc/letsencrypt/renewal-hooks/deploy
-cat > /etc/letsencrypt/renewal-hooks/deploy/edgebox-renew.sh << 'EOF'
-#!/bin/bash
-set -e
-CONFIG_DIR="/etc/edgebox/config"
-CERT_DIR="/etc/edgebox/cert"
-
-mode_file="${CONFIG_DIR}/cert_mode"
-if [[ -f "$mode_file" ]] && grep -q '^letsencrypt:' "$mode_file"; then
-  domain="$(cut -d: -f2 < "$mode_file")"
-  [[ -n "$domain" ]] || exit 0
-  ln -sf "/etc/letsencrypt/live/${domain}/fullchain.pem" "${CERT_DIR}/current.pem"
-  ln -sf "/etc/letsencrypt/live/${domain}/privkey.pem"  "${CERT_DIR}/current.key"
-  systemctl reload nginx || systemctl restart nginx || true
-  systemctl restart xray || true
-  systemctl restart sing-box || true
-fi
-EOF
-chmod +x /etc/letsencrypt/renewal-hooks/deploy/edgebox-renew.sh
 
   reload_or_restart_services nginx xray sing-box
 
@@ -15479,6 +15440,28 @@ log_info "正在后台为您自动选择最优SNI域名，这不会影响您立�
 }
 
 
+# // ANCHOR: [FIX-5-CERT-HOOK] - 新增函数，安装certbot续期钩子
+setup_certbot_renewal_hook() {
+    log_info "设置Certbot自动续期钩子..."
+    local hook_dir="/etc/letsencrypt/renewal-hooks/deploy"
+    local hook_script="${hook_dir}/edgebox-reload.sh"
+    mkdir -p "$hook_dir"
+    cat > "$hook_script" <<'EOF'
+#!/bin/bash
+# EdgeBox Certbot Renewal Hook
+# This script is executed automatically after a certificate is successfully renewed.
+
+echo "EdgeBox Hook: Reloading services after certificate renewal..."
+
+# 使用edgeboxctl的重启命令，因为它有更完善的逻辑
+/usr/local/bin/edgeboxctl restart >/var/log/edgebox-cert-renew.log 2>&1
+
+echo "EdgeBox Hook: Services reloaded."
+EOF
+    chmod +x "$hook_script"
+    log_success "Certbot续期钩子已设置"
+}
+
 # 显示安装完成信息
 show_installation_info() {
     clear
@@ -15778,6 +15761,9 @@ fi
 
     show_progress 10 10 "最终数据生成与同步"
     finalize_data_generation
+	
+	# // ANCHOR: [FIX-5-CERT-HOOK] - 调用钩子安装函数
+    setup_certbot_renewal_hook
 
 # 显示安装信息
 show_installation_info
