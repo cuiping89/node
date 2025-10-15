@@ -11399,7 +11399,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         <code>edgeboxctl shunt resi `&lt;URL&gt;`</code><span># 代理全量出站（仅 Xray）</span><br>
         <code>edgeboxctl shunt direct-resi `&lt;URL&gt;`</code><span># 智能分流（白名单直连，其余走代理）</span><br>
         <code>edgeboxctl shunt status</code><span># 查看当前出站模式及代理健康状态</span><br>
-        <code>edgeboxctl shunt whitelist {action} [domain]</code><span># 管理白名单（add|remove|list|reset）</span><br>
+        <code>edgeboxctl shunt whitelist {action} [domain]</code><span># 管理白名单【add|remove|reset|list】</span><br>
         <p class="cmd-label">示例：</p>
         <a class="cmd-pill" href="#">edgeboxctl shunt direct-resi 'socks5://user:pass@host:port'</a><br>
         <a class="cmd-pill" href="#">edgeboxctl shunt whitelist add netflix.com</a><br>
@@ -11453,8 +11453,10 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
         <code>edgeboxctl debug-ports</code> <span># 检查核心端口 (80, 443, 2053) 是否被占用</span>
 		<code>edgeboxctl test</code> <span># 对各协议入口进行基础连通性测试</span>
         <code>edgeboxctl test-udp &lt;host&gt; &lt;port&gt; [seconds]</code> <span># 使用 iperf3/socat 进行 UDP 连通性简测</span>
-        <div>示例 (排障流程)：</div>
-        <a>edgeboxctl status → edgeboxctl logs xray → edgeboxctl debug-ports</a>
+        <div>排障流程：</div>
+        <a> → edgeboxctl status</a>
+		<a> → edgeboxctl logs xray</a>
+		<a> → edgeboxctl debug-ports</a>
       </div>
     </div>
   </div>
@@ -12429,11 +12431,42 @@ show_logs(){
 }
 
 test_connection(){
-  local ip; ip=$(jq -r .server_ip ${CONFIG_DIR}/server.json 2>/dev/null)
+  # 确保配置已加载到全局变量中
+  ensure_config_loaded || { echo "无法加载配置，测试中止"; return 1; }
+
+  local ip="$SERVER_IP"
   [[ -z "$ip" || "$ip" == "null" ]] && { echo "未找到 server_ip"; return 1; }
-  echo -n "TCP 443 连通性: "; timeout 3 bash -c "echo >/dev/tcp/${ip}/443" 2>/dev/null && echo "OK" || echo "FAIL"
-  echo -n "HTTP 订阅: "; curl -fsS "http://${ip}/sub" >/dev/null && echo "OK" || echo "FAIL"
-  echo -n "控制面板: "; curl -fsS "http://${ip}/" >/dev/null && echo "OK" || echo "FAIL"
+
+  echo -n "TCP 443 连通性: "; 
+  timeout 3 bash -c "echo >/dev/tcp/${ip}/443" 2>/dev/null && echo -e "${GREEN}OK${NC}" || echo -e "${RED}FAIL${NC}"
+
+  # --- 核心修复：动态构建订阅URL ---
+  local sub_path="sub"
+  # MASTER_SUB_TOKEN 是由 ensure_config_loaded 加载的全局变量
+  if [[ -n "$MASTER_SUB_TOKEN" ]]; then
+    sub_path="sub-${MASTER_SUB_TOKEN}"
+  fi
+  local sub_url="http://${ip}/${sub_path}"
+  # --- 修复结束 ---
+
+  echo -n "HTTP 订阅: "; 
+  if curl -fsS "$sub_url" >/dev/null; then
+    echo -e "${GREEN}OK${NC}"
+  else
+    local curl_exit_code=$?
+    echo -e "curl: ($curl_exit_code) $(curl -sS "$sub_url" 2>&1 | head -n1)"
+    echo -e "${RED}FAIL${NC}"
+  fi
+
+  echo -n "控制面板: "; 
+  # 控制面板首页会302跳转，所以需要-L参数来跟随跳转
+  if curl -fsSL "http://${ip}/" >/dev/null; then
+    echo -e "${GREEN}OK${NC}"
+  else
+    local curl_exit_code=$?
+    echo -e "curl: ($curl_exit_code)"
+    echo -e "${RED}FAIL${NC}"
+  fi
 }
 
 debug_ports(){
@@ -13120,16 +13153,57 @@ switch_to_ip(){
 
 
 cert_status(){
-  local mode=$(get_current_cert_mode)
-  echo -e "${CYAN}证书状态：${NC} ${YELLOW}${mode}${NC}"
-  if [[ "$mode" == self-signed ]]; then
-    echo "  自签名: ${CERT_DIR}/current.pem"
-  else
-    local d=${mode##*:}
-    echo "  Let's Encrypt: /etc/letsencrypt/live/${d}/fullchain.pem"
+  local mode
+  mode=$(get_current_cert_mode)
+  local cert_path="${CERT_DIR}/current.pem"
+
+  echo -e "${CYAN}证书状态：${NC}"
+  echo -e "  模式: ${YELLOW}${mode}${NC}"
+
+  # 检查证书文件是否存在
+  if [[ ! -L "$cert_path" || ! -f "$cert_path" ]]; then
+      echo -e "  ${RED}错误: 证书文件不存在于 ${cert_path}${NC}"
+      return 1
   fi
-  stat -L -c '  %a %n' ${CERT_DIR}/current.key 2>/dev/null || true
-  stat -L -c '  %a %n' ${CERT_DIR}/current.pem 2>/dev/null || true
+
+  # 使用 openssl 解析证书内容
+  local cert_info
+  cert_info=$(openssl x509 -in "$cert_path" -noout -subject -issuer -enddate 2>/dev/null)
+
+  if [[ -z "$cert_info" ]]; then
+      echo -e "  ${RED}错误: 无法解析证书文件，可能已损坏或权限不足。${NC}"
+      fix_permissions # 尝试自动修复权限
+      return 1
+  fi
+
+  # 提取关键信息
+  local subject issuer end_date
+  subject=$(echo "$cert_info" | grep "subject=" | sed 's/subject=.*CN = //')
+  issuer=$(echo "$cert_info" | grep "issuer=" | sed 's/issuer=.*CN = //')
+  end_date=$(echo "$cert_info" | grep "notAfter=" | sed 's/notAfter=//')
+  
+  # 计算剩余天数
+  local end_ts days_left
+  end_ts=$(date -d "$end_date" +%s)
+  days_left=$(( (end_ts - $(date +%s)) / 86400 ))
+
+  echo -e "${CYAN}证书详情：${NC}"
+  echo -e "  通用名称 (CN): ${YELLOW}${subject}${NC}"
+  echo -e "  颁发者 (Issuer): ${YELLOW}${issuer}${NC}"
+  echo -e "  到期时间: ${YELLOW}${end_date}${NC}"
+  
+  # 根据剩余天数显示不同颜色的状态
+  if (( days_left < 15 )); then
+      echo -e "  剩余有效期: ${RED}${days_left} 天 (即将过期！)${NC}"
+  elif (( days_left < 30 )); then
+      echo -e "  剩余有效期: ${YELLOW}${days_left} 天 (建议续期)${NC}"
+  else
+      echo -e "  剩余有效期: ${GREEN}${days_left} 天${NC}"
+  fi
+
+  echo -e "${CYAN}文件信息：${NC}"
+  stat -L -c '  路径: %N' "${cert_path}" 2>/dev/null
+  stat -L -c '  权限: %a (%A)' "${CERT_DIR}/current.key" 2>/dev/null
 }
 
 #############################################
@@ -14557,18 +14631,42 @@ edgeboxctl sub limit  <user> <N>       # 调整用户的设备上限"
         ;;
 
   # 证书管理
-  cert)
+cert)
     case "$2" in
       status|"")
         cert_status
         ;;
       renew)
-        echo "[INFO] 尝试续期 Let's Encrypt 证书..."
-        systemctl stop nginx >/dev/null 2>&1 || true
-        certbot renew --quiet || true
-        systemctl start nginx >/dev/null 2>&1 || true
-        # 尽量优先 reload，失败再 restart
-        reload_or_restart_services nginx xray sing-box
+        log_info "尝试续期 Let's Encrypt 证书..."
+        
+        # 移除 --quiet 以捕获输出，并确保在无代理环境下执行
+        local renew_output
+        renew_output=$(env -u ALL_PROXY -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy certbot renew 2>&1)
+        local exit_code=$?
+        
+        echo -e "\n${CYAN}--- Certbot 续期日志 ---${NC}"
+        # 为了透明，显示完整的 Certbot 原始输出
+        echo "$renew_output" | sed 's/^/  /g'
+        echo -e "${CYAN}--------------------------${NC}\n"
+
+        # 分析输出，给出明确的结论
+        if [[ $exit_code -eq 0 ]]; then
+            if echo "$renew_output" | grep -q -E "Congratulations, all renewals succeeded|Successfully received certificate"; then
+                log_success "证书续期成功！"
+                log_info "正在重载相关服务以应用新证书..."
+                # Certbot的nginx插件会自动重载nginx，这里再执行一次确保xray/sing-box也重载
+                reload_or_restart_services nginx xray sing-box
+            elif echo "$renew_output" | grep -q "Cert not yet due for renewal"; then
+                log_success "证书尚未到达续期时间，无需操作。"
+            else
+                log_warn "Certbot 命令执行成功，但未检测到明确的续期成功信息。"
+            fi
+        else
+            log_error "证书续期失败！请检查上面的 Certbot 日志获取详细错误。"
+        fi
+
+        echo "" # 增加一个空行，让最终状态更清晰
+        # 调用我们上一轮修复的、功能全面的 status 函数来显示最终结果
         cert_status
         ;;
       *)
@@ -14576,6 +14674,7 @@ edgeboxctl sub limit  <user> <N>       # 调整用户的设备上限"
         ;;
     esac
     ;;
+	
   fix-permissions) fix_permissions ;;
   cert-status) cert_status ;;                 # 兼容旧命令
 
@@ -14843,7 +14942,7 @@ help|"")
   print_cmd "${GREEN}edgeboxctl shunt resi${NC} ${CYAN}'<URL>'${NC}"             "代理全量出站（仅 Xray）"        $_W_SHUNT
   print_cmd "${GREEN}edgeboxctl shunt direct-resi${NC} ${CYAN}'<URL>'${NC}"      "智能分流（白名单直连，其余走代理）" $_W_SHUNT
   print_cmd "${GREEN}edgeboxctl shunt status${NC}"                               "查看当前出站模式及代理健康状态"        $_W_SHUNT
-  print_cmd "${GREEN}edgeboxctl shunt whitelist${NC} ${CYAN}{action} [domain]${NC}" "管理白名单（add|remove|list|reset）" $_W_SHUNT
+  print_cmd "${GREEN}edgeboxctl shunt whitelist${NC} ${CYAN}{action} [domain]${NC}" "管理白名单【add|remove|reset|list】" $_W_SHUNT
   printf "  %b\n" "${CYAN}示例:${NC}"
   printf "  %b %b\n" "${GREEN}edgeboxctl shunt direct-resi${NC}" "${CYAN}'socks5://user:pass@host:port'${NC}"
   printf "  %b %b\n" "${GREEN}edgeboxctl shunt whitelist add${NC}" "${CYAN}netflix.com${NC}"
