@@ -3157,11 +3157,6 @@ fi
 configure_xray() {
     log_info "配置Xray多协议服务..."
 
-    # 【添加】创建Xray日志目录
-    mkdir -p /var/log/xray
-    chmod 755 /var/log/xray
-    chown root:root /var/log/xray
-
     local NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
 
     # 验证必要变量 (增强版)
