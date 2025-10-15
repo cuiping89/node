@@ -13009,6 +13009,7 @@ update_sni_domain() {
 
     local grace_hours="${EB_SNI_GRACE_HOURS:-24}"
     local xray_tmp="${XRAY_CONFIG}.tmp"
+    local server_json_tmp="${CONFIG_DIR}/server.json.tmp"
     local old_domain=$(get_current_sni_domain)
 
     # 如果新旧域名相同，则无需操作
