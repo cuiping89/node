@@ -707,6 +707,34 @@ reload_or_restart_services() {
   ((${#failed[@]}==0)) || return 1
 }
 
+# ==============================================================================
+# 统一权限修复函数 (最终解决方案)
+# 确保所有组件在降权运行时具有正确的读/写/执行权限
+# ==============================================================================
+apply_secure_permissions() {
+    log_info "正在应用统一的安全权限设置..."
+
+    # 证书目录和文件权限
+    local cert_dir="/etc/edgebox/cert"
+    if [[ -d "$cert_dir" ]]; then
+        local nobody_group=$(id -gn nobody 2>/dev/null || echo nogroup)
+        chown -R root:"$nobody_group" "$cert_dir"
+        chmod 750 "$cert_dir"
+        find "$cert_dir" -type f -name '*.pem' -exec chmod 644 {} \;
+        find "$cert_dir" -type f -name '*.key' -exec chmod 640 {} \;
+        log_success "证书权限已统一设置为安全模式 (目录 750, key 640)"
+    fi
+
+    # Xray 日志目录权限
+    local xray_log_dir="/var/log/xray"
+    if [[ -d "$xray_log_dir" ]]; then
+        chown -R nobody:nogroup "$xray_log_dir" 2>/dev/null || chown -R nobody:nobody "$xray_log_dir"
+        chmod -R 750 "$xray_log_dir"
+        log_success "Xray 日志目录权限已设置为 nobody"
+    fi
+}
+
+
 # 安装系统依赖包（增强幂等性）
 install_dependencies() {
     log_info "安装系统依赖（幂等性检查）..."
@@ -2079,16 +2107,6 @@ generate_self_signed_cert() {
     # 创建软链接
     ln -sf "${CERT_DIR}/self-signed.key" "${CERT_DIR}/current.key"
     ln -sf "${CERT_DIR}/self-signed.pem" "${CERT_DIR}/current.pem"
-
-    # --- 关键权限修复 ---
-    local NOBODY_GRP
-    NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
-
-    chown -R root:"${NOBODY_GRP}" "${CERT_DIR}"
-    chmod 750 "${CERT_DIR}" # 目录权限：root=rwx, group=r-x, other=---
-    chmod 640 "${CERT_DIR}"/self-signed.key # 私钥权限：root=rw, group=r, other=---
-    chmod 644 "${CERT_DIR}"/self-signed.pem # 公钥权限
-    # ---------------------
 
     if openssl x509 -in "${CERT_DIR}/current.pem" -noout >/dev/null 2>&1; then
         log_success "自签名证书生成及权限设置完成"
@@ -3525,8 +3543,6 @@ fi
 
     # 确保证书权限正确
     if [[ -f "${CERT_DIR}/self-signed.pem" ]]; then
-        chmod 644 "${CERT_DIR}"/*.pem 2>/dev/null || true
-        chmod 600 "${CERT_DIR}"/*.key 2>/dev/null || true
         log_success "证书权限已设置"
     fi
 
@@ -3561,11 +3577,6 @@ EOF
     systemctl enable sing-box >/dev/null 2>&1
 
     log_success "sing-box服务文件创建完成（配置路径: ${CONFIG_DIR}/sing-box.json）"
-
-	chmod 755 "${CERT_DIR}" 2>/dev/null || true
-chmod 644 "${CERT_DIR}"/*.pem 2>/dev/null || true
-chmod 640 "${CERT_DIR}"/*.key 2>/dev/null || true
-chown root:$(id -gn nobody 2>/dev/null || echo nogroup) "${CERT_DIR}"/*.key 2>/dev/null || true
 
     return 0
 }
@@ -3905,6 +3916,9 @@ execute_module3() {
         log_error "✗ 订阅链接生成失败"
         return 1
     fi
+	
+	# 新增步骤：在启动前，最终确认所有权限正确无误
+	apply_secure_permissions
 
     # 任务7：启动和验证服务
     if start_and_verify_services; then
