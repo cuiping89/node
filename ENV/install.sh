@@ -669,7 +669,7 @@ reload_or_restart_services() {
     case "$svc" in
       nginx|nginx.service)
         command -v nginx >/dev/null 2>&1 && nginx -t >/dev/null 2>&1 || { log_error "[hotfix] nginx config check failed (nginx -t)"; failed+=("$svc"); continue; }
-        systemctl reload nginx || { action="restart"; systemctl restart nginx; }
+        systemctl reload nginx 2>/dev/null || { action="restart"; systemctl restart nginx; }
         ;;
       sing-box|sing-box.service|sing-box@*)
         if command -v sing-box >/dev/null 2>&1; then
@@ -6987,10 +6987,11 @@ parse_steps() { IFS=',' read -ra a <<<"${ALERT_STEPS:-30,60,90}"; for s in "${a[
 notify() {
   local msg="$1"
   echo "[$(date -Is)] $msg" | tee -a "$LOG" >/dev/null
-  if [[ -n "${ALERT_WEBHOOK:-}" ]]; then
-    curl -m 5 -s -X POST -H 'Content-Type: application/json' \
-      -d "$(jq -n --arg text "$msg" '{text:$text}')" "$ALERT_WEBHOOK" >/dev/null 2>&1 || true
-  fi
+if [[ -n "${ALERT_WEBHOOK:-}" ]]; then
+  env -u ALL_PROXY -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy \
+  curl -m 5 -s -X POST -H 'Content-Type: application/json' \
+    -d "$(jq -n --arg text "$msg" '{text:$text}')" "$ALERT_WEBHOOK" >/dev/null 2>&1 || true
+fi
   if command -v mail >/dev/null 2>&1 && [[ -n "${ALERT_EMAIL:-}" ]]; then
     echo "$msg" | mail -s "EdgeBox 流量预警 (${month})" "$ALERT_EMAIL" || true
   fi
