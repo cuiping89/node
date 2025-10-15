@@ -6950,9 +6950,16 @@ chmod +x "${SCRIPTS_DIR}/traffic-collector.sh"
 cat > "${TRAFFIC_DIR}/alert.conf" <<'CONF'
 # 月度预算（GiB）
 ALERT_MONTHLY_GIB=200
-# 邮件/Hook（可留空）
+
+# Telegram Bot Token (通过 edgeboxctl alert telegram 命令配置)
+ALERT_TG_BOT_TOKEN=
+# Telegram Chat ID (通过 edgeboxctl alert telegram 命令配置)
+ALERT_TG_CHAT_ID=
+
+# 其他通知渠道（可留空）
 ALERT_EMAIL=
 ALERT_WEBHOOK=
+
 # 阈值（百分比，逗号分隔）
 ALERT_STEPS=30,60,90
 CONF
