@@ -298,6 +298,18 @@ error() { log_error "$@"; }
 # 基础工具函数
 #############################################
 
+# 创建服务专用用户 (如果不存在)
+create_service_user() {
+    local user="$1"
+    if ! id -u "$user" >/dev/null 2>&1; then
+        log_info "创建系统用户: $user..."
+        useradd -r -s /usr/sbin/nologin -d /dev/null "$user"
+        log_success "系统用户 $user 创建成功。"
+    else
+        log_info "系统用户 $user 已存在。"
+    fi
+}
+
 # 检查root权限
 check_root() {
     if [[ $EUID -ne 0 ]]; then
@@ -717,20 +729,21 @@ apply_secure_permissions() {
     # 证书目录和文件权限
     local cert_dir="/etc/edgebox/cert"
     if [[ -d "$cert_dir" ]]; then
-        local nobody_group=$(id -gn nobody 2>/dev/null || echo nogroup)
-        chown -R root:"$nobody_group" "$cert_dir"
+        # 属主是 root，但属组是 xray，这样 xray 用户就能读取证书
+        chown -R root:xray "$cert_dir"
         chmod 750 "$cert_dir"
         find "$cert_dir" -type f -name '*.pem' -exec chmod 644 {} \;
         find "$cert_dir" -type f -name '*.key' -exec chmod 640 {} \;
-        log_success "证书权限已统一设置为安全模式 (目录 750, key 640)"
+        log_success "证书权限已统一设置为 root:xray (目录 750, key 640)"
     fi
 
     # Xray 日志目录权限
     local xray_log_dir="/var/log/xray"
     if [[ -d "$xray_log_dir" ]]; then
-        chown -R nobody:nogroup "$xray_log_dir" 2>/dev/null || chown -R nobody:nobody "$xray_log_dir"
+        # 目录和日志文件的所有者和所有组都应该是 xray
+        chown -R xray:xray "$xray_log_dir"
         chmod -R 750 "$xray_log_dir"
-        log_success "Xray 日志目录权限已设置为 nobody"
+        log_success "Xray 日志目录权限已设置为 xray:xray"
     fi
 }
 
@@ -2425,6 +2438,10 @@ log_info "└─ verify_module2_data()       # 验证数据完整性"
 
 # 安装Xray核心程序
 install_xray() {
+
+   # >>> 首先创建 xray 专属用户 <<<
+    create_service_user xray
+	
     log_info "安装Xray核心程序..."
 
     # 检查是否已安装
@@ -3389,8 +3406,8 @@ After=network.target nss-lookup.target
 
 [Service]
 Type=simple
-User=nobody
-Group=nogroup
+User=xray
+Group=xray
 # CapabilityBoundingSet=CAP_NET_BIND_SERVICE <-- Commented out
 # AmbientCapabilities=CAP_NET_BIND_SERVICE <-- Commented out
 # NoNewPrivileges=true <-- Commented out
