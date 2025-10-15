@@ -3570,7 +3570,7 @@ EOF
 	chmod 755 "${CERT_DIR}" 2>/dev/null || true
 chmod 644 "${CERT_DIR}"/*.pem 2>/dev/null || true
 chmod 640 "${CERT_DIR}"/*.key 2>/dev/null || true
-chown root:nobody "${CERT_DIR}"/*.key 2>/dev/null || true
+chown root:$(id -gn nobody 2>/dev/null || echo nogroup) "${CERT_DIR}"/*.key 2>/dev/null || true
 
     return 0
 }
