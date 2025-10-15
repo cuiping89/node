@@ -13302,12 +13302,14 @@ post_shunt_report() {
   local mode="$1" url="$2"
   : "${CYAN:=}"; : "${GREEN:=}"; : "${RED:=}"; : "${YELLOW:=}"; : "${NC:=}"
 
-  echo -e "\n${CYAN}----- 出站分流配置 · 验收报告: ${mode} -----${NC}"
+  echo -e "\n${CYAN}----- 出站分流配置 · 验收报告: ${GREEN:=}${mode}${NC:=} -----${NC}"
 
   local all_ok=true
   local check_result=""
 
-  # 1) 上游连通性检查
+  # --- Checks 1, 2, 3 (Immediate Feedback) ---
+
+  # 1) Upstream Connectivity
   if [[ -n "$url" ]]; then
     if check_proxy_health_url "$url"; then
       check_result+="${GREEN}✅ 1) 上游代理连通性: OK (代理可正常工作)${NC}\n"
@@ -13319,7 +13321,7 @@ post_shunt_report() {
     check_result+="${GREEN}✅ 1) 上游代理连通性: (VPS 模式，跳过)${NC}\n"
   fi
 
-  # 2) Xray 路由规则检查
+  # 2) Xray Routing Rules
   if [[ "$mode" == "VPS 全量出站" ]]; then
     if jq -e '(.outbounds | length) == 1 and .outbounds[0].tag == "direct"' "${CONFIG_DIR}/xray.json" >/dev/null 2>&1; then
       check_result+="${GREEN}✅ 2) Xray 路由规则:   默认出口 -> direct (已生效)${NC}\n"
@@ -13327,7 +13329,7 @@ post_shunt_report() {
       check_result+="${RED}❌ 2) Xray 路由规则:   配置异常，仍存在代理出口！${NC}\n"
       all_ok=false
     fi
-  else # 代理或分流模式
+  else
     if jq -e '.routing.rules[] | select(.outboundTag == "resi-proxy")' "${CONFIG_DIR}/xray.json" >/dev/null 2>&1; then
       check_result+="${GREEN}✅ 2) Xray 路由规则:   默认出口 -> resi-proxy (已生效)${NC}\n"
     else
@@ -13336,28 +13338,48 @@ post_shunt_report() {
     fi
   fi
 
-  # 3) DNS 解析模式检查
+  # 3) DNS Resolution Mode
   if jq -e '.dns.servers[] | select(.outboundTag == "resi-proxy")' "${CONFIG_DIR}/xray.json" >/dev/null 2>&1; then
     check_result+="${GREEN}✅ 3) DNS 解析模式:    经由代理 (DoH)${NC}\n"
   else
     check_result+="${GREEN}✅ 3) DNS 解析模式:    直连解析${NC}\n"
   fi
 
-  # 4) 服务健康状态检查
-  local nginx_status xray_status
-  nginx_status=$(systemctl is-active --quiet nginx && echo "active" || echo "inactive")
-  xray_status=$(systemctl is-active --quiet xray && echo "active" || echo "inactive")
-  if [[ "$nginx_status" == "active" && "$xray_status" == "active" ]]; then
-    check_result+="${GREEN}✅ 4) 服务健康状态:   nginx: active, xray: active${NC}\n"
-  else
-    check_result+="${RED}❌ 4) 服务健康状态:   nginx: ${nginx_status}, xray: ${xray_status}${NC}\n"
-    all_ok=false
-  fi
-
-  # 打印所有检查结果
+  # Print immediate results
   echo -e "$check_result"
 
-  # 打印最终结论
+  # --- Check 4 (Wait and Verify) ---
+  echo -n "   4) 服务健康状态:   等待服务稳定..."
+  
+  local services_ok=true
+  local final_status_line=""
+  local timeout=15
+  local start_time=$(date +%s)
+  
+  for svc in nginx xray; do
+      while true; do
+          if systemctl is-active --quiet "$svc"; then
+              break
+          fi
+          local current_time=$(date +%s)
+          if (( current_time - start_time > timeout )); then
+              echo -e "\r${RED}❌ 4) 服务健康状态:   nginx: $(systemctl is-active nginx), xray: $(systemctl is-active xray) (等待 ${svc} 超时)${NC}"
+              services_ok=false
+              break 2 # Break outer loop
+          fi
+          echo -n "."
+          sleep 1
+      done
+  done
+
+  if [[ "$services_ok" == "true" ]]; then
+      echo -e "\r${GREEN}✅ 4) 服务健康状态:   nginx: active, xray: active                     ${NC}"
+  else
+      all_ok=false
+  fi
+
+  # --- Final Conclusion ---
+  echo "" # Add a blank line for spacing
   if [[ "$all_ok" == "true" ]]; then
     if [[ "$mode" == "VPS 全量出站" ]]; then
       echo -e "结论: ${GREEN}✅ 配置成功！Xray 的出站流量已全部恢复为VPS直连。${NC}"
@@ -13367,7 +13389,7 @@ post_shunt_report() {
   else
     echo -e "结论: ${RED}❌ 配置失败！请根据上面的错误提示检查相关服务日志。${NC}"
   fi
-  echo -e "${CYAN}-----------------------------------------------------------${NC}\n"
+  echo -e "${CYAN}------------------------------------------${NC}\n"
 }
 
 
