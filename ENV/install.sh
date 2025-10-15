@@ -3381,7 +3381,7 @@ Group=nogroup
 # CapabilityBoundingSet=CAP_NET_BIND_SERVICE <-- Commented out
 # AmbientCapabilities=CAP_NET_BIND_SERVICE <-- Commented out
 # NoNewPrivileges=true <-- Commented out
-ExecStart=/usr/local/bin/xray run -config ${CONFIG_DIR}/xray.json
+ExecStart=/usr/local/bin/xray run -config /etc/edgebox/config/xray.json
 
 Restart=on-failure
 RestartPreventExitStatus=23
