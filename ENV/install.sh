@@ -13315,7 +13315,7 @@ post_shunt_report() {
 local via_vps via_resi
 
 # Test VPS IP by calling the curl binary directly, bypassing any aliases.
-via_vps=$(env -u ALL_PROXY -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy -u all_proxy command curl -fsS --max-time 6 https://api.ipify.org 2>/dev/null || true)
+via_vps=$(env -u ALL_PROXY -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy -u all_proxy command curl --dns-servers 8.8.8.8,1.1.1.1 -fsS --max-time 6 https://api.ipify.org 2>/dev/null || true)
 
 if [[ -n "$url" ]]; then
     parse_proxy_url "$url" >/dev/null 2>&1 || true
