@@ -13302,20 +13302,20 @@ post_shunt_report() {
   local mode="$1" url="$2"
   # ... (函数内部的报告逻辑保持不变) ...
   : "${CYAN:=}"; : "${GREEN:=}"; : "${RED:=}"; : "${YELLOW:=}"; : "${NC:=}"
-  echo -e "\n${CYAN}----- 出站分流配置 · 验收报告（${mode}） -----${NC}"
+  echo -e "\n${CYAN}----- 出站分流配置 · 验收报告: ${mode} -----${NC}"
   echo -n "1) 上游连通性: "
   if [[ -n "$url" ]]; then
     if check_proxy_health_url "$url"; then echo -e "${GREEN}OK${NC}"; else echo -e "${RED}FAIL${NC}"; fi
   else
     echo -e "${YELLOW}（VPS 模式，跳过）${NC}"
   fi
-  echo -n "2) 出口 IP: "
+  echo -n "2) 出口IP: "
   if [[ -n "$url" ]]; then
     local via_vps via_resi proxy_uri
 local via_vps via_resi
 
 # Test VPS IP by calling the curl binary directly, bypassing any aliases.
-via_vps=$(command curl -fsS --max-time 6 https://api.ipify.org 2>/dev/null || true)
+via_vps=$(env -u ALL_PROXY -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy -u all_proxy command curl -fsS --max-time 6 https://api.ipify.org 2>/dev/null || true)
 
 if [[ -n "$url" ]]; then
     parse_proxy_url "$url" >/dev/null 2>&1 || true
@@ -13345,7 +13345,7 @@ echo -e "VPS=${via_vps:-?}  上游=${via_resi:-?}"
   set4=$(nft list set inet edgebox resi_addr4 2>/dev/null | sed -n 's/.*elements = {\(.*\)}/\1/p' | xargs)
   set6=$(nft list set inet edgebox resi_addr6 2>/dev/null | sed -n 's/.*elements = {\(.*\)}/\1/p' | xargs)
   echo -e "4) 采集集: IPv4={${set4:-}}  IPv6={${set6:-}}"
-  echo -e "${CYAN}------------------------------------------${NC}\n"
+  echo -e "${CYAN}-----------------------------------------------------${NC}\n"
 }
 
 
