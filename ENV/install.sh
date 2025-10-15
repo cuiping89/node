@@ -6959,9 +6959,15 @@ ALERT_TG_CHAT_ID=
 # Discord Webhook (通过 edgeboxctl alert discord 命令配置)
 ALERT_DISCORD_WEBHOOK=
 
-# 其他通知渠道（可留空）
-ALERT_EMAIL=
+# PushPlus for WeChat (通过 edgeboxctl alert wechat 命令配置)
+ALERT_PUSHPLUS_TOKEN=
+
+# 通用 Webhook
 ALERT_WEBHOOK=
+ALERT_WEBHOOK_FORMAT=raw
+
+# 邮件通知渠道（可选）
+ALERT_EMAIL=
 
 # 阈值（百分比，逗号分隔）
 ALERT_STEPS=30,60,90
