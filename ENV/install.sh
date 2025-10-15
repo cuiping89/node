@@ -3376,12 +3376,13 @@ After=network.target nss-lookup.target
 
 [Service]
 Type=simple
-User=nobody
-Group=$(id -gn nobody 2>/dev/null || echo nogroup)
-CapabilityBoundingSet=CAP_NET_BIND_SERVICE
-AmbientCapabilities=CAP_NET_BIND_SERVICE
-NoNewPrivileges=true
+# User=nobody  <-- Commented out
+# Group=$(id -gn nobody 2>/dev/null || echo nogroup) <-- Commented out
+# CapabilityBoundingSet=CAP_NET_BIND_SERVICE <-- Commented out
+# AmbientCapabilities=CAP_NET_BIND_SERVICE <-- Commented out
+# NoNewPrivileges=true <-- Commented out
 ExecStart=/usr/local/bin/xray run -config ${CONFIG_DIR}/xray.json
+
 Restart=on-failure
 RestartPreventExitStatus=23
 LimitNPROC=10000
