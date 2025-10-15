@@ -13300,52 +13300,74 @@ run_post_change_refreshes() {
 
 post_shunt_report() {
   local mode="$1" url="$2"
-  # ... (函数内部的报告逻辑保持不变) ...
   : "${CYAN:=}"; : "${GREEN:=}"; : "${RED:=}"; : "${YELLOW:=}"; : "${NC:=}"
+
   echo -e "\n${CYAN}----- 出站分流配置 · 验收报告: ${mode} -----${NC}"
-  echo -n "1) 上游连通性: "
+
+  local all_ok=true
+  local check_result=""
+
+  # 1) 上游连通性检查
   if [[ -n "$url" ]]; then
-    if check_proxy_health_url "$url"; then echo -e "${GREEN}OK${NC}"; else echo -e "${RED}FAIL${NC}"; fi
-  else
-    echo -e "${YELLOW}（VPS 模式，跳过）${NC}"
-  fi
-  echo -n "2) 出口IP: "
-  if [[ -n "$url" ]]; then
-    local via_vps via_resi proxy_uri
-local via_vps via_resi
-
-# Test VPS IP by calling the curl binary directly, bypassing any aliases.
-via_vps=$(env -u ALL_PROXY -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy -u all_proxy command curl --dns-servers 8.8.8.8,1.1.1.1 -fsS --max-time 6 https://api.ipify.org 2>/dev/null || true)
-
-if [[ -n "$url" ]]; then
-    parse_proxy_url "$url" >/dev/null 2>&1 || true
-    format_curl_proxy_uri proxy_uri
-
-    # Test Upstream IP by calling the curl binary directly with the --proxy flag.
-    # This is the most direct and least ambiguous way.
-    via_resi=$(command curl -fsS --max-time 8 --proxy "$proxy_uri" https://api.ipify.org 2>/dev/null || true)
-else
-    via_resi=""
-fi
-
-echo -e "VPS=${via_vps:-?}  上游=${via_resi:-?}"
-    if [[ -n "$via_vps" && -n "$via_resi" && "$via_vps" != "$via_resi" ]]; then
-      echo -e "   => ${GREEN}出口已切换${NC}"
+    if check_proxy_health_url "$url"; then
+      check_result+="${GREEN}✅ 1) 上游代理连通性: OK (代理可正常工作)${NC}\n"
     else
-      echo -e "   => ${YELLOW}无法确认出口差异（可能上游与 VPS 同 ISP 段）${NC}"
+      check_result+="${RED}❌ 1) 上游代理连通性: FAIL (代理无法连接)${NC}\n"
+      all_ok=false
     fi
   else
-    echo -e "${YELLOW}（VPS 模式，跳过）${NC}"
+    check_result+="${GREEN}✅ 1) 上游代理连通性: (VPS 模式，跳过)${NC}\n"
   fi
-  echo -n "3) Xray 路由: "
-  jq -e '.outbounds[]?|select(.tag=="resi-proxy")' ${CONFIG_DIR}/xray.json >/dev/null 2>&1 \
-    && echo -e "${GREEN}存在 resi-proxy 出站${NC}" || echo -e "${YELLOW}未发现 resi-proxy（VPS 模式正常）${NC}"
-  echo -e "   sing-box 路由: ${YELLOW}设计为直连（HY2/TUIC 走 UDP，不参与分流）${NC}"
-  local set4 set6
-  set4=$(nft list set inet edgebox resi_addr4 2>/dev/null | sed -n 's/.*elements = {\(.*\)}/\1/p' | xargs)
-  set6=$(nft list set inet edgebox resi_addr6 2>/dev/null | sed -n 's/.*elements = {\(.*\)}/\1/p' | xargs)
-  echo -e "4) 采集集: IPv4={${set4:-}}  IPv6={${set6:-}}"
-  echo -e "${CYAN}-----------------------------------------------------${NC}\n"
+
+  # 2) Xray 路由规则检查
+  if [[ "$mode" == "VPS 全量出站" ]]; then
+    if jq -e '(.outbounds | length) == 1 and .outbounds[0].tag == "direct"' "${CONFIG_DIR}/xray.json" >/dev/null 2>&1; then
+      check_result+="${GREEN}✅ 2) Xray 路由规则:   默认出口 -> direct (已生效)${NC}\n"
+    else
+      check_result+="${RED}❌ 2) Xray 路由规则:   配置异常，仍存在代理出口！${NC}\n"
+      all_ok=false
+    fi
+  else # 代理或分流模式
+    if jq -e '.routing.rules[] | select(.outboundTag == "resi-proxy")' "${CONFIG_DIR}/xray.json" >/dev/null 2>&1; then
+      check_result+="${GREEN}✅ 2) Xray 路由规则:   默认出口 -> resi-proxy (已生效)${NC}\n"
+    else
+      check_result+="${RED}❌ 2) Xray 路由规则:   配置失败！未能写入代理规则。${NC}\n"
+      all_ok=false
+    fi
+  fi
+
+  # 3) DNS 解析模式检查
+  if jq -e '.dns.servers[] | select(.outboundTag == "resi-proxy")' "${CONFIG_DIR}/xray.json" >/dev/null 2>&1; then
+    check_result+="${GREEN}✅ 3) DNS 解析模式:    经由代理 (DoH)${NC}\n"
+  else
+    check_result+="${GREEN}✅ 3) DNS 解析模式:    直连解析${NC}\n"
+  fi
+
+  # 4) 服务健康状态检查
+  local nginx_status xray_status
+  nginx_status=$(systemctl is-active --quiet nginx && echo "active" || echo "inactive")
+  xray_status=$(systemctl is-active --quiet xray && echo "active" || echo "inactive")
+  if [[ "$nginx_status" == "active" && "$xray_status" == "active" ]]; then
+    check_result+="${GREEN}✅ 4) 服务健康状态:   nginx: active, xray: active${NC}\n"
+  else
+    check_result+="${RED}❌ 4) 服务健康状态:   nginx: ${nginx_status}, xray: ${xray_status}${NC}\n"
+    all_ok=false
+  fi
+
+  # 打印所有检查结果
+  echo -e "$check_result"
+
+  # 打印最终结论
+  if [[ "$all_ok" == "true" ]]; then
+    if [[ "$mode" == "VPS 全量出站" ]]; then
+      echo -e "结论: ${GREEN}✅ 配置成功！Xray 的出站流量已全部恢复为VPS直连。${NC}"
+    else
+      echo -e "结论: ${GREEN}✅ 配置成功！Xray 的出站流量已按预期切换。${NC}"
+    fi
+  else
+    echo -e "结论: ${RED}❌ 配置失败！请根据上面的错误提示检查相关服务日志。${NC}"
+  fi
+  echo -e "${CYAN}-----------------------------------------------------------${NC}\n"
 }
 
 
