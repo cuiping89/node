@@ -13302,7 +13302,7 @@ post_shunt_report() {
   local mode="$1" url="$2"
   : "${CYAN:=}"; : "${GREEN:=}"; : "${RED:=}"; : "${YELLOW:=}"; : "${NC:=}"
 
-  echo -e "\n${CYAN}----- 出站分流配置 · 验收报告: ${GREEN:=}${mode}${NC:=} -----${NC}"
+  echo -e "\n${CYAN}----- 出站分流配置 · 验收报告: ${YELLOW:=}${mode} ${CYAN}-----${NC}"
 
   local all_ok=true
   local check_result=""
@@ -13389,7 +13389,7 @@ post_shunt_report() {
   else
     echo -e "结论: ${RED}❌ 配置失败！请根据上面的错误提示检查相关服务日志。${NC}"
   fi
-  echo -e "${CYAN}------------------------------------------${NC}\n"
+  echo -e "${CYAN}-------------------------------------------------${NC}\n"
 }
 
 
@@ -13592,43 +13592,96 @@ bash /etc/edgebox/scripts/dashboard-backend.sh --now >/dev/null 2>&1 || true
 
 manage_whitelist() {
     local action="$1"
-    local domain="$2"
+    shift # "吃掉"第一个参数(add/remove/list)，剩下的 $@ 就是域名列表
+
+    local domains=("$@")
+    local needs_refresh=false
+    local changes_made=0
+    local whitelist_file="${CONFIG_DIR}/shunt/whitelist.txt"
+
     setup_shunt_directories
+
+    # 对需要参数的命令进行检查
+    if [[ ("$action" == "add" || "$action" == "remove") && ${#domains[@]} -eq 0 ]]; then
+        echo "用法: edgeboxctl shunt whitelist $action <domain1> [domain2] [...]"
+        return 1
+    fi
+
     case "$action" in
         add)
-            [[ -z "$domain" ]] && { echo "用法: edgeboxctl shunt whitelist add domain.com"; return 1; }
-            if ! grep -Fxq "$domain" "${CONFIG_DIR}/shunt/whitelist.txt" 2>/dev/null; then
-                echo "$domain" >> "${CONFIG_DIR}/shunt/whitelist.txt"
-                log_success "已添加域名到白名单: $domain"
-            else
-                log_warn "域名已存在于白名单: $domain"
+            for domain in "${domains[@]}"; do
+                # 跳过空的参数
+                if [[ -z "$domain" ]]; then continue; fi
+                
+                # 检查域名是否已存在
+                if ! grep -Fxq "$domain" "$whitelist_file" 2>/dev/null; then
+                    echo "$domain" >> "$whitelist_file"
+                    log_success "已添加: $domain"
+                    ((changes_made++))
+                else
+                    log_warn "已存在，跳过: $domain"
+                fi
+            done
+            if [[ $changes_made -gt 0 ]]; then
+                needs_refresh=true
             fi
             ;;
+
         remove)
-            [[ -z "$domain" ]] && { echo "用法: edgeboxctl shunt whitelist remove domain.com"; return 1; }
-            if sed -i "/^${domain}$/d" "${CONFIG_DIR}/shunt/whitelist.txt" 2>/dev/null; then
-                log_success "已从白名单移除域名: $domain"
+            local tmp_file=$(mktemp)
+            cp "$whitelist_file" "$tmp_file"
+
+            for domain in "${domains[@]}"; do
+                if [[ -z "$domain" ]]; then continue; fi
+                
+                # 检查域名是否存在于文件中
+                if grep -Fxq "$domain" "$tmp_file" 2>/dev/null; then
+                    # 从临时文件中删除该行
+                    grep -v -x -F "$domain" "$tmp_file" > "${tmp_file}.new" && mv "${tmp_file}.new" "$tmp_file"
+                    log_success "已移除: $domain"
+                    ((changes_made++))
+                else
+                    log_warn "不存在，跳过: $domain"
+                fi
+            done
+
+            if [[ $changes_made -gt 0 ]]; then
+                # 如果有变更，则用修改后的临时文件覆盖原文件
+                mv "$tmp_file" "$whitelist_file"
+                needs_refresh=true
             else
-                log_error "移除失败或域名不存在: $domain"
+                # 如果没有任何变更，删除临时文件
+                rm -f "$tmp_file"
             fi
             ;;
+
         list)
             echo -e "${CYAN}白名单域名：${NC}"
-            if [[ -f "${CONFIG_DIR}/shunt/whitelist.txt" ]]; then
-                cat "${CONFIG_DIR}/shunt/whitelist.txt" | nl -w2 -s'. '
+            if [[ -f "$whitelist_file" && -s "$whitelist_file" ]]; then
+                cat "$whitelist_file" | nl -w2 -s'. '
             else
-                echo "  无白名单文件"
+                echo "  (空)"
             fi
             ;;
+
         reset)
-            echo "$WHITELIST_DOMAINS" | tr ',' '\n' > "${CONFIG_DIR}/shunt/whitelist.txt"
+            echo "$WHITELIST_DOMAINS" | tr ',' '\n' > "$whitelist_file"
             log_success "已重置白名单为默认值"
+            needs_refresh=true
             ;;
+
         *)
-            echo "用法: edgeboxctl shunt whitelist [add|remove|list|reset] [domain]"
+            echo "用法: edgeboxctl shunt whitelist [add|remove|list|reset] [domain...]"
             return 1
             ;;
     esac
+
+    # 如果有任何增、删、重置操作，则刷新前端面板
+    if [[ "$needs_refresh" == "true" ]]; then
+        log_info "正在刷新控制面板数据以应用白名单变更..."
+        bash /etc/edgebox/scripts/dashboard-backend.sh --now >/dev/null 2>&1 || log_warn "面板数据刷新失败，将在下个周期自动更新。"
+        log_success "控制面板已刷新。"
+    fi
 }
 
 #############################################
