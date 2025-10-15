@@ -13492,8 +13492,11 @@ flush_nft_resi_sets
 ensure_xray_dns_alignment # 确保DNS也切换回直连
 log_info "正在应用配置并重启服务..."
 reload_or_restart_services nginx xray sing-box # 使用同步重启
+
 log_info "服务重启完成，开始生成验收报告..."
 post_shunt_report "VPS 全量出站" "" # 移到最后执行
+
+bash /etc/edgebox/scripts/dashboard-backend.sh --now >/dev/null 2>&1 || true
 }
 
 setup_outbound_resi() {
@@ -13534,8 +13537,11 @@ update_shunt_state "resi" "$url" "healthy"
 ensure_xray_dns_alignment
 log_info "正在应用配置并重启服务..."
 reload_or_restart_services nginx xray # 使用同步重启
+
 log_info "服务重启完成，开始生成验收报告..."
 post_shunt_report "代理全量（Xray-only）" "$url" # 移到最后执行
+
+bash /etc/edgebox/scripts/dashboard-backend.sh --now >/dev/null 2>&1 || true
 }
 
 setup_outbound_direct_resi() {
@@ -13555,8 +13561,11 @@ update_shunt_state "direct-resi" "$url" "healthy"
 ensure_xray_dns_alignment
 log_info "正在应用配置并重启服务..."
 reload_or_restart_services nginx xray # 使用同步重启
+
 log_info "服务重启完成，开始生成验收报告..."
 post_shunt_report "智能分流（白名单直连）" "$url" # 移到最后执行
+
+bash /etc/edgebox/scripts/dashboard-backend.sh --now >/dev/null 2>&1 || true
 }
 
 manage_whitelist() {
