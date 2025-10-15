@@ -6956,6 +6956,9 @@ ALERT_TG_BOT_TOKEN=
 # Telegram Chat ID (通过 edgeboxctl alert telegram 命令配置)
 ALERT_TG_CHAT_ID=
 
+# Discord Webhook (通过 edgeboxctl alert discord 命令配置)
+ALERT_DISCORD_WEBHOOK=
+
 # 其他通知渠道（可留空）
 ALERT_EMAIL=
 ALERT_WEBHOOK=
