@@ -298,18 +298,6 @@ error() { log_error "$@"; }
 # 基础工具函数
 #############################################
 
-# 创建服务专用用户 (如果不存在)
-create_service_user() {
-    local user="$1"
-    if ! id -u "$user" >/dev/null 2>&1; then
-        log_info "创建系统用户: $user..."
-        useradd -r -s /usr/sbin/nologin -d /dev/null "$user"
-        log_success "系统用户 $user 创建成功。"
-    else
-        log_info "系统用户 $user 已存在。"
-    fi
-}
-
 # 检查root权限
 check_root() {
     if [[ $EUID -ne 0 ]]; then
@@ -718,35 +706,6 @@ reload_or_restart_services() {
 
   ((${#failed[@]}==0)) || return 1
 }
-
-# ==============================================================================
-# 统一权限修复函数 (最终解决方案)
-# 确保所有组件在降权运行时具有正确的读/写/执行权限
-# ==============================================================================
-apply_secure_permissions() {
-    log_info "正在应用统一的安全权限设置..."
-
-    # 证书目录和文件权限
-    local cert_dir="/etc/edgebox/cert"
-    if [[ -d "$cert_dir" ]]; then
-        # 属主是 root，但属组是 xray，这样 xray 用户就能读取证书
-        chown -R root:xray "$cert_dir"
-        chmod 750 "$cert_dir"
-        find "$cert_dir" -type f -name '*.pem' -exec chmod 644 {} \;
-        find "$cert_dir" -type f -name '*.key' -exec chmod 640 {} \;
-        log_success "证书权限已统一设置为 root:xray (目录 750, key 640)"
-    fi
-
-    # Xray 日志目录权限
-    local xray_log_dir="/var/log/xray"
-    if [[ -d "$xray_log_dir" ]]; then
-        # 目录和日志文件的所有者和所有组都应该是 xray
-        chown -R xray:xray "$xray_log_dir"
-        chmod -R 750 "$xray_log_dir"
-        log_success "Xray 日志目录权限已设置为 xray:xray"
-    fi
-}
-
 
 # 安装系统依赖包（增强幂等性）
 install_dependencies() {
@@ -2121,6 +2080,16 @@ generate_self_signed_cert() {
     ln -sf "${CERT_DIR}/self-signed.key" "${CERT_DIR}/current.key"
     ln -sf "${CERT_DIR}/self-signed.pem" "${CERT_DIR}/current.pem"
 
+    # --- 关键权限修复 ---
+    local NOBODY_GRP
+    NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
+
+    chown -R root:"${NOBODY_GRP}" "${CERT_DIR}"
+    chmod 750 "${CERT_DIR}" # 目录权限：root=rwx, group=r-x, other=---
+    chmod 640 "${CERT_DIR}"/self-signed.key # 私钥权限：root=rw, group=r, other=---
+    chmod 644 "${CERT_DIR}"/self-signed.pem # 公钥权限
+    # ---------------------
+
     if openssl x509 -in "${CERT_DIR}/current.pem" -noout >/dev/null 2>&1; then
         log_success "自签名证书生成及权限设置完成"
         echo "self-signed" > "${CONFIG_DIR}/cert_mode"
@@ -2438,10 +2407,6 @@ log_info "└─ verify_module2_data()       # 验证数据完整性"
 
 # 安装Xray核心程序
 install_xray() {
-
-   # >>> 首先创建 xray 专属用户 <<<
-    create_service_user xray
-	
     log_info "安装Xray核心程序..."
 
     # 检查是否已安装
@@ -3192,6 +3157,11 @@ fi
 configure_xray() {
     log_info "配置Xray多协议服务..."
 
+    # 【添加】创建Xray日志目录
+    mkdir -p /var/log/xray
+    chmod 755 /var/log/xray
+    chown root:root /var/log/xray
+
     local NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
 
     # 验证必要变量 (增强版)
@@ -3406,13 +3376,7 @@ After=network.target nss-lookup.target
 
 [Service]
 Type=simple
-User=xray
-Group=xray
-# CapabilityBoundingSet=CAP_NET_BIND_SERVICE <-- Commented out
-# AmbientCapabilities=CAP_NET_BIND_SERVICE <-- Commented out
-# NoNewPrivileges=true <-- Commented out
-ExecStart=/usr/local/bin/xray run -config /etc/edgebox/config/xray.json
-
+ExecStart=/usr/local/bin/xray run -config ${CONFIG_DIR}/xray.json
 Restart=on-failure
 RestartPreventExitStatus=23
 LimitNPROC=10000
@@ -3560,6 +3524,8 @@ fi
 
     # 确保证书权限正确
     if [[ -f "${CERT_DIR}/self-signed.pem" ]]; then
+        chmod 644 "${CERT_DIR}"/*.pem 2>/dev/null || true
+        chmod 600 "${CERT_DIR}"/*.key 2>/dev/null || true
         log_success "证书权限已设置"
     fi
 
@@ -3594,6 +3560,11 @@ EOF
     systemctl enable sing-box >/dev/null 2>&1
 
     log_success "sing-box服务文件创建完成（配置路径: ${CONFIG_DIR}/sing-box.json）"
+
+	chmod 755 "${CERT_DIR}" 2>/dev/null || true
+chmod 644 "${CERT_DIR}"/*.pem 2>/dev/null || true
+chmod 640 "${CERT_DIR}"/*.key 2>/dev/null || true
+chown root:nobody "${CERT_DIR}"/*.key 2>/dev/null || true
 
     return 0
 }
@@ -3933,9 +3904,6 @@ execute_module3() {
         log_error "✗ 订阅链接生成失败"
         return 1
     fi
-	
-	# 新增步骤：在启动前，最终确认所有权限正确无误
-	apply_secure_permissions
 
     # 任务7：启动和验证服务
     if start_and_verify_services; then
