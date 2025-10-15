@@ -2366,7 +2366,9 @@ install_xray() {
     # 检查是否已安装
     if command -v xray >/dev/null 2>&1; then
         local current_version
-        current_version=$(xray version 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+        xray_version=$(xray version 2>/dev/null \
+        | head -n1 \
+        | sed -E 's/[^0-9]*([0-9.]+).*/\1/')
         log_info "检测到已安装的Xray版本: ${current_version:-未知}"
         log_info "跳过Xray重新安装，使用现有版本"
         return 0
@@ -3466,12 +3468,21 @@ fi
         fi
     fi
 
-    # 确保证书权限正确
-    if [[ -f "${CERT_DIR}/self-signed.pem" ]]; then
-        chmod 644 "${CERT_DIR}"/*.pem 2>/dev/null || true
-        chmod 600 "${CERT_DIR}"/*.key 2>/dev/null || true
-        log_success "证书权限已设置"
-    fi
+# 确保证书权限正确（允许 nobody 读私钥）
+if [[ -d "${CERT_DIR}" ]]; then
+    local NOBODY_GRP
+    NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
+
+    # 目录需可被组遍历；key 仅组可读；pem 可 644
+    chmod 750 "${CERT_DIR}" 2>/dev/null || true
+    chown -R root:"${NOBODY_GRP}" "${CERT_DIR}" 2>/dev/null || true
+
+    chmod 644 "${CERT_DIR}"/*.pem 2>/dev/null || true
+    chown root:"${NOBODY_GRP}" "${CERT_DIR}"/*.key 2>/dev/null || true
+    chmod 640 "${CERT_DIR}"/*.key 2>/dev/null || true
+
+    log_success "证书权限已设置（组=${NOBODY_GRP}，key=640）"
+fi
 
     # 创建正确的 systemd 服务文件
     log_info "创建sing-box系统服务..."
