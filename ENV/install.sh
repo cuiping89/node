@@ -3056,6 +3056,16 @@ EOF
     # ### NEW FIX: Generate the initial map file before validating  ###
     # =================================================================
     generate_initial_nginx_stream_map
+	
+	# --- 保证 Nginx 在 xray / sing-box 就绪后再启 ---
+local override_dir="/etc/systemd/system/nginx.service.d"
+mkdir -p "$override_dir"
+cat > "${override_dir}/override.conf" << 'EOF'
+[Unit]
+Requires=xray.service sing-box.service
+After=xray.service sing-box.service
+EOF
+systemctl daemon-reload
 
 # --- 高熵订阅路径注入：/sub -> /sub-<token> ---
 if [[ -n "$MASTER_SUB_TOKEN" ]]; then
@@ -3092,9 +3102,9 @@ configure_xray() {
     log_info "配置Xray多协议服务..."
 
     # 【添加】创建Xray日志目录
-    mkdir -p /var/log/xray
-    chmod 755 /var/log/xray
-    chown root:root /var/log/xray
+ mkdir -p /var/log/xray
+ chmod 750 /var/log/xray
+ chown nobody:${NOBODY_GRP} /var/log/xray
 
     local NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
 
@@ -3163,7 +3173,9 @@ configure_xray() {
         --arg cert_key "${CERT_DIR}/current.key" \
         '{
             "log": {
-                "loglevel": "warning"
+				  "access": "/var/log/xray/access.log",
+				  "error":  "/var/log/xray/error.log",
+				  "loglevel": "info"
             },
             "inbounds": [
                 {
@@ -3307,7 +3319,8 @@ After=network.target nss-lookup.target
 
 [Service]
 Type=simple
-User=root
+User=nobody
+Group=${NOBODY_GRP}
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
 NoNewPrivileges=true
@@ -12842,6 +12855,27 @@ fi
   ln -sf "/etc/letsencrypt/live/${domain}/fullchain.pem" "${CERT_DIR}/current.pem"
   ln -sf "/etc/letsencrypt/live/${domain}/privkey.pem"  "${CERT_DIR}/current.key"
   echo "letsencrypt:${domain}" > "${CONFIG_DIR}/cert_mode"
+  
+  # --- 部署续期 deploy-hook：更新软链并重载服务 ---
+mkdir -p /etc/letsencrypt/renewal-hooks/deploy
+cat > /etc/letsencrypt/renewal-hooks/deploy/edgebox-renew.sh << 'EOF'
+#!/bin/bash
+set -e
+CONFIG_DIR="/etc/edgebox/config"
+CERT_DIR="/etc/edgebox/cert"
+
+mode_file="${CONFIG_DIR}/cert_mode"
+if [[ -f "$mode_file" ]] && grep -q '^letsencrypt:' "$mode_file"; then
+  domain="$(cut -d: -f2 < "$mode_file")"
+  [[ -n "$domain" ]] || exit 0
+  ln -sf "/etc/letsencrypt/live/${domain}/fullchain.pem" "${CERT_DIR}/current.pem"
+  ln -sf "/etc/letsencrypt/live/${domain}/privkey.pem"  "${CERT_DIR}/current.key"
+  systemctl reload nginx || systemctl restart nginx || true
+  systemctl restart xray || true
+  systemctl restart sing-box || true
+fi
+EOF
+chmod +x /etc/letsencrypt/renewal-hooks/deploy/edgebox-renew.sh
 
   reload_or_restart_services nginx xray sing-box
 
