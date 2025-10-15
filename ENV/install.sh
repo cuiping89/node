@@ -12436,35 +12436,51 @@ test_connection(){
 
   local ip="$SERVER_IP"
   [[ -z "$ip" || "$ip" == "null" ]] && { echo "未找到 server_ip"; return 1; }
-
+  
   echo -n "TCP 443 连通性: "; 
   timeout 3 bash -c "echo >/dev/tcp/${ip}/443" 2>/dev/null && echo -e "${GREEN}OK${NC}" || echo -e "${RED}FAIL${NC}"
 
-  # --- 核心修复：动态构建订阅URL ---
+  # 动态构建订阅URL
   local sub_path="sub"
-  # MASTER_SUB_TOKEN 是由 ensure_config_loaded 加载的全局变量
   if [[ -n "$MASTER_SUB_TOKEN" ]]; then
     sub_path="sub-${MASTER_SUB_TOKEN}"
   fi
   local sub_url="http://${ip}/${sub_path}"
-  # --- 修复结束 ---
 
   echo -n "HTTP 订阅: "; 
   if curl -fsS "$sub_url" >/dev/null; then
     echo -e "${GREEN}OK${NC}"
   else
     local curl_exit_code=$?
-    echo -e "curl: ($curl_exit_code) $(curl -sS "$sub_url" 2>&1 | head -n1)"
+    # 为了简洁，只在失败时显示错误
+    local error_msg=$(curl -sS "$sub_url" 2>&1 | head -n1)
+    echo -e "curl: ($curl_exit_code) ${error_msg}"
     echo -e "${RED}FAIL${NC}"
   fi
 
+  # --- 核心修复：动态获取密码并附加到URL ---
+  local passcode
+  passcode=$(get_dashboard_passcode) # 调用已有函数获取密码
+  local panel_url="http://${ip}/"
+  
+  # 如果获取到了密码，就用带密码的URL测试，否则用不带密码的
+  if [[ -n "$passcode" ]]; then
+      panel_url="http://${ip}/traffic/?passcode=${passcode}"
+  fi
+  # --- 修复结束 ---
+
   echo -n "控制面板: "; 
-  # 控制面板首页会302跳转，所以需要-L参数来跟随跳转
-  if curl -fsSL "http://${ip}/" >/dev/null; then
+  # 使用 -L 参数跟随跳转，并测试新的 panel_url
+  if curl -fsSL "$panel_url" >/dev/null; then
     echo -e "${GREEN}OK${NC}"
   else
     local curl_exit_code=$?
-    echo -e "curl: ($curl_exit_code)"
+    local error_msg=$(curl -sSL "$panel_url" 2>&1 | head -n1)
+    # 避免打印整个HTML页面
+    if [[ "$error_msg" == *"<html>"* ]]; then
+        error_msg=""
+    fi
+    echo -e "curl: ($curl_exit_code) ${error_msg}"
     echo -e "${RED}FAIL${NC}"
   fi
 }
