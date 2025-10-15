@@ -11458,8 +11458,8 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 <div class="command-section">
       <h3>🔗 独立用户订阅URL</h3>
       <div class="command-list">
+	    <code>edgeboxctl sub show &lt;user&gt;</code> <span># 查看用户订阅及已绑定的设备</span>
         <code>edgeboxctl sub issue &lt;user&gt;</code> <span># 为指定用户下发专属订阅链接</span>
-        <code>edgeboxctl sub show &lt;user&gt;</code> <span># 查看用户订阅及已绑定的设备</span>
         <code>edgeboxctl sub revoke &lt;user&gt; --force</code> <span># 停用指定用户的订阅链接</span>
         <code>edgeboxctl sub limit &lt;user&gt; &lt;N&gt;</code> <span># 修改用户的设备上限</span>
         <p class="cmd-label">示例：</p>
@@ -15021,8 +15021,8 @@ help|"")
 
   # 🔗 独立用户订阅URL
   printf "%b\n" "${YELLOW}■ 🔗 独立用户订阅URL${NC}"
-  print_cmd "${GREEN}edgeboxctl sub issue${NC} ${CYAN}<user> [limit]${NC}"  "为指定用户下发专属订阅链接"       $_W_SUB
   print_cmd "${GREEN}edgeboxctl sub show${NC} ${CYAN}<user>${NC}"           "查看用户订阅及已绑定的设备"         $_W_SUB
+  print_cmd "${GREEN}edgeboxctl sub issue${NC} ${CYAN}<user> [limit]${NC}"  "为指定用户下发专属订阅链接"       $_W_SUB
   print_cmd "${GREEN}edgeboxctl sub revoke${NC} ${CYAN}<user>${NC}"         "停用指定用户的订阅链接"             $_W_SUB
   print_cmd "${GREEN}edgeboxctl sub limit${NC} ${CYAN}<user> <N>${NC}"      "修改用户的设备上限"                 $_W_SUB
   printf "  %b\n" "${CYAN}示例:${NC}"
