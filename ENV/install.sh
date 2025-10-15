@@ -3101,12 +3101,12 @@ fi
 configure_xray() {
     log_info "配置Xray多协议服务..."
 
-    # 【添加】创建Xray日志目录
- mkdir -p /var/log/xray
- chmod 750 /var/log/xray
- chown nobody:${NOBODY_GRP} /var/log/xray
+# 【添加】创建Xray日志目录（先定义组，再改权限）
+local NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
+mkdir -p /var/log/xray
+chmod 750 /var/log/xray
+chown nobody:${NOBODY_GRP} /var/log/xray
 
-    local NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
 
     # 验证必要变量 (增强版)
     local required_vars=(
@@ -3311,7 +3311,7 @@ ensure_xray_dns_alignment
     rm -rf /etc/systemd/system/xray@.service.d 2>/dev/null || true
 
     # 创建我们自己的 systemd 服务文件（使用正确的配置路径）
-    cat > /etc/systemd/system/xray.service << EOF
+cat > /etc/systemd/system/xray.service << EOF
 [Unit]
 Description=Xray Service (EdgeBox)
 Documentation=https://github.com/xtls
