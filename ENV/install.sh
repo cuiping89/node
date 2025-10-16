@@ -3274,11 +3274,15 @@ configure_xray() {
 
     log_info "创建/更新Xray系统服务..."
     
+# // ANCHOR: [THE-FINAL-FIX] - 彻底清除官方systemd配置，包括Drop-In目录
     # 停止并屏蔽官方服务
     systemctl stop xray >/dev/null 2>&1 || true
     systemctl disable xray >/dev/null 2>&1 || true
     systemctl mask xray.service >/dev/null 2>&1 || true
+    
+    # 彻底删除官方留下的所有相关service文件和Drop-In目录
     rm -f /etc/systemd/system/xray.service /etc/systemd/system/xray@.service
+    rm -rf /etc/systemd/system/xray.service.d/
 
     # 创建我们自己的服务文件
     cat > /etc/systemd/system/xray.service << EOF
