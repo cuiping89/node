@@ -868,11 +868,11 @@ ensure_system_services() {
 setup_directories() {
     log_info "设置并验证目录结构..."
 
-    # DynamicUser 服务通过 ReadOnlyPaths 访问文件,不依赖组权限
+    # 定义目录及其权限
     local directories=(
         "${INSTALL_DIR}:755:root:root"
-        "${CERT_DIR}:755:root:root"       # 改为 755,允许目录遍历
-        "${CONFIG_DIR}:755:root:root"      # 改为 755,允许目录遍历
+        "${CERT_DIR}:750:root:$(id -gn nobody 2>/dev/null || echo nogroup)"
+        "${CONFIG_DIR}:755:root:root"
         "${TRAFFIC_DIR}:755:root:root"
         "${SCRIPTS_DIR}:755:root:root"
         "${BACKUP_DIR}:700:root:root"
@@ -7096,26 +7096,15 @@ notify() {
 
   # --- Discord 通知逻辑 (补全) ---
   if [[ -n "${ALERT_DISCORD_WEBHOOK:-}" ]]; then
+    # Discord 使用 "content" 字段而不是 "text"
     local discord_payload
     discord_payload=$(jq -n --arg content "$msg" '{content: $content}')
 
+    # ↓↓↓ 这是之前缺失的关键发送命令 ↓↓↓
     env -u ALL_PROXY -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy \
     curl -m 5 -s -X POST -H 'Content-Type: application/json' \
       -d "$discord_payload" "$ALERT_DISCORD_WEBHOOK" >> "$LOG" 2>&1 || true
   fi
-  
-  # ==================== 新增的微信 PushPlus 修复逻辑 ====================
-  if [[ -n "${ALERT_PUSHPLUS_TOKEN:-}" ]]; then
-    local pushplus_api_url="http://www.pushplus.plus/send"
-    local pushplus_payload
-    # PushPlus API 需要 'token' 和 'content' 字段
-    pushplus_payload=$(jq -n --arg token "${ALERT_PUSHPLUS_TOKEN}" --arg content "$msg" '{token: $token, content: $content, template: "markdown"}')
-    
-    env -u ALL_PROXY -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy \
-    curl -m 10 -s -X POST -H 'Content-Type: application/json' \
-      -d "$pushplus_payload" "$pushplus_api_url" >> "$LOG" 2>&1 || true
-  fi
-  # =============================== 修复结束 ===============================
 
   # --- 通用 Webhook 通知逻辑 ---
   if [[ -n "${ALERT_WEBHOOK:-}" ]]; then
@@ -11521,8 +11510,8 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 <div class="command-section">
       <h3>🔗 独立用户订阅URL</h3>
       <div class="command-list">
-	    <code>edgeboxctl sub show &lt;user&gt;</code> <span># 查看用户订阅及已绑定的设备</span>
         <code>edgeboxctl sub issue &lt;user&gt;</code> <span># 为指定用户下发专属订阅链接</span>
+        <code>edgeboxctl sub show &lt;user&gt;</code> <span># 查看用户订阅及已绑定的设备</span>
         <code>edgeboxctl sub revoke &lt;user&gt; --force</code> <span># 停用指定用户的订阅链接</span>
         <code>edgeboxctl sub limit &lt;user&gt; &lt;N&gt;</code> <span># 修改用户的设备上限</span>
         <p class="cmd-label">示例：</p>
@@ -12947,12 +12936,9 @@ sub_show(){
 fix_permissions(){
   echo -e "${CYAN}修复证书权限...${NC}"
   [[ ! -d "${CERT_DIR}" ]] && { echo -e "${RED}证书目录不存在: ${CERT_DIR}${NC}"; return 1; }
-local NOBODY_GRP
-NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
-chown -R root:"${NOBODY_GRP}" "${CERT_DIR}"
-chmod 750 "${CERT_DIR}"
-find "${CERT_DIR}" -type f -name '*.key' -exec chmod 640 {} \; 2>/dev/null || true
-find "${CERT_DIR}" -type f -name '*.pem' -exec chmod 644 {} \; 2>/dev/null || true
+  chown -R root:root "${CERT_DIR}"; chmod 755 "${CERT_DIR}"
+  find "${CERT_DIR}" -type f -name '*.key' -exec chmod 600 {} \; 2>/dev/null || true
+  find "${CERT_DIR}" -type f -name '*.pem' -exec chmod 644 {} \; 2>/dev/null || true
   echo -e "${GREEN}权限修复完成${NC}"
   stat -L -c '  %a %n' "${CERT_DIR}/current.key" 2>/dev/null || true
   stat -L -c '  %a %n' "${CERT_DIR}/current.pem" 2>/dev/null || true
@@ -15087,8 +15073,8 @@ help|"")
 
   # 🔗 独立用户订阅URL
   printf "%b\n" "${YELLOW}■ 🔗 独立用户订阅URL${NC}"
-  print_cmd "${GREEN}edgeboxctl sub show${NC} ${CYAN}<user>${NC}"           "查看用户订阅及已绑定的设备"         $_W_SUB
   print_cmd "${GREEN}edgeboxctl sub issue${NC} ${CYAN}<user> [limit]${NC}"  "为指定用户下发专属订阅链接"       $_W_SUB
+  print_cmd "${GREEN}edgeboxctl sub show${NC} ${CYAN}<user>${NC}"           "查看用户订阅及已绑定的设备"         $_W_SUB
   print_cmd "${GREEN}edgeboxctl sub revoke${NC} ${CYAN}<user>${NC}"         "停用指定用户的订阅链接"             $_W_SUB
   print_cmd "${GREEN}edgeboxctl sub limit${NC} ${CYAN}<user> <N>${NC}"      "修改用户的设备上限"                 $_W_SUB
   printf "  %b\n" "${CYAN}示例:${NC}"
