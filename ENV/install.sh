@@ -2116,17 +2116,21 @@ generate_self_signed_cert() {
     ln -sf "${CERT_DIR}/self-signed.pem" "${CERT_DIR}/current.pem"
 
     # 强制应用正确的文件和目录权限
-    local NOBODY_GRP
-    NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
-    
-    # 证书目录及文件所有者为 root，所属组为 nobody 所在的组
-    chown -R root:"${NOBODY_GRP}" "${CERT_DIR}"
-    # 目录权限：root 可读写执行，nobody 组可读可执行
-    chmod 750 "${CERT_DIR}"
-    # 私钥权限：root 可读写，nobody 组可读
-    chmod 640 "${CERT_DIR}"/*.key
-    # 公钥权限：所有人都可读
-    chmod 644 "${CERT_DIR}"/*.pem
+log_info "强制修复证书文件权限..."
+local nobody_group=$(id -gn nobody 2>/dev/null || echo nogroup)
+
+# 1. 证书目录权限修复：所有者 root，组 nogroup (750)
+chown -R root:${nobody_group} "$CERT_DIR" 2>/dev/null || true
+chmod 750 "$CERT_DIR" 2>/dev/null || true
+
+# 2. 证书私钥权限修复：所有者 root，组 nogroup (640)
+# 确保 /usr/local/etc/xray/cert/self-signed.key (和current.key) 组可读
+chmod 640 "${CERT_DIR}/self-signed.key" 2>/dev/null || true
+chmod 640 "${CERT_DIR}/current.key" 2>/dev/null || true
+
+# 3. 证书公钥权限修复：所有者 root，组 nogroup (644)
+chmod 644 "${CERT_DIR}/self-signed.pem" 2>/dev/null || true
+chmod 644 "${CERT_DIR}/current.pem" 2>/dev/null || true
 
     if openssl x509 -in "${CERT_DIR}/current.pem" -noout >/dev/null 2>&1; then
         log_success "自签名证书生成及权限设置完成"
@@ -3304,9 +3308,12 @@ configure_xray() {
         return 1
     fi
 
-# 【修复】立即强制设置正确权限，防止被覆盖或跳过
-local nobody_group
-nobody_group=$(id -gn nobody 2>/dev/null || echo nogroup)
+# 强制修复 config.json 权限
+local nobody_user="nobody"
+local nobody_group=$(id -gn $nobody_user 2>/dev/null || echo nogroup)
+
+chown "${nobody_user}:${nobody_group}" "$XRAY_CONFIG" 2>/dev/null || log_warn "修复config.json所有者失败"
+chmod 640 "$XRAY_CONFIG" 2>/dev/null || log_warn "修复config.json权限失败"
 
 if ! chown "nobody:${nobody_group}" "${XRAY_STD_CONFIG}"; then
     log_error "设置Xray配置文件所有者失败"
