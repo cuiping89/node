@@ -92,7 +92,7 @@ fi
 
 # === 核心目录结构 ===
 INSTALL_DIR="/etc/edgebox"
-CERT_DIR="${INSTALL_DIR}/cert"
+CERT_DIR="/usr/local/etc/xray/cert"
 CONFIG_DIR="${INSTALL_DIR}/config"
 TRAFFIC_DIR="${INSTALL_DIR}/traffic"
 SCRIPTS_DIR="${INSTALL_DIR}/scripts"
@@ -868,24 +868,23 @@ ensure_system_services() {
 setup_directories() {
     log_info "设置并验证目录结构..."
 
-    # // ANCHOR: [FINAL-FIX-1A] - 采用社区标准路径并预设权限
-    # 为Xray创建官方推荐的、SELinux/AppArmor友好的路径
-    mkdir -p /usr/local/etc/xray /var/log/xray
+    # // ANCHOR: [FINAL-FIX-2] - 统一创建Xray所需的所有目录并设置权限
+    # 为Xray创建官方推荐的、SELinux/AppArmor友好的路径，包括新的证书目录
+    mkdir -p /usr/local/etc/xray /var/log/xray "$CERT_DIR"
     local nobody_user="nobody"
     local nobody_group=$(id -gn $nobody_user 2>/dev/null || echo nogroup)
+    # 将整个xray目录树的所有权都赋予nobody
     chown -R ${nobody_user}:${nobody_group} /usr/local/etc/xray
     chown -R ${nobody_user}:${nobody_group} /var/log/xray
 
-    # 定义目录及其权限
+    # 定义目录及其权限 (从数组中移除CERT_DIR，因为它已单独处理)
     local directories=(
         "${INSTALL_DIR}:755:root:root"
-        "${CERT_DIR}:750:root:${nobody_group}"
         "${CONFIG_DIR}:750:root:${nobody_group}"
         "${TRAFFIC_DIR}:755:root:root"
         "${SCRIPTS_DIR}:755:root:root"
         "${BACKUP_DIR}:700:root:root"
         "/var/log/edgebox:755:root:root"
-        # /var/log/xray 已在上面单独处理
         "${WEB_ROOT}:755:www-data:www-data"
         "${SNI_CONFIG_DIR}:755:root:root"
     )
@@ -2092,7 +2091,7 @@ generate_self_signed_cert() {
     local NOBODY_GRP
     NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
 
-    chown -R root:"${NOBODY_GRP}" "${CERT_DIR}"
+    chown -R nobody:"${NOBODY_GRP}" "${CERT_DIR}"
     chmod 750 "${CERT_DIR}" # 目录权限：root=rwx, group=r-x, other=---
     chmod 640 "${CERT_DIR}"/self-signed.key # 私钥权限：root=rw, group=r, other=---
     chmod 644 "${CERT_DIR}"/self-signed.pem # 公钥权限
@@ -3303,7 +3302,7 @@ LimitNOFILE=1000000
 
 # // 明确授权目录访问权限，兼容AppArmor等安全模块
 ReadWritePaths=/usr/local/etc/xray/ /var/log/xray/
-ReadOnlyPaths=/etc/edgebox/cert/
+ReadOnlyPaths=/usr/local/etc/xray/cert/
 
 [Install]
 WantedBy=multi-user.target
