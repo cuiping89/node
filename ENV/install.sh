@@ -154,6 +154,7 @@ LOCK_FILE="/var/lock/edgebox-install.lock"
 SNI_CONFIG_DIR="${CONFIG_DIR}/sni"
 SNI_DOMAINS_CONFIG="${SNI_CONFIG_DIR}/domains.json"
 SNI_LOG_FILE="/var/log/edgebox/sni-management.log"
+SNI_LOCK_FILE="/etc/edgebox/sni.lock"
 # SNI域名池配置
 SNI_DOMAIN_POOL=(
     "www.microsoft.com"      # 权重: 25 (稳定性高)
@@ -1082,6 +1083,43 @@ EOF
     log_success "SNI域名池配置文件创建完成: $SNI_DOMAINS_CONFIG"
 }
 
+# === 一次性选择 SNI（安装阶段） ===
+choose_initial_sni_once() {
+  mkdir -p "$(dirname "$SNI_LOCK_FILE")"
+  # 1) 已有锁则复用，避免重复改动
+  if [[ -s "$SNI_LOCK_FILE" ]]; then
+    local locked; locked="$(head -1 "$SNI_LOCK_FILE" | tr -d '\r\n ')"
+    if [[ -n "$locked" ]]; then
+      log_info "检测到已锁定的 SNI：${locked}，跳过重新选择"
+      export REALITY_SNI="$locked"
+      return 0
+    fi
+  fi
+
+  # 2) edgeboxctl 优先自动选择；失败就用域名池第一个
+  local chosen=""
+  if command -v edgeboxctl >/dev/null 2>&1; then
+    chosen="$(edgeboxctl sni auto --quiet 2>/dev/null | head -1 | tr -d '\r\n ')"
+  fi
+  if [[ -z "$chosen" ]]; then
+    # 从 domains.json 拿第一个；再不行就用默认
+    if [[ -s "$SNI_DOMAINS_CONFIG" ]] && command -v jq >/dev/null 2>&1; then
+      chosen="$(jq -r '.domains[0].hostname // empty' "$SNI_DOMAINS_CONFIG" 2>/dev/null)"
+    fi
+    : "${chosen:=${REALITY_SNI:-www.microsoft.com}}"
+    log_warn "edgeboxctl sni auto 不可用/失败，采用候选：${chosen}"
+  else
+    log_info "本次自动选择 SNI：${chosen}"
+  fi
+
+  # 3) 落锁 & 导出环境变量（供 configure_xray 使用）
+  echo -n "$chosen" > "$SNI_LOCK_FILE"
+  chmod 600 "$SNI_LOCK_FILE"
+  export REALITY_SNI="$chosen"
+  log_success "已锁定安装期 SNI：${REALITY_SNI}"
+  return 0
+}
+
 
 # 检查端口占用情况
 check_ports() {
@@ -1129,205 +1167,118 @@ check_ports() {
 
 # 配置防火墙规则（完整版 - 支持 UFW/FirewallD/iptables）
 configure_firewall() {
-    log_info "配置防火墙规则（智能SSH端口检测）..."
+  log_info "配置防火墙规则（自动识别 UFW / firewalld / iptables，含 IPv6）..."
 
-    # ==========================================
-    # 第一步：智能检测当前SSH端口（防止锁死）
-    # ==========================================
-    local ssh_ports=()
-    local current_ssh_port=""
+  # ---------- 智能识别当前 SSH 端口（防自锁） ----------
+  local ssh_ports=() current_ssh_port=""
+  # ss 实时监听
+  while IFS= read -r line; do
+    [[ "$line" =~ :([0-9]+)[[:space:]]+.*sshd ]] && ssh_ports+=("${BASH_REMATCH[1]}")
+  done < <(ss -tlnp 2>/dev/null | grep sshd || true)
+  # sshd_config
+  if [[ -f /etc/ssh/sshd_config ]]; then
+    local cfgp; cfgp=$(grep -E "^[[:space:]]*Port[[:space:]]+[0-9]+" /etc/ssh/sshd_config | awk '{print $2}' | head -1)
+    [[ "$cfgp" =~ ^[0-9]+$ ]] && ssh_ports+=("$cfgp")
+  fi
+  # SSH_CONNECTION 环境
+  if [[ -n "${SSH_CONNECTION:-}" ]]; then
+    local envp; envp=$(awk '{print $4}' <<<"$SSH_CONNECTION")
+    [[ "$envp" =~ ^[0-9]+$ ]] && ssh_ports+=("$envp")
+  fi
+  # 兜底
+  current_ssh_port="${ssh_ports[0]:-22}"
+  log_info "检测到 SSH 端口：$current_ssh_port"
 
-    # 方法1：检测sshd监听端口
-    while IFS= read -r line; do
-        if [[ "$line" =~ :([0-9]+)[[:space:]]+.*sshd ]]; then
-            ssh_ports+=("${BASH_REMATCH[1]}")
-        fi
-    done < <(ss -tlnp 2>/dev/null | grep sshd || true)
+  # ---------- 目标端口集合 ----------
+  local tcp_ports=("80" "443")
+  local udp_ports=("443" "2053" "8443")  # HY2 主/备 + TUIC
 
-    # 方法2：检查配置文件中的端口
-    if [[ -f /etc/ssh/sshd_config ]]; then
-        local config_port
-        config_port=$(grep -E "^[[:space:]]*Port[[:space:]]+" /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}' | head -1)
-        if [[ -n "$config_port" && "$config_port" =~ ^[0-9]+$ ]]; then
-            ssh_ports+=("$config_port")
-        fi
+  # ---------- 回滚计划（5分钟后自动回滚，避免误锁） ----------
+  setup_firewall_rollback
+
+  # ---------- UFW ----------
+  if command -v ufw >/dev/null 2>&1; then
+    log_info "使用 UFW 进行规则配置（含 IPv6）..."
+    ufw default deny incoming >/dev/null 2>&1 || true
+    ufw default allow outgoing >/dev/null 2>&1 || true
+
+    # 先放 SSH
+    ufw status | grep -qw "${current_ssh_port}/tcp" || ufw allow "${current_ssh_port}/tcp" comment 'SSH'
+
+    # TCP
+    for p in "${tcp_ports[@]}"; do
+      ufw status | grep -qw "${p}/tcp" || ufw allow "${p}/tcp" comment "EdgeBox"
+    done
+    # UDP
+    for p in "${udp_ports[@]}"; do
+      ufw status | grep -qw "${p}/udp" || ufw allow "${p}/udp" comment "EdgeBox"
+    done
+
+    # IPv6：UFW 默认会同时写 v6（若启用 IPv6）。确保开启了 v6 支持：
+    sed -ri 's/^#?IPV6=.*/IPV6=yes/' /etc/default/ufw || true
+
+    # 启用 UFW
+    if ! ufw status | grep -q "Status: active"; then
+      ufw --force enable >/dev/null 2>&1 || { log_error "UFW 启用失败"; return 1; }
     fi
 
-    # 方法3：检查当前连接的端口（如果通过SSH连接）
-    if [[ -n "${SSH_CONNECTION:-}" ]]; then
-        local connection_port
-        connection_port=$(echo "$SSH_CONNECTION" | awk '{print $4}')
-        if [[ -n "$connection_port" && "$connection_port" =~ ^[0-9]+$ ]]; then
-            ssh_ports+=("$connection_port")
-        fi
-    fi
-
-    # 数组去重并选择第一个端口
-    if [[ ${#ssh_ports[@]} -gt 0 ]]; then
-        local temp_file=$(mktemp)
-        printf "%s\n" "${ssh_ports[@]}" | sort -u > "$temp_file"
-        current_ssh_port=$(head -1 "$temp_file")
-        rm -f "$temp_file"
-    fi
-
-    # 默认端口兜底
-    current_ssh_port="${current_ssh_port:-22}"
-
-    log_info "检测到SSH端口: $current_ssh_port"
-
-    # ==========================================
-    # 第二步：根据防火墙类型配置规则
-    # ==========================================
-
-        if command -v ufw >/dev/null 2>&1; then
-        # ==========================================
-        # Ubuntu/Debian UFW 配置 (安全幂等模式)
-        # ==========================================
-        log_info "以安全模式配置UFW防火墙（SSH端口：$current_ssh_port）..."
-
-        # 1. 设置默认策略 (幂等操作)
-        ufw default deny incoming >/dev/null 2>&1
-        ufw default allow outgoing >/dev/null 2>&1
-
-        # 2. 逐条检查并添加规则，如果不存在的话
-        log_info "确保核心规则已添加..."
-        ufw status | grep -qw "${current_ssh_port}/tcp" || ufw allow "${current_ssh_port}/tcp" comment 'SSH'
-        ufw status | grep -qw '80/tcp' || ufw allow 80/tcp comment 'HTTP'
-        ufw status | grep -qw '443/tcp' || ufw allow 443/tcp comment 'HTTPS/TLS'
-        ufw status | grep -qw '443/udp' || ufw allow 443/udp comment 'Hysteria2'
-        ufw status | grep -qw '2053/udp' || ufw allow 2053/udp comment 'TUIC'
-
-        # 3. 如果防火墙未激活，则启用它
-        if ! ufw status | grep -q "Status: active"; then
-            log_info "UFW未激活，正在启用..."
-            if ufw --force enable; then
-                log_success "UFW已成功启用"
-            else
-                log_error "UFW启用失败"
-                return 1
-            fi
-        else
-            log_info "UFW已处于激活状态"
-        fi
-
-        # 4. 最终验证SSH端口
-        if ufw status | grep -q "${current_ssh_port}/tcp.*ALLOW"; then
-            log_success "UFW防火墙配置完成，SSH端口 $current_ssh_port 已确认开放"
-        else
-            log_error "⚠️ UFW配置完成但SSH端口状态异常，请立即检查连接"
-            return 1
-        fi
-
-    elif command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then
-        # ==========================================
-        # CentOS/RHEL FirewallD 配置
-        # ==========================================
-        log_info "配置FirewallD防火墙（SSH端口：$current_ssh_port）..."
-
-        # SSH端口配置
-        if ! firewall-cmd --permanent --add-port="$current_ssh_port/tcp" >/dev/null 2>&1; then
-            log_error "FirewallD SSH端口配置失败"
-            return 1
-        fi
-
-        # EdgeBox端口配置
-        firewall-cmd --permanent --add-port=80/tcp >/dev/null 2>&1 || log_warn "HTTP端口配置失败"
-        firewall-cmd --permanent --add-port=443/tcp >/dev/null 2>&1 || log_warn "HTTPS TCP端口配置失败"
-
-        # 【关键】UDP 端口
-        firewall-cmd --permanent --add-port=443/udp >/dev/null 2>&1 || log_warn "Hysteria2端口配置失败"
-        firewall-cmd --permanent --add-port=2053/udp >/dev/null 2>&1 || log_warn "TUIC端口配置失败"
-
-        # 重新加载规则
-        if ! firewall-cmd --reload >/dev/null 2>&1; then
-            log_error "FirewallD规则重载失败"
-            return 1
-        fi
-
-        log_success "FirewallD防火墙配置完成，SSH端口 $current_ssh_port 已开放"
-
-    elif command -v iptables >/dev/null 2>&1; then
-        # ==========================================
-        # 传统 iptables 配置
-        # ==========================================
-        log_info "配置iptables防火墙（SSH端口：$current_ssh_port）..."
-
-        # 允许已建立的连接
-        if ! iptables -C INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT >/dev/null 2>&1; then
-            iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-        fi
-
-        # SSH端口
-        if ! iptables -C INPUT -p tcp --dport "$current_ssh_port" -j ACCEPT >/dev/null 2>&1; then
-            iptables -A INPUT -p tcp --dport "$current_ssh_port" -j ACCEPT
-        fi
-
-        # HTTP/HTTPS TCP
-        if ! iptables -C INPUT -p tcp --dport 80 -j ACCEPT >/dev/null 2>&1; then
-            iptables -A INPUT -p tcp --dport 80 -j ACCEPT
-        fi
-
-        if ! iptables -C INPUT -p tcp --dport 443 -j ACCEPT >/dev/null 2>&1; then
-            iptables -A INPUT -p tcp --dport 443 -j ACCEPT
-        fi
-
-        # 【关键】UDP 端口
-        if ! iptables -C INPUT -p udp --dport 443 -j ACCEPT >/dev/null 2>&1; then
-            iptables -A INPUT -p udp --dport 443 -j ACCEPT
-        fi
-
-        if ! iptables -C INPUT -p udp --dport 2053 -j ACCEPT >/dev/null 2>&1; then
-            iptables -A INPUT -p udp --dport 2053 -j ACCEPT
-        fi
-
-        # 允许本地回环
-        if ! iptables -C INPUT -i lo -j ACCEPT >/dev/null 2>&1; then
-            iptables -A INPUT -i lo -j ACCEPT
-        fi
-
-        # 保存iptables规则
-        if command -v iptables-save >/dev/null 2>&1; then
-            mkdir -p /etc/iptables
-            if ! iptables-save > /etc/iptables/rules.v4 2>/dev/null; then
-                log_warn "iptables规则保存失败"
-            fi
-        fi
-
-        # 如果有netfilter-persistent，使用它保存
-        if command -v netfilter-persistent >/dev/null 2>&1; then
-            netfilter-persistent save >/dev/null 2>&1 || true
-        fi
-
-        log_success "iptables防火墙配置完成，SSH端口 $current_ssh_port 已开放"
-
-    else
-        # ==========================================
-        # 无防火墙或不支持的防火墙
-        # ==========================================
-        log_warn "未检测到支持的防火墙软件（UFW/FirewallD/iptables）"
-        log_info "请手动配置防火墙，确保开放以下端口："
-        log_info "  - SSH: $current_ssh_port/tcp"
-        log_info "  - HTTP: 80/tcp"
-        log_info "  - HTTPS: 443/tcp"
-        log_info "  - Hysteria2: 443/udp"
-        log_info "  - TUIC: 2053/udp"
-
-        # 如果是云服务器，提示检查安全组
-        log_warn "如果使用云服务器，请同时检查云厂商安全组规则！"
-    fi
-
-    # ==========================================
-    # 第三步：最终验证SSH连接正常
-    # ==========================================
-    log_info "验证SSH连接状态..."
-    if ss -tln | grep -q ":$current_ssh_port "; then
-        log_success "✅ SSH端口 $current_ssh_port 监听正常"
-    else
-        log_warn "⚠️ SSH端口监听状态异常，请检查sshd服务"
-    fi
-
+    log_success "UFW 规则配置完成"
     return 0
+  fi
+
+  # ---------- firewalld ----------
+  if command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then
+    log_info "使用 firewalld 进行规则配置（含 IPv6）..."
+    local zone; zone=$(firewall-cmd --get-default-zone)
+
+    # SSH 先放
+    firewall-cmd --permanent --zone="$zone" --add-port="${current_ssh_port}/tcp" >/dev/null 2>&1 || true
+
+    for p in "${tcp_ports[@]}"; do
+      firewall-cmd --permanent --zone="$zone" --add-port="${p}/tcp" >/dev/null 2>&1 || true
+    done
+    for p in "${udp_ports[@]}"; do
+      firewall-cmd --permanent --zone="$zone" --add-port="${p}/udp" >/dev/null 2>&1 || true
+    done
+
+    # v6 在 firewalld 中随 zone 生效，无需单独命令
+    firewall-cmd --reload >/dev/null 2>&1 || true
+    log_success "firewalld 规则配置完成"
+    return 0
+  fi
+
+  # ---------- iptables / ip6tables ----------
+  log_info "检测不到 UFW / firewalld，回退到 iptables / ip6tables..."
+
+  # TCP
+  for p in "${tcp_ports[@]}"; do
+    iptables -C INPUT -p tcp --dport "$p" -j ACCEPT 2>/dev/null || iptables -A INPUT -p tcp --dport "$p" -j ACCEPT
+    ip6tables -C INPUT -p tcp --dport "$p" -j ACCEPT 2>/dev/null || ip6tables -A INPUT -p tcp --dport "$p" -j ACCEPT
+  done
+  # UDP
+  for p in "${udp_ports[@]}"; do
+    iptables -C INPUT -p udp --dport "$p" -j ACCEPT 2>/dev/null || iptables -A INPUT -p udp --dport "$p" -j ACCEPT
+    ip6tables -C INPUT -p udp --dport "$p" -j ACCEPT 2>/dev/null || ip6tables -A INPUT -p udp --dport "$p" -j ACCEPT
+  done
+  # SSH
+  iptables  -C INPUT -p tcp --dport "$current_ssh_port" -j ACCEPT 2>/dev/null || iptables  -A INPUT -p tcp --dport "$current_ssh_port" -j ACCEPT
+  ip6tables -C INPUT -p tcp --dport "$current_ssh_port" -j ACCEPT 2>/dev/null || ip6tables -A INPUT -p tcp --dport "$current_ssh_port" -j ACCEPT
+
+  # 回环
+  iptables  -C INPUT -i lo -j ACCEPT 2>/dev/null || iptables  -A INPUT -i lo -j ACCEPT
+  ip6tables -C INPUT -i lo -j ACCEPT 2>/dev/null || ip6tables -A INPUT -i lo -j ACCEPT
+
+  # 保存（Debian/Ubuntu 常见路径）
+  if command -v iptables-save >/dev/null 2>&1; then
+    mkdir -p /etc/iptables
+    iptables-save  > /etc/iptables/rules.v4 2>/dev/null || true
+    ip6tables-save > /etc/iptables/rules.v6 2>/dev/null || true
+  fi
+
+  log_success "iptables / ip6tables 规则配置完成"
+  log_info "如果云厂商有安全组，请同步放行上述端口（TCP:80/443，UDP:443/2053/8443）"
 }
+
 
 # ==========================================
 # 【可选】防火墙安全回滚机制
@@ -2821,15 +2772,15 @@ map $ssl_preread_server_name $backend_pool {
     # Reality fallback SNIs
     ~*(microsoft\.com|apple\.com|cloudflare\.com|amazon\.com|fastly\.com)$ reality;
 
-    # Trojan uses a subdomain pattern, which works for both IP and domain mode
+    # Trojan pattern
     ~*^trojan\..* trojan;
 
-    # Default internal SNIs for IP mode
+    # 内部固定域名（IP模式）
     grpc.edgebox.internal  grpc;
     ws.edgebox.internal    websocket;
 
-    # Default action (will then fallback to ALPN)
-    default                "";
+    # 更安全的兜底
+    default                reality;
 }
 EOF
     log_success "Nginx 初始 stream map 已生成: $map_conf"
@@ -3076,7 +3027,6 @@ stream {
     }
 
     map $upstream_server $final_upstream {
-        ""      $upstream_alpn;
         default $upstream_server;
     }
 
@@ -3140,10 +3090,6 @@ fi
         nginx -t # 显示详细错误
         return 1
     fi
-
-    log_info "对齐 DNS 解析（系统 & Xray）..."
-    ensure_system_dns
-    ensure_xray_dns_alignment
 
     log_success "Nginx配置文件创建完成"
     return 0
@@ -3376,26 +3322,23 @@ cat > /etc/systemd/system/xray.service << 'EOF'
 [Unit]
 Description=Xray Service (EdgeBox)
 Documentation=https://github.com/xtls
-After=network.target nss-lookup.target
+Wants=network-online.target
+After=network-online.target nss-lookup.target
 
 [Service]
 Type=simple
-
-# 使用 root 用户运行
 User=root
 Group=root
-
 ExecStart=/usr/local/bin/xray run -config /etc/edgebox/config/xray.json
-
 Restart=on-failure
 RestartPreventExitStatus=23
 RestartSec=5s
-
 LimitNPROC=10000
 LimitNOFILE=1000000
 
 [Install]
 WantedBy=multi-user.target
+
 EOF
 
     # 强力屏蔽官方单元，防止被意外激活
@@ -3548,21 +3491,23 @@ fi
 [Unit]
 Description=sing-box service
 Documentation=https://sing-box.sagernet.org
-After=network.target nss-lookup.target
+Wants=network-online.target
+After=network-online.target nss-lookup.target
 
 [Service]
 Type=simple
 User=root
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_SYS_PTRACE
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_SYS_PTRACE
-ExecStart=/usr/local/bin/sing-box run -c ${CONFIG_DIR}/sing-box.json
-ExecReload=/bin/kill -HUP \$MAINPID
+ExecStart=/usr/local/bin/sing-box run -c /etc/edgebox/config/sing-box.json
+ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
-RestartSec=10s
+RestartSec=5s
 LimitNOFILE=infinity
 
 [Install]
 WantedBy=multi-user.target
+
 EOF
 
     # 重新加载systemd
@@ -3884,6 +3829,13 @@ execute_module3() {
         log_error "✗ sing-box安装失败"
         return 1
     fi
+	
+	# === 安装期一次性 SNI 选择（用于 Xray Reality） ===
+if choose_initial_sni_once; then
+  log_info "REALITY_SNI = ${REALITY_SNI}"
+else
+  log_warn "SNI 选择失败，将使用默认 REALITY_SNI=${REALITY_SNI:-www.microsoft.com}"
+fi
 
     # 任务3：配置Xray (先配置后端服务)
     if configure_xray; then
@@ -3916,6 +3868,12 @@ execute_module3() {
         log_error "✗ 订阅链接生成失败"
         return 1
     fi
+	
+	log_info "启动前快速端口自检..."
+verify_port_listening 80  tcp || log_warn "80/TCP 未监听 (若仅走443可忽略)"
+verify_port_listening 443 tcp || log_warn "443/TCP 未监听 (Nginx 未就绪?)"
+verify_port_listening 443 udp || log_warn "443/UDP 未监听 (Hysteria2 未开启或失败)"
+verify_port_listening 2053 udp || log_warn "2053/UDP 未监听 (TUIC 未开启或失败)"
 
     # 任务7：启动和验证服务
     if start_and_verify_services; then
@@ -3924,18 +3882,6 @@ execute_module3() {
         log_error "✗ 服务启动验证失败"
         return 1
     fi
-	
-	ensure_xray_dns_alignment
-	
-    # // ANCHOR: [FIX-4-RACE-CONDITION] - 将非紧急优化任务放入后台延迟执行
-    (
-      sleep 15 # 等待核心服务稳定
-      log_info "[后台任务] 执行安装后优化 (SNI auto-selection)..."
-      if [[ -x /usr/local/bin/edgeboxctl ]]; then
-        /usr/local/bin/edgeboxctl sni auto >/dev/null 2>&1 || true
-      fi
-      log_info "[后台任务] 优化完成。"
-    ) &
 
 
     log_success "======== 模块3执行完成 ========"
@@ -5254,33 +5200,25 @@ test_udp_protocol() {
 
 # 检查UDP端口的系统防火墙规则
 check_udp_firewall_rules() {
-    local port=$1
+  local port="$1"
 
-    # 检查UFW
-    if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
-        if ufw status | grep -qE "${port}/udp.*ALLOW"; then
-            return 0  # <<< 修复点: 规则存在，代表成功，返回 0
-        else
-            return 1  # <<< 修复点: 规则不存在，代表失败，返回 1
-        fi
-    # 检查firewalld
-    elif command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then
-        if firewall-cmd --list-ports 2>/dev/null | grep -qE "${port}/udp"; then
-            return 0  # <<< 修复点: 规则存在，代表成功，返回 0
-        else
-            return 1  # <<< 修复点: 规则不存在，代表失败，返回 1
-        fi
-    # 检查iptables
-    elif command -v iptables >/dev/null 2>&1; then
-        if iptables -L INPUT -n 2>/dev/null | grep -qE "udp.*dpt:${port}.*ACCEPT"; then
-            return 0  # <<< 修复点: 规则存在，代表成功，返回 0
-        else
-            return 1  # <<< 修复点: 规则不明确或不存在，返回 1
-        fi
-    fi
+  # UFW
+  if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
+    ufw status | grep -qE "\\b${port}/udp\\b.*ALLOW" && return 0 || return 1
+  fi
 
-    # 如果没有检测到防火墙软件，也视为成功（无阻断）
-    return 0  # <<< 修复点: 默认返回成功
+  # firewalld
+  if command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then
+    firewall-cmd --list-ports | grep -qE "\\b${port}/udp\\b" && return 0 || return 1
+  fi
+
+  # iptables / nft (简单匹配)
+  if command -v iptables >/dev/null 2>&1; then
+    iptables -L INPUT -n | grep -qE "udp.*dpt:${port}.*ACCEPT" && return 0 || return 1
+  fi
+
+  # 无防火墙即视为不阻断
+  return 0
 }
 
 # 统一的协议性能测试入口
@@ -5305,50 +5243,35 @@ test_protocol_performance() {
 
 # 修复UDP防火墙规则
 repair_udp_firewall() {
-    local port=$1
-    log_heal "尝试修复UDP端口 $port 的防火墙规则..."
+  local port="$1"
+  log_heal "修复 UDP/${port} 防火墙规则..."
 
-    local success=false
+  local ok=false
 
-    # UFW
-    if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
-        if ufw allow "${port}/udp" comment "EdgeBox Auto-Heal" >/dev/null 2>&1; then
-            log_success "✓ UFW规则已添加: ${port}/udp"
-            success=true
-        fi
-    fi
+  # UFW
+  if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
+    ufw allow "${port}/udp" comment "EdgeBox Auto-Heal" >/dev/null 2>&1 && ok=true
+  fi
 
-    # firewalld
-    if command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then
-        if firewall-cmd --permanent --add-port="${port}/udp" >/dev/null 2>&1; then
-            firewall-cmd --reload >/dev/null 2>&1
-            log_success "✓ firewalld规则已添加: ${port}/udp"
-            success=true
-        fi
-    fi
+  # firewalld
+  if command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then
+    firewall-cmd --permanent --add-port="${port}/udp" >/dev/null 2>&1 && firewall-cmd --reload >/dev/null 2>&1 && ok=true
+  fi
 
-    # iptables (fallback)
-    if ! $success && command -v iptables >/dev/null 2>&1; then
-        if iptables -C INPUT -p udp --dport "$port" -j ACCEPT >/dev/null 2>&1; then
-            log_info "iptables规则已存在"
-            success=true
-        elif iptables -A INPUT -p udp --dport "$port" -j ACCEPT 2>/dev/null; then
-            log_success "✓ iptables规则已添加: ${port}/udp"
-            # 尝试持久化
-            if command -v iptables-save >/dev/null 2>&1; then
-                mkdir -p /etc/iptables 2>/dev/null || true
-                iptables-save > /etc/iptables/rules.v4 2>/dev/null || true
-            fi
-            success=true
-        fi
-    fi
+  # iptables / ip6tables
+  if command -v iptables >/dev/null 2>&1; then
+    iptables  -C INPUT -p udp --dport "$port" -j ACCEPT 2>/dev/null || iptables  -A INPUT -p udp --dport "$port" -j ACCEPT
+    ip6tables -C INPUT -p udp --dport "$port" -j ACCEPT 2>/dev/null || ip6tables -A INPUT -p udp --dport "$port" -j ACCEPT
+    ok=true
+  fi
 
-    if $success; then
-        return 0
-    else
-        log_error "✗ 无法修复防火墙规则 (可能需要手动配置云服务商安全组)"
-        return 1
-    fi
+  if "$ok"; then
+    log_success "UDP/${port} 放行完成"
+    return 0
+  else
+    log_error "无法自动放行 UDP/${port}（可能是云安全组未开）"
+    return 1
+  fi
 }
 
 # 修复服务配置文件
@@ -11624,6 +11547,9 @@ CONF
 # 每周日凌晨3点：自动选择最优SNI域名
 0 3 * * 0 /usr/local/bin/edgeboxctl sni auto >/dev/null 2>&1
 #
+# 每月 1、15 日 03:15：无感轮换 Reality shortId（默认宽限 36h；可用 EB_SID_GRACE_HOURS 覆盖）
+15 3 1,15 * * /usr/bin/flock -n /var/lock/edgebox_maint.lock /usr/bin/env EB_SID_GRACE_HOURS=24 /usr/local/bin/edgeboxctl rotate-sid >> /var/log/edgebox/rotate-sid.log 2>&1
+#
 # 流量特征随机化
 0 4 * * * bash -lc '/etc/edgebox/scripts/edgebox-traffic-randomize.sh light' >/dev/null 2>&1
 0 5 * * 0 bash -lc '/etc/edgebox/scripts/edgebox-traffic-randomize.sh medium' >/dev/null 2>&1
@@ -15795,8 +15721,7 @@ local SUB_URL="http://${show_host}/${SUB_PATH}"
 
     echo -e  "${CYAN} 核心访问信息${NC}"
     # 打印时使用已验证的 DASHBOARD_PASSCODE 变量
-    echo -e  "  🌐 控制面板: ${PURPLE}http://${server_ip}/traffic/?passcode=${DASHBOARD_PASSCODE}${NC}"
-    echo -e  "  🔑 访问密码: ${YELLOW}${DASHBOARD_PASSCODE}${NC}"
+    echo -e  "  🌐 控制面板: ${PURPLE}http://${server_ip}/traffic/?passcode=${DASHBOARD_PASSCODE}密码${YELLOW}(${DASHBOARD_PASSCODE})可更改${NC}"
 	echo -e  "  🔗 订阅 URL: ${PURPLE}${SUB_URL}${NC}"
 
     echo -e  "\n${CYAN}默认模式：${NC}"
