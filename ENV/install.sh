@@ -3199,68 +3199,26 @@ fi
 #############################################
 
 # 配置Xray服务 (使用jq重构，彻底解决特殊字符问题)
+# ANCHOR: [ULTIMATE-FIX-CONFIGURE-XRAY] - 完整替换此函数
+# =======================================================
+# 功能: 配置Xray服务，包含针对systemd权限问题的终极修复
+# =======================================================
 configure_xray() {
     log_info "配置Xray多协议服务..."
-
-# 使用社区标准路径
     local XRAY_STD_CONFIG="/usr/local/etc/xray/config.json"
 
-    # 验证必要变量 (增强版)
-    local required_vars=(
-        "UUID_VLESS_REALITY"
-        "UUID_VLESS_GRPC"
-        "UUID_VLESS_WS"
-        "REALITY_PRIVATE_KEY"
-        "REALITY_SHORT_ID"
-        "PASSWORD_TROJAN"
-    )
-
-    log_info "检查必要变量设置..."
-    local missing_vars=()
-	
+    # --- 变量检查 ---
+    local required_vars=("UUID_VLESS_REALITY" "UUID_VLESS_GRPC" "UUID_VLESS_WS" "REALITY_PRIVATE_KEY" "REALITY_SHORT_ID" "PASSWORD_TROJAN")
     for var in "${required_vars[@]}"; do
         if [[ -z "${!var}" ]]; then
-            missing_vars+=("$var")
-            log_error "必要变量 $var 未设置"
-        else
-            log_success "✓ $var 已设置: ${!var:0:8}..."
+            log_error "缺少生成Xray配置的必要变量: ${var}"
+            return 1
         fi
     done
 
-    if [[ ${#missing_vars[@]} -gt 0 ]]; then
-        log_error "缺少必要变量: ${missing_vars[*]}"
-        log_info "尝试从配置文件重新加载变量..."
-
-        # 尝试从server.json重新加载变量
-        if [[ -f "${CONFIG_DIR}/server.json" ]]; then
-            UUID_VLESS_REALITY=$(jq -r '.uuid.vless.reality // .uuid.vless' "${CONFIG_DIR}/server.json" 2>/dev/null)
-            UUID_VLESS_GRPC=$(jq -r '.uuid.vless.grpc // .uuid.vless' "${CONFIG_DIR}/server.json" 2>/dev/null)
-            UUID_VLESS_WS=$(jq -r '.uuid.vless.ws // .uuid.vless' "${CONFIG_DIR}/server.json" 2>/dev/null)
-            REALITY_PRIVATE_KEY=$(jq -r '.reality.private_key' "${CONFIG_DIR}/server.json" 2>/dev/null)
-            REALITY_SHORT_ID=$(jq -r '.reality.short_id' "${CONFIG_DIR}/server.json" 2>/dev/null)
-            PASSWORD_TROJAN=$(jq -r '.password.trojan' "${CONFIG_DIR}/server.json" 2>/dev/null)
-
-            log_info "已从配置文件重新加载变量"
-        else
-            log_error "配置文件不存在，无法重新加载变量"
-            return 1
-        fi
-    fi
-
-    # 显示将要使用的变量（调试用）
-    log_info "配置变量检查:"
-    log_info "├─ UUID_VLESS_REALITY: ${UUID_VLESS_REALITY:0:8}..."
-    log_info "├─ REALITY_PRIVATE_KEY: ${REALITY_PRIVATE_KEY:0:8}..."
-    log_info "├─ REALITY_SHORT_ID: $REALITY_SHORT_ID"
-    log_info "├─ PASSWORD_TROJAN: ${PASSWORD_TROJAN:0:8}..."
-    log_info "└─ CERT_DIR: $CERT_DIR"
-
-    log_info "使用jq生成Xray配置文件（彻底避免特殊字符问题）..."
-
- log_info "使用jq生成Xray配置文件到标准路径: ${XRAY_STD_CONFIG}"
-
-    # 使用jq生成Xray配置文件
-    if ! jq -n \
+    # --- jq 生成配置 ---
+    log_info "使用jq生成Xray配置文件到: ${XRAY_STD_CONFIG}"
+    jq -n \
         --arg uuid_reality "$UUID_VLESS_REALITY" \
         --arg uuid_grpc "$UUID_VLESS_GRPC" \
         --arg uuid_ws "$UUID_VLESS_WS" \
@@ -3271,75 +3229,34 @@ configure_xray() {
         --arg cert_pem "${CERT_DIR}/current.pem" \
         --arg cert_key "${CERT_DIR}/current.key" \
         '{
-            "log": {
-                "access": "/var/log/xray/access.log",
-                "error": "/var/log/xray/error.log",
-                "loglevel": "info"
-            },
+            "log": { "access": "/var/log/xray/access.log", "error": "/var/log/xray/error.log", "loglevel": "info" },
             "inbounds": [
-                {
-                    "tag": "vless-reality", "listen": "127.0.0.1", "port": 11443, "protocol": "vless",
-                    "settings": {"clients": [{"id": $uuid_reality, "flow": "xtls-rprx-vision"}], "decryption": "none"},
-                    "streamSettings": {"network": "tcp", "security": "reality", "realitySettings": {"show": false, "dest": ($reality_sni + ":443"), "serverNames": [$reality_sni], "privateKey": $reality_private, "shortIds": [$reality_short]}}
-                },
-                {
-                    "tag": "vless-grpc", "listen": "127.0.0.1", "port": 10085, "protocol": "vless",
-                    "settings": {"clients": [{"id": $uuid_grpc}], "decryption": "none"},
-                    "streamSettings": {"network": "grpc", "security": "tls", "tlsSettings": {"certificates": [{"certificateFile": $cert_pem, "keyFile": $cert_key}]}, "grpcSettings": {"serviceName": "grpc"}}
-                },
-                {
-                    "tag": "vless-ws", "listen": "127.0.0.1", "port": 10086, "protocol": "vless",
-                    "settings": {"clients": [{"id": $uuid_ws}], "decryption": "none"},
-                    "streamSettings": {"network": "ws", "security": "tls", "tlsSettings": {"certificates": [{"certificateFile": $cert_pem, "keyFile": $cert_key}]}, "wsSettings": {"path": "/ws"}}
-                },
-                {
-                    "tag": "trojan-tcp", "listen": "127.0.0.1", "port": 10143, "protocol": "trojan",
-                    "settings": {"clients": [{"password": $password_trojan}]},
-                    "streamSettings": {"network": "tcp", "security": "tls", "tlsSettings": {"certificates": [{"certificateFile": $cert_pem, "keyFile": $cert_key}]}}
-                }
+                { "tag": "vless-reality", "listen": "127.0.0.1", "port": 11443, "protocol": "vless", "settings": {"clients": [{"id": $uuid_reality, "flow": "xtls-rprx-vision"}], "decryption": "none"}, "streamSettings": {"network": "tcp", "security": "reality", "realitySettings": {"show": false, "dest": ($reality_sni + ":443"), "serverNames": [$reality_sni], "privateKey": $reality_private, "shortIds": [$reality_short]}}},
+                { "tag": "vless-grpc", "listen": "127.0.0.1", "port": 10085, "protocol": "vless", "settings": {"clients": [{"id": $uuid_grpc}], "decryption": "none"}, "streamSettings": {"network": "grpc", "security": "tls", "tlsSettings": {"certificates": [{"certificateFile": $cert_pem, "keyFile": $cert_key}]}, "grpcSettings": {"serviceName": "grpc"}}},
+                { "tag": "vless-ws", "listen": "127.0.0.1", "port": 10086, "protocol": "vless", "settings": {"clients": [{"id": $uuid_ws}], "decryption": "none"}, "streamSettings": {"network": "ws", "security": "tls", "tlsSettings": {"certificates": [{"certificateFile": $cert_pem, "keyFile": $cert_key}]}, "wsSettings": {"path": "/ws"}}},
+                { "tag": "trojan-tcp", "listen": "127.0.0.1", "port": 10143, "protocol": "trojan", "settings": {"clients": [{"password": $password_trojan}]}, "streamSettings": {"network": "tcp", "security": "tls", "tlsSettings": {"certificates": [{"certificateFile": $cert_pem, "keyFile": $cert_key}]}}}
             ],
             "outbounds": [{"protocol": "freedom", "tag": "direct"}],
             "dns": {"servers": ["8.8.8.8", "1.1.1.1"]}
-        }' > "${XRAY_STD_CONFIG}"; then
-        log_error "使用jq生成Xray配置文件失败"
-        return 1
-    fi
+        }' > "${XRAY_STD_CONFIG}" || { log_error "生成Xray配置文件失败"; return 1; }
 
-# 强制修复 config.json 权限
-local nobody_user="nobody"
-local nobody_group=$(id -gn $nobody_user 2>/dev/null || echo nogroup)
+    # --- 配置文件权限设置 ---
+    local nobody_group
+    nobody_group=$(id -gn nobody 2>/dev/null || echo nogroup)
+    chown "nobody:${nobody_group}" "${XRAY_STD_CONFIG}"
+    chmod 644 "${XRAY_STD_CONFIG}"
+    log_success "Xray配置文件生成并设置权限完成"
 
-chown "${nobody_user}:${nobody_group}" "$XRAY_CONFIG" 2>/dev/null || log_warn "修复config.json所有者失败"
-chmod 640 "$XRAY_CONFIG" 2>/dev/null || log_warn "修复config.json权限失败"
-
-if ! chown "nobody:${nobody_group}" "${XRAY_STD_CONFIG}"; then
-    log_error "设置Xray配置文件所有者失败"
-    return 1
-fi
-
-if ! chmod 644 "${XRAY_STD_CONFIG}"; then
-    log_error "设置Xray配置文件权限失败"
-    return 1
-fi
-
-# 验证权限设置
-log_info "验证Xray配置文件权限："
-ls -la "${XRAY_STD_CONFIG}"
-
-log_success "Xray配置文件生成完成"
-
-log_info "创建/更新Xray系统服务..."
+    # --- 终极修复：使用正确的 Systemd Unit 文件 ---
+    log_info "创建/更新Xray系统服务（应用终极权限修复）..."
     
-    # 停止并彻底清理任何可能存在的旧版或官方 xray 服务文件
+    # 彻底清理旧服务文件
     systemctl stop xray >/dev/null 2>&1 || true
     systemctl disable xray >/dev/null 2>&1 || true
-    systemctl mask xray.service >/dev/null 2>&1 || true
-    
     rm -f /etc/systemd/system/xray.service /etc/systemd/system/xray@.service
     rm -rf /etc/systemd/system/xray.service.d/
 
-    # 创建我们自己的、定义明确的服务文件
-    cat > /etc/systemd/system/xray.service << EOF
+    cat > /etc/systemd/system/xray.service << 'EOF'
 [Unit]
 Description=Xray Service (EdgeBox)
 Documentation=https://github.com/xtls
@@ -3348,18 +3265,17 @@ After=network.target nss-lookup.target
 [Service]
 Type=simple
 User=nobody
-# 关键修复：Group留空，让systemd使用nobody用户的主组。
-# 这样就和我们的文件权限模型 (chown root:$(id -gn nobody)) 完全对齐了。
+# 关键修复: Group留空，让systemd自动使用nobody用户的主组。
+# 这将确保进程的组身份与我们设置的文件组权限完全对齐。
 Group=
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 NoNewPrivileges=true
 
-# 关键修复：移除有问题的 ExecStartPre。
-# xray -test 由 root 运行，无法反映 nobody 的权限问题，反而会误导。
-# ExecStartPre=...
+# 关键修复: 移除有问题的ExecStartPre。它无法反映nobody的权限问题，反而会误导。
+# ExecStartPre=/usr/local/bin/xray -test -c /usr/local/etc/xray/config.json
 
-# 明确使用 -c 参数指定配置文件
+# 明确使用-c参数指定配置文件
 ExecStart=/usr/local/bin/xray run -c /usr/local/etc/xray/config.json
 
 Restart=on-failure
@@ -3372,9 +3288,8 @@ WantedBy=multi-user.target
 EOF
 
     systemctl daemon-reload
-    systemctl unmask xray.service >/dev/null 2>&1 || true # 确保 unmask
     systemctl enable xray >/dev/null 2>&1
-    log_success "Xray服务文件创建完成（已应用权限终极修复）"
+    log_success "Xray服务文件创建完成"
     return 0
 }
 
