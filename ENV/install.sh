@@ -3083,12 +3083,32 @@ if [[ -n "$MASTER_SUB_TOKEN" ]]; then
   sed -ri 's#(try_files[[:space:]]*)/sub([[:space:]]*=404;)#\1/sub-'"${MASTER_SUB_TOKEN}"'\2#' /etc/nginx/nginx.conf
 fi
 
-    # 验证Nginx配置并重载
+    # 验证Nginx配置并智能重载/启动
     log_info "验证Nginx配置..."
-    if nginx -t; then
+    if nginx -t 2>&1 | grep -q "syntax is ok"; then
         log_success "Nginx配置验证通过"
-        systemctl reload nginx || systemctl restart nginx
-        log_success "Nginx 已重载新配置"
+        
+        # 判断服务是否已启动，决定是 reload 还是 start
+        if systemctl is-active --quiet nginx 2>/dev/null; then
+            # 服务已运行，执行 reload
+            if systemctl reload nginx 2>/dev/null; then
+                log_success "Nginx 已重载新配置"
+            else
+                log_warn "Nginx reload 失败，尝试重启..."
+                systemctl restart nginx
+                log_success "Nginx 已重启"
+            fi
+        else
+            # 服务未运行，直接启动（不会产生 reload 警告）
+            log_info "Nginx 尚未启动，正在启动服务..."
+            if systemctl start nginx 2>/dev/null; then
+                log_success "Nginx 已成功启动"
+            else
+                log_error "Nginx 启动失败"
+                systemctl status nginx --no-pager -l
+                return 1
+            fi
+        fi
     else
         log_error "Nginx配置验证失败，请检查 /etc/nginx/nginx.conf 和 /etc/nginx/conf.d/"
         nginx -t # 显示详细错误
@@ -11386,8 +11406,8 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 <div class="command-section">
       <h3>🔗 独立用户订阅URL</h3>
       <div class="command-list">
+	    <code>edgeboxctl sub show</code> <span># 查看用户订阅及已绑定的设备</span>
         <code>edgeboxctl sub issue &lt;user&gt;</code> <span># 为指定用户下发专属订阅链接</span>
-        <code>edgeboxctl sub show &lt;user&gt;</code> <span># 查看用户订阅及已绑定的设备</span>
         <code>edgeboxctl sub revoke &lt;user&gt; --force</code> <span># 停用指定用户的订阅链接</span>
         <code>edgeboxctl sub limit &lt;user&gt; &lt;N&gt;</code> <span># 修改用户的设备上限</span>
         <p class="cmd-label">示例：</p>
@@ -12768,43 +12788,97 @@ sub_scan_devices(){
   ' >/dev/null || true
 }
 
+# // ANCHOR: [FIX-SUB-SHOW-ALL-USERS-FULL] - 显示所有用户的完整订阅信息
 sub_show(){
-  local user="$1"
-  [[ -z "$user" ]] && { echo "用法: edgeboxctl sub show <user>"; return 1; }
   ensure_sub_dirs || return 1
 
-  local ujson token active limit used url
-  ujson="$(jq -c --arg u "$user" '.users[$u]' "$SUB_DB")"
-  [[ -z "$ujson" || "$ujson" == "null" ]] && { echo "[ERR] 用户不存在：$user"; return 1; }
+  # 获取所有用户列表
+  local all_users
+  all_users=$(jq -r '.users | keys[]' "$SUB_DB" 2>/dev/null)
+  
+  if [[ -z "$all_users" ]]; then
+    echo "=========================================="
+    echo "  暂无订阅用户"
+    echo "=========================================="
+    echo ""
+    echo "使用 'edgeboxctl sub issue <user> [limit]' 创建订阅"
+    return 0
+  fi
 
-  token="$(jq -r '._ref.token // .token' <<<"$ujson" 2>/dev/null || jq -r '.token' <<<"$ujson")"
-  active="$(jq -r '.active' <<<"$ujson")"
-  limit="$(jq -r '.limit'  <<<"$ujson")"
-
-  # 扫描日志回填设备，并执行 7 天 GC
-  [[ "$active" == "true" && -n "$token" ]] && sub_scan_devices "$user" "$token"
-
-  # 重新读取统计
-  ujson="$(jq -c --arg u "$user" '.users[$u]' "$SUB_DB")"
-  used="$(jq -r '.devices | keys | length' <<<"$ujson")"
-  url="$(sub_print_url "$token")"
-
-  echo "User: $user"
-  echo "Active: $active"
-  echo "URL: $url"
-  echo "Limit: $used / $limit（7天自动释放，占坑按“UA+粗粒度IP段”，24h 双栈宽限）"
+  # 统计用户数量
+  local user_count=$(echo "$all_users" | wc -l)
+  
+  echo "=========================================="
+  echo "  订阅用户列表（共 $user_count 个用户）"
+  echo "=========================================="
   echo ""
-  echo "Devices:"
-  jq -r '
-    .devices
-    | to_entries
-    | sort_by(.value.last_seen) | reverse
-    | .[]
-    | "- " + (.value.ua[0:80]) + "  | last_seen=" + (.value.last_seen // "") +
-      "  | v4=" + (if .value.family.v4 then "✓" else "-" end) +
-      " v6=" + (if .value.family.v6 then "✓" else "-" end)
-  ' <<<"$ujson"
+
+  # 遍历每个用户，显示完整信息
+  local user_index=0
+  while IFS= read -r username; do
+    user_index=$((user_index + 1))
+    
+    # 读取用户数据
+    local ujson token active limit used url
+    ujson="$(jq -c --arg u "$username" '.users[$u]' "$SUB_DB")"
+    
+    if [[ -z "$ujson" || "$ujson" == "null" ]]; then
+      continue
+    fi
+
+    token="$(jq -r '._ref.token // .token' <<<"$ujson" 2>/dev/null || jq -r '.token' <<<"$ujson")"
+    active="$(jq -r '.active' <<<"$ujson")"
+    limit="$(jq -r '.limit'  <<<"$ujson")"
+
+    # 扫描日志回填设备（仅对活跃用户）
+    [[ "$active" == "true" && -n "$token" ]] && sub_scan_devices "$username" "$token"
+
+    # 重新读取统计
+    ujson="$(jq -c --arg u "$username" '.users[$u]' "$SUB_DB")"
+    used="$(jq -r '.devices | keys | length' <<<"$ujson")"
+    url="$(sub_print_url "$token")"
+
+    # 显示用户信息（与原来单用户显示格式完全一致）
+    echo "────────────────────────────────────────"
+    echo "[$user_index] User: $username"
+    echo "    Active: $active"
+    echo "    URL: $url"
+    echo "    Limit: $used / $limit（7天自动释放，占坑按"UA+粗粒度IP段"，24h 双栈宽限）"
+    echo ""
+    echo "    Devices:"
+    
+    # 显示设备列表
+    local device_list
+    device_list=$(jq -r '
+      .devices
+      | to_entries
+      | sort_by(.value.last_seen) | reverse
+      | .[]
+      | "    - " + (.value.ua[0:80]) + "  | last_seen=" + (.value.last_seen // "") +
+        "  | v4=" + (if .value.family.v4 then "✓" else "-" end) +
+        " v6=" + (if .value.family.v6 then "✓" else "-" end)
+    ' <<<"$ujson" 2>/dev/null)
+    
+    if [[ -z "$device_list" ]]; then
+      echo "    （暂无设备连接记录）"
+    else
+      echo "$device_list"
+    fi
+    
+    echo ""
+    
+  done <<< "$all_users"
+
+  echo "=========================================="
+  echo "  总计: $user_count 个用户"
+  echo "=========================================="
+  echo ""
+  echo "提示："
+  echo "  - 创建新用户: edgeboxctl sub issue <用户名> [设备上限]"
+  echo "  - 停用用户:   edgeboxctl sub revoke <用户名>"
+  echo "  - 修改上限:   edgeboxctl sub limit <用户名> <数量>"
 }
+
 # === SUBSYS-END ==============================================================
 
 
@@ -14956,13 +15030,13 @@ help|"")
 
   # 🔗 独立用户订阅URL
   printf "%b\n" "${YELLOW}■ 🔗 独立用户订阅URL${NC}"
+  print_cmd "${GREEN}edgeboxctl sub show${NC}"                              "查看用户订阅及已绑定的设备"         $_W_SUB
   print_cmd "${GREEN}edgeboxctl sub issue${NC} ${CYAN}<user> [limit]${NC}"  "为指定用户下发专属订阅链接"       $_W_SUB
-  print_cmd "${GREEN}edgeboxctl sub show${NC} ${CYAN}<user>${NC}"           "查看用户订阅及已绑定的设备"         $_W_SUB
   print_cmd "${GREEN}edgeboxctl sub revoke${NC} ${CYAN}<user>${NC}"         "停用指定用户的订阅链接"             $_W_SUB
   print_cmd "${GREEN}edgeboxctl sub limit${NC} ${CYAN}<user> <N>${NC}"      "修改用户的设备上限"                 $_W_SUB
   printf "  %b\n" "${CYAN}示例:${NC}"
   printf "  %b %b\n" "${GREEN}edgeboxctl sub issue${NC}" "${CYAN}alice 5${NC}"
-  printf "  %b %b\n\n" "${GREEN}edgeboxctl sub show${NC}" "${CYAN}alice${NC}"
+  printf "  %b %b\n\n" "${GREEN}edgeboxctl sub limit${NC}" "${CYAN}alice${NC}"
 
   # 👥 网络身份配置
   printf "%b\n" "${YELLOW}■ 👥 网络身份配置${NC}"
@@ -15735,7 +15809,7 @@ local SUB_URL="http://${show_host}/${SUB_PATH}"
 
     echo -e  "${CYAN} 核心访问信息${NC}"
     # 打印时使用已验证的 DASHBOARD_PASSCODE 变量
-    echo -e  "  🌐 控制面板: ${PURPLE}http://${server_ip}/traffic/?passcode=${DASHBOARD_PASSCODE}${NC}   ← 密码(${DASHBOARD_PASSCODE})可更改"
+    echo -e  "  🌐 控制面板: ${PURPLE}http://${server_ip}/traffic/?passcode=${DASHBOARD_PASSCODE}${NC}   ← 密码(${DASHBOARD_PASSCODE})可修改"
 	echo -e  "  🔗 订阅 URL: ${PURPLE}${SUB_URL}${NC}"
 
     echo -e  "\n${CYAN}默认模式：${NC}"
