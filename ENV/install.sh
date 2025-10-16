@@ -3322,7 +3322,8 @@ Group=$(id -gn nobody 2>/dev/null || echo nogroup)
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 NoNewPrivileges=true
-ExecStart=/usr/local/bin/xray run -config ${XRAY_STD_CONFIG}
+ExecStartPre=/usr/local/bin/xray -test -c /usr/local/etc/xray/config.json
+ExecStart=/usr/local/bin/xray run -c /usr/local/etc/xray/config.json
 Restart=on-failure
 RestartPreventExitStatus=23
 LimitNPROC=10000
@@ -3465,11 +3466,13 @@ fi
     fi
 
     # 确保证书权限正确
-    if [[ -f "${CERT_DIR}/self-signed.pem" ]]; then
-        chmod 644 "${CERT_DIR}"/*.pem 2>/dev/null || true
-        chmod 600 "${CERT_DIR}"/*.key 2>/dev/null || true
-        log_success "证书权限已设置"
-    fi
+ if [[ -f "${CERT_DIR}/self-signed.pem" ]]; then
+      # 统一权限模型：让 nobody 所在组可读
+     chgrp "$(id -gn nobody 2>/dev/null || echo nogroup)" "${CERT_DIR}"/*.key 2>/dev/null || true
+     chmod 644 "${CERT_DIR}"/*.pem 2>/dev/null || true
+     chmod 640 "${CERT_DIR}"/*.key 2>/dev/null || true
+     log_success "证书权限已设置为 640（组可读）"
+  fi
 
     # 创建正确的 systemd 服务文件
     log_info "创建sing-box系统服务..."
