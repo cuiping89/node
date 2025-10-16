@@ -11545,9 +11545,9 @@ CONF
 0  2 * * * bash -lc '/usr/local/bin/edgeboxctl rotate-reality' >/dev/null 2>&1
 #
 # 每周日凌晨3点：自动选择最优SNI域名
-0 3 * * 0 /usr/local/bin/edgeboxctl sni auto >/dev/null 2>&1
+0 3 * * 0 /usr/bin/flock -n /var/lock/edgebox_sni.lock /usr/local/bin/edgeboxctl sni auto >> /var/log/edgebox/sni-auto.log 2>&1
 #
-# 每月 1、15 日 03:15：无感轮换 Reality shortId（默认宽限 36h；可用 EB_SID_GRACE_HOURS 覆盖）
+# 每月 1、15 日 03:15：无感轮换 Reality shortId（默认宽限 24h；可用 EB_SID_GRACE_HOURS 覆盖）
 15 3 1,15 * * /usr/bin/flock -n /var/lock/edgebox_maint.lock /usr/bin/env EB_SID_GRACE_HOURS=24 /usr/local/bin/edgeboxctl rotate-sid >> /var/log/edgebox/rotate-sid.log 2>&1
 #
 # 流量特征随机化
@@ -15721,7 +15721,7 @@ local SUB_URL="http://${show_host}/${SUB_PATH}"
 
     echo -e  "${CYAN} 核心访问信息${NC}"
     # 打印时使用已验证的 DASHBOARD_PASSCODE 变量
-    echo -e  "  🌐 控制面板: ${PURPLE}http://${server_ip}/traffic/?passcode=${DASHBOARD_PASSCODE}密码${YELLOW}(${DASHBOARD_PASSCODE})可更改${NC}"
+    echo -e  "  🌐 控制面板: ${PURPLE}http://${server_ip}/traffic/?passcode=${DASHBOARD_PASSCODE}  ${CYAN}# 密码(${DASHBOARD_PASSCODE})可更改${NC}"
 	echo -e  "  🔗 订阅 URL: ${PURPLE}${SUB_URL}${NC}"
 
     echo -e  "\n${CYAN}默认模式：${NC}"
