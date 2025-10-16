@@ -869,10 +869,10 @@ setup_directories() {
     log_info "设置并验证目录结构..."
 
     # 定义目录及其权限
-local directories=(
-    "${INSTALL_DIR}:755:root:root"
-    "${CERT_DIR}:755:root:root"
-    "${CONFIG_DIR}:755:root:root"
+    local directories=(
+        "${INSTALL_DIR}:755:root:root"
+        "${CERT_DIR}:750:root:$(id -gn nobody 2>/dev/null || echo nogroup)"
+        "${CONFIG_DIR}:755:root:root"
         "${TRAFFIC_DIR}:755:root:root"
         "${SCRIPTS_DIR}:755:root:root"
         "${BACKUP_DIR}:700:root:root"
@@ -3154,15 +3154,12 @@ fi
 #############################################
 
 # 配置Xray服务 (使用jq重构，彻底解决特殊字符问题)
-# [已修复] 采用 DynamicUser 替代 User=nobody，解决 status=23 权限问题
 configure_xray() {
     log_info "配置Xray多协议服务..."
 
     # 【添加】创建Xray日志目录
-    # 注意：DynamicUser 需要能写入日志目录，所以设置为 777
-    # 或者可以创建一个 xray 组并设置组写权限
     mkdir -p /var/log/xray
-    chmod 777 /var/log/xray
+    chmod 755 /var/log/xray
     chown root:root /var/log/xray
 
     local NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
@@ -3238,12 +3235,14 @@ configure_xray() {
             },
             "inbounds": [
                 {
-                  "tag": "vless-reality",
+                    "tag": "vless-reality",
                     "listen": "127.0.0.1",
                     "port": 11443,
                     "protocol": "vless",
                     "settings": {
-                        "clients": [ { "id": $uuid_reality, "flow": "xtls-rprx-vision" } ],
+                        "clients": [
+                            { "id": $uuid_reality, "flow": "xtls-rprx-vision" }
+                        ],
                         "decryption": "none"
                     },
                     "streamSettings": {
@@ -3252,14 +3251,14 @@ configure_xray() {
                         "realitySettings": {
                             "show": false,
                             "dest": ($reality_sni + ":443"),
-                            "serverNames": [ $reality_sni ],
+                            "serverNames": [$reality_sni],
                             "privateKey": $reality_private,
-                            "shortIds": [ $reality_short ]
+                            "shortIds": [$reality_short]
                         }
                     }
                 },
                 {
-                  "tag": "vless-grpc",
+                    "tag": "vless-grpc",
                     "listen": "127.0.0.1",
                     "port": 10085,
                     "protocol": "vless",
@@ -3271,11 +3270,11 @@ configure_xray() {
                         "network": "grpc",
                         "security": "tls",
                         "tlsSettings": { "certificates": [ { "certificateFile": $cert_pem, "keyFile": $cert_key } ] },
-                        "grpcSettings": { "serviceName": "grpc" }
+                        "grpcSettings": { "serviceName": "grpc", "multiMode": false }
                     }
                 },
                 {
-                  "tag": "vless-ws",
+                    "tag": "vless-ws",
                     "listen": "127.0.0.1",
                     "port": 10086,
                     "protocol": "vless",
@@ -3291,7 +3290,7 @@ configure_xray() {
                     }
                 },
                 {
-                  "tag": "trojan-tcp",
+                    "tag": "trojan-tcp",
                     "listen": "127.0.0.1",
                     "port": 10143,
                     "protocol": "trojan",
@@ -3327,34 +3326,6 @@ configure_xray() {
     fi
 
     log_success "Xray配置文件生成完成"
-	
-	# 立即设置正确的文件权限（防止后续权限被覆盖）
-    chmod 644 "${CONFIG_DIR}/xray.json"
-
-# ========== [FIX-1] 设置文件权限以支持 DynamicUser ==========
-log_info "配置 Xray 文件权限（支持 DynamicUser）..."
-
-# 确保整个路径链可遍历
-chmod 755 /etc/edgebox
-chmod 755 "${CONFIG_DIR}"
-chmod 755 "${CERT_DIR}"
-
-# 配置文件: 所有人可读 (必须是 644，不能是 600)
-chown root:root "${CONFIG_DIR}/xray.json"
-chmod 644 "${CONFIG_DIR}/xray.json"
-
-# 证书文件: 所有人可读
-if [[ -f "${CERT_DIR}/self-signed.pem" ]]; then
-    chmod 644 "${CERT_DIR}/self-signed.pem"
-fi
-if [[ -f "${CERT_DIR}/self-signed.key" ]]; then
-    chmod 640 "${CERT_DIR}/self-signed.key"
-fi
-
-# 日志目录: 允许 DynamicUser 写入 (关键修复)
-chmod 777 /var/log/xray
-
-log_success "文件权限配置完成"
 
     # 验证JSON格式和配置内容
     if ! jq '.' "${CONFIG_DIR}/xray.json" >/dev/null 2>&1; then
@@ -3371,15 +3342,15 @@ log_success "文件权限配置完成"
 
     log_success "Xray配置文件验证通过"
 
-    # 对齐系统与 Xray 的 DNS
-    log_info "对齐 DNS 解析（系统 & Xray）..."
-    ensure_system_dns
-    ensure_xray_dns_alignment
+	# 对齐系统与 Xray 的 DNS
+log_info "对齐 DNS 解析（系统 & Xray）..."
+ensure_system_dns
+ensure_xray_dns_alignment
 
     # ============================================
-    # [FIX-2] 创建使用 DynamicUser 的 systemd 服务文件
+    # [关键修复] 创建正确的 systemd 服务文件
     # ============================================
-    log_info "创建Xray系统服务（使用 DynamicUser）..."
+    log_info "创建Xray系统服务..."
 
     # 停止并禁用官方的服务
     systemctl stop xray >/dev/null 2>&1 || true
@@ -3395,9 +3366,9 @@ log_success "文件权限配置完成"
     rm -rf /etc/systemd/system/xray.service.d 2>/dev/null || true
     rm -rf /etc/systemd/system/xray@.service.d 2>/dev/null || true
 
-    # ========== 创建现代化的 systemd 服务文件 ==========
-    # 使用 DynamicUser 替代 User=nobody，避免 systemd v246+ 的兼容性问题
-    cat > /etc/systemd/system/xray.service << 'EOF'
+# // ANCHOR: [FIX-2-PERMISSIONS] - 修改Xray服务单元，使用非root用户
+    # 创建我们自己的 systemd 服务文件
+    cat > /etc/systemd/system/xray.service << EOF
 [Unit]
 Description=Xray Service (EdgeBox)
 Documentation=https://github.com/xtls
@@ -3405,49 +3376,9 @@ After=network.target nss-lookup.target
 
 [Service]
 Type=simple
-
-# ===== 使用 DynamicUser 替代 User=nobody =====
-# 优势:
-# 1. 避免 systemd v246+ 对 User=nobody 的警告和兼容性问题
-# 2. 动态创建临时用户,安全性更高
-# 3. 自动管理状态目录权限,无需手动配置
-# 4. 符合社区最佳实践 (V2Ray/Xray 官方推荐)
-DynamicUser=yes
-
-# ===== systemd 自动管理的目录 =====
-# 注意：不使用 LogsDirectory，因为 /var/log/xray 已经预先创建
-# DynamicUser 与预创建的日志目录配合使用，通过 ReadWritePaths 授权
-CacheDirectory=xray
-StateDirectory=xray
-
-# ===== 网络能力 =====
-# 允许绑定特权端口 (1024以下)
-CapabilityBoundingSet=CAP_NET_BIND_SERVICE
-AmbientCapabilities=CAP_NET_BIND_SERVICE
-
-# ===== 安全加固 =====
-NoNewPrivileges=true
-PrivateTmp=true
-# 注意：不使用 ProtectSystem=strict，因为它会让整个 /etc 只读
-# 这会导致无法访问 /etc/edgebox/cert/ 下的证书文件
-# 改用 ProtectSystem=full，只保护 /usr /boot /efi，不保护 /etc
-ProtectSystem=full
-ProtectHome=true
-
-# ===== 文件系统访问权限 =====
-# 明确授权需要访问的路径
-# /var/log/xray 已在脚本中预先创建并设置权限 (777)
-ReadWritePaths=/var/log/xray
-
-# ===== 服务启动命令 =====
-ExecStart=/usr/local/bin/xray run -config /etc/edgebox/config/xray.json
-
-# ===== 重启策略 =====
+ExecStart=/usr/local/bin/xray run -config ${CONFIG_DIR}/xray.json
 Restart=on-failure
 RestartPreventExitStatus=23
-RestartSec=5s
-
-# ===== 资源限制 =====
 LimitNPROC=10000
 LimitNOFILE=1000000
 
@@ -3465,11 +3396,10 @@ EOF
     # 启用服务（但不立即启动，等待统一启动）
     systemctl enable xray >/dev/null 2>&1
 
-    log_success "Xray服务文件创建完成（使用 DynamicUser，配置路径: ${CONFIG_DIR}/xray.json）"
+    log_success "Xray服务文件创建完成（配置路径: ${CONFIG_DIR}/xray.json）"
 
     return 0
 }
-
 
 #############################################
 # sing-box 配置函数
