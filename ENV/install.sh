@@ -3300,9 +3300,10 @@ RestartPreventExitStatus=23
 LimitNPROC=10000
 LimitNOFILE=1000000
 
-# // 明确授权目录访问权限，兼容AppArmor等安全模块
+# // ANCHOR: [FINAL-FIX] - 明确授权对Xray和证书目录的访问
 ReadWritePaths=/usr/local/etc/xray/ /var/log/xray/
-ReadOnlyPaths=/usr/local/etc/xray/cert/
+# 授权读取Xray自己的证书目录以及Let's Encrypt的证书目录
+ReadOnlyPaths=/usr/local/etc/xray/cert/ /etc/letsencrypt/
 
 [Install]
 WantedBy=multi-user.target
@@ -12820,6 +12821,15 @@ check_domain_resolution(){
   log_success "域名解析检查通过"
 }
 
+# // ANCHOR: [FINAL-FIX] - 新增函数，用于修复Let's Encrypt目录权限
+fix_le_permissions() {
+    log_info "修复Let's Encrypt证书目录权限以兼容nobody用户..."
+    # 允许其他用户进入live和archive目录
+    chmod 755 /etc/letsencrypt/live
+    chmod 755 /etc/letsencrypt/archive
+    log_success "Let's Encrypt目录权限已修复。"
+}
+
 request_letsencrypt_cert(){
   local domain="$1"
   
@@ -13119,8 +13129,12 @@ switch_to_domain(){
         return 1
     fi
   fi
-  log_info "为 ${domain} 申请/扩展 Let's Encrypt 证书"
+log_info "为 ${domain} 申请/扩展 Let's Encrypt 证书"
   request_letsencrypt_cert "$domain" || return 1
+
+  # // ANCHOR: [FINAL-FIX] - 申请证书后，立即修复LE目录和证书文件的权限
+  fix_le_permissions
+  
   ln -sf "/etc/letsencrypt/live/${domain}/privkey.pem"   "${CERT_DIR}/current.key"
   ln -sf "/etc/letsencrypt/live/${domain}/fullchain.pem" "${CERT_DIR}/current.pem"
   fix_permissions
