@@ -3237,8 +3237,15 @@ configure_xray() {
     log_info "└─ CERT_DIR: $CERT_DIR"
 
     log_info "使用jq生成Xray配置文件（彻底避免特殊字符问题）..."
-
- log_info "使用jq生成Xray配置文件到标准路径: ${XRAY_STD_CONFIG}"
+	
+	log_info "使用jq生成Xray配置文件到标准路径: ${XRAY_STD_CONFIG}"
+	
+	    # 【关键修复】确保 REALITY_SNI 有默认值
+    if [[ -z "$REALITY_SNI" ]]; then
+        REALITY_SNI="www.microsoft.com"
+        log_warn "REALITY_SNI 未设置，使用默认值: $REALITY_SNI"
+    fi
+    log_info "├─ REALITY_SNI: $REALITY_SNI"
 
     # 使用jq生成Xray配置文件
     if ! jq -n \
