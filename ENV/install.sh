@@ -865,6 +865,51 @@ ensure_system_services() {
 }
 
 
+# =======================================================
+# ANCHOR: [FIX-XRAY-PERM-FUNC] - 关键权限修复函数 (新增)
+# 修复 nobody 用户无法读取 config.json 和 cert 文件的问题
+# =======================================================
+fix_xray_permissions() {
+    log_info "执行关键权限修复 (nobody读权限确保)..."
+
+    local nobody_user="nobody"
+    # 获取 nobody 用户的组，通常是 nobody 或 nogroup
+    local nobody_group=$(id -gn $nobody_user 2>/dev/null || echo nogroup)
+
+    # 1. 修复 Xray 配置文件权限：将其所有者改为 nobody:nogroup
+    if [[ -f "$XRAY_CONFIG" ]]; then
+        # 将配置文件所有者改为 nobody，确保 Xray 进程对自己的配置文件有完全控制权
+        chown "${nobody_user}:${nobody_group}" "$XRAY_CONFIG" 2>/dev/null || log_warn "修复config.json所有者失败"
+        # 权限设为 640: nobody:rw-, nogroup:r--, other:---
+        chmod 640 "$XRAY_CONFIG" 2>/dev/null || log_warn "修复config.json权限失败"
+        log_success "config.json 权限修复完成 ($nobody_user 可读)"
+    else
+        log_warn "config.json 文件不存在，跳过修复"
+    fi
+
+    # 2. 修复证书私钥权限：归 root:nogroup 所有，并允许 nogroup 读取
+    if [[ -d "$CERT_DIR" ]]; then
+        # 递归设置证书目录及其内容，所有者为 root，组为 nobody_group
+        chown -R root:${nobody_group} "$CERT_DIR" 2>/dev/null || log_warn "修复证书目录所有者失败"
+        chmod 750 "$CERT_DIR"  # 确保目录对 nobody_group 可进入/执行
+        
+        # 证书私钥 (key) 权限收紧为 640 (root/nogroup 可读，保护私钥)
+        if [[ -f "${CERT_DIR}/current.key" ]]; then
+            chmod 640 "${CERT_DIR}/current.key" 2>/dev/null || log_warn "修复 private key 权限失败"
+        fi
+        
+        # 证书公钥 (pem) 权限设为 644 (root/nogroup/other 可读)
+        if [[ -f "${CERT_DIR}/current.pem" ]]; then
+            chmod 644 "${CERT_DIR}/current.pem" 2>/dev/null || log_warn "修复 public cert 权限失败"
+        fi
+        log_success "证书文件权限修复完成 (nogroup 可读)"
+    else
+        log_warn "证书目录不存在，跳过修复"
+    fi
+    return 0
+}
+
+
 # ANCHOR: [THE-REAL-FIX-1] - 为Xray和证书建立正确的、统一的权限模型
 setup_directories() {
     log_info "设置并验证目录结构..."
@@ -3816,6 +3861,17 @@ execute_module3() {
         log_error "✗ sing-box配置失败"
         return 1
     fi
+
+# =======================================================
+# ANCHOR: [FIX-XRAY-PERM-CALL] - 权限修复调用 (新增)
+# 任务5：关键权限修复 (确保 nobody 能读取 config.json 和 cert)
+if fix_xray_permissions; then
+    log_success "✓ Xray 关键权限修复已执行"
+else
+    log_error "✗ Xray 关键权限修复失败，尝试继续..."
+fi
+# =======================================================
+
 
     # 任务5：配置Nginx (最后配置前端代理)
     if configure_nginx; then
