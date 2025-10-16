@@ -3321,10 +3321,15 @@ configure_xray() {
                 ]
             },
             "policy": { "handshake": 4, "connIdle": 30 }
-        }' > "${CONFIG_DIR}/xray.json"; then
+}' > "${CONFIG_DIR}/xray.json"; then
         log_error "使用jq生成Xray配置文件失败"
         return 1
     fi
+
+    # // ANCHOR: [FINAL-FIX-1] - Explicitly set file ownership for the 'nobody' user.
+    # This is the definitive fix for the 'status=23' error.
+    chown nobody:"$(id -gn nobody 2>/dev/null || echo nogroup)" "${CONFIG_DIR}/xray.json"
+    chmod 644 "${CONFIG_DIR}/xray.json"
 
     log_success "Xray配置文件生成完成"
 
@@ -3370,15 +3375,16 @@ ensure_xray_dns_alignment
 # // ANCHOR: [FIX-2-PERMISSIONS] - 修改Xray服务单元，使用非root用户
     # 创建我们自己的 systemd 服务文件
     cat > /etc/systemd/system/xray.service << EOF
-[Unit]
-Description=Xray Service (EdgeBox)
-Documentation=https://github.com/xtls
-After=network.target nss-lookup.target
-
 [Service]
 Type=simple
 User=nobody
 Group=$(id -gn nobody 2>/dev/null || echo nogroup)
+# // ANCHOR: [FINAL-FIX-2] - Restore essential security capabilities.
+# This allows the non-root user to perform necessary network operations
+# without granting full root privileges. It's a security best practice.
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
 ExecStart=/usr/local/bin/xray run -config ${CONFIG_DIR}/xray.json
 Restart=on-failure
 RestartPreventExitStatus=23
