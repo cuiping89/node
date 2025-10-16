@@ -872,7 +872,7 @@ setup_directories() {
     local directories=(
         "${INSTALL_DIR}:755:root:root"
         "${CERT_DIR}:750:root:$(id -gn nobody 2>/dev/null || echo nogroup)"
-        "${CONFIG_DIR}:755:root:root"
+        "${CONFIG_DIR}:750:root:$(id -gn nobody 2>/dev/null || echo nogroup)"
         "${TRAFFIC_DIR}:755:root:root"
         "${SCRIPTS_DIR}:755:root:root"
         "${BACKUP_DIR}:700:root:root"
@@ -3376,6 +3376,8 @@ After=network.target nss-lookup.target
 
 [Service]
 Type=simple
+User=nobody
+Group=$(id -gn nobody 2>/dev/null || echo nogroup)
 ExecStart=/usr/local/bin/xray run -config ${CONFIG_DIR}/xray.json
 Restart=on-failure
 RestartPreventExitStatus=23
@@ -12884,9 +12886,12 @@ sub_show(){
 fix_permissions(){
   echo -e "${CYAN}修复证书权限...${NC}"
   [[ ! -d "${CERT_DIR}" ]] && { echo -e "${RED}证书目录不存在: ${CERT_DIR}${NC}"; return 1; }
-  chown -R root:root "${CERT_DIR}"; chmod 755 "${CERT_DIR}"
-  find "${CERT_DIR}" -type f -name '*.key' -exec chmod 600 {} \; 2>/dev/null || true
-  find "${CERT_DIR}" -type f -name '*.pem' -exec chmod 644 {} \; 2>/dev/null || true
+local NOBODY_GRP
+NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
+chown -R root:"${NOBODY_GRP}" "${CERT_DIR}"
+chmod 750 "${CERT_DIR}"
+find "${CERT_DIR}" -type f -name '*.key' -exec chmod 640 {} \; 2>/dev/null || true
+find "${CERT_DIR}" -type f -name '*.pem' -exec chmod 644 {} \; 2>/dev/null || true
   echo -e "${GREEN}权限修复完成${NC}"
   stat -L -c '  %a %n' "${CERT_DIR}/current.key" 2>/dev/null || true
   stat -L -c '  %a %n' "${CERT_DIR}/current.pem" 2>/dev/null || true
