@@ -3739,11 +3739,21 @@ ensure_service_running() {
         # 尝试启动服务
         log_info "启动 $service 服务 (尝试 $((attempt + 1))/$max_attempts)"
 
-        if systemctl start "$service" >/dev/null 2>&1; then
-            # 等待启动完成
-            sleep 3
+if systemctl start "$service" >/dev/null 2>&1; then
+            # 等待启动完成（增加等待时间和重试检查）
+            local wait_attempt=0
+            local max_wait=5
+            
+            while [[ $wait_attempt -lt $max_wait ]]; do
+                sleep 1
+                if systemctl is-active --quiet "$service"; then
+                    log_success "✓ $service 服务启动成功（耗时 $((wait_attempt + 1))秒）"
+                    return 0
+                fi
+                ((wait_attempt++))
+            done
 
-            # 验证启动结果
+            # 超时后再次检查
             if systemctl is-active --quiet "$service"; then
                 log_success "✓ $service 服务启动成功"
                 return 0
@@ -3757,13 +3767,14 @@ ensure_service_running() {
         ((attempt++))
 
         # 如果不是最后一次尝试，显示错误信息并重试
-        if [[ $attempt -lt $max_attempts ]]; then
+if [[ $attempt -lt $max_attempts ]]; then
             log_warn "$service 启动失败，将重试..."
             # 获取服务状态信息用于调试
             systemctl status "$service" --no-pager -l >/dev/null 2>&1 || true
-            # 停止服务准备重试
-            systemctl stop "$service" >/dev/null 2>&1 || true
-            sleep 2
+            # 如果服务已经在运行，不要停止它
+            if ! systemctl is-active --quiet "$service"; then
+                systemctl stop "$service" >/dev/null 2>&1 || true
+            fi
         fi
     done
 
