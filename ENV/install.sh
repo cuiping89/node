@@ -3276,10 +3276,25 @@ configure_xray() {
         return 1
     fi
 
-    # 确保文件权限正确
-    chown nobody:"$(id -gn nobody 2>/dev/null || echo nogroup)" "${XRAY_STD_CONFIG}"
-    chmod 644 "${XRAY_STD_CONFIG}"
-    log_success "Xray配置文件生成完成"
+# 【修复】立即强制设置正确权限，防止被覆盖或跳过
+local nobody_group
+nobody_group=$(id -gn nobody 2>/dev/null || echo nogroup)
+
+if ! chown "nobody:${nobody_group}" "${XRAY_STD_CONFIG}"; then
+    log_error "设置Xray配置文件所有者失败"
+    return 1
+fi
+
+if ! chmod 644 "${XRAY_STD_CONFIG}"; then
+    log_error "设置Xray配置文件权限失败"
+    return 1
+fi
+
+# 验证权限设置
+log_info "验证Xray配置文件权限："
+ls -la "${XRAY_STD_CONFIG}"
+
+log_success "Xray配置文件生成完成"
 
     log_info "创建/更新Xray系统服务..."
     
