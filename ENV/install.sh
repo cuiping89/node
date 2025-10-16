@@ -3175,6 +3175,16 @@ configure_xray() {
 
 # 使用社区标准路径
     local XRAY_STD_CONFIG="/usr/local/etc/xray/config.json"
+	
+	   # 【新增】确保证书目录存在并生成证书
+    mkdir -p "${CERT_DIR}"
+    if [[ ! -f "${CERT_DIR}/current.pem" ]] || [[ ! -f "${CERT_DIR}/current.key" ]]; then
+        log_warn "证书文件不存在，立即生成自签名证书..."
+        if ! generate_self_signed_cert; then
+            log_error "证书生成失败"
+            return 1
+        fi
+    fi
 
     # 验证必要变量 (增强版)
     local required_vars=(
@@ -3742,7 +3752,7 @@ ensure_service_running() {
 if systemctl start "$service" >/dev/null 2>&1; then
             # 等待启动完成（增加等待时间和重试检查）
             local wait_attempt=0
-            local max_wait=5
+            local max_wait=10
             
             while [[ $wait_attempt -lt $max_wait ]]; do
                 sleep 1
@@ -3775,6 +3785,7 @@ if [[ $attempt -lt $max_attempts ]]; then
             if ! systemctl is-active --quiet "$service"; then
                 systemctl stop "$service" >/dev/null 2>&1 || true
             fi
+            sleep 3
         fi
     done
 
