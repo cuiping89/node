@@ -1433,7 +1433,7 @@ EOF
 # - VPS 直出：DNS 直连（最快、最稳）
 # - 住宅/代理出站(resi)：DNS 也走代理（解析来源与连接来源一致）
 ensure_xray_dns_alignment() {
-  local cfg="/etc/edgebox/config/xray.json"
+  local cfg="$XRAY_CONFIG"
   local tmp="$(mktemp)"
   [[ -f "$cfg" ]] || { log_warn "未找到 $cfg，跳过 Xray DNS 对齐"; return 0; }
 
@@ -3545,7 +3545,7 @@ generate_subscription() {
     local reality_sni
     reality_sni="$(jq -r 'first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.serverNames[0])
                            // (first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.dest) | split(":")[0])
-                           // empty' "${CONFIG_DIR}/xray.json" 2>/dev/null)"
+                           // empty' "$XRAY_CONFIG" 2>/dev/null)"
     : "${reality_sni:=${REALITY_SNI:-www.microsoft.com}}"
 
     # 生成协议链接
@@ -4332,7 +4332,7 @@ get_services_status() {
 get_protocols_status() {
     local health_report_file="${TRAFFIC_DIR}/protocol-health.json"
     local server_config_file="${CONFIG_DIR}/server.json"
-    local xray_config_file="${CONFIG_DIR}/xray.json"
+    local xray_config_file="/usr/local/etc/xray/config.json"
 
     # Dynamically determine to use domain or IP
     local host_or_ip
@@ -5288,7 +5288,7 @@ repair_service_config() {
             ;;
 
         xray)
-            local config="${CONFIG_DIR}/xray.json"
+            local config="$XRAY_CONFIG"
             if [[ ! -f "$config" ]]; then
                 log_error "配置文件不存在: $config"
                 return 1
@@ -5468,7 +5468,7 @@ diagnose_service_config() {
     local config_path=""
     case $service in
         sing-box) config_path="${CONFIG_DIR}/sing-box.json" ;;
-        xray)     config_path="${CONFIG_DIR}/xray.json" ;;
+        xray)     config_path="$XRAY_CONFIG" ;;
         nginx)    config_path="/etc/nginx/nginx.conf" ;;
         *) echo "ok"; return 0 ;;
     esac
@@ -6259,8 +6259,8 @@ create_config_backup() {
 
     mkdir -p "$backup_dir"
 
-    if [[ -f "${CONFIG_DIR}/xray.json" ]]; then
-        cp "${CONFIG_DIR}/xray.json" "${backup_dir}/xray_${timestamp}.json"
+    if [[ -f "$XRAY_CONFIG" ]]; then
+        cp "$XRAY_CONFIG" "${backup_dir}/xray_${timestamp}.json"
     fi
 
     if [[ -f "${CONFIG_DIR}/sing-box.json" ]]; then
@@ -6304,7 +6304,7 @@ verify_randomization_result() {
     local verification_failed=false
 
     # 验证配置文件语法
-    if [[ -f "${CONFIG_DIR}/xray.json" ]] && ! xray -test -config="${CONFIG_DIR}/xray.json" >/dev/null 2>&1; then
+    if [[ -f "$XRAY_CONFIG" ]] && ! xray -test -config="$XRAY_CONFIG" >/dev/null 2>&1; then
         log_error "Xray配置验证失败"
         verification_failed=true
     fi
@@ -6343,7 +6343,7 @@ rollback_configuration() {
     local latest_singbox_backup=$(ls -t "${backup_dir}"/sing-box_*.json 2>/dev/null | head -1)
 
     if [[ -n "$latest_xray_backup" ]]; then
-        cp "$latest_xray_backup" "${CONFIG_DIR}/xray.json"
+        cp "$latest_xray_backup" "$XRAY_CONFIG"
         log_info "Xray配置已回滚"
     fi
 
@@ -11672,7 +11672,7 @@ SCRIPTS_DIR="/etc/edgebox/scripts"
 # SNI相关路径变量
 SNI_CONFIG_DIR="${CONFIG_DIR}/sni"
 SNI_DOMAINS_CONFIG="${SNI_CONFIG_DIR}/domains.json"
-XRAY_CONFIG="${CONFIG_DIR}/xray.json" # SNI函数需要
+XRAY_CONFIG="/usr/local/etc/xray/config.json" # SNI函数需要
 SNI_HEALTH_LOG="/var/log/edgebox/sni-health.log" # SNI函数需要
 
 WHITELIST_DOMAINS="googlevideo.com,nflxvideo.net,dssott.com,aiv-cdn.net,aiv-delivery.net,ttvnw.net,hbo-cdn.com,hls.itunes.apple.com,scdn.co,tiktokcdn.com"
@@ -12353,7 +12353,7 @@ traffic_reset() {
     local backup_dir="/etc/edgebox/backup/reset_$(date '+%Y%m%d_%H%M%S')"
     mkdir -p "$backup_dir"
 
-    [[ -f "${CONFIG_DIR}/xray.json" ]] && cp "${CONFIG_DIR}/xray.json" "$backup_dir/"
+    [[ -f "$XRAY_CONFIG" ]] && cp "$XRAY_CONFIG" "$backup_dir/"
     [[ -f "${CONFIG_DIR}/sing-box.json" ]] && cp "${CONFIG_DIR}/sing-box.json" "$backup_dir/"
 
     # 调用随机化脚本的 reset 功能
@@ -13407,14 +13407,14 @@ post_shunt_report() {
 
   # 2) Xray Routing Rules
   if [[ "$mode" == "VPS 全量出站" ]]; then
-    if jq -e '(.outbounds | length) == 1 and .outbounds[0].tag == "direct"' "${CONFIG_DIR}/xray.json" >/dev/null 2>&1; then
+    if jq -e '(.outbounds | length) == 1 and .outbounds[0].tag == "direct"' "$XRAY_CONFIG" >/dev/null 2>&1; then
       check_result+="${GREEN}✅ 2) Xray 路由规则:   默认出口 -> direct (已生效)${NC}\n"
     else
       check_result+="${RED}❌ 2) Xray 路由规则:   配置异常，仍存在代理出口！${NC}\n"
       all_ok=false
     fi
   else
-    if jq -e '.routing.rules[] | select(.outboundTag == "resi-proxy")' "${CONFIG_DIR}/xray.json" >/dev/null 2>&1; then
+    if jq -e '.routing.rules[] | select(.outboundTag == "resi-proxy")' "$XRAY_CONFIG" >/dev/null 2>&1; then
       check_result+="${GREEN}✅ 2) Xray 路由规则:   默认出口 -> resi-proxy (已生效)${NC}\n"
     else
       check_result+="${RED}❌ 2) Xray 路由规则:   配置失败！未能写入代理规则。${NC}\n"
@@ -13423,7 +13423,7 @@ post_shunt_report() {
   fi
 
   # 3) DNS Resolution Mode
-  if jq -e '.dns.servers[] | select(.outboundTag == "resi-proxy")' "${CONFIG_DIR}/xray.json" >/dev/null 2>&1; then
+  if jq -e '.dns.servers[] | select(.outboundTag == "resi-proxy")' "$XRAY_CONFIG" >/dev/null 2>&1; then
     check_result+="${GREEN}✅ 3) DNS 解析模式:    经由代理 (DoH)${NC}\n"
   else
     check_result+="${GREEN}✅ 3) DNS 解析模式:    直连解析${NC}\n"
@@ -13537,7 +13537,7 @@ show_shunt_status() {
 # 在 edgeboxctl 文件中的 setup_outbound_resi 函数之前添加：
 
 ensure_xray_dns_alignment() {
-  local cfg="/etc/edgebox/config/xray.json"
+  local cfg="/usr/local/etc/xray/config.json"
   local tmp="$(mktemp)"
   [[ -f "$cfg" ]] || { log_warn "未找到 $cfg，跳过 Xray DNS 对齐"; return 0; }
 
@@ -13590,8 +13590,8 @@ ensure_xray_dns_alignment() {
 setup_outbound_vps() {
     log_info "配置VPS全量出站模式..."
     get_server_info || return 1
-    local xray_tmp="${CONFIG_DIR}/xray.json.tmp"
-    jq '.outbounds = [ { "protocol":"freedom", "tag":"direct" } ] | .routing = { "rules": [] }' "${CONFIG_DIR}/xray.json" > "$xray_tmp" && mv "$xray_tmp" "${CONFIG_DIR}/xray.json"
+    local xray_tmp="$XRAY_CONFIG.tmp"
+    jq '.outbounds = [ { "protocol":"freedom", "tag":"direct" } ] | .routing = { "rules": [] }' "$XRAY_CONFIG" > "$xray_tmp" && mv "$xray_tmp" "$XRAY_CONFIG"
     setup_shunt_directories
 update_shunt_state "vps" "" "healthy"
 flush_nft_resi_sets
@@ -13634,8 +13634,8 @@ setup_outbound_resi() {
       {"address":"https://1.1.1.1/dns-query","outboundTag":"resi-proxy"},
       {"address":"https://8.8.8.8/dns-query","outboundTag":"resi-proxy"}
     ]
-  ' ${CONFIG_DIR}/xray.json > ${CONFIG_DIR}/xray.json.tmp && \
-  mv ${CONFIG_DIR}/xray.json.tmp ${CONFIG_DIR}/xray.json
+  ' $XRAY_CONFIG > $XRAY_CONFIG.tmp && \
+  mv $XRAY_CONFIG.tmp $XRAY_CONFIG
   
   echo "$url" > "${CONFIG_DIR}/shunt/resi.conf"
   setup_shunt_directories
@@ -13660,7 +13660,7 @@ setup_outbound_direct_resi() {
   local xob wl; xob="$(build_xray_resi_outbound)"
   wl='[]'
   [[ -s "${CONFIG_DIR}/shunt/whitelist.txt" ]] && wl="$(cat "${CONFIG_DIR}/shunt/whitelist.txt" | jq -R -s 'split("\n")|map(select(length>0))|map("domain:"+.)')"
-  jq --argjson ob "$xob" --argjson wl "$wl" '.outbounds=[{"protocol":"freedom","tag":"direct"}, $ob] | .routing={"domainStrategy":"AsIs","rules":[{"type":"field","port":"53","outboundTag":"direct"},{"type":"field","domain":$wl,"outboundTag":"direct"},{"type":"field","network":"tcp,udp","outboundTag":"resi-proxy"}]}' ${CONFIG_DIR}/xray.json > ${CONFIG_DIR}/xray.json.tmp && mv ${CONFIG_DIR}/xray.json.tmp ${CONFIG_DIR}/xray.json
+  jq --argjson ob "$xob" --argjson wl "$wl" '.outbounds=[{"protocol":"freedom","tag":"direct"}, $ob] | .routing={"domainStrategy":"AsIs","rules":[{"type":"field","port":"53","outboundTag":"direct"},{"type":"field","domain":$wl,"outboundTag":"direct"},{"type":"field","network":"tcp,udp","outboundTag":"resi-proxy"}]}' $XRAY_CONFIG > $XRAY_CONFIG.tmp && mv $XRAY_CONFIG.tmp $XRAY_CONFIG
   # sing-box remains direct
   echo "$url" > "${CONFIG_DIR}/shunt/resi.conf"
 update_shunt_state "direct-resi" "$url" "healthy"
@@ -13949,9 +13949,9 @@ regenerate_uuid() {
 
     # 文件路径
     local server_json="${CONFIG_DIR}/server.json"
-    local xray_json="${CONFIG_DIR}/xray.json"
+    local xray_json="/usr/local/etc/xray/config.json"
     local sbox_json="${CONFIG_DIR}/sing-box.json"
-    local XRAY_CFG_PATH="${XRAY_CONFIG:-$xray_json}"
+    local XRAY_CFG_PATH="$xray_json"
 
     # 读取旧凭据（用于 at 清理）
     local OLD_UUID_VLESS_REALITY OLD_UUID_VLESS_GRPC OLD_UUID_VLESS_WS OLD_PASS_TROJAN OLD_UUID_TUIC OLD_PASS_TUIC OLD_PASS_HYSTERIA2
@@ -14332,7 +14332,7 @@ update_xray_reality_keys() {
     local new_private_key="$1"
     local new_short_id="$2"
     local CONFIG_DIR="/etc/edgebox/config" # Self-contained
-    local XRAY_CONFIG="${CONFIG_DIR}/xray.json"
+    local XRAY_CONFIG="$XRAY_CONFIG"
     local temp_config="${XRAY_CONFIG}.tmp"
 
     jq --arg private_key "$new_private_key" \
@@ -14445,7 +14445,7 @@ rotate_reality_keys() {
 # === Reality 无感 SID 轮换（追加新 SID，24h 后自动清理旧 SID）===
 rotate_reality_sid_graceful() {
   # 配置路径（按你的项目习惯可改）
-  local XRAY_CONFIG="${XRAY_CONFIG:-/etc/edgebox/config/xray.json}"
+  local XRAY_CONFIG="/usr/local/etc/xray/config.json"
   local tmp="${XRAY_CONFIG}.tmp"
   local grace_hours="${EB_SID_GRACE_HOURS:-24}"
 
@@ -15034,6 +15034,7 @@ EDGEBOXCTL_SCRIPT
     chmod +x /usr/local/bin/edgeboxctl
     log_success "增强版edgeboxctl管理工具创建完成"
 }
+
 
 # 配置邮件系统
 setup_email_system() {
