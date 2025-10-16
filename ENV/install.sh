@@ -3328,7 +3328,7 @@ configure_xray() {
 
     log_success "Xray配置文件生成完成"
 
- # ========== [FIX-1] 设置文件权限以支持 DynamicUser ==========
+# ========== [FIX-1] 设置文件权限以支持 DynamicUser ==========
 log_info "配置 Xray 文件权限（支持 DynamicUser）..."
 
 # 确保整个路径链可遍历
@@ -3340,21 +3340,12 @@ chmod 755 "${CERT_DIR}"
 chown root:root "${CONFIG_DIR}/xray.json"
 chmod 644 "${CONFIG_DIR}/xray.json"
 
-# 证书文件: 所有人可读（DynamicUser 沙箱要求）
+# 证书文件: 所有人可读
 if [[ -f "${CERT_DIR}/self-signed.pem" ]]; then
     chmod 644 "${CERT_DIR}/self-signed.pem"
 fi
 if [[ -f "${CERT_DIR}/self-signed.key" ]]; then
-    # 虽然不安全，但 DynamicUser 需要
     chmod 644 "${CERT_DIR}/self-signed.key"
-fi
-
-# 符号链接本身的权限（虽然不太重要）
-if [[ -L "${CERT_DIR}/current.pem" ]]; then
-    chmod -h 644 "${CERT_DIR}/current.pem" 2>/dev/null || true
-fi
-if [[ -L "${CERT_DIR}/current.key" ]]; then
-    chmod -h 644 "${CERT_DIR}/current.key" 2>/dev/null || true
 fi
 
 log_success "文件权限配置完成"
