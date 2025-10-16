@@ -680,7 +680,7 @@ reload_or_restart_services() {
         ;;
       xray|xray.service|xray@*)
         if command -v xray >/dev/null 2>&1; then
-          local xr_cfg="$XRAY_CONFIG"
+          local xr_cfg="/usr/local/etc/xray/config.json"
           [ -f "$xr_cfg" ] && ! xray -test -config "$xr_cfg" >/dev/null 2>&1 && { log_error "[hotfix] xray config check failed (xray -test)"; failed+=("$svc"); continue; }
         fi
         action="restart"; systemctl restart "$svc"
@@ -868,8 +868,15 @@ ensure_system_services() {
 setup_directories() {
     log_info "设置并验证目录结构..."
 
+    # // ANCHOR: [FINAL-FIX-1A] - 采用社区标准路径并预设权限
+    # 为Xray创建官方推荐的、SELinux/AppArmor友好的路径
+    mkdir -p /usr/local/etc/xray /var/log/xray
+    local nobody_user="nobody"
+    local nobody_group=$(id -gn $nobody_user 2>/dev/null || echo nogroup)
+    chown -R ${nobody_user}:${nobody_group} /usr/local/etc/xray
+    chown -R ${nobody_user}:${nobody_group} /var/log/xray
+
     # 定义目录及其权限
-local nobody_group=$(id -gn nobody 2>/dev/null || echo nogroup)
     local directories=(
         "${INSTALL_DIR}:755:root:root"
         "${CERT_DIR}:750:root:${nobody_group}"
@@ -878,7 +885,7 @@ local nobody_group=$(id -gn nobody 2>/dev/null || echo nogroup)
         "${SCRIPTS_DIR}:755:root:root"
         "${BACKUP_DIR}:700:root:root"
         "/var/log/edgebox:755:root:root"
-        "/var/log/xray:755:root:root"
+        # /var/log/xray 已在上面单独处理
         "${WEB_ROOT}:755:www-data:www-data"
         "${SNI_CONFIG_DIR}:755:root:root"
     )
@@ -3158,12 +3165,8 @@ fi
 configure_xray() {
     log_info "配置Xray多协议服务..."
 
-    # 【添加】创建Xray日志目录
-    mkdir -p /var/log/xray
-    chmod 755 /var/log/xray
-    chown root:root /var/log/xray
-
-    local NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
+# 使用社区标准路径
+    local XRAY_STD_CONFIG="/usr/local/etc/xray/config.json"
 
     # 验证必要变量 (增强版)
     local required_vars=(
@@ -3177,7 +3180,7 @@ configure_xray() {
 
     log_info "检查必要变量设置..."
     local missing_vars=()
-
+	
     for var in "${required_vars[@]}"; do
         if [[ -z "${!var}" ]]; then
             missing_vars+=("$var")
@@ -3217,7 +3220,9 @@ configure_xray() {
 
     log_info "使用jq生成Xray配置文件（彻底避免特殊字符问题）..."
 
-    # 使用jq安全地生成完整的Xray配置文件
+ log_info "使用jq生成Xray配置文件到标准路径: ${XRAY_STD_CONFIG}"
+
+    # 使用jq生成Xray配置文件
     if ! jq -n \
         --arg uuid_reality "$UUID_VLESS_REALITY" \
         --arg uuid_grpc "$UUID_VLESS_GRPC" \
@@ -3236,177 +3241,77 @@ configure_xray() {
             },
             "inbounds": [
                 {
-                    "tag": "vless-reality",
-                    "listen": "127.0.0.1",
-                    "port": 11443,
-                    "protocol": "vless",
-                    "settings": {
-                        "clients": [
-                            { "id": $uuid_reality, "flow": "xtls-rprx-vision" }
-                        ],
-                        "decryption": "none"
-                    },
-                    "streamSettings": {
-                        "network": "tcp",
-                        "security": "reality",
-                        "realitySettings": {
-                            "show": false,
-                            "dest": ($reality_sni + ":443"),
-                            "serverNames": [$reality_sni],
-                            "privateKey": $reality_private,
-                            "shortIds": [$reality_short]
-                        }
-                    }
+                    "tag": "vless-reality", "listen": "127.0.0.1", "port": 11443, "protocol": "vless",
+                    "settings": {"clients": [{"id": $uuid_reality, "flow": "xtls-rprx-vision"}], "decryption": "none"},
+                    "streamSettings": {"network": "tcp", "security": "reality", "realitySettings": {"show": false, "dest": ($reality_sni + ":443"), "serverNames": [$reality_sni], "privateKey": $reality_private, "shortIds": [$reality_short]}}
                 },
                 {
-                    "tag": "vless-grpc",
-                    "listen": "127.0.0.1",
-                    "port": 10085,
-                    "protocol": "vless",
-                    "settings": {
-                        "clients": [ { "id": $uuid_grpc } ],
-                        "decryption": "none"
-                    },
-                    "streamSettings": {
-                        "network": "grpc",
-                        "security": "tls",
-                        "tlsSettings": { "certificates": [ { "certificateFile": $cert_pem, "keyFile": $cert_key } ] },
-                        "grpcSettings": { "serviceName": "grpc", "multiMode": false }
-                    }
+                    "tag": "vless-grpc", "listen": "127.0.0.1", "port": 10085, "protocol": "vless",
+                    "settings": {"clients": [{"id": $uuid_grpc}], "decryption": "none"},
+                    "streamSettings": {"network": "grpc", "security": "tls", "tlsSettings": {"certificates": [{"certificateFile": $cert_pem, "keyFile": $cert_key}]}, "grpcSettings": {"serviceName": "grpc"}}
                 },
                 {
-                    "tag": "vless-ws",
-                    "listen": "127.0.0.1",
-                    "port": 10086,
-                    "protocol": "vless",
-                    "settings": {
-                        "clients": [ { "id": $uuid_ws } ],
-                        "decryption": "none"
-                    },
-                    "streamSettings": {
-                        "network": "ws",
-                        "security": "tls",
-                        "tlsSettings": { "certificates": [ { "certificateFile": $cert_pem, "keyFile": $cert_key } ] },
-                        "wsSettings": { "path": "/ws" }
-                    }
+                    "tag": "vless-ws", "listen": "127.0.0.1", "port": 10086, "protocol": "vless",
+                    "settings": {"clients": [{"id": $uuid_ws}], "decryption": "none"},
+                    "streamSettings": {"network": "ws", "security": "tls", "tlsSettings": {"certificates": [{"certificateFile": $cert_pem, "keyFile": $cert_key}]}, "wsSettings": {"path": "/ws"}}
                 },
                 {
-                    "tag": "trojan-tcp",
-                    "listen": "127.0.0.1",
-                    "port": 10143,
-                    "protocol": "trojan",
-                    "settings": {
-                        "clients": [ { "password": $password_trojan } ]
-                    },
-                    "streamSettings": {
-                        "network": "tcp",
-                        "security": "tls",
-                        "tcpSettings": { "header": { "type": "none" } },
-                        "tlsSettings": { "certificates": [ { "certificateFile": $cert_pem, "keyFile": $cert_key } ] }
-                    }
+                    "tag": "trojan-tcp", "listen": "127.0.0.1", "port": 10143, "protocol": "trojan",
+                    "settings": {"clients": [{"password": $password_trojan}]},
+                    "streamSettings": {"network": "tcp", "security": "tls", "tlsSettings": {"certificates": [{"certificateFile": $cert_pem, "keyFile": $cert_key}]}}
                 }
             ],
-            "outbounds": [
-                { "tag": "direct", "protocol": "freedom", "settings": {} },
-                { "tag": "block", "protocol": "blackhole", "settings": {} }
-            ],
-            "dns": {
-                "servers": [ "8.8.8.8", "1.1.1.1", {"address": "https://1.1.1.1/dns-query"}, {"address": "https://8.8.8.8/dns-query"} ],
-                "queryStrategy": "UseIP"
-            },
-            "routing": {
-                "domainStrategy": "UseIP",
-                "rules": [
-                    { "type": "field", "ip": ["geoip:private"], "outboundTag": "block" }
-                ]
-            },
-            "policy": { "handshake": 4, "connIdle": 30 }
-}' > "${CONFIG_DIR}/xray.json"; then
+            "outbounds": [{"protocol": "freedom", "tag": "direct"}],
+            "dns": {"servers": ["8.8.8.8", "1.1.1.1"]}
+        }' > "${XRAY_STD_CONFIG}"; then
         log_error "使用jq生成Xray配置文件失败"
         return 1
     fi
 
-    # // ANCHOR: [FINAL-FIX-1] - Explicitly set file ownership for the 'nobody' user.
-    # This is the definitive fix for the 'status=23' error.
-    chown nobody:"$(id -gn nobody 2>/dev/null || echo nogroup)" "${CONFIG_DIR}/xray.json"
-    chmod 644 "${CONFIG_DIR}/xray.json"
-
+    # 确保文件权限正确
+    chown nobody:"$(id -gn nobody 2>/dev/null || echo nogroup)" "${XRAY_STD_CONFIG}"
+    chmod 644 "${XRAY_STD_CONFIG}"
     log_success "Xray配置文件生成完成"
 
-    # 验证JSON格式和配置内容
-    if ! jq '.' "${CONFIG_DIR}/xray.json" >/dev/null 2>&1; then
-        log_error "Xray配置JSON格式错误"
-        return 1
-    fi
-
-    # 验证配置内容
-    log_info "验证Xray配置文件..."
-    if ! grep -q "127.0.0.1" "${CONFIG_DIR}/xray.json"; then
-        log_error "Xray配置中缺少监听地址"
-        return 1
-    fi
-
-    log_success "Xray配置文件验证通过"
-
-	# 对齐系统与 Xray 的 DNS
-log_info "对齐 DNS 解析（系统 & Xray）..."
-ensure_system_dns
-ensure_xray_dns_alignment
-
-    # ============================================
-    # [关键修复] 创建正确的 systemd 服务文件
-    # ============================================
-    log_info "创建Xray系统服务..."
-
-    # 停止并禁用官方的服务
+    log_info "创建/更新Xray系统服务..."
+    
+    # 停止并屏蔽官方服务
     systemctl stop xray >/dev/null 2>&1 || true
     systemctl disable xray >/dev/null 2>&1 || true
+    systemctl mask xray.service >/dev/null 2>&1 || true
+    rm -f /etc/systemd/system/xray.service /etc/systemd/system/xray@.service
 
-    # 备份官方服务文件
-    if [[ -f /etc/systemd/system/xray.service ]]; then
-        mv /etc/systemd/system/xray.service \
-           /etc/systemd/system/xray.service.official.bak 2>/dev/null || true
-    fi
-
-    # 删除官方的配置覆盖目录
-    rm -rf /etc/systemd/system/xray.service.d 2>/dev/null || true
-    rm -rf /etc/systemd/system/xray@.service.d 2>/dev/null || true
-
-# // ANCHOR: [FIX-2-PERMISSIONS] - 修改Xray服务单元，使用非root用户
-    # 创建我们自己的 systemd 服务文件
+    # 创建我们自己的服务文件
     cat > /etc/systemd/system/xray.service << EOF
+[Unit]
+Description=Xray Service (EdgeBox)
+Documentation=https://github.com/xtls
+After=network.target nss-lookup.target
+
 [Service]
 Type=simple
 User=nobody
 Group=$(id -gn nobody 2>/dev/null || echo nogroup)
-# // ANCHOR: [FINAL-FIX-2] - Restore essential security capabilities.
-# This allows the non-root user to perform necessary network operations
-# without granting full root privileges. It's a security best practice.
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
-AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_BIND_SERVICE
 NoNewPrivileges=true
-ExecStart=/usr/local/bin/xray run -config ${CONFIG_DIR}/xray.json
+ExecStart=/usr/local/bin/xray run -config ${XRAY_STD_CONFIG}
 Restart=on-failure
 RestartPreventExitStatus=23
 LimitNPROC=10000
 LimitNOFILE=1000000
 
+# // 明确授权目录访问权限，兼容AppArmor等安全模块
+ReadWritePaths=/usr/local/etc/xray/ /var/log/xray/
+ReadOnlyPaths=/etc/edgebox/cert/
+
 [Install]
 WantedBy=multi-user.target
 EOF
 
-    # 强力屏蔽官方单元，防止被意外激活
-    systemctl disable xray.service >/dev/null 2>&1 || true
-    systemctl mask xray.service >/dev/null 2>&1 || true
-
-    # 重新加载systemd，以便后续服务可以启动
     systemctl daemon-reload
-
-    # 启用服务（但不立即启动，等待统一启动）
     systemctl enable xray >/dev/null 2>&1
-
-    log_success "Xray服务文件创建完成（配置路径: ${CONFIG_DIR}/xray.json）"
-
+    log_success "Xray服务文件创建完成"
     return 0
 }
 
