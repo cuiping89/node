@@ -3372,7 +3372,7 @@ ensure_xray_dns_alignment
 
 # // ANCHOR: [FIX-2-PERMISSIONS] - 修改Xray服务单元，使用非root用户
 # 创建我们自己的 systemd 服务文件
-cat > /etc/systemd/system/xray.service << EOF
+cat > /etc/systemd/system/xray.service << 'EOF'
 [Unit]
 Description=Xray Service (EdgeBox)
 Documentation=https://github.com/xtls
@@ -3381,11 +3381,11 @@ After=network.target nss-lookup.target
 [Service]
 Type=simple
 
-# 使用 root 用户运行（最简单的方案）
+# 使用 root 用户运行
 User=root
 Group=root
 
-ExecStart=/usr/local/bin/xray run -config ${CONFIG_DIR}/xray.json
+ExecStart=/usr/local/bin/xray run -config /etc/edgebox/config/xray.json
 
 Restart=on-failure
 RestartPreventExitStatus=23
