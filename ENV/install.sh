@@ -3293,6 +3293,7 @@ log_success "Xray配置文件生成完成"
 
     # 创建我们自己的服务文件
 cat > /etc/systemd/system/xray.service << EOF
+# // ANCHOR: [THE-REAL-FIX-2] - Xray unit（最终版）
 [Unit]
 Description=Xray Service (EdgeBox)
 Documentation=https://github.com/xtls
@@ -3301,15 +3302,12 @@ After=network.target nss-lookup.target
 [Service]
 Type=simple
 User=nobody
-Group=$(id -gn nobody 2>/dev/null || echo nogroup)
-CapabilityBoundingSet=CAP_NET_BIND_SERVICE
-AmbientCapabilities=CAP_NET_BIND_SERVICE
+Group=nogroup
+SupplementaryGroups=nogroup
 NoNewPrivileges=true
 
-# 在真正启动前做一次配置预检，并把错误打进 journal（方便排障）
-ExecStartPre=-/bin/sh -c '/usr/local/bin/xray -test -c /usr/local/etc/xray/config.json 2>&1 | systemd-cat -t xray-test'
-
-# 统一使用 -c 形式
+# 预检失败必须中断启动
+ExecStartPre=/usr/local/bin/xray -test -c /usr/local/etc/xray/config.json
 ExecStart=/usr/local/bin/xray run -c /usr/local/etc/xray/config.json
 
 Restart=on-failure
@@ -3317,9 +3315,9 @@ RestartPreventExitStatus=23
 LimitNPROC=10000
 LimitNOFILE=1000000
 
-# 允许写配置与日志；证书目录只读
+# 先保证可写路径，sandbox 逐步收紧
 ReadWritePaths=/usr/local/etc/xray/ /var/log/xray/
-ReadOnlyPaths=/usr/local/etc/xray/cert/ /etc/letsencrypt/
+UMask=027
 
 [Install]
 WantedBy=multi-user.target
