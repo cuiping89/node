@@ -3437,8 +3437,6 @@ ProtectHome=true
 # 明确授权需要访问的路径
 # /var/log/xray 已在脚本中预先创建并设置权限 (777)
 ReadWritePaths=/var/log/xray
-# ProtectSystem=full 不会限制 /etc，所以可以正常读取配置和证书
-ReadOnlyPaths=/etc/edgebox
 
 # ===== 服务启动命令 =====
 ExecStart=/usr/local/bin/xray run -config /etc/edgebox/config/xray.json
