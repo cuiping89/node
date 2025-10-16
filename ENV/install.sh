@@ -680,7 +680,7 @@ reload_or_restart_services() {
         ;;
       xray|xray.service|xray@*)
         if command -v xray >/dev/null 2>&1; then
-          local xr_cfg="$XRAY_CONFIG"
+          local xr_cfg="/usr/local/etc/xray/config.json"
           [ -f "$xr_cfg" ] && ! xray -test -config "$xr_cfg" >/dev/null 2>&1 && { log_error "[hotfix] xray config check failed (xray -test)"; failed+=("$svc"); continue; }
         fi
         action="restart"; systemctl restart "$svc"
