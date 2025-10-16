@@ -3328,32 +3328,36 @@ configure_xray() {
 
     log_success "Xray配置文件生成完成"
 
-    # ========== [FIX-1] 设置文件权限以支持 DynamicUser ==========
-    log_info "配置 Xray 文件权限（支持 DynamicUser）..."
-    
-    # 配置文件: root 拥有,所有人可读 (644)
-    # DynamicUser 通过 ReadOnlyPaths 访问,需要文件可读
-    chown root:root "${CONFIG_DIR}/xray.json"
-    chmod 644 "${CONFIG_DIR}/xray.json"
-    
-    # 配置目录: 确保可遍历
-    chmod 755 "${CONFIG_DIR}"
-    
-    # 证书文件权限
-    if [[ -f "${CERT_DIR}/current.pem" ]]; then
-        chown root:root "${CERT_DIR}/current.pem"
-        chmod 644 "${CERT_DIR}/current.pem"
-    fi
-    if [[ -f "${CERT_DIR}/current.key" ]]; then
-        chown root:root "${CERT_DIR}/current.key"
-        # DynamicUser 需要能读取私钥，改为 644
-        chmod 644 "${CERT_DIR}/current.key"
-    fi
-    
-    # 证书目录: 确保可遍历
-    chmod 755 "${CERT_DIR}"
-    
-    log_success "文件权限配置完成"
+ # ========== [FIX-1] 设置文件权限以支持 DynamicUser ==========
+log_info "配置 Xray 文件权限（支持 DynamicUser）..."
+
+# 确保整个路径链可遍历
+chmod 755 /etc/edgebox
+chmod 755 "${CONFIG_DIR}"
+chmod 755 "${CERT_DIR}"
+
+# 配置文件: 所有人可读
+chown root:root "${CONFIG_DIR}/xray.json"
+chmod 644 "${CONFIG_DIR}/xray.json"
+
+# 证书文件: 所有人可读（DynamicUser 沙箱要求）
+if [[ -f "${CERT_DIR}/self-signed.pem" ]]; then
+    chmod 644 "${CERT_DIR}/self-signed.pem"
+fi
+if [[ -f "${CERT_DIR}/self-signed.key" ]]; then
+    # 虽然不安全，但 DynamicUser 需要
+    chmod 644 "${CERT_DIR}/self-signed.key"
+fi
+
+# 符号链接本身的权限（虽然不太重要）
+if [[ -L "${CERT_DIR}/current.pem" ]]; then
+    chmod -h 644 "${CERT_DIR}/current.pem" 2>/dev/null || true
+fi
+if [[ -L "${CERT_DIR}/current.key" ]]; then
+    chmod -h 644 "${CERT_DIR}/current.key" 2>/dev/null || true
+fi
+
+log_success "文件权限配置完成"
 
     # 验证JSON格式和配置内容
     if ! jq '.' "${CONFIG_DIR}/xray.json" >/dev/null 2>&1; then
