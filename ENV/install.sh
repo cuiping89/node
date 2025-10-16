@@ -864,11 +864,12 @@ ensure_system_services() {
     done
 }
 
-# 创建目录结构
+
+# ANCHOR: [THE-REAL-FIX-1] - 为Xray和证书建立正确的、统一的权限模型
 setup_directories() {
     log_info "设置并验证目录结构..."
 
-# // ANCHOR: [THE-REAL-FIX-1] - 为Xray和证书建立正确的权限模型
+    # 首先创建所有需要的目录，包括Xray的
     mkdir -p /usr/local/etc/xray /var/log/xray "$CERT_DIR"
     local nobody_user="nobody"
     local nobody_group=$(id -gn $nobody_user 2>/dev/null || echo nogroup)
@@ -878,15 +879,15 @@ setup_directories() {
     
     # 2. 证书目录归 root 所有，但 nobody 组可读，以实现共享
     chown -R root:${nobody_group} "$CERT_DIR"
-    chmod 750 "$CERT_DIR"
+    chmod 750 "$CERT_DIR"  # root:rwx, nobody_group:r-x, other:---
     
-    # 3. 日志目录归 nobody 所有
+    # 3. 日志目录归 nobody 所有，用于写入日志
     chown -R ${nobody_user}:${nobody_group} /var/log/xray
 
-    # 定义目录及其权限 (从数组中移除CERT_DIR，因为它已单独处理)
+    # 定义其他目录及其权限 (从数组中移除CERT_DIR，因为它已单独处理)
     local directories=(
         "${INSTALL_DIR}:755:root:root"
-        "${CONFIG_DIR}:750:root:${nobody_group}"
+        "${CONFIG_DIR}:750:root:${nobody_group}" # 允许nobody组读取
         "${TRAFFIC_DIR}:755:root:root"
         "${SCRIPTS_DIR}:755:root:root"
         "${BACKUP_DIR}:700:root:root"
@@ -904,34 +905,11 @@ setup_directories() {
         local owner="${owner_and_group%%:*}"
         local group="${owner_and_group#*:}"
 
-        # 1. 创建目录
-        if ! mkdir -p "$dir"; then
-            log_error "✗ 创建目录失败: $dir"
-            ((errors++))
-            continue
-        fi
-
-        # 2. 设置权限和所有权
-        if ! chown "${owner}:${group}" "$dir" 2>/dev/null; then
-            log_warn "  设置所有权失败: $dir -> ${owner}:${group} (非致命错误)"
-        fi
-        if ! chmod "$perm" "$dir"; then
-            log_error "✗ 设置权限失败: $dir -> $perm"
-            ((errors++))
-            continue
-        fi
-        
+        mkdir -p "$dir" || { log_error "✗ 创建目录失败: $dir"; ((errors++)); continue; }
+        chown "${owner}:${group}" "$dir" 2>/dev/null || log_warn "  设置所有权失败: $dir -> ${owner}:${group} (非致命错误)"
+        chmod "$perm" "$dir" || { log_error "✗ 设置权限失败: $dir -> $perm"; ((errors++)); continue; }
         log_info "✓ 目录就绪: $dir ($perm, ${owner}:${group})"
     done
-
-    # 验证可写性
-    local test_file="${CONFIG_DIR}/.write_test_$$"
-    if ! echo "test" > "$test_file" 2>/dev/null; then
-        log_error "✗ 关键目录不可写: ${CONFIG_DIR}"
-        ((errors++))
-    else
-        rm -f "$test_file"
-    fi
     
     if [[ $errors -eq 0 ]]; then
         log_success "目录结构设置与验证完成"
@@ -941,7 +919,6 @@ setup_directories() {
         return 1
     fi
 }
-
 
 verify_critical_dependencies() {
     log_info "验证关键依赖安装状态..."
@@ -2075,6 +2052,7 @@ fi
 
 
 # 生成自签名证书（基础版本，模块3会有完整版本）
+# ANCHOR: [THE-REAL-FIX-2] - 在生成证书后，立即强制应用正确的文件权限
 generate_self_signed_cert() {
     log_info "生成自签名证书并修复权限..."
 
@@ -2089,11 +2067,10 @@ generate_self_signed_cert() {
     openssl ecparam -genkey -name secp384r1 -out "${CERT_DIR}/self-signed.key" 2>/dev/null || { log_error "生成ECC私钥失败"; return 1; }
     openssl req -new -x509 -key "${CERT_DIR}/self-signed.key" -out "${CERT_DIR}/self-signed.pem" -days 3650 -subj "/C=US/ST=CA/L=SF/O=EdgeBox/CN=${SERVER_IP}" >/dev/null 2>&1 || { log_error "生成自签名证书失败"; return 1; }
 
-    # 创建软链接
     ln -sf "${CERT_DIR}/self-signed.key" "${CERT_DIR}/current.key"
     ln -sf "${CERT_DIR}/self-signed.pem" "${CERT_DIR}/current.pem"
 
-# // ANCHOR: [THE-REAL-FIX-2] - 强制应用正确的共享权限模型
+    # 强制应用正确的文件和目录权限
     local NOBODY_GRP
     NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
     
@@ -3302,20 +3279,18 @@ ls -la "${XRAY_STD_CONFIG}"
 
 log_success "Xray配置文件生成完成"
 
-    log_info "创建/更新Xray系统服务..."
+log_info "创建/更新Xray系统服务..."
     
-# // ANCHOR: [THE-FINAL-FIX] - 彻底清除官方systemd配置，包括Drop-In目录
-    # 停止并屏蔽官方服务
+    # 停止并彻底清理任何可能存在的旧版或官方 xray 服务文件
     systemctl stop xray >/dev/null 2>&1 || true
     systemctl disable xray >/dev/null 2>&1 || true
     systemctl mask xray.service >/dev/null 2>&1 || true
     
-    # 彻底删除官方留下的所有相关service文件和Drop-In目录
     rm -f /etc/systemd/system/xray.service /etc/systemd/system/xray@.service
     rm -rf /etc/systemd/system/xray.service.d/
 
-    # 创建我们自己的服务文件
-cat > /etc/systemd/system/xray.service << EOF
+    # 创建我们自己的、定义明确的服务文件
+    cat > /etc/systemd/system/xray.service << EOF
 [Unit]
 Description=Xray Service (EdgeBox)
 Documentation=https://github.com/xtls
@@ -3329,10 +3304,10 @@ CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 NoNewPrivileges=true
 
-# 在真正启动前做一次配置预检，并把错误打进 journal（方便排障）
+# 在真正启动前做一次配置预检，并将错误打进 journal（方便排障）
 ExecStartPre=-/bin/sh -c '/usr/local/bin/xray -test -c /usr/local/etc/xray/config.json 2>&1 | systemd-cat -t xray-test'
 
-# 统一使用 -c 形式
+# 明确使用 -c 参数指定配置文件
 ExecStart=/usr/local/bin/xray run -c /usr/local/etc/xray/config.json
 
 Restart=on-failure
@@ -3340,7 +3315,7 @@ RestartPreventExitStatus=23
 LimitNPROC=10000
 LimitNOFILE=1000000
 
-# 允许写配置与日志；证书目录只读
+# 明确定义systemd沙箱的读写权限，确保一致性
 ReadWritePaths=/usr/local/etc/xray/ /var/log/xray/
 ReadOnlyPaths=/usr/local/etc/xray/cert/ /etc/letsencrypt/
 
@@ -3348,8 +3323,8 @@ ReadOnlyPaths=/usr/local/etc/xray/cert/ /etc/letsencrypt/
 WantedBy=multi-user.target
 EOF
 
-
     systemctl daemon-reload
+    systemctl unmask xray.service >/dev/null 2>&1 || true # 确保 unmask
     systemctl enable xray >/dev/null 2>&1
     log_success "Xray服务文件创建完成"
     return 0
@@ -3476,15 +3451,6 @@ fi
         fi
     fi
 
-    # 确保证书权限正确
- if [[ -f "${CERT_DIR}/self-signed.pem" ]]; then
-      # 统一权限模型：让 nobody 所在组可读
-     chgrp "$(id -gn nobody 2>/dev/null || echo nogroup)" "${CERT_DIR}"/*.key 2>/dev/null || true
-     chmod 644 "${CERT_DIR}"/*.pem 2>/dev/null || true
-     chmod 640 "${CERT_DIR}"/*.key 2>/dev/null || true
-     log_success "证书权限已设置为 640（组可读）"
-  fi
-
     # 创建正确的 systemd 服务文件
     log_info "创建sing-box系统服务..."
 
@@ -3517,7 +3483,7 @@ EOF
 
     log_success "sing-box服务文件创建完成（配置路径: ${CONFIG_DIR}/sing-box.json）"
 
-# // ANCHOR: [THE-REAL-FIX-3] - 再次确认并强制应用共享权限模型
+# 在函数末尾，再次确认并强制应用最终权限模型，作为双重保险
     local nobody_group
     nobody_group=$(id -gn nobody 2>/dev/null || echo nogroup)
     
