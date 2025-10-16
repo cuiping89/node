@@ -2797,6 +2797,10 @@ create_nginx_systemd_override() {
 # Nginx must start after xray and sing-box are ready
 Wants=xray.service sing-box.service
 After=xray.service sing-box.service
+
+[Service]
+# // ANCHOR: [FIX-SERVICE-HEALTHCHECK] - 启动前等待上游就绪
+ExecStartPre=/bin/bash -c 'for i in {1..15}; do ss -tlnp | grep -q "127.0.0.1:11443" && exit 0; sleep 2; done; echo "警告: Reality未就绪但继续启动"; exit 0'
 EOF
     systemctl daemon-reload
     log_success "Nginx服务依赖关系已建立"
@@ -12909,20 +12913,24 @@ fi
 }
 
 write_subscription() {
-  local content="$1"
-  [[ -z "$content" ]] && return 1
+    local content="$1"
+    [[ -z "$content" ]] && return 1
 
-  # 1) Write plain text to the source of truth
-  printf '%s\n' "$content" > "${CONFIG_DIR}/subscription.txt"
-
-  # 2) Generate single-line Base64
-  if base64 --help 2>&1 | grep -q -- '-w'; then
-    printf '%s\n' "$content" | sed -e '$a\' | base64 -w0 > "${CONFIG_DIR}/subscription.base64"
-  else
-    printf '%s\n' "$content" | sed -e '$a\' | base64 | tr -d '\n' > "${CONFIG_DIR}/subscription.base64"
-  fi
-
-  chmod 644 "${CONFIG_DIR}/subscription.txt" "${CONFIG_DIR}/subscription.base64" 2>/dev/null || true
+    # // ANCHOR: [FIX-ATOMIC-WRITE] - 原子写入避免竞态
+    local tmp_plain=$(mktemp) tmp_b64=$(mktemp)
+    
+    printf '%s\n' "$content" > "$tmp_plain" && mv "$tmp_plain" "${CONFIG_DIR}/subscription.txt" || { rm -f "$tmp_plain"; return 1; }
+    
+    if base64 --help 2>&1 | grep -q -- '-w'; then
+        printf '%s\n' "$content" | sed -e '$a\' | base64 -w0 > "$tmp_b64"
+    else
+        printf '%s\n' "$content" | sed -e '$a\' | base64 | tr -d '\n' > "$tmp_b64"
+    fi
+    
+    [[ -s "$tmp_b64" ]] && mv "$tmp_b64" "${CONFIG_DIR}/subscription.base64" || { rm -f "$tmp_b64"; return 1; }
+    
+    chmod 644 "${CONFIG_DIR}"/subscription.{txt,base64} 2>/dev/null || true
+    return 0
 }
 
 sync_subscription_files() {
@@ -15660,7 +15668,7 @@ log_info "正在后台为您自动选择最优SNI域名，这不会影响您立�
 }
 
 
-# // ANCHOR: [FIX-5-CERT-HOOK] - 新增函数，安装certbot续期钩子
+# // ANCHOR: [FIX-5-CERT-HOOK] - 新安装certbot续期钩子
 setup_certbot_renewal_hook() {
     log_info "设置Certbot自动续期钩子..."
     local hook_dir="/etc/letsencrypt/renewal-hooks/deploy"
@@ -15670,6 +15678,12 @@ setup_certbot_renewal_hook() {
 #!/bin/bash
 # EdgeBox Certbot Renewal Hook
 # This script is executed automatically after a certificate is successfully renewed.
+
+# // ANCHOR: [FIX-CERT-HOOK-VALIDATION] - 增加证书验证
+if [[ ! -f "${RENEWED_LINEAGE}/fullchain.pem" ]] || ! openssl x509 -in "${RENEWED_LINEAGE}/fullchain.pem" -noout -checkend 86400 2>/dev/null; then
+    echo "ERROR: 证书文件无效，中止服务重载" >> /var/log/edgebox/cert-renewal.log
+    exit 1
+fi
 
 echo "EdgeBox Hook: Reloading services after certificate renewal..."
 
@@ -15721,7 +15735,7 @@ local SUB_URL="http://${show_host}/${SUB_PATH}"
 
     echo -e  "${CYAN} 核心访问信息${NC}"
     # 打印时使用已验证的 DASHBOARD_PASSCODE 变量
-    echo -e  "  🌐 控制面板: ${PURPLE}http://${server_ip}/traffic/?passcode=${DASHBOARD_PASSCODE}  ${CYAN}# 密码(${DASHBOARD_PASSCODE})可更改${NC}"
+    echo -e  "  🌐 控制面板: ${PURPLE}http://${server_ip}/traffic/?passcode=${DASHBOARD_PASSCODE}${NC}   ← 密码(${DASHBOARD_PASSCODE})可更改"
 	echo -e  "  🔗 订阅 URL: ${PURPLE}${SUB_URL}${NC}"
 
     echo -e  "\n${CYAN}默认模式：${NC}"
