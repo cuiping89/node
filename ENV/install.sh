@@ -3479,10 +3479,22 @@ EOF
 
     log_success "sing-box服务文件创建完成（配置路径: ${CONFIG_DIR}/sing-box.json）"
 
-	chmod 755 "${CERT_DIR}" 2>/dev/null || true
-chmod 644 "${CERT_DIR}"/*.pem 2>/dev/null || true
-chmod 640 "${CERT_DIR}"/*.key 2>/dev/null || true
-chown root:nobody "${CERT_DIR}"/*.key 2>/dev/null || true
+# // ANCHOR: [THE-ABSOLUTE-FINAL-FIX] - 统一并强制修正证书权限
+    # 确保证书目录和文件始终拥有对 nobody 用户正确的权限，防止被其他逻辑意外修改。
+    local nobody_user="nobody"
+    local nobody_group
+    nobody_group=$(id -gn $nobody_user 2>/dev/null || echo nogroup)
+
+    # 重新应用正确的权限和所有权
+    chown -R ${nobody_user}:${nobody_group} "${CERT_DIR}"
+    chmod 750 "${CERT_DIR}"
+    find "${CERT_DIR}" -type f -name '*.pem' -exec chmod 644 {} \;
+    find "${CERT_DIR}" -type f -name '*.key' -exec chmod 640 {} \;
+    
+    log_success "已为 sing-box 和 xray 统一并验证了证书权限。"
+
+    return 0
+}
 
     return 0
 }
