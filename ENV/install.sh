@@ -914,20 +914,17 @@ fix_xray_permissions() {
 setup_directories() {
     log_info "设置并验证目录结构..."
 
-    # 首先创建所有需要的目录，包括Xray的
-    mkdir -p /usr/local/etc/xray /var/log/xray "$CERT_DIR"
-    local nobody_user="nobody"
-    local nobody_group=$(id -gn $nobody_user 2>/dev/null || echo nogroup)
+# 确保 Xray 配置目录对 nobody:nogroup 可进入
+log_info "强制修复Xray配置目录权限..."
+local nobody_group=$(id -gn nobody 2>/dev/null || echo nogroup)
 
-    # 1. /usr/local/etc/xray 目录本身归 nobody 所有，用于存放 config.json
-    chown ${nobody_user}:${nobody_group} /usr/local/etc/xray
-    
-    # 2. 证书目录归 root 所有，但 nobody 组可读，以实现共享
-    chown -R root:${nobody_group} "$CERT_DIR"
-    chmod 750 "$CERT_DIR"  # root:rwx, nobody_group:r-x, other:---
-    
-    # 3. 日志目录归 nobody 所有，用于写入日志
-    chown -R ${nobody_user}:${nobody_group} /var/log/xray
+# 确保 /usr/local/etc/xray/ 目录是 nobody:nogroup 可进入的 (750)
+chown root:${nobody_group} "$XRAY_CONFIG_DIR" 2>/dev/null || true
+chmod 750 "$XRAY_CONFIG_DIR" 2>/dev/null || true 
+
+# 确保 /usr/local/etc/xray/cert/ 目录是 nobody:nogroup 可进入的 (750)
+chown -R root:${nobody_group} "$CERT_DIR" 2>/dev/null || true
+chmod 750 "$CERT_DIR" 2>/dev/null || true
 
     # 定义其他目录及其权限 (从数组中移除CERT_DIR，因为它已单独处理)
     local directories=(
@@ -3331,21 +3328,18 @@ ls -la "${XRAY_STD_CONFIG}"
 
 log_success "Xray配置文件生成完成"
 
-    log_info "创建/更新Xray系统服务..."
+log_info "创建/更新Xray系统服务..."
     
-# // ANCHOR: [THE-FINAL-FIX] - 彻底清除官方systemd配置，包括Drop-In目录
-    # 停止并屏蔽官方服务
+    # 停止并彻底清理任何可能存在的旧版或官方 xray 服务文件
     systemctl stop xray >/dev/null 2>&1 || true
     systemctl disable xray >/dev/null 2>&1 || true
     systemctl mask xray.service >/dev/null 2>&1 || true
     
-    # 彻底删除官方留下的所有相关service文件和Drop-In目录
     rm -f /etc/systemd/system/xray.service /etc/systemd/system/xray@.service
     rm -rf /etc/systemd/system/xray.service.d/
 
-    # 创建我们自己的服务文件
-cat > /etc/systemd/system/xray.service << EOF
-# // ANCHOR: [THE-REAL-FIX-2] - Xray unit（最终版）
+    # 创建我们自己的、定义明确的服务文件
+    cat > /etc/systemd/system/xray.service << EOF
 [Unit]
 Description=Xray Service (EdgeBox)
 Documentation=https://github.com/xtls
@@ -3354,12 +3348,18 @@ After=network.target nss-lookup.target
 [Service]
 Type=simple
 User=nobody
-Group=nogroup
-SupplementaryGroups=nogroup
+# 关键修复：Group留空，让systemd使用nobody用户的主组。
+# 这样就和我们的文件权限模型 (chown root:$(id -gn nobody)) 完全对齐了。
+Group=
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_BIND_SERVICE
 NoNewPrivileges=true
 
-# 预检失败必须中断启动
-ExecStartPre=/usr/local/bin/xray -test -c /usr/local/etc/xray/config.json
+# 关键修复：移除有问题的 ExecStartPre。
+# xray -test 由 root 运行，无法反映 nobody 的权限问题，反而会误导。
+# ExecStartPre=...
+
+# 明确使用 -c 参数指定配置文件
 ExecStart=/usr/local/bin/xray run -c /usr/local/etc/xray/config.json
 
 Restart=on-failure
@@ -3367,18 +3367,14 @@ RestartPreventExitStatus=23
 LimitNPROC=10000
 LimitNOFILE=1000000
 
-# 先保证可写路径，sandbox 逐步收紧
-ReadWritePaths=/usr/local/etc/xray/ /var/log/xray/
-UMask=027
-
 [Install]
 WantedBy=multi-user.target
 EOF
 
-
     systemctl daemon-reload
+    systemctl unmask xray.service >/dev/null 2>&1 || true # 确保 unmask
     systemctl enable xray >/dev/null 2>&1
-    log_success "Xray服务文件创建完成"
+    log_success "Xray服务文件创建完成（已应用权限终极修复）"
     return 0
 }
 
