@@ -3158,9 +3158,9 @@ configure_xray() {
     log_info "配置Xray多协议服务..."
 
     # 【添加】创建Xray日志目录
-    mkdir -p /var/log/xray
-    chmod 755 /var/log/xray
-    chown root:root /var/log/xray
+mkdir -p /var/log/xray
+chmod 777 /var/log/xray    # 允许 DynamicUser 写入
+chown root:root /var/log/xray
 
     local NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
 
@@ -3326,6 +3326,10 @@ configure_xray() {
     fi
 
     log_success "Xray配置文件生成完成"
+	
+	# 立即设置正确的文件权限（关键修复）
+    chmod 644 "${CONFIG_DIR}/xray.json"
+    chmod 777 /var/log/xray
 
     # 验证JSON格式和配置内容
     if ! jq '.' "${CONFIG_DIR}/xray.json" >/dev/null 2>&1; then
@@ -3367,8 +3371,9 @@ ensure_xray_dns_alignment
     rm -rf /etc/systemd/system/xray@.service.d 2>/dev/null || true
 
 # // ANCHOR: [FIX-2-PERMISSIONS] - 修改Xray服务单元，使用非root用户
-    # 创建我们自己的 systemd 服务文件
-    cat > /etc/systemd/system/xray.service << EOF
+# 创建我们自己的 systemd 服务文件
+cat > /etc/systemd/system/xray.service << EOF
+cat > /etc/systemd/system/xray.service << EOF
 [Unit]
 Description=Xray Service (EdgeBox)
 Documentation=https://github.com/xtls
@@ -3376,14 +3381,23 @@ After=network.target nss-lookup.target
 
 [Service]
 Type=simple
+
+# 使用 root 用户运行（最简单的方案）
+User=root
+Group=root
+
 ExecStart=/usr/local/bin/xray run -config ${CONFIG_DIR}/xray.json
+
 Restart=on-failure
 RestartPreventExitStatus=23
+RestartSec=5s
+
 LimitNPROC=10000
 LimitNOFILE=1000000
 
 [Install]
 WantedBy=multi-user.target
+EOF
 EOF
 
     # 强力屏蔽官方单元，防止被意外激活
