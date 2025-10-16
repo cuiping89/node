@@ -865,71 +865,36 @@ ensure_system_services() {
 }
 
 
-# =======================================================
-# ANCHOR: [FIX-XRAY-PERM-FUNC] - 关键权限修复函数 (新增)
-# 修复 nobody 用户无法读取 config.json 和 cert 文件的问题
-# =======================================================
-fix_xray_permissions() {
-    log_info "执行关键权限修复 (nobody读权限确保)..."
-
-    local nobody_user="nobody"
-    # 获取 nobody 用户的组，通常是 nobody 或 nogroup
-    local nobody_group=$(id -gn $nobody_user 2>/dev/null || echo nogroup)
-
-    # 1. 修复 Xray 配置文件权限：将其所有者改为 nobody:nogroup
-    if [[ -f "$XRAY_CONFIG" ]]; then
-        # 将配置文件所有者改为 nobody，确保 Xray 进程对自己的配置文件有完全控制权
-        chown "${nobody_user}:${nobody_group}" "$XRAY_CONFIG" 2>/dev/null || log_warn "修复config.json所有者失败"
-        # 权限设为 640: nobody:rw-, nogroup:r--, other:---
-        chmod 640 "$XRAY_CONFIG" 2>/dev/null || log_warn "修复config.json权限失败"
-        log_success "config.json 权限修复完成 ($nobody_user 可读)"
-    else
-        log_warn "config.json 文件不存在，跳过修复"
-    fi
-
-    # 2. 修复证书私钥权限：归 root:nogroup 所有，并允许 nogroup 读取
-    if [[ -d "$CERT_DIR" ]]; then
-        # 递归设置证书目录及其内容，所有者为 root，组为 nobody_group
-        chown -R root:${nobody_group} "$CERT_DIR" 2>/dev/null || log_warn "修复证书目录所有者失败"
-        chmod 750 "$CERT_DIR"  # 确保目录对 nobody_group 可进入/执行
-        
-        # 证书私钥 (key) 权限收紧为 640 (root/nogroup 可读，保护私钥)
-        if [[ -f "${CERT_DIR}/current.key" ]]; then
-            chmod 640 "${CERT_DIR}/current.key" 2>/dev/null || log_warn "修复 private key 权限失败"
-        fi
-        
-        # 证书公钥 (pem) 权限设为 644 (root/nogroup/other 可读)
-        if [[ -f "${CERT_DIR}/current.pem" ]]; then
-            chmod 644 "${CERT_DIR}/current.pem" 2>/dev/null || log_warn "修复 public cert 权限失败"
-        fi
-        log_success "证书文件权限修复完成 (nogroup 可读)"
-    else
-        log_warn "证书目录不存在，跳过修复"
-    fi
-    return 0
-}
-
-
-# ANCHOR: [THE-REAL-FIX-1] - 为Xray和证书建立正确的、统一的权限模型
+# ANCHOR: [ULTIMATE-FIX-DIRECTORIES] - 完整替换此函数
 setup_directories() {
     log_info "设置并验证目录结构..."
+    local nobody_user="nobody"
+    local nobody_group=$(id -gn $nobody_user 2>/dev/null || echo nogroup)
 
-# 确保 Xray 配置目录对 nobody:nogroup 可进入
-log_info "强制修复Xray配置目录权限..."
-local nobody_group=$(id -gn nobody 2>/dev/null || echo nogroup)
+    # 1. 创建所有目录
+    mkdir -p "$INSTALL_DIR" "$CONFIG_DIR" "$TRAFFIC_DIR" "$SCRIPTS_DIR" "$BACKUP_DIR" \
+             "/var/log/edgebox" "$WEB_ROOT" "$SNI_CONFIG_DIR" \
+             "/usr/local/etc/xray" "/var/log/xray" "$CERT_DIR"
 
-# 确保 /usr/local/etc/xray/ 目录是 nobody:nogroup 可进入的 (750)
-chown root:${nobody_group} "$XRAY_CONFIG_DIR" 2>/dev/null || true
-chmod 750 "$XRAY_CONFIG_DIR" 2>/dev/null || true 
+    # 2. 修正Xray相关目录的所有权和权限
+    #    /usr/local/etc/xray 目录必须对 nobody 可读可执行 (r-x)
+    chown root:${nobody_group} /usr/local/etc/xray
+    chmod 750 /usr/local/etc/xray
+    
+    #    证书目录也一样
+    chown -R root:${nobody_group} "$CERT_DIR"
+    chmod 750 "$CERT_DIR"
+    
+    #    日志目录归 nobody 所有，因为要写入
+    chown -R ${nobody_user}:${nobody_group} /var/log/xray
+    chmod -R 750 /var/log/xray
 
-# 确保 /usr/local/etc/xray/cert/ 目录是 nobody:nogroup 可进入的 (750)
-chown -R root:${nobody_group} "$CERT_DIR" 2>/dev/null || true
-chmod 750 "$CERT_DIR" 2>/dev/null || true
+    log_success "Xray核心目录权限设置完成。"
 
-    # 定义其他目录及其权限 (从数组中移除CERT_DIR，因为它已单独处理)
+    # 3. 设置其他EdgeBox目录
     local directories=(
         "${INSTALL_DIR}:755:root:root"
-        "${CONFIG_DIR}:750:root:${nobody_group}" # 允许nobody组读取
+        "${CONFIG_DIR}:750:root:${nobody_group}"
         "${TRAFFIC_DIR}:755:root:root"
         "${SCRIPTS_DIR}:755:root:root"
         "${BACKUP_DIR}:700:root:root"
@@ -938,28 +903,16 @@ chmod 750 "$CERT_DIR" 2>/dev/null || true
         "${SNI_CONFIG_DIR}:755:root:root"
     )
 
-    local errors=0
     for item in "${directories[@]}"; do
-        local dir="${item%%:*}"
-        local perm_and_owner="${item#*:}"
-        local perm="${perm_and_owner%%:*}"
-        local owner_and_group="${perm_and_owner#*:}"
-        local owner="${owner_and_group%%:*}"
-        local group="${owner_and_group#*:}"
-
-        mkdir -p "$dir" || { log_error "✗ 创建目录失败: $dir"; ((errors++)); continue; }
-        chown "${owner}:${group}" "$dir" 2>/dev/null || log_warn "  设置所有权失败: $dir -> ${owner}:${group} (非致命错误)"
-        chmod "$perm" "$dir" || { log_error "✗ 设置权限失败: $dir -> $perm"; ((errors++)); continue; }
+        local dir="${item%%:*}"; local perm_owner="${item#*:}"; local perm="${perm_owner%%:*}";
+        local owner_group="${perm_owner#*:}"; local owner="${owner_group%%:*}"; local group="${owner_group#*:}"
+        chown "${owner}:${group}" "$dir" 2>/dev/null || true
+        chmod "$perm" "$dir"
         log_info "✓ 目录就绪: $dir ($perm, ${owner}:${group})"
     done
     
-    if [[ $errors -eq 0 ]]; then
-        log_success "目录结构设置与验证完成"
-        return 0
-    else
-        log_error "目录设置过程中出现 $errors 个错误"
-        return 1
-    fi
+    log_success "所有目录结构设置与验证完成。"
+    return 0
 }
 
 verify_critical_dependencies() {
