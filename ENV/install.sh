@@ -3175,16 +3175,6 @@ configure_xray() {
 
 # 使用社区标准路径
     local XRAY_STD_CONFIG="/usr/local/etc/xray/config.json"
-	
-	   # 【新增】确保证书目录存在并生成证书
-    mkdir -p "${CERT_DIR}"
-    if [[ ! -f "${CERT_DIR}/current.pem" ]] || [[ ! -f "${CERT_DIR}/current.key" ]]; then
-        log_warn "证书文件不存在，立即生成自签名证书..."
-        if ! generate_self_signed_cert; then
-            log_error "证书生成失败"
-            return 1
-        fi
-    fi
 
     # 验证必要变量 (增强版)
     local required_vars=(
@@ -3237,15 +3227,8 @@ configure_xray() {
     log_info "└─ CERT_DIR: $CERT_DIR"
 
     log_info "使用jq生成Xray配置文件（彻底避免特殊字符问题）..."
-	
-	log_info "使用jq生成Xray配置文件到标准路径: ${XRAY_STD_CONFIG}"
-	
-	    # 【关键修复】确保 REALITY_SNI 有默认值
-    if [[ -z "$REALITY_SNI" ]]; then
-        REALITY_SNI="www.microsoft.com"
-        log_warn "REALITY_SNI 未设置，使用默认值: $REALITY_SNI"
-    fi
-    log_info "├─ REALITY_SNI: $REALITY_SNI"
+
+ log_info "使用jq生成Xray配置文件到标准路径: ${XRAY_STD_CONFIG}"
 
     # 使用jq生成Xray配置文件
     if ! jq -n \
@@ -3756,21 +3739,11 @@ ensure_service_running() {
         # 尝试启动服务
         log_info "启动 $service 服务 (尝试 $((attempt + 1))/$max_attempts)"
 
-if systemctl start "$service" >/dev/null 2>&1; then
-            # 等待启动完成（增加等待时间和重试检查）
-            local wait_attempt=0
-            local max_wait=10
-            
-            while [[ $wait_attempt -lt $max_wait ]]; do
-                sleep 1
-                if systemctl is-active --quiet "$service"; then
-                    log_success "✓ $service 服务启动成功（耗时 $((wait_attempt + 1))秒）"
-                    return 0
-                fi
-                ((wait_attempt++))
-            done
+        if systemctl start "$service" >/dev/null 2>&1; then
+            # 等待启动完成
+            sleep 3
 
-            # 超时后再次检查
+            # 验证启动结果
             if systemctl is-active --quiet "$service"; then
                 log_success "✓ $service 服务启动成功"
                 return 0
@@ -3784,15 +3757,13 @@ if systemctl start "$service" >/dev/null 2>&1; then
         ((attempt++))
 
         # 如果不是最后一次尝试，显示错误信息并重试
-if [[ $attempt -lt $max_attempts ]]; then
+        if [[ $attempt -lt $max_attempts ]]; then
             log_warn "$service 启动失败，将重试..."
             # 获取服务状态信息用于调试
             systemctl status "$service" --no-pager -l >/dev/null 2>&1 || true
-            # 如果服务已经在运行，不要停止它
-            if ! systemctl is-active --quiet "$service"; then
-                systemctl stop "$service" >/dev/null 2>&1 || true
-            fi
-            sleep 3
+            # 停止服务准备重试
+            systemctl stop "$service" >/dev/null 2>&1 || true
+            sleep 2
         fi
     done
 
