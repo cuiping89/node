@@ -3346,7 +3346,8 @@ configure_xray() {
     fi
     if [[ -f "${CERT_DIR}/current.key" ]]; then
         chown root:root "${CERT_DIR}/current.key"
-        chmod 640 "${CERT_DIR}/current.key"
+        # DynamicUser 需要能读取私钥，改为 644
+        chmod 644 "${CERT_DIR}/current.key"
     fi
     
     # 证书目录: 确保可遍历
@@ -3426,15 +3427,18 @@ AmbientCapabilities=CAP_NET_BIND_SERVICE
 # ===== 安全加固 =====
 NoNewPrivileges=true
 PrivateTmp=true
-ProtectSystem=strict
+# 注意：不使用 ProtectSystem=strict，因为它会让整个 /etc 只读
+# 这会导致无法访问 /etc/edgebox/cert/ 下的证书文件
+# 改用 ProtectSystem=full，只保护 /usr /boot /efi，不保护 /etc
+ProtectSystem=full
 ProtectHome=true
 
 # ===== 文件系统访问权限 =====
-# 明确授权需要访问的路径,绕过传统权限检查
-# 这是解决权限问题的关键配置
+# 明确授权需要访问的路径
 # /var/log/xray 已在脚本中预先创建并设置权限 (777)
 ReadWritePaths=/var/log/xray
-ReadOnlyPaths=/etc/edgebox/config /etc/edgebox/cert
+# ProtectSystem=full 不会限制 /etc，所以可以正常读取配置和证书
+ReadOnlyPaths=/etc/edgebox
 
 # ===== 服务启动命令 =====
 ExecStart=/usr/local/bin/xray run -config /etc/edgebox/config/xray.json
@@ -3466,6 +3470,7 @@ EOF
 
     return 0
 }
+
 
 #############################################
 # sing-box 配置函数
