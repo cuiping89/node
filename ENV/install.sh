@@ -3159,8 +3159,10 @@ configure_xray() {
     log_info "配置Xray多协议服务..."
 
     # 【添加】创建Xray日志目录
+    # 注意：DynamicUser 需要能写入日志目录，所以设置为 777
+    # 或者可以创建一个 xray 组并设置组写权限
     mkdir -p /var/log/xray
-    chmod 755 /var/log/xray
+    chmod 777 /var/log/xray
     chown root:root /var/log/xray
 
     local NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
@@ -3411,9 +3413,9 @@ Type=simple
 DynamicUser=yes
 
 # ===== systemd 自动管理的目录 =====
-# 这些目录会自动创建并设置正确权限
+# 注意：不使用 LogsDirectory，因为 /var/log/xray 已经预先创建
+# DynamicUser 与预创建的日志目录配合使用，通过 ReadWritePaths 授权
 CacheDirectory=xray
-LogsDirectory=xray
 StateDirectory=xray
 
 # ===== 网络能力 =====
@@ -3430,6 +3432,7 @@ ProtectHome=true
 # ===== 文件系统访问权限 =====
 # 明确授权需要访问的路径,绕过传统权限检查
 # 这是解决权限问题的关键配置
+# /var/log/xray 已在脚本中预先创建并设置权限 (777)
 ReadWritePaths=/var/log/xray
 ReadOnlyPaths=/etc/edgebox/config /etc/edgebox/cert
 
