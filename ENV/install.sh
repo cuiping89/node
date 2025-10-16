@@ -2425,46 +2425,52 @@ log_info "└─ verify_module2_data()       # 验证数据完整性"
 install_xray() {
     log_info "安装Xray核心程序..."
 
-    # 检查是否已安装
-    if command -v xray >/dev/null 2>&1; then
-        local current_version
-        current_version=$(xray version 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-        log_info "检测到已安装的Xray版本: ${current_version:-未知}"
-        log_info "跳过Xray重新安装，使用现有版本"
-        return 0
+    # 至少满足 Reality/vision 的版本
+    local min_ver="1.8.10"
+    local current_version=""
+
+    # 读取当前版本（尽量走 /usr/local/bin/xray；退化到 PATH 中的 xray）
+    if command -v /usr/local/bin/xray >/dev/null 2>&1; then
+        current_version="$(
+            /usr/local/bin/xray -version 2>/dev/null | awk 'NR==1{print $2}' | sed 's/^v//'
+        )"
+    elif command -v xray >/dev/null 2>&1; then
+        current_version="$(
+            xray -version 2>/dev/null | awk 'NR==1{print $2}' | sed 's/^v//'
+        )"
     fi
 
-    log_info "从官方仓库下载并安装Xray..."
+    # 版本比较（返回 0 表示 a<b）
+    version_lt() { [ "$(printf '%s\n' "$1" "$2" | sort -V | head -n1)" != "$2" ]; }
 
-    # 使用智能下载函数
-    if smart_download_script \
-        "https://raw.githubusercontent.com/XTLS/Xray-install/main/install-release.sh" \
-        "Xray安装脚本" \
-        >/dev/null 2>&1; then
-        log_success "Xray安装完成"
+    if [[ -z "$current_version" ]] || version_lt "$current_version" "$min_ver"; then
+        log_warn "Xray 当前版本(${current_version:-无})不满足要求(>= ${min_ver})，执行官方安装/升级..."
+        bash -c "$(curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
     else
-        log_error "Xray安装失败"
+        log_success "现有 Xray 版本满足要求: v${current_version}"
+    fi
+
+    # 核心二进制校验
+    if ! command -v /usr/local/bin/xray >/dev/null 2>&1; then
+        log_error "Xray 未正确安装到 /usr/local/bin/xray"
         return 1
     fi
 
-    # 验证安装
-    if command -v xray >/dev/null 2>&1; then
-        local xray_version
-        current_version=$(xray version 2>/dev/null \
-		| head -n1 \
-		| sed -E 's/[^0-9]*([0-9.]+).*/\1/')
-        log_success "Xray验证通过，版本: ${xray_version:-未知}"
+    # 允许非 root 绑定低端口（nobody 运行更稳妥）
+    setcap 'cap_net_bind_service=+ep' /usr/local/bin/xray || true
 
-mkdir -p /var/log/xray
-chown nobody:nogroup /var/log/xray 2>/dev/null || chown nobody:nobody /var/log/xray
-log_success "Xray log directory created and permissions set."
+    # 日志目录
+    mkdir -p /var/log/xray
+    chown nobody:"$(id -gn nobody 2>/dev/null || echo nogroup)" /var/log/xray 2>/dev/null || true
+    chmod 755 /var/log/xray
 
-        return 0
-    else
-        log_error "Xray安装验证失败"
-        return 1
-    fi
+    # 打印最终版本
+    current_version="$(
+        /usr/local/bin/xray -version 2>/dev/null | awk 'NR==1{print $2}'
+    )"
+    log_success "Xray验证通过，版本: ${current_version:-未知}"
 }
+
 
 #############################################
 # sing-box 安装函数
@@ -2859,13 +2865,13 @@ create_nginx_systemd_override() {
     mkdir -p "$override_dir"
     cat > "${override_dir}/edgebox-deps.conf" << EOF
 [Unit]
-# Nginx must start after xray and sing-box are ready
-Wants=xray.service sing-box.service
-After=xray.service sing-box.service
+Wants=network-online.target
+After=network-online.target
 EOF
     systemctl daemon-reload
     log_success "Nginx服务依赖关系已建立"
 }
+
 
 
 # 配置Nginx（SNI定向 + ALPN兜底架构）
@@ -3309,7 +3315,7 @@ log_success "Xray配置文件生成完成"
     rm -rf /etc/systemd/system/xray.service.d/
 
     # 创建我们自己的服务文件
-    cat > /etc/systemd/system/xray.service << EOF
+cat > /etc/systemd/system/xray.service << EOF
 [Unit]
 Description=Xray Service (EdgeBox)
 Documentation=https://github.com/xtls
@@ -3322,21 +3328,26 @@ Group=$(id -gn nobody 2>/dev/null || echo nogroup)
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 NoNewPrivileges=true
-ExecStartPre=/usr/local/bin/xray -test -c /usr/local/etc/xray/config.json
+
+# 在真正启动前做一次配置预检，并把错误打进 journal（方便排障）
+ExecStartPre=-/bin/sh -c '/usr/local/bin/xray -test -c /usr/local/etc/xray/config.json 2>&1 | systemd-cat -t xray-test'
+
+# 统一使用 -c 形式
 ExecStart=/usr/local/bin/xray run -c /usr/local/etc/xray/config.json
+
 Restart=on-failure
 RestartPreventExitStatus=23
 LimitNPROC=10000
 LimitNOFILE=1000000
 
-# // ANCHOR: [FINAL-FIX] - 明确授权对Xray和证书目录的访问
+# 允许写配置与日志；证书目录只读
 ReadWritePaths=/usr/local/etc/xray/ /var/log/xray/
-# 授权读取Xray自己的证书目录以及Let's Encrypt的证书目录
 ReadOnlyPaths=/usr/local/etc/xray/cert/ /etc/letsencrypt/
 
 [Install]
 WantedBy=multi-user.target
 EOF
+
 
     systemctl daemon-reload
     systemctl enable xray >/dev/null 2>&1
