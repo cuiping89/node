@@ -869,10 +869,10 @@ setup_directories() {
     log_info "设置并验证目录结构..."
 
     # 定义目录及其权限
-    local directories=(
-        "${INSTALL_DIR}:755:root:root"
-        "${CERT_DIR}:750:root:$(id -gn nobody 2>/dev/null || echo nogroup)"
-        "${CONFIG_DIR}:755:root:root"
+local directories=(
+    "${INSTALL_DIR}:755:root:root"
+    "${CERT_DIR}:755:root:root"
+    "${CONFIG_DIR}:755:root:root"
         "${TRAFFIC_DIR}:755:root:root"
         "${SCRIPTS_DIR}:755:root:root"
         "${BACKUP_DIR}:700:root:root"
