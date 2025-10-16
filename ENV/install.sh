@@ -3373,7 +3373,6 @@ ensure_xray_dns_alignment
 # // ANCHOR: [FIX-2-PERMISSIONS] - 修改Xray服务单元，使用非root用户
 # 创建我们自己的 systemd 服务文件
 cat > /etc/systemd/system/xray.service << EOF
-cat > /etc/systemd/system/xray.service << EOF
 [Unit]
 Description=Xray Service (EdgeBox)
 Documentation=https://github.com/xtls
@@ -3397,7 +3396,6 @@ LimitNOFILE=1000000
 
 [Install]
 WantedBy=multi-user.target
-EOF
 EOF
 
     # 强力屏蔽官方单元，防止被意外激活
