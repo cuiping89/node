@@ -3929,7 +3929,7 @@ verify_port_listening 2053 udp || log_warn "2053/UDP 未监听 (TUIC 未开启�
 restart_all_services() {
     log_info "重新启动EdgeBox所有服务..."
 
-    local services=(nginx xray sing-box)
+    local services=(xray sing-box nginx)
     local success_count=0
 
     for service in "${services[@]}"; do
@@ -3955,7 +3955,7 @@ restart_all_services() {
 check_services_status() {
     log_info "检查EdgeBox服务状态..."
 
-    local services=(nginx xray sing-box)
+    local services=(xray sing-box nginx)
     local running_count=0
 
     for service in "${services[@]}"; do
@@ -5510,6 +5510,14 @@ create_severe_error_notification() {
 # 深入诊断服务配置
 diagnose_service_config() {
     local service=$1
+	
+	# <<< 新增：第一道防线，检查JSON基本语法 >>>
+    if ! jq empty "$config_path" 2>/dev/null; then
+        echo "json_syntax_error"
+        return 1
+    fi
+    # <<< 新增结束 >>>
+	
     local config_path=""
     case $service in
         sing-box) config_path="${CONFIG_DIR}/sing-box.json" ;;
@@ -6512,10 +6520,13 @@ generate_initial_traffic_data() {
     mkdir -p "$LOG_DIR"
 
     # 检查是否已有数据
-    if [[ -f "$LOG_DIR/daily.csv" ]] && [[ $(wc -l < "$LOG_DIR/daily.csv") -gt 1 ]]; then
-        log_info "检测到现有流量数据，跳过生成"
-        return 0
-    fi
+# // ANCHOR: [FIX-INITIAL-TRAFFIC-DATA] - 只有当有足够历史数据时才跳过
+if [[ -f "$LOG_DIR/daily.csv" ]] && [[ $(wc -l < "$LOG_DIR/daily.csv") -gt 10 ]]; then
+    log_info "检测到现有流量数据（$(wc -l < "$LOG_DIR/daily.csv") 行），跳过生成"
+    return 0
+fi
+
+log_info "当前数据不足10天，生成完整的30天历史数据..."
 
     log_info "生成最近30天的初始流量数据..."
 
@@ -12444,7 +12455,7 @@ show_status() {
 
 restart_services(){
   echo -e "${CYAN}重启EdgeBox服务...${NC}";
-  for s in nginx xray sing-box; do
+  for s in xray sing-box nginx; do
     echo -n "  重启 $s... ";
     reload_or_restart_services "$s" && echo -e "${GREEN}OK${NC}" || echo -e "${RED}FAIL${NC}";
   done;
@@ -13403,7 +13414,7 @@ post_switch_report() {
 
   # 2) 服务可用性
   echo -e "${CYAN}2) 服务可用性:${NC}"
-  for s in nginx xray sing-box; do
+  for s in xray sing-box nginx; do
     if systemctl is-active --quiet "$s"; then
       echo -e "   - ${s}: ${GREEN}active${NC}"
     else
@@ -15619,7 +15630,7 @@ start_services() {
   reload_or_restart_services nginx xray sing-box
 
   sleep 2
-  for s in nginx xray sing-box; do
+  for s in xray sing-box nginx; do
     if systemctl is-active --quiet "$s"; then
       log_success "$s 运行正常"
     else
