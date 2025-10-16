@@ -92,7 +92,7 @@ fi
 
 # === 核心目录结构 ===
 INSTALL_DIR="/etc/edgebox"
-CERT_DIR="/usr/local/etc/xray/cert"
+CERT_DIR="${INSTALL_DIR}/cert"
 CONFIG_DIR="${INSTALL_DIR}/config"
 TRAFFIC_DIR="${INSTALL_DIR}/traffic"
 SCRIPTS_DIR="${INSTALL_DIR}/scripts"
@@ -118,7 +118,7 @@ EDGEBOXCTL_BIN="/usr/local/bin/edgeboxctl"
 
 # === 配置文件路径 ===
 SERVER_CONFIG="${CONFIG_DIR}/server.json"
-XRAY_CONFIG="/usr/local/etc/xray/config.json"
+XRAY_CONFIG="${CONFIG_DIR}/xray.json"
 SINGBOX_CONFIG="${CONFIG_DIR}/sing-box.json"
 SUBSCRIPTION_FILE="${WEB_ROOT}/subscription.txt"
 
@@ -864,56 +864,79 @@ ensure_system_services() {
     done
 }
 
-
-# ANCHOR: [ULTIMATE-FIX-DIRECTORIES] - 完整替换此函数
+# 创建目录结构
 setup_directories() {
     log_info "设置并验证目录结构..."
+
+    # // ANCHOR: [FINAL-FIX-1A] - 采用社区标准路径并预设权限
+    # 为Xray创建官方推荐的、SELinux/AppArmor友好的路径
+    mkdir -p /usr/local/etc/xray /var/log/xray
     local nobody_user="nobody"
     local nobody_group=$(id -gn $nobody_user 2>/dev/null || echo nogroup)
-
-    # 1. 创建所有目录
-    mkdir -p "$INSTALL_DIR" "$CONFIG_DIR" "$TRAFFIC_DIR" "$SCRIPTS_DIR" "$BACKUP_DIR" \
-             "/var/log/edgebox" "$WEB_ROOT" "$SNI_CONFIG_DIR" \
-             "/usr/local/etc/xray" "/var/log/xray" "$CERT_DIR"
-
-    # 2. 修正Xray相关目录的所有权和权限
-    #    /usr/local/etc/xray 目录必须对 nobody 可读可执行 (r-x)
-    chown root:${nobody_group} /usr/local/etc/xray
-    chmod 750 /usr/local/etc/xray
-    
-    #    证书目录也一样
-    chown -R root:${nobody_group} "$CERT_DIR"
-    chmod 750 "$CERT_DIR"
-    
-    #    日志目录归 nobody 所有，因为要写入
+    chown -R ${nobody_user}:${nobody_group} /usr/local/etc/xray
     chown -R ${nobody_user}:${nobody_group} /var/log/xray
-    chmod -R 750 /var/log/xray
 
-    log_success "Xray核心目录权限设置完成。"
-
-    # 3. 设置其他EdgeBox目录
+    # 定义目录及其权限
     local directories=(
         "${INSTALL_DIR}:755:root:root"
+        "${CERT_DIR}:750:root:${nobody_group}"
         "${CONFIG_DIR}:750:root:${nobody_group}"
         "${TRAFFIC_DIR}:755:root:root"
         "${SCRIPTS_DIR}:755:root:root"
         "${BACKUP_DIR}:700:root:root"
         "/var/log/edgebox:755:root:root"
+        # /var/log/xray 已在上面单独处理
         "${WEB_ROOT}:755:www-data:www-data"
         "${SNI_CONFIG_DIR}:755:root:root"
     )
 
+    local errors=0
     for item in "${directories[@]}"; do
-        local dir="${item%%:*}"; local perm_owner="${item#*:}"; local perm="${perm_owner%%:*}";
-        local owner_group="${perm_owner#*:}"; local owner="${owner_group%%:*}"; local group="${owner_group#*:}"
-        chown "${owner}:${group}" "$dir" 2>/dev/null || true
-        chmod "$perm" "$dir"
+        local dir="${item%%:*}"
+        local perm_and_owner="${item#*:}"
+        local perm="${perm_and_owner%%:*}"
+        local owner_and_group="${perm_and_owner#*:}"
+        local owner="${owner_and_group%%:*}"
+        local group="${owner_and_group#*:}"
+
+        # 1. 创建目录
+        if ! mkdir -p "$dir"; then
+            log_error "✗ 创建目录失败: $dir"
+            ((errors++))
+            continue
+        fi
+
+        # 2. 设置权限和所有权
+        if ! chown "${owner}:${group}" "$dir" 2>/dev/null; then
+            log_warn "  设置所有权失败: $dir -> ${owner}:${group} (非致命错误)"
+        fi
+        if ! chmod "$perm" "$dir"; then
+            log_error "✗ 设置权限失败: $dir -> $perm"
+            ((errors++))
+            continue
+        fi
+        
         log_info "✓ 目录就绪: $dir ($perm, ${owner}:${group})"
     done
+
+    # 验证可写性
+    local test_file="${CONFIG_DIR}/.write_test_$$"
+    if ! echo "test" > "$test_file" 2>/dev/null; then
+        log_error "✗ 关键目录不可写: ${CONFIG_DIR}"
+        ((errors++))
+    else
+        rm -f "$test_file"
+    fi
     
-    log_success "所有目录结构设置与验证完成。"
-    return 0
+    if [[ $errors -eq 0 ]]; then
+        log_success "目录结构设置与验证完成"
+        return 0
+    else
+        log_error "目录设置过程中出现 $errors 个错误"
+        return 1
+    fi
 }
+
 
 verify_critical_dependencies() {
     log_info "验证关键依赖安装状态..."
@@ -1410,7 +1433,7 @@ EOF
 # - VPS 直出：DNS 直连（最快、最稳）
 # - 住宅/代理出站(resi)：DNS 也走代理（解析来源与连接来源一致）
 ensure_xray_dns_alignment() {
-  local cfg="$XRAY_CONFIG"
+  local cfg="/etc/edgebox/config/xray.json"
   local tmp="$(mktemp)"
   [[ -f "$cfg" ]] || { log_warn "未找到 $cfg，跳过 Xray DNS 对齐"; return 0; }
 
@@ -2047,7 +2070,6 @@ fi
 
 
 # 生成自签名证书（基础版本，模块3会有完整版本）
-# ANCHOR: [THE-REAL-FIX-2] - 在生成证书后，立即强制应用正确的文件权限
 generate_self_signed_cert() {
     log_info "生成自签名证书并修复权限..."
 
@@ -2062,25 +2084,19 @@ generate_self_signed_cert() {
     openssl ecparam -genkey -name secp384r1 -out "${CERT_DIR}/self-signed.key" 2>/dev/null || { log_error "生成ECC私钥失败"; return 1; }
     openssl req -new -x509 -key "${CERT_DIR}/self-signed.key" -out "${CERT_DIR}/self-signed.pem" -days 3650 -subj "/C=US/ST=CA/L=SF/O=EdgeBox/CN=${SERVER_IP}" >/dev/null 2>&1 || { log_error "生成自签名证书失败"; return 1; }
 
+    # 创建软链接
     ln -sf "${CERT_DIR}/self-signed.key" "${CERT_DIR}/current.key"
     ln -sf "${CERT_DIR}/self-signed.pem" "${CERT_DIR}/current.pem"
 
-    # 强制应用正确的文件和目录权限
-log_info "强制修复证书文件权限..."
-local nobody_group=$(id -gn nobody 2>/dev/null || echo nogroup)
+    # --- 关键权限修复 ---
+    local NOBODY_GRP
+    NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
 
-# 1. 证书目录权限修复：所有者 root，组 nogroup (750)
-chown -R root:${nobody_group} "$CERT_DIR" 2>/dev/null || true
-chmod 750 "$CERT_DIR" 2>/dev/null || true
-
-# 2. 证书私钥权限修复：所有者 root，组 nogroup (640)
-# 确保 /usr/local/etc/xray/cert/self-signed.key (和current.key) 组可读
-chmod 640 "${CERT_DIR}/self-signed.key" 2>/dev/null || true
-chmod 640 "${CERT_DIR}/current.key" 2>/dev/null || true
-
-# 3. 证书公钥权限修复：所有者 root，组 nogroup (644)
-chmod 644 "${CERT_DIR}/self-signed.pem" 2>/dev/null || true
-chmod 644 "${CERT_DIR}/current.pem" 2>/dev/null || true
+    chown -R root:"${NOBODY_GRP}" "${CERT_DIR}"
+    chmod 750 "${CERT_DIR}" # 目录权限：root=rwx, group=r-x, other=---
+    chmod 640 "${CERT_DIR}"/self-signed.key # 私钥权限：root=rw, group=r, other=---
+    chmod 644 "${CERT_DIR}"/self-signed.pem # 公钥权限
+    # ---------------------
 
     if openssl x509 -in "${CERT_DIR}/current.pem" -noout >/dev/null 2>&1; then
         log_success "自签名证书生成及权限设置完成"
@@ -2401,52 +2417,46 @@ log_info "└─ verify_module2_data()       # 验证数据完整性"
 install_xray() {
     log_info "安装Xray核心程序..."
 
-    # 至少满足 Reality/vision 的版本
-    local min_ver="1.8.10"
-    local current_version=""
-
-    # 读取当前版本（尽量走 /usr/local/bin/xray；退化到 PATH 中的 xray）
-    if command -v /usr/local/bin/xray >/dev/null 2>&1; then
-        current_version="$(
-            /usr/local/bin/xray -version 2>/dev/null | awk 'NR==1{print $2}' | sed 's/^v//'
-        )"
-    elif command -v xray >/dev/null 2>&1; then
-        current_version="$(
-            xray -version 2>/dev/null | awk 'NR==1{print $2}' | sed 's/^v//'
-        )"
+    # 检查是否已安装
+    if command -v xray >/dev/null 2>&1; then
+        local current_version
+        current_version=$(xray version 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+        log_info "检测到已安装的Xray版本: ${current_version:-未知}"
+        log_info "跳过Xray重新安装，使用现有版本"
+        return 0
     fi
 
-    # 版本比较（返回 0 表示 a<b）
-    version_lt() { [ "$(printf '%s\n' "$1" "$2" | sort -V | head -n1)" != "$2" ]; }
+    log_info "从官方仓库下载并安装Xray..."
 
-    if [[ -z "$current_version" ]] || version_lt "$current_version" "$min_ver"; then
-        log_warn "Xray 当前版本(${current_version:-无})不满足要求(>= ${min_ver})，执行官方安装/升级..."
-        bash -c "$(curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
+    # 使用智能下载函数
+    if smart_download_script \
+        "https://raw.githubusercontent.com/XTLS/Xray-install/main/install-release.sh" \
+        "Xray安装脚本" \
+        >/dev/null 2>&1; then
+        log_success "Xray安装完成"
     else
-        log_success "现有 Xray 版本满足要求: v${current_version}"
-    fi
-
-    # 核心二进制校验
-    if ! command -v /usr/local/bin/xray >/dev/null 2>&1; then
-        log_error "Xray 未正确安装到 /usr/local/bin/xray"
+        log_error "Xray安装失败"
         return 1
     fi
 
-    # 允许非 root 绑定低端口（nobody 运行更稳妥）
-    setcap 'cap_net_bind_service=+ep' /usr/local/bin/xray || true
+    # 验证安装
+    if command -v xray >/dev/null 2>&1; then
+        local xray_version
+        current_version=$(xray version 2>/dev/null \
+		| head -n1 \
+		| sed -E 's/[^0-9]*([0-9.]+).*/\1/')
+        log_success "Xray验证通过，版本: ${xray_version:-未知}"
 
-    # 日志目录
-    mkdir -p /var/log/xray
-    chown nobody:"$(id -gn nobody 2>/dev/null || echo nogroup)" /var/log/xray 2>/dev/null || true
-    chmod 755 /var/log/xray
+mkdir -p /var/log/xray
+chown nobody:nogroup /var/log/xray 2>/dev/null || chown nobody:nobody /var/log/xray
+log_success "Xray log directory created and permissions set."
 
-    # 打印最终版本
-    current_version="$(
-        /usr/local/bin/xray -version 2>/dev/null | awk 'NR==1{print $2}'
-    )"
-    log_success "Xray验证通过，版本: ${current_version:-未知}"
+        return 0
+    else
+        log_error "Xray安装验证失败"
+        return 1
+    fi
 }
-
 
 #############################################
 # sing-box 安装函数
@@ -2841,13 +2851,13 @@ create_nginx_systemd_override() {
     mkdir -p "$override_dir"
     cat > "${override_dir}/edgebox-deps.conf" << EOF
 [Unit]
-Wants=network-online.target
-After=network-online.target
+# Nginx must start after xray and sing-box are ready
+Wants=xray.service sing-box.service
+After=xray.service sing-box.service
 EOF
     systemctl daemon-reload
     log_success "Nginx服务依赖关系已建立"
 }
-
 
 
 # 配置Nginx（SNI定向 + ALPN兜底架构）
@@ -3152,26 +3162,68 @@ fi
 #############################################
 
 # 配置Xray服务 (使用jq重构，彻底解决特殊字符问题)
-# ANCHOR: [ULTIMATE-FIX-CONFIGURE-XRAY] - 完整替换此函数
-# =======================================================
-# 功能: 配置Xray服务，包含针对systemd权限问题的终极修复
-# =======================================================
 configure_xray() {
     log_info "配置Xray多协议服务..."
+
+# 使用社区标准路径
     local XRAY_STD_CONFIG="/usr/local/etc/xray/config.json"
 
-    # --- 变量检查 ---
-    local required_vars=("UUID_VLESS_REALITY" "UUID_VLESS_GRPC" "UUID_VLESS_WS" "REALITY_PRIVATE_KEY" "REALITY_SHORT_ID" "PASSWORD_TROJAN")
+    # 验证必要变量 (增强版)
+    local required_vars=(
+        "UUID_VLESS_REALITY"
+        "UUID_VLESS_GRPC"
+        "UUID_VLESS_WS"
+        "REALITY_PRIVATE_KEY"
+        "REALITY_SHORT_ID"
+        "PASSWORD_TROJAN"
+    )
+
+    log_info "检查必要变量设置..."
+    local missing_vars=()
+	
     for var in "${required_vars[@]}"; do
         if [[ -z "${!var}" ]]; then
-            log_error "缺少生成Xray配置的必要变量: ${var}"
-            return 1
+            missing_vars+=("$var")
+            log_error "必要变量 $var 未设置"
+        else
+            log_success "✓ $var 已设置: ${!var:0:8}..."
         fi
     done
 
-    # --- jq 生成配置 ---
-    log_info "使用jq生成Xray配置文件到: ${XRAY_STD_CONFIG}"
-    jq -n \
+    if [[ ${#missing_vars[@]} -gt 0 ]]; then
+        log_error "缺少必要变量: ${missing_vars[*]}"
+        log_info "尝试从配置文件重新加载变量..."
+
+        # 尝试从server.json重新加载变量
+        if [[ -f "${CONFIG_DIR}/server.json" ]]; then
+            UUID_VLESS_REALITY=$(jq -r '.uuid.vless.reality // .uuid.vless' "${CONFIG_DIR}/server.json" 2>/dev/null)
+            UUID_VLESS_GRPC=$(jq -r '.uuid.vless.grpc // .uuid.vless' "${CONFIG_DIR}/server.json" 2>/dev/null)
+            UUID_VLESS_WS=$(jq -r '.uuid.vless.ws // .uuid.vless' "${CONFIG_DIR}/server.json" 2>/dev/null)
+            REALITY_PRIVATE_KEY=$(jq -r '.reality.private_key' "${CONFIG_DIR}/server.json" 2>/dev/null)
+            REALITY_SHORT_ID=$(jq -r '.reality.short_id' "${CONFIG_DIR}/server.json" 2>/dev/null)
+            PASSWORD_TROJAN=$(jq -r '.password.trojan' "${CONFIG_DIR}/server.json" 2>/dev/null)
+
+            log_info "已从配置文件重新加载变量"
+        else
+            log_error "配置文件不存在，无法重新加载变量"
+            return 1
+        fi
+    fi
+
+    # 显示将要使用的变量（调试用）
+    log_info "配置变量检查:"
+    log_info "├─ UUID_VLESS_REALITY: ${UUID_VLESS_REALITY:0:8}..."
+    log_info "├─ REALITY_PRIVATE_KEY: ${REALITY_PRIVATE_KEY:0:8}..."
+    log_info "├─ REALITY_SHORT_ID: $REALITY_SHORT_ID"
+    log_info "├─ PASSWORD_TROJAN: ${PASSWORD_TROJAN:0:8}..."
+    log_info "└─ CERT_DIR: $CERT_DIR"
+
+    log_info "使用jq生成Xray配置文件（彻底避免特殊字符问题）..."
+
+ log_info "使用jq生成Xray配置文件到标准路径: ${XRAY_STD_CONFIG}"
+
+    # 使用jq生成Xray配置文件
+    if ! jq -n \
         --arg uuid_reality "$UUID_VLESS_REALITY" \
         --arg uuid_grpc "$UUID_VLESS_GRPC" \
         --arg uuid_ws "$UUID_VLESS_WS" \
@@ -3182,34 +3234,55 @@ configure_xray() {
         --arg cert_pem "${CERT_DIR}/current.pem" \
         --arg cert_key "${CERT_DIR}/current.key" \
         '{
-            "log": { "access": "/var/log/xray/access.log", "error": "/var/log/xray/error.log", "loglevel": "info" },
+            "log": {
+                "access": "/var/log/xray/access.log",
+                "error": "/var/log/xray/error.log",
+                "loglevel": "info"
+            },
             "inbounds": [
-                { "tag": "vless-reality", "listen": "127.0.0.1", "port": 11443, "protocol": "vless", "settings": {"clients": [{"id": $uuid_reality, "flow": "xtls-rprx-vision"}], "decryption": "none"}, "streamSettings": {"network": "tcp", "security": "reality", "realitySettings": {"show": false, "dest": ($reality_sni + ":443"), "serverNames": [$reality_sni], "privateKey": $reality_private, "shortIds": [$reality_short]}}},
-                { "tag": "vless-grpc", "listen": "127.0.0.1", "port": 10085, "protocol": "vless", "settings": {"clients": [{"id": $uuid_grpc}], "decryption": "none"}, "streamSettings": {"network": "grpc", "security": "tls", "tlsSettings": {"certificates": [{"certificateFile": $cert_pem, "keyFile": $cert_key}]}, "grpcSettings": {"serviceName": "grpc"}}},
-                { "tag": "vless-ws", "listen": "127.0.0.1", "port": 10086, "protocol": "vless", "settings": {"clients": [{"id": $uuid_ws}], "decryption": "none"}, "streamSettings": {"network": "ws", "security": "tls", "tlsSettings": {"certificates": [{"certificateFile": $cert_pem, "keyFile": $cert_key}]}, "wsSettings": {"path": "/ws"}}},
-                { "tag": "trojan-tcp", "listen": "127.0.0.1", "port": 10143, "protocol": "trojan", "settings": {"clients": [{"password": $password_trojan}]}, "streamSettings": {"network": "tcp", "security": "tls", "tlsSettings": {"certificates": [{"certificateFile": $cert_pem, "keyFile": $cert_key}]}}}
+                {
+                    "tag": "vless-reality", "listen": "127.0.0.1", "port": 11443, "protocol": "vless",
+                    "settings": {"clients": [{"id": $uuid_reality, "flow": "xtls-rprx-vision"}], "decryption": "none"},
+                    "streamSettings": {"network": "tcp", "security": "reality", "realitySettings": {"show": false, "dest": ($reality_sni + ":443"), "serverNames": [$reality_sni], "privateKey": $reality_private, "shortIds": [$reality_short]}}
+                },
+                {
+                    "tag": "vless-grpc", "listen": "127.0.0.1", "port": 10085, "protocol": "vless",
+                    "settings": {"clients": [{"id": $uuid_grpc}], "decryption": "none"},
+                    "streamSettings": {"network": "grpc", "security": "tls", "tlsSettings": {"certificates": [{"certificateFile": $cert_pem, "keyFile": $cert_key}]}, "grpcSettings": {"serviceName": "grpc"}}
+                },
+                {
+                    "tag": "vless-ws", "listen": "127.0.0.1", "port": 10086, "protocol": "vless",
+                    "settings": {"clients": [{"id": $uuid_ws}], "decryption": "none"},
+                    "streamSettings": {"network": "ws", "security": "tls", "tlsSettings": {"certificates": [{"certificateFile": $cert_pem, "keyFile": $cert_key}]}, "wsSettings": {"path": "/ws"}}
+                },
+                {
+                    "tag": "trojan-tcp", "listen": "127.0.0.1", "port": 10143, "protocol": "trojan",
+                    "settings": {"clients": [{"password": $password_trojan}]},
+                    "streamSettings": {"network": "tcp", "security": "tls", "tlsSettings": {"certificates": [{"certificateFile": $cert_pem, "keyFile": $cert_key}]}}
+                }
             ],
             "outbounds": [{"protocol": "freedom", "tag": "direct"}],
             "dns": {"servers": ["8.8.8.8", "1.1.1.1"]}
-        }' > "${XRAY_STD_CONFIG}" || { log_error "生成Xray配置文件失败"; return 1; }
+        }' > "${XRAY_STD_CONFIG}"; then
+        log_error "使用jq生成Xray配置文件失败"
+        return 1
+    fi
 
-    # --- 配置文件权限设置 ---
-    local nobody_group
-    nobody_group=$(id -gn nobody 2>/dev/null || echo nogroup)
-    chown "nobody:${nobody_group}" "${XRAY_STD_CONFIG}"
+    # 确保文件权限正确
+    chown nobody:"$(id -gn nobody 2>/dev/null || echo nogroup)" "${XRAY_STD_CONFIG}"
     chmod 644 "${XRAY_STD_CONFIG}"
-    log_success "Xray配置文件生成并设置权限完成"
+    log_success "Xray配置文件生成完成"
 
-    # --- 终极修复：使用正确的 Systemd Unit 文件 ---
-    log_info "创建/更新Xray系统服务（应用终极权限修复）..."
+    log_info "创建/更新Xray系统服务..."
     
-    # 彻底清理旧服务文件
+    # 停止并屏蔽官方服务
     systemctl stop xray >/dev/null 2>&1 || true
     systemctl disable xray >/dev/null 2>&1 || true
+    systemctl mask xray.service >/dev/null 2>&1 || true
     rm -f /etc/systemd/system/xray.service /etc/systemd/system/xray@.service
-    rm -rf /etc/systemd/system/xray.service.d/
 
-    cat > /etc/systemd/system/xray.service << 'EOF'
+    # 创建我们自己的服务文件
+    cat > /etc/systemd/system/xray.service << EOF
 [Unit]
 Description=Xray Service (EdgeBox)
 Documentation=https://github.com/xtls
@@ -3218,23 +3291,19 @@ After=network.target nss-lookup.target
 [Service]
 Type=simple
 User=nobody
-# 关键修复: Group留空，让systemd自动使用nobody用户的主组。
-# 这将确保进程的组身份与我们设置的文件组权限完全对齐。
-Group=
+Group=$(id -gn nobody 2>/dev/null || echo nogroup)
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 NoNewPrivileges=true
-
-# 关键修复: 移除有问题的ExecStartPre。它无法反映nobody的权限问题，反而会误导。
-# ExecStartPre=/usr/local/bin/xray -test -c /usr/local/etc/xray/config.json
-
-# 明确使用-c参数指定配置文件
-ExecStart=/usr/local/bin/xray run -c /usr/local/etc/xray/config.json
-
+ExecStart=/usr/local/bin/xray run -config ${XRAY_STD_CONFIG}
 Restart=on-failure
 RestartPreventExitStatus=23
 LimitNPROC=10000
 LimitNOFILE=1000000
+
+# // 明确授权目录访问权限，兼容AppArmor等安全模块
+ReadWritePaths=/usr/local/etc/xray/ /var/log/xray/
+ReadOnlyPaths=/etc/edgebox/cert/
 
 [Install]
 WantedBy=multi-user.target
@@ -3367,6 +3436,13 @@ fi
         fi
     fi
 
+    # 确保证书权限正确
+    if [[ -f "${CERT_DIR}/self-signed.pem" ]]; then
+        chmod 644 "${CERT_DIR}"/*.pem 2>/dev/null || true
+        chmod 600 "${CERT_DIR}"/*.key 2>/dev/null || true
+        log_success "证书权限已设置"
+    fi
+
     # 创建正确的 systemd 服务文件
     log_info "创建sing-box系统服务..."
 
@@ -3399,16 +3475,10 @@ EOF
 
     log_success "sing-box服务文件创建完成（配置路径: ${CONFIG_DIR}/sing-box.json）"
 
-# 在函数末尾，再次确认并强制应用最终权限模型，作为双重保险
-    local nobody_group
-    nobody_group=$(id -gn nobody 2>/dev/null || echo nogroup)
-    
-    chown -R root:${nobody_group} "${CERT_DIR}"
-    chmod 750 "${CERT_DIR}"
-    find "${CERT_DIR}" -type f -name '*.pem' -exec chmod 644 {} \; 2>/dev/null || true
-    find "${CERT_DIR}" -type f -name '*.key' -exec chmod 640 {} \; 2>/dev/null || true
-    
-    log_success "已为 sing-box 和 xray 统一并验证了证书权限。"
+	chmod 755 "${CERT_DIR}" 2>/dev/null || true
+chmod 644 "${CERT_DIR}"/*.pem 2>/dev/null || true
+chmod 640 "${CERT_DIR}"/*.key 2>/dev/null || true
+chown root:nobody "${CERT_DIR}"/*.key 2>/dev/null || true
 
     return 0
 }
@@ -3475,7 +3545,7 @@ generate_subscription() {
     local reality_sni
     reality_sni="$(jq -r 'first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.serverNames[0])
                            // (first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.dest) | split(":")[0])
-                           // empty' "$XRAY_CONFIG" 2>/dev/null)"
+                           // empty' "${CONFIG_DIR}/xray.json" 2>/dev/null)"
     : "${reality_sni:=${REALITY_SNI:-www.microsoft.com}}"
 
     # 生成协议链接
@@ -3732,17 +3802,6 @@ execute_module3() {
         log_error "✗ sing-box配置失败"
         return 1
     fi
-
-# =======================================================
-# ANCHOR: [FIX-XRAY-PERM-CALL] - 权限修复调用 (新增)
-# 任务5：关键权限修复 (确保 nobody 能读取 config.json 和 cert)
-if fix_xray_permissions; then
-    log_success "✓ Xray 关键权限修复已执行"
-else
-    log_error "✗ Xray 关键权限修复失败，尝试继续..."
-fi
-# =======================================================
-
 
     # 任务5：配置Nginx (最后配置前端代理)
     if configure_nginx; then
@@ -4273,7 +4332,7 @@ get_services_status() {
 get_protocols_status() {
     local health_report_file="${TRAFFIC_DIR}/protocol-health.json"
     local server_config_file="${CONFIG_DIR}/server.json"
-    local xray_config_file="/usr/local/etc/xray/config.json"
+    local xray_config_file="${CONFIG_DIR}/xray.json"
 
     # Dynamically determine to use domain or IP
     local host_or_ip
@@ -5229,7 +5288,7 @@ repair_service_config() {
             ;;
 
         xray)
-            local config="$XRAY_CONFIG"
+            local config="${CONFIG_DIR}/xray.json"
             if [[ ! -f "$config" ]]; then
                 log_error "配置文件不存在: $config"
                 return 1
@@ -5409,7 +5468,7 @@ diagnose_service_config() {
     local config_path=""
     case $service in
         sing-box) config_path="${CONFIG_DIR}/sing-box.json" ;;
-        xray)     config_path="$XRAY_CONFIG" ;;
+        xray)     config_path="${CONFIG_DIR}/xray.json" ;;
         nginx)    config_path="/etc/nginx/nginx.conf" ;;
         *) echo "ok"; return 0 ;;
     esac
@@ -6200,8 +6259,8 @@ create_config_backup() {
 
     mkdir -p "$backup_dir"
 
-    if [[ -f "$XRAY_CONFIG" ]]; then
-        cp "$XRAY_CONFIG" "${backup_dir}/xray_${timestamp}.json"
+    if [[ -f "${CONFIG_DIR}/xray.json" ]]; then
+        cp "${CONFIG_DIR}/xray.json" "${backup_dir}/xray_${timestamp}.json"
     fi
 
     if [[ -f "${CONFIG_DIR}/sing-box.json" ]]; then
@@ -6245,7 +6304,7 @@ verify_randomization_result() {
     local verification_failed=false
 
     # 验证配置文件语法
-    if [[ -f "$XRAY_CONFIG" ]] && ! xray -test -config="$XRAY_CONFIG" >/dev/null 2>&1; then
+    if [[ -f "${CONFIG_DIR}/xray.json" ]] && ! xray -test -config="${CONFIG_DIR}/xray.json" >/dev/null 2>&1; then
         log_error "Xray配置验证失败"
         verification_failed=true
     fi
@@ -6284,7 +6343,7 @@ rollback_configuration() {
     local latest_singbox_backup=$(ls -t "${backup_dir}"/sing-box_*.json 2>/dev/null | head -1)
 
     if [[ -n "$latest_xray_backup" ]]; then
-        cp "$latest_xray_backup" "$XRAY_CONFIG"
+        cp "$latest_xray_backup" "${CONFIG_DIR}/xray.json"
         log_info "Xray配置已回滚"
     fi
 
@@ -11613,7 +11672,7 @@ SCRIPTS_DIR="/etc/edgebox/scripts"
 # SNI相关路径变量
 SNI_CONFIG_DIR="${CONFIG_DIR}/sni"
 SNI_DOMAINS_CONFIG="${SNI_CONFIG_DIR}/domains.json"
-XRAY_CONFIG="/usr/local/etc/xray/config.json" # SNI函数需要
+XRAY_CONFIG="${CONFIG_DIR}/xray.json" # SNI函数需要
 SNI_HEALTH_LOG="/var/log/edgebox/sni-health.log" # SNI函数需要
 
 WHITELIST_DOMAINS="googlevideo.com,nflxvideo.net,dssott.com,aiv-cdn.net,aiv-delivery.net,ttvnw.net,hbo-cdn.com,hls.itunes.apple.com,scdn.co,tiktokcdn.com"
@@ -12294,7 +12353,7 @@ traffic_reset() {
     local backup_dir="/etc/edgebox/backup/reset_$(date '+%Y%m%d_%H%M%S')"
     mkdir -p "$backup_dir"
 
-    [[ -f "$XRAY_CONFIG" ]] && cp "$XRAY_CONFIG" "$backup_dir/"
+    [[ -f "${CONFIG_DIR}/xray.json" ]] && cp "${CONFIG_DIR}/xray.json" "$backup_dir/"
     [[ -f "${CONFIG_DIR}/sing-box.json" ]] && cp "${CONFIG_DIR}/sing-box.json" "$backup_dir/"
 
     # 调用随机化脚本的 reset 功能
@@ -12762,15 +12821,6 @@ check_domain_resolution(){
   log_success "域名解析检查通过"
 }
 
-# // ANCHOR: [FINAL-FIX] - 新增函数，用于修复Let's Encrypt目录权限
-fix_le_permissions() {
-    log_info "修复Let's Encrypt证书目录权限以兼容nobody用户..."
-    # 允许其他用户进入live和archive目录
-    chmod 755 /etc/letsencrypt/live
-    chmod 755 /etc/letsencrypt/archive
-    log_success "Let's Encrypt目录权限已修复。"
-}
-
 request_letsencrypt_cert(){
   local domain="$1"
   
@@ -13070,12 +13120,8 @@ switch_to_domain(){
         return 1
     fi
   fi
-log_info "为 ${domain} 申请/扩展 Let's Encrypt 证书"
+  log_info "为 ${domain} 申请/扩展 Let's Encrypt 证书"
   request_letsencrypt_cert "$domain" || return 1
-
-  # // ANCHOR: [FINAL-FIX] - 申请证书后，立即修复LE目录和证书文件的权限
-  fix_le_permissions
-  
   ln -sf "/etc/letsencrypt/live/${domain}/privkey.pem"   "${CERT_DIR}/current.key"
   ln -sf "/etc/letsencrypt/live/${domain}/fullchain.pem" "${CERT_DIR}/current.pem"
   fix_permissions
@@ -13361,14 +13407,14 @@ post_shunt_report() {
 
   # 2) Xray Routing Rules
   if [[ "$mode" == "VPS 全量出站" ]]; then
-    if jq -e '(.outbounds | length) == 1 and .outbounds[0].tag == "direct"' "$XRAY_CONFIG" >/dev/null 2>&1; then
+    if jq -e '(.outbounds | length) == 1 and .outbounds[0].tag == "direct"' "${CONFIG_DIR}/xray.json" >/dev/null 2>&1; then
       check_result+="${GREEN}✅ 2) Xray 路由规则:   默认出口 -> direct (已生效)${NC}\n"
     else
       check_result+="${RED}❌ 2) Xray 路由规则:   配置异常，仍存在代理出口！${NC}\n"
       all_ok=false
     fi
   else
-    if jq -e '.routing.rules[] | select(.outboundTag == "resi-proxy")' "$XRAY_CONFIG" >/dev/null 2>&1; then
+    if jq -e '.routing.rules[] | select(.outboundTag == "resi-proxy")' "${CONFIG_DIR}/xray.json" >/dev/null 2>&1; then
       check_result+="${GREEN}✅ 2) Xray 路由规则:   默认出口 -> resi-proxy (已生效)${NC}\n"
     else
       check_result+="${RED}❌ 2) Xray 路由规则:   配置失败！未能写入代理规则。${NC}\n"
@@ -13377,7 +13423,7 @@ post_shunt_report() {
   fi
 
   # 3) DNS Resolution Mode
-  if jq -e '.dns.servers[] | select(.outboundTag == "resi-proxy")' "$XRAY_CONFIG" >/dev/null 2>&1; then
+  if jq -e '.dns.servers[] | select(.outboundTag == "resi-proxy")' "${CONFIG_DIR}/xray.json" >/dev/null 2>&1; then
     check_result+="${GREEN}✅ 3) DNS 解析模式:    经由代理 (DoH)${NC}\n"
   else
     check_result+="${GREEN}✅ 3) DNS 解析模式:    直连解析${NC}\n"
@@ -13491,7 +13537,7 @@ show_shunt_status() {
 # 在 edgeboxctl 文件中的 setup_outbound_resi 函数之前添加：
 
 ensure_xray_dns_alignment() {
-  local cfg="/usr/local/etc/xray/config.json"
+  local cfg="/etc/edgebox/config/xray.json"
   local tmp="$(mktemp)"
   [[ -f "$cfg" ]] || { log_warn "未找到 $cfg，跳过 Xray DNS 对齐"; return 0; }
 
@@ -13544,8 +13590,8 @@ ensure_xray_dns_alignment() {
 setup_outbound_vps() {
     log_info "配置VPS全量出站模式..."
     get_server_info || return 1
-    local xray_tmp="$XRAY_CONFIG.tmp"
-    jq '.outbounds = [ { "protocol":"freedom", "tag":"direct" } ] | .routing = { "rules": [] }' "$XRAY_CONFIG" > "$xray_tmp" && mv "$xray_tmp" "$XRAY_CONFIG"
+    local xray_tmp="${CONFIG_DIR}/xray.json.tmp"
+    jq '.outbounds = [ { "protocol":"freedom", "tag":"direct" } ] | .routing = { "rules": [] }' "${CONFIG_DIR}/xray.json" > "$xray_tmp" && mv "$xray_tmp" "${CONFIG_DIR}/xray.json"
     setup_shunt_directories
 update_shunt_state "vps" "" "healthy"
 flush_nft_resi_sets
@@ -13588,8 +13634,8 @@ setup_outbound_resi() {
       {"address":"https://1.1.1.1/dns-query","outboundTag":"resi-proxy"},
       {"address":"https://8.8.8.8/dns-query","outboundTag":"resi-proxy"}
     ]
-  ' $XRAY_CONFIG > $XRAY_CONFIG.tmp && \
-  mv $XRAY_CONFIG.tmp $XRAY_CONFIG
+  ' ${CONFIG_DIR}/xray.json > ${CONFIG_DIR}/xray.json.tmp && \
+  mv ${CONFIG_DIR}/xray.json.tmp ${CONFIG_DIR}/xray.json
   
   echo "$url" > "${CONFIG_DIR}/shunt/resi.conf"
   setup_shunt_directories
@@ -13614,7 +13660,7 @@ setup_outbound_direct_resi() {
   local xob wl; xob="$(build_xray_resi_outbound)"
   wl='[]'
   [[ -s "${CONFIG_DIR}/shunt/whitelist.txt" ]] && wl="$(cat "${CONFIG_DIR}/shunt/whitelist.txt" | jq -R -s 'split("\n")|map(select(length>0))|map("domain:"+.)')"
-  jq --argjson ob "$xob" --argjson wl "$wl" '.outbounds=[{"protocol":"freedom","tag":"direct"}, $ob] | .routing={"domainStrategy":"AsIs","rules":[{"type":"field","port":"53","outboundTag":"direct"},{"type":"field","domain":$wl,"outboundTag":"direct"},{"type":"field","network":"tcp,udp","outboundTag":"resi-proxy"}]}' $XRAY_CONFIG > $XRAY_CONFIG.tmp && mv $XRAY_CONFIG.tmp $XRAY_CONFIG
+  jq --argjson ob "$xob" --argjson wl "$wl" '.outbounds=[{"protocol":"freedom","tag":"direct"}, $ob] | .routing={"domainStrategy":"AsIs","rules":[{"type":"field","port":"53","outboundTag":"direct"},{"type":"field","domain":$wl,"outboundTag":"direct"},{"type":"field","network":"tcp,udp","outboundTag":"resi-proxy"}]}' ${CONFIG_DIR}/xray.json > ${CONFIG_DIR}/xray.json.tmp && mv ${CONFIG_DIR}/xray.json.tmp ${CONFIG_DIR}/xray.json
   # sing-box remains direct
   echo "$url" > "${CONFIG_DIR}/shunt/resi.conf"
 update_shunt_state "direct-resi" "$url" "healthy"
@@ -13903,9 +13949,9 @@ regenerate_uuid() {
 
     # 文件路径
     local server_json="${CONFIG_DIR}/server.json"
-    local xray_json="/usr/local/etc/xray/config.json"
+    local xray_json="${CONFIG_DIR}/xray.json"
     local sbox_json="${CONFIG_DIR}/sing-box.json"
-    local XRAY_CFG_PATH="$xray_json"
+    local XRAY_CFG_PATH="${XRAY_CONFIG:-$xray_json}"
 
     # 读取旧凭据（用于 at 清理）
     local OLD_UUID_VLESS_REALITY OLD_UUID_VLESS_GRPC OLD_UUID_VLESS_WS OLD_PASS_TROJAN OLD_UUID_TUIC OLD_PASS_TUIC OLD_PASS_HYSTERIA2
@@ -14286,7 +14332,7 @@ update_xray_reality_keys() {
     local new_private_key="$1"
     local new_short_id="$2"
     local CONFIG_DIR="/etc/edgebox/config" # Self-contained
-    local XRAY_CONFIG="$XRAY_CONFIG"
+    local XRAY_CONFIG="${CONFIG_DIR}/xray.json"
     local temp_config="${XRAY_CONFIG}.tmp"
 
     jq --arg private_key "$new_private_key" \
@@ -14399,7 +14445,7 @@ rotate_reality_keys() {
 # === Reality 无感 SID 轮换（追加新 SID，24h 后自动清理旧 SID）===
 rotate_reality_sid_graceful() {
   # 配置路径（按你的项目习惯可改）
-  local XRAY_CONFIG="/usr/local/etc/xray/config.json"
+  local XRAY_CONFIG="${XRAY_CONFIG:-/etc/edgebox/config/xray.json}"
   local tmp="${XRAY_CONFIG}.tmp"
   local grace_hours="${EB_SID_GRACE_HOURS:-24}"
 
@@ -14988,7 +15034,6 @@ EDGEBOXCTL_SCRIPT
     chmod +x /usr/local/bin/edgeboxctl
     log_success "增强版edgeboxctl管理工具创建完成"
 }
-
 
 # 配置邮件系统
 setup_email_system() {
