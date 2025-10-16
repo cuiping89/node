@@ -3327,6 +3327,9 @@ configure_xray() {
     fi
 
     log_success "Xray配置文件生成完成"
+	
+	# 立即设置正确的文件权限（防止后续权限被覆盖）
+    chmod 644 "${CONFIG_DIR}/xray.json"
 
 # ========== [FIX-1] 设置文件权限以支持 DynamicUser ==========
 log_info "配置 Xray 文件权限（支持 DynamicUser）..."
@@ -3336,7 +3339,7 @@ chmod 755 /etc/edgebox
 chmod 755 "${CONFIG_DIR}"
 chmod 755 "${CERT_DIR}"
 
-# 配置文件: 所有人可读
+# 配置文件: 所有人可读 (必须是 644，不能是 600)
 chown root:root "${CONFIG_DIR}/xray.json"
 chmod 644 "${CONFIG_DIR}/xray.json"
 
@@ -3345,8 +3348,11 @@ if [[ -f "${CERT_DIR}/self-signed.pem" ]]; then
     chmod 644 "${CERT_DIR}/self-signed.pem"
 fi
 if [[ -f "${CERT_DIR}/self-signed.key" ]]; then
-    chmod 644 "${CERT_DIR}/self-signed.key"
+    chmod 640 "${CERT_DIR}/self-signed.key"
 fi
+
+# 日志目录: 允许 DynamicUser 写入 (关键修复)
+chmod 777 /var/log/xray
 
 log_success "文件权限配置完成"
 
