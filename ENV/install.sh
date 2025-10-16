@@ -868,13 +868,19 @@ ensure_system_services() {
 setup_directories() {
     log_info "设置并验证目录结构..."
 
-    # // ANCHOR: [FINAL-FIX-2] - 统一创建Xray所需的所有目录并设置权限
-    # 为Xray创建官方推荐的、SELinux/AppArmor友好的路径，包括新的证书目录
+# // ANCHOR: [THE-REAL-FIX-1] - 为Xray和证书建立正确的权限模型
     mkdir -p /usr/local/etc/xray /var/log/xray "$CERT_DIR"
     local nobody_user="nobody"
     local nobody_group=$(id -gn $nobody_user 2>/dev/null || echo nogroup)
-    # 将整个xray目录树的所有权都赋予nobody
-    chown -R ${nobody_user}:${nobody_group} /usr/local/etc/xray
+
+    # 1. /usr/local/etc/xray 目录本身归 nobody 所有，用于存放 config.json
+    chown ${nobody_user}:${nobody_group} /usr/local/etc/xray
+    
+    # 2. 证书目录归 root 所有，但 nobody 组可读，以实现共享
+    chown -R root:${nobody_group} "$CERT_DIR"
+    chmod 750 "$CERT_DIR"
+    
+    # 3. 日志目录归 nobody 所有
     chown -R ${nobody_user}:${nobody_group} /var/log/xray
 
     # 定义目录及其权限 (从数组中移除CERT_DIR，因为它已单独处理)
@@ -2087,15 +2093,18 @@ generate_self_signed_cert() {
     ln -sf "${CERT_DIR}/self-signed.key" "${CERT_DIR}/current.key"
     ln -sf "${CERT_DIR}/self-signed.pem" "${CERT_DIR}/current.pem"
 
-    # --- 关键权限修复 ---
+# // ANCHOR: [THE-REAL-FIX-2] - 强制应用正确的共享权限模型
     local NOBODY_GRP
     NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
-
-    chown -R nobody:"${NOBODY_GRP}" "${CERT_DIR}"
-    chmod 750 "${CERT_DIR}" # 目录权限：root=rwx, group=r-x, other=---
-    chmod 640 "${CERT_DIR}"/self-signed.key # 私钥权限：root=rw, group=r, other=---
-    chmod 644 "${CERT_DIR}"/self-signed.pem # 公钥权限
-    # ---------------------
+    
+    # 证书目录及文件所有者为 root，所属组为 nobody 所在的组
+    chown -R root:"${NOBODY_GRP}" "${CERT_DIR}"
+    # 目录权限：root 可读写执行，nobody 组可读可执行
+    chmod 750 "${CERT_DIR}"
+    # 私钥权限：root 可读写，nobody 组可读
+    chmod 640 "${CERT_DIR}"/*.key
+    # 公钥权限：所有人都可读
+    chmod 644 "${CERT_DIR}"/*.pem
 
     if openssl x509 -in "${CERT_DIR}/current.pem" -noout >/dev/null 2>&1; then
         log_success "自签名证书生成及权限设置完成"
@@ -3479,17 +3488,14 @@ EOF
 
     log_success "sing-box服务文件创建完成（配置路径: ${CONFIG_DIR}/sing-box.json）"
 
-# // ANCHOR: [THE-ABSOLUTE-FINAL-FIX] - 统一并强制修正证书权限
-    # 确保证书目录和文件始终拥有对 nobody 用户正确的权限，防止被其他逻辑意外修改。
-    local nobody_user="nobody"
+# // ANCHOR: [THE-REAL-FIX-3] - 再次确认并强制应用共享权限模型
     local nobody_group
-    nobody_group=$(id -gn $nobody_user 2>/dev/null || echo nogroup)
-
-    # 重新应用正确的权限和所有权
-    chown -R ${nobody_user}:${nobody_group} "${CERT_DIR}"
+    nobody_group=$(id -gn nobody 2>/dev/null || echo nogroup)
+    
+    chown -R root:${nobody_group} "${CERT_DIR}"
     chmod 750 "${CERT_DIR}"
-    find "${CERT_DIR}" -type f -name '*.pem' -exec chmod 644 {} \;
-    find "${CERT_DIR}" -type f -name '*.key' -exec chmod 640 {} \;
+    find "${CERT_DIR}" -type f -name '*.pem' -exec chmod 644 {} \; 2>/dev/null || true
+    find "${CERT_DIR}" -type f -name '*.key' -exec chmod 640 {} \; 2>/dev/null || true
     
     log_success "已为 sing-box 和 xray 统一并验证了证书权限。"
 
