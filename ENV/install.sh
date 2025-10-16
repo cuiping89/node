@@ -3279,18 +3279,20 @@ ls -la "${XRAY_STD_CONFIG}"
 
 log_success "Xray配置文件生成完成"
 
-log_info "创建/更新Xray系统服务..."
+    log_info "创建/更新Xray系统服务..."
     
-    # 停止并彻底清理任何可能存在的旧版或官方 xray 服务文件
+# // ANCHOR: [THE-FINAL-FIX] - 彻底清除官方systemd配置，包括Drop-In目录
+    # 停止并屏蔽官方服务
     systemctl stop xray >/dev/null 2>&1 || true
     systemctl disable xray >/dev/null 2>&1 || true
     systemctl mask xray.service >/dev/null 2>&1 || true
     
+    # 彻底删除官方留下的所有相关service文件和Drop-In目录
     rm -f /etc/systemd/system/xray.service /etc/systemd/system/xray@.service
     rm -rf /etc/systemd/system/xray.service.d/
 
-    # 创建我们自己的、定义明确的服务文件
-    cat > /etc/systemd/system/xray.service << EOF
+    # 创建我们自己的服务文件
+cat > /etc/systemd/system/xray.service << EOF
 [Unit]
 Description=Xray Service (EdgeBox)
 Documentation=https://github.com/xtls
@@ -3304,10 +3306,10 @@ CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 NoNewPrivileges=true
 
-# 在真正启动前做一次配置预检，并将错误打进 journal（方便排障）
+# 在真正启动前做一次配置预检，并把错误打进 journal（方便排障）
 ExecStartPre=-/bin/sh -c '/usr/local/bin/xray -test -c /usr/local/etc/xray/config.json 2>&1 | systemd-cat -t xray-test'
 
-# 明确使用 -c 参数指定配置文件
+# 统一使用 -c 形式
 ExecStart=/usr/local/bin/xray run -c /usr/local/etc/xray/config.json
 
 Restart=on-failure
@@ -3315,7 +3317,7 @@ RestartPreventExitStatus=23
 LimitNPROC=10000
 LimitNOFILE=1000000
 
-# 明确定义systemd沙箱的读写权限，确保一致性
+# 允许写配置与日志；证书目录只读
 ReadWritePaths=/usr/local/etc/xray/ /var/log/xray/
 ReadOnlyPaths=/usr/local/etc/xray/cert/ /etc/letsencrypt/
 
@@ -3323,8 +3325,8 @@ ReadOnlyPaths=/usr/local/etc/xray/cert/ /etc/letsencrypt/
 WantedBy=multi-user.target
 EOF
 
+
     systemctl daemon-reload
-    systemctl unmask xray.service >/dev/null 2>&1 || true # 确保 unmask
     systemctl enable xray >/dev/null 2>&1
     log_success "Xray服务文件创建完成"
     return 0
