@@ -3937,8 +3937,9 @@ create_dashboard_backend() {
 # 输出: dashboard.json、system.json
 #############################################
 
-set -euo pipefail
+set -eo pipefail
 export LANG=C LC_ALL=C
+: "${GREEN:=}"; : "${YELLOW:=}"; : "${RED:=}"; : "${CYAN:=}"; : "${NC:=}"
 
 # 解析当前脚本所在目录，并为 SCRIPTS_DIR 提供默认值
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
