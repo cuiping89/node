@@ -1354,6 +1354,7 @@ ensure_system_dns() {
 DNS=8.8.8.8 1.1.1.1
 FallbackDNS=9.9.9.9 1.0.0.1
 #DNSOverTLS=yes
+
 EOF
     fi
 
@@ -1370,6 +1371,7 @@ EOF
 nameserver 8.8.8.8
 nameserver 1.1.1.1
 options timeout:2 attempts:3
+
 EOF
   fi
 }
