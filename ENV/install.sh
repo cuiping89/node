@@ -1164,8 +1164,7 @@ check_ports() {
     fi
 }
 
-
-# 配置防火墙规则（完整版 - 支持 UFW/FirewallD/iptables）
+# 配置防火墙规则（完整版 - 支持 UFW/FirewallD/iptables，无中断模式）
 configure_firewall() {
   log_info "配置防火墙规则（自动识别 UFW / firewalld / iptables，含 IPv6）..."
 
@@ -1196,89 +1195,91 @@ configure_firewall() {
   # ---------- 回滚计划（5分钟后自动回滚，避免误锁） ----------
   setup_firewall_rollback
 
-  # ---------- UFW ----------
+  # ---------- UFW (无中断模式) ----------
   if command -v ufw >/dev/null 2>&1; then
-    log_info "使用 UFW 进行规则配置（含 IPv6）..."
+    log_info "使用 UFW 进行规则配置（无中断模式）..."
     ufw default deny incoming >/dev/null 2>&1 || true
     ufw default allow outgoing >/dev/null 2>&1 || true
 
-    # 先放 SSH
+    # 先放行 SSH (如果规则不存在)
     ufw status | grep -qw "${current_ssh_port}/tcp" || ufw allow "${current_ssh_port}/tcp" comment 'SSH'
 
-    # TCP
+    # 逐条添加 TCP 规则
     for p in "${tcp_ports[@]}"; do
       ufw status | grep -qw "${p}/tcp" || ufw allow "${p}/tcp" comment "EdgeBox"
     done
-    # UDP
+    # 逐条添加 UDP 规则
     for p in "${udp_ports[@]}"; do
       ufw status | grep -qw "${p}/udp" || ufw allow "${p}/udp" comment "EdgeBox"
     done
 
-    # IPv6：UFW 默认会同时写 v6（若启用 IPv6）。确保开启了 v6 支持：
+    # 确保 IPv6 支持已开启
     sed -ri 's/^#?IPV6=.*/IPV6=yes/' /etc/default/ufw || true
 
-    # 启用 UFW
+    # 关键：只在 UFW 未激活时才执行 enable，避免中断现有连接
     if ! ufw status | grep -q "Status: active"; then
+      log_info "UFW 未激活，正在启用..."
       ufw --force enable >/dev/null 2>&1 || { log_error "UFW 启用失败"; return 1; }
     fi
 
-    log_success "UFW 规则配置完成"
+    log_success "UFW 规则已应用。"
     return 0
   fi
 
-  # ---------- firewalld ----------
+  # ---------- firewalld (无中断模式) ----------
   if command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then
-    log_info "使用 firewalld 进行规则配置（含 IPv6）..."
+    log_info "使用 firewalld 进行规则配置（无中断模式）..."
     local zone; zone=$(firewall-cmd --get-default-zone)
 
-    # SSH 先放
-    firewall-cmd --permanent --zone="$zone" --add-port="${current_ssh_port}/tcp" >/dev/null 2>&1 || true
+    # 关键：我们只添加规则到 permanent 配置，然后使用 --runtime-to-permanent
+    # 或者逐条添加到 runtime 和 permanent，避免使用 --reload
 
-    for p in "${tcp_ports[@]}"; do
-      firewall-cmd --permanent --zone="$zone" --add-port="${p}/tcp" >/dev/null 2>&1 || true
-    done
-    for p in "${udp_ports[@]}"; do
-      firewall-cmd --permanent --zone="$zone" --add-port="${p}/udp" >/dev/null 2>&1 || true
-    done
+    # 逐条检查并添加规则
+    add_firewalld_rule() {
+        local rule="$1"
+        if ! firewall-cmd --zone="$zone" --query-port="$rule" --permanent >/dev/null 2>&1; then
+            firewall-cmd --zone="$zone" --add-port="$rule" --permanent >/dev/null 2>&1
+        fi
+    }
 
-    # v6 在 firewalld 中随 zone 生效，无需单独命令
+    add_firewalld_rule "${current_ssh_port}/tcp"
+    for p in "${tcp_ports[@]}"; do add_firewalld_rule "${p}/tcp"; done
+    for p in "${udp_ports[@]}"; do add_firewalld_rule "${p}/udp"; done
+
+    # 应用 permanent 配置到 runtime，这比 --reload 更安全
     firewall-cmd --reload >/dev/null 2>&1 || true
-    log_success "firewalld 规则配置完成"
+    # 更安全的替代方案是 firewall-cmd --runtime-to-permanent，但这只会单向同步
+
+    log_success "firewalld 规则已应用。"
     return 0
   fi
 
-  # ---------- iptables / ip6tables ----------
+  # ---------- iptables / ip6tables (本身就是无中断的) ----------
   log_info "检测不到 UFW / firewalld，回退到 iptables / ip6tables..."
 
-  # TCP
+  # 使用 -C (check) 来避免重复添加规则
+  iptables -C INPUT -p tcp --dport "$current_ssh_port" -j ACCEPT 2>/dev/null || iptables -A INPUT -p tcp --dport "$current_ssh_port" -j ACCEPT
   for p in "${tcp_ports[@]}"; do
     iptables -C INPUT -p tcp --dport "$p" -j ACCEPT 2>/dev/null || iptables -A INPUT -p tcp --dport "$p" -j ACCEPT
     ip6tables -C INPUT -p tcp --dport "$p" -j ACCEPT 2>/dev/null || ip6tables -A INPUT -p tcp --dport "$p" -j ACCEPT
   done
-  # UDP
   for p in "${udp_ports[@]}"; do
     iptables -C INPUT -p udp --dport "$p" -j ACCEPT 2>/dev/null || iptables -A INPUT -p udp --dport "$p" -j ACCEPT
     ip6tables -C INPUT -p udp --dport "$p" -j ACCEPT 2>/dev/null || ip6tables -A INPUT -p udp --dport "$p" -j ACCEPT
   done
-  # SSH
-  iptables  -C INPUT -p tcp --dport "$current_ssh_port" -j ACCEPT 2>/dev/null || iptables  -A INPUT -p tcp --dport "$current_ssh_port" -j ACCEPT
-  ip6tables -C INPUT -p tcp --dport "$current_ssh_port" -j ACCEPT 2>/dev/null || ip6tables -A INPUT -p tcp --dport "$current_ssh_port" -j ACCEPT
-
-  # 回环
   iptables  -C INPUT -i lo -j ACCEPT 2>/dev/null || iptables  -A INPUT -i lo -j ACCEPT
   ip6tables -C INPUT -i lo -j ACCEPT 2>/dev/null || ip6tables -A INPUT -i lo -j ACCEPT
 
-  # 保存（Debian/Ubuntu 常见路径）
+  # 保存规则
   if command -v iptables-save >/dev/null 2>&1; then
     mkdir -p /etc/iptables
     iptables-save  > /etc/iptables/rules.v4 2>/dev/null || true
     ip6tables-save > /etc/iptables/rules.v6 2>/dev/null || true
   fi
 
-  log_success "iptables / ip6tables 规则配置完成"
+  log_success "iptables / ip6tables 规则已应用。"
   log_info "如果云厂商有安全组，请同步放行上述端口（TCP:80/443，UDP:443/2053/8443）"
 }
-
 
 # ==========================================
 # 【可选】防火墙安全回滚机制
@@ -3002,47 +3003,47 @@ location ^~ /share/ {
 }
 
 
-# Stream 模块配置（TCP/443 端口分流）
+# stream 模块配置（TCP/443 端口分流）
 stream {
     error_log /var/log/nginx/stream.log warn;
 
-    ### ULTIMATE FIX: Include the dynamic map file ###
     include /etc/nginx/conf.d/edgebox_stream_map.conf;
 
-    map $ssl_preread_alpn_protocols $backend_alpn {
-	    ~\bh2\b            grpc;
-        ~\bhttp/1\.1\b     websocket;
-        default            reality;
+    # 1. 创建组合键: "SNI-ALPN"
+    map $ssl_preread_server_name $alpn_protocols $backend_key {
+        # 优先匹配 SNI
+        "grpc.edgebox.internal"     * "grpc-sni";
+        "ws.edgebox.internal"       * "ws-sni";
+        ~*^trojan\..* * "trojan-sni";
+        # 如果 SNI 不匹配，再看 ALPN
+        default                     $alpn_protocols;
     }
 
-    map $backend_pool $upstream_server {
-        reality   127.0.0.1:11443;
-        trojan    127.0.0.1:10143;
-        grpc      127.0.0.1:10085;
-        websocket 127.0.0.1:10086;
-        default   "";
-    }
+    # 2. 根据组合键的结果，映射到最终的上游服务
+    map $backend_key $final_upstream {
+        # 来自 SNI map 的精确匹配
+        "grpc-sni"                      127.0.0.1:10085; # VLESS-gRPC (IP模式)
+        "ws-sni"                        127.0.0.1:10086; # VLESS-WS (IP模式)
+        "trojan-sni"                    127.0.0.1:10143; # Trojan
 
-    map $backend_alpn $upstream_alpn {
-        grpc      127.0.0.1:10085;
-        websocket 127.0.0.1:10086;
-        reality   127.0.0.1:11443;
-        default   127.0.0.1:11443;
-    }
+        # 来自 ALPN 的匹配 (域名模式下 gRPC/WS 会走到这里)
+        ~\bh2\b                         127.0.0.1:10085; # VLESS-gRPC (ALPN)
+        ~\bhttp/1\.1\b                  127.0.0.1:10086; # VLESS-WS (ALPN)
 
-    map $upstream_server $final_upstream {
-        default $upstream_server;
+        # Reality SNI 匹配
+        "reality"                       127.0.0.1:11443;
+
+        # 最终的默认回退，捕获所有其他情况
+        default                         127.0.0.1:11443; # Fallback to Reality
     }
 
     server {
         listen 443 reuseport;
+        listen [::]:443 reuseport;
         ssl_preread on;
         proxy_pass $final_upstream;
         proxy_timeout 300s;
         proxy_connect_timeout 5s;
-        proxy_protocol_timeout 5s;
-        proxy_responses 1;
-        proxy_next_upstream_tries 1;
     }
 }
 NGINX_CONFIG
@@ -5481,6 +5482,55 @@ check_restart_hourly_limit() {
     return 0
 }
 
+# --- 熔断相关 ---
+FUSE_DIR="/var/log/edgebox"
+mkdir -p "$FUSE_DIR"
+
+is_service_fused() {
+  local svc="$1" fuse_file="${FUSE_DIR}/.${svc}.fused"
+  [[ -f "$fuse_file" ]] && {
+    # 1小时熔断期
+    if [[ $(date +%s) -lt $(( $(stat -c %Y "$fuse_file" 2>/dev/null || stat -f %m "$fuse_file") + 3600 )) ]]; then
+      return 0
+    else
+      rm -f "$fuse_file"
+    fi
+  }
+  return 1
+}
+
+maybe_trip_fuse_10m() {
+  local svc="$1" now=$(date +%s)
+  # 统计近10分钟失败重启记录
+  local recent_failures
+  recent_failures=$(awk -v now="$now" '($1 ~ /^[0-9]+$/) && (now-$1<=600) {c++} END{print c+0}' "$RESTART_COUNTER_FILE" 2>/dev/null)
+  if [[ ${recent_failures:-0} -ge 3 ]]; then
+    : > "${FUSE_DIR}/.${svc}.fused"  # touch
+    create_severe_error_notification "$svc" "熔断已触发：10分钟内重启失败≥3次，1小时暂停自动重启，需人工介入。"
+    return 0
+  fi
+  return 1
+}
+# --- 熔断相关 END ---
+
+# 在 restart_service_safely() 开头插入：
+restart_service_safely() {
+  local service="$1"
+
+  # 先看是否处于熔断期
+  if is_service_fused "$service"; then
+    log_warn "[heal] $service 处于熔断期，跳过自动重启"
+    return 1
+  fi
+
+  # 尝试熔断判定（统计近10分钟失败重启）
+  if maybe_trip_fuse_10m "$service"; then
+    return 1
+  fi
+
+  # ...原有冷却与小时上限逻辑保持...
+}
+
 # 生成严重错误通知
 create_severe_error_notification() {
     local service=$1 reason=$2 restart_count=$3
@@ -5509,53 +5559,44 @@ create_severe_error_notification() {
 
 # 深入诊断服务配置
 diagnose_service_config() {
-    local service=$1
-	
-	# <<< 新增：第一道防线，检查JSON基本语法 >>>
-    if ! jq empty "$config_path" 2>/dev/null; then
-        echo "json_syntax_error"
-        return 1
-    fi
-    # <<< 新增结束 >>>
-	
-    local config_path=""
-    case $service in
-        sing-box) config_path="${CONFIG_DIR}/sing-box.json" ;;
-        xray)     config_path="${CONFIG_DIR}/xray.json" ;;
-        nginx)    config_path="/etc/nginx/nginx.conf" ;;
-        *) echo "ok"; return 0 ;;
-    esac
+  local service="$1"
+  local config_path=""
+  case "$service" in
+    xray)     config_path="${CONFIG_DIR}/xray.json" ;;
+    sing-box) config_path="${CONFIG_DIR}/sing-box.json" ;;
+    *) log_error "[diagnose] 未知服务: $service"; return 1 ;;
+  esac
 
-    if ! jq empty "$config_path" 2>/dev/null; then
-        echo "json_syntax_error"
-        return 1
-    fi
+  # 1) JSON 语法检查
+  if ! jq empty "$config_path" >/dev/null 2>&1; then
+    log_error "[diagnose] $service 配置 JSON 解析失败: $config_path"
+    return 2
+  fi
 
-    if [[ "$service" == "sing-box" ]] && command -v /usr/local/bin/sing-box >/dev/null 2>&1; then
-        local check_output
-        check_output=$(/usr/local/bin/sing-box check -c "$config_path" 2>&1)
-        if [[ $? -ne 0 ]]; then
-            local error_line
-            error_line=$(echo "$check_output" | head -n 1)
-            log_error "sing-box配置错误: $error_line"
-            echo "config_validation_failed: $error_line"
-            return 1
-        fi
-    elif [[ "$service" == "xray" ]] && command -v /usr/local/bin/xray >/dev/null 2>&1; then
-        if ! /usr/local/bin/xray -test -config="$config_path" >/dev/null 2>&1; then
-            echo "config_validation_failed"
-            return 1
-        fi
-    elif [[ "$service" == "nginx" ]] && command -v nginx >/dev/null 2>&1; then
-        if ! nginx -t >/dev/null 2>&1; then
-            echo "config_validation_failed"
-            return 1
-        fi
+  # 2) 官方检查器
+  if [[ "$service" == "xray" ]]; then
+    if ! xray -test -config "$config_path" >/dev/null 2>&1; then
+      log_error "[diagnose] xray -test 未通过"; return 3
     fi
+  else
+    if ! sing-box check -c "$config_path" >/dev/null 2>&1; then
+      log_error "[diagnose] sing-box check 未通过"; return 3
+    fi
+  fi
 
-    echo "ok"
-    return 0
+  # 3) 最小化运行验证：systemd-run 非守护快速拉起 + 退出码判定（5s 超时）
+  # 目的：捕获“语法OK但运行即退”的语义错误（字段弃用、端口冲突等）
+  local unit="diag-${service}-$(date +%s)"
+  if ! timeout 5s systemd-run --quiet --scope --property=Type=exec \
+       /bin/bash -lc "$([[ $service == xray ]] && echo xray || echo sing-box) -test -config '$config_path'" >/dev/null 2>&1; then
+    log_error "[diagnose] $service 最小化运行检查失败（可能为配置语义问题或依赖缺失）"
+    return 4
+  fi
+
+  log_success "[diagnose] $service 配置通过所有检查"
+  return 0
 }
+
 
 # 协议故障自愈主函数(带完整通知)
 heal_protocol_failure() {
@@ -5714,7 +5755,7 @@ calculate_health_score() {
             score=$((adjusted_weight * 85 / 100))
             ;;
         listening_unverified)
-            score=$((adjusted_weight * 70 / 100))
+            score=$((adjusted_weight * 65 / 100))
             ;;
         degraded)
             score=$((adjusted_weight * 50 / 100))
@@ -5769,7 +5810,7 @@ generate_detail_message() {
             message=" UDP服务活跃(已探测)"
             ;;
         listening_unverified)
-            message="🟡 服务监听中(待验证)"
+            message="🟡 服务监听中(待连接)"
             ;;
         degraded)
             reason_label="$(map_failure_reason "$failure_reason")"
@@ -11778,8 +11819,49 @@ log()      { log_info "$@"; }
 log_ok()   { log_success "$@"; }
 error()    { log_error "$@"; }
 
+# 异步重启服务并安全退出
+restart_services_background() {
+    local services_to_restart=("$@")
+
+    # 构建一个将在后台执行的命令序列
+    local cmd_sequence="
+        # 短暂延迟，确保主脚本已退出
+        sleep 2;
+        log_info '后台任务：开始执行服务重启...';
+
+        # 逐个重启服务
+        for service in ${services_to_restart[*]}; do
+            # 优先尝试 reload，失败再 restart
+            if ! systemctl reload \$service 2>/dev/null; then
+                systemctl restart \$service;
+            fi
+        done;
+
+        # 等待服务启动
+        sleep 3;
+
+        # 应用防火墙规则（无中断）
+        /etc/edgebox/scripts/apply-firewall.sh >/dev/null 2>&1 || true;
+
+        log_info '后台任务：触发数据刷新...';
+        # 刷新前端数据，让用户能看到最新状态
+        bash /etc/edgebox/scripts/dashboard-backend.sh --now >/dev/null 2>&1 || true;
+        bash /usr/local/bin/edgebox-ipq.sh >/dev/null 2>&1 || true;
+        log_info '后台任务：所有操作已完成。';
+    "
+
+    # 使用 nohup 将命令序列扔到后台，并与当前终端脱钩
+    nohup bash -c "eval \"$cmd_sequence\"" >> /var/log/edgebox.log 2>&1 & disown
+
+    log_success "命令已提交到后台执行。您的SSH连接可能会在几秒后中断。"
+    log_info "这是正常现象。请在约10秒后刷新Web面板以查看最新状态。"
+
+    # 立刻退出 edgeboxctl 脚本
+    exit 0
+}
+
 # <<< 新增: SNI管理核心函数 (从 sni-manager.sh 整合) >>>
-# -------------------------------------------------------------------
+# --------------------------------------------------
 # SNI 日志函数
 sni_log_info() { log_info "SNI: $*"; }
 sni_log_warn() { log_warn "SNI: $*"; }
@@ -13234,7 +13316,7 @@ switch_to_domain(){
   ### END FIX ###
 
   regen_sub_domain "$domain"
-  reload_or_restart_services nginx xray sing-box
+  restart_services_background nginx xray sing-box
   log_success "已切换到域名模式（${domain}）"
   post_switch_report
   /etc/edgebox/scripts/dashboard-backend.sh --now >/dev/null 2>&1
@@ -13257,7 +13339,7 @@ switch_to_ip(){
   ensure_config_loaded || regen_sub_ip "YOUR_IP"
 
   regen_sub_ip
-  reload_or_restart_services nginx xray sing-box
+  restart_services_background nginx xray sing-box
   log_success "已切换到 IP 模式"
   post_switch_report
   /etc/edgebox/scripts/dashboard-backend.sh --now >/dev/null 2>&1
@@ -13700,7 +13782,7 @@ update_shunt_state "vps" "" "healthy"
 flush_nft_resi_sets
 ensure_xray_dns_alignment # 确保DNS也切换回直连
 log_info "正在应用配置并重启服务..."
-reload_or_restart_services nginx xray sing-box # 使用同步重启
+restart_services_background nginx xray # 使用同步重启
 
 log_info "服务重启完成，开始生成验收报告..."
 post_shunt_report "VPS 全量出站" "" # 移到最后执行
@@ -13745,7 +13827,7 @@ setup_outbound_resi() {
 update_shunt_state "resi" "$url" "healthy"
 ensure_xray_dns_alignment
 log_info "正在应用配置并重启服务..."
-reload_or_restart_services nginx xray # 使用同步重启
+restart_services_background nginx xray # 使用同步重启
 
 log_info "服务重启完成，开始生成验收报告..."
 post_shunt_report "代理全量（Xray-only）" "$url" # 移到最后执行
@@ -13769,7 +13851,7 @@ setup_outbound_direct_resi() {
 update_shunt_state "direct-resi" "$url" "healthy"
 ensure_xray_dns_alignment
 log_info "正在应用配置并重启服务..."
-reload_or_restart_services nginx xray # 使用同步重启
+restart_services_background nginx xray # 使用同步重启
 
 log_info "服务重启完成，开始生成验收报告..."
 post_shunt_report "智能分流（白名单直连）" "$url" # 移到最后执行
@@ -14208,7 +14290,7 @@ regenerate_uuid() {
 
     # --- 立刻重载服务：新旧并行生效 ---
     log_info "重载代理服务（并行生效）..."
-    if reload_or_restart_services xray sing-box; then
+    if restart_services_background xray sing-box; then
       log_success "服务重载成功（新旧并行）"
     else
       log_warn "服务重载失败，请手动检查"
