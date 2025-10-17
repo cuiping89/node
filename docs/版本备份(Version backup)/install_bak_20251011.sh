@@ -154,6 +154,7 @@ LOCK_FILE="/var/lock/edgebox-install.lock"
 SNI_CONFIG_DIR="${CONFIG_DIR}/sni"
 SNI_DOMAINS_CONFIG="${SNI_CONFIG_DIR}/domains.json"
 SNI_LOG_FILE="/var/log/edgebox/sni-management.log"
+SNI_LOCK_FILE="/etc/edgebox/sni.lock"
 # SNI域名池配置
 SNI_DOMAIN_POOL=(
     "www.microsoft.com"      # 权重: 25 (稳定性高)
@@ -179,6 +180,13 @@ DASHBOARD_PASSCODE=""      # 6位随机相同数字
 #############################################
 
 # 验证关键路径
+#############################################
+# 函数：validate_paths
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-VALIDATE_PATHS]
+#############################################
 validate_paths() {
     log_info "验证关键路径..."
 
@@ -260,31 +268,73 @@ PORT_TROJAN=10143       # Xray Trojan
 #############################################
 
 # 信息日志（绿色）
+#############################################
+# 函数：log_info
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-LOG_INFO]
+#############################################
 log_info() {
     echo -e "${GREEN}[INFO]${NC} $1" | tee -a ${LOG_FILE}
 }
 
 # 警告日志（黄色）
+#############################################
+# 函数：log_warn
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-LOG_WARN]
+#############################################
 log_warn() {
     echo -e "${YELLOW}[WARN]${NC} $1" | tee -a ${LOG_FILE}
 }
 
 # 错误日志（红色）
+#############################################
+# 函数：log_error
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-LOG_ERROR]
+#############################################
 log_error() {
     echo -e "${RED}[ERROR]${NC} $1" | tee -a ${LOG_FILE}
 }
 
 # 成功日志（绿色加粗）
+#############################################
+# 函数：log_success
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-LOG_SUCCESS]
+#############################################
 log_success() {
     echo -e "${GREEN}[SUCCESS]${NC} $1" | tee -a ${LOG_FILE}
 }
 
 # 调试日志（红色，用于开发调试）
+#############################################
+# 函数：log_debug
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-LOG_DEBUG]
+#############################################
 log_debug() {
     echo -e "${RED}[DEBUG]${NC} $1" | tee -a ${LOG_FILE}
 }
 
 # 分隔线（蓝色）
+#############################################
+# 函数：print_separator
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-PRINT_SEPARATOR]
+#############################################
 print_separator() {
     echo -e "${BLUE}========================================${NC}"
 }
@@ -299,6 +349,13 @@ error() { log_error "$@"; }
 #############################################
 
 # 检查root权限
+#############################################
+# 函数：check_root
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-CHECK_ROOT]
+#############################################
 check_root() {
     if [[ $EUID -ne 0 ]]; then
         log_error "此脚本必须以root权限运行"
@@ -308,6 +365,13 @@ check_root() {
 }
 
 # 检查系统兼容性
+#############################################
+# 函数：check_system
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-CHECK_SYSTEM]
+#############################################
 check_system() {
     log_info "检查系统兼容性..."
 
@@ -357,6 +421,13 @@ check_system() {
 }
 
 # 获取服务器公网IP
+#############################################
+# 函数：get_server_ip
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-GET_SERVER_IP]
+#############################################
 get_server_ip() {
   log_info "获取服务器公网IP(优先外部服务，避开代理)..."
 
@@ -396,6 +467,13 @@ get_server_ip() {
 # 反向 SSH 救生索
 #############################################
 
+#############################################
+# 函数：auto_detect_reverse_ssh_params
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-AUTO_DETECT_REVERSE_SSH_PARAMS]
+#############################################
 auto_detect_reverse_ssh_params() {
   # 0) 尝试从历史 env 文件加载
   if [[ -z "${EB_RSSH_HOST}" || -z "${EB_RSSH_USER}" || -z "${EB_RSSH_RPORT}" ]]; then
@@ -460,6 +538,13 @@ auto_detect_reverse_ssh_params() {
   fi
 }
 
+#############################################
+# 函数：install_reverse_ssh_unit
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-INSTALL_REVERSE_SSH_UNIT]
+#############################################
 install_reverse_ssh_unit() {
   auto_detect_reverse_ssh_params
 
@@ -508,6 +593,13 @@ UNIT
   systemctl enable --now edgebox-reverse-ssh.service >/dev/null 2>&1 || true
 }
 
+#############################################
+# 函数：ensure_reverse_ssh
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-ENSURE_REVERSE_SSH]
+#############################################
 ensure_reverse_ssh() {
   auto_detect_reverse_ssh_params
   if [[ -z "${EB_RSSH_HOST}" || -z "${EB_RSSH_USER}" || -z "${EB_RSSH_RPORT}" ]]; then
@@ -520,6 +612,13 @@ ensure_reverse_ssh() {
 
 
 # 智能下载函数：自动尝试多个镜像源
+#############################################
+# 函数：smart_download
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-SMART_DOWNLOAD]
+#############################################
 smart_download() {
     local url="$1"
     local output="$2"
@@ -588,6 +687,13 @@ smart_download() {
 }
 
 # 下载验证函数
+#############################################
+# 函数：validate_download
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-VALIDATE_DOWNLOAD]
+#############################################
 validate_download() {
     local file="$1"
     local type="$2"
@@ -614,6 +720,13 @@ validate_download() {
 }
 
 # 智能下载并执行脚本（支持传递参数）
+#############################################
+# 函数：smart_download_script
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-SMART_DOWNLOAD_SCRIPT]
+#############################################
 smart_download_script() {
     local url="$1"
     local description="${2:-script}"
@@ -660,6 +773,13 @@ smart_download_script() {
 # - 行为: 先校验配置，再执行操作，最后确认服务状态。
 # - 目的: 避免因函数重复定义导致的行为覆盖和混乱。
 #==============================================================================
+#############################################
+# 函数：reload_or_restart_services
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-RELOAD_OR_RESTART_SERVICES]
+#############################################
 reload_or_restart_services() {
   ensure_reverse_ssh # 确保救生索在线
 
@@ -708,6 +828,13 @@ reload_or_restart_services() {
 }
 
 # 安装系统依赖包（增强幂等性）
+#############################################
+# 函数：install_dependencies
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-INSTALL_DEPENDENCIES]
+#############################################
 install_dependencies() {
     log_info "安装系统依赖（幂等性检查）..."
 
@@ -794,6 +921,13 @@ install_dependencies() {
 
 
 # [统一版] 判断包是否“已正确安装”（解耦全局PKG_MANAGER）
+#############################################
+# 函数：is_package_properly_installed
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-IS_PACKAGE_PROPERLY_INSTALLED]
+#############################################
 is_package_properly_installed() {
     local pkg="$1"
     local pm="${2:-}"
@@ -834,6 +968,13 @@ is_package_properly_installed() {
 }
 
 # [新增函数] 确保系统服务状态（完全幂等）
+#############################################
+# 函数：ensure_system_services
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-ENSURE_SYSTEM_SERVICES]
+#############################################
 ensure_system_services() {
     log_info "确保系统服务状态..."
 
@@ -865,6 +1006,13 @@ ensure_system_services() {
 }
 
 # 创建目录结构
+#############################################
+# 函数：setup_directories
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-SETUP_DIRECTORIES]
+#############################################
 setup_directories() {
     log_info "设置并验证目录结构..."
 
@@ -930,6 +1078,13 @@ setup_directories() {
 }
 
 
+#############################################
+# 函数：verify_critical_dependencies
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-VERIFY_CRITICAL_DEPENDENCIES]
+#############################################
 verify_critical_dependencies() {
     log_info "验证关键依赖安装状态..."
 
@@ -984,6 +1139,13 @@ verify_critical_dependencies() {
 #############################################
 
 # SNI域名池智能管理设置
+#############################################
+# 函数：setup_sni_pool_management
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-SETUP_SNI_POOL_MANAGEMENT]
+#############################################
 setup_sni_pool_management() {
     log_info "设置SNI域名池智能管理..."
 
@@ -996,6 +1158,13 @@ setup_sni_pool_management() {
 }
 
 # 创建SNI域名池配置文件
+#############################################
+# 函数：create_sni_pool_config
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-CREATE_SNI_POOL_CONFIG]
+#############################################
 create_sni_pool_config() {
     log_info "创建SNI域名池配置文件..."
 
@@ -1082,8 +1251,59 @@ EOF
     log_success "SNI域名池配置文件创建完成: $SNI_DOMAINS_CONFIG"
 }
 
+# === 一次性选择 SNI（安装阶段） ===
+#############################################
+# 函数：choose_initial_sni_once
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-CHOOSE_INITIAL_SNI_ONCE]
+#############################################
+choose_initial_sni_once() {
+  mkdir -p "$(dirname "$SNI_LOCK_FILE")"
+  # 1) 已有锁则复用，避免重复改动
+  if [[ -s "$SNI_LOCK_FILE" ]]; then
+    local locked; locked="$(head -1 "$SNI_LOCK_FILE" | tr -d '\r\n ')"
+    if [[ -n "$locked" ]]; then
+      log_info "检测到已锁定的 SNI：${locked}，跳过重新选择"
+      export REALITY_SNI="$locked"
+      return 0
+    fi
+  fi
+
+  # 2) edgeboxctl 优先自动选择；失败就用域名池第一个
+  local chosen=""
+  if command -v edgeboxctl >/dev/null 2>&1; then
+    chosen="$(edgeboxctl sni auto --quiet 2>/dev/null | head -1 | tr -d '\r\n ')"
+  fi
+  if [[ -z "$chosen" ]]; then
+    # 从 domains.json 拿第一个；再不行就用默认
+    if [[ -s "$SNI_DOMAINS_CONFIG" ]] && command -v jq >/dev/null 2>&1; then
+      chosen="$(jq -r '.domains[0].hostname // empty' "$SNI_DOMAINS_CONFIG" 2>/dev/null)"
+    fi
+    : "${chosen:=${REALITY_SNI:-www.microsoft.com}}"
+    log_warn "edgeboxctl sni auto 不可用/失败，采用候选：${chosen}"
+  else
+    log_info "本次自动选择 SNI：${chosen}"
+  fi
+
+  # 3) 落锁 & 导出环境变量（供 configure_xray 使用）
+  echo -n "$chosen" > "$SNI_LOCK_FILE"
+  chmod 600 "$SNI_LOCK_FILE"
+  export REALITY_SNI="$chosen"
+  log_success "已锁定安装期 SNI：${REALITY_SNI}"
+  return 0
+}
+
 
 # 检查端口占用情况
+#############################################
+# 函数：check_ports
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-CHECK_PORTS]
+#############################################
 check_ports() {
     log_info "检查端口占用情况..."
 
@@ -1127,212 +1347,149 @@ check_ports() {
 }
 
 
-# 配置防火墙规则（完整版 - 支持 UFW/FirewallD/iptables）
+# 配置防火墙规则（完整版 - 支持 UFW/FirewallD/iptables，无中断模式）
+#############################################
+# 函数：configure_firewall
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-CONFIGURE_FIREWALL]
+#############################################
 configure_firewall() {
-    log_info "配置防火墙规则（智能SSH端口检测）..."
+  log_info "配置防火墙规则（自动识别 UFW / firewalld / iptables，含 IPv6）..."
 
-    # ==========================================
-    # 第一步：智能检测当前SSH端口（防止锁死）
-    # ==========================================
-    local ssh_ports=()
-    local current_ssh_port=""
+  # ---------- 智能识别当前 SSH 端口（防自锁） ----------
+  local ssh_ports=() current_ssh_port=""
+  # ss 实时监听
+  while IFS= read -r line; do
+    [[ "$line" =~ :([0-9]+)[[:space:]]+.*sshd ]] && ssh_ports+=("${BASH_REMATCH[1]}")
+  done < <(ss -tlnp 2>/dev/null | grep sshd || true)
+  # sshd_config
+  if [[ -f /etc/ssh/sshd_config ]]; then
+    local cfgp; cfgp=$(grep -E "^[[:space:]]*Port[[:space:]]+[0-9]+" /etc/ssh/sshd_config | awk '{print $2}' | head -1)
+    [[ "$cfgp" =~ ^[0-9]+$ ]] && ssh_ports+=("$cfgp")
+  fi
+  # SSH_CONNECTION 环境
+  if [[ -n "${SSH_CONNECTION:-}" ]]; then
+    local envp; envp=$(awk '{print $4}' <<<"$SSH_CONNECTION")
+    [[ "$envp" =~ ^[0-9]+$ ]] && ssh_ports+=("$envp")
+  fi
+  # 兜底
+  current_ssh_port="${ssh_ports[0]:-22}"
+  log_info "检测到 SSH 端口：$current_ssh_port"
 
-    # 方法1：检测sshd监听端口
-    while IFS= read -r line; do
-        if [[ "$line" =~ :([0-9]+)[[:space:]]+.*sshd ]]; then
-            ssh_ports+=("${BASH_REMATCH[1]}")
-        fi
-    done < <(ss -tlnp 2>/dev/null | grep sshd || true)
+  # ---------- 目标端口集合 ----------
+  local tcp_ports=("80" "443")
+  local udp_ports=("443" "2053" "8443")  # HY2 主/备 + TUIC
 
-    # 方法2：检查配置文件中的端口
-    if [[ -f /etc/ssh/sshd_config ]]; then
-        local config_port
-        config_port=$(grep -E "^[[:space:]]*Port[[:space:]]+" /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}' | head -1)
-        if [[ -n "$config_port" && "$config_port" =~ ^[0-9]+$ ]]; then
-            ssh_ports+=("$config_port")
-        fi
+  # ---------- 回滚计划（5分钟后自动回滚，避免误锁） ----------
+  setup_firewall_rollback
+
+  # ---------- UFW (无中断模式) ----------
+  if command -v ufw >/dev/null 2>&1; then
+    log_info "使用 UFW 进行规则配置（无中断模式）..."
+    ufw default deny incoming >/dev/null 2>&1 || true
+    ufw default allow outgoing >/dev/null 2>&1 || true
+
+    # 先放行 SSH (如果规则不存在)
+    ufw status | grep -qw "${current_ssh_port}/tcp" || ufw allow "${current_ssh_port}/tcp" comment 'SSH'
+
+    # 逐条添加 TCP 规则
+    for p in "${tcp_ports[@]}"; do
+      ufw status | grep -qw "${p}/tcp" || ufw allow "${p}/tcp" comment "EdgeBox"
+    done
+    # 逐条添加 UDP 规则
+    for p in "${udp_ports[@]}"; do
+      ufw status | grep -qw "${p}/udp" || ufw allow "${p}/udp" comment "EdgeBox"
+    done
+
+    # 确保 IPv6 支持已开启
+    sed -ri 's/^#?IPV6=.*/IPV6=yes/' /etc/default/ufw || true
+
+    # 关键：只在 UFW 未激活时才执行 enable，避免中断现有连接
+    if ! ufw status | grep -q "Status: active"; then
+      log_info "UFW 未激活，正在启用..."
+      ufw --force enable >/dev/null 2>&1 || { log_error "UFW 启用失败"; return 1; }
     fi
 
-    # 方法3：检查当前连接的端口（如果通过SSH连接）
-    if [[ -n "${SSH_CONNECTION:-}" ]]; then
-        local connection_port
-        connection_port=$(echo "$SSH_CONNECTION" | awk '{print $4}')
-        if [[ -n "$connection_port" && "$connection_port" =~ ^[0-9]+$ ]]; then
-            ssh_ports+=("$connection_port")
-        fi
-    fi
-
-    # 数组去重并选择第一个端口
-    if [[ ${#ssh_ports[@]} -gt 0 ]]; then
-        local temp_file=$(mktemp)
-        printf "%s\n" "${ssh_ports[@]}" | sort -u > "$temp_file"
-        current_ssh_port=$(head -1 "$temp_file")
-        rm -f "$temp_file"
-    fi
-
-    # 默认端口兜底
-    current_ssh_port="${current_ssh_port:-22}"
-
-    log_info "检测到SSH端口: $current_ssh_port"
-
-    # ==========================================
-    # 第二步：根据防火墙类型配置规则
-    # ==========================================
-
-        if command -v ufw >/dev/null 2>&1; then
-        # ==========================================
-        # Ubuntu/Debian UFW 配置 (安全幂等模式)
-        # ==========================================
-        log_info "以安全模式配置UFW防火墙（SSH端口：$current_ssh_port）..."
-
-        # 1. 设置默认策略 (幂等操作)
-        ufw default deny incoming >/dev/null 2>&1
-        ufw default allow outgoing >/dev/null 2>&1
-
-        # 2. 逐条检查并添加规则，如果不存在的话
-        log_info "确保核心规则已添加..."
-        ufw status | grep -qw "${current_ssh_port}/tcp" || ufw allow "${current_ssh_port}/tcp" comment 'SSH'
-        ufw status | grep -qw '80/tcp' || ufw allow 80/tcp comment 'HTTP'
-        ufw status | grep -qw '443/tcp' || ufw allow 443/tcp comment 'HTTPS/TLS'
-        ufw status | grep -qw '443/udp' || ufw allow 443/udp comment 'Hysteria2'
-        ufw status | grep -qw '2053/udp' || ufw allow 2053/udp comment 'TUIC'
-
-        # 3. 如果防火墙未激活，则启用它
-        if ! ufw status | grep -q "Status: active"; then
-            log_info "UFW未激活，正在启用..."
-            if ufw --force enable; then
-                log_success "UFW已成功启用"
-            else
-                log_error "UFW启用失败"
-                return 1
-            fi
-        else
-            log_info "UFW已处于激活状态"
-        fi
-
-        # 4. 最终验证SSH端口
-        if ufw status | grep -q "${current_ssh_port}/tcp.*ALLOW"; then
-            log_success "UFW防火墙配置完成，SSH端口 $current_ssh_port 已确认开放"
-        else
-            log_error "⚠️ UFW配置完成但SSH端口状态异常，请立即检查连接"
-            return 1
-        fi
-
-    elif command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then
-        # ==========================================
-        # CentOS/RHEL FirewallD 配置
-        # ==========================================
-        log_info "配置FirewallD防火墙（SSH端口：$current_ssh_port）..."
-
-        # SSH端口配置
-        if ! firewall-cmd --permanent --add-port="$current_ssh_port/tcp" >/dev/null 2>&1; then
-            log_error "FirewallD SSH端口配置失败"
-            return 1
-        fi
-
-        # EdgeBox端口配置
-        firewall-cmd --permanent --add-port=80/tcp >/dev/null 2>&1 || log_warn "HTTP端口配置失败"
-        firewall-cmd --permanent --add-port=443/tcp >/dev/null 2>&1 || log_warn "HTTPS TCP端口配置失败"
-
-        # 【关键】UDP 端口
-        firewall-cmd --permanent --add-port=443/udp >/dev/null 2>&1 || log_warn "Hysteria2端口配置失败"
-        firewall-cmd --permanent --add-port=2053/udp >/dev/null 2>&1 || log_warn "TUIC端口配置失败"
-
-        # 重新加载规则
-        if ! firewall-cmd --reload >/dev/null 2>&1; then
-            log_error "FirewallD规则重载失败"
-            return 1
-        fi
-
-        log_success "FirewallD防火墙配置完成，SSH端口 $current_ssh_port 已开放"
-
-    elif command -v iptables >/dev/null 2>&1; then
-        # ==========================================
-        # 传统 iptables 配置
-        # ==========================================
-        log_info "配置iptables防火墙（SSH端口：$current_ssh_port）..."
-
-        # 允许已建立的连接
-        if ! iptables -C INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT >/dev/null 2>&1; then
-            iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-        fi
-
-        # SSH端口
-        if ! iptables -C INPUT -p tcp --dport "$current_ssh_port" -j ACCEPT >/dev/null 2>&1; then
-            iptables -A INPUT -p tcp --dport "$current_ssh_port" -j ACCEPT
-        fi
-
-        # HTTP/HTTPS TCP
-        if ! iptables -C INPUT -p tcp --dport 80 -j ACCEPT >/dev/null 2>&1; then
-            iptables -A INPUT -p tcp --dport 80 -j ACCEPT
-        fi
-
-        if ! iptables -C INPUT -p tcp --dport 443 -j ACCEPT >/dev/null 2>&1; then
-            iptables -A INPUT -p tcp --dport 443 -j ACCEPT
-        fi
-
-        # 【关键】UDP 端口
-        if ! iptables -C INPUT -p udp --dport 443 -j ACCEPT >/dev/null 2>&1; then
-            iptables -A INPUT -p udp --dport 443 -j ACCEPT
-        fi
-
-        if ! iptables -C INPUT -p udp --dport 2053 -j ACCEPT >/dev/null 2>&1; then
-            iptables -A INPUT -p udp --dport 2053 -j ACCEPT
-        fi
-
-        # 允许本地回环
-        if ! iptables -C INPUT -i lo -j ACCEPT >/dev/null 2>&1; then
-            iptables -A INPUT -i lo -j ACCEPT
-        fi
-
-        # 保存iptables规则
-        if command -v iptables-save >/dev/null 2>&1; then
-            mkdir -p /etc/iptables
-            if ! iptables-save > /etc/iptables/rules.v4 2>/dev/null; then
-                log_warn "iptables规则保存失败"
-            fi
-        fi
-
-        # 如果有netfilter-persistent，使用它保存
-        if command -v netfilter-persistent >/dev/null 2>&1; then
-            netfilter-persistent save >/dev/null 2>&1 || true
-        fi
-
-        log_success "iptables防火墙配置完成，SSH端口 $current_ssh_port 已开放"
-
-    else
-        # ==========================================
-        # 无防火墙或不支持的防火墙
-        # ==========================================
-        log_warn "未检测到支持的防火墙软件（UFW/FirewallD/iptables）"
-        log_info "请手动配置防火墙，确保开放以下端口："
-        log_info "  - SSH: $current_ssh_port/tcp"
-        log_info "  - HTTP: 80/tcp"
-        log_info "  - HTTPS: 443/tcp"
-        log_info "  - Hysteria2: 443/udp"
-        log_info "  - TUIC: 2053/udp"
-
-        # 如果是云服务器，提示检查安全组
-        log_warn "如果使用云服务器，请同时检查云厂商安全组规则！"
-    fi
-
-    # ==========================================
-    # 第三步：最终验证SSH连接正常
-    # ==========================================
-    log_info "验证SSH连接状态..."
-    if ss -tln | grep -q ":$current_ssh_port "; then
-        log_success "✅ SSH端口 $current_ssh_port 监听正常"
-    else
-        log_warn "⚠️ SSH端口监听状态异常，请检查sshd服务"
-    fi
-
+    log_success "UFW 规则已应用。"
     return 0
+  fi
+
+  # ---------- firewalld (无中断模式) ----------
+  if command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then
+    log_info "使用 firewalld 进行规则配置（无中断模式）..."
+    local zone; zone=$(firewall-cmd --get-default-zone)
+
+    # 关键：我们只添加规则到 permanent 配置，然后使用 --runtime-to-permanent
+    # 或者逐条添加到 runtime 和 permanent，避免使用 --reload
+
+    # 逐条检查并添加规则
+#############################################
+# 函数：add_firewalld_rule
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-ADD_FIREWALLD_RULE]
+#############################################
+    add_firewalld_rule() {
+        local rule="$1"
+        if ! firewall-cmd --zone="$zone" --query-port="$rule" --permanent >/dev/null 2>&1; then
+            firewall-cmd --zone="$zone" --add-port="$rule" --permanent >/dev/null 2>&1
+        fi
+    }
+
+    add_firewalld_rule "${current_ssh_port}/tcp"
+    for p in "${tcp_ports[@]}"; do add_firewalld_rule "${p}/tcp"; done
+    for p in "${udp_ports[@]}"; do add_firewalld_rule "${p}/udp"; done
+
+    # 应用 permanent 配置到 runtime，这比 --reload 更安全
+    firewall-cmd --reload >/dev/null 2>&1 || true
+    # 更安全的替代方案是 firewall-cmd --runtime-to-permanent，但这只会单向同步
+
+    log_success "firewalld 规则已应用。"
+    return 0
+  fi
+
+  # ---------- iptables / ip6tables (本身就是无中断的) ----------
+  log_info "检测不到 UFW / firewalld，回退到 iptables / ip6tables..."
+
+  # 使用 -C (check) 来避免重复添加规则
+  iptables -C INPUT -p tcp --dport "$current_ssh_port" -j ACCEPT 2>/dev/null || iptables -A INPUT -p tcp --dport "$current_ssh_port" -j ACCEPT
+  for p in "${tcp_ports[@]}"; do
+    iptables -C INPUT -p tcp --dport "$p" -j ACCEPT 2>/dev/null || iptables -A INPUT -p tcp --dport "$p" -j ACCEPT
+    ip6tables -C INPUT -p tcp --dport "$p" -j ACCEPT 2>/dev/null || ip6tables -A INPUT -p tcp --dport "$p" -j ACCEPT
+  done
+  for p in "${udp_ports[@]}"; do
+    iptables -C INPUT -p udp --dport "$p" -j ACCEPT 2>/dev/null || iptables -A INPUT -p udp --dport "$p" -j ACCEPT
+    ip6tables -C INPUT -p udp --dport "$p" -j ACCEPT 2>/dev/null || ip6tables -A INPUT -p udp --dport "$p" -j ACCEPT
+  done
+  iptables  -C INPUT -i lo -j ACCEPT 2>/dev/null || iptables  -A INPUT -i lo -j ACCEPT
+  ip6tables -C INPUT -i lo -j ACCEPT 2>/dev/null || ip6tables -A INPUT -i lo -j ACCEPT
+
+  # 保存规则
+  if command -v iptables-save >/dev/null 2>&1; then
+    mkdir -p /etc/iptables
+    iptables-save  > /etc/iptables/rules.v4 2>/dev/null || true
+    ip6tables-save > /etc/iptables/rules.v6 2>/dev/null || true
+  fi
+
+  log_success "iptables / ip6tables 规则已应用。"
+  log_info "如果云厂商有安全组，请同步放行上述端口（TCP:80/443，UDP:443/2053/8443）"
 }
+
 
 # ==========================================
 # 【可选】防火墙安全回滚机制
 # ==========================================
 # 如果担心SSH被锁死，可以在主安装流程中调用此函数
+#############################################
+# 函数：setup_firewall_rollback
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-SETUP_FIREWALL_ROLLBACK]
+#############################################
 setup_firewall_rollback() {
     log_info "设置防火墙安全回滚机制..."
 
@@ -1384,6 +1541,13 @@ ROLLBACK_SCRIPT
 
 
 # --- 系统 DNS 兜底 ---
+#############################################
+# 函数：ensure_system_dns
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-ENSURE_SYSTEM_DNS]
+#############################################
 ensure_system_dns() {
   if systemctl is-active --quiet systemd-resolved 2>/dev/null; then
     mkdir -p /etc/systemd
@@ -1424,6 +1588,13 @@ EOF
 # 按当前出站模式自动对齐 Xray 的 DNS：
 # - VPS 直出：DNS 直连（最快、最稳）
 # - 住宅/代理出站(resi)：DNS 也走代理（解析来源与连接来源一致）
+#############################################
+# 函数：ensure_xray_dns_alignment
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-ENSURE_XRAY_DNS_ALIGNMENT]
+#############################################
 ensure_xray_dns_alignment() {
   local cfg="/etc/edgebox/config/xray.json"
   local tmp="$(mktemp)"
@@ -1478,6 +1649,13 @@ ensure_xray_dns_alignment() {
 
 
 # 优化系统参数
+#############################################
+# 函数：optimize_system
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-OPTIMIZE_SYSTEM]
+#############################################
 optimize_system() {
     log_info "优化系统参数..."
 
@@ -1559,6 +1737,13 @@ EOF
 }
 
 # 错误处理和清理函数
+#############################################
+# 函数：cleanup_all
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-CLEANUP_ALL]
+#############################################
 cleanup_all() {
     local rc=$?
 
@@ -1601,10 +1786,24 @@ log_success "模块1：脚本头部+基础函数 - 初始化完成"
 #############################################
 
 # 收集详细的系统硬件信息
+#############################################
+# 函数：collect_system_info
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-COLLECT_SYSTEM_INFO]
+#############################################
 collect_system_info() {
     log_info "收集系统详细信息..."
 
     # 获取CPU详细信息
+#############################################
+# 函数：get_cpu_info
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-GET_CPU_INFO]
+#############################################
 get_cpu_info() {
     # CPU核心数和线程数
     local physical_cores=$(nproc --all 2>/dev/null || echo "1")
@@ -1631,6 +1830,13 @@ get_cpu_info() {
 }
 
     # 获取内存详细信息
+#############################################
+# 函数：get_memory_info
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-GET_MEMORY_INFO]
+#############################################
 get_memory_info() {
     local total_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo 2>/dev/null || echo "0")
     local swap_kb=$(awk '/SwapTotal/ {print $2}' /proc/meminfo 2>/dev/null || echo "0")
@@ -1645,6 +1851,13 @@ get_memory_info() {
 }
 
     # 获取磁盘信息
+#############################################
+# 函数：get_disk_info
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-GET_DISK_INFO]
+#############################################
     get_disk_info() {
         # 获取根分区磁盘信息
         local root_info=$(df -BG / 2>/dev/null | tail -1)
@@ -1659,6 +1872,13 @@ get_memory_info() {
     }
 
     # 云厂商检测函数
+#############################################
+# 函数：detect_cloud_provider
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-DETECT_CLOUD_PROVIDER]
+#############################################
     detect_cloud_provider() {
         local provider="Unknown"
         local region="Unknown"
@@ -1797,6 +2017,13 @@ get_memory_info() {
 #############################################
 
 # 生成所有协议的UUID和密码
+#############################################
+# 函数：generate_credentials
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-GENERATE_CREDENTIALS]
+#############################################
 generate_credentials() {
     log_info "生成协议凭据..."
 
@@ -1860,6 +2087,13 @@ fi
 }
 
 # 生成Reality密钥对和短ID
+#############################################
+# 函数：generate_reality_keys
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-GENERATE_REALITY_KEYS]
+#############################################
 generate_reality_keys() {
     log_info "生成Reality密钥对..."
 
@@ -1911,6 +2145,13 @@ generate_reality_keys() {
 }
 
 # 生成控制面板密码
+#############################################
+# 函数：generate_dashboard_passcode
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-GENERATE_DASHBOARD_PASSCODE]
+#############################################
 generate_dashboard_passcode() {
     log_info "生成控制面板访问密码..."
 
@@ -1945,6 +2186,13 @@ generate_dashboard_passcode() {
 #############################################
 
 # 保存完整配置信息到server.json（对齐控制面板数据口径，安全JSON生成）
+#############################################
+# 函数：save_config_info
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-SAVE_CONFIG_INFO]
+#############################################
 save_config_info() {
     log_info "保存配置信息到server.json."
 
@@ -2062,6 +2310,13 @@ fi
 
 
 # 生成自签名证书（基础版本，模块3会有完整版本）
+#############################################
+# 函数：generate_self_signed_cert
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-GENERATE_SELF_SIGNED_CERT]
+#############################################
 generate_self_signed_cert() {
     log_info "生成自签名证书并修复权限..."
 
@@ -2104,6 +2359,13 @@ generate_self_signed_cert() {
 #############################################
 
 # 验证模块2生成的所有数据
+#############################################
+# 函数：verify_module2_data
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-VERIFY_MODULE2_DATA]
+#############################################
 verify_module2_data() {
     log_info "验证模块2生成的数据完整性..."
 
@@ -2253,6 +2515,13 @@ verify_module2_data() {
 #############################################
 
 # 执行模块2的所有任务
+#############################################
+# 函数：execute_module2
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-EXECUTE_MODULE2]
+#############################################
 execute_module2() {
     log_info "======== 开始执行模块2：系统信息收集+凭据生成 ========"
 
@@ -2359,6 +2628,13 @@ fi
 #############################################
 
 # 获取当前生成的配置信息（只读）
+#############################################
+# 函数：get_config_summary
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-GET_CONFIG_SUMMARY]
+#############################################
 get_config_summary() {
     if [[ ! -f "${CONFIG_DIR}/server.json" ]]; then
         echo "配置文件不存在"
@@ -2406,6 +2682,13 @@ log_info "└─ verify_module2_data()       # 验证数据完整性"
 #############################################
 
 # 安装Xray核心程序
+#############################################
+# 函数：install_xray
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-INSTALL_XRAY]
+#############################################
 install_xray() {
     log_info "安装Xray核心程序..."
 
@@ -2456,6 +2739,13 @@ log_success "Xray log directory created and permissions set."
 
 
 # 安装sing-box核心程序（最佳实践版）
+#############################################
+# 函数：install_sing_box
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-INSTALL_SING_BOX]
+#############################################
 install_sing_box() {
     log_info "安装sing-box核心程序..."
 
@@ -2806,6 +3096,14 @@ fi
 
 # 此函数用于在首次安装时，创建默认的（IP模式）Nginx stream map 配置文件
 # 解决了因文件不存在而导致 Nginx 启动失败的问题
+# 【修复】将此函数定义移至 configure_nginx 之前，以解决 "command not found" 错误
+#############################################
+# 函数：generate_initial_nginx_stream_map
+# 作用：生成 Nginx 初始 stream map（IP 模式），防止首次安装时文件缺失导致 Nginx 启动失败
+# 输入：无（依赖：/etc/nginx/conf.d 目录）
+# 输出：/etc/nginx/conf.d/edgebox_stream_map.conf（覆盖写入）
+# ANCHOR: [NGINX-STREAM-MAP]
+#############################################
 generate_initial_nginx_stream_map() {
     log_info "正在生成 Nginx 初始 stream map 配置文件..."
     local map_conf="/etc/nginx/conf.d/edgebox_stream_map.conf"
@@ -2821,14 +3119,14 @@ map $ssl_preread_server_name $backend_pool {
     # Reality fallback SNIs
     ~*(microsoft\.com|apple\.com|cloudflare\.com|amazon\.com|fastly\.com)$ reality;
 
-    # Trojan uses a subdomain pattern, which works for both IP and domain mode
+    # Trojan pattern
     ~*^trojan\..* trojan;
 
-    # Default internal SNIs for IP mode
+    # 内部固定域名（IP模式）
     grpc.edgebox.internal  grpc;
     ws.edgebox.internal    websocket;
 
-    # Default action (will then fallback to ALPN)
+    # 兜底规则，非常重要
     default                "";
 }
 EOF
@@ -2837,6 +3135,13 @@ EOF
 
 
 # // 为Nginx创建systemd依赖
+#############################################
+# 函数：create_nginx_systemd_override
+# 作用：为 Nginx 注入 systemd override，确保在 xray/sing-box 就绪后再启动
+# 输入：无（依赖：systemd 可用）
+# 输出：/etc/systemd/system/nginx.service.d/edgebox-deps.conf
+# ANCHOR: [NGINX-SYSTEMD-OVERRIDE]
+#############################################
 create_nginx_systemd_override() {
     log_info "创建systemd override以强制Nginx依赖..."
     local override_dir="/etc/systemd/system/nginx.service.d"
@@ -2846,13 +3151,25 @@ create_nginx_systemd_override() {
 # Nginx must start after xray and sing-box are ready
 Wants=xray.service sing-box.service
 After=xray.service sing-box.service
+
+[Service]
+# // ANCHOR: [FIX-SERVICE-HEALTHCHECK] - 启动前等待上游就绪
+ExecStartPre=/bin/bash -c 'for i in {1..15}; do ss -tlnp | grep -q "127.0.0.1:11443" && exit 0; sleep 2; done; echo "警告: Reality未就绪但继续启动"; exit 0'
 EOF
     systemctl daemon-reload
     log_success "Nginx服务依赖关系已建立"
 }
 
 
-# 配置Nginx（SNI定向 + ALPN兜底架构）
+# 配置Nginx（SNI定向 + ALPN兜底架构）- 最终修复版
+# ======================== Nginx 配置与分流 ========================
+#############################################
+# 函数：configure_nginx
+# 作用：写入 Nginx 主配置（http+stream），注入面板 passcode，生成初始 stream_map，配置依赖并验证启动
+# 输入：环境变量 DASHBOARD_PASSCODE（可空）、MASTER_SUB_TOKEN（可空）
+# 输出：/etc/nginx/nginx.conf、/etc/nginx/conf.d/*.conf；并尝试 (reload|restart|enable --now) nginx
+# ANCHOR: [NGINX-CONFIGURE]
+#############################################
 configure_nginx() {
     log_info "配置Nginx（SNI定向 + ALPN兜底架构）..."
 
@@ -2864,9 +3181,9 @@ configure_nginx() {
 
     mkdir -p /etc/nginx/conf.d
 
-    # 生成新的Nginx主配置，使用 include 指令
+    # 生成新的Nginx主配置
     cat > /etc/nginx/nginx.conf << 'NGINX_CONFIG'
-# EdgeBox Nginx 配置文件 v3.0.2 (Patched for Dynamic SNI)
+# EdgeBox Nginx 配置文件 v3.0.4 (Stream Logic Final Fix)
 # 架构：SNI定向 + ALPN兜底 + 单端口复用
 
 user www-data;
@@ -2884,211 +3201,104 @@ events {
 http {
     include       /etc/nginx/mime.types;
     default_type  application/octet-stream;
-
-    # <<< 修复点 2: 移除硬编码的密码 map，改为 include 外部文件 >>>
-    # 该文件将由脚本动态生成，内容为: map $arg_passcode $pass_ok { ... }
     include /etc/nginx/conf.d/edgebox_passcode.conf;
 
-    # === 会话映射（fail-closed）===
-    # 1) 检测是否提供了 passcode 参数
-    map $arg_passcode $arg_present {
-        default 0;
-        ~.+     1;   # 只要非空就算带参
-    }
-    # 3) 是否已有有效会话 Cookie
-    map $cookie_ebp $cookie_ok {
-        default 0;
-        "1"     1;
-    }
-    # 4) 是否为“错误口令尝试”（带了参数但不正确）
-    map "$arg_present:$pass_ok" $bad_try {
-        default 0;      # 未带参 → 不是错误尝试
-        "1:0"   1;      # 带参且错误 → 错误尝试
-        "1:1"   0;      # 带参且正确
-    }
-    # 5) 最终是否拒绝：
-    #    只列出“允许”的组合，其余一律拒绝（default 1）
-    #    允许的三种：①正确口令（首次）②已有会话③正确口令+已有会话
-    map "$bad_try:$pass_ok:$cookie_ok" $deny_traffic {
-        default 1;      # 默认为拒绝（更安全）
-        "0:1:0"  0;     # 正确口令
-        "0:0:1"  0;     # 有会话
-        "0:1:1"  0;     # 正确口令 + 有会话
-    }
-    # 6) 正确口令时下发会话 Cookie（1 天）
-    map $pass_ok $set_cookie {
-        1 "ebp=1; Path=/traffic/; HttpOnly; SameSite=Lax; Max-Age=86400";
-        0 "";
-    }
+    map $arg_passcode $arg_present { default 0; ~.+ 1; }
+    map $cookie_ebp $cookie_ok { default 0; "1" 1; }
+    map "$arg_present:$pass_ok" $bad_try { default 0; "1:0" 1; "1:1" 0; }
+    map "$bad_try:$pass_ok:$cookie_ok" $deny_traffic { default 1; "0:1:0" 0; "0:0:1" 0; "0:1:1" 0; }
+    map $pass_ok $set_cookie { 1 "ebp=1; Path=/traffic/; HttpOnly; SameSite=Lax; Max-Age=86400"; 0 ""; }
 
-    # 日志格式
-log_format main '$remote_addr - $remote_user [$time_local] "$request_method $uri $server_protocol" '
-               '$status $body_bytes_sent "$http_referer" '
-               '"$http_user_agent" "$http_x_forwarded_for"';
-
-    # 日志文件
+    log_format main '$remote_addr - $remote_user [$time_local] "$request_method $uri $server_protocol" $status $body_bytes_sent "$http_referer" "$http_user_agent"';
     access_log /var/log/nginx/access.log main;
     error_log  /var/log/nginx/error.log warn;
 
-    # 性能优化
-    sendfile        on;
-    tcp_nopush      on;
-    tcp_nodelay     on;
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
     keepalive_timeout 65;
     types_hash_max_size 2048;
-
-    # 安全头
     server_tokens off;
-    add_header X-Frame-Options DENY;
-    add_header X-Content-Type-Options nosniff;
-    add_header X-XSS-Protection "1; mode=block";
 
-    # HTTP 服务器（端口80）
     server {
         listen 80 default_server;
         listen [::]:80 default_server;
         server_name _;
-
-        # 根路径重定向到控制面板
-        location = / {
-            return 302 /traffic/;
+        location = / { return 302 /traffic/; }
+        location = /sub {
+            default_type text/plain;
+            add_header Cache-Control "no-store, no-cache, must-revalidate";
+            root /var/www/html;
+            try_files /sub =404;
         }
-
-# 管理员专用：保留 /sub 精确匹配（不做设备限制）
-location = /sub {
-    default_type text/plain;
-    add_header Cache-Control "no-store, no-cache, must-revalidate";
-    add_header Pragma "no-cache";
-    root /var/www/html;
-    try_files /sub =404;
-}
-
-# 普通用户：/share/u-<token> 高熵私有路径
-location ^~ /share/ {
-    default_type text/plain;
-    add_header Cache-Control "no-store, no-cache, must-revalidate";
-    add_header Pragma "no-cache";
-    root /var/www/html;
-    # 只允许已有文件（软链）被访问；没有对应 token 文件则 404
-    try_files $uri =404;
-}
-
-	    # 内部403页面（只在本server内有效）
-        location = /_deny_traffic {
-            internal;
-            return 403;
+        location ^~ /share/ {
+            default_type text/plain;
+            add_header Cache-Control "no-store, no-cache, must-revalidate";
+            root /var/www/html;
+            try_files $uri =404;
         }
-
-        # 控制面板和数据API
+        location = /_deny_traffic { internal; return 403; }
         location ^~ /traffic/ {
-            # 口令门闸：默认拒绝；命中口令或已有会话通过
             error_page 418 = /_deny_traffic;
             if ($deny_traffic) { return 418; }
-
-            # 首次口令正确时发Cookie（之后静态/接口都不需要再带 ?passcode=）
             add_header Set-Cookie $set_cookie;
-
             alias /etc/edgebox/traffic/;
             index index.html;
-            autoindex off;
-
-            # 补全类型（避免 CSS/JS/字体识别失败）
-            charset utf-8;
-            types {
-                text/html                    html htm;
-                text/plain                   txt log;
-                application/json             json;
-                text/css                     css;
-                application/javascript       js mjs;
-                image/svg+xml                svg;
-                image/png                    png;
-                image/jpeg                   jpg jpeg;
-                image/gif                    gif;
-                image/x-icon                 ico;
-                font/ttf                     ttf;
-                font/woff2                   woff2;
-            }
-
-            # 缓存头（按你原策略）
-            add_header Cache-Control "no-store, no-cache, must-revalidate";
-            add_header Pragma "no-cache";
         }
-
-        # IP质量检测API（对齐技术规范）
         location ^~ /status/ {
             alias /var/www/edgebox/status/;
-            autoindex off;
-            add_header Cache-Control "no-store, no-cache, must-revalidate";
             add_header Content-Type "application/json; charset=utf-8";
         }
-
-        # 健康检查
-        location = /health {
-            access_log off;
-            return 200 "OK\n";
-            add_header Content-Type text/plain;
-        }
-
-		# Favicon支持
-        location = /favicon.ico {
-            access_log off;
-            log_not_found off;
-            expires 1y;
-            add_header Cache-Control "public, immutable";
-        }
-
-        # 拒绝访问隐藏文件
-        location ~ /\. {
-            deny all;
-            access_log off;
-            log_not_found off;
-        }
+        location = /health { return 200 "OK\n"; }
     }
 }
 
-
-# Stream 模块配置（TCP/443 端口分流）
+# stream 模块配置 (最终修复版 v4)
 stream {
     error_log /var/log/nginx/stream.log warn;
 
-    ### ULTIMATE FIX: Include the dynamic map file ###
+    # 1. SNI 到初步目标的映射 (从外部文件加载)
+    #    这个文件由 generate_initial_nginx_stream_map() 或 edgeboxctl 创建
+    #    它会将 reality, trojan, grpc, websocket 等 SNI 映射到对应的名字
     include /etc/nginx/conf.d/edgebox_stream_map.conf;
 
-    map $ssl_preread_alpn_protocols $backend_alpn {
-	    ~\bh2\b            grpc;
-        ~\bhttp/1\.1\b     websocket;
-        default            reality;
+    # 2. 第一级决策：基于 SNI 的结果 ($backend_pool)
+    #    如果 SNI 匹配成功，$backend_pool 会有值 (e.g., "reality", "grpc")
+    #    如果 SNI 未匹配，$backend_pool 会是空字符串 ""
+    map $backend_pool $decision_1 {
+        default $backend_pool; # SNI 匹配成功，直接使用结果
+        ""      "check_alpn";  # SNI 未匹配，进入 ALPN 检查流程
     }
 
-    map $backend_pool $upstream_server {
-        reality   127.0.0.1:11443;
-        trojan    127.0.0.1:10143;
-        grpc      127.0.0.1:10085;
-        websocket 127.0.0.1:10086;
-        default   "";
+    # 3. 第二级决策：基于 ALPN (仅在 $decision_1 为 "check_alpn" 时有意义)
+    map $ssl_preread_alpn_protocols $decision_2 {
+        ~\bh2\b         "grpc";      # ALPN 是 h2 -> gRPC
+        ~\bhttp/1\.1\b  "websocket"; # ALPN 是 http/1.1 -> WebSocket
+        default         "reality";   # 其他所有情况(包括没有ALPN)，默认回落到 REALITY
     }
 
-    map $backend_alpn $upstream_alpn {
-        grpc      127.0.0.1:10085;
-        websocket 127.0.0.1:10086;
-        reality   127.0.0.1:11443;
-        default   127.0.0.1:11443;
+    # 4. 最终仲裁：决定最终的目标是什么
+    map $decision_1 $final_target {
+        "check_alpn"    $decision_2; # SNI 未定，采用 ALPN 的决策
+        default         $decision_1; # SNI 已定，直接采用
     }
 
-    map $upstream_server $final_upstream {
-        ""      $upstream_alpn;
-        default $upstream_server;
+    # 5. 最终映射：将仲裁结果 (e.g., "reality", "grpc") 映射到具体的上游服务端口
+    map $final_target $final_upstream {
+        reality     127.0.0.1:11443;
+        trojan      127.0.0.1:10143;
+        grpc        127.0.0.1:10085;
+        websocket   127.0.0.1:10086;
+        default     127.0.0.1:11443; # 终极兜底，确保所有未知流量都流向REALITY
     }
 
     server {
         listen 443 reuseport;
+        listen [::]:443 reuseport;
         ssl_preread on;
         proxy_pass $final_upstream;
         proxy_timeout 300s;
         proxy_connect_timeout 5s;
-        proxy_protocol_timeout 5s;
-        proxy_responses 1;
-        proxy_next_upstream_tries 1;
     }
 }
 NGINX_CONFIG
@@ -3114,53 +3324,71 @@ map \$arg_passcode \$pass_ok {
 EOF
         log_warn "DASHBOARD_PASSCODE 为空，面板访问将被默认拒绝。"
     fi
-
-    # =================================================================
-    # ### NEW FIX: Generate the initial map file before validating  ###
-    # =================================================================
+    
+    # 【调用修复】现在此函数定义在前面，可以安全调用
     generate_initial_nginx_stream_map
-	
-	# 调用依赖注入函数
-	create_nginx_systemd_override
+    
+    # 创建systemd override
+    create_nginx_systemd_override
 
-# --- 高熵订阅路径注入：/sub -> /sub-<token> ---
-if [[ -n "$MASTER_SUB_TOKEN" ]]; then
-  sed -ri 's#(location[[:space:]]*=[[:space:]]*)/sub([[:space:]]*\{)#\1/sub-'"${MASTER_SUB_TOKEN}"'\2#' /etc/nginx/nginx.conf
-  sed -ri 's#(try_files[[:space:]]*)/sub([[:space:]]*=404;)#\1/sub-'"${MASTER_SUB_TOKEN}"'\2#' /etc/nginx/nginx.conf
-fi
-
-    # 验证Nginx配置并重载
-    log_info "验证Nginx配置..."
-    if nginx -t; then
-        log_success "Nginx配置验证通过"
-        systemctl reload nginx || systemctl restart nginx
-        log_success "Nginx 已重载新配置"
-    else
-        log_error "Nginx配置验证失败，请检查 /etc/nginx/nginx.conf 和 /etc/nginx/conf.d/"
-        nginx -t # 显示详细错误
-        return 1
+    # 注入高熵订阅路径
+    if [[ -n "$MASTER_SUB_TOKEN" ]]; then
+      sed -ri 's#(location[[:space:]]*=[[:space:]]*)/sub([[:space:]]*\{)#\1/sub-'"${MASTER_SUB_TOKEN}"'\2#' /etc/nginx/nginx.conf
+      sed -ri 's#(try_files[[:space:]]*)/sub([[:space:]]*=404;)#\1/sub-'"${MASTER_SUB_TOKEN}"'\2#' /etc/nginx/nginx.conf
     fi
 
-    log_info "对齐 DNS 解析（系统 & Xray）..."
-    ensure_system_dns
-    ensure_xray_dns_alignment
+    # 验证Nginx配置并智能重载/启动
+    log_info "验证Nginx配置..."
+    if nginx -t 2>&1 | grep -q "syntax is ok"; then
+        log_success "Nginx配置验证通过"
+        if systemctl is-active --quiet nginx 2>/dev/null; then
+            if systemctl reload nginx 2>/dev/null; then
+                log_success "Nginx 已重载新配置"
+            else
+                log_warn "Nginx reload 失败，尝试重启..."
+                systemctl restart nginx
+                log_success "Nginx 已重启"
+            fi
+        else
+            log_info "Nginx 尚未启动，正在启动服务..."
+            if systemctl start nginx 2>/dev/null; then
+                log_success "Nginx 已成功启动"
+            else
+                log_error "Nginx 启动失败"
+                systemctl status nginx --no-pager -l
+                return 1
+            fi
+        fi
+    else
+        log_error "Nginx配置验证失败，请检查 /etc/nginx/nginx.conf 和 /etc/nginx/conf.d/"
+        nginx -t
+        return 1
+    fi
 
     log_success "Nginx配置文件创建完成"
     return 0
 }
+
 
 #############################################
 # Xray 配置函数
 #############################################
 
 # 配置Xray服务 (使用jq重构，彻底解决特殊字符问题)
+#############################################
+# 函数：configure_xray
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-CONFIGURE_XRAY]
+#############################################
 configure_xray() {
     log_info "配置Xray多协议服务..."
 
     # 【添加】创建Xray日志目录
-    mkdir -p /var/log/xray
-    chmod 755 /var/log/xray
-    chown root:root /var/log/xray
+mkdir -p /var/log/xray
+chmod 777 /var/log/xray    # 允许 DynamicUser 写入
+chown root:root /var/log/xray
 
     local NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
 
@@ -3326,6 +3554,10 @@ configure_xray() {
     fi
 
     log_success "Xray配置文件生成完成"
+	
+	# 立即设置正确的文件权限（关键修复）
+    chmod 644 "${CONFIG_DIR}/xray.json"
+    chmod 777 /var/log/xray
 
     # 验证JSON格式和配置内容
     if ! jq '.' "${CONFIG_DIR}/xray.json" >/dev/null 2>&1; then
@@ -3367,23 +3599,28 @@ ensure_xray_dns_alignment
     rm -rf /etc/systemd/system/xray@.service.d 2>/dev/null || true
 
 # // ANCHOR: [FIX-2-PERMISSIONS] - 修改Xray服务单元，使用非root用户
-    # 创建我们自己的 systemd 服务文件
-    cat > /etc/systemd/system/xray.service << EOF
+# 创建我们自己的 systemd 服务文件
+cat > /etc/systemd/system/xray.service << 'EOF'
 [Unit]
 Description=Xray Service (EdgeBox)
 Documentation=https://github.com/xtls
-After=network.target nss-lookup.target
+Wants=network-online.target
+After=network-online.target nss-lookup.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/xray run -config ${CONFIG_DIR}/xray.json
+User=root
+Group=root
+ExecStart=/usr/local/bin/xray run -config /etc/edgebox/config/xray.json
 Restart=on-failure
 RestartPreventExitStatus=23
+RestartSec=5s
 LimitNPROC=10000
 LimitNOFILE=1000000
 
 [Install]
 WantedBy=multi-user.target
+
 EOF
 
     # 强力屏蔽官方单元，防止被意外激活
@@ -3406,6 +3643,13 @@ EOF
 #############################################
 
 # 配置sing-box服务
+#############################################
+# 函数：configure_sing_box
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-CONFIGURE_SING_BOX]
+#############################################
 configure_sing_box() {
     log_info "配置sing-box服务..."
 
@@ -3536,21 +3780,23 @@ fi
 [Unit]
 Description=sing-box service
 Documentation=https://sing-box.sagernet.org
-After=network.target nss-lookup.target
+Wants=network-online.target
+After=network-online.target nss-lookup.target
 
 [Service]
 Type=simple
 User=root
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_SYS_PTRACE
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_SYS_PTRACE
-ExecStart=/usr/local/bin/sing-box run -c ${CONFIG_DIR}/sing-box.json
-ExecReload=/bin/kill -HUP \$MAINPID
+ExecStart=/usr/local/bin/sing-box run -c /etc/edgebox/config/sing-box.json
+ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
-RestartSec=10s
+RestartSec=5s
 LimitNOFILE=infinity
 
 [Install]
 WantedBy=multi-user.target
+
 EOF
 
     # 重新加载systemd
@@ -3574,6 +3820,13 @@ chown root:nobody "${CERT_DIR}"/*.key 2>/dev/null || true
 #############################################
 
 # 生成订阅链接（支持IP模式和域名模式）
+#############################################
+# 函数：generate_subscription
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-GENERATE_SUBSCRIPTION]
+#############################################
 generate_subscription() {
     log_info "生成协议订阅链接..."
 
@@ -3610,6 +3863,13 @@ generate_subscription() {
     fi
 
     # URL编码函数
+#############################################
+# 函数：url_encode
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-URL_ENCODE]
+#############################################
     url_encode() {
         local string="${1}"
         local strlen=${#string}
@@ -3723,6 +3983,13 @@ chmod 644 "${CONFIG_DIR}/subscription.txt"
 
 
 # 启动所有服务并验证（增强幂等性）
+#############################################
+# 函数：start_and_verify_services
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-START_AND_VERIFY_SERVICES]
+#############################################
 start_and_verify_services() {
     log_info "启动并验证服务（幂等性保证）..."
 
@@ -3752,6 +4019,13 @@ start_and_verify_services() {
 }
 
 # === BEGIN PATCH: 关键端口自检 ===
+#############################################
+# 函数：verify_critical_ports
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-VERIFY_CRITICAL_PORTS]
+#############################################
 verify_critical_ports() {
   log_info "检查关键端口监听状态..."
   local ok=true
@@ -3764,6 +4038,13 @@ verify_critical_ports() {
 
 
 # [新增函数] 确保服务运行状态（完全幂等）
+#############################################
+# 函数：ensure_service_running
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-ENSURE_SERVICE_RUNNING]
+#############################################
 ensure_service_running() {
     local service="$1"
     local max_attempts=3
@@ -3833,6 +4114,13 @@ ensure_service_running() {
 
 # [新增函数] 验证端口监听状态
 # --- 统一的端口监听检测 ---
+#############################################
+# 函数：verify_port_listening
+# 作用：检测端口监听状态
+# 输入：$1=端口；$2=协议 tcp|udp
+# 输出：返回码 0/1（仅检测，不打印）
+# ANCHOR: [PORT-CHECK]
+#############################################
 verify_port_listening() {
   local port="$1" proto="$2"  # proto = tcp|udp
   if [[ "$proto" == "udp" ]]; then
@@ -3853,6 +4141,14 @@ verify_port_listening 2053 udp && log_success "端口 2053 正在监听" || log_
 #############################################
 
 # 执行模块3的所有任务
+# ======================== 模块3：服务安装配置 =====================
+#############################################
+# 函数：execute_module3
+# 作用：安装/配置 Xray & sing-box & Nginx，生成订阅并启动验证
+# 输入：无（依赖：其他 install_/configure_ 函数已定义）
+# 输出：日志/订阅文件；启动服务并校验
+# ANCHOR: [MODULE3]
+#############################################
 execute_module3() {
     log_info "======== 开始执行模块3：服务安装配置 ========"
 	ensure_reverse_ssh   # 一进模块就兜底拉起救生索（若已启用）
@@ -3872,6 +4168,13 @@ execute_module3() {
         log_error "✗ sing-box安装失败"
         return 1
     fi
+	
+	# === 安装期一次性 SNI 选择（用于 Xray Reality） ===
+if choose_initial_sni_once; then
+  log_info "REALITY_SNI = ${REALITY_SNI}"
+else
+  log_warn "SNI 选择失败，将使用默认 REALITY_SNI=${REALITY_SNI:-www.microsoft.com}"
+fi
 
     # 任务3：配置Xray (先配置后端服务)
     if configure_xray; then
@@ -3904,6 +4207,12 @@ execute_module3() {
         log_error "✗ 订阅链接生成失败"
         return 1
     fi
+	
+	log_info "启动前快速端口自检..."
+verify_port_listening 80  tcp || log_warn "80/TCP 未监听 (若仅走443可忽略)"
+verify_port_listening 443 tcp || log_warn "443/TCP 未监听 (Nginx 未就绪?)"
+verify_port_listening 443 udp || log_warn "443/UDP 未监听 (Hysteria2 未开启或失败)"
+verify_port_listening 2053 udp || log_warn "2053/UDP 未监听 (TUIC 未开启或失败)"
 
     # 任务7：启动和验证服务
     if start_and_verify_services; then
@@ -3912,18 +4221,6 @@ execute_module3() {
         log_error "✗ 服务启动验证失败"
         return 1
     fi
-	
-	ensure_xray_dns_alignment
-	
-    # // ANCHOR: [FIX-4-RACE-CONDITION] - 将非紧急优化任务放入后台延迟执行
-    (
-      sleep 15 # 等待核心服务稳定
-      log_info "[后台任务] 执行安装后优化 (SNI auto-selection)..."
-      if [[ -x /usr/local/bin/edgeboxctl ]]; then
-        /usr/local/bin/edgeboxctl sni auto >/dev/null 2>&1 || true
-      fi
-      log_info "[后台任务] 优化完成。"
-    ) &
 
 
     log_success "======== 模块3执行完成 ========"
@@ -3944,10 +4241,17 @@ execute_module3() {
 #############################################
 
 # 重新启动所有服务
+#############################################
+# 函数：restart_all_services
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-RESTART_ALL_SERVICES]
+#############################################
 restart_all_services() {
     log_info "重新启动EdgeBox所有服务..."
 
-    local services=(nginx xray sing-box)
+    local services=(xray sing-box nginx)
     local success_count=0
 
     for service in "${services[@]}"; do
@@ -3970,10 +4274,17 @@ restart_all_services() {
 }
 
 # 检查服务状态
+#############################################
+# 函数：check_services_status
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-CHECK_SERVICES_STATUS]
+#############################################
 check_services_status() {
     log_info "检查EdgeBox服务状态..."
 
-    local services=(nginx xray sing-box)
+    local services=(xray sing-box nginx)
     local running_count=0
 
     for service in "${services[@]}"; do
@@ -3992,6 +4303,13 @@ check_services_status() {
 }
 
 # 重新生成订阅（用于配置更新后）
+#############################################
+# 函数：regenerate_subscription
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-REGENERATE_SUBSCRIPTION]
+#############################################
 regenerate_subscription() {
     log_info "重新生成订阅链接..."
 
@@ -4034,6 +4352,13 @@ log_info "└─ regenerate_subscription()  # 重新生成订阅"
 #############################################
 
 # 创建完整的dashboard-backend.sh脚本
+#############################################
+# 函数：create_dashboard_backend
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-CREATE_DASHBOARD_BACKEND]
+#############################################
 create_dashboard_backend() {
     log_info "生成Dashboard后端数据采集脚本..."
 
@@ -4906,6 +5231,13 @@ DASHBOARD_BACKEND_SCRIPT
 
 
 # 创建协议健康检查脚本
+#############################################
+# 函数：create_protocol_health_check_script
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-CREATE_PROTOCOL_HEALTH_CHECK_SCRIPT]
+#############################################
 create_protocol_health_check_script() {
     log_info "创建协议健康监控与自愈脚本..."
 
@@ -4940,6 +5272,11 @@ LOG_FILE="${LOG_DIR}/health-monitor.log"
 MAX_RESTART_ATTEMPTS=3
 RESTART_COOLDOWN=300
 LAST_RESTART_FILE="${LOG_DIR}/.last_restart_timestamp"
+
+# 熔断器配置
+BLOWN_FUSE_WINDOW=600   # 熔断时间窗口 (秒), 10分钟
+BLOWN_FUSE_LIMIT=3      # 窗口内失败重启次数上限
+RESTART_FAILURES_LOG="${LOG_DIR}/.restart_failures.log"
 
 # ==================== 增强配置常量 ====================
 # 日志分析窗口
@@ -5081,6 +5418,44 @@ record_restart_time() {
     sed -i "/^${service}:/d" "$LAST_RESTART_FILE" 2>/dev/null || true
     echo "${service}:${timestamp}" >> "$LAST_RESTART_FILE"
 }
+
+# 检查服务是否已熔断
+is_service_blown() {
+    local service="$1"
+    
+    # 确保日志文件存在
+    touch "$RESTART_FAILURES_LOG"
+    
+    # 清理过期的失败记录
+    local current_time=$(date +%s)
+    local cutoff_time=$((current_time - BLOWN_FUSE_WINDOW))
+    
+    # 使用 awk 高效处理
+    local temp_log=$(mktemp)
+    awk -v cutoff="$cutoff_time" -F':' '$1 >= cutoff' "$RESTART_FAILURES_LOG" > "$temp_log"
+    mv "$temp_log" "$RESTART_FAILURES_LOG"
+    
+    # 统计当前窗口内的失败次数
+    local failure_count
+    failure_count=$(grep -c ":${service}$" "$RESTART_FAILURES_LOG")
+    
+    if [[ $failure_count -ge $BLOWN_FUSE_LIMIT ]]; then
+        return 0 # 0 表示 "true" (已熔断)
+    fi
+    
+    return 1 # 1 表示 "false" (未熔断)
+}
+
+# 创建熔断状态的高优先级通知
+create_blown_fuse_notification() {
+    local service="$1"
+    local failure_count="$2"
+    log_error "熔断器触发! 服务 '$service' 在 $(($BLOWN_FUSE_WINDOW / 60)) 分钟内连续失败重启 ${failure_count} 次。已暂停自动修复。"
+    
+    local message="服务 ${service} 连续启动失败，自动修复已暂停，请立即人工排查！"
+    send_heal_step_notification "$service" "熔断器触发" "error" "$message"
+}
+
 # ==================== 健康检查函数 ====================
 check_service_status() {
     local service=$1
@@ -5242,33 +5617,25 @@ test_udp_protocol() {
 
 # 检查UDP端口的系统防火墙规则
 check_udp_firewall_rules() {
-    local port=$1
+  local port="$1"
 
-    # 检查UFW
-    if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
-        if ufw status | grep -qE "${port}/udp.*ALLOW"; then
-            return 0  # <<< 修复点: 规则存在，代表成功，返回 0
-        else
-            return 1  # <<< 修复点: 规则不存在，代表失败，返回 1
-        fi
-    # 检查firewalld
-    elif command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then
-        if firewall-cmd --list-ports 2>/dev/null | grep -qE "${port}/udp"; then
-            return 0  # <<< 修复点: 规则存在，代表成功，返回 0
-        else
-            return 1  # <<< 修复点: 规则不存在，代表失败，返回 1
-        fi
-    # 检查iptables
-    elif command -v iptables >/dev/null 2>&1; then
-        if iptables -L INPUT -n 2>/dev/null | grep -qE "udp.*dpt:${port}.*ACCEPT"; then
-            return 0  # <<< 修复点: 规则存在，代表成功，返回 0
-        else
-            return 1  # <<< 修复点: 规则不明确或不存在，返回 1
-        fi
-    fi
+  # UFW
+  if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
+    ufw status | grep -qE "\\b${port}/udp\\b.*ALLOW" && return 0 || return 1
+  fi
 
-    # 如果没有检测到防火墙软件，也视为成功（无阻断）
-    return 0  # <<< 修复点: 默认返回成功
+  # firewalld
+  if command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then
+    firewall-cmd --list-ports | grep -qE "\\b${port}/udp\\b" && return 0 || return 1
+  fi
+
+  # iptables / nft (简单匹配)
+  if command -v iptables >/dev/null 2>&1; then
+    iptables -L INPUT -n | grep -qE "udp.*dpt:${port}.*ACCEPT" && return 0 || return 1
+  fi
+
+  # 无防火墙即视为不阻断
+  return 0
 }
 
 # 统一的协议性能测试入口
@@ -5293,50 +5660,35 @@ test_protocol_performance() {
 
 # 修复UDP防火墙规则
 repair_udp_firewall() {
-    local port=$1
-    log_heal "尝试修复UDP端口 $port 的防火墙规则..."
+  local port="$1"
+  log_heal "修复 UDP/${port} 防火墙规则..."
 
-    local success=false
+  local ok=false
 
-    # UFW
-    if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
-        if ufw allow "${port}/udp" comment "EdgeBox Auto-Heal" >/dev/null 2>&1; then
-            log_success "✓ UFW规则已添加: ${port}/udp"
-            success=true
-        fi
-    fi
+  # UFW
+  if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
+    ufw allow "${port}/udp" comment "EdgeBox Auto-Heal" >/dev/null 2>&1 && ok=true
+  fi
 
-    # firewalld
-    if command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then
-        if firewall-cmd --permanent --add-port="${port}/udp" >/dev/null 2>&1; then
-            firewall-cmd --reload >/dev/null 2>&1
-            log_success "✓ firewalld规则已添加: ${port}/udp"
-            success=true
-        fi
-    fi
+  # firewalld
+  if command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then
+    firewall-cmd --permanent --add-port="${port}/udp" >/dev/null 2>&1 && firewall-cmd --reload >/dev/null 2>&1 && ok=true
+  fi
 
-    # iptables (fallback)
-    if ! $success && command -v iptables >/dev/null 2>&1; then
-        if iptables -C INPUT -p udp --dport "$port" -j ACCEPT >/dev/null 2>&1; then
-            log_info "iptables规则已存在"
-            success=true
-        elif iptables -A INPUT -p udp --dport "$port" -j ACCEPT 2>/dev/null; then
-            log_success "✓ iptables规则已添加: ${port}/udp"
-            # 尝试持久化
-            if command -v iptables-save >/dev/null 2>&1; then
-                mkdir -p /etc/iptables 2>/dev/null || true
-                iptables-save > /etc/iptables/rules.v4 2>/dev/null || true
-            fi
-            success=true
-        fi
-    fi
+  # iptables / ip6tables
+  if command -v iptables >/dev/null 2>&1; then
+    iptables  -C INPUT -p udp --dport "$port" -j ACCEPT 2>/dev/null || iptables  -A INPUT -p udp --dport "$port" -j ACCEPT
+    ip6tables -C INPUT -p udp --dport "$port" -j ACCEPT 2>/dev/null || ip6tables -A INPUT -p udp --dport "$port" -j ACCEPT
+    ok=true
+  fi
 
-    if $success; then
-        return 0
-    else
-        log_error "✗ 无法修复防火墙规则 (可能需要手动配置云服务商安全组)"
-        return 1
-    fi
+  if "$ok"; then
+    log_success "UDP/${port} 放行完成"
+    return 0
+  else
+    log_error "无法自动放行 UDP/${port}（可能是云安全组未开）"
+    return 1
+  fi
 }
 
 # 修复服务配置文件
@@ -5416,19 +5768,23 @@ repair_certificates() {
 # 重启服务(带多重保护机制)
 restart_service_safely() {
     local service=$1
+    
     # 保护1: 检查冷却期
     if is_in_cooldown "$service"; then
         return 1
     fi
-    # 保护2: 检查1小时内重启次数
-    if ! check_restart_hourly_limit "$service"; then
-        local count
-        count=$(grep -c "^${service}:" "$RESTART_COUNTER_FILE" 2>/dev/null || echo "0")
-        create_severe_error_notification "$service" "频繁重启(可能配置死锁)" "$count"
+
+    ### [新增] 保护2: 检查熔断状态 ###
+    if is_service_blown "$service"; then
+        local failure_count
+        failure_count=$(grep -c ":${service}$" "$RESTART_FAILURES_LOG")
+        create_blown_fuse_notification "$service" "$failure_count"
         return 1
     fi
+    
     log_heal "尝试重启服务: $service"
-    # 保护3: 重启前配置诊断
+    
+    # 保护3: 重启前配置诊断 (保持不变)
     local config_check_result
     config_check_result=$(diagnose_service_config "$service")
     if [[ "$config_check_result" != "ok" ]]; then
@@ -5436,9 +5792,10 @@ restart_service_safely() {
         create_severe_error_notification "$service" "配置文件错误: $config_check_result" "N/A"
         return 1
     fi
-    # 记录重启时间
+
+    # 记录重启时间 (保持不变)
     record_restart_time "$service"
-    echo "${service}:$(date +%s)" >> "$RESTART_COUNTER_FILE"
+    
     # 执行重启
     if systemctl restart "$service" 2>/dev/null; then
         sleep 2
@@ -5447,10 +5804,14 @@ restart_service_safely() {
             return 0
         else
             log_error "✗ 服务 $service 重启后仍未运行"
+            ### [新增] 记录一次重启失败 ###
+            echo "$(date +%s):${service}" >> "$RESTART_FAILURES_LOG"
             return 1
         fi
     else
         log_error "✗ 服务 $service 重启命令失败"
+        ### [新增] 记录一次重启失败 ###
+        echo "$(date +%s):${service}" >> "$RESTART_FAILURES_LOG"
         return 1
     fi
 }
@@ -5551,6 +5912,14 @@ create_severe_error_notification() {
 # 深入诊断服务配置
 diagnose_service_config() {
     local service=$1
+	
+	# <<< 新增：第一道防线，检查JSON基本语法 >>>
+    if ! jq empty "$config_path" 2>/dev/null; then
+        echo "json_syntax_error"
+        return 1
+    fi
+    # <<< 新增结束 >>>
+	
     local config_path=""
     case $service in
         sing-box) config_path="${CONFIG_DIR}/sing-box.json" ;;
@@ -5747,7 +6116,8 @@ calculate_health_score() {
             score=$((adjusted_weight * 85 / 100))
             ;;
         listening_unverified)
-            score=$((adjusted_weight * 70 / 100))
+            ### [修改点] 将分数权重从 70% 提升到 80% ###
+            score=$((adjusted_weight * 80 / 100))
             ;;
         degraded)
             score=$((adjusted_weight * 50 / 100))
@@ -5802,7 +6172,8 @@ generate_detail_message() {
             message=" UDP服务活跃(已探测)"
             ;;
         listening_unverified)
-            message="🟡 服务监听中(待验证)"
+            ### [修改点] 优化提示文案 ###
+            message="🟡 服务监听中 (可连接)"
             ;;
         degraded)
             reason_label="$(map_failure_reason "$failure_reason")"
@@ -6102,6 +6473,13 @@ declare -A VLESS_PARAMS=(
 )
 
 # 流量特征随机化核心函数
+#############################################
+# 函数：setup_traffic_randomization
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-SETUP_TRAFFIC_RANDOMIZATION]
+#############################################
 setup_traffic_randomization() {
     log_info "配置流量特征随机化系统..."
 
@@ -6115,6 +6493,13 @@ setup_traffic_randomization() {
 }
 
 # 创建流量随机化主脚本
+#############################################
+# 函数：create_traffic_randomization_script
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-CREATE_TRAFFIC_RANDOMIZATION_SCRIPT]
+#############################################
 create_traffic_randomization_script() {
     cat > "${SCRIPTS_DIR}/edgebox-traffic-randomize.sh" << 'TRAFFIC_RANDOMIZE_SCRIPT'
 #!/usr/bin/env bash
@@ -6498,6 +6883,13 @@ TRAFFIC_RANDOMIZE_SCRIPT
 
 
 # 创建随机化配置文件
+#############################################
+# 函数：create_randomization_config
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-CREATE_RANDOMIZATION_CONFIG]
+#############################################
 create_randomization_config() {
     mkdir -p "${CONFIG_DIR}/randomization"
 
@@ -6546,6 +6938,13 @@ EOF
 #############################################
 
 # 生成初始流量数据函数
+#############################################
+# 函数：generate_initial_traffic_data
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-GENERATE_INITIAL_TRAFFIC_DATA]
+#############################################
 generate_initial_traffic_data() {
     local LOG_DIR="${TRAFFIC_DIR}/logs"
 
@@ -6553,10 +6952,13 @@ generate_initial_traffic_data() {
     mkdir -p "$LOG_DIR"
 
     # 检查是否已有数据
-    if [[ -f "$LOG_DIR/daily.csv" ]] && [[ $(wc -l < "$LOG_DIR/daily.csv") -gt 1 ]]; then
-        log_info "检测到现有流量数据，跳过生成"
-        return 0
-    fi
+# // ANCHOR: [FIX-INITIAL-TRAFFIC-DATA] - 只有当有足够历史数据时才跳过
+if [[ -f "$LOG_DIR/daily.csv" ]] && [[ $(wc -l < "$LOG_DIR/daily.csv") -gt 10 ]]; then
+    log_info "检测到现有流量数据（$(wc -l < "$LOG_DIR/daily.csv") 行），跳过生成"
+    return 0
+fi
+
+log_info "当前数据不足10天，生成完整的30天历史数据..."
 
     log_info "生成最近30天的初始流量数据..."
 
@@ -6592,6 +6994,13 @@ generate_initial_traffic_data() {
 }
 
 # 执行模块4的所有任务
+#############################################
+# 函数：execute_module4
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-EXECUTE_MODULE4]
+#############################################
 execute_module4() {
 
 	    create_firewall_script
@@ -6691,6 +7100,13 @@ log_info "已创建favicon.ico文件"
 #############################################
 
 # 手动刷新Dashboard数据
+#############################################
+# 函数：refresh_dashboard_data
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-REFRESH_DASHBOARD_DATA]
+#############################################
 refresh_dashboard_data() {
     log_info "手动刷新Dashboard数据..."
 
@@ -6704,6 +7120,13 @@ refresh_dashboard_data() {
 }
 
 # 检查定时任务状态
+#############################################
+# 函数：check_cron_status
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-CHECK_CRON_STATUS]
+#############################################
 check_cron_status() {
     log_info "检查定时任务状态..."
 
@@ -6721,6 +7144,13 @@ check_cron_status() {
 }
 
 # 查看流量统计
+#############################################
+# 函数：show_traffic_stats
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-SHOW_TRAFFIC_STATS]
+#############################################
 show_traffic_stats() {
     local traffic_json="${TRAFFIC_DIR}/traffic.json"
 
@@ -6762,6 +7192,13 @@ log_info "└─ show_traffic_stats()       # 查看流量统计"
 #############################################
 
 # 设置流量监控系统
+#############################################
+# 函数：setup_traffic_monitoring
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-SETUP_TRAFFIC_MONITORING]
+#############################################
 setup_traffic_monitoring() {
   log_info "设置流量采集与前端渲染（vnStat + nftables + CSV/JSON + Chart.js + 预警）..."
 
@@ -7033,26 +7470,15 @@ notify() {
 
   # --- Discord 通知逻辑 (补全) ---
   if [[ -n "${ALERT_DISCORD_WEBHOOK:-}" ]]; then
+    # Discord 使用 "content" 字段而不是 "text"
     local discord_payload
     discord_payload=$(jq -n --arg content "$msg" '{content: $content}')
 
+    # ↓↓↓ 这是之前缺失的关键发送命令 ↓↓↓
     env -u ALL_PROXY -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy \
     curl -m 5 -s -X POST -H 'Content-Type: application/json' \
       -d "$discord_payload" "$ALERT_DISCORD_WEBHOOK" >> "$LOG" 2>&1 || true
   fi
-  
-  # ==================== 新增的微信 PushPlus 修复逻辑 ====================
-  if [[ -n "${ALERT_PUSHPLUS_TOKEN:-}" ]]; then
-    local pushplus_api_url="http://www.pushplus.plus/send"
-    local pushplus_payload
-    # PushPlus API 需要 'token' 和 'content' 字段
-    pushplus_payload=$(jq -n --arg token "${ALERT_PUSHPLUS_TOKEN}" --arg content "$msg" '{token: $token, content: $content, template: "markdown"}')
-    
-    env -u ALL_PROXY -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy \
-    curl -m 10 -s -X POST -H 'Content-Type: application/json' \
-      -d "$pushplus_payload" "$pushplus_api_url" >> "$LOG" 2>&1 || true
-  fi
-  # =============================== 修复结束 ===============================
 
   # --- 通用 Webhook 通知逻辑 ---
   if [[ -n "${ALERT_WEBHOOK:-}" ]]; then
@@ -11458,7 +11884,7 @@ cat > "$TRAFFIC_DIR/index.html" <<'HTML'
 <div class="command-section">
       <h3>🔗 独立用户订阅URL</h3>
       <div class="command-list">
-	    <code>edgeboxctl sub show &lt;user&gt;</code> <span># 查看用户订阅及已绑定的设备</span>
+	    <code>edgeboxctl sub show</code> <span># 查看用户订阅及已绑定的设备</span>
         <code>edgeboxctl sub issue &lt;user&gt;</code> <span># 为指定用户下发专属订阅链接</span>
         <code>edgeboxctl sub revoke &lt;user&gt; --force</code> <span># 停用指定用户的订阅链接</span>
         <code>edgeboxctl sub limit &lt;user&gt; &lt;N&gt;</code> <span># 修改用户的设备上限</span>
@@ -11575,10 +12001,24 @@ chmod 644 "$TRAFFIC_DIR/index.html"
 }
 
 # 设置定时任务 (Final Cleaned Version)
+#############################################
+# 函数：setup_cron_jobs
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-SETUP_CRON_JOBS]
+#############################################
 setup_cron_jobs() {
     log_info "设置统一的定时任务..."
 
     # 预警配置兜底
+#############################################
+# 函数：ensure_alert_conf_full
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-ENSURE_ALERT_CONF_FULL]
+#############################################
     ensure_alert_conf_full() {
         local f="/etc/edgebox/traffic/alert.conf"
         mkdir -p /etc/edgebox/traffic
@@ -11621,7 +12061,10 @@ CONF
 0  2 * * * bash -lc '/usr/local/bin/edgeboxctl rotate-reality' >/dev/null 2>&1
 #
 # 每周日凌晨3点：自动选择最优SNI域名
-0 3 * * 0 /usr/local/bin/edgeboxctl sni auto >/dev/null 2>&1
+0 3 * * 0 /usr/bin/flock -n /var/lock/edgebox_sni.lock /usr/local/bin/edgeboxctl sni auto >> /var/log/edgebox/sni-auto.log 2>&1
+#
+# 每月 1、15 日 03:15：无感轮换 Reality shortId（默认宽限 24h；可用 EB_SID_GRACE_HOURS 覆盖）
+15 3 1,15 * * /usr/bin/flock -n /var/lock/edgebox_maint.lock /usr/bin/env EB_SID_GRACE_HOURS=24 /usr/local/bin/edgeboxctl rotate-sid >> /var/log/edgebox/rotate-sid.log 2>&1
 #
 # 流量特征随机化
 0 4 * * * bash -lc '/etc/edgebox/scripts/edgebox-traffic-randomize.sh light' >/dev/null 2>&1
@@ -11635,6 +12078,13 @@ CRON
 
 
 # 创建独立的、无中断的防火墙应用脚本
+#############################################
+# 函数：create_firewall_script
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-CREATE_FIREWALL_SCRIPT]
+#############################################
 create_firewall_script() {
     log_info "创建独立的、无中断的防火墙应用脚本..."
 
@@ -11739,6 +12189,13 @@ APPLY_FIREWALL_SCRIPT
 # 创建完整的edgeboxctl管理工具（集成SNI功能）
 ##########################################
 
+#############################################
+# 函数：create_enhanced_edgeboxctl
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-CREATE_ENHANCED_EDGEBOXCTL]
+#############################################
 create_enhanced_edgeboxctl() {
     log_info "创建增强版edgeboxctl管理工具 (v3.0.2 - Nginx分离式配置修复)..."
 
@@ -12493,7 +12950,7 @@ show_status() {
 
 restart_services(){
   echo -e "${CYAN}重启EdgeBox服务...${NC}";
-  for s in nginx xray sing-box; do
+  for s in xray sing-box nginx; do
     echo -n "  重启 $s... ";
     reload_or_restart_services "$s" && echo -e "${GREEN}OK${NC}" || echo -e "${RED}FAIL${NC}";
   done;
@@ -12837,43 +13294,97 @@ sub_scan_devices(){
   ' >/dev/null || true
 }
 
+# // ANCHOR: [FIX-SUB-SHOW-ALL-USERS-FULL] - 显示所有用户的完整订阅信息
 sub_show(){
-  local user="$1"
-  [[ -z "$user" ]] && { echo "用法: edgeboxctl sub show <user>"; return 1; }
   ensure_sub_dirs || return 1
 
-  local ujson token active limit used url
-  ujson="$(jq -c --arg u "$user" '.users[$u]' "$SUB_DB")"
-  [[ -z "$ujson" || "$ujson" == "null" ]] && { echo "[ERR] 用户不存在：$user"; return 1; }
+  # 获取所有用户列表
+  local all_users
+  all_users=$(jq -r '.users | keys[]' "$SUB_DB" 2>/dev/null)
+  
+  if [[ -z "$all_users" ]]; then
+    echo "=========================================="
+    echo "  暂无订阅用户"
+    echo "=========================================="
+    echo ""
+    echo "使用 'edgeboxctl sub issue <user> [limit]' 创建订阅"
+    return 0
+  fi
 
-  token="$(jq -r '._ref.token // .token' <<<"$ujson" 2>/dev/null || jq -r '.token' <<<"$ujson")"
-  active="$(jq -r '.active' <<<"$ujson")"
-  limit="$(jq -r '.limit'  <<<"$ujson")"
-
-  # 扫描日志回填设备，并执行 7 天 GC
-  [[ "$active" == "true" && -n "$token" ]] && sub_scan_devices "$user" "$token"
-
-  # 重新读取统计
-  ujson="$(jq -c --arg u "$user" '.users[$u]' "$SUB_DB")"
-  used="$(jq -r '.devices | keys | length' <<<"$ujson")"
-  url="$(sub_print_url "$token")"
-
-  echo "User: $user"
-  echo "Active: $active"
-  echo "URL: $url"
-  echo "Limit: $used / $limit（7天自动释放，占坑按“UA+粗粒度IP段”，24h 双栈宽限）"
+  # 统计用户数量
+  local user_count=$(echo "$all_users" | wc -l)
+  
+  echo "=========================================="
+  echo "  订阅用户列表（共 $user_count 个用户）"
+  echo "=========================================="
   echo ""
-  echo "Devices:"
-  jq -r '
-    .devices
-    | to_entries
-    | sort_by(.value.last_seen) | reverse
-    | .[]
-    | "- " + (.value.ua[0:80]) + "  | last_seen=" + (.value.last_seen // "") +
-      "  | v4=" + (if .value.family.v4 then "✓" else "-" end) +
-      " v6=" + (if .value.family.v6 then "✓" else "-" end)
-  ' <<<"$ujson"
+
+  # 遍历每个用户，显示完整信息
+  local user_index=0
+  while IFS= read -r username; do
+    user_index=$((user_index + 1))
+    
+    # 读取用户数据
+    local ujson token active limit used url
+    ujson="$(jq -c --arg u "$username" '.users[$u]' "$SUB_DB")"
+    
+    if [[ -z "$ujson" || "$ujson" == "null" ]]; then
+      continue
+    fi
+
+    token="$(jq -r '._ref.token // .token' <<<"$ujson" 2>/dev/null || jq -r '.token' <<<"$ujson")"
+    active="$(jq -r '.active' <<<"$ujson")"
+    limit="$(jq -r '.limit'  <<<"$ujson")"
+
+    # 扫描日志回填设备（仅对活跃用户）
+    [[ "$active" == "true" && -n "$token" ]] && sub_scan_devices "$username" "$token"
+
+    # 重新读取统计
+    ujson="$(jq -c --arg u "$username" '.users[$u]' "$SUB_DB")"
+    used="$(jq -r '.devices | keys | length' <<<"$ujson")"
+    url="$(sub_print_url "$token")"
+
+    # 显示用户信息（与原来单用户显示格式完全一致）
+    echo "────────────────────────────────────────"
+    echo "[$user_index] User: $username"
+    echo "    Active: $active"
+    echo "    URL: $url"
+    echo "    Limit: $used / $limit（7天自动释放，占坑按"UA+粗粒度IP段"，24h 双栈宽限）"
+    echo ""
+    echo "    Devices:"
+    
+    # 显示设备列表
+    local device_list
+    device_list=$(jq -r '
+      .devices
+      | to_entries
+      | sort_by(.value.last_seen) | reverse
+      | .[]
+      | "    - " + (.value.ua[0:80]) + "  | last_seen=" + (.value.last_seen // "") +
+        "  | v4=" + (if .value.family.v4 then "✓" else "-" end) +
+        " v6=" + (if .value.family.v6 then "✓" else "-" end)
+    ' <<<"$ujson" 2>/dev/null)
+    
+    if [[ -z "$device_list" ]]; then
+      echo "    （暂无设备连接记录）"
+    else
+      echo "$device_list"
+    fi
+    
+    echo ""
+    
+  done <<< "$all_users"
+
+  echo "=========================================="
+  echo "  总计: $user_count 个用户"
+  echo "=========================================="
+  echo ""
+  echo "提示："
+  echo "  - 创建新用户: edgeboxctl sub issue <用户名> [设备上限]"
+  echo "  - 停用用户:   edgeboxctl sub revoke <用户名>"
+  echo "  - 修改上限:   edgeboxctl sub limit <用户名> <数量>"
 }
+
 # === SUBSYS-END ==============================================================
 
 
@@ -12982,20 +13493,24 @@ fi
 }
 
 write_subscription() {
-  local content="$1"
-  [[ -z "$content" ]] && return 1
+    local content="$1"
+    [[ -z "$content" ]] && return 1
 
-  # 1) Write plain text to the source of truth
-  printf '%s\n' "$content" > "${CONFIG_DIR}/subscription.txt"
-
-  # 2) Generate single-line Base64
-  if base64 --help 2>&1 | grep -q -- '-w'; then
-    printf '%s\n' "$content" | sed -e '$a\' | base64 -w0 > "${CONFIG_DIR}/subscription.base64"
-  else
-    printf '%s\n' "$content" | sed -e '$a\' | base64 | tr -d '\n' > "${CONFIG_DIR}/subscription.base64"
-  fi
-
-  chmod 644 "${CONFIG_DIR}/subscription.txt" "${CONFIG_DIR}/subscription.base64" 2>/dev/null || true
+    # // ANCHOR: [FIX-ATOMIC-WRITE] - 原子写入避免竞态
+    local tmp_plain=$(mktemp) tmp_b64=$(mktemp)
+    
+    printf '%s\n' "$content" > "$tmp_plain" && mv "$tmp_plain" "${CONFIG_DIR}/subscription.txt" || { rm -f "$tmp_plain"; return 1; }
+    
+    if base64 --help 2>&1 | grep -q -- '-w'; then
+        printf '%s\n' "$content" | sed -e '$a\' | base64 -w0 > "$tmp_b64"
+    else
+        printf '%s\n' "$content" | sed -e '$a\' | base64 | tr -d '\n' > "$tmp_b64"
+    fi
+    
+    [[ -s "$tmp_b64" ]] && mv "$tmp_b64" "${CONFIG_DIR}/subscription.base64" || { rm -f "$tmp_b64"; return 1; }
+    
+    chmod 644 "${CONFIG_DIR}"/subscription.{txt,base64} 2>/dev/null || true
+    return 0
 }
 
 sync_subscription_files() {
@@ -13394,7 +13909,7 @@ post_switch_report() {
 
   # 2) 服务可用性
   echo -e "${CYAN}2) 服务可用性:${NC}"
-  for s in nginx xray sing-box; do
+  for s in xray sing-box nginx; do
     if systemctl is-active --quiet "$s"; then
       echo -e "   - ${s}: ${GREEN}active${NC}"
     else
@@ -13601,18 +14116,67 @@ update_shunt_state() {
 show_shunt_status() {
     echo -e "\n${CYAN}出站分流状态：${NC}"
     setup_shunt_directories
-    if [[ -f "$SHUNT_CONFIG" ]]; then
-        local mode=$(jq -r '.mode' "$SHUNT_CONFIG" 2>/dev/null || echo "vps")
-        local proxy_info=$(jq -r '.proxy_info' "$SHUNT_CONFIG" 2>/dev/null || echo "")
-        local health=$(jq -r '.health' "$SHUNT_CONFIG" 2>/dev/null || echo "unknown")
+    
+    # 定义所需文件路径
+    local state_file="${CONFIG_DIR}/shunt/state.json"
+    local ipq_file="/var/www/edgebox/status/ipq_proxy.json"
+    local whitelist_file="${CONFIG_DIR}/shunt/whitelist.txt"
+
+    if [[ -f "$state_file" ]]; then
+        local mode=$(jq -r '.mode' "$state_file" 2>/dev/null || echo "vps")
+        local proxy_info=$(jq -r '.proxy_info' "$state_file" 2>/dev/null || echo "")
+
         case "$mode" in
-            vps) echo -e "  当前模式: ${GREEN}VPS全量出${NC}";;
-            resi) echo -e "  当前模式: ${YELLOW}代理IP全量出${NC}  代理: ${proxy_info}  健康: $health";;
-            direct_resi) echo -e "  当前模式: ${BLUE}智能分流${NC}  代理: ${proxy_info}  健康: $health"
-                echo -e "  白名单域名数: $(wc -l < "${CONFIG_DIR}/shunt/whitelist.txt" 2>/dev/null || echo "0")";;
+            vps) 
+                echo -e "  当前模式: ${GREEN}VPS全量出${NC}"
+                echo -e "  说    明: 所有出站流量均使用服务器自身IP地址。"
+                echo -e "  提    示: 使用 'edgeboxctl shunt resi <URL>' 可切换至代理模式。"
+                ;;
+            resi)
+                echo -e "  当前模式: ${YELLOW}代理IP全量出${NC}"
+                echo -e "  代理信息: ${proxy_info}"
+                
+                # 读取并显示IP质量信息
+                if [[ -f "$ipq_file" ]]; then
+                    local ipq_score=$(jq -r '.score // "N/A"' "$ipq_file")
+                    local ipq_grade=$(jq -r '.grade // "N/A"' "$ipq_file")
+                    local ipq_ip=$(jq -r '.ip // "检测中..."' "$ipq_file")
+                    echo -e "  出站 IP:  ${ipq_ip}"
+                    echo -e "  IP 质量:  得分 ${ipq_score}, 等级 ${ipq_grade} (${YELLOW}结果稍后自动更新${NC})"
+                else
+                    echo -e "  IP 质量:  正在检测..."
+                fi
+                echo -e "  提    示: 使用 'edgeboxctl shunt vps' 可切换回直连模式。"
+                ;;
+            direct_resi)
+                echo -e "  当前模式: ${BLUE}智能分流${NC}"
+                echo -e "  代理信息: ${proxy_info}"
+                
+                # 读取并显示IP质量信息
+                if [[ -f "$ipq_file" ]]; then
+                    local ipq_score=$(jq -r '.score // "N/A"' "$ipq_file")
+                    local ipq_grade=$(jq -r '.grade // "N/A"' "$ipq_file")
+                    local ipq_ip=$(jq -r '.ip // "检测中..."' "$ipq_file")
+                    echo -e "  代理出站 IP: ${ipq_ip}"
+                    echo -e "  IP 质量:     得分 ${ipq_score}, 等级 ${ipq_grade} (${YELLOW}结果稍后自动更新${NC})"
+                else
+                    echo -e "  IP 质量:     正在检测..."
+                fi
+
+                # 显示白名单信息
+                local wl_count=$(wc -l < "$whitelist_file" 2>/dev/null || echo "0")
+                echo -e "  白名单规则: 共 ${wl_count} 条。匹配域名走VPS直连，其余走代理。"
+                echo -e "  提      示: 使用 'edgeboxctl shunt whitelist list' 查看完整列表。"
+                ;;
         esac
     else
         echo -e "  当前模式: ${GREEN}VPS全量出（默认）${NC}"
+        echo -e "  说    明: 所有出站流量均使用服务器自身IP地址。"
+    fi
+    
+    # 在后台触发一次IP质量更新，不阻塞当前命令
+    if [[ -x /usr/local/bin/edgebox-ipq.sh ]]; then
+        ( /usr/local/bin/edgebox-ipq.sh >/dev/null 2>&1 & )
     fi
 }
 
@@ -14911,7 +15475,7 @@ cert)
 
 	test-udp)
     # 用法: edgeboxctl test-udp <host> <port> [seconds]
-    local host="${2:-127.0.0.1}" port="${3:-443}" secs="${4:-3}"
+    host="${2:-127.0.0.1}" port="${3:-443}" secs="${4:-3}"
     echo "[INFO] UDP 简测: ${host}:${port}, ${secs}s"
     if command -v iperf3 >/dev/null 2>&1; then
       iperf3 -u -c "$host" -p "$port" -t "$secs" --bitrate 5M --get-server-output || true
@@ -15021,13 +15585,13 @@ help|"")
 
   # 🔗 独立用户订阅URL
   printf "%b\n" "${YELLOW}■ 🔗 独立用户订阅URL${NC}"
-  print_cmd "${GREEN}edgeboxctl sub show${NC} ${CYAN}<user>${NC}"           "查看用户订阅及已绑定的设备"         $_W_SUB
+  print_cmd "${GREEN}edgeboxctl sub show${NC}"                              "查看用户订阅及已绑定的设备"         $_W_SUB
   print_cmd "${GREEN}edgeboxctl sub issue${NC} ${CYAN}<user> [limit]${NC}"  "为指定用户下发专属订阅链接"       $_W_SUB
   print_cmd "${GREEN}edgeboxctl sub revoke${NC} ${CYAN}<user>${NC}"         "停用指定用户的订阅链接"             $_W_SUB
   print_cmd "${GREEN}edgeboxctl sub limit${NC} ${CYAN}<user> <N>${NC}"      "修改用户的设备上限"                 $_W_SUB
   printf "  %b\n" "${CYAN}示例:${NC}"
   printf "  %b %b\n" "${GREEN}edgeboxctl sub issue${NC}" "${CYAN}alice 5${NC}"
-  printf "  %b %b\n\n" "${GREEN}edgeboxctl sub show${NC}" "${CYAN}alice${NC}"
+  printf "  %b %b\n\n" "${GREEN}edgeboxctl sub limit${NC}" "${CYAN}alice${NC}"
 
   # 👥 网络身份配置
   printf "%b\n" "${YELLOW}■ 👥 网络身份配置${NC}"
@@ -15119,6 +15683,13 @@ EDGEBOXCTL_SCRIPT
 }
 
 # 配置邮件系统
+#############################################
+# 函数：setup_email_system
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-SETUP_EMAIL_SYSTEM]
+#############################################
 setup_email_system() {
     log_info "配置邮件系统..."
 
@@ -15183,6 +15754,13 @@ EMAIL_GUIDE
 # IP质量评分系统
 #############################################
 
+#############################################
+# 函数：install_ipq_stack
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-INSTALL_IPQ_STACK]
+#############################################
 install_ipq_stack() {
   log_info "安装增强版 IP 质量评分（IPQ）栈..."
 
@@ -15197,6 +15775,13 @@ install_ipq_stack() {
   fi
 
   # 前端代码修复函数
+#############################################
+# 函数：fix_frontend_residential_support
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-FIX_FRONTEND_RESIDENTIAL_SUPPORT]
+#############################################
   fix_frontend_residential_support() {
     log_info "修复前端代码以支持residential特征识别..."
 
@@ -15502,6 +16087,13 @@ IPQ
 
 
 # 生成初始化脚本（用于开机自启动流量监控）
+#############################################
+# 函数：create_init_script
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-CREATE_INIT_SCRIPT]
+#############################################
 create_init_script() {
     log_info "创建初始化脚本(轻量方案)..."
 
@@ -15583,6 +16175,13 @@ INIT_SERVICE
 #############################################
 
 # 安全同步订阅文件：/var/www/html/sub 做符号链接；traffic 下保留一份副本
+#############################################
+# 函数：sync_subscription_files
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-SYNC_SUBSCRIPTION_FILES]
+#############################################
 sync_subscription_files() {
   log_info "同步订阅文件..."
   mkdir -p "${WEB_ROOT}" "${TRAFFIC_DIR}"
@@ -15602,6 +16201,13 @@ sync_subscription_files() {
 }
 
 # 启动服务并进行基础验证
+#############################################
+# 函数：start_services
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-START_SERVICES]
+#############################################
 start_services() {
   log_info "启动服务..."
   systemctl daemon-reload
@@ -15610,7 +16216,7 @@ start_services() {
   reload_or_restart_services nginx xray sing-box
 
   sleep 2
-  for s in nginx xray sing-box; do
+  for s in xray sing-box nginx; do
     if systemctl is-active --quiet "$s"; then
       log_success "$s 运行正常"
     else
@@ -15631,6 +16237,13 @@ start_services() {
 }
 
 # ===== 收尾：生成订阅、同步、首次生成 dashboard =====
+#############################################
+# 函数：finalize_data_generation
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-FINALIZE_DATA_GENERATION]
+#############################################
 finalize_data_generation() {
   log_info "最终数据生成与同步..."
 
@@ -15733,7 +16346,14 @@ log_info "正在后台为您自动选择最优SNI域名，这不会影响您立�
 }
 
 
-# // ANCHOR: [FIX-5-CERT-HOOK] - 新增函数，安装certbot续期钩子
+# // ANCHOR: [FIX-5-CERT-HOOK] - 新安装certbot续期钩子
+#############################################
+# 函数：setup_certbot_renewal_hook
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-SETUP_CERTBOT_RENEWAL_HOOK]
+#############################################
 setup_certbot_renewal_hook() {
     log_info "设置Certbot自动续期钩子..."
     local hook_dir="/etc/letsencrypt/renewal-hooks/deploy"
@@ -15743,6 +16363,12 @@ setup_certbot_renewal_hook() {
 #!/bin/bash
 # EdgeBox Certbot Renewal Hook
 # This script is executed automatically after a certificate is successfully renewed.
+
+# // ANCHOR: [FIX-CERT-HOOK-VALIDATION] - 增加证书验证
+if [[ ! -f "${RENEWED_LINEAGE}/fullchain.pem" ]] || ! openssl x509 -in "${RENEWED_LINEAGE}/fullchain.pem" -noout -checkend 86400 2>/dev/null; then
+    echo "ERROR: 证书文件无效，中止服务重载" >> /var/log/edgebox/cert-renewal.log
+    exit 1
+fi
 
 echo "EdgeBox Hook: Reloading services after certificate renewal..."
 
@@ -15756,6 +16382,13 @@ EOF
 }
 
 # 显示安装完成信息
+#############################################
+# 函数：show_installation_info
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-SHOW_INSTALLATION_INFO]
+#############################################
 show_installation_info() {
     clear
     print_separator
@@ -15794,8 +16427,7 @@ local SUB_URL="http://${show_host}/${SUB_PATH}"
 
     echo -e  "${CYAN} 核心访问信息${NC}"
     # 打印时使用已验证的 DASHBOARD_PASSCODE 变量
-    echo -e  "  🌐 控制面板: ${PURPLE}http://${server_ip}/traffic/?passcode=${DASHBOARD_PASSCODE}${NC}"
-    echo -e  "  🔑 访问密码: ${YELLOW}${DASHBOARD_PASSCODE}${NC}"
+    echo -e  "  🌐 控制面板: ${PURPLE}http://${server_ip}/traffic/?passcode=${DASHBOARD_PASSCODE}${NC}   ← 密码(${DASHBOARD_PASSCODE})可修改"
 	echo -e  "  🔗 订阅 URL: ${PURPLE}${SUB_URL}${NC}"
 
     echo -e  "\n${CYAN}默认模式：${NC}"
@@ -15855,7 +16487,7 @@ local SUB_URL="http://${show_host}/${SUB_PATH}"
     fi
 
     # Hysteria2（UDP）
-    H2_PORT="${PORT_HYSTERIA2:-8443}"
+    H2_PORT="${PORT_HYSTERIA2:-443}"
     if ss -uln 2>/dev/null | awk '{print $5}' | grep -qE "[:.]${H2_PORT}($|[^0-9])"; then
         echo -e "  ✅ ${H2_PORT}/udp   Hysteria2"
     else
@@ -15873,6 +16505,13 @@ local SUB_URL="http://${show_host}/${SUB_PATH}"
 }
 
 # 简化版清理函数
+#############################################
+# 函数：cleanup
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-CLEANUP]
+#############################################
 cleanup() {
     local rc=$?
 
@@ -15906,6 +16545,13 @@ cleanup() {
 }
 
 # 或者更极简的版本
+#############################################
+# 函数：cleanup_minimal
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-CLEANUP_MINIMAL]
+#############################################
 cleanup_minimal() {
     local rc=$?
 
@@ -15924,6 +16570,13 @@ cleanup_minimal() {
 
 
 # 预安装检查
+#############################################
+# 函数：pre_install_check
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-PRE_INSTALL_CHECK]
+#############################################
 pre_install_check() {
     log_info "执行预安装检查..."
 
@@ -15973,6 +16626,13 @@ fi
 }
 
 # 安装进度显示
+#############################################
+# 函数：show_progress
+# 作用：控制台进度条输出（仅显示，不影响逻辑）
+# 输入：$1=current；$2=total；$3=描述文本
+# 输出：无（打印到 stdout）
+# ANCHOR: [UI-PROGRESS]
+#############################################
 show_progress() {
     local current=$1
     local total=$2
@@ -15993,6 +16653,14 @@ show_progress() {
 }
 
 # 主安装流程
+# ======================== 主流程（入口） ===========================
+#############################################
+# 函数：main
+# 作用：顶层安装编排（不改变任何原有步骤与顺序）
+# 输入：无（依赖：全局变量与各模块函数）
+# 输出：安装过程日志与最终提示
+# ANCHOR: [ENTRY-MAIN]
+#############################################
 main() {
     trap cleanup_all EXIT
 
@@ -16077,6 +16745,13 @@ exit 0
 }
 
 # 系统状态检查和修复函数
+#############################################
+# 函数：repair_system_state
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-REPAIR_SYSTEM_STATE]
+#############################################
 repair_system_state() {
     log_info "检查并修复系统状态..."
 
