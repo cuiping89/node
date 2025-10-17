@@ -3921,6 +3921,7 @@ log_info "└─ regenerate_subscription()  # 重新生成订阅"
 #############################################
 
 # 创建完整的dashboard-backend.sh脚本
+
 create_dashboard_backend() {
     log_info "生成Dashboard后端数据采集脚本..."
 
@@ -4747,85 +4748,24 @@ generate_system_data() {
 #############################################
 
 # 主函数
-#############################################
-# 函数：main
-# 用途：顶层安装编排；顺序、调用点与输出与原版一致。
-#############################################
 main() {
-    trap cleanup_all EXIT
-
-    # clear
-
-    echo -e "${GREEN}EdgeBox 企业级安装脚本 v3.0.0${NC}"
-    print_separator
-
-    export EDGEBOX_VER="3.0.0"
-    mkdir -p "$(dirname "${LOG_FILE}")" && touch "${LOG_FILE}"
-
-    log_info "开始执行完整安装流程..."
-
-    # --- 模块1: 基础环境准备 ---
-    show_progress 1 10 "系统环境检查"
-    pre_install_check
-    check_root
-    check_system
-    install_dependencies
-
-    show_progress 2 10 "网络与目录配置"
-    get_server_ip
-    setup_directories
-    setup_sni_pool_management
-    check_ports
-    setup_firewall_rollback
-    configure_firewall
-    optimize_system
-
-    # --- 模块2: 凭据与证书生成 ---
-    show_progress 3 10 "生成安全凭据和证书"
-    execute_module2 || { log_error "模块2执行失败"; exit 1; }
-
-    # --- 模块3: 核心组件安装与配置 ---
-    show_progress 4 10 "安装核心组件 (Xray, sing-box)"
-    install_xray
-    install_sing_box
-
-    show_progress 5 10 "配置服务 (Xray, sing-box, Nginx)"
-    configure_xray
-    configure_sing_box
-    configure_nginx
-
-    # --- 模块4: 后台、监控与运维工具 ---
-    show_progress 6 10 "安装后台面板和监控脚本"
-    execute_module4 || { log_error "模块4执行失败"; exit 1; }
-
-    if ! setup_traffic_randomization; then
-        log_error "流量特征随机化系统设置失败"
-        exit 1
-    fi
-
-    # --- 最终阶段: 启动、验证与数据生成 ---
-    show_progress 8 10 "生成订阅链接"
-    generate_subscription
-
-    show_progress 9 10 "启动并验证所有服务"
-    start_and_verify_services || { log_error "服务未能全部正常启动，请检查日志"; exit 1; }
-
-    show_progress 10 10 "最终数据生成与同步"
-    finalize_data_generation
-
-    # // ANCHOR: [FIX-5-CERT-HOOK] - 调用钩子安装函数
-    setup_certbot_renewal_hook
-
-    # 显示安装信息
-    show_installation_info
-
-    echo
-    echo -e "${GREEN}🌐 EdgeBox-企业级多协议节点 v${EDGEBOX_VER} 安装成功完成！🎉🎉🎉${NC}"
-    echo
+    case "$1" in
+        --now)
+            generate_dashboard_data
+            generate_system_data
+            ;;
+        --schedule|*)
+            generate_dashboard_data
+            generate_system_data
+            collect_notifications
+            ;;
+    esac
 }
 
-# 执行主函数
-main "$@"
+# 脚本执行入口
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
 DASHBOARD_BACKEND_SCRIPT
 
     # 设置脚本权限
@@ -5773,7 +5713,7 @@ generate_detail_message() {
             ;;
         listening_unverified)
             ### [修改点] 优化提示文案 ###
-            message="🟡 服务监听中 (可连接)"
+            message="🟡 服务监听中(可连接)"
             ;;
         degraded)
             reason_label="$(map_failure_reason "$failure_reason")"
@@ -6027,83 +5967,15 @@ generate_health_report() {
 
 
 # ==================== 主函数 ====================
-#############################################
-# 函数：main
-# 用途：顶层安装编排；顺序、调用点与输出与原版一致。
-#############################################
 main() {
-    trap cleanup_all EXIT
-
-    clear
-
-    echo -e "${GREEN}EdgeBox 企业级安装脚本 v3.0.0${NC}"
-    print_separator
-
-    export EDGEBOX_VER="3.0.0"
-    mkdir -p "$(dirname "${LOG_FILE}")" && touch "${LOG_FILE}"
-
-    log_info "开始执行完整安装流程..."
-
-    # --- 模块1: 基础环境准备 ---
-    show_progress 1 10 "系统环境检查"
-    pre_install_check
-    check_root
-    check_system
-    install_dependencies
-
-    show_progress 2 10 "网络与目录配置"
-    get_server_ip
-    setup_directories
-    setup_sni_pool_management
-    check_ports
-    setup_firewall_rollback
-    configure_firewall
-    optimize_system
-
-    # --- 模块2: 凭据与证书生成 ---
-    show_progress 3 10 "生成安全凭据和证书"
-    execute_module2 || { log_error "模块2执行失败"; exit 1; }
-
-    # --- 模块3: 核心组件安装与配置 ---
-    show_progress 4 10 "安装核心组件 (Xray, sing-box)"
-    install_xray
-    install_sing_box
-
-    show_progress 5 10 "配置服务 (Xray, sing-box, Nginx)"
-    configure_xray
-    configure_sing_box
-    configure_nginx
-
-    # --- 模块4: 后台、监控与运维工具 ---
-    show_progress 6 10 "安装后台面板和监控脚本"
-    execute_module4 || { log_error "模块4执行失败"; exit 1; }
-
-    if ! setup_traffic_randomization; then
-        log_error "流量特征随机化系统设置失败"
-        exit 1
-    fi
-
-    # --- 最终阶段: 启动、验证与数据生成 ---
-    show_progress 8 10 "生成订阅链接"
-    generate_subscription
-
-    show_progress 9 10 "启动并验证所有服务"
-    start_and_verify_services || { log_error "服务未能全部正常启动，请检查日志"; exit 1; }
-
-    show_progress 10 10 "最终数据生成与同步"
-    finalize_data_generation
-
-    # // ANCHOR: [FIX-5-CERT-HOOK] - 调用钩子安装函数
-    setup_certbot_renewal_hook
-
-    # 显示安装信息
-    show_installation_info
-
-    echo
-    echo -e "${GREEN}🌐 EdgeBox-企业级多协议节点 v${EDGEBOX_VER} 安装成功完成！🎉🎉🎉${NC}"
-    echo
+    ensure_log_dir
+    generate_health_report
 }
-main "$@"
+
+# 脚本执行入口
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
 HEALTH_MONITOR_SCRIPT
 
     chmod +x "${SCRIPTS_DIR}/protocol-health-monitor.sh"
@@ -6111,7 +5983,6 @@ HEALTH_MONITOR_SCRIPT
     log_success "✓ 协议健康监控与自愈脚本创建完成"
     return 0
 }
-
 
 #############################################
 # 模块5：流量特征随机化系统
