@@ -1,5 +1,5 @@
 #!/bin/bash
-
+#!/usr/bin/env bash
 #############################################
 # EdgeBox 企业级多协议节点部署脚本 v3.0.0
 # 模块1：脚本头部+基础函数
@@ -2761,6 +2761,14 @@ fi
 # 此函数用于在首次安装时，创建默认的（IP模式）Nginx stream map 配置文件
 # 解决了因文件不存在而导致 Nginx 启动失败的问题
 # 【修复】将此函数定义移至 configure_nginx 之前，以解决 "command not found" 错误
+#############################################
+# 函数：generate_initial_nginx_stream_map
+# 用途：在首次安装时生成默认（IP模式）Nginx stream map 配置，
+#       解决因文件不存在导致的 Nginx 启动失败。
+# 输入：无
+# 输出：/etc/nginx/conf.d/edgebox_stream_map.conf（覆盖写入）
+# 备注：【修复】将此函数定义移至 configure_nginx 之前，避免 "command not found"
+#############################################
 generate_initial_nginx_stream_map() {
     log_info "正在生成 Nginx 初始 stream map 配置文件..."
     local map_conf="/etc/nginx/conf.d/edgebox_stream_map.conf"
@@ -2789,9 +2797,19 @@ map $ssl_preread_server_name $backend_pool {
 EOF
     log_success "Nginx 初始 stream map 已生成: $map_conf"
 }
+EOF
+    log_success "Nginx 初始 stream map 已生成: $map_conf"
+}
 
 
 # // 为Nginx创建systemd依赖
+#############################################
+# 函数：create_nginx_systemd_override
+# 用途：为 Nginx 创建 systemd override，确保在 Xray 与 sing-box 就绪后再启动。
+# 输入：无
+# 输出：/etc/systemd/system/nginx.service.d/edgebox-deps.conf
+# ANCHOR: [FIX-SERVICE-HEALTHCHECK]
+#############################################
 create_nginx_systemd_override() {
     log_info "创建systemd override以强制Nginx依赖..."
     local override_dir="/etc/systemd/system/nginx.service.d"
@@ -2812,10 +2830,17 @@ EOF
 
 
 # 配置Nginx（SNI定向 + ALPN兜底架构）- 最终修复版
+#############################################
+# 函数：configure_nginx
+# 用途：写入 Nginx 主配置（http + stream）与面板密码 map，
+#       生成初始 stream_map，设置 systemd override，并验证/启动 Nginx。
+# 输入：环境变量 DASHBOARD_PASSCODE（可为空）；MASTER_SUB_TOKEN（可为空）
+# 输出：/etc/nginx/nginx.conf 与 /etc/nginx/conf.d/* 若干文件
+#############################################
 configure_nginx() {
     log_info "配置Nginx（SNI定向 + ALPN兜底架构）..."
 
-    # 备份原始配置
+    # 备份原始配置（若存在）
     if [[ -f /etc/nginx/nginx.conf ]]; then
         cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak.$(date +%s)
         log_info "已备份原始Nginx配置"
@@ -2823,7 +2848,7 @@ configure_nginx() {
 
     mkdir -p /etc/nginx/conf.d
 
-    # 生成新的Nginx主配置
+    # --- 写入主配置：HTTP 与 STREAM ---
     cat > /etc/nginx/nginx.conf << 'NGINX_CONFIG'
 # EdgeBox Nginx 配置文件 v3.0.4 (Stream Logic Final Fix)
 # 架构：SNI定向 + ALPN兜底 + 单端口复用
@@ -2833,10 +2858,188 @@ worker_processes auto;
 pid /run/nginx.pid;
 include /etc/nginx/modules-enabled/*.conf;
 
+# ---------------- events ----------------
 events {
     worker_connections 1024;
     use epoll;
     multi_accept on;
+}
+
+# ---------------- http ------------------
+http {
+    include       /etc/nginx/mime.types;
+    default_type  application/octet-stream;
+    include /etc/nginx/conf.d/edgebox_passcode.conf;
+
+    # 面板访问控制（查询参数/Cookie 双机制）
+    map $arg_passcode $arg_present { default 0; ~.+ 1; }
+    map $cookie_ebp $cookie_ok   { default 0; "1" 1; }
+    map "$arg_present:$pass_ok" $bad_try      { default 0; "1:0" 1; "1:1" 0; }
+    map "$bad_try:$pass_ok:$cookie_ok" $deny_traffic { default 1; "0:1:0" 0; "0:0:1" 0; "0:1:1" 0; }
+    map $pass_ok $set_cookie { 1 "ebp=1; Path=/traffic/; HttpOnly; SameSite=Lax; Max-Age=86400"; 0 ""; }
+
+    # 访问日志与错误日志
+    log_format main '$remote_addr - $remote_user [$time_local] "$request_method $uri $server_protocol" $status $body_bytes_sent "$http_referer" "$http_user_agent"';
+    access_log /var/log/nginx/access.log main;
+    error_log  /var/log/nginx/error.log warn;
+
+    # 基本优化
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+    keepalive_timeout 65;
+    types_hash_max_size 2048;
+    server_tokens off;
+
+    # 80 端口：面板、订阅与状态
+    server {
+        listen 80 default_server;
+        listen [::]:80 default_server;
+        server_name _;
+
+        # 根路径跳转到 /traffic/
+        location = / { return 302 /traffic/; }
+
+        # 订阅（可被高熵路径替换）
+        location = /sub {
+            default_type text/plain;
+            add_header Cache-Control "no-store, no-cache, must-revalidate";
+            root /var/www/html;
+            try_files /sub =404;
+        }
+
+        # 共享文本（/var/www/html/share/*）
+        location ^~ /share/ {
+            default_type text/plain;
+            add_header Cache-Control "no-store, no-cache, must-revalidate";
+            root /var/www/html;
+            try_files $uri =404;
+        }
+
+        # 面板访问控制：非法则 403
+        location = /_deny_traffic { internal; return 403; }
+
+        # 面板（受 map 控制）
+        location ^~ /traffic/ {
+            error_page 418 = /_deny_traffic;
+            if ($deny_traffic) { return 418; }
+            add_header Set-Cookie $set_cookie;
+            alias /etc/edgebox/traffic/;
+            index index.html;
+        }
+
+        # 状态信息
+        location ^~ /status/ {
+            alias /var/www/edgebox/status/;
+            add_header Content-Type "application/json; charset=utf-8";
+        }
+
+        # 存活探针
+        location = /health { return 200 "OK
+"; }
+    }
+}
+
+# ---------------- stream ----------------
+stream {
+    error_log /var/log/nginx/stream.log warn;
+
+    # 1) SNI -> 初步目标（由外部文件提供）
+    include /etc/nginx/conf.d/edgebox_stream_map.conf;
+
+    # 2) 第一级决策：若 SNI 匹配到池名则直接使用，否则进入 ALPN 检查
+    map $backend_pool $decision_1 {
+        default $backend_pool;   # SNI 命中：reality/grpc/websocket/trojan
+        ""      "check_alpn";  # 未命中：进入 ALPN 决策
+    }
+
+    # 3) 第二级决策（仅当需要检查 ALPN）
+    map $ssl_preread_alpn_protocols $decision_2 {
+        ~h2         "grpc";      # h2 认为是 gRPC
+        ~http/1\.1  "websocket"; # http/1.1 认为是 WebSocket
+        default          "reality";   # 其他/缺省：回落 Reality
+    }
+
+    # 4) 最终仲裁：决定最终目标
+    map $decision_1 $final_target {
+        "check_alpn"    $decision_2;
+        default          $decision_1;
+    }
+
+    # 5) 目标 -> 上游端口映射
+    map $final_target $final_upstream {
+        reality     127.0.0.1:11443;
+        trojan      127.0.0.1:10143;
+        grpc        127.0.0.1:10085;
+        websocket   127.0.0.1:10086;
+        default     127.0.0.1:11443; # 终极兜底
+    }
+
+    server {
+        listen 443 reuseport;
+        listen [::]:443 reuseport;
+        ssl_preread on;
+        proxy_pass $final_upstream;
+        proxy_timeout 300s;
+        proxy_connect_timeout 5s;
+    }
+}
+NGINX_CONFIG
+
+    # --- 写入面板密码 map（独立文件，便于轮换） ---
+    log_info "生成并注入控制面板密码..."
+    local passcode_conf="/etc/nginx/conf.d/edgebox_passcode.conf"
+    if [[ -n "$DASHBOARD_PASSCODE" ]]; then
+        cat > "$passcode_conf" << EOF
+# 由 EdgeBox 自动生成于 $(date)
+map \$arg_passcode \$pass_ok {
+    "${DASHBOARD_PASSCODE}" 1;
+    default 0;
+}
+EOF
+        log_success "密码配置文件已生成: ${passcode_conf}"
+    else
+        cat > "$passcode_conf" << 'EOF'
+# [WARN] 未生成密码，默认拒绝所有访问
+map $arg_passcode $pass_ok {
+    default 0;
+}
+EOF
+        log_warn "DASHBOARD_PASSCODE 为空，面板访问将被默认拒绝。"
+    fi
+
+    # 生成初始 stream_map（调用位置保持在此）
+    generate_initial_nginx_stream_map
+
+    # 创建 systemd override（确保依赖）
+    create_nginx_systemd_override
+
+    # 高熵订阅路径注入（若提供 MASTER_SUB_TOKEN）
+    if [[ -n "$MASTER_SUB_TOKEN" ]]; then
+        sed -ri 's#(location[[:space:]]*=[[:space:]]*)/sub([[:space:]]*\{)#\1/sub-'"${MASTER_SUB_TOKEN}"'\2#' /etc/nginx/nginx.conf
+        sed -ri 's#(try_files[[:space:]]*)/sub([[:space:]]*=404;)#\1/sub-'"${MASTER_SUB_TOKEN}"'\2#' /etc/nginx/nginx.conf
+    fi
+
+    # 配置校验与（重载|重启|启动）
+    log_info "验证Nginx配置."
+    if nginx -t 2>&1 | grep -q "syntax is ok"; then
+        log_success "Nginx配置验证通过"
+        if systemctl is-active --quiet nginx 2>/dev/null; then
+            if systemctl reload nginx 2>/dev/null; then
+                log_success "Nginx 已重载新配置"
+            else
+                log_warn "Nginx reload 失败，尝试重启。"
+                systemctl restart nginx 2>/dev/null && log_success "Nginx 已重启" || log_error "Nginx 重启失败"
+            fi
+        else
+            systemctl enable --now nginx 2>/dev/null && log_success "Nginx 已启动" || log_error "Nginx 启动失败"
+        fi
+    else
+        log_error "Nginx 配置语法错误，请检查 /var/log/nginx/error.log"
+        return 1
+    fi
+
+    return 0
 }
 
 # HTTP 服务器配置
@@ -3707,13 +3910,19 @@ ensure_service_running() {
 
 # [新增函数] 验证端口监听状态
 # --- 统一的端口监听检测 ---
+#############################################
+# 函数：verify_port_listening
+# 用途：统一检测端口监听状态（TCP/UDP）。
+# 输入：$1=端口号；$2=协议 tcp|udp
+# 输出：返回码 0/1
+#############################################
 verify_port_listening() {
-  local port="$1" proto="$2"  # proto = tcp|udp
-  if [[ "$proto" == "udp" ]]; then
-    ss -uln 2>/dev/null | awk '{print $5}' | grep -qE "[:.]${port}($|[^0-9])"
-  else
-    ss -tln 2>/dev/null | awk '{print $4}' | grep -qE "[:.]${port}($|[^0-9])"
-  fi
+    local port="$1" proto="$2"  # proto = tcp|udp
+    if [[ "$proto" == "udp" ]]; then
+        ss -uln 2>/dev/null | awk '{print $5}' | grep -qE "[:.]${port}($|[^0-9])"
+    else
+        ss -tln 2>/dev/null | awk '{print $4}' | grep -qE "[:.]${port}($|[^0-9])"
+    fi
 }
 
 # 使用示例（安装阶段）：
@@ -3727,11 +3936,18 @@ verify_port_listening 2053 udp && log_success "端口 2053 正在监听" || log_
 #############################################
 
 # 执行模块3的所有任务
+#############################################
+# 函数：execute_module3
+# 用途：按顺序安装与配置 Xray / sing-box / Nginx，并生成订阅、快速自检。
+# 输入：无
+# 输出：日志与订阅文件；依赖其他函数：install_* / configure_* / generate_subscription / start_and_verify_services
+#############################################
 execute_module3() {
     log_info "======== 开始执行模块3：服务安装配置 ========"
-	ensure_reverse_ssh   # 一进模块就兜底拉起救生索（若已启用）
 
-    # 任务1：安装Xray
+    ensure_reverse_ssh   # 一进模块就兜底拉起救生索（若已启用）
+
+    # 任务1：安装 Xray
     if install_xray; then
         log_success "✓ Xray安装完成"
     else
@@ -3739,22 +3955,22 @@ execute_module3() {
         return 1
     fi
 
-    # 任务2：安装sing-box
+    # 任务2：安装 sing-box
     if install_sing_box; then
         log_success "✓ sing-box安装完成"
     else
         log_error "✗ sing-box安装失败"
         return 1
     fi
-	
-	# === 安装期一次性 SNI 选择（用于 Xray Reality） ===
-if choose_initial_sni_once; then
-  log_info "REALITY_SNI = ${REALITY_SNI}"
-else
-  log_warn "SNI 选择失败，将使用默认 REALITY_SNI=${REALITY_SNI:-www.microsoft.com}"
-fi
 
-    # 任务3：配置Xray (先配置后端服务)
+    # === 安装期一次性 SNI 选择（用于 Xray Reality） ===
+    if choose_initial_sni_once; then
+        log_info "REALITY_SNI = ${REALITY_SNI}"
+    else
+        log_warn "SNI 选择失败，将使用默认 REALITY_SNI=${REALITY_SNI:-www.microsoft.com}"
+    fi
+
+    # 任务3：配置 Xray（先配置后端服务）
     if configure_xray; then
         log_success "✓ Xray配置完成"
     else
@@ -3762,7 +3978,7 @@ fi
         return 1
     fi
 
-    # 任务4：配置sing-box (再配置后端服务)
+    # 任务4：配置 sing-box（再配置后端服务）
     if configure_sing_box; then
         log_success "✓ sing-box配置完成"
     else
@@ -3770,7 +3986,7 @@ fi
         return 1
     fi
 
-    # 任务5：配置Nginx (最后配置前端代理)
+    # 任务5：配置 Nginx（最后配置前端代理）
     if configure_nginx; then
         log_success "✓ Nginx配置完成"
     else
@@ -3785,14 +4001,15 @@ fi
         log_error "✗ 订阅链接生成失败"
         return 1
     fi
-	
-	log_info "启动前快速端口自检..."
-verify_port_listening 80  tcp || log_warn "80/TCP 未监听 (若仅走443可忽略)"
-verify_port_listening 443 tcp || log_warn "443/TCP 未监听 (Nginx 未就绪?)"
-verify_port_listening 443 udp || log_warn "443/UDP 未监听 (Hysteria2 未开启或失败)"
-verify_port_listening 2053 udp || log_warn "2053/UDP 未监听 (TUIC 未开启或失败)"
 
-    # 任务7：启动和验证服务
+    # 启动前快速端口自检
+    log_info "启动前快速端口自检..."
+    verify_port_listening 80  tcp || log_warn "80/TCP 未监听 (若仅走443可忽略)"
+    verify_port_listening 443 tcp || log_warn "443/TCP 未监听 (Nginx 未就绪?)"
+    verify_port_listening 443 udp || log_warn "443/UDP 未监听 (Hysteria2 未开启或失败)"
+    verify_port_listening 2053 udp || log_warn "2053/UDP 未监听 (TUIC 未开启或失败)"
+
+    # 任务7：启动与验证服务
     if start_and_verify_services; then
         log_success "✓ 服务启动验证通过"
     else
@@ -3800,14 +4017,13 @@ verify_port_listening 2053 udp || log_warn "2053/UDP 未监听 (TUIC 未开启�
         return 1
     fi
 
-
     log_success "======== 模块3执行完成 ========"
     log_info "已完成："
     log_info "├─ Xray多协议服务（Reality、gRPC、WS、Trojan）"
     log_info "├─ sing-box服务（Hysteria2、TUIC）"
     log_info "├─ Nginx分流代理（SNI+ALPN架构）"
     log_info "├─ 订阅链接生成（6种协议）"
-    log_info "├─ 控制面板密码: DASHBOARD_PASSCODE:-未设置}"  # 【新增】
+    log_info "├─ 控制面板密码: DASHBOARD_PASSCODE:-未设置}"
     log_info "└─ 所有服务运行验证"
 
     return 0
@@ -4734,37 +4950,81 @@ generate_system_data() {
 #############################################
 
 # 主函数
+#############################################
+# 函数：main
+# 用途：顶层安装编排；顺序、调用点与输出与原版一致。
+#############################################
 main() {
-    if [[ "${1:-}" == "--notifications-only" ]]; then
-        collect_notifications
-        exit 0
+    trap cleanup_all EXIT
+
+    clear
+
+    echo -e "${GREEN}EdgeBox 企业级安装脚本 v3.0.0${NC}"
+    print_separator
+
+    export EDGEBOX_VER="3.0.0"
+    mkdir -p "$(dirname "${LOG_FILE}")" && touch "${LOG_FILE}"
+
+    log_info "开始执行完整安装流程..."
+
+    # --- 模块1: 基础环境准备 ---
+    show_progress 1 10 "系统环境检查"
+    pre_install_check
+    check_root
+    check_system
+    install_dependencies
+
+    show_progress 2 10 "网络与目录配置"
+    get_server_ip
+    setup_directories
+    setup_sni_pool_management
+    check_ports
+    setup_firewall_rollback
+    configure_firewall
+    optimize_system
+
+    # --- 模块2: 凭据与证书生成 ---
+    show_progress 3 10 "生成安全凭据和证书"
+    execute_module2 || { log_error "模块2执行失败"; exit 1; }
+
+    # --- 模块3: 核心组件安装与配置 ---
+    show_progress 4 10 "安装核心组件 (Xray, sing-box)"
+    install_xray
+    install_sing_box
+
+    show_progress 5 10 "配置服务 (Xray, sing-box, Nginx)"
+    configure_xray
+    configure_sing_box
+    configure_nginx
+
+    # --- 模块4: 后台、监控与运维工具 ---
+    show_progress 6 10 "安装后台面板和监控脚本"
+    execute_module4 || { log_error "模块4执行失败"; exit 1; }
+
+    if ! setup_traffic_randomization; then
+        log_error "流量特征随机化系统设置失败"
+        exit 1
     fi
 
-    case "${1:-}" in
-        --now|--once|update)
-            # 立即执行数据生成
-            generate_dashboard_data
-            generate_system_data
-            ;;
-        --schedule|--install)
-            # 设置定时任务
-            setup_cron_jobs
-            ;;
-        --help|-h)
-            echo "用法: $0 [选项]"
-            echo "选项:"
-            echo "  --now, --once    立即生成Dashboard数据"
-            echo "  --schedule       设置定时任务"
-            echo "  --help          显示帮助信息"
-            ;;
-        *)
-            # 默认执行数据生成
-            generate_dashboard_data
-            generate_system_data
-            ;;
-    esac
-	# 在最后添加通知收集
-    collect_notifications
+    # --- 最终阶段: 启动、验证与数据生成 ---
+    show_progress 8 10 "生成订阅链接"
+    generate_subscription
+
+    show_progress 9 10 "启动并验证所有服务"
+    start_and_verify_services || { log_error "服务未能全部正常启动，请检查日志"; exit 1; }
+
+    show_progress 10 10 "最终数据生成与同步"
+    finalize_data_generation
+
+    # // ANCHOR: [FIX-5-CERT-HOOK] - 调用钩子安装函数
+    setup_certbot_renewal_hook
+
+    # 显示安装信息
+    show_installation_info
+
+    echo
+    echo -e "${GREEN}🌐 EdgeBox-企业级多协议节点 v${EDGEBOX_VER} 安装成功完成！🎉🎉🎉${NC}"
+    echo
 }
 
 # 执行主函数
@@ -5970,11 +6230,81 @@ generate_health_report() {
 
 
 # ==================== 主函数 ====================
+#############################################
+# 函数：main
+# 用途：顶层安装编排；顺序、调用点与输出与原版一致。
+#############################################
 main() {
-    ensure_log_dir
-    log_info "EdgeBox 协议健康监控与自愈系统启动"
-    generate_health_report
-    log_info "协议健康检查与自愈完成"
+    trap cleanup_all EXIT
+
+    clear
+
+    echo -e "${GREEN}EdgeBox 企业级安装脚本 v3.0.0${NC}"
+    print_separator
+
+    export EDGEBOX_VER="3.0.0"
+    mkdir -p "$(dirname "${LOG_FILE}")" && touch "${LOG_FILE}"
+
+    log_info "开始执行完整安装流程..."
+
+    # --- 模块1: 基础环境准备 ---
+    show_progress 1 10 "系统环境检查"
+    pre_install_check
+    check_root
+    check_system
+    install_dependencies
+
+    show_progress 2 10 "网络与目录配置"
+    get_server_ip
+    setup_directories
+    setup_sni_pool_management
+    check_ports
+    setup_firewall_rollback
+    configure_firewall
+    optimize_system
+
+    # --- 模块2: 凭据与证书生成 ---
+    show_progress 3 10 "生成安全凭据和证书"
+    execute_module2 || { log_error "模块2执行失败"; exit 1; }
+
+    # --- 模块3: 核心组件安装与配置 ---
+    show_progress 4 10 "安装核心组件 (Xray, sing-box)"
+    install_xray
+    install_sing_box
+
+    show_progress 5 10 "配置服务 (Xray, sing-box, Nginx)"
+    configure_xray
+    configure_sing_box
+    configure_nginx
+
+    # --- 模块4: 后台、监控与运维工具 ---
+    show_progress 6 10 "安装后台面板和监控脚本"
+    execute_module4 || { log_error "模块4执行失败"; exit 1; }
+
+    if ! setup_traffic_randomization; then
+        log_error "流量特征随机化系统设置失败"
+        exit 1
+    fi
+
+    # --- 最终阶段: 启动、验证与数据生成 ---
+    show_progress 8 10 "生成订阅链接"
+    generate_subscription
+
+    show_progress 9 10 "启动并验证所有服务"
+    start_and_verify_services || { log_error "服务未能全部正常启动，请检查日志"; exit 1; }
+
+    show_progress 10 10 "最终数据生成与同步"
+    finalize_data_generation
+
+    # // ANCHOR: [FIX-5-CERT-HOOK] - 调用钩子安装函数
+    setup_certbot_renewal_hook
+
+    # 显示安装信息
+    show_installation_info
+
+    echo
+    echo -e "${GREEN}🌐 EdgeBox-企业级多协议节点 v${EDGEBOX_VER} 安装成功完成！🎉🎉🎉${NC}"
+    echo
 }
 main "$@"
 HEALTH_MONITOR_SCRIPT
@@ -6356,48 +6686,81 @@ rollback_configuration() {
 }
 
 # 主函数
+#############################################
+# 函数：main
+# 用途：顶层安装编排；顺序、调用点与输出与原版一致。
+#############################################
 main() {
-    local level="${1:-light}"
+    trap cleanup_all EXIT
 
-    # 创建日志目录
-    mkdir -p "$(dirname "$LOG_FILE")"
+    clear
 
-    # 处理 reset 选项
-    if [[ "$level" == "reset" ]]; then
-        log_info "重置协议参数为默认值..."
+    echo -e "${GREEN}EdgeBox 企业级安装脚本 v3.0.0${NC}"
+    print_separator
 
-        # 备份当前配置
-        create_config_backup
+    export EDGEBOX_VER="3.0.0"
+    mkdir -p "$(dirname "${LOG_FILE}")" && touch "${LOG_FILE}"
 
-        # 清理可能存在的不支持字段
-        if [[ -f "${CONFIG_DIR}/sing-box.json" ]] && command -v jq >/dev/null; then
-            jq 'del(.inbounds[].heartbeat)' "${CONFIG_DIR}/sing-box.json" > "${CONFIG_DIR}/sing-box.json.tmp"
+    log_info "开始执行完整安装流程..."
 
-            if [[ -s "${CONFIG_DIR}/sing-box.json.tmp" ]]; then
-                mv "${CONFIG_DIR}/sing-box.json.tmp" "${CONFIG_DIR}/sing-box.json"
-                log_success "配置已清理并重置为默认值"
-            else
-                rm -f "${CONFIG_DIR}/sing-box.json.tmp"
-                log_error "重置配置失败"
-            fi
-        fi
+    # --- 模块1: 基础环境准备 ---
+    show_progress 1 10 "系统环境检查"
+    pre_install_check
+    check_root
+    check_system
+    install_dependencies
 
-        # 重启服务
-        restart_services_safely
+    show_progress 2 10 "网络与目录配置"
+    get_server_ip
+    setup_directories
+    setup_sni_pool_management
+    check_ports
+    setup_firewall_rollback
+    configure_firewall
+    optimize_system
 
-        log_success "协议参数重置完成"
-        exit 0
-    fi
+    # --- 模块2: 凭据与证书生成 ---
+    show_progress 3 10 "生成安全凭据和证书"
+    execute_module2 || { log_error "模块2执行失败"; exit 1; }
 
-    log_info "EdgeBox流量特征随机化开始..."
+    # --- 模块3: 核心组件安装与配置 ---
+    show_progress 4 10 "安装核心组件 (Xray, sing-box)"
+    install_xray
+    install_sing_box
 
-    if execute_traffic_randomization "$level"; then
-        log_success "EdgeBox流量特征随机化成功完成"
-        exit 0
-    else
-        log_error "EdgeBox流量特征随机化失败"
+    show_progress 5 10 "配置服务 (Xray, sing-box, Nginx)"
+    configure_xray
+    configure_sing_box
+    configure_nginx
+
+    # --- 模块4: 后台、监控与运维工具 ---
+    show_progress 6 10 "安装后台面板和监控脚本"
+    execute_module4 || { log_error "模块4执行失败"; exit 1; }
+
+    if ! setup_traffic_randomization; then
+        log_error "流量特征随机化系统设置失败"
         exit 1
     fi
+
+    # --- 最终阶段: 启动、验证与数据生成 ---
+    show_progress 8 10 "生成订阅链接"
+    generate_subscription
+
+    show_progress 9 10 "启动并验证所有服务"
+    start_and_verify_services || { log_error "服务未能全部正常启动，请检查日志"; exit 1; }
+
+    show_progress 10 10 "最终数据生成与同步"
+    finalize_data_generation
+
+    # // ANCHOR: [FIX-5-CERT-HOOK] - 调用钩子安装函数
+    setup_certbot_renewal_hook
+
+    # 显示安装信息
+    show_installation_info
+
+    echo
+    echo -e "${GREEN}🌐 EdgeBox-企业级多协议节点 v${EDGEBOX_VER} 安装成功完成！🎉🎉🎉${NC}"
+    echo
 }
 
 # 脚本执行入口
@@ -15487,18 +15850,81 @@ collect_one(){
        }
      }'
 }
+#############################################
+# 函数：main
+# 用途：顶层安装编排；顺序、调用点与输出与原版一致。
+#############################################
+main() {
+    trap cleanup_all EXIT
 
-main(){
-  collect_one "vps" "" > "${STATUS_DIR}/ipq_vps.json"
-  purl="$(get_proxy_url)"
-  if [[ -n "${purl:-}" && "$purl" != "null" ]]; then
-    pargs="$(build_proxy_args "$purl")"
-    collect_one "proxy" "$pargs" > "${STATUS_DIR}/ipq_proxy.json"
-  else
-    jq -n --arg ts "$(ts)" '{detected_at:$ts,vantage:"proxy",status:"not_configured"}' > "${STATUS_DIR}/ipq_proxy.json"
-  fi
-  jq -n --arg ts "$(ts)" --arg ver "ipq-enhanced-final-3.0" '{last_run:$ts,version:$ver}' > "${STATUS_DIR}/ipq_meta.json"
-  chmod 644 "${STATUS_DIR}"/ipq_*.json 2>/dev/null || true
+    clear
+
+    echo -e "${GREEN}EdgeBox 企业级安装脚本 v3.0.0${NC}"
+    print_separator
+
+    export EDGEBOX_VER="3.0.0"
+    mkdir -p "$(dirname "${LOG_FILE}")" && touch "${LOG_FILE}"
+
+    log_info "开始执行完整安装流程..."
+
+    # --- 模块1: 基础环境准备 ---
+    show_progress 1 10 "系统环境检查"
+    pre_install_check
+    check_root
+    check_system
+    install_dependencies
+
+    show_progress 2 10 "网络与目录配置"
+    get_server_ip
+    setup_directories
+    setup_sni_pool_management
+    check_ports
+    setup_firewall_rollback
+    configure_firewall
+    optimize_system
+
+    # --- 模块2: 凭据与证书生成 ---
+    show_progress 3 10 "生成安全凭据和证书"
+    execute_module2 || { log_error "模块2执行失败"; exit 1; }
+
+    # --- 模块3: 核心组件安装与配置 ---
+    show_progress 4 10 "安装核心组件 (Xray, sing-box)"
+    install_xray
+    install_sing_box
+
+    show_progress 5 10 "配置服务 (Xray, sing-box, Nginx)"
+    configure_xray
+    configure_sing_box
+    configure_nginx
+
+    # --- 模块4: 后台、监控与运维工具 ---
+    show_progress 6 10 "安装后台面板和监控脚本"
+    execute_module4 || { log_error "模块4执行失败"; exit 1; }
+
+    if ! setup_traffic_randomization; then
+        log_error "流量特征随机化系统设置失败"
+        exit 1
+    fi
+
+    # --- 最终阶段: 启动、验证与数据生成 ---
+    show_progress 8 10 "生成订阅链接"
+    generate_subscription
+
+    show_progress 9 10 "启动并验证所有服务"
+    start_and_verify_services || { log_error "服务未能全部正常启动，请检查日志"; exit 1; }
+
+    show_progress 10 10 "最终数据生成与同步"
+    finalize_data_generation
+
+    # // ANCHOR: [FIX-5-CERT-HOOK] - 调用钩子安装函数
+    setup_certbot_renewal_hook
+
+    # 显示安装信息
+    show_installation_info
+
+    echo
+    echo -e "${GREEN}🌐 EdgeBox-企业级多协议节点 v${EDGEBOX_VER} 安装成功完成！🎉🎉🎉${NC}"
+    echo
 }
 
 main "$@"
@@ -15994,6 +16420,10 @@ fi
 }
 
 # 安装进度显示
+#############################################
+# 函数：show_progress
+# 用途：标准化安装进度条输出；保持原有字符构成与百分比算法。
+#############################################
 show_progress() {
     local current=$1
     local total=$2
@@ -16002,7 +16432,8 @@ show_progress() {
     local completed=$((percentage / 2))
     local remaining=$((50 - completed))
 
-    printf "\r${CYAN}安装进度: [${NC}"
+    printf "
+${CYAN}安装进度: [${NC}"
     printf "%${completed}s" | tr ' ' '='
     printf "${GREEN}>${NC}"
     printf "%${remaining}s" | tr ' ' '-'
@@ -16014,6 +16445,10 @@ show_progress() {
 }
 
 # 主安装流程
+#############################################
+# 函数：main
+# 用途：顶层安装编排；顺序、调用点与输出与原版一致。
+#############################################
 main() {
     trap cleanup_all EXIT
 
@@ -16037,9 +16472,9 @@ main() {
     show_progress 2 10 "网络与目录配置"
     get_server_ip
     setup_directories
-	setup_sni_pool_management
+    setup_sni_pool_management
     check_ports
-	setup_firewall_rollback
+    setup_firewall_rollback
     configure_firewall
     optimize_system
 
@@ -16057,14 +16492,14 @@ main() {
     configure_sing_box
     configure_nginx
 
-# --- 模块4: 后台、监控与运维工具 ---
-show_progress 6 10 "安装后台面板和监控脚本"
-execute_module4 || { log_error "模块4执行失败"; exit 1; }
+    # --- 模块4: 后台、监控与运维工具 ---
+    show_progress 6 10 "安装后台面板和监控脚本"
+    execute_module4 || { log_error "模块4执行失败"; exit 1; }
 
-	if ! setup_traffic_randomization; then
-    log_error "流量特征随机化系统设置失败"
-    exit 1
-fi
+    if ! setup_traffic_randomization; then
+        log_error "流量特征随机化系统设置失败"
+        exit 1
+    fi
 
     # --- 最终阶段: 启动、验证与数据生成 ---
     show_progress 8 10 "生成订阅链接"
@@ -16075,26 +16510,16 @@ fi
 
     show_progress 10 10 "最终数据生成与同步"
     finalize_data_generation
-	
-	# // ANCHOR: [FIX-5-CERT-HOOK] - 调用钩子安装函数
+
+    # // ANCHOR: [FIX-5-CERT-HOOK] - 调用钩子安装函数
     setup_certbot_renewal_hook
 
-# 显示安装信息
-show_installation_info
+    # 显示安装信息
+    show_installation_info
 
-echo
-echo -e "${GREEN}🌐 EdgeBox-企业级多协议节点 v${EDGEBOX_VER} 安装成功完成！🎉🎉🎉${NC}"
-echo
-
-# 将剩余的非关键修复任务放入后台
-(
-    sleep 3
-    log_info "[后台任务] 开始执行系统最终状态修复与优化..."
-    repair_system_state
-    log_info "[后台任务] 所有优化已完成。"
-) >/dev/null 2>&1 &
-
-exit 0
+    echo
+    echo -e "${GREEN}🌐 EdgeBox-企业级多协议节点 v${EDGEBOX_VER} 安装成功完成！🎉🎉🎉${NC}"
+    echo
 }
 
 # 系统状态检查和修复函数
