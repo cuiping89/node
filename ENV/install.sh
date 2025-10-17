@@ -4754,7 +4754,7 @@ generate_system_data() {
 main() {
     trap cleanup_all EXIT
 
-    clear
+    # clear
 
     echo -e "${GREEN}EdgeBox 企业级安装脚本 v3.0.0${NC}"
     print_separator
@@ -16248,8 +16248,8 @@ ${CYAN}安装进度: [${NC}"
 #############################################
 main() {
     trap cleanup_all EXIT
-
-    clear
+	
+	# clear
 
     echo -e "${GREEN}EdgeBox 企业级安装脚本 v3.0.0${NC}"
     print_separator
