@@ -2758,6 +2758,7 @@ fi
 
 # 此函数用于在首次安装时，创建默认的（IP模式）Nginx stream map 配置文件
 # 解决了因文件不存在而导致 Nginx 启动失败的问题
+# 【修复】将此函数定义移至 configure_nginx 之前，以解决 "command not found" 错误
 generate_initial_nginx_stream_map() {
     log_info "正在生成 Nginx 初始 stream map 配置文件..."
     local map_conf="/etc/nginx/conf.d/edgebox_stream_map.conf"
@@ -2780,8 +2781,8 @@ map $ssl_preread_server_name $backend_pool {
     grpc.edgebox.internal  grpc;
     ws.edgebox.internal    websocket;
 
-    # 更安全的兜底
-    default                reality;
+    # 兜底规则，非常重要
+    default                "";
 }
 EOF
     log_success "Nginx 初始 stream map 已生成: $map_conf"
@@ -2897,34 +2898,38 @@ stream {
     error_log /var/log/nginx/stream.log warn;
 
     # 1. SNI 到初步目标的映射 (从外部文件加载)
+    #    这个文件由 generate_initial_nginx_stream_map() 或 edgeboxctl 创建
+    #    它会将 reality, trojan, grpc, websocket 等 SNI 映射到对应的名字
     include /etc/nginx/conf.d/edgebox_stream_map.conf;
 
     # 2. 第一级决策：基于 SNI 的结果 ($backend_pool)
+    #    如果 SNI 匹配成功，$backend_pool 会有值 (e.g., "reality", "grpc")
+    #    如果 SNI 未匹配，$backend_pool 会是空字符串 ""
     map $backend_pool $decision_1 {
-        default $backend_pool; # SNI 匹配成功，直接使用结果 (reality, trojan, grpc, websocket)
+        default $backend_pool; # SNI 匹配成功，直接使用结果
         ""      "check_alpn";  # SNI 未匹配，进入 ALPN 检查流程
     }
 
-    # 3. 第二级决策：基于 ALPN
+    # 3. 第二级决策：基于 ALPN (仅在 $decision_1 为 "check_alpn" 时有意义)
     map $ssl_preread_alpn_protocols $decision_2 {
-        ~\bh2\b         "grpc";
-        ~\bhttp/1\.1\b  "websocket";
-        default         "reality";   # 默认回落到 REALITY
+        ~\bh2\b         "grpc";      # ALPN 是 h2 -> gRPC
+        ~\bhttp/1\.1\b  "websocket"; # ALPN 是 http/1.1 -> WebSocket
+        default         "reality";   # 其他所有情况(包括没有ALPN)，默认回落到 REALITY
     }
 
-    # 4. 最终仲裁
+    # 4. 最终仲裁：决定最终的目标是什么
     map $decision_1 $final_target {
         "check_alpn"    $decision_2; # SNI 未定，采用 ALPN 的决策
         default         $decision_1; # SNI 已定，直接采用
     }
 
-    # 5. 目标到上游服务的最终映射
+    # 5. 最终映射：将仲裁结果 (e.g., "reality", "grpc") 映射到具体的上游服务端口
     map $final_target $final_upstream {
         reality     127.0.0.1:11443;
         trojan      127.0.0.1:10143;
         grpc        127.0.0.1:10085;
         websocket   127.0.0.1:10086;
-        default     127.0.0.1:11443; # 终极兜底
+        default     127.0.0.1:11443; # 终极兜底，确保所有未知流量都流向REALITY
     }
 
     server {
@@ -2960,7 +2965,7 @@ EOF
         log_warn "DASHBOARD_PASSCODE 为空，面板访问将被默认拒绝。"
     fi
     
-    # 生成初始的stream map文件
+    # 【调用修复】现在此函数定义在前面，可以安全调用
     generate_initial_nginx_stream_map
     
     # 创建systemd override
@@ -3003,7 +3008,6 @@ EOF
     log_success "Nginx配置文件创建完成"
     return 0
 }
-
 
 #############################################
 # Xray 配置函数
