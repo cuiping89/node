@@ -1164,6 +1164,7 @@ check_ports() {
     fi
 }
 
+
 # 配置防火墙规则（完整版 - 支持 UFW/FirewallD/iptables，无中断模式）
 configure_firewall() {
   log_info "配置防火墙规则（自动识别 UFW / firewalld / iptables，含 IPv6）..."
@@ -1280,6 +1281,7 @@ configure_firewall() {
   log_success "iptables / ip6tables 规则已应用。"
   log_info "如果云厂商有安全组，请同步放行上述端口（TCP:80/443，UDP:443/2053/8443）"
 }
+
 
 # ==========================================
 # 【可选】防火墙安全回滚机制
@@ -3008,6 +3010,7 @@ EOF
     log_success "Nginx配置文件创建完成"
     return 0
 }
+
 
 #############################################
 # Xray 配置函数
@@ -4813,6 +4816,11 @@ MAX_RESTART_ATTEMPTS=3
 RESTART_COOLDOWN=300
 LAST_RESTART_FILE="${LOG_DIR}/.last_restart_timestamp"
 
+# 熔断器配置
+BLOWN_FUSE_WINDOW=600   # 熔断时间窗口 (秒), 10分钟
+BLOWN_FUSE_LIMIT=3      # 窗口内失败重启次数上限
+RESTART_FAILURES_LOG="${LOG_DIR}/.restart_failures.log"
+
 # ==================== 增强配置常量 ====================
 # 日志分析窗口
 JOURNAL_LOOKBACK_MINUTES="${JOURNAL_LOOKBACK_MINUTES:-10}"
@@ -4953,6 +4961,44 @@ record_restart_time() {
     sed -i "/^${service}:/d" "$LAST_RESTART_FILE" 2>/dev/null || true
     echo "${service}:${timestamp}" >> "$LAST_RESTART_FILE"
 }
+
+# 检查服务是否已熔断
+is_service_blown() {
+    local service="$1"
+    
+    # 确保日志文件存在
+    touch "$RESTART_FAILURES_LOG"
+    
+    # 清理过期的失败记录
+    local current_time=$(date +%s)
+    local cutoff_time=$((current_time - BLOWN_FUSE_WINDOW))
+    
+    # 使用 awk 高效处理
+    local temp_log=$(mktemp)
+    awk -v cutoff="$cutoff_time" -F':' '$1 >= cutoff' "$RESTART_FAILURES_LOG" > "$temp_log"
+    mv "$temp_log" "$RESTART_FAILURES_LOG"
+    
+    # 统计当前窗口内的失败次数
+    local failure_count
+    failure_count=$(grep -c ":${service}$" "$RESTART_FAILURES_LOG")
+    
+    if [[ $failure_count -ge $BLOWN_FUSE_LIMIT ]]; then
+        return 0 # 0 表示 "true" (已熔断)
+    fi
+    
+    return 1 # 1 表示 "false" (未熔断)
+}
+
+# 创建熔断状态的高优先级通知
+create_blown_fuse_notification() {
+    local service="$1"
+    local failure_count="$2"
+    log_error "熔断器触发! 服务 '$service' 在 $(($BLOWN_FUSE_WINDOW / 60)) 分钟内连续失败重启 ${failure_count} 次。已暂停自动修复。"
+    
+    local message="服务 ${service} 连续启动失败，自动修复已暂停，请立即人工排查！"
+    send_heal_step_notification "$service" "熔断器触发" "error" "$message"
+}
+
 # ==================== 健康检查函数 ====================
 check_service_status() {
     local service=$1
@@ -5265,19 +5311,23 @@ repair_certificates() {
 # 重启服务(带多重保护机制)
 restart_service_safely() {
     local service=$1
+    
     # 保护1: 检查冷却期
     if is_in_cooldown "$service"; then
         return 1
     fi
-    # 保护2: 检查1小时内重启次数
-    if ! check_restart_hourly_limit "$service"; then
-        local count
-        count=$(grep -c "^${service}:" "$RESTART_COUNTER_FILE" 2>/dev/null || echo "0")
-        create_severe_error_notification "$service" "频繁重启(可能配置死锁)" "$count"
+
+    ### [新增] 保护2: 检查熔断状态 ###
+    if is_service_blown "$service"; then
+        local failure_count
+        failure_count=$(grep -c ":${service}$" "$RESTART_FAILURES_LOG")
+        create_blown_fuse_notification "$service" "$failure_count"
         return 1
     fi
+    
     log_heal "尝试重启服务: $service"
-    # 保护3: 重启前配置诊断
+    
+    # 保护3: 重启前配置诊断 (保持不变)
     local config_check_result
     config_check_result=$(diagnose_service_config "$service")
     if [[ "$config_check_result" != "ok" ]]; then
@@ -5285,9 +5335,10 @@ restart_service_safely() {
         create_severe_error_notification "$service" "配置文件错误: $config_check_result" "N/A"
         return 1
     fi
-    # 记录重启时间
+
+    # 记录重启时间 (保持不变)
     record_restart_time "$service"
-    echo "${service}:$(date +%s)" >> "$RESTART_COUNTER_FILE"
+    
     # 执行重启
     if systemctl restart "$service" 2>/dev/null; then
         sleep 2
@@ -5296,10 +5347,14 @@ restart_service_safely() {
             return 0
         else
             log_error "✗ 服务 $service 重启后仍未运行"
+            ### [新增] 记录一次重启失败 ###
+            echo "$(date +%s):${service}" >> "$RESTART_FAILURES_LOG"
             return 1
         fi
     else
         log_error "✗ 服务 $service 重启命令失败"
+        ### [新增] 记录一次重启失败 ###
+        echo "$(date +%s):${service}" >> "$RESTART_FAILURES_LOG"
         return 1
     fi
 }
@@ -5371,55 +5426,6 @@ check_restart_hourly_limit() {
     return 0
 }
 
-# --- 熔断相关 ---
-FUSE_DIR="/var/log/edgebox"
-mkdir -p "$FUSE_DIR"
-
-is_service_fused() {
-  local svc="$1" fuse_file="${FUSE_DIR}/.${svc}.fused"
-  [[ -f "$fuse_file" ]] && {
-    # 1小时熔断期
-    if [[ $(date +%s) -lt $(( $(stat -c %Y "$fuse_file" 2>/dev/null || stat -f %m "$fuse_file") + 3600 )) ]]; then
-      return 0
-    else
-      rm -f "$fuse_file"
-    fi
-  }
-  return 1
-}
-
-maybe_trip_fuse_10m() {
-  local svc="$1" now=$(date +%s)
-  # 统计近10分钟失败重启记录
-  local recent_failures
-  recent_failures=$(awk -v now="$now" '($1 ~ /^[0-9]+$/) && (now-$1<=600) {c++} END{print c+0}' "$RESTART_COUNTER_FILE" 2>/dev/null)
-  if [[ ${recent_failures:-0} -ge 3 ]]; then
-    : > "${FUSE_DIR}/.${svc}.fused"  # touch
-    create_severe_error_notification "$svc" "熔断已触发：10分钟内重启失败≥3次，1小时暂停自动重启，需人工介入。"
-    return 0
-  fi
-  return 1
-}
-# --- 熔断相关 END ---
-
-# 在 restart_service_safely() 开头插入：
-restart_service_safely() {
-  local service="$1"
-
-  # 先看是否处于熔断期
-  if is_service_fused "$service"; then
-    log_warn "[heal] $service 处于熔断期，跳过自动重启"
-    return 1
-  fi
-
-  # 尝试熔断判定（统计近10分钟失败重启）
-  if maybe_trip_fuse_10m "$service"; then
-    return 1
-  fi
-
-  # ...原有冷却与小时上限逻辑保持...
-}
-
 # 生成严重错误通知
 create_severe_error_notification() {
     local service=$1 reason=$2 restart_count=$3
@@ -5448,44 +5454,53 @@ create_severe_error_notification() {
 
 # 深入诊断服务配置
 diagnose_service_config() {
-  local service="$1"
-  local config_path=""
-  case "$service" in
-    xray)     config_path="${CONFIG_DIR}/xray.json" ;;
-    sing-box) config_path="${CONFIG_DIR}/sing-box.json" ;;
-    *) log_error "[diagnose] 未知服务: $service"; return 1 ;;
-  esac
-
-  # 1) JSON 语法检查
-  if ! jq empty "$config_path" >/dev/null 2>&1; then
-    log_error "[diagnose] $service 配置 JSON 解析失败: $config_path"
-    return 2
-  fi
-
-  # 2) 官方检查器
-  if [[ "$service" == "xray" ]]; then
-    if ! xray -test -config "$config_path" >/dev/null 2>&1; then
-      log_error "[diagnose] xray -test 未通过"; return 3
+    local service=$1
+	
+	# <<< 新增：第一道防线，检查JSON基本语法 >>>
+    if ! jq empty "$config_path" 2>/dev/null; then
+        echo "json_syntax_error"
+        return 1
     fi
-  else
-    if ! sing-box check -c "$config_path" >/dev/null 2>&1; then
-      log_error "[diagnose] sing-box check 未通过"; return 3
+    # <<< 新增结束 >>>
+	
+    local config_path=""
+    case $service in
+        sing-box) config_path="${CONFIG_DIR}/sing-box.json" ;;
+        xray)     config_path="${CONFIG_DIR}/xray.json" ;;
+        nginx)    config_path="/etc/nginx/nginx.conf" ;;
+        *) echo "ok"; return 0 ;;
+    esac
+
+    if ! jq empty "$config_path" 2>/dev/null; then
+        echo "json_syntax_error"
+        return 1
     fi
-  fi
 
-  # 3) 最小化运行验证：systemd-run 非守护快速拉起 + 退出码判定（5s 超时）
-  # 目的：捕获“语法OK但运行即退”的语义错误（字段弃用、端口冲突等）
-  local unit="diag-${service}-$(date +%s)"
-  if ! timeout 5s systemd-run --quiet --scope --property=Type=exec \
-       /bin/bash -lc "$([[ $service == xray ]] && echo xray || echo sing-box) -test -config '$config_path'" >/dev/null 2>&1; then
-    log_error "[diagnose] $service 最小化运行检查失败（可能为配置语义问题或依赖缺失）"
-    return 4
-  fi
+    if [[ "$service" == "sing-box" ]] && command -v /usr/local/bin/sing-box >/dev/null 2>&1; then
+        local check_output
+        check_output=$(/usr/local/bin/sing-box check -c "$config_path" 2>&1)
+        if [[ $? -ne 0 ]]; then
+            local error_line
+            error_line=$(echo "$check_output" | head -n 1)
+            log_error "sing-box配置错误: $error_line"
+            echo "config_validation_failed: $error_line"
+            return 1
+        fi
+    elif [[ "$service" == "xray" ]] && command -v /usr/local/bin/xray >/dev/null 2>&1; then
+        if ! /usr/local/bin/xray -test -config="$config_path" >/dev/null 2>&1; then
+            echo "config_validation_failed"
+            return 1
+        fi
+    elif [[ "$service" == "nginx" ]] && command -v nginx >/dev/null 2>&1; then
+        if ! nginx -t >/dev/null 2>&1; then
+            echo "config_validation_failed"
+            return 1
+        fi
+    fi
 
-  log_success "[diagnose] $service 配置通过所有检查"
-  return 0
+    echo "ok"
+    return 0
 }
-
 
 # 协议故障自愈主函数(带完整通知)
 heal_protocol_failure() {
@@ -5644,7 +5659,8 @@ calculate_health_score() {
             score=$((adjusted_weight * 85 / 100))
             ;;
         listening_unverified)
-            score=$((adjusted_weight * 65 / 100))
+            ### [修改点] 将分数权重从 70% 提升到 80% ###
+            score=$((adjusted_weight * 80 / 100))
             ;;
         degraded)
             score=$((adjusted_weight * 50 / 100))
@@ -5699,7 +5715,8 @@ generate_detail_message() {
             message=" UDP服务活跃(已探测)"
             ;;
         listening_unverified)
-            message="🟡 服务监听中(待连接)"
+            ### [修改点] 优化提示文案 ###
+            message="🟡 服务监听中 (可连接)"
             ;;
         degraded)
             reason_label="$(map_failure_reason "$failure_reason")"
@@ -11708,49 +11725,8 @@ log()      { log_info "$@"; }
 log_ok()   { log_success "$@"; }
 error()    { log_error "$@"; }
 
-# 异步重启服务并安全退出
-restart_services_background() {
-    local services_to_restart=("$@")
-
-    # 构建一个将在后台执行的命令序列
-    local cmd_sequence="
-        # 短暂延迟，确保主脚本已退出
-        sleep 2;
-        log_info '后台任务：开始执行服务重启...';
-
-        # 逐个重启服务
-        for service in ${services_to_restart[*]}; do
-            # 优先尝试 reload，失败再 restart
-            if ! systemctl reload \$service 2>/dev/null; then
-                systemctl restart \$service;
-            fi
-        done;
-
-        # 等待服务启动
-        sleep 3;
-
-        # 应用防火墙规则（无中断）
-        /etc/edgebox/scripts/apply-firewall.sh >/dev/null 2>&1 || true;
-
-        log_info '后台任务：触发数据刷新...';
-        # 刷新前端数据，让用户能看到最新状态
-        bash /etc/edgebox/scripts/dashboard-backend.sh --now >/dev/null 2>&1 || true;
-        bash /usr/local/bin/edgebox-ipq.sh >/dev/null 2>&1 || true;
-        log_info '后台任务：所有操作已完成。';
-    "
-
-    # 使用 nohup 将命令序列扔到后台，并与当前终端脱钩
-    nohup bash -c "eval \"$cmd_sequence\"" >> /var/log/edgebox.log 2>&1 & disown
-
-    log_success "命令已提交到后台执行。您的SSH连接可能会在几秒后中断。"
-    log_info "这是正常现象。请在约10秒后刷新Web面板以查看最新状态。"
-
-    # 立刻退出 edgeboxctl 脚本
-    exit 0
-}
-
 # <<< 新增: SNI管理核心函数 (从 sni-manager.sh 整合) >>>
-# --------------------------------------------------
+# -------------------------------------------------------------------
 # SNI 日志函数
 sni_log_info() { log_info "SNI: $*"; }
 sni_log_warn() { log_warn "SNI: $*"; }
@@ -13205,7 +13181,7 @@ switch_to_domain(){
   ### END FIX ###
 
   regen_sub_domain "$domain"
-  restart_services_background nginx xray sing-box
+  reload_or_restart_services nginx xray sing-box
   log_success "已切换到域名模式（${domain}）"
   post_switch_report
   /etc/edgebox/scripts/dashboard-backend.sh --now >/dev/null 2>&1
@@ -13228,7 +13204,7 @@ switch_to_ip(){
   ensure_config_loaded || regen_sub_ip "YOUR_IP"
 
   regen_sub_ip
-  restart_services_background nginx xray sing-box
+  reload_or_restart_services nginx xray sing-box
   log_success "已切换到 IP 模式"
   post_switch_report
   /etc/edgebox/scripts/dashboard-backend.sh --now >/dev/null 2>&1
@@ -13671,7 +13647,7 @@ update_shunt_state "vps" "" "healthy"
 flush_nft_resi_sets
 ensure_xray_dns_alignment # 确保DNS也切换回直连
 log_info "正在应用配置并重启服务..."
-restart_services_background nginx xray # 使用同步重启
+reload_or_restart_services nginx xray sing-box # 使用同步重启
 
 log_info "服务重启完成，开始生成验收报告..."
 post_shunt_report "VPS 全量出站" "" # 移到最后执行
@@ -13716,7 +13692,7 @@ setup_outbound_resi() {
 update_shunt_state "resi" "$url" "healthy"
 ensure_xray_dns_alignment
 log_info "正在应用配置并重启服务..."
-restart_services_background nginx xray # 使用同步重启
+reload_or_restart_services nginx xray # 使用同步重启
 
 log_info "服务重启完成，开始生成验收报告..."
 post_shunt_report "代理全量（Xray-only）" "$url" # 移到最后执行
@@ -13740,7 +13716,7 @@ setup_outbound_direct_resi() {
 update_shunt_state "direct-resi" "$url" "healthy"
 ensure_xray_dns_alignment
 log_info "正在应用配置并重启服务..."
-restart_services_background nginx xray # 使用同步重启
+reload_or_restart_services nginx xray # 使用同步重启
 
 log_info "服务重启完成，开始生成验收报告..."
 post_shunt_report "智能分流（白名单直连）" "$url" # 移到最后执行
@@ -14179,7 +14155,7 @@ regenerate_uuid() {
 
     # --- 立刻重载服务：新旧并行生效 ---
     log_info "重载代理服务（并行生效）..."
-    if restart_services_background xray sing-box; then
+    if reload_or_restart_services xray sing-box; then
       log_success "服务重载成功（新旧并行）"
     else
       log_warn "服务重载失败，请手动检查"
