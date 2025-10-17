@@ -13568,18 +13568,67 @@ update_shunt_state() {
 show_shunt_status() {
     echo -e "\n${CYAN}出站分流状态：${NC}"
     setup_shunt_directories
-    if [[ -f "$SHUNT_CONFIG" ]]; then
-        local mode=$(jq -r '.mode' "$SHUNT_CONFIG" 2>/dev/null || echo "vps")
-        local proxy_info=$(jq -r '.proxy_info' "$SHUNT_CONFIG" 2>/dev/null || echo "")
-        local health=$(jq -r '.health' "$SHUNT_CONFIG" 2>/dev/null || echo "unknown")
+    
+    # 定义所需文件路径
+    local state_file="${CONFIG_DIR}/shunt/state.json"
+    local ipq_file="/var/www/edgebox/status/ipq_proxy.json"
+    local whitelist_file="${CONFIG_DIR}/shunt/whitelist.txt"
+
+    if [[ -f "$state_file" ]]; then
+        local mode=$(jq -r '.mode' "$state_file" 2>/dev/null || echo "vps")
+        local proxy_info=$(jq -r '.proxy_info' "$state_file" 2>/dev/null || echo "")
+
         case "$mode" in
-            vps) echo -e "  当前模式: ${GREEN}VPS全量出${NC}";;
-            resi) echo -e "  当前模式: ${YELLOW}代理IP全量出${NC}  代理: ${proxy_info}  健康: $health";;
-            direct_resi) echo -e "  当前模式: ${BLUE}智能分流${NC}  代理: ${proxy_info}  健康: $health"
-                echo -e "  白名单域名数: $(wc -l < "${CONFIG_DIR}/shunt/whitelist.txt" 2>/dev/null || echo "0")";;
+            vps) 
+                echo -e "  当前模式: ${GREEN}VPS全量出${NC}"
+                echo -e "  说    明: 所有出站流量均使用服务器自身IP地址。"
+                echo -e "  提    示: 使用 'edgeboxctl shunt resi <URL>' 可切换至代理模式。"
+                ;;
+            resi)
+                echo -e "  当前模式: ${YELLOW}代理IP全量出${NC}"
+                echo -e "  代理信息: ${proxy_info}"
+                
+                # 读取并显示IP质量信息
+                if [[ -f "$ipq_file" ]]; then
+                    local ipq_score=$(jq -r '.score // "N/A"' "$ipq_file")
+                    local ipq_grade=$(jq -r '.grade // "N/A"' "$ipq_file")
+                    local ipq_ip=$(jq -r '.ip // "检测中..."' "$ipq_file")
+                    echo -e "  出站 IP:  ${ipq_ip}"
+                    echo -e "  IP 质量:  得分 ${ipq_score}, 等级 ${ipq_grade} (${YELLOW}结果稍后自动更新${NC})"
+                else
+                    echo -e "  IP 质量:  正在检测..."
+                fi
+                echo -e "  提    示: 使用 'edgeboxctl shunt vps' 可切换回直连模式。"
+                ;;
+            direct_resi)
+                echo -e "  当前模式: ${BLUE}智能分流${NC}"
+                echo -e "  代理信息: ${proxy_info}"
+                
+                # 读取并显示IP质量信息
+                if [[ -f "$ipq_file" ]]; then
+                    local ipq_score=$(jq -r '.score // "N/A"' "$ipq_file")
+                    local ipq_grade=$(jq -r '.grade // "N/A"' "$ipq_file")
+                    local ipq_ip=$(jq -r '.ip // "检测中..."' "$ipq_file")
+                    echo -e "  代理出站 IP: ${ipq_ip}"
+                    echo -e "  IP 质量:     得分 ${ipq_score}, 等级 ${ipq_grade} (${YELLOW}结果稍后自动更新${NC})"
+                else
+                    echo -e "  IP 质量:     正在检测..."
+                fi
+
+                # 显示白名单信息
+                local wl_count=$(wc -l < "$whitelist_file" 2>/dev/null || echo "0")
+                echo -e "  白名单规则: 共 ${wl_count} 条。匹配域名走VPS直连，其余走代理。"
+                echo -e "  提      示: 使用 'edgeboxctl shunt whitelist list' 查看完整列表。"
+                ;;
         esac
     else
         echo -e "  当前模式: ${GREEN}VPS全量出（默认）${NC}"
+        echo -e "  说    明: 所有出站流量均使用服务器自身IP地址。"
+    fi
+    
+    # 在后台触发一次IP质量更新，不阻塞当前命令
+    if [[ -x /usr/local/bin/edgebox-ipq.sh ]]; then
+        ( /usr/local/bin/edgebox-ipq.sh >/dev/null 2>&1 & )
     fi
 }
 
@@ -14878,7 +14927,7 @@ cert)
 
 	test-udp)
     # 用法: edgeboxctl test-udp <host> <port> [seconds]
-    local host="${2:-127.0.0.1}" port="${3:-443}" secs="${4:-3}"
+    host="${2:-127.0.0.1}" port="${3:-443}" secs="${4:-3}"
     echo "[INFO] UDP 简测: ${host}:${port}, ${secs}s"
     if command -v iperf3 >/dev/null 2>&1; then
       iperf3 -u -c "$host" -p "$port" -t "$secs" --bitrate 5M --get-server-output || true
