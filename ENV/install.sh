@@ -2808,7 +2808,7 @@ EOF
 }
 
 
-# 配置Nginx（SNI定向 + ALPN兜底架构）- 修正版 v3
+# 配置Nginx（SNI定向 + ALPN兜底架构）
 configure_nginx() {
     log_info "配置Nginx（SNI定向 + ALPN兜底架构）..."
 
@@ -2820,9 +2820,9 @@ configure_nginx() {
 
     mkdir -p /etc/nginx/conf.d
 
-    # 生成新的Nginx主配置
+    # 生成新的Nginx主配置，使用 include 指令
     cat > /etc/nginx/nginx.conf << 'NGINX_CONFIG'
-# EdgeBox Nginx 配置文件 v3.0.3 (Stream Logic Patched)
+# EdgeBox Nginx 配置文件 v3.0.2 (Patched for Dynamic SNI)
 # 架构：SNI定向 + ALPN兜底 + 单端口复用
 
 user www-data;
@@ -2840,90 +2840,204 @@ events {
 http {
     include       /etc/nginx/mime.types;
     default_type  application/octet-stream;
+
+    # <<< 修复点 2: 移除硬编码的密码 map，改为 include 外部文件 >>>
+    # 该文件将由脚本动态生成，内容为: map $arg_passcode $pass_ok { ... }
     include /etc/nginx/conf.d/edgebox_passcode.conf;
 
-    map $arg_passcode $arg_present { default 0; ~.+ 1; }
-    map $cookie_ebp $cookie_ok { default 0; "1" 1; }
-    map "$arg_present:$pass_ok" $bad_try { default 0; "1:0" 1; "1:1" 0; }
-    map "$bad_try:$pass_ok:$cookie_ok" $deny_traffic { default 1; "0:1:0" 0; "0:0:1" 0; "0:1:1" 0; }
-    map $pass_ok $set_cookie { 1 "ebp=1; Path=/traffic/; HttpOnly; SameSite=Lax; Max-Age=86400"; 0 ""; }
+    # === 会话映射（fail-closed）===
+    # 1) 检测是否提供了 passcode 参数
+    map $arg_passcode $arg_present {
+        default 0;
+        ~.+     1;   # 只要非空就算带参
+    }
+    # 3) 是否已有有效会话 Cookie
+    map $cookie_ebp $cookie_ok {
+        default 0;
+        "1"     1;
+    }
+    # 4) 是否为“错误口令尝试”（带了参数但不正确）
+    map "$arg_present:$pass_ok" $bad_try {
+        default 0;      # 未带参 → 不是错误尝试
+        "1:0"   1;      # 带参且错误 → 错误尝试
+        "1:1"   0;      # 带参且正确
+    }
+    # 5) 最终是否拒绝：
+    #    只列出“允许”的组合，其余一律拒绝（default 1）
+    #    允许的三种：①正确口令（首次）②已有会话③正确口令+已有会话
+    map "$bad_try:$pass_ok:$cookie_ok" $deny_traffic {
+        default 1;      # 默认为拒绝（更安全）
+        "0:1:0"  0;     # 正确口令
+        "0:0:1"  0;     # 有会话
+        "0:1:1"  0;     # 正确口令 + 有会话
+    }
+    # 6) 正确口令时下发会话 Cookie（1 天）
+    map $pass_ok $set_cookie {
+        1 "ebp=1; Path=/traffic/; HttpOnly; SameSite=Lax; Max-Age=86400";
+        0 "";
+    }
 
-    log_format main '$remote_addr - $remote_user [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent" "$http_x_forwarded_for"';
+    # 日志格式
+log_format main '$remote_addr - $remote_user [$time_local] "$request_method $uri $server_protocol" '
+               '$status $body_bytes_sent "$http_referer" '
+               '"$http_user_agent" "$http_x_forwarded_for"';
+
+    # 日志文件
     access_log /var/log/nginx/access.log main;
     error_log  /var/log/nginx/error.log warn;
 
-    sendfile on;
-    tcp_nopush on;
-    tcp_nodelay on;
+    # 性能优化
+    sendfile        on;
+    tcp_nopush      on;
+    tcp_nodelay     on;
     keepalive_timeout 65;
     types_hash_max_size 2048;
-    server_tokens off;
 
+    # 安全头
+    server_tokens off;
+    add_header X-Frame-Options DENY;
+    add_header X-Content-Type-Options nosniff;
+    add_header X-XSS-Protection "1; mode=block";
+
+    # HTTP 服务器（端口80）
     server {
         listen 80 default_server;
         listen [::]:80 default_server;
         server_name _;
-        location = / { return 302 /traffic/; }
-        location = /sub {
-            default_type text/plain;
-            add_header Cache-Control "no-store, no-cache, must-revalidate";
-            root /var/www/html;
-            try_files /sub =404;
+
+        # 根路径重定向到控制面板
+        location = / {
+            return 302 /traffic/;
         }
-        location ^~ /share/ {
-            default_type text/plain;
-            add_header Cache-Control "no-store, no-cache, must-revalidate";
-            root /var/www/html;
-            try_files $uri =404;
+
+# 管理员专用：保留 /sub 精确匹配（不做设备限制）
+location = /sub {
+    default_type text/plain;
+    add_header Cache-Control "no-store, no-cache, must-revalidate";
+    add_header Pragma "no-cache";
+    root /var/www/html;
+    try_files /sub =404;
+}
+
+# 普通用户：/share/u-<token> 高熵私有路径
+location ^~ /share/ {
+    default_type text/plain;
+    add_header Cache-Control "no-store, no-cache, must-revalidate";
+    add_header Pragma "no-cache";
+    root /var/www/html;
+    # 只允许已有文件（软链）被访问；没有对应 token 文件则 404
+    try_files $uri =404;
+}
+
+	    # 内部403页面（只在本server内有效）
+        location = /_deny_traffic {
+            internal;
+            return 403;
         }
-        location = /_deny_traffic { internal; return 403; }
+
+        # 控制面板和数据API
         location ^~ /traffic/ {
+            # 口令门闸：默认拒绝；命中口令或已有会话通过
             error_page 418 = /_deny_traffic;
             if ($deny_traffic) { return 418; }
+
+            # 首次口令正确时发Cookie（之后静态/接口都不需要再带 ?passcode=）
             add_header Set-Cookie $set_cookie;
+
             alias /etc/edgebox/traffic/;
             index index.html;
+            autoindex off;
+
+            # 补全类型（避免 CSS/JS/字体识别失败）
+            charset utf-8;
+            types {
+                text/html                    html htm;
+                text/plain                   txt log;
+                application/json             json;
+                text/css                     css;
+                application/javascript       js mjs;
+                image/svg+xml                svg;
+                image/png                    png;
+                image/jpeg                   jpg jpeg;
+                image/gif                    gif;
+                image/x-icon                 ico;
+                font/ttf                     ttf;
+                font/woff2                   woff2;
+            }
+
+            # 缓存头（按你原策略）
+            add_header Cache-Control "no-store, no-cache, must-revalidate";
+            add_header Pragma "no-cache";
         }
+
+        # IP质量检测API（对齐技术规范）
         location ^~ /status/ {
             alias /var/www/edgebox/status/;
+            autoindex off;
+            add_header Cache-Control "no-store, no-cache, must-revalidate";
             add_header Content-Type "application/json; charset=utf-8";
         }
-        location = /health { return 200 "OK\n"; }
+
+        # 健康检查
+        location = /health {
+            access_log off;
+            return 200 "OK\n";
+            add_header Content-Type text/plain;
+        }
+
+		# Favicon支持
+        location = /favicon.ico {
+            access_log off;
+            log_not_found off;
+            expires 1y;
+            add_header Cache-Control "public, immutable";
+        }
+
+        # 拒绝访问隐藏文件
+        location ~ /\. {
+            deny all;
+            access_log off;
+            log_not_found off;
+        }
     }
 }
 
-# stream 模块配置 (v3 修正版)
+
+# stream 模块配置（TCP/443 端口分流）
 stream {
     error_log /var/log/nginx/stream.log warn;
 
-    # 1. SNI 到初步目标的映射 (IP模式下的精确匹配)
-    map $ssl_preread_server_name $target_by_sni {
-        grpc.edgebox.internal   "grpc";
-        ws.edgebox.internal     "websocket";
-        ~*^trojan\..* "trojan";
-        default                 "check_alpn"; # SNI不匹配，则进入ALPN判断
+    # 包含外部的SNI匹配规则文件，主要用于匹配REALITY
+    include /etc/nginx/conf.d/edgebox_stream_map.conf;
+
+    # 1. 创建组合键: "SNI-ALPN"
+    #    优先使用 $backend_pool (来自 include 文件) 的结果。
+    #    如果 $backend_pool 为空 (SNI不匹配)，则使用ALPN作为键。
+    map $ssl_preread_server_name $alpn_protocols $backend_key {
+        # 优先匹配 SNI
+        "grpc.edgebox.internal"     * "grpc-sni";
+        "ws.edgebox.internal"       * "ws-sni";
+        ~*^trojan\..* * "trojan-sni";
+        # 如果 SNI 不匹配，再看 ALPN
+        default                     $alpn_protocols;
     }
 
-    # 2. ALPN 到目标的映射 (域名模式下的gRPC/WS)
-    map $ssl_preread_alpn_protocols $target_by_alpn {
-        ~\bh2\b                 "grpc";
-        ~\bhttp/1\.1\b          "websocket";
-        default                 "reality";  # 所有ALPN不匹配的，都默认去Reality
-    }
+    # 2. 根据组合键的结果，映射到最终的上游服务
+    map $backend_key $final_upstream {
+        # 来自 SNI map 的精确匹配 (IP模式或特定协议)
+        "grpc-sni"                      127.0.0.1:10085; # VLESS-gRPC (IP模式)
+        "ws-sni"                        127.0.0.1:10086; # VLESS-WS (IP模式)
+        "trojan-sni"                    127.0.0.1:10143; # Trojan
 
-    # 3. 最终决策：如果SNI已经决定了目标，就用SNI的；否则，用ALPN的决定
-    map $target_by_sni $final_target {
-        "check_alpn"            $target_by_alpn; # 执行ALPN判断
-        default                 $target_by_sni;  # 使用SNI的判断结果
-    }
+        # 来自 ALPN 的匹配 (域名模式下 gRPC/WS 会走到这里)
+        ~\bh2\b                         127.0.0.1:10085; # VLESS-gRPC (ALPN)
+        ~\bhttp/1\.1\b                  127.0.0.1:10086; # VLESS-WS (ALPN)
 
-    # 4. 从最终目标映射到具体的上游IP和端口
-    map $final_target $final_upstream {
-        grpc        127.0.0.1:10085;
-        websocket   127.0.0.1:10086;
-        trojan      127.0.0.1:10143;
-        reality     127.0.0.1:11443;
-        default     127.0.0.1:11443; # 最终兜底
+        # 来自 include 文件的 REALITY SNI 匹配
+        "reality"                       127.0.0.1:11443;
+
+        # 最终的默认回退，捕获所有其他情况
+        default                         127.0.0.1:11443; # Fallback to Reality
     }
 
     server {
@@ -2931,13 +3045,14 @@ stream {
         listen [::]:443 reuseport;
         ssl_preread on;
         proxy_pass $final_upstream;
-        proxy_connect_timeout 5s;
         proxy_timeout 300s;
+        proxy_connect_timeout 5s;
     }
 }
 NGINX_CONFIG
 
-log_info "生成并注入控制面板密码..."
+    # 生成独立的密码配置文件
+    log_info "生成并注入控制面板密码..."
     local passcode_conf="/etc/nginx/conf.d/edgebox_passcode.conf"
     if [[ -n "$DASHBOARD_PASSCODE" ]]; then
         cat > "$passcode_conf" << EOF
@@ -2957,18 +3072,24 @@ map \$arg_passcode \$pass_ok {
 EOF
         log_warn "DASHBOARD_PASSCODE 为空，面板访问将被默认拒绝。"
     fi
-    
-    generate_initial_nginx_stream_map
-    create_nginx_systemd_override
 
+    # 生成初始的stream map文件，防止Nginx因include文件不存在而启动失败
+    generate_initial_nginx_stream_map
+	
+	# 创建systemd override以强制Nginx依赖后端服务
+	create_nginx_systemd_override
+
+    # 将管理员订阅路径替换为高熵路径
     if [[ -n "$MASTER_SUB_TOKEN" ]]; then
       sed -ri 's#(location[[:space:]]*=[[:space:]]*)/sub([[:space:]]*\{)#\1/sub-'"${MASTER_SUB_TOKEN}"'\2#' /etc/nginx/nginx.conf
       sed -ri 's#(try_files[[:space:]]*)/sub([[:space:]]*=404;)#\1/sub-'"${MASTER_SUB_TOKEN}"'\2#' /etc/nginx/nginx.conf
     fi
 
+    # 验证Nginx配置并智能重载/启动
     log_info "验证Nginx配置..."
     if nginx -t 2>&1 | grep -q "syntax is ok"; then
         log_success "Nginx配置验证通过"
+        
         if systemctl is-active --quiet nginx 2>/dev/null; then
             if systemctl reload nginx 2>/dev/null; then
                 log_success "Nginx 已重载新配置"
@@ -2989,7 +3110,7 @@ EOF
         fi
     else
         log_error "Nginx配置验证失败，请检查 /etc/nginx/nginx.conf 和 /etc/nginx/conf.d/"
-        nginx -t
+        nginx -t # 显示详细错误
         return 1
     fi
 
