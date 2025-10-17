@@ -2760,17 +2760,6 @@ fi
 # Nginx 配置函数
 #############################################
 
-# 此函数用于在首次安装时，创建默认的（IP模式）Nginx stream map 配置文件
-# 解决了因文件不存在而导致 Nginx 启动失败的问题
-# 【修复】将此函数定义移至 configure_nginx 之前，以解决 "command not found" 错误
-#############################################
-# 函数：generate_initial_nginx_stream_map
-# 用途：在首次安装时生成默认（IP模式）Nginx stream map 配置，
-#       解决因文件不存在导致的 Nginx 启动失败。
-# 输入：无
-# 输出：/etc/nginx/conf.d/edgebox_stream_map.conf（覆盖写入）
-# 备注：【修复】将此函数定义移至 configure_nginx 之前，避免 "command not found"
-#############################################
 generate_initial_nginx_stream_map() {
     log_info "正在生成 Nginx 初始 stream map 配置文件..."
     local map_conf="/etc/nginx/conf.d/edgebox_stream_map.conf"
@@ -2799,19 +2788,9 @@ map $ssl_preread_server_name $backend_pool {
 EOF
     log_success "Nginx 初始 stream map 已生成: $map_conf"
 }
-EOF
-    log_success "Nginx 初始 stream map 已生成: $map_conf"
-}
 
 
 # // 为Nginx创建systemd依赖
-#############################################
-# 函数：create_nginx_systemd_override
-# 用途：为 Nginx 创建 systemd override，确保在 Xray 与 sing-box 就绪后再启动。
-# 输入：无
-# 输出：/etc/systemd/system/nginx.service.d/edgebox-deps.conf
-# ANCHOR: [FIX-SERVICE-HEALTHCHECK]
-#############################################
 create_nginx_systemd_override() {
     log_info "创建systemd override以强制Nginx依赖..."
     local override_dir="/etc/systemd/system/nginx.service.d"
@@ -2832,17 +2811,10 @@ EOF
 
 
 # 配置Nginx（SNI定向 + ALPN兜底架构）- 最终修复版
-#############################################
-# 函数：configure_nginx
-# 用途：写入 Nginx 主配置（http + stream）与面板密码 map，
-#       生成初始 stream_map，设置 systemd override，并验证/启动 Nginx。
-# 输入：环境变量 DASHBOARD_PASSCODE（可为空）；MASTER_SUB_TOKEN（可为空）
-# 输出：/etc/nginx/nginx.conf 与 /etc/nginx/conf.d/* 若干文件
-#############################################
 configure_nginx() {
     log_info "配置Nginx（SNI定向 + ALPN兜底架构）..."
 
-    # 备份原始配置（若存在）
+    # 备份原始配置
     if [[ -f /etc/nginx/nginx.conf ]]; then
         cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak.$(date +%s)
         log_info "已备份原始Nginx配置"
@@ -2850,7 +2822,7 @@ configure_nginx() {
 
     mkdir -p /etc/nginx/conf.d
 
-    # --- 写入主配置：HTTP 与 STREAM ---
+    # 生成新的Nginx主配置
     cat > /etc/nginx/nginx.conf << 'NGINX_CONFIG'
 # EdgeBox Nginx 配置文件 v3.0.4 (Stream Logic Final Fix)
 # 架构：SNI定向 + ALPN兜底 + 单端口复用
@@ -2860,188 +2832,10 @@ worker_processes auto;
 pid /run/nginx.pid;
 include /etc/nginx/modules-enabled/*.conf;
 
-# ---------------- events ----------------
 events {
     worker_connections 1024;
     use epoll;
     multi_accept on;
-}
-
-# ---------------- http ------------------
-http {
-    include       /etc/nginx/mime.types;
-    default_type  application/octet-stream;
-    include /etc/nginx/conf.d/edgebox_passcode.conf;
-
-    # 面板访问控制（查询参数/Cookie 双机制）
-    map $arg_passcode $arg_present { default 0; ~.+ 1; }
-    map $cookie_ebp $cookie_ok   { default 0; "1" 1; }
-    map "$arg_present:$pass_ok" $bad_try      { default 0; "1:0" 1; "1:1" 0; }
-    map "$bad_try:$pass_ok:$cookie_ok" $deny_traffic { default 1; "0:1:0" 0; "0:0:1" 0; "0:1:1" 0; }
-    map $pass_ok $set_cookie { 1 "ebp=1; Path=/traffic/; HttpOnly; SameSite=Lax; Max-Age=86400"; 0 ""; }
-
-    # 访问日志与错误日志
-    log_format main '$remote_addr - $remote_user [$time_local] "$request_method $uri $server_protocol" $status $body_bytes_sent "$http_referer" "$http_user_agent"';
-    access_log /var/log/nginx/access.log main;
-    error_log  /var/log/nginx/error.log warn;
-
-    # 基本优化
-    sendfile on;
-    tcp_nopush on;
-    tcp_nodelay on;
-    keepalive_timeout 65;
-    types_hash_max_size 2048;
-    server_tokens off;
-
-    # 80 端口：面板、订阅与状态
-    server {
-        listen 80 default_server;
-        listen [::]:80 default_server;
-        server_name _;
-
-        # 根路径跳转到 /traffic/
-        location = / { return 302 /traffic/; }
-
-        # 订阅（可被高熵路径替换）
-        location = /sub {
-            default_type text/plain;
-            add_header Cache-Control "no-store, no-cache, must-revalidate";
-            root /var/www/html;
-            try_files /sub =404;
-        }
-
-        # 共享文本（/var/www/html/share/*）
-        location ^~ /share/ {
-            default_type text/plain;
-            add_header Cache-Control "no-store, no-cache, must-revalidate";
-            root /var/www/html;
-            try_files $uri =404;
-        }
-
-        # 面板访问控制：非法则 403
-        location = /_deny_traffic { internal; return 403; }
-
-        # 面板（受 map 控制）
-        location ^~ /traffic/ {
-            error_page 418 = /_deny_traffic;
-            if ($deny_traffic) { return 418; }
-            add_header Set-Cookie $set_cookie;
-            alias /etc/edgebox/traffic/;
-            index index.html;
-        }
-
-        # 状态信息
-        location ^~ /status/ {
-            alias /var/www/edgebox/status/;
-            add_header Content-Type "application/json; charset=utf-8";
-        }
-
-        # 存活探针
-        location = /health { return 200 "OK
-"; }
-    }
-}
-
-# ---------------- stream ----------------
-stream {
-    error_log /var/log/nginx/stream.log warn;
-
-    # 1) SNI -> 初步目标（由外部文件提供）
-    include /etc/nginx/conf.d/edgebox_stream_map.conf;
-
-    # 2) 第一级决策：若 SNI 匹配到池名则直接使用，否则进入 ALPN 检查
-    map $backend_pool $decision_1 {
-        default $backend_pool;   # SNI 命中：reality/grpc/websocket/trojan
-        ""      "check_alpn";  # 未命中：进入 ALPN 决策
-    }
-
-    # 3) 第二级决策（仅当需要检查 ALPN）
-    map $ssl_preread_alpn_protocols $decision_2 {
-        ~h2         "grpc";      # h2 认为是 gRPC
-        ~http/1\.1  "websocket"; # http/1.1 认为是 WebSocket
-        default          "reality";   # 其他/缺省：回落 Reality
-    }
-
-    # 4) 最终仲裁：决定最终目标
-    map $decision_1 $final_target {
-        "check_alpn"    $decision_2;
-        default          $decision_1;
-    }
-
-    # 5) 目标 -> 上游端口映射
-    map $final_target $final_upstream {
-        reality     127.0.0.1:11443;
-        trojan      127.0.0.1:10143;
-        grpc        127.0.0.1:10085;
-        websocket   127.0.0.1:10086;
-        default     127.0.0.1:11443; # 终极兜底
-    }
-
-    server {
-        listen 443 reuseport;
-        listen [::]:443 reuseport;
-        ssl_preread on;
-        proxy_pass $final_upstream;
-        proxy_timeout 300s;
-        proxy_connect_timeout 5s;
-    }
-}
-NGINX_CONFIG
-
-    # --- 写入面板密码 map（独立文件，便于轮换） ---
-    log_info "生成并注入控制面板密码..."
-    local passcode_conf="/etc/nginx/conf.d/edgebox_passcode.conf"
-    if [[ -n "$DASHBOARD_PASSCODE" ]]; then
-        cat > "$passcode_conf" << EOF
-# 由 EdgeBox 自动生成于 $(date)
-map \$arg_passcode \$pass_ok {
-    "${DASHBOARD_PASSCODE}" 1;
-    default 0;
-}
-EOF
-        log_success "密码配置文件已生成: ${passcode_conf}"
-    else
-        cat > "$passcode_conf" << 'EOF'
-# [WARN] 未生成密码，默认拒绝所有访问
-map $arg_passcode $pass_ok {
-    default 0;
-}
-EOF
-        log_warn "DASHBOARD_PASSCODE 为空，面板访问将被默认拒绝。"
-    fi
-
-    # 生成初始 stream_map（调用位置保持在此）
-    generate_initial_nginx_stream_map
-
-    # 创建 systemd override（确保依赖）
-    create_nginx_systemd_override
-
-    # 高熵订阅路径注入（若提供 MASTER_SUB_TOKEN）
-    if [[ -n "$MASTER_SUB_TOKEN" ]]; then
-        sed -ri 's#(location[[:space:]]*=[[:space:]]*)/sub([[:space:]]*\{)#\1/sub-'"${MASTER_SUB_TOKEN}"'\2#' /etc/nginx/nginx.conf
-        sed -ri 's#(try_files[[:space:]]*)/sub([[:space:]]*=404;)#\1/sub-'"${MASTER_SUB_TOKEN}"'\2#' /etc/nginx/nginx.conf
-    fi
-
-    # 配置校验与（重载|重启|启动）
-    log_info "验证Nginx配置."
-    if nginx -t 2>&1 | grep -q "syntax is ok"; then
-        log_success "Nginx配置验证通过"
-        if systemctl is-active --quiet nginx 2>/dev/null; then
-            if systemctl reload nginx 2>/dev/null; then
-                log_success "Nginx 已重载新配置"
-            else
-                log_warn "Nginx reload 失败，尝试重启。"
-                systemctl restart nginx 2>/dev/null && log_success "Nginx 已重启" || log_error "Nginx 重启失败"
-            fi
-        else
-            systemctl enable --now nginx 2>/dev/null && log_success "Nginx 已启动" || log_error "Nginx 启动失败"
-        fi
-    else
-        log_error "Nginx 配置语法错误，请检查 /var/log/nginx/error.log"
-        return 1
-    fi
-
-    return 0
 }
 
 # HTTP 服务器配置
