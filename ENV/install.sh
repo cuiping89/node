@@ -2692,18 +2692,28 @@ log_info "└─ verify_module2_data()       # 验证数据完整性"
 install_xray() {
     log_info "安装Xray核心程序..."
 
-    # 检查是否已安装
+    # <<< --- 新增：强制移除旧的 xray 二进制文件 --- >>>
     if command -v xray >/dev/null 2>&1; then
-        local current_version
-        current_version=$(xray version 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-        log_info "检测到已安装的Xray版本: ${current_version:-未知}"
-        log_info "跳过Xray重新安装，使用现有版本"
-        return 0
+        local existing_xray_path
+        existing_xray_path=$(command -v xray)
+        log_warn "检测到已存在的 xray: ${existing_xray_path}"
+        log_info "正在移除旧的 xray 以确保安装纯净版本..."
+        # 尝试通过包管理器卸载（如果可能）
+        if [[ -n "$PKG_MANAGER" ]]; then
+            case "$PKG_MANAGER" in
+                apt) apt-get remove -y xray >/dev/null 2>&1 || true ;;
+                yum|dnf) yum remove -y xray >/dev/null 2>&1 || dnf remove -y xray >/dev/null 2>&1 || true ;;
+            esac
+        fi
+        # 强制删除常见路径下的二进制文件
+        rm -f /usr/local/bin/xray /usr/bin/xray >/dev/null 2>&1 || true
+        log_success "旧的 xray 已移除"
     fi
+    # <<< --- 清理结束 --- >>>
 
     log_info "从官方仓库下载并安装Xray..."
 
-    # 使用智能下载函数
+    # 使用智能下载函数 (保持不变)
     if smart_download_script \
         "https://raw.githubusercontent.com/XTLS/Xray-install/main/install-release.sh" \
         "Xray安装脚本" \
@@ -2714,21 +2724,26 @@ install_xray() {
         return 1
     fi
 
-    # 验证安装
-    if command -v xray >/dev/null 2>&1; then
+    # 验证安装 (使用完整路径)
+    # <<< --- 修改：使用完整路径验证 --- >>>
+    if [[ -x "/usr/local/bin/xray" ]]; then
         local xray_version
-        current_version=$(xray version 2>/dev/null \
-		| head -n1 \
-		| sed -E 's/[^0-9]*([0-9.]+).*/\1/')
-        log_success "Xray验证通过，版本: ${xray_version:-未知}"
+        xray_version=$(/usr/local/bin/xray version 2>/dev/null \
+            | head -n1 \
+            | sed -E 's/[^0-9]*([0-9.]+).*/\1/') # 尝试提取版本号
+        log_success "Xray验证通过 (路径: /usr/local/bin/xray)，版本: ${xray_version:-未知}"
+    # <<< --- 修改结束 --- >>>
 
-mkdir -p /var/log/xray
-chown nobody:nogroup /var/log/xray 2>/dev/null || chown nobody:nobody /var/log/xray
-log_success "Xray log directory created and permissions set."
+        # 创建日志目录 (保持不变)
+        mkdir -p /var/log/xray
+        # 使用 root:root 因为 systemd 服务将以 root 运行
+        chown root:root /var/log/xray
+        chmod 755 /var/log/xray # 修正权限
+        log_success "Xray log directory created and permissions set."
 
         return 0
     else
-        log_error "Xray安装验证失败"
+        log_error "Xray安装验证失败 (未找到 /usr/local/bin/xray)"
         return 1
     fi
 }
