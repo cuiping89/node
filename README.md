@@ -28,7 +28,7 @@
 连接到您的服务器（推荐 Ubuntu 20.04+ 或 Debian 10+ 纯净系统），执行以下命令即可一键部署：
 
 ```bash
-bash <(curl -fsSL [https://raw.githubusercontent.com/cuiping89/node/refs/heads/main/ENV/install.sh](https://raw.githubusercontent.com/cuiping89/node/refs/heads/main/ENV/install.sh))
+bash <(curl -fsSL https://raw.githubusercontent.com/cuiping89/node/refs/heads/main/ENV/install.sh)
 ```
 > **提示**: 如果您的服务器在国内，访问 GitHub 可能较慢。您可以在安装命令前添加代理来加速下载，例如：`export EDGEBOX_DOWNLOAD_PROXY="https://ghproxy.com/"`。
 
