@@ -3361,12 +3361,12 @@ configure_xray() {
 
   local f="${CONFIG_DIR}/server.json"
 
-  # 日志目录（不使用 777）
+  # 日志目录（无需 777）
   mkdir -p /var/log/xray
   chown root:root /var/log/xray
   chmod 755 /var/log/xray
 
-  # ① 先尝试预加载证书路径（仅当变量为空时）
+  # ① 优先尝试预加载证书路径（仅当变量为空）
   if [[ -z ${CERT_PEM:-} || -z ${CERT_KEY:-} ]]; then
     if [[ -r "$f" ]]; then
       CERT_PEM=$(jq -r '.cert.cert_pem // empty' "$f")
@@ -3383,11 +3383,11 @@ configure_xray() {
     CERT_PEM CERT_KEY REALITY_SNI
   )
 
-  # ② 如有缺失，尝试从 server.json 预加载其它变量
+  # ② 如有缺失，继续从 server.json 预加载其它变量
   local missing_vars=()
   for var in "${required_vars[@]}"; do [[ -z "${!var:-}" ]] && missing_vars+=("$var"); done
   if (( ${#missing_vars[@]} )); then
-    log_warn "缺少生成Xray配置的必要变量: ${missing_vars[*]}，尝试从 server.json 预加载..."
+    log_warn "缺少必要变量: ${missing_vars[*]}，尝试从 server.json 预加载..."
     if [[ -r "$f" ]]; then
       eval "$(jq -r '
         "UUID_VLESS_REALITY=\(.uuid.vless.reality // .uuid.vless // "")\n" +
@@ -3398,29 +3398,35 @@ configure_xray() {
         "REALITY_SHORT_ID=\(.reality.short_id // "")\n" +
         "REALITY_SNI=\(.reality.sni // "")\n" +
         "CERT_PEM=\(.cert.cert_pem // "")\n" +
-        "CERT_KEY=\(.cert.key_pem // "")\n"
+        "CERT_KEY=\(.cert.key_pem  // "")\n"
       ' "$f" 2>/dev/null || echo "")"
       export UUID_VLESS_REALITY UUID_VLESS_GRPC UUID_VLESS_WS PASSWORD_TROJAN \
              REALITY_PRIVATE_KEY REALITY_SHORT_ID REALITY_SNI CERT_PEM CERT_KEY
     fi
-    # REALITY_SNI 仍空则从锁文件或给默认
-    if [[ -z ${REALITY_SNI:-} ]]; then
-      REALITY_SNI="$(cat "${INSTALL_DIR}/sni.lock" 2>/dev/null || echo "www.microsoft.com")"
-      export REALITY_SNI
-    fi
   fi
 
-  # ③ 最终校验
+  # ③ 针对证书路径增加“符号链接”兜底（server.json 没有写入这两个字段的场景）
+  if [[ -z ${CERT_PEM:-} ]]; then CERT_PEM="${CERT_DIR}/current.pem"; fi
+  if [[ -z ${CERT_KEY:-} ]]; then CERT_KEY="${CERT_DIR}/current.key"; fi
+  export CERT_PEM CERT_KEY
+
+  # REALITY_SNI 仍为空则用锁文件或默认
+  if [[ -z ${REALITY_SNI:-} ]]; then
+    REALITY_SNI="$(cat "${INSTALL_DIR}/sni.lock" 2>/dev/null || echo "www.microsoft.com")"
+    export REALITY_SNI
+  fi
+
+  # ④ 最终校验（此时已带兜底，不应再缺）
   missing_vars=()
   for var in "${required_vars[@]}"; do [[ -z "${!var:-}" ]] && missing_vars+=("$var"); done
   if (( ${#missing_vars[@]} )); then
-    log_error "从 server.json 预加载后仍然缺少变量: ${missing_vars[*]}"
+    log_error "预加载和兜底后仍然缺少变量: ${missing_vars[*]}"
     return 1
   else
     log_info "✓ 所有必要变量已设置 (变量存在，文件待检查...)"
   fi
 
-  # ④ 证书文件检查/必要时自愈
+  # ⑤ 证书文件检查/必要时自愈
   log_info "检查证书文件是否存在且可读..."
   local cert_files_ok=true
   [[ ! -r "$CERT_PEM" ]] && { log_error "证书文件不存在或不可读: $CERT_PEM"; cert_files_ok=false; }
@@ -3429,7 +3435,7 @@ configure_xray() {
     local cert_mode
     cert_mode=$(cat "${CONFIG_DIR}/cert_mode" 2>/dev/null || echo "self-signed")
     if [[ "$cert_mode" == "self-signed" ]]; then
-      log_warn "证书文件问题，尝试重新生成自签名证书..."
+      log_warn "证书文件异常，尝试重新生成自签名证书..."
       if generate_self_signed_cert; then
         log_success "自签名证书已重新生成。"
       else
@@ -3437,12 +3443,12 @@ configure_xray() {
       fi
       [[ ! -r "$CERT_PEM" || ! -r "$CERT_KEY" ]] && { log_error "重新生成后证书/密钥仍不可读。"; return 1; }
     else
-      log_error "证书文件问题，且当前不是自签名模式，无法自动修复。"; return 1
+      log_error "证书文件异常，且当前不是自签名模式，无法自动修复。"; return 1
     fi
   fi
   log_success "✓ 证书和密钥文件存在且可读。"
 
-  # ⑤ 生成临时配置并校验（原子落盘）
+  # ⑥ 生成临时配置并校验（原子落盘）
   log_info "使用 jq 生成 Xray 配置（写入临时文件）..."
   local xray_tmp="${CONFIG_DIR}/xray.tmp.json"
   if ! jq -n \
@@ -3516,12 +3522,12 @@ configure_xray() {
   chmod 644 "${CONFIG_DIR}/xray.json"
   log_success "Xray 配置文件创建并验证成功。"
 
-  # ⑥ 对齐 DNS（系统 & Xray）
+  # ⑦ 对齐 DNS（系统 & Xray）
   log_info "对齐 DNS 解析（系统 & Xray）..."
   ensure_system_dns
   ensure_xray_dns_alignment
 
-  # ⑦ systemd 服务（在模块结尾再 unmask/enable）
+  # ⑧ systemd 服务（在模块结尾再 unmask/enable）
   log_info "创建 Xray 系统服务..."
   systemctl stop xray >/dev/null 2>&1 || true
   systemctl disable xray >/dev/null 2>&1 || true
@@ -3552,8 +3558,7 @@ LimitNOFILE=1000000
 WantedBy=multi-user.target
 EOF
 
-  # 延后到模块尾部：
-  # systemctl unmask xray && systemctl daemon-reload && systemctl enable --now xray
+  # 延后到模块尾部统一：unmask + daemon-reload + enable --now
   systemctl mask xray >/dev/null 2>&1 || true
 
   log_success "Xray 服务文件创建完成（配置路径: ${CONFIG_DIR}/xray.json）"
