@@ -3349,7 +3349,7 @@ EOF
 }
 
 
-# === 监听检测增强 ===
+# === Patch C: 监听检测增强 (辅助函数) ===
 wait_listen() {  # usage: wait_listen 11443 10085 10086 10143
   local timeout=25 start ts p ok
   start=$(date +%s)
@@ -3392,7 +3392,7 @@ wait_listen() {  # usage: wait_listen 11443 10085 10086 10143
   done
 }
 
-# === 统一强制 Xray unit ===
+# === Patch B: 统一强制 Xray unit (辅助函数) ===
 create_or_update_xray_unit() {
   log_info "创建/更新 Xray systemd unit ..."
   local unit=/etc/systemd/system/xray.service
@@ -3429,31 +3429,33 @@ StandardError=journal
 WantedBy=multi-user.target
 UNIT
 
-      # <<< 关键点：移除可能冲突的 /lib 下的 unit 文件 >>>
-      if [[ -f /lib/systemd/system/xray.service ]]; then
-          log_info "移除 /lib/systemd/system/xray.service 以避免冲突..."
-          rm -f /lib/systemd/system/xray.service || true
-      fi
+  # <<< 关键点：移除可能冲突的 /lib 下的 unit 文件 >>>
+  if [[ -f /lib/systemd/system/xray.service ]]; then
+      log_info "移除 /lib/systemd/system/xray.service 以避免冲突..."
+      rm -f /lib/systemd/system/xray.service || true
+  fi
 
-      # <<< systemd 操作保持不变 >>>
-      systemctl daemon-reload
-      systemctl unmask xray.service 2>/dev/null || true
-      systemctl enable xray.service >/dev/null 2>&1 || log_warn "启用 xray 服务失败"
-    }
-	
+  # <<< systemd 操作保持不变 >>>
+  systemctl daemon-reload
+  systemctl unmask xray.service 2>/dev/null || true
+  systemctl enable xray.service >/dev/null 2>&1 || log_warn "启用 xray 服务失败"
+}
+
 # // ANCHOR: [FUNC-CONFIGURE_XRAY]
 #############################################
 # 函数：configure_xray
-# 作用：配置Xray服务 (原子写入 + 验证)
+# 作用：配置Xray服务 (原子写入 + 验证) - 已应用 Patch A, B, C
 # 输入：根据函数体（一般通过全局变量/环境）
 # 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
 #############################################
 configure_xray() {
   log_info "配置Xray多协议服务..."
 
-  mkdir -p /var/log/xray
-  chmod 777 /var/log/xray
-  chown root:root /var/log/xray
+  # <<< 确保日志目录存在且权限正确 >>>
+  mkdir -p /var/log/xray 2>/dev/null || true
+  # <<< 使用 root 运行，chown/chmod 不是必须，但保留无害 >>>
+  chown root:root /var/log/xray 2>/dev/null || true
+  chmod 755 /var/log/xray 2>/dev/null || true
 
   local f="${CONFIG_DIR}/server.json"
 
@@ -3472,13 +3474,15 @@ configure_xray() {
     fi
   fi
 
+
   # ② 检查并兜底证书路径
   [[ -z ${CERT_PEM:-} ]] && CERT_PEM="${CERT_DIR}/current.pem"
   [[ -z ${CERT_KEY:-} ]] && CERT_KEY="${CERT_DIR}/current.key"
   export CERT_PEM CERT_KEY
 
+
   # ③ 收集必要变量
-  local required_vars=(
+    local required_vars=(
     "UUID_VLESS_REALITY" "UUID_VLESS_GRPC" "UUID_VLESS_WS"
     "REALITY_PRIVATE_KEY" "REALITY_SHORT_ID" "PASSWORD_TROJAN"
     "CERT_PEM" "CERT_KEY" "REALITY_SNI"
@@ -3505,6 +3509,7 @@ configure_xray() {
     fi
   fi
 
+
   # ④ 最终核对
   missing_vars=()
   for var in "${required_vars[@]}"; do
@@ -3515,6 +3520,7 @@ configure_xray() {
     return 1
   fi
   log_success "✓ 所有必要变量已设置"
+
 
   # ⑤ 校验证书文件
   log_info "检查证书文件是否存在且可读..."
@@ -3540,19 +3546,20 @@ configure_xray() {
   fi
   log_success "✓ 证书和密钥文件可用"
 
- # ⑥ 生成并验证临时配置（原子写入） - 使用 Heredoc (Patch A)
+
+  # ⑥ 生成并验证临时配置（原子写入） - 使用 Heredoc (Patch A)
   log_info "使用 jq (Heredoc) 生成 Xray 配置（临时文件）..."
   local xray_tmp="${CONFIG_DIR}/xray.tmp.json"
 
   # 1) 定义 jq 程序体 (使用强引用 Heredoc 保证内容不变)
-  read -r -d '' _JQ <<'JQ_PROGRAM'
+  read -r -d '' JQ_PROGRAM <<'EOF'
   {
     "log": { "access": "/var/log/xray/access.log", "error": "/var/log/xray/error.log", "loglevel": "info" },
     "inbounds": [
       { "tag": "vless-reality", "listen": "127.0.0.1", "port": 11443, "protocol": "vless",
-        "settings": { "clients": [ { "id": $uuid_reality, "flow": "xtls-rprx-vision" } ], "decryption": "none" }, # <-- 保持您的 flow 设置
+        "settings": { "clients": [ { "id": $uuid_reality, "flow": "xtls-rprx-vision" } ], "decryption": "none" },
         "streamSettings": { "network": "tcp", "security": "reality",
-          "realitySettings": { "show": false, "dest": ($r_sni + ":443"), "serverNames": [$r_sni], "privateKey": $r_priv, "shortIds": [$r_short] } # <-- 保持您的 dest 和 serverNames 结构
+          "realitySettings": { "show": false, "dest": ($r_sni + ":443"), "serverNames": [$r_sni], "privateKey": $r_priv, "shortIds": [$r_short] }
         }
       },
       { "tag": "vless-grpc", "listen": "127.0.0.1", "port": 10085, "protocol": "vless",
@@ -3585,86 +3592,59 @@ configure_xray() {
     "routing": { "domainStrategy": "UseIP", "rules": [ { "type": "field", "ip": ["geoip:private"], "outboundTag": "block" } ] },
     "policy": { "handshake": 4, "connIdle": 30 }
   }
-JQ_PROGRAM
-
-      # 2) 调用 jq，传入变量和程序体
-      if ! jq -n \
-          --arg uuid_reality "$UUID_VLESS_REALITY" \
-          --arg uuid_grpc    "$UUID_VLESS_GRPC" \
-          --arg uuid_ws      "$UUID_VLESS_WS" \
-          --arg r_priv       "$REALITY_PRIVATE_KEY" \
-          --arg r_short      "$REALITY_SHORT_ID" \
-          --arg r_sni        "$REALITY_SNI" \
-          --arg trojan_pwd   "$PASSWORD_TROJAN" \
-          --arg cert_pem     "$CERT_PEM" \
-          --arg cert_key     "$CERT_KEY" \
-          "$JQ_PROGRAM" > "$xray_tmp"; then # <-- 使用 $JQ_PROGRAM
-          log_error "使用 jq (Heredoc) 生成 Xray 配置失败"
-          rm -f "$xray_tmp"
-          return 1
-      fi
-
-      # 3) 验证与落盘 (保持不变)
-      log_info "验证生成的 Xray 配置..."
-      # ... (后续的 xray -test, mv, chmod 等代码保持不变) ...
-      if ! /usr/local/bin/xray -test -config "$xray_tmp" >/dev/null 2>&1; then
-          /usr/local/bin/xray -test -config "$xray_tmp" || true # 显示错误
-          rm -f "$xray_tmp"
-          return 1
-      fi
-      mv "$xray_tmp" "${CONFIG_DIR}/xray.json"
-      chmod 644 "${CONFIG_DIR}/xray.json"
-      log_success "Xray 配置文件创建并验证成功（${CONFIG_DIR}/xray.json）"
-
-  # ⑦ 写入并启用 systemd 服务
-  log_info "创建/更新 Xray systemd unit ..."
-  cat > /etc/systemd/system/xray.service << 'EOF'
-[Unit]
-Description=Xray Service (EdgeBox)
-Documentation=https://github.com/xtls
-Wants=network-online.target
-After=network-online.target nss-lookup.target
-
-[Service]
-Type=simple
-User=root
-Group=root
-ExecStart=/usr/local/bin/xray run -config /etc/edgebox/config/xray.json
-Restart=on-failure
-RestartPreventExitStatus=23
-RestartSec=5s
-LimitNPROC=10000
-LimitNOFILE=1000000
-
-[Install]
-WantedBy=multi-user.target
 EOF
 
-  # 立即生效并启动（取消任何 mask/disable 残留）
-  systemctl daemon-reload
-  systemctl unmask xray.service  >/dev/null 2>&1 || true
-  systemctl enable xray.service  >/dev/null 2>&1 || true
-  systemctl restart xray.service >/dev/null 2>&1 || systemctl start xray.service || true
+  # 2) 调用 jq，传入变量和程序体
+  if ! jq -n \
+      --arg uuid_reality "$UUID_VLESS_REALITY" \
+      --arg uuid_grpc    "$UUID_VLESS_GRPC" \
+      --arg uuid_ws      "$UUID_VLESS_WS" \
+      --arg r_priv       "$REALITY_PRIVATE_KEY" \
+      --arg r_short      "$REALITY_SHORT_ID" \
+      --arg r_sni        "$REALITY_SNI" \
+      --arg trojan_pwd   "$PASSWORD_TROJAN" \
+      --arg cert_pem     "$CERT_PEM" \
+      --arg cert_key     "$CERT_KEY" \
+      "$JQ_PROGRAM" > "$xray_tmp"; then # <-- 使用 $JQ_PROGRAM
+      log_error "使用 jq (Heredoc) 生成 Xray 配置失败"
+      rm -f "$xray_tmp"
+      return 1
+  fi
 
-# 重启服务
-log_info "重启 Xray 服务以应用配置..."
-systemctl restart xray.service
+  # 3) 验证与落盘
+  log_info "验证生成的 Xray 配置..."
+  if ! /usr/local/bin/xray -test -config "$xray_tmp" >/dev/null 2>&1; then
+      /usr/local/bin/xray -test -config "$xray_tmp" || true # 显示错误
+      rm -f "$xray_tmp"
+      return 1
+  fi
+  mv "$xray_tmp" "${CONFIG_DIR}/xray.json"
+  chmod 644 "${CONFIG_DIR}/xray.json"
+  log_success "Xray 配置文件创建并验证成功（${CONFIG_DIR}/xray.json）"
 
-# ⑧ 等待端口就绪 (使用 Patch C 的函数)
-if ! wait_listen 11443 10085 10086 10143; then
-    log_error "Xray 启动后端口监听异常，输出诊断信息："
-    # <<< 诊断信息保持，但现在在 wait_listen 失败后才触发 >>>
-    journalctl -u xray -n 100 --no-pager | tail -n 60 || true
-    if [[ -r "${CONFIG_DIR}/xray.json" ]]; then
-      log_info "尝试 xray -test ..."
-      /usr/local/bin/xray -test -config "${CONFIG_DIR}/xray.json" || true
-    fi
-    return 1 # <-- 明确返回失败
-fi
+  # ⑦ 写入并启用 systemd 服务 (调用 Patch B 的函数)
+  create_or_update_xray_unit # <-- 调用 Patch B 的 unit 创建函数
 
-log_success "Xray 服务已启动并监听所有端口"
-return 0
+  # ⑧ 尝试重启 Xray 并等待端口就绪 (保留这一个重启 + Patch C 的等待函数)
+  log_info "尝试启动/重启 Xray 服务以应用配置..."
+  systemctl restart xray.service # <-- 保留这唯一一次重启
+
+  # 等待端口监听
+  if ! wait_listen 11443 10085 10086 10143; then # <-- 调用 Patch C 的等待函数
+      log_error "Xray 启动后端口监听异常，输出诊断信息："
+      # <<< 诊断信息保持，但现在在 wait_listen 失败后才触发 >>>
+      journalctl -u xray -n 100 --no-pager | tail -n 60 || true
+      if [[ -r "${CONFIG_DIR}/xray.json" ]]; then
+        log_info "尝试 xray -test ..."
+        /usr/local/bin/xray -test -config "${CONFIG_DIR}/xray.json" || true
+      fi
+      return 1 # <-- 明确返回失败
+  fi
+
+  log_success "Xray 服务已启动并监听所有端口"
+  return 0
 } # configure_xray 函数结束
+
 
 # // ANCHOR: [FUNC-CONFIGURE_SING_BOX]
 #############################################
