@@ -3458,7 +3458,7 @@ configure_xray() {
 
 
     log_info "使用jq生成Xray配置文件（写入临时文件）..."
-    local xray_tmp="${CONFIG_DIR}/xray.json.tmp"
+    local xray_tmp="${CONFIG_DIR}/xray.tmp.json"
     if ! jq -n \
         --arg uuid_reality "$UUID_VLESS_REALITY" \
         --arg uuid_grpc "$UUID_VLESS_GRPC" \
@@ -3488,14 +3488,14 @@ configure_xray() {
     fi
 
     # --- ATOMIC WRITE + VALIDATION ---
-    log_info "验证生成的 Xray 配置..."
-    if ! xray -test -config "$xray_tmp" >/dev/null 2>&1; then
-        log_error "生成的 Xray 配置未能通过验证！"
-        xray -test -config "$xray_tmp" # Show error detail
-        rm -f "$xray_tmp"
-        return 1
-    fi
-    mv "$xray_tmp" "${CONFIG_DIR}/xray.json"
+log_info "验证生成的 Xray 配置..."
+if ! xray -test -config "$xray_tmp" >/dev/null 2>&1; then
+  log_error "生成的 Xray 配置未能通过验证！"
+  xray -test -config "$xray_tmp"   # 打印详细错误
+  rm -f "$xray_tmp"
+  return 1
+fi
+mv "$xray_tmp" "${CONFIG_DIR}/xray.json"
     log_success "Xray 配置文件创建并验证成功。"
     # --- END ATOMIC WRITE + VALIDATION ---
 
