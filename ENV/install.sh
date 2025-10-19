@@ -3349,30 +3349,98 @@ EOF
 }
 
 
-# === [PATCH:Xray helpers BEGIN] =============================================
-eb_wait_listen() {
-  local port="$1" timeout="${2:-20}" i=0
-  while [[ $i -lt $timeout ]]; do
-    if ss -lnt "( sport = :$port )" | awk 'NR>1{exit 1} END{exit 0}'; then
-      sleep 1; i=$((i+1)); continue
+# === 监听检测增强 ===
+wait_listen() {  # usage: wait_listen 11443 10085 10086 10143
+  local timeout=25 start ts p ok
+  start=$(date +%s)
+  log_info "等待端口监听: $@ (超时: ${timeout}s)..." # <-- 添加日志
+  while true; do
+    ok=1
+    local listening_ports="" # <-- 用于调试
+    local not_listening=""   # <-- 用于调试
+    # <<< 使用更兼容的 ss 和 awk >>>
+    local ss_output
+    ss_output=$(ss -lnt 2>/dev/null || netstat -lnt 2>/dev/null) # 兼容 netstat
+
+    for p in "$@"; do
+      # <<< awk 脚本增强，兼容不同输出格式 >>>
+      if echo "$ss_output" | awk -v P=":$p" -v P4="0.0.0.0:$p" -v P6="\[::\]:$p" '
+        $1 ~ /^tcp/ && ($4 == P || $4 == P4 || $4 == P6 || $4 ~ P"$" ) { found=1; exit 0 }
+        END { exit (found ? 0 : 1) }
+      '; then
+         listening_ports+="$p "
+      else
+        ok=0
+        not_listening+="$p "
+        # break # 不必 break，检查完所有端口
+      fi
+    done
+
+    if [[ $ok -eq 1 ]]; then
+       log_info "所有端口已监听: $listening_ports" # <-- 成功日志
+       return 0
     fi
-    return 0
+
+    ts=$(($(date +%s)-start))
+    if [[ $ts -ge $timeout ]]; then
+       log_error "等待端口监听超时 (${ts}s)! 未监听端口: $not_listening" # <-- 失败日志
+       return 1
+    fi
+    # <<< 减少不必要的日志刷屏，只在最后失败时打印 >>>
+    # echo -n "." # 可以移除或保留用于调试
+    sleep 1
   done
-  return 1
 }
 
-eb_xray_diag() {
-  log_error "Xray 未就绪，输出快速诊断："
-  command -v journalctl >/dev/null 2>&1 && {
-    journalctl -u xray -n 100 --no-pager 2>/dev/null | tail -n 60 || true
-  }
-  if [[ -r "${CONFIG_DIR}/xray.json" ]]; then
-    log_info "尝试 xray -test ..."
-    /usr/local/bin/xray -test -config "${CONFIG_DIR}/xray.json" || true
-  fi
-}
-# === [PATCH:Xray helpers END] ===============================================
+# === 统一强制 Xray unit ===
+create_or_update_xray_unit() {
+  log_info "创建/更新 Xray systemd unit ..."
+  local unit=/etc/systemd/system/xray.service
 
+  # 确保我们的配置是唯一真源；顺手把官方默认路径做个软链避免意外
+  # <<< 关键点：确保目标目录存在 >>>
+  mkdir -p /usr/local/etc/xray 2>/dev/null || true
+  ln -sfn /etc/edgebox/config/xray.json /usr/local/etc/xray/config.json
+
+  # <<< 使用 Patch B 提供的增强版 Unit 文件内容 >>>
+  cat >"$unit" <<'UNIT'
+[Unit]
+Description=Xray Service (EdgeBox)
+Documentation=https://github.com/XTLS/Xray-core
+Wants=network-online.target
+After=network-online.target nss-lookup.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+# <<< 关键点：明确指定配置文件路径 >>>
+ExecStart=/usr/local/bin/xray run -c /etc/edgebox/config/xray.json
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=2
+LimitNOFILE=1048576
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+      # <<< 关键点：移除可能冲突的 /lib 下的 unit 文件 >>>
+      if [[ -f /lib/systemd/system/xray.service ]]; then
+          log_info "移除 /lib/systemd/system/xray.service 以避免冲突..."
+          rm -f /lib/systemd/system/xray.service || true
+      fi
+
+      # <<< systemd 操作保持不变 >>>
+      systemctl daemon-reload
+      systemctl unmask xray.service 2>/dev/null || true
+      systemctl enable xray.service >/dev/null 2>&1 || log_warn "启用 xray 服务失败"
+    }
+	
 # // ANCHOR: [FUNC-CONFIGURE_XRAY]
 #############################################
 # 函数：configure_xray
@@ -3472,72 +3540,81 @@ configure_xray() {
   fi
   log_success "✓ 证书和密钥文件可用"
 
-  # ⑥ 生成并验证临时配置（原子写入）
-  log_info "使用 jq 生成 Xray 配置（临时文件）..."
+ # ⑥ 生成并验证临时配置（原子写入） - 使用 Heredoc (Patch A)
+  log_info "使用 jq (Heredoc) 生成 Xray 配置（临时文件）..."
   local xray_tmp="${CONFIG_DIR}/xray.tmp.json"
-  if ! jq -n \
-      --arg uuid_reality "$UUID_VLESS_REALITY" \
-      --arg uuid_grpc    "$UUID_VLESS_GRPC" \
-      --arg uuid_ws      "$UUID_VLESS_WS" \
-      --arg r_priv       "$REALITY_PRIVATE_KEY" \
-      --arg r_short      "$REALITY_SHORT_ID" \
-      --arg r_sni        "$REALITY_SNI" \
-      --arg trojan_pwd   "$PASSWORD_TROJAN" \
-      --arg cert_pem     "$CERT_PEM" \
-      --arg cert_key     "$CERT_KEY" \
-      '{
-        "log": { "access": "/var/log/xray/access.log", "error": "/var/log/xray/error.log", "loglevel": "info" },
-        "inbounds": [
-          { "tag": "vless-reality", "listen": "127.0.0.1", "port": 11443, "protocol": "vless",
-            "settings": { "clients": [ { "id": $uuid_reality, "flow": "xtls-rprx-vision" } ], "decryption": "none" },
-            "streamSettings": { "network": "tcp", "security": "reality",
-              "realitySettings": { "show": false, "dest": ($r_sni + ":443"), "serverNames": [$r_sni], "privateKey": $r_priv, "shortIds": [$r_short] } }
-          },
-          { "tag": "vless-grpc", "listen": "127.0.0.1", "port": 10085, "protocol": "vless",
-            "settings": { "clients": [ { "id": $uuid_grpc } ], "decryption": "none" },
-            "streamSettings": { "network": "grpc", "security": "tls",
-              "tlsSettings": { "certificates": [ { "certificateFile": $cert_pem, "keyFile": $cert_key } ] },
-              "grpcSettings": { "serviceName": "grpc", "multiMode": false } }
-          },
-          { "tag": "vless-ws", "listen": "127.0.0.1", "port": 10086, "protocol": "vless",
-            "settings": { "clients": [ { "id": $uuid_ws } ], "decryption": "none" },
-            "streamSettings": { "network": "ws", "security": "tls",
-              "tlsSettings": { "certificates": [ { "certificateFile": $cert_pem, "keyFile": $cert_key } ] },
-              "wsSettings": { "path": "/ws" } }
-          },
-          { "tag": "trojan-tcp", "listen": "127.0.0.1", "port": 10143, "protocol": "trojan",
-            "settings": { "clients": [ { "password": $trojan_pwd } ] },
-            "streamSettings": { "network": "tcp", "security": "tls",
-              "tcpSettings": { "header": { "type": "none" } },
-              "tlsSettings": { "certificates": [ { "certificateFile": $cert_pem, "keyFile": $cert_key } ] } }
-          }
-        ],
-        "outbounds": [
-          { "tag": "direct", "protocol": "freedom", "settings": {} },
-          { "tag": "block",  "protocol": "blackhole", "settings": {} }
-        ],
-        "dns": {
-          "servers": [ "8.8.8.8", "1.1.1.1", {"address": "https://1.1.1.1/dns-query"}, {"address": "https://8.8.8.8/dns-query"} ],
-          "queryStrategy": "UseIP"
-        },
-        "routing": { "domainStrategy": "UseIP", "rules": [ { "type": "field", "ip": ["geoip:private"], "outboundTag": "block" } ] },
-        "policy": { "handshake": 4, "connIdle": 30 }
-      }' > "$xray_tmp"
-  then
-    log_error "使用 jq 生成 Xray 配置失败"
-    rm -f "$xray_tmp"
-    return 1
-  fi
 
-  log_info "验证生成的 Xray 配置..."
-  if ! /usr/local/bin/xray -test -config "$xray_tmp" >/dev/null 2>&1; then
-    /usr/local/bin/xray -test -config "$xray_tmp" || true
-    rm -f "$xray_tmp"
-    return 1
-  fi
-  mv "$xray_tmp" "${CONFIG_DIR}/xray.json"
-  chmod 644 "${CONFIG_DIR}/xray.json"
-  log_success "Xray 配置文件创建并验证成功（${CONFIG_DIR}/xray.json）"
+  # 1) 定义 jq 程序体 (使用强引用 Heredoc 保证内容不变)
+  read -r -d '' _JQ <<'JQ_PROGRAM'
+  {
+    "log": { "access": "/var/log/xray/access.log", "error": "/var/log/xray/error.log", "loglevel": "info" },
+    "inbounds": [
+      { "tag": "vless-reality", "listen": "127.0.0.1", "port": 11443, "protocol": "vless",
+        "settings": { "clients": [ { "id": $uuid_reality, "flow": "xtls-rprx-vision" } ], "decryption": "none" }, # <-- 保持您的 flow 设置
+        "streamSettings": { "network": "tcp", "security": "reality",
+          "realitySettings": { "show": false, "dest": ($r_sni + ":443"), "serverNames": [$r_sni], "privateKey": $r_priv, "shortIds": [$r_short] } # <-- 保持您的 dest 和 serverNames 结构
+        }
+      },
+      { "tag": "vless-grpc", "listen": "127.0.0.1", "port": 10085, "protocol": "vless",
+        "settings": { "clients": [ { "id": $uuid_grpc } ], "decryption": "none" },
+        "streamSettings": { "network": "grpc", "security": "tls",
+          "tlsSettings": { "certificates": [ { "certificateFile": $cert_pem, "keyFile": $cert_key } ] },
+          "grpcSettings": { "serviceName": "grpc", "multiMode": false } }
+      },
+      { "tag": "vless-ws", "listen": "127.0.0.1", "port": 10086, "protocol": "vless",
+        "settings": { "clients": [ { "id": $uuid_ws } ], "decryption": "none" },
+        "streamSettings": { "network": "ws", "security": "tls",
+          "tlsSettings": { "certificates": [ { "certificateFile": $cert_pem, "keyFile": $cert_key } ] },
+          "wsSettings": { "path": "/ws" } }
+      },
+      { "tag": "trojan-tcp", "listen": "127.0.0.1", "port": 10143, "protocol": "trojan",
+        "settings": { "clients": [ { "password": $trojan_pwd } ] },
+        "streamSettings": { "network": "tcp", "security": "tls",
+          "tcpSettings": { "header": { "type": "none" } },
+          "tlsSettings": { "certificates": [ { "certificateFile": $cert_pem, "keyFile": $cert_key } ] } }
+      }
+    ],
+    "outbounds": [
+      { "tag": "direct", "protocol": "freedom", "settings": {} },
+      { "tag": "block",  "protocol": "blackhole", "settings": {} }
+    ],
+    "dns": {
+      "servers": [ "8.8.8.8", "1.1.1.1", {"address": "https://1.1.1.1/dns-query"}, {"address": "https://8.8.8.8/dns-query"} ],
+      "queryStrategy": "UseIP"
+    },
+    "routing": { "domainStrategy": "UseIP", "rules": [ { "type": "field", "ip": ["geoip:private"], "outboundTag": "block" } ] },
+    "policy": { "handshake": 4, "connIdle": 30 }
+  }
+JQ_PROGRAM
+
+      # 2) 调用 jq，传入变量和程序体
+      if ! jq -n \
+          --arg uuid_reality "$UUID_VLESS_REALITY" \
+          --arg uuid_grpc    "$UUID_VLESS_GRPC" \
+          --arg uuid_ws      "$UUID_VLESS_WS" \
+          --arg r_priv       "$REALITY_PRIVATE_KEY" \
+          --arg r_short      "$REALITY_SHORT_ID" \
+          --arg r_sni        "$REALITY_SNI" \
+          --arg trojan_pwd   "$PASSWORD_TROJAN" \
+          --arg cert_pem     "$CERT_PEM" \
+          --arg cert_key     "$CERT_KEY" \
+          "$JQ_PROGRAM" > "$xray_tmp"; then # <-- 使用 $JQ_PROGRAM
+          log_error "使用 jq (Heredoc) 生成 Xray 配置失败"
+          rm -f "$xray_tmp"
+          return 1
+      fi
+
+      # 3) 验证与落盘 (保持不变)
+      log_info "验证生成的 Xray 配置..."
+      # ... (后续的 xray -test, mv, chmod 等代码保持不变) ...
+      if ! /usr/local/bin/xray -test -config "$xray_tmp" >/dev/null 2>&1; then
+          /usr/local/bin/xray -test -config "$xray_tmp" || true # 显示错误
+          rm -f "$xray_tmp"
+          return 1
+      fi
+      mv "$xray_tmp" "${CONFIG_DIR}/xray.json"
+      chmod 644 "${CONFIG_DIR}/xray.json"
+      log_success "Xray 配置文件创建并验证成功（${CONFIG_DIR}/xray.json）"
 
   # ⑦ 写入并启用 systemd 服务
   log_info "创建/更新 Xray systemd unit ..."
@@ -3569,24 +3646,25 @@ EOF
   systemctl enable xray.service  >/dev/null 2>&1 || true
   systemctl restart xray.service >/dev/null 2>&1 || systemctl start xray.service || true
 
-  # ⑧ 等待端口就绪（避免 nginx 拿不到上游而被动连拒绝）
-  log_info "等待 Xray 端口就绪: 11443 / 10085 / 10086 / 10143 ..."
-  local ok=true
-  for p in 11443 10085 10086 10143; do
-    if ! eb_wait_listen "$p" 25; then
-      log_error "端口 $p 未监听"
-      ok=false
+# 重启服务
+log_info "重启 Xray 服务以应用配置..."
+systemctl restart xray.service
+
+# ⑧ 等待端口就绪 (使用 Patch C 的函数)
+if ! wait_listen 11443 10085 10086 10143; then
+    log_error "Xray 启动后端口监听异常，输出诊断信息："
+    # <<< 诊断信息保持，但现在在 wait_listen 失败后才触发 >>>
+    journalctl -u xray -n 100 --no-pager | tail -n 60 || true
+    if [[ -r "${CONFIG_DIR}/xray.json" ]]; then
+      log_info "尝试 xray -test ..."
+      /usr/local/bin/xray -test -config "${CONFIG_DIR}/xray.json" || true
     fi
-  done
+    return 1 # <-- 明确返回失败
+fi
 
-  if [[ "$ok" != "true" ]]; then
-    eb_xray_diag
-    return 1
-  fi
-
-  log_success "Xray 服务已启动并监听所有端口"
-  return 0
-}
+log_success "Xray 服务已启动并监听所有端口"
+return 0
+} # configure_xray 函数结束
 
 # // ANCHOR: [FUNC-CONFIGURE_SING_BOX]
 #############################################
