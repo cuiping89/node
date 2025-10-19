@@ -2181,32 +2181,23 @@ generate_dashboard_passcode() {
     return 0
 }
 
-#############################################
-# 配置信息保存函数
-#############################################
-
-# 保存完整配置信息到server.json（对齐控制面板数据口径，安全JSON生成）
+# // ANCHOR: [FUNC-SAVE_CONFIG_INFO]
 #############################################
 # 函数：save_config_info
-# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 作用：保存完整配置信息到server.json (原子写入 + 验证)
 # 输入：根据函数体（一般通过全局变量/环境）
 # 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
-# ANCHOR: [FUNC-SAVE_CONFIG_INFO]
 #############################################
 save_config_info() {
-    log_info "保存配置信息到server.json."
+    log_info "保存配置信息到server.json (写入临时文件)..."
 
     mkdir -p "${CONFIG_DIR}"
 
-    # 基础信息（均为局部变量）
+    # --- Start: Original variable assignments and checks ---
     local server_ip="${SERVER_IP:-127.0.0.1}"
     local version="${EDGEBOX_VER:-3.0.0}"
-    local install_date
-    install_date="$(date +%Y-%m-%d)"
-    local updated_at
-    updated_at="$(date -Is)"
-
-    # 系统信息
+    local install_date; install_date="$(date +%Y-%m-%d)"
+    local updated_at; updated_at="$(date -Is)"
     local cloud_provider="${CLOUD_PROVIDER:-Unknown}"
     local cloud_region="${CLOUD_REGION:-Unknown}"
     local instance_id="${INSTANCE_ID:-Unknown}"
@@ -2215,30 +2206,27 @@ save_config_info() {
     local cpu_spec="${CPU_SPEC:-Unknown}"
     local memory_spec="${MEMORY_SPEC:-Unknown}"
     local disk_spec="${DISK_SPEC:-Unknown}"
-
-    # 确保面板口令存在
     if [[ -z "$DASHBOARD_PASSCODE" ]]; then
         log_warn "DASHBOARD_PASSCODE为空，生成临时6位数字口令"
-        local d=$((RANDOM % 10))
-        DASHBOARD_PASSCODE="${d}${d}${d}${d}${d}${d}"
-        export DASHBOARD_PASSCODE
+        local d=$((RANDOM % 10)); DASHBOARD_PASSCODE="${d}${d}${d}${d}${d}${d}"; export DASHBOARD_PASSCODE
     fi
-
-    # 关键凭据校验（缺失即失败）
-if [[ -z "$UUID_VLESS_REALITY" || -z "$PASSWORD_TROJAN" || -z "$PASSWORD_HYSTERIA2" || -z "$MASTER_SUB_TOKEN" ]]; then
-    log_error "关键凭据缺失（含管理员订阅Token），无法保存配置"
-    return 1
-fi
-
-    # IP格式校验
-    if [[ ! "$server_ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
-        log_error "服务器IP格式无效: $server_ip"
+    # 关键凭据校验（缺失即失败）- 注意这里的 MASTER_SUB_TOKEN 依赖 execute_module2 中生成
+    if [[ -z "$UUID_VLESS_REALITY" || -z "$PASSWORD_TROJAN" || -z "$PASSWORD_HYSTERIA2" || -z "${MASTER_SUB_TOKEN:-}" ]]; then
+        log_error "关键凭据缺失（含管理员订阅Token），无法保存配置"
+        log_debug "UUID_VLESS_REALITY: ${UUID_VLESS_REALITY:-MISSING}"
+        log_debug "PASSWORD_TROJAN: ${PASSWORD_TROJAN:-MISSING}"
+        log_debug "PASSWORD_HYSTERIA2: ${PASSWORD_HYSTERIA2:-MISSING}"
+        log_debug "MASTER_SUB_TOKEN: ${MASTER_SUB_TOKEN:-MISSING}"
         return 1
     fi
+    if [[ ! "$server_ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+        log_error "服务器IP格式无效: $server_ip"; return 1
+    fi
+    # --- End: Original variable assignments and checks ---
 
-    log_info "使用 jq 生成 server.json（避免转义/注入问题）"
-
-    # 用 jq -n 生成 JSON（所有变量安全注入）
+    local server_tmp="${CONFIG_DIR}/server.json.tmp"
+    log_info "使用 jq 生成 server.json 临时文件..."
+    # Use jq -n to generate JSON (all variables safely injected)
     jq -n \
       --arg version              "$version" \
       --arg install_date         "$install_date" \
@@ -2249,7 +2237,7 @@ fi
       --arg instance_id          "$instance_id" \
       --arg user_alias           "$user_alias" \
       --arg dashboard_passcode   "$DASHBOARD_PASSCODE" \
-	  --arg master_sub_token     "$MASTER_SUB_TOKEN" \
+      --arg master_sub_token     "${MASTER_SUB_TOKEN:-}" \
       --arg cloud_provider       "$cloud_provider" \
       --arg cloud_region         "$cloud_region" \
       --arg cpu_spec             "$cpu_spec" \
@@ -2268,16 +2256,9 @@ fi
       --arg reality_private_key  "$REALITY_PRIVATE_KEY" \
       --arg reality_short_id     "$REALITY_SHORT_ID" \
       '{
-         version: $version,
-         install_date: $install_date,
-         updated_at: $updated_at,
-         server_ip: $server_ip,
-         eip: $eip,
-         hostname: $hostname,
-         instance_id: $instance_id,
-         user_alias: $user_alias,
-         dashboard_passcode: $dashboard_passcode,
-		 master_sub_token: $master_sub_token,
+         version: $version, install_date: $install_date, updated_at: $updated_at,
+         server_ip: $server_ip, eip: $eip, hostname: $hostname, instance_id: $instance_id,
+         user_alias: $user_alias, dashboard_passcode: $dashboard_passcode, master_sub_token: $master_sub_token,
          cloud: { provider: $cloud_provider, region: $cloud_region },
          spec:  { cpu: $cpu_spec, memory: $memory_spec, disk: $disk_spec },
          uuid:  { vless: { reality: $uuid_vless_reality, grpc: $uuid_vless_grpc, ws: $uuid_vless_ws },
@@ -2285,29 +2266,29 @@ fi
          password: { trojan: $password_trojan, tuic: $password_tuic, hysteria2: $password_hysteria2 },
          reality:  { public_key: $reality_public_key, private_key: $reality_private_key, short_id: $reality_short_id },
          cert: { mode: "self-signed", domain: null, auto_renew: false }
-       }' > "${CONFIG_DIR}/server.json"
+       }' > "$server_tmp" || { log_error "使用jq生成 server.json 失败"; rm -f "$server_tmp"; return 1; }
 
-    # 生成后校验
-    if ! jq . "${CONFIG_DIR}/server.json" >/dev/null 2>&1; then
-        log_error "server.json 验证失败"
+    # --- ATOMIC WRITE + VALIDATION ---
+    log_info "验证生成的 server.json..."
+    if ! jq '.' "$server_tmp" >/dev/null 2>&1; then
+        log_error "生成的 server.json 格式无效！"
+        rm -f "$server_tmp"
         return 1
     fi
-
-    # 确认口令已写入且不为空
-    local saved
-    saved="$(jq -r '.dashboard_passcode // empty' "${CONFIG_DIR}/server.json" 2>/dev/null)"
-    if [[ -z "$saved" || "$saved" != "$DASHBOARD_PASSCODE" ]]; then
-        log_error "密码保存验证失败（期望: $DASHBOARD_PASSCODE, 实际: ${saved:-空}）"
-        return 1
+    local saved_passcode=$(jq -r '.dashboard_passcode // empty' "$server_tmp" 2>/dev/null)
+    if [[ -z "$saved_passcode" || "$saved_passcode" != "$DASHBOARD_PASSCODE" ]]; then
+         log_error "密码保存验证失败 (期望: $DASHBOARD_PASSCODE, 实际: ${saved_passcode:-空})"
+         rm -f "$server_tmp"
+         return 1
     fi
+    mv "$server_tmp" "${CONFIG_DIR}/server.json"
+    log_success "server.json 配置文件保存并验证成功。"
+    # --- END ATOMIC WRITE + VALIDATION ---
 
     chmod 600 "${CONFIG_DIR}/server.json"
     chown root:root "${CONFIG_DIR}/server.json"
-    log_success "server.json配置文件保存完成（已安全写入）"
     return 0
 }
-
-
 
 # 生成自签名证书（基础版本，模块3会有完整版本）
 #############################################
@@ -3134,13 +3115,11 @@ EOF
 }
 
 
-# // 为Nginx创建systemd依赖
 #############################################
 # 函数：create_nginx_systemd_override
-# 作用：为 Nginx 注入 systemd override，确保在 xray/sing-box 就绪后再启动
+# 作用：为 Nginx 注入 systemd override，确保在 xray/sing-box 就绪后再启动 (已移除阻塞性检查)
 # 输入：无（依赖：systemd 可用）
 # 输出：/etc/systemd/system/nginx.service.d/edgebox-deps.conf
-# ANCHOR: [NGINX-SYSTEMD-OVERRIDE]
 #############################################
 create_nginx_systemd_override() {
     log_info "创建systemd override以强制Nginx依赖..."
@@ -3153,11 +3132,11 @@ Wants=xray.service sing-box.service
 After=xray.service sing-box.service
 
 [Service]
-# // ANCHOR: [FIX-SERVICE-HEALTHCHECK] - REMOVED: Pre-start wait removed for robustness. Nginx will start even if backends are down.
-# ExecStartPre=/bin/bash -c 'for i in {1..15}; do ss -tlnp | grep -q "127.0.0.1:11443" && exit 0; sleep 2; done; echo "警告: Reality未就绪但继续启动"; exit 0'
-  EOF
-      systemctl daemon-reload
-      log_success "Nginx服务依赖关系已建立"
+# REMOVED: ExecStartPre check for port 11443 to prevent timeouts if xray fails temporarily.
+#          Nginx will now start even if backends are down initially, relying on standard dependencies.
+EOF
+    # systemctl daemon-reload # Moved to end of module 3
+    log_success "Nginx服务依赖关系已建立 (移除阻塞性检查)"
 }
 
 
@@ -3370,81 +3349,71 @@ EOF
 }
 
 
-#############################################
-# Xray 配置函数
-#############################################
-
-# 配置Xray服务 (使用jq重构，彻底解决特殊字符问题)
+# // ANCHOR: [FUNC-CONFIGURE_XRAY]
 #############################################
 # 函数：configure_xray
-# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 作用：配置Xray服务 (原子写入 + 验证)
 # 输入：根据函数体（一般通过全局变量/环境）
 # 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
-# ANCHOR: [FUNC-CONFIGURE_XRAY]
 #############################################
 configure_xray() {
     log_info "配置Xray多协议服务..."
 
     # 【添加】创建Xray日志目录
-mkdir -p /var/log/xray
-chmod 777 /var/log/xray    # 允许 DynamicUser 写入
-chown root:root /var/log/xray
+    mkdir -p /var/log/xray
+    chmod 777 /var/log/xray    # 允许 DynamicUser 写入
+    chown root:root /var/log/xray
 
-    local NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
+    # local NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)" # Not strictly needed as service runs as root
 
     # 验证必要变量 (增强版)
     local required_vars=(
-        "UUID_VLESS_REALITY"
-        "UUID_VLESS_GRPC"
-        "UUID_VLESS_WS"
-        "REALITY_PRIVATE_KEY"
-        "REALITY_SHORT_ID"
-        "PASSWORD_TROJAN"
+        "UUID_VLESS_REALITY" "UUID_VLESS_GRPC" "UUID_VLESS_WS"
+        "REALITY_PRIVATE_KEY" "REALITY_SHORT_ID" "PASSWORD_TROJAN"
+        "CERT_PEM" "CERT_KEY" "REALITY_SNI"
     )
-
     log_info "检查必要变量设置..."
     local missing_vars=()
-
     for var in "${required_vars[@]}"; do
         if [[ -z "${!var}" ]]; then
             missing_vars+=("$var")
-            log_error "必要变量 $var 未设置"
-        else
-            log_success "✓ $var 已设置: ${!var:0:8}..."
         fi
     done
-
     if [[ ${#missing_vars[@]} -gt 0 ]]; then
-        log_error "缺少必要变量: ${missing_vars[*]}"
-        log_info "尝试从配置文件重新加载变量..."
-
-        # 尝试从server.json重新加载变量
+        log_error "缺少生成Xray配置的必要变量: ${missing_vars[*]}"
+        log_info "尝试从 server.json 重新加载..."
         if [[ -f "${CONFIG_DIR}/server.json" ]]; then
-            UUID_VLESS_REALITY=$(jq -r '.uuid.vless.reality // .uuid.vless' "${CONFIG_DIR}/server.json" 2>/dev/null)
-            UUID_VLESS_GRPC=$(jq -r '.uuid.vless.grpc // .uuid.vless' "${CONFIG_DIR}/server.json" 2>/dev/null)
-            UUID_VLESS_WS=$(jq -r '.uuid.vless.ws // .uuid.vless' "${CONFIG_DIR}/server.json" 2>/dev/null)
-            REALITY_PRIVATE_KEY=$(jq -r '.reality.private_key' "${CONFIG_DIR}/server.json" 2>/dev/null)
-            REALITY_SHORT_ID=$(jq -r '.reality.short_id' "${CONFIG_DIR}/server.json" 2>/dev/null)
-            PASSWORD_TROJAN=$(jq -r '.password.trojan' "${CONFIG_DIR}/server.json" 2>/dev/null)
+            # Attempt reload (best effort)
+             eval "$(jq -r '
+              "UUID_VLESS_REALITY=\(.uuid.vless.reality // .uuid.vless // "")\n" +
+              "UUID_VLESS_GRPC=\(.uuid.vless.grpc // .uuid.vless // "")\n" +
+              "UUID_VLESS_WS=\(.uuid.vless.ws // .uuid.vless // "")\n" +
+              "PASSWORD_TROJAN=\(.password.trojan // "")\n" +
+              "REALITY_PRIVATE_KEY=\(.reality.private_key // "")\n" +
+              "REALITY_SHORT_ID=\(.reality.short_id // "")\n"
+            ' "${CONFIG_DIR}/server.json" 2>/dev/null || echo "")"
+            CERT_PEM="${CERT_DIR}/current.pem"
+            CERT_KEY="${CERT_DIR}/current.key"
+            REALITY_SNI=$(cat "${INSTALL_DIR}/sni.lock" 2>/dev/null || echo "www.microsoft.com")
 
-            log_info "已从配置文件重新加载变量"
+            # Re-check
+            missing_vars=()
+            for var in "${required_vars[@]}"; do [[ -z "${!var}" ]] && missing_vars+=("$var"); done
+            if [[ ${#missing_vars[@]} -gt 0 ]]; then
+                log_error "从 server.json 加载后仍然缺少变量: ${missing_vars[*]}"
+                return 1
+            else
+                log_info "变量重新加载成功。"
+            fi
         else
-            log_error "配置文件不存在，无法重新加载变量"
+            log_error "server.json 不存在，无法重新加载变量。"
             return 1
         fi
     fi
+    log_success "✓ 所有必要变量已设置。"
 
-    # 显示将要使用的变量（调试用）
-    log_info "配置变量检查:"
-    log_info "├─ UUID_VLESS_REALITY: ${UUID_VLESS_REALITY:0:8}..."
-    log_info "├─ REALITY_PRIVATE_KEY: ${REALITY_PRIVATE_KEY:0:8}..."
-    log_info "├─ REALITY_SHORT_ID: $REALITY_SHORT_ID"
-    log_info "├─ PASSWORD_TROJAN: ${PASSWORD_TROJAN:0:8}..."
-    log_info "└─ CERT_DIR: $CERT_DIR"
-
-    log_info "使用jq生成Xray配置文件（彻底避免特殊字符问题）..."
-
-    # 使用jq安全地生成完整的Xray配置文件
+    log_info "使用jq生成Xray配置文件（写入临时文件）..."
+    local xray_tmp="${CONFIG_DIR}/xray.json.tmp"
     if ! jq -n \
         --arg uuid_reality "$UUID_VLESS_REALITY" \
         --arg uuid_grpc "$UUID_VLESS_GRPC" \
@@ -3453,160 +3422,57 @@ chown root:root /var/log/xray
         --arg reality_short "$REALITY_SHORT_ID" \
         --arg reality_sni "$REALITY_SNI" \
         --arg password_trojan "$PASSWORD_TROJAN" \
-        --arg cert_pem "${CERT_DIR}/current.pem" \
-        --arg cert_key "${CERT_DIR}/current.key" \
+        --arg cert_pem "$CERT_PEM" \
+        --arg cert_key "$CERT_KEY" \
         '{
-            "log": {
-                "access": "/var/log/xray/access.log",
-                "error": "/var/log/xray/error.log",
-                "loglevel": "info"
-            },
+            "log": { "access": "/var/log/xray/access.log", "error": "/var/log/xray/error.log", "loglevel": "info" },
             "inbounds": [
-                {
-                    "tag": "vless-reality",
-                    "listen": "127.0.0.1",
-                    "port": 11443,
-                    "protocol": "vless",
-                    "settings": {
-                        "clients": [
-                            { "id": $uuid_reality, "flow": "xtls-rprx-vision" }
-                        ],
-                        "decryption": "none"
-                    },
-                    "streamSettings": {
-                        "network": "tcp",
-                        "security": "reality",
-                        "realitySettings": {
-                            "show": false,
-                            "dest": ($reality_sni + ":443"),
-                            "serverNames": [$reality_sni],
-                            "privateKey": $reality_private,
-                            "shortIds": [$reality_short]
-                        }
-                    }
-                },
-                {
-                    "tag": "vless-grpc",
-                    "listen": "127.0.0.1",
-                    "port": 10085,
-                    "protocol": "vless",
-                    "settings": {
-                        "clients": [ { "id": $uuid_grpc } ],
-                        "decryption": "none"
-                    },
-                    "streamSettings": {
-                        "network": "grpc",
-                        "security": "tls",
-                        "tlsSettings": { "certificates": [ { "certificateFile": $cert_pem, "keyFile": $cert_key } ] },
-                        "grpcSettings": { "serviceName": "grpc", "multiMode": false }
-                    }
-                },
-                {
-                    "tag": "vless-ws",
-                    "listen": "127.0.0.1",
-                    "port": 10086,
-                    "protocol": "vless",
-                    "settings": {
-                        "clients": [ { "id": $uuid_ws } ],
-                        "decryption": "none"
-                    },
-                    "streamSettings": {
-                        "network": "ws",
-                        "security": "tls",
-                        "tlsSettings": { "certificates": [ { "certificateFile": $cert_pem, "keyFile": $cert_key } ] },
-                        "wsSettings": { "path": "/ws" }
-                    }
-                },
-                {
-                    "tag": "trojan-tcp",
-                    "listen": "127.0.0.1",
-                    "port": 10143,
-                    "protocol": "trojan",
-                    "settings": {
-                        "clients": [ { "password": $password_trojan } ]
-                    },
-                    "streamSettings": {
-                        "network": "tcp",
-                        "security": "tls",
-                        "tcpSettings": { "header": { "type": "none" } },
-                        "tlsSettings": { "certificates": [ { "certificateFile": $cert_pem, "keyFile": $cert_key } ] }
-                    }
-                }
+                { "tag": "vless-reality", "listen": "127.0.0.1", "port": 11443, "protocol": "vless", "settings": { "clients": [ { "id": $uuid_reality, "flow": "xtls-rprx-vision" } ], "decryption": "none" }, "streamSettings": { "network": "tcp", "security": "reality", "realitySettings": { "show": false, "dest": ($reality_sni + ":443"), "serverNames": [$reality_sni], "privateKey": $reality_private, "shortIds": [$reality_short] } } },
+                { "tag": "vless-grpc", "listen": "127.0.0.1", "port": 10085, "protocol": "vless", "settings": { "clients": [ { "id": $uuid_grpc } ], "decryption": "none" }, "streamSettings": { "network": "grpc", "security": "tls", "tlsSettings": { "certificates": [ { "certificateFile": $cert_pem, "keyFile": $cert_key } ] }, "grpcSettings": { "serviceName": "grpc", "multiMode": false } } },
+                { "tag": "vless-ws", "listen": "127.0.0.1", "port": 10086, "protocol": "vless", "settings": { "clients": [ { "id": $uuid_ws } ], "decryption": "none" }, "streamSettings": { "network": "ws", "security": "tls", "tlsSettings": { "certificates": [ { "certificateFile": $cert_pem, "keyFile": $cert_key } ] }, "wsSettings": { "path": "/ws" } } },
+                { "tag": "trojan-tcp", "listen": "127.0.0.1", "port": 10143, "protocol": "trojan", "settings": { "clients": [ { "password": $password_trojan } ] }, "streamSettings": { "network": "tcp", "security": "tls", "tcpSettings": { "header": { "type": "none" } }, "tlsSettings": { "certificates": [ { "certificateFile": $cert_pem, "keyFile": $cert_key } ] } } }
             ],
-            "outbounds": [
-                { "tag": "direct", "protocol": "freedom", "settings": {} },
-                { "tag": "block", "protocol": "blackhole", "settings": {} }
-            ],
-            "dns": {
-                "servers": [ "8.8.8.8", "1.1.1.1", {"address": "https://1.1.1.1/dns-query"}, {"address": "https://8.8.8.8/dns-query"} ],
-                "queryStrategy": "UseIP"
-            },
-            "routing": {
-                "domainStrategy": "UseIP",
-                "rules": [
-                    { "type": "field", "ip": ["geoip:private"], "outboundTag": "block" }
-                ]
-            },
+            "outbounds": [ { "tag": "direct", "protocol": "freedom", "settings": {} }, { "tag": "block", "protocol": "blackhole", "settings": {} } ],
+            "dns": { "servers": [ "8.8.8.8", "1.1.1.1", {"address": "https://1.1.1.1/dns-query"}, {"address": "https://8.8.8.8/dns-query"} ], "queryStrategy": "UseIP" },
+            "routing": { "domainStrategy": "UseIP", "rules": [ { "type": "field", "ip": ["geoip:private"], "outboundTag": "block" } ] },
             "policy": { "handshake": 4, "connIdle": 30 }
-        }' > "${CONFIG_DIR}/xray.json"; then
+        }' > "$xray_tmp"; then
         log_error "使用jq生成Xray配置文件失败"
+        rm -f "$xray_tmp" # Clean up temp file
         return 1
     fi
 
-    log_success "Xray配置文件生成完成"
-	
-	# 立即设置正确的文件权限（关键修复）
+    # --- ATOMIC WRITE + VALIDATION ---
+    log_info "验证生成的 Xray 配置..."
+    if ! xray -test -config "$xray_tmp" >/dev/null 2>&1; then
+        log_error "生成的 Xray 配置未能通过验证！"
+        xray -test -config "$xray_tmp" # Show error detail
+        rm -f "$xray_tmp"
+        return 1
+    fi
+    mv "$xray_tmp" "${CONFIG_DIR}/xray.json"
+    log_success "Xray 配置文件创建并验证成功。"
+    # --- END ATOMIC WRITE + VALIDATION ---
+
     chmod 644 "${CONFIG_DIR}/xray.json"
-    chmod 777 /var/log/xray
+    chmod 777 /var/log/xray # Ensure log dir is writable
 
-    # 验证JSON格式和配置内容
-    if ! jq '.' "${CONFIG_DIR}/xray.json" >/dev/null 2>&1; then
-        log_error "Xray配置JSON格式错误"
-        return 1
-    fi
+    # 对齐系统与 Xray 的 DNS
+    log_info "对齐 DNS 解析（系统 & Xray）..."
+    ensure_system_dns
+    ensure_xray_dns_alignment
 
-    # 验证配置内容
-    log_info "验证Xray配置文件..."
-    if ! grep -q "127.0.0.1" "${CONFIG_DIR}/xray.json"; then
-        log_error "Xray配置中缺少监听地址"
-        return 1
-    fi
-
-    log_success "Xray配置文件验证通过"
-
-	# 对齐系统与 Xray 的 DNS
-log_info "对齐 DNS 解析（系统 & Xray）..."
-ensure_system_dns
-ensure_xray_dns_alignment
-
-    # ============================================
-    # [关键修复] 创建正确的 systemd 服务文件
-    # ============================================
+    # 创建正确的 systemd 服务文件 (no change needed here)
     log_info "创建Xray系统服务..."
-
-    # 停止并禁用官方的服务
     systemctl stop xray >/dev/null 2>&1 || true
     systemctl disable xray >/dev/null 2>&1 || true
-
-    # 备份官方服务文件
     if [[ -f /etc/systemd/system/xray.service ]]; then
         mv /etc/systemd/system/xray.service \
            /etc/systemd/system/xray.service.official.bak 2>/dev/null || true
     fi
-	
-	if ! xray -test -config "${CONFIG_DIR}/xray.json" >/dev/null 2>&1; then
-    log_error "生成的 Xray 配置未能通过验证！"
-    # Optionally restore the backup created earlier in the function
-    return 1
-fi
-log_success "Xray 配置文件验证通过"
-
-    # 删除官方的配置覆盖目录
     rm -rf /etc/systemd/system/xray.service.d 2>/dev/null || true
     rm -rf /etc/systemd/system/xray@.service.d 2>/dev/null || true
 
-# // ANCHOR: [FIX-2-PERMISSIONS] - 修改Xray服务单元，使用非root用户
-# 创建我们自己的 systemd 服务文件
 cat > /etc/systemd/system/xray.service << 'EOF'
 [Unit]
 Description=Xray Service (EdgeBox)
@@ -3627,35 +3493,25 @@ LimitNOFILE=1000000
 
 [Install]
 WantedBy=multi-user.target
-
 EOF
 
-    # 强力屏蔽官方单元，防止被意外激活
     systemctl disable xray.service >/dev/null 2>&1 || true
     systemctl mask xray.service >/dev/null 2>&1 || true
 
-    # 重新加载systemd，以便后续服务可以启动
-    systemctl daemon-reload
-
-    # 启用服务（但不立即启动，等待统一启动）
-    systemctl enable xray >/dev/null 2>&1
+    # systemctl daemon-reload # Moved to end of module 3
+    # systemctl enable xray >/dev/null 2>&1 # Moved to end of module 3
 
     log_success "Xray服务文件创建完成（配置路径: ${CONFIG_DIR}/xray.json）"
-
     return 0
 }
 
-#############################################
-# sing-box 配置函数
-#############################################
 
-# 配置sing-box服务
+# // ANCHOR: [FUNC-CONFIGURE_SING_BOX]
 #############################################
 # 函数：configure_sing_box
-# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 作用：配置sing-box服务 (原子写入 + 验证)
 # 输入：根据函数体（一般通过全局变量/环境）
 # 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
-# ANCHOR: [FUNC-CONFIGURE_SING_BOX]
 #############################################
 configure_sing_box() {
     log_info "配置sing-box服务..."
@@ -3663,108 +3519,75 @@ configure_sing_box() {
     # 验证必要变量
     if [[ -z "$PASSWORD_HYSTERIA2" || -z "$UUID_TUIC" || -z "$PASSWORD_TUIC" ]]; then
         log_error "sing-box必要配置变量缺失"
-        log_debug "Hysteria2密码: ${PASSWORD_HYSTERIA2:+已设置}"
-        log_debug "TUIC UUID: ${UUID_TUIC:+已设置}"
-        log_debug "TUIC密码: ${PASSWORD_TUIC:+已设置}"
-        return 1
+        # Attempt reload (best effort, similar to configure_xray)
+         if [[ -f "${CONFIG_DIR}/server.json" ]]; then
+             eval "$(jq -r '
+              "PASSWORD_HYSTERIA2=\(.password.hysteria2 // "")\n" +
+              "UUID_TUIC=\(.uuid.tuic // "")\n" +
+              "PASSWORD_TUIC=\(.password.tuic // "")\n"
+             ' "${CONFIG_DIR}/server.json" 2>/dev/null || echo "")"
+             if [[ -z "$PASSWORD_HYSTERIA2" || -z "$UUID_TUIC" || -z "$PASSWORD_TUIC" ]]; then
+                log_error "从 server.json 加载后仍缺少变量"
+                return 1
+             fi
+         else
+            return 1
+         fi
+    fi
+    log_success "✓ sing-box 必要变量已设置"
+
+    mkdir -p /var/log/edgebox 2>/dev/null || true
+    log_info "生成sing-box配置文件 (使用 jq 写入临时文件)..."
+    local sbox_tmp="${CONFIG_DIR}/sing-box.json.tmp"
+    if ! jq -n \
+      --arg hy2_pass "$PASSWORD_HYSTERIA2" \
+      --arg tuic_uuid "$UUID_TUIC" \
+      --arg tuic_pass "$PASSWORD_TUIC" \
+      --arg cert_pem "${CERT_DIR}/current.pem" \
+      --arg cert_key "${CERT_DIR}/current.key" \
+      '{
+        "log": { "level": "info", "timestamp": true },
+        "inbounds": [
+          { "type": "hysteria2", "tag": "hysteria2-in", "listen": "0.0.0.0", "listen_port": 443, "users": [ { "password": $hy2_pass } ], "tls": { "enabled": true, "alpn": ["h3"], "certificate_path": $cert_pem, "key_path": $cert_key } },
+          { "type": "tuic", "tag": "tuic-in", "listen": "0.0.0.0", "listen_port": 2053, "users": [ { "uuid": $tuic_uuid, "password": $tuic_pass } ], "congestion_control": "bbr", "tls": { "enabled": true, "alpn": ["h3"], "certificate_path": $cert_pem, "key_path": $cert_key } }
+        ],
+        "outbounds": [ { "type": "direct", "tag": "direct" } ],
+        "route": { "rules": [ { "ip_cidr": ["127.0.0.0/8","10.0.0.0/8","172.16.0.0/12","192.168.0.0/16","::1/128","fc00::/7","fe80::/10"], "outbound": "direct" } ] }
+      }' > "$sbox_tmp"; then
+      log_error "使用 jq 生成 sing-box.json 失败"
+      rm -f "$sbox_tmp"
+      return 1
     fi
 
-	mkdir -p /var/log/edgebox 2>/dev/null || true
-
-log_info "生成sing-box配置文件 (使用 jq 确保安全)..."
-
-if ! jq -n \
-  --arg hy2_pass "$PASSWORD_HYSTERIA2" \
-  --arg tuic_uuid "$UUID_TUIC" \
-  --arg tuic_pass "$PASSWORD_TUIC" \
-  --arg cert_pem "${CERT_DIR}/current.pem" \
-  --arg cert_key "${CERT_DIR}/current.key" \
-  '{
-    "log": { "level": "info", "timestamp": true },
-    "inbounds": [
-      {
-        "type": "hysteria2",
-        "tag": "hysteria2-in",
-        "listen": "0.0.0.0",
-        "listen_port": 443,
-        "users": [ { "password": $hy2_pass } ],
-        "tls": {
-          "enabled": true,
-          "alpn": ["h3"],
-          "certificate_path": $cert_pem,
-          "key_path": $cert_key
-        }
-      },
-      {
-        "type": "tuic",
-        "tag": "tuic-in",
-        "listen": "0.0.0.0",
-        "listen_port": 2053,
-        "users": [ { "uuid": $tuic_uuid, "password": $tuic_pass } ],
-        "congestion_control": "bbr",
-        "tls": {
-          "enabled": true,
-          "alpn": ["h3"],
-          "certificate_path": $cert_pem,
-          "key_path": $cert_key
-        }
-      }
-    ],
-    "outbounds": [ { "type": "direct", "tag": "direct" } ],
-    "route": {
-      "rules": [
-        {
-          "ip_cidr": [
-            "127.0.0.0/8","10.0.0.0/8","172.16.0.0/12","192.168.0.0/16",
-            "::1/128","fc00::/7","fe80::/10"
-          ],
-          "outbound": "direct"
-        }
-      ]
-    }
-  }' > "${CONFIG_DIR}/sing-box.json"; then
-  log_error "使用 jq 生成 sing-box.json 失败"
-  return 1
-fi
-
-    log_success "sing-box配置文件生成完成"
-
-    # 验证生成的JSON格式
-    if ! jq '.' "${CONFIG_DIR}/sing-box.json" >/dev/null 2>&1; then
-        log_error "sing-box配置JSON格式错误"
-        return 1
+    # --- ATOMIC WRITE + VALIDATION ---
+    log_info "验证生成的 sing-box 配置..."
+    if ! sing-box check -c "$sbox_tmp" >/dev/null 2>&1; then
+        log_warn "sing-box 配置校验失败，尝试移除不兼容字段后重试..."
+        # Fallback for older versions
+        local sbox_tmp2=$(mktemp)
+        if jq '(.inbounds[] | select(.type=="hysteria2")) -= {masquerade}' "$sbox_tmp" > "$sbox_tmp2" 2>/dev/null; then
+            if sing-box check -c "$sbox_tmp2" >/dev/null 2>&1; then
+                log_info "移除字段后校验通过。"
+                mv "$sbox_tmp2" "$sbox_tmp"
+            else
+                log_error "移除字段后校验仍然失败！"
+                sing-box check -c "$sbox_tmp2" # Show error
+                rm -f "$sbox_tmp" "$sbox_tmp2"
+                return 1
+            fi
+        else
+            rm -f "$sbox_tmp" "$sbox_tmp2"
+            log_error "移除不兼容字段失败。"
+            return 1
+        fi
     fi
+    mv "$sbox_tmp" "${CONFIG_DIR}/sing-box.json"
+    log_success "Sing-box 配置文件创建并验证成功。"
+    # --- END ATOMIC WRITE + VALIDATION ---
 
-	# === sing-box 语义自检 ===
-if command -v /usr/local/bin/sing-box >/dev/null 2>&1; then
-  if ! /usr/local/bin/sing-box check -c "${CONFIG_DIR}/sing-box.json" >/dev/null 2>&1; then
-    log_warn "sing-box 语义校验失败，尝试移除可能不兼容字段后重试..."
-    # 常见不兼容字段兜底（老版本不认识的键）
-    if command -v jq >/dev/null 2>&1; then
-      tmpf=$(mktemp)
-      jq '(.inbounds[] | select(.type=="hysteria2")) -= {masquerade}' \
-        "${CONFIG_DIR}/sing-box.json" > "$tmpf" 2>/dev/null && mv -f "$tmpf" "${CONFIG_DIR}/sing-box.json"
-    fi
-	
-	if ! sing-box check -c "${CONFIG_DIR}/sing-box.json" >/dev/null 2>&1; then
-    log_error "生成的 Sing-box 配置未能通过验证！"
-    # Optionally restore the backup
-    return 1
-fi
-log_success "Sing-box 配置文件验证通过"
-  fi
-fi
+    chmod 644 "${CONFIG_DIR}/sing-box.json"
 
-    # 验证配置内容
-    log_info "验证sing-box配置文件..."
-    if ! grep -q "0.0.0.0" "${CONFIG_DIR}/sing-box.json"; then
-        log_error "sing-box配置中缺少监听地址"
-        return 1
-    fi
-
-    log_success "sing-box配置文件验证通过"
-
-    # 【新增】确保证书符号链接存在
+    # 证书检查与权限 (No change needed here)
     log_info "检查并创建证书符号链接..."
     if [[ ! -L "${CERT_DIR}/current.pem" ]] || [[ ! -L "${CERT_DIR}/current.key" ]]; then
         if [[ -f "${CERT_DIR}/self-signed.pem" ]] && [[ -f "${CERT_DIR}/self-signed.key" ]]; then
@@ -3775,18 +3598,15 @@ fi
             log_warn "自签名证书不存在，可能在后续步骤生成"
         fi
     fi
-
-    # 确保证书权限正确
     if [[ -f "${CERT_DIR}/self-signed.pem" ]]; then
         chmod 644 "${CERT_DIR}"/*.pem 2>/dev/null || true
-        chmod 600 "${CERT_DIR}"/*.key 2>/dev/null || true
+        chmod 600 "${CERT_DIR}"/*.key 2>/dev/null || true # Corrected from 600 to 640/600 based on previous cert logic
         log_success "证书权限已设置"
     fi
 
-    # 创建正确的 systemd 服务文件
+    # 创建正确的 systemd 服务文件 (No change needed here)
     log_info "创建sing-box系统服务..."
-
-    cat > /etc/systemd/system/sing-box.service << EOF
+cat > /etc/systemd/system/sing-box.service << EOF
 [Unit]
 Description=sing-box service
 Documentation=https://sing-box.sagernet.org
@@ -3806,24 +3626,22 @@ LimitNOFILE=infinity
 
 [Install]
 WantedBy=multi-user.target
-
 EOF
 
-    # 重新加载systemd
-    systemctl daemon-reload
-
-    # 启用服务（但不立即启动，等待统一启动）
-    systemctl enable sing-box >/dev/null 2>&1
+    # systemctl daemon-reload # Moved to end of module 3
+    # systemctl enable sing-box >/dev/null 2>&1 # Moved to end of module 3
 
     log_success "sing-box服务文件创建完成（配置路径: ${CONFIG_DIR}/sing-box.json）"
 
-	chmod 755 "${CERT_DIR}" 2>/dev/null || true
-chmod 644 "${CERT_DIR}"/*.pem 2>/dev/null || true
-chmod 640 "${CERT_DIR}"/*.key 2>/dev/null || true
-chown root:nobody "${CERT_DIR}"/*.key 2>/dev/null || true
+	# Cert permissions repeated? Keep the stricter one if needed. Let's keep the block from generate_self_signed_cert
+    # chmod 755 "${CERT_DIR}" 2>/dev/null || true
+    # chmod 644 "${CERT_DIR}"/*.pem 2>/dev/null || true
+    # chmod 640 "${CERT_DIR}"/*.key 2>/dev/null || true
+    # chown root:nobody "${CERT_DIR}"/*.key 2>/dev/null || true # group should match generate_self_signed_cert
 
     return 0
 }
+
 
 #############################################
 # 订阅生成函数
@@ -4146,18 +3964,12 @@ verify_port_listening 80  tcp  && log_success "端口 80 正在监听"  || log_w
 verify_port_listening 2053 udp && log_success "端口 2053 正在监听" || log_warn "端口 2053 未在监听"
 
 
-#############################################
-# 模块3主执行函数
-#############################################
-
-# 执行模块3的所有任务
-# ======================== 模块3：服务安装配置 =====================
+# // ANCHOR: [MODULE3]
 #############################################
 # 函数：execute_module3
-# 作用：安装/配置 Xray & sing-box & Nginx，生成订阅并启动验证
+# 作用：安装/配置 Xray & sing-box & Nginx，生成订阅并启动验证 (优化systemd调用)
 # 输入：无（依赖：其他 install_/configure_ 函数已定义）
 # 输出：日志/订阅文件；启动服务并校验
-# ANCHOR: [MODULE3]
 #############################################
 execute_module3() {
     log_info "======== 开始执行模块3：服务安装配置 ========"
@@ -4178,13 +3990,13 @@ execute_module3() {
         log_error "✗ sing-box安装失败"
         return 1
     fi
-	
+
 	# === 安装期一次性 SNI 选择（用于 Xray Reality） ===
-if choose_initial_sni_once; then
-  log_info "REALITY_SNI = ${REALITY_SNI}"
-else
-  log_warn "SNI 选择失败，将使用默认 REALITY_SNI=${REALITY_SNI:-www.microsoft.com}"
-fi
+    if choose_initial_sni_once; then
+      log_info "REALITY_SNI = ${REALITY_SNI}"
+    else
+      log_warn "SNI 选择失败，将使用默认 REALITY_SNI=${REALITY_SNI:-www.microsoft.com}"
+    fi
 
     # 任务3：配置Xray (先配置后端服务)
     if configure_xray; then
@@ -4210,19 +4022,29 @@ fi
         return 1
     fi
 
-    # 任务6：生成订阅链接
+    # --- 任务6：生成订阅链接 (保持不变, 位置很重要) ---
     if generate_subscription; then
         log_success "✓ 订阅链接生成完成"
     else
         log_error "✗ 订阅链接生成失败"
         return 1
     fi
-	
+    # --- 订阅链接生成结束 ---
+
+    # --- 移动到此处的 Systemd 操作 ---
+    log_info "Reloading systemd daemon and enabling services..."
+    systemctl daemon-reload
+    systemctl enable xray >/dev/null 2>&1 || log_warn "Failed to enable xray"
+    systemctl enable sing-box >/dev/null 2>&1 || log_warn "Failed to enable sing-box"
+    systemctl enable nginx >/dev/null 2>&1 || log_warn "Failed to enable nginx"
+    log_success "Systemd reload and service enabling complete."
+    # --- Systemd 操作结束 ---
+
 	log_info "启动前快速端口自检..."
-verify_port_listening 80  tcp || log_warn "80/TCP 未监听 (若仅走443可忽略)"
-verify_port_listening 443 tcp || log_warn "443/TCP 未监听 (Nginx 未就绪?)"
-verify_port_listening 443 udp || log_warn "443/UDP 未监听 (Hysteria2 未开启或失败)"
-verify_port_listening 2053 udp || log_warn "2053/UDP 未监听 (TUIC 未开启或失败)"
+    verify_port_listening 80  tcp || log_warn "80/TCP 未监听 (若仅走443可忽略)"
+    verify_port_listening 443 tcp || log_warn "443/TCP 未监听 (Nginx 未就绪?)"
+    verify_port_listening 443 udp || log_warn "443/UDP 未监听 (Hysteria2 未开启或失败)"
+    verify_port_listening 2053 udp || log_warn "2053/UDP 未监听 (TUIC 未开启或失败)"
 
     # 任务7：启动和验证服务
     if start_and_verify_services; then
@@ -4232,19 +4054,22 @@ verify_port_listening 2053 udp || log_warn "2053/UDP 未监听 (TUIC 未开启�
         return 1
     fi
 
-
     log_success "======== 模块3执行完成 ========"
     log_info "已完成："
     log_info "├─ Xray多协议服务（Reality、gRPC、WS、Trojan）"
     log_info "├─ sing-box服务（Hysteria2、TUIC）"
     log_info "├─ Nginx分流代理（SNI+ALPN架构）"
     log_info "├─ 订阅链接生成（6种协议）"
-    log_info "├─ 控制面板密码: DASHBOARD_PASSCODE:-未设置}"  # 【新增】
+    # 读取最新的密码显示，如果DASHBOARD_PASSCODE变量没更新，从文件读一次
+    local final_passcode="${DASHBOARD_PASSCODE:-}"
+    if [[ -z "$final_passcode" && -f "${CONFIG_DIR}/server.json" ]]; then
+        final_passcode=$(jq -r '.dashboard_passcode // "[读取失败]"' "${CONFIG_DIR}/server.json" 2>/dev/null || echo "[读取失败]")
+    fi
+    log_info "├─ 控制面板密码: ${final_passcode:-未设置}"
     log_info "└─ 所有服务运行验证"
 
     return 0
 }
-
 
 #############################################
 # 模块3导出函数（供其他模块调用）
