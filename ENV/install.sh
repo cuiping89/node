@@ -3396,7 +3396,8 @@ configure_xray() {
 			CERT_KEY="${CERT_DIR}/current.key"
 			REALITY_SNI=$(cat "${INSTALL_DIR}/sni.lock" 2>/dev/null || echo "www.microsoft.com")
     fi
-	
+	fi
+
 	# Re-check (this part might give false positives if files don't exist)
     missing_vars=()
     for var in "${required_vars[@]}"; do [[ -z "${!var}" ]] && missing_vars+=("$var"); done
