@@ -3541,9 +3541,10 @@ configure_xray() {
 
   # ⑦ 写入并启用 systemd 服务
   log_info "创建/更新 Xray systemd unit ..."
- cat > /etc/systemd/system/xray.service <<'EOF'
+  cat > /etc/systemd/system/xray.service << 'EOF'
 [Unit]
 Description=Xray Service (EdgeBox)
+Documentation=https://github.com/xtls
 Wants=network-online.target
 After=network-online.target nss-lookup.target
 
