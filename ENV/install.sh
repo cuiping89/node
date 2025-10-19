@@ -2692,28 +2692,18 @@ log_info "└─ verify_module2_data()       # 验证数据完整性"
 install_xray() {
     log_info "安装Xray核心程序..."
 
-    # <<< --- 新增：强制移除旧的 xray 二进制文件 --- >>>
+    # 检查是否已安装
     if command -v xray >/dev/null 2>&1; then
-        local existing_xray_path
-        existing_xray_path=$(command -v xray)
-        log_warn "检测到已存在的 xray: ${existing_xray_path}"
-        log_info "正在移除旧的 xray 以确保安装纯净版本..."
-        # 尝试通过包管理器卸载（如果可能）
-        if [[ -n "$PKG_MANAGER" ]]; then
-            case "$PKG_MANAGER" in
-                apt) apt-get remove -y xray >/dev/null 2>&1 || true ;;
-                yum|dnf) yum remove -y xray >/dev/null 2>&1 || dnf remove -y xray >/dev/null 2>&1 || true ;;
-            esac
-        fi
-        # 强制删除常见路径下的二进制文件
-        rm -f /usr/local/bin/xray /usr/bin/xray >/dev/null 2>&1 || true
-        log_success "旧的 xray 已移除"
+        local current_version
+        current_version=$(xray version 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+        log_info "检测到已安装的Xray版本: ${current_version:-未知}"
+        log_info "跳过Xray重新安装，使用现有版本"
+        return 0
     fi
-    # <<< --- 清理结束 --- >>>
 
     log_info "从官方仓库下载并安装Xray..."
 
-    # 使用智能下载函数 (保持不变)
+    # 使用智能下载函数
     if smart_download_script \
         "https://raw.githubusercontent.com/XTLS/Xray-install/main/install-release.sh" \
         "Xray安装脚本" \
@@ -2724,26 +2714,21 @@ install_xray() {
         return 1
     fi
 
-    # 验证安装 (使用完整路径)
-    # <<< --- 修改：使用完整路径验证 --- >>>
-    if [[ -x "/usr/local/bin/xray" ]]; then
+    # 验证安装
+    if command -v xray >/dev/null 2>&1; then
         local xray_version
-        xray_version=$(/usr/local/bin/xray version 2>/dev/null \
-            | head -n1 \
-            | sed -E 's/[^0-9]*([0-9.]+).*/\1/') # 尝试提取版本号
-        log_success "Xray验证通过 (路径: /usr/local/bin/xray)，版本: ${xray_version:-未知}"
-    # <<< --- 修改结束 --- >>>
+        current_version=$(xray version 2>/dev/null \
+		| head -n1 \
+		| sed -E 's/[^0-9]*([0-9.]+).*/\1/')
+        log_success "Xray验证通过，版本: ${xray_version:-未知}"
 
-        # 创建日志目录 (保持不变)
-        mkdir -p /var/log/xray
-        # 使用 root:root 因为 systemd 服务将以 root 运行
-        chown root:root /var/log/xray
-        chmod 755 /var/log/xray # 修正权限
-        log_success "Xray log directory created and permissions set."
+mkdir -p /var/log/xray
+chown nobody:nogroup /var/log/xray 2>/dev/null || chown nobody:nobody /var/log/xray
+log_success "Xray log directory created and permissions set."
 
         return 0
     else
-        log_error "Xray安装验证失败 (未找到 /usr/local/bin/xray)"
+        log_error "Xray安装验证失败"
         return 1
     fi
 }
@@ -3385,7 +3370,11 @@ EOF
 }
 
 
-# 配置Xray服务 (使用jq重构，彻底解决特殊字符问题) - 健壮版
+#############################################
+# Xray 配置函数
+#############################################
+
+# 配置Xray服务 (使用jq重构，彻底解决特殊字符问题)
 #############################################
 # 函数：configure_xray
 # 作用：见函数体（本优化版仅加注释，不改变逻辑）
@@ -3396,15 +3385,14 @@ EOF
 configure_xray() {
     log_info "配置Xray多协议服务..."
 
-    # 【添加】创建Xray日志目录并设置正确权限
-    mkdir -p /var/log/xray
-    chown root:root /var/log/xray # 确保所有者是 root
-    chmod 755 /var/log/xray    # root 用户可以写入，其他人只读/执行
-    log_success "Xray 日志目录 /var/log/xray 权限已设置为 755 (root:root)"
+    # 【添加】创建Xray日志目录
+mkdir -p /var/log/xray
+chmod 777 /var/log/xray    # 允许 DynamicUser 写入
+chown root:root /var/log/xray
 
-    # --- 变量检查逻辑 ---
     local NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
-    # 确保检查所有需要的变量
+
+    # 验证必要变量 (增强版)
     local required_vars=(
         "UUID_VLESS_REALITY"
         "UUID_VLESS_GRPC"
@@ -3412,88 +3400,61 @@ configure_xray() {
         "REALITY_PRIVATE_KEY"
         "REALITY_SHORT_ID"
         "PASSWORD_TROJAN"
-        "REALITY_SNI" # 确保 SNI 也被检查
-        "CERT_DIR"    # 确保证书目录也被检查
     )
+
     log_info "检查必要变量设置..."
     local missing_vars=()
+
     for var in "${required_vars[@]}"; do
         if [[ -z "${!var}" ]]; then
             missing_vars+=("$var")
             log_error "必要变量 $var 未设置"
         else
-            # 避免记录完整的敏感密钥或密码
-            if [[ "$var" == REALITY_PRIVATE_KEY || "$var" == PASSWORD_TROJAN ]]; then
-                 log_success "✓ $var 已设置: ${!var:0:8}..."
-            elif [[ "$var" == UUID* ]]; then
-                 log_success "✓ $var 已设置: ${!var:0:8}..."
-            else
-                 log_success "✓ $var 已设置: ${!var}" # 其他变量可以显示完整值（如 SNI, CERT_DIR）
-            fi
+            log_success "✓ $var 已设置: ${!var:0:8}..."
         fi
     done
+
     if [[ ${#missing_vars[@]} -gt 0 ]]; then
         log_error "缺少必要变量: ${missing_vars[*]}"
         log_info "尝试从配置文件重新加载变量..."
-        # 尝试从 server.json 重新加载变量（如果它存在并且包含所需信息）
+
+        # 尝试从server.json重新加载变量
         if [[ -f "${CONFIG_DIR}/server.json" ]]; then
-            UUID_VLESS_REALITY=$(jq -r '.uuid.vless.reality // .uuid.vless // empty' "${CONFIG_DIR}/server.json" 2>/dev/null)
-            UUID_VLESS_GRPC=$(jq -r '.uuid.vless.grpc // .uuid.vless // empty' "${CONFIG_DIR}/server.json" 2>/dev/null)
-            UUID_VLESS_WS=$(jq -r '.uuid.vless.ws // .uuid.vless // empty' "${CONFIG_DIR}/server.json" 2>/dev/null)
-            REALITY_PRIVATE_KEY=$(jq -r '.reality.private_key // empty' "${CONFIG_DIR}/server.json" 2>/dev/null)
-            REALITY_SHORT_ID=$(jq -r '.reality.short_id // empty' "${CONFIG_DIR}/server.json" 2>/dev/null)
-            PASSWORD_TROJAN=$(jq -r '.password.trojan // empty' "${CONFIG_DIR}/server.json" 2>/dev/null)
-            # 注意: server.json 可能不包含 REALITY_SNI 或 CERT_DIR，如果它们只在脚本早期设置
-            # 如果 server.json 存储了 SNI，可以在这里添加加载逻辑
-            # CERT_DIR 通常是脚本定义的常量，不需要从 server.json 加载
+            UUID_VLESS_REALITY=$(jq -r '.uuid.vless.reality // .uuid.vless' "${CONFIG_DIR}/server.json" 2>/dev/null)
+            UUID_VLESS_GRPC=$(jq -r '.uuid.vless.grpc // .uuid.vless' "${CONFIG_DIR}/server.json" 2>/dev/null)
+            UUID_VLESS_WS=$(jq -r '.uuid.vless.ws // .uuid.vless' "${CONFIG_DIR}/server.json" 2>/dev/null)
+            REALITY_PRIVATE_KEY=$(jq -r '.reality.private_key' "${CONFIG_DIR}/server.json" 2>/dev/null)
+            REALITY_SHORT_ID=$(jq -r '.reality.short_id' "${CONFIG_DIR}/server.json" 2>/dev/null)
+            PASSWORD_TROJAN=$(jq -r '.password.trojan' "${CONFIG_DIR}/server.json" 2>/dev/null)
 
             log_info "已从配置文件重新加载变量"
-            # 重新检查变量
-            missing_vars=()
-            for var in "${required_vars[@]}"; do
-                # 跳过 CERT_DIR 和 REALITY_SNI 的重新检查，因为它们可能不在 server.json 中
-                if [[ "$var" != "CERT_DIR" && "$var" != "REALITY_SNI" && -z "${!var}" ]]; then
-                    missing_vars+=("$var")
-                    log_error "重新加载后变量 $var 仍然未设置"
-                fi
-            done
-            if [[ ${#missing_vars[@]} -gt 0 ]]; then
-                 log_error "无法继续，缺少关键配置变量"
-                 return 1
-            fi
         else
             log_error "配置文件不存在，无法重新加载变量"
             return 1
         fi
     fi
-    # --- 变量检查结束 ---
 
-    # <<< --- 原子化配置生成开始 --- >>>
-    local xray_tmp_config
-    # 创建临时文件
-    xray_tmp_config=$(mktemp "${CONFIG_DIR}/xray.json.tmp.XXXXXX")
-    if [[ -z "$xray_tmp_config" ]]; then
-        log_error "无法创建 Xray 临时配置文件"
-        return 1
-    fi
-    log_info "使用jq生成临时的Xray配置文件: $xray_tmp_config"
+    # 显示将要使用的变量（调试用）
+    log_info "配置变量检查:"
+    log_info "├─ UUID_VLESS_REALITY: ${UUID_VLESS_REALITY:0:8}..."
+    log_info "├─ REALITY_PRIVATE_KEY: ${REALITY_PRIVATE_KEY:0:8}..."
+    log_info "├─ REALITY_SHORT_ID: $REALITY_SHORT_ID"
+    log_info "├─ PASSWORD_TROJAN: ${PASSWORD_TROJAN:0:8}..."
+    log_info "└─ CERT_DIR: $CERT_DIR"
 
-    # 1. jq 生成到临时文件
-    # 显式传递变量给 jq，并为 SNI 提供默认值以防万一
-    local reality_sni_val="${REALITY_SNI:-www.microsoft.com}"
-    local cert_pem_val="${CERT_DIR}/current.pem"
-    local cert_key_val="${CERT_DIR}/current.key"
+    log_info "使用jq生成Xray配置文件（彻底避免特殊字符问题）..."
 
+    # 使用jq安全地生成完整的Xray配置文件
     if ! jq -n \
         --arg uuid_reality "$UUID_VLESS_REALITY" \
         --arg uuid_grpc "$UUID_VLESS_GRPC" \
         --arg uuid_ws "$UUID_VLESS_WS" \
         --arg reality_private "$REALITY_PRIVATE_KEY" \
         --arg reality_short "$REALITY_SHORT_ID" \
-        --arg reality_sni "$reality_sni_val" \
+        --arg reality_sni "$REALITY_SNI" \
         --arg password_trojan "$PASSWORD_TROJAN" \
-        --arg cert_pem "$cert_pem_val" \
-        --arg cert_key "$cert_key_val" \
+        --arg cert_pem "${CERT_DIR}/current.pem" \
+        --arg cert_key "${CERT_DIR}/current.key" \
         '{
             "log": {
                 "access": "/var/log/xray/access.log",
@@ -3587,75 +3548,66 @@ configure_xray() {
                 ]
             },
             "policy": { "handshake": 4, "connIdle": 30 }
-        }' > "$xray_tmp_config"; then
-        log_error "使用jq生成Xray配置文件失败 (jq 命令执行错误)"
-        rm -f "$xray_tmp_config" # 清理临时文件
+        }' > "${CONFIG_DIR}/xray.json"; then
+        log_error "使用jq生成Xray配置文件失败"
         return 1
     fi
 
-    # 2. 验证临时文件 JSON 格式
-    if ! jq '.' "$xray_tmp_config" >/dev/null 2>&1; then
-        log_error "生成的 Xray 配置文件 JSON 格式错误！"
-        log_info "错误文件内容保存在: $xray_tmp_config" # 保留错误文件供调试
-        # 可以选择在这里将错误文件内容记录到日志
-        # echo "--- Invalid JSON content ---" >> "$LOG_FILE"
-        # head -n 50 "$xray_tmp_config" >> "$LOG_FILE" # 记录前50行
-        # echo "--- End of invalid JSON content ---" >> "$LOG_FILE"
+    log_success "Xray配置文件生成完成"
+	
+	# 立即设置正确的文件权限（关键修复）
+    chmod 644 "${CONFIG_DIR}/xray.json"
+    chmod 777 /var/log/xray
+
+    # 验证JSON格式和配置内容
+    if ! jq '.' "${CONFIG_DIR}/xray.json" >/dev/null 2>&1; then
+        log_error "Xray配置JSON格式错误"
         return 1
     fi
-    log_success "临时配置文件 JSON 格式验证通过"
 
-    # 3. 使用 Xray 验证临时配置文件
-    if command -v xray >/dev/null 2>&1; then
-        local xray_test_output
-        # 执行 xray -test 并捕获输出
-        if ! xray_test_output=$(xray -test -config "$xray_tmp_config" 2>&1); then
-            log_error "Xray 自身配置验证失败！"
-            log_info "错误文件内容保存在: $xray_tmp_config" # 保留错误文件供调试
-            log_error "Xray -test 输出:"
-            # 将详细错误逐行记录到日志
-            echo "$xray_test_output" | while IFS= read -r line; do log_error "  $line"; done
-            return 1
-        fi
-        log_success "Xray 自身配置验证通过"
-    else
-        log_warn "未找到 xray 命令，跳过 Xray 自身配置验证"
-    fi
-
-    # 4. 原子替换：将验证通过的临时文件移动到最终位置
-    if mv "$xray_tmp_config" "${CONFIG_DIR}/xray.json"; then
-        log_success "Xray配置文件生成并验证完成: ${CONFIG_DIR}/xray.json"
-        chmod 644 "${CONFIG_DIR}/xray.json" # 设置最终文件权限
-    else
-        log_error "无法将临时配置文件移动到最终位置"
-        rm -f "$xray_tmp_config" # 清理临时文件
+    # 验证配置内容
+    log_info "验证Xray配置文件..."
+    if ! grep -q "127.0.0.1" "${CONFIG_DIR}/xray.json"; then
+        log_error "Xray配置中缺少监听地址"
         return 1
     fi
-    # <<< --- 原子化配置生成结束 --- >>>
 
-    # 对齐系统与 Xray 的 DNS
-    log_info "对齐 DNS 解析（系统 & Xray）..."
-    ensure_system_dns
-    ensure_xray_dns_alignment
+    log_success "Xray配置文件验证通过"
 
-    # --- 创建 systemd 服务文件 ---
+	# 对齐系统与 Xray 的 DNS
+log_info "对齐 DNS 解析（系统 & Xray）..."
+ensure_system_dns
+ensure_xray_dns_alignment
+
+    # ============================================
+    # [关键修复] 创建正确的 systemd 服务文件
+    # ============================================
     log_info "创建Xray系统服务..."
-    # 停止并禁用可能存在的官方服务，以免冲突
+
+    # 停止并禁用官方的服务
     systemctl stop xray >/dev/null 2>&1 || true
     systemctl disable xray >/dev/null 2>&1 || true
 
-    # 备份官方服务文件 (如果存在)
+    # 备份官方服务文件
     if [[ -f /etc/systemd/system/xray.service ]]; then
         mv /etc/systemd/system/xray.service \
-           /etc/systemd/system/xray.service.official.bak.$(date +%s) 2>/dev/null || true
+           /etc/systemd/system/xray.service.official.bak 2>/dev/null || true
     fi
+	
+	if ! xray -test -config "${CONFIG_DIR}/xray.json" >/dev/null 2>&1; then
+    log_error "生成的 Xray 配置未能通过验证！"
+    # Optionally restore the backup created earlier in the function
+    return 1
+fi
+log_success "Xray 配置文件验证通过"
 
-    # 移除官方配置覆盖目录 (如果存在)
+    # 删除官方的配置覆盖目录
     rm -rf /etc/systemd/system/xray.service.d 2>/dev/null || true
     rm -rf /etc/systemd/system/xray@.service.d 2>/dev/null || true
 
-    # 创建我们自己的 systemd 服务文件，指定使用 root 用户和我们的配置文件
-    cat > /etc/systemd/system/xray.service << 'EOF'
+# // ANCHOR: [FIX-2-PERMISSIONS] - 修改Xray服务单元，使用非root用户
+# 创建我们自己的 systemd 服务文件
+cat > /etc/systemd/system/xray.service << 'EOF'
 [Unit]
 Description=Xray Service (EdgeBox)
 Documentation=https://github.com/xtls
@@ -3675,20 +3627,23 @@ LimitNOFILE=1000000
 
 [Install]
 WantedBy=multi-user.target
+
 EOF
 
-    # 可选但推荐：屏蔽官方单元，防止被意外激活
+    # 强力屏蔽官方单元，防止被意外激活
+    systemctl disable xray.service >/dev/null 2>&1 || true
     systemctl mask xray.service >/dev/null 2>&1 || true
 
-    # 重新加载 systemd 配置
+    # 重新加载systemd，以便后续服务可以启动
     systemctl daemon-reload
-    # 启用我们的服务（但通常不在配置函数中启动，由后续步骤统一启动）
+
+    # 启用服务（但不立即启动，等待统一启动）
     systemctl enable xray >/dev/null 2>&1
+
     log_success "Xray服务文件创建完成（配置路径: ${CONFIG_DIR}/xray.json）"
 
     return 0
 }
-
 
 #############################################
 # sing-box 配置函数
@@ -3790,10 +3745,13 @@ if command -v /usr/local/bin/sing-box >/dev/null 2>&1; then
       jq '(.inbounds[] | select(.type=="hysteria2")) -= {masquerade}' \
         "${CONFIG_DIR}/sing-box.json" > "$tmpf" 2>/dev/null && mv -f "$tmpf" "${CONFIG_DIR}/sing-box.json"
     fi
-    if ! /usr/local/bin/sing-box check -c "${CONFIG_DIR}/sing-box.json" >/dev/null 2>&1; then
-      log_error "sing-box 配置仍无法通过语义校验，请检查证书路径/字段"
-      return 1
-    fi
+	
+	if ! sing-box check -c "${CONFIG_DIR}/sing-box.json" >/dev/null 2>&1; then
+    log_error "生成的 Sing-box 配置未能通过验证！"
+    # Optionally restore the backup
+    return 1
+fi
+log_success "Sing-box 配置文件验证通过"
   fi
 fi
 
