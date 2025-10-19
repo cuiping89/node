@@ -3153,11 +3153,11 @@ Wants=xray.service sing-box.service
 After=xray.service sing-box.service
 
 [Service]
-# // ANCHOR: [FIX-SERVICE-HEALTHCHECK] - 启动前等待上游就绪
-ExecStartPre=/bin/bash -c 'for i in {1..15}; do ss -tlnp | grep -q "127.0.0.1:11443" && exit 0; sleep 2; done; echo "警告: Reality未就绪但继续启动"; exit 0'
-EOF
-    systemctl daemon-reload
-    log_success "Nginx服务依赖关系已建立"
+# // ANCHOR: [FIX-SERVICE-HEALTHCHECK] - REMOVED: Pre-start wait removed for robustness. Nginx will start even if backends are down.
+# ExecStartPre=/bin/bash -c 'for i in {1..15}; do ss -tlnp | grep -q "127.0.0.1:11443" && exit 0; sleep 2; done; echo "警告: Reality未就绪但继续启动"; exit 0'
+  EOF
+      systemctl daemon-reload
+      log_success "Nginx服务依赖关系已建立"
 }
 
 
@@ -14561,26 +14561,96 @@ backup_restore(){
     local f="$1"
     [[ -z "$f" || ! -f "$f" ]] && { echo "用法: edgeboxctl backup restore /path/to/edgebox_backup_xxx.tar.gz"; return 1; }
     log_info "恢复备份: $f"
-    local restore_dir="/tmp/edgebox_restore_$"
+    local restore_dir="/tmp/edgebox_restore_$$"
     mkdir -p "$restore_dir"
 
     if tar -xzf "$f" -C "$restore_dir" 2>/dev/null; then
-        # 恢复配置
-        [[ -d "$restore_dir/etc/edgebox" ]] && cp -r "$restore_dir/etc/edgebox" /etc/ 2>/dev/null || true
-        [[ -f "$restore_dir/nginx/nginx.conf" ]] && cp "$restore_dir/nginx/nginx.conf" /etc/nginx/nginx.conf
-        [[ -f "$restore_dir/systemd/xray.service" ]] && cp "$restore_dir/systemd/xray.service" /etc/systemd/system/
-        [[ -f "$restore_dir/systemd/sing-box.service" ]] && cp "$restore_dir/systemd/sing-box.service" /etc/systemd/system/
-        [[ -d "$restore_dir/letsencrypt" ]] && cp -r "$restore_dir/letsencrypt" /etc/ 2>/dev/null || true
-        [[ -d "$restore_dir/www/html" ]] && cp -r "$restore_dir/www/html" /var/www/ 2>/dev/null || true
+        log_info "备份文件解压成功，开始验证..."
+
+        # === BEGIN VALIDATION ===
+        local valid_backup=true
+        local xray_cfg_bak="${restore_dir}/etc/edgebox/config/xray.json"
+        local sbox_cfg_bak="${restore_dir}/etc/edgebox/config/sing-box.json"
+        local nginx_cfg_bak="${restore_dir}/nginx/nginx.conf"
+
+        # Check Xray config
+        if [[ -f "$xray_cfg_bak" ]]; then
+            if ! jq empty "$xray_cfg_bak" >/dev/null 2>&1; then
+                log_error "备份中的 xray.json 格式无效！"
+                valid_backup=false
+            else
+                 log_info "备份中的 xray.json 格式有效。"
+            fi
+        else
+            log_warn "备份中未找到 xray.json (可能不影响恢复，但请注意)"
+            # Allow restore even if missing, user might be restoring partial backup
+        fi
+
+        # Check Sing-box config
+        if [[ -f "$sbox_cfg_bak" ]]; then
+            if ! jq empty "$sbox_cfg_bak" >/dev/null 2>&1; then
+                log_error "备份中的 sing-box.json 格式无效！"
+                valid_backup=false
+            else
+                log_info "备份中的 sing-box.json 格式有效。"
+            fi
+        else
+            log_warn "备份中未找到 sing-box.json (可能不影响恢复，但请注意)"
+        fi
+
+        # Check Nginx config existence (basic check)
+        if [[ ! -f "$nginx_cfg_bak" ]]; then
+             log_warn "备份中未找到 nginx/nginx.conf"
+        else
+             log_info "备份中找到 nginx.conf。"
+        fi
+        # === END VALIDATION ===
+
+        if [[ "$valid_backup" != "true" ]]; then
+            log_error "备份文件验证失败，恢复操作已中止！关键配置文件格式无效。"
+            rm -rf "$restore_dir"
+            return 1
+        fi
+
+        log_info "备份文件验证通过，开始恢复..."
+
+        # 恢复配置 (Use cp -a for permissions, ignore errors for non-critical parts)
+        log_info "恢复 /etc/edgebox ..."
+        [[ -d "$restore_dir/etc/edgebox" ]] && cp -a "$restore_dir/etc/edgebox/." /etc/edgebox/ 2>/dev/null || log_warn "未能恢复 /etc/edgebox"
+
+        log_info "恢复 nginx.conf ..."
+        [[ -f "$restore_dir/nginx/nginx.conf" ]] && cp -a "$restore_dir/nginx/nginx.conf" /etc/nginx/nginx.conf 2>/dev/null || log_warn "未能恢复 nginx.conf"
+
+        log_info "恢复 systemd units ..."
+        [[ -f "$restore_dir/systemd/xray.service" ]] && cp -a "$restore_dir/systemd/xray.service" /etc/systemd/system/ 2>/dev/null || true
+        [[ -f "$restore_dir/systemd/sing-box.service" ]] && cp -a "$restore_dir/systemd/sing-box.service" /etc/systemd/system/ 2>/dev/null || true
+
+        log_info "恢复 Let's Encrypt certificates (if present)..."
+        [[ -d "$restore_dir/letsencrypt" ]] && cp -a "$restore_dir/letsencrypt/." /etc/letsencrypt/ 2>/dev/null || true
+
+        log_info "恢复 Web 文件 ..."
+        [[ -d "$restore_dir/www/html" ]] && cp -a "$restore_dir/www/html/." /var/www/html/ 2>/dev/null || true
+
+        log_info "恢复 crontab ..."
         [[ -f "$restore_dir/crontab.txt" ]] && crontab "$restore_dir/crontab.txt" 2>/dev/null || true
 
-        # 重启服务
-        systemctl daemon-reload
-        reload_or_restart_services nginx xray sing-box
+        # 清理临时文件
         rm -rf "$restore_dir"
-        log_success "恢复完成"
+        log_success "文件恢复完成。"
+
+        # 重载 systemd 并重启服务
+        log_info "正在重载 systemd 并重启服务以应用恢复的配置..."
+        systemctl daemon-reload
+        if reload_or_restart_services nginx xray sing-box; then
+             log_success "服务重启成功。"
+        else
+             log_error "部分服务重启失败，请手动检查: edgeboxctl status"
+             return 1 # Indicate partial failure
+        fi
+        log_success "恢复操作成功完成！"
+
     else
-        log_error "恢复失败：无法解压备份文件"
+        log_error "恢复失败：无法解压备份文件 '$f'"
         rm -rf "$restore_dir"
         return 1
     fi
