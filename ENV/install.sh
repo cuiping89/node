@@ -3349,6 +3349,30 @@ EOF
 }
 
 
+# === [PATCH:Xray helpers BEGIN] =============================================
+eb_wait_listen() {
+  local port="$1" timeout="${2:-20}" i=0
+  while [[ $i -lt $timeout ]]; do
+    if ss -lnt "( sport = :$port )" | awk 'NR>1{exit 1} END{exit 0}'; then
+      sleep 1; i=$((i+1)); continue
+    fi
+    return 0
+  done
+  return 1
+}
+
+eb_xray_diag() {
+  log_error "Xray 未就绪，输出快速诊断："
+  command -v journalctl >/dev/null 2>&1 && {
+    journalctl -u xray -n 100 --no-pager 2>/dev/null | tail -n 60 || true
+  }
+  if [[ -r "${CONFIG_DIR}/xray.json" ]]; then
+    log_info "尝试 xray -test ..."
+    /usr/local/bin/xray -test -config "${CONFIG_DIR}/xray.json" || true
+  fi
+}
+# === [PATCH:Xray helpers END] ===============================================
+
 # // ANCHOR: [FUNC-CONFIGURE_XRAY]
 #############################################
 # 函数：configure_xray
@@ -3357,167 +3381,167 @@ EOF
 # 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
 #############################################
 configure_xray() {
-    log_info "配置Xray多协议服务..."
+  log_info "配置Xray多协议服务..."
 
-    # 【添加】创建Xray日志目录
-    mkdir -p /var/log/xray
-    chmod 777 /var/log/xray    # 允许 DynamicUser 写入
-    chown root:root /var/log/xray
+  mkdir -p /var/log/xray
+  chmod 777 /var/log/xray
+  chown root:root /var/log/xray
 
-    # local NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)" # Not strictly needed as service runs as root
+  local f="${CONFIG_DIR}/server.json"
 
-    # 验证必要变量 (增强版)
-    local required_vars=(
-        "UUID_VLESS_REALITY" "UUID_VLESS_GRPC" "UUID_VLESS_WS"
-        "REALITY_PRIVATE_KEY" "REALITY_SHORT_ID" "PASSWORD_TROJAN"
-        "CERT_PEM" "CERT_KEY" "REALITY_SNI"
-    )
-    log_info "检查必要变量设置..."
-    local missing_vars=()
-    for var in "${required_vars[@]}"; do
-        if [[ -z "${!var}" ]]; then
-            missing_vars+=("$var")
-        fi
-    done
-    if [[ ${#missing_vars[@]} -gt 0 ]]; then
-        log_error "缺少生成Xray配置的必要变量: ${missing_vars[*]}"
-        log_info "尝试从 server.json 重新加载..."
-        if [[ -f "${CONFIG_DIR}/server.json" ]]; then
-            # Attempt reload (best effort)
-             eval "$(jq -r '
-              "UUID_VLESS_REALITY=\(.uuid.vless.reality // .uuid.vless // "")\n" +
-              "UUID_VLESS_GRPC=\(.uuid.vless.grpc // .uuid.vless // "")\n" +
-              "UUID_VLESS_WS=\(.uuid.vless.ws // .uuid.vless // "")\n" +
-              "PASSWORD_TROJAN=\(.password.trojan // "")\n" +
-              "REALITY_PRIVATE_KEY=\(.reality.private_key // "")\n" +
-              "REALITY_SHORT_ID=\(.reality.short_id // "")\n"
-            ' "${CONFIG_DIR}/server.json" 2>/dev/null || echo "")"
-			CERT_PEM="${CERT_DIR}/current.pem"
-			CERT_KEY="${CERT_DIR}/current.key"
-			REALITY_SNI=$(cat "${INSTALL_DIR}/sni.lock" 2>/dev/null || echo "www.microsoft.com")
+  # ① 预加载证书路径（仅变量为空时）
+  if [[ -z ${CERT_PEM:-} || -z ${CERT_KEY:-} ]]; then
+    if [[ -r "$f" ]]; then
+      local _pem _key
+      _pem="$(jq -r '.cert.cert_pem // empty' "$f" 2>/dev/null || true)"
+      _key="$(jq -r '.cert.key_pem  // empty' "$f" 2>/dev/null || true)"
+      [[ -n "$_pem" ]] && CERT_PEM="$_pem"
+      [[ -n "$_key" ]] && CERT_KEY="$_key"
+      # 兼容旧变量名
+      [[ -z ${KEY_PEM:-} && -n ${CERT_KEY:-} ]] && KEY_PEM="$CERT_KEY"
+      export CERT_PEM CERT_KEY KEY_PEM
+      log_info "从 server.json 预加载证书路径成功"
     fi
-	
-	# Re-check (this part might give false positives if files don't exist)
-    missing_vars=()
-    for var in "${required_vars[@]}"; do [[ -z "${!var}" ]] && missing_vars+=("$var"); done
-    if [[ ${#missing_vars[@]} -gt 0 ]]; then
-        log_error "从 server.json 加载后仍然缺少变量: ${missing_vars[*]}"
+  fi
+
+  # ② 检查并兜底证书路径
+  [[ -z ${CERT_PEM:-} ]] && CERT_PEM="${CERT_DIR}/current.pem"
+  [[ -z ${CERT_KEY:-} ]] && CERT_KEY="${CERT_DIR}/current.key"
+  export CERT_PEM CERT_KEY
+
+  # ③ 收集必要变量
+  local required_vars=(
+    "UUID_VLESS_REALITY" "UUID_VLESS_GRPC" "UUID_VLESS_WS"
+    "REALITY_PRIVATE_KEY" "REALITY_SHORT_ID" "PASSWORD_TROJAN"
+    "CERT_PEM" "CERT_KEY" "REALITY_SNI"
+  )
+  log_info "检查必要变量设置..."
+  local missing_vars=()
+  for var in "${required_vars[@]}"; do
+    [[ -z "${!var:-}" ]] && missing_vars+=("$var")
+  done
+  if (( ${#missing_vars[@]} )); then
+    log_info "尝试从 server.json 重新加载必要变量..."
+    if [[ -r "$f" ]]; then
+      eval "$(
+        jq -r '
+          "UUID_VLESS_REALITY=\(.uuid.vless.reality // .uuid.vless // \"\")\n" +
+          "UUID_VLESS_GRPC=\(.uuid.vless.grpc // .uuid.vless // \"\")\n" +
+          "UUID_VLESS_WS=\(.uuid.vless.ws // .uuid.vless // \"\")\n" +
+          "PASSWORD_TROJAN=\(.password.trojan // \"\")\n" +
+          "REALITY_PRIVATE_KEY=\(.reality.private_key // \"\")\n" +
+          "REALITY_SHORT_ID=\(.reality.short_id // \"\")\n" +
+          "REALITY_SNI=\(.reality.sni // \"www.microsoft.com\")\n"
+        ' "$f" 2>/dev/null
+      )"
+    fi
+  fi
+
+  # ④ 最终核对
+  missing_vars=()
+  for var in "${required_vars[@]}"; do
+    [[ -z "${!var:-}" ]] && missing_vars+=("$var")
+  done
+  if (( ${#missing_vars[@]} )); then
+    log_error "缺少生成Xray配置的必要变量: ${missing_vars[*]}"
+    return 1
+  fi
+  log_success "✓ 所有必要变量已设置"
+
+  # ⑤ 校验证书文件
+  log_info "检查证书文件是否存在且可读..."
+  local cert_files_ok=true
+  [[ ! -r "$CERT_PEM" ]] && { log_error "证书不可读: $CERT_PEM"; cert_files_ok=false; }
+  [[ ! -r "$CERT_KEY" ]] && { log_error "密钥不可读: $CERT_KEY"; cert_files_ok=false; }
+
+  if [[ "$cert_files_ok" != "true" ]]; then
+    local cert_mode
+    cert_mode=$(cat "${CONFIG_DIR}/cert_mode" 2>/dev/null || echo "self-signed")
+    if [[ "$cert_mode" == "self-signed" ]]; then
+      log_warn "证书异常，尝试重新生成自签名证书..."
+      if generate_self_signed_cert; then
+        log_success "自签名证书已重新生成"
+      else
+        log_error "自签名证书重新生成失败"
         return 1
+      fi
     else
-        log_info "✓ 所有必要变量已设置 (变量存在，文件待检查...)" # Modified log message slightly
+      log_error "证书异常，且非自签名模式，无法自动修复"
+      return 1
     fi
-    # log_success "✓ 所有必要变量已设置。" # Original log message
+  fi
+  log_success "✓ 证书和密钥文件可用"
 
+  # ⑥ 生成并验证临时配置（原子写入）
+  log_info "使用 jq 生成 Xray 配置（临时文件）..."
+  local xray_tmp="${CONFIG_DIR}/xray.tmp.json"
+  if ! jq -n \
+      --arg uuid_reality "$UUID_VLESS_REALITY" \
+      --arg uuid_grpc    "$UUID_VLESS_GRPC" \
+      --arg uuid_ws      "$UUID_VLESS_WS" \
+      --arg r_priv       "$REALITY_PRIVATE_KEY" \
+      --arg r_short      "$REALITY_SHORT_ID" \
+      --arg r_sni        "$REALITY_SNI" \
+      --arg trojan_pwd   "$PASSWORD_TROJAN" \
+      --arg cert_pem     "$CERT_PEM" \
+      --arg cert_key     "$CERT_KEY" \
+      '{
+        "log": { "access": "/var/log/xray/access.log", "error": "/var/log/xray/error.log", "loglevel": "info" },
+        "inbounds": [
+          { "tag": "vless-reality", "listen": "127.0.0.1", "port": 11443, "protocol": "vless",
+            "settings": { "clients": [ { "id": $uuid_reality, "flow": "xtls-rprx-vision" } ], "decryption": "none" },
+            "streamSettings": { "network": "tcp", "security": "reality",
+              "realitySettings": { "show": false, "dest": ($r_sni + ":443"), "serverNames": [$r_sni], "privateKey": $r_priv, "shortIds": [$r_short] } }
+          },
+          { "tag": "vless-grpc", "listen": "127.0.0.1", "port": 10085, "protocol": "vless",
+            "settings": { "clients": [ { "id": $uuid_grpc } ], "decryption": "none" },
+            "streamSettings": { "network": "grpc", "security": "tls",
+              "tlsSettings": { "certificates": [ { "certificateFile": $cert_pem, "keyFile": $cert_key } ] },
+              "grpcSettings": { "serviceName": "grpc", "multiMode": false } }
+          },
+          { "tag": "vless-ws", "listen": "127.0.0.1", "port": 10086, "protocol": "vless",
+            "settings": { "clients": [ { "id": $uuid_ws } ], "decryption": "none" },
+            "streamSettings": { "network": "ws", "security": "tls",
+              "tlsSettings": { "certificates": [ { "certificateFile": $cert_pem, "keyFile": $cert_key } ] },
+              "wsSettings": { "path": "/ws" } }
+          },
+          { "tag": "trojan-tcp", "listen": "127.0.0.1", "port": 10143, "protocol": "trojan",
+            "settings": { "clients": [ { "password": $trojan_pwd } ] },
+            "streamSettings": { "network": "tcp", "security": "tls",
+              "tcpSettings": { "header": { "type": "none" } },
+              "tlsSettings": { "certificates": [ { "certificateFile": $cert_pem, "keyFile": $cert_key } ] } }
+          }
+        ],
+        "outbounds": [
+          { "tag": "direct", "protocol": "freedom", "settings": {} },
+          { "tag": "block",  "protocol": "blackhole", "settings": {} }
+        ],
+        "dns": {
+          "servers": [ "8.8.8.8", "1.1.1.1", {"address": "https://1.1.1.1/dns-query"}, {"address": "https://8.8.8.8/dns-query"} ],
+          "queryStrategy": "UseIP"
+        },
+        "routing": { "domainStrategy": "UseIP", "rules": [ { "type": "field", "ip": ["geoip:private"], "outboundTag": "block" } ] },
+        "policy": { "handshake": 4, "connIdle": 30 }
+      }' > "$xray_tmp"
+  then
+    log_error "使用 jq 生成 Xray 配置失败"
+    rm -f "$xray_tmp"
+    return 1
+  fi
 
-    # <<< ==== ADDED FIX: Explicitly check file existence and readability ==== >>>
-    log_info "检查证书文件是否存在且可读..."
-    local cert_files_ok=true
-    if [[ ! -r "$CERT_PEM" ]]; then
-        log_error "证书文件不存在或不可读: $CERT_PEM"
-        cert_files_ok=false
-    fi
-    if [[ ! -r "$CERT_KEY" ]]; then
-        log_error "密钥文件不存在或不可读: $CERT_KEY"
-        cert_files_ok=false
-    fi
+  log_info "验证生成的 Xray 配置..."
+  if ! /usr/local/bin/xray -test -config "$xray_tmp" >/dev/null 2>&1; then
+    /usr/local/bin/xray -test -config "$xray_tmp" || true
+    rm -f "$xray_tmp"
+    return 1
+  fi
+  mv "$xray_tmp" "${CONFIG_DIR}/xray.json"
+  chmod 644 "${CONFIG_DIR}/xray.json"
+  log_success "Xray 配置文件创建并验证成功（${CONFIG_DIR}/xray.json）"
 
-    if [[ "$cert_files_ok" != "true" ]]; then
-        # Attempt to regenerate self-signed cert as a fallback ONLY if in self-signed mode
-        local cert_mode
-        cert_mode=$(cat "${CONFIG_DIR}/cert_mode" 2>/dev/null || echo "self-signed")
-        if [[ "$cert_mode" == "self-signed" ]]; then
-            log_warn "证书文件问题，尝试重新生成自签名证书..."
-            # Make sure generate_self_signed_cert is available or included
-            if generate_self_signed_cert; then
-                 log_success "自签名证书已重新生成。"
-                 # Re-check files after regeneration
-                 if [[ ! -r "$CERT_PEM" || ! -r "$CERT_KEY" ]]; then
-                     log_error "重新生成后证书/密钥文件仍然不可读。"
-                     return 1
-                 fi
-                 cert_files_ok=true # Mark as OK now
-            else
-                 log_error "自签名证书重新生成失败。"
-                 return 1
-            fi
-        else
-             log_error "证书文件问题，并且当前不是自签名模式，无法自动修复。"
-             return 1
-        fi
-    fi
-
-    if [[ "$cert_files_ok" == "true" ]]; then
-        log_success "✓ 证书和密钥文件存在且可读。"
-    else
-        # Should not reach here if logic above is correct, but as a safeguard
-        log_error "无法确认证书文件状态，中止 Xray 配置。"
-        return 1
-    fi
-    # <<< ==== END ADDED FIX ==== >>>
-
-
-    log_info "使用jq生成Xray配置文件（写入临时文件）..."
-    local xray_tmp="${CONFIG_DIR}/xray.json.tmp"
-    if ! jq -n \
-        --arg uuid_reality "$UUID_VLESS_REALITY" \
-        --arg uuid_grpc "$UUID_VLESS_GRPC" \
-        --arg uuid_ws "$UUID_VLESS_WS" \
-        --arg reality_private "$REALITY_PRIVATE_KEY" \
-        --arg reality_short "$REALITY_SHORT_ID" \
-        --arg reality_sni "$REALITY_SNI" \
-        --arg password_trojan "$PASSWORD_TROJAN" \
-        --arg cert_pem "$CERT_PEM" \
-        --arg cert_key "$CERT_KEY" \
-        '{
-            "log": { "access": "/var/log/xray/access.log", "error": "/var/log/xray/error.log", "loglevel": "info" },
-            "inbounds": [
-                { "tag": "vless-reality", "listen": "127.0.0.1", "port": 11443, "protocol": "vless", "settings": { "clients": [ { "id": $uuid_reality, "flow": "xtls-rprx-vision" } ], "decryption": "none" }, "streamSettings": { "network": "tcp", "security": "reality", "realitySettings": { "show": false, "dest": ($reality_sni + ":443"), "serverNames": [$reality_sni], "privateKey": $reality_private, "shortIds": [$reality_short] } } },
-                { "tag": "vless-grpc", "listen": "127.0.0.1", "port": 10085, "protocol": "vless", "settings": { "clients": [ { "id": $uuid_grpc } ], "decryption": "none" }, "streamSettings": { "network": "grpc", "security": "tls", "tlsSettings": { "certificates": [ { "certificateFile": $cert_pem, "keyFile": $cert_key } ] }, "grpcSettings": { "serviceName": "grpc", "multiMode": false } } },
-                { "tag": "vless-ws", "listen": "127.0.0.1", "port": 10086, "protocol": "vless", "settings": { "clients": [ { "id": $uuid_ws } ], "decryption": "none" }, "streamSettings": { "network": "ws", "security": "tls", "tlsSettings": { "certificates": [ { "certificateFile": $cert_pem, "keyFile": $cert_key } ] }, "wsSettings": { "path": "/ws" } } },
-                { "tag": "trojan-tcp", "listen": "127.0.0.1", "port": 10143, "protocol": "trojan", "settings": { "clients": [ { "password": $password_trojan } ] }, "streamSettings": { "network": "tcp", "security": "tls", "tcpSettings": { "header": { "type": "none" } }, "tlsSettings": { "certificates": [ { "certificateFile": $cert_pem, "keyFile": $cert_key } ] } } }
-            ],
-            "outbounds": [ { "tag": "direct", "protocol": "freedom", "settings": {} }, { "tag": "block", "protocol": "blackhole", "settings": {} } ],
-            "dns": { "servers": [ "8.8.8.8", "1.1.1.1", {"address": "https://1.1.1.1/dns-query"}, {"address": "https://8.8.8.8/dns-query"} ], "queryStrategy": "UseIP" },
-            "routing": { "domainStrategy": "UseIP", "rules": [ { "type": "field", "ip": ["geoip:private"], "outboundTag": "block" } ] },
-            "policy": { "handshake": 4, "connIdle": 30 }
-        }' > "$xray_tmp"; then
-        log_error "使用jq生成Xray配置文件失败"
-        rm -f "$xray_tmp" # Clean up temp file
-        return 1
-    fi
-
-    # --- ATOMIC WRITE + VALIDATION ---
-    log_info "验证生成的 Xray 配置..."
-    if ! xray -test -config "$xray_tmp" >/dev/null 2>&1; then
-        log_error "生成的 Xray 配置未能通过验证！"
-        xray -test -config "$xray_tmp" # Show error detail
-        rm -f "$xray_tmp"
-        return 1
-    fi
-    mv "$xray_tmp" "${CONFIG_DIR}/xray.json"
-    log_success "Xray 配置文件创建并验证成功。"
-    # --- END ATOMIC WRITE + VALIDATION ---
-
-    chmod 644 "${CONFIG_DIR}/xray.json"
-    chmod 777 /var/log/xray # Ensure log dir is writable
-
-    # 对齐系统与 Xray 的 DNS
-    log_info "对齐 DNS 解析（系统 & Xray）..."
-    ensure_system_dns
-    ensure_xray_dns_alignment
-
-    # 创建正确的 systemd 服务文件 (no change needed here)
-    log_info "创建Xray系统服务..."
-    systemctl stop xray >/dev/null 2>&1 || true
-    systemctl disable xray >/dev/null 2>&1 || true
-    if [[ -f /etc/systemd/system/xray.service ]]; then
-        mv /etc/systemd/system/xray.service \
-           /etc/systemd/system/xray.service.official.bak 2>/dev/null || true
-    fi
-    rm -rf /etc/systemd/system/xray.service.d 2>/dev/null || true
-    rm -rf /etc/systemd/system/xray@.service.d 2>/dev/null || true
-
-cat > /etc/systemd/system/xray.service << 'EOF'
+  # ⑦ 写入并启用 systemd 服务
+  log_info "创建/更新 Xray systemd unit ..."
+  cat > /etc/systemd/system/xray.service << 'EOF'
 [Unit]
 Description=Xray Service (EdgeBox)
 Documentation=https://github.com/xtls
@@ -3539,16 +3563,30 @@ LimitNOFILE=1000000
 WantedBy=multi-user.target
 EOF
 
-    systemctl disable xray.service >/dev/null 2>&1 || true
-    systemctl mask xray.service >/dev/null 2>&1 || true
+  # 立即生效并启动（取消任何 mask/disable 残留）
+  systemctl daemon-reload
+  systemctl unmask xray.service  >/dev/null 2>&1 || true
+  systemctl enable xray.service  >/dev/null 2>&1 || true
+  systemctl restart xray.service >/dev/null 2>&1 || systemctl start xray.service || true
 
-    # systemctl daemon-reload # Moved to end of module 3
-    # systemctl enable xray >/dev/null 2>&1 # Moved to end of module 3
+  # ⑧ 等待端口就绪（避免 nginx 拿不到上游而被动连拒绝）
+  log_info "等待 Xray 端口就绪: 11443 / 10085 / 10086 / 10143 ..."
+  local ok=true
+  for p in 11443 10085 10086 10143; do
+    if ! eb_wait_listen "$p" 25; then
+      log_error "端口 $p 未监听"
+      ok=false
+    fi
+  done
 
-    log_success "Xray服务文件创建完成（配置路径: ${CONFIG_DIR}/xray.json）"
-    return 0
+  if [[ "$ok" != "true" ]]; then
+    eb_xray_diag
+    return 1
+  fi
+
+  log_success "Xray 服务已启动并监听所有端口"
+  return 0
 }
-
 
 # // ANCHOR: [FUNC-CONFIGURE_SING_BOX]
 #############################################
