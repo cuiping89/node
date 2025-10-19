@@ -3392,25 +3392,68 @@ configure_xray() {
               "REALITY_PRIVATE_KEY=\(.reality.private_key // "")\n" +
               "REALITY_SHORT_ID=\(.reality.short_id // "")\n"
             ' "${CONFIG_DIR}/server.json" 2>/dev/null || echo "")"
-            CERT_PEM="${CERT_DIR}/current.pem"
-            CERT_KEY="${CERT_DIR}/current.key"
-            REALITY_SNI=$(cat "${INSTALL_DIR}/sni.lock" 2>/dev/null || echo "www.microsoft.com")
+			CERT_PEM="${CERT_DIR}/current.pem"
+			CERT_KEY="${CERT_DIR}/current.key"
+			REALITY_SNI=$(cat "${INSTALL_DIR}/sni.lock" 2>/dev/null || echo "www.microsoft.com")
 
-            # Re-check
-            missing_vars=()
-            for var in "${required_vars[@]}"; do [[ -z "${!var}" ]] && missing_vars+=("$var"); done
-            if [[ ${#missing_vars[@]} -gt 0 ]]; then
-                log_error "从 server.json 加载后仍然缺少变量: ${missing_vars[*]}"
-                return 1
+    # Re-check (this part might give false positives if files don't exist)
+    missing_vars=()
+    for var in "${required_vars[@]}"; do [[ -z "${!var}" ]] && missing_vars+=("$var"); done
+    if [[ ${#missing_vars[@]} -gt 0 ]]; then
+        log_error "从 server.json 加载后仍然缺少变量: ${missing_vars[*]}"
+        return 1
+    else
+        log_info "✓ 所有必要变量已设置 (变量存在，文件待检查...)" # Modified log message slightly
+    fi
+    # log_success "✓ 所有必要变量已设置。" # Original log message
+
+
+    # <<< ==== ADDED FIX: Explicitly check file existence and readability ==== >>>
+    log_info "检查证书文件是否存在且可读..."
+    local cert_files_ok=true
+    if [[ ! -r "$CERT_PEM" ]]; then
+        log_error "证书文件不存在或不可读: $CERT_PEM"
+        cert_files_ok=false
+    fi
+    if [[ ! -r "$CERT_KEY" ]]; then
+        log_error "密钥文件不存在或不可读: $CERT_KEY"
+        cert_files_ok=false
+    fi
+
+    if [[ "$cert_files_ok" != "true" ]]; then
+        # Attempt to regenerate self-signed cert as a fallback ONLY if in self-signed mode
+        local cert_mode
+        cert_mode=$(cat "${CONFIG_DIR}/cert_mode" 2>/dev/null || echo "self-signed")
+        if [[ "$cert_mode" == "self-signed" ]]; then
+            log_warn "证书文件问题，尝试重新生成自签名证书..."
+            # Make sure generate_self_signed_cert is available or included
+            if generate_self_signed_cert; then
+                 log_success "自签名证书已重新生成。"
+                 # Re-check files after regeneration
+                 if [[ ! -r "$CERT_PEM" || ! -r "$CERT_KEY" ]]; then
+                     log_error "重新生成后证书/密钥文件仍然不可读。"
+                     return 1
+                 fi
+                 cert_files_ok=true # Mark as OK now
             else
-                log_info "变量重新加载成功。"
+                 log_error "自签名证书重新生成失败。"
+                 return 1
             fi
         else
-            log_error "server.json 不存在，无法重新加载变量。"
-            return 1
+             log_error "证书文件问题，并且当前不是自签名模式，无法自动修复。"
+             return 1
         fi
     fi
-    log_success "✓ 所有必要变量已设置。"
+
+    if [[ "$cert_files_ok" == "true" ]]; then
+        log_success "✓ 证书和密钥文件存在且可读。"
+    else
+        # Should not reach here if logic above is correct, but as a safeguard
+        log_error "无法确认证书文件状态，中止 Xray 配置。"
+        return 1
+    fi
+    # <<< ==== END ADDED FIX ==== >>>
+
 
     log_info "使用jq生成Xray配置文件（写入临时文件）..."
     local xray_tmp="${CONFIG_DIR}/xray.json.tmp"
