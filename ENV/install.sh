@@ -2680,72 +2680,107 @@ log_info "└─ verify_module2_data()       # 验证数据完整性"
 # - 验证服务配置
 #############################################
 
-#############################################
-# Xray 安装函数
-#############################################
-
-# 安装Xray核心程序
+# // ANCHOR: [FUNC-INSTALL_XRAY]
 #############################################
 # 函数：install_xray
-# 作用：见函数体（本优化版仅加注释，不改变逻辑）
-# 输入：根据函数体（一般通过全局变量/环境）
-# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
-# ANCHOR: [FUNC-INSTALL_XRAY]
+# 作用：安装Xray核心程序 (V2 - 绕过官方脚本，手动安装)
+# 输入：无
+# 输出：Xray 二进制文件和 .dat 文件
 #############################################
-
 install_xray() {
-    log_info "安装Xray核心程序 (强制覆盖，阻止服务管理)..." # 更明确的日志
+    log_info "安装Xray核心程序 (手动下载模式)..."
 
+    # 1. 清理旧的 systemd 服务（如果存在）
     log_info "步骤 1: 尝试卸载任何现有的Xray服务..."
-    # 使用官方脚本的 remove 功能，确保其创建的服务单元被清理
-    if ! smart_download_script \
-        "https://raw.githubusercontent.com/XTLS/Xray-install/main/install-release.sh" \
-        "Xray卸载脚本" \
-        remove >/dev/null 2>&1; then
-        log_warn "Xray卸载步骤失败或未找到安装，将继续尝试安装..."
-        # 即使卸载失败，也继续尝试安装，因为可能本身就没有安装
-    else
-        log_success "现有Xray服务（如果存在）已卸载。"
-    fi
-    # 短暂等待，确保 systemd 状态更新
-    sleep 2
-    systemctl daemon-reload || true
+    systemctl stop xray.service >/dev/null 2>&1 || true
+    systemctl disable xray.service >/dev/null 2>&1 || true
+    rm -f /etc/systemd/system/xray.service \
+          /lib/systemd/system/xray.service \
+          /usr/lib/systemd/system/xray.service \
+          /etc/systemd/system/multi-user.target.wants/xray.service
+    rm -rf /etc/systemd/system/xray.service.d
+    systemctl daemon-reload
     systemctl reset-failed xray.service >/dev/null 2>&1 || true
+    log_success "现有Xray服务（如果存在）已清理。"
 
-    log_info "步骤 2: 使用官方脚本仅安装Xray二进制文件..."
-    # 使用 --local 参数尝试仅安装二进制文件到 /usr/local/bin
-    # 注意：官方脚本可能会变化，--local 不一定能完全阻止服务创建，
-    # 但结合前面的 remove 和后面的 EdgeBox unit 创建，能最大程度避免冲突。
-    if ! smart_download_script \
-        "https://raw.githubusercontent.com/XTLS/Xray-install/main/install-release.sh" \
-        "Xray安装脚本" \
-        install --local >/dev/null 2>&1; then # 使用 --local
-        log_error "Xray二进制文件安装失败"
-        # 可以添加不带 --local 的安装作为回退尝试
-        log_info "尝试不带 --local 参数重新安装..."
-        if ! smart_download_script \
-            "https://raw.githubusercontent.com/XTLS/Xray-install/main/install-release.sh" \
-            "Xray安装脚本" \
-            install >/dev/null 2>&1; then
-            log_error "Xray最终安装失败"
+    # 2. 确定架构
+    local system_arch
+    case "$(uname -m)" in
+        x86_64|amd64) system_arch="64" ;;
+        aarch64|arm64) system_arch="arm64-v8a" ;;
+        armv7*) system_arch="arm32-v7a" ;;
+        *)
+            log_error "不支持的系统架构: $(uname -m)"
             return 1
-        fi
-         log_warn "回退到标准安装模式完成，后续将强制使用EdgeBox的service文件。"
-    fi
-    log_success "Xray二进制文件安装/更新完成。"
+            ;;
+    esac
 
-    # 验证二进制文件是否存在于预期路径
-    if [[ ! -x "/usr/local/bin/xray" ]]; then
-        log_error "Xray二进制文件未在预期路径 /usr/local/bin/xray 找到或不可执行！"
-        log_info "请检查官方安装脚本的行为或手动安装Xray到该路径。"
+    # 3. 确定版本 (固定为已知最新版，或从API获取)
+    # 为保证稳定性，我们先固定一个版本
+    local XRAY_VERSION="1.8.11"
+    # 动态获取最新版 (如果需要)
+    # local XRAY_VERSION=$(curl -s "https://api.github.com/repos/XTLS/Xray-core/releases/latest" | jq -r '.tag_name' | sed 's/v//')
+    # [[ -z "$XRAY_VERSION" ]] && XRAY_VERSION="1.8.11" # 兜底
+
+    local filename="Xray-linux-${system_arch}.zip"
+    local download_url="https://github.com/XTLS/Xray-core/releases/download/v${XRAY_VERSION}/${filename}"
+
+    log_info "准备下载: ${filename} (版本: v${XRAY_VERSION})"
+
+    # 4. 创建临时目录和文件
+    local temp_dir temp_file
+    temp_dir=$(mktemp -d) || { log_error "创建临时目录失败"; return 1; }
+    temp_file="${temp_dir}/${filename}"
+
+    # 5. 下载
+    log_info "📥 下载 Xray 二进制包..."
+    if ! smart_download "$download_url" "$temp_file" "binary"; then
+        log_error "❌ Xray 下载失败"
+        rm -rf "$temp_dir"
+        return 1
+    fi
+    log_success "✅ 二进制包下载成功"
+
+    # 6. 解压
+    log_info "📦 解压并安装 Xray..."
+    if ! unzip -q "$temp_file" -d "$temp_dir"; then
+        log_error "解压失败"
+        rm -rf "$temp_dir"
         return 1
     fi
 
-    local xray_version
-    xray_version=$(/usr/local/bin/xray version 2>/dev/null | head -n1 | sed -E 's/[^0-9]*([0-9.]+).*/\1/')
-    log_success "Xray验证通过，版本: ${xray_version:-未知} @ /usr/local/bin/xray"
+    # 7. 安装二进制文件
+    if ! install -m 0755 "${temp_dir}/xray" "/usr/local/bin/xray"; then
+        log_error "安装失败（复制 xray 到 /usr/local/bin 失败）"
+        rm -rf "$temp_dir"
+        return 1
+    fi
 
-    # 创建日志目录并设置权限 (保持不变)
+    # 8. 安装 .dat 文件
+    local dat_dir="/usr/local/share/xray"
+    mkdir -p "$dat_dir"
+    if ! install -m 0644 "${temp_dir}/geoip.dat" "$dat_dir/" || \
+       ! install -m 0644 "${temp_dir}/geosite.dat" "$dat_dir/"; then
+        log_warn " .dat 文件安装失败 (非致命错误)"
+    else
+        log_success ".dat 文件安装成功"
+    fi
+
+    # 9. 清理
+    rm -rf "$temp_dir"
+
+    # 10. 验证
+    if ! /usr/local/bin/xray version >/dev/null 2>&1; then
+        log_error "Xray 安装后验证失败"
+        return 1
+    fi
+
+    local version_info
+    version_info=$(/usr/local/bin/xray version | head -n1)
+    log_success "🎉 Xray 安装完成!"
+    log_success "📌 版本信息: $version_info"
+
+    # 11. 创建日志目录 (保持不变)
     mkdir -p /var/log/xray
     chown root:root /var/log/xray
     chmod 0755 /var/log/xray
@@ -2754,12 +2789,9 @@ install_xray() {
     chmod 0644 /var/log/xray/*.log
     log_success "Xray log directory created and permissions set for root user."
 
-    # ！！！注意：这里不再需要调用 create_or_update_xray_unit，
-    # 因为该函数会在 configure_xray 中被调用，那时才是创建 EdgeBox 特定单元文件的正确时机。
-    # 我们在这里的目标只是确保官方脚本不干扰服务管理。
-
     return 0
-}
+} # install_xray 函数结束
+
 
 #############################################
 # sing-box 安装函数
