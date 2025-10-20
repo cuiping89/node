@@ -2338,12 +2338,14 @@ generate_self_signed_cert() {
     NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
 
     chown -R root:"${NOBODY_GRP}" "${CERT_DIR}" 2>/dev/null || true
-    chmod 750 "${CERT_DIR}" # 目录权限：root=rwx, group=r-x, other=---
+    
+    # <<< --- 修复：将目录权限设为 755 (全局可访问) --- >>>
+    chmod 755 "${CERT_DIR}" # 目录权限：root=rwx, group=r-x, other=r-x
     
     # <<< --- 修复：将私钥权限设为 644 (全局可读) 解决潜在的 systemd 'nobody' 用户问题 --- >>>
     chmod 644 "${CERT_DIR}"/self-signed.key 
     chmod 644 "${CERT_DIR}"/self-signed.pem
-    log_info "私钥权限已设置为 644 (全局可读)"
+    log_info "私钥权限已设置为 644 (全局可读)，目录权限 755"
     # ---------------------
 
     if openssl x509 -in "${CERT_DIR}/current.pem" -noout >/dev/null 2>&1; then
@@ -3428,39 +3430,36 @@ wait_listen() {  # usage: wait_listen 11443 10085 10086 10143
   done
 }
 
-# === Patch B: 统一强制 Xray unit (辅助函数) - 加强清理版 v2 ===
+# === Patch B: 统一强制 Xray unit (辅助函数) - 加强清理版 v3 (最终修复) ===
 create_or_update_xray_unit() {
-  log_info "创建/更新 Xray systemd unit ..."
+  log_info "创建/更新 Xray systemd unit (v3)..."
   local unit=/etc/systemd/system/xray.service
   local old_unit_lib=/lib/systemd/system/xray.service
-  local override_dir=/etc/systemd/system/xray.service.d # <-- 定义覆盖目录路径
+  local old_unit_usr_lib=/usr/lib/systemd/system/xray.service # <-- RHEL/Fedora 路径
+  local old_unit_vendor=/usr/lib/systemd/system/xray.service # <-- 新增：另一个常见的 vendor 路径
+  local override_dir=/etc/systemd/system/xray.service.d
 
-  # <<< --- 加强清理 --- >>>
+  # <<< --- 终极清理 --- >>>
   log_info "强制停止、禁用并移除所有已知的 xray.service 文件及覆盖配置..."
   systemctl stop xray.service >/dev/null 2>&1 || true
   systemctl disable xray.service >/dev/null 2>&1 || true
-  rm -f "$unit" "$old_unit_lib" /etc/systemd/system/multi-user.target.wants/xray.service
-
-  # <<< --- 新增：强制移除覆盖目录 --- >>>
+  
+  # <<< --- 修复：添加所有已知路径 --- >>>
+  rm -f "$unit" "$old_unit_lib" "$old_unit_vendor" /etc/systemd/system/multi-user.target.wants/xray.service
+  
   if [[ -d "$override_dir" ]]; then
       log_info "发现并移除旧的 systemd 覆盖目录: $override_dir"
       rm -rf "$override_dir"
   fi
-  # <<< --- 移除结束 --- >>>
 
-  log_info "执行 daemon-reload 和 reset-failed..."
+  log_info "执行 daemon-reload 和 reset-failed (第一次)..."
   systemctl daemon-reload
   systemctl reset-failed xray.service >/dev/null 2>&1 || true
-  sleep 1 # 短暂等待确保 systemd 状态更新
-  # <<< --- 清理结束 --- >>>
+  sleep 1
 
-
-  # 确保官方默认目录存在，并使用绝对路径创建软链接
   mkdir -p /usr/local/etc/xray 2>/dev/null || true
-  # <<< --- 修复：使用绝对路径作为软链接目标 --- >>>
   ln -sfn /etc/edgebox/config/xray.json /usr/local/etc/xray/config.json
 
-  # 写入统一的 unit 文件，确保使用绝对路径
   cat >"$unit" <<'UNIT'
 [Unit]
 Description=Xray Service (EdgeBox)
@@ -3472,7 +3471,6 @@ After=network-online.target nss-lookup.target
 Type=simple
 User=root
 Group=root
-# <<< --- 修复：在 ExecStart 中使用绝对路径指定配置文件 --- >>>
 ExecStart=/usr/local/bin/xray run -c /etc/edgebox/config/xray.json
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=always
@@ -3487,26 +3485,18 @@ StandardError=journal
 WantedBy=multi-user.target
 UNIT
 
-  # <<< --- 再次重载并启用 --- >>>
-  log_info "再次执行 daemon-reload 并启用新的 unit..."
+  log_info "再次执行 daemon-reload 和 reenable (第二次)..."
   systemctl daemon-reload
-  systemctl enable "$unit" >/dev/null 2>&1 || log_warn "启用 xray 服务失败"
-  # <<< --- 重载结束 --- >>>
+  # <<< --- 新增：使用 reenable 强制刷新链接 --- >>>
+  systemctl reenable "$unit" >/dev/null 2>&1 || systemctl enable "$unit" >/dev/null 2>&1 || log_warn "启用 xray 服务失败"
 
-  # 校验 unit 是否生效
   local _effective_user
   _effective_user="$(systemctl show -p User --value xray 2>/dev/null)"
-  if [[ -z "$_effective_user" ]]; then
-    log_warn "未读取到 xray.service 的 User 字段；将按默认 root 处理。"
-  else
-    log_info "当前 xray.service 运行用户: ${_effective_user}"
-    # <<< --- 新增：如果生效用户不是 root，则明确报错 --- >>>
-    if [[ "$_effective_user" != "root" ]]; then
-        log_error "检测到 Xray 服务未以 root 用户运行 ($_effective_user)，可能导致权限问题！"
-        log_error "请检查 systemd 配置或是否存在意外的覆盖文件。"
-        # return 1 # 暂时不在这里退出，让权限 644 修复生效
-    fi
-    # <<< --- 检查结束 --- >>>
+  log_info "当前 systemd 识别的 xray.service 运行用户: ${_effective_user}"
+  if [[ "$_effective_user" != "root" ]]; then
+      log_error "FATAL: systemd 仍未识别到 User=root (识别为: $_effective_user)，安装无法继续。"
+      log_error "请手动清理所有 systemd 'xray.service' 文件 (位于 /etc, /lib, /usr/lib) 后重试。"
+      return 1
   fi
 }
 
