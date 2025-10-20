@@ -3351,43 +3351,34 @@ EOF
 
 # === Patch C: 监听检测增强 (辅助函数) ===
 wait_listen() {  # usage: wait_listen 11443 10085 10086 10143
-  local timeout=25 start ts p ok
+  local timeout=25 start ok p
   start=$(date +%s)
-  log_info "等待端口监听: $@ (超时: ${timeout}s)..." # <-- 添加日志
+  log_info "等待端口监听: $@ (超时: ${timeout}s)..."
   while true; do
     ok=1
-    local listening_ports="" # <-- 用于调试
-    local not_listening=""   # <-- 用于调试
-    # <<< 使用更兼容的 ss 和 awk >>>
     local ss_output
-    ss_output=$(ss -lnt 2>/dev/null || netstat -lnt 2>/dev/null) # 兼容 netstat
+    ss_output=$(ss -lnt 2>/dev/null || netstat -lnt 2>/dev/null)
 
     for p in "$@"; do
-      # <<< awk 脚本增强，兼容不同输出格式 >>>
-      if echo "$ss_output" | awk -v P=":$p" -v P4="0.0.0.0:$p" -v P6="\[::\]:$p" '
-        $1 ~ /^tcp/ && ($4 == P || $4 == P4 || $4 == P6 || $4 ~ P"$" ) { found=1; exit 0 }
-        END { exit (found ? 0 : 1) }
-      '; then
-         listening_ports+="$p "
+      if echo "$ss_output" | awk -v P=":$p" '
+          $1 ~ /^tcp/ && index($4, P) && $2 ~ /LISTEN/ { found=1; exit 0 }
+          END { exit (found ? 0 : 1) }
+        '; then
+        : # 该端口已监听
       else
         ok=0
-        not_listening+="$p "
-        # break # 不必 break，检查完所有端口
       fi
     done
 
     if [[ $ok -eq 1 ]]; then
-       log_info "所有端口已监听: $listening_ports" # <-- 成功日志
-       return 0
+      log_info "所有端口已监听: $*"
+      return 0
     fi
 
-    ts=$(($(date +%s)-start))
-    if [[ $ts -ge $timeout ]]; then
-       log_error "等待端口监听超时 (${ts}s)! 未监听端口: $not_listening" # <-- 失败日志
-       return 1
+    if (( $(date +%s) - start >= timeout )); then
+      log_error "等待端口监听超时 (${timeout}s)! 未监听端口: $*"
+      return 1
     fi
-    # <<< 减少不必要的日志刷屏，只在最后失败时打印 >>>
-    # echo -n "." # 可以移除或保留用于调试
     sleep 1
   done
 }
@@ -3397,12 +3388,11 @@ create_or_update_xray_unit() {
   log_info "创建/更新 Xray systemd unit ..."
   local unit=/etc/systemd/system/xray.service
 
-  # 确保我们的配置是唯一真源；顺手把官方默认路径做个软链避免意外
-  # <<< 关键点：确保目标目录存在 >>>
+  # 确保官方默认目录存在，并把默认路径软链到我们的真正配置，避免任何人误用默认路径
   mkdir -p /usr/local/etc/xray 2>/dev/null || true
   ln -sfn /etc/edgebox/config/xray.json /usr/local/etc/xray/config.json
 
-  # <<< 使用 Patch B 提供的增强版 Unit 文件内容 >>>
+  # 写入统一的 unit（明确 -c 使用 /etc/edgebox/config/xray.json）
   cat >"$unit" <<'UNIT'
 [Unit]
 Description=Xray Service (EdgeBox)
@@ -3414,7 +3404,6 @@ After=network-online.target nss-lookup.target
 Type=simple
 User=root
 Group=root
-# <<< 关键点：明确指定配置文件路径 >>>
 ExecStart=/usr/local/bin/xray run -c /etc/edgebox/config/xray.json
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=always
@@ -3429,13 +3418,12 @@ StandardError=journal
 WantedBy=multi-user.target
 UNIT
 
-  # <<< 关键点：移除可能冲突的 /lib 下的 unit 文件 >>>
+  # 移除可能抢占的老 unit（包自带的那份常在 /lib）
   if [[ -f /lib/systemd/system/xray.service ]]; then
-      log_info "移除 /lib/systemd/system/xray.service 以避免冲突..."
-      rm -f /lib/systemd/system/xray.service || true
+    log_info "移除 /lib/systemd/system/xray.service 以避免冲突..."
+    rm -f /lib/systemd/system/xray.service || true
   fi
 
-  # <<< systemd 操作保持不变 >>>
   systemctl daemon-reload
   systemctl unmask xray.service 2>/dev/null || true
   systemctl enable xray.service >/dev/null 2>&1 || log_warn "启用 xray 服务失败"
