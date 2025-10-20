@@ -2671,45 +2671,66 @@ log_info "└─ verify_module2_data()       # 验证数据完整性"
 # ANCHOR: [FUNC-INSTALL_XRAY]
 #############################################
 install_xray() {
-    log_info "安装Xray核心程序..."
+    log_info "安装Xray核心程序 (强制覆盖)..." # Changed log message
 
-    # 检查是否已安装
-    if command -v xray >/dev/null 2>&1; then
-        local current_version
-        current_version=$(xray version 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-        log_info "检测到已安装的Xray版本: ${current_version:-未知}"
-        log_info "跳过Xray重新安装，使用现有版本"
-        return 0
-    fi
+    # --- REMOVE THE CHECK FOR EXISTING XRAY ---
+    # if command -v xray >/dev/null 2>&1; then
+    #    local current_version
+    #    current_version=$(xray version 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    #    log_info "检测到已安装的Xray版本: ${current_version:-未知}"
+    #    log_info "跳过Xray重新安装，使用现有版本" # This logic is removed
+    #    return 0
+    # fi
+    # --- END REMOVAL ---
 
-    log_info "从官方仓库下载并安装Xray..."
+    log_info "从官方仓库下载并安装/更新Xray (将覆盖现有版本)..." # Changed log message
 
-    # 使用智能下载函数
+    # Use smart_download_script (existing code is fine)
+    # Important: Ensure the official script handles potential existing installs gracefully
     if smart_download_script \
         "https://raw.githubusercontent.com/XTLS/Xray-install/main/install-release.sh" \
         "Xray安装脚本" \
-        >/dev/null 2>&1; then
-        log_success "Xray安装完成"
+        install --force >/dev/null 2>&1; then # Added 'install --force' arguments
+        log_success "Xray安装/更新完成"
     else
-        log_error "Xray安装失败"
-        return 1
+        log_error "Xray安装/更新失败"
+        # Try removing first, then installing again as a fallback
+        log_info "尝试卸载后重新安装Xray..."
+        if smart_download_script \
+           "https://raw.githubusercontent.com/XTLS/Xray-install/main/install-release.sh" \
+           "Xray卸载脚本" \
+           remove >/dev/null 2>&1 && \
+           smart_download_script \
+           "https://raw.githubusercontent.com/XTLS/Xray-install/main/install-release.sh" \
+           "Xray安装脚本" \
+           install >/dev/null 2>&1; then
+             log_success "Xray卸载后重新安装成功"
+        else
+            log_error "Xray卸载后重新安装仍然失败"
+            return 1
+        fi
     fi
 
-    # 验证安装
-    if command -v xray >/dev/null 2>&1; then
+    # Verification (existing code is fine)
+    if command -v xray >/dev/null 2>&1 && [[ -x "/usr/local/bin/xray" ]]; then # Added explicit path check
         local xray_version
-        current_version=$(xray version 2>/dev/null \
-		| head -n1 \
-		| sed -E 's/[^0-9]*([0-9.]+).*/\1/')
-        log_success "Xray验证通过，版本: ${xray_version:-未知}"
+        xray_version=$(xray version 2>/dev/null \
+        | head -n1 \
+        | sed -E 's/[^0-9]*([0-9.]+).*/\1/')
+        log_success "Xray验证通过，版本: ${xray_version:-未知} @ /usr/local/bin/xray" # Added path
 
-mkdir -p /var/log/xray
-chown nobody:nogroup /var/log/xray 2>/dev/null || chown nobody:nobody /var/log/xray
-log_success "Xray log directory created and permissions set."
+        mkdir -p /var/log/xray
+        # Ensure correct permissions AFTER installation
+        chown root:root /var/log/xray # Changed from nobody:nogroup based on unit file
+        chmod 0755 /var/log/xray      # More appropriate permissions
+        touch /var/log/xray/access.log /var/log/xray/error.log
+        chown root:root /var/log/xray/*.log
+        chmod 0644 /var/log/xray/*.log
+        log_success "Xray log directory created and permissions set for root user."
 
         return 0
     else
-        log_error "Xray安装验证失败"
+        log_error "Xray安装验证失败 (未在 /usr/local/bin/xray 找到或不可执行)"
         return 1
     fi
 }
@@ -5433,37 +5454,71 @@ ensure_log_dir() {
 }
 
 generate_self_signed_cert() {
-    log_info "(Healer) Generating self-signed certificate..."
+    log_info "生成自签名证书并修复权限..."
 
     mkdir -p "${CERT_DIR}"
-    rm -f "${CERT_DIR}"/self-signed.{key,pem} "${CERT_DIR}"/current.{key,pem}
+    # Use specific paths for clarity
+    local key_path="${CERT_DIR}/self-signed.key"
+    local pem_path="${CERT_DIR}/self-signed.pem"
+    local current_key="${CERT_DIR}/current.key"
+    local current_pem="${CERT_DIR}/current.pem"
+
+    rm -f "$key_path" "$pem_path" "$current_key" "$current_pem" # Clear previous files
 
     if ! command -v openssl >/dev/null 2>&1; then
-        log_error "(Healer) openssl not found, cannot generate certificate"; return 1;
+        log_error "openssl未安装，无法生成证书"; return 1;
     fi
 
-    local server_ip="127.0.0.1"
-    if [[ -f "/etc/edgebox/config/server.json" ]]; then
-        server_ip=$(jq -r '.server_ip // "127.0.0.1"' "/etc/edgebox/config/server.json" 2>/dev/null || echo "127.0.0.1")
+    # Step 1: Generate Private Key
+    if ! openssl ecparam -genkey -name secp384r1 -out "$key_path" 2>/dev/null; then
+         log_error "生成ECC私钥失败"; return 1;
     fi
 
-    openssl ecparam -genkey -name secp384r1 -out "${CERT_DIR}/self-signed.key" 2>/dev/null || { log_error "(Healer) Failed to generate ECC private key"; return 1; }
-    openssl req -new -x509 -key "${CERT_DIR}/self-signed.key" -out "${CERT_DIR}/self-signed.pem" -days 3650 -subj "/C=US/ST=CA/L=SF/O=EdgeBox/CN=${server_ip}" >/dev/null 2>&1 || { log_error "(Healer) Failed to generate self-signed certificate"; return 1; }
+    # <<< --- ADDED VALIDATION --- >>>
+    # Step 1.5: Validate the generated key file
+    if [[ ! -s "$key_path" ]]; then # Check if file exists and is not empty
+        log_error "生成的私钥文件为空或不存在: $key_path"
+        return 1
+    fi
+    # Optional: More rigorous check if needed
+    if ! openssl ec -in "$key_path" -check -noout >/dev/null 2>&1; then
+         log_error "生成的私钥文件无效: $key_path"
+         # openssl ec -in "$key_path" -text -noout # Uncomment for debugging key content
+         return 1
+    fi
+    log_debug "私钥文件生成并验证成功: $key_path"
+    # <<< --- VALIDATION END --- >>>
 
-    ln -sf "${CERT_DIR}/self-signed.key" "${CERT_DIR}/current.key"
-    ln -sf "${CERT_DIR}/self-signed.pem" "${CERT_DIR}/current.pem"
+    # Step 2: Generate Self-Signed Certificate using the validated key
+    # Ensure SERVER_IP is loaded if needed
+    : "${SERVER_IP:=127.0.0.1}" # Add default if not set
+    if ! openssl req -new -x509 -key "$key_path" -out "$pem_path" -days 3650 -subj "/C=US/ST=CA/L=SF/O=EdgeBox/CN=${SERVER_IP}" >/dev/null 2>&1; then
+         log_error "生成自签名证书失败 (using key $key_path)"; return 1;
+    fi
 
-    local NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
-    chown -R root:"${NOBODY_GRP}" "${CERT_DIR}" 2>/dev/null || true
-    chmod 750 "${CERT_DIR}" 2>/dev/null || true
-    chmod 640 "${CERT_DIR}"/self-signed.key 2>/dev/null || true
-    chmod 644 "${CERT_DIR}"/self-signed.pem 2>/dev/null || true
+    # Step 3: Create symlinks (existing code is fine)
+    ln -sf "$key_path" "$current_key"
+    ln -sf "$pem_path" "$current_pem"
 
-    if openssl x509 -in "${CERT_DIR}/current.pem" -noout >/dev/null 2>&1; then
-        log_success "(Healer) Self-signed certificate generated successfully."
+    # Step 4: Set permissions (existing code seems fine, but ensure group exists)
+    local NOBODY_GRP
+    NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
+    if ! getent group "$NOBODY_GRP" > /dev/null; then
+        log_warn "Group '$NOBODY_GRP' does not exist, using 'root' group instead for cert permissions."
+        NOBODY_GRP="root" # Fallback to root group
+    fi
+
+    chown -R root:"${NOBODY_GRP}" "${CERT_DIR}"
+    chmod 750 "${CERT_DIR}" # Dir: rwx r-x ---
+    chmod 640 "$key_path"   # Key: rw- r-- --- (Group needs read access for Xray if run as non-root, but here Xray runs as root)
+    chmod 644 "$pem_path"   # Cert: rw- r-- r--
+
+    # Step 5: Final Verification (existing code is fine)
+    if openssl x509 -in "$current_pem" -noout >/dev/null 2>&1; then
+        log_success "自签名证书生成及权限设置完成"
         echo "self-signed" > "${CONFIG_DIR}/cert_mode"
     else
-        log_error "(Healer) Certificate validation failed."; return 1;
+        log_error "最终证书验证失败: $current_pem"; return 1;
     fi
     return 0
 }
