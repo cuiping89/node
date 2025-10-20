@@ -2316,15 +2316,18 @@ generate_self_signed_cert() {
     ln -sf "${CERT_DIR}/self-signed.key" "${CERT_DIR}/current.key"
     ln -sf "${CERT_DIR}/self-signed.pem" "${CERT_DIR}/current.pem"
 
-    # --- 关键权限修复 ---
-    local NOBODY_GRP
-    NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
+# --- 关键权限修复 ---
+local NOBODY_GRP
+NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
 
-    chown -R root:"${NOBODY_GRP}" "${CERT_DIR}"
-    chmod 750 "${CERT_DIR}" # 目录权限：root=rwx, group=r-x, other=---
-    chmod 640 "${CERT_DIR}"/self-signed.key # 私钥权限：root=rw, group=r, other=---
-    chmod 644 "${CERT_DIR}"/self-signed.pem # 公钥权限
-    # ---------------------
+chown -R root:"${NOBODY_GRP}" "${CERT_DIR}" 2>/dev/null || true
+chmod 750 "${CERT_DIR}" # 目录权限：root=rwx, group=r-x, other=---
+
+# <<< --- 修复：将私钥权限设为 644 (全局可读) 解决潜在的 systemd 'nobody' 用户问题 --- >>>
+chmod 644 "${CERT_DIR}"/self-signed.key 
+chmod 644 "${CERT_DIR}"/self-signed.pem
+log_info "私钥权限已设置为 644 (全局可读)"
+# ---------------------
 
     if openssl x509 -in "${CERT_DIR}/current.pem" -noout >/dev/null 2>&1; then
         log_success "自签名证书生成及权限设置完成"
@@ -3408,12 +3411,12 @@ wait_listen() {  # usage: wait_listen 11443 10085 10086 10143
   done
 }
 
-# === Patch B: 统一强制 Xray unit (辅助函数) - 加强清理版 ===
+# === Patch B: 统一强制 Xray unit (辅助函数) - 加强清理版 v2 ===
 create_or_update_xray_unit() {
   log_info "创建/更新 Xray systemd unit ..."
   local unit=/etc/systemd/system/xray.service
   local old_unit_lib=/lib/systemd/system/xray.service
-  local override_dir=/etc/systemd/system/xray.service.d # <-- 新增：定义覆盖目录路径
+  local override_dir=/etc/systemd/system/xray.service.d # <-- 定义覆盖目录路径
 
   # <<< --- 加强清理 --- >>>
   log_info "强制停止、禁用并移除所有已知的 xray.service 文件及覆盖配置..."
@@ -3484,8 +3487,7 @@ UNIT
     if [[ "$_effective_user" != "root" ]]; then
         log_error "检测到 Xray 服务未以 root 用户运行 ($_effective_user)，可能导致权限问题！"
         log_error "请检查 systemd 配置或是否存在意外的覆盖文件。"
-        # 可以选择在这里强制退出，如果非 root 是不可接受的
-        # return 1
+        # return 1 # 暂时不在这里退出，让权限 644 修复生效
     fi
     # <<< --- 检查结束 --- >>>
   fi
@@ -3784,7 +3786,8 @@ EOF
   # 再次确认证书权限
   chown root:$(id -gn nobody 2>/dev/null || echo nogroup) "${CERT_DIR}"/current.* 2>/dev/null || true
   chmod 644 "${CERT_DIR}/current.pem" 2>/dev/null || true
-  chmod 640 "${CERT_DIR}/current.key" 2>/dev/null || true
+# <<< --- 修复：确保私钥权限为 644 (全局可读) --- >>>
+chmod 644 "${CERT_DIR}/current.key" 2>/dev/null || true
   # 输出权限到日志文件调试
   log_debug "权限设置后状态:"
   ls -l "${CONFIG_DIR}/xray.json" "${CERT_DIR}/current.pem" "${CERT_DIR}/current.key" >> "$LOG_FILE" 2>&1
