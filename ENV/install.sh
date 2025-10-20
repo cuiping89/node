@@ -2308,26 +2308,43 @@ generate_self_signed_cert() {
         log_error "openssl未安装，无法生成证书"; return 1;
     fi
 
-    # 生成私钥和证书
-    openssl ecparam -genkey -name secp384r1 -out "${CERT_DIR}/self-signed.key" 2>/dev/null || { log_error "生成ECC私钥失败"; return 1; }
-    openssl req -new -x509 -key "${CERT_DIR}/self-signed.key" -out "${CERT_DIR}/self-signed.pem" -days 3650 -subj "/C=US/ST=CA/L=SF/O=EdgeBox/CN=${SERVER_IP}" >/dev/null 2>&1 || { log_error "生成自签名证书失败"; return 1; }
+    # === 修复：移除错误抑制 (2>/dev/null 和 >/dev/null 2>&1)，让错误暴露出来 ===
+    
+    log_info "正在生成 ECC 私钥 (secp384r1)..."
+    if ! openssl ecparam -genkey -name secp384r1 -out "${CERT_DIR}/self-signed.key"; then
+        log_error "生成ECC私钥失败 (openssl ecparam)"
+        # 额外调试：检查 openssl 版本和 ec 支持
+        openssl version >> "$LOG_FILE" 2>&1
+        openssl ecparam -list_curves >> "$LOG_FILE" 2>&1
+        return 1
+    fi
+    log_info "私钥生成成功。"
+
+    log_info "正在使用私钥生成自签名证书..."
+    if ! openssl req -new -x509 -key "${CERT_DIR}/self-signed.key" -out "${CERT_DIR}/self-signed.pem" -days 3650 -subj "/C=US/ST=CA/L=SF/O=EdgeBox/CN=${SERVER_IP}"; then
+        log_error "生成自签名证书失败 (openssl req)"
+        return 1
+    fi
+    log_info "证书生成成功。"
+    
+    # === 修复结束 ===
 
     # 创建软链接
     ln -sf "${CERT_DIR}/self-signed.key" "${CERT_DIR}/current.key"
     ln -sf "${CERT_DIR}/self-signed.pem" "${CERT_DIR}/current.pem"
 
-# --- 关键权限修复 ---
-local NOBODY_GRP
-NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
+    # --- 关键权限修复 ---
+    local NOBODY_GRP
+    NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
 
-chown -R root:"${NOBODY_GRP}" "${CERT_DIR}" 2>/dev/null || true
-chmod 750 "${CERT_DIR}" # 目录权限：root=rwx, group=r-x, other=---
-
-# <<< --- 修复：将私钥权限设为 644 (全局可读) 解决潜在的 systemd 'nobody' 用户问题 --- >>>
-chmod 644 "${CERT_DIR}"/self-signed.key 
-chmod 644 "${CERT_DIR}"/self-signed.pem
-log_info "私钥权限已设置为 644 (全局可读)"
-# ---------------------
+    chown -R root:"${NOBODY_GRP}" "${CERT_DIR}" 2>/dev/null || true
+    chmod 750 "${CERT_DIR}" # 目录权限：root=rwx, group=r-x, other=---
+    
+    # <<< --- 修复：将私钥权限设为 644 (全局可读) 解决潜在的 systemd 'nobody' 用户问题 --- >>>
+    chmod 644 "${CERT_DIR}"/self-signed.key 
+    chmod 644 "${CERT_DIR}"/self-signed.pem
+    log_info "私钥权限已设置为 644 (全局可读)"
+    # ---------------------
 
     if openssl x509 -in "${CERT_DIR}/current.pem" -noout >/dev/null 2>&1; then
         log_success "自签名证书生成及权限设置完成"
