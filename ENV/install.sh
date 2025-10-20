@@ -3447,7 +3447,7 @@ EOF
 
 # === Patch C: 监听检测增强 (辅助函数) ===
 wait_listen() {  # usage: wait_listen 11443 10085 10086 10143
-  local timeout=40 start ok p
+  local timeout=120 start ok p
   start=$(date +%s)
   log_info "等待端口监听: $@ (超时: ${timeout}s)..."
   while true; do
@@ -3536,6 +3536,7 @@ UNIT
 
   log_info "再次执行 daemon-reload 和 reenable (第二次)..."
   systemctl daemon-reload
+  systemctl unmask xray.service  >/dev/null 2>&1 || true  # [新增] 清理历史 mask 残留
   # <<< --- 新增：使用 reenable 强制刷新链接 --- >>>
   systemctl reenable "$unit" >/dev/null 2>&1 || systemctl enable "$unit" >/dev/null 2>&1 || log_warn "启用 xray 服务失败"
 
@@ -3669,27 +3670,22 @@ configure_xray() {
 
   # <<< --- 证书验证 --- >>>
   log_info "执行更严格的证书与密钥匹配验证..."
-  local cert_mod key_mod cert_ok key_ok match_ok=false
-  cert_mod=$(openssl x509 -noout -modulus -in "$CERT_PEM" 2>/dev/null | openssl md5 2>/dev/null || echo "cert_fail")
-  key_mod=$(openssl ec -noout -modulus -in "$CERT_KEY" 2>/dev/null | openssl md5 2>/dev/null || echo "key_fail") # Assuming EC key
+# NEW: 使用公钥指纹比对（RSA/EC 通用），替代过去的 modulus MD5
+local cert_pub_md5 key_pub_md5 match_ok=false
+cert_pub_md5="$(openssl x509 -in "$CERT_PEM" -noout -pubkey \
+  | openssl pkey -pubin -outform der | md5sum | awk '{print $1}')"
+key_pub_md5="$(openssl pkey -in "$CERT_KEY" -pubout -outform der \
+  | md5sum | awk '{print $1}')"
 
-  # 检查命令是否成功执行
-  [[ "$cert_mod" != "cert_fail" ]] && cert_ok=true || cert_ok=false
-  [[ "$key_mod" != "key_fail" && "$key_mod" != "d41d8cd98f00b204e9800998ecf8427e" ]] && key_ok=true || key_ok=false # 修正：d41d... 也是失败
-
-  if [[ "$cert_ok" == "true" && "$key_ok" == "true" ]]; then
-      if [[ "$cert_mod" == "$key_mod" ]]; then
-          log_success "✓ 证书与私钥模数匹配"
-          match_ok=true
-      else
-          log_error "✗ 证书与私钥模数不匹配！"
-          log_debug "Cert Modulus MD5: $cert_mod"
-          log_debug "Key Modulus MD5: $key_mod"
-      fi
-  else
-      [[ "$cert_ok" != "true" ]] && log_error "✗ 无法读取证书模数: $CERT_PEM"
-      [[ "$key_ok" != "true" ]] && log_error "✗ 无法读取私钥模数: $CERT_KEY (可能是空文件或格式错误)"
-  fi
+if [[ -n "$cert_pub_md5" && -n "$key_pub_md5" && "$cert_pub_md5" == "$key_pub_md5" ]]; then
+    log_success "✓ 证书与私钥匹配（公钥指纹）"
+    match_ok=true
+else
+    log_error "✗ 证书与私钥不匹配（公钥指纹）"
+    log_debug "Cert PubKey MD5: $cert_pub_md5"
+    log_debug "Key  PubKey MD5: $key_pub_md5"
+    match_ok=false
+fi
 
   if [[ "$match_ok" != "true" ]]; then
       log_warn "证书验证失败，尝试重新生成自签名证书..."
@@ -3841,7 +3837,7 @@ EOF
   chown root:$(id -gn nobody 2>/dev/null || echo nogroup) "${CERT_DIR}"/current.* 2>/dev/null || true
   # <<< --- 修复：确保私钥权限为 644 (全局可读) --- >>>
   chmod 644 "${CERT_DIR}/current.pem" 2>/dev/null || true
-  chmod 644 "${CERT_DIR}/current.key" 2>/dev/null || true 
+  chmod 600 "${CERT_DIR}/current.key" 2>/dev/null || true 
   # 输出权限到日志文件调试
   log_debug "权限设置后状态:"
   ls -l "${CONFIG_DIR}/xray.json" "${CERT_DIR}/current.pem" "${CERT_DIR}/current.key" >> "$LOG_FILE" 2>&1
