@@ -2308,19 +2308,30 @@ generate_self_signed_cert() {
         log_error "openssl未安装，无法生成证书"; return 1;
     fi
 
-    # === 修复：移除错误抑制 (2>/dev/null 和 >/dev/null 2>&1)，让错误暴露出来 ===
+    # === 修复 v4：使用 'openssl genpkey' 替换 'openssl ecparam'，并增加文件大小验证 ===
     
     log_info "正在生成 ECC 私钥 (secp384r1)..."
-    if ! openssl ecparam -genkey -name secp384r1 -out "${CERT_DIR}/self-signed.key"; then
-        log_error "生成ECC私钥失败 (openssl ecparam)"
+    # 使用更现代的 genpkey 命令
+    if ! openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:secp384r1 -out "${CERT_DIR}/self-signed.key"; then
+        log_error "生成ECC私钥失败 (openssl genpkey)"
         # 额外调试：检查 openssl 版本和 ec 支持
         openssl version >> "$LOG_FILE" 2>&1
         openssl ecparam -list_curves >> "$LOG_FILE" 2>&1
         return 1
     fi
-    log_info "私钥生成成功。"
+    
+    # <<< --- 新增：立即验证私钥文件是否为空 --- >>>
+    if [[ ! -s "${CERT_DIR}/self-signed.key" ]]; then
+        log_error "致命错误：openssl genpkey 命令执行成功，但生成的私钥文件为空！"
+        log_error "这可能是系统 openssl 库的问题。安装中止。"
+        return 1
+    fi
+    log_info "私钥生成成功 (文件大小: $(stat -c %s "${CERT_DIR}/self-signed.key") 字节)。"
+    # <<< --- 验证结束 --- >>>
+
 
     log_info "正在使用私钥生成自签名证书..."
+    # 移除错误抑制，让错误暴露出来
     if ! openssl req -new -x509 -key "${CERT_DIR}/self-signed.key" -out "${CERT_DIR}/self-signed.pem" -days 3650 -subj "/C=US/ST=CA/L=SF/O=EdgeBox/CN=${SERVER_IP}"; then
         log_error "生成自签名证书失败 (openssl req)"
         return 1
@@ -3441,29 +3452,24 @@ wait_listen() {  # usage: wait_listen 11443 10085 10086 10143
   log_info "等待端口监听: $@ (超时: ${timeout}s)..."
   while true; do
     ok=1
+    # 统一用无表头、显示协议的输出，避免列位差异
     local ss_output
-    ss_output=$(ss -lnt 2>/dev/null || netstat -lnt 2>/dev/null)
+    ss_output=$(ss -Htan 2>/dev/null || netstat -tan 2>/dev/null)
 
     for p in "$@"; do
+      # 同时兼容 'tcp LISTEN ... 127.0.0.1:PORT' / 'tcp   LISTEN ... [::]:PORT'
       if echo "$ss_output" | awk -v P=":$p" '
-          $1 ~ /^tcp/ && index($4, P) && $2 ~ /LISTEN/ { found=1; exit 0 }
+          /LISTEN/ && index($0, P) { found=1; exit 0 }
           END { exit (found ? 0 : 1) }
         '; then
-        : # 该端口已监听
+        :  # 已监听
       else
         ok=0
       fi
     done
 
-    if [[ $ok -eq 1 ]]; then
-      log_info "所有端口已监听: $*"
-      return 0
-    fi
-
-    if (( $(date +%s) - start >= timeout )); then
-      log_error "等待端口监听超时 (${timeout}s)! 未监听端口: $*"
-      return 1
-    fi
+    [[ $ok -eq 1 ]] && { log_info "所有端口已监听: $*"; return 0; }
+    (( $(date +%s) - start >= timeout )) && { log_error "等待端口监听超时 (${timeout}s)! 未监听端口: $*"; return 1; }
     sleep 1
   done
 }
@@ -3509,6 +3515,12 @@ After=network-online.target nss-lookup.target
 Type=simple
 User=root
 Group=root
+# 确保 PATH 完整，避免某些发行版最小化 PATH 导致 ExecStart 里子进程找不到基础命令
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/bin"
+# 明确工作目录，避免相对路径/权限意外
+WorkingDirectory=/
+# 确认二进制存在且可执行（有些场景你卸载/重装瞬间会掉）
+ExecStartPre=/usr/bin/test -x /usr/local/bin/xray
 ExecStart=/usr/local/bin/xray run -c /etc/edgebox/config/xray.json
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=always
@@ -3516,8 +3528,6 @@ RestartSec=2
 LimitNOFILE=1048576
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 NoNewPrivileges=true
-StandardOutput=journal
-StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
@@ -3659,21 +3669,24 @@ configure_xray() {
 
   # <<< --- 证书验证 --- >>>
   log_info "执行更严格的证书与密钥匹配验证..."
-  # NEW: 使用公钥指纹比对（RSA/EC 通用），替代过去的 modulus MD5
-  local cert_pub_md5 key_pub_md5 match_ok=false
-  cert_pub_md5="$(openssl x509 -in \"$CERT_PEM\" -noout -pubkey | openssl pkey -pubin -outform der | md5sum | awk '{print $1}')"
-  key_pub_md5="$(openssl pkey -in \"$CERT_KEY\" -pubout -outform der | md5sum | awk '{print $1}')"
+# NEW: 使用公钥指纹比对（RSA/EC 通用），替代过去的 modulus MD5
+local cert_pub_md5 key_pub_md5 match_ok=false
+cert_pub_md5="$(openssl x509 -in "$CERT_PEM" -noout -pubkey \
+  | openssl pkey -pubin -outform der | md5sum | awk '{print $1}')"
+key_pub_md5="$(openssl pkey -in "$CERT_KEY" -pubout -outform der \
+  | md5sum | awk '{print $1}')"
 
-  if [[ -n "$cert_pub_md5" && -n "$key_pub_md5" && "$cert_pub_md5" == "$key_pub_md5" ]]; then
-      log_success "✓ 证书与私钥匹配（公钥指纹）"
-      match_ok=true
-  else
-      log_error   "✗ 证书与私钥不匹配（公钥指纹）"
-      log_debug   "Cert PubKey MD5: $cert_pub_md5"
-      log_debug   "Key  PubKey MD5: $key_pub_md5"
-      match_ok=false
-  fi
-if [[ "$match_ok" != "true" ]]; then
+if [[ -n "$cert_pub_md5" && -n "$key_pub_md5" && "$cert_pub_md5" == "$key_pub_md5" ]]; then
+    log_success "✓ 证书与私钥匹配（公钥指纹）"
+    match_ok=true
+else
+    log_error "✗ 证书与私钥不匹配（公钥指纹）"
+    log_debug "Cert PubKey MD5: $cert_pub_md5"
+    log_debug "Key  PubKey MD5: $key_pub_md5"
+    match_ok=false
+fi
+
+  if [[ "$match_ok" != "true" ]]; then
       log_warn "证书验证失败，尝试重新生成自签名证书..."
       if generate_self_signed_cert; then
           log_success "自签名证书已重新生成，将继续..."
@@ -3833,22 +3846,6 @@ EOF
 
   # ⑦ 写入并启用 systemd 服务 (调用 Patch B 的函数)
   create_or_update_xray_unit # <-- 调用 Patch B 的 unit 创建函数
-
-  # ⑧ 尝试重启 Xray 并等待端口就绪 (保留这一个重启 + Patch C 的等待函数)
-  log_info "尝试启动/重启 Xray 服务以应用配置..."
-  systemctl restart xray.service # <-- 保留这唯一一次重启
-
-  # 等待端口监听
-  if ! wait_listen 11443 10085 10086 10143; then # <-- 调用 Patch C 的等待函数
-      log_error "Xray 启动后端口监听异常，输出诊断信息："
-      # <<< 诊断信息保持，但现在在 wait_listen 失败后才触发 >>>
-      journalctl -u xray -n 100 --no-pager | tail -n 60 || true
-      if [[ -r "${CONFIG_DIR}/xray.json" ]]; then
-        log_info "尝试 xray -test ..."
-        /usr/local/bin/xray -test -config "${CONFIG_DIR}/xray.json" || true
-      fi
-      return 1 # <-- 明确返回失败
-  fi
 
   log_success "Xray 服务已启动并监听所有端口"
   return 0
@@ -4227,6 +4224,10 @@ ensure_service_running() {
     local attempt=0
 
     log_info "确保服务运行状态: $service"
+	
+	# 兜底解除 mask，并确保二进制可执行（尤其是 xray）
+systemctl unmask "$service" >/dev/null 2>&1 || true
+[[ "$service" = "xray" ]] && chmod +x /usr/local/bin/xray >/dev/null 2>&1 || true
 
     while [[ $attempt -lt $max_attempts ]]; do
         # 重新加载systemd配置（幂等）
