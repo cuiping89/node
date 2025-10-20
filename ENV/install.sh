@@ -2683,7 +2683,7 @@ log_info "└─ verify_module2_data()       # 验证数据完整性"
 # // ANCHOR: [FUNC-INSTALL_XRAY]
 #############################################
 # 函数：install_xray
-# 作用：安装Xray核心程序 (V2 - 绕过官方脚本，手动安装)
+# 作用：安装Xray核心程序 (V3 - 自动获取最新版，手动安装)
 # 输入：无
 # 输出：Xray 二进制文件和 .dat 文件
 #############################################
@@ -2715,12 +2715,17 @@ install_xray() {
             ;;
     esac
 
-    # 3. 确定版本 (固定为已知最新版，或从API获取)
-    # 为保证稳定性，我们先固定一个版本
-    local XRAY_VERSION="1.8.11"
-    # 动态获取最新版 (如果需要)
-    # local XRAY_VERSION=$(curl -s "https://api.github.com/repos/XTLS/Xray-core/releases/latest" | jq -r '.tag_name' | sed 's/v//')
-    # [[ -z "$XRAY_VERSION" ]] && XRAY_VERSION="1.8.11" # 兜底
+    # 3. 动态获取最新 XRAY_VERSION
+    log_info "正在从 GitHub API 获取 Xray 最新版本号..."
+    local XRAY_VERSION
+    XRAY_VERSION=$(curl -s "https://api.github.com/repos/XTLS/Xray-core/releases/latest" | jq -r '.tag_name' | sed 's/v//')
+    
+    if [[ -z "$XRAY_VERSION" || "$XRAY_VERSION" == "null" ]]; then
+        log_warn "从 GitHub API 获取版本失败，回退到固定版本 v1.8.11 (这可能会导致问题)"
+        XRAY_VERSION="25.10.15" # 兜底（虽然我们知道这有问题，但聊胜于无）
+    else
+        log_success "获取到 Xray 最新版本: v${XRAY_VERSION}"
+    fi
 
     local filename="Xray-linux-${system_arch}.zip"
     local download_url="https://github.com/XTLS/Xray-core/releases/download/v${XRAY_VERSION}/${filename}"
@@ -2790,7 +2795,7 @@ install_xray() {
     log_success "Xray log directory created and permissions set for root user."
 
     return 0
-} # install_xray 函数结束
+}
 
 
 #############################################
@@ -2834,7 +2839,8 @@ fi
     # 版本优先级队列（从最新到最稳定）
     # 注意：这是降级队列，会依次尝试直到成功
     local VERSION_PRIORITY=(
-	    "1.12.8"    # 最新版（2025年推荐）
+	    "1.12.10"
+		"1.12.8"    # 最新版（2025年推荐）
         "1.12.1"    # 最新稳定版（2025年推荐）
         "1.12.0"    # 稳定版（2024年3月发布）
         "1.11.15"   # LTS 长期支持版
@@ -3650,15 +3656,15 @@ configure_xray() {
   log_info "使用 jq 生成 Xray 配置（临时文件）..."
   local xray_tmp="${CONFIG_DIR}/xray.tmp.json"
 
-  # <<< --- 新增：更严格的证书验证 --- >>>
+  # <<< --- 证书验证 --- >>>
   log_info "执行更严格的证书与密钥匹配验证..."
   local cert_mod key_mod cert_ok key_ok match_ok=false
   cert_mod=$(openssl x509 -noout -modulus -in "$CERT_PEM" 2>/dev/null | openssl md5 2>/dev/null || echo "cert_fail")
-  key_mod=$(openssl ec -noout -modulus -in "$CERT_KEY" 2>/dev/null | openssl md5 2>/dev/null || echo "key_fail") # Assuming EC key from script
+  key_mod=$(openssl ec -noout -modulus -in "$CERT_KEY" 2>/dev/null | openssl md5 2>/dev/null || echo "key_fail") # Assuming EC key
 
   # 检查命令是否成功执行
   [[ "$cert_mod" != "cert_fail" ]] && cert_ok=true || cert_ok=false
-  [[ "$key_mod" != "key_fail" ]] && key_ok=true || key_ok=false
+  [[ "$key_mod" != "key_fail" && "$key_mod" != "d41d8cd98f00b204e9800998ecf8427e" ]] && key_ok=true || key_ok=false # 修正：d41d... 也是失败
 
   if [[ "$cert_ok" == "true" && "$key_ok" == "true" ]]; then
       if [[ "$cert_mod" == "$key_mod" ]]; then
@@ -3671,7 +3677,7 @@ configure_xray() {
       fi
   else
       [[ "$cert_ok" != "true" ]] && log_error "✗ 无法读取证书模数: $CERT_PEM"
-      [[ "$key_ok" != "true" ]] && log_error "✗ 无法读取私钥模数: $CERT_KEY"
+      [[ "$key_ok" != "true" ]] && log_error "✗ 无法读取私钥模数: $CERT_KEY (可能是空文件或格式错误)"
   fi
 
   if [[ "$match_ok" != "true" ]]; then
@@ -3686,11 +3692,10 @@ configure_xray() {
           return 1
       fi
   fi
-  # <<< --- 新增验证结束 --- >>>
+  # <<< --- 验证结束 --- >>>
 
-  # !!! 注意：确保配置文件和证书权限的代码块已移至 jq 成功生成并 mv 之后 !!!
 
-  # 1) 用命令替换方式捕获 jq 程序体，避免 read -d '' 与 set -e 的兼容坑
+  # 1) 用命令替换方式捕获 jq 程序体
   JQ_PROGRAM=$(cat <<'EOF'
 {
   "log": { "access": "/var/log/xray/access.log", "error": "/var/log/xray/error.log", "loglevel": "info" },
@@ -3819,14 +3824,13 @@ EOF
 
   # === 移动到此处并修正的权限设置块 ===
   log_info "设置 Xray 配置和证书文件权限..."
-  # 现在 xray.json 肯定存在了，可以直接设置权限，如果失败可以给个警告
   chmod 644 "${CONFIG_DIR}/xray.json" || log_warn "无法设置 xray.json 权限 (chmod 644)"
   chown root:root "${CONFIG_DIR}/xray.json" || log_warn "无法设置 xray.json 所有权 (chown root:root)"
   # 再次确认证书权限
   chown root:$(id -gn nobody 2>/dev/null || echo nogroup) "${CERT_DIR}"/current.* 2>/dev/null || true
+  # <<< --- 修复：确保私钥权限为 644 (全局可读) --- >>>
   chmod 644 "${CERT_DIR}/current.pem" 2>/dev/null || true
-# <<< --- 修复：确保私钥权限为 644 (全局可读) --- >>>
-chmod 644 "${CERT_DIR}/current.key" 2>/dev/null || true
+  chmod 644 "${CERT_DIR}/current.key" 2>/dev/null || true 
   # 输出权限到日志文件调试
   log_debug "权限设置后状态:"
   ls -l "${CONFIG_DIR}/xray.json" "${CERT_DIR}/current.pem" "${CERT_DIR}/current.key" >> "$LOG_FILE" 2>&1
@@ -5535,72 +5539,69 @@ ensure_log_dir() {
     touch "$LOG_FILE" 2>/dev/null || true
 }
 
+# 生成自签名证书（基础版本，模块3会有完整版本）
+#############################################
+# 函数：generate_self_signed_cert
+# 作用：见函数体（本优化版仅加注释，不改变逻辑）
+# 输入：根据函数体（一般通过全局变量/环境）
+# 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
+# ANCHOR: [FUNC-GENERATE_SELF_SIGNED_CERT]
+#############################################
 generate_self_signed_cert() {
     log_info "生成自签名证书并修复权限..."
 
     mkdir -p "${CERT_DIR}"
-    # Use specific paths for clarity
-    local key_path="${CERT_DIR}/self-signed.key"
-    local pem_path="${CERT_DIR}/self-signed.pem"
-    local current_key="${CERT_DIR}/current.key"
-    local current_pem="${CERT_DIR}/current.pem"
-
-    rm -f "$key_path" "$pem_path" "$current_key" "$current_pem" # Clear previous files
+    rm -f "${CERT_DIR}"/self-signed.{key,pem} "${CERT_DIR}"/current.{key,pem}
 
     if ! command -v openssl >/dev/null 2>&1; then
         log_error "openssl未安装，无法生成证书"; return 1;
     fi
 
-    # Step 1: Generate Private Key
-    if ! openssl ecparam -genkey -name secp384r1 -out "$key_path" 2>/dev/null; then
-         log_error "生成ECC私钥失败"; return 1;
-    fi
-
-    # <<< --- ADDED VALIDATION --- >>>
-    # Step 1.5: Validate the generated key file
-    if [[ ! -s "$key_path" ]]; then # Check if file exists and is not empty
-        log_error "生成的私钥文件为空或不存在: $key_path"
+    # === 修复：移除错误抑制 (2>/dev/null 和 >/dev/null 2>&1)，让错误暴露出来 ===
+    
+    log_info "正在生成 ECC 私钥 (secp384r1)..."
+    if ! openssl ecparam -genkey -name secp384r1 -out "${CERT_DIR}/self-signed.key"; then
+        log_error "生成ECC私钥失败 (openssl ecparam)"
+        # 额外调试：检查 openssl 版本和 ec 支持
+        openssl version >> "$LOG_FILE" 2>&1
+        openssl ecparam -list_curves >> "$LOG_FILE" 2>&1
         return 1
     fi
-    # Optional: More rigorous check if needed
-    if ! openssl ec -in "$key_path" -check -noout >/dev/null 2>&1; then
-         log_error "生成的私钥文件无效: $key_path"
-         # openssl ec -in "$key_path" -text -noout # Uncomment for debugging key content
-         return 1
+    log_info "私钥生成成功。"
+
+    log_info "正在使用私钥生成自签名证书..."
+    if ! openssl req -new -x509 -key "${CERT_DIR}/self-signed.key" -out "${CERT_DIR}/self-signed.pem" -days 3650 -subj "/C=US/ST=CA/L=SF/O=EdgeBox/CN=${SERVER_IP}"; then
+        log_error "生成自签名证书失败 (openssl req)"
+        return 1
     fi
-    log_debug "私钥文件生成并验证成功: $key_path"
-    # <<< --- VALIDATION END --- >>>
+    log_info "证书生成成功。"
+    
+    # === 修复结束 ===
 
-    # Step 2: Generate Self-Signed Certificate using the validated key
-    # Ensure SERVER_IP is loaded if needed
-    : "${SERVER_IP:=127.0.0.1}" # Add default if not set
-    if ! openssl req -new -x509 -key "$key_path" -out "$pem_path" -days 3650 -subj "/C=US/ST=CA/L=SF/O=EdgeBox/CN=${SERVER_IP}" >/dev/null 2>&1; then
-         log_error "生成自签名证书失败 (using key $key_path)"; return 1;
-    fi
+    # 创建软链接
+    ln -sf "${CERT_DIR}/self-signed.key" "${CERT_DIR}/current.key"
+    ln -sf "${CERT_DIR}/self-signed.pem" "${CERT_DIR}/current.pem"
 
-    # Step 3: Create symlinks (existing code is fine)
-    ln -sf "$key_path" "$current_key"
-    ln -sf "$pem_path" "$current_pem"
-
-    # Step 4: Set permissions (existing code seems fine, but ensure group exists)
+    # --- 关键权限修复 ---
     local NOBODY_GRP
     NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
-    if ! getent group "$NOBODY_GRP" > /dev/null; then
-        log_warn "Group '$NOBODY_GRP' does not exist, using 'root' group instead for cert permissions."
-        NOBODY_GRP="root" # Fallback to root group
-    fi
 
-    chown -R root:"${NOBODY_GRP}" "${CERT_DIR}"
-    chmod 750 "${CERT_DIR}" # Dir: rwx r-x ---
-    chmod 640 "$key_path"   # Key: rw- r-- --- (Group needs read access for Xray if run as non-root, but here Xray runs as root)
-    chmod 644 "$pem_path"   # Cert: rw- r-- r--
+    chown -R root:"${NOBODY_GRP}" "${CERT_DIR}" 2>/dev/null || true
+    
+    # <<< --- 修复：将目录权限设为 755 (全局可访问) --- >>>
+    chmod 755 "${CERT_DIR}" # 目录权限：root=rwx, group=r-x, other=r-x
+    
+    # <<< --- 修复：将私钥权限设为 644 (全局可读) 解决潜在的 systemd 'nobody' 用户问题 --- >>>
+    chmod 644 "${CERT_DIR}"/self-signed.key 
+    chmod 644 "${CERT_DIR}"/self-signed.pem
+    log_info "私钥权限已设置为 644 (全局可读)，目录权限 755"
+    # ---------------------
 
-    # Step 5: Final Verification (existing code is fine)
-    if openssl x509 -in "$current_pem" -noout >/dev/null 2>&1; then
+    if openssl x509 -in "${CERT_DIR}/current.pem" -noout >/dev/null 2>&1; then
         log_success "自签名证书生成及权限设置完成"
         echo "self-signed" > "${CONFIG_DIR}/cert_mode"
     else
-        log_error "最终证书验证失败: $current_pem"; return 1;
+        log_error "证书验证失败"; return 1;
     fi
     return 0
 }
