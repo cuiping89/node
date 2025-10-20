@@ -3743,6 +3743,25 @@ EOF
       rm -f "$xray_tmp"
       return 1
   fi
+  
+  # === 新增的关键错误检查 ===
+if [[ $? -ne 0 || ! -s "$xray_tmp" ]]; then
+    log_error "jq 命令执行失败或生成的临时文件 '$xray_tmp' 为空！"
+    # 尝试显示 jq 的错误输出（如果存在）
+    if [[ -f /tmp/xray_jq.err ]]; then
+        log_error "jq 的错误输出 (/tmp/xray_jq.err):"
+        cat /tmp/xray_jq.err | sed 's/^/  [jq_err] /' | tee -a "$LOG_FILE"
+    fi
+    # 清理并返回失败
+    rm -f "$xray_tmp" /tmp/xray_jq.err
+    return 1 # 明确返回失败，阻止后续步骤
+fi
+# 如果 jq 成功，清理临时的错误日志文件
+rm -f /tmp/xray_jq.err
+# === 检查结束 ===
+
+# 3) 验证与落盘（保留你原有的 xray -test 与 jq 语法校验）
+log_info "验证生成的 Xray 配置..."
 
   # 3) 验证与落盘（保留你原有的 xray -test 与 jq 语法校验）
   log_info "验证生成的 Xray 配置..."
