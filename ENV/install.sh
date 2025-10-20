@@ -3427,6 +3427,15 @@ UNIT
   systemctl daemon-reload
   systemctl unmask xray.service 2>/dev/null || true
   systemctl enable xray.service >/dev/null 2>&1 || log_warn "启用 xray 服务失败"
+  
+  # 校验 unit 是否生效（我们期望至少能读到一个 User= 字段）
+local _effective_user
+_effective_user="$(systemctl show -p User --value xray 2>/dev/null)"
+if [[ -z "$_effective_user" ]]; then
+  log_warn "未读取到 xray.service 的 User 字段；将按默认 root 处理。"
+else
+  log_info "当前 xray.service 运行用户: ${_effective_user}"
+fi
 }
 
 # // ANCHOR: [FUNC-CONFIGURE_XRAY]
@@ -3439,11 +3448,21 @@ UNIT
 configure_xray() {
   log_info "配置Xray多协议服务..."
 
-  # <<< 确保日志目录存在且权限正确 >>>
-  mkdir -p /var/log/xray 2>/dev/null || true
-  # <<< 使用 root 运行，chown/chmod 不是必须，但保留无害 >>>
-  chown root:root /var/log/xray 2>/dev/null || true
-  chmod 755 /var/log/xray 2>/dev/null || true
+# <<< 确保日志目录存在且权限正确（跟随 unit 的运行用户） >>>
+mkdir -p /var/log/xray 2>/dev/null || true
+
+# 读取 systemd unit 的运行用户/组；未设置时默认 root
+local _x_user _x_group
+_x_user="$(systemctl show -p User --value xray 2>/dev/null)"; _x_user="${_x_user:-root}"
+_x_group="$(systemctl show -p Group --value xray 2>/dev/null)"
+[[ -z "$_x_group" ]] && _x_group="$(id -gn "$_x_user" 2>/dev/null || echo root)"
+
+# 调整目录与日志文件权限
+chown "${_x_user}:${_x_group}" /var/log/xray 2>/dev/null || true
+chmod 0755 /var/log/xray 2>/dev/null || true
+touch /var/log/xray/access.log /var/log/xray/error.log 2>/dev/null || true
+chown "${_x_user}:${_x_group}" /var/log/xray/access.log /var/log/xray/error.log 2>/dev/null || true
+chmod 0644 /var/log/xray/access.log /var/log/xray/error.log 2>/dev/null || true
 
   local f="${CONFIG_DIR}/server.json"
 
