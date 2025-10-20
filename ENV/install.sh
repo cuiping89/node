@@ -3744,7 +3744,7 @@ EOF
       return 1
   fi
   
-  # === 新增的关键错误检查 ===
+# === 新增的关键错误检查 ===
 if [[ $? -ne 0 || ! -s "$xray_tmp" ]]; then
     log_error "jq 命令执行失败或生成的临时文件 '$xray_tmp' 为空！"
     # 尝试显示 jq 的错误输出（如果存在）
@@ -3762,9 +3762,7 @@ rm -f /tmp/xray_jq.err
 
 # 3) 验证与落盘（保留你原有的 xray -test 与 jq 语法校验）
 log_info "验证生成的 Xray 配置..."
-
-  # 3) 验证与落盘（保留你原有的 xray -test 与 jq 语法校验）
-  log_info "验证生成的 Xray 配置..."
+# ... 后续代码不变 ...
   if ! /usr/local/bin/xray -test -config "$xray_tmp" >/dev/null 2>&1; then
       /usr/local/bin/xray -test -config "$xray_tmp" || true
       rm -f "$xray_tmp"
