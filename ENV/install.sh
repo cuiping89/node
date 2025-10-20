@@ -2354,8 +2354,8 @@ generate_self_signed_cert() {
     chmod 755 "${CERT_DIR}" # 目录权限：root=rwx, group=r-x, other=r-x
     
     # <<< --- 修复：将私钥权限设为 644 (全局可读) 解决潜在的 systemd 'nobody' 用户问题 --- >>>
-    chmod 644 "${CERT_DIR}"/self-signed.key 
-    chmod 644 "${CERT_DIR}"/self-signed.pem
+    chmod 600 "${CERT_DIR}"/self-signed.key 
+    chmod 600 "${CERT_DIR}"/self-signed.pem
     log_info "私钥权限已设置为 644 (全局可读)，目录权限 755"
     # ---------------------
 
@@ -3452,17 +3452,17 @@ wait_listen() {  # usage: wait_listen 11443 10085 10086 10143
   log_info "等待端口监听: $@ (超时: ${timeout}s)..."
   while true; do
     ok=1
-    # 统一用无表头、显示协议的输出，避免列位差异
+    # 统一输出：无表头(-H)，所有TCP(-t)，所有状态(-a)
     local ss_output
     ss_output=$(ss -Htan 2>/dev/null || netstat -tan 2>/dev/null)
 
     for p in "$@"; do
-      # 同时兼容 'tcp LISTEN ... 127.0.0.1:PORT' / 'tcp   LISTEN ... [::]:PORT'
+      # 同时兼容 IPv4/IPv6 的 LISTEN 行
       if echo "$ss_output" | awk -v P=":$p" '
           /LISTEN/ && index($0, P) { found=1; exit 0 }
           END { exit (found ? 0 : 1) }
         '; then
-        :  # 已监听
+        : # 该端口已监听
       else
         ok=0
       fi
@@ -3473,6 +3473,7 @@ wait_listen() {  # usage: wait_listen 11443 10085 10086 10143
     sleep 1
   done
 }
+
 
 # === Patch B: 统一强制 Xray unit (辅助函数) - 加强清理版 v3 (最终修复) ===
 create_or_update_xray_unit() {
@@ -3830,7 +3831,7 @@ EOF
 
   # === 移动到此处并修正的权限设置块 ===
   log_info "设置 Xray 配置和证书文件权限..."
-  chmod 644 "${CONFIG_DIR}/xray.json" || log_warn "无法设置 xray.json 权限 (chmod 644)"
+  chmod 600 "${CONFIG_DIR}/xray.json" || log_warn "无法设置 xray.json 权限 (chmod 644)"
   chown root:root "${CONFIG_DIR}/xray.json" || log_warn "无法设置 xray.json 所有权 (chown root:root)"
   # 再次确认证书权限
   chown root:$(id -gn nobody 2>/dev/null || echo nogroup) "${CERT_DIR}"/current.* 2>/dev/null || true
