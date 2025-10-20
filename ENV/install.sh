@@ -3547,54 +3547,96 @@ configure_xray() {
   log_success "✓ 证书和密钥文件可用"
 
 
-  # ⑥ 生成并验证临时配置（原子写入） - 使用 Heredoc (Patch A)
-  log_info "使用 jq (Heredoc) 生成 Xray 配置（临时文件）..."
+# ⑥ 生成并验证临时配置（原子写入） - 使用更稳健的 heredoc 捕获与 jq 内插
+  log_info "使用 jq 生成 Xray 配置（临时文件）..."
   local xray_tmp="${CONFIG_DIR}/xray.tmp.json"
 
-  # 1) 定义 jq 程序体 (使用强引用 Heredoc 保证内容不变)
-  read -r -d '' JQ_PROGRAM <<'EOF'
-  {
-    "log": { "access": "/var/log/xray/access.log", "error": "/var/log/xray/error.log", "loglevel": "info" },
-    "inbounds": [
-      { "tag": "vless-reality", "listen": "127.0.0.1", "port": 11443, "protocol": "vless",
-        "settings": { "clients": [ { "id": $uuid_reality, "flow": "xtls-rprx-vision" } ], "decryption": "none" },
-        "streamSettings": { "network": "tcp", "security": "reality",
-          "realitySettings": { "show": false, "dest": ($r_sni + ":443"), "serverNames": [$r_sni], "privateKey": $r_priv, "shortIds": [$r_short] }
+  # 1) 用命令替换方式捕获 jq 程序体，避免 read -d '' 与 set -e 的兼容坑
+  JQ_PROGRAM=$(cat <<'EOF'
+{
+  "log": { "access": "/var/log/xray/access.log", "error": "/var/log/xray/error.log", "loglevel": "info" },
+  "inbounds": [
+    {
+      "tag": "vless-reality",
+      "listen": "127.0.0.1",
+      "port": 11443,
+      "protocol": "vless",
+      "settings": {
+        "clients": [ { "id": $uuid_reality, "flow": "xtls-rprx-vision" } ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "dest": "\($r_sni):443",
+          "serverNames": [ $r_sni ],
+          "privateKey": $r_priv,
+          "shortIds": [ $r_short ]
         }
-      },
-      { "tag": "vless-grpc", "listen": "127.0.0.1", "port": 10085, "protocol": "vless",
-        "settings": { "clients": [ { "id": $uuid_grpc } ], "decryption": "none" },
-        "streamSettings": { "network": "grpc", "security": "tls",
-          "tlsSettings": { "certificates": [ { "certificateFile": $cert_pem, "keyFile": $cert_key } ] },
-          "grpcSettings": { "serviceName": "grpc", "multiMode": false } }
-      },
-      { "tag": "vless-ws", "listen": "127.0.0.1", "port": 10086, "protocol": "vless",
-        "settings": { "clients": [ { "id": $uuid_ws } ], "decryption": "none" },
-        "streamSettings": { "network": "ws", "security": "tls",
-          "tlsSettings": { "certificates": [ { "certificateFile": $cert_pem, "keyFile": $cert_key } ] },
-          "wsSettings": { "path": "/ws" } }
-      },
-      { "tag": "trojan-tcp", "listen": "127.0.0.1", "port": 10143, "protocol": "trojan",
-        "settings": { "clients": [ { "password": $trojan_pwd } ] },
-        "streamSettings": { "network": "tcp", "security": "tls",
-          "tcpSettings": { "header": { "type": "none" } },
-          "tlsSettings": { "certificates": [ { "certificateFile": $cert_pem, "keyFile": $cert_key } ] } }
       }
-    ],
-    "outbounds": [
-      { "tag": "direct", "protocol": "freedom", "settings": {} },
-      { "tag": "block",  "protocol": "blackhole", "settings": {} }
-    ],
-    "dns": {
-      "servers": [ "8.8.8.8", "1.1.1.1", {"address": "https://1.1.1.1/dns-query"}, {"address": "https://8.8.8.8/dns-query"} ],
-      "queryStrategy": "UseIP"
     },
-    "routing": { "domainStrategy": "UseIP", "rules": [ { "type": "field", "ip": ["geoip:private"], "outboundTag": "block" } ] },
-    "policy": { "handshake": 4, "connIdle": 30 }
-  }
+    {
+      "tag": "vless-grpc",
+      "listen": "127.0.0.1",
+      "port": 10085,
+      "protocol": "vless",
+      "settings": { "clients": [ { "id": $uuid_grpc } ], "decryption": "none" },
+      "streamSettings": {
+        "network": "grpc",
+        "security": "tls",
+        "tlsSettings": { "certificates": [ { "certificateFile": $cert_pem, "keyFile": $cert_key } ] },
+        "grpcSettings": { "serviceName": "grpc", "multiMode": false }
+      }
+    },
+    {
+      "tag": "vless-ws",
+      "listen": "127.0.0.1",
+      "port": 10086,
+      "protocol": "vless",
+      "settings": { "clients": [ { "id": $uuid_ws } ], "decryption": "none" },
+      "streamSettings": {
+        "network": "ws",
+        "security": "tls",
+        "tlsSettings": { "certificates": [ { "certificateFile": $cert_pem, "keyFile": $cert_key } ] },
+        "wsSettings": { "path": "/ws" }
+      }
+    },
+    {
+      "tag": "trojan-tcp",
+      "listen": "127.0.0.1",
+      "port": 10143,
+      "protocol": "trojan",
+      "settings": { "clients": [ { "password": $trojan_pwd } ] },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "tls",
+        "tcpSettings": { "header": { "type": "none" } },
+        "tlsSettings": { "certificates": [ { "certificateFile": $cert_pem, "keyFile": $cert_key } ] }
+      }
+    }
+  ],
+  "outbounds": [
+    { "tag": "direct", "protocol": "freedom", "settings": {} },
+    { "tag": "block",  "protocol": "blackhole", "settings": {} }
+  ],
+  "dns": {
+    "servers": [ "8.8.8.8", "1.1.1.1",
+      { "address": "https://1.1.1.1/dns-query" },
+      { "address": "https://8.8.8.8/dns-query" } ],
+    "queryStrategy": "UseIP"
+  },
+  "routing": {
+    "domainStrategy": "UseIP",
+    "rules": [ { "type": "field", "ip": ["geoip:private"], "outboundTag": "block" } ]
+  },
+  "policy": { "handshake": 4, "connIdle": 30 }
+}
 EOF
+)
 
-  # 2) 调用 jq，传入变量和程序体
+  # 2) 调用 jq 生成临时配置文件（这里不使用 set -e 的隐式退出）
   if ! jq -n \
       --arg uuid_reality "$UUID_VLESS_REALITY" \
       --arg uuid_grpc    "$UUID_VLESS_GRPC" \
@@ -3605,16 +3647,18 @@ EOF
       --arg trojan_pwd   "$PASSWORD_TROJAN" \
       --arg cert_pem     "$CERT_PEM" \
       --arg cert_key     "$CERT_KEY" \
-      "$JQ_PROGRAM" > "$xray_tmp"; then # <-- 使用 $JQ_PROGRAM
-      log_error "使用 jq (Heredoc) 生成 Xray 配置失败"
+      "$JQ_PROGRAM" > "$xray_tmp" 2>/tmp/xray_jq.err
+  then
+      log_error "使用 jq 生成 Xray 配置失败，已将错误写入 /tmp/xray_jq.err"
+      [[ -s /tmp/xray_jq.err ]] && tail -n +1 /tmp/xray_jq.err | sed 's/^/[jq] /'
       rm -f "$xray_tmp"
       return 1
   fi
 
-  # 3) 验证与落盘
+  # 3) 验证与落盘（保留你原有的 xray -test 与 jq 语法校验）
   log_info "验证生成的 Xray 配置..."
   if ! /usr/local/bin/xray -test -config "$xray_tmp" >/dev/null 2>&1; then
-      /usr/local/bin/xray -test -config "$xray_tmp" || true # 显示错误
+      /usr/local/bin/xray -test -config "$xray_tmp" || true
       rm -f "$xray_tmp"
       return 1
   fi
