@@ -3387,12 +3387,25 @@ wait_listen() {  # usage: wait_listen 11443 10085 10086 10143
 create_or_update_xray_unit() {
   log_info "创建/更新 Xray systemd unit ..."
   local unit=/etc/systemd/system/xray.service
+  local old_unit_lib=/lib/systemd/system/xray.service
 
-  # 确保官方默认目录存在，并把默认路径软链到我们的真正配置，避免任何人误用默认路径
+  # <<< --- 加强清理 --- >>>
+  log_info "强制停止、禁用并移除所有已知的 xray.service 文件..."
+  systemctl stop xray.service >/dev/null 2>&1 || true
+  systemctl disable xray.service >/dev/null 2>&1 || true
+  rm -f "$unit" "$old_unit_lib" /etc/systemd/system/multi-user.target.wants/xray.service
+  log_info "执行 daemon-reload 和 reset-failed..."
+  systemctl daemon-reload
+  systemctl reset-failed xray.service >/dev/null 2>&1 || true
+  sleep 1 # 短暂等待确保 systemd 状态更新
+  # <<< --- 清理结束 --- >>>
+
+
+  # 确保官方默认目录存在... (保持不变)
   mkdir -p /usr/local/etc/xray 2>/dev/null || true
   ln -sfn /etc/edgebox/config/xray.json /usr/local/etc/xray/config.json
 
-  # 写入统一的 unit（明确 -c 使用 /etc/edgebox/config/xray.json）
+  # 写入统一的 unit... (保持不变)
   cat >"$unit" <<'UNIT'
 [Unit]
 Description=Xray Service (EdgeBox)
@@ -3418,15 +3431,11 @@ StandardError=journal
 WantedBy=multi-user.target
 UNIT
 
-  # 移除可能抢占的老 unit（包自带的那份常在 /lib）
-  if [[ -f /lib/systemd/system/xray.service ]]; then
-    log_info "移除 /lib/systemd/system/xray.service 以避免冲突..."
-    rm -f /lib/systemd/system/xray.service || true
-  fi
-
+  # <<< --- 再次重载并启用 --- >>>
+  log_info "再次执行 daemon-reload 并启用新的 unit..."
   systemctl daemon-reload
-  systemctl unmask xray.service 2>/dev/null || true
-  systemctl enable xray.service >/dev/null 2>&1 || log_warn "启用 xray 服务失败"
+  systemctl enable "$unit" >/dev/null 2>&1 || log_warn "启用 xray 服务失败"
+  # <<< --- 重载结束 --- >>>
   
   # 校验 unit 是否生效（我们期望至少能读到一个 User= 字段）
 local _effective_user
@@ -3553,10 +3562,58 @@ chmod 0644 /var/log/xray/access.log /var/log/xray/error.log 2>/dev/null || true
   fi
   log_success "✓ 证书和密钥文件可用"
 
-
-# ⑥ 生成并验证临时配置（原子写入） - 使用更稳健的 heredoc 捕获与 jq 内插
+# ⑥ 验证与落盘（原子写入） - 使用更稳健的 heredoc 捕获与 jq 内插
   log_info "使用 jq 生成 Xray 配置（临时文件）..."
   local xray_tmp="${CONFIG_DIR}/xray.tmp.json"
+
+  # <<< --- 新增：更严格的证书验证 --- >>>
+  log_info "执行更严格的证书与密钥匹配验证..."
+  local cert_mod key_mod cert_ok key_ok match_ok=false
+  cert_mod=$(openssl x509 -noout -modulus -in "$CERT_PEM" 2>/dev/null | openssl md5 2>/dev/null || echo "cert_fail")
+  key_mod=$(openssl ec -noout -modulus -in "$CERT_KEY" 2>/dev/null | openssl md5 2>/dev/null || echo "key_fail") # Assuming EC key from script
+
+  # 检查命令是否成功执行
+  [[ "$cert_mod" != "cert_fail" ]] && cert_ok=true || cert_ok=false
+  [[ "$key_mod" != "key_fail" ]] && key_ok=true || key_ok=false
+
+  if [[ "$cert_ok" == "true" && "$key_ok" == "true" ]]; then
+      if [[ "$cert_mod" == "$key_mod" ]]; then
+          log_success "✓ 证书与私钥模数匹配"
+          match_ok=true
+      else
+          log_error "✗ 证书与私钥模数不匹配！"
+          log_debug "Cert Modulus MD5: $cert_mod"
+          log_debug "Key Modulus MD5: $key_mod"
+      fi
+  else
+      [[ "$cert_ok" != "true" ]] && log_error "✗ 无法读取证书模数: $CERT_PEM"
+      [[ "$key_ok" != "true" ]] && log_error "✗ 无法读取私钥模数: $CERT_KEY"
+  fi
+
+  if [[ "$match_ok" != "true" ]]; then
+      log_warn "证书验证失败，尝试重新生成自签名证书..."
+      if generate_self_signed_cert; then
+          log_success "自签名证书已重新生成，将继续..."
+          # 重新加载证书路径变量以防万一
+          CERT_PEM="${CERT_DIR}/current.pem"
+          CERT_KEY="${CERT_DIR}/current.key"
+      else
+          log_error "自签名证书重新生成失败，中止 Xray 配置"
+          return 1
+      fi
+  fi
+  # <<< --- 新增验证结束 --- >>>
+
+  # <<< --- 新增：确保配置文件和证书权限正确 --- >>>
+  log_info "确保 Xray 配置和证书文件权限..."
+  chmod 644 "${CONFIG_DIR}/xray.json" 2>/dev/null || true # Config should be readable
+  chown root:root "${CONFIG_DIR}/xray.json" 2>/dev/null || true
+  # 证书权限在 generate_self_signed_cert 中已设置，这里再次确认
+  chown root:$(id -gn nobody 2>/dev/null || echo nogroup) "${CERT_DIR}"/current.* 2>/dev/null || true
+  chmod 644 "${CERT_DIR}/current.pem" 2>/dev/null || true
+  chmod 640 "${CERT_DIR}/current.key" 2>/dev/null || true # Key readable by root and group
+  ls -l "${CONFIG_DIR}/xray.json" "${CERT_DIR}/current.pem" "${CERT_DIR}/current.key" # Log permissions
+  # <<< --- 新增权限确保结束 --- >>>
 
   # 1) 用命令替换方式捕获 jq 程序体，避免 read -d '' 与 set -e 的兼容坑
   JQ_PROGRAM=$(cat <<'EOF'
