@@ -3475,28 +3475,28 @@ fi
 # // ANCHOR: [FUNC-CONFIGURE_XRAY]
 #############################################
 # 函数：configure_xray
-# 作用：配置Xray服务 (原子写入 + 验证) - 已应用 Patch A, B, C
+# 作用：配置Xray服务 (原子写入 + 验证) - 已应用 Patch A, B, C 及顺序修复
 # 输入：根据函数体（一般通过全局变量/环境）
 # 输出：返回码；或对系统文件/服务的副作用（见函数体注释）
 #############################################
 configure_xray() {
   log_info "配置Xray多协议服务..."
 
-# <<< 确保日志目录存在且权限正确（跟随 unit 的运行用户） >>>
-mkdir -p /var/log/xray 2>/dev/null || true
+  # <<< 确保日志目录存在且权限正确（跟随 unit 的运行用户） >>>
+  mkdir -p /var/log/xray 2>/dev/null || true
 
-# 读取 systemd unit 的运行用户/组；未设置时默认 root
-local _x_user _x_group
-_x_user="$(systemctl show -p User --value xray 2>/dev/null)"; _x_user="${_x_user:-root}"
-_x_group="$(systemctl show -p Group --value xray 2>/dev/null)"
-[[ -z "$_x_group" ]] && _x_group="$(id -gn "$_x_user" 2>/dev/null || echo root)"
+  # 读取 systemd unit 的运行用户/组；未设置时默认 root
+  local _x_user _x_group
+  _x_user="$(systemctl show -p User --value xray 2>/dev/null)"; _x_user="${_x_user:-root}"
+  _x_group="$(systemctl show -p Group --value xray 2>/dev/null)"
+  [[ -z "$_x_group" ]] && _x_group="$(id -gn "$_x_user" 2>/dev/null || echo root)"
 
-# 调整目录与日志文件权限
-chown "${_x_user}:${_x_group}" /var/log/xray 2>/dev/null || true
-chmod 0755 /var/log/xray 2>/dev/null || true
-touch /var/log/xray/access.log /var/log/xray/error.log 2>/dev/null || true
-chown "${_x_user}:${_x_group}" /var/log/xray/access.log /var/log/xray/error.log 2>/dev/null || true
-chmod 0644 /var/log/xray/access.log /var/log/xray/error.log 2>/dev/null || true
+  # 调整目录与日志文件权限
+  chown "${_x_user}:${_x_group}" /var/log/xray 2>/dev/null || true
+  chmod 0755 /var/log/xray 2>/dev/null || true
+  touch /var/log/xray/access.log /var/log/xray/error.log 2>/dev/null || true
+  chown "${_x_user}:${_x_group}" /var/log/xray/access.log /var/log/xray/error.log 2>/dev/null || true
+  chmod 0644 /var/log/xray/access.log /var/log/xray/error.log 2>/dev/null || true
 
   local f="${CONFIG_DIR}/server.json"
 
@@ -3515,15 +3515,13 @@ chmod 0644 /var/log/xray/access.log /var/log/xray/error.log 2>/dev/null || true
     fi
   fi
 
-
   # ② 检查并兜底证书路径
   [[ -z ${CERT_PEM:-} ]] && CERT_PEM="${CERT_DIR}/current.pem"
   [[ -z ${CERT_KEY:-} ]] && CERT_KEY="${CERT_DIR}/current.key"
   export CERT_PEM CERT_KEY
 
-
   # ③ 收集必要变量
-    local required_vars=(
+  local required_vars=(
     "UUID_VLESS_REALITY" "UUID_VLESS_GRPC" "UUID_VLESS_WS"
     "REALITY_PRIVATE_KEY" "REALITY_SHORT_ID" "PASSWORD_TROJAN"
     "CERT_PEM" "CERT_KEY" "REALITY_SNI"
@@ -3550,7 +3548,6 @@ chmod 0644 /var/log/xray/access.log /var/log/xray/error.log 2>/dev/null || true
     fi
   fi
 
-
   # ④ 最终核对
   missing_vars=()
   for var in "${required_vars[@]}"; do
@@ -3561,7 +3558,6 @@ chmod 0644 /var/log/xray/access.log /var/log/xray/error.log 2>/dev/null || true
     return 1
   fi
   log_success "✓ 所有必要变量已设置"
-
 
   # ⑤ 校验证书文件
   log_info "检查证书文件是否存在且可读..."
@@ -3576,6 +3572,9 @@ chmod 0644 /var/log/xray/access.log /var/log/xray/error.log 2>/dev/null || true
       log_warn "证书异常，尝试重新生成自签名证书..."
       if generate_self_signed_cert; then
         log_success "自签名证书已重新生成"
+        # 重新加载证书路径变量以防万一
+        CERT_PEM="${CERT_DIR}/current.pem"
+        CERT_KEY="${CERT_DIR}/current.key"
       else
         log_error "自签名证书重新生成失败"
         return 1
@@ -3587,7 +3586,7 @@ chmod 0644 /var/log/xray/access.log /var/log/xray/error.log 2>/dev/null || true
   fi
   log_success "✓ 证书和密钥文件可用"
 
-# ⑥ 验证与落盘（原子写入） - 使用更稳健的 heredoc 捕获与 jq 内插
+  # ⑥ 验证与落盘（原子写入） - 使用更稳健的 heredoc 捕获与 jq 内插
   log_info "使用 jq 生成 Xray 配置（临时文件）..."
   local xray_tmp="${CONFIG_DIR}/xray.tmp.json"
 
@@ -3629,16 +3628,7 @@ chmod 0644 /var/log/xray/access.log /var/log/xray/error.log 2>/dev/null || true
   fi
   # <<< --- 新增验证结束 --- >>>
 
-  # <<< --- 新增：确保配置文件和证书权限正确 --- >>>
-  log_info "确保 Xray 配置和证书文件权限..."
-  chmod 644 "${CONFIG_DIR}/xray.json" 2>/dev/null || true # Config should be readable
-  chown root:root "${CONFIG_DIR}/xray.json" 2>/dev/null || true
-  # 证书权限在 generate_self_signed_cert 中已设置，这里再次确认
-  chown root:$(id -gn nobody 2>/dev/null || echo nogroup) "${CERT_DIR}"/current.* 2>/dev/null || true
-  chmod 644 "${CERT_DIR}/current.pem" 2>/dev/null || true
-  chmod 640 "${CERT_DIR}/current.key" 2>/dev/null || true # Key readable by root and group
-  ls -l "${CONFIG_DIR}/xray.json" "${CERT_DIR}/current.pem" "${CERT_DIR}/current.key" # Log permissions
-  # <<< --- 新增权限确保结束 --- >>>
+  # !!! 注意：确保配置文件和证书权限的代码块已移至 jq 成功生成并 mv 之后 !!!
 
   # 1) 用命令替换方式捕获 jq 程序体，避免 read -d '' 与 set -e 的兼容坑
   JQ_PROGRAM=$(cat <<'EOF'
@@ -3725,8 +3715,9 @@ chmod 0644 /var/log/xray/access.log /var/log/xray/error.log 2>/dev/null || true
 EOF
 )
 
-  # 2) 调用 jq 生成临时配置文件（这里不使用 set -e 的隐式退出）
-  if ! jq -n \
+  # 2) 调用 jq 生成临时配置文件
+  jq_exit_code=0
+  jq -n \
       --arg uuid_reality "$UUID_VLESS_REALITY" \
       --arg uuid_grpc    "$UUID_VLESS_GRPC" \
       --arg uuid_ws      "$UUID_VLESS_WS" \
@@ -3736,40 +3727,50 @@ EOF
       --arg trojan_pwd   "$PASSWORD_TROJAN" \
       --arg cert_pem     "$CERT_PEM" \
       --arg cert_key     "$CERT_KEY" \
-      "$JQ_PROGRAM" > "$xray_tmp" 2>/tmp/xray_jq.err
-  then
-      log_error "使用 jq 生成 Xray 配置失败，已将错误写入 /tmp/xray_jq.err"
-      [[ -s /tmp/xray_jq.err ]] && tail -n +1 /tmp/xray_jq.err | sed 's/^/[jq] /'
-      rm -f "$xray_tmp"
-      return 1
-  fi
-  
-# === 新增的关键错误检查 ===
-if [[ $? -ne 0 || ! -s "$xray_tmp" ]]; then
-    log_error "jq 命令执行失败或生成的临时文件 '$xray_tmp' 为空！"
-    # 尝试显示 jq 的错误输出（如果存在）
-    if [[ -f /tmp/xray_jq.err ]]; then
-        log_error "jq 的错误输出 (/tmp/xray_jq.err):"
-        cat /tmp/xray_jq.err | sed 's/^/  [jq_err] /' | tee -a "$LOG_FILE"
-    fi
-    # 清理并返回失败
-    rm -f "$xray_tmp" /tmp/xray_jq.err
-    return 1 # 明确返回失败，阻止后续步骤
-fi
-# 如果 jq 成功，清理临时的错误日志文件
-rm -f /tmp/xray_jq.err
-# === 检查结束 ===
+      "$JQ_PROGRAM" > "$xray_tmp" 2>/tmp/xray_jq.err || jq_exit_code=$? # 捕获 jq 的退出码
 
-# 3) 验证与落盘（保留你原有的 xray -test 与 jq 语法校验）
-log_info "验证生成的 Xray 配置..."
-# ... 后续代码不变 ...
+  # === 新增的关键错误检查 ===
+  if [[ $jq_exit_code -ne 0 || ! -s "$xray_tmp" ]]; then
+      log_error "jq 命令执行失败(退出码: $jq_exit_code) 或生成的临时文件 '$xray_tmp' 为空！"
+      # 尝试显示 jq 的错误输出（如果存在）
+      if [[ -f /tmp/xray_jq.err ]]; then
+          log_error "jq 的错误输出 (/tmp/xray_jq.err):"
+          cat /tmp/xray_jq.err | sed 's/^/  [jq_err] /' | tee -a "$LOG_FILE"
+      fi
+      # 清理并返回失败
+      rm -f "$xray_tmp" /tmp/xray_jq.err
+      return 1 # 明确返回失败，阻止后续步骤
+  fi
+  # 如果 jq 成功，清理临时的错误日志文件
+  rm -f /tmp/xray_jq.err
+  # === 检查结束 ===
+
+  # 3) 验证与落盘
+  log_info "验证生成的 Xray 配置..."
   if ! /usr/local/bin/xray -test -config "$xray_tmp" >/dev/null 2>&1; then
-      /usr/local/bin/xray -test -config "$xray_tmp" || true
+      log_error "Xray 配置验证失败 (xray -test)"
+      /usr/local/bin/xray -test -config "$xray_tmp" || true # 显示详细错误
       rm -f "$xray_tmp"
       return 1
   fi
+
+  # 将临时文件移动到最终位置
   mv "$xray_tmp" "${CONFIG_DIR}/xray.json"
-  chmod 644 "${CONFIG_DIR}/xray.json"
+
+  # === 移动到此处并修正的权限设置块 ===
+  log_info "设置 Xray 配置和证书文件权限..."
+  # 现在 xray.json 肯定存在了，可以直接设置权限，如果失败可以给个警告
+  chmod 644 "${CONFIG_DIR}/xray.json" || log_warn "无法设置 xray.json 权限 (chmod 644)"
+  chown root:root "${CONFIG_DIR}/xray.json" || log_warn "无法设置 xray.json 所有权 (chown root:root)"
+  # 再次确认证书权限
+  chown root:$(id -gn nobody 2>/dev/null || echo nogroup) "${CERT_DIR}"/current.* 2>/dev/null || true
+  chmod 644 "${CERT_DIR}/current.pem" 2>/dev/null || true
+  chmod 640 "${CERT_DIR}/current.key" 2>/dev/null || true
+  # 输出权限到日志文件调试
+  log_debug "权限设置后状态:"
+  ls -l "${CONFIG_DIR}/xray.json" "${CERT_DIR}/current.pem" "${CERT_DIR}/current.key" >> "$LOG_FILE" 2>&1
+  # === 权限设置块结束 ===
+
   log_success "Xray 配置文件创建并验证成功（${CONFIG_DIR}/xray.json）"
 
   # ⑦ 写入并启用 systemd 服务 (调用 Patch B 的函数)
@@ -3794,7 +3795,6 @@ log_info "验证生成的 Xray 配置..."
   log_success "Xray 服务已启动并监听所有端口"
   return 0
 } # configure_xray 函数结束
-
 
 # // ANCHOR: [FUNC-CONFIGURE_SING_BOX]
 #############################################
