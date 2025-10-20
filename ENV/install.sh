@@ -3376,7 +3376,7 @@ EOF
 
 # === Patch C: 监听检测增强 (辅助函数) ===
 wait_listen() {  # usage: wait_listen 11443 10085 10086 10143
-  local timeout=25 start ok p
+  local timeout=40 start ok p
   start=$(date +%s)
   log_info "等待端口监听: $@ (超时: ${timeout}s)..."
   while true; do
@@ -3408,17 +3408,26 @@ wait_listen() {  # usage: wait_listen 11443 10085 10086 10143
   done
 }
 
-# === Patch B: 统一强制 Xray unit (辅助函数) ===
+# === Patch B: 统一强制 Xray unit (辅助函数) - 加强清理版 ===
 create_or_update_xray_unit() {
   log_info "创建/更新 Xray systemd unit ..."
   local unit=/etc/systemd/system/xray.service
   local old_unit_lib=/lib/systemd/system/xray.service
+  local override_dir=/etc/systemd/system/xray.service.d # <-- 新增：定义覆盖目录路径
 
   # <<< --- 加强清理 --- >>>
-  log_info "强制停止、禁用并移除所有已知的 xray.service 文件..."
+  log_info "强制停止、禁用并移除所有已知的 xray.service 文件及覆盖配置..."
   systemctl stop xray.service >/dev/null 2>&1 || true
   systemctl disable xray.service >/dev/null 2>&1 || true
   rm -f "$unit" "$old_unit_lib" /etc/systemd/system/multi-user.target.wants/xray.service
+
+  # <<< --- 新增：强制移除覆盖目录 --- >>>
+  if [[ -d "$override_dir" ]]; then
+      log_info "发现并移除旧的 systemd 覆盖目录: $override_dir"
+      rm -rf "$override_dir"
+  fi
+  # <<< --- 移除结束 --- >>>
+
   log_info "执行 daemon-reload 和 reset-failed..."
   systemctl daemon-reload
   systemctl reset-failed xray.service >/dev/null 2>&1 || true
@@ -3426,11 +3435,12 @@ create_or_update_xray_unit() {
   # <<< --- 清理结束 --- >>>
 
 
-  # 确保官方默认目录存在... (保持不变)
+  # 确保官方默认目录存在，并使用绝对路径创建软链接
   mkdir -p /usr/local/etc/xray 2>/dev/null || true
+  # <<< --- 修复：使用绝对路径作为软链接目标 --- >>>
   ln -sfn /etc/edgebox/config/xray.json /usr/local/etc/xray/config.json
 
-  # 写入统一的 unit... (保持不变)
+  # 写入统一的 unit 文件，确保使用绝对路径
   cat >"$unit" <<'UNIT'
 [Unit]
 Description=Xray Service (EdgeBox)
@@ -3442,6 +3452,7 @@ After=network-online.target nss-lookup.target
 Type=simple
 User=root
 Group=root
+# <<< --- 修复：在 ExecStart 中使用绝对路径指定配置文件 --- >>>
 ExecStart=/usr/local/bin/xray run -c /etc/edgebox/config/xray.json
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=always
@@ -3461,15 +3472,23 @@ UNIT
   systemctl daemon-reload
   systemctl enable "$unit" >/dev/null 2>&1 || log_warn "启用 xray 服务失败"
   # <<< --- 重载结束 --- >>>
-  
-  # 校验 unit 是否生效（我们期望至少能读到一个 User= 字段）
-local _effective_user
-_effective_user="$(systemctl show -p User --value xray 2>/dev/null)"
-if [[ -z "$_effective_user" ]]; then
-  log_warn "未读取到 xray.service 的 User 字段；将按默认 root 处理。"
-else
-  log_info "当前 xray.service 运行用户: ${_effective_user}"
-fi
+
+  # 校验 unit 是否生效
+  local _effective_user
+  _effective_user="$(systemctl show -p User --value xray 2>/dev/null)"
+  if [[ -z "$_effective_user" ]]; then
+    log_warn "未读取到 xray.service 的 User 字段；将按默认 root 处理。"
+  else
+    log_info "当前 xray.service 运行用户: ${_effective_user}"
+    # <<< --- 新增：如果生效用户不是 root，则明确报错 --- >>>
+    if [[ "$_effective_user" != "root" ]]; then
+        log_error "检测到 Xray 服务未以 root 用户运行 ($_effective_user)，可能导致权限问题！"
+        log_error "请检查 systemd 配置或是否存在意外的覆盖文件。"
+        # 可以选择在这里强制退出，如果非 root 是不可接受的
+        # return 1
+    fi
+    # <<< --- 检查结束 --- >>>
+  fi
 }
 
 # // ANCHOR: [FUNC-CONFIGURE_XRAY]
