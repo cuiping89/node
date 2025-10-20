@@ -782,6 +782,10 @@ smart_download_script() {
 #############################################
 reload_or_restart_services() {
   ensure_reverse_ssh # 确保救生索在线
+  
+    # 避免 certbot 钩子、修复任务、人工操作等并发重载导致抖动
+  exec 9>/var/lock/edgebox.reload.lock
+  flock -n 9 || { log_warn "已有重载在进行，跳过本次调用"; return 0; }
 
   local services=("$@"); local failed=()
   for svc in "${services[@]}"; do
@@ -3965,7 +3969,9 @@ User=root
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_SYS_PTRACE
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_SYS_PTRACE
 ExecStart=/usr/local/bin/sing-box run -c /etc/edgebox/config/sing-box.json
+# 先按常规 HUP 主进程；拿不到 MAINPID 时用 pidof 兜底，避免 reload 失败触发 stop/start 抖动
 ExecReload=/bin/kill -HUP $MAINPID
+ExecReload=/bin/sh -c '/bin/kill -HUP "$(pidof -s sing-box)" 2>/dev/null || true'
 Restart=on-failure
 RestartSec=5s
 LimitNOFILE=infinity
@@ -13692,8 +13698,29 @@ fi
   [[ -f "/etc/letsencrypt/live/${domain}/fullchain.pem" && -f "/etc/letsencrypt/live/${domain}/privkey.pem" ]] \
     || { log_error "证书文件缺失"; return 1; }
 
-  ln -sf "/etc/letsencrypt/live/${domain}/fullchain.pem" "${CERT_DIR}/current.pem"
-  ln -sf "/etc/letsencrypt/live/${domain}/privkey.pem"  "${CERT_DIR}/current.key"
+# ==== 原子切链（先做 .new，再原子 mv） ====
+local le_dir="/etc/letsencrypt/live/${domain}"
+ln -sfnT "${le_dir}/fullchain.pem" "${CERT_DIR}/.current.pem.new"
+ln -sfnT "${le_dir}/privkey.pem"   "${CERT_DIR}/.current.key.new"
+mv -Tf "${CERT_DIR}/.current.pem.new" "${CERT_DIR}/current.pem"
+mv -Tf "${CERT_DIR}/.current.key.new" "${CERT_DIR}/current.key"
+
+# ==== 证书/私钥“泛型”配对校验（RSA/ECDSA 都适用）====
+local fp_cert fp_key
+fp_cert=$(openssl x509 -in "${CERT_DIR}/current.pem" -noout -pubkey | openssl sha256 | awk '{print $2}')
+fp_key=$(openssl pkey -in "${CERT_DIR}/current.key" -pubout 2>/dev/null | openssl sha256 | awk '{print $2}')
+if [[ -z "$fp_cert" || -z "$fp_key" || "$fp_cert" != "$fp_key" ]]; then
+  log_error "证书/私钥不匹配（可能仍在写入或链接未同步），取消这次热重载"
+  return 1
+fi
+
+# （可选）权限收敛
+chmod 644 "${CERT_DIR}/current.pem" 2>/dev/null || true
+chmod 600 "${CERT_DIR}/current.key" 2>/dev/null || true
+
+# === 一切 OK 再重载相关服务 ===
+reload_or_restart_services nginx sing-box
+
   echo "letsencrypt:${domain}" > "${CONFIG_DIR}/cert_mode"
 
   reload_or_restart_services nginx xray sing-box
@@ -13936,8 +13963,29 @@ switch_to_domain(){
   fi
   log_info "为 ${domain} 申请/扩展 Let's Encrypt 证书"
   request_letsencrypt_cert "$domain" || return 1
-  ln -sf "/etc/letsencrypt/live/${domain}/privkey.pem"   "${CERT_DIR}/current.key"
-  ln -sf "/etc/letsencrypt/live/${domain}/fullchain.pem" "${CERT_DIR}/current.pem"
+ # ==== 原子切链（先做 .new，再原子 mv） ====
+local le_dir="/etc/letsencrypt/live/${domain}"
+ln -sfnT "${le_dir}/fullchain.pem" "${CERT_DIR}/.current.pem.new"
+ln -sfnT "${le_dir}/privkey.pem"   "${CERT_DIR}/.current.key.new"
+mv -Tf "${CERT_DIR}/.current.pem.new" "${CERT_DIR}/current.pem"
+mv -Tf "${CERT_DIR}/.current.key.new" "${CERT_DIR}/current.key"
+
+# ==== 证书/私钥“泛型”配对校验（RSA/ECDSA 都适用）====
+local fp_cert fp_key
+fp_cert=$(openssl x509 -in "${CERT_DIR}/current.pem" -noout -pubkey | openssl sha256 | awk '{print $2}')
+fp_key=$(openssl pkey -in "${CERT_DIR}/current.key" -pubout 2>/dev/null | openssl sha256 | awk '{print $2}')
+if [[ -z "$fp_cert" || -z "$fp_key" || "$fp_cert" != "$fp_key" ]]; then
+  log_error "证书/私钥不匹配（可能仍在写入或链接未同步），取消这次热重载"
+  return 1
+fi
+
+# （可选）权限收敛
+chmod 644 "${CERT_DIR}/current.pem" 2>/dev/null || true
+chmod 600 "${CERT_DIR}/current.key" 2>/dev/null || true
+
+# === 一切 OK 再重载相关服务 ===
+reload_or_restart_services nginx sing-box
+
   fix_permissions
 
   ### FIX: Overwrite the map config file instead of using sed ###
@@ -17083,7 +17131,10 @@ repair_system_state() {
     if command -v /usr/local/bin/sing-box >/dev/null 2>&1; then
         /usr/local/bin/sing-box check -c "$sb" >/dev/null 2>&1 || log_warn "sing-box 配置校验失败（将尝试继续重启）"
     fi
-    systemctl restart sing-box || true
+    systemctl reload sing-box 2>/dev/null \
+  || /bin/sh -c '/bin/kill -HUP "$(pidof -s sing-box)" 2>/dev/null' \
+  || systemctl restart sing-box || true
+
     sleep 0.5
 
     # 7) 端口自检（与你现场排障一致）
