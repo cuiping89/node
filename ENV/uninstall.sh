@@ -1,47 +1,49 @@
 #!/usr/bin/env bash
-# EdgeBox 卸载脚本（保留原功能 + 自动提权 + 环境可复现收口）
-# - 非 root 自动提权：优先 sudo，其次 su
-# - 默认不恢复历史配置，避免重装被“脏环境”影响；可用开关切换
-# - NGINX_RESTORE_MODE=minimal|stop|restore|keep（默认 minimal）
-# - RESTORE_SYSCTL/RESTORE_LIMITS=yes|no（默认 no）
+# EdgeBox 卸载脚本（保留彩色输出 + 自动提权 + 最小增强）
+# - 默认不恢复历史配置；仅撤销 EdgeBox 改动，避免重装遇到“脏环境”
+# - 可通过环境变量切换行为：
+#     NGINX_RESTORE_MODE=minimal|stop|restore|keep
+#     RESTORE_SYSCTL=yes|no
+#     RESTORE_LIMITS=yes|no
 
 set -euo pipefail
 
-# ========== 行为开关（可被环境变量覆盖） ==========
-NGINX_RESTORE_MODE="${NGINX_RESTORE_MODE:-minimal}"  # minimal|stop|restore|keep
-RESTORE_SYSCTL="${RESTORE_SYSCTL:-no}"               # yes|no
-RESTORE_LIMITS="${RESTORE_LIMITS:-no}"               # yes|no
+# ========== 自动提权（保留老板版的提权体验） ==========
+if [ "${EUID:-0}" -ne 0 ]; then
+  if command -v sudo >/dev/null 2>&1; then
+    exec sudo -E bash "$0" "$@"
+  elif command -v su >/dev/null 2>&1; then
+    exec su - -c "bash '$0' $*"
+  else
+    echo "✘ 请以 root 身份运行（sudo 或 su）" >&2
+    exit 1
+  fi
+fi
 
-# ========== 颜色与输出 ==========
+# ========== 行为开关 ==========
+: "${NGINX_RESTORE_MODE:=minimal}"   # minimal|stop|restore|keep
+: "${RESTORE_SYSCTL:=no}"            # yes|no
+: "${RESTORE_LIMITS:=no}"            # yes|no
+
+# ========== 彩色输出 ==========
 RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m'); YELLOW=$(printf '\033[33m'); CYAN=$(printf '\033[36m'); BOLD=$(printf '\033[1m'); NC=$(printf '\033[0m')
 title() { echo -e "\n${CYAN}${BOLD}==>${NC} ${CYAN}$*${NC}"; }
-ok()    { echo -e "✔ $*"; }
-warn()  { echo -e "${YELLOW}⚠ ${*}${NC}"; }
-err()   { echo -e "${RED}✘ ${*}${NC}"; }
+ok()    { echo -e "${GREEN}✔${NC} $*"; }
+warn()  { echo -e "${YELLOW}⚠${NC} $*"; }
+err()   { echo -e "${RED}✘${NC} $*"; }
 info()  { echo -e "[INFO] $*"; }
 
-# ========== 自动提权（保留老版本行为） ==========
-auto_escalate() {
-  if [[ ${EUID:-0} -ne 0 ]]; then
-    if command -v sudo >/dev/null 2>&1; then
-      echo "[INFO] 检测到非 root，尝试使用 sudo 提权后重新执行..."
-      exec sudo -E bash "$0" "$@"
-    elif command -v su >/dev/null 2>&1; then
-      echo "[INFO] 检测到非 root，尝试使用 su 提权后重新执行..."
-      # 注意：参数包含空格/引号的极端情况可能需要转义，这里以常见用法为主
-      exec su - -c "bash '$0' $*"
-    else
-      err "请以 root 身份运行（安装 sudo 或使用 su）。"
-      exit 1
-    fi
-  fi
-}
+# （兼容你脚本里可能用到的 log_* 名称）
+log_success(){ ok "$@"; }
+log_warn(){ warn "$@"; }
+log_error(){ err "$@"; }
+log_info(){ info "$@"; }
 
-# ========== 工具函数 ==========
+# ========== 小工具 ==========
 remove_paths() {
   local p
   for p in "$@"; do
-    [[ -z "${p}" ]] && continue
+    [[ -z "$p" ]] && continue
     if [[ -e "$p" || -L "$p" ]]; then
       rm -rf -- "$p" && ok "已移除: $p" || warn "移除失败: $p"
     fi
@@ -90,7 +92,7 @@ cat <<'PLAN'
   - 🛡️ 系统防火墙（ufw、firewalld）规则
 PLAN
 
-  echo -e "Nginx 主配置处理模式：${GREEN}${NGINX_RESTORE_MODE}${NC}  （可用 NGINX_RESTORE_MODE=minimal|stop|restore|keep 覆盖）"
+  echo -e "Nginx 主配置处理模式：${GREEN}${NGINX_RESTORE_MODE}${NC}（可用 NGINX_RESTORE_MODE=minimal|stop|restore|keep 覆盖）"
   echo -e "sysctl / limits.conf：默认${YELLOW}不恢复备份${NC}（RESTORE_SYSCTL/RESTORE_LIMITS=yes 可开启）"
   echo
   read -r -p "确认继续？按 Y 或 y 执行（任意其它键取消）: " ans
@@ -120,15 +122,11 @@ remove_system_integration() {
   systemctl daemon-reload >/dev/null 2>&1 || true
   ok "Systemd 配置已重载。"
 
-  # 清理 crontab 中 EdgeBox 任务
-  if command -v crontab >/dev/null 2>&1; then
-    if crontab -l >/dev/null 2>&1; then
-      crontab -l | sed '/edgebox\|EdgeBox/d' | crontab - || true
-      ok "Crontab 定时任务已清理。"
-    fi
+  if command -v crontab >/dev/null 2>&1 && crontab -l >/dev/null 2>&1; then
+    crontab -l | sed '/edgebox\|EdgeBox/d' | crontab - || true
+    ok "Crontab 定时任务已清理。"
   fi
 
-  # 移除二进制与工具
   remove_paths /usr/local/bin/edgeboxctl /usr/local/bin/xray /usr/local/bin/sing-box
 }
 
@@ -157,7 +155,7 @@ clean_filesystem() {
                /var/log/edgebox /var/log/xray \
                /var/log/edgebox-install.log /var/log/edgebox-traffic-alert.log
 
-  # Web 目录：状态/订阅/流量可视化
+  # Web：状态/订阅/可视化
   remove_paths "${WEB_ROOT}/status" "${WEB_ROOT}/traffic" "${WEB_ROOT}/sub"
   for f in "${WEB_ROOT}"/sub-*; do [[ -e "$f" ]] && rm -f -- "$f" && ok "已移除: $f"; done
 
@@ -168,7 +166,7 @@ clean_filesystem() {
     ok "已清理流量目录中的前端页面与样式文件。"
   fi
 
-  # Nginx 片段与 override
+  # Nginx 片段与 override（只清 EdgeBox 命名）
   remove_paths /etc/nginx/conf.d/edgebox_stream_map.conf \
                /etc/nginx/conf.d/edgebox_passcode.conf \
                /etc/nginx/stream.d/edgebox_stream_map.conf \
@@ -176,7 +174,7 @@ clean_filesystem() {
                /etc/systemd/system/nginx.service.d/edgebox*.conf
   systemctl daemon-reload >/dev/null 2>&1 || true
 
-  # 邮件配置（仅当识别为 EdgeBox 生成）
+  # 邮件配置（带 EdgeBox 标记才删）
   if [[ -f /etc/msmtprc ]] && grep -q 'EdgeBox 邮件配置' /etc/msmtprc 2>/dev/null; then
     rm -f /etc/msmtprc && ok "已移除 EdgeBox 邮件配置 /etc/msmtprc"
   fi
@@ -241,7 +239,7 @@ NGINX_MINIMAL_CONFIG
       ;;
   esac
 
-  # 再次清掉 EdgeBox 专属片段与 override，确保干净
+  # 再清一次 EdgeBox 片段与 override，确保干净
   remove_paths /etc/nginx/conf.d/edgebox_stream_map.conf \
                /etc/nginx/conf.d/edgebox_passcode.conf \
                /etc/nginx/stream.d/edgebox_stream_map.conf \
@@ -254,12 +252,14 @@ NGINX_MINIMAL_CONFIG
     if ! (nginx -t >/dev/null 2>&1); then
       warn "nginx -t 未通过，请检查 /etc/nginx/nginx.conf 与 conf.d 残留引用。"
     fi
-    systemctl reload nginx >/dev/null 2>&1 || systemctl restart nginx >/dev/null 2>&1 || warn "Nginx 重载/重启失败，请手动检查（先运行 'nginx -t'）。"
+    systemctl reload nginx >/dev/null 2>&1 \
+      || systemctl restart nginx >/dev/null 2>&1 \
+      || warn "Nginx 重载/重启失败，请手动检查（先运行 'nginx -t'）。"
     ok "Nginx 服务已尝试重载。"
   fi
 
   # ---- sysctl.conf ----
-  if [[ "${RESTORE_SYSCTL}" == "yes" && -f /etc/sysctl.conf.bak ]]; then
+  if [[ "$RESTORE_SYSCTL" == "yes" && -f /etc/sysctl.conf.bak ]]; then
     cp -f /etc/sysctl.conf.bak /etc/sysctl.conf
     sysctl -p >/dev/null 2>&1 || true
     ok "已从备份恢复 sysctl.conf。"
@@ -272,7 +272,7 @@ NGINX_MINIMAL_CONFIG
   fi
 
   # ---- limits.conf ----
-  if [[ "${RESTORE_LIMITS}" == "yes" && -f /etc/security/limits.conf.bak ]]; then
+  if [[ "$RESTORE_LIMITS" == "yes" && -f /etc/security/limits.conf.bak ]]; then
     cp -f /etc/security/limits.conf.bak /etc/security/limits.conf
     ok "已从备份恢复 limits.conf。"
   else
@@ -309,7 +309,6 @@ summary() {
 }
 
 main() {
-  auto_escalate "$@"
   pause_confirm
   stop_disable_services
   remove_system_integration
