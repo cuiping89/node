@@ -782,6 +782,10 @@ smart_download_script() {
 #############################################
 reload_or_restart_services() {
   ensure_reverse_ssh # 确保救生索在线
+  
+    # 避免 certbot 钩子、修复任务、人工操作等并发重载导致抖动
+  exec 9>/var/lock/edgebox.reload.lock
+  flock -n 9 || { log_warn "已有重载在进行，跳过本次调用"; return 0; }
 
   local services=("$@"); local failed=()
   for svc in "${services[@]}"; do
@@ -2347,17 +2351,14 @@ generate_self_signed_cert() {
     # --- 关键权限修复 ---
     local NOBODY_GRP
     NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
+	
+	# 目录与文件权限：目录 750，公钥证书 644，私钥 600
+  chown -R root:"$nobody_group" "$CERT_DIR"
+  chmod 750 "$CERT_DIR"
+  chmod 644 "${CERT_DIR}/self-signed.pem"
+  chmod 600 "${CERT_DIR}/self-signed.key"
 
-    chown -R root:"${NOBODY_GRP}" "${CERT_DIR}" 2>/dev/null || true
-    
-    # <<< --- 修复：将目录权限设为 755 (全局可访问) --- >>>
-    chmod 755 "${CERT_DIR}" # 目录权限：root=rwx, group=r-x, other=r-x
-    
-    # <<< --- 修复：将私钥权限设为 644 (全局可读) 解决潜在的 systemd 'nobody' 用户问题 --- >>>
-    chmod 600 "${CERT_DIR}"/self-signed.key 
-    chmod 600 "${CERT_DIR}"/self-signed.pem
-    log_info "私钥权限已设置为 644 (全局可读)，目录权限 755"
-    # ---------------------
+  log_info "自签证书已生成：${CERT_DIR}/self-signed.pem / self-signed.key；目录 750，证书 644，私钥 600。"
 
     if openssl x509 -in "${CERT_DIR}/current.pem" -noout >/dev/null 2>&1; then
         log_success "自签名证书生成及权限设置完成"
@@ -2698,116 +2699,119 @@ log_info "└─ verify_module2_data()       # 验证数据完整性"
 # 输入：无
 # 输出：Xray 二进制文件和 .dat 文件
 #############################################
+
 install_xray() {
-    log_info "安装Xray核心程序 (手动下载模式)..."
+  set -euo pipefail
 
-    # 1. 清理旧的 systemd 服务（如果存在）
-    log_info "步骤 1: 尝试卸载任何现有的Xray服务..."
-    systemctl stop xray.service >/dev/null 2>&1 || true
-    systemctl disable xray.service >/dev/null 2>&1 || true
-    rm -f /etc/systemd/system/xray.service \
-          /lib/systemd/system/xray.service \
-          /usr/lib/systemd/system/xray.service \
-          /etc/systemd/system/multi-user.target.wants/xray.service
-    rm -rf /etc/systemd/system/xray.service.d
-    systemctl daemon-reload
-    systemctl reset-failed xray.service >/dev/null 2>&1 || true
-    log_success "现有Xray服务（如果存在）已清理。"
+  local DEST="/usr/local/bin"
+  local BIN="${DEST}/xray"
+  local WORK; WORK="$(mktemp -d /tmp/xray.XXXXXX)"
+  trap 'rm -rf "$WORK"' RETURN
 
-    # 2. 确定架构
-    local system_arch
-    case "$(uname -m)" in
-        x86_64|amd64) system_arch="64" ;;
-        aarch64|arm64) system_arch="arm64-v8a" ;;
-        armv7*) system_arch="arm32-v7a" ;;
-        *)
-            log_error "不支持的系统架构: $(uname -m)"
-            return 1
-            ;;
-    esac
+  # === 架构映射 → Xray 预编译包名后缀 ===
+  local pkg_arch
+  case "$(uname -m)" in
+    x86_64|amd64)   pkg_arch="64" ;;
+    aarch64|arm64)  pkg_arch="arm64-v8a" ;;
+    armv7l|armv7)   pkg_arch="arm32-v7a" ;;
+    armv6l|armv6)   pkg_arch="arm32-v6" ;;
+    i386|i686)      pkg_arch="32" ;;
+    loongarch64)    pkg_arch="loong64" ;;
+    mips64le)       pkg_arch="mips64le" ;;
+    s390x)          pkg_arch="s390x" ;;
+    *) log_error "不支持的架构: $(uname -m)"; return 1 ;;
+  esac
 
-    # 3. 动态获取最新 XRAY_VERSION
-    log_info "正在从 GitHub API 获取 Xray 最新版本号..."
-    local XRAY_VERSION
-    XRAY_VERSION=$(curl -s "https://api.github.com/repos/XTLS/Xray-core/releases/latest" | jq -r '.tag_name' | sed 's/v//')
-    
-    if [[ -z "$XRAY_VERSION" || "$XRAY_VERSION" == "null" ]]; then
-        log_warn "从 GitHub API 获取版本失败，回退到固定版本 v1.8.11 (这可能会导致问题)"
-        XRAY_VERSION="25.10.15" # 兜底（虽然我们知道这有问题，但聊胜于无）
-    else
-        log_success "获取到 Xray 最新版本: v${XRAY_VERSION}"
+  # === 版本候选列表：用户指定 > GitHub latest > 精选稳定备选 ===
+  local -a candidates=()
+
+  _sanitize_tag() {  # 只接受 v前缀的版本/或裸版本；其它一律丢弃
+    local t="$1"
+    [[ "$t" =~ ^[vV]?[0-9][0-9.]*([A-Za-z0-9._-]*)?$ ]] || return 1
+    [[ "$t" == v* || "$t" == V* ]] || t="v${t}"
+    printf '%s' "${t#V}"
+  }
+
+  _push_candidate() {
+    local t
+    t="$(_sanitize_tag "${1:-}" 2>/dev/null || true)" || true
+    [[ -n "$t" ]] || return 0
+    local x; for x in "${candidates[@]:-}"; do [[ "$x" == "$t" ]] && return 0; done
+    candidates+=("$t")
+  }
+
+  # 1) 用户显式指定（函数参数或环境变量）
+  local user_ver="${1:-${XRAY_VERSION:-}}"
+  [[ -n "$user_ver" ]] && _push_candidate "$user_ver"
+
+  # 2) GitHub latest（用 jq 提取 tag_name，失败则忽略）
+  local latest_tag=""
+  if command -v jq >/dev/null 2>&1; then
+    latest_tag="$(curl -fsSL https://api.github.com/repos/XTLS/Xray-core/releases/latest \
+                   | jq -r '.tag_name // empty')"
+  else
+    # 没 jq 的兜底（容错 sed）；不稳定时宁可取空
+    latest_tag="$(curl -fsSL https://api.github.com/repos/XTLS/Xray-core/releases/latest \
+                   | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]\+\)".*/\1/p' \
+                   | head -n1)"
+  fi
+  [[ -n "$latest_tag" ]] && _push_candidate "$latest_tag"
+
+  # 3) 我整理的稳定备选（新→旧，按需自行调整）
+  local curated_fallbacks=( v25.10.15 v25.9.11 v25.8.3 v1.8.24 )
+  local v; for v in "${curated_fallbacks[@]}"; do _push_candidate "$v"; done
+
+  # === 实际安装：逐个候选尝试 ===
+  _try_install_one() {
+    local tag="$1"
+    local file="Xray-linux-${pkg_arch}.zip"
+    local url="https://github.com/XTLS/Xray-core/releases/download/${tag}/${file}"
+    local zip="${WORK}/${file}"
+
+    log_info "尝试安装 Xray ${tag} (${file})"
+    if ! curl -fL --retry 5 --retry-all-errors --connect-timeout 8 -o "$zip" "$url"; then
+      log_warn "下载失败: $url"
+      return 1
     fi
 
-    local filename="Xray-linux-${system_arch}.zip"
-    local download_url="https://github.com/XTLS/Xray-core/releases/download/v${XRAY_VERSION}/${filename}"
-
-    log_info "准备下载: ${filename} (版本: v${XRAY_VERSION})"
-
-    # 4. 创建临时目录和文件
-    local temp_dir temp_file
-    temp_dir=$(mktemp -d) || { log_error "创建临时目录失败"; return 1; }
-    temp_file="${temp_dir}/${filename}"
-
-    # 5. 下载
-    log_info "📥 下载 Xray 二进制包..."
-    if ! smart_download "$download_url" "$temp_file" "binary"; then
-        log_error "❌ Xray 下载失败"
-        rm -rf "$temp_dir"
-        return 1
-    fi
-    log_success "✅ 二进制包下载成功"
-
-    # 6. 解压
-    log_info "📦 解压并安装 Xray..."
-    if ! unzip -q "$temp_file" -d "$temp_dir"; then
-        log_error "解压失败"
-        rm -rf "$temp_dir"
-        return 1
+    rm -rf "${WORK}/unz"; mkdir -p "${WORK}/unz"
+    command -v unzip >/dev/null 2>&1 || { apt-get update -y && apt-get install -y unzip >/dev/null 2>&1 || true; }
+    if ! unzip -o "$zip" -d "${WORK}/unz" >/dev/null; then
+      log_warn "解压失败: ${file}"
+      return 1
     fi
 
-    # 7. 安装二进制文件
-    if ! install -m 0755 "${temp_dir}/xray" "/usr/local/bin/xray"; then
-        log_error "安装失败（复制 xray 到 /usr/local/bin 失败）"
-        rm -rf "$temp_dir"
-        return 1
-    fi
+    install -m 0755 "${WORK}/unz/xray" "$BIN"
+    [[ -f "${WORK}/unz/geoip.dat"    ]] && install -m 0644 "${WORK}/unz/geoip.dat"    /usr/local/share/geoip.dat
+    [[ -f "${WORK}/unz/geosite.dat"  ]] && install -m 0644 "${WORK}/unz/geosite.dat"  /usr/local/share/geosite.dat
 
-    # 8. 安装 .dat 文件
-    local dat_dir="/usr/local/share/xray"
-    mkdir -p "$dat_dir"
-    if ! install -m 0644 "${temp_dir}/geoip.dat" "$dat_dir/" || \
-       ! install -m 0644 "${temp_dir}/geosite.dat" "$dat_dir/"; then
-        log_warn " .dat 文件安装失败 (非致命错误)"
-    else
-        log_success ".dat 文件安装成功"
-    fi
+    command -v setcap >/dev/null 2>&1 && setcap cap_net_bind_service=+eip "$BIN" 2>/dev/null || true
 
-    # 9. 清理
-    rm -rf "$temp_dir"
-
-    # 10. 验证
-    if ! /usr/local/bin/xray version >/dev/null 2>&1; then
-        log_error "Xray 安装后验证失败"
-        return 1
-    fi
-
-    local version_info
-    version_info=$(/usr/local/bin/xray version | head -n1)
-    log_success "🎉 Xray 安装完成!"
-    log_success "📌 版本信息: $version_info"
-
-    # 11. 创建日志目录 (保持不变)
-    mkdir -p /var/log/xray
-    chown root:root /var/log/xray
-    chmod 0755 /var/log/xray
-    touch /var/log/xray/access.log /var/log/xray/error.log
-    chown root:root /var/log/xray/*.log
-    chmod 0644 /var/log/xray/*.log
-    log_success "Xray log directory created and permissions set for root user."
-
+    local ver
+    ver="$("$BIN" -version 2>/dev/null || "$BIN" version 2>/dev/null || true)"
+    [[ -n "$ver" ]] || { log_warn "安装后无法运行"; return 1; }
+    log_success "$(echo "$ver" | head -n1)"
     return 0
-}
+  }
 
+  local ok=0 tag
+  for tag in "${candidates[@]}"; do
+    if _try_install_one "$tag"; then ok=1; break; fi
+  done
+
+  if [[ $ok -ne 1 ]]; then
+    log_warn "所有候选下载失败，回落到官方安装脚本..."
+    if bash -c "$(curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install -u root; then
+      "$BIN" -version || "$BIN" version || true
+      ok=1
+    else
+      log_error "官方安装脚本兜底失败"
+      return 1
+    fi
+  fi
+
+  return 0
+}
 
 #############################################
 # sing-box 安装函数
@@ -3412,9 +3416,13 @@ EOF
       sed -ri 's#(try_files[[:space:]]*)/sub([[:space:]]*=404;)#\1/sub-'"${MASTER_SUB_TOKEN}"'\2#' /etc/nginx/nginx.conf
     fi
 
-    # 验证Nginx配置并智能重载/启动
+    # 验证Nginx配置并智能重载/启动（用退出码判断，避免 grep 误判）
     log_info "验证Nginx配置..."
-    if nginx -t 2>&1 | grep -q "syntax is ok"; then
+    set +e
+    _nginx_test_out="$(nginx -t 2>&1)"
+    _nginx_rc=$?
+    set -e
+    if [ "${_nginx_rc}" -eq 0 ]; then
         log_success "Nginx配置验证通过"
         if systemctl is-active --quiet nginx 2>/dev/null; then
             if systemctl reload nginx 2>/dev/null; then
@@ -3436,14 +3444,13 @@ EOF
         fi
     else
         log_error "Nginx配置验证失败，请检查 /etc/nginx/nginx.conf 和 /etc/nginx/conf.d/"
-        nginx -t
+        echo "${_nginx_test_out}"
         return 1
     fi
 
     log_success "Nginx配置文件创建完成"
     return 0
 }
-
 
 # === Patch C: 监听检测增强 (辅助函数) ===
 wait_listen() {  # usage: wait_listen 11443 10085 10086 10143
@@ -3847,9 +3854,10 @@ EOF
 
   # ⑦ 写入并启用 systemd 服务 (调用 Patch B 的函数)
   create_or_update_xray_unit # <-- 调用 Patch B 的 unit 创建函数
-
-  log_success "Xray 服务已启动并监听所有端口"
-  return 0
+  
+# [ANCHOR:FUNC-CONFIGURE_XRAY-END]
+log_info "Xray 配置与 unit 已更新；统一在模块收尾阶段启动与验证。"
+return 0
 } # configure_xray 函数结束
 
 # // ANCHOR: [FUNC-CONFIGURE_SING_BOX]
@@ -3952,7 +3960,7 @@ configure_sing_box() {
 
     # 创建正确的 systemd 服务文件 (No change needed here)
     log_info "创建sing-box系统服务..."
-cat > /etc/systemd/system/sing-box.service << EOF
+cat > /etc/systemd/system/sing-box.service <<'EOF'
 [Unit]
 Description=sing-box service
 Documentation=https://sing-box.sagernet.org
@@ -3964,15 +3972,22 @@ Type=simple
 User=root
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_SYS_PTRACE
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_SYS_PTRACE
+NoNewPrivileges=true
+LimitNOFILE=1048576
+
+# 只保留一条 ExecStart（任选固定路径即可）
 ExecStart=/usr/local/bin/sing-box run -c /etc/edgebox/config/sing-box.json
-ExecReload=/bin/kill -HUP $MAINPID
+
+# 先向 $MAINPID 发送 HUP；若 MAINPID 不可用，再用进程名兜底
+ExecReload=+/bin/sh -c 'kill -HUP $MAINPID || pkill -HUP -x sing-box'
+
 Restart=on-failure
 RestartSec=5s
-LimitNOFILE=infinity
 
 [Install]
 WantedBy=multi-user.target
 EOF
+
 
     # systemctl daemon-reload # Moved to end of module 3
     # systemctl enable sing-box >/dev/null 2>&1 # Moved to end of module 3
@@ -13692,8 +13707,29 @@ fi
   [[ -f "/etc/letsencrypt/live/${domain}/fullchain.pem" && -f "/etc/letsencrypt/live/${domain}/privkey.pem" ]] \
     || { log_error "证书文件缺失"; return 1; }
 
-  ln -sf "/etc/letsencrypt/live/${domain}/fullchain.pem" "${CERT_DIR}/current.pem"
-  ln -sf "/etc/letsencrypt/live/${domain}/privkey.pem"  "${CERT_DIR}/current.key"
+# ==== 原子切链（先做 .new，再原子 mv） ====
+local le_dir="/etc/letsencrypt/live/${domain}"
+ln -sfnT "${le_dir}/fullchain.pem" "${CERT_DIR}/.current.pem.new"
+ln -sfnT "${le_dir}/privkey.pem"   "${CERT_DIR}/.current.key.new"
+mv -Tf "${CERT_DIR}/.current.pem.new" "${CERT_DIR}/current.pem"
+mv -Tf "${CERT_DIR}/.current.key.new" "${CERT_DIR}/current.key"
+
+# ==== 证书/私钥“泛型”配对校验（RSA/ECDSA 都适用）====
+local fp_cert fp_key
+fp_cert=$(openssl x509 -in "${CERT_DIR}/current.pem" -noout -pubkey | openssl sha256 | awk '{print $2}')
+fp_key=$(openssl pkey -in "${CERT_DIR}/current.key" -pubout 2>/dev/null | openssl sha256 | awk '{print $2}')
+if [[ -z "$fp_cert" || -z "$fp_key" || "$fp_cert" != "$fp_key" ]]; then
+  log_error "证书/私钥不匹配（可能仍在写入或链接未同步），取消这次热重载"
+  return 1
+fi
+
+# （可选）权限收敛
+chmod 644 "${CERT_DIR}/current.pem" 2>/dev/null || true
+chmod 600 "${CERT_DIR}/current.key" 2>/dev/null || true
+
+# === 一切 OK 再重载相关服务 ===
+reload_or_restart_services nginx sing-box
+
   echo "letsencrypt:${domain}" > "${CONFIG_DIR}/cert_mode"
 
   reload_or_restart_services nginx xray sing-box
@@ -13936,8 +13972,29 @@ switch_to_domain(){
   fi
   log_info "为 ${domain} 申请/扩展 Let's Encrypt 证书"
   request_letsencrypt_cert "$domain" || return 1
-  ln -sf "/etc/letsencrypt/live/${domain}/privkey.pem"   "${CERT_DIR}/current.key"
-  ln -sf "/etc/letsencrypt/live/${domain}/fullchain.pem" "${CERT_DIR}/current.pem"
+ # ==== 原子切链（先做 .new，再原子 mv） ====
+local le_dir="/etc/letsencrypt/live/${domain}"
+ln -sfnT "${le_dir}/fullchain.pem" "${CERT_DIR}/.current.pem.new"
+ln -sfnT "${le_dir}/privkey.pem"   "${CERT_DIR}/.current.key.new"
+mv -Tf "${CERT_DIR}/.current.pem.new" "${CERT_DIR}/current.pem"
+mv -Tf "${CERT_DIR}/.current.key.new" "${CERT_DIR}/current.key"
+
+# ==== 证书/私钥“泛型”配对校验（RSA/ECDSA 都适用）====
+local fp_cert fp_key
+fp_cert=$(openssl x509 -in "${CERT_DIR}/current.pem" -noout -pubkey | openssl sha256 | awk '{print $2}')
+fp_key=$(openssl pkey -in "${CERT_DIR}/current.key" -pubout 2>/dev/null | openssl sha256 | awk '{print $2}')
+if [[ -z "$fp_cert" || -z "$fp_key" || "$fp_cert" != "$fp_key" ]]; then
+  log_error "证书/私钥不匹配（可能仍在写入或链接未同步），取消这次热重载"
+  return 1
+fi
+
+# （可选）权限收敛
+chmod 644 "${CERT_DIR}/current.pem" 2>/dev/null || true
+chmod 600 "${CERT_DIR}/current.key" 2>/dev/null || true
+
+# === 一切 OK 再重载相关服务 ===
+reload_or_restart_services nginx sing-box
+
   fix_permissions
 
   ### FIX: Overwrite the map config file instead of using sed ###
@@ -17083,7 +17140,10 @@ repair_system_state() {
     if command -v /usr/local/bin/sing-box >/dev/null 2>&1; then
         /usr/local/bin/sing-box check -c "$sb" >/dev/null 2>&1 || log_warn "sing-box 配置校验失败（将尝试继续重启）"
     fi
-    systemctl restart sing-box || true
+    systemctl reload sing-box 2>/dev/null \
+  || /bin/sh -c '/bin/kill -HUP "$(pidof -s sing-box)" 2>/dev/null' \
+  || systemctl restart sing-box || true
+
     sleep 0.5
 
     # 7) 端口自检（与你现场排障一致）
