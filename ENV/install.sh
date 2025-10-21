@@ -2703,125 +2703,115 @@ log_info "└─ verify_module2_data()       # 验证数据完整性"
 install_xray() {
   set -euo pipefail
 
-  local DEST=/usr/local/bin
-  local BIN="$DEST/xray"
-  local WORK="/tmp/xray.$$"
-  mkdir -p "$WORK"
+  local DEST="/usr/local/bin"
+  local BIN="${DEST}/xray"
+  local WORK; WORK="$(mktemp -d /tmp/xray.XXXXXX)"
+  trap 'rm -rf "$WORK"' RETURN
 
-  # === 1) 归一化架构 → 映射为 Xray 发布包文件名后缀 ===
-  local uname_m; uname_m="$(uname -m)"
-  local pkg_arch=
-  case "$uname_m" in
-    x86_64|amd64)      pkg_arch="64" ;;                # Xray-linux-64.zip
-    aarch64|arm64)     pkg_arch="arm64-v8a" ;;         # Xray-linux-arm64-v8a.zip
-    armv7l|armv7)      pkg_arch="arm32-v7a" ;;         # Xray-linux-arm32-v7a.zip
-    armv6l|armv6)      pkg_arch="arm32-v6" ;;          # Xray-linux-arm32-v6.zip
-    i386|i686)         pkg_arch="32" ;;                # Xray-linux-32.zip
-    loongarch64)       pkg_arch="loong64" ;;           # Xray-linux-loong64.zip
-    mips64le)          pkg_arch="mips64le" ;;          # Xray-linux-mips64le.zip
-    s390x)             pkg_arch="s390x" ;;             # Xray-linux-s390x.zip
-    *) echo "Unsupported arch: $uname_m"; return 1 ;;
+  # === 架构映射 → Xray 预编译包名后缀 ===
+  local pkg_arch
+  case "$(uname -m)" in
+    x86_64|amd64)   pkg_arch="64" ;;
+    aarch64|arm64)  pkg_arch="arm64-v8a" ;;
+    armv7l|armv7)   pkg_arch="arm32-v7a" ;;
+    armv6l|armv6)   pkg_arch="arm32-v6" ;;
+    i386|i686)      pkg_arch="32" ;;
+    loongarch64)    pkg_arch="loong64" ;;
+    mips64le)       pkg_arch="mips64le" ;;
+    s390x)          pkg_arch="s390x" ;;
+    *) log_error "不支持的架构: $(uname -m)"; return 1 ;;
   esac
 
-  # === 2) 版本候选：用户指定 > GitHub latest > 我整理的稳定备选（去重） ===
-  #   - 支持：XRAY_VERSION 环境变量或函数参数指定（可写 v25.10.15 或 25.10.15）
-  local user_ver="${1:-${XRAY_VERSION:-}}"
-  local candidates=()
+  # === 版本候选列表：用户指定 > GitHub latest > 精选稳定备选 ===
+  local -a candidates=()
 
-  _push_candidate() {
-    local v="$1"
-    # 归一化：确保前面带 v
-    [[ -z "$v" || "$v" == "null" ]] && return 0
-    [[ "$v" != v* ]] && v="v${v}"
-    # 去重
-    for _x in "${candidates[@]:-}"; do [[ "$_x" == "$v" ]] && return 0; done
-    candidates+=("$v")
+  _sanitize_tag() {  # 只接受 v前缀的版本/或裸版本；其它一律丢弃
+    local t="$1"
+    [[ "$t" =~ ^[vV]?[0-9][0-9.]*([A-Za-z0-9._-]*)?$ ]] || return 1
+    [[ "$t" == v* || "$t" == V* ]] || t="v${t}"
+    printf '%s' "${t#V}"
   }
 
-  # 2.1 用户显式指定
+  _push_candidate() {
+    local t
+    t="$(_sanitize_tag "${1:-}" 2>/dev/null || true)" || true
+    [[ -n "$t" ]] || return 0
+    local x; for x in "${candidates[@]:-}"; do [[ "$x" == "$t" ]] && return 0; done
+    candidates+=("$t")
+  }
+
+  # 1) 用户显式指定（函数参数或环境变量）
+  local user_ver="${1:-${XRAY_VERSION:-}}"
   [[ -n "$user_ver" ]] && _push_candidate "$user_ver"
 
-  # 2.2 GitHub API latest（不依赖 jq，尽量少带依赖）
-  if command -v curl >/dev/null 2>&1; then
-    set +e
+  # 2) GitHub latest（用 jq 提取 tag_name，失败则忽略）
+  local latest_tag=""
+  if command -v jq >/dev/null 2>&1; then
     latest_tag="$(curl -fsSL https://api.github.com/repos/XTLS/Xray-core/releases/latest \
-                 | sed -n 's/ *"tag_name": *"\(v\{0,1\}[0-9][^"]*\)".*/\1/p' | head -n1)"
-    set -e
-    [[ -n "$latest_tag" ]] && _push_candidate "$latest_tag"
+                   | jq -r '.tag_name // empty')"
+  else
+    # 没 jq 的兜底（容错 sed）；不稳定时宁可取空
+    latest_tag="$(curl -fsSL https://api.github.com/repos/XTLS/Xray-core/releases/latest \
+                   | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]\+\)".*/\1/p' \
+                   | head -n1)"
   fi
+  [[ -n "$latest_tag" ]] && _push_candidate "$latest_tag"
 
-  # 2.3 我整理的“稳定备选”列表（按新→旧）
-  local curated_fallbacks=( "v25.10.15" "v25.9.11" "v25.8.3" "v1.8.24" )
-  for v in "${curated_fallbacks[@]}"; do _push_candidate "$v"; done
+  # 3) 我整理的稳定备选（新→旧，按需自行调整）
+  local curated_fallbacks=( v25.10.15 v25.9.11 v25.8.3 v1.8.24 )
+  local v; for v in "${curated_fallbacks[@]}"; do _push_candidate "$v"; done
 
-  # === 3) 下载并安装（逐个候选尝试） ===
+  # === 实际安装：逐个候选尝试 ===
   _try_install_one() {
-    local tag="$1" file="Xray-linux-${pkg_arch}.zip"
+    local tag="$1"
+    local file="Xray-linux-${pkg_arch}.zip"
     local url="https://github.com/XTLS/Xray-core/releases/download/${tag}/${file}"
     local zip="${WORK}/${file}"
 
-    echo "→ Trying ${tag} (${file}) ..."
-    # 重试 + 进度条简化
+    log_info "尝试安装 Xray ${tag} (${file})"
     if ! curl -fL --retry 5 --retry-all-errors --connect-timeout 8 -o "$zip" "$url"; then
-      echo "  × download failed: $url"
+      log_warn "下载失败: $url"
       return 1
     fi
 
-    # 解压并安装
-    rm -rf "${WORK}/unz" && mkdir -p "${WORK}/unz"
-    if ! command -v unzip >/dev/null 2>&1; then
-      apt-get update -y && apt-get install -y unzip >/dev/null 2>&1 || true
-    fi
+    rm -rf "${WORK}/unz"; mkdir -p "${WORK}/unz"
+    command -v unzip >/dev/null 2>&1 || { apt-get update -y && apt-get install -y unzip >/dev/null 2>&1 || true; }
     if ! unzip -o "$zip" -d "${WORK}/unz" >/dev/null; then
-      echo "  × unzip failed"
+      log_warn "解压失败: ${file}"
       return 1
     fi
+
     install -m 0755 "${WORK}/unz/xray" "$BIN"
-    # 可选：安装 geodata（若你的脚本另有 geodata 管理，可注释掉）
-    if [[ -f "${WORK}/unz/geoip.dat" ]]; then install -m 0644 "${WORK}/unz/geoip.dat" /usr/local/share/geoip.dat; fi
-    if [[ -f "${WORK}/unz/geosite.dat" ]]; then install -m 0644 "${WORK}/unz/geosite.dat" /usr/local/share/geosite.dat; fi
+    [[ -f "${WORK}/unz/geoip.dat"    ]] && install -m 0644 "${WORK}/unz/geoip.dat"    /usr/local/share/geoip.dat
+    [[ -f "${WORK}/unz/geosite.dat"  ]] && install -m 0644 "${WORK}/unz/geosite.dat"  /usr/local/share/geosite.dat
 
-    # 绑定 1024 以下端口的能力位（不依赖 root 运行也能绑定）
-    if command -v setcap >/dev/null 2>&1; then
-      setcap cap_net_bind_service=+eip "$BIN" 2>/dev/null || true
-    fi
+    command -v setcap >/dev/null 2>&1 && setcap cap_net_bind_service=+eip "$BIN" 2>/dev/null || true
 
-    # 校验版本
-    local ver_out
-    if ! ver_out="$("$BIN" -version 2>/dev/null || "$BIN" version 2>/dev/null)"; then
-      echo "  × xray not runnable after install"
-      return 1
-    fi
-    echo "$ver_out" | head -n1
+    local ver
+    ver="$("$BIN" -version 2>/dev/null || "$BIN" version 2>/dev/null || true)"
+    [[ -n "$ver" ]] || { log_warn "安装后无法运行"; return 1; }
+    log_success "$(echo "$ver" | head -n1)"
     return 0
   }
 
-  local ok=0
+  local ok=0 tag
   for tag in "${candidates[@]}"; do
-    if _try_install_one "$tag"; then
-      echo "✔ Xray installed: $tag"
-      ok=1
-      break
-    fi
+    if _try_install_one "$tag"; then ok=1; break; fi
   done
 
-  # === 4) 所有直连下载都失败 → 兜底官方安装脚本 ===
   if [[ $ok -ne 1 ]]; then
-    echo "! All direct downloads failed, fallback to official installer ..."
-    # root 模式安装；若你不想覆盖现有 unit，可去掉 -u root
-    if bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install -u root; then
+    log_warn "所有候选下载失败，回落到官方安装脚本..."
+    if bash -c "$(curl -fsSL https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install -u root; then
       "$BIN" -version || "$BIN" version || true
       ok=1
     else
-      echo "× Official installer failed as well."
+      log_error "官方安装脚本兜底失败"
       return 1
     fi
   fi
 
-  rm -rf "$WORK"
   return 0
 }
-
 
 #############################################
 # sing-box 安装函数
