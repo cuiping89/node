@@ -3416,9 +3416,13 @@ EOF
       sed -ri 's#(try_files[[:space:]]*)/sub([[:space:]]*=404;)#\1/sub-'"${MASTER_SUB_TOKEN}"'\2#' /etc/nginx/nginx.conf
     fi
 
-    # 验证Nginx配置并智能重载/启动
+    # 验证Nginx配置并智能重载/启动（用退出码判断，避免 grep 误判）
     log_info "验证Nginx配置..."
-    if nginx -t 2>&1 | grep -q "syntax is ok"; then
+    set +e
+    _nginx_test_out="$(nginx -t 2>&1)"
+    _nginx_rc=$?
+    set -e
+    if [ "${_nginx_rc}" -eq 0 ]; then
         log_success "Nginx配置验证通过"
         if systemctl is-active --quiet nginx 2>/dev/null; then
             if systemctl reload nginx 2>/dev/null; then
@@ -3440,14 +3444,13 @@ EOF
         fi
     else
         log_error "Nginx配置验证失败，请检查 /etc/nginx/nginx.conf 和 /etc/nginx/conf.d/"
-        nginx -t
+        echo "${_nginx_test_out}"
         return 1
     fi
 
     log_success "Nginx配置文件创建完成"
     return 0
 }
-
 
 # === Patch C: 监听检测增强 (辅助函数) ===
 wait_listen() {  # usage: wait_listen 11443 10085 10086 10143
