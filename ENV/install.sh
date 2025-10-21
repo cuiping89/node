@@ -2351,17 +2351,14 @@ generate_self_signed_cert() {
     # --- 关键权限修复 ---
     local NOBODY_GRP
     NOBODY_GRP="$(id -gn nobody 2>/dev/null || echo nogroup)"
+	
+	# 目录与文件权限：目录 750，公钥证书 644，私钥 600
+  chown -R root:"$nobody_group" "$CERT_DIR"
+  chmod 750 "$CERT_DIR"
+  chmod 644 "${CERT_DIR}/self-signed.pem"
+  chmod 600 "${CERT_DIR}/self-signed.key"
 
-    chown -R root:"${NOBODY_GRP}" "${CERT_DIR}" 2>/dev/null || true
-    
-    # <<< --- 修复：将目录权限设为 755 (全局可访问) --- >>>
-    chmod 755 "${CERT_DIR}" # 目录权限：root=rwx, group=r-x, other=r-x
-    
-    # <<< --- 修复：将私钥权限设为 644 (全局可读) 解决潜在的 systemd 'nobody' 用户问题 --- >>>
-    chmod 600 "${CERT_DIR}"/self-signed.key 
-    chmod 600 "${CERT_DIR}"/self-signed.pem
-    log_info "私钥权限已设置为 644 (全局可读)，目录权限 755"
-    # ---------------------
+  log_info "自签证书已生成：${CERT_DIR}/self-signed.pem / self-signed.key；目录 750，证书 644，私钥 600。"
 
     if openssl x509 -in "${CERT_DIR}/current.pem" -noout >/dev/null 2>&1; then
         log_success "自签名证书生成及权限设置完成"
@@ -2702,114 +2699,127 @@ log_info "└─ verify_module2_data()       # 验证数据完整性"
 # 输入：无
 # 输出：Xray 二进制文件和 .dat 文件
 #############################################
+
 install_xray() {
-    log_info "安装Xray核心程序 (手动下载模式)..."
+  set -euo pipefail
 
-    # 1. 清理旧的 systemd 服务（如果存在）
-    log_info "步骤 1: 尝试卸载任何现有的Xray服务..."
-    systemctl stop xray.service >/dev/null 2>&1 || true
-    systemctl disable xray.service >/dev/null 2>&1 || true
-    rm -f /etc/systemd/system/xray.service \
-          /lib/systemd/system/xray.service \
-          /usr/lib/systemd/system/xray.service \
-          /etc/systemd/system/multi-user.target.wants/xray.service
-    rm -rf /etc/systemd/system/xray.service.d
-    systemctl daemon-reload
-    systemctl reset-failed xray.service >/dev/null 2>&1 || true
-    log_success "现有Xray服务（如果存在）已清理。"
+  local DEST=/usr/local/bin
+  local BIN="$DEST/xray"
+  local WORK="/tmp/xray.$$"
+  mkdir -p "$WORK"
 
-    # 2. 确定架构
-    local system_arch
-    case "$(uname -m)" in
-        x86_64|amd64) system_arch="64" ;;
-        aarch64|arm64) system_arch="arm64-v8a" ;;
-        armv7*) system_arch="arm32-v7a" ;;
-        *)
-            log_error "不支持的系统架构: $(uname -m)"
-            return 1
-            ;;
-    esac
+  # === 1) 归一化架构 → 映射为 Xray 发布包文件名后缀 ===
+  local uname_m; uname_m="$(uname -m)"
+  local pkg_arch=
+  case "$uname_m" in
+    x86_64|amd64)      pkg_arch="64" ;;                # Xray-linux-64.zip
+    aarch64|arm64)     pkg_arch="arm64-v8a" ;;         # Xray-linux-arm64-v8a.zip
+    armv7l|armv7)      pkg_arch="arm32-v7a" ;;         # Xray-linux-arm32-v7a.zip
+    armv6l|armv6)      pkg_arch="arm32-v6" ;;          # Xray-linux-arm32-v6.zip
+    i386|i686)         pkg_arch="32" ;;                # Xray-linux-32.zip
+    loongarch64)       pkg_arch="loong64" ;;           # Xray-linux-loong64.zip
+    mips64le)          pkg_arch="mips64le" ;;          # Xray-linux-mips64le.zip
+    s390x)             pkg_arch="s390x" ;;             # Xray-linux-s390x.zip
+    *) echo "Unsupported arch: $uname_m"; return 1 ;;
+  esac
 
-    # 3. 动态获取最新 XRAY_VERSION
-    log_info "正在从 GitHub API 获取 Xray 最新版本号..."
-    local XRAY_VERSION
-    XRAY_VERSION=$(curl -s "https://api.github.com/repos/XTLS/Xray-core/releases/latest" | jq -r '.tag_name' | sed 's/v//')
-    
-    if [[ -z "$XRAY_VERSION" || "$XRAY_VERSION" == "null" ]]; then
-        log_warn "从 GitHub API 获取版本失败，回退到固定版本 v1.8.11 (这可能会导致问题)"
-        XRAY_VERSION="25.10.15" # 兜底（虽然我们知道这有问题，但聊胜于无）
-    else
-        log_success "获取到 Xray 最新版本: v${XRAY_VERSION}"
+  # === 2) 版本候选：用户指定 > GitHub latest > 我整理的稳定备选（去重） ===
+  #   - 支持：XRAY_VERSION 环境变量或函数参数指定（可写 v25.10.15 或 25.10.15）
+  local user_ver="${1:-${XRAY_VERSION:-}}"
+  local candidates=()
+
+  _push_candidate() {
+    local v="$1"
+    # 归一化：确保前面带 v
+    [[ -z "$v" || "$v" == "null" ]] && return 0
+    [[ "$v" != v* ]] && v="v${v}"
+    # 去重
+    for _x in "${candidates[@]:-}"; do [[ "$_x" == "$v" ]] && return 0; done
+    candidates+=("$v")
+  }
+
+  # 2.1 用户显式指定
+  [[ -n "$user_ver" ]] && _push_candidate "$user_ver"
+
+  # 2.2 GitHub API latest（不依赖 jq，尽量少带依赖）
+  if command -v curl >/dev/null 2>&1; then
+    set +e
+    latest_tag="$(curl -fsSL https://api.github.com/repos/XTLS/Xray-core/releases/latest \
+                 | sed -n 's/ *"tag_name": *"\(v\{0,1\}[0-9][^"]*\)".*/\1/p' | head -n1)"
+    set -e
+    [[ -n "$latest_tag" ]] && _push_candidate "$latest_tag"
+  fi
+
+  # 2.3 我整理的“稳定备选”列表（按新→旧）
+  local curated_fallbacks=( "v25.10.15" "v25.9.11" "v25.8.3" "v1.8.24" )
+  for v in "${curated_fallbacks[@]}"; do _push_candidate "$v"; done
+
+  # === 3) 下载并安装（逐个候选尝试） ===
+  _try_install_one() {
+    local tag="$1" file="Xray-linux-${pkg_arch}.zip"
+    local url="https://github.com/XTLS/Xray-core/releases/download/${tag}/${file}"
+    local zip="${WORK}/${file}"
+
+    echo "→ Trying ${tag} (${file}) ..."
+    # 重试 + 进度条简化
+    if ! curl -fL --retry 5 --retry-all-errors --connect-timeout 8 -o "$zip" "$url"; then
+      echo "  × download failed: $url"
+      return 1
     fi
 
-    local filename="Xray-linux-${system_arch}.zip"
-    local download_url="https://github.com/XTLS/Xray-core/releases/download/v${XRAY_VERSION}/${filename}"
-
-    log_info "准备下载: ${filename} (版本: v${XRAY_VERSION})"
-
-    # 4. 创建临时目录和文件
-    local temp_dir temp_file
-    temp_dir=$(mktemp -d) || { log_error "创建临时目录失败"; return 1; }
-    temp_file="${temp_dir}/${filename}"
-
-    # 5. 下载
-    log_info "📥 下载 Xray 二进制包..."
-    if ! smart_download "$download_url" "$temp_file" "binary"; then
-        log_error "❌ Xray 下载失败"
-        rm -rf "$temp_dir"
-        return 1
+    # 解压并安装
+    rm -rf "${WORK}/unz" && mkdir -p "${WORK}/unz"
+    if ! command -v unzip >/dev/null 2>&1; then
+      apt-get update -y && apt-get install -y unzip >/dev/null 2>&1 || true
     fi
-    log_success "✅ 二进制包下载成功"
+    if ! unzip -o "$zip" -d "${WORK}/unz" >/dev/null; then
+      echo "  × unzip failed"
+      return 1
+    fi
+    install -m 0755 "${WORK}/unz/xray" "$BIN"
+    # 可选：安装 geodata（若你的脚本另有 geodata 管理，可注释掉）
+    if [[ -f "${WORK}/unz/geoip.dat" ]]; then install -m 0644 "${WORK}/unz/geoip.dat" /usr/local/share/geoip.dat; fi
+    if [[ -f "${WORK}/unz/geosite.dat" ]]; then install -m 0644 "${WORK}/unz/geosite.dat" /usr/local/share/geosite.dat; fi
 
-    # 6. 解压
-    log_info "📦 解压并安装 Xray..."
-    if ! unzip -q "$temp_file" -d "$temp_dir"; then
-        log_error "解压失败"
-        rm -rf "$temp_dir"
-        return 1
+    # 绑定 1024 以下端口的能力位（不依赖 root 运行也能绑定）
+    if command -v setcap >/dev/null 2>&1; then
+      setcap cap_net_bind_service=+eip "$BIN" 2>/dev/null || true
     fi
 
-    # 7. 安装二进制文件
-    if ! install -m 0755 "${temp_dir}/xray" "/usr/local/bin/xray"; then
-        log_error "安装失败（复制 xray 到 /usr/local/bin 失败）"
-        rm -rf "$temp_dir"
-        return 1
+    # 校验版本
+    local ver_out
+    if ! ver_out="$("$BIN" -version 2>/dev/null || "$BIN" version 2>/dev/null)"; then
+      echo "  × xray not runnable after install"
+      return 1
     fi
-
-    # 8. 安装 .dat 文件
-    local dat_dir="/usr/local/share/xray"
-    mkdir -p "$dat_dir"
-    if ! install -m 0644 "${temp_dir}/geoip.dat" "$dat_dir/" || \
-       ! install -m 0644 "${temp_dir}/geosite.dat" "$dat_dir/"; then
-        log_warn " .dat 文件安装失败 (非致命错误)"
-    else
-        log_success ".dat 文件安装成功"
-    fi
-
-    # 9. 清理
-    rm -rf "$temp_dir"
-
-    # 10. 验证
-    if ! /usr/local/bin/xray version >/dev/null 2>&1; then
-        log_error "Xray 安装后验证失败"
-        return 1
-    fi
-
-    local version_info
-    version_info=$(/usr/local/bin/xray version | head -n1)
-    log_success "🎉 Xray 安装完成!"
-    log_success "📌 版本信息: $version_info"
-
-    # 11. 创建日志目录 (保持不变)
-    mkdir -p /var/log/xray
-    chown root:root /var/log/xray
-    chmod 0755 /var/log/xray
-    touch /var/log/xray/access.log /var/log/xray/error.log
-    chown root:root /var/log/xray/*.log
-    chmod 0644 /var/log/xray/*.log
-    log_success "Xray log directory created and permissions set for root user."
-
+    echo "$ver_out" | head -n1
     return 0
+  }
+
+  local ok=0
+  for tag in "${candidates[@]}"; do
+    if _try_install_one "$tag"; then
+      echo "✔ Xray installed: $tag"
+      ok=1
+      break
+    fi
+  done
+
+  # === 4) 所有直连下载都失败 → 兜底官方安装脚本 ===
+  if [[ $ok -ne 1 ]]; then
+    echo "! All direct downloads failed, fallback to official installer ..."
+    # root 模式安装；若你不想覆盖现有 unit，可去掉 -u root
+    if bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install -u root; then
+      "$BIN" -version || "$BIN" version || true
+      ok=1
+    else
+      echo "× Official installer failed as well."
+      return 1
+    fi
+  fi
+
+  rm -rf "$WORK"
+  return 0
 }
 
 
@@ -3851,9 +3861,10 @@ EOF
 
   # ⑦ 写入并启用 systemd 服务 (调用 Patch B 的函数)
   create_or_update_xray_unit # <-- 调用 Patch B 的 unit 创建函数
-
-  log_success "Xray 服务已启动并监听所有端口"
-  return 0
+  
+# [ANCHOR:FUNC-CONFIGURE_XRAY-END]
+log_info "Xray 配置与 unit 已更新；统一在模块收尾阶段启动与验证。"
+return 0
 } # configure_xray 函数结束
 
 # // ANCHOR: [FUNC-CONFIGURE_SING_BOX]
@@ -3956,7 +3967,7 @@ configure_sing_box() {
 
     # 创建正确的 systemd 服务文件 (No change needed here)
     log_info "创建sing-box系统服务..."
-cat > /etc/systemd/system/sing-box.service << EOF
+cat > /etc/systemd/system/sing-box.service <<'EOF'
 [Unit]
 Description=sing-box service
 Documentation=https://sing-box.sagernet.org
@@ -3968,17 +3979,22 @@ Type=simple
 User=root
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_SYS_PTRACE
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_SYS_PTRACE
+NoNewPrivileges=true
+LimitNOFILE=1048576
+
+# 只保留一条 ExecStart（任选固定路径即可）
 ExecStart=/usr/local/bin/sing-box run -c /etc/edgebox/config/sing-box.json
-# 先按常规 HUP 主进程；拿不到 MAINPID 时用 pidof 兜底，避免 reload 失败触发 stop/start 抖动
-ExecReload=/bin/kill -HUP $MAINPID
-ExecReload=/bin/sh -c '/bin/kill -HUP "$(pidof -s sing-box)" 2>/dev/null || true'
+
+# 先向 $MAINPID 发送 HUP；若 MAINPID 不可用，再用进程名兜底
+ExecReload=+/bin/sh -c 'kill -HUP $MAINPID || pkill -HUP -x sing-box'
+
 Restart=on-failure
 RestartSec=5s
-LimitNOFILE=infinity
 
 [Install]
 WantedBy=multi-user.target
 EOF
+
 
     # systemctl daemon-reload # Moved to end of module 3
     # systemctl enable sing-box >/dev/null 2>&1 # Moved to end of module 3
