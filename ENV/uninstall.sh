@@ -10,6 +10,18 @@
 # - 安全第一: 明确不处理防火墙规则，避免用户SSH失联。
 # =====================================================================
 
+# === 卸载行为开关（可通过环境变量覆盖） ===
+# NGINX_RESTORE_MODE=minimal|stop|restore|keep
+#  - minimal: 写入最小默认配置（建议默认）
+#  - stop:    不写配置，停止服务，留给下一次安装接管
+#  - restore: 若有备份才恢复；无备份不动
+#  - keep:    完全不动 Nginx 主配置（不推荐）
+NGINX_RESTORE_MODE="${NGINX_RESTORE_MODE:-minimal}"
+
+# 是否恢复 sysctl / limits 的备份（yes|no），默认不恢复
+RESTORE_SYSCTL="${RESTORE_SYSCTL:-no}"
+RESTORE_LIMITS="${RESTORE_LIMITS:-no}"
+
 set -euo pipefail
 
 # --- 自动提权到 root（兼容 bash <(curl ...) 场景） -------------------
@@ -99,7 +111,8 @@ run_pre_checks_and_confirm(){
   echo -e "  - ${RED}停止并禁用${NC} Nginx, Xray, sing-box 等相关服务。"
   echo -e "  - ${RED}移除${NC} systemd 单元文件、crontab 定时任务和 edgeboxctl 工具。"
   echo -e "  - ${RED}删除${NC} EdgeBox 的配置文件、日志和 Web 资产文件。"
-  echo -e "  - ${GREEN}恢复${NC} Nginx, sysctl, limits.conf 的原始配置（如果存在备份）。"
+  echo -e "  - 处理 Nginx 主配置：模式 ${GREEN}${NGINX_RESTORE_MODE}${NC}（可用 NGINX_RESTORE_MODE 覆盖）"
+  echo -e "  - sysctl / limits.conf：默认${YELLOW}不恢复备份${NC}（RESTORE_SYSCTL/RESTORE_LIMITS=yes 可开启）"
   echo
   echo -e "为保护您的数据，以下内容将${GREEN}被保留${NC}:"
   echo -e "  - ✅ 流量统计数据目录 (${YELLOW}$(detect_traffic_real_path)${NC})"
@@ -211,15 +224,31 @@ clean_filesystem(){
 # 步骤5: 恢复系统配置
 restore_system_configs(){
   title "正在恢复系统配置..."
-  # 恢复 Nginx
-  local latest_nginx_bak
-  latest_nginx_bak="$(ls -t /etc/nginx/nginx.conf.bak.* 2>/dev/null | head -n1 || true)"
-  if [[ -f "$latest_nginx_bak" ]]; then
-    cp -f "$latest_nginx_bak" /etc/nginx/nginx.conf
-    ok "已从 $latest_nginx_bak 恢复 Nginx 配置。"
-  elif grep -q 'EdgeBox Nginx 配置文件' /etc/nginx/nginx.conf 2>/dev/null; then
-    # 如果没有备份但当前配置是 EdgeBox 的，写入一个最小化的默认配置
-    cat > /etc/nginx/nginx.conf <<'NGINX_MINIMAL_CONFIG'
+
+  # ---------- Nginx 主配置 ----------
+  case "$NGINX_RESTORE_MODE" in
+    restore)
+      local latest_nginx_bak
+      latest_nginx_bak="$(ls -t /etc/nginx/nginx.conf.bak.* 2>/dev/null | head -n1 || true)"
+      if [[ -f "$latest_nginx_bak" ]]; then
+        cp -f "$latest_nginx_bak" /etc/nginx/nginx.conf
+        ok "已从 $latest_nginx_bak 恢复 Nginx 配置。"
+      else
+        ok "未找到 Nginx 备份，保持现状（不写入历史配置）。"
+      fi
+      ;;
+    keep)
+      ok "按 keep 模式：保留现有 Nginx 配置，不做改动。"
+      ;;
+    stop)
+      systemctl stop nginx >/dev/null 2>&1 || true
+      ok "按 stop 模式：已停止 Nginx 服务，不写入配置。"
+      ;;
+    minimal|*)
+      # 仅当当前文件标记为 EdgeBox 生成 或 内容缺失时，才写最小默认配置
+      if grep -q 'EdgeBox Nginx 配置文件' /etc/nginx/nginx.conf 2>/dev/null \
+         || [[ ! -s /etc/nginx/nginx.conf ]]; then
+        cat > /etc/nginx/nginx.conf <<'NGINX_MINIMAL_CONFIG'
 user www-data;
 worker_processes auto;
 pid /run/nginx.pid;
@@ -239,31 +268,52 @@ http {
   }
 }
 NGINX_MINIMAL_CONFIG
-    ok "未找到 Nginx 备份，已写入最小化的默认配置。"
-  else
-    ok "保留现有 Nginx 配置（非 EdgeBox 配置或无备份）。"
-  fi
-  
-  # 恢复 sysctl.conf
-  if [[ -f /etc/sysctl.conf.bak ]]; then
-    cp -f /etc/sysctl.conf.bak /etc/sysctl.conf
-    sysctl -p >/dev/null 2>&1 || true
-    ok "已从 /etc/sysctl.conf.bak 恢复内核参数。"
-  else
-    ok "未找到 sysctl.conf 备份，无需恢复。"
+        ok "已写入最小化 Nginx 默认配置（minimal）。"
+      else
+        ok "检测到非 EdgeBox 的现有 Nginx 配置，按 minimal 模式保持不动。"
+      fi
+      ;;
+  esac
+
+  # 清掉 EdgeBox 专属片段与 override（不碰用户自有片段）
+  remove_paths /etc/nginx/conf.d/edgebox_stream_map.conf \
+               /etc/nginx/conf.d/edgebox_passcode.conf \
+               /etc/nginx/stream.d/edgebox_stream_map.conf \
+               /etc/systemd/system/nginx.service.d/edgebox*.conf
+  systemctl daemon-reload >/dev/null 2>&1 || true
+
+  # 重载/重启（仅在 minimal|restore|keep 模式下尝试；stop 模式跳过）
+  if [[ "$NGINX_RESTORE_MODE" != "stop" ]]; then
+    systemctl reload nginx >/dev/null 2>&1 \
+      || systemctl restart nginx >/dev/null 2>&1 \
+      || warn "Nginx 重载/重启失败，请手动检查（先运行 'nginx -t'）。"
+    ok "Nginx 服务已尝试重载。"
   fi
 
-  # 恢复 limits.conf
-  if [[ -f /etc/security/limits.conf.bak ]]; then
-    cp -f /etc/security/limits.conf.bak /etc/security/limits.conf
-    ok "已从 /etc/security/limits.conf.bak 恢复文件描述符限制。"
+  # ---------- sysctl.conf ----------
+  if [[ "${RESTORE_SYSCTL}" == "yes" && -f /etc/sysctl.conf.bak ]]; then
+    cp -f /etc/sysctl.conf.bak /etc/sysctl.conf
+    sysctl -p >/dev/null 2>&1 || true
+    ok "已从备份恢复 sysctl.conf。"
   else
-    ok "未找到 limits.conf 备份，无需恢复。"
+    # 只删除 EdgeBox 标记段，避免带回历史调优
+    if [[ -f /etc/sysctl.conf ]]; then
+      sed -i '/^# *EdgeBox .* BEGIN/,/^# *EdgeBox .* END/d' /etc/sysctl.conf || true
+      sysctl -p >/dev/null 2>&1 || true
+      ok "已清理 sysctl 中 EdgeBox 标记段（未恢复备份）。"
+    fi
   fi
-  
-  # 重新加载 Nginx
-  systemctl reload nginx >/dev/null 2>&1 || systemctl restart nginx >/dev/null 2>&1 || warn "Nginx 重载/重启失败，请手动检查。"
-  ok "Nginx 服务已尝试重载。"
+
+  # ---------- limits.conf ----------
+  if [[ "${RESTORE_LIMITS}" == "yes" && -f /etc/security/limits.conf.bak ]]; then
+    cp -f /etc/security/limits.conf.bak /etc/security/limits.conf
+    ok "已从备份恢复 limits.conf。"
+  else
+    if [[ -f /etc/security/limits.conf ]]; then
+      sed -i '/^# *EdgeBox .* BEGIN/,/^# *EdgeBox .* END/d' /etc/security/limits.conf || true
+      ok "已清理 limits.conf 中 EdgeBox 标记段（未恢复备份）。"
+    fi
+  fi
 }
 
 # 步骤6: 清理网络配置（nftables）
