@@ -1032,6 +1032,7 @@ setup_directories() {
         "/var/log/xray:755:root:root"
         "${WEB_ROOT}:755:www-data:www-data"
         "${SNI_CONFIG_DIR}:755:root:root"
+		"/var/www/edgebox/status:755:root:root"
     )
 
     local errors=0
@@ -4975,7 +4976,7 @@ get_protocols_status() {
     )
     declare -A protocol_meta
     protocol_meta["VLESS-Reality"]="reality|抗审查/伪装访问，综合性能最佳|极佳★★★★★|443|tcp"
-    protocol_meta["VLESS-gRPC"]="grpc|CDN流量伪装，穿透复杂网络环境|极佳★★★★★|443|tcp"
+    protocol_meta["VLESS-gRPC"]="grpc|CDN流量伪装，穿透复杂网络环境|良好★★★★☆|443|tcp"
     protocol_meta["VLESS-WebSocket"]="ws|兼容性最强，可套CDN或Web服务器|良好★★★★☆|443|tcp"
     protocol_meta["Trojan-TLS"]="trojan|模拟HTTPS流量，协议轻量高效|良好★★★★☆|443|tcp"
     protocol_meta["Hysteria2"]="hysteria2|暴力发包(UDP)，专为不稳定网络加速|一般★★★☆☆|443|udp"
@@ -16166,7 +16167,9 @@ CURL_RETRY_DELAY="${CURL_RETRY_DELAY:-1}"
 
 curl_json() {
   local p="$1" u="$2"
-  curl -fsL -s \
+  local npx=()
+  [[ -z "$p" ]] && npx=(--noproxy '*')   # 仅屏蔽环境代理，显式 --proxy/--socks5 不受影响
+  curl -fsL -s "${npx[@]}" \
        --connect-timeout "$CURL_CONN_TIMEOUT" \
        --max-time "$CURL_MAX_TIME" \
        --retry "$CURL_RETRY" \
@@ -17050,6 +17053,9 @@ main() {
 # --- 模块4: 后台、监控与运维工具 ---
 show_progress 6 10 "安装后台面板和监控脚本"
 execute_module4 || { log_error "模块4执行失败"; exit 1; }
+
+# 安装并初始化 IP 质量评分栈（生成 /usr/local/bin/edgebox-ipq.sh 与 /status/ipq_*.json）
+install_ipq_stack
 
 	if ! setup_traffic_randomization; then
     log_error "流量特征随机化系统设置失败"
