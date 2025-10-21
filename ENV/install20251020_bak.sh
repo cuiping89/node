@@ -843,20 +843,23 @@ install_dependencies() {
     log_info "安装系统依赖（幂等性检查）..."
 
     # 本地化包管理器相关变量，避免污染全局
-    local PKG_MANAGER INSTALL_CMD UPDATE_CMD
+    local PKG_MANAGER
+    local -a INSTALL_CMD UPDATE_CMD
 
     if command -v apt-get >/dev/null 2>&1; then
         PKG_MANAGER="apt"
-        INSTALL_CMD="DEBIAN_FRONTEND=noninteractive apt-get install -y"
-        UPDATE_CMD="apt-get update"
+        UPDATE_CMD=(env -u http_proxy -u https_proxy -u all_proxy -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY \
+                    apt-get update)
+        INSTALL_CMD=(env -u http_proxy -u https_proxy -u all_proxy -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY \
+                     DEBIAN_FRONTEND=noninteractive apt-get install -y)
     elif command -v yum >/dev/null 2>&1; then
         PKG_MANAGER="yum"
-        INSTALL_CMD="yum install -y"
-        UPDATE_CMD="yum makecache"
+        UPDATE_CMD=(yum makecache -y)
+        INSTALL_CMD=(yum install -y)
     elif command -v dnf >/dev/null 2>&1; then
         PKG_MANAGER="dnf"
-        INSTALL_CMD="dnf install -y"
-        UPDATE_CMD="dnf makecache"
+        UPDATE_CMD=(dnf makecache -y)
+        INSTALL_CMD=(dnf install -y)
     else
         log_error "不支持的包管理器"
         return 1
@@ -887,7 +890,9 @@ install_dependencies() {
 
     # 更新索引（失败不中断）
     log_info "更新包索引..."
-    eval "$UPDATE_CMD" >/dev/null 2>&1 || log_warn "包索引更新失败，继续安装"
+    if ! "${UPDATE_CMD[@]}" >/dev/null 2>&1; then
+        log_warn "包索引更新失败，继续安装"
+    fi
 
     # 幂等安装
     local failed_packages=()
@@ -896,7 +901,7 @@ install_dependencies() {
             log_info "${pkg} 已正确安装"
         else
             log_info "安装 ${pkg}..."
-            if eval "$INSTALL_CMD $pkg" >/dev/null 2>&1; then
+            if "${INSTALL_CMD[@]}" "$pkg" >/dev/null 2>&1; then
                 if is_package_properly_installed "$pkg"; then
                     log_success "${pkg} 安装并验证成功"
                 else
@@ -922,7 +927,6 @@ install_dependencies() {
 
     return 0
 }
-
 
 # [统一版] 判断包是否“已正确安装”（解耦全局PKG_MANAGER）
 #############################################
@@ -955,9 +959,16 @@ is_package_properly_installed() {
         python3-certbot-nginx) actual="certbot" ;;
         msmtp-mta)             actual="msmtp"  ;;
         bsd-mailx)             actual="mail"   ;;
-        libnginx-mod-stream)
-            nginx -T 2>/dev/null | grep -q "stream" && return 0 || return 1
-            ;;
+		libnginx-mod-stream)
+        # 只要动态模块文件在就算“已安装”（避免 grep 配置误判）
+        if [[ -f /usr/lib/nginx/modules/ngx_stream_module.so || -f /usr/lib64/nginx/modules/ngx_stream_module.so ]]; then
+            return 0
+        fi
+        # 如果已经启用（出现 load_module 行）也视为已就绪
+        nginx -T 2>/dev/null | grep -qE 'load_module.*ngx_stream_module\.so' && return 0
+        return 1
+        ;;
+
         *) actual="$pkg" ;;
     esac
     [[ -n "$actual" ]] && command -v "$actual" >/dev/null 2>&1 && return 0
@@ -3416,6 +3427,18 @@ EOF
       sed -ri 's#(location[[:space:]]*=[[:space:]]*)/sub([[:space:]]*\{)#\1/sub-'"${MASTER_SUB_TOKEN}"'\2#' /etc/nginx/nginx.conf
       sed -ri 's#(try_files[[:space:]]*)/sub([[:space:]]*=404;)#\1/sub-'"${MASTER_SUB_TOKEN}"'\2#' /etc/nginx/nginx.conf
     fi
+	
+	# 确保已启用 stream 动态模块（Debian/Ubuntu 系）
+    if [[ -f /usr/share/nginx/modules-available/mod-stream.conf ]]; then
+        mkdir -p /etc/nginx/modules-enabled
+        ln -sfn /usr/share/nginx/modules-available/mod-stream.conf \
+                /etc/nginx/modules-enabled/50-mod-stream.conf
+    # 若没有 modules-available，则直接写一份启用文件
+    elif [[ -f /usr/lib/nginx/modules/ngx_stream_module.so || -f /usr/lib64/nginx/modules/ngx_stream_module.so ]]; then
+        mkdir -p /etc/nginx/modules-enabled
+        printf 'load_module modules/ngx_stream_module.so;\n' \
+            > /etc/nginx/modules-enabled/50-mod-stream.conf
+    fi
 
     # 验证Nginx配置并智能重载/启动（用退出码判断，避免 grep 误判）
     log_info "验证Nginx配置..."
@@ -5469,6 +5492,37 @@ OUTPUT_JSON="${TRAFFIC_DIR}/protocol-health.json"
 TEMP_JSON="${OUTPUT_JSON}.tmp"
 LOG_FILE="${LOG_DIR}/health-monitor.log"
 
+# === 运行模式与防抖 ===
+# HEALTH_MODE: repair（检测+受控修复）/ monitor（仅检测不修复）/ off（关闭健康监控）
+HEALTH_MODE="${HEALTH_MODE:-repair}"
+
+# 连续失败 N 次才触发修复（防抖）
+FAIL_THRESHOLD=${FAIL_THRESHOLD:-3}
+FAIL_WINDOW_SEC=${FAIL_WINDOW_SEC:-120}
+
+# 失败计数存放目录
+STATE_DIR="/run/edgebox/health"
+mkdir -p "$STATE_DIR"
+
+# 失败计数工具函数
+_fail_file() { echo "$STATE_DIR/${1}.fails"; }
+
+record_fail() {  # $1=key
+  local key="$1" now; now=$(date +%s)
+  local f; f="$(_fail_file "$key")"
+  printf '%s\n' "$now" >> "$f"
+  # 只保留窗口内的失败记录
+  awk -v now="$now" -v win="$FAIL_WINDOW_SEC" '{ if (now-$1<=win) print }' "$f" > "$f.tmp" 2>/dev/null || true
+  mv -f "$f.tmp" "$f"
+}
+
+fail_count() {  # $1=key -> echo count
+  local key="$1" now; now=$(date +%s)
+  local f; f="$(_fail_file "$key")"
+  [[ -f "$f" ]] || { echo 0; return; }
+  awk -v now="$now" -v win="$FAIL_WINDOW_SEC" 'BEGIN{c=0}{ if (now-$1<=win) c++ }END{print c}' "$f"
+}
+
 # 自愈配置
 MAX_RESTART_ATTEMPTS=3
 RESTART_COOLDOWN=300
@@ -6523,23 +6577,32 @@ check_and_heal_protocol() {
 
     log_info "检测结果: status=$status, response_time=$response_time, reason=$failure_reason"
 
-    # 判断是否需要自愈
-    local repair_result=""
-    if [[ "$status" == "down" ]] || [[ "$status" == "degraded" ]] || [[ "$status" == "firewall_blocked" ]]; then
-        log_warn "⚠️  协议 $protocol_fullname 异常,触发自愈流程"
+# 判断是否需要自愈（加入运行模式 + 防抖阈值）
+local repair_result=""
+if [[ "$status" == "down" || "$status" == "degraded" || "$status" == "firewall_blocked" ]]; then
+    # 记录一次失败（以协议 key 为维度）
+    record_fail "proto_${key}"
+    local fc; fc=$(fail_count "proto_${key}")
+
+    if [[ "$HEALTH_MODE" == "off" || "$HEALTH_MODE" == "monitor" ]]; then
+        log_warn "检测到异常，但按 HEALTH_MODE=${HEALTH_MODE} 不执行自愈（fails=${fc}/${FAIL_THRESHOLD}）"
+    elif (( fc < FAIL_THRESHOLD )); then
+        log_warn "检测到异常，但未达到防抖阈值：${fc}/${FAIL_THRESHOLD}（窗口 ${FAIL_WINDOW_SEC}s）"
+    else
+        log_warn "⚠️  协议 $protocol_fullname 异常，触发自愈（HEALTH_MODE=repair，fails=${fc}/${FAIL_THRESHOLD}）"
         repair_result=$(heal_protocol_failure "$key" "$failure_reason")
+        # 成功发起自愈后，清空该协议的失败计数
+        : > "$STATE_DIR/proto_${key}.fails" 2>/dev/null || true
 
         # 自愈后重新检测
-        if [[ "$repair_result" == repaired:* ]]; then
-            log_info "自愈完成,重新检测..."
-            sleep 3
-            test_result=$(test_protocol_performance "$key")
-            status="${test_result%%:*}"
-            rest="${test_result#*:}"
-            response_time="${rest%%:*}"
-            failure_reason="${rest#*:}"
-        fi
+        local retest
+        retest=$(test_protocol_performance "$key")
+        status="${retest%%:*}"
+        rest="${retest#*:}"
+        response_time="${rest%%:*}"
+        failure_reason="${rest#*:}"
     fi
+fi
 
     # 计算健康分数
     local health_score
@@ -6622,29 +6685,31 @@ generate_health_report() {
     local recommended_protocols=$(echo "$protocols_health" | jq -r '[.[] | select(.recommendation == "primary" or .recommendation == "recommended") | .protocol] | join(", ")')
 
     # 输出最终 JSON
-    jq -n \
-      --argjson protocols "$protocols_health" \
-      --argjson services "$services_status" \
-      --argjson total "$total" \
-      --argjson healthy "$healthy" \
-      --argjson degraded "$degraded" \
-      --argjson down "$down" \
-      --argjson avg_score "$avg_score" \
-      --arg recommended "$recommended_protocols" \
-      --arg generated_at "$(date -Is)" \
-      '{
-         summary: {
-           total: ($total | tonumber),
-           healthy: ($healthy | tonumber),
-           degraded: ($degraded | tonumber),
-           down: ($down | tonumber),
-           avg_health_score: ($avg_score | tonumber)
-         },
-         recommended: ($recommended | split(", ") | map(select(. != ""))),
-         protocols: $protocols,
-         services: $services,
-         generated_at: $generated_at
-       }' > "$TEMP_JSON"
+jq -n \
+  --argjson protocols "$protocols_health" \
+  --argjson services "$services_status" \
+  --argjson total "$total" \
+  --argjson healthy "$healthy" \
+  --argjson degraded "$degraded" \
+  --argjson down "$down" \
+  --argjson avg_score "$avg_score" \
+  --arg recommended "$recommended_protocols" \
+  --arg generated_at "$(date -Is)" \
+  --arg mode "$HEALTH_MODE" \
+  '{
+     metrics: {
+       total: ($total|tonumber),
+       healthy: ($healthy|tonumber),
+       degraded: ($degraded|tonumber),
+       down: ($down|tonumber),
+       avg_health_score: ($avg_score|tonumber)
+     },
+     recommended: ($recommended | split(", ") | map(select(. != ""))),
+     mode: $mode,
+     protocols: $protocols,
+     services: $services,
+     generated_at: $generated_at
+   }' > "$TEMP_JSON"
 
     if [[ -s "$TEMP_JSON" ]]; then
         mv "$TEMP_JSON" "$OUTPUT_JSON"
