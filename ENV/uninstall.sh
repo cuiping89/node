@@ -164,7 +164,6 @@ clean_filesystem(){
   if [[ -d /etc/edgebox ]]; then
     shopt -s dotglob nullglob
     for item in /etc/edgebox/*; do
-      # 如果当前项是真实的流量数据目录，则跳过
       if [[ -n "$TRAFFIC_REAL_PATH" && "$item" == "$TRAFFIC_REAL_PATH" ]]; then
         continue
       fi
@@ -173,7 +172,7 @@ clean_filesystem(){
     shopt -u dotglob nullglob
     ok "已清理 /etc/edgebox/ 目录（保留流量数据）。"
   fi
-  
+
   # 清理其他相关目录
   remove_paths /etc/xray /usr/local/etc/xray \
                /etc/sing-box /usr/local/etc/sing-box \
@@ -181,14 +180,33 @@ clean_filesystem(){
                /var/log/edgebox /var/log/xray \
                /var/log/edgebox-install.log /var/log/edgebox-traffic-alert.log
 
-  # 清理 Web 目录下的链接和残留文件
+  # 清理 Web 目录下的链接和残留文件（补齐订阅路径）
   remove_paths "${WEB_ROOT}/status" "${WEB_ROOT}/traffic"
+  # 订阅：兼容早期 /sub 与新版 /sub-<token>
+  remove_paths "${WEB_ROOT}/sub"
+  # 注意：glob 可能匹配不到时不报错
+  for f in "${WEB_ROOT}"/sub-*; do
+    [[ -e "$f" ]] && rm -f -- "$f" && ok "已移除: $f"
+  done
+
   if [[ -n "$TRAFFIC_REAL_PATH" && -d "$TRAFFIC_REAL_PATH" ]]; then
     find "$TRAFFIC_REAL_PATH" -maxdepth 1 -type f \( -name '*.html' -o -name '*.css' -o -name '*.js' \) -exec rm -f {} \; 2>/dev/null || true
     remove_paths "${TRAFFIC_REAL_PATH}/assets"
     ok "已清理流量目录中的前端页面与样式文件。"
   fi
+
+  # 额外清理 EdgeBox 的 Nginx 片段（不会动你自有片段的前提：只删我们命名的文件）
+  remove_paths /etc/nginx/conf.d/edgebox_stream_map.conf \
+               /etc/nginx/conf.d/edgebox_passcode.conf \
+               /etc/nginx/stream.d/edgebox_stream_map.conf
+
+  # 可选：清理 EdgeBox 的邮件配置（只在识别到 EdgeBox 标记时删除，避免误删自有配置）
+  if [[ -f /etc/msmtprc ]] && grep -q 'EdgeBox 邮件配置' /etc/msmtprc 2>/dev/null; then
+    rm -f /etc/msmtprc && ok "已移除 EdgeBox 邮件配置 /etc/msmtprc"
+  fi
+  remove_paths /etc/edgebox/config/email-setup.md
 }
+
 
 # 步骤5: 恢复系统配置
 restore_system_configs(){
