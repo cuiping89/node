@@ -13712,23 +13712,19 @@ check_domain_resolution(){
   log_success "域名解析检查通过"
 }
 
+
 request_letsencrypt_cert(){
   local domain="$1"
-  
-# === 终极修复：创建一个 certbot pre-hook 脚本来清理代理环境变量 ===
-local pre_hook_script=$(mktemp)
-cat > "$pre_hook_script" << EOF
-#!/bin/sh
-unset http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY
-EOF
-chmod +x "$pre_hook_script"
-# ====================================================================
+
+  # <<< No pre-hook script needed here >>>
 
   [[ -z "$domain" ]] && { log_error "缺少域名"; return 1; }
 
   # 先检查 apex 是否解析;子域 trojan.<domain> 解析不到就先不申请它
   if ! getent hosts "$domain" >/dev/null; then
-    log_error "${domain} 未解析到本机,无法申请证书"; return 1
+    log_error "${domain} 未解析到本机,无法申请证书"
+    # <<< Removed pre-hook cleanup >>>
+    return 1
   fi
 
   local trojan="trojan.${domain}"
@@ -13751,53 +13747,76 @@ chmod +x "$pre_hook_script"
 
   # 3) 选择验证方式
   local CERTBOT_AUTH="--nginx"
-  if ! command -v nginx >/dev/null 2>&1 || ! dpkg -l | grep -q '^ii\s\+python3-certbot-nginx'; then
+  # Check if nginx plugin dependencies are met
+  if ! command -v nginx >/dev/null 2>&1 || ! dpkg -l | grep -q 'python3-certbot-nginx'; then
     CERTBOT_AUTH="--standalone --preferred-challenges http"
   fi
 
-  # 4) 执行签发
-if [[ "$CERTBOT_AUTH" == "--nginx" ]]; then
-    env -u ALL_PROXY -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy certbot certonly --nginx ${expand} \
+  # 4) 执行签发 (<<< CORE FIX: Prefix certbot calls with env -u ... >>>)
+  local -a _NOPROXY_ENV_FLAGS=(
+    -u ALL_PROXY -u all_proxy
+    -u HTTP_PROXY -u http_proxy
+    -u HTTPS_PROXY -u https_proxy
+  )
+
+  if [[ "$CERTBOT_AUTH" == "--nginx" ]]; then
+    # <<< FIX applied here >>>
+    env "${_NOPROXY_ENV_FLAGS[@]}" \
+      certbot certonly --nginx ${expand} \
       --cert-name "${domain}" "${cert_args[@]}" \
-      -n --agree-tos --register-unsafely-without-email || return 1
-else
+      -n --agree-tos --register-unsafely-without-email \
+      || { log_error "Certbot (nginx) failed"; return 1; } # Simplified error handling
+  else
     # standalone 需临时释放 80 端口
+    log_info "Using standalone mode, temporarily stopping Nginx..."
     systemctl stop nginx >/dev/null 2>&1 || true
-    env -u ALL_PROXY -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy certbot certonly --standalone --preferred-challenges http --http-01-port 80 ${expand} \
+    # <<< FIX applied here >>>
+    env "${_NOPROXY_ENV_FLAGS[@]}" \
+      certbot certonly --standalone --preferred-challenges http --http-01-port 80 ${expand} \
       --cert-name "${domain}" "${cert_args[@]}" \
-      -n --agree-tos --register-unsafely-without-email || { systemctl start nginx >/dev/null 2>&1 || true; return 1; }
+      -n --agree-tos --register-unsafely-without-email \
+      || { log_error "Certbot (standalone) failed"; systemctl start nginx >/dev/null 2>&1 || true; return 1; } # Simplified error handling
+    log_info "Standalone validation complete, restarting Nginx..."
     systemctl start nginx >/dev/null 2>&1 || true
-fi
+  fi
 
-  # 切换软链并热加载
-  [[ -f "/etc/letsencrypt/live/${domain}/fullchain.pem" && -f "/etc/letsencrypt/live/${domain}/privkey.pem" ]] \
-    || { log_error "证书文件缺失"; return 1; }
+  # 切换软链并热加载 (Ensure cert files exist after successful certbot run)
+  local le_dir="/etc/letsencrypt/live/${domain}"
+  if [[ ! -f "${le_dir}/fullchain.pem" || ! -f "${le_dir}/privkey.pem" ]]; then
+      log_error "证书文件在签发后未找到!"
+      # <<< Removed pre-hook cleanup >>>
+      return 1
+  fi
 
-# ==== 原子切链（先做 .new，再原子 mv） ====
-local le_dir="/etc/letsencrypt/live/${domain}"
-ln -sfnT "${le_dir}/fullchain.pem" "${CERT_DIR}/.current.pem.new"
-ln -sfnT "${le_dir}/privkey.pem"   "${CERT_DIR}/.current.key.new"
-mv -Tf "${CERT_DIR}/.current.pem.new" "${CERT_DIR}/current.pem"
-mv -Tf "${CERT_DIR}/.current.key.new" "${CERT_DIR}/current.key"
+  # ==== 原子切链（先做 .new，再原子 mv） ====
+  ln -sfnT "${le_dir}/fullchain.pem" "${CERT_DIR}/.current.pem.new"
+  ln -sfnT "${le_dir}/privkey.pem"   "${CERT_DIR}/.current.key.new"
+  # Ensure target directory exists
+  mkdir -p "$(dirname "${CERT_DIR}/current.pem")"
+  mv -Tf "${CERT_DIR}/.current.pem.new" "${CERT_DIR}/current.pem"
+  mv -Tf "${CERT_DIR}/.current.key.new" "${CERT_DIR}/current.key"
 
-# ==== 证书/私钥“泛型”配对校验（RSA/ECDSA 都适用）====
-local fp_cert fp_key
-fp_cert=$(openssl x509 -in "${CERT_DIR}/current.pem" -noout -pubkey | openssl sha256 | awk '{print $2}')
-fp_key=$(openssl pkey -in "${CERT_DIR}/current.key" -pubout 2>/dev/null | openssl sha256 | awk '{print $2}')
-if [[ -z "$fp_cert" || -z "$fp_key" || "$fp_cert" != "$fp_key" ]]; then
-  log_error "证书/私钥不匹配（可能仍在写入或链接未同步），取消这次热重载"
-  return 1
-fi
+  # ==== 证书/私钥“泛型”配对校验（RSA/ECDSA 都适用）====
+  local fp_cert fp_key
+  fp_cert=$(openssl x509 -in "${CERT_DIR}/current.pem" -noout -pubkey | openssl sha256 | awk '{print $2}')
+  fp_key=$(openssl pkey -in "${CERT_DIR}/current.key" -pubout 2>/dev/null | openssl sha256 | awk '{print $2}')
+  if [[ -z "$fp_cert" || -z "$fp_key" || "$fp_cert" != "$fp_key" ]]; then
+    log_error "证书/私钥不匹配（可能仍在写入或链接未同步），取消这次热重载"
+    # <<< Removed pre-hook cleanup >>>
+    return 1
+  fi
 
-# （可选）权限收敛
-chmod 644 "${CERT_DIR}/current.pem" 2>/dev/null || true
-chmod 600 "${CERT_DIR}/current.key" 2>/dev/null || true
+  # （可选）权限收敛
+  chmod 644 "${CERT_DIR}/current.pem" 2>/dev/null || true
+  chmod 600 "${CERT_DIR}/current.key" 2>/dev/null || true
 
-# === 一切 OK 再重载相关服务 ===
-reload_or_restart_services nginx sing-box
+  # === 一切 OK 再重载相关服务 (Moved after cert_mode update) ===
 
+  # Update cert_mode *before* final service reload
   echo "letsencrypt:${domain}" > "${CONFIG_DIR}/cert_mode"
 
+  # Reload all relevant services *after* symlinks and cert_mode are updated
+  log_info "Reloading Nginx, Xray, and Sing-box with new certificate..."
   reload_or_restart_services nginx xray sing-box
 
   if [[ ${have_trojan} -eq 1 ]]; then
@@ -13805,10 +13824,11 @@ reload_or_restart_services nginx sing-box
   else
     log_success "Let's Encrypt 证书已生效(仅 ${domain};trojan 子域暂未包含)"
   fi
-  
-  # === 终极修复：清理临时的 pre-hook 脚本 ===
-  rm -f "$pre_hook_script"
+
+  # <<< No pre-hook cleanup needed >>>
+  return 0 # Indicate success
 }
+
 
 write_subscription() {
     local content="$1"
