@@ -795,12 +795,19 @@ reload_or_restart_services() {
         command -v nginx >/dev/null 2>&1 && nginx -t >/dev/null 2>&1 || { log_error "[hotfix] nginx config check failed (nginx -t)"; failed+=("$svc"); continue; }
         systemctl reload nginx 2>/dev/null || { action="restart"; systemctl restart nginx; }
         ;;
-      sing-box|sing-box.service|sing-box@*)
+		sing-box|sing-box.service|sing-box@*)
+        # 保留配置校验，避免把坏配置重启进程
         if command -v sing-box >/dev/null 2>&1; then
-          local sb_cfg="$CONFIG_DIR/sing-box.json"
-          [ -f "$sb_cfg" ] && ! sing-box check -c "$sb_cfg" >/dev/null 2>&1 && { log_error "[hotfix] sing-box config check failed"; failed+=("$svc"); continue; }
+          local sb_cfg="${CONFIG_DIR}/sing-box.json"
+          if [[ -f "$sb_cfg" ]] && ! sing-box check -c "$sb_cfg" >/dev/null 2>&1; then
+            log_error "[hotfix] sing-box 配置校验失败（sing-box check）"
+            failed+=("$svc")
+            continue
+          fi
         fi
-        systemctl reload "$svc" 2>/dev/null || systemctl kill -s HUP "$svc" 2>/dev/null || { action="restart"; systemctl restart "$svc"; }
+        # 最小改动：对 sing-box 始终执行 restart，避免 reload/HUP 后证书/UDP 未即时切换
+        action="restart"
+        systemctl restart "$svc"
         ;;
       xray|xray.service|xray@*)
         if command -v xray >/dev/null 2>&1; then
