@@ -13093,20 +13093,9 @@ show_sub(){
   fi
   [[ -n "$MASTER_SUB_TOKEN" ]] && SUB_PATH="sub-${MASTER_SUB_TOKEN}"
 
-  # 获取证书模式并生成URL
-  local cert_mode=$(get_current_cert_mode 2>/dev/null || echo "self-signed")
-  local sub_url=""
-  if [[ "$cert_mode" == "self-signed" ]]; then
-    sub_url="http://${SERVER_IP}/${SUB_PATH}"
-  else
-    local domain="${cert_mode##*:}"
-    if [[ -n "$domain" && "$domain" != "self-signed" ]]; then
-      sub_url="https://${domain}/${SUB_PATH}"
-    else
-      local server_ip=$(jq -r '.server_ip // "YOUR_IP"' "${CONFIG_DIR}/server.json" 2>/dev/null)
-      sub_url="http://${server_ip}/${SUB_PATH}"
-    fi
-  fi
+  # 统一规范订阅地址：固定使用 IP + HTTP（80）
+  local server_ip=$(jq -r '.server_ip // "YOUR_IP"' "${CONFIG_DIR}/server.json" 2>/dev/null)
+  local sub_url="http://${server_ip}/${SUB_PATH}"
 
   echo
   echo -e "${YELLOW}# 订阅URL${NC}${DIM}(复制此订阅地址到客户端)${NC}"
