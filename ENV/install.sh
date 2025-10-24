@@ -1648,7 +1648,9 @@ ensure_xray_dns_alignment() {
       | .routing.rules = ((.routing.rules // []) | map(select(.port != "53")))
       # 再置顶添加一条 53 端口走 resi-proxy（兜住明文 DNS）
       | .routing.rules = ([{"type":"field","port":"53","outboundTag":"resi-proxy"}] + .routing.rules)
-    ' "$cfg" > "$tmp" && mv "$tmp" "$cfg" || { rm -f "$tmp"; log_error "写入 Xray DNS(代理) 失败"; return 1; }
+    ' "$cfg" > "$tmp" \
+    && /usr/local/bin/xray -test -format json -c "$tmp" \
+    && mv "$tmp" "$cfg" || { rm -f "$tmp"; log_error "写入 Xray DNS(代理) 失败（新配置未通过自检或落盘失败，未覆盖原配置）"; return 1; }
 
   else
     log_info "DNS 对齐：检测到 VPS 直出，将把 Xray 的 DNS 设为直连（含 DoH 直连）。"
@@ -1661,13 +1663,14 @@ ensure_xray_dns_alignment() {
         ]
       # 清除我们可能加过的 53→resi-proxy 规则
       | .routing.rules = ((.routing.rules // []) | map(select(.port != "53")))
-    ' "$cfg" > "$tmp" && mv "$tmp" "$cfg" || { rm -f "$tmp"; log_error "写入 Xray DNS(直连) 失败"; return 1; }
+    ' "$cfg" > "$tmp" \
+    && /usr/local/bin/xray -test -format json -c "$tmp" \
+    && mv "$tmp" "$cfg" || { rm -f "$tmp"; log_error "写入 Xray DNS(直连) 失败（新配置未通过自检或落盘失败，未覆盖原配置）"; return 1; }
   fi
 
-  # 轻量热加载，失败再重启
+  # 轻量热加载，失败再重启（原逻辑保持不变）
   systemctl reload xray 2>/dev/null || systemctl restart xray 2>/dev/null || true
 }
-
 
 
 
@@ -13920,73 +13923,92 @@ PLAIN
 }
 
 # ==============================================================================
-# 最终修复版 update_sni_domain() 函数
-# 功能: 原子化更新SNI，确保后端、前端数据源和UI完全同步
+# [PATCH @FUNC-CREATE_ENHANCED_EDGEBOXCTL:update_sni_domain]
+# 精准修复：在落盘之前做输入校验 + xray -test 自检，防止空/坏配置上线
 # ==============================================================================
 update_sni_domain() {
     local new_domain="$1"
-    
-    # <<< 关键修复点：增加函数入口的输入验证 >>>
+
+    # 入口校验：拒绝空域名
     if [[ -z "$new_domain" ]]; then
         log_error "[SNI] update_sni_domain: 拒绝使用空域名进行更新！操作已中止。"
         return 1
     fi
+    # （可选）轻量格式校验：包含点号、允许字母数字连字符
+    if ! [[ "$new_domain" =~ ^[A-Za-z0-9.-]+\.[A-Za-z0-9.-]+$ ]]; then
+        log_error "[SNI] update_sni_domain: 域名格式看起来不对：$new_domain"
+        return 1
+    fi
 
     local grace_hours="${EB_SNI_GRACE_HOURS:-24}"
-    local xray_tmp="${XRAY_CONFIG}.tmp"
+    # 兼容全局覆写：优先用已有 XRAY_CONFIG，否则退回 CONFIG_DIR/xray.json
+    local XRAY_CONFIG="${XRAY_CONFIG:-${CONFIG_DIR}/xray.json}"
+    local xray_tmp; xray_tmp="$(mktemp -p /tmp xray.sni.XXXXXX)"
     local server_json_tmp="${CONFIG_DIR}/server.json.tmp"
-    local old_domain=$(get_current_sni_domain)
+    local old_domain
+    old_domain="$(get_current_sni_domain 2>/dev/null || true)"
 
-    # 如果新旧域名相同，则无需操作
     if [[ "$new_domain" == "$old_domain" ]]; then
         log_info "[SNI] 新域名与当前域名相同 ($new_domain)，无需更新。"
         return 0
     fi
 
     log_info "[SNI] 无缝轮换开始：${old_domain:-<无>} -> ${new_domain}（宽限期 ${grace_hours}h）"
-    cp "$XRAY_CONFIG" "${XRAY_CONFIG}.backup.$(date +%s)" 2>/dev/null || true
+    [[ -f "$XRAY_CONFIG" ]] && cp -f "$XRAY_CONFIG" "${XRAY_CONFIG}.backup.$(date +%s)" 2>/dev/null || true
 
-  # 2. 原子化更新 xray.json (后端服务配置文件)
+    # 2) 生成“候选配置”（永远只写到临时文件）
     if jq --arg new "$new_domain" --arg old "${old_domain:-}" '
-      .inbounds |= map(
-        if .tag == "vless-reality" then
-          .streamSettings.realitySettings.dest = ($new + ":443") |
-          .streamSettings.realitySettings.serverNames = (
-            ([$new, $old] + (.streamSettings.realitySettings.serverNames // []))
-            | reduce .[] as $x ( [];
-                if ($x|type=="string") and ($x|length>0) and (index($x) == null)
-                then . + [$x] else . end )
-          )
+      .inbounds |= ( ( . // [] ) | map(
+        if (.tag? // "") == "vless-reality" then
+          .streamSettings |= (if type=="object" then . else {} end)
+          | .streamSettings.realitySettings |= (if type=="object" then . else {} end)
+          | .streamSettings.realitySettings.dest = ($new + ":443")
+          | .streamSettings.realitySettings.serverNames =
+              (
+                ([$new,$old] + (.streamSettings.realitySettings.serverNames // []))
+                | map(select(type=="string" and length>0))
+                | reduce .[] as $x ( []; if index($x)==null then . + [$x] else . end )
+              )
         else . end
-      )
+      ))
     ' "$XRAY_CONFIG" > "$xray_tmp"; then
-        mv "$xray_tmp" "$XRAY_CONFIG"
-        log_success "[SNI] Xray 核心配置已更新。"
-    else
-        log_error "[SNI] 生成新 Xray 配置失败"; rm -f "$xray_tmp"; return 1
-    fi
 
-    # 3. 同步更新 server.json (前端数据源之一)
+        # 3) 覆盖前自检：只要失败就不落盘
+        if /usr/local/bin/xray -test -format json -c "$xray_tmp" >/dev/null 2>&1; then
+            install -m 644 "$xray_tmp" "$XRAY_CONFIG"
+            log_success "[SNI] Xray 核心配置已更新。"
+        else
+            log_error "[SNI] 生成的新 Xray 配置验证失败！保留原配置。"
+            /usr/local/bin/xray -test -format json -c "$xray_tmp" || true
+            rm -f "$xray_tmp"
+            return 1
+        fi
+    else
+        log_error "[SNI] 使用 jq 生成新 Xray 配置失败。"
+        rm -f "$xray_tmp"
+        return 1
+    fi
+    rm -f "$xray_tmp" 2>/dev/null || true
+
+    # 4) 同步更新 server.json（保持原逻辑）
     if jq --arg new_sni "$new_domain" '
-        # 确保.reality对象存在
         if .reality == null then .reality = {} else . end |
         .reality.sni = $new_sni |
         .updated_at = (now | todate)
     ' "${CONFIG_DIR}/server.json" > "$server_json_tmp"; then
-        mv "$server_json_tmp" "${CONFIG_DIR}/server.json"
+        mv -f "$server_json_tmp" "${CONFIG_DIR}/server.json"
         log_success "[SNI] server.json 状态已同步更新。"
     else
         log_warn "[SNI] server.json 同步更新失败。"; rm -f "$server_json_tmp"
     fi
 
-    # 4. 重载服务以应用新配置
+    # 5) 重载服务（保留原行为）
     if ! reload_or_restart_services xray; then
         log_error "[SNI] Xray 服务重载失败，请手动检查！"
-        # 注意：此处可以选择是否回滚，为安全起见，暂时只报错提示
         return 1
     fi
 
-    # 5. 刷新订阅文件 (确保新订阅立即生效)
+    # 6) 刷新订阅（保留原行为）
     log_info "[SNI] 正在刷新订阅链接..."
     local mode; mode="$(get_current_cert_mode 2>/dev/null || echo self-signed)"
     if [[ "$mode" == "self-signed" ]]; then
@@ -13996,7 +14018,7 @@ update_sni_domain() {
         [[ -n "$domain" ]] && regen_sub_domain "$domain" || regen_sub_ip
     fi
 
-    # 6. 安排清理旧SNI (24小时后)
+    # 7) 安排清理旧 SNI（仅当 old!=new），在 payload 里也加自检（微改一行，风险极低）
     if [[ -n "$old_domain" && "$old_domain" != "$new_domain" ]]; then
         local jq_cleanup_filter='
           .inbounds |= map(
@@ -14006,36 +14028,24 @@ update_sni_domain() {
             else . end
           )'
         local b64; b64="$(printf "%s" "$jq_cleanup_filter" | (base64 -w0 2>/dev/null || base64))"
-
         local at_payload
-        at_payload="b64='$b64'; \
-filter=\$(echo \"\$b64\" | base64 -d); \
-jqbin=\$(command -v jq); \
-cfg='${XRAY_CONFIG}'; \
-tmp=\"\${cfg}.tmp\"; \
+        at_payload="b64='$b64'; filter=\$(echo \"\$b64\" | base64 -d); jqbin=\$(command -v jq); cfg='${XRAY_CONFIG}'; tmp=\"\${cfg}.tmp\"; \
 \"\$jqbin\" --arg old '$old_domain' \"\$filter\" \"\$cfg\" > \"\$tmp\" \
-  && mv \"\$tmp\" \"\$cfg\" \
-  && (systemctl reload xray 2>/dev/null || systemctl restart xray 2>/dev/null) >/dev/null 2>&1"
-
-if command -v systemd-run >/dev/null 2>&1; then
-    systemd-run --on-active="${grace_hours}h" --timer-property=Persistent=true --property=Type=oneshot \
-      /bin/bash -lc "$at_payload" >/dev/null 2>&1 \
-      && log_success "[SNI] 已安排 ${grace_hours}h 后清理旧 SNI: $old_domain"
-else
-    log_warn "[SNI] systemd-run 不可用：不会自动清理旧 SNI。手动清理命令如下："
-    echo "bash -lc \"${at_payload//\"/\\\"}\" &"
-fi
+&& /usr/local/bin/xray -test -format json -c \"\$tmp\" \
+&& mv \"\$tmp\" \"\$cfg\" \
+&& (systemctl reload xray 2>/dev/null || systemctl restart xray 2>/dev/null) >/dev/null 2>&1"
+        if command -v systemd-run >/dev/null 2>&1; then
+            systemd-run --on-active="${grace_hours}h" --timer-property=Persistent=true --property=Type=oneshot /bin/bash -lc "$at_payload" >/dev/null 2>&1 \
+              && log_success "[SNI] 已安排 ${grace_hours}h 后清理旧 SNI: $old_domain"
+        else
+            log_warn "[SNI] systemd-run 不可用：不会自动清理旧 SNI。"
+        fi
     fi
 
-    # 7. 立即刷新Web面板数据 (最终确保UI同步)
-    log_info "[SNI] 正在刷新Web面板数据以同步SNI变更..."
-    if [[ -x "${SCRIPTS_DIR}/dashboard-backend.sh" ]]; then
-        bash "${SCRIPTS_DIR}/dashboard-backend.sh" --now >/dev/null 2>&1 || log_warn "[SNI] 面板数据刷新失败，将在下个周期自动更新。"
-    fi
-
-    log_success "[SNI] ✅ 无缝轮换完成：新 SNI 已生效，旧 SNI 在宽限期内继续可用"
+    log_success "[SNI] ✅ 无缝轮换完成：新 SNI 已生效"
     return 0
 }
+# ===================[END PATCH:update_sni_domain]===================
 
 switch_to_domain(){
   local domain="$1"
@@ -14536,8 +14546,6 @@ show_shunt_status() {
 }
 
 
-# 在 edgeboxctl 文件中的 setup_outbound_resi 函数之前添加：
-
 ensure_xray_dns_alignment() {
   local cfg="/etc/edgebox/config/xray.json"
   local tmp="$(mktemp)"
@@ -14558,14 +14566,16 @@ ensure_xray_dns_alignment() {
         {"address":"https://8.8.8.8/dns-query","outboundTag":"resi-proxy"}
       ] |
       .routing.rules = (
-        (.routing.rules // []) | 
+        (.routing.rules // []) |
         map(select(.port != "53")) |
         [{"type":"field","port":"53","outboundTag":"resi-proxy"}] + .
       )
-    ' "$cfg" > "$tmp" && mv "$tmp" "$cfg" || { 
-      rm -f "$tmp"; 
-      log_error "写入 Xray DNS(代理) 失败"; 
-      return 1; 
+    ' "$cfg" > "$tmp" \
+    && /usr/local/bin/xray -test -format json -c "$tmp" \
+    && mv "$tmp" "$cfg" || {
+      rm -f "$tmp";
+      log_error "写入 Xray DNS(代理) 失败（新配置未通过自检或落盘失败，未覆盖原配置）";
+      return 1;
     }
   else
     log_info "DNS 对齐：检测到 VPS 直出，将 DNS 设为直连"
@@ -14576,18 +14586,21 @@ ensure_xray_dns_alignment() {
         {"address":"https://8.8.8.8/dns-query"}
       ] |
       .routing.rules = (
-        (.routing.rules // []) | 
+        (.routing.rules // []) |
         map(select(.port != "53"))
       )
-    ' "$cfg" > "$tmp" && mv "$tmp" "$cfg" || { 
-      rm -f "$tmp"; 
-      log_error "写入 Xray DNS(直连) 失败"; 
-      return 1; 
+    ' "$cfg" > "$tmp" \
+    && /usr/local/bin/xray -test -format json -c "$tmp" \
+    && mv "$tmp" "$cfg" || {
+      rm -f "$tmp";
+      log_error "写入 Xray DNS(直连) 失败（新配置未通过自检或落盘失败，未覆盖原配置）";
+      return 1;
     }
   fi
 
   systemctl reload xray 2>/dev/null || systemctl restart xray 2>/dev/null || true
 }
+
 
 setup_outbound_vps() {
     log_info "配置VPS全量出站模式..."
