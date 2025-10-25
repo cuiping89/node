@@ -2299,24 +2299,130 @@ setup_singbox_permissions() {
 # Nginx配置 (保持原有逻辑,仅移除被删协议)
 #############################################
 
+
 configure_nginx() {
     log_info "配置Nginx..."
-    
-    # 加载配置
+
+    # 加载配置并准备路径
     ensure_config_loaded || return 1
-    
-    # 生成Nginx主配置
-    # (注意: 这里需要保留完整的stream配置和HTTP端点配置)
-    # 由于篇幅限制,这部分您可以直接从原脚本复制configure_nginx函数
-    # 只需要删除以下upstream:
-    # - grpc相关 (10085)
-    # - ws相关 (10086)  
-    # - trojan相关 (10143)
-    
-    # 仅保留reality的upstream (11443)
-    
-    log_warn "Nginx配置部分请从原脚本的configure_nginx()函数复制,并删除grpc/ws/trojan相关配置"
-    
+    mkdir -p /etc/nginx/conf.d
+
+    # 根据系统存在的用户动态选择 Nginx 运行用户（优先 www-data，其次 nginx，不存在则省略 user 指令）
+    local _ng_user=""
+    if getent passwd "${WEB_USER}" >/dev/null 2>&1; then
+        _ng_user="${WEB_USER}"
+    elif getent passwd nginx >/dev/null 2>&1; then
+        _ng_user="nginx"
+    fi
+
+    # 生成 nginx.conf（支持 stream + http；443/TCP 直接透传给 Xray 11443；443/UDP 由 sing-box 占用）
+    {
+        if [[ -n "$_ng_user" ]]; then
+            echo "user $_ng_user;"
+        else
+            echo "# user auto;"
+        fi
+        cat <<'NGX_CORE'
+worker_processes auto;
+pid /run/nginx.pid;
+
+events { worker_connections 1024; }
+
+stream {
+    # Reality TCP 透传到 127.0.0.1:11443（Xray）
+    upstream xray_reality {
+        server 127.0.0.1:11443;
+    }
+    server {
+        listen 443 reuseport;            # 仅TCP，UDP由sing-box监听
+        proxy_pass xray_reality;
+        proxy_timeout 10m;
+        proxy_connect_timeout 10s;
+        # ssl_preread on;  # 如需SNI分流可开启
+    }
+}
+
+http {
+    include       mime.types;
+    default_type  application/octet-stream;
+
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+    keepalive_timeout 65;
+    server_tokens off;
+
+    # 基本压缩
+    gzip on;
+    gzip_comp_level 5;
+    gzip_min_length 1024;
+    gzip_types text/plain text/css application/json application/javascript application/xml text/javascript application/xml+rss;
+
+    client_max_body_size 8m;
+
+    # 默认站点：提供面板前端文件、健康检查、订阅与 traffic 数据
+    server {
+        listen 80 default_server;
+        server_name _;
+        root /var/www/html;
+        index index.html;
+
+        # 健康检查
+        location = /health {
+            default_type text/plain;
+            return 200 "ok
+";
+        }
+
+        # 静态文件
+        location / {
+            try_files $uri $uri/ =404;
+        }
+
+        # 订阅（若 /etc/edgebox/traffic/sub.txt 存在则提供；否则返回404）
+        location /sub {
+            alias /etc/edgebox/traffic/sub.txt;
+            default_type text/plain;
+            add_header Access-Control-Allow-Origin *;
+            try_files $uri =404;
+        }
+
+        # 暴露 traffic 目录中的 JSON（供前端读取）
+        location /traffic/ {
+            alias /etc/edgebox/traffic/;
+            autoindex off;
+            default_type application/json;
+            add_header Access-Control-Allow-Origin *;
+        }
+    }
+}
+NGX_CORE
+    } > /etc/nginx/nginx.conf
+
+    # 基础站点目录
+    mkdir -p /var/www/html
+    [[ -f /var/www/html/index.html ]] || cat > /var/www/html/index.html <<'HTML'
+<!doctype html>
+<html lang="zh-CN">
+  <head><meta charset="utf-8"><title>EdgeBox</title></head>
+  <body>
+    <h1>EdgeBox 已安装</h1>
+    <p>健康检查：<a href="/health">/health</a></p>
+    <p>订阅：<a href="/sub">/sub</a>（若文件存在）</p>
+    <p>流量数据：<a href="/traffic/traffic.json">/traffic/traffic.json</a></p>
+  </body>
+</html>
+HTML
+
+    # 测试并生效
+    if ! nginx -t; then
+        log_error "Nginx 配置测试失败"; return 1
+    fi
+    systemctl enable nginx >/dev/null 2>&1 || true
+    if ! systemctl restart nginx; then
+        systemctl start nginx || true
+    fi
+    log_success "Nginx配置完成"
     return 0
 }
 
