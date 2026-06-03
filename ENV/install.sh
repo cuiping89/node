@@ -16400,7 +16400,10 @@ local SUB_URL="http://${show_host}/${SUB_PATH}"
     echo -e  "${CYAN} 核心访问信息${NC}"
     # 打印时使用已验证的 DASHBOARD_PASSCODE 变量
     echo -e  "  🌐 控制面板: ${PURPLE}http://${server_ip}/traffic/?passcode=${DASHBOARD_PASSCODE}${NC}   ← 密码(${DASHBOARD_PASSCODE})可修改"
-	echo -e  "  🔗 订阅 URL: ${PURPLE}${SUB_URL}${NC}"
+    echo -e  "  🔗 订阅 URL (v2rayN/v2rayNG):  ${PURPLE}${SUB_URL}${NC}"
+    echo -e  "  🔗 订阅 URL (Clash Verge):    ${PURPLE}${SUB_URL}.clash${NC}"
+    echo -e  "  🔗 订阅 URL (sing-box/Nekobox): ${PURPLE}${SUB_URL}.singbox${NC}"
+    echo -e  "  🔗 订阅 URL (Base64 兼容):    ${PURPLE}${SUB_URL}.base64${NC}"
 
     echo -e  "\n${CYAN}默认模式：${NC}"
     echo -e  "  证书模式: ${PURPLE}IP模式（自签名证书）${NC}"
@@ -16448,29 +16451,21 @@ local SUB_URL="http://${show_host}/${SUB_PATH}"
     # 关键端口监听（TCP/UDP 分开检测；端口取脚本变量，带兜底）
     echo -e "\n${CYAN}关键端口监听：${NC}"
 
-    # TCP 443：TLS/Reality/WS/gRPC 复用
-    if ss -tln 2>/dev/null | awk '{print $4}' | grep -qE '[:.]443($|[^0-9])'; then
-        echo -e "  ✅ 443/tcp   TLS/Reality/WS/gRPC 复用"
+    # v4.0.0: 端口监听检测
+    # 用 grep -q ":PORT " 简化匹配（兼容 ss 不同版本的列布局）
+    # TCP 443: Nginx 流量分发 (Reality + WS)
+    if ss -tln 2>/dev/null | grep -qE "[:.]443[[:space:]]"; then
+        echo -e "  ✅ 443/tcp   TLS/Reality/WS 流量分发"
     else
-        echo -e "  ⚠️  443/tcp   TLS/Reality/WS/gRPC 复用（未监听）"
+        echo -e "  ⚠️  443/tcp   TLS/Reality/WS（未监听）"
     fi
 
-    # Hysteria2（UDP）
-    H2_PORT="${PORT_HYSTERIA2:-443}"
-    if ss -uln 2>/dev/null | awk '{print $5}' | grep -qE "[:.]${H2_PORT}($|[^0-9])"; then
-        echo -e "  ✅ ${H2_PORT}/udp   Hysteria2"
+    # Hysteria2 (UDP/443)
+    if ss -uln 2>/dev/null | grep -qE "[:.]443[[:space:]]"; then
+        echo -e "  ✅ 443/udp   Hysteria2"
     else
-        echo -e "  ⚠️  ${H2_PORT}/udp   Hysteria2（未监听）"
+        echo -e "  ⚠️  443/udp   Hysteria2（未监听）"
     fi
-
-    # TUIC（UDP）
-    TUIC_PORT_REAL="${PORT_TUIC:-2053}"
- if ss -uln 2>/dev/null | awk '{print $5}' | grep -qE "[:.]${TUIC_PORT_REAL}($|[^0-9])"; then
-        echo -e "  ✅ ${TUIC_PORT_REAL}/udp   TUIC"
-    else
-        echo -e "  ⚠️  ${TUIC_PORT_REAL}/udp   TUIC（未监听）"
-    fi
-
 }
 
 # 简化版清理函数
