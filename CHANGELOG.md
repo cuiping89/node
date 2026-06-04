@@ -1,5 +1,118 @@
 # Changelog
 
+## v4.6.0-rc2 — 2nd security audit fixes
+
+External audit returned 8 P1 issues + P2 cleanup after rc1 VPS verification.
+All P1 fixed; selected P2 cleanup applied.
+
+### P1#1: switch-to-domain didn't update server.json.cert → CDN broken
+`switch_to_domain` wrote `cert_mode` file (`letsencrypt:<domain>`) but left
+`server.json.cert.mode = "self-signed"` from initial install. Since `cdn enable`
+prerequisite check reads `server.json.cert.mode`, the user would see CDN refuse
+even after successfully switching to LE domain mode.
+
+Fixed: `switch_to_domain` and `switch_to_ip` both now also update
+`server.json.cert.{mode,domain,auto_renew}` via jq. `chmod 600 + chown root:root`
+applied after each update.
+
+### P1#2: edgeboxctl operations let protected files drop back to 644
+`server.json`, `xray.json`, `sing-box.json` contain Reality private key, VLESS
+UUIDs, HY2 password, dashboard secrets, master sub token. Initial install set
+them 600, but ~10 management commands wrote tmp files and `mv`d them in,
+leaving 644 (umask default). Audit identified all sites.
+
+Fixed: added `secure_replace()` helper (install -o root -g root -m 600).
+Patched every `mv` site that lands on a protected file:
+- edgeboxctl: dashboard passcode, SNI update (was `install -m 644` → 600),
+  Reality key rotation, SID rotation, VPS/resi shunt mode, smart shunt mode,
+  sing-box reset, cdn_modify_xray (was explicit `chmod 644`)
+- edgebox-traffic-randomize: HY2 config randomize, randomization reset
+- xray.json.template now 600
+
+Grep verification: 0 occurrences of "chmod 644.*protected_file" remain.
+
+### P1#3: dashboard share_link generation had 3 bugs
+`dashboard-backend.sh:get_protocols_status()` reimplemented URI building:
+- IP-mode Hysteria2 missing `insecure=1` → self-signed cert clients reject
+- IP-mode WS used server IP for SNI (should be `ws.edgebox.internal`)
+- CDN mode used `host_or_ip` not `cdn.host`
+
+Fixed: dashboard no longer builds URIs. Reads `${CONFIG_DIR}/subscription.txt`
+(produced correctly by `lib/subscription.sh`) and matches lines by trailing
+`#EdgeBox-REALITY` / `#EdgeBox-HYSTERIA2` / `#EdgeBox-WS` / `#EdgeBox-WS-CDN`
+tags into an associative array.
+
+### P1#4: alert.env loaded via `source` — Webhook URLs broke
+`lib/alert.sh` and `edgeboxctl alert show` both used `source $ALERT_ENV`,
+which lets Shell interpret `&`, `#`, spaces, quotes, `$` in webhook URLs —
+URLs got truncated or accidentally executed commands.
+
+Fixed: replaced both `source` sites with safe parsers.
+- `lib/alert.sh`: inline `_eb_load_alert_env()` parses `KEY=VAL` with bash
+  regex `^([A-Z_][A-Z0-9_]*)=(.*)$`, strips quoted values, whitelist of
+  permitted keys, uses `printf -v` (no eval).
+- `edgeboxctl alert show`: replaced `source` subshell with `grep -qE`
+  presence checks on whitelist of keys.
+
+File format unchanged (still KEY=VAL .env), only reader logic changed.
+
+### P1#5: reload_or_restart_services silently swallowed failures
+Old code: `systemctl reload || systemctl restart; log_info "重启了"`. Even
+if both failed, function returned 0 because `log_info` succeeded. Audit's
+`cdn enable` nginx reload was the same pattern.
+
+Fixed: function returns 1 if both reload AND restart fail, dumps last 20
+lines of `systemctl status`. `cdn_enable` and `cdn_disable` nginx reload
+calls now check return code and trigger `cdn_rollback` on failure.
+
+### P1#8: No logrotate config — logs eventually fill disk
+Xray access/error logs + nginx stream log + EdgeBox install/alert/edgebox
+logs all written continuously. No `/etc/logrotate.d/edgebox` shipped.
+Matches "service slowly degrades after months of uptime" failure pattern.
+
+Fixed: install.sh `setup_logrotate()` writes `/etc/logrotate.d/edgebox`:
+- `/var/log/xray/*.log` — daily, rotate 14, compress, postrotate reload xray
+- `/var/log/nginx/stream.log` — daily, rotate 14, postrotate reload nginx
+- `/var/log/edgebox*.log` + `/var/log/edgebox/*.log` — daily, rotate 14
+Validates with `logrotate -d` syntax check. Wired into main().
+
+### Upgrade preservation
+Old `edgeboxctl upgrade` only preserved `server.json`. Re-install wiped
+`cert_mode`, `alert.env` (Webhook/Token), `shunt/` config, and Let's Encrypt
+cert symlinks. Domain-mode users would lose CDN state and need to re-enter
+all alerting config.
+
+Fixed: `edgeboxctl upgrade` now also stashes these to `/tmp/edgebox-keep-state/`
+before bootstrap, and restores them after install completes. If `cert_mode`
+indicates `letsencrypt:<domain>`, also re-links `current.pem`/`current.key`
+to LE live cert and syncs `server.json.cert.{mode,domain,auto_renew}`.
+
+`install.sh:execute_module2` also reads old `server.json`'s `cert`, `cdn`,
+`reality.sni` fields when keep file exists, so newly-written `server.json`
+retains these states.
+
+### P2 cleanup
+- sing-box version comment now explicit: "兼容性锁定 1.12.8" (client config
+  still uses pre-1.13.0 schema)
+- edgeboxctl: removed duplicate `log_info/log_warn/log_error/log_success`
+  definitions at line ~397 (kept the originals at ~100)
+- Distro support narrowed to Debian 11+/Ubuntu 20.04+. CentOS/RHEL/Rocky/
+  AlmaLinux explicitly rejected with clear error (code hardcodes www-data,
+  dpkg, modules-enabled — won't actually work on those distros)
+- `setup_firewall_rollback` no longer called twice in main() (the inner
+  configure_firewall already invokes it)
+- `dashboard.html` "(80, 443, 2053)" → "(80, 443)"
+- nginx.conf header updated v4.0.0 → v4.6.0-rc2; removed Trojan/gRPC
+  comment in stream map
+- Removed deprecated `location = /sub` (v3 era pre-token URL)
+
+### Deferred (not in rc2)
+- P1#6 HTTPS for dashboard/subscription (user accepted current HTTP +
+  6-digit passcode + Cookie secret as the trade-off)
+- P1#7 Chart.js/QRCode.js bundling (low priority; v4.7 target)
+
+# Changelog
+
 ## v4.6.0-rc1 — Security audit fixes
 
 External security audit identified 8 P0 issues. All fixed in rc1.

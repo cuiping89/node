@@ -1,7 +1,8 @@
-# EdgeBox v4.6.0-rc1
+# EdgeBox v4.6.0-rc2
 
-**Release candidate** — security audit completed, awaiting real-VPS verification.
-See `CHANGELOG.md` for the full list of P0 fixes.
+**Release candidate** — 2nd security audit (P1 + P2) completed.
+P1 fixes applied; awaiting real-VPS verification.
+See `CHANGELOG.md` for the full list.
 
 Multi-protocol proxy node manager with CDN relay, health monitoring,
 and modular installer.
