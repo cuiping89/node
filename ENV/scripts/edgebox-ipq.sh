@@ -7,7 +7,7 @@ mkdir -p "$STATUS_DIR"
 ts(){ date -Is; }
 jqget(){ jq -r "$1" 2>/dev/null || echo ""; }
 
-# v4.6.0-rc3 (审核 P1#11): 不再用 eval — 改用全局数组传递参数
+# v4.6.0 (审核 P1#11): 不再用 eval — 改用全局数组传递参数
 # 旧版本: build_proxy_args 返回字符串，curl 命令通过 eval 展开
 #         代理 URL 含 & # 空格 等会破坏，且形成命令注入风险
 # 新版本: 写入全局数组 PROXY_ARGS，调用方用 "${PROXY_ARGS[@]}" 安全展开
@@ -50,7 +50,7 @@ curl_json() {
 }
 
 test_bandwidth_correct() {
-  # v4.6.0-rc3 (审核 P1#11): 用数组而非 eval
+  # v4.6.0 (审核 P1#11): 用数组而非 eval
   # 调用方先 build_proxy_args $url，本函数读取全局 PROXY_ARGS
   local test_type="${1:-}"
   local dl_speed=0 ul_speed=0
@@ -133,7 +133,7 @@ get_proxy_url(){ local s="${SHUNT_DIR}/state.json"
 
 collect_one(){
   local V="$1" J1="{}" J2="{}" J3="{}" ok1=false ok2=false ok3=false
-  # v4.6.0-rc3 (审核 P1#11): 调用方在 main() 已通过 build_proxy_args 设置 PROXY_ARGS
+  # v4.6.0 (审核 P1#11): 调用方在 main() 已通过 build_proxy_args 设置 PROXY_ARGS
   # curl_json 内部使用 "${PROXY_ARGS[@]}" 安全展开
 
   if out=$(curl_json "${PROXY_ARGS[@]}" "https://ipinfo.io/json"); then J1="$out"; ok1=true; fi
@@ -191,14 +191,14 @@ collect_one(){
       [[ -n "${r:-}" ]] && lat="$r"
     fi
   else
-    # v4.6.0-rc3 (审核 P1#11): 不再用 eval — PROXY_ARGS 已由 build_proxy_args 设置
+    # v4.6.0 (审核 P1#11): 不再用 eval — PROXY_ARGS 已由 build_proxy_args 设置
     if r=$(curl -o /dev/null -s "${PROXY_ARGS[@]}" -w '%{time_connect}' --max-time 10 https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null); then
       [[ -n "${r:-}" ]] && lat=$(awk -v t="$r" 'BEGIN{printf("%d",(t*1000)+0.5)}' 2>/dev/null || echo 999)
     fi
   fi
 
   local bandwidth_up="0" bandwidth_down="0"
-  # v4.6.0-rc3: test_bandwidth_correct reads global PROXY_ARGS
+  # v4.6.0: test_bandwidth_correct reads global PROXY_ARGS
   local bw_result=$(test_bandwidth_correct "$V")
   IFS='/' read -r bandwidth_down bandwidth_up <<<"$bw_result"
 
@@ -284,9 +284,14 @@ collect_one(){
 }
 
 main(){
-  # v4.6.0-rc3 (审核 P1#11): build_proxy_args 写入全局 PROXY_ARGS 数组 (无 eval)
-  # VPS 视角: 不走代理
-  PROXY_ARGS=()
+  # v4.6.0 (审核 P1#11): build_proxy_args 写入全局 PROXY_ARGS 数组 (无 eval)
+  # v4.6.0-rc4 (审核 P2#4): VPS 视角必须显式清除环境代理变量
+  # 否则若 root 环境有 http_proxy/https_proxy/HTTPS_PROXY 等，curl 会自动走代理，
+  # 让"VPS 直连视角"的结果被代理污染
+  unset http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY no_proxy NO_PROXY
+
+  # VPS 视角: 不走代理 — 加 --noproxy '*' 防止某些 curl 配置仍然继承代理
+  PROXY_ARGS=(--noproxy '*')
   collect_one "vps" > "${STATUS_DIR}/ipq_vps.json"
 
   # Proxy 视角: 让 build_proxy_args 把代理参数写入 PROXY_ARGS

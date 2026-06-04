@@ -3,7 +3,7 @@ set -euo pipefail
 TRAFFIC_DIR="/etc/edgebox/traffic"
 LOG_DIR="$TRAFFIC_DIR/logs"
 
-# v4.6.0-rc3 (审核 P1#1 致命): 状态文件移出 web 可访问/可写目录
+# v4.6.0 (审核 P1#1 致命): 状态文件移出 web 可访问/可写目录
 # 旧版本: STATE="${TRAFFIC_DIR}/.state" + source $STATE 形成 root 提权链:
 #   www-data 拥有 traffic/ → 可写 .state → root cron source .state → www-data 拿 root
 # 新版本: 状态文件移到 /var/lib/edgebox/，且改为 JSON + jq 读取（绝不再 source）

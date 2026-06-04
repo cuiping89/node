@@ -283,7 +283,7 @@ main() {
     # 创建日志目录
     mkdir -p "$(dirname "$LOG_FILE")"
 
-    # v4.6.0-rc3 (审核 P1#10): CDN 模式下流量随机化必须跳过
+    # v4.6.0-rc4 (审核 P1#10): CDN 模式下流量随机化必须跳过
     # 否则随机化会重启 sing-box，让本应禁用的 Hysteria2 重新暴露
     local _server_json="/etc/edgebox/config/server.json"
     if [[ -f "$_server_json" ]] && command -v jq >/dev/null 2>&1; then

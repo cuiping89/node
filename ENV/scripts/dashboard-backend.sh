@@ -163,7 +163,7 @@ get_system_info() {
 
     server_ip=$(safe_jq '.server_ip' "$SERVER_JSON" "127.0.0.1")
     eip=$(safe_jq '.eip' "$SERVER_JSON" "")
-    version=$(safe_jq '.version' "$SERVER_JSON" "4.6.0-rc3")
+    version=$(safe_jq '.version' "$SERVER_JSON" "4.6.0-rc4")
     install_date=$(safe_jq '.install_date' "$SERVER_JSON" "")
     cloud_provider=$(safe_jq '.cloud.provider' "$SERVER_JSON" "Unknown")
     cloud_region=$(safe_jq '.cloud.region' "$SERVER_JSON" "Unknown")
@@ -400,7 +400,7 @@ get_protocols_status() {
         server_config=$(jq -c '.' "$server_config_file" 2>/dev/null || echo "{}")
     fi
 
-    # v4.6.0-rc1: 检测 CDN 模式
+    # v4.6.0-rc4-rc1: 检测 CDN 模式
     # CDN 模式下 Reality 和 Hysteria2 已被禁用，dashboard 不应显示它们
     local cdn_enabled cdn_host
     cdn_enabled=$(jq -r '.cdn.enabled // false' "$server_config_file" 2>/dev/null)
@@ -423,13 +423,13 @@ get_protocols_status() {
 
     local final_protocols="[]"
 
-    # v4.6.0-rc3 (审核 P1#3): share_link 不再自己拼接
+    # v4.6.0-rc4 (审核 P1#3): share_link 不再自己拼接
     # 改为从 subscription.txt 读取 — 由 lib/subscription.sh 统一生成，逻辑正确
     # (IP 模式自带 insecure=1, WS 用 ws.edgebox.internal SNI, CDN 模式用 cdn.host)
     local subscription_txt="${CONFIG_DIR}/subscription.txt"
     declare -A links_by_protocol
     if [[ -s "$subscription_txt" ]]; then
-        # v4.6.0-rc3: 兼容文件末尾无换行符的情况
+        # v4.6.0-rc4: 兼容文件末尾无换行符的情况
         # `while read` 默认会丢弃最后一个无换行符的行；用 `|| [[ -n "$line" ]]` 兜底
         while IFS= read -r line || [[ -n "$line" ]]; do
             [[ -z "$line" ]] && continue
@@ -575,7 +575,7 @@ get_secrets_info() {
     local secrets_json="{}"
 
     if [[ -f "$SERVER_JSON" ]]; then
-        # v4.6.0-rc1 fixes:
+        # v4.6.0-rc4-rc1 fixes:
         # - Remove private_key from dashboard.json (NEVER expose Reality private key over HTTP)
         # - Remove v3 residue: grpc/tuic_uuid/password.trojan/password.tuic
         # - Fix jq syntax: missing comma before master_sub_token + trailing comma

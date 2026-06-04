@@ -306,7 +306,7 @@ main() {
     log_info "=========================================="
     log_info "Health monitor starting (mode=$HEALTH_MODE)"
 
-    # v4.6.0-rc1: 检测 CDN 模式
+    # v4.6.0-rc4-rc1: 检测 CDN 模式
     # CDN 模式下 Reality / Hysteria2 被主动停用，不应报为故障
     local server_json="/etc/edgebox/config/server.json"
     local cdn_enabled cdn_host
