@@ -51,7 +51,7 @@ set -o pipefail
 : "${EB_LOG_FILE:=/var/log/edgebox-install.log}"
 
 # Version
-readonly EB_VERSION="v4.6.0-rc3"
+readonly EB_VERSION="v4.6.0-rc4"
 
 #############################################
 # Logging
@@ -206,7 +206,7 @@ eb_atomic_write_set() {
             rc=1
             break
         }
-        # v4.6.0-rc3: 保证文件以单个 \n 结尾
+        # v4.6.0-rc4: 保证文件以单个 \n 结尾
         # 修复 $(...) 命令替换吞掉 trailing newline 导致最后一行被 `while read` 丢弃的问题
         # 现象: subscription.txt 第 3 行（WS）没换行符 → dashboard-backend 的 while read 跳过它
         # 做法: 先剥掉所有 trailing newline，再用 '%s\n' 加回单个换行符

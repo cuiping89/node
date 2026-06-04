@@ -41,7 +41,7 @@ if [[ -z "${EDGEBOX_COMMON_SH_LOADED:-}" ]]; then
     done
 fi
 
-# v4.6.0-rc1: 机密文件搬到 /etc/edgebox/config/ (root:root 600)
+# v4.6.0-rc4-rc1: 机密文件搬到 /etc/edgebox/config/ (root:root 600)
 # 公共阈值在 /etc/edgebox/traffic/alert-public.json (web-readable)
 # 注: lib/alert.sh 总是被 root 调用（cron 或 edgeboxctl），所以能读 600
 EB_ALERT_CONF="${EB_ALERT_CONF:-${EB_CONFIG_DIR:-/etc/edgebox/config}/alert.env}"
@@ -137,7 +137,7 @@ ${body}
         return 0
     fi
 
-    # v4.6.0-rc3 (审核 P1#4): 不再 source alert.env
+    # v4.6.0-rc4 (审核 P1#4): 不再 source alert.env
     # 原因: source 会让 Shell 解释 Webhook URL 里的 & # 空格 引号 $ 等字符，
     # 容易把 URL 截断或意外执行命令。改为 awk 安全解析 KEY=VAL。
     _eb_load_alert_env() {
