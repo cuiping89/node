@@ -37,7 +37,7 @@ EDGEBOX_FILES=(
     "lib/common.sh|lib/common.sh|455f9a36757d3e382b02c35af5917a042474afc3afdff36a14c5fc09e9f07dd6"
     "lib/alert.sh|lib/alert.sh|d80652f40814bd4249ca24b0d5b20fe6801fc3bfd8c50616fdebedca034b5d36"
     "lib/subscription.sh|lib/subscription.sh|59a4b549cd51ac01007d01f3bbca06f2718e24d317e0d36aece1b1591cc12f36"
-    "scripts/edgeboxctl|scripts/edgeboxctl|4aadbb549398837124135ac62179825bcc09718efc652aed83b8836d5de04a10"
+    "scripts/edgeboxctl|scripts/edgeboxctl|80ace84aabe9d9d4626ae72f0dd79b4c259161173c47309fe4c7b53a0056ca87"
     "scripts/dashboard-backend.sh|scripts/dashboard-backend.sh|48386652f2859bd2f82c9857e6f0dd4740452f0ee65f69c2712ff46b39d89778"
     "scripts/protocol-health-monitor.sh|scripts/protocol-health-monitor.sh|cb943332547f7be1b5ddcf78161905ce37eeca5cf3ab1b147909b6820711f877"
     "scripts/edgebox-traffic-randomize.sh|scripts/edgebox-traffic-randomize.sh|3dbbce7a48d7f2c287b91b4569680d18233ff5c8891b4d308b565f6de29492f1"
