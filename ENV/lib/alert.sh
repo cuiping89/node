@@ -137,7 +137,7 @@ ${body}
         return 0
     fi
 
-    # v4.6.0-rc2 (审核 P1#4): 不再 source alert.env
+    # v4.6.0-rc3 (审核 P1#4): 不再 source alert.env
     # 原因: source 会让 Shell 解释 Webhook URL 里的 & # 空格 引号 $ 等字符，
     # 容易把 URL 截断或意外执行命令。改为 awk 安全解析 KEY=VAL。
     _eb_load_alert_env() {
