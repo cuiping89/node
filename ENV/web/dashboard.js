@@ -53,28 +53,24 @@ async function fetchJSON(url) {
 }
 
 /**
- * 读取 alert.conf 配置文件
- * @returns {Promise<Object>} 配置对象
+ * 读取告警公共阈值配置（v4.6.0-rc1）
+ * 注: 仅含 monthly_gib + steps，不含任何 Token/Webhook 等机密
+ * 机密保存在 /etc/edgebox/config/alert.env (root 600), 浏览器无法读取
+ * @returns {Promise<Object>} 阈值对象，键名兼容旧版 (ALERT_STEPS / ALERT_MONTHLY_GIB)
  */
 async function fetchAlertConfig() {
   try {
-    const response = await fetch('/traffic/alert.conf', { cache: 'no-store' });
+    const response = await fetch('/traffic/alert-public.json', { cache: 'no-store' });
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-    const text = await response.text();
-    const config = {};
-    text.split('\n').forEach(line => {
-      line = line.trim();
-      if (line && !line.startsWith('#')) {
-        const [key, value] = line.split('=');
-        if (key && value !== undefined) {
-          config[key.trim()] = value.trim();
-        }
-      }
-    });
-    return config;
+    const data = await response.json();
+    // 适配旧字段名以兼容老代码
+    return {
+      ALERT_STEPS: (data.steps || [30, 60, 90]).join(','),
+      ALERT_MONTHLY_GIB: String(data.monthly_gib || 200),
+    };
   } catch (error) {
-    console.error('Failed to fetch alert.conf:', error);
-    return { ALERT_STEPS: '30,60,90' }; // 默认阈值
+    console.error('Failed to fetch alert-public.json:', error);
+    return { ALERT_STEPS: '30,60,90', ALERT_MONTHLY_GIB: '200' };
   }
 }
 
@@ -728,13 +724,7 @@ function showConfigModal(protocolKey) {
                     finalSni = params.get('sni');
                 }
             }
-            // 对于trojan链接，使用正则表达式
-            else if (p.share_link.startsWith('trojan://')) {
-                const match = p.share_link.match(/[?&]sni=([^&]+)/);
-                if (match && match[1]) {
-                    finalSni = match[1];
-                }
-            }
+            // v4.6.0-rc1: 去掉 trojan/tuic 链接处理 (v4 不再生成此类协议)
         } catch (e) {
             console.warn("Could not parse share_link to extract SNI", e);
         }
@@ -745,10 +735,9 @@ function showConfigModal(protocolKey) {
       protocol: p.name,
       host: hostAddress,
       port: p.port ?? 443,
-      uuid: get(dd, `secrets.vless.${p.protocol}`) || get(dd, `secrets.password.${p.protocol}`) || get(dd, `secrets.tuic_uuid`),
-      sni: finalSni, // <-- 使用修复后的 finalSni
-      alpn: (p.name || '').toLowerCase().includes('grpc') ? 'h2'
-            : ((p.name || '').toLowerCase().includes('ws') ? 'http/1.1' : '')
+      uuid: get(dd, `secrets.vless.${p.protocol}`) || get(dd, `secrets.password.${p.protocol}`),
+      sni: finalSni,
+      alpn: (p.name || '').toLowerCase().includes('ws') ? 'http/1.1' : ''
     };
     if (p.protocol === 'hysteria2') {
         obj.uuid = get(dd, 'secrets.password.hysteria2');
@@ -1123,12 +1112,11 @@ async function loadProtocolHealth() {
  */
 function normalizeProtoKey(name) {
   const key = String(name || '').trim().toLowerCase().replace(/\s+/g, '-').replace(/[–—]/g, '-');
+  // v4.6.0-rc1: 仅保留 3 协议架构 (Reality + Hysteria2 + WS)
   const map = {
-    'vless-reality': 'reality',
+    'vless-reality':   'reality',
     'vless-websocket': 'ws',
-    'trojan-tls': 'trojan',
-    'hysteria2': 'hysteria2',
-    'tuic': 'tuic'
+    'hysteria2':       'hysteria2'
   };
   return map[key] || key;
 }
