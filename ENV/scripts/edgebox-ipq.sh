@@ -7,9 +7,21 @@ mkdir -p "$STATUS_DIR"
 ts(){ date -Is; }
 jqget(){ jq -r "$1" 2>/dev/null || echo ""; }
 
-build_proxy_args(){ local u="${1:-}"; [[ -z "$u" || "$u" == "null" ]] && return 0
-  case "$u" in socks5://*|socks5h://*) echo "--socks5-hostname ${u#*://}";;
-           http://*|https://*) echo "--proxy $u";; *) :;; esac; }
+# v4.6.0-rc3 (审核 P1#11): 不再用 eval — 改用全局数组传递参数
+# 旧版本: build_proxy_args 返回字符串，curl 命令通过 eval 展开
+#         代理 URL 含 & # 空格 等会破坏，且形成命令注入风险
+# 新版本: 写入全局数组 PROXY_ARGS，调用方用 "${PROXY_ARGS[@]}" 安全展开
+declare -ga PROXY_ARGS=()
+build_proxy_args(){
+    PROXY_ARGS=()
+    local u="${1:-}"
+    [[ -z "$u" || "$u" == "null" ]] && return 0
+    case "$u" in
+        socks5://*|socks5h://*) PROXY_ARGS=(--socks5-hostname "${u#*://}") ;;
+        http://*|https://*)     PROXY_ARGS=(--proxy "$u") ;;
+        *) : ;;
+    esac
+}
 
 CURL_UA="Mozilla/5.0 (EdgeBox IPQ)"
 CURL_CONN_TIMEOUT="${CURL_CONN_TIMEOUT:-3}"
@@ -18,24 +30,34 @@ CURL_RETRY="${CURL_RETRY:-2}"
 CURL_RETRY_DELAY="${CURL_RETRY_DELAY:-1}"
 
 curl_json() {
-  local p="$1" u="$2"
-  local npx=()
-  [[ -z "$p" ]] && npx=(--noproxy '*')   # 仅屏蔽环境代理，显式 --proxy/--socks5 不受影响
-  curl -fsL -s "${npx[@]}" \
+  local p=("$@")  # accept array
+  # If we got only 1 arg, treat as old single URL form
+  local u=""
+  if [[ ${#p[@]} -eq 1 ]]; then
+    u="${p[0]}"
+    p=()
+  else
+    u="${p[-1]}"
+    unset 'p[-1]'
+  fi
+  curl -fsSL \
        --connect-timeout "$CURL_CONN_TIMEOUT" \
        --max-time "$CURL_MAX_TIME" \
        --retry "$CURL_RETRY" \
        --retry-delay "$CURL_RETRY_DELAY" \
-       -A "$CURL_UA" $p "$u" 2>/dev/null \
+       -A "$CURL_UA" "${p[@]}" "$u" 2>/dev/null \
   | jq -c . 2>/dev/null || echo "{}"
 }
 
 test_bandwidth_correct() {
-  local proxy_args="$1"
-  local test_type="$2"
+  # v4.6.0-rc3 (审核 P1#11): 用数组而非 eval
+  # 调用方先 build_proxy_args $url，本函数读取全局 PROXY_ARGS
+  local test_type="${1:-}"
   local dl_speed=0 ul_speed=0
 
-  if dl_result=$(eval "curl $proxy_args -o /dev/null -s -w '%{time_total}:%{speed_download}' --max-time 15 'http://speedtest.tele2.net/1MB.zip'" 2>/dev/null); then
+  if dl_result=$(curl "${PROXY_ARGS[@]}" -o /dev/null -s \
+       -w '%{time_total}:%{speed_download}' --max-time 15 \
+       'http://speedtest.tele2.net/1MB.zip' 2>/dev/null); then
     IFS=':' read -r dl_time dl_bytes_per_sec <<<"$dl_result"
     if [[ -n "$dl_bytes_per_sec" && "$dl_bytes_per_sec" != "0" ]]; then
       dl_speed=$(awk -v bps="$dl_bytes_per_sec" 'BEGIN{printf("%.1f", bps/1024/1024)}')
@@ -43,7 +65,9 @@ test_bandwidth_correct() {
   fi
 
   local test_data=$(printf '%*s' 10240 '' | tr ' ' 'x')
-  if ul_result=$(eval "curl $proxy_args -X POST -d '$test_data' -o /dev/null -s -w '%{time_total}' --max-time 10 'https://httpbin.org/post'" 2>/dev/null); then
+  if ul_result=$(curl "${PROXY_ARGS[@]}" -X POST --data-binary "$test_data" -o /dev/null -s \
+       -w '%{time_total}' --max-time 10 \
+       'https://httpbin.org/post' 2>/dev/null); then
     if [[ -n "$ul_result" && "$ul_result" != "0.000000" ]]; then
       ul_speed=$(awk -v t="$ul_result" 'BEGIN{printf("%.1f", 10/1024/t)}')
     fi
@@ -108,11 +132,13 @@ get_proxy_url(){ local s="${SHUNT_DIR}/state.json"
   [[ -s "$s" ]] && jqget '.proxy_info' <"$s" || echo ""; }
 
 collect_one(){
-  local V="$1" P="$2" J1="{}" J2="{}" J3="{}" ok1=false ok2=false ok3=false
+  local V="$1" J1="{}" J2="{}" J3="{}" ok1=false ok2=false ok3=false
+  # v4.6.0-rc3 (审核 P1#11): 调用方在 main() 已通过 build_proxy_args 设置 PROXY_ARGS
+  # curl_json 内部使用 "${PROXY_ARGS[@]}" 安全展开
 
-  if out=$(curl_json "$P" "https://ipinfo.io/json"); then J1="$out"; ok1=true; fi
+  if out=$(curl_json "${PROXY_ARGS[@]}" "https://ipinfo.io/json"); then J1="$out"; ok1=true; fi
 
-  if out=$(curl_json "$P" "https://api.ip.sb/geoip"); then
+  if out=$(curl_json "${PROXY_ARGS[@]}" "https://api.ip.sb/geoip"); then
     J2="$out"; ok2=true
   else
     for alt in \
@@ -120,14 +146,14 @@ collect_one(){
       "https://api.myip.com" \
       "https://ipapi.co/json/"
     do
-      if out=$(curl_json "$P" "$alt"); then J2="$out"; ok2=true; break; fi
+      if out=$(curl_json "${PROXY_ARGS[@]}" "$alt"); then J2="$out"; ok2=true; break; fi
     done
   fi
 
-  if out=$(curl_json "$P" "http://ip-api.com/json/?fields=status,message,continent,country,regionName,city,lat,lon,isp,org,as,reverse,query"); then
+  if out=$(curl_json "${PROXY_ARGS[@]}" "http://ip-api.com/json/?fields=status,message,continent,country,regionName,city,lat,lon,isp,org,as,reverse,query"); then
     J3="$out"; ok3=true
   else
-    if out=$(curl_json "$P" "https://ipwho.is/?lang=en"); then
+    if out=$(curl_json "${PROXY_ARGS[@]}" "https://ipwho.is/?lang=en"); then
       J3="$out"; ok3=true
     fi
   fi
@@ -165,13 +191,15 @@ collect_one(){
       [[ -n "${r:-}" ]] && lat="$r"
     fi
   else
-    if r=$(eval "curl -o /dev/null -s $P -w '%{time_connect}' --max-time 10 https://www.cloudflare.com/cdn-cgi/trace" 2>/dev/null); then
+    # v4.6.0-rc3 (审核 P1#11): 不再用 eval — PROXY_ARGS 已由 build_proxy_args 设置
+    if r=$(curl -o /dev/null -s "${PROXY_ARGS[@]}" -w '%{time_connect}' --max-time 10 https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null); then
       [[ -n "${r:-}" ]] && lat=$(awk -v t="$r" 'BEGIN{printf("%d",(t*1000)+0.5)}' 2>/dev/null || echo 999)
     fi
   fi
 
   local bandwidth_up="0" bandwidth_down="0"
-  local bw_result=$(test_bandwidth_correct "$P" "$V")
+  # v4.6.0-rc3: test_bandwidth_correct reads global PROXY_ARGS
+  local bw_result=$(test_bandwidth_correct "$V")
   IFS='/' read -r bandwidth_down bandwidth_up <<<"$bw_result"
 
   local features=$(detect_network_features "$asn" "$isp" "$ip" "$V")
@@ -256,11 +284,17 @@ collect_one(){
 }
 
 main(){
-  collect_one "vps" "" > "${STATUS_DIR}/ipq_vps.json"
+  # v4.6.0-rc3 (审核 P1#11): build_proxy_args 写入全局 PROXY_ARGS 数组 (无 eval)
+  # VPS 视角: 不走代理
+  PROXY_ARGS=()
+  collect_one "vps" > "${STATUS_DIR}/ipq_vps.json"
+
+  # Proxy 视角: 让 build_proxy_args 把代理参数写入 PROXY_ARGS
   purl="$(get_proxy_url)"
   if [[ -n "${purl:-}" && "$purl" != "null" ]]; then
-    pargs="$(build_proxy_args "$purl")"
-    collect_one "proxy" "$pargs" > "${STATUS_DIR}/ipq_proxy.json"
+    build_proxy_args "$purl"   # populates global PROXY_ARGS array
+    collect_one "proxy" > "${STATUS_DIR}/ipq_proxy.json"
+    PROXY_ARGS=()  # reset to avoid leaking proxy args to next call
   else
     jq -n --arg ts "$(ts)" '{detected_at:$ts,vantage:"proxy",status:"not_configured"}' > "${STATUS_DIR}/ipq_proxy.json"
   fi

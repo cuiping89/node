@@ -2,7 +2,15 @@
 set -euo pipefail
 TRAFFIC_DIR="/etc/edgebox/traffic"
 LOG_DIR="$TRAFFIC_DIR/logs"
-STATE="${TRAFFIC_DIR}/.state"
+
+# v4.6.0-rc3 (审核 P1#1 致命): 状态文件移出 web 可访问/可写目录
+# 旧版本: STATE="${TRAFFIC_DIR}/.state" + source $STATE 形成 root 提权链:
+#   www-data 拥有 traffic/ → 可写 .state → root cron source .state → www-data 拿 root
+# 新版本: 状态文件移到 /var/lib/edgebox/，且改为 JSON + jq 读取（绝不再 source）
+STATE_DIR="/var/lib/edgebox"
+STATE="${STATE_DIR}/traffic.state.json"
+install -d -o root -g root -m 0755 "$STATE_DIR"
+
 mkdir -p "$LOG_DIR"
 
 # 1) 识别默认出网网卡
@@ -25,9 +33,20 @@ get_resi_bytes() {
 }
 RESI_CUR="$(get_resi_bytes)"; RESI_CUR="${RESI_CUR:-0}"
 
-# 3) 载入上次状态，计算增量
+# 3) 载入上次状态 — 严格 JSON + jq，不再 source
 PREV_TX=0; PREV_RX=0; PREV_RESI=0
-[[ -f "$STATE" ]] && . "$STATE" || true
+if [[ -f "$STATE" ]]; then
+    # jq -e: 解析失败返回非零，跳过坏文件兜底 0
+    # 字段强制为数字，避免恶意数据干扰
+    _PREV_TX=$(jq -r '.PREV_TX // 0 | if type == "number" then . else 0 end' "$STATE" 2>/dev/null)
+    _PREV_RX=$(jq -r '.PREV_RX // 0 | if type == "number" then . else 0 end' "$STATE" 2>/dev/null)
+    _PREV_RESI=$(jq -r '.PREV_RESI // 0 | if type == "number" then . else 0 end' "$STATE" 2>/dev/null)
+    # 再过一道 bash regex 校验（必须是纯数字）
+    [[ "${_PREV_TX:-}" =~ ^[0-9]+$ ]] && PREV_TX="$_PREV_TX"
+    [[ "${_PREV_RX:-}" =~ ^[0-9]+$ ]] && PREV_RX="$_PREV_RX"
+    [[ "${_PREV_RESI:-}" =~ ^[0-9]+$ ]] && PREV_RESI="$_PREV_RESI"
+fi
+
 delta() { local cur="$1" prev="$2"; [[ "$cur" -ge "$prev" ]] && echo $((cur-prev)) || echo 0; }
 D_TX=$(delta "$TX_CUR"   "${PREV_TX:-0}")
 D_RX=$(delta "$RX_CUR"   "${PREV_RX:-0}")
@@ -72,5 +91,12 @@ if [[ -f "$TRAFFIC_DIR/alert.conf" ]]; then
     rm -f "$TRAFFIC_DIR/alert.conf" 2>/dev/null || true
 fi
 
-# 7) 保存状态
-printf 'PREV_TX=%s\nPREV_RX=%s\nPREV_RESI=%s\n' "$TX_CUR" "$RX_CUR" "$RESI_CUR" > "$STATE"
+# 7) 保存状态（JSON 格式 + root:root 600，在 web-不可见目录 /var/lib/edgebox/）
+# 用 mktemp + install 原子替换，避免 race + 确保权限
+_STATE_TMP=$(mktemp --tmpdir="$STATE_DIR" traffic.state.XXXXXX) || _STATE_TMP="${STATE}.tmp.$$"
+jq -n --argjson tx "$TX_CUR" --argjson rx "$RX_CUR" --argjson resi "$RESI_CUR" \
+   --arg updated_at "$(date -Is)" \
+   '{PREV_TX:$tx, PREV_RX:$rx, PREV_RESI:$resi, updated_at:$updated_at}' \
+   > "$_STATE_TMP"
+install -o root -g root -m 600 "$_STATE_TMP" "$STATE"
+rm -f "$_STATE_TMP"

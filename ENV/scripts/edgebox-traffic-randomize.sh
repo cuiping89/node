@@ -283,6 +283,23 @@ main() {
     # 创建日志目录
     mkdir -p "$(dirname "$LOG_FILE")"
 
+    # v4.6.0-rc3 (审核 P1#10): CDN 模式下流量随机化必须跳过
+    # 否则随机化会重启 sing-box，让本应禁用的 Hysteria2 重新暴露
+    local _server_json="/etc/edgebox/config/server.json"
+    if [[ -f "$_server_json" ]] && command -v jq >/dev/null 2>&1; then
+        local _cdn_enabled
+        _cdn_enabled=$(jq -r '.cdn.enabled // false' "$_server_json" 2>/dev/null)
+        if [[ "$_cdn_enabled" == "true" ]]; then
+            log_info "============================================"
+            log_info "  CDN 模式已启用 — 跳过流量随机化"
+            log_info "  原因: 随机化会重启 sing-box, 在 CDN 模式下 Hysteria2"
+            log_info "  应保持禁用状态。如需关闭随机化的 cron 任务，请执行:"
+            log_info "    edgeboxctl cron disable edgebox-traffic-randomize"
+            log_info "============================================"
+            exit 0
+        fi
+    fi
+
     # 处理 reset 选项
     if [[ "$level" == "reset" ]]; then
         log_info "重置协议参数为默认值..."
