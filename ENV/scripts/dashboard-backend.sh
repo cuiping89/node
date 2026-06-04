@@ -429,13 +429,16 @@ get_protocols_status() {
     local subscription_txt="${CONFIG_DIR}/subscription.txt"
     declare -A links_by_protocol
     if [[ -s "$subscription_txt" ]]; then
-        while IFS= read -r line; do
+        # v4.6.0-rc2: 兼容文件末尾无换行符的情况
+        # `while read` 默认会丢弃最后一个无换行符的行；用 `|| [[ -n "$line" ]]` 兜底
+        while IFS= read -r line || [[ -n "$line" ]]; do
             [[ -z "$line" ]] && continue
             # 识别协议：通过 URI 末尾 #EdgeBox-XXX 标签
             case "$line" in
                 *"#EdgeBox-REALITY"*)   links_by_protocol["VLESS-Reality"]="$line"   ;;
                 *"#EdgeBox-HYSTERIA2"*) links_by_protocol["Hysteria2"]="$line"       ;;
-                *"#EdgeBox-WS"*|*"#EdgeBox-WS-CDN"*) links_by_protocol["VLESS-WebSocket"]="$line" ;;
+                *"#EdgeBox-WS-CDN"*)    links_by_protocol["VLESS-WebSocket"]="$line" ;;
+                *"#EdgeBox-WS"*)        links_by_protocol["VLESS-WebSocket"]="$line" ;;
             esac
         done < "$subscription_txt"
     fi
