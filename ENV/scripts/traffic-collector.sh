@@ -66,11 +66,10 @@ MONTHLY_JSON="$(tail -n 12 "$LOG_DIR/monthly.csv" | grep -v '^month,' \
 jq -n --arg updated "$(date -Is)" --argjson last30d "$LAST30D_JSON" --argjson monthly "$MONTHLY_JSON" \
   '{updated_at:$updated,last30d:$last30d,monthly:$monthly}' > "$TRAFFIC_DIR/traffic.json"
 
-# 7) 确保 alert.conf 可通过 Web 访问（前端需要读取阈值配置）
-if [[ -r "$TRAFFIC_DIR/alert.conf" ]]; then
-  # alert.conf 已经在 TRAFFIC_DIR 中，通过软链接 /var/www/html/traffic -> TRAFFIC_DIR 可访问
-  # 前端可通过 /traffic/alert.conf 路径读取
-  chmod 644 "$TRAFFIC_DIR/alert.conf" 2>/dev/null || true
+# 7) v4.6.0-rc1: 删除任何遗留的 alert.conf（v4.5 之前 web 可读，存在提权风险）
+#    新方案: 机密在 /etc/edgebox/config/alert.env, 公共阈值在 alert-public.json
+if [[ -f "$TRAFFIC_DIR/alert.conf" ]]; then
+    rm -f "$TRAFFIC_DIR/alert.conf" 2>/dev/null || true
 fi
 
 # 7) 保存状态

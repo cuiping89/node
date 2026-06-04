@@ -50,7 +50,7 @@ if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
     is_rule_active "ufw" "80" "tcp" || ufw allow 80/tcp >/dev/null
     is_rule_active "ufw" "443" "tcp" || ufw allow 443/tcp >/dev/null
     is_rule_active "ufw" "443" "udp" || ufw allow 443/udp >/dev/null
-    is_rule_active "ufw" "2053" "udp" || ufw allow 2053/udp >/dev/null
+    
     # <<< 修复点: 移除了可能导致连接中断的 `ufw --force enable` >>>
     echo "[SUCCESS] UFW 规则已确保应用。"
 
@@ -71,7 +71,6 @@ elif command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet fire
     add_firewalld_rule "80/tcp"
     add_firewalld_rule "443/tcp"
     add_firewalld_rule "443/udp"
-    add_firewalld_rule "2053/udp"
 
     echo "[SUCCESS] FirewallD 规则已确保应用。"
 

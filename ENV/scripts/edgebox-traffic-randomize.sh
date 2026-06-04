@@ -122,53 +122,6 @@ verify_services_after_randomization() {
 }
 
 
-# TUIC随机化函数 - 安全版本（只使用bbr）
-randomize_tuic_config() {
-    local level="$1"
-    log_info "随机化TUIC配置 (级别: $level)..."
-
-    if [[ ! -f "${CONFIG_DIR}/sing-box.json" ]]; then
-        log_error "sing-box 配置文件不存在"
-        return 1
-    fi
-
-    # 检查是否存在 tuic 配置
-    if ! jq -e '.inbounds[] | select(.type == "tuic")' "${CONFIG_DIR}/sing-box.json" >/dev/null 2>&1; then
-        log_warn "未找到 TUIC 配置，跳过随机化"
-        return 0
-    fi
-
-    # 只使用 bbr（最稳定的算法）
-    local algo="bbr"
-
-    log_info "TUIC参数: 拥塞控制=${algo}"
-
-    # 检查当前配置中的字段名称
-    local current_config=$(jq '.inbounds[] | select(.type == "tuic")' "${CONFIG_DIR}/sing-box.json" 2>/dev/null)
-
-    # 尝试更新配置（保持原有配置不变，只是确保字段存在）
-    if ! jq \
-        --arg cc "$algo" \
-        '(.inbounds[] | select(.type == "tuic")) |= (. + {congestion_control: $cc})' \
-        "${CONFIG_DIR}/sing-box.json" > "${CONFIG_DIR}/sing-box.json.tmp"; then
-        log_error "更新 TUIC 配置失败"
-        rm -f "${CONFIG_DIR}/sing-box.json.tmp"
-        return 1
-    fi
-
-    # 验证生成的配置文件
-    if sing-box check -c "${CONFIG_DIR}/sing-box.json.tmp" >/dev/null 2>&1; then
-        mv "${CONFIG_DIR}/sing-box.json.tmp" "${CONFIG_DIR}/sing-box.json"
-        log_success "TUIC配置随机化完成"
-        return 0
-    else
-        log_warn "TUIC 配置验证失败，保持原配置不变"
-        rm -f "${CONFIG_DIR}/sing-box.json.tmp"
-        # 不返回错误，因为 TUIC 本身可能就没问题
-        return 0
-    fi
-}
-
 # VLESS随机化函数 - 保持简单
 randomize_vless_config() {
     local level="$1"
@@ -194,14 +147,13 @@ execute_traffic_randomization() {
             randomize_hysteria2_config "$level"
             ;;
         "medium")
-            # 中度随机化：更新 Hysteria2 + TUIC
+            # 中度随机化：更新 Hysteria2 + VLESS
             randomize_hysteria2_config "$level"
-            randomize_tuic_config "$level"
+            randomize_vless_config "$level"
             ;;
         "heavy")
-            # 重度随机化：全协议
+            # 重度随机化：全协议 (v4 只有 Reality + HY2 + WS，TUIC 已删除)
             randomize_hysteria2_config "$level"
-            randomize_tuic_config "$level"
             randomize_vless_config "$level"
             ;;
         *)

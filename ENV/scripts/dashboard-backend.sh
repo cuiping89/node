@@ -163,7 +163,7 @@ get_system_info() {
 
     server_ip=$(safe_jq '.server_ip' "$SERVER_JSON" "127.0.0.1")
     eip=$(safe_jq '.eip' "$SERVER_JSON" "")
-    version=$(safe_jq '.version' "$SERVER_JSON" "4.0.0")
+    version=$(safe_jq '.version' "$SERVER_JSON" "4.6.0-rc1")
     install_date=$(safe_jq '.install_date' "$SERVER_JSON" "")
     cloud_provider=$(safe_jq '.cloud.provider' "$SERVER_JSON" "Unknown")
     cloud_region=$(safe_jq '.cloud.region' "$SERVER_JSON" "Unknown")
@@ -400,14 +400,26 @@ get_protocols_status() {
         server_config=$(jq -c '.' "$server_config_file" 2>/dev/null || echo "{}")
     fi
 
-    # v4.0.0: Three-layer architecture
-    local protocol_order=(
-        "VLESS-Reality" "Hysteria2" "VLESS-WebSocket"
-    )
+    # v4.6.0-rc1: 检测 CDN 模式
+    # CDN 模式下 Reality 和 Hysteria2 已被禁用，dashboard 不应显示它们
+    local cdn_enabled cdn_host
+    cdn_enabled=$(jq -r '.cdn.enabled // false' "$server_config_file" 2>/dev/null)
+    cdn_host=$(jq -r '.cdn.host // empty' "$server_config_file" 2>/dev/null)
+
+    # 三协议架构
+    local protocol_order=()
     declare -A protocol_meta
-    protocol_meta["VLESS-Reality"]="reality|抗审查/伪装访问，主用通道|极佳★★★★★|443|tcp"
-    protocol_meta["Hysteria2"]="hysteria2|UDP回退通道(QUIC)，TCP干扰时备用|良好★★★★☆|443|udp"
-    protocol_meta["VLESS-WebSocket"]="ws|IP封禁回退通道，可挂CDN|良好★★★★☆|443|tcp"
+    if [[ "$cdn_enabled" == "true" && -n "$cdn_host" && "$cdn_host" != "null" ]]; then
+        # CDN 模式：仅 VLESS-WS
+        protocol_order=("VLESS-WebSocket")
+        protocol_meta["VLESS-WebSocket"]="ws|CDN 中继模式，VPS IP 已隐藏|良好★★★★☆|443|tcp"
+    else
+        # 直连 3 协议
+        protocol_order=("VLESS-Reality" "Hysteria2" "VLESS-WebSocket")
+        protocol_meta["VLESS-Reality"]="reality|抗审查/伪装访问，主用通道|极佳★★★★★|443|tcp"
+        protocol_meta["Hysteria2"]="hysteria2|UDP回退通道(QUIC)，TCP干扰时备用|良好★★★★☆|443|udp"
+        protocol_meta["VLESS-WebSocket"]="ws|IP封禁回退通道，可挂CDN|良好★★★★☆|443|tcp"
+    fi
 
     local final_protocols="[]"
     for name in "${protocol_order[@]}"; do
@@ -555,24 +567,26 @@ get_secrets_info() {
     local secrets_json="{}"
 
     if [[ -f "$SERVER_JSON" ]]; then
+        # v4.6.0-rc1 fixes:
+        # - Remove private_key from dashboard.json (NEVER expose Reality private key over HTTP)
+        # - Remove v3 residue: grpc/tuic_uuid/password.trojan/password.tuic
+        # - Fix jq syntax: missing comma before master_sub_token + trailing comma
         secrets_json=$(jq -c '{
             vless: {
-                reality: (.uuid.vless.reality // .uuid.vless // ""),
-                grpc: (.uuid.vless.grpc // .uuid.vless // ""),
-                ws: (.uuid.vless.ws // .uuid.vless // "")
+                reality: (.uuid.vless.reality // ""),
+                ws:      (.uuid.vless.ws // "")
             },
-            tuic_uuid: (.uuid.tuic // ""),
             password: {
-                trojan: (.password.trojan // ""),
-                hysteria2: (.password.hysteria2 // ""),
-                tuic: (.password.tuic // "")
+                hysteria2: (.password.hysteria2 // "")
             },
             reality: {
                 public_key: (.reality.public_key // ""),
-                private_key: (.reality.private_key // ""),
-                short_id: (.reality.short_id // "")
-            }
-			master_sub_token: (.master_sub_token // ""),
+                short_id:   (.reality.short_id // "")
+            },
+            ws: {
+                path: (.ws.path // "/ws")
+            },
+            master_sub_token: (.master_sub_token // "")
         }' "$SERVER_JSON" 2>/dev/null || echo "{}")
     fi
 

@@ -306,15 +306,41 @@ main() {
     log_info "=========================================="
     log_info "Health monitor starting (mode=$HEALTH_MODE)"
 
-    # Probe each protocol
-    local reality_json hysteria2_json ws_json
-    reality_json=$(check_reality)
-    hysteria2_json=$(check_hysteria2)
-    ws_json=$(check_ws)
+    # v4.6.0-rc1: 检测 CDN 模式
+    # CDN 模式下 Reality / Hysteria2 被主动停用，不应报为故障
+    local server_json="/etc/edgebox/config/server.json"
+    local cdn_enabled cdn_host
+    if [[ -f "$server_json" ]]; then
+        cdn_enabled=$(jq -r '.cdn.enabled // false' "$server_json" 2>/dev/null)
+        cdn_host=$(jq -r '.cdn.host // empty' "$server_json" 2>/dev/null)
+    fi
 
-    # Extract individual states for alert decision
+    local in_cdn_mode=false
+    if [[ "$cdn_enabled" == "true" && -n "$cdn_host" && "$cdn_host" != "null" ]]; then
+        in_cdn_mode=true
+        log_info "CDN mode detected (host=$cdn_host); only checking VLESS-WS"
+    fi
+
+    # 状态变量初始化
+    local reality_json hysteria2_json ws_json
     local reality_state hysteria2_state ws_state
     local reality_details hysteria2_details ws_details
+    local total
+
+    if $in_cdn_mode; then
+        # CDN 模式：只检查 WS
+        reality_json='{"state":"disabled","details":"CDN mode: Reality intentionally disabled"}'
+        hysteria2_json='{"state":"disabled","details":"CDN mode: Hysteria2 intentionally disabled (CDNs do not proxy UDP)"}'
+        ws_json=$(check_ws)
+        total=1
+    else
+        # 直连模式：全部 3 协议
+        reality_json=$(check_reality)
+        hysteria2_json=$(check_hysteria2)
+        ws_json=$(check_ws)
+        total=3
+    fi
+
     reality_state=$(jq -r '.state'    <<<"$reality_json")
     reality_details=$(jq -r '.details' <<<"$reality_json")
     hysteria2_state=$(jq -r '.state'    <<<"$hysteria2_json")
@@ -326,17 +352,20 @@ main() {
     log_info "hysteria2: $hysteria2_state ($hysteria2_details)"
     log_info "ws: $ws_state ($ws_details)"
 
-    # Send alerts on state changes (before updating state file)
-    emit_alert_if_changed "reality" "$reality_state" "$reality_details"
-    emit_alert_if_changed "hysteria2" "$hysteria2_state" "$hysteria2_details"
-    emit_alert_if_changed "ws" "$ws_state" "$ws_details"
+    # 仅对实际激活的协议发告警 + 尝试 repair
+    if $in_cdn_mode; then
+        emit_alert_if_changed "ws" "$ws_state" "$ws_details"
+        maybe_repair "ws" "xray" "$ws_state"
+    else
+        emit_alert_if_changed "reality" "$reality_state" "$reality_details"
+        emit_alert_if_changed "hysteria2" "$hysteria2_state" "$hysteria2_details"
+        emit_alert_if_changed "ws" "$ws_state" "$ws_details"
+        maybe_repair "reality" "xray" "$reality_state"
+        maybe_repair "hysteria2" "sing-box" "$hysteria2_state"
+        maybe_repair "ws" "xray" "$ws_state"
+    fi
 
-    # Attempt repair if mode=repair (stubbed if monitor)
-    maybe_repair "reality" "xray" "$reality_state"
-    maybe_repair "hysteria2" "sing-box" "$hysteria2_state"
-    maybe_repair "ws" "xray" "$ws_state"
-
-    # Build combined state JSON for state file
+    # Build combined state JSON for state file (保留全部 3 个键以保持 dashboard 兼容)
     local combined
     combined=$(jq -n \
         --argjson r "$reality_json" \
@@ -344,22 +373,26 @@ main() {
         --argjson w "$ws_json" \
         '{reality: $r, hysteria2: $h, ws: $w}')
 
-    # Persist new state
     _write_state "$combined"
 
     # Build dashboard-facing JSON
-    local healthy_count down_count unverified_count total avg
-    total=3
-    healthy_count=$(jq -n --argjson r "$reality_json" --argjson h "$hysteria2_json" --argjson w "$ws_json" \
-        '[$r.state, $h.state, $w.state] | map(select(. == "healthy")) | length')
-    down_count=$(jq -n --argjson r "$reality_json" --argjson h "$hysteria2_json" --argjson w "$ws_json" \
-        '[$r.state, $h.state, $w.state] | map(select(. == "down")) | length')
-    unverified_count=$(jq -n --argjson r "$reality_json" --argjson h "$hysteria2_json" --argjson w "$ws_json" \
-        '[$r.state, $h.state, $w.state] | map(select(. == "listening_unverified")) | length')
-
-    # Simple score: 100 for healthy, 50 for listening_unverified, 0 for down
-    avg=$(jq -n --argjson h "$healthy_count" --argjson u "$unverified_count" \
-        '(($h * 100) + ($u * 50)) / 3 | floor')
+    # 注：disabled 状态不算 healthy 也不算 down，统计为 0
+    local healthy_count down_count unverified_count avg
+    if $in_cdn_mode; then
+        healthy_count=$([[ "$ws_state" == "healthy" ]] && echo 1 || echo 0)
+        down_count=$([[ "$ws_state" == "down" ]] && echo 1 || echo 0)
+        unverified_count=$([[ "$ws_state" == "listening_unverified" ]] && echo 1 || echo 0)
+        avg=$(( healthy_count * 100 + unverified_count * 50 ))
+    else
+        healthy_count=$(jq -n --argjson r "$reality_json" --argjson h "$hysteria2_json" --argjson w "$ws_json" \
+            '[$r.state, $h.state, $w.state] | map(select(. == "healthy")) | length')
+        down_count=$(jq -n --argjson r "$reality_json" --argjson h "$hysteria2_json" --argjson w "$ws_json" \
+            '[$r.state, $h.state, $w.state] | map(select(. == "down")) | length')
+        unverified_count=$(jq -n --argjson r "$reality_json" --argjson h "$hysteria2_json" --argjson w "$ws_json" \
+            '[$r.state, $h.state, $w.state] | map(select(. == "listening_unverified")) | length')
+        avg=$(jq -n --argjson h "$healthy_count" --argjson u "$unverified_count" \
+            '(($h * 100) + ($u * 50)) / 3 | floor')
+    fi
 
     local services_json
     services_json=$(jq -n \
@@ -368,17 +401,23 @@ main() {
         --arg nginx "$(systemctl is-active nginx 2>/dev/null || echo 'unknown')" \
         '{xray: $xray, "sing-box": $sb, nginx: $nginx}')
 
-    # Build protocols array in the order users expect (Reality, HY2, WS)
+    # Protocols array: CDN 模式只含 WS
     local protocols_arr
-    protocols_arr=$(jq -n \
-        --argjson r "$reality_json" \
-        --argjson h "$hysteria2_json" \
-        --argjson w "$ws_json" \
-        '[
-          {name: "VLESS-Reality", protocol: "reality"} + $r,
-          {name: "Hysteria2",     protocol: "hysteria2"} + $h,
-          {name: "VLESS-WS",      protocol: "ws"}      + $w
-        ]')
+    if $in_cdn_mode; then
+        protocols_arr=$(jq -n \
+            --argjson w "$ws_json" \
+            '[{name: "VLESS-WS", protocol: "ws"} + $w]')
+    else
+        protocols_arr=$(jq -n \
+            --argjson r "$reality_json" \
+            --argjson h "$hysteria2_json" \
+            --argjson w "$ws_json" \
+            '[
+              {name: "VLESS-Reality", protocol: "reality"} + $r,
+              {name: "Hysteria2",     protocol: "hysteria2"} + $h,
+              {name: "VLESS-WS",      protocol: "ws"}      + $w
+            ]')
+    fi
 
     # Output JSON
     local tmp="${OUTPUT_JSON}.tmp"

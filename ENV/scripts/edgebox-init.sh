@@ -11,7 +11,6 @@ nft list table inet edgebox >/dev/null 2>&1 || nft -f - <<'NFT'
 table inet edgebox {
   counter c_tcp443   {}
   counter c_udp443   {}
-  counter c_udp2053  {}
   counter c_resi_out {}
 
   set resi_addr4 {
