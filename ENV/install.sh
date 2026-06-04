@@ -423,27 +423,52 @@ _install_script() {
         return 1
     fi
 
-    mkdir -p "$(dirname "$target")"
+    local target_dir
+    target_dir="$(dirname "$target")"
+    mkdir -p "$target_dir"
+
+    # v4.6.0-rc4 (hotfix 自覆盖竞态):
+    #   先写到目标同目录的临时文件, 再用 mv (rename(2)) 原子替换目标。
+    #   旧实现用 cp/curl 直接覆盖目标 (O_TRUNC, inode 不变)。当被安装的脚本
+    #   恰好是当前正在运行的脚本时 (edgeboxctl upgrade 重装自身),
+    #   运行中的 bash 仍持有该 inode 的 fd 并按字节偏移继续读取, 覆盖后会读到
+    #   新文件的错位内容, 触发 "syntax error near unexpected token \`;;'" 之类报错。
+    #   mv 替换的是目录项并产生新 inode, 旧进程的 fd 仍指向旧 inode (已打开即不回收),
+    #   直到进程退出 —— 竞态彻底消除。临时文件必须与目标同一文件系统, mv 才是原子 rename。
+    local tmp
+    tmp="$(mktemp "${target_dir}/.${basename}.XXXXXX")" || {
+        log_error "_install_script: mktemp 失败 (目录: $target_dir)"
+        return 1
+    }
 
     if [[ -n "${EDGEBOX_BOOTSTRAP_TMP:-}" && -f "${EDGEBOX_BOOTSTRAP_TMP}/${subdir}/${basename}" ]]; then
-        if ! cp -p "${EDGEBOX_BOOTSTRAP_TMP}/${subdir}/${basename}" "$target"; then
+        if ! cp -f "${EDGEBOX_BOOTSTRAP_TMP}/${subdir}/${basename}" "$tmp"; then
             log_error "Failed to copy bootstrap ${subdir} file: $basename -> $target"
+            rm -f "$tmp"
             return 1
         fi
     else
         local url="https://raw.githubusercontent.com/cuiping89/node/main/ENV/${subdir}/${basename}"
         log_info "Bootstrap not detected, downloading $basename from GitHub..."
-        if ! curl -fsSL --connect-timeout 15 --max-time 120 -o "$target" "$url"; then
+        if ! curl -fsSL --connect-timeout 15 --max-time 120 -o "$tmp" "$url"; then
             log_error "Failed to download $basename from $url"
             log_error "Consider using: curl -fsSL <bootstrap.sh URL> | bash"
+            rm -f "$tmp"
             return 1
         fi
     fi
 
     if [[ "$mode" == "exec" ]]; then
-        chmod +x "$target"
+        chmod 755 "$tmp"
     else
-        chmod 644 "$target"
+        chmod 644 "$tmp"
+    fi
+
+    # 原子替换 (同一文件系统下 mv = rename(2))
+    if ! mv -f "$tmp" "$target"; then
+        log_error "_install_script: 原子替换失败 ($tmp -> $target)"
+        rm -f "$tmp"
+        return 1
     fi
     return 0
 }
