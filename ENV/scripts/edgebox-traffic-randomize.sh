@@ -59,6 +59,8 @@ randomize_hysteria2_config() {
 
     # 应用配置
     mv "${CONFIG_DIR}/sing-box.json.tmp" "${CONFIG_DIR}/sing-box.json"
+    chmod 600 "${CONFIG_DIR}/sing-box.json"
+    chown root:root "${CONFIG_DIR}/sing-box.json"
     log_success "Hysteria2配置随机化完成"
     return 0
 }
@@ -294,6 +296,8 @@ main() {
 
             if [[ -s "${CONFIG_DIR}/sing-box.json.tmp" ]]; then
                 mv "${CONFIG_DIR}/sing-box.json.tmp" "${CONFIG_DIR}/sing-box.json"
+                chmod 600 "${CONFIG_DIR}/sing-box.json"
+                chown root:root "${CONFIG_DIR}/sing-box.json"
                 log_success "配置已清理并重置为默认值"
             else
                 rm -f "${CONFIG_DIR}/sing-box.json.tmp"

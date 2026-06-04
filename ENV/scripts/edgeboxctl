@@ -1,7 +1,7 @@
 #!/bin/bash
 # EdgeBox 控制脚本
 # Version: 4.0.0 (3-protocol architecture, lib-based)
-VERSION="4.6.0-rc1"
+VERSION="4.6.0-rc2"
 CONFIG_DIR="/etc/edgebox/config"
 CERT_DIR="/etc/edgebox/cert"
 INSTALL_DIR="/etc/edgebox"
@@ -106,6 +106,27 @@ log_debug()   { [[ "${LOG_LEVEL}" == debug ]] && echo -e "${YELLOW}[DEBUG]${NC} 
 log()      { log_info "$@"; }
 log_ok()   { log_success "$@"; }
 error()    { log_error "$@"; }
+
+# v4.6.0-rc2: 统一敏感配置写入 (审核 P1#2)
+# 用法: secure_replace <src_tmp_file> <dst_real_file>
+# - 用 install(1) 一步完成 owner/group/mode + atomic move
+# - 调用方负责 mktemp 生成 src，并把数据写入 src
+# 注：避免 644 回退最有效的方式是：所有写敏感配置的路径必须经过这个函数
+secure_replace() {
+    local src="$1" dst="$2"
+    if [[ ! -f "$src" ]]; then
+        log_error "secure_replace: source not found: $src"
+        return 1
+    fi
+    # install 一步原子替换 + chmod + chown
+    if ! install -o root -g root -m 600 "$src" "$dst"; then
+        log_error "secure_replace: install 失败 ($src -> $dst)"
+        rm -f "$src"
+        return 1
+    fi
+    rm -f "$src"
+    return 0
+}
 
 # <<< 新增: SNI管理核心函数 (从 sni-manager.sh 整合) >>>
 # -------------------------------------------------------------------
@@ -373,20 +394,27 @@ ESC=$'\033'
 BLUE="${ESC}[0;34m"; PURPLE="${ESC}[0;35m"; CYAN="${ESC}[0;36m"
 YELLOW="${ESC}[1;33m"; GREEN="${ESC}[0;32m"; RED="${ESC}[0;31m"; NC="${ESC}[0m"
 LOG_FILE="/var/log/edgebox-install.log"
-log_info()    { echo -e "${GREEN}[INFO]${NC} $*"    | tee -a "$LOG_FILE"; }
-log_warn()    { echo -e "${YELLOW}[WARN]${NC} $*"   | tee -a "$LOG_FILE"; }
-log_error()   { echo -e "${RED}[ERROR]${NC} $*"     | tee -a "$LOG_FILE"; }
-log_success() { echo -e "${GREEN}[SUCCESS]${NC} $*" | tee -a "$LOG_FILE"; }
+
+# 注: log_info/log_warn/log_error/log_success 已在文件开头定义，此处不再重复
+
+# v4.6.0-rc2: 严格的服务重载/重启 (审核 P1#5)
+# 旧版本: 无条件返回 0，掩盖 systemctl restart 失败
+# 新版本: reload 或 restart 任一失败即返回 1
 reload_or_restart_services() {
   local services=("$@")
+  local failed=0
   for svc in "${services[@]}"; do
     if systemctl reload "$svc" 2>/dev/null; then
       log_info "$svc 已热加载"
-    else
-      systemctl restart "$svc"
+    elif systemctl restart "$svc" 2>/dev/null; then
       log_info "$svc 已重启"
+    else
+      log_error "$svc 重载和重启均失败"
+      systemctl status "$svc" --no-pager -l 2>&1 | tail -20 || true
+      failed=1
     fi
   done
+  return $failed
 }
 
 # ===== 性能优化的全局配置变量 =====
@@ -457,7 +485,7 @@ load_config_once() {
         {
             server_ip: (.server_ip // ""),
             server_eip: (.eip // ""),
-            server_version: (.version // "4.6.0-rc1"),
+            server_version: (.version // "4.6.0-rc2"),
             install_date: (.install_date // ""),
             master_sub_token: (.master_sub_token // ""),
 
@@ -714,6 +742,8 @@ traffic_reset() {
             jq '.inbounds[] |= if .type == "hysteria2" then .heartbeat = "10s" else . end' \
                 "${CONFIG_DIR}/sing-box.json" > "${CONFIG_DIR}/sing-box.json.tmp" && \
                 mv "${CONFIG_DIR}/sing-box.json.tmp" "${CONFIG_DIR}/sing-box.json"
+                chmod 600 "${CONFIG_DIR}/sing-box.json"
+                chown root:root "${CONFIG_DIR}/sing-box.json"
 
             log_success "已重置 sing-box 配置为默认参数"
         fi
@@ -1309,6 +1339,21 @@ request_letsencrypt_cert(){
   # Update cert_mode *before* final service reload
   echo "letsencrypt:${domain}" > "${CONFIG_DIR}/cert_mode"
 
+  # v4.6.0-rc2: 同步更新 server.json.cert（CDN enable 前置检查读这里）
+  local _server_json="${CONFIG_DIR}/server.json"
+  local _tmp="${_server_json}.tmp"
+  if jq --arg d "$domain" \
+       '.cert.mode = "letsencrypt" | .cert.domain = $d | .cert.auto_renew = true' \
+       "$_server_json" > "$_tmp" 2>/dev/null; then
+      mv -f "$_tmp" "$_server_json"
+      chmod 600 "$_server_json"
+      chown root:root "$_server_json"
+      log_info "✓ server.json.cert 已同步: letsencrypt/${domain}"
+  else
+      rm -f "$_tmp"
+      log_warn "更新 server.json.cert 失败（cert_mode 文件已更新）"
+  fi
+
   # Reload all relevant services *after* symlinks and cert_mode are updated
   log_info "Reloading Nginx, Xray, and Sing-box with new certificate..."
   reload_or_restart_services nginx xray sing-box
@@ -1398,7 +1443,7 @@ update_sni_domain() {
 
         # 3) 覆盖前自检：只要失败就不落盘
         if /usr/local/bin/xray -test -format json -c "$xray_tmp" >/dev/null 2>&1; then
-            install -m 644 "$xray_tmp" "$XRAY_CONFIG"
+            install -o root -g root -m 600 "$xray_tmp" "$XRAY_CONFIG"
             log_success "[SNI] Xray 核心配置已更新。"
         else
             log_error "[SNI] 生成的新 Xray 配置验证失败！保留原配置。"
@@ -1420,6 +1465,8 @@ update_sni_domain() {
         .updated_at = (now | todate)
     ' "${CONFIG_DIR}/server.json" > "$server_json_tmp"; then
         mv -f "$server_json_tmp" "${CONFIG_DIR}/server.json"
+        chmod 600 "${CONFIG_DIR}/server.json"
+        chown root:root "${CONFIG_DIR}/server.json"
         log_success "[SNI] server.json 状态已同步更新。"
     else
         log_warn "[SNI] server.json 同步更新失败。"; rm -f "$server_json_tmp"
@@ -1526,6 +1573,19 @@ switch_to_ip(){
   echo "self-signed" > "${CONFIG_DIR}/cert_mode"
   ln -sf "${CERT_DIR}/self-signed.key" "${CERT_DIR}/current.key"
   ln -sf "${CERT_DIR}/self-signed.pem" "${CERT_DIR}/current.pem"
+
+  # v4.6.0-rc2: 同步更新 server.json.cert
+  local _sj="${CONFIG_DIR}/server.json" _tmp="${CONFIG_DIR}/server.json.tmp"
+  if jq '.cert.mode = "self-signed" | .cert.domain = null | .cert.auto_renew = false' \
+       "$_sj" > "$_tmp" 2>/dev/null; then
+      mv -f "$_tmp" "$_sj"
+      chmod 600 "$_sj"
+      chown root:root "$_sj"
+  else
+      rm -f "$_tmp"
+      log_warn "更新 server.json.cert 失败"
+  fi
+
   fix_permissions
 
   ensure_config_loaded || regen_sub_ip "YOUR_IP"
@@ -1682,7 +1742,8 @@ cdn_modify_xray() {
     fi
 
     mv -f "$tmp" "$f"
-    chmod 644 "$f"
+    chmod 600 "$f"
+    chown root:root "$f"
     return 0
 }
 
@@ -1691,6 +1752,8 @@ cdn_restore_xray() {
     # else regenerate via configure_xray.
     if [[ -f "${CONFIG_DIR}/xray.json.template" ]]; then
         cp -f "${CONFIG_DIR}/xray.json.template" "${CONFIG_DIR}/xray.json"
+        chmod 600 "${CONFIG_DIR}/xray.json"
+        chown root:root "${CONFIG_DIR}/xray.json"
         return 0
     fi
     # Fallback: regenerate from scratch (this is what the installer uses)
@@ -1724,6 +1787,8 @@ cdn_set_server_json() {
     fi
 
     mv -f "$tmp" "$f"
+    chmod 600 "$f"
+    chown root:root "$f"
     return 0
 }
 
@@ -1754,6 +1819,8 @@ cdn_enable() {
     # 2. Save xray.json template (for future restore)
     if [[ ! -f "${CONFIG_DIR}/xray.json.template" ]]; then
         cp -p "${CONFIG_DIR}/xray.json" "${CONFIG_DIR}/xray.json.template"
+        chmod 600 "${CONFIG_DIR}/xray.json.template"
+        chown root:root "${CONFIG_DIR}/xray.json.template"
         log_info "已保存 xray.json.template 供 disable 时还原"
     fi
 
@@ -1802,8 +1869,14 @@ cdn_enable() {
         return 1
     fi
 
-    # 8. Reload nginx (in case map config references the host)
-    systemctl reload nginx 2>/dev/null || systemctl restart nginx 2>/dev/null || true
+    # 8. Reload nginx (CDN map must take effect)
+    # v4.6.0-rc2: 失败要明确 rollback (审核 P1#5)
+    if ! systemctl reload nginx 2>/dev/null && ! systemctl restart nginx 2>/dev/null; then
+        log_error "nginx reload/restart 失败"
+        systemctl status nginx --no-pager -l 2>&1 | tail -20 || true
+        cdn_rollback "$backup_dir"
+        return 1
+    fi
 
     log_success "============================================"
     log_success "  ✅ CDN 中继模式已启用"
@@ -1887,7 +1960,11 @@ cdn_disable() {
         return 1
     fi
 
-    systemctl reload nginx 2>/dev/null || true
+    if ! systemctl reload nginx 2>/dev/null && ! systemctl restart nginx 2>/dev/null; then
+        log_error "nginx reload/restart 失败"
+        cdn_rollback "$backup_dir"
+        return 1
+    fi
 
     log_success "============================================"
     log_success "  ✅ 已回到直连模式"
@@ -2492,6 +2569,7 @@ setup_outbound_vps() {
     get_server_info || return 1
     local xray_tmp="${CONFIG_DIR}/xray.json.tmp"
     jq '.outbounds = [ { "protocol":"freedom", "tag":"direct" } ] | .routing = { "rules": [] }' "${CONFIG_DIR}/xray.json" > "$xray_tmp" && mv "$xray_tmp" "${CONFIG_DIR}/xray.json"
+    chmod 600 "${CONFIG_DIR}/xray.json"; chown root:root "${CONFIG_DIR}/xray.json"
     setup_shunt_directories
 update_shunt_state "vps" "" "healthy"
 flush_nft_resi_sets
@@ -2536,6 +2614,7 @@ setup_outbound_resi() {
     ]
   ' ${CONFIG_DIR}/xray.json > ${CONFIG_DIR}/xray.json.tmp && \
   mv ${CONFIG_DIR}/xray.json.tmp ${CONFIG_DIR}/xray.json
+  chmod 600 "${CONFIG_DIR}/xray.json" 2>/dev/null; chown root:root "${CONFIG_DIR}/xray.json" 2>/dev/null
   
   echo "$url" > "${CONFIG_DIR}/shunt/resi.conf"
   setup_shunt_directories
@@ -2561,6 +2640,7 @@ setup_outbound_direct_resi() {
   wl='[]'
   [[ -s "${CONFIG_DIR}/shunt/whitelist.txt" ]] && wl="$(cat "${CONFIG_DIR}/shunt/whitelist.txt" | jq -R -s 'split("\n")|map(select(length>0))|map("domain:"+.)')"
   jq --argjson ob "$xob" --argjson wl "$wl" '.outbounds=[{"protocol":"freedom","tag":"direct"}, $ob] | .routing={"domainStrategy":"AsIs","rules":[{"type":"field","port":"53","outboundTag":"direct"},{"type":"field","domain":$wl,"outboundTag":"direct"},{"type":"field","network":"tcp,udp","outboundTag":"resi-proxy"}]}' ${CONFIG_DIR}/xray.json > ${CONFIG_DIR}/xray.json.tmp && mv ${CONFIG_DIR}/xray.json.tmp ${CONFIG_DIR}/xray.json
+  chmod 600 "${CONFIG_DIR}/xray.json" 2>/dev/null; chown root:root "${CONFIG_DIR}/xray.json" 2>/dev/null
   # sing-box remains direct
   echo "$url" > "${CONFIG_DIR}/shunt/resi.conf"
 update_shunt_state "direct-resi" "$url" "healthy"
@@ -2789,15 +2869,21 @@ alert_show(){
   echo "  ── 公共阈值 (${ALERT_PUB}) ──"
   jq -r '. | "  monthly_gib: \(.monthly_gib)\n  steps:       \(.steps | join(\",\"))%"' "$ALERT_PUB" 2>/dev/null
   echo "  ── 通知渠道 (机密，仅显示是否配置) ──"
-  # 加载 env 到子 shell，只检测变量是否非空
-  (
-    # shellcheck source=/dev/null
-    source "$ALERT_ENV" 2>/dev/null
-    printf "  %-12s %s\n" "Telegram:"  "$([[ -n $ALERT_TG_BOT_TOKEN && -n $ALERT_TG_CHAT_ID ]] && echo 已配置 || echo 未配置)"
-    printf "  %-12s %s\n" "Discord:"   "$([[ -n $ALERT_DISCORD_WEBHOOK ]]                 && echo 已配置 || echo 未配置)"
-    printf "  %-12s %s\n" "微信(PP):"  "$([[ -n $ALERT_PUSHPLUS_TOKEN ]]                  && echo 已配置 || echo 未配置)"
-    printf "  %-12s %s\n" "Webhook:"   "$([[ -n $ALERT_WEBHOOK ]]                          && echo 已配置 || echo 未配置)"
-  )
+  # v4.6.0-rc2 (审核 P1#4): 不再 source alert.env，用 grep 安全检测字段是否非空
+  _has_value() {
+    local key="$1"
+    # 匹配 ^KEY=非空内容（容忍引号），但不解释内容
+    grep -qE "^${key}=[\"']?[^\"' ]" "$ALERT_ENV" 2>/dev/null
+  }
+  local tg_ok=未配置 disc_ok=未配置 wx_ok=未配置 wh_ok=未配置
+  if _has_value ALERT_TG_BOT_TOKEN && _has_value ALERT_TG_CHAT_ID; then tg_ok=已配置; fi
+  _has_value ALERT_DISCORD_WEBHOOK && disc_ok=已配置
+  _has_value ALERT_PUSHPLUS_TOKEN  && wx_ok=已配置
+  _has_value ALERT_WEBHOOK         && wh_ok=已配置
+  printf "  %-12s %s\n" "Telegram:"  "$tg_ok"
+  printf "  %-12s %s\n" "Discord:"   "$disc_ok"
+  printf "  %-12s %s\n" "微信(PP):"  "$wx_ok"
+  printf "  %-12s %s\n" "Webhook:"   "$wh_ok"
 }
 
 alert_set_monthly(){
@@ -3170,6 +3256,8 @@ update_xray_reality_keys() {
        '(.inbounds[]? | select(.tag? | test("reality"; "i")) | .streamSettings.realitySettings.privateKey) = $private_key |
         (.inbounds[]? | select(.tag? | test("reality"; "i")) | .streamSettings.realitySettings.shortIds) = [$short_id]' \
        "${XRAY_CONFIG}" > "$temp_config" && mv "$temp_config" "${XRAY_CONFIG}"
+    chmod 600 "${XRAY_CONFIG}"
+    chown root:root "${XRAY_CONFIG}"
 }
 
 # 辅助函数：更新server.json
@@ -3187,6 +3275,8 @@ update_server_reality_keys() {
         .reality.public_key = $public_key |
         .reality.short_id = $short_id' \
        "${CONFIG_DIR}/server.json" > "$temp_server" && mv "$temp_server" "${CONFIG_DIR}/server.json"
+    chmod 600 "${CONFIG_DIR}/server.json"
+    chown root:root "${CONFIG_DIR}/server.json"
 }
 
 # 辅助函数：更新轮换状态文件
@@ -3293,6 +3383,8 @@ rotate_reality_sid_graceful() {
       else . end
     )' "$XRAY_CONFIG" > "$tmp" && mv "$tmp" "$XRAY_CONFIG" || {
       echo "[ERR] 写入新 SID 失败" >&2; return 1; }
+  chmod 600 "$XRAY_CONFIG"
+  chown root:root "$XRAY_CONFIG"
 
   # 轻量重载（失败则重启）
   systemctl reload xray 2>/dev/null || systemctl restart xray 2>/dev/null || true
@@ -3304,6 +3396,8 @@ rotate_reality_sid_graceful() {
   local server_json_tmp="${CONFIG_DIR}/server.json.tmp"
   if jq --arg sid "$new_sid" '.reality.short_id = $sid' "${CONFIG_DIR}/server.json" > "$server_json_tmp"; then
       mv "$server_json_tmp" "${CONFIG_DIR}/server.json"
+      chmod 600 "${CONFIG_DIR}/server.json"
+      chown root:root "${CONFIG_DIR}/server.json"
       echo "[INFO] 前端数据源 server.json 已同步为新 SID"
   else
       echo "[WARN] 更新 server.json 失败" >&2
@@ -3936,6 +4030,27 @@ HEAD
     chmod 600 "$keep_file"
     log_info "凭据已保留: $keep_file"
 
+    # v4.6.0-rc2 (审核 升级保留): 同时保留其他关键状态
+    # 这些文件不会进 install.sh 重新生成路径，所以必须 stash 起来并在 install 完后还原
+    local keep_dir="/tmp/edgebox-keep-state"
+    rm -rf "$keep_dir"
+    mkdir -p "$keep_dir/config" "$keep_dir/cert"
+    chmod 700 "$keep_dir"
+
+    # cert_mode 文件（letsencrypt:<domain> 或 self-signed）
+    [[ -f "${CONFIG_DIR}/cert_mode" ]] && cp -p "${CONFIG_DIR}/cert_mode" "$keep_dir/config/"
+
+    # alert.env （Webhook/Token 等告警凭据）
+    [[ -f "${CONFIG_DIR}/alert.env" ]] && cp -p "${CONFIG_DIR}/alert.env" "$keep_dir/config/"
+
+    # shunt/ 目录（出站分流配置）
+    [[ -d "${CONFIG_DIR}/shunt" ]] && cp -rp "${CONFIG_DIR}/shunt" "$keep_dir/config/"
+
+    # current.* 证书符号链接和 Let's Encrypt 链接的目标 (cert 目录里)
+    [[ -d /etc/edgebox/cert ]] && cp -rp /etc/edgebox/cert/. "$keep_dir/cert/" 2>/dev/null || true
+
+    log_info "扩展状态已保留: $keep_dir (cert_mode/alert.env/shunt/cert)"
+
     # 5. 设置升级标记，让 bootstrap/install.sh 知道是升级（不退出非交互检查）
     export EDGEBOX_UPGRADE=1
 
@@ -3952,8 +4067,51 @@ HEAD
         log_error "  2. tar xzf $backup_file"
         log_error "  3. systemctl restart nginx xray sing-box"
         log_error ""
-        log_error "凭据保留文件: $keep_file (可保留以便重试)"
+        log_error "保留文件可用于重试: $keep_file  + $keep_dir"
         return 1
+    fi
+
+    # v4.6.0-rc2: install 完成后还原扩展状态
+    # （install.sh 不会自己还原这些文件 — install.sh 只复用 server.json 凭据）
+    if [[ -d "$keep_dir" ]]; then
+        log_info "还原扩展状态..."
+        if [[ -f "$keep_dir/config/cert_mode" ]]; then
+            install -o root -g root -m 644 "$keep_dir/config/cert_mode" "${CONFIG_DIR}/cert_mode"
+            log_info "  ✓ cert_mode 已还原"
+        fi
+        if [[ -f "$keep_dir/config/alert.env" ]]; then
+            install -o root -g root -m 600 "$keep_dir/config/alert.env" "${CONFIG_DIR}/alert.env"
+            log_info "  ✓ alert.env 已还原 (告警 Token 保留)"
+        fi
+        if [[ -d "$keep_dir/config/shunt" ]]; then
+            mkdir -p "${CONFIG_DIR}/shunt"
+            cp -rp "$keep_dir/config/shunt/." "${CONFIG_DIR}/shunt/"
+            chown -R root:root "${CONFIG_DIR}/shunt"
+            log_info "  ✓ shunt/ 已还原 (出站分流配置)"
+        fi
+        # 如果 cert_mode 指向 letsencrypt:<domain>，还原证书链接 + 触发服务重载
+        if [[ -f "${CONFIG_DIR}/cert_mode" ]] && grep -q "^letsencrypt:" "${CONFIG_DIR}/cert_mode"; then
+            local domain
+            domain=$(cut -d: -f2 "${CONFIG_DIR}/cert_mode")
+            if [[ -d /etc/letsencrypt/live/${domain} ]]; then
+                ln -sfnT "/etc/letsencrypt/live/${domain}/fullchain.pem" /etc/edgebox/cert/current.pem
+                ln -sfnT "/etc/letsencrypt/live/${domain}/privkey.pem"   /etc/edgebox/cert/current.key
+                log_info "  ✓ Let's Encrypt 证书链接已还原 ($domain)"
+                # 同步更新 server.json.cert
+                local _sj="${CONFIG_DIR}/server.json"
+                local _tmp="${_sj}.tmp"
+                jq --arg d "$domain" \
+                   '.cert.mode = "letsencrypt" | .cert.domain = $d | .cert.auto_renew = true' \
+                   "$_sj" > "$_tmp" 2>/dev/null && {
+                    mv -f "$_tmp" "$_sj"
+                    chmod 600 "$_sj"
+                    chown root:root "$_sj"
+                }
+                systemctl reload nginx xray sing-box 2>/dev/null || true
+            fi
+        fi
+        # 清理保留目录
+        rm -rf "$keep_dir"
     fi
 
     # 7. 成功，清理 keep 文件

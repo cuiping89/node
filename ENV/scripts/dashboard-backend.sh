@@ -163,7 +163,7 @@ get_system_info() {
 
     server_ip=$(safe_jq '.server_ip' "$SERVER_JSON" "127.0.0.1")
     eip=$(safe_jq '.eip' "$SERVER_JSON" "")
-    version=$(safe_jq '.version' "$SERVER_JSON" "4.6.0-rc1")
+    version=$(safe_jq '.version' "$SERVER_JSON" "4.6.0-rc2")
     install_date=$(safe_jq '.install_date' "$SERVER_JSON" "")
     cloud_provider=$(safe_jq '.cloud.provider' "$SERVER_JSON" "Unknown")
     cloud_region=$(safe_jq '.cloud.region' "$SERVER_JSON" "Unknown")
@@ -422,23 +422,28 @@ get_protocols_status() {
     fi
 
     local final_protocols="[]"
+
+    # v4.6.0-rc2 (审核 P1#3): share_link 不再自己拼接
+    # 改为从 subscription.txt 读取 — 由 lib/subscription.sh 统一生成，逻辑正确
+    # (IP 模式自带 insecure=1, WS 用 ws.edgebox.internal SNI, CDN 模式用 cdn.host)
+    local subscription_txt="${CONFIG_DIR}/subscription.txt"
+    declare -A links_by_protocol
+    if [[ -s "$subscription_txt" ]]; then
+        while IFS= read -r line; do
+            [[ -z "$line" ]] && continue
+            # 识别协议：通过 URI 末尾 #EdgeBox-XXX 标签
+            case "$line" in
+                *"#EdgeBox-REALITY"*)   links_by_protocol["VLESS-Reality"]="$line"   ;;
+                *"#EdgeBox-HYSTERIA2"*) links_by_protocol["Hysteria2"]="$line"       ;;
+                *"#EdgeBox-WS"*|*"#EdgeBox-WS-CDN"*) links_by_protocol["VLESS-WebSocket"]="$line" ;;
+            esac
+        done < "$subscription_txt"
+    fi
+
     for name in "${protocol_order[@]}"; do
         IFS='|' read -r key scenario camouflage port network <<< "${protocol_meta[$name]}"
 
-        local share_link
-        share_link=$(jq -n -r \
-            --arg name "$name" \
-            --argjson conf "$server_config" \
-            --arg domain "$host_or_ip" \
-            --arg reality_sni "$reality_sni" \
-            '
-            def url_encode: @uri;
-            if $name == "VLESS-Reality" then "vless://\($conf.uuid.vless.reality)@\($domain):443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=\($reality_sni)&pbk=\($conf.reality.public_key)&sid=\($conf.reality.short_id)&type=tcp#EdgeBox-REALITY"
-            elif $name == "Hysteria2" then "hysteria2://\($conf.password.hysteria2 | url_encode)@\($domain):443/?sni=\($domain)&alpn=h3#EdgeBox-HYSTERIA2"
-            elif $name == "VLESS-WebSocket" then "vless://\($conf.uuid.vless.ws)@\($domain):443?encryption=none&security=tls&sni=\($domain)&alpn=http%2F1.1&type=ws&path=\($conf.ws.path // "/ws" | @uri)&fp=chrome#EdgeBox-WS"
-            else ""
-            end
-        ')
+        local share_link="${links_by_protocol[$name]:-}"
 
         local static_info
         static_info=$(jq -n \
