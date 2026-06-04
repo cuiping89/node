@@ -1,6 +1,159 @@
 # Changelog
 
-## v4.6.0-rc3 — 3rd security audit fixes
+## v4.6.0-rc4 — 4th security audit fixes (8 P1 + 7 P2)
+
+The 4th audit was the most rigorous yet — auditor ran actual commands and
+checked exit codes, found that **nearly every CLI command was returning 0
+on failure**. Fixed all 8 P1 + 7 P2 items.
+
+### P1#1: Wrong xray validation command
+`cdn_modify_xray` used `xray test -c FILE` — but Xray has no `test`
+subcommand; it's `xray -test -format json -c FILE`. CDN enable silently
+failed at validation.
+
+Fixed: `/usr/local/bin/xray -test -format json -c "$tmp"` matches all
+other call sites.
+
+### P1#2 (CRITICAL): Exit code propagation broken across entire CLI
+The biggest finding. Old script structure:
+```
+case "$1" in ... esac        # case branches with return 1
+if [[ BASH_SOURCE... ]]      # ← this runs AFTER case
+    load_config_once         # ← this returns 0
+fi                           # ← script exits 0
+```
+
+Bash exit code = last command. So ANY `edgeboxctl <cmd>` that called a
+function returning 1 would still exit 0. Auditor verified with 5 commands:
+- `edgeboxctl cdn enable invalid.example` → echo $? = 0 (BUG)
+- `edgeboxctl switch-to-domain invalid.invalid` → 0 (BUG)
+- `edgeboxctl config regenerate-uuid` → 0 (BUG)
+- `edgeboxctl backup restore /nonexistent/file` → 0 (BUG)
+- `edgeboxctl sni set invalid.invalid` → 0 (BUG)
+
+Plus 4 case branches had unconditional `exit 0 ;;` at the end (cdn, monitor,
+cron, shunt) that swallowed all sub-command failures.
+
+Fixed:
+- Config loading moved BEFORE `case` (top of dispatch section)
+- After `esac`: explicit `exit "$?"` captures case's last command rc
+- All 4 `exit 0 ;;` removed — replaced with plain `;;` to let function rc flow
+
+### P1#3 (CRITICAL): regenerate_uuid completely unsafe
+Old version:
+- Wrote `server.json`/`xray.json`/`sing-box.json` via tmp+mv, no `chmod 600` after
+- No `xray -test` before activation → bad JSON would crash the service
+- `systemctl reload || true` swallowed reload failures
+- `eb_gen_subscription` return value ignored
+
+Net result: one bad invocation could leave server.json/xray.json world-readable
+(leaking Reality private key), or push broken JSON live with no way to recover.
+
+Fixed: complete rewrite —
+1. Build candidate configs in `mktemp` under `umask 077`
+2. Validate xray.json with `xray -test -format json -c`
+3. Validate sing-box.json with `sing-box check -c`
+4. Atomic-replace via `install -o root -g root -m 600` (NEVER mv)
+5. `systemctl reload` rc check; failure → restore backup, retry reload
+6. `eb_gen_subscription` rc check
+7. Force-arg accepts `"true"`, `"force"`, `--force`, OR numeric (for back-compat
+   with old `sub_revoke` callers that pass `0` / `24`)
+
+### P1#4: sub revoke --force never actually forced
+Two bugs:
+- `regenerate_uuid` checked `$1 == "true"` but caller passed `regenerate_uuid 0`
+- Documentation said "用户已保存的 Reality 私钥" — clients have the **public** key
+  (pbk), private key only lives in server's xray.json
+
+Fixed: regenerate_uuid now accepts numeric force values; sub_revoke calls
+`regenerate_uuid true` and checks return code; doc updated to "Reality 公钥 (pbk)".
+
+### P1#5: cdn_rollback always reported success
+`cdn_rollback` had 6 `|| true`'s and unconditionally logged "回滚完成" at the end.
+If anything failed, caller couldn't tell.
+
+Plus `cdn_enable` had no post-enable verification — would log success even if
+sing-box was still running or UDP/443 was still listening.
+
+Fixed:
+- `cdn_rollback` accumulates failures in `_rb_rc` array, returns 1 if any fail
+- `cdn_enable` post-state verification: sing-box must be inactive, UDP 443
+  must NOT be listening, port 10086 (WS backend) must be listening,
+  nginx + xray must be active. Failed verification → auto rollback.
+
+### P1#6: switch-to-domain/switch-to-ip ignored critical failures
+Multiple unchecked calls (`generate_nginx_stream_map_conf`, `reload_or_restart_services`,
+`regen_sub_domain`, `fix_permissions`). Server could end up with server.json
+saying "domain mode" while nginx map was still IP mode.
+
+Fixed: every critical step now checked with `if ! ... then return 1`. Both
+functions also validate domain format via `eb_is_valid_domain` if available.
+
+### P1#7: Upgrade declared success after topology restoration failure
+After install.sh ran during upgrade, we re-apply CDN / domain topology. Old
+code: failures only `log_warn`, then unconditionally printed "✅ 升级成功".
+
+Fixed: `_topology_rc` tracks any topology restoration failure. If non-zero,
+print "❌ 升级完成但拓扑恢复失败" and propagate rc=1 to script exit.
+
+### P1#8: Reality key/SID rotation lacked candidate validation
+`update_xray_reality_keys` / `update_server_reality_keys` had no rc checks.
+`rotate_reality_sid_graceful` wrote via tmp+mv without xray -test. Broken
+JSON would only be caught at xray reload time.
+
+Fixed: both helper functions now mktemp + jq + xray -test + install -m 600,
+and return real rc. `rotate_reality_keys` checks both helpers' rc, restores
+from `xray_backup_${ts}.json` + `server_backup_${ts}.json` on failure.
+SID rotation same pattern: candidate xray.json validated before write.
+
+### P2#1-7 cleanup
+- `sub_db_apply` uses `install -m 600` instead of mv (preserves perms on users.json)
+- `ensure_sub_dirs` sets 700 root:root on sub dir, 600 root:root on users.json
+- Device stats uses gawk explicitly (match() 3-arg is gawk-specific)
+- ipq.sh VPS view unsets `http_proxy/HTTPS_PROXY/...` env vars before curl,
+  passes `--noproxy '*'` for belt-and-suspenders
+- cdn_enable validates host via eb_is_valid_domain
+- Removed duplicate function definitions: `get_server_info` (was defined twice,
+  the second override was a less-validated wrapper), `ensure_traffic_dir`,
+  `build_sub_payload`
+- backup_create returns non-zero on tar failure (was log_error only)
+
+### Hash matrix
+| File | sha256 |
+|---|---|
+| install.sh | daeb99f86867de229bcebdf0f49e1c530e36b649bc8ccc17cae6f30c1a22d06e |
+| edgeboxctl | b0be866204cd1392c8a669367c4001d37b711513802bea1a8fcf1a3be65b39a8 |
+| edgebox-ipq.sh | d2b8b42cac18f76ac7d5b492b2a915720a61d4575fefd5e6fca6d17d6825d84c |
+
+
+## v4.6.0 — stable release (security-hardened, 3-round audit cleared)
+
+**Released**: 2026-06-04
+
+Real-VPS verified on Debian 12 + RackNerd. All 11 P1 + P2 findings from the
+3rd audit fixed (incl. critical root-privilege-escalation chain via traffic
+state file).
+
+Three audit rounds, 27 total findings, all closed.
+
+### Verification matrix (real VPS, IP mode)
+| Check | Result |
+|---|---|
+| `.state` no longer in www-data writable area | ✅ `/var/lib/edgebox/traffic.state.json` root 600 |
+| `traffic-collector.sh` source/eval-free | ✅ JSON + jq + regex validation |
+| `/etc/edgebox/traffic` ownership | ✅ root:root 755 |
+| logrotate dash compatibility | ✅ `[ -x ]` only |
+| SNI grace cleanup creates xray.json 600 | ✅ umask 077 + install -m 600 |
+| `rotate-sid` creates real systemd timer | ✅ `edgebox-sid-cleanup-XXXXXX.timer` |
+| ipq.sh has zero `eval` | ✅ |
+| Subscription has 3 valid share_links | ✅ 235/136/218 chars |
+| nginx + xray + sing-box active | ✅ |
+| `edgeboxctl help` clean | ✅ |
+| `cert/` 750 root:nogroup | ✅ |
+
+### Detailed change log (rc1 → rc2 → rc3 → stable)
+
+## v4.6.0 — 3rd security audit fixes
 
 Third audit pass found 11 issues including 1 root-privilege-escalation chain.
 All fixed.
@@ -128,7 +281,7 @@ accept array form. Zero remaining `eval` in this script.
 ### P2 cleanup
 - `fix_permissions` cert dir: 755 root:root → 750 root:nogroup (matches
   `setup_directories` initial perms, eliminates inconsistency)
-- All version strings → 4.6.0-rc3
+- All version strings → 4.6.0
 
 ### What's still kept (with caveats)
 - `sub issue / revoke / limit / stats` features kept but README + CLI output
