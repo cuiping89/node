@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #############################################
-# EdgeBox 企业级多协议节点部署脚本 v4.6.0-rc1
+# EdgeBox 企业级多协议节点部署脚本 v4.6.0-rc4-rc1
 # 模块1：脚本头部+基础函数
 #
 # 功能说明：
@@ -58,7 +58,7 @@ if [[ "${EDGEBOX_DEBUG:-0}" == "1" ]]; then
 fi
 
 # 版本号
-EDGEBOX_VER="4.6.0-rc3"
+EDGEBOX_VER="4.6.0-rc4"
 
 #############################################
 # v4.0.0 Bootstrap: download lib modules from GitHub
@@ -220,7 +220,7 @@ REALITY_SNI="www.microsoft.com"
 HYSTERIA2_MASQUERADE="https://www.bing.com"
 
 # === 版本和下载常量 ===
-# v4.6.0-rc3: 兼容性锁定版本 1.12.8 (审核 P2)
+# v4.6.0-rc4: 兼容性锁定版本 1.12.8 (审核 P2)
 # 原因: 当前生成的客户端 sing-box 配置仍使用 1.13.0 之前的 schema:
 #   - { "type": "block", "tag": "block" }
 #   - { "type": "dns", "tag": "dns-out" }
@@ -407,7 +407,7 @@ log_debug() {
 }
 
 # v4.5.0 (block 6 batch B1): install script from bootstrap or fallback to GitHub.
-# v4.6.0 (block 7): generalized to support web/ files too.
+# v4.6.0-rc4 (block 7): generalized to support web/ files too.
 # Usage: _install_script <target_path> <basename> [<subdir>] [<mode>]
 #   subdir: "scripts" (default) or "web" - where to look in bootstrap tmp
 #   mode:   "exec" (default, chmod +x) or "data" (no chmod, for HTML/CSS/JS)
@@ -506,7 +506,7 @@ check_system() {
         exit 1
     fi
 
-    # v4.6.0-rc3 (审核 P2): 收窄到 Debian/Ubuntu 仅
+    # v4.6.0-rc4 (审核 P2): 收窄到 Debian/Ubuntu 仅
     # 原因: 代码硬编码 www-data, /etc/nginx/modules-enabled/, dpkg 等 Debian-系特定路径
     # RHEL/Rocky/AlmaLinux 实际跑不起来。诚实地拒绝总比装到一半失败强。
     SUPPORTED=false
@@ -536,7 +536,7 @@ check_system() {
         log_error "  不支持的系统: $OS $VERSION"
         log_error "================================================================"
         log_error ""
-        log_error "  EdgeBox v4.6.0+ 仅支持："
+        log_error "  EdgeBox v4.6.0-rc4+ 仅支持："
         log_error "    • Ubuntu 20.04 LTS 及以上"
         log_error "    • Debian 11 (bullseye) 及以上"
         log_error ""
@@ -2328,7 +2328,7 @@ generate_reality_keys() {
 generate_dashboard_passcode() {
     log_info "生成控制面板访问密码..."
 
-    # v4.6.0-rc1: 真正的 6 位随机数字（不是单数字重复 6 次）
+    # v4.6.0-rc4-rc1: 真正的 6 位随机数字（不是单数字重复 6 次）
     # 注: 6 位数字密码只有 10^6 = 100 万种可能，存在暴力风险。
     # 安装结束会提示用户用 `edgeboxctl dashboard passcode` 改为强密码。
     DASHBOARD_PASSCODE=""
@@ -2342,7 +2342,7 @@ generate_dashboard_passcode() {
         return 1
     fi
 
-    # v4.6.0-rc1: 生成 Cookie 秘钥（攻击者不知道这个值就无法伪造会话）
+    # v4.6.0-rc4-rc1: 生成 Cookie 秘钥（攻击者不知道这个值就无法伪造会话）
     # 64 个 hex 字符 ≈ 256 bit 熵
     DASHBOARD_COOKIE_SECRET=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')
     if [[ ${#DASHBOARD_COOKIE_SECRET} -ne 64 ]]; then
@@ -2411,7 +2411,7 @@ save_config_info() {
     local server_tmp="${CONFIG_DIR}/server.json.tmp"
     log_info "使用 jq 生成 server.json 临时文件..."
 
-    # v4.6.0-rc3: 升级模式下保留 cert/cdn/reality.sni 状态
+    # v4.6.0-rc4: 升级模式下保留 cert/cdn/reality.sni 状态
     local _cert_mode="${UPGRADE_CERT_MODE:-self-signed}"
     local _cert_domain="${UPGRADE_CERT_DOMAIN:-}"
     local _cert_autorenew="${UPGRADE_CERT_AUTORENEW:-false}"
@@ -2735,7 +2735,7 @@ execute_module2() {
         return 1
     fi
 
-    # v4.6.0-rc1: 升级路径 — 检测 /tmp/edgebox-keep-server.json
+    # v4.6.0-rc4-rc1: 升级路径 — 检测 /tmp/edgebox-keep-server.json
     # 如果存在，复用所有凭据，跳过 generate_credentials/generate_dashboard_passcode/MASTER_SUB_TOKEN
     local KEEP_FILE="/tmp/edgebox-keep-server.json"
     local UPGRADE_MODE=0
@@ -2758,7 +2758,7 @@ execute_module2() {
         DASHBOARD_COOKIE_SECRET=$(jq -r '.dashboard_cookie_secret // empty' "$KEEP_FILE")
         MASTER_SUB_TOKEN=$(jq -r '.master_sub_token // empty' "$KEEP_FILE")
 
-        # v4.6.0-rc3: 同时保留这些字段，让 save_config_info 写回 server.json
+        # v4.6.0-rc4: 同时保留这些字段，让 save_config_info 写回 server.json
         # 否则新生成的 server.json 会清空 cert.mode / cdn.enabled / reality.sni
         UPGRADE_CERT_MODE=$(jq -r '.cert.mode // "self-signed"'  "$KEEP_FILE")
         UPGRADE_CERT_DOMAIN=$(jq -r '.cert.domain // ""'         "$KEEP_FILE")
@@ -2783,7 +2783,7 @@ execute_module2() {
             return 1
         fi
 
-        # 补齐 v4.6.0-rc1 新增字段（旧 server.json 可能没有）
+        # 补齐 v4.6.0-rc4-rc1 新增字段（旧 server.json 可能没有）
         if [[ -z "$DASHBOARD_PASSCODE" ]]; then
             log_warn "keep 文件无 dashboard_passcode，生成新密码"
             generate_dashboard_passcode || return 1
@@ -3515,7 +3515,7 @@ configure_nginx() {
 
     # 生成新的Nginx主配置
     cat > /etc/nginx/nginx.conf << 'NGINX_CONFIG'
-# EdgeBox Nginx 配置文件 v4.6.0-rc3 (3-protocol: Reality + Hysteria2 + WS)
+# EdgeBox Nginx 配置文件 v4.6.0-rc4 (3-protocol: Reality + Hysteria2 + WS)
 # 架构：SNI定向 + ALPN兜底 + 单端口复用
 
 user www-data;
@@ -3534,7 +3534,7 @@ http {
     include       /etc/nginx/mime.types;
     default_type  application/octet-stream;
 
-    # v4.6.0-rc1: 必须放在 include passcode.conf 之前
+    # v4.6.0-rc4-rc1: 必须放在 include passcode.conf 之前
     # 因为 passcode.conf 含 64-hex Cookie secret 的 map，超过默认 64 字节 bucket。
     # nginx 处理 map 时使用 "处理到该 map 时所看到的最近的 map_hash_bucket_size 值"，
     # 所以这一行必须在含长 map 值的 include 之前。
@@ -3586,7 +3586,7 @@ http {
             add_header Cache-Control "no-store, no-cache, must-revalidate";
             root /var/www/html;
         }
-        # v4.6.0-rc3: 移除旧的 /sub location (v3 残留，仅服务 token 化前的链接)
+        # v4.6.0-rc4: 移除旧的 /sub location (v3 残留，仅服务 token 化前的链接)
         location ^~ /share/ {
             default_type text/plain;
             add_header Cache-Control "no-store, no-cache, must-revalidate";
@@ -4665,7 +4665,7 @@ log_info "└─ regenerate_subscription()  # 重新生成订阅"
 
 
 #############################################
-# EdgeBox 企业级多协议节点部署脚本 v4.6.0-rc1
+# EdgeBox 企业级多协议节点部署脚本 v4.6.0-rc4-rc1
 # 模块4：Dashboard后端脚本生成
 #
 # 功能说明：
@@ -5142,7 +5142,7 @@ chmod +x "${SCRIPTS_DIR}/system-stats.sh"
 _install_script "${SCRIPTS_DIR}/traffic-collector.sh" "traffic-collector.sh" || return 1
 chmod +x "${SCRIPTS_DIR}/traffic-collector.sh"
 
-# 3. 预警配置（v4.6.0-rc1 安全拆分）
+# 3. 预警配置（v4.6.0-rc4-rc1 安全拆分）
 # 机密部分 → /etc/edgebox/config/alert.env (root:root 600)
 #   - 仅 root 可读
 #   - lib/alert.sh 用 awk 解析（rc2 后不再 source，杜绝 Shell 执行风险）
@@ -5184,7 +5184,7 @@ cat > "${TRAFFIC_DIR}/alert-public.json" <<'PUB_CONF'
 }
 PUB_CONF
 chmod 644 "${TRAFFIC_DIR}/alert-public.json"
-# v4.6.0-rc3: 注意，整个 TRAFFIC_DIR 保持 root:root（不 chown www-data，避免提权链）
+# v4.6.0-rc4: 注意，整个 TRAFFIC_DIR 保持 root:root（不 chown www-data，避免提权链）
 
 # 4. 预警脚本（读取 monthly.csv 与 alert.conf，阈值去重）
 _install_script "${SCRIPTS_DIR}/traffic-alert.sh" "traffic-alert.sh" || return 1
@@ -5235,7 +5235,7 @@ chmod 644 "$TRAFFIC_DIR/index.html"
 setup_cron_jobs() {
     log_info "v4.2.0: 配置 cron 任务（只读类默认启用，危险类需 opt-in）..."
 
-    # 1. 兜底创建 alert 配置（v4.6.0-rc1 拆分版）
+    # 1. 兜底创建 alert 配置（v4.6.0-rc4-rc1 拆分版）
     ensure_alert_conf_full() {
         # 机密文件
         local secret_f="/etc/edgebox/config/alert.env"
@@ -5265,7 +5265,7 @@ CONF
 CONF
         chmod 644 "$pub_f"
 
-        # v4.6.0-rc1 迁移：如果发现旧的 alert.conf 在 traffic 目录，删除它
+        # v4.6.0-rc4-rc1 迁移：如果发现旧的 alert.conf 在 traffic 目录，删除它
         # (旧文件含 Token 且 www-data 可读，存在提权风险)
         if [[ -f /etc/edgebox/traffic/alert.conf ]]; then
             log_warn "检测到旧版 alert.conf（v4.5 之前），删除以消除 Web 暴露"
@@ -5361,7 +5361,7 @@ CRON_OPTIN
 }
 
 
-# v4.6.0-rc3 (审核 P1#8): 日志轮转
+# v4.6.0-rc4 (审核 P1#8): 日志轮转
 # 旧版本没有 logrotate 配置，长期运行后 Xray/Nginx stream/EdgeBox 日志会填满磁盘
 # 导致证书续期、配置写入、服务重启全部失败
 #############################################
@@ -5373,7 +5373,7 @@ setup_logrotate() {
 
     cat > /etc/logrotate.d/edgebox <<'EOF'
 # EdgeBox 日志轮转
-# 由 install.sh 在 v4.6.0-rc3 加入。包含：
+# 由 install.sh 在 v4.6.0-rc4 加入。包含：
 #   - Xray 访问/错误日志
 #   - Nginx stream 日志（HTTP 日志由发行版默认 logrotate 接管）
 #   - EdgeBox 自身日志（install / traffic-alert / edgebox.log）
@@ -5388,7 +5388,7 @@ setup_logrotate() {
     create 0640 root adm
     sharedscripts
     postrotate
-        # v4.6.0-rc3 (审核 P1#2): logrotate 通过 /bin/sh (Debian/Ubuntu = dash) 执行 postrotate
+        # v4.6.0-rc4 (审核 P1#2): logrotate 通过 /bin/sh (Debian/Ubuntu = dash) 执行 postrotate
         # dash 不支持 [[ ... ]]，必须用 POSIX [ ... ]
         if [ -x /usr/local/bin/xray ]; then
             systemctl reload xray >/dev/null 2>&1 || true
@@ -5765,11 +5765,11 @@ finalize_data_generation() {
 
   # 7. 设置正确的文件权限
   log_info "设置文件权限..."
-  # v4.6.0-rc1: 旧 /sub 路径已废止，统一使用 /sub-<token>
+  # v4.6.0-rc4-rc1: 旧 /sub 路径已废止，统一使用 /sub-<token>
   # 如有遗留 /sub 文件，删除以防泄露
   [[ -f "${WEB_ROOT}/sub" ]] && rm -f "${WEB_ROOT}/sub" 2>/dev/null || true
 
-  # v4.6.0-rc3 (审核 P1#1 致命): traffic 目录由 root 拥有，不再 chown www-data
+  # v4.6.0-rc4 (审核 P1#1 致命): traffic 目录由 root 拥有，不再 chown www-data
   # 旧版本: chown -R www-data:www-data ${TRAFFIC_DIR} 让 www-data 可写 .state，
   #         root cron 又 source .state，形成 web → root 的提权链
   # 新版本: 目录 root:root 755；nginx 通过 alias 读取（只需读不需要拥有）
@@ -5788,7 +5788,7 @@ finalize_data_generation() {
   log_info "执行最终验证..."
   local validation_failed=false
 
-  # v4.6.0-rc1: 验证新格式订阅文件（/sub-<token>），不再依赖旧 /sub
+  # v4.6.0-rc4-rc1: 验证新格式订阅文件（/sub-<token>），不再依赖旧 /sub
   local _sub_token
   _sub_token=$(jq -r '.master_sub_token // empty' "${CONFIG_DIR}/server.json" 2>/dev/null)
   local critical_files=(
@@ -5979,7 +5979,7 @@ local SUB_URL="http://${show_host}/${SUB_PATH}"
         echo -e "  ⚠️  443/udp   Hysteria2（未监听）"
     fi
 
-    # v4.6.0-rc1: 安全提醒
+    # v4.6.0-rc4-rc1: 安全提醒
     echo ""
     echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo -e "${YELLOW}⚠️  安全提醒${NC}"
@@ -6088,7 +6088,7 @@ pre_install_check() {
 
     # 检查是否已安装
     if [[ -d "/etc/edgebox" ]] && [[ -f "/etc/edgebox/config/server.json" ]]; then
-        # v4.6.0-rc1: 升级路径 — EDGEBOX_UPGRADE=1 或 keep 文件存在 ⇒ 静默允许
+        # v4.6.0-rc4-rc1: 升级路径 — EDGEBOX_UPGRADE=1 或 keep 文件存在 ⇒ 静默允许
         if [[ "${EDGEBOX_UPGRADE:-0}" == "1" ]] || [[ -f /tmp/edgebox-keep-server.json ]]; then
             log_info "升级模式 (EDGEBOX_UPGRADE=1)：跳过覆盖确认，复用现有凭据"
         else
@@ -6194,10 +6194,10 @@ main() {
 
     clear
 
-    echo -e "${GREEN}EdgeBox 企业级安装脚本 v4.6.0-rc3 (三协议架构)${NC}"
+    echo -e "${GREEN}EdgeBox 企业级安装脚本 v4.6.0-rc4 (三协议架构)${NC}"
     print_separator
 
-    export EDGEBOX_VER="4.6.0-rc3"
+    export EDGEBOX_VER="4.6.0-rc4"
     mkdir -p "$(dirname "${LOG_FILE}")" && touch "${LOG_FILE}"
 
     log_info "开始执行完整安装流程..."
@@ -6227,7 +6227,7 @@ main() {
     fi
     setup_sni_pool_management
     check_ports
-    # v4.6.0-rc3 (审核 P2): 不再外层调用 setup_firewall_rollback
+    # v4.6.0-rc4 (审核 P2): 不再外层调用 setup_firewall_rollback
     # configure_firewall 内部第 1538 行会调用它，外层重复调用是 v4.5 残留
     configure_firewall      || { log_error "configure_firewall 失败"; exit 1; }
     optimize_system
@@ -6258,7 +6258,7 @@ main() {
         exit 1
     fi
 
-    # v4.6.0-rc3: logrotate 配置 (审核 P1#8) — 失败不致命
+    # v4.6.0-rc4: logrotate 配置 (审核 P1#8) — 失败不致命
     setup_logrotate || log_warn "logrotate 配置失败（非致命，但请手动检查 /etc/logrotate.d/edgebox）"
 
     # --- 最终阶段: 启动、验证与数据生成 ---
@@ -6271,7 +6271,7 @@ main() {
     show_progress 10 10 "最终数据生成与同步"
     finalize_data_generation || { log_error "finalize_data_generation 失败"; exit 1; }
 
-    # v4.6.0-rc1: 证书续期钩子是可选的（自签名模式不需要），失败仅警告不阻断
+    # v4.6.0-rc4-rc1: 证书续期钩子是可选的（自签名模式不需要），失败仅警告不阻断
     setup_certbot_renewal_hook || log_warn "证书续期钩子配置失败 (自签名模式可忽略)"
 
 # 显示安装信息

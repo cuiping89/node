@@ -20,7 +20,7 @@ set +u
 
 #----- Constants --------------------------------------------------------------
 
-EDGEBOX_BOOTSTRAP_VERSION="4.6.0-rc3"
+EDGEBOX_BOOTSTRAP_VERSION="4.6.0-rc4"
 EDGEBOX_REPO="cuiping89/node"
 EDGEBOX_BRANCH="${EDGEBOX_VERSION:-main}"
 EDGEBOX_BASE_URL="https://raw.githubusercontent.com/${EDGEBOX_REPO}/${EDGEBOX_BRANCH}/ENV"
@@ -33,17 +33,17 @@ trap 'rm -rf "$BOOTSTRAP_TMP" 2>/dev/null || true' EXIT
 # These hashes are regenerated at every release via tools/gen-manifest.sh.
 # If you change any of these files, you MUST regenerate the manifest.
 EDGEBOX_FILES=(
-    "install.sh|install.sh|1c03b7d1f7fa556b2366eedb38d7e403e5fb11c1e02f6445222868a3962177bb"
-    "lib/common.sh|lib/common.sh|9c653e1d979277615cb87f9a411e80136a8052c5ccb6203c8d07872043f9f4e7"
-    "lib/alert.sh|lib/alert.sh|12a66059258b12067e68873f4b79c56333cf5938ed2f420b0643f8dd271bbb11"
+    "install.sh|install.sh|daeb99f86867de229bcebdf0f49e1c530e36b649bc8ccc17cae6f30c1a22d06e"
+    "lib/common.sh|lib/common.sh|455f9a36757d3e382b02c35af5917a042474afc3afdff36a14c5fc09e9f07dd6"
+    "lib/alert.sh|lib/alert.sh|d80652f40814bd4249ca24b0d5b20fe6801fc3bfd8c50616fdebedca034b5d36"
     "lib/subscription.sh|lib/subscription.sh|59a4b549cd51ac01007d01f3bbca06f2718e24d317e0d36aece1b1591cc12f36"
-    "scripts/edgeboxctl|scripts/edgeboxctl|585fe51f4326ab83cfe3b8669bd6c9d65c2520c82e32fbb63f6e6131b26ff2e7"
-    "scripts/dashboard-backend.sh|scripts/dashboard-backend.sh|822e89af69fe0618e879c9740f3ed595a3087be90752cea95842c229411dab18"
-    "scripts/protocol-health-monitor.sh|scripts/protocol-health-monitor.sh|7d3f43308c2c21e2da45aa6d1302afcc7070bee33d4fd6dc2669a43b9a8b0e26"
-    "scripts/edgebox-traffic-randomize.sh|scripts/edgebox-traffic-randomize.sh|717fdd82f2f2e202a75e331e71196b64b760aa68b756ed594eed1ef78a8c8e08"
-    "scripts/edgebox-ipq.sh|scripts/edgebox-ipq.sh|8540b85d73846e83626a1c921a736c860deded0329ee35be21ad5416c5e8a91d"
+    "scripts/edgeboxctl|scripts/edgeboxctl|b0be866204cd1392c8a669367c4001d37b711513802bea1a8fcf1a3be65b39a8"
+    "scripts/dashboard-backend.sh|scripts/dashboard-backend.sh|48386652f2859bd2f82c9857e6f0dd4740452f0ee65f69c2712ff46b39d89778"
+    "scripts/protocol-health-monitor.sh|scripts/protocol-health-monitor.sh|cb943332547f7be1b5ddcf78161905ce37eeca5cf3ab1b147909b6820711f877"
+    "scripts/edgebox-traffic-randomize.sh|scripts/edgebox-traffic-randomize.sh|3dbbce7a48d7f2c287b91b4569680d18233ff5c8891b4d308b565f6de29492f1"
+    "scripts/edgebox-ipq.sh|scripts/edgebox-ipq.sh|d2b8b42cac18f76ac7d5b492b2a915720a61d4575fefd5e6fca6d17d6825d84c"
     "scripts/traffic-alert.sh|scripts/traffic-alert.sh|e5c913c69c7ba5e586f72259fe528935215c8f362eb132b47dac06de83d65758"
-    "scripts/traffic-collector.sh|scripts/traffic-collector.sh|d90dc97ffa00bc85f505a2e0b1c0e57493dfc581063a206ed6e2356b7a711ab1"
+    "scripts/traffic-collector.sh|scripts/traffic-collector.sh|639637905ff7c3e91b3ce8f99b247ae20f90df1dd9be9364943628ef294165cd"
     "scripts/apply-firewall.sh|scripts/apply-firewall.sh|bb1949c65391462a43a0e9eb678d1758ba989086a53fbc054c4c8893d65c3ac6"
     "scripts/system-stats.sh|scripts/system-stats.sh|64b4f2e1aa3f7b9d293fb2a50cb21d6aed8268437df31abe92f6e68e1cd3401e"
     "scripts/edgebox-init.sh|scripts/edgebox-init.sh|deb6576116c2bbf0cde441179f7888a9c9d4b8ce684af108ee69242737175245"
