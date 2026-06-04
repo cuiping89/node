@@ -1,5 +1,144 @@
 # Changelog
 
+## v4.6.0-rc3 — 3rd security audit fixes
+
+Third audit pass found 11 issues including 1 root-privilege-escalation chain.
+All fixed.
+
+### P1#1: traffic state file privilege escalation chain (CRITICAL)
+The most serious finding. Chain:
+- `install.sh:setup_traffic_monitoring` did `chown -R www-data:www-data /etc/edgebox/traffic`
+- `traffic-collector.sh` had `STATE="/etc/edgebox/traffic/.state"` and `. "$STATE"`
+- traffic-collector runs as root via cron
+
+Net result: www-data could write `/etc/edgebox/traffic/.state` with any shell
+commands; root cron would source it next run; arbitrary root command execution.
+
+Fixed:
+- State file moved to `/var/lib/edgebox/traffic.state.json` (root:root 600)
+- Format changed to JSON, read via `jq -r` with bash regex validation
+  (`^[0-9]+$`) — never `source`/`eval`d
+- `/etc/edgebox/traffic` now owned `root:root 755`. Nginx alias reads via
+  filesystem permissions (root 644 files), no longer needs ownership.
+- Legacy `/etc/edgebox/traffic/.state` deleted on upgrade.
+
+### P1#2: logrotate postrotate used bash-only `[[`
+`/etc/logrotate.d/edgebox` ran `if [[ -x /usr/local/bin/xray ]]` in postrotate,
+but logrotate invokes via `/bin/sh` which on Debian/Ubuntu is dash. dash doesn't
+support `[[ ]]`. Failure was silent; Xray would keep writing to renamed old
+logs after rotation.
+
+Fixed: changed to POSIX `if [ -x ... ]`.
+
+### P1#3: SNI grace cleanup left xray.json 644
+The `update_sni_domain` grace cleanup payload (scheduled via systemd-run) wrote
+`${cfg}.tmp` then `mv $tmp $cfg`. mktemp's default umask 022 produced 644; mv
+preserves that. Xray.json contains Reality private key — leaking it to all
+local users.
+
+Fixed: payload now uses `umask 077` + `mktemp /tmp/xray.sni-grace.XXXXXX` +
+`install -o root -g root -m 600` for atomic-replace with correct perms.
+
+### P1#5: `sub revoke` made misleading promises
+Old: `sub revoke` claimed "其他用户无影响". But ALL users share the same
+Reality/HY2/WS credentials. Revoking a subscription URL only removes the
+download link; that user's already-imported client config keeps working
+forever because the protocol UUIDs/passwords don't change.
+
+Fixed: revoke now prints a clear warning that revoking the URL ≠ revoking
+the credentials; explains `--force` will rotate global creds (affecting all
+users). `sub limit` similarly clarifies the limit is a soft cap / display
+indicator, not a hard enforcement (Reality/HY2/WS don't support per-user
+connection-count limits).
+
+### P1#6: device stats searched wrong path AND had read-loop bug
+- Path: `sub_scan_devices` grepped `/sub/u-<token>` but actual URL is
+  `/share/u-<token>` → 0 matches always
+- awk output: 4 tab-separated columns; read consumed 5 (`t ip _ uri ua`)
+  with the `_` discard between ip and uri → uri was always empty,
+  every line skipped
+
+Fixed: grep `/share/u-` + read aligned to 4 columns (`t ip uri ua`).
+
+### P1#7: rotate-sid never created the promised timer
+SID rotation echoed "已安排 ${grace_hours}h 后清理旧 SID …systemd-run 持久定时器"
+but the timer creation block was just a placeholder comment:
+`# ... (at command scheduling) ...`. Old SIDs accumulated forever.
+
+Fixed: real `systemd-run --unit=edgebox-sid-cleanup-<sid>-<ts>
+--on-active=<N>h --timer-property=Persistent=true --property=Type=oneshot`
+that runs the cleanup payload (umask 077, install -m 600, xray reload).
+Persistent=true ensures it fires even if VPS is offline at scheduled time.
+
+### P1#8 (a/b/c): CDN state management
+**(a)** `xray.json.template` was saved only the first time CDN was enabled —
+could be months stale by the time of disable. Disable would restore the
+ancient config, wiping any subsequent SNI/key/shunt changes.
+
+Fixed: every `cdn enable` now refreshes the template.
+
+**(b)** `cdn_backup` saved configs but NOT the nginx stream map. If enable
+failed after stream map rewrite, rollback restored configs but left CDN
+routing in place.
+
+Fixed: cdn_backup snapshots `/etc/nginx/conf.d/edgebox_stream_map.conf`;
+cdn_rollback restores it.
+
+**(c)** `cdn_disable` silently ignored sing-box start failure and xray
+reload failure (`|| true`). Could report success while HY2 stayed down.
+
+Fixed: both now error + rollback on failure with `systemctl status` dump.
+
+### P1#9: upgrade overwrote running topology for domain/CDN nodes
+Upgrade preserved configs (server.json/cert_mode/alert.env/shunt) but
+install.sh always sets up direct IP-mode topology (Reality+HY2+WS, IP-mode
+stream map). After upgrade of a CDN node:
+- server.json said cdn.enabled=true
+- xray.json had Reality back in
+- sing-box was running
+- stream map was IP-mode
+- subscription was IP-mode
+
+Fixed: upgrade restoration step reads `cdn.enabled` and `cert.mode` from the
+keep file, then:
+- CDN mode → re-runs `cdn_enable <was_host>` (stops sing-box, strips Reality,
+  rewrites map, regens CDN subscription)
+- Domain mode → restores LE cert symlinks, rewrites stream map for domain,
+  regens domain-mode subscription, reloads services
+- IP mode → default install topology, no extra work
+
+### P1#10: traffic randomization restarted sing-box in CDN mode
+The `edgebox-traffic-randomize.sh` cron task always restarted sing-box,
+re-exposing HY2 even when CDN mode was enabled (HY2 should be off in CDN).
+
+Fixed: script now reads `server.json.cdn.enabled` first and exits 0
+immediately if true (with logged explanation).
+
+### P1#11: edgebox-ipq.sh `eval` everywhere
+3 sites: bandwidth test download, bandwidth test upload, proxy latency test —
+all built `curl $proxy_args …URL` as a string and ran via `eval`. Proxy URL
+or password containing `&` `#` space `'` etc. would either truncate the URL
+or worse, execute embedded shell commands (root cron).
+
+Fixed: introduced global `PROXY_ARGS=()` bash array. `build_proxy_args` now
+populates the array instead of returning a string. `test_bandwidth_correct`
+and latency check use `curl "${PROXY_ARGS[@]}" …`. `curl_json` rewritten to
+accept array form. Zero remaining `eval` in this script.
+
+### P2 cleanup
+- `fix_permissions` cert dir: 755 root:root → 750 root:nogroup (matches
+  `setup_directories` initial perms, eliminates inconsistency)
+- All version strings → 4.6.0-rc3
+
+### What's still kept (with caveats)
+- `sub issue / revoke / limit / stats` features kept but README + CLI output
+  now clearly state these are "subscription URL management" + "soft caps for
+  display" — NOT enforced quotas, NOT independent per-user credentials.
+- Bandwidth test in ipq still hits public endpoints (tele2/httpbin) —
+  could be disabled in v4.7 if those endpoints become unreliable.
+
+# Changelog
+
 ## v4.6.0-rc2 — 2nd security audit fixes
 
 External audit returned 8 P1 issues + P2 cleanup after rc1 VPS verification.

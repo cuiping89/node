@@ -1,6 +1,6 @@
-# EdgeBox v4.6.0-rc2
+# EdgeBox v4.6.0-rc3
 
-**Release candidate** — 2nd security audit (P1 + P2) completed.
+**Release candidate** — 3rd security audit (P1 + P2) completed.
 P1 fixes applied; awaiting real-VPS verification.
 See `CHANGELOG.md` for the full list.
 
