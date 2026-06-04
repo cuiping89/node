@@ -58,7 +58,7 @@ if [[ "${EDGEBOX_DEBUG:-0}" == "1" ]]; then
 fi
 
 # 版本号
-EDGEBOX_VER="4.6.0-rc2"
+EDGEBOX_VER="4.6.0-rc3"
 
 #############################################
 # v4.0.0 Bootstrap: download lib modules from GitHub
@@ -220,7 +220,7 @@ REALITY_SNI="www.microsoft.com"
 HYSTERIA2_MASQUERADE="https://www.bing.com"
 
 # === 版本和下载常量 ===
-# v4.6.0-rc2: 兼容性锁定版本 1.12.8 (审核 P2)
+# v4.6.0-rc3: 兼容性锁定版本 1.12.8 (审核 P2)
 # 原因: 当前生成的客户端 sing-box 配置仍使用 1.13.0 之前的 schema:
 #   - { "type": "block", "tag": "block" }
 #   - { "type": "dns", "tag": "dns-out" }
@@ -506,7 +506,7 @@ check_system() {
         exit 1
     fi
 
-    # v4.6.0-rc2 (审核 P2): 收窄到 Debian/Ubuntu 仅
+    # v4.6.0-rc3 (审核 P2): 收窄到 Debian/Ubuntu 仅
     # 原因: 代码硬编码 www-data, /etc/nginx/modules-enabled/, dpkg 等 Debian-系特定路径
     # RHEL/Rocky/AlmaLinux 实际跑不起来。诚实地拒绝总比装到一半失败强。
     SUPPORTED=false
@@ -2411,7 +2411,7 @@ save_config_info() {
     local server_tmp="${CONFIG_DIR}/server.json.tmp"
     log_info "使用 jq 生成 server.json 临时文件..."
 
-    # v4.6.0-rc2: 升级模式下保留 cert/cdn/reality.sni 状态
+    # v4.6.0-rc3: 升级模式下保留 cert/cdn/reality.sni 状态
     local _cert_mode="${UPGRADE_CERT_MODE:-self-signed}"
     local _cert_domain="${UPGRADE_CERT_DOMAIN:-}"
     local _cert_autorenew="${UPGRADE_CERT_AUTORENEW:-false}"
@@ -2758,7 +2758,7 @@ execute_module2() {
         DASHBOARD_COOKIE_SECRET=$(jq -r '.dashboard_cookie_secret // empty' "$KEEP_FILE")
         MASTER_SUB_TOKEN=$(jq -r '.master_sub_token // empty' "$KEEP_FILE")
 
-        # v4.6.0-rc2: 同时保留这些字段，让 save_config_info 写回 server.json
+        # v4.6.0-rc3: 同时保留这些字段，让 save_config_info 写回 server.json
         # 否则新生成的 server.json 会清空 cert.mode / cdn.enabled / reality.sni
         UPGRADE_CERT_MODE=$(jq -r '.cert.mode // "self-signed"'  "$KEEP_FILE")
         UPGRADE_CERT_DOMAIN=$(jq -r '.cert.domain // ""'         "$KEEP_FILE")
@@ -3515,7 +3515,7 @@ configure_nginx() {
 
     # 生成新的Nginx主配置
     cat > /etc/nginx/nginx.conf << 'NGINX_CONFIG'
-# EdgeBox Nginx 配置文件 v4.6.0-rc2 (3-protocol: Reality + Hysteria2 + WS)
+# EdgeBox Nginx 配置文件 v4.6.0-rc3 (3-protocol: Reality + Hysteria2 + WS)
 # 架构：SNI定向 + ALPN兜底 + 单端口复用
 
 user www-data;
@@ -3586,7 +3586,7 @@ http {
             add_header Cache-Control "no-store, no-cache, must-revalidate";
             root /var/www/html;
         }
-        # v4.6.0-rc2: 移除旧的 /sub location (v3 残留，仅服务 token 化前的链接)
+        # v4.6.0-rc3: 移除旧的 /sub location (v3 残留，仅服务 token 化前的链接)
         location ^~ /share/ {
             default_type text/plain;
             add_header Cache-Control "no-store, no-cache, must-revalidate";
@@ -5145,11 +5145,11 @@ chmod +x "${SCRIPTS_DIR}/traffic-collector.sh"
 # 3. 预警配置（v4.6.0-rc1 安全拆分）
 # 机密部分 → /etc/edgebox/config/alert.env (root:root 600)
 #   - 仅 root 可读
-#   - lib/alert.sh 用 source 加载
+#   - lib/alert.sh 用 awk 解析（rc2 后不再 source，杜绝 Shell 执行风险）
 #   - **绝不**位于 Web 可访问目录
-# 公共部分 → /etc/edgebox/traffic/alert-public.json (www-data:www-data 644)
+# 公共部分 → /etc/edgebox/traffic/alert-public.json (root:root 644)
 #   - 仅含阈值（不含任何密钥/token）
-#   - dashboard.js 可读
+#   - dashboard.js 可读（nginx 通过 alias 读取，文件本身是 root:root 644）
 mkdir -p "${CONFIG_DIR}"
 cat > "${CONFIG_DIR}/alert.env" <<'ENV_CONF'
 # EdgeBox 告警秘钥配置 — 仅 root 可读
@@ -5184,7 +5184,7 @@ cat > "${TRAFFIC_DIR}/alert-public.json" <<'PUB_CONF'
 }
 PUB_CONF
 chmod 644 "${TRAFFIC_DIR}/alert-public.json"
-# 注：稍后 setup_traffic_monitoring 会 chown -R www-data 整个 TRAFFIC_DIR
+# v4.6.0-rc3: 注意，整个 TRAFFIC_DIR 保持 root:root（不 chown www-data，避免提权链）
 
 # 4. 预警脚本（读取 monthly.csv 与 alert.conf，阈值去重）
 _install_script "${SCRIPTS_DIR}/traffic-alert.sh" "traffic-alert.sh" || return 1
@@ -5361,7 +5361,7 @@ CRON_OPTIN
 }
 
 
-# v4.6.0-rc2 (审核 P1#8): 日志轮转
+# v4.6.0-rc3 (审核 P1#8): 日志轮转
 # 旧版本没有 logrotate 配置，长期运行后 Xray/Nginx stream/EdgeBox 日志会填满磁盘
 # 导致证书续期、配置写入、服务重启全部失败
 #############################################
@@ -5373,7 +5373,7 @@ setup_logrotate() {
 
     cat > /etc/logrotate.d/edgebox <<'EOF'
 # EdgeBox 日志轮转
-# 由 install.sh 在 v4.6.0-rc2 加入。包含：
+# 由 install.sh 在 v4.6.0-rc3 加入。包含：
 #   - Xray 访问/错误日志
 #   - Nginx stream 日志（HTTP 日志由发行版默认 logrotate 接管）
 #   - EdgeBox 自身日志（install / traffic-alert / edgebox.log）
@@ -5388,7 +5388,9 @@ setup_logrotate() {
     create 0640 root adm
     sharedscripts
     postrotate
-        if [[ -x /usr/local/bin/xray ]]; then
+        # v4.6.0-rc3 (审核 P1#2): logrotate 通过 /bin/sh (Debian/Ubuntu = dash) 执行 postrotate
+        # dash 不支持 [[ ... ]]，必须用 POSIX [ ... ]
+        if [ -x /usr/local/bin/xray ]; then
             systemctl reload xray >/dev/null 2>&1 || true
         fi
     endscript
@@ -5766,13 +5768,21 @@ finalize_data_generation() {
   # v4.6.0-rc1: 旧 /sub 路径已废止，统一使用 /sub-<token>
   # 如有遗留 /sub 文件，删除以防泄露
   [[ -f "${WEB_ROOT}/sub" ]] && rm -f "${WEB_ROOT}/sub" 2>/dev/null || true
+
+  # v4.6.0-rc3 (审核 P1#1 致命): traffic 目录由 root 拥有，不再 chown www-data
+  # 旧版本: chown -R www-data:www-data ${TRAFFIC_DIR} 让 www-data 可写 .state，
+  #         root cron 又 source .state，形成 web → root 的提权链
+  # 新版本: 目录 root:root 755；nginx 通过 alias 读取（只需读不需要拥有）
+  #         .state 已移到 /var/lib/edgebox/traffic.state.json (root:root 600)
+  chown -R root:root "${TRAFFIC_DIR}" 2>/dev/null || true
+  chmod 755 "${TRAFFIC_DIR}" 2>/dev/null || true
   chmod 644 "${TRAFFIC_DIR}"/*.json 2>/dev/null || true
   chmod 644 "${TRAFFIC_DIR}"/*.txt 2>/dev/null || true
+  chmod 755 "${TRAFFIC_DIR}/logs" 2>/dev/null || true
   chmod 644 "${TRAFFIC_DIR}/logs"/*.csv 2>/dev/null || true
-  # 注: alert.env 是机密文件，下面 chown 后要单独修复
-  chown -R www-data:www-data "${TRAFFIC_DIR}" 2>/dev/null || true
-  # v4.6.0-rc1: 不让 www-data 拥有 alert-public.json 后会影响读取，保持 644
   chmod 644 "${TRAFFIC_DIR}/alert-public.json" 2>/dev/null || true
+  # 历史 .state 残留（如果是 rc2 之前装的，可能仍在 traffic 目录里）
+  rm -f "${TRAFFIC_DIR}/.state" 2>/dev/null || true
 
   # 8. 最终验证
   log_info "执行最终验证..."
@@ -6184,10 +6194,10 @@ main() {
 
     clear
 
-    echo -e "${GREEN}EdgeBox 企业级安装脚本 v4.6.0-rc2 (三协议架构)${NC}"
+    echo -e "${GREEN}EdgeBox 企业级安装脚本 v4.6.0-rc3 (三协议架构)${NC}"
     print_separator
 
-    export EDGEBOX_VER="4.6.0-rc2"
+    export EDGEBOX_VER="4.6.0-rc3"
     mkdir -p "$(dirname "${LOG_FILE}")" && touch "${LOG_FILE}"
 
     log_info "开始执行完整安装流程..."
@@ -6217,7 +6227,7 @@ main() {
     fi
     setup_sni_pool_management
     check_ports
-    # v4.6.0-rc2 (审核 P2): 不再外层调用 setup_firewall_rollback
+    # v4.6.0-rc3 (审核 P2): 不再外层调用 setup_firewall_rollback
     # configure_firewall 内部第 1538 行会调用它，外层重复调用是 v4.5 残留
     configure_firewall      || { log_error "configure_firewall 失败"; exit 1; }
     optimize_system
@@ -6248,7 +6258,7 @@ main() {
         exit 1
     fi
 
-    # v4.6.0-rc2: logrotate 配置 (审核 P1#8) — 失败不致命
+    # v4.6.0-rc3: logrotate 配置 (审核 P1#8) — 失败不致命
     setup_logrotate || log_warn "logrotate 配置失败（非致命，但请手动检查 /etc/logrotate.d/edgebox）"
 
     # --- 最终阶段: 启动、验证与数据生成 ---
