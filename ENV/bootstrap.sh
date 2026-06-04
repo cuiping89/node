@@ -33,7 +33,7 @@ trap 'rm -rf "$BOOTSTRAP_TMP" 2>/dev/null || true' EXIT
 # These hashes are regenerated at every release via tools/gen-manifest.sh.
 # If you change any of these files, you MUST regenerate the manifest.
 EDGEBOX_FILES=(
-    "install.sh|install.sh|99f301f732b9a7dcaeec2754ee6e8be2e6dfbf46fe6de8fb59c643a52dd0d1c3"
+    "install.sh|install.sh|1d3ff7eaf7dd9114c810e1a4ada247f6b825b104e6edd8a403b9f3323b3f7462"
     "lib/common.sh|lib/common.sh|ff20782a9939c5ecf534ead8da669b802dc85cc1bafba9fe6a7d78c7b44152c3"
     "lib/alert.sh|lib/alert.sh|661b7119345ceba2f6ad3577049fa6d0c2e2e8f82e12a97af5201cd0ecb477bc"
     "lib/subscription.sh|lib/subscription.sh|59a4b549cd51ac01007d01f3bbca06f2718e24d317e0d36aece1b1591cc12f36"

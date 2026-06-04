@@ -3511,6 +3511,10 @@ http {
     types_hash_max_size 2048;
     server_tokens off;
 
+    # v4.6.0-rc1: 64-hex Cookie secret + "ebp=<secret>; Path=/traffic/..." 超过默认 64 字节
+    map_hash_bucket_size 256;
+    map_hash_max_size 4096;
+
     server {
         listen 80 default_server;
         listen [::]:80 default_server;
