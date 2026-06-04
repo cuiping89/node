@@ -4014,6 +4014,208 @@ sni_set_domain() {
     fi
 }
 
+# v4.6.0-rc4 (hotfix): wrap upgrade body in function so `return 1` is legal bash
+# Previously: return inside case branch (not in function) → bash error → case parsing broke,
+#             help case code 'leaked' through, causing print_cmd: command not found errors
+_eb_do_upgrade() {
+    log_info "EdgeBox 升级流程 (保留凭据)..."
+
+    # 1. 检查前置：必须以 root 运行
+    if [[ "$EUID" -ne 0 ]]; then
+        log_error "升级需要 root 权限。请用: sudo edgeboxctl upgrade"
+        return 1
+    fi
+
+    # 2. 检查 server.json 存在
+    if [[ ! -f "${CONFIG_DIR}/server.json" ]]; then
+        log_error "未发现 ${CONFIG_DIR}/server.json — 无凭据可保留"
+        log_error "如果是首次安装，请直接运行 bootstrap.sh"
+        return 1
+    fi
+
+    # 3. 创建完整备份
+    local ts backup_file
+    ts=$(date +%Y%m%d-%H%M%S)
+    backup_file="/root/edgebox-backup/upgrade-${ts}.tar.gz"
+    mkdir -p /root/edgebox-backup
+    log_info "创建备份: $backup_file"
+    if ! tar czf "$backup_file" \
+        /etc/edgebox \
+        /usr/local/bin/edgeboxctl \
+        /etc/cron.d/edgebox-* 2>/dev/null; then
+        log_warn "tar 备份返回非零（可能某些文件不存在），但 server.json/scripts 应已含入"
+    fi
+    log_success "备份完成 ($(du -h "$backup_file" | awk '{print $1}'))"
+
+    # 4. 保留 server.json 到 /tmp，让新 install.sh 检测后复用凭据
+    local keep_file="/tmp/edgebox-keep-server.json"
+    cp -p "${CONFIG_DIR}/server.json" "$keep_file"
+    chmod 600 "$keep_file"
+    log_info "凭据已保留: $keep_file"
+
+    # v4.6.0-rc4 (审核 升级保留): 同时保留其他关键状态
+    # 这些文件不会进 install.sh 重新生成路径，所以必须 stash 起来并在 install 完后还原
+    local keep_dir="/tmp/edgebox-keep-state"
+    rm -rf "$keep_dir"
+    mkdir -p "$keep_dir/config" "$keep_dir/cert"
+    chmod 700 "$keep_dir"
+
+    # cert_mode 文件（letsencrypt:<domain> 或 self-signed）
+    [[ -f "${CONFIG_DIR}/cert_mode" ]] && cp -p "${CONFIG_DIR}/cert_mode" "$keep_dir/config/"
+
+    # alert.env （Webhook/Token 等告警凭据）
+    [[ -f "${CONFIG_DIR}/alert.env" ]] && cp -p "${CONFIG_DIR}/alert.env" "$keep_dir/config/"
+
+    # shunt/ 目录（出站分流配置）
+    [[ -d "${CONFIG_DIR}/shunt" ]] && cp -rp "${CONFIG_DIR}/shunt" "$keep_dir/config/"
+
+    # current.* 证书符号链接和 Let's Encrypt 链接的目标 (cert 目录里)
+    [[ -d /etc/edgebox/cert ]] && cp -rp /etc/edgebox/cert/. "$keep_dir/cert/" 2>/dev/null || true
+
+    log_info "扩展状态已保留: $keep_dir (cert_mode/alert.env/shunt/cert)"
+
+    # 5. 设置升级标记，让 bootstrap/install.sh 知道是升级（不退出非交互检查）
+    export EDGEBOX_UPGRADE=1
+
+    # 6. 调用 bootstrap.sh 走 SHA256 校验路径
+    log_info "调用 bootstrap.sh 重新安装 (走 SHA256 校验)..."
+    if ! curl -fsSL https://raw.githubusercontent.com/cuiping89/node/main/ENV/bootstrap.sh | EDGEBOX_UPGRADE=1 bash; then
+        log_error "============================================"
+        log_error "升级失败！"
+        log_error "============================================"
+        log_error "备份位置: $backup_file"
+        log_error ""
+        log_error "手动恢复步骤:"
+        log_error "  1. cd /"
+        log_error "  2. tar xzf $backup_file"
+        log_error "  3. systemctl restart nginx xray sing-box"
+        log_error ""
+        log_error "保留文件可用于重试: $keep_file  + $keep_dir"
+        return 1
+    fi
+
+    # v4.6.0-rc4 (审核 P1#9): install 完成后还原扩展状态 + 重新应用运行拓扑
+    # 旧版本: 升级 CDN/域名节点后 install 强制走 IP-mode 拓扑，跟 server.json 不一致
+    # 新版本: 还原配置文件后，按 cert_mode + cdn.enabled 状态重新应用拓扑
+    if [[ -d "$keep_dir" ]]; then
+        log_info "还原扩展状态..."
+        if [[ -f "$keep_dir/config/cert_mode" ]]; then
+            install -o root -g root -m 644 "$keep_dir/config/cert_mode" "${CONFIG_DIR}/cert_mode"
+            log_info "  ✓ cert_mode 已还原"
+        fi
+        if [[ -f "$keep_dir/config/alert.env" ]]; then
+            install -o root -g root -m 600 "$keep_dir/config/alert.env" "${CONFIG_DIR}/alert.env"
+            log_info "  ✓ alert.env 已还原 (告警 Token 保留)"
+        fi
+        if [[ -d "$keep_dir/config/shunt" ]]; then
+            mkdir -p "${CONFIG_DIR}/shunt"
+            cp -rp "$keep_dir/config/shunt/." "${CONFIG_DIR}/shunt/"
+            chown -R root:root "${CONFIG_DIR}/shunt"
+            log_info "  ✓ shunt/ 已还原 (出站分流配置)"
+        fi
+
+        # v4.6.0-rc4: 从 keep 文件读取升级前的运行拓扑状态
+        local was_cdn_enabled=false was_cdn_host="" was_cert_mode="self-signed" was_cert_domain=""
+        if [[ -f "$keep_file" ]]; then
+            was_cdn_enabled=$(jq -r '.cdn.enabled // false'   "$keep_file" 2>/dev/null)
+            was_cdn_host=$(jq -r '.cdn.host // ""'            "$keep_file" 2>/dev/null)
+            was_cert_mode=$(jq -r '.cert.mode // "self-signed"' "$keep_file" 2>/dev/null)
+            was_cert_domain=$(jq -r '.cert.domain // ""'      "$keep_file" 2>/dev/null)
+        fi
+
+        # v4.6.0-rc4 (审核 P1#7): 拓扑恢复失败必须传播 — 不再 "log_warn + 继续报成功"
+        # 旧版本: regen_sub_domain || log_warn / reload_or_restart_services || log_warn
+        #         结果: 即使 CDN 没真正生效, 仍打印 "✅ 升级成功"
+        # 新版本: 用 _topology_rc 标记任一关键步失败, 决定最终成败
+        local _topology_rc=0
+
+        # 拓扑分支1: CDN 模式 — install 默认会启动 sing-box 并把 Reality 写进 xray.json
+        # 必须重新执行 cdn enable 流程（停 sing-box / 删 Reality inbound / 改 stream map / 改订阅）
+        if [[ "$was_cdn_enabled" == "true" && -n "$was_cdn_host" && "$was_cdn_host" != "null" ]]; then
+            log_info "  检测到升级前为 CDN 模式 (host=$was_cdn_host)，重新应用 CDN 拓扑..."
+            if cdn_enable "$was_cdn_host"; then
+                log_info "  ✓ CDN 拓扑已重新应用"
+            else
+                log_error "  ✗ CDN 拓扑重新应用失败"
+                log_error "    手动恢复: edgeboxctl cdn enable $was_cdn_host"
+                _topology_rc=1
+            fi
+
+        # 拓扑分支2: 域名模式 (LE 证书)
+        elif [[ "$was_cert_mode" == "letsencrypt" && -n "$was_cert_domain" && "$was_cert_domain" != "null" ]]; then
+            log_info "  检测到升级前为域名模式 (domain=$was_cert_domain)，重新应用域名拓扑..."
+            if [[ -d /etc/letsencrypt/live/${was_cert_domain} ]]; then
+                ln -sfnT "/etc/letsencrypt/live/${was_cert_domain}/fullchain.pem" /etc/edgebox/cert/current.pem
+                ln -sfnT "/etc/letsencrypt/live/${was_cert_domain}/privkey.pem"   /etc/edgebox/cert/current.key
+                log_info "    ✓ Let's Encrypt 证书链接已还原"
+
+                if ! generate_nginx_stream_map_conf "domain" "$was_cert_domain"; then
+                    log_error "    ✗ stream map 切换失败"
+                    _topology_rc=1
+                fi
+
+                # 同步 server.json.cert
+                local _sj="${CONFIG_DIR}/server.json"
+                local _tmp="${_sj}.tmp"
+                if jq --arg d "$was_cert_domain" \
+                     '.cert.mode = "letsencrypt" | .cert.domain = $d | .cert.auto_renew = true' \
+                     "$_sj" > "$_tmp" 2>/dev/null; then
+                    install -o root -g root -m 600 "$_tmp" "$_sj" || _topology_rc=1
+                    rm -f "$_tmp"
+                fi
+
+                if declare -f regen_sub_domain >/dev/null 2>&1; then
+                    if ! regen_sub_domain "$was_cert_domain"; then
+                        log_error "    ✗ 域名订阅重生失败"
+                        _topology_rc=1
+                    fi
+                fi
+                if ! reload_or_restart_services nginx xray sing-box; then
+                    log_error "    ✗ 服务重载失败"
+                    _topology_rc=1
+                fi
+                if [[ "$_topology_rc" -eq 0 ]]; then
+                    log_info "  ✓ 域名拓扑已重新应用"
+                fi
+            else
+                log_error "  ✗ /etc/letsencrypt/live/${was_cert_domain} 不存在，无法还原域名模式"
+                log_error "    将保留 IP 模式拓扑。手动恢复: edgeboxctl switch-to-domain $was_cert_domain"
+                _topology_rc=1
+            fi
+
+        else
+            # 拓扑分支3: IP 模式 — install 默认行为已经正确，无需额外操作
+            log_info "  IP 模式: install 默认拓扑已正确，无需调整"
+        fi
+
+        # 清理保留目录
+        rm -rf "$keep_dir"
+    fi
+
+    # 7. 清理 keep 文件 + 总结
+    rm -f "$keep_file"
+
+    # v4.6.0-rc4 (审核 P1#7): 根据 _topology_rc 决定是否真的"成功"
+    if [[ "${_topology_rc:-0}" -ne 0 ]]; then
+        log_error "============================================"
+        log_error "  ❌ 升级完成但拓扑恢复失败"
+        log_error "============================================"
+        log_error "  凭据已保留, 但运行拓扑跟升级前不一致"
+        log_error "  备份保留在: $backup_file"
+        log_error "  上面的错误日志给出了手动恢复命令"
+        _eb_dispatch_rc=1
+        false  # 强制 case 退出码 = 1
+    else
+        log_success "============================================"
+        log_success "  ✅ 升级成功"
+        log_success "============================================"
+        log_info "  凭据未变更（订阅 URL、UUID、密码等都保持原值）"
+        log_info "  备份保留在: $backup_file"
+        log_info "  如不需要可删除: rm -f $backup_file"
+    fi
+    return 0
+}
+
 #############################################
 # 主命令处理
 #############################################
@@ -4494,201 +4696,9 @@ HEAD
   #       4) install.sh 检测 keep 文件后跳过 generate_credentials
   #       5) 失败不自动回滚，提示用户手动恢复
   update|upgrade)
-    log_info "EdgeBox 升级流程 (保留凭据)..."
-
-    # 1. 检查前置：必须以 root 运行
-    if [[ "$EUID" -ne 0 ]]; then
-        log_error "升级需要 root 权限。请用: sudo edgeboxctl upgrade"
-        return 1
-    fi
-
-    # 2. 检查 server.json 存在
-    if [[ ! -f "${CONFIG_DIR}/server.json" ]]; then
-        log_error "未发现 ${CONFIG_DIR}/server.json — 无凭据可保留"
-        log_error "如果是首次安装，请直接运行 bootstrap.sh"
-        return 1
-    fi
-
-    # 3. 创建完整备份
-    local ts backup_file
-    ts=$(date +%Y%m%d-%H%M%S)
-    backup_file="/root/edgebox-backup/upgrade-${ts}.tar.gz"
-    mkdir -p /root/edgebox-backup
-    log_info "创建备份: $backup_file"
-    if ! tar czf "$backup_file" \
-        /etc/edgebox \
-        /usr/local/bin/edgeboxctl \
-        /etc/cron.d/edgebox-* 2>/dev/null; then
-        log_warn "tar 备份返回非零（可能某些文件不存在），但 server.json/scripts 应已含入"
-    fi
-    log_success "备份完成 ($(du -h "$backup_file" | awk '{print $1}'))"
-
-    # 4. 保留 server.json 到 /tmp，让新 install.sh 检测后复用凭据
-    local keep_file="/tmp/edgebox-keep-server.json"
-    cp -p "${CONFIG_DIR}/server.json" "$keep_file"
-    chmod 600 "$keep_file"
-    log_info "凭据已保留: $keep_file"
-
-    # v4.6.0-rc4 (审核 升级保留): 同时保留其他关键状态
-    # 这些文件不会进 install.sh 重新生成路径，所以必须 stash 起来并在 install 完后还原
-    local keep_dir="/tmp/edgebox-keep-state"
-    rm -rf "$keep_dir"
-    mkdir -p "$keep_dir/config" "$keep_dir/cert"
-    chmod 700 "$keep_dir"
-
-    # cert_mode 文件（letsencrypt:<domain> 或 self-signed）
-    [[ -f "${CONFIG_DIR}/cert_mode" ]] && cp -p "${CONFIG_DIR}/cert_mode" "$keep_dir/config/"
-
-    # alert.env （Webhook/Token 等告警凭据）
-    [[ -f "${CONFIG_DIR}/alert.env" ]] && cp -p "${CONFIG_DIR}/alert.env" "$keep_dir/config/"
-
-    # shunt/ 目录（出站分流配置）
-    [[ -d "${CONFIG_DIR}/shunt" ]] && cp -rp "${CONFIG_DIR}/shunt" "$keep_dir/config/"
-
-    # current.* 证书符号链接和 Let's Encrypt 链接的目标 (cert 目录里)
-    [[ -d /etc/edgebox/cert ]] && cp -rp /etc/edgebox/cert/. "$keep_dir/cert/" 2>/dev/null || true
-
-    log_info "扩展状态已保留: $keep_dir (cert_mode/alert.env/shunt/cert)"
-
-    # 5. 设置升级标记，让 bootstrap/install.sh 知道是升级（不退出非交互检查）
-    export EDGEBOX_UPGRADE=1
-
-    # 6. 调用 bootstrap.sh 走 SHA256 校验路径
-    log_info "调用 bootstrap.sh 重新安装 (走 SHA256 校验)..."
-    if ! curl -fsSL https://raw.githubusercontent.com/cuiping89/node/main/ENV/bootstrap.sh | EDGEBOX_UPGRADE=1 bash; then
-        log_error "============================================"
-        log_error "升级失败！"
-        log_error "============================================"
-        log_error "备份位置: $backup_file"
-        log_error ""
-        log_error "手动恢复步骤:"
-        log_error "  1. cd /"
-        log_error "  2. tar xzf $backup_file"
-        log_error "  3. systemctl restart nginx xray sing-box"
-        log_error ""
-        log_error "保留文件可用于重试: $keep_file  + $keep_dir"
-        return 1
-    fi
-
-    # v4.6.0-rc4 (审核 P1#9): install 完成后还原扩展状态 + 重新应用运行拓扑
-    # 旧版本: 升级 CDN/域名节点后 install 强制走 IP-mode 拓扑，跟 server.json 不一致
-    # 新版本: 还原配置文件后，按 cert_mode + cdn.enabled 状态重新应用拓扑
-    if [[ -d "$keep_dir" ]]; then
-        log_info "还原扩展状态..."
-        if [[ -f "$keep_dir/config/cert_mode" ]]; then
-            install -o root -g root -m 644 "$keep_dir/config/cert_mode" "${CONFIG_DIR}/cert_mode"
-            log_info "  ✓ cert_mode 已还原"
-        fi
-        if [[ -f "$keep_dir/config/alert.env" ]]; then
-            install -o root -g root -m 600 "$keep_dir/config/alert.env" "${CONFIG_DIR}/alert.env"
-            log_info "  ✓ alert.env 已还原 (告警 Token 保留)"
-        fi
-        if [[ -d "$keep_dir/config/shunt" ]]; then
-            mkdir -p "${CONFIG_DIR}/shunt"
-            cp -rp "$keep_dir/config/shunt/." "${CONFIG_DIR}/shunt/"
-            chown -R root:root "${CONFIG_DIR}/shunt"
-            log_info "  ✓ shunt/ 已还原 (出站分流配置)"
-        fi
-
-        # v4.6.0-rc4: 从 keep 文件读取升级前的运行拓扑状态
-        local was_cdn_enabled=false was_cdn_host="" was_cert_mode="self-signed" was_cert_domain=""
-        if [[ -f "$keep_file" ]]; then
-            was_cdn_enabled=$(jq -r '.cdn.enabled // false'   "$keep_file" 2>/dev/null)
-            was_cdn_host=$(jq -r '.cdn.host // ""'            "$keep_file" 2>/dev/null)
-            was_cert_mode=$(jq -r '.cert.mode // "self-signed"' "$keep_file" 2>/dev/null)
-            was_cert_domain=$(jq -r '.cert.domain // ""'      "$keep_file" 2>/dev/null)
-        fi
-
-        # v4.6.0-rc4 (审核 P1#7): 拓扑恢复失败必须传播 — 不再 "log_warn + 继续报成功"
-        # 旧版本: regen_sub_domain || log_warn / reload_or_restart_services || log_warn
-        #         结果: 即使 CDN 没真正生效, 仍打印 "✅ 升级成功"
-        # 新版本: 用 _topology_rc 标记任一关键步失败, 决定最终成败
-        local _topology_rc=0
-
-        # 拓扑分支1: CDN 模式 — install 默认会启动 sing-box 并把 Reality 写进 xray.json
-        # 必须重新执行 cdn enable 流程（停 sing-box / 删 Reality inbound / 改 stream map / 改订阅）
-        if [[ "$was_cdn_enabled" == "true" && -n "$was_cdn_host" && "$was_cdn_host" != "null" ]]; then
-            log_info "  检测到升级前为 CDN 模式 (host=$was_cdn_host)，重新应用 CDN 拓扑..."
-            if cdn_enable "$was_cdn_host"; then
-                log_info "  ✓ CDN 拓扑已重新应用"
-            else
-                log_error "  ✗ CDN 拓扑重新应用失败"
-                log_error "    手动恢复: edgeboxctl cdn enable $was_cdn_host"
-                _topology_rc=1
-            fi
-
-        # 拓扑分支2: 域名模式 (LE 证书)
-        elif [[ "$was_cert_mode" == "letsencrypt" && -n "$was_cert_domain" && "$was_cert_domain" != "null" ]]; then
-            log_info "  检测到升级前为域名模式 (domain=$was_cert_domain)，重新应用域名拓扑..."
-            if [[ -d /etc/letsencrypt/live/${was_cert_domain} ]]; then
-                ln -sfnT "/etc/letsencrypt/live/${was_cert_domain}/fullchain.pem" /etc/edgebox/cert/current.pem
-                ln -sfnT "/etc/letsencrypt/live/${was_cert_domain}/privkey.pem"   /etc/edgebox/cert/current.key
-                log_info "    ✓ Let's Encrypt 证书链接已还原"
-
-                if ! generate_nginx_stream_map_conf "domain" "$was_cert_domain"; then
-                    log_error "    ✗ stream map 切换失败"
-                    _topology_rc=1
-                fi
-
-                # 同步 server.json.cert
-                local _sj="${CONFIG_DIR}/server.json"
-                local _tmp="${_sj}.tmp"
-                if jq --arg d "$was_cert_domain" \
-                     '.cert.mode = "letsencrypt" | .cert.domain = $d | .cert.auto_renew = true' \
-                     "$_sj" > "$_tmp" 2>/dev/null; then
-                    install -o root -g root -m 600 "$_tmp" "$_sj" || _topology_rc=1
-                    rm -f "$_tmp"
-                fi
-
-                if declare -f regen_sub_domain >/dev/null 2>&1; then
-                    if ! regen_sub_domain "$was_cert_domain"; then
-                        log_error "    ✗ 域名订阅重生失败"
-                        _topology_rc=1
-                    fi
-                fi
-                if ! reload_or_restart_services nginx xray sing-box; then
-                    log_error "    ✗ 服务重载失败"
-                    _topology_rc=1
-                fi
-                if [[ "$_topology_rc" -eq 0 ]]; then
-                    log_info "  ✓ 域名拓扑已重新应用"
-                fi
-            else
-                log_error "  ✗ /etc/letsencrypt/live/${was_cert_domain} 不存在，无法还原域名模式"
-                log_error "    将保留 IP 模式拓扑。手动恢复: edgeboxctl switch-to-domain $was_cert_domain"
-                _topology_rc=1
-            fi
-
-        else
-            # 拓扑分支3: IP 模式 — install 默认行为已经正确，无需额外操作
-            log_info "  IP 模式: install 默认拓扑已正确，无需调整"
-        fi
-
-        # 清理保留目录
-        rm -rf "$keep_dir"
-    fi
-
-    # 7. 清理 keep 文件 + 总结
-    rm -f "$keep_file"
-
-    # v4.6.0-rc4 (审核 P1#7): 根据 _topology_rc 决定是否真的"成功"
-    if [[ "${_topology_rc:-0}" -ne 0 ]]; then
-        log_error "============================================"
-        log_error "  ❌ 升级完成但拓扑恢复失败"
-        log_error "============================================"
-        log_error "  凭据已保留, 但运行拓扑跟升级前不一致"
-        log_error "  备份保留在: $backup_file"
-        log_error "  上面的错误日志给出了手动恢复命令"
-        _eb_dispatch_rc=1
-        false  # 强制 case 退出码 = 1
-    else
-        log_success "============================================"
-        log_success "  ✅ 升级成功"
-        log_success "============================================"
-        log_info "  凭据未变更（订阅 URL、UUID、密码等都保持原值）"
-        log_info "  备份保留在: $backup_file"
-        log_info "  如不需要可删除: rm -f $backup_file"
-    fi
+    # v4.6.0-rc4 (hotfix): delegate to function so `return 1` works inside it
+    # post-esac `_eb_dispatch_rc=$?` will capture our function's exit code
+    _eb_do_upgrade
     ;;
 
 # Reality 密钥轮换
