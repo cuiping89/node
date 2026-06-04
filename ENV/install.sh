@@ -3493,6 +3493,14 @@ events {
 http {
     include       /etc/nginx/mime.types;
     default_type  application/octet-stream;
+
+    # v4.6.0-rc1: 必须放在 include passcode.conf 之前
+    # 因为 passcode.conf 含 64-hex Cookie secret 的 map，超过默认 64 字节 bucket。
+    # nginx 处理 map 时使用 "处理到该 map 时所看到的最近的 map_hash_bucket_size 值"，
+    # 所以这一行必须在含长 map 值的 include 之前。
+    map_hash_bucket_size 256;
+    map_hash_max_size 4096;
+
     include /etc/nginx/conf.d/edgebox_passcode.conf;
 
     # 注：$pass_ok / $cookie_ok / $set_cookie 来自 edgebox_passcode.conf
@@ -3510,10 +3518,6 @@ http {
     keepalive_timeout 65;
     types_hash_max_size 2048;
     server_tokens off;
-
-    # v4.6.0-rc1: 64-hex Cookie secret + "ebp=<secret>; Path=/traffic/..." 超过默认 64 字节
-    map_hash_bucket_size 256;
-    map_hash_max_size 4096;
 
     server {
         listen 80 default_server;
