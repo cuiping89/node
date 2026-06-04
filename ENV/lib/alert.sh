@@ -133,12 +133,40 @@ ${body}
 
     # Load channel config
     if [[ ! -r "$EB_ALERT_CONF" ]]; then
-        _eb_alert_log "alert.conf not readable; only local log used"
+        _eb_alert_log "alert.env not readable; only local log used"
         return 0
     fi
 
-    # shellcheck disable=SC1090
-    source "$EB_ALERT_CONF" 2>/dev/null || true
+    # v4.6.0-rc2 (审核 P1#4): 不再 source alert.env
+    # 原因: source 会让 Shell 解释 Webhook URL 里的 & # 空格 引号 $ 等字符，
+    # 容易把 URL 截断或意外执行命令。改为 awk 安全解析 KEY=VAL。
+    _eb_load_alert_env() {
+        local key val line
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            # 跳过空行与注释
+            case "$line" in
+                ''|\#*) continue ;;
+            esac
+            # 严格匹配 KEY=VAL（KEY 必须是 [A-Z_][A-Z0-9_]*）
+            if [[ "$line" =~ ^([A-Z_][A-Z0-9_]*)=(.*)$ ]]; then
+                key="${BASH_REMATCH[1]}"
+                val="${BASH_REMATCH[2]}"
+                # 去掉两端单/双引号（如果用户加了）
+                if [[ "$val" =~ ^\"(.*)\"$ ]] || [[ "$val" =~ ^\'(.*)\'$ ]]; then
+                    val="${BASH_REMATCH[1]}"
+                fi
+                # 仅设置预期的字段（白名单）
+                case "$key" in
+                    ALERT_TG_BOT_TOKEN|ALERT_TG_CHAT_ID|ALERT_DISCORD_WEBHOOK|\
+                    ALERT_PUSHPLUS_TOKEN|ALERT_WEBHOOK|ALERT_WEBHOOK_FORMAT|ALERT_EMAIL)
+                        # 用 printf %s 设置变量，不走 eval，杜绝命令执行
+                        printf -v "$key" '%s' "$val"
+                        ;;
+                esac
+            fi
+        done < "$EB_ALERT_CONF"
+    }
+    _eb_load_alert_env
 
     # --- Telegram ---
     if [[ -n "${ALERT_TG_BOT_TOKEN:-}" && -n "${ALERT_TG_CHAT_ID:-}" ]]; then

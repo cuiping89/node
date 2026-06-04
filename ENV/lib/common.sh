@@ -51,7 +51,7 @@ set -o pipefail
 : "${EB_LOG_FILE:=/var/log/edgebox-install.log}"
 
 # Version
-readonly EB_VERSION="v4.6.0-rc1"
+readonly EB_VERSION="v4.6.0-rc2"
 
 #############################################
 # Logging
