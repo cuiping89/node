@@ -37,6 +37,7 @@ FILES=(
     "lib/common.sh|lib/common.sh"
     "lib/alert.sh|lib/alert.sh"
     "lib/subscription.sh|lib/subscription.sh"
+    "scripts/edgeboxctl|scripts/edgeboxctl"
     "scripts/dashboard-backend.sh|scripts/dashboard-backend.sh"
     "scripts/protocol-health-monitor.sh|scripts/protocol-health-monitor.sh"
     "scripts/edgebox-traffic-randomize.sh|scripts/edgebox-traffic-randomize.sh"
