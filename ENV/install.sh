@@ -2967,8 +2967,8 @@ log_info "└─ verify_module2_data()       # 验证数据完整性"
 # 功能说明：
 # - 安装Xray和sing-box核心程序
 # - 配置Nginx（SNI定向+ALPN兜底架构）
-# - 配置Xray（VLESS-Reality、gRPC、WS、Trojan）
-# - 配置sing-box（Hysteria2、TUIC）
+# - 配置Xray（VLESS-Reality、VLESS-WS）
+# - 配置sing-box（Hysteria2）
 # - 生成订阅链接
 # - 验证服务配置
 #############################################
@@ -4575,7 +4575,7 @@ execute_module3() {
 
     log_success "======== 模块3执行完成 ========"
     log_info "已完成："
-    log_info "├─ Xray多协议服务（Reality、gRPC、WS、Trojan）"
+    log_info "├─ Xray多协议服务（Reality、WS）"
     log_info "├─ sing-box服务（Hysteria2）"
     log_info "├─ Nginx分流代理（SNI+ALPN架构）"
     log_info "├─ 订阅链接生成（6种协议）"
@@ -6307,12 +6307,20 @@ echo -e "${GREEN}🌐 EdgeBox-企业级多协议节点 v${EDGEBOX_VER} 安装成
 echo
 
 # 将剩余的非关键修复任务放入后台
-(
-    sleep 3
-    log_info "[后台任务] 开始执行系统最终状态修复与优化..."
-    repair_system_state
-    log_info "[后台任务] 所有优化已完成。"
-) >/dev/null 2>&1 &
+# v4.6.0-rc4 (审核 P1#3): 升级模式下不启动后台修复任务。
+#   升级流程中 edgeboxctl 会在 install 完成后按 cert_mode/cdn.enabled 重新应用拓扑；
+#   若后台 repair_system_state 在其后 ~3 秒触发，会重启 sing-box / 放行 UDP443，
+#   把 CDN 模式下本应禁用的 Hysteria2 重新暴露（真实竞争条件）。
+if [[ "${EDGEBOX_UPGRADE:-0}" == "1" ]]; then
+    log_info "升级模式：跳过后台 repair_system_state（拓扑恢复由 edgeboxctl 负责）"
+else
+    (
+        sleep 3
+        log_info "[后台任务] 开始执行系统最终状态修复与优化..."
+        repair_system_state
+        log_info "[后台任务] 所有优化已完成。"
+    ) >/dev/null 2>&1 &
+fi
 
 exit 0
 }
@@ -6328,12 +6336,25 @@ exit 0
 repair_system_state() {
     log_info "检查并修复系统状态..."
 
+    # v4.6.0-rc4 (审核 P1#3): CDN 模式下必须跳过会重新暴露 Hysteria2 的步骤
+    #   (启用/重启 sing-box、放行 UDP 443、HY2 端口自检)，否则会与 CDN 拓扑冲突。
+    local _cdn_enabled="false"
+    if [[ -f "${CONFIG_DIR}/server.json" ]] && command -v jq >/dev/null 2>&1; then
+        _cdn_enabled=$(jq -r '.cdn.enabled // false' "${CONFIG_DIR}/server.json" 2>/dev/null || echo false)
+    fi
+    [[ "$_cdn_enabled" == "true" ]] && \
+        log_info "  CDN 模式：将跳过 sing-box 启用/重启、UDP 443 放行与 HY2 端口自检"
+
     # 1) 目录与日志 (使用新的统一函数)
     setup_directories
 
     # 2) 服务自愈（保持你的逻辑）
     local services=("xray" "sing-box" "nginx")
     for s in "${services[@]}"; do
+        # CDN 模式下 sing-box 应保持禁用，不要重新 enable
+        if [[ "$s" == "sing-box" && "$_cdn_enabled" == "true" ]]; then
+            continue
+        fi
         if systemctl list-unit-files | grep -q "^${s}.service"; then
             systemctl enable "$s" >/dev/null 2>&1 || true
         fi
@@ -6346,16 +6367,18 @@ repair_system_state() {
         log_info "已将 sing-box 监听地址修正为 0.0.0.0"
     fi
 
-    # 4) 防火墙放行 UDP（HY2/TUIC）
-    if command -v ufw >/dev/null 2>&1 && ufw status >/dev/null 2>&1; then
+    # 4) 防火墙放行 UDP（HY2）—— CDN 模式下不放行 UDP 443
+    if [[ "$_cdn_enabled" != "true" ]]; then
+      if command -v ufw >/dev/null 2>&1 && ufw status >/dev/null 2>&1; then
         ufw status | grep -q '443/udp'  || ufw allow 443/udp  >/dev/null 2>&1 || true
-    elif command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then
+      elif command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then
         firewall-cmd --permanent --add-port=443/udp  >/dev/null 2>&1 || true
         
         firewall-cmd --reload >/dev/null 2>&1 || true
-    else
+      else
         iptables -C INPUT -p udp --dport 443  -j ACCEPT >/dev/null 2>&1 || iptables -A INPUT -p udp --dport 443  -j ACCEPT
             command -v iptables-save >/dev/null 2>&1 && { mkdir -p /etc/iptables; iptables-save > /etc/iptables/rules.v4 2>/dev/null || true; }
+      fi
     fi
 
     # 5) 确认证书可用（若缺失则再次生成自签名）
@@ -6364,18 +6387,22 @@ repair_system_state() {
         generate_self_signed_cert || log_warn "自签名证书生成失败，请稍后手动检查"
     fi
 
-    # 6) 语义校验并重启 sing-box
-    if command -v /usr/local/bin/sing-box >/dev/null 2>&1; then
-        /usr/local/bin/sing-box check -c "$sb" >/dev/null 2>&1 || log_warn "sing-box 配置校验失败（将尝试继续重启）"
+    # 6) 语义校验并重启 sing-box —— CDN 模式下 sing-box 应停用，跳过重启与端口自检
+    if [[ "$_cdn_enabled" != "true" ]]; then
+      if command -v /usr/local/bin/sing-box >/dev/null 2>&1; then
+          /usr/local/bin/sing-box check -c "$sb" >/dev/null 2>&1 || log_warn "sing-box 配置校验失败（将尝试继续重启）"
+      fi
+      systemctl reload sing-box 2>/dev/null \
+    || /bin/sh -c '/bin/kill -HUP "$(pidof -s sing-box)" 2>/dev/null' \
+    || systemctl restart sing-box || true
+
+      sleep 0.5
+
+      # 7) 端口自检（与你现场排障一致）
+      ss -uln | grep -q ':443 '  && log_success "HY2 UDP 443 监听 ✓"  || log_warn "HY2 UDP 443 未监听 ✗"
+    else
+      log_info "  CDN 模式：sing-box 保持停用，跳过重启与 HY2 端口自检"
     fi
-    systemctl reload sing-box 2>/dev/null \
-  || /bin/sh -c '/bin/kill -HUP "$(pidof -s sing-box)" 2>/dev/null' \
-  || systemctl restart sing-box || true
-
-    sleep 0.5
-
-    # 7) 端口自检（与你现场排障一致）
-    ss -uln | grep -q ':443 '  && log_success "HY2 UDP 443 监听 ✓"  || log_warn "HY2 UDP 443 未监听 ✗"
 
     log_success "系统状态修复完成"
 }
