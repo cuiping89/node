@@ -41,7 +41,11 @@ if [[ -z "${EDGEBOX_COMMON_SH_LOADED:-}" ]]; then
     done
 fi
 
-EB_ALERT_CONF="${EB_ALERT_CONF:-${EB_TRAFFIC_DIR:-/etc/edgebox/traffic}/alert.conf}"
+# v4.6.0-rc1: 机密文件搬到 /etc/edgebox/config/ (root:root 600)
+# 公共阈值在 /etc/edgebox/traffic/alert-public.json (web-readable)
+# 注: lib/alert.sh 总是被 root 调用（cron 或 edgeboxctl），所以能读 600
+EB_ALERT_CONF="${EB_ALERT_CONF:-${EB_CONFIG_DIR:-/etc/edgebox/config}/alert.env}"
+EB_ALERT_PUBLIC_JSON="${EB_ALERT_PUBLIC_JSON:-${EB_TRAFFIC_DIR:-/etc/edgebox/traffic}/alert-public.json}"
 EB_ALERT_LOG="${EB_ALERT_LOG:-/var/log/edgebox/alerts.log}"
 EB_ALERT_SILENCE_FILE="${EB_ALERT_SILENCE_FILE:-${EB_TRAFFIC_DIR:-/etc/edgebox/traffic}/alert.silenced_until}"
 
