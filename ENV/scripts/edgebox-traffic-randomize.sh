@@ -140,23 +140,19 @@ execute_traffic_randomization() {
 
     log_info "开始执行流量特征随机化 (级别: $level)..."
 
-    # 创建配置备份
-    create_config_backup
+    # v4.6.0-rc4 (审核 P1#4): 逐步检查返回值，任一步失败立即返回非零，
+    #   否则即使 verify_randomization_result 已失败回滚，仍会误报"完成"并 rc=0。
+    create_config_backup || { log_error "配置备份失败"; return 1; }
 
     case "$level" in
         "light")
             # 轻度随机化：仅更新 Hysteria2
-            randomize_hysteria2_config "$level"
+            randomize_hysteria2_config "$level" || return 1
             ;;
-        "medium")
-            # 中度随机化：更新 Hysteria2 + VLESS
-            randomize_hysteria2_config "$level"
-            randomize_vless_config "$level"
-            ;;
-        "heavy")
-            # 重度随机化：全协议 (v4 只有 Reality + HY2 + WS，TUIC 已删除)
-            randomize_hysteria2_config "$level"
-            randomize_vless_config "$level"
+        "medium"|"heavy")
+            # 中度/重度随机化：Hysteria2 + VLESS (v4 只有 Reality + HY2 + WS)
+            randomize_hysteria2_config "$level" || return 1
+            randomize_vless_config "$level" || return 1
             ;;
         *)
             log_error "未知的随机化级别: $level"
@@ -165,12 +161,13 @@ execute_traffic_randomization() {
     esac
 
     # 重启相关服务
-    restart_services_safely
+    restart_services_safely || return 1
 
     # 验证配置生效
-    verify_randomization_result
+    verify_randomization_result || return 1
 
     log_success "流量特征随机化完成 (级别: $level)"
+    return 0
 }
 
 # 配置备份函数
@@ -196,26 +193,37 @@ restart_services_safely() {
     log_info "安全重启代理服务..."
 
     # 定义reload_or_restart_services函数（如果不存在）
+    # v4.6.0-rc4 (审核 P1#4): fallback 必须真实传播失败 + 校验服务最终在运行。
     if ! command -v reload_or_restart_services >/dev/null 2>&1; then
         reload_or_restart_services() {
-            for svc in "$@"; do
-                if systemctl is-active --quiet "$svc"; then
-                    if systemctl reload "$svc" 2>/dev/null; then
-                        log_info "${svc} 已热加载"
+            local _svc _rc=0
+            for _svc in "$@"; do
+                if systemctl is-active --quiet "$_svc"; then
+                    if systemctl reload "$_svc" 2>/dev/null; then
+                        log_info "${_svc} 已热加载"
+                    elif systemctl restart "$_svc" 2>/dev/null; then
+                        log_info "${_svc} 已重启"
                     else
-                        systemctl restart "$svc"
-                        log_info "${svc} 已重启"
+                        log_error "${_svc} 重载/重启失败"
+                        _rc=1
+                        continue
                     fi
+                    systemctl is-active --quiet "$_svc" || { log_error "${_svc} 重启后仍未运行"; _rc=1; }
                 fi
             done
+            return $_rc
         }
     fi
 
     # 应用更改并热加载
-    reload_or_restart_services sing-box xray
+    if ! reload_or_restart_services sing-box xray; then
+        log_error "服务重启失败"
+        return 1
+    fi
     sleep 5
 
     log_success "服务已安全重启"
+    return 0
 }
 
 # 验证随机化结果

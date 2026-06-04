@@ -107,21 +107,36 @@ log()      { log_info "$@"; }
 log_ok()   { log_success "$@"; }
 error()    { log_error "$@"; }
 
-# v4.6.0-rc4: 统一敏感配置写入 (审核 P1#2)
+# v4.6.0-rc4: 统一敏感配置写入。
 # 用法: secure_replace <src_tmp_file> <dst_real_file>
-# - 用 install(1) 一步完成 owner/group/mode + atomic move
-# - 调用方负责 mktemp 生成 src，并把数据写入 src
-# 注：避免 644 回退最有效的方式是：所有写敏感配置的路径必须经过这个函数
+# - 在目标同目录创建临时文件 -> chown/chmod 临时文件 -> 同文件系统 mv 覆盖正式文件，
+#   这样无论 src 来自 /tmp 等其它文件系统，最终落地都是同一 FS 下的原子 rename(2)。
+#   (注: GNU install(1) 是"复制+设权限"，并非 rename，故不再用它来声称原子替换。)
+# - 调用方负责 mktemp 生成 src，并把数据写入 src；本函数成功/失败都会清理 src。
 secure_replace() {
     local src="$1" dst="$2"
     if [[ ! -f "$src" ]]; then
         log_error "secure_replace: source not found: $src"
         return 1
     fi
-    # install 一步原子替换 + chmod + chown
-    if ! install -o root -g root -m 600 "$src" "$dst"; then
-        log_error "secure_replace: install 失败 ($src -> $dst)"
+    local dst_dir tmp
+    dst_dir="$(dirname "$dst")"
+    mkdir -p "$dst_dir"
+    tmp="$(mktemp "${dst_dir}/.$(basename "$dst").XXXXXX")" || {
+        log_error "secure_replace: mktemp 失败 ($dst_dir)"
         rm -f "$src"
+        return 1
+    }
+    if ! cp -f "$src" "$tmp"; then
+        log_error "secure_replace: 拷贝失败 ($src -> $tmp)"
+        rm -f "$tmp" "$src"
+        return 1
+    fi
+    chown root:root "$tmp" 2>/dev/null || true
+    chmod 600 "$tmp"
+    if ! mv -f "$tmp" "$dst"; then
+        log_error "secure_replace: 原子替换失败 ($tmp -> $dst)"
+        rm -f "$tmp" "$src"
         return 1
     fi
     rm -f "$src"
@@ -734,16 +749,41 @@ traffic_reset() {
 
 show_status() {
   echo -e "${CYAN}EdgeBox 服务状态（v${VERSION}）：${NC}"
+
+  # v4.6.0-rc4 (审核 P1#11): 感知 CDN 模式。CDN 模式下 sing-box 应停止、UDP 443 关闭、
+  #   Reality 内部端口下线，这些都是预期状态，不应再标红为"异常"。
+  local _cdn_enabled="false"
+  if [[ -f "${CONFIG_DIR}/server.json" ]] && command -v jq >/dev/null 2>&1; then
+    _cdn_enabled=$(jq -r '.cdn.enabled // false' "${CONFIG_DIR}/server.json" 2>/dev/null || echo false)
+  fi
+
   for svc in nginx xray sing-box; do
+    if [[ "$svc" == "sing-box" && "$_cdn_enabled" == "true" ]]; then
+      systemctl is-active --quiet "$svc" \
+        && echo -e "  $svc: ${YELLOW}运行中（CDN 模式下通常应停用）${NC}" \
+        || echo -e "  $svc: ${CYAN}已停用（CDN 模式）${NC}"
+      continue
+    fi
     systemctl is-active --quiet "$svc" && echo -e "  $svc: ${GREEN}运行中 √${NC}" || echo -e "  $svc: ${RED}已停止${NC}"
   done
+
   echo -e "\n${CYAN}端口监听状态：${NC}\n${YELLOW}公网端口：${NC}"
   ss -tlnp 2>/dev/null | grep -q ":443 "  && echo -e "  TCP/443 (Nginx): ${GREEN}正常${NC}" || echo -e "  TCP/443: ${RED}异常${NC}"
-  ss -ulnp 2>/dev/null | grep -q ":443 "  && echo -e "  UDP/443 (Hysteria2): ${GREEN}正常${NC}" || echo -e "  UDP/443: ${RED}异常${NC}"
+  if [[ "$_cdn_enabled" == "true" ]]; then
+    echo -e "  UDP/443 (Hysteria2): ${CYAN}已禁用（CDN 模式）${NC}"
+  else
+    ss -ulnp 2>/dev/null | grep -q ":443 "  && echo -e "  UDP/443 (Hysteria2): ${GREEN}正常${NC}" || echo -e "  UDP/443: ${RED}异常${NC}"
+  fi
+
   echo -e "\n${YELLOW}内部回环端口：${NC}"
-  ss -tlnp 2>/dev/null | grep -q "127.0.0.1:11443 " && echo -e "  Reality内部: ${GREEN}正常${NC}" || echo -e "  Reality内部: ${RED}异常${NC}"
+  if [[ "$_cdn_enabled" == "true" ]]; then
+    echo -e "  Reality内部: ${CYAN}已禁用（CDN 模式）${NC}"
+  else
+    ss -tlnp 2>/dev/null | grep -q "127.0.0.1:11443 " && echo -e "  Reality内部: ${GREEN}正常${NC}" || echo -e "  Reality内部: ${RED}异常${NC}"
+  fi
   ss -tlnp 2>/dev/null | grep -q "127.0.0.1:10086 " && echo -e "  WS内部: ${GREEN}正常${NC}"      || echo -e "  WS内部: ${RED}异常${NC}"
   echo -e "\n${CYAN}证书状态：${NC}  当前模式: ${YELLOW}$(get_current_cert_mode)${NC}"
+  [[ "$_cdn_enabled" == "true" ]] && echo -e "  CDN 中继: ${CYAN}已启用${NC}"
 
   # 显示分流状态
   show_shunt_status
@@ -1367,27 +1407,36 @@ request_letsencrypt_cert(){
 
   # === 一切 OK 再重载相关服务 (Moved after cert_mode update) ===
 
-  # Update cert_mode *before* final service reload
-  echo "letsencrypt:${domain}" > "${CONFIG_DIR}/cert_mode"
-
-  # v4.6.0-rc4: 同步更新 server.json.cert（CDN enable 前置检查读这里）
+  # v4.6.0-rc4 (审核 P1#5): 先同步 server.json.cert (CDN enable 前置检查读这里)，成功后再翻转
+  #   cert_mode 文件，保证两者一致；以下任一步失败即返回非零，避免 cert_mode=letsencrypt
+  #   而 server.json.cert.mode=self-signed 的状态分叉（会导致 CDN enable 被拒）。
   local _server_json="${CONFIG_DIR}/server.json"
   local _tmp="${_server_json}.tmp"
   if jq --arg d "$domain" \
        '.cert.mode = "letsencrypt" | .cert.domain = $d | .cert.auto_renew = true' \
-       "$_server_json" > "$_tmp" 2>/dev/null; then
+       "$_server_json" > "$_tmp" 2>/dev/null && [[ -s "$_tmp" ]]; then
       mv -f "$_tmp" "$_server_json"
       chmod 600 "$_server_json"
       chown root:root "$_server_json"
       log_info "✓ server.json.cert 已同步: letsencrypt/${domain}"
   else
       rm -f "$_tmp"
-      log_warn "更新 server.json.cert 失败（cert_mode 文件已更新）"
+      log_error "更新 server.json.cert 失败，中止证书切换（保持原状态一致）"
+      return 1
+  fi
+
+  # server.json 同步成功后再翻转 cert_mode 文件
+  if ! printf 'letsencrypt:%s\n' "$domain" > "${CONFIG_DIR}/cert_mode"; then
+      log_error "写入 cert_mode 失败"
+      return 1
   fi
 
   # Reload all relevant services *after* symlinks and cert_mode are updated
   log_info "Reloading Nginx, Xray, and Sing-box with new certificate..."
-  reload_or_restart_services nginx xray sing-box
+  if ! reload_or_restart_services nginx xray sing-box; then
+      log_error "证书已就位但服务重载失败，请检查 nginx -t / xray -test / sing-box check"
+      return 1
+  fi
 
   log_success "Let's Encrypt 证书已生效 (${domain})"
 
@@ -2148,6 +2197,22 @@ cdn_disable() {
 
     if ! systemctl reload nginx 2>/dev/null && ! systemctl restart nginx 2>/dev/null; then
         log_error "nginx reload/restart 失败"
+        cdn_rollback "$backup_dir"
+        return 1
+    fi
+
+    # v4.6.0-rc4 (审核 P1#6): disable 完成后做最终健康自检，任一项失败即回滚并返回非零，
+    #   避免"服务启动后随即崩溃 / 端口未恢复"却仍宣告成功。
+    sleep 1
+    local _vfail=0 _svc
+    for _svc in nginx xray sing-box; do
+        systemctl is-active --quiet "$_svc" || { log_error "服务未运行: $_svc"; _vfail=1; }
+    done
+    ss -tlnp 2>/dev/null | grep -q "127.0.0.1:11443 " || { log_error "Reality 内部端口 11443 未监听"; _vfail=1; }
+    ss -tlnp 2>/dev/null | grep -q "127.0.0.1:10086 " || { log_error "WS 内部端口 10086 未监听"; _vfail=1; }
+    ss -ulnp 2>/dev/null | grep -q ":443 "            || { log_error "Hysteria2 UDP 443 未监听"; _vfail=1; }
+    if [[ "$_vfail" -ne 0 ]]; then
+        log_error "CDN disable 后端口/服务自检未通过，执行回滚"
         cdn_rollback "$backup_dir"
         return 1
     fi
@@ -4219,6 +4284,50 @@ _eb_do_upgrade() {
     fi
 }
 
+# v4.6.0-rc4 (审核 P1#1): 证书续期封装为函数。
+#   旧实现把续期逻辑直接写在顶层 case 分支里并使用 `local`，而 `local` 只能在函数内使用——
+#   在顶层会报 "local: can only be used in a function"，且 `local exit_code=$?` 赋值失败，
+#   导致 certbot 的真实失败码被丢弃、失败被误报为成功 (cert renew 返回 0)。
+#   封装进函数后 local 合法、退出码可信。
+cert_renew() {
+    local renew_output exit_code
+    log_info "尝试续期 Let's Encrypt 证书..."
+
+    # 移除 --quiet 以捕获输出，并确保在无代理环境下执行
+    renew_output=$(env -u ALL_PROXY -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy certbot renew 2>&1)
+    exit_code=$?
+
+    echo -e "\n${CYAN}--- Certbot 续期日志 ---${NC}"
+    echo "$renew_output" | sed 's/^/  /g'
+    echo -e "${CYAN}--------------------------${NC}\n"
+
+    if [[ "$exit_code" -ne 0 ]]; then
+        log_error "证书续期失败 (certbot 退出码 ${exit_code})！请检查上面的 Certbot 日志。"
+        echo ""
+        cert_status
+        return "$exit_code"
+    fi
+
+    if echo "$renew_output" | grep -q -E "Congratulations, all renewals succeeded|Successfully received certificate"; then
+        log_success "证书续期成功！"
+        log_info "正在重载相关服务以应用新证书..."
+        if ! reload_or_restart_services nginx xray sing-box; then
+            log_error "新证书已签发但服务重载失败，请检查 nginx -t / xray -test / sing-box check"
+            echo ""
+            cert_status
+            return 1
+        fi
+    elif echo "$renew_output" | grep -q "Cert not yet due for renewal"; then
+        log_success "证书尚未到达续期时间，无需操作。"
+    else
+        log_warn "Certbot 命令执行成功，但未检测到明确的续期成功信息。"
+    fi
+
+    echo ""
+    cert_status
+    return 0
+}
+
 #############################################
 # 主命令处理
 #############################################
@@ -4259,6 +4368,7 @@ edgeboxctl sub issue  <user> [limit]   # 为用户下发专属订阅链接 (/sha
 edgeboxctl sub show   <user>           # 查看专属订阅与已登记设备
 edgeboxctl sub revoke <user>           # 停用用户的专属订阅
 edgeboxctl sub limit  <user> <N>       # 调整用户的设备上限"
+exit 2
 ;;
     esac
     ;;
@@ -4280,40 +4390,11 @@ cert)
         cert_status
         ;;
       renew)
-        log_info "尝试续期 Let's Encrypt 证书..."
-        
-        # 移除 --quiet 以捕获输出，并确保在无代理环境下执行
-        local renew_output
-        renew_output=$(env -u ALL_PROXY -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy certbot renew 2>&1)
-        local exit_code=$?
-        
-        echo -e "\n${CYAN}--- Certbot 续期日志 ---${NC}"
-        # 为了透明，显示完整的 Certbot 原始输出
-        echo "$renew_output" | sed 's/^/  /g'
-        echo -e "${CYAN}--------------------------${NC}\n"
-
-        # 分析输出，给出明确的结论
-        if [[ $exit_code -eq 0 ]]; then
-            if echo "$renew_output" | grep -q -E "Congratulations, all renewals succeeded|Successfully received certificate"; then
-                log_success "证书续期成功！"
-                log_info "正在重载相关服务以应用新证书..."
-                # Certbot的nginx插件会自动重载nginx，这里再执行一次确保xray/sing-box也重载
-                reload_or_restart_services nginx xray sing-box
-            elif echo "$renew_output" | grep -q "Cert not yet due for renewal"; then
-                log_success "证书尚未到达续期时间，无需操作。"
-            else
-                log_warn "Certbot 命令执行成功，但未检测到明确的续期成功信息。"
-            fi
-        else
-            log_error "证书续期失败！请检查上面的 Certbot 日志获取详细错误。"
-        fi
-
-        echo "" # 增加一个空行，让最终状态更清晰
-        # 调用我们上一轮修复的、功能全面的 status 函数来显示最终结果
-        cert_status
+        cert_renew
         ;;
       *)
         echo "用法: edgeboxctl cert [status|renew]"
+        exit 2
         ;;
     esac
     ;;
@@ -4334,7 +4415,7 @@ cert)
     case "$2" in
       show) show_config ;;
       regenerate-uuid) regenerate_uuid ;;
-      *) echo "用法: edgeboxctl config [show|regenerate-uuid]" ;;
+      *) echo "用法: edgeboxctl config [show|regenerate-uuid]"; exit 2 ;;
     esac
     ;;
 
@@ -4346,7 +4427,7 @@ cert)
       direct-resi) setup_outbound_direct_resi "$3" ;;
       status) show_shunt_status ;;
       whitelist) shift 2; manage_whitelist "$@" ;;
-      *) echo "用法: edgeboxctl shunt [vps|resi|direct-resi|status|whitelist] [args...]" ;;
+      *) echo "用法: edgeboxctl shunt [vps|resi|direct-resi|status|whitelist] [args...]"; exit 2 ;;
     esac
     ;;
 
@@ -4395,17 +4476,23 @@ cert)
           fi
           echo ""
           echo "已配置的渠道:"
-          [[ -n "${ALERT_TG_BOT_TOKEN:-}" ]]    && echo "  - Telegram"
-          [[ -n "${ALERT_DISCORD_WEBHOOK:-}" ]] && echo "  - Discord"
-          [[ -n "${ALERT_PUSHPLUS_TOKEN:-}" ]]  && echo "  - PushPlus (微信)"
-          [[ -n "${ALERT_WEBHOOK:-}" ]]         && echo "  - Webhook (${ALERT_WEBHOOK_FORMAT:-raw})"
-          [[ -n "${ALERT_EMAIL:-}" ]]           && echo "  - Email"
+          # v4.6.0-rc4 (审核 P1#7): source alert.sh 不会解析 alert.env（只有 eb_alert_send
+          #   内部才解析），故这些 env 变量在此处恒为空。改用与 alert_show 一致的 grep 检测。
+          _has_value() { grep -qE "^${1}=[\"']?[^\"' ]" "$ALERT_ENV" 2>/dev/null; }
+          _has_value ALERT_TG_BOT_TOKEN && _has_value ALERT_TG_CHAT_ID && echo "  - Telegram"
+          _has_value ALERT_DISCORD_WEBHOOK && echo "  - Discord"
+          _has_value ALERT_PUSHPLUS_TOKEN  && echo "  - PushPlus (微信)"
+          if _has_value ALERT_WEBHOOK; then
+            _wf=$(grep -E '^ALERT_WEBHOOK_FORMAT=' "$ALERT_ENV" 2>/dev/null | cut -d= -f2- | tr -d '"'"'"' ')
+            echo "  - Webhook (${_wf:-raw})"
+          fi
+          _has_value ALERT_EMAIL           && echo "  - Email"
           echo ""
           echo "最近告警 (查看 /var/log/edgebox/alerts.log):"
           tail -20 /var/log/edgebox/alerts.log 2>/dev/null || echo "  (暂无)"
         fi
         ;;
-      *) echo "用法: edgeboxctl alert [show|monthly <GiB>|steps <p1,p2,..>|telegram <token> <chat>|discord <url>|wechat <pushplus_token>|webhook <url> [raw|slack|discord]|test <percent>|silence <hours>|unsilence|status]";;
+      *) echo "用法: edgeboxctl alert [show|monthly <GiB>|steps <p1,p2,..>|telegram <token> <chat>|discord <url>|wechat <pushplus_token>|webhook <url> [raw|slack|discord]|test <percent>|silence <hours>|unsilence|status]"; exit 2 ;;
     esac
     ;;
 
@@ -4680,6 +4767,7 @@ HEAD
         echo "  enable <host>   - 启用 CDN，host 为 CDN 后的域名"
         echo "  disable         - 关闭 CDN，回到直连模式"
         echo "  help            - 详细配置指南（含 Cloudflare 步骤）"
+        exit 2
         ;;
     esac
     ;;
@@ -4690,7 +4778,7 @@ HEAD
       create) backup_create ;;
       list) backup_list ;;
       restore) backup_restore "$3" ;;
-      *) echo "用法: edgeboxctl backup [create|list|restore <file>]";;
+      *) echo "用法: edgeboxctl backup [create|list|restore <file>]"; exit 2 ;;
     esac
     ;;
 
@@ -5045,6 +5133,14 @@ help|"")
   printf "  查看日志: tail -f /var/log/edgebox-install.log\n"
   
   ;;
+
+  # v4.6.0-rc4 (审核 P1#8): 未知顶层命令必须返回非零，否则自动化无法判断参数是否正确。
+  #   (dispatch 在顶层而非函数内，故用 exit 2 而非 return 2。)
+  *)
+    log_error "未知命令: ${1:-}"
+    echo "运行 'edgeboxctl help' 查看可用命令"
+    exit 2
+    ;;
 
 esac
 
