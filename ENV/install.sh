@@ -58,7 +58,7 @@ if [[ "${EDGEBOX_DEBUG:-0}" == "1" ]]; then
 fi
 
 # 版本号
-EDGEBOX_VER="4.6.0-rc1"
+EDGEBOX_VER="4.6.0-rc2"
 
 #############################################
 # v4.0.0 Bootstrap: download lib modules from GitHub
@@ -220,6 +220,12 @@ REALITY_SNI="www.microsoft.com"
 HYSTERIA2_MASQUERADE="https://www.bing.com"
 
 # === 版本和下载常量 ===
+# v4.6.0-rc2: 兼容性锁定版本 1.12.8 (审核 P2)
+# 原因: 当前生成的客户端 sing-box 配置仍使用 1.13.0 之前的 schema:
+#   - { "type": "block", "tag": "block" }
+#   - { "type": "dns", "tag": "dns-out" }
+# 上述特殊 outbound 已在 sing-box 1.13.0 移除（官方稳定版当前为 1.13.x）
+# 直接升级会导致客户端配置加载失败。后续迁移 schema 后再放开升级。
 DEFAULT_SING_BOX_VERSION="1.12.8"
 XRAY_INSTALL_SCRIPT="https://raw.githubusercontent.com/XTLS/Xray-install/main/install-release.sh"
 
@@ -500,23 +506,20 @@ check_system() {
         exit 1
     fi
 
-    # 支持的系统版本检查
+    # v4.6.0-rc2 (审核 P2): 收窄到 Debian/Ubuntu 仅
+    # 原因: 代码硬编码 www-data, /etc/nginx/modules-enabled/, dpkg 等 Debian-系特定路径
+    # RHEL/Rocky/AlmaLinux 实际跑不起来。诚实地拒绝总比装到一半失败强。
     SUPPORTED=false
 
     case "$OS" in
         ubuntu)
             MAJOR_VERSION=$(echo "$VERSION" | cut -d. -f1)
-            if [ "$MAJOR_VERSION" -ge 18 ] 2>/dev/null; then
+            if [ "$MAJOR_VERSION" -ge 20 ] 2>/dev/null; then
                 SUPPORTED=true
             fi
             ;;
         debian)
-            if [ "$VERSION" -ge 10 ] 2>/dev/null; then
-                SUPPORTED=true
-            fi
-            ;;
-        centos|rhel|rocky|almalinux)
-            if [ "$VERSION" -ge 8 ] 2>/dev/null; then
+            if [ "$VERSION" -ge 11 ] 2>/dev/null; then
                 SUPPORTED=true
             fi
             ;;
@@ -529,8 +532,19 @@ check_system() {
     if [ "$SUPPORTED" = "true" ]; then
         log_success "系统检查通过: $OS $VERSION"
     else
-        log_error "不支持的系统: $OS $VERSION"
-        log_info "支持的系统: Ubuntu 18.04+, Debian 10+, CentOS/RHEL/Rocky/AlmaLinux 8+"
+        log_error "================================================================"
+        log_error "  不支持的系统: $OS $VERSION"
+        log_error "================================================================"
+        log_error ""
+        log_error "  EdgeBox v4.6.0+ 仅支持："
+        log_error "    • Ubuntu 20.04 LTS 及以上"
+        log_error "    • Debian 11 (bullseye) 及以上"
+        log_error ""
+        log_error "  v4.5 及以前曾支持 CentOS/RHEL/Rocky/AlmaLinux，但代码硬编码 "
+        log_error "  www-data 用户、dpkg 命令、/etc/nginx/modules-enabled/ 等 Debian-系"
+        log_error "  路径，RHEL-系无法可靠工作。诚实地拒绝总比装到一半失败强。"
+        log_error ""
+        log_error "================================================================"
         exit 1
     fi
 }
@@ -2396,6 +2410,15 @@ save_config_info() {
 
     local server_tmp="${CONFIG_DIR}/server.json.tmp"
     log_info "使用 jq 生成 server.json 临时文件..."
+
+    # v4.6.0-rc2: 升级模式下保留 cert/cdn/reality.sni 状态
+    local _cert_mode="${UPGRADE_CERT_MODE:-self-signed}"
+    local _cert_domain="${UPGRADE_CERT_DOMAIN:-}"
+    local _cert_autorenew="${UPGRADE_CERT_AUTORENEW:-false}"
+    local _cdn_enabled="${UPGRADE_CDN_ENABLED:-false}"
+    local _cdn_host="${UPGRADE_CDN_HOST:-}"
+    local _reality_sni="${UPGRADE_REALITY_SNI:-}"
+
     # Use jq -n to generate JSON (all variables safely injected)
     jq -n \
       --arg version              "$version" \
@@ -2421,6 +2444,12 @@ save_config_info() {
       --arg reality_public_key   "$REALITY_PUBLIC_KEY" \
       --arg reality_private_key  "$REALITY_PRIVATE_KEY" \
       --arg reality_short_id     "$REALITY_SHORT_ID" \
+      --arg reality_sni          "$_reality_sni" \
+      --arg cert_mode            "$_cert_mode" \
+      --arg cert_domain          "$_cert_domain" \
+      --argjson cert_autorenew   "$_cert_autorenew" \
+      --argjson cdn_enabled      "$_cdn_enabled" \
+      --arg cdn_host             "$_cdn_host" \
       '{
          version: $version, install_date: $install_date, updated_at: $updated_at,
          server_ip: $server_ip, eip: $eip, hostname: $hostname, instance_id: $instance_id,
@@ -2429,10 +2458,10 @@ save_config_info() {
          spec:  { cpu: $cpu_spec, memory: $memory_spec, disk: $disk_spec },
          uuid:  { vless: { reality: $uuid_vless_reality, ws: $uuid_vless_ws } },
          password: { hysteria2: $password_hysteria2 },
-         reality:  { public_key: $reality_public_key, private_key: $reality_private_key, short_id: $reality_short_id },
+         reality:  { public_key: $reality_public_key, private_key: $reality_private_key, short_id: $reality_short_id, sni: (if $reality_sni == "" then null else $reality_sni end) },
          ws: { path: $ws_path },
-         cdn: { enabled: false, host: null },
-         cert: { mode: "self-signed", domain: null, auto_renew: false }
+         cdn: { enabled: $cdn_enabled, host: (if $cdn_host == "" then null else $cdn_host end) },
+         cert: { mode: $cert_mode, domain: (if $cert_domain == "" then null else $cert_domain end), auto_renew: $cert_autorenew }
        }' > "$server_tmp" || { log_error "使用jq生成 server.json 失败"; rm -f "$server_tmp"; return 1; }
 
     # --- ATOMIC WRITE + VALIDATION ---
@@ -2728,6 +2757,17 @@ execute_module2() {
         DASHBOARD_PASSCODE=$(jq -r '.dashboard_passcode // empty' "$KEEP_FILE")
         DASHBOARD_COOKIE_SECRET=$(jq -r '.dashboard_cookie_secret // empty' "$KEEP_FILE")
         MASTER_SUB_TOKEN=$(jq -r '.master_sub_token // empty' "$KEEP_FILE")
+
+        # v4.6.0-rc2: 同时保留这些字段，让 save_config_info 写回 server.json
+        # 否则新生成的 server.json 会清空 cert.mode / cdn.enabled / reality.sni
+        UPGRADE_CERT_MODE=$(jq -r '.cert.mode // "self-signed"'  "$KEEP_FILE")
+        UPGRADE_CERT_DOMAIN=$(jq -r '.cert.domain // ""'         "$KEEP_FILE")
+        UPGRADE_CERT_AUTORENEW=$(jq -r '.cert.auto_renew // false' "$KEEP_FILE")
+        UPGRADE_CDN_ENABLED=$(jq -r '.cdn.enabled // false'      "$KEEP_FILE")
+        UPGRADE_CDN_HOST=$(jq -r '.cdn.host // ""'               "$KEEP_FILE")
+        UPGRADE_REALITY_SNI=$(jq -r '.reality.sni // ""'         "$KEEP_FILE")
+        export UPGRADE_CERT_MODE UPGRADE_CERT_DOMAIN UPGRADE_CERT_AUTORENEW
+        export UPGRADE_CDN_ENABLED UPGRADE_CDN_HOST UPGRADE_REALITY_SNI
 
         # 关键凭据校验
         local missing=()
@@ -3475,7 +3515,7 @@ configure_nginx() {
 
     # 生成新的Nginx主配置
     cat > /etc/nginx/nginx.conf << 'NGINX_CONFIG'
-# EdgeBox Nginx 配置文件 v4.0.0 (3-protocol)
+# EdgeBox Nginx 配置文件 v4.6.0-rc2 (3-protocol: Reality + Hysteria2 + WS)
 # 架构：SNI定向 + ALPN兜底 + 单端口复用
 
 user www-data;
@@ -3546,13 +3586,7 @@ http {
             add_header Cache-Control "no-store, no-cache, must-revalidate";
             root /var/www/html;
         }
-        # Backward-compat plain /sub redirect (deprecated but kept for any saved links)
-        location = /sub {
-            default_type text/plain;
-            add_header Cache-Control "no-store, no-cache, must-revalidate";
-            root /var/www/html;
-            try_files /sub =404;
-        }
+        # v4.6.0-rc2: 移除旧的 /sub location (v3 残留，仅服务 token 化前的链接)
         location ^~ /share/ {
             default_type text/plain;
             add_header Cache-Control "no-store, no-cache, must-revalidate";
@@ -3581,7 +3615,7 @@ stream {
 
     # 1. SNI 到初步目标的映射 (从外部文件加载)
     #    这个文件由 generate_initial_nginx_stream_map() 或 edgeboxctl 创建
-    #    它会将 reality, trojan, grpc, websocket 等 SNI 映射到对应的名字
+    #    它会将 reality, websocket 等 SNI 映射到对应的名字
     include /etc/nginx/conf.d/edgebox_stream_map.conf;
 
     # v4.0.0: Simplified single-level SNI routing
@@ -5327,6 +5361,79 @@ CRON_OPTIN
 }
 
 
+# v4.6.0-rc2 (审核 P1#8): 日志轮转
+# 旧版本没有 logrotate 配置，长期运行后 Xray/Nginx stream/EdgeBox 日志会填满磁盘
+# 导致证书续期、配置写入、服务重启全部失败
+#############################################
+# 函数：setup_logrotate
+# 输出：/etc/logrotate.d/edgebox
+#############################################
+setup_logrotate() {
+    log_info "配置 EdgeBox 日志轮转 (logrotate)..."
+
+    cat > /etc/logrotate.d/edgebox <<'EOF'
+# EdgeBox 日志轮转
+# 由 install.sh 在 v4.6.0-rc2 加入。包含：
+#   - Xray 访问/错误日志
+#   - Nginx stream 日志（HTTP 日志由发行版默认 logrotate 接管）
+#   - EdgeBox 自身日志（install / traffic-alert / edgebox.log）
+
+/var/log/xray/*.log {
+    daily
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0640 root adm
+    sharedscripts
+    postrotate
+        if [[ -x /usr/local/bin/xray ]]; then
+            systemctl reload xray >/dev/null 2>&1 || true
+        fi
+    endscript
+}
+
+/var/log/nginx/stream.log {
+    daily
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0640 www-data adm
+    sharedscripts
+    postrotate
+        systemctl reload nginx >/dev/null 2>&1 || true
+    endscript
+}
+
+/var/log/edgebox/*.log /var/log/edgebox.log /var/log/edgebox-install.log /var/log/edgebox-traffic-alert.log {
+    daily
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0640 root root
+}
+EOF
+    chmod 644 /etc/logrotate.d/edgebox
+
+    # 立即测试 logrotate 配置语法（不实际轮转）
+    if command -v logrotate >/dev/null 2>&1; then
+        if logrotate -d /etc/logrotate.d/edgebox >/dev/null 2>&1; then
+            log_success "logrotate 配置已生成并通过语法检查: /etc/logrotate.d/edgebox"
+        else
+            log_warn "logrotate 配置语法检查失败 (可能 logrotate 版本太老，配置已生成但请人工检查)"
+        fi
+    else
+        log_warn "未检测到 logrotate 命令；配置已生成但需安装 logrotate 才会生效"
+    fi
+    return 0
+}
+
+
 # 创建独立的、无中断的防火墙应用脚本
 #############################################
 # 函数：create_firewall_script
@@ -6077,10 +6184,10 @@ main() {
 
     clear
 
-    echo -e "${GREEN}EdgeBox 企业级安装脚本 v4.6.0-rc1 (三协议架构)${NC}"
+    echo -e "${GREEN}EdgeBox 企业级安装脚本 v4.6.0-rc2 (三协议架构)${NC}"
     print_separator
 
-    export EDGEBOX_VER="4.6.0-rc1"
+    export EDGEBOX_VER="4.6.0-rc2"
     mkdir -p "$(dirname "${LOG_FILE}")" && touch "${LOG_FILE}"
 
     log_info "开始执行完整安装流程..."
@@ -6110,7 +6217,8 @@ main() {
     fi
     setup_sni_pool_management
     check_ports
-    setup_firewall_rollback
+    # v4.6.0-rc2 (审核 P2): 不再外层调用 setup_firewall_rollback
+    # configure_firewall 内部第 1538 行会调用它，外层重复调用是 v4.5 残留
     configure_firewall      || { log_error "configure_firewall 失败"; exit 1; }
     optimize_system
 
@@ -6139,6 +6247,9 @@ main() {
         log_error "流量特征随机化系统设置失败"
         exit 1
     fi
+
+    # v4.6.0-rc2: logrotate 配置 (审核 P1#8) — 失败不致命
+    setup_logrotate || log_warn "logrotate 配置失败（非致命，但请手动检查 /etc/logrotate.d/edgebox）"
 
     # --- 最终阶段: 启动、验证与数据生成 ---
     show_progress 8 10 "生成订阅链接"
