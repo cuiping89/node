@@ -3972,10 +3972,42 @@ sni_set_domain() {
     fi
     target_domain=${target_domain#*//}
 
+    # v4.6.0-rc4 (审核 P2#5 followup): SNI 域名必须是真实可解析的域名
+    # 旧版本: 直接信任输入, 用户可以设 "invalid.invalid" 让 Reality 全部失效但 CLI 仍报成功
+    # 新版本: 三层校验
+    #   1) 域名语法格式（防止 nginx map 注入）
+    #   2) DNS 解析（必须有 A/AAAA 记录）
+    #   3) 端口 443 可达（必须真有 HTTPS 服务）
+    if declare -f eb_is_valid_domain >/dev/null 2>&1; then
+        if ! eb_is_valid_domain "$target_domain"; then
+            log_error "SNI 域名格式无效: $target_domain"
+            log_error "  必须是有效域名 (例如 www.microsoft.com)"
+            return 1
+        fi
+    fi
+
+    # DNS 解析检查
+    if ! getent hosts "$target_domain" >/dev/null 2>&1; then
+        log_error "SNI 域名无法解析: $target_domain"
+        log_error "  Reality 需要真实可达的伪装站点。"
+        log_error "  推荐: www.microsoft.com / www.apple.com / www.cloudflare.com"
+        return 1
+    fi
+
+    # 端口 443 可达检查（5 秒超时）
+    if ! timeout 5 bash -c "</dev/tcp/$target_domain/443" 2>/dev/null; then
+        log_warn "SNI 域名 $target_domain 在端口 443 上不可达"
+        log_warn "  Reality 客户端将无法用此域名做伪装。如确认要继续，加 --force"
+        if [[ "${2:-}" != "--force" ]]; then
+            return 1
+        fi
+    fi
+
     log_info "手动设置SNI域名: $target_domain"
 
     if update_sni_domain "$target_domain"; then
         log_success "SNI域名设置成功: $target_domain"
+        return 0
     else
         log_error "SNI域名设置失败。"
         return 1
