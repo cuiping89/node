@@ -47,6 +47,9 @@ FILES=(
     "scripts/apply-firewall.sh|scripts/apply-firewall.sh"
     "scripts/system-stats.sh|scripts/system-stats.sh"
     "scripts/edgebox-init.sh|scripts/edgebox-init.sh"
+    "web/dashboard.css|web/dashboard.css"
+    "web/dashboard.js|web/dashboard.js"
+    "web/dashboard.html|web/dashboard.html"
 )
 
 echo "Computing SHA256 hashes..."
