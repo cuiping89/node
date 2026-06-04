@@ -4196,6 +4196,10 @@ _eb_do_upgrade() {
     rm -f "$keep_file"
 
     # v4.6.0-rc4 (审核 P1#7): 根据 _topology_rc 决定是否真的"成功"
+    # v4.6.0-rc4 (hotfix 退出码): 直接 return 真实退出码。
+    #   旧实现在失败分支里写 `_eb_dispatch_rc=1; false`, 却在 if 之后无条件
+    #   `return 0` —— return 0 同时覆盖了 false 的 $? 和全局 _eb_dispatch_rc,
+    #   导致拓扑恢复失败时脚本仍 exit 0, 与 P1#7 "退出码可信" 的目标相悖。
     if [[ "${_topology_rc:-0}" -ne 0 ]]; then
         log_error "============================================"
         log_error "  ❌ 升级完成但拓扑恢复失败"
@@ -4203,8 +4207,7 @@ _eb_do_upgrade() {
         log_error "  凭据已保留, 但运行拓扑跟升级前不一致"
         log_error "  备份保留在: $backup_file"
         log_error "  上面的错误日志给出了手动恢复命令"
-        _eb_dispatch_rc=1
-        false  # 强制 case 退出码 = 1
+        return 1
     else
         log_success "============================================"
         log_success "  ✅ 升级成功"
@@ -4212,8 +4215,8 @@ _eb_do_upgrade() {
         log_info "  凭据未变更（订阅 URL、UUID、密码等都保持原值）"
         log_info "  备份保留在: $backup_file"
         log_info "  如不需要可删除: rm -f $backup_file"
+        return 0
     fi
-    return 0
 }
 
 #############################################
@@ -4697,8 +4700,15 @@ HEAD
   #       5) 失败不自动回滚，提示用户手动恢复
   update|upgrade)
     # v4.6.0-rc4 (hotfix): delegate to function so `return 1` works inside it
-    # post-esac `_eb_dispatch_rc=$?` will capture our function's exit code
     _eb_do_upgrade
+    # v4.6.0-rc4 (hotfix 自覆盖竞态): 在已解析的 case 体内直接退出。
+    #   升级会重装 /usr/local/bin/edgeboxctl 本身, 文件内容随之改变。
+    #   若回落到 esac 之后的 `_eb_dispatch_rc=$?; exit`, 运行中的 bash 需要再次
+    #   从磁盘读取脚本尾部 —— 而此时该 inode 的内容已被换成新版本, 按旧偏移读取
+    #   会落在错位处, 报 "syntax error near unexpected token \`;;'"。
+    #   整个 case 在执行前已解析进内存, 故此处 exit 不再触发磁盘回读, 竞态规避。
+    #   (install.sh 的 _install_script 已改为原子 mv, 这里是第二道防线。)
+    exit $?
     ;;
 
 # Reality 密钥轮换
