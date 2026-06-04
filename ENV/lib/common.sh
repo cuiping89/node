@@ -183,8 +183,12 @@ eb_atomic_write() {
     return 0
 }
 
-# Atomically publish a set of files. All files must be successfully prepared
-# before any are moved into place. If any preparation fails, no file is published.
+# Publish a set of files as a unit. All files are first written to temp files;
+# only if every temp write succeeds are they moved into place. If any mv in the
+# publish phase fails, already-published files are rolled back from snapshots,
+# so callers observe either the full new set or the original set (best-effort
+# transactional — true 2-phase commit across independent files is not possible
+# in shell, but partial states are repaired rather than left behind).
 #
 # Usage:
 #   declare -A files=(
@@ -222,14 +226,57 @@ eb_atomic_write_set() {
         target_files+=("$target")
     done
 
-    # Phase 2: if all writes succeeded, atomically mv each into place
+    # Phase 2: snapshot existing targets, then mv each temp into place.
+    # If any mv fails, roll the already-moved targets back from their snapshots
+    # so the whole set is all-or-none rather than a mix of new and old.
     if [[ $rc -eq 0 ]]; then
         local i
-        for i in "${!tmp_files[@]}"; do
-            if ! mv -f "${tmp_files[$i]}" "${target_files[$i]}"; then
-                eb_log_error "atomic_write_set: mv failed for ${target_files[$i]}"
-                rc=1
+        local -a moved_idx=()
+        local -a backups=()
+
+        # 2a. snapshot every target that currently exists
+        for i in "${!target_files[@]}"; do
+            if [[ -e "${target_files[$i]}" ]]; then
+                local bk
+                bk=$(mktemp "${target_files[$i]}.bak.XXXXXX") || { eb_log_error "atomic_write_set: snapshot mktemp failed for ${target_files[$i]}"; rc=1; break; }
+                if ! cp -p "${target_files[$i]}" "$bk"; then
+                    eb_log_error "atomic_write_set: snapshot copy failed for ${target_files[$i]}"
+                    rm -f "$bk"; rc=1; break
+                fi
+                backups[$i]="$bk"
+            else
+                backups[$i]=""
             fi
+        done
+
+        # 2b. publish
+        if [[ $rc -eq 0 ]]; then
+            for i in "${!tmp_files[@]}"; do
+                if mv -f "${tmp_files[$i]}" "${target_files[$i]}"; then
+                    moved_idx+=("$i")
+                else
+                    eb_log_error "atomic_write_set: mv failed for ${target_files[$i]}，回滚本次发布"
+                    rc=1
+                    break
+                fi
+            done
+        fi
+
+        # 2c. rollback already-moved targets on any failure
+        if [[ $rc -ne 0 ]]; then
+            local j
+            for j in "${moved_idx[@]}"; do
+                if [[ -n "${backups[$j]:-}" ]]; then
+                    mv -f "${backups[$j]}" "${target_files[$j]}" 2>/dev/null || true
+                else
+                    rm -f "${target_files[$j]}" 2>/dev/null || true   # target didn't exist before
+                fi
+            done
+        fi
+
+        # 2d. clean up any remaining snapshots
+        for i in "${!backups[@]}"; do
+            [[ -n "${backups[$i]:-}" && -f "${backups[$i]}" ]] && rm -f "${backups[$i]}"
         done
     fi
 
