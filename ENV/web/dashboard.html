@@ -384,6 +384,30 @@
     </div>
 
     <div class="command-section">
+      <h3>🔬 健康监控</h3>
+      <div class="command-list">
+        <code>edgeboxctl monitor status</code> <span># 查看协议健康状态摘要与最近一次检测时间</span>
+        <code>edgeboxctl monitor mode &lt;monitor|repair|off&gt;</code> <span># 切换模式：仅监测/检测后自动修复/关闭</span>
+        <code>edgeboxctl monitor test</code> <span># 立即触发一次健康检查并刷新面板</span>
+        <div>示例：</div>
+        <a>edgeboxctl monitor mode repair</a>
+      </div>
+    </div>
+
+    <div class="command-section">
+      <h3>⏰ 计划任务</h3>
+      <div class="command-list">
+        <code>edgeboxctl cron list</code> <span># 列出所有可调度任务及当前启用状态</span>
+        <code>edgeboxctl cron enable &lt;task&gt;</code> <span># 启用指定的定时任务（写入 crontab）</span>
+        <code>edgeboxctl cron disable &lt;task&gt;</code> <span># 停用指定的定时任务（移出 crontab）</span>
+        <div>可用任务：</div>
+        <a>sni-auto</a>
+        <a>rotate-sid</a>
+        <a>traffic-randomize-light | medium | heavy</a>
+      </div>
+    </div>
+
+    <div class="command-section">
       <h3>🧩 配置与维护</h3>
       <div class="command-list">
         <code>edgeboxctl dashboard passcode</code> <span># 重置 Web 控制面板的访问密码</span>
