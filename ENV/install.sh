@@ -226,7 +226,7 @@ HYSTERIA2_MASQUERADE="https://www.bing.com"
 #   - { "type": "dns", "tag": "dns-out" }
 # 上述特殊 outbound 已在 sing-box 1.13.0 移除（官方稳定版当前为 1.13.x）
 # 直接升级会导致客户端配置加载失败。后续迁移 schema 后再放开升级。
-DEFAULT_SING_BOX_VERSION="1.12.8"
+DEFAULT_SING_BOX_VERSION="1.12.10"
 XRAY_INSTALL_SCRIPT="https://raw.githubusercontent.com/XTLS/Xray-install/main/install-release.sh"
 
 # === 临时文件常量 ===
@@ -3084,18 +3084,24 @@ install_sing_box() {
     # ========================================
     # 第1步：检查是否已安装
     # ========================================
-local MIN_REQUIRED_VERSION="1.8.0"   # HY2 服务端所需的最低版本（可调高）
+local MIN_REQUIRED_VERSION="1.8.0"   # HY2 服务端所需的最低版本
+local TARGET_VERSION="${DEFAULT_SING_BOX_VERSION:-1.12.10}"  # v4.7.0: 升级到的目标版本
 local current_version=""
 if command -v sing-box >/dev/null 2>&1 || command -v /usr/local/bin/sing-box >/dev/null 2>&1; then
     current_version=$( (sing-box version || /usr/local/bin/sing-box version) 2>/dev/null \
         | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 )
     log_info "检测到已安装 sing-box: v${current_version:-未知}"
-    if [[ -n "$current_version" && "$(printf '%s\n' "$MIN_REQUIRED_VERSION" "$current_version" | sort -V | head -1)" == "$MIN_REQUIRED_VERSION" ]]; then
-        log_success "现有版本满足最低要求 (>= ${MIN_REQUIRED_VERSION})，跳过重新安装"
-        return 0
-    else
-        log_warn "现有版本过低，将升级到脚本内置稳定版"
-        # 继续执行安装流程（覆盖到 /usr/local/bin/sing-box）
+    if [[ -n "$current_version" ]]; then
+        # v4.7.0 (前端 #2): 旧版逻辑只要 >= 1.8.0 就跳过，导致升级安装永远停在旧版本。
+        # 现在：与 TARGET_VERSION 比较；已达目标(或更高)才跳过，否则覆盖升级。
+        local _highest
+        _highest=$(printf '%s\n%s\n' "$current_version" "$TARGET_VERSION" | sort -V | tail -1)
+        if [[ "$current_version" == "$TARGET_VERSION" || "$_highest" == "$current_version" ]]; then
+            log_success "当前 v${current_version} 已达/超过目标 v${TARGET_VERSION}，跳过重新安装"
+            return 0
+        else
+            log_warn "当前 v${current_version} 低于目标 v${TARGET_VERSION}，将升级覆盖到 /usr/local/bin/sing-box"
+        fi
     fi
 fi
 
@@ -3106,9 +3112,9 @@ fi
     # 版本优先级队列（从最新到最稳定）
     # 注意：这是降级队列，会依次尝试直到成功
     local VERSION_PRIORITY=(
-	    "1.12.10"
-		"1.12.8"    # 最新版（2025年推荐）
-        "1.12.1"    # 最新稳定版（2025年推荐）
+	    "1.12.10"   # v4.7.0: 最新版（1.12.x 系列封顶，向 1.13 升级需迁移 schema）
+		"1.12.8"    # 上一个稳定版
+        "1.12.1"    # 稳定版（2025年推荐）
         "1.12.0"    # 稳定版（2024年3月发布）
         "1.11.15"   # LTS 长期支持版
         "1.11.0"    # 备用稳定版
