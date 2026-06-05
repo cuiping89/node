@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #############################################
 # EdgeBox Dashboard 后端数据采集脚本
-# 版本: 4.0.0
+# 版本: 4.7.0
 # 功能: 统一采集系统状态、服务状态、配置信息
 # 输出: dashboard.json、system.json
 #############################################
@@ -163,7 +163,7 @@ get_system_info() {
 
     server_ip=$(safe_jq '.server_ip' "$SERVER_JSON" "127.0.0.1")
     eip=$(safe_jq '.eip' "$SERVER_JSON" "")
-    version=$(safe_jq '.version' "$SERVER_JSON" "4.6.0-rc4")
+    version=$(safe_jq '.version' "$SERVER_JSON" "4.7.0")
     install_date=$(safe_jq '.install_date' "$SERVER_JSON" "")
     cloud_provider=$(safe_jq '.cloud.provider' "$SERVER_JSON" "Unknown")
     cloud_region=$(safe_jq '.cloud.region' "$SERVER_JSON" "Unknown")
@@ -400,32 +400,18 @@ get_protocols_status() {
         server_config=$(jq -c '.' "$server_config_file" 2>/dev/null || echo "{}")
     fi
 
-    # v4.6.0-rc4-rc1: 检测 CDN 模式
-    # CDN 模式下 Reality 和 Hysteria2 已被禁用，dashboard 不应显示它们
-    local cdn_enabled cdn_host
-    cdn_enabled=$(jq -r '.cdn.enabled // false' "$server_config_file" 2>/dev/null)
-    cdn_host=$(jq -r '.cdn.host // empty' "$server_config_file" 2>/dev/null)
-
-    # 三协议架构
+    # v4.7.0: 两协议架构 (Reality + Hysteria2)，CDN/WS 已移除
     local protocol_order=()
     declare -A protocol_meta
-    if [[ "$cdn_enabled" == "true" && -n "$cdn_host" && "$cdn_host" != "null" ]]; then
-        # CDN 模式：仅 VLESS-WS
-        protocol_order=("VLESS-WebSocket")
-        protocol_meta["VLESS-WebSocket"]="ws|CDN 中继模式，VPS IP 已隐藏|良好★★★★☆|443|tcp"
-    else
-        # 直连 3 协议
-        protocol_order=("VLESS-Reality" "Hysteria2" "VLESS-WebSocket")
-        protocol_meta["VLESS-Reality"]="reality|抗审查/伪装访问，主用通道|极佳★★★★★|443|tcp"
-        protocol_meta["Hysteria2"]="hysteria2|UDP回退通道(QUIC)，TCP干扰时备用|良好★★★★☆|443|udp"
-        protocol_meta["VLESS-WebSocket"]="ws|IP封禁回退通道，可挂CDN|良好★★★★☆|443|tcp"
-    fi
+    protocol_order=("VLESS-Reality" "Hysteria2")
+    protocol_meta["VLESS-Reality"]="reality|抗审查/伪装访问，主用通道|极佳★★★★★|443|tcp"
+    protocol_meta["Hysteria2"]="hysteria2|UDP回退通道(QUIC)，TCP干扰时备用|良好★★★★☆|443|udp"
 
     local final_protocols="[]"
 
     # v4.6.0-rc4 (审核 P1#3): share_link 不再自己拼接
     # 改为从 subscription.txt 读取 — 由 lib/subscription.sh 统一生成，逻辑正确
-    # (IP 模式自带 insecure=1, WS 用 ws.edgebox.internal SNI, CDN 模式用 cdn.host)
+    # (IP 模式 Reality 自带 insecure=1)
     local subscription_txt="${CONFIG_DIR}/subscription.txt"
     declare -A links_by_protocol
     if [[ -s "$subscription_txt" ]]; then
@@ -437,8 +423,6 @@ get_protocols_status() {
             case "$line" in
                 *"#EdgeBox-REALITY"*)   links_by_protocol["VLESS-Reality"]="$line"   ;;
                 *"#EdgeBox-HYSTERIA2"*) links_by_protocol["Hysteria2"]="$line"       ;;
-                *"#EdgeBox-WS-CDN"*)    links_by_protocol["VLESS-WebSocket"]="$line" ;;
-                *"#EdgeBox-WS"*)        links_by_protocol["VLESS-WebSocket"]="$line" ;;
             esac
         done < "$subscription_txt"
     fi
@@ -581,8 +565,7 @@ get_secrets_info() {
         # - Fix jq syntax: missing comma before master_sub_token + trailing comma
         secrets_json=$(jq -c '{
             vless: {
-                reality: (.uuid.vless.reality // ""),
-                ws:      (.uuid.vless.ws // "")
+                reality: (.uuid.vless.reality // "")
             },
             password: {
                 hysteria2: (.password.hysteria2 // "")
@@ -590,9 +573,6 @@ get_secrets_info() {
             reality: {
                 public_key: (.reality.public_key // ""),
                 short_id:   (.reality.short_id // "")
-            },
-            ws: {
-                path: (.ws.path // "/ws")
             },
             master_sub_token: (.master_sub_token // "")
         }' "$SERVER_JSON" 2>/dev/null || echo "{}")

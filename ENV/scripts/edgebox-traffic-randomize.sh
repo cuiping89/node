@@ -150,7 +150,7 @@ execute_traffic_randomization() {
             randomize_hysteria2_config "$level" || return 1
             ;;
         "medium"|"heavy")
-            # 中度/重度随机化：Hysteria2 + VLESS (v4 只有 Reality + HY2 + WS)
+            # 中度/重度随机化：Hysteria2 + VLESS (v4.7.0: Reality + HY2)
             randomize_hysteria2_config "$level" || return 1
             randomize_vless_config "$level" || return 1
             ;;
@@ -192,38 +192,36 @@ create_config_backup() {
 restart_services_safely() {
     log_info "安全重启代理服务..."
 
-    # 定义reload_or_restart_services函数（如果不存在）
-    # v4.6.0-rc4 (审核 P1#4): fallback 必须真实传播失败 + 校验服务最终在运行。
-    if ! command -v reload_or_restart_services >/dev/null 2>&1; then
-        reload_or_restart_services() {
-            local _svc _rc=0
-            for _svc in "$@"; do
-                if systemctl is-active --quiet "$_svc"; then
-                    if systemctl reload "$_svc" 2>/dev/null; then
-                        log_info "${_svc} 已热加载"
-                    elif systemctl restart "$_svc" 2>/dev/null; then
-                        log_info "${_svc} 已重启"
-                    else
-                        log_error "${_svc} 重载/重启失败"
-                        _rc=1
-                        continue
-                    fi
-                    systemctl is-active --quiet "$_svc" || { log_error "${_svc} 重启后仍未运行"; _rc=1; }
-                fi
-            done
-            return $_rc
-        }
-    fi
+    # v4.7.0 (审核 #2): 不再跳过 inactive 服务。
+    #   旧逻辑用 `if systemctl is-active` 守卫，导致已停止的服务被直接跳过、
+    #   既不重启也不计失败 → reset 在服务异常时仍假成功。
+    #   现在：总是尝试 reload→restart，两者都失败即记失败；并校验最终在运行。
+    local failed=0 svc
+    for svc in sing-box xray; do
+        if systemctl reload "$svc" 2>/dev/null; then
+            log_info "${svc} 已热加载"
+        elif systemctl restart "$svc" 2>/dev/null; then
+            log_info "${svc} 已重启"
+        else
+            log_error "${svc} 重载/重启失败"
+            failed=1
+            continue
+        fi
 
-    # 应用更改并热加载
-    if ! reload_or_restart_services sing-box xray; then
+        if ! systemctl is-active --quiet "$svc"; then
+            log_error "${svc} 重启后仍未运行"
+            failed=1
+        fi
+    done
+
+    sleep 3
+
+    if [[ "$failed" -eq 0 ]]; then
+        log_success "服务已安全重启"
+    else
         log_error "服务重启失败"
-        return 1
     fi
-    sleep 5
-
-    log_success "服务已安全重启"
-    return 0
+    return "$failed"
 }
 
 # 验证随机化结果
@@ -291,47 +289,42 @@ main() {
     # 创建日志目录
     mkdir -p "$(dirname "$LOG_FILE")"
 
-    # v4.6.0-rc4 (审核 P1#10): CDN 模式下流量随机化必须跳过
-    # 否则随机化会重启 sing-box，让本应禁用的 Hysteria2 重新暴露
-    local _server_json="/etc/edgebox/config/server.json"
-    if [[ -f "$_server_json" ]] && command -v jq >/dev/null 2>&1; then
-        local _cdn_enabled
-        _cdn_enabled=$(jq -r '.cdn.enabled // false' "$_server_json" 2>/dev/null)
-        if [[ "$_cdn_enabled" == "true" ]]; then
-            log_info "============================================"
-            log_info "  CDN 模式已启用 — 跳过流量随机化"
-            log_info "  原因: 随机化会重启 sing-box, 在 CDN 模式下 Hysteria2"
-            log_info "  应保持禁用状态。如需关闭随机化的 cron 任务，请执行:"
-            log_info "    edgeboxctl cron disable edgebox-traffic-randomize"
-            log_info "============================================"
-            exit 0
-        fi
-    fi
-
     # 处理 reset 选项
     if [[ "$level" == "reset" ]]; then
         log_info "重置协议参数为默认值..."
 
         # 备份当前配置
-        create_config_backup
+        if ! create_config_backup; then
+            log_error "重置失败：配置备份未成功，已中止"
+            exit 1
+        fi
 
         # 清理可能存在的不支持字段
         if [[ -f "${CONFIG_DIR}/sing-box.json" ]] && command -v jq >/dev/null; then
-            jq 'del(.inbounds[].heartbeat)' "${CONFIG_DIR}/sing-box.json" > "${CONFIG_DIR}/sing-box.json.tmp"
-
-            if [[ -s "${CONFIG_DIR}/sing-box.json.tmp" ]]; then
+            if jq 'del(.inbounds[].heartbeat)' "${CONFIG_DIR}/sing-box.json" > "${CONFIG_DIR}/sing-box.json.tmp" \
+               && [[ -s "${CONFIG_DIR}/sing-box.json.tmp" ]]; then
                 mv "${CONFIG_DIR}/sing-box.json.tmp" "${CONFIG_DIR}/sing-box.json"
                 chmod 600 "${CONFIG_DIR}/sing-box.json"
                 chown root:root "${CONFIG_DIR}/sing-box.json"
                 log_success "配置已清理并重置为默认值"
             else
                 rm -f "${CONFIG_DIR}/sing-box.json.tmp"
-                log_error "重置配置失败"
+                log_error "重置配置失败：sing-box.json 清理未成功，已中止"
+                exit 1
             fi
         fi
 
-        # 重启服务
-        restart_services_safely
+        # 重启服务（失败必须传播，不能假成功）
+        if ! restart_services_safely; then
+            log_error "重置失败：服务重启未成功"
+            exit 1
+        fi
+
+        # 重置后校验配置语法 + 服务状态（失败会回滚并退出非零）
+        if ! verify_randomization_result; then
+            log_error "重置后配置/服务校验失败"
+            exit 1
+        fi
 
         log_success "协议参数重置完成"
         exit 0
