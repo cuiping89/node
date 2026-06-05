@@ -246,11 +246,15 @@ clean_filesystem(){
 
   # 清理 Web 目录下的链接和残留文件
   remove_paths "${WEB_ROOT}/status" "${WEB_ROOT}/traffic" \
-               "${WEB_ROOT}/favicon.ico"
+               "${WEB_ROOT}/favicon.ico" \
+               "${WEB_ROOT}/share"
   # 使用通配符清理 sub-<token> 链接
   find "$WEB_ROOT" -maxdepth 1 -type l -name 'sub-*' -exec rm -f {} \; 2>/dev/null || true
   ok "已清理 Web 目录下的 EdgeBox 相关链接和文件。"
   remove_paths "/var/www/edgebox/status" # 清理 IPQ 数据目录
+
+  # v4.7.0: 清理 health monitor 运行态（/run 为 tmpfs，重启即清，但仍主动移除）
+  remove_paths /run/edgebox
 
   # 清理日志文件 (更全面)
   remove_paths /var/log/edgebox \
