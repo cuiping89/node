@@ -51,7 +51,7 @@ set -o pipefail
 : "${EB_LOG_FILE:=/var/log/edgebox-install.log}"
 
 # Version
-readonly EB_VERSION="v4.6.0-rc4"
+readonly EB_VERSION="v4.7.0"
 
 #############################################
 # Logging
@@ -212,7 +212,7 @@ eb_atomic_write_set() {
         }
         # v4.6.0-rc4: 保证文件以单个 \n 结尾
         # 修复 $(...) 命令替换吞掉 trailing newline 导致最后一行被 `while read` 丢弃的问题
-        # 现象: subscription.txt 第 3 行（WS）没换行符 → dashboard-backend 的 while read 跳过它
+        # 现象: subscription.txt 最后一行没换行符 → dashboard-backend 的 while read 跳过它
         # 做法: 先剥掉所有 trailing newline，再用 '%s\n' 加回单个换行符
         # 对二进制内容（不该被这函数处理）以及空内容都安全
         if ! printf '%s\n' "${content%$'\n'}" > "$tmp"; then
@@ -332,10 +332,6 @@ eb_get_reality_sni()     {
     fi
     echo "${sni:-www.microsoft.com}"
 }
-
-# WS
-eb_get_uuid_ws()         { eb_jq_get '.uuid.vless.ws'          ''; }
-eb_get_ws_path()         { eb_jq_get '.ws.path'                '/ws'; }
 
 # Hysteria2
 eb_get_password_hy2()    { eb_jq_get '.password.hysteria2'     ''; }

@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
 #############################################
 # EdgeBox - Subscription Generator (subscription.sh)
-# Version: v4.0.0
+# Version: v4.7.0
 #
-# Architecture: 3-protocol triple-layer
-#   Layer 1: VLESS-Reality   (TCP/443, primary daily use)
+# Architecture: 2-protocol dual-layer (direct only)
+#   Layer 1: VLESS-Reality   (TCP/443, primary daily use, anti-censorship)
 #   Layer 2: Hysteria2       (UDP/443, fallback when TCP is interfered)
-#   Layer 3: VLESS-WS        (TCP/443, IP-blocked fallback - CDN-ready)
 #
 # Output: 4 subscription formats, written atomically as a set.
 #   1. subscription.txt           - plain URI list (v2rayN, v2rayNG, Streisand)
@@ -18,13 +17,12 @@
 #   - IP mode (cert_mode = "self-signed"):
 #       * Reality: server_ip:443, SNI = real public domain (microsoft.com etc)
 #       * Hysteria2: server_ip:443, insecure=1
-#       * WS: server_ip:443, SNI = ws.edgebox.internal, allowInsecure=1
 #   - Domain mode (cert_mode = "letsencrypt:<domain>"):
 #       * Reality: <domain>:443, SNI = real public domain (unchanged)
 #       * Hysteria2: <domain>:443, real TLS
-#       * WS: <domain>:443, SNI = <domain>, real TLS
 #
-# CDN mode is reserved for block 5 (see eb_gen_subscription() entry point).
+# NOTE: WS transport and CDN relay mode were removed in v4.7.0. Both protocols
+# are direct-connect by design; there is no CDN fronting in this build.
 #############################################
 
 # Resolve the directory of this script so we can source common.sh next to it
@@ -82,58 +80,6 @@ _eb_uri_hysteria2() {
     fi
 }
 
-# Build VLESS-WS URI.
-_eb_uri_ws() {
-    local host="$1"
-    local mode="$2"
-    local uuid path path_enc
-    uuid=$(eb_get_uuid_ws)
-    path=$(eb_get_ws_path)
-
-    if [[ -z "$uuid" ]]; then
-        eb_log_warn "WS UUID missing, skipping URI"
-        return 1
-    fi
-
-    path_enc=$(eb_url_encode "$path")
-
-    if [[ "$mode" == "domain" ]]; then
-        printf 'vless://%s@%s:443?encryption=none&security=tls&sni=%s&host=%s&alpn=http%%2F1.1&type=ws&path=%s&fp=chrome#EdgeBox-WS\n' \
-            "$uuid" "$host" "$host" "$host" "$path_enc"
-    else
-        printf 'vless://%s@%s:443?encryption=none&security=tls&sni=ws.edgebox.internal&host=ws.edgebox.internal&alpn=http%%2F1.1&type=ws&path=%s&fp=chrome&allowInsecure=1#EdgeBox-WS\n' \
-            "$uuid" "$host" "$path_enc"
-    fi
-}
-
-#############################################
-# CDN mode: WS URI through CDN proxy.
-# host: the CDN-fronted domain (e.g., cdn.example.com)
-# All TLS params target this domain, NOT the VPS IP.
-# Block 5 (v4.4) introduces this.
-#############################################
-_eb_uri_ws_cdn() {
-    local host="$1"   # cdn.example.com
-    local uuid path path_enc
-    uuid=$(eb_get_uuid_ws)
-    path=$(eb_get_ws_path)
-
-    if [[ -z "$uuid" ]]; then
-        eb_log_warn "WS UUID missing, skipping URI (CDN mode)"
-        return 1
-    fi
-    if [[ -z "$host" ]]; then
-        eb_log_warn "CDN host empty, skipping URI"
-        return 1
-    fi
-
-    path_enc=$(eb_url_encode "$path")
-
-    # CDN mode always uses domain TLS (CDN certificate covers $host)
-    printf 'vless://%s@%s:443?encryption=none&security=tls&sni=%s&host=%s&alpn=http%%2F1.1&type=ws&path=%s&fp=chrome#EdgeBox-WS-CDN\n' \
-        "$uuid" "$host" "$host" "$host" "$path_enc"
-}
-
 #############################################
 # Format 1: Plain URI list
 #############################################
@@ -147,19 +93,8 @@ _eb_gen_plain() {
     # re-add the newline explicitly between URIs.
     line=$(_eb_uri_reality   "$host"       ) && out+="${line}"$'\n'
     line=$(_eb_uri_hysteria2 "$host" "$mode") && out+="${line}"$'\n'
-    line=$(_eb_uri_ws        "$host" "$mode") && out+="${line}"$'\n'
 
     printf '%s' "$out"
-}
-
-#############################################
-# CDN mode: plain output contains ONLY the WS-CDN URI.
-# No VPS IP appears anywhere in this output.
-#############################################
-_eb_gen_plain_cdn() {
-    local cdn_host="$1"
-    local line
-    line=$(_eb_uri_ws_cdn "$cdn_host") && printf '%s\n' "$line"
 }
 
 #############################################
@@ -187,7 +122,6 @@ _eb_gen_clash() {
 
     local uuid_reality reality_sni pubkey sid
     local password_hy2
-    local uuid_ws ws_path
     local insecure_str
 
     uuid_reality=$(eb_get_uuid_reality)
@@ -195,8 +129,6 @@ _eb_gen_clash() {
     pubkey=$(eb_get_reality_pubkey)
     sid=$(eb_get_reality_sid)
     password_hy2=$(eb_get_password_hy2)
-    uuid_ws=$(eb_get_uuid_ws)
-    ws_path=$(eb_get_ws_path)
 
     if [[ "$mode" == "domain" ]]; then
         insecure_str="false"
@@ -206,26 +138,18 @@ _eb_gen_clash() {
 
     # Pre-quote all user-controlled strings for YAML safety
     local Q_uuid_reality Q_reality_sni Q_pubkey Q_sid
-    local Q_password_hy2 Q_uuid_ws Q_ws_path Q_host Q_ws_sni
+    local Q_password_hy2 Q_host
     Q_uuid_reality=$(eb_yaml_squote "$uuid_reality")
     Q_reality_sni=$(eb_yaml_squote "$reality_sni")
     Q_pubkey=$(eb_yaml_squote "$pubkey")
     Q_sid=$(eb_yaml_squote "$sid")
     Q_password_hy2=$(eb_yaml_squote "$password_hy2")
-    Q_uuid_ws=$(eb_yaml_squote "$uuid_ws")
-    Q_ws_path=$(eb_yaml_squote "$ws_path")
     Q_host=$(eb_yaml_squote "$host")
-
-    if [[ "$mode" == "domain" ]]; then
-        Q_ws_sni=$(eb_yaml_squote "$host")
-    else
-        Q_ws_sni=$(eb_yaml_squote "ws.edgebox.internal")
-    fi
 
     cat <<YAML
 # EdgeBox Clash / Mihomo subscription
 # Generated: $(date -Is)
-# Architecture: 3-protocol (Reality + Hysteria2 + WS)
+# Architecture: 2-protocol (Reality + Hysteria2)
 
 proxies:
   - name: 'EdgeBox-REALITY'
@@ -253,29 +177,12 @@ proxies:
     alpn:
       - h3
 
-  - name: 'EdgeBox-WS'
-    type: vless
-    server: ${Q_host}
-    port: 443
-    uuid: ${Q_uuid_ws}
-    network: ws
-    udp: true
-    tls: true
-    servername: ${Q_ws_sni}
-    skip-cert-verify: ${insecure_str}
-    client-fingerprint: chrome
-    ws-opts:
-      path: ${Q_ws_path}
-      headers:
-        Host: ${Q_ws_sni}
-
 proxy-groups:
   - name: 'EdgeBox'
     type: select
     proxies:
       - 'EdgeBox-REALITY'
       - 'EdgeBox-HYSTERIA2'
-      - 'EdgeBox-WS'
       - DIRECT
 
   - name: 'EdgeBox-Auto'
@@ -283,59 +190,8 @@ proxy-groups:
     proxies:
       - 'EdgeBox-REALITY'
       - 'EdgeBox-HYSTERIA2'
-      - 'EdgeBox-WS'
     url: 'http://www.gstatic.com/generate_204'
     interval: 300
-
-rules:
-  - MATCH,EdgeBox
-YAML
-}
-
-#############################################
-# CDN mode Clash YAML: ONLY WS proxy, host = CDN domain.
-# No reality, no hysteria2, no VPS IP anywhere.
-#############################################
-_eb_gen_clash_cdn() {
-    local cdn_host="$1"
-
-    local uuid_ws ws_path
-    uuid_ws=$(eb_get_uuid_ws)
-    ws_path=$(eb_get_ws_path)
-
-    local Q_uuid_ws Q_ws_path Q_host
-    Q_uuid_ws=$(eb_yaml_squote "$uuid_ws")
-    Q_ws_path=$(eb_yaml_squote "$ws_path")
-    Q_host=$(eb_yaml_squote "$cdn_host")
-
-    cat <<YAML
-# EdgeBox Clash / Mihomo subscription (CDN mode)
-# Generated: $(date -Is)
-# Architecture: WS-only through CDN relay (Reality + Hysteria2 disabled)
-
-proxies:
-  - name: 'EdgeBox-WS-CDN'
-    type: vless
-    server: ${Q_host}
-    port: 443
-    uuid: ${Q_uuid_ws}
-    network: ws
-    udp: true
-    tls: true
-    servername: ${Q_host}
-    skip-cert-verify: false
-    client-fingerprint: chrome
-    ws-opts:
-      path: ${Q_ws_path}
-      headers:
-        Host: ${Q_host}
-
-proxy-groups:
-  - name: 'EdgeBox'
-    type: select
-    proxies:
-      - 'EdgeBox-WS-CDN'
-      - DIRECT
 
 rules:
   - MATCH,EdgeBox
@@ -353,24 +209,18 @@ _eb_gen_singbox() {
 
     local uuid_reality reality_sni pubkey sid
     local password_hy2
-    local uuid_ws ws_path
     local insecure_bool
-    local ws_sni
 
     uuid_reality=$(eb_get_uuid_reality)
     reality_sni=$(eb_get_reality_sni)
     pubkey=$(eb_get_reality_pubkey)
     sid=$(eb_get_reality_sid)
     password_hy2=$(eb_get_password_hy2)
-    uuid_ws=$(eb_get_uuid_ws)
-    ws_path=$(eb_get_ws_path)
 
     if [[ "$mode" == "domain" ]]; then
         insecure_bool="false"
-        ws_sni="$host"
     else
         insecure_bool="true"
-        ws_sni="ws.edgebox.internal"
     fi
 
     jq -n \
@@ -380,9 +230,6 @@ _eb_gen_singbox() {
         --arg pubkey        "$pubkey" \
         --arg sid           "$sid" \
         --arg password_hy2  "$password_hy2" \
-        --arg uuid_ws       "$uuid_ws" \
-        --arg ws_path       "$ws_path" \
-        --arg ws_sni        "$ws_sni" \
         --argjson insecure  "$insecure_bool" \
         '{
             log: { level: "info", timestamp: true },
@@ -408,7 +255,7 @@ _eb_gen_singbox() {
                 {
                     type: "selector",
                     tag: "EdgeBox",
-                    outbounds: ["EdgeBox-REALITY", "EdgeBox-HYSTERIA2", "EdgeBox-WS", "direct"],
+                    outbounds: ["EdgeBox-REALITY", "EdgeBox-HYSTERIA2", "direct"],
                     default: "EdgeBox-REALITY"
                 },
                 {
@@ -438,25 +285,6 @@ _eb_gen_singbox() {
                         alpn: ["h3"]
                     }
                 },
-                {
-                    type: "vless",
-                    tag: "EdgeBox-WS",
-                    server: $host,
-                    server_port: 443,
-                    uuid: $uuid_ws,
-                    tls: {
-                        enabled: true,
-                        server_name: $ws_sni,
-                        insecure: $insecure,
-                        utls: { enabled: true, fingerprint: "chrome" },
-                        alpn: ["http/1.1"]
-                    },
-                    transport: {
-                        type: "ws",
-                        path: $ws_path,
-                        headers: { Host: $ws_sni }
-                    }
-                },
                 { type: "direct", tag: "direct" },
                 { type: "block",  tag: "block"  },
                 { type: "dns",    tag: "dns-out" }
@@ -467,78 +295,6 @@ _eb_gen_singbox() {
                     { ip_is_private: true, outbound: "direct" }
                 ],
                 final: "EdgeBox",
-                auto_detect_interface: true
-            }
-        }'
-}
-
-#############################################
-# CDN mode sing-box JSON: ONLY WS proxy through CDN host.
-# No reality, no hysteria2, no VPS IP.
-#############################################
-_eb_gen_singbox_cdn() {
-    local cdn_host="$1"
-
-    local uuid_ws ws_path
-    uuid_ws=$(eb_get_uuid_ws)
-    ws_path=$(eb_get_ws_path)
-
-    jq -n \
-        --arg host          "$cdn_host" \
-        --arg uuid_ws       "$uuid_ws" \
-        --arg ws_path       "$ws_path" \
-        '{
-            log: { level: "info", timestamp: true },
-            dns: {
-                servers: [
-                    { tag: "google", address: "tls://8.8.8.8" },
-                    { tag: "local",  address: "local", detour: "direct" }
-                ],
-                rules: [
-                    { outbound: "any", server: "local" }
-                ]
-            },
-            inbounds: [
-                {
-                    type: "mixed",
-                    tag: "mixed-in",
-                    listen: "127.0.0.1",
-                    listen_port: 2080,
-                    sniff: true
-                }
-            ],
-            outbounds: [
-                {
-                    type: "selector",
-                    tag: "EdgeBox",
-                    outbounds: ["EdgeBox-WS-CDN", "direct"],
-                    default: "EdgeBox-WS-CDN"
-                },
-                {
-                    type: "vless",
-                    tag: "EdgeBox-WS-CDN",
-                    server: $host,
-                    server_port: 443,
-                    uuid: $uuid_ws,
-                    tls: {
-                        enabled: true,
-                        server_name: $host,
-                        insecure: false,
-                        utls: { enabled: true, fingerprint: "chrome" }
-                    },
-                    transport: {
-                        type: "ws",
-                        path: $ws_path,
-                        headers: { Host: $host }
-                    }
-                },
-                { type: "direct", tag: "direct" },
-                { type: "block",  tag: "block" }
-            ],
-            route: {
-                rules: [
-                    { protocol: "dns", outbound: "block" }
-                ],
                 auto_detect_interface: true
             }
         }'
@@ -610,74 +366,36 @@ eb_gen_subscription() {
         mode="ip"
     fi
 
-    # ============================================================
-    # CDN mode dispatch (v4.4 block 5)
-    # When cdn.enabled=true and cdn.host is set, generate ONLY the
-    # WS-CDN subscription. No VPS IP appears in any output.
-    # ============================================================
-    local cdn_enabled cdn_host
-    cdn_enabled=$(eb_jq_get '.cdn.enabled' 'false')
-    cdn_host=$(eb_jq_get '.cdn.host' '')
-
     local plain base64_str clash_str singbox_str
 
-    if [[ "$cdn_enabled" == "true" && -n "$cdn_host" && "$cdn_host" != "null" ]]; then
-        eb_log_info "Generating subscription in CDN mode: $cdn_host"
-
-        plain=$(_eb_gen_plain_cdn "$cdn_host")
-        if [[ -z "$plain" ]]; then
-            eb_log_error "Failed to generate CDN plain subscription"
-            return 1
-        fi
-
-        base64_str=$(_eb_gen_base64 "$plain")
-        if [[ -z "$base64_str" ]]; then
-            eb_log_error "Failed to generate CDN base64 subscription"
-            return 1
-        fi
-
-        clash_str=$(_eb_gen_clash_cdn "$cdn_host")
-        if [[ -z "$clash_str" ]]; then
-            eb_log_error "Failed to generate CDN Clash YAML"
-            return 1
-        fi
-
-        singbox_str=$(_eb_gen_singbox_cdn "$cdn_host")
-        if [[ -z "$singbox_str" ]]; then
-            eb_log_error "Failed to generate CDN sing-box JSON"
-            return 1
-        fi
+    if [[ "$mode" == "domain" ]]; then
+        eb_log_info "Generating subscription in domain mode: $host"
     else
-        # Direct mode (original 3-protocol output)
-        if [[ "$mode" == "domain" ]]; then
-            eb_log_info "Generating subscription in domain mode: $host"
-        else
-            eb_log_info "Generating subscription in IP mode: $host"
-        fi
+        eb_log_info "Generating subscription in IP mode: $host"
+    fi
 
-        plain=$(_eb_gen_plain "$host" "$mode")
-        if [[ -z "$plain" ]]; then
-            eb_log_error "Failed to generate plain subscription"
-            return 1
-        fi
+    plain=$(_eb_gen_plain "$host" "$mode")
+    if [[ -z "$plain" ]]; then
+        eb_log_error "Failed to generate plain subscription"
+        return 1
+    fi
 
-        base64_str=$(_eb_gen_base64 "$plain")
-        if [[ -z "$base64_str" ]]; then
-            eb_log_error "Failed to generate base64 subscription"
-            return 1
-        fi
+    base64_str=$(_eb_gen_base64 "$plain")
+    if [[ -z "$base64_str" ]]; then
+        eb_log_error "Failed to generate base64 subscription"
+        return 1
+    fi
 
-        clash_str=$(_eb_gen_clash "$host" "$mode")
-        if [[ -z "$clash_str" ]]; then
-            eb_log_error "Failed to generate Clash YAML subscription"
-            return 1
-        fi
+    clash_str=$(_eb_gen_clash "$host" "$mode")
+    if [[ -z "$clash_str" ]]; then
+        eb_log_error "Failed to generate Clash YAML subscription"
+        return 1
+    fi
 
-        singbox_str=$(_eb_gen_singbox "$host" "$mode")
-        if [[ -z "$singbox_str" ]]; then
-            eb_log_error "Failed to generate sing-box JSON subscription"
-            return 1
-        fi
+    singbox_str=$(_eb_gen_singbox "$host" "$mode")
+    if [[ -z "$singbox_str" ]]; then
+        eb_log_error "Failed to generate sing-box JSON subscription"
+        return 1
     fi
 
     # ============================================================
@@ -690,16 +408,10 @@ eb_gen_subscription() {
         return 1
     fi
 
-    # plain: must contain the expected number of URI lines
-    # - Direct mode: 3 protocols (reality + hy2 + ws)
-    # - CDN mode: 1 protocol (ws-cdn only)
+    # plain: must contain the expected number of URI lines (2 protocols)
     local line_count expected_count
     line_count=$(printf '%s' "$plain" | grep -c '^[a-z]')
-    if [[ "$cdn_enabled" == "true" && -n "$cdn_host" && "$cdn_host" != "null" ]]; then
-        expected_count=1
-    else
-        expected_count=3
-    fi
+    expected_count=2
     if [[ "$line_count" -ne "$expected_count" ]]; then
         eb_log_error "Plain subscription has $line_count protocols, expected $expected_count"
         return 1
@@ -728,11 +440,7 @@ eb_gen_subscription() {
         return 1
     fi
 
-    if [[ "$cdn_enabled" == "true" && -n "$cdn_host" && "$cdn_host" != "null" ]]; then
-        eb_log_success "Subscription updated (CDN mode: 1 protocol WS-CDN, 4 formats)"
-    else
-        eb_log_success "Subscription updated (direct mode: 3 protocols, 4 formats)"
-    fi
+    eb_log_success "Subscription updated (2 protocols: Reality + Hysteria2, 4 formats)"
     eb_log_info "  plain:   ${EB_WEB_ROOT}/sub-${token}"
     eb_log_info "  base64:  ${EB_WEB_ROOT}/sub-${token}.base64"
     eb_log_info "  clash:   ${EB_WEB_ROOT}/sub-${token}.clash"
