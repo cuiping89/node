@@ -1,5 +1,5 @@
 // =================================================================
-// EdgeBox Panel v4.0 - 三协议架构
+// EdgeBox Panel v4.7.0 - 两协议架构 (Reality + Hysteria2)
 // =================================================================
 
 // ========================================
@@ -711,10 +711,10 @@ function showConfigModal(protocolKey) {
     }
 
     // ==================== 关键修复点 START ====================
-    let finalSni = isLE ? domain : hostAddress; // 默认SNI (适用于gRPC, WS)
-    
-    // 如果是Reality或Trojan协议，从share_link中精确提取SNI
-    if ((p.name === 'VLESS-Reality' || p.name === 'Hysteria2' || p.name === 'VLESS-WebSocket') && p.share_link) {
+    let finalSni = isLE ? domain : hostAddress; // 默认SNI
+
+    // Reality / Hysteria2：从 share_link 中精确提取 SNI
+    if ((p.name === 'VLESS-Reality' || p.name === 'Hysteria2') && p.share_link) {
         try {
             // 对于vless链接，使用URLSearchParams
             if (p.share_link.startsWith('vless://')) {
@@ -724,7 +724,7 @@ function showConfigModal(protocolKey) {
                     finalSni = params.get('sni');
                 }
             }
-            // v4.6.0-rc1: 去掉 trojan/tuic 链接处理 (v4 不再生成此类协议)
+            // v4.7.0: 仅 Reality + Hysteria2 (gRPC/trojan/tuic/ws 均已移除)
         } catch (e) {
             console.warn("Could not parse share_link to extract SNI", e);
         }
@@ -737,7 +737,7 @@ function showConfigModal(protocolKey) {
       port: p.port ?? 443,
       uuid: get(dd, `secrets.vless.${p.protocol}`) || get(dd, `secrets.password.${p.protocol}`),
       sni: finalSni,
-      alpn: (p.name || '').toLowerCase().includes('ws') ? 'http/1.1' : ''
+      alpn: (p.name || '').toLowerCase().includes('hysteria') ? 'h3' : ''
     };
     if (p.protocol === 'hysteria2') {
         obj.uuid = get(dd, 'secrets.password.hysteria2');
@@ -749,7 +749,7 @@ function showConfigModal(protocolKey) {
       port: '端口',
       uuid: '认证 UUID / 密码',
       sni: 'TLS/SNI',
-      alpn: 'ALPN(gRPC=h2, ws=http/1.1)'
+      alpn: 'ALPN(Hysteria2=h3)'
     };
     const jsonAligned = annotateAligned(obj, comments);
 
@@ -1112,10 +1112,9 @@ async function loadProtocolHealth() {
  */
 function normalizeProtoKey(name) {
   const key = String(name || '').trim().toLowerCase().replace(/\s+/g, '-').replace(/[–—]/g, '-');
-  // v4.6.0-rc1: 仅保留 3 协议架构 (Reality + Hysteria2 + WS)
+  // v4.7.0: 仅保留 2 协议架构 (Reality + Hysteria2)
   const map = {
     'vless-reality':   'reality',
-    'vless-websocket': 'ws',
     'hysteria2':       'hysteria2'
   };
   return map[key] || key;

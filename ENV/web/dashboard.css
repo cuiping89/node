@@ -953,7 +953,7 @@ body,p,span,td,div{ font-size:13px; font-weight:500; color:#1f2937; line-height:
   margin-bottom: var(--header-gap) !important;
 }
 
-/* 标题右侧"注：HY2/TUIC…"（颜色+对齐+右缩进，仅本卡） */
+/* 标题右侧说明文字（颜色+对齐+右缩进，仅本卡） */
 #netid-panel .card-header h2{
   display: flex;
   align-items: flex-end;        /* 和标题下沿对齐 */
