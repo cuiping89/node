@@ -5076,6 +5076,14 @@ setup_traffic_monitoring() {
   mkdir -p "$TRAFFIC_DIR" "$SCRIPTS_DIR" "$LOG_DIR" /var/www/html
   ln -sfn "$TRAFFIC_DIR" /var/www/html/traffic
 
+  # v4.7.0 (审核 #3): 主动创建专属订阅的 Web 目录并设为 755。
+  #   edgeboxctl 的 ensure_sub_dirs 也会修正它，但那是惰性的(仅 `edgeboxctl sub` 时触发)。
+  #   旧版本曾把它建成 700，升级后若未跑过 sub 命令会残留 700 → Nginx 403。
+  #   在此处主动建/修，保证每次安装或升级后 /share 立即可被 Nginx 遍历。
+  mkdir -p /var/www/html/share
+  chmod 755 /var/www/html/share 2>/dev/null || true
+  chown root:root /var/www/html/share 2>/dev/null || true
+
   # 创建CSS和JS目录
   mkdir -p "${TRAFFIC_DIR}/assets"
 
