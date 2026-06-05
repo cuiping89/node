@@ -656,46 +656,56 @@ function showConfigModal(protocolKey) {
   let qrText = '';
 
   if (protocolKey === '__SUBS__') {
-    const subsUrl = get(dd, 'subscription_url', '') ||
+    // v4.7.0 (前端 #3): 弹窗显示 4 种格式 URL — 不同客户端用不同后缀
+    const baseUrl = get(dd, 'subscription_url', '') ||
                 (get(dd, 'server.server_ip', '')
                   ? ('http://' + get(dd, 'server.server_ip') + '/' +
                      (get(dd, 'secrets.master_sub_token', '')
                        ? ('sub-' + get(dd, 'secrets.master_sub_token'))
                        : 'sub'))
                   : '');
-    const plain6 = get(dd, 'subscription.plain', '');
-    const base64 = get(dd, 'subscription.base64', '') || (plain6 ? toB64(plain6) : '');
+    const urls = {
+      plain:   baseUrl,                  // v2rayN / v2rayNG / Streisand
+      clash:   baseUrl + '.clash',       // Clash Verge / Mihomo
+      singbox: baseUrl + '.singbox',     // sing-box / NekoBox
+      base64:  baseUrl + '.base64'       // 旧版 / Base64 兼容
+    };
 
     title.textContent = '订阅(整包)';
     details.innerHTML = `
       <div class="config-section">
-        <h4>订阅 URL</h4>
-        <div class="config-code" id="plain-link">${esc(subsUrl)}</div>
+        <h4>🔗 订阅 URL (v2rayN / v2rayNG)</h4>
+        <div class="config-code" id="plain-link">${esc(urls.plain)}</div>
       </div>
       <div class="config-section">
-        <h4>明文链接(3协议)</h4>
-        <div class="config-code" id="plain-links-6" style="white-space:pre-wrap">${esc(plain6)}</div>
+        <h4>🔗 订阅 URL (Clash Verge / Mihomo)</h4>
+        <div class="config-code" id="clash-link">${esc(urls.clash)}</div>
       </div>
       <div class="config-section">
-        <h4>Base64链接(3协议)</h4>
-        <div class="config-code" id="base64-link">${esc(base64)}</div>
+        <h4>🔗 订阅 URL (sing-box / NekoBox)</h4>
+        <div class="config-code" id="singbox-link">${esc(urls.singbox)}</div>
       </div>
       <div class="config-section">
-        <h4>二维码</h4>
+        <h4>🔗 订阅 URL (Base64 兼容)</h4>
+        <div class="config-code" id="base64-link">${esc(urls.base64)}</div>
+      </div>
+      <div class="config-section">
+        <h4>二维码 (默认 URL)</h4>
         <div class="qr-container">
           <div id="qrcode-sub"></div>
         </div>
       </div>
-      ${usage('将"订阅 URL"导入 v2rayN、Clash 等支持订阅的客户端; 部分客户端也支持直接粘贴 Base64 或扫码二维码。')}
+      ${usage('按客户端类型选用对应 URL：v2rayN/v2rayNG 用默认 URL；Clash Verge/Mihomo 用 <code>.clash</code>；sing-box/NekoBox 用 <code>.singbox</code>；旧版客户端用 <code>.base64</code>。二维码默认编码 v2rayN URL。')}
     `;
     footer.innerHTML = `
-      <button class="btn btn-sm btn-secondary" data-action="copy" data-type="plain">复制订阅URL</button>
-      <button class="btn btn-sm btn-secondary" data-action="copy" data-type="plain6">复制明文(3协议)</button>
-      <button class="btn btn-sm btn-secondary" data-action="copy" data-type="base64">复制Base64</button>
+      <button class="btn btn-sm btn-secondary" data-action="copy" data-type="plain">复制 v2rayN URL</button>
+      <button class="btn btn-sm btn-secondary" data-action="copy" data-type="clash">复制 Clash URL</button>
+      <button class="btn btn-sm btn-secondary" data-action="copy" data-type="singbox">复制 sing-box URL</button>
+      <button class="btn btn-sm btn-secondary" data-action="copy" data-type="base64">复制 Base64 URL</button>
       <button class="btn btn-sm btn-secondary" data-action="copy-qr">复制二维码</button>
     `;
 
-    qrText = subsUrl || '';
+    qrText = urls.plain || '';
 
   } else {
     const protocols = Array.isArray(dd.protocols) ? dd.protocols : [];
@@ -1330,7 +1340,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
       case 'copy': {
         const host = btn.closest('.modal-content');
-        const map = { json: '#json-code', plain: '#plain-link', plain6: '#plain-links-6', base64: '#base64-link' };
+        // v4.7.0 (前端 #3): + clash / singbox for the 4-format subscription popup
+        const map = { json: '#json-code', plain: '#plain-link', plain6: '#plain-links-6',
+                      clash: '#clash-link', singbox: '#singbox-link', base64: '#base64-link' };
         const el = host && host.querySelector(map[btn.dataset.type]);
         const text = el ? (el.textContent || '').trim() : '';
         try {
