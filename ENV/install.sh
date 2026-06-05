@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #############################################
-# EdgeBox 企业级多协议节点部署脚本 v4.6.0-rc4-rc1
+# EdgeBox 企业级多协议节点部署脚本 v4.7.0
 # 模块1：脚本头部+基础函数
 #
 # 功能说明：
@@ -58,7 +58,7 @@ if [[ "${EDGEBOX_DEBUG:-0}" == "1" ]]; then
 fi
 
 # 版本号
-EDGEBOX_VER="4.6.0-rc4"
+EDGEBOX_VER="4.7.0"
 
 #############################################
 # v4.0.0 Bootstrap: download lib modules from GitHub
@@ -313,20 +313,16 @@ DISK_SPEC=""            # 磁盘规格
 # 协议凭据变量（模块2中生成）
 #############################################
 
-# UUID集合 (v4.0.0: only Reality and WS)
+# UUID集合 (v4.7.0: only Reality)
 UUID_VLESS_REALITY=""
-UUID_VLESS_WS=""
 
 # Reality密钥对
 REALITY_PRIVATE_KEY=""
 REALITY_PUBLIC_KEY=""
 REALITY_SHORT_ID=""
 
-# 密码集合 (v4.0.0: only Hysteria2)
+# 密码集合 (v4.7.0: only Hysteria2)
 PASSWORD_HYSTERIA2=""
-
-# WS path (v4.0.0: randomized at install time)
-WS_PATH=""
 
 #############################################
 # 端口配置（单端口复用架构）
@@ -338,9 +334,7 @@ PORT_HYSTERIA2=443      # UDP Hysteria2
 
 # 内部回环端口
 PORT_REALITY=11443      # Xray Reality
-# v4.0.0: PORT_GRPC removed (gRPC deprecated)
-PORT_WS=10086           # Xray WebSocket
-# v4.0.0: PORT_TROJAN removed (Trojan deprecated)
+# v4.7.0: PORT_GRPC / PORT_WS / PORT_TROJAN removed (gRPC, WS, Trojan deprecated)
 
 #############################################
 # 日志函数 - 统一的日志输出
@@ -561,7 +555,7 @@ check_system() {
         log_error "  不支持的系统: $OS $VERSION"
         log_error "================================================================"
         log_error ""
-        log_error "  EdgeBox v4.6.0-rc4+ 仅支持："
+        log_error "  EdgeBox v4.7.0 仅支持："
         log_error "    • Ubuntu 20.04 LTS 及以上"
         log_error "    • Debian 11 (bullseye) 及以上"
         log_error ""
@@ -2243,30 +2237,23 @@ fi
 
     log_info "生成协议UUID..."
 
-    # v4.0.0: 3-protocol architecture (Reality + Hysteria2 + WS)
-    # Removed: gRPC, Trojan, TUIC
+    # v4.7.0: 2-protocol architecture (Reality + Hysteria2)
+    # Removed: gRPC, Trojan, TUIC, WS
     UUID_VLESS_REALITY=$(uuidgen)
-    UUID_VLESS_WS=$(uuidgen)
 
     log_info "生成协议密码..."
 
     # Hysteria2 password (the only password-authenticated protocol left)
     PASSWORD_HYSTERIA2=$(openssl rand -base64 32 | tr -d '\n')
 
-    # v4.0.0: Randomized WS path for de-fingerprinting (one-time at install)
-    WS_PATH="/$(eb_random_string 8)"
-    log_info "生成 WS path: $WS_PATH"
-
     # 验证生成结果
     local failed_items=()
 
     # 检查UUID生成结果
     [[ -z "$UUID_VLESS_REALITY" ]] && failed_items+=("VLESS-Reality UUID")
-    [[ -z "$UUID_VLESS_WS" ]] && failed_items+=("VLESS-WS UUID")
 
     # 检查密码生成结果
     [[ -z "$PASSWORD_HYSTERIA2" ]] && failed_items+=("Hysteria2密码")
-    [[ -z "$WS_PATH" || "$WS_PATH" == "/" ]] && failed_items+=("WS path")
 
     # 处理生成失败的情况
     if [[ ${#failed_items[@]} -gt 0 ]]; then
@@ -2275,10 +2262,8 @@ fi
     fi
 
     # 输出生成结果摘要（隐藏完整凭据）
-    log_success "协议凭据生成完成 (v4.0.0 三协议)："
+    log_success "协议凭据生成完成 (v4.7.0 两协议)："
     log_info "├─ VLESS-Reality UUID: ${UUID_VLESS_REALITY:0:8}..."
-    log_info "├─ VLESS-WS UUID:      ${UUID_VLESS_WS:0:8}..."
-    log_info "├─ WS path:            ${WS_PATH}"
     log_info "└─ Hysteria2 密码:      ${PASSWORD_HYSTERIA2:0:8}..."
 
     return 0
@@ -2375,7 +2360,7 @@ generate_dashboard_passcode() {
         return 1
     fi
 
-    log_success "控制面板密码生成完成: $DASHBOARD_PASSCODE"
+    log_success "控制面板密码生成完成（完整密码见安装结束摘要）"
     log_info "Cookie 会话秘钥已生成 (64-hex)"
 
     export DASHBOARD_PASSCODE DASHBOARD_COOKIE_SECRET
@@ -2420,7 +2405,7 @@ save_config_info() {
         local d=$((RANDOM % 10)); DASHBOARD_PASSCODE="${d}${d}${d}${d}${d}${d}"; export DASHBOARD_PASSCODE
     fi
     # 关键凭据校验（缺失即失败）- 注意这里的 MASTER_SUB_TOKEN 依赖 execute_module2 中生成
-    if [[ -z "$UUID_VLESS_REALITY" || -z "$UUID_VLESS_WS" || -z "$PASSWORD_HYSTERIA2" || -z "${MASTER_SUB_TOKEN:-}" ]]; then
+    if [[ -z "$UUID_VLESS_REALITY" || -z "$PASSWORD_HYSTERIA2" || -z "${MASTER_SUB_TOKEN:-}" ]]; then
         log_error "关键凭据缺失（含管理员订阅Token），无法保存配置"
         log_debug "UUID_VLESS_REALITY: ${UUID_VLESS_REALITY:-MISSING}"
         log_debug "PASSWORD_HYSTERIA2: ${PASSWORD_HYSTERIA2:0:8}..."
@@ -2436,12 +2421,10 @@ save_config_info() {
     local server_tmp="${CONFIG_DIR}/server.json.tmp"
     log_info "使用 jq 生成 server.json 临时文件..."
 
-    # v4.6.0-rc4: 升级模式下保留 cert/cdn/reality.sni 状态
+    # v4.7.0: 升级模式下保留 cert/reality.sni 状态 (CDN/WS 已移除)
     local _cert_mode="${UPGRADE_CERT_MODE:-self-signed}"
     local _cert_domain="${UPGRADE_CERT_DOMAIN:-}"
     local _cert_autorenew="${UPGRADE_CERT_AUTORENEW:-false}"
-    local _cdn_enabled="${UPGRADE_CDN_ENABLED:-false}"
-    local _cdn_host="${UPGRADE_CDN_HOST:-}"
     local _reality_sni="${UPGRADE_REALITY_SNI:-}"
 
     # Use jq -n to generate JSON (all variables safely injected)
@@ -2463,9 +2446,7 @@ save_config_info() {
       --arg memory_spec          "$memory_spec" \
       --arg disk_spec            "$disk_spec" \
       --arg uuid_vless_reality   "$UUID_VLESS_REALITY" \
-      --arg uuid_vless_ws        "$UUID_VLESS_WS" \
       --arg password_hysteria2   "$PASSWORD_HYSTERIA2" \
-      --arg ws_path              "$WS_PATH" \
       --arg reality_public_key   "$REALITY_PUBLIC_KEY" \
       --arg reality_private_key  "$REALITY_PRIVATE_KEY" \
       --arg reality_short_id     "$REALITY_SHORT_ID" \
@@ -2473,19 +2454,15 @@ save_config_info() {
       --arg cert_mode            "$_cert_mode" \
       --arg cert_domain          "$_cert_domain" \
       --argjson cert_autorenew   "$_cert_autorenew" \
-      --argjson cdn_enabled      "$_cdn_enabled" \
-      --arg cdn_host             "$_cdn_host" \
       '{
          version: $version, install_date: $install_date, updated_at: $updated_at,
          server_ip: $server_ip, eip: $eip, hostname: $hostname, instance_id: $instance_id,
          user_alias: $user_alias, dashboard_passcode: $dashboard_passcode, dashboard_cookie_secret: $dashboard_cookie_secret, master_sub_token: $master_sub_token,
          cloud: { provider: $cloud_provider, region: $cloud_region },
          spec:  { cpu: $cpu_spec, memory: $memory_spec, disk: $disk_spec },
-         uuid:  { vless: { reality: $uuid_vless_reality, ws: $uuid_vless_ws } },
+         uuid:  { vless: { reality: $uuid_vless_reality } },
          password: { hysteria2: $password_hysteria2 },
          reality:  { public_key: $reality_public_key, private_key: $reality_private_key, short_id: $reality_short_id, sni: (if $reality_sni == "" then null else $reality_sni end) },
-         ws: { path: $ws_path },
-         cdn: { enabled: $cdn_enabled, host: (if $cdn_host == "" then null else $cdn_host end) },
          cert: { mode: $cert_mode, domain: (if $cert_domain == "" then null else $cert_domain end), auto_renew: $cert_autorenew }
        }' > "$server_tmp" || { log_error "使用jq生成 server.json 失败"; rm -f "$server_tmp"; return 1; }
 
@@ -2631,7 +2608,6 @@ verify_module2_data() {
 
     local required_uuids=(
         "UUID_VLESS_REALITY:VLESS-Reality"
-        "UUID_VLESS_WS:VLESS-WS"
     )
 
     for uuid_info in "${required_uuids[@]}"; do
@@ -2773,9 +2749,7 @@ execute_module2() {
 
         # 从 keep 文件读取所有凭据到全局变量
         UUID_VLESS_REALITY=$(jq -r '.uuid.vless.reality // empty' "$KEEP_FILE")
-        UUID_VLESS_WS=$(jq -r '.uuid.vless.ws // empty' "$KEEP_FILE")
         PASSWORD_HYSTERIA2=$(jq -r '.password.hysteria2 // empty' "$KEEP_FILE")
-        WS_PATH=$(jq -r '.ws.path // "/ws"' "$KEEP_FILE")
         REALITY_PUBLIC_KEY=$(jq -r '.reality.public_key // empty' "$KEEP_FILE")
         REALITY_PRIVATE_KEY=$(jq -r '.reality.private_key // empty' "$KEEP_FILE")
         REALITY_SHORT_ID=$(jq -r '.reality.short_id // empty' "$KEEP_FILE")
@@ -2783,21 +2757,18 @@ execute_module2() {
         DASHBOARD_COOKIE_SECRET=$(jq -r '.dashboard_cookie_secret // empty' "$KEEP_FILE")
         MASTER_SUB_TOKEN=$(jq -r '.master_sub_token // empty' "$KEEP_FILE")
 
-        # v4.6.0-rc4: 同时保留这些字段，让 save_config_info 写回 server.json
-        # 否则新生成的 server.json 会清空 cert.mode / cdn.enabled / reality.sni
+        # v4.7.0: 同时保留这些字段，让 save_config_info 写回 server.json
+        # 否则新生成的 server.json 会清空 cert.mode / reality.sni
         UPGRADE_CERT_MODE=$(jq -r '.cert.mode // "self-signed"'  "$KEEP_FILE")
         UPGRADE_CERT_DOMAIN=$(jq -r '.cert.domain // ""'         "$KEEP_FILE")
         UPGRADE_CERT_AUTORENEW=$(jq -r '.cert.auto_renew // false' "$KEEP_FILE")
-        UPGRADE_CDN_ENABLED=$(jq -r '.cdn.enabled // false'      "$KEEP_FILE")
-        UPGRADE_CDN_HOST=$(jq -r '.cdn.host // ""'               "$KEEP_FILE")
         UPGRADE_REALITY_SNI=$(jq -r '.reality.sni // ""'         "$KEEP_FILE")
         export UPGRADE_CERT_MODE UPGRADE_CERT_DOMAIN UPGRADE_CERT_AUTORENEW
-        export UPGRADE_CDN_ENABLED UPGRADE_CDN_HOST UPGRADE_REALITY_SNI
+        export UPGRADE_REALITY_SNI
 
         # 关键凭据校验
         local missing=()
         [[ -z "$UUID_VLESS_REALITY"    ]] && missing+=("UUID_VLESS_REALITY")
-        [[ -z "$UUID_VLESS_WS"         ]] && missing+=("UUID_VLESS_WS")
         [[ -z "$PASSWORD_HYSTERIA2"    ]] && missing+=("PASSWORD_HYSTERIA2")
         [[ -z "$REALITY_PUBLIC_KEY"    ]] && missing+=("REALITY_PUBLIC_KEY")
         [[ -z "$REALITY_PRIVATE_KEY"   ]] && missing+=("REALITY_PRIVATE_KEY")
@@ -2817,7 +2788,7 @@ execute_module2() {
             DASHBOARD_COOKIE_SECRET=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')
         fi
 
-        export UUID_VLESS_REALITY UUID_VLESS_WS PASSWORD_HYSTERIA2 WS_PATH
+        export UUID_VLESS_REALITY PASSWORD_HYSTERIA2
         export REALITY_PUBLIC_KEY REALITY_PRIVATE_KEY REALITY_SHORT_ID
         export DASHBOARD_PASSCODE DASHBOARD_COOKIE_SECRET MASTER_SUB_TOKEN
 
@@ -2834,7 +2805,7 @@ execute_module2() {
 
         # 任务2.5：生成控制面板密码(只生成不写入)
         if generate_dashboard_passcode; then
-            log_success "✓ 控制面板密码生成完成: ${DASHBOARD_PASSCODE}"
+            log_success "✓ 控制面板密码生成完成（完整密码见安装结束摘要）"
             export DASHBOARD_PASSCODE
         else
             log_error "✗ 控制面板密码生成失败"
@@ -2899,7 +2870,7 @@ fi
     fi
 
     # 导出所有变量供后续模块使用
-    export UUID_VLESS_REALITY UUID_VLESS_WS WS_PATH
+    export UUID_VLESS_REALITY
     export PASSWORD_HYSTERIA2
     export REALITY_PRIVATE_KEY REALITY_PUBLIC_KEY REALITY_SHORT_ID
     export SERVER_IP DASHBOARD_PASSCODE
@@ -2912,7 +2883,7 @@ fi
     log_info "├─ 所有协议的UUID和密码"
     log_info "├─ Reality密钥对"
     log_info "├─ 自签名证书"
-    log_info "├─ 控制面板密码: ${DASHBOARD_PASSCODE}"
+    log_info "├─ 控制面板密码: ******（完整密码见安装结束摘要 / server.json）"
     log_info "└─ 完整的server.json配置文件"
 
     return 0
@@ -2967,7 +2938,7 @@ log_info "└─ verify_module2_data()       # 验证数据完整性"
 # 功能说明：
 # - 安装Xray和sing-box核心程序
 # - 配置Nginx（SNI定向+ALPN兜底架构）
-# - 配置Xray（VLESS-Reality、VLESS-WS）
+# - 配置Xray（VLESS-Reality）
 # - 配置sing-box（Hysteria2）
 # - 生成订阅链接
 # - 验证服务配置
@@ -3478,12 +3449,9 @@ generate_initial_nginx_stream_map() {
 # It will be overwritten by 'edgeboxctl' when switching certificate modes.
 
 map $ssl_preread_server_name $backend_pool {
-    # v4.0.0: Simplified 2-target routing (reality + websocket)
+    # v4.7.0: Single-target routing (reality only; WS/CDN removed)
     # Reality fallback SNIs (matches the public domain used for Reality TLS handshake)
     ~*(microsoft\.com|apple\.com|cloudflare\.com|amazon\.com|fastly\.com)$ reality;
-
-    # WebSocket - internal SNI (IP mode) or live domain (injected by edgeboxctl)
-    ws.edgebox.internal    websocket;
 
     # 兜底规则：未识别的 SNI 全部归 reality 入口
     default                "";
@@ -3540,7 +3508,7 @@ configure_nginx() {
 
     # 生成新的Nginx主配置
     cat > /etc/nginx/nginx.conf << 'NGINX_CONFIG'
-# EdgeBox Nginx 配置文件 v4.6.0-rc4 (3-protocol: Reality + Hysteria2 + WS)
+# EdgeBox Nginx 配置文件 v4.7.0 (2-protocol: Reality + Hysteria2)
 # 架构：SNI定向 + ALPN兜底 + 单端口复用
 
 user www-data;
@@ -3640,15 +3608,14 @@ stream {
 
     # 1. SNI 到初步目标的映射 (从外部文件加载)
     #    这个文件由 generate_initial_nginx_stream_map() 或 edgeboxctl 创建
-    #    它会将 reality, websocket 等 SNI 映射到对应的名字
+    #    它会将 reality SNI 映射到对应的名字
     include /etc/nginx/conf.d/edgebox_stream_map.conf;
 
-    # v4.0.0: Simplified single-level SNI routing
-    # 2-protocol stream backends: reality (TCP, internal SNIs) + websocket (TCP, internal/domain SNI)
+    # v4.7.0: Single-level SNI routing (WS/CDN removed)
+    # Stream backend: reality (TCP, internal SNIs).
     # Hysteria2 runs directly on UDP/443 via sing-box; nginx doesn't touch UDP.
     map $backend_pool $final_upstream {
         reality     127.0.0.1:11443;
-        websocket   127.0.0.1:10086;
         default     127.0.0.1:11443; # Reality as ultimate fallback
     }
 
@@ -3764,7 +3731,7 @@ EOF
 }
 
 # === Patch C: 监听检测增强 (辅助函数) ===
-wait_listen() {  # usage: wait_listen 11443 10086  (v4.0.0: only reality + ws backends)
+wait_listen() {  # usage: wait_listen 11443  (v4.7.0: only reality backend)
   local timeout=120 start ok p
   start=$(date +%s)
   log_info "等待端口监听: $@ (超时: ${timeout}s)..."
@@ -3916,11 +3883,11 @@ configure_xray() {
   [[ -z ${CERT_KEY:-} ]] && CERT_KEY="${CERT_DIR}/current.key"
   export CERT_PEM CERT_KEY
 
-  # ③ 收集必要变量 (v4.0.0: 3-protocol)
+  # ③ 收集必要变量 (v4.7.0: 2-protocol)
   local required_vars=(
-    "UUID_VLESS_REALITY" "UUID_VLESS_WS"
+    "UUID_VLESS_REALITY"
     "REALITY_PRIVATE_KEY" "REALITY_SHORT_ID" "PASSWORD_HYSTERIA2"
-    "CERT_PEM" "CERT_KEY" "REALITY_SNI" "WS_PATH"
+    "CERT_PEM" "CERT_KEY" "REALITY_SNI"
   )
   log_info "检查必要变量设置..."
   local missing_vars=()
@@ -3933,12 +3900,10 @@ configure_xray() {
       eval "$(
         jq -r '
           "UUID_VLESS_REALITY=\(.uuid.vless.reality // \"\")\n" +
-          "UUID_VLESS_WS=\(.uuid.vless.ws // \"\")\n" +
           "PASSWORD_HYSTERIA2=\(.password.hysteria2 // \"\")\n" +
           "REALITY_PRIVATE_KEY=\(.reality.private_key // \"\")\n" +
           "REALITY_SHORT_ID=\(.reality.short_id // \"\")\n" +
-          "REALITY_SNI=\(.reality.sni // \"www.microsoft.com\")\n" +
-          "WS_PATH=\(.ws.path // \"/ws\")\n"
+          "REALITY_SNI=\(.reality.sni // \"www.microsoft.com\")\n"
         ' "$f" 2>/dev/null
       )"
     fi
@@ -4045,19 +4010,6 @@ fi
           "shortIds": [ $r_short ]
         }
       }
-    },
-    {
-      "tag": "vless-ws",
-      "listen": "127.0.0.1",
-      "port": 10086,
-      "protocol": "vless",
-      "settings": { "clients": [ { "id": $uuid_ws } ], "decryption": "none" },
-      "streamSettings": {
-        "network": "ws",
-        "security": "tls",
-        "tlsSettings": { "certificates": [ { "certificateFile": $cert_pem, "keyFile": $cert_key } ] },
-        "wsSettings": { "path": $ws_path }
-      }
     }
   ],
   "outbounds": [
@@ -4083,11 +4035,9 @@ EOF
   jq_exit_code=0
   jq -n \
       --arg uuid_reality "$UUID_VLESS_REALITY" \
-      --arg uuid_ws      "$UUID_VLESS_WS" \
       --arg r_priv       "$REALITY_PRIVATE_KEY" \
       --arg r_short      "$REALITY_SHORT_ID" \
       --arg r_sni        "$REALITY_SNI" \
-      --arg ws_path      "$WS_PATH" \
       --arg cert_pem     "$CERT_PEM" \
       --arg cert_key     "$CERT_KEY" \
       "$JQ_PROGRAM" > "$xray_tmp" 2>/tmp/xray_jq.err || jq_exit_code=$? # 捕获 jq 的退出码
@@ -4575,10 +4525,10 @@ execute_module3() {
 
     log_success "======== 模块3执行完成 ========"
     log_info "已完成："
-    log_info "├─ Xray多协议服务（Reality、WS）"
+    log_info "├─ Xray 服务（Reality）"
     log_info "├─ sing-box服务（Hysteria2）"
     log_info "├─ Nginx分流代理（SNI+ALPN架构）"
-    log_info "├─ 订阅链接生成（6种协议）"
+    log_info "├─ 订阅链接生成（Reality + Hysteria2）"
     # 读取最新的密码显示，如果DASHBOARD_PASSCODE变量没更新，从文件读一次
     local final_passcode="${DASHBOARD_PASSCODE:-}"
     if [[ -z "$final_passcode" && -f "${CONFIG_DIR}/server.json" ]]; then
@@ -4690,7 +4640,7 @@ log_info "└─ regenerate_subscription()  # 重新生成订阅"
 
 
 #############################################
-# EdgeBox 企业级多协议节点部署脚本 v4.6.0-rc4-rc1
+# EdgeBox 企业级多协议节点部署脚本 v4.7.0
 # 模块4：Dashboard后端脚本生成
 #
 # 功能说明：
@@ -4771,9 +4721,7 @@ declare -A HYSTERIA2_PARAMS=(
     ["masquerade_sites"]="https://www.bing.com https://www.apple.com https://azure.microsoft.com https://aws.amazon.com"
 )
 
-declare -A VLESS_PARAMS=(
-    ["ws_paths"]="/ws /websocket /v2ray /proxy /tunnel"
-)
+# v4.7.0: VLESS_PARAMS removed (only held WS path candidates; WS deprecated)
 
 # 流量特征随机化核心函数
 #############################################
@@ -4840,10 +4788,6 @@ heartbeat_min=8
 heartbeat_max=15
 congestion_algos=bbr,cubic,reno
 masquerade_rotation=true
-
-[vless]
-ws_path_rotation=true
-header_randomization=false
 
 [safety]
 backup_before_change=true
@@ -5492,7 +5436,7 @@ create_firewall_script() {
 # ANCHOR: [FUNC-CREATE_ENHANCED_EDGEBOXCTL]
 #############################################
 create_enhanced_edgeboxctl() {
-    log_info "创建edgeboxctl管理工具 (v4.0.0 - 三协议架构)..."
+    log_info "创建edgeboxctl管理工具 (v4.7.0 - 两协议架构)..."
 
     _install_script "/usr/local/bin/edgeboxctl" "edgeboxctl" || return 1
 
@@ -5910,11 +5854,9 @@ show_installation_info() {
     # 确保加载最新数据（特别是密码）
     local config_file="${CONFIG_DIR}/server.json"
 
-    # v4.0.0: 三协议读取
+    # v4.7.0: 两协议读取
     local server_ip=$(jq -r '.server_ip // empty' "$config_file" 2>/dev/null)
     local UUID_VLESS=$(jq -r '.uuid.vless.reality // empty' "$config_file" 2>/dev/null)
-    local UUID_WS=$(jq -r '.uuid.vless.ws // empty' "$config_file" 2>/dev/null)
-    local WS_PATH=$(jq -r '.ws.path // "/ws"' "$config_file" 2>/dev/null)
     local PASSWORD_HYSTERIA2=$(jq -r '.password.hysteria2 // empty' "$config_file" 2>/dev/null)
 
     # >>> 核心修复逻辑：从文件加载密码 >>>
@@ -5946,10 +5888,9 @@ local SUB_URL="http://${show_host}/${SUB_PATH}"
     echo -e  "  证书模式: ${PURPLE}IP模式（自签名证书）${NC}"
     echo -e  "  网络身份: ${PURPLE}VPS直连出站（默认）${NC}"
 
-    echo -e "\n${CYAN}协议配置摘要 (v4.0.0)：${NC}"
+    echo -e "\n${CYAN}协议配置摘要 (v4.7.0)：${NC}"
     echo -e "  VLESS-Reality  端口: TCP/443  UUID: ${PURPLE}${UUID_VLESS:0:8}...${NC}"
     echo -e "  Hysteria2      端口: UDP/443  密码: ${PURPLE}${PASSWORD_HYSTERIA2:0:8}...${NC}"
-    echo -e "  VLESS-WS       端口: TCP/443  UUID: ${PURPLE}${UUID_WS:0:8}... path: ${WS_PATH}${NC}"
 
     echo -e "\n${CYAN}常用运维命令：${NC}"
     echo -e "  ${PURPLE}edgeboxctl status${NC}                             # 查看服务状态"
@@ -5990,11 +5931,11 @@ local SUB_URL="http://${show_host}/${SUB_PATH}"
 
     # v4.0.0: 端口监听检测
     # 用 grep -q ":PORT " 简化匹配（兼容 ss 不同版本的列布局）
-    # TCP 443: Nginx 流量分发 (Reality + WS)
+    # TCP 443: Nginx 流量分发 (Reality)
     if ss -tln 2>/dev/null | grep -qE "[:.]443[[:space:]]"; then
-        echo -e "  ✅ 443/tcp   TLS/Reality/WS 流量分发"
+        echo -e "  ✅ 443/tcp   TLS/Reality 流量分发"
     else
-        echo -e "  ⚠️  443/tcp   TLS/Reality/WS（未监听）"
+        echo -e "  ⚠️  443/tcp   TLS/Reality（未监听）"
     fi
 
     # Hysteria2 (UDP/443)
@@ -6219,11 +6160,13 @@ main() {
 
     clear
 
-    echo -e "${GREEN}EdgeBox 企业级安装脚本 v4.6.0-rc4 (三协议架构)${NC}"
+    echo -e "${GREEN}EdgeBox 企业级安装脚本 v4.7.0 (两协议架构)${NC}"
     print_separator
 
-    export EDGEBOX_VER="4.6.0-rc4"
+    export EDGEBOX_VER="4.7.0"
     mkdir -p "$(dirname "${LOG_FILE}")" && touch "${LOG_FILE}"
+    chmod 600 "${LOG_FILE}" 2>/dev/null || true
+    chown root:root "${LOG_FILE}" 2>/dev/null || true
 
     log_info "开始执行完整安装流程..."
 
@@ -6307,10 +6250,8 @@ echo -e "${GREEN}🌐 EdgeBox-企业级多协议节点 v${EDGEBOX_VER} 安装成
 echo
 
 # 将剩余的非关键修复任务放入后台
-# v4.6.0-rc4 (审核 P1#3): 升级模式下不启动后台修复任务。
-#   升级流程中 edgeboxctl 会在 install 完成后按 cert_mode/cdn.enabled 重新应用拓扑；
-#   若后台 repair_system_state 在其后 ~3 秒触发，会重启 sing-box / 放行 UDP443，
-#   把 CDN 模式下本应禁用的 Hysteria2 重新暴露（真实竞争条件）。
+# v4.7.0: 升级模式下不启动后台修复任务，拓扑恢复由 edgeboxctl 在 install 完成后负责，
+#   避免后台 repair_system_state 与之竞争。
 if [[ "${EDGEBOX_UPGRADE:-0}" == "1" ]]; then
     log_info "升级模式：跳过后台 repair_system_state（拓扑恢复由 edgeboxctl 负责）"
 else
@@ -6336,25 +6277,12 @@ exit 0
 repair_system_state() {
     log_info "检查并修复系统状态..."
 
-    # v4.6.0-rc4 (审核 P1#3): CDN 模式下必须跳过会重新暴露 Hysteria2 的步骤
-    #   (启用/重启 sing-box、放行 UDP 443、HY2 端口自检)，否则会与 CDN 拓扑冲突。
-    local _cdn_enabled="false"
-    if [[ -f "${CONFIG_DIR}/server.json" ]] && command -v jq >/dev/null 2>&1; then
-        _cdn_enabled=$(jq -r '.cdn.enabled // false' "${CONFIG_DIR}/server.json" 2>/dev/null || echo false)
-    fi
-    [[ "$_cdn_enabled" == "true" ]] && \
-        log_info "  CDN 模式：将跳过 sing-box 启用/重启、UDP 443 放行与 HY2 端口自检"
-
     # 1) 目录与日志 (使用新的统一函数)
     setup_directories
 
-    # 2) 服务自愈（保持你的逻辑）
+    # 2) 服务自愈
     local services=("xray" "sing-box" "nginx")
     for s in "${services[@]}"; do
-        # CDN 模式下 sing-box 应保持禁用，不要重新 enable
-        if [[ "$s" == "sing-box" && "$_cdn_enabled" == "true" ]]; then
-            continue
-        fi
         if systemctl list-unit-files | grep -q "^${s}.service"; then
             systemctl enable "$s" >/dev/null 2>&1 || true
         fi
@@ -6367,18 +6295,15 @@ repair_system_state() {
         log_info "已将 sing-box 监听地址修正为 0.0.0.0"
     fi
 
-    # 4) 防火墙放行 UDP（HY2）—— CDN 模式下不放行 UDP 443
-    if [[ "$_cdn_enabled" != "true" ]]; then
-      if command -v ufw >/dev/null 2>&1 && ufw status >/dev/null 2>&1; then
-        ufw status | grep -q '443/udp'  || ufw allow 443/udp  >/dev/null 2>&1 || true
-      elif command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then
-        firewall-cmd --permanent --add-port=443/udp  >/dev/null 2>&1 || true
-        
-        firewall-cmd --reload >/dev/null 2>&1 || true
-      else
-        iptables -C INPUT -p udp --dport 443  -j ACCEPT >/dev/null 2>&1 || iptables -A INPUT -p udp --dport 443  -j ACCEPT
-            command -v iptables-save >/dev/null 2>&1 && { mkdir -p /etc/iptables; iptables-save > /etc/iptables/rules.v4 2>/dev/null || true; }
-      fi
+    # 4) 防火墙放行 UDP（HY2）
+    if command -v ufw >/dev/null 2>&1 && ufw status >/dev/null 2>&1; then
+      ufw status | grep -q '443/udp'  || ufw allow 443/udp  >/dev/null 2>&1 || true
+    elif command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then
+      firewall-cmd --permanent --add-port=443/udp  >/dev/null 2>&1 || true
+      firewall-cmd --reload >/dev/null 2>&1 || true
+    else
+      iptables -C INPUT -p udp --dport 443  -j ACCEPT >/dev/null 2>&1 || iptables -A INPUT -p udp --dport 443  -j ACCEPT
+          command -v iptables-save >/dev/null 2>&1 && { mkdir -p /etc/iptables; iptables-save > /etc/iptables/rules.v4 2>/dev/null || true; }
     fi
 
     # 5) 确认证书可用（若缺失则再次生成自签名）
@@ -6387,22 +6312,18 @@ repair_system_state() {
         generate_self_signed_cert || log_warn "自签名证书生成失败，请稍后手动检查"
     fi
 
-    # 6) 语义校验并重启 sing-box —— CDN 模式下 sing-box 应停用，跳过重启与端口自检
-    if [[ "$_cdn_enabled" != "true" ]]; then
-      if command -v /usr/local/bin/sing-box >/dev/null 2>&1; then
-          /usr/local/bin/sing-box check -c "$sb" >/dev/null 2>&1 || log_warn "sing-box 配置校验失败（将尝试继续重启）"
-      fi
-      systemctl reload sing-box 2>/dev/null \
-    || /bin/sh -c '/bin/kill -HUP "$(pidof -s sing-box)" 2>/dev/null' \
-    || systemctl restart sing-box || true
-
-      sleep 0.5
-
-      # 7) 端口自检（与你现场排障一致）
-      ss -uln | grep -q ':443 '  && log_success "HY2 UDP 443 监听 ✓"  || log_warn "HY2 UDP 443 未监听 ✗"
-    else
-      log_info "  CDN 模式：sing-box 保持停用，跳过重启与 HY2 端口自检"
+    # 6) 语义校验并重启 sing-box
+    if command -v /usr/local/bin/sing-box >/dev/null 2>&1; then
+        /usr/local/bin/sing-box check -c "$sb" >/dev/null 2>&1 || log_warn "sing-box 配置校验失败（将尝试继续重启）"
     fi
+    systemctl reload sing-box 2>/dev/null \
+  || /bin/sh -c '/bin/kill -HUP "$(pidof -s sing-box)" 2>/dev/null' \
+  || systemctl restart sing-box || true
+
+    sleep 0.5
+
+    # 7) 端口自检
+    ss -uln | grep -q ':443 '  && log_success "HY2 UDP 443 监听 ✓"  || log_warn "HY2 UDP 443 未监听 ✗"
 
     log_success "系统状态修复完成"
 }
