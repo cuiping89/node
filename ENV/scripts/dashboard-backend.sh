@@ -112,6 +112,7 @@ get_system_metrics() {
     fi
 
     # 内存使用率计算保持不变
+    local mem_total_b=0 mem_used_b=0 mem_free_b=0
     if [[ -r /proc/meminfo ]]; then
         local mem_total mem_available
         mem_total=$(awk '/MemTotal:/ {print $2}' /proc/meminfo)
@@ -119,6 +120,11 @@ get_system_metrics() {
 
         if [[ $mem_total -gt 0 && $mem_available -ge 0 ]]; then
             memory_percent=$(( (mem_total - mem_available) * 100 / mem_total ))
+            # v4.7.0 (前端 #2): 同时输出字节值供 dashboard 渲染 (已用/可用)
+            # /proc/meminfo 是 kB，乘 1024 转字节；dashboard.js 的 fmtGiB 期望字节
+            mem_total_b=$(( mem_total * 1024 ))
+            mem_free_b=$(( mem_available * 1024 ))
+            mem_used_b=$(( mem_total_b - mem_free_b ))
         fi
     fi
 
@@ -144,12 +150,18 @@ get_system_metrics() {
         --argjson cpu "$cpu_percent" \
         --argjson memory "$memory_percent" \
         --argjson disk "$disk_percent" \
+        --argjson mem_total "$mem_total_b" \
+        --argjson mem_used  "$mem_used_b"  \
+        --argjson mem_free  "$mem_free_b"  \
         --arg timestamp "$(date -Is)" \
         '{
             updated_at: $timestamp,
             cpu: $cpu,
             memory: $memory,
-            disk: $disk
+            disk: $disk,
+            mem_total: $mem_total,
+            mem_used:  $mem_used,
+            mem_free:  $mem_free
         }'
 }
 
