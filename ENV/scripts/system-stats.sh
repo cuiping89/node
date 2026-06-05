@@ -53,6 +53,13 @@ mt=$(awk '/MemTotal/{print $2}' /proc/meminfo 2>/dev/null || echo "0")
 ma=$(awk '/MemAvailable/{print $2}' /proc/meminfo 2>/dev/null || echo "0")
 mem=$(( mt > 0 ? (100 * (mt - ma)) / mt : 0 ))
 
+# v4.7.0 (前端 #1): /proc/meminfo 是 kB，dashboard.js 期望字节，转换后写入
+mem_total_b=$(( mt * 1024 ))
+mem_avail_b=$(( ma * 1024 ))
+mem_used_b=$(( mem_total_b - mem_avail_b ))
+
 # 生成JSON
 jq -n --arg ts "$(date -Is)" --argjson cpu "$cpu" --argjson memory "$mem" \
-  '{updated_at:$ts,cpu:$cpu,memory:$memory}' > "${TRAFFIC_DIR}/system.json"
+      --argjson mem_total "$mem_total_b" --argjson mem_used "$mem_used_b" --argjson mem_free "$mem_avail_b" \
+  '{updated_at:$ts, cpu:$cpu, memory:$memory,
+    mem_total:$mem_total, mem_used:$mem_used, mem_free:$mem_free}' > "${TRAFFIC_DIR}/system.json"

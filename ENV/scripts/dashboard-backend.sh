@@ -404,8 +404,8 @@ get_protocols_status() {
     local protocol_order=()
     declare -A protocol_meta
     protocol_order=("VLESS-Reality" "Hysteria2")
-    protocol_meta["VLESS-Reality"]="reality|抗审查/伪装访问，主用通道|极佳★★★★★|443|tcp"
-    protocol_meta["Hysteria2"]="hysteria2|UDP回退通道(QUIC)，TCP干扰时备用|良好★★★★☆|443|udp"
+    protocol_meta["VLESS-Reality"]="reality|主通道：抗审查 / 伪装访问（TCP 443）|极佳★★★★★|443|tcp"
+    protocol_meta["Hysteria2"]="hysteria2|备用通道：TCP 受干扰时切换（QUIC / UDP 443）|良好★★★★☆|443|udp"
 
     local final_protocols="[]"
 

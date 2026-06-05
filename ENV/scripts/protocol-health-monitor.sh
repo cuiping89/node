@@ -342,12 +342,35 @@ main() {
         '{xray: $xray, "sing-box": $sb, nginx: $nginx}')
 
     local protocols_arr
+    # v4.7.0 (前端 #3): 同时输出 monitor 自己的字段 (state/details) 和 dashboard.js
+    # 期望的字段 (status/status_badge/health_score/...)。否则 dashboard 表格"运行状态"
+    # 列始终为空 → 显示 "—"。
     protocols_arr=$(jq -n \
         --argjson r "$reality_json" \
         --argjson h "$hysteria2_json" \
-        '[
-          {name: "VLESS-Reality", protocol: "reality"} + $r,
-          {name: "Hysteria2",     protocol: "hysteria2"} + $h
+        '
+        def to_dashboard:
+            . as $base
+            | .state as $s
+            | $base + (
+                if $s == "healthy" then
+                    {status: "healthy",   status_badge: "✅ 健康",   health_score: 100}
+                elif $s == "down" then
+                    {status: "down",      status_badge: "❌ 故障",   health_score: 0}
+                elif $s == "listening_unverified" then
+                    {status: "listening", status_badge: "🟡 未验证", health_score: 50}
+                else
+                    {status: "unknown",   status_badge: "⚪ 未知",   health_score: 0}
+                end
+              )
+            + {response_time: -1,
+               detail_message: (.details // ""),
+               recommendation: "none",
+               recommendation_badge: ""}
+        ;
+        [
+          ({name: "VLESS-Reality", protocol: "reality"}   + $r) | to_dashboard,
+          ({name: "Hysteria2",     protocol: "hysteria2"} + $h) | to_dashboard
         ]')
 
     # Output JSON
