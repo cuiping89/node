@@ -285,13 +285,11 @@ _eb_gen_singbox() {
                         alpn: ["h3"]
                     }
                 },
-                { type: "direct", tag: "direct" },
-                { type: "block",  tag: "block"  },
-                { type: "dns",    tag: "dns-out" }
+                { type: "direct", tag: "direct" }
             ],
             route: {
                 rules: [
-                    { protocol: "dns", outbound: "dns-out" },
+                    { protocol: "dns", action: "hijack-dns" },
                     { ip_is_private: true, outbound: "direct" }
                 ],
                 final: "EdgeBox",
