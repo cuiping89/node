@@ -220,13 +220,12 @@ REALITY_SNI="www.microsoft.com"
 HYSTERIA2_MASQUERADE="https://www.bing.com"
 
 # === 版本和下载常量 ===
-# v4.6.0-rc4: 兼容性锁定版本 1.12.8 (审核 P2)
-# 原因: 当前生成的客户端 sing-box 配置仍使用 1.13.0 之前的 schema:
-#   - { "type": "block", "tag": "block" }
-#   - { "type": "dns", "tag": "dns-out" }
-# 上述特殊 outbound 已在 sing-box 1.13.0 移除（官方稳定版当前为 1.13.x）
-# 直接升级会导致客户端配置加载失败。后续迁移 schema 后再放开升级。
-DEFAULT_SING_BOX_VERSION="1.12.10"
+# v4.7.0: 升级到 sing-box 1.13.x，已完成 schema 迁移：
+#   - 服务端 sing-box.json: 删除 {type:"block"} outbound，改用 route rule {action:"reject"}
+#   - 客户端订阅 (subscription.singbox.json): 删除 {type:"block"} 和 {type:"dns",tag:"dns-out"}
+#     outbound；DNS 路由改为 route rule {protocol:"dns", action:"hijack-dns"}
+# 选 1.13.13 (官方 latest stable)。低版本仍可通过 VERSION_PRIORITY 自动回退。
+DEFAULT_SING_BOX_VERSION="1.13.13"
 XRAY_INSTALL_SCRIPT="https://raw.githubusercontent.com/XTLS/Xray-install/main/install-release.sh"
 
 # === 临时文件常量 ===
@@ -3112,10 +3111,11 @@ fi
     # 版本优先级队列（从最新到最稳定）
     # 注意：这是降级队列，会依次尝试直到成功
     local VERSION_PRIORITY=(
-	    "1.12.10"   # v4.7.0: 最新版（1.12.x 系列封顶，向 1.13 升级需迁移 schema）
-		"1.12.8"    # 上一个稳定版
-        "1.12.1"    # 稳定版（2025年推荐）
-        "1.12.0"    # 稳定版（2024年3月发布）
+        "1.13.13"   # v4.7.0: 官方 latest stable（已完成 schema 迁移）
+        "1.12.10"   # 上一个稳定版（1.12.x 系列封顶）
+        "1.12.8"
+        "1.12.1"
+        "1.12.0"
         "1.11.15"   # LTS 长期支持版
         "1.11.0"    # 备用稳定版
         "1.10.0"    # 最后的保底版本
@@ -4139,8 +4139,7 @@ configure_sing_box() {
           { "type": "hysteria2", "tag": "hysteria2-in", "listen": "0.0.0.0", "listen_port": 443, "users": [ { "password": $hy2_pass } ], "tls": { "enabled": true, "alpn": ["h3"], "certificate_path": $cert_pem, "key_path": $cert_key } }
         ],
         "outbounds": [
-          { "type": "direct", "tag": "direct" },
-          { "type": "block",  "tag": "block" }
+          { "type": "direct", "tag": "direct" }
         ],
         "route": {
           "rules": [
@@ -4150,7 +4149,7 @@ configure_sing_box() {
                 "169.254.0.0/16", "100.64.0.0/10",
                 "::1/128", "fc00::/7", "fe80::/10", "fd00::/8"
               ],
-              "outbound": "block"
+              "action": "reject"
             }
           ],
           "final": "direct"

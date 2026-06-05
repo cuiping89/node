@@ -33,12 +33,12 @@ trap 'rm -rf "$BOOTSTRAP_TMP" 2>/dev/null || true' EXIT
 # These hashes are regenerated at every release via tools/gen-manifest.sh.
 # If you change any of these files, you MUST regenerate the manifest.
 EDGEBOX_FILES=(
-    "install.sh|install.sh|e01da1d9d395a1a6e1440519192e36c2db2607f2471c1c9fd200118dbcb1a102"
+    "install.sh|install.sh|40c05837f2530f3bf165f12fcbbc85353a797f92c616ef70dd2ede14313dc86c"
     "lib/common.sh|lib/common.sh|dc75d1b179ec77a61a4ac6501a7a4caa4323a8772d23e804b56d330091bae95f"
     "lib/alert.sh|lib/alert.sh|d80652f40814bd4249ca24b0d5b20fe6801fc3bfd8c50616fdebedca034b5d36"
-    "lib/subscription.sh|lib/subscription.sh|ce8d41497ffd97ccbc09ce70cf63eab24b69d3794376b09ad78fb708fa6e1036"
+    "lib/subscription.sh|lib/subscription.sh|4491fff550d5585e4d3fd7e4ad34892b775e172d4ec3231a0da6522f5772d882"
     "scripts/edgeboxctl|scripts/edgeboxctl|8b576ba74c9403a9f2caa28a049f65e985e43010e6afee7f6f714375ea980113"
-    "scripts/dashboard-backend.sh|scripts/dashboard-backend.sh|bb5fb79f1bcb51bcf722ab6bd2beefa7131902f04e231990a64563b95ded6aa9"
+    "scripts/dashboard-backend.sh|scripts/dashboard-backend.sh|6a0b00f6edec0827d618e9d9cbcc865e7f5200c1cccfc96987cabcca4a62dcab"
     "scripts/protocol-health-monitor.sh|scripts/protocol-health-monitor.sh|4b972c92d1cd8485cc32cf2f5406ad4c528caa41d7369ae6b6fc2f77d13b2451"
     "scripts/edgebox-traffic-randomize.sh|scripts/edgebox-traffic-randomize.sh|a1440d24c81265536092b270bbbeb3f55d68fc1382e0d45216adb980430c91e2"
     "scripts/edgebox-ipq.sh|scripts/edgebox-ipq.sh|d2b8b42cac18f76ac7d5b492b2a915720a61d4575fefd5e6fca6d17d6825d84c"
@@ -48,7 +48,7 @@ EDGEBOX_FILES=(
     "scripts/system-stats.sh|scripts/system-stats.sh|88bacb15b8d7e74b6a7336b1e7fd22233a56dd53f7e05821e48d2871a0c8c160"
     "scripts/edgebox-init.sh|scripts/edgebox-init.sh|deb6576116c2bbf0cde441179f7888a9c9d4b8ce684af108ee69242737175245"
     "web/dashboard.css|web/dashboard.css|081e2fb6e59217717fa2898a33edd32f3a4fe4afeb46e2fcf4345046029d5c10"
-    "web/dashboard.js|web/dashboard.js|779d306eb50a5b56ab67ab3d81b53713dc44be21ad57eeb8802d31b0ff79cfb2"
+    "web/dashboard.js|web/dashboard.js|c532e3f387ac891283f0dd199ce24bdb09330242047b72b836ea9be4ba0a0d74"
     "web/dashboard.html|web/dashboard.html|6a48997bf6216363c8446ef841fc8d2b174c42301fa01b6fccf0dad56e3b4ba7"
 )
 
