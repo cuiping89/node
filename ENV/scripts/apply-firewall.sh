@@ -49,6 +49,7 @@ if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
     is_rule_active "ufw" "$current_ssh_port" "tcp" || ufw allow "${current_ssh_port}/tcp" >/dev/null
     is_rule_active "ufw" "80" "tcp" || ufw allow 80/tcp >/dev/null
     is_rule_active "ufw" "443" "tcp" || ufw allow 443/tcp >/dev/null
+    is_rule_active "ufw" "8443" "tcp" || ufw allow 8443/tcp >/dev/null
     is_rule_active "ufw" "443" "udp" || ufw allow 443/udp >/dev/null
     
     # <<< 修复点: 移除了可能导致连接中断的 `ufw --force enable` >>>
@@ -70,6 +71,7 @@ elif command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet fire
     add_firewalld_rule "$current_ssh_port/tcp"
     add_firewalld_rule "80/tcp"
     add_firewalld_rule "443/tcp"
+    add_firewalld_rule "8443/tcp"
     add_firewalld_rule "443/udp"
 
     echo "[SUCCESS] FirewallD 规则已确保应用。"
@@ -79,6 +81,7 @@ elif command -v iptables >/dev/null 2>&1; then
     iptables -C INPUT -p tcp --dport "$current_ssh_port" -j ACCEPT >/dev/null 2>&1 || iptables -A INPUT -p tcp --dport "$current_ssh_port" -j ACCEPT
     iptables -C INPUT -p tcp --dport 80 -j ACCEPT >/dev/null 2>&1 || iptables -A INPUT -p tcp --dport 80 -j ACCEPT
     iptables -C INPUT -p tcp --dport 443 -j ACCEPT >/dev/null 2>&1 || iptables -A INPUT -p tcp --dport 443 -j ACCEPT
+    iptables -C INPUT -p tcp --dport 8443 -j ACCEPT >/dev/null 2>&1 || iptables -A INPUT -p tcp --dport 8443 -j ACCEPT
     iptables -C INPUT -p udp --dport 443 -j ACCEPT >/dev/null 2>&1 || iptables -A INPUT -p udp --dport 443 -j ACCEPT
     echo "[SUCCESS] iptables 规则已确保应用。"
 else

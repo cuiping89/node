@@ -249,22 +249,20 @@ update_dashboard_passcode() {
 
     # 如果没有提供密码，提示用户输入
     if [[ -z "$new_passcode" ]]; then
-        echo -e "${YELLOW}请输入新密码（6位数字），留空则随机生成：${NC}"
+        echo -e "${YELLOW}请输入新密码（6-64 位字母或数字），留空则随机生成 12 位：${NC}"
         read -r new_passcode
     fi
 
-    # 如果用户输入为空，自动生成（真正的 6 位随机数字，不是单数字重复）
+    # 【v4.7.0】若留空则自动生成 12 位字母数字（CSPRNG），与安装默认一致
     if [[ -z "$new_passcode" ]]; then
-        new_passcode=""
-        local _i
-        for ((_i=0; _i<6; _i++)); do
-            new_passcode+="$((RANDOM % 10))"
-        done
+        new_passcode="$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c 12)"
         log_info "未输入密码，自动生成: $new_passcode"
     else
-        # 验证密码格式（6位数字）
-        if ! [[ "$new_passcode" =~ ^[0-9]{6}$ ]]; then
-            log_error "密码格式错误！必须是6位数字"
+        # 【v4.7.0】放宽格式：6-64 位字母或数字。
+        # 仅允许 [A-Za-z0-9] 以规避 URL 查询串与 nginx map 引号转义问题；
+        # 仍向后兼容旧的 6 位纯数字密码。
+        if ! [[ "$new_passcode" =~ ^[A-Za-z0-9]{6,64}$ ]]; then
+            log_error "密码格式错误！必须是 6-64 位字母或数字（不含空格或符号）"
             return 1
         fi
     fi
@@ -305,7 +303,7 @@ map \$cookie_ebp \$cookie_ok {
     default 0;
 }
 map \$pass_ok \$set_cookie {
-    1 "ebp=${new_cookie_secret}; Path=/traffic/; HttpOnly; SameSite=Lax; Max-Age=86400";
+    1 "ebp=${new_cookie_secret}; Path=/traffic/; HttpOnly; Secure; SameSite=Lax; Max-Age=86400";
     0 "";
 }
 EOF
@@ -581,12 +579,13 @@ show_sub(){
   echo
   if [[ -n "$passcode" ]]; then
     echo -e "  🌐 ${CYAN}Web 面板（含访问密码）${NC}"
-    echo -e "     ${PURPLE}http://${server_ip}/traffic/?passcode=${passcode}${NC}"
+    echo -e "     ${PURPLE}https://${server_ip}:8443/traffic/?passcode=${passcode}${NC}"
     echo
+    echo -e "     ${DIM}IP 模式为自签证书，浏览器提示不受信任时点\"继续前往\"即可（已 TLS 加密）${NC}"
     echo -e "     ${DIM}密码: ${passcode}    （可用 \`edgeboxctl dashboard passcode\` 重置）${NC}"
   else
     echo -e "  🌐 ${CYAN}Web 面板${NC}"
-    echo -e "     ${PURPLE}http://${server_ip}/traffic/${NC}"
+    echo -e "     ${PURPLE}https://${server_ip}:8443/traffic/${NC}"
     echo -e "     ${DIM}（passcode 不可读 — 请用 sudo 调用，或运行 \`sudo edgeboxctl dashboard passcode\` 重置）${NC}"
   fi
   echo
@@ -772,17 +771,17 @@ test_connection(){
   # --- 核心修复：动态获取密码并附加到URL ---
   local passcode
   passcode=$(get_dashboard_passcode) # 调用已有函数获取密码
-  local panel_url="http://${ip}/"
+  local panel_url="https://${ip}:8443/health"
   
   # 如果获取到了密码，就用带密码的URL测试，否则用不带密码的
   if [[ -n "$passcode" ]]; then
-      panel_url="http://${ip}/traffic/?passcode=${passcode}"
+      panel_url="https://${ip}:8443/traffic/?passcode=${passcode}"
   fi
   # --- 修复结束 ---
 
   echo -n "控制面板: "; 
-  # 使用 -L 参数跟随跳转，并测试新的 panel_url
-  if curl -fsSL "$panel_url" >/dev/null; then
+  # 使用 -L 跟随跳转、-k 容忍 IP 模式自签证书，测试 8443 面板
+  if curl -fsSL -k "$panel_url" >/dev/null; then
     echo -e "${GREEN}OK${NC}"
   else
     local curl_exit_code=$?
@@ -4181,8 +4180,8 @@ dashboard)
         ;;
       *)
         echo "用法: edgeboxctl dashboard passcode [新密码]"
-        echo "  - 不提供密码则提示输入，留空则随机生成"
-        echo "  - 密码必须是6位数字"
+        echo "  - 不提供密码则提示输入，留空则随机生成 12 位"
+        echo "  - 密码须为 6-64 位字母或数字（不含空格或符号）"
         ;;
     esac
     ;;
