@@ -34,24 +34,35 @@ get_resi_bytes() {
 RESI_CUR="$(get_resi_bytes)"; RESI_CUR="${RESI_CUR:-0}"
 
 # 3) 载入上次状态 — 严格 JSON + jq，不再 source
+# v4.7.0 修复: 用 HAVE_PREV 标记是否拿到"可信的上次基线"。
+#   只有成功读到数字型 PREV_TX 才算有基线；文件缺失/损坏/字段非数字都算"首次运行"。
+#   这堵住了一个会产生巨型假尖峰的 bug：状态文件迁移(.state → /var/lib/edgebox)
+#   或被清空后，PREV=0 而 tx_bytes 是开机至今的累计值，旧逻辑会把这整块累计值
+#   当成单日增量记进去（曾出现单日数百 GiB 的假数据）。
 PREV_TX=0; PREV_RX=0; PREV_RESI=0
+HAVE_PREV=0
 if [[ -f "$STATE" ]]; then
     # jq -e: 解析失败返回非零，跳过坏文件兜底 0
     # 字段强制为数字，避免恶意数据干扰
     _PREV_TX=$(jq -r '.PREV_TX // 0 | if type == "number" then . else 0 end' "$STATE" 2>/dev/null)
     _PREV_RX=$(jq -r '.PREV_RX // 0 | if type == "number" then . else 0 end' "$STATE" 2>/dev/null)
     _PREV_RESI=$(jq -r '.PREV_RESI // 0 | if type == "number" then . else 0 end' "$STATE" 2>/dev/null)
-    # 再过一道 bash regex 校验（必须是纯数字）
-    [[ "${_PREV_TX:-}" =~ ^[0-9]+$ ]] && PREV_TX="$_PREV_TX"
+    # 再过一道 bash regex 校验（必须是纯数字）；拿到合法 PREV_TX 才算有可信基线
+    if [[ "${_PREV_TX:-}" =~ ^[0-9]+$ ]]; then PREV_TX="$_PREV_TX"; HAVE_PREV=1; fi
     [[ "${_PREV_RX:-}" =~ ^[0-9]+$ ]] && PREV_RX="$_PREV_RX"
     [[ "${_PREV_RESI:-}" =~ ^[0-9]+$ ]] && PREV_RESI="$_PREV_RESI"
 fi
 
 delta() { local cur="$1" prev="$2"; [[ "$cur" -ge "$prev" ]] && echo $((cur-prev)) || echo 0; }
-D_TX=$(delta "$TX_CUR"   "${PREV_TX:-0}")
-D_RX=$(delta "$RX_CUR"   "${PREV_RX:-0}")
-D_RESI=$(delta "$RESI_CUR" "${PREV_RESI:-0}")
-D_VPS=$D_TX; [[ $D_RESI -le $D_TX ]] && D_VPS=$((D_TX - D_RESI)) || D_VPS=0
+if [[ "$HAVE_PREV" -eq 1 ]]; then
+    D_TX=$(delta "$TX_CUR"   "${PREV_TX:-0}")
+    D_RX=$(delta "$RX_CUR"   "${PREV_RX:-0}")
+    D_RESI=$(delta "$RESI_CUR" "${PREV_RESI:-0}")
+    D_VPS=$D_TX; [[ $D_RESI -le $D_TX ]] && D_VPS=$((D_TX - D_RESI)) || D_VPS=0
+else
+    # 首次运行 / 基线不可信：仅以当前计数建立基线（见下方第 7 步保存），本轮增量记 0
+    D_TX=0; D_RX=0; D_RESI=0; D_VPS=0
+fi
 
 TODAY="$(date +%F)"
 # 4) 写 daily.csv（date,vps,resi,tx,rx），保留最近90天
