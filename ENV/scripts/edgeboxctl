@@ -549,10 +549,21 @@ show_sub(){
   fi
   [[ -n "$MASTER_SUB_TOKEN" ]] && SUB_PATH="sub-${MASTER_SUB_TOKEN}"
 
-  # 统一规范订阅地址：固定使用 IP + HTTP（80）
-  local server_ip=$(jq -r '.server_ip // "YOUR_IP"' "${CONFIG_DIR}/server.json" 2>/dev/null)
-  [[ -z "$server_ip" ]] && server_ip="YOUR_IP"
-  local base_url="http://${server_ip}/${SUB_PATH}"
+  # v4.7.0 修复: 域名模式用域名 + https:8443（LE 真证书，订阅也能安全走 HTTPS）；
+  #   IP 模式用 IP + http:80（自签 HTTPS 客户端拉取不稳，订阅保留明文 80）。
+  local server_ip cert_domain panel_base is_domain=0
+  server_ip=$(jq -r '.server_ip // "YOUR_IP"' "${CONFIG_DIR}/server.json" 2>/dev/null)
+  [[ -z "$server_ip" || "$server_ip" == "null" ]] && server_ip="YOUR_IP"
+  cert_domain=$(jq -r '.cert.domain // empty' "${CONFIG_DIR}/server.json" 2>/dev/null)
+  local base_url
+  if [[ -n "$cert_domain" ]]; then
+    is_domain=1
+    base_url="https://${cert_domain}:8443/${SUB_PATH}"
+    panel_base="https://${cert_domain}:8443"
+  else
+    base_url="http://${server_ip}/${SUB_PATH}"
+    panel_base="https://${server_ip}:8443"
+  fi
 
   # v4.7.0 (前端报错 #3): 输出 4 种格式 URL，与 dashboard 弹窗一致。
   # 不同客户端解析不同格式 — v2rayN/v2rayNG 用默认；Clash 用 .clash；sing-box/NekoBox 用 .singbox；旧版用 .base64。
@@ -571,6 +582,12 @@ show_sub(){
   echo -e "  🔗 ${CYAN}Base64 兼容（旧版客户端）${NC}"
   echo -e "     ${GREEN}${base_url}.base64${NC}"
   echo
+  if [[ "$is_domain" -eq 1 ]]; then
+    echo -e "  ${DIM}域名模式：订阅经 HTTPS(8443) 提供，证书有效；节点直连 ${cert_domain}${NC}"
+  else
+    echo -e "  ${DIM}IP 模式：订阅经 HTTP(80) 明文提供，请勿公开分享链接（内含节点凭据）${NC}"
+  fi
+  echo
 
   # v4.7.0 (用户请求): 同时输出 Web 控制面板地址（passcode 从 server.json 读取）
   local passcode
@@ -579,13 +596,17 @@ show_sub(){
   echo
   if [[ -n "$passcode" ]]; then
     echo -e "  🌐 ${CYAN}Web 面板（含访问密码）${NC}"
-    echo -e "     ${PURPLE}https://${server_ip}:8443/traffic/?passcode=${passcode}${NC}"
+    echo -e "     ${PURPLE}${panel_base}/traffic/?passcode=${passcode}${NC}"
     echo
-    echo -e "     ${DIM}IP 模式为自签证书，浏览器提示不受信任时点\"继续前往\"即可（已 TLS 加密）${NC}"
+    if [[ "$is_domain" -eq 1 ]]; then
+      echo -e "     ${DIM}域名模式：Let's Encrypt 有效证书，浏览器无警告（请用域名访问，勿用 IP）${NC}"
+    else
+      echo -e "     ${DIM}IP 模式为自签证书，浏览器提示不受信任时点\"继续前往\"即可（已 TLS 加密）${NC}"
+    fi
     echo -e "     ${DIM}密码: ${passcode}    （可用 \`edgeboxctl dashboard passcode\` 重置）${NC}"
   else
     echo -e "  🌐 ${CYAN}Web 面板${NC}"
-    echo -e "     ${PURPLE}https://${server_ip}:8443/traffic/${NC}"
+    echo -e "     ${PURPLE}${panel_base}/traffic/${NC}"
     echo -e "     ${DIM}（passcode 不可读 — 请用 sudo 调用，或运行 \`sudo edgeboxctl dashboard passcode\` 重置）${NC}"
   fi
   echo
