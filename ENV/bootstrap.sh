@@ -37,7 +37,7 @@ EDGEBOX_FILES=(
     "lib/common.sh|lib/common.sh|dc75d1b179ec77a61a4ac6501a7a4caa4323a8772d23e804b56d330091bae95f"
     "lib/alert.sh|lib/alert.sh|d80652f40814bd4249ca24b0d5b20fe6801fc3bfd8c50616fdebedca034b5d36"
     "lib/subscription.sh|lib/subscription.sh|4491fff550d5585e4d3fd7e4ad34892b775e172d4ec3231a0da6522f5772d882"
-    "scripts/edgeboxctl|scripts/edgeboxctl|8b576ba74c9403a9f2caa28a049f65e985e43010e6afee7f6f714375ea980113"
+    "scripts/edgeboxctl|scripts/edgeboxctl|1b5d834acbaad7a2c333a50e682316807875bec8721cd93e78d85a481e28c80b"
     "scripts/dashboard-backend.sh|scripts/dashboard-backend.sh|6a0b00f6edec0827d618e9d9cbcc865e7f5200c1cccfc96987cabcca4a62dcab"
     "scripts/protocol-health-monitor.sh|scripts/protocol-health-monitor.sh|4b972c92d1cd8485cc32cf2f5406ad4c528caa41d7369ae6b6fc2f77d13b2451"
     "scripts/edgebox-traffic-randomize.sh|scripts/edgebox-traffic-randomize.sh|a1440d24c81265536092b270bbbeb3f55d68fc1382e0d45216adb980430c91e2"
@@ -69,9 +69,29 @@ log_error()   { _color '0;31' "[BOOTSTRAP] $*" >&2; }
 
 _check_root() {
     if [[ "$EUID" -ne 0 ]]; then
-        log_error "EdgeBox must be installed as root."
-        log_error "Try: sudo bash <(curl -fsSL <url>)"
-        exit 1
+        # v4.7.0: 自动 sudo 提权。原先只是提示 "Try: sudo bash <(curl ...)"，
+        # 但那个建议本身在 sudo 下会失败 —— <(...) 的 /dev/fd/N 属于调用者的进程，
+        # sudo 切换到 root 后该 fd 不存在 → "bash: /dev/fd/63: No such file or directory"。
+        # 改为：把本脚本(无论来源:管道/<(...))写入 tmp，然后 exec sudo bash <tmp>，可靠提升权限。
+        local _eb_self
+        _eb_self="$(mktemp /tmp/edgebox-bootstrap.XXXXXX.sh)" || {
+            log_error "无法创建临时文件用于 sudo 提权"
+            exit 1
+        }
+        # shellcheck disable=SC2128
+        cat "${BASH_SOURCE:-/dev/stdin}" > "$_eb_self" 2>/dev/null || cat > "$_eb_self"
+        chmod +x "$_eb_self"
+        if command -v sudo >/dev/null 2>&1; then
+            log_info "需要 root 权限，正在通过 sudo 提权…"
+            exec sudo -E bash "$_eb_self" "$@"
+        else
+            log_error "EdgeBox 需要 root 权限运行。"
+            log_error "请改用以下任一方式："
+            log_error "  curl -fsSL <url> | sudo bash"
+            log_error "  sudo -i ; bash <(curl -fsSL <url>)"
+            rm -f "$_eb_self"
+            exit 1
+        fi
     fi
 }
 
@@ -227,7 +247,7 @@ main() {
     log_info " EdgeBox Bootstrap v${EDGEBOX_BOOTSTRAP_VERSION}"
     log_info "============================================================"
 
-    _check_root
+    _check_root "$@"
     _check_tools
     _check_bash_version
 
