@@ -357,6 +357,18 @@ _eb_sync_web_links() {
     ln -sfn "$EB_SUB_BASE64"  "${EB_WEB_ROOT}/sub-${token}.base64"
     ln -sfn "$EB_SUB_CLASH"   "${EB_WEB_ROOT}/sub-${token}.clash"
     ln -sfn "$EB_SUB_SINGBOX" "${EB_WEB_ROOT}/sub-${token}.singbox"
+
+    # v4.7.0 (审计): 清理不属于当前 token 的旧 sub-* 残留。
+    #   旧实现只建当前 token 的软链、从不删旧的，而所有 token 软链都指向同一份订阅文件，
+    #   导致历史上每个 token（重装/轮换前的）都长期有效、无法吊销。这里把非当前 token 的
+    #   sub-* 一律删除，使"换 token"能真正吊销旧链接。只动 sub-* 形态，其它文件不碰。
+    #   token 为 hex（openssl rand -hex 16），无 glob 元字符，-name 匹配安全。
+    find "${EB_WEB_ROOT}" -maxdepth 1 -name 'sub-*' \
+         ! -name "sub-${token}" \
+         ! -name "sub-${token}.base64" \
+         ! -name "sub-${token}.clash" \
+         ! -name "sub-${token}.singbox" \
+         -exec rm -f {} + 2>/dev/null || true
 }
 
 #############################################
