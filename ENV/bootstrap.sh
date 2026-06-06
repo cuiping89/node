@@ -36,7 +36,7 @@ EDGEBOX_FILES=(
     "install.sh|install.sh|10e2dbf3269caa17aceb51a73374d3cb207d6028efafadfd66012ef3b0ce9096"
     "lib/common.sh|lib/common.sh|1ae6fd375080ed210f693282859610ec0a2ce3de188fa76c5c1a708ae2a9a4b6"
     "lib/alert.sh|lib/alert.sh|d80652f40814bd4249ca24b0d5b20fe6801fc3bfd8c50616fdebedca034b5d36"
-    "lib/subscription.sh|lib/subscription.sh|c4ab4b86368bbfe42d6a7e25c5f1417b3a22768aed0cfb9d7e3e3e8d0eb08b91"
+    "lib/subscription.sh|lib/subscription.sh|9646a56d5bd1bf29b6f58e2e1a8a34c1c74517094ac009061b61fd7e669c5a83"
     "scripts/edgeboxctl|scripts/edgeboxctl|69954bc7147e6bf22b6dbbb16c8e3116305403246091dd421dce1b15292311f0"
     "scripts/dashboard-backend.sh|scripts/dashboard-backend.sh|6a0b00f6edec0827d618e9d9cbcc865e7f5200c1cccfc96987cabcca4a62dcab"
     "scripts/protocol-health-monitor.sh|scripts/protocol-health-monitor.sh|4b972c92d1cd8485cc32cf2f5406ad4c528caa41d7369ae6b6fc2f77d13b2451"
