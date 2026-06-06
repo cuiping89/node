@@ -2,6 +2,17 @@
 
 ## v4.7.0 — CDN/WS removal + security-hardening pass
 
+### 订阅旧链接无法吊销（审计 follow-up）
+
+`_eb_sync_web_links` 只为当前 token 建 `/var/www/html/sub-<token>*` 软链接、
+从不删除旧 token 的，而所有 token 软链接都指向同一份订阅文件——导致历史上
+每个 token（重装/轮换前的）都长期有效、**无法吊销**。即便重新生成 token，旧链接
+仍可拉到（重新生成后的）订阅。修复：`_eb_sync_web_links` 在建好当前 token 软链接
+后，用 `find ... ! -name sub-<token>* -exec rm` 清除所有非当前 token 的 `sub-*`
+残留（只动 sub-* 形态，其它文件不碰），使"换 token"能真正吊销旧链接。
+File: `lib/subscription.sh`.
+
+
 ### 抗 GFW / 大陆监控 加固 (审计 follow-up)
 
 针对 GFW 主动探测 / DPI / 审查 / 取证 威胁模型的一轮加固，详见
