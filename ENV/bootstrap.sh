@@ -69,29 +69,29 @@ log_error()   { _color '0;31' "[BOOTSTRAP] $*" >&2; }
 
 _check_root() {
     if [[ "$EUID" -ne 0 ]]; then
-        # v4.7.0: 自动 sudo 提权。原先只是提示 "Try: sudo bash <(curl ...)"，
-        # 但那个建议本身在 sudo 下会失败 —— <(...) 的 /dev/fd/N 属于调用者的进程，
-        # sudo 切换到 root 后该 fd 不存在 → "bash: /dev/fd/63: No such file or directory"。
-        # 改为：把本脚本(无论来源:管道/<(...))写入 tmp，然后 exec sudo bash <tmp>，可靠提升权限。
-        local _eb_self
-        _eb_self="$(mktemp /tmp/edgebox-bootstrap.XXXXXX.sh)" || {
-            log_error "无法创建临时文件用于 sudo 提权"
-            exit 1
-        }
-        # shellcheck disable=SC2128
-        cat "${BASH_SOURCE:-/dev/stdin}" > "$_eb_self" 2>/dev/null || cat > "$_eb_self"
-        chmod +x "$_eb_self"
-        if command -v sudo >/dev/null 2>&1; then
-            log_info "需要 root 权限，正在通过 sudo 提权…"
-            exec sudo -E bash "$_eb_self" "$@"
-        else
-            log_error "EdgeBox 需要 root 权限运行。"
-            log_error "请改用以下任一方式："
-            log_error "  curl -fsSL <url> | sudo bash"
-            log_error "  sudo -i ; bash <(curl -fsSL <url>)"
-            rm -f "$_eb_self"
+        # v4.7.0 (修复): 上一版本对所有非 root 场景都 `cat $BASH_SOURCE > tmp` 然后 sudo bash tmp，
+        # 但当通过 `curl | bash` 或 `bash <(curl ...)` 调用时，脚本来源是 STDIN/管道 fd，
+        # bash 已经读过的部分无法再回放 → tmp 文件为空 → sudo bash <空> 立即静默退出。
+        # 现改为：判断"是否能再执行自己"，否则就 re-fetch bootstrap.sh 走 sudo+curl 重跑。
+        if ! command -v sudo >/dev/null 2>&1; then
+            log_error "EdgeBox 必须以 root 权限运行，但 sudo 不可用。"
+            log_error "请以 root 重试，例如先：sudo -i  然后再跑同样的安装命令。"
             exit 1
         fi
+
+        local _self="${BASH_SOURCE[0]:-$0}"
+        # 真实磁盘文件 → 可以直接 sudo exec 自己
+        if [[ -n "$_self" && -f "$_self" && -r "$_self" \
+              && "$_self" != /dev/fd/* && "$_self" != /proc/self/fd/* \
+              && "$_self" != bash && "$_self" != -bash && "$_self" != /bin/bash ]]; then
+            log_info "需要 root 权限，正在通过 sudo 提权…"
+            exec sudo -E bash "$_self" "$@"
+        fi
+
+        # 管道 / 进程替换调用：源已被 bash 部分消费，无法本地复制；
+        # 用 sudo + curl 直接从仓库 refetch bootstrap.sh，以 root 重跑一次。
+        log_info "需要 root 权限，通过 sudo + curl refetch 重跑（管道调用模式）…"
+        exec sudo -E bash -c "curl -fsSL '${EDGEBOX_BASE_URL}/bootstrap.sh' | bash"
     fi
 }
 
