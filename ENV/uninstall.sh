@@ -55,7 +55,9 @@ systemd_safe(){
   local action="$1"; shift || true
   for service in "$@"; do
     [[ -z "${service:-}" ]] && continue
-    if systemctl list-unit-files | grep -qE "^${service}\.service"; then
+    # v4.7.0 修复: list-unit-files|grep -q 在 set -o pipefail 下会因 grep 提前退出触发 SIGPIPE 误判，
+    #   可能漏掉本应停止/禁用的服务。改用 systemctl cat（无管道，单元存在返回 0）。
+    if systemctl cat "${service}.service" >/dev/null 2>&1; then
       systemctl "$action" "$service" >/dev/null 2>&1 || true
     fi
   done

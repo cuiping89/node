@@ -323,6 +323,8 @@ REALITY_SHORT_ID=""
 
 # 密码集合 (v4.7.0: only Hysteria2)
 PASSWORD_HYSTERIA2=""
+# v4.7.0 (审计 H-2): Hysteria2 Salamander obfs 预共享口令
+HYSTERIA2_OBFS_PASSWORD=""
 
 #############################################
 # 端口配置（单端口复用架构）
@@ -2257,6 +2259,8 @@ fi
 
     # Hysteria2 password (the only password-authenticated protocol left)
     PASSWORD_HYSTERIA2=$(openssl rand -base64 32 | tr -d '\n')
+    # v4.7.0 (审计 H-2): Salamander obfs 口令（hex，URL 安全，128-bit）
+    HYSTERIA2_OBFS_PASSWORD=$(openssl rand -hex 16)
 
     # 验证生成结果
     local failed_items=()
@@ -2457,6 +2461,7 @@ save_config_info() {
       --arg disk_spec            "$disk_spec" \
       --arg uuid_vless_reality   "$UUID_VLESS_REALITY" \
       --arg password_hysteria2   "$PASSWORD_HYSTERIA2" \
+      --arg hysteria2_obfs       "$HYSTERIA2_OBFS_PASSWORD" \
       --arg reality_public_key   "$REALITY_PUBLIC_KEY" \
       --arg reality_private_key  "$REALITY_PRIVATE_KEY" \
       --arg reality_short_id     "$REALITY_SHORT_ID" \
@@ -2471,7 +2476,7 @@ save_config_info() {
          cloud: { provider: $cloud_provider, region: $cloud_region },
          spec:  { cpu: $cpu_spec, memory: $memory_spec, disk: $disk_spec },
          uuid:  { vless: { reality: $uuid_vless_reality } },
-         password: { hysteria2: $password_hysteria2 },
+         password: { hysteria2: $password_hysteria2, hysteria2_obfs: (if $hysteria2_obfs == "" then null else $hysteria2_obfs end) },
          reality:  { public_key: $reality_public_key, private_key: $reality_private_key, short_id: $reality_short_id, sni: (if $reality_sni == "" then null else $reality_sni end) },
          cert: { mode: $cert_mode, domain: (if $cert_domain == "" then null else $cert_domain end), auto_renew: $cert_autorenew }
        }' > "$server_tmp" || { log_error "使用jq生成 server.json 失败"; rm -f "$server_tmp"; return 1; }
@@ -2760,6 +2765,10 @@ execute_module2() {
         # 从 keep 文件读取所有凭据到全局变量
         UUID_VLESS_REALITY=$(jq -r '.uuid.vless.reality // empty' "$KEEP_FILE")
         PASSWORD_HYSTERIA2=$(jq -r '.password.hysteria2 // empty' "$KEEP_FILE")
+        # v4.7.0 (审计 H-2): 保留 obfs 口令；旧版本 keep 文件无此字段则生成新口令
+        #   (obfs 是新增能力，老节点升级后本就需重新导入订阅才能用 obfs，故此处生成新值可接受)
+        HYSTERIA2_OBFS_PASSWORD=$(jq -r '.password.hysteria2_obfs // empty' "$KEEP_FILE")
+        [[ -z "$HYSTERIA2_OBFS_PASSWORD" ]] && HYSTERIA2_OBFS_PASSWORD=$(openssl rand -hex 16)
         REALITY_PUBLIC_KEY=$(jq -r '.reality.public_key // empty' "$KEEP_FILE")
         REALITY_PRIVATE_KEY=$(jq -r '.reality.private_key // empty' "$KEEP_FILE")
         REALITY_SHORT_ID=$(jq -r '.reality.short_id // empty' "$KEEP_FILE")
@@ -3558,7 +3567,10 @@ http {
     map "$arg_present:$pass_ok" $bad_try { default 0; "1:0" 1; "1:1" 0; }
     map "$bad_try:$pass_ok:$cookie_ok" $deny_traffic { default 1; "0:1:0" 0; "0:0:1" 0; "0:1:1" 0; }
 
-    log_format main '$remote_addr - $remote_user [$time_local] "$request_method $uri $server_protocol" $status $body_bytes_sent "$http_referer" "$http_user_agent"';
+    # v4.7.0 (审计 M-2): 匿名化访问日志——去掉 $remote_addr / $remote_user / referer / UA，
+    # 避免服务器被查封/镜像时，access.log 把"哪些客户端 IP 访问过本节点"暴露出来。
+    # 仅保留方法/路径/协议/状态/字节，足够排障，不含可关联使用者的信息。
+    log_format main '- - [$time_local] "$request_method $uri $server_protocol" $status $body_bytes_sent';
     access_log /var/log/nginx/access.log main;
     error_log  /var/log/nginx/error.log warn;
 
@@ -3573,46 +3585,20 @@ http {
         listen 80 default_server;
         listen [::]:80 default_server;
         server_name _;
-        # v4.7.0: 面板改为 HTTPS-only，根路径跳到 8443
-        location = / { return 301 https://$host:8443/traffic/; }
-        # v4.0.0: 4-format subscription endpoint (plain/base64/clash/singbox)
-        # The actual path /sub-<token>[.ext] is created by edgeboxctl/install.sh by renaming
-        location ~ "^/sub-[a-f0-9]+$" {
-            default_type "text/plain; charset=utf-8";
-            add_header Cache-Control "no-store, no-cache, must-revalidate";
-            root /var/www/html;
-        }
-        location ~ "^/sub-[a-f0-9]+\.base64$" {
-            default_type "text/plain; charset=utf-8";
-            add_header Cache-Control "no-store, no-cache, must-revalidate";
-            root /var/www/html;
-        }
-        location ~ "^/sub-[a-f0-9]+\.clash$" {
-            default_type "text/yaml; charset=utf-8";
-            add_header Cache-Control "no-store, no-cache, must-revalidate";
-            root /var/www/html;
-        }
-        location ~ "^/sub-[a-f0-9]+\.singbox$" {
-            default_type "application/json; charset=utf-8";
-            add_header Cache-Control "no-store, no-cache, must-revalidate";
-            root /var/www/html;
-        }
-        # v4.6.0-rc4: 移除旧的 /sub location (v3 残留，仅服务 token 化前的链接)
-        location ^~ /share/ {
-            default_type text/plain;
-            add_header Cache-Control "no-store, no-cache, must-revalidate";
+        # v4.7.0 (审计 H-1): 80 端口不再明文提供订阅/面板。
+        #   明文订阅在墙内被拉取时会把整份节点凭据(IP/UUID/Reality公钥+shortId/HY2密码/SNI)
+        #   暴露给 GFW 的 DPI。改为：仅保留 ACME 验证与存活探测，其余一律 301 跳 8443 HTTPS。
+        #   (续期当前用 certbot --standalone：续期时 nginx 被临时停掉、certbot 自己占 80，
+        #    故本块的 acme-challenge location 在 standalone 下不参与；保留它以兼容 webroot/--nginx 续期。)
+        location ^~ /.well-known/acme-challenge/ {
+            default_type "text/plain";
             root /var/www/html;
             try_files $uri =404;
         }
-        location = /_deny_traffic { internal; return 403; }
-        # v4.7.0: 面板不再经明文 80 提供；一律跳转到 8443 (HTTPS)，
-        # 避免 passcode / 凭据在明文链路上被嗅探。
-        location ^~ /traffic/ { return 301 https://$host:8443$request_uri; }
-        location ^~ /status/ {
-            alias /var/www/edgebox/status/;
-            add_header Content-Type "application/json; charset=utf-8";
-        }
+        # 明文存活探测（不含任何节点信息，供外部 uptime 监控用）
         location = /health { return 200 "OK\n"; }
+        # 其余全部跳转到 8443 HTTPS（含 /sub-*、/share/、/traffic/、/status/）
+        location / { return 301 https://$host:8443$request_uri; }
     }
 
     # v4.7.0: HTTPS 控制面板 / 订阅（8443）
@@ -4199,17 +4185,39 @@ configure_sing_box() {
     fi
     log_success "✓ sing-box 必要变量已设置"
 
+    # v4.7.0 (审计 H-2): 读取 Hysteria2 Salamander obfs 口令；server.json 缺失则生成并写回，
+    #   使本函数自洽（独立被 edgeboxctl 调用重配时也能拿到 obfs）。
+    local HY2_OBFS_PASSWORD=""
+    [[ -f "${CONFIG_DIR}/server.json" ]] && HY2_OBFS_PASSWORD="$(jq -r '.password.hysteria2_obfs // empty' "${CONFIG_DIR}/server.json" 2>/dev/null)"
+    if [[ -z "$HY2_OBFS_PASSWORD" ]]; then
+        HY2_OBFS_PASSWORD="${HYSTERIA2_OBFS_PASSWORD:-$(openssl rand -hex 16)}"
+        if [[ -f "${CONFIG_DIR}/server.json" ]]; then
+            local _sj_tmp; _sj_tmp="$(mktemp)"
+            if jq --arg o "$HY2_OBFS_PASSWORD" '.password.hysteria2_obfs = $o' "${CONFIG_DIR}/server.json" > "$_sj_tmp" 2>/dev/null; then
+                mv "$_sj_tmp" "${CONFIG_DIR}/server.json"
+            else
+                rm -f "$_sj_tmp"
+            fi
+        fi
+        HYSTERIA2_OBFS_PASSWORD="$HY2_OBFS_PASSWORD"
+    fi
+    # v4.7.0 (审计 M-3): masquerade 写进基础配置（不再只靠 cron 注入）；对未认证 HTTP/3 探测伪装成正常网站。
+    #   cron (edgebox-traffic-randomize) 后续仍会在站点池内轮换此值。
+    local HY2_MASQ_URL="https://www.bing.com"
+
     mkdir -p /var/log/edgebox 2>/dev/null || true
     log_info "生成sing-box配置文件 (使用 jq 写入临时文件)..."
     local sbox_tmp="${CONFIG_DIR}/sing-box.json.tmp"
     if ! jq -n \
       --arg hy2_pass "$PASSWORD_HYSTERIA2" \
+      --arg hy2_obfs "$HY2_OBFS_PASSWORD" \
+      --arg hy2_masq "$HY2_MASQ_URL" \
       --arg cert_pem "${CERT_DIR}/current.pem" \
       --arg cert_key "${CERT_DIR}/current.key" \
       '{
         "log": { "level": "warn", "timestamp": true },
         "inbounds": [
-          { "type": "hysteria2", "tag": "hysteria2-in", "listen": "0.0.0.0", "listen_port": 443, "users": [ { "password": $hy2_pass } ], "tls": { "enabled": true, "alpn": ["h3"], "certificate_path": $cert_pem, "key_path": $cert_key } }
+          { "type": "hysteria2", "tag": "hysteria2-in", "listen": "0.0.0.0", "listen_port": 443, "users": [ { "password": $hy2_pass } ], "obfs": { "type": "salamander", "password": $hy2_obfs }, "masquerade": $hy2_masq, "tls": { "enabled": true, "alpn": ["h3"], "certificate_path": $cert_pem, "key_path": $cert_key } }
         ],
         "outbounds": [
           { "type": "direct", "tag": "direct" }
@@ -5976,8 +5984,20 @@ fi
     echo -e  "  🔗 订阅 URL (Base64 兼容):    ${PURPLE}${SUB_URL}.base64${NC}"
 
     echo -e  "\n${CYAN}默认模式：${NC}"
-    echo -e  "  证书模式: ${PURPLE}IP模式（自签名证书）${NC}"
-    echo -e  "  网络身份: ${PURPLE}VPS直连出站（默认）${NC}"
+    if [[ -n "$_cert_domain" ]]; then
+        echo -e  "  证书模式: ${PURPLE}域名模式（Let's Encrypt: ${_cert_domain}）${NC}"
+    else
+        echo -e  "  证书模式: ${PURPLE}IP模式（自签名证书）${NC}"
+    fi
+    # v4.7.0 修复: 网络身份按 shunt 状态动态显示（之前写死成 VPS直连）
+    local _shunt_mode _net_id
+    _net_id="VPS直连出站（默认）"
+    _shunt_mode=$(jq -r '.mode // empty' /etc/edgebox/config/shunt/state.json 2>/dev/null || true)
+    case "$_shunt_mode" in
+        resi)        _net_id="全量代理出站（住宅IP）" ;;
+        direct-resi) _net_id="智能分流（白名单走代理，其余直连）" ;;
+    esac
+    echo -e  "  网络身份: ${PURPLE}${_net_id}${NC}"
 
     echo -e "\n${CYAN}协议配置摘要 (v4.7.0)：${NC}"
     echo -e "  VLESS-Reality  端口: TCP/443  UUID: ${PURPLE}${UUID_VLESS:0:8}...${NC}"
@@ -6005,7 +6025,11 @@ fi
     echo -e "${CYAN}当前服务状态：${NC}"
 
     # 仅对存在的单元打印，避免误报
-    _unit_exists() { systemctl list-unit-files --no-legend | awk '{print $1}' | grep -qx "$1.service"; }
+    # v4.7.0 修复: 旧实现 `list-unit-files|awk|grep -q` 在 set -o pipefail 下有坑——
+    #   grep -q 命中即退出 → awk 收 SIGPIPE 失败 → pipefail 把整管道判失败 → 误判"不存在"。
+    #   是否触发取决于单元名在字母序里的位置(xray 靠后侥幸正常，nginx/sing-box 被漏报)。
+    #   改用 systemctl cat：单元存在返回 0，无管道、无 SIGPIPE。
+    _unit_exists() { systemctl cat "$1.service" >/dev/null 2>&1; }
 
     for svc in nginx xray sing-box; do
         if _unit_exists "$svc"; then
@@ -6384,7 +6408,9 @@ repair_system_state() {
     # 2) 服务自愈
     local services=("xray" "sing-box" "nginx")
     for s in "${services[@]}"; do
-        if systemctl list-unit-files | grep -q "^${s}.service"; then
+        # v4.7.0 修复: 同 _unit_exists——list-unit-files|grep -q 在 pipefail 下会因 SIGPIPE 误判，
+        #   导致 enable 被跳过。改用 systemctl cat（无管道）。
+        if systemctl cat "${s}.service" >/dev/null 2>&1; then
             systemctl enable "$s" >/dev/null 2>&1 || true
         fi
     done
