@@ -359,6 +359,23 @@ reload_or_restart_services() {
   local services=("$@")
   local failed=0
   for svc in "${services[@]}"; do
+    # v4.7.0 修复: sing-box 不支持信号热重载配置（SIGHUP 不重读配置），必须 restart，
+    #   否则 obfs / 证书 / UDP 等变更只写进文件、不在运行进程里生效（曾导致 obfs 没真正启用）。
+    if [[ "$svc" == "sing-box" || "$svc" == "sing-box.service" ]]; then
+      if command -v sing-box >/dev/null 2>&1 && [[ -f "${CONFIG_DIR}/sing-box.json" ]] \
+         && ! sing-box check -c "${CONFIG_DIR}/sing-box.json" >/dev/null 2>&1; then
+        log_error "sing-box 配置校验失败，跳过重启（避免把坏配置重启进进程）"
+        failed=1; continue
+      fi
+      if systemctl restart "$svc" 2>/dev/null; then
+        log_info "$svc 已重启"
+      else
+        log_error "$svc 重启失败"
+        systemctl status "$svc" --no-pager -l 2>&1 | tail -20 || true
+        failed=1
+      fi
+      continue
+    fi
     if systemctl reload "$svc" 2>/dev/null; then
       log_info "$svc 已热加载"
     elif systemctl restart "$svc" 2>/dev/null; then
