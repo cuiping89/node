@@ -1,5 +1,166 @@
 # Changelog
 
+## v4.7.0 — CDN/WS removal + security-hardening pass
+
+Single-box topology change plus a security review of the v4.7.0 tree.
+Seven issues fixed, ranked below by IP-exposure / privacy risk rather than
+by a formal P1/P2 audit grade.
+
+### Architecture change: CDN / VLESS-WS removed
+
+The optional Cloudflare CDN relay and the VLESS-WS inbound are gone.
+Deployment is now a single box running **VLESS-Reality (TCP/443)** +
+**Hysteria2 (UDP/443)** only. nginx owns TCP/443 via `ssl_preread`
+(single-level SNI routing → Reality); HY2 runs directly on UDP/443 via
+sing-box. The `edgeboxctl cdn` subcommand and the WS stream/HTTP routing
+were removed.
+
+**Privacy consequence (documented, not a bug):** both protocols connect
+clients directly to the server, so the VPS IP is exposed to clients by
+design. There is no longer an IP-hiding layer. README updated to say so.
+
+### Security findings fixed
+
+#### 1 (HIGH): reverse-SSH lifeline leaked operator IP + auto-enabled
+`install.sh` ran `ensure_reverse_ssh` unconditionally during install, and
+`auto_detect_reverse_ssh_params` had a fallback that grabbed the current
+SSH client IP (`SSH_CONNECTION`) — i.e. the operator's home/office public
+IP — wrote it into `/etc/edgebox/reverse-ssh.env`, and set up a persistent
+`Restart=always` reverse tunnel back to it. The env file was written with
+no explicit mode (inherited umask → typically 644, world-readable). For an
+anonymity-oriented proxy this links the operator's real IP to the VPS.
+
+Fixed:
+- Removed the `SSH_CONNECTION` → client-IP fallback entirely. Only explicit
+  config is honored now (env file, or `~/.ssh/config` bastion aliases).
+- Feature is now **opt-in**: `ensure_reverse_ssh` / `install_reverse_ssh_unit`
+  return early unless `EB_RSSH_ENABLE=1` (env var or in reverse-ssh.env).
+  Default installs do **not** set up any reverse tunnel.
+- `reverse-ssh.env` now `chmod 600`.
+
+#### 2: client subscription DNS leak
+The generated client sing-box config (`lib/subscription.sh`) used
+`dns.rules: [{ outbound: "any", server: "local" }]` with the `local` server
+on `detour: "direct"`. Result: DNS queries bypassed the tunnel and went from
+the client's real IP to its local/ISP resolver — the ISP could see every
+domain queried. (The defined `tls://8.8.8.8` server was never reached
+because the catch-all rule sent everything to `local`.)
+
+Fixed: DNS now resolves through the tunnel —
+- `proxy-dns` = `tls://8.8.8.8` with `detour: "EdgeBox"` (queries egress at
+  the VPS).
+- `direct-dns` = `local`/`direct`, used **only** for the server's own
+  endpoint (`dns.rules: [{ domain: [$host], server: "direct-dns" }]`) to
+  avoid a resolution loop in domain mode. Inert when `$host` is an IP.
+- `dns.final: "proxy-dns"` so everything else goes through the tunnel.
+- Fails closed (no DNS if tunnel down) — correct for a privacy tool.
+
+#### 3: server logs recorded client IP + destinations
+xray `loglevel: "info"` with `access: /var/log/xray/access.log`, and
+sing-box `level: "info"`, logged per-connection source IP + destination to
+disk on the VPS (14-day retention). On seizure/compromise that's a
+"who-from-where-to-what" record.
+
+Fixed (`install.sh`): xray → `"access": "none"`, `"loglevel": "warning"`;
+sing-box server → `"level": "warn"`. Client config log also lowered to
+`warn`. Error logs retained for debugging.
+
+#### 4: install.sh `eval` lacked `@sh` quoting
+The server.json variable-reload `eval` in `install.sh` interpolated values
+without `@sh` (unlike the already-fixed `edgeboxctl` path). Low severity
+(values are self-generated, polluting server.json needs root) but an
+inconsistency / defense-in-depth gap.
+
+Fixed: all five interpolated fields now use `| @sh`. Verified that a value
+containing shell metacharacters is neutralized.
+
+#### 5: dashboard passcode was 6-digit numeric
+Default passcode space was 10^6 (brute-forceable), and a degenerate fallback
+generated a single digit repeated six times. The `edgeboxctl dashboard
+passcode` reset command also hard-required `^[0-9]{6}$`.
+
+Fixed:
+- Default is now 12 chars `[a-z0-9]` from `/dev/urandom` (~62 bits).
+  Restricted to alphanumerics to avoid URL / nginx-map quoting issues.
+- Degenerate single-digit fallback replaced with the same 12-char CSPRNG.
+- `update_dashboard_passcode` relaxed to accept `^[A-Za-z0-9]{6,64}$`
+  (still backward-compatible with old 6-digit passcodes) and auto-generates
+  12 chars when left blank. Help text updated.
+
+#### 6: README claimed CDN hides the VPS IP (stale)
+README still advertised "Optional CDN relay (Cloudflare) hides the VPS IP
+entirely" and listed `edgeboxctl cdn` commands + a VLESS-WS protocol — all
+removed in v4.7.0. Updated header to v4.7.0, fixed the architecture section,
+removed the stale `cdn` command rows, and corrected the sing-box schema note.
+
+#### 7: install summary claimed switch-to-domain gives dashboard HTTPS (false)
+The post-install security reminder told users to run `switch-to-domain` for
+HTTPS — but that cert only serves Reality/HY2; the dashboard and subscription
+stay on plaintext HTTP/80 regardless. Replaced with accurate guidance (see #8,
+which actually adds the HTTPS path).
+
+#### 8: HTTPS dashboard on 8443 (self-signed in IP mode, real cert in domain mode)
+Follow-up to #3/#7: instead of leaving the dashboard on plaintext HTTP, added
+a dedicated `listen 8443 ssl` server block in `configure_nginx`. It can't go on
+443 (the stream module owns 443 via `ssl_preread`), so 8443 is the HTTPS entry.
+
+- **Cert source** is the `/etc/edgebox/cert/current.pem|key` symlink pair:
+  self-signed in IP mode (browser warns, click through — traffic is still TLS),
+  Let's Encrypt in domain mode.
+- **Forward-compatible:** `switch-to-domain` only repoints those symlinks +
+  reloads nginx; it does not rewrite `nginx.conf`. So the 8443 block
+  automatically serves the real cert after a domain switch, no edits needed.
+- **Port 80 dashboard is now HTTPS-only:** `/` and `/traffic/` on :80 return
+  `301` to `https://$host:8443/...`. Plaintext dashboard is gone.
+- **Subscription stays on HTTP/80** (`/sub-<token>`): client apps (Clash Verge,
+  Shadowrocket) fetch self-signed HTTPS unreliably, so the subscription endpoint
+  is intentionally left on 80. The 8443 block also serves `/sub-*` for browser
+  fetches. Subscription content is credentials — don't share the link.
+- **Cookie hardening:** the dashboard session cookie now carries `Secure`, so
+  browsers only send it over HTTPS — closes plaintext cookie sniffing on :80.
+- Firewall opens `8443/tcp` (install.sh port set + apply-firewall.sh for
+  ufw/firewalld/iptables). All user-facing dashboard URLs (install summary,
+  `edgeboxctl sub`, health check) updated to `https://<ip>:8443/traffic/`.
+- Validated with `nginx -t` on the generated config (syntax OK; the only
+  sandbox error was lack of IPv6 for the `[::]` listen, irrelevant on a real VPS).
+
+### Not changed (architectural tradeoffs, documented not patched)
+
+- **Subscription endpoint on plaintext HTTP/80.** Kept deliberately — client
+  apps don't reliably accept self-signed HTTPS for subscription import. Fetch it
+  once and paste, or rely on token secrecy + rotatable credentials. (The
+  *dashboard* is now HTTPS-only on 8443; only the subscription stays on 80.)
+- **HY2 `insecure=true` in IP mode.** Inherent to self-signed certs; only
+  domain mode (real cert) removes the MITM exposure on the HY2 channel.
+  Reality is unaffected (own X25519 auth). Decision: keep HY2 + accept the
+  low-probability active-MITM risk on that one channel in exchange for the
+  QUIC fallback; domain mode closes it cleanly later.
+- **VPS IP exposed to clients.** By design after CDN/WS removal (see above).
+
+### Files changed + hashes
+
+| File | sha256 |
+|---|---|
+| install.sh | 051c015245cb7337c1a5cbeed62dcd136136b17d051d3ee5312f5cefa8b98454 |
+| lib/subscription.sh | ab9364aabd76fa0d25ab504c0b45485da9368c8d553f3128759e100fe485d0e7 |
+| scripts/edgeboxctl | 7da1b883fb1799b699954727c08e64cfbccb06c23e0b88db81de60299ac49a05 |
+| scripts/apply-firewall.sh | f36170b7e5e8caf727d5c83198391ca1db23b654b34999443facafc4bbed29b9 |
+
+Docs also updated (not hash-tracked): `README.md`, `CHANGELOG.md`.
+Run `bash tools/gen-manifest.sh` after these edits (already done for this
+release) and commit `ENV/bootstrap.sh` in the same commit.
+
+### Post-upgrade verification (suggested)
+- dashboard reachable at `https://<ip>:8443/traffic/?passcode=...` (self-signed
+  warning in IP mode is expected)
+- `http://<ip>/traffic/` returns `301` to the 8443 HTTPS URL
+- `grep loglevel /etc/edgebox/xray.json` → `warning`
+- `systemctl status edgebox-reverse-ssh` → inactive / not-found on default installs
+- re-pull subscription → client sing-box DNS shows `proxy-dns` + `dns.final`
+- `ufw status | grep 8443` → 8443/tcp ALLOW
+
+---
+
 ## v4.6.0-rc4 — 4th security audit fixes (8 P1 + 7 P2)
 
 The 4th audit was the most rigorous yet — auditor ran actual commands and

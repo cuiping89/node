@@ -1,18 +1,25 @@
-# EdgeBox v4.6.0-rc4
+# EdgeBox v4.7.0
 
-**Release candidate** — 4th audit cleared (8 P1 + 7 P2). Pending real-VPS verification.
-P1 fixes applied + real-VPS verified.
+**Stable** — security-hardened, 4 audit rounds cleared.
 See `CHANGELOG.md` for the full audit log.
 
-Multi-protocol proxy node manager with CDN relay, health monitoring,
-and modular installer.
+Multi-protocol proxy node manager with health monitoring and a modular
+installer.
+
+> **v4.7.0 note — CDN / WS removed.** Earlier releases shipped an optional
+> Cloudflare CDN relay (via a VLESS-WS inbound) that could front the VPS IP.
+> That path is **gone** in v4.7.0: the deployment is now a single box running
+> Reality (TCP/443) + Hysteria2 (UDP/443) only. Because both protocols connect
+> clients directly to the server, **the VPS IP is always visible to clients**;
+> there is no longer any IP-hiding layer. If you need to mask the origin IP,
+> put your own CDN/proxy in front out-of-band.
 
 ## Compatibility note
 
 This release pins `sing-box` to **1.12.8** on the server side. The
 subscription generator emits client configs using the pre-1.13.0 schema
-(`block` and `dns-out` outbounds). Upgrading the server past 1.12.x
-without first migrating the client config schema will break clients.
+(rule actions such as `hijack-dns` / `reject`). Upgrading the server past
+1.12.x without first migrating the client config schema will break clients.
 
 ## Quick install
 
@@ -25,14 +32,21 @@ GitHub and verifies the SHA256 of every file before running anything.
 
 ## Architecture
 
-Three protocols:
+Two protocols on a single box:
 
 - **VLESS-Reality** (TCP/443) — daily-driver, direct
-- **Hysteria2** (UDP/443) — QUIC fallback
-- **VLESS-WS** (TCP/443) — CDN-ready fallback
+- **Hysteria2** (UDP/443) — QUIC alternative, direct
 
-Optional CDN relay (Cloudflare) hides the VPS IP entirely; subscription
-contains only the CDN-fronted WS URI.
+Both connect clients straight to the VPS, so the server IP is exposed by
+design. nginx owns TCP/443 via `ssl_preread` and routes Reality SNIs to the
+Xray backend; Hysteria2 runs on UDP/443 directly through sing-box.
+
+The control dashboard is served over **HTTPS on port 8443** (`https://<ip>:8443/traffic/`).
+In IP mode this uses a self-signed cert (browser warning is expected; traffic is
+still TLS); after `edgeboxctl switch-to-domain <domain>` it automatically switches
+to the Let's Encrypt cert with no config change. Port 80 keeps the subscription
+endpoint (`/sub-<token>`, plaintext — client apps fetch self-signed HTTPS
+unreliably) and 301-redirects any dashboard hit to 8443.
 
 ## Repository layout
 
@@ -95,8 +109,6 @@ Common commands:
 | `edgeboxctl status` | Service + port health |
 | `edgeboxctl sub` | Subscription URLs |
 | `edgeboxctl monitor status` | Protocol health summary |
-| `edgeboxctl cdn status` | CDN relay mode state |
-| `edgeboxctl cdn enable <host>` | Switch to CDN mode |
 | `edgeboxctl cron list` | Cron tasks (default + opt-in) |
 | `edgeboxctl alert status` | Alert system + recent events |
 | `edgeboxctl switch-to-domain <d>` | Get Let's Encrypt cert |
