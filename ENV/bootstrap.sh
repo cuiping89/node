@@ -33,11 +33,11 @@ trap 'rm -rf "$BOOTSTRAP_TMP" 2>/dev/null || true' EXIT
 # These hashes are regenerated at every release via tools/gen-manifest.sh.
 # If you change any of these files, you MUST regenerate the manifest.
 EDGEBOX_FILES=(
-    "install.sh|install.sh|45dcd6aeee7bc153b0bdfe7ba4bf1f8d27afa8a359134de9fb18816625b080c5"
+    "install.sh|install.sh|b7e5ca78a4608e81829f539358beac27d1cd8f3682509e4eb5dada6f90c3b068"
     "lib/common.sh|lib/common.sh|dc75d1b179ec77a61a4ac6501a7a4caa4323a8772d23e804b56d330091bae95f"
     "lib/alert.sh|lib/alert.sh|d80652f40814bd4249ca24b0d5b20fe6801fc3bfd8c50616fdebedca034b5d36"
     "lib/subscription.sh|lib/subscription.sh|ab9364aabd76fa0d25ab504c0b45485da9368c8d553f3128759e100fe485d0e7"
-    "scripts/edgeboxctl|scripts/edgeboxctl|7da1b883fb1799b699954727c08e64cfbccb06c23e0b88db81de60299ac49a05"
+    "scripts/edgeboxctl|scripts/edgeboxctl|400a5dd147ddab66712ddeb13ea6a66563f9f28a0868459e5fc72ddbc73dd06b"
     "scripts/dashboard-backend.sh|scripts/dashboard-backend.sh|6a0b00f6edec0827d618e9d9cbcc865e7f5200c1cccfc96987cabcca4a62dcab"
     "scripts/protocol-health-monitor.sh|scripts/protocol-health-monitor.sh|4b972c92d1cd8485cc32cf2f5406ad4c528caa41d7369ae6b6fc2f77d13b2451"
     "scripts/edgebox-traffic-randomize.sh|scripts/edgebox-traffic-randomize.sh|a1440d24c81265536092b270bbbeb3f55d68fc1382e0d45216adb980430c91e2"

@@ -5953,17 +5953,23 @@ show_installation_info() {
     fi
     # <<< 核心修复逻辑结束 <<<
 	
-	# —— 首次安装（默认 IP 模式）固定展示 —— 
-local show_host="$server_ip"
-local MASTER_SUB_TOKEN
+	# —— 访问信息：域名模式用域名 + https:8443（真证书），IP 模式用 IP + http:80 —— 
+local MASTER_SUB_TOKEN _cert_domain SUB_URL PANEL_URL
 MASTER_SUB_TOKEN="$(jq -r '.master_sub_token // empty' "$config_file" 2>/dev/null)"
+_cert_domain="$(jq -r '.cert.domain // empty' "$config_file" 2>/dev/null)"
 local SUB_PATH="sub"
 [[ -n "$MASTER_SUB_TOKEN" ]] && SUB_PATH="sub-${MASTER_SUB_TOKEN}"
-local SUB_URL="http://${show_host}/${SUB_PATH}"
+if [[ -n "$_cert_domain" ]]; then
+    SUB_URL="https://${_cert_domain}:8443/${SUB_PATH}"
+    PANEL_URL="https://${_cert_domain}:8443/traffic/?passcode=${DASHBOARD_PASSCODE}"
+else
+    SUB_URL="http://${server_ip}/${SUB_PATH}"
+    PANEL_URL="https://${server_ip}:8443/traffic/?passcode=${DASHBOARD_PASSCODE}"
+fi
 
     echo -e  "${CYAN} 核心访问信息${NC}"
     # 打印时使用已验证的 DASHBOARD_PASSCODE 变量
-    echo -e  "  🌐 控制面板: ${PURPLE}https://${server_ip}:8443/traffic/?passcode=${DASHBOARD_PASSCODE}${NC}   ← 密码(${DASHBOARD_PASSCODE})可修改"
+    echo -e  "  🌐 控制面板: ${PURPLE}${PANEL_URL}${NC}   ← 密码(${DASHBOARD_PASSCODE})可修改"
     echo -e  "  🔗 订阅 URL (v2rayN/v2rayNG):  ${PURPLE}${SUB_URL}${NC}"
     echo -e  "  🔗 订阅 URL (Clash Verge):    ${PURPLE}${SUB_URL}.clash${NC}"
     echo -e  "  🔗 订阅 URL (sing-box/Nekobox): ${PURPLE}${SUB_URL}.singbox${NC}"
