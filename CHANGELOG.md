@@ -27,6 +27,15 @@
 未实现（需客户端协调 + 防火墙变更，按需再做）：M-1 HY2 端口跳跃。
 固有权衡（非 bug）：Reality SNI 与 IP 归属错配、默认 SNI 偏流行。
 
+**附带修复（关键）：sing-box 配置变更未真正生效。** `edgeboxctl` 的
+`reload_or_restart_services` 与 3 处直接调用都是 `reload` 优先，而 sing-box.service
+带 `ExecReload=kill -HUP`，使 `systemctl reload sing-box` 返回 0 却不重读配置
+（sing-box 不支持信号热重载）。后果：obfs 等变更只写进 sing-box.json、不在运行
+进程生效。修复：① `reload_or_restart_services` 特判 sing-box 始终 restart（带
+`sing-box check`）；② 移除 sing-box.service 的 ExecReload，使所有 reload 调用
+回退到 restart（logrotate 不 reload sing-box，无副作用）。**已部署 obfs 但发现旧
+客户端仍可连者，先 `systemctl restart sing-box` 让 obfs 立即生效。**
+
 Files: `install.sh` (nginx 80/log + HY2 obfs/masquerade + obfs 密钥管理),
 `lib/subscription.sh` (三格式 obfs), `lib/common.sh` (`eb_get_hy2_obfs`),
 `uninstall.sh` (systemd unit 检查 SIGPIPE 修复).
