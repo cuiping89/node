@@ -161,6 +161,47 @@ release) and commit `ENV/bootstrap.sh` in the same commit.
 
 ---
 
+### Dashboard data fixes (follow-up)
+
+Two display bugs surfaced after upgrading a ~1GB GCP VM to v4.7.0:
+
+#### Memory shown as "0GiB"
+`get_memory_info` (install.sh) computed `total_kb / 1024 / 1024` with **integer
+division**, so any host with < 1024 MiB-rounding RAM (e.g. a 1GB GCP e2-micro,
+MemTotal≈1009136 kB → 0) displayed "0GiB". Swap at exactly 1 GiB still showed
+"1GiB", hence "0GiB + 1GiB Swap". `.spec.memory` is only written at
+install/upgrade, so the value reappeared each time `edgeboxctl upgrade` re-ran
+the detection — explaining the "fixed yesterday, broke today" intermittency.
+
+Fixed: compute one-decimal GiB via awk (`%.1f`), so a 1GB box shows "1.0GiB".
+
+#### Traffic spike of hundreds of GiB in a single day
+`traffic-collector.sh` derives daily traffic as `tx_bytes − PREV_TX`. Its
+guard only clamps counter *rollback* (cur < prev → 0); it did **not** guard the
+*first-run / no-baseline* case. When the state file is absent — which happens
+right after the v4.6.0 path migration (`.state` → `/var/lib/edgebox/traffic.state.json`)
+or if it's wiped — `PREV_TX` defaults to 0, so the first delta records the
+entire since-boot `tx_bytes` (hundreds of GiB on a long-lived VM) as one day's
+traffic. This is why May tracked normally (~48 GiB) but June showed a ~575 GiB
+single-day spike right after the upgrade.
+
+Fixed: added a `HAVE_PREV` flag set only when a numeric `PREV_TX` is
+successfully read. Missing/corrupt/non-numeric state → treat as first run:
+establish the baseline from current counters and record **0** deltas for that
+interval. Normal delta accounting resumes on the next run.
+
+**One-time data cleanup required** (the fix prevents recurrence but doesn't
+retroactively remove the bad row). Zero the spike day in
+`/etc/edgebox/traffic/logs/daily.csv`, then re-run `traffic-collector.sh` +
+`dashboard-backend.sh --now` to regenerate `monthly.csv` / `traffic.json`.
+
+Files changed: `install.sh`
+(`45dcd6aeee7bc153b0bdfe7ba4bf1f8d27afa8a359134de9fb18816625b080c5`),
+`scripts/traffic-collector.sh`
+(`0de953573e69578a9ab2fd48dd6ba4cc94cb2f9c40e0b4854691040015e009cd`).
+
+---
+
 ## v4.6.0-rc4 — 4th security audit fixes (8 P1 + 7 P2)
 
 The 4th audit was the most rigorous yet — auditor ran actual commands and
