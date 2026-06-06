@@ -2,6 +2,36 @@
 
 ## v4.7.0 — CDN/WS removal + security-hardening pass
 
+### 抗 GFW / 大陆监控 加固 (审计 follow-up)
+
+针对 GFW 主动探测 / DPI / 审查 / 取证 威胁模型的一轮加固，详见
+`SECURITY-AUDIT-GFW-v4.7.0.md`。本轮实现 4 项：
+
+- **H-1　80 端口不再明文提供订阅。** 明文订阅在墙内被拉取会把整份节点凭据
+  (IP/UUID/Reality公钥+shortId/HY2密码/SNI) 暴露给 GFW 的 DPI。nginx 80 块
+  改为：仅保留 `/.well-known/acme-challenge/`（兼容 webroot/--nginx 续期）与
+  明文 `/health`，其余 (`/sub-*`、`/share/`、`/traffic/`、`/status/`) 一律 301
+  跳 `https://$host:8443`。域名模式下订阅经有效证书的 HTTPS 提供，GFW 读不到。
+- **H-2　Hysteria2 启用 Salamander obfs。** 此前全程无混淆，QUIC 握手可被 DPI
+  指纹化。新增服务端 `obfs:{type:salamander,password:<hex16>}`；口令纳入
+  `server.json` (`.password.hysteria2_obfs`)、随 UUID/密码一同生成与升级保留
+  （旧版本升级会生成新口令）；订阅三格式 (plain URI / Clash / sing-box) 同步
+  带 obfs 参数。**两端口令必须一致 → 客户端需重新导入订阅。**
+- **M-3　masquerade 写进基础配置。** 此前 masquerade 仅由 randomize cron 注入，
+  安装到首次 cron 之间 HY2 对主动探测会露馅。现基础配置即带
+  `masquerade:"https://www.bing.com"`（cron 仍在站点池内轮换，原地改、保留 obfs）。
+- **M-2　nginx 访问日志匿名化。** `log_format` 去掉 `$remote_addr` / `$remote_user`
+  / referer / UA，仅留方法/路径/状态/字节。服务器被查封/镜像时不再暴露
+  "哪些客户端 IP 访问过本节点"。
+
+未实现（需客户端协调 + 防火墙变更，按需再做）：M-1 HY2 端口跳跃。
+固有权衡（非 bug）：Reality SNI 与 IP 归属错配、默认 SNI 偏流行。
+
+Files: `install.sh` (nginx 80/log + HY2 obfs/masquerade + obfs 密钥管理),
+`lib/subscription.sh` (三格式 obfs), `lib/common.sh` (`eb_get_hy2_obfs`),
+`uninstall.sh` (systemd unit 检查 SIGPIPE 修复).
+
+
 Single-box topology change plus a security review of the v4.7.0 tree.
 Seven issues fixed, ranked below by IP-exposure / privacy risk rather than
 by a formal P1/P2 audit grade.
