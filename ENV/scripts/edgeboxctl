@@ -566,8 +566,10 @@ show_sub(){
   fi
   [[ -n "$MASTER_SUB_TOKEN" ]] && SUB_PATH="sub-${MASTER_SUB_TOKEN}"
 
-  # v4.7.0 修复: 域名模式用域名 + https:8443（LE 真证书，订阅也能安全走 HTTPS）；
-  #   IP 模式用 IP + http:80（自签 HTTPS 客户端拉取不稳，订阅保留明文 80）。
+  # v4.7.0 修复: 域名模式用域名 + https:8443（LE 真证书）。
+  # v4.7.0 (H-1 follow-up): IP 模式也改为 https:8443 —— H-1 后 80 端口不再明文提供订阅
+  #   （全部 301 → 8443），旧的 http://IP/sub-… 链接会被重定向到自签 HTTPS，
+  #   严格校验证书的客户端(Clash Verge 等)拉取必然失败。直接给 8443 地址 + 下方提示。
   local server_ip cert_domain panel_base is_domain=0
   server_ip=$(jq -r '.server_ip // "YOUR_IP"' "${CONFIG_DIR}/server.json" 2>/dev/null)
   [[ -z "$server_ip" || "$server_ip" == "null" ]] && server_ip="YOUR_IP"
@@ -578,7 +580,7 @@ show_sub(){
     base_url="https://${cert_domain}:8443/${SUB_PATH}"
     panel_base="https://${cert_domain}:8443"
   else
-    base_url="http://${server_ip}/${SUB_PATH}"
+    base_url="https://${server_ip}:8443/${SUB_PATH}"
     panel_base="https://${server_ip}:8443"
   fi
 
@@ -602,7 +604,10 @@ show_sub(){
   if [[ "$is_domain" -eq 1 ]]; then
     echo -e "  ${DIM}域名模式：订阅经 HTTPS(8443) 提供，证书有效；节点直连 ${cert_domain}${NC}"
   else
-    echo -e "  ${DIM}IP 模式：订阅经 HTTP(80) 明文提供，请勿公开分享链接（内含节点凭据）${NC}"
+    echo -e "  ${YELLOW}⚠ IP 模式提示${NC}${DIM}：订阅经自签 HTTPS(8443) 提供。Clash Verge 等严格校验证书的"
+    echo -e "  客户端直接拉取会报 \"TLS verifier failed\"。两种解决方式：${NC}"
+    echo -e "    ${DIM}1) 推荐：${NC}${GREEN}edgeboxctl switch-to-domain <你的域名>${NC}${DIM} 后用域名链接重新导入；${NC}"
+    echo -e "    ${DIM}2) 立即导入：${NC}${CYAN}cat /var/www/html/${SUB_PATH}.clash${NC}${DIM} → 客户端「新建本地配置」粘贴。${NC}"
   fi
   echo
 
@@ -4395,8 +4400,8 @@ help|--help|-h|version|--version|-v|"")
   printf "  获取更多帮助\n"
   printf "%b\n" "────────────────────────────────────────────────────────────────${NC}"
   printf "  配置文件: /etc/edgebox/config/\n"
-  printf "  Web 面板: http://<你的IP>/traffic/?passcode=<你的密码>\n"
-  printf "  订阅链接: http://<你的IP>/sub-<token>\n"
+  printf "  Web 面板: https://<IP或域名>:8443/traffic/?passcode=<你的密码>\n"
+  printf "  订阅链接: https://<IP或域名>:8443/sub-<token>\n"
   printf "  查看日志: tail -f /var/log/edgebox-install.log\n"
   
   ;;
