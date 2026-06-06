@@ -4308,8 +4308,11 @@ LimitNOFILE=1048576
 # 只保留一条 ExecStart（任选固定路径即可）
 ExecStart=/usr/local/bin/sing-box run -c /etc/edgebox/config/sing-box.json
 
-# 先向 $MAINPID 发送 HUP；若 MAINPID 不可用，再用进程名兜底
-ExecReload=+/bin/sh -c 'kill -HUP $MAINPID || pkill -HUP -x sing-box'
+# v4.7.0 修复: 故意不提供 ExecReload。
+#   sing-box 收到 SIGHUP 不会重读配置，但若提供 ExecReload，`systemctl reload sing-box`
+#   会"成功"(返回0)却不应用新配置——导致 obfs/证书/UDP 变更只写文件不生效。
+#   去掉 ExecReload 后，所有 `systemctl reload sing-box` 都会失败并回退到 restart。
+#   (logrotate 不 reload sing-box，故移除无副作用。)
 
 Restart=on-failure
 RestartSec=5s
