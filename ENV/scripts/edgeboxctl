@@ -573,6 +573,23 @@ show_sub(){
   echo -e "  🔗 ${CYAN}Base64 兼容（旧版客户端）${NC}"
   echo -e "     ${GREEN}${base_url}.base64${NC}"
   echo
+
+  # v4.7.0 (用户请求): 同时输出 Web 控制面板地址（passcode 从 server.json 读取）
+  local passcode
+  passcode=$(jq -r '.dashboard_passcode // empty' "${CONFIG_DIR}/server.json" 2>/dev/null)
+  echo -e "${YELLOW}# 控制面板${NC}"
+  echo
+  if [[ -n "$passcode" ]]; then
+    echo -e "  🌐 ${CYAN}Web 面板（含访问密码）${NC}"
+    echo -e "     ${PURPLE}http://${server_ip}/traffic/?passcode=${passcode}${NC}"
+    echo
+    echo -e "     ${DIM}密码: ${passcode}    （可用 \`edgeboxctl dashboard passcode\` 重置）${NC}"
+  else
+    echo -e "  🌐 ${CYAN}Web 面板${NC}"
+    echo -e "     ${PURPLE}http://${server_ip}/traffic/${NC}"
+    echo -e "     ${DIM}（passcode 不可读 — 请用 sudo 调用，或运行 \`sudo edgeboxctl dashboard passcode\` 重置）${NC}"
+  fi
+  echo
 }
 
 
@@ -3579,14 +3596,19 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]] || [[ -n "${EDGEBOXCTL_LOADED}" ]]; then
             : # 让后续 case 分支正常处理；不做配置加载，不做 root 检查
             ;;
         *)
-            # v4.7.0 (前端报错 #1): 非 root 调用需要明确提示，而不是抛 JSON 解析错。
-            # server.json 是 chmod 600 root:root（保护 UUID/密码/dashboard cookie 等敏感数据），
-            # 普通用户读不到 → jq 失败。这里提前给出清晰指引。
+            # v4.7.0: 自动 sudo 提权（与 bootstrap.sh 一致）。
+            # server.json 是 600 root:root（保护 UUID/密码/dashboard cookie 等敏感数据），
+            # 普通用户读不到 → jq 失败。改为：检测到非 root 就 exec sudo 自我重新执行，
+            # 不再让用户每次都手敲 sudo。
             if [[ "$EUID" -ne 0 ]]; then
-                echo -e "${RED}[ERROR]${NC} edgeboxctl 需要 root 权限运行" >&2
-                echo -e "${YELLOW}原因：${NC}/etc/edgebox/config/server.json 是 600 root:root，保护密码/密钥等敏感配置" >&2
-                echo -e "${YELLOW}请使用：${NC} sudo edgeboxctl $*" >&2
-                exit 1
+                if command -v sudo >/dev/null 2>&1; then
+                    # -E 保留 EDGEBOX_DEBUG / LOG_LEVEL 等环境变量；-- 防止 $1 被 sudo 误解析为选项
+                    exec sudo -E -- "$0" "$@"
+                else
+                    echo -e "${RED}[ERROR]${NC} edgeboxctl 需要 root 权限运行，但 sudo 不可用" >&2
+                    echo -e "${YELLOW}原因：${NC}/etc/edgebox/config/server.json 是 600 root:root，保护敏感配置" >&2
+                    exit 1
+                fi
             fi
             mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null
             load_config_once 2>/dev/null || true   # 配置加载失败不阻断（部分子命令不需要配置）
