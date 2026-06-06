@@ -240,9 +240,45 @@ _run_install() {
     return $?
 }
 
+#----- Commit pinning (avoids raw CDN per-file cache lag) ---------------------
+# raw.githubusercontent.com caches each file path independently (~分钟级 TTL)。
+# 推送后立即安装时，刚改动的那个文件可能还在提供旧缓存，而 bootstrap.sh 的清单已是新的
+# → 出现 SHA256 不匹配（其实仓库是对的，只是 CDN 没传播完）。
+# 解决：解析 main 的最新 commit SHA，把"本 bootstrap + 全部文件"都改用 /<sha>/ 这种
+# 按提交固定、不可变的 URL 拉取 —— 同一提交快照内部一致，不存在"还在提供旧版本"的窗口。
+# 失败（API 限流 / 网络不可达 / 显式指定了 EDGEBOX_VERSION）时优雅回退到分支 ref（原行为）。
+_pin_to_commit() {
+    [[ -n "${EDGEBOX_PINNED:-}" ]] && return 0    # 已是被固定后的二次运行（防无限递归）
+    [[ -n "${EDGEBOX_VERSION:-}" ]] && return 0    # 用户显式指定了 ref（含 SHA），尊重之
+    command -v curl >/dev/null 2>&1 || return 0
+
+    local sha
+    sha="$(curl -fsSL --connect-timeout 10 --max-time 20 \
+            -H 'Accept: application/vnd.github.sha' \
+            "https://api.github.com/repos/${EDGEBOX_REPO}/commits/${EDGEBOX_BRANCH}" 2>/dev/null \
+            | tr -d '[:space:]' | grep -oE '^[0-9a-f]{40}$')"
+    if [[ -z "$sha" ]]; then
+        log_warn "无法解析最新 commit SHA（API 限流/网络）；回退到 '${EDGEBOX_BRANCH}'（可能遇 CDN 缓存延迟）"
+        return 0
+    fi
+    log_info "锁定到 commit ${sha:0:7}（按提交快照拉取，规避 raw CDN 缓存延迟）"
+
+    local pinned_bs
+    pinned_bs="$(curl -fsSL --connect-timeout 10 --max-time 60 \
+                 "https://raw.githubusercontent.com/${EDGEBOX_REPO}/${sha}/ENV/bootstrap.sh" 2>/dev/null)"
+    if [[ -z "$pinned_bs" ]]; then
+        log_warn "无法获取该提交的 bootstrap.sh；回退到 '${EDGEBOX_BRANCH}'"
+        return 0
+    fi
+    # 重跑"该提交的 bootstrap"，使其清单与它校验的文件取自同一快照。
+    exec env EDGEBOX_PINNED=1 EDGEBOX_VERSION="$sha" bash -c "$pinned_bs" _ "$@"
+}
+
 #----- Main -------------------------------------------------------------------
 
 main() {
+    _pin_to_commit "$@"
+
     log_info "============================================================"
     log_info " EdgeBox Bootstrap v${EDGEBOX_BOOTSTRAP_VERSION}"
     log_info "============================================================"
