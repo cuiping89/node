@@ -123,6 +123,7 @@ CYAN="${ESC}[0;36m"
 YELLOW="${ESC}[1;33m"
 GREEN="${ESC}[0;32m"
 RED="${ESC}[0;31m"
+DIM="${ESC}[2m"   # v4.7.0: 暗色，安全提醒里的次要说明用
 NC="${ESC}[0m"  # No Color
 
 
@@ -668,21 +669,12 @@ auto_detect_reverse_ssh_params() {
     done
   fi
 
-  # 4) 回落到当前 SSH 客户端 IP（如果是公网且 22 可达）
-  if [[ -z "${EB_RSSH_HOST}" && -n "${SSH_CONNECTION:-}" ]]; then
-    client_ip="$(awk '{print $1}' <<<"$SSH_CONNECTION")"
-    if [[ "$client_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] \
-       && ! [[ "$client_ip" =~ ^10\.|^192\.168\.|^172\.(1[6-9]|2[0-9]|3[0-1])\. ]]; then
-      if command -v nc >/dev/null 2>&1; then
-        if nc -zw1 "$client_ip" 22; then
-          EB_RSSH_HOST="$client_ip"
-        fi
-      else
-        # 没有 nc，就不测端口，直接尝试
-        EB_RSSH_HOST="$client_ip"
-      fi
-    fi
-  fi
+  # 4) 【v4.7.0 安全修复】移除"回落到 SSH 客户端 IP"逻辑。
+  #    旧版本会把当前 SSH 来源 IP（你的家庭/办公网公网 IP）自动写入
+  #    /etc/edgebox/reverse-ssh.env 并持久回连，等于把运维者真实 IP 暴露在 VPS 上，
+  #    与匿名代理目标冲突。现在只接受显式配置（env 文件 / ~/.ssh/config 别名）。
+  #    如确需用当前客户端 IP 作跳板，请手动设置 EB_RSSH_HOST 后再启用。
+  :
 }
 
 #############################################
@@ -693,6 +685,14 @@ auto_detect_reverse_ssh_params() {
 # ANCHOR: [FUNC-INSTALL_REVERSE_SSH_UNIT]
 #############################################
 install_reverse_ssh_unit() {
+  # 【v4.7.0 安全修复】反向 SSH 救生索默认关闭，必须显式启用：
+  #   - 设置环境变量 EB_RSSH_ENABLE=1，或
+  #   - 在 /etc/edgebox/reverse-ssh.env 中写入 EB_RSSH_ENABLE=1
+  [[ -f /etc/edgebox/reverse-ssh.env ]] && . /etc/edgebox/reverse-ssh.env
+  if [[ "${EB_RSSH_ENABLE:-0}" != "1" ]]; then
+    return 0
+  fi
+
   auto_detect_reverse_ssh_params
 
   # 三要素缺任意一个就静默跳过（不阻塞主流程）
@@ -702,12 +702,15 @@ install_reverse_ssh_unit() {
 
   mkdir -p /etc/edgebox
   cat > /etc/edgebox/reverse-ssh.env <<EOF
+EB_RSSH_ENABLE="1"
 EB_RSSH_HOST="${EB_RSSH_HOST}"
 EB_RSSH_USER="${EB_RSSH_USER}"
 EB_RSSH_PORT="${EB_RSSH_PORT}"
 EB_RSSH_RPORT="${EB_RSSH_RPORT}"
 EB_RSSH_KEY_PATH="${EB_RSSH_KEY_PATH}"
 EOF
+  # 【v4.7.0 安全修复】该文件含跳板机连接信息，限制为仅 root 可读
+  chmod 600 /etc/edgebox/reverse-ssh.env 2>/dev/null || true
 
   cat > /etc/systemd/system/edgebox-reverse-ssh.service <<'UNIT'
 [Unit]
@@ -748,6 +751,11 @@ UNIT
 # ANCHOR: [FUNC-ENSURE_REVERSE_SSH]
 #############################################
 ensure_reverse_ssh() {
+  # 【v4.7.0 安全修复】默认关闭，必须显式 EB_RSSH_ENABLE=1 才生效
+  [[ -f /etc/edgebox/reverse-ssh.env ]] && . /etc/edgebox/reverse-ssh.env
+  if [[ "${EB_RSSH_ENABLE:-0}" != "1" ]]; then
+    return 0  # 未显式启用就跳过，不影响主流程
+  fi
   auto_detect_reverse_ssh_params
   if [[ -z "${EB_RSSH_HOST}" || -z "${EB_RSSH_USER}" || -z "${EB_RSSH_RPORT}" ]]; then
     return 0  # 未配置就跳过，不影响主流程
@@ -1549,7 +1557,7 @@ configure_firewall() {
   log_info "检测到 SSH 端口：$current_ssh_port"
 
   # ---------- 目标端口集合 ----------
-  local tcp_ports=("80" "443")
+  local tcp_ports=("80" "443" "8443")  # 80=订阅, 443=Reality(stream), 8443=HTTPS面板/订阅
   local udp_ports=("443")  # HY2 only
 
   # ---------- 回滚计划（5分钟后自动回滚，避免误锁） ----------
@@ -2337,16 +2345,13 @@ generate_reality_keys() {
 generate_dashboard_passcode() {
     log_info "生成控制面板访问密码..."
 
-    # v4.6.0-rc4-rc1: 真正的 6 位随机数字（不是单数字重复 6 次）
-    # 注: 6 位数字密码只有 10^6 = 100 万种可能，存在暴力风险。
-    # 安装结束会提示用户用 `edgeboxctl dashboard passcode` 改为强密码。
-    DASHBOARD_PASSCODE=""
-    local i
-    for ((i=0; i<6; i++)); do
-        DASHBOARD_PASSCODE+="$((RANDOM % 10))"
-    done
+    # 【v4.7.0 安全修复】默认密码改为 12 位字母数字 (a-z0-9)，约 62 bit 熵，
+    # 取代旧的 6 位纯数字 (10^6，可被暴力破解)。使用 CSPRNG (/dev/urandom)，
+    # 仅用小写字母+数字以避免 URL / nginx map 引号转义问题。
+    # 仍建议安装后用 `edgeboxctl dashboard passcode` 自定义为更强密码。
+    DASHBOARD_PASSCODE="$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c 12)"
 
-    if [[ -z "$DASHBOARD_PASSCODE" || ${#DASHBOARD_PASSCODE} -ne 6 ]]; then
+    if [[ -z "$DASHBOARD_PASSCODE" || ${#DASHBOARD_PASSCODE} -ne 12 ]]; then
         log_error "控制面板密码生成失败"
         return 1
     fi
@@ -2400,8 +2405,9 @@ save_config_info() {
     local memory_spec="${MEMORY_SPEC:-Unknown}"
     local disk_spec="${DISK_SPEC:-Unknown}"
     if [[ -z "$DASHBOARD_PASSCODE" ]]; then
-        log_warn "DASHBOARD_PASSCODE为空，生成临时6位数字口令"
-        local d=$((RANDOM % 10)); DASHBOARD_PASSCODE="${d}${d}${d}${d}${d}${d}"; export DASHBOARD_PASSCODE
+        log_warn "DASHBOARD_PASSCODE为空，生成 12 位随机字母数字口令"
+        DASHBOARD_PASSCODE="$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c 12)"
+        export DASHBOARD_PASSCODE
     fi
     # 关键凭据校验（缺失即失败）- 注意这里的 MASTER_SUB_TOKEN 依赖 execute_module2 中生成
     if [[ -z "$UUID_VLESS_REALITY" || -z "$PASSWORD_HYSTERIA2" || -z "${MASTER_SUB_TOKEN:-}" ]]; then
@@ -3562,7 +3568,8 @@ http {
         listen 80 default_server;
         listen [::]:80 default_server;
         server_name _;
-        location = / { return 302 /traffic/; }
+        # v4.7.0: 面板改为 HTTPS-only，根路径跳到 8443
+        location = / { return 301 https://$host:8443/traffic/; }
         # v4.0.0: 4-format subscription endpoint (plain/base64/clash/singbox)
         # The actual path /sub-<token>[.ext] is created by edgeboxctl/install.sh by renaming
         location ~ "^/sub-[a-f0-9]+$" {
@@ -3592,6 +3599,67 @@ http {
             root /var/www/html;
             try_files $uri =404;
         }
+        location = /_deny_traffic { internal; return 403; }
+        # v4.7.0: 面板不再经明文 80 提供；一律跳转到 8443 (HTTPS)，
+        # 避免 passcode / 凭据在明文链路上被嗅探。
+        location ^~ /traffic/ { return 301 https://$host:8443$request_uri; }
+        location ^~ /status/ {
+            alias /var/www/edgebox/status/;
+            add_header Content-Type "application/json; charset=utf-8";
+        }
+        location = /health { return 200 "OK\n"; }
+    }
+
+    # v4.7.0: HTTPS 控制面板 / 订阅（8443）
+    # 证书源 = /etc/edgebox/cert/current.pem|key 这对软链接：
+    #   IP 模式     -> self-signed（浏览器会提示不受信任，点继续即可，传输已加密）
+    #   域名模式    -> Let's Encrypt（执行 edgeboxctl switch-to-domain 后自动生效，无警告）
+    # 向前兼容：switch-to-domain 只重指向这对软链接 + reload nginx，本块无需改动即自动启用真证书。
+    # 不与 stream 的 443 冲突（不同端口）。
+    server {
+        listen 8443 ssl;
+        listen [::]:8443 ssl;
+        server_name _;
+
+        ssl_certificate     /etc/edgebox/cert/current.pem;
+        ssl_certificate_key /etc/edgebox/cert/current.key;
+        ssl_protocols       TLSv1.2 TLSv1.3;
+        ssl_ciphers         HIGH:!aNULL:!MD5;
+        ssl_prefer_server_ciphers off;
+        ssl_session_cache   shared:EdgeBoxSSL:1m;
+        ssl_session_timeout 10m;
+
+        location = / { return 302 /traffic/; }
+
+        # 订阅四格式（与 80 端口一致，便于浏览器经 HTTPS 取用）
+        location ~ "^/sub-[a-f0-9]+$" {
+            default_type "text/plain; charset=utf-8";
+            add_header Cache-Control "no-store, no-cache, must-revalidate";
+            root /var/www/html;
+        }
+        location ~ "^/sub-[a-f0-9]+\.base64$" {
+            default_type "text/plain; charset=utf-8";
+            add_header Cache-Control "no-store, no-cache, must-revalidate";
+            root /var/www/html;
+        }
+        location ~ "^/sub-[a-f0-9]+\.clash$" {
+            default_type "text/yaml; charset=utf-8";
+            add_header Cache-Control "no-store, no-cache, must-revalidate";
+            root /var/www/html;
+        }
+        location ~ "^/sub-[a-f0-9]+\.singbox$" {
+            default_type "application/json; charset=utf-8";
+            add_header Cache-Control "no-store, no-cache, must-revalidate";
+            root /var/www/html;
+        }
+        location ^~ /share/ {
+            default_type text/plain;
+            add_header Cache-Control "no-store, no-cache, must-revalidate";
+            root /var/www/html;
+            try_files $uri =404;
+        }
+
+        # 控制面板（与 80 同样的 passcode + Cookie 鉴权；$deny_traffic / $set_cookie 来自 edgebox_passcode.conf）
         location = /_deny_traffic { internal; return 403; }
         location ^~ /traffic/ {
             error_page 418 = /_deny_traffic;
@@ -3660,7 +3728,7 @@ map \$cookie_ebp \$cookie_ok {
 
 # 仅当 pass_ok=1 时下发 Cookie，值为秘钥本体
 map \$pass_ok \$set_cookie {
-    1 "ebp=${DASHBOARD_COOKIE_SECRET}; Path=/traffic/; HttpOnly; SameSite=Lax; Max-Age=86400";
+    1 "ebp=${DASHBOARD_COOKIE_SECRET}; Path=/traffic/; HttpOnly; Secure; SameSite=Lax; Max-Age=86400";
     0 "";
 }
 EOF
@@ -3905,11 +3973,11 @@ configure_xray() {
     if [[ -r "$f" ]]; then
       eval "$(
         jq -r '
-          "UUID_VLESS_REALITY=\(.uuid.vless.reality // \"\")\n" +
-          "PASSWORD_HYSTERIA2=\(.password.hysteria2 // \"\")\n" +
-          "REALITY_PRIVATE_KEY=\(.reality.private_key // \"\")\n" +
-          "REALITY_SHORT_ID=\(.reality.short_id // \"\")\n" +
-          "REALITY_SNI=\(.reality.sni // \"www.microsoft.com\")\n"
+          "UUID_VLESS_REALITY=\((.uuid.vless.reality // "") | @sh)\n" +
+          "PASSWORD_HYSTERIA2=\((.password.hysteria2 // "") | @sh)\n" +
+          "REALITY_PRIVATE_KEY=\((.reality.private_key // "") | @sh)\n" +
+          "REALITY_SHORT_ID=\((.reality.short_id // "") | @sh)\n" +
+          "REALITY_SNI=\((.reality.sni // "www.microsoft.com") | @sh)\n"
         ' "$f" 2>/dev/null
       )"
     fi
@@ -3994,7 +4062,7 @@ fi
   # 1) 用命令替换方式捕获 jq 程序体
   JQ_PROGRAM=$(cat <<'EOF'
 {
-  "log": { "access": "/var/log/xray/access.log", "error": "/var/log/xray/error.log", "loglevel": "info" },
+  "log": { "access": "none", "error": "/var/log/xray/error.log", "loglevel": "warning" },
   "inbounds": [
     {
       "tag": "vless-reality",
@@ -4134,7 +4202,7 @@ configure_sing_box() {
       --arg cert_pem "${CERT_DIR}/current.pem" \
       --arg cert_key "${CERT_DIR}/current.key" \
       '{
-        "log": { "level": "info", "timestamp": true },
+        "log": { "level": "warn", "timestamp": true },
         "inbounds": [
           { "type": "hysteria2", "tag": "hysteria2-in", "listen": "0.0.0.0", "listen_port": 443, "users": [ { "password": $hy2_pass } ], "tls": { "enabled": true, "alpn": ["h3"], "certificate_path": $cert_pem, "key_path": $cert_key } }
         ],
@@ -5890,7 +5958,7 @@ local SUB_URL="http://${show_host}/${SUB_PATH}"
 
     echo -e  "${CYAN} 核心访问信息${NC}"
     # 打印时使用已验证的 DASHBOARD_PASSCODE 变量
-    echo -e  "  🌐 控制面板: ${PURPLE}http://${server_ip}/traffic/?passcode=${DASHBOARD_PASSCODE}${NC}   ← 密码(${DASHBOARD_PASSCODE})可修改"
+    echo -e  "  🌐 控制面板: ${PURPLE}https://${server_ip}:8443/traffic/?passcode=${DASHBOARD_PASSCODE}${NC}   ← 密码(${DASHBOARD_PASSCODE})可修改"
     echo -e  "  🔗 订阅 URL (v2rayN/v2rayNG):  ${PURPLE}${SUB_URL}${NC}"
     echo -e  "  🔗 订阅 URL (Clash Verge):    ${PURPLE}${SUB_URL}.clash${NC}"
     echo -e  "  🔗 订阅 URL (sing-box/Nekobox): ${PURPLE}${SUB_URL}.singbox${NC}"
@@ -5962,14 +6030,24 @@ local SUB_URL="http://${show_host}/${SUB_PATH}"
     echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo -e "${YELLOW}⚠️  安全提醒${NC}"
     echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "  控制面板默认密码是 6 位随机数字 (${DASHBOARD_PASSCODE})"
-    echo -e "  该密码空间只有 100 万种可能，在公网上有被暴力的风险"
+    echo -e "  控制面板默认密码是 12 位随机字母数字 (${DASHBOARD_PASSCODE})"
+    echo -e "  请妥善保存；如需自定义可随时更换"
     echo -e ""
-    echo -e "  ${GREEN}强烈建议${NC}立即用 ${CYAN}edgeboxctl dashboard passcode${NC}"
-    echo -e "  改为强密码（建议改成更复杂的，但目前仅支持 6 位数字格式）"
+    echo -e "  ${GREEN}建议${NC}用 ${CYAN}edgeboxctl dashboard passcode${NC} 设置自己的强密码"
+    echo -e "  （支持 6-64 位字母或数字）"
     echo -e ""
-    echo -e "  另：默认部署在 HTTP 明文 80 端口。如需 HTTPS，请使用："
-    echo -e "    ${CYAN}edgeboxctl switch-to-domain <domain>${NC}"
+    echo -e "  ${YELLOW}面板访问走 HTTPS(8443)${NC}"
+    echo -e "  控制面板地址: ${CYAN}https://${server_ip}:8443/traffic/${NC}"
+    echo -e "  IP 模式下用的是自签证书，浏览器会提示\"不安全/证书无效\"，"
+    echo -e "  点\"高级 → 继续前往\"即可——传输已是 TLS 加密。"
+    echo -e "  （以后执行 ${CYAN}edgeboxctl switch-to-domain <域名>${NC} 后会自动换成"
+    echo -e "   Let's Encrypt 真证书，警告消失，无需再改配置。）"
+    echo -e ""
+    echo -e "  ${DIM}订阅仍走 http://${server_ip}/sub-... (80端口)：客户端 App 拉取自签 HTTPS"
+    echo -e "  不稳定，故订阅保留明文。其内容是节点凭据，请勿公开分享订阅链接。${NC}"
+    echo -e ""
+    echo -e "  ${DIM}若不想把面板暴露在公网，可改用 SSH 隧道：${NC}"
+    echo -e "    ${DIM}ssh -L 8443:127.0.0.1:8443 root@${server_ip} ，再访问 https://127.0.0.1:8443/traffic/${NC}"
     echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 }
 
