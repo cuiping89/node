@@ -232,15 +232,17 @@ _eb_gen_singbox() {
         --arg password_hy2  "$password_hy2" \
         --argjson insecure  "$insecure_bool" \
         '{
-            log: { level: "info", timestamp: true },
+            log: { level: "warn", timestamp: true },
             dns: {
                 servers: [
-                    { tag: "google", address: "tls://8.8.8.8" },
-                    { tag: "local",  address: "local", detour: "direct" }
+                    { tag: "proxy-dns", address: "tls://8.8.8.8", detour: "EdgeBox" },
+                    { tag: "direct-dns", address: "local", detour: "direct" }
                 ],
                 rules: [
-                    { outbound: "any", server: "local" }
-                ]
+                    { domain: [$host], server: "direct-dns" }
+                ],
+                final: "proxy-dns",
+                strategy: "prefer_ipv4"
             },
             inbounds: [
                 {
