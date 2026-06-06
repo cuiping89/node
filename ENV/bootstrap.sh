@@ -33,7 +33,7 @@ trap 'rm -rf "$BOOTSTRAP_TMP" 2>/dev/null || true' EXIT
 # These hashes are regenerated at every release via tools/gen-manifest.sh.
 # If you change any of these files, you MUST regenerate the manifest.
 EDGEBOX_FILES=(
-    "install.sh|install.sh|051c015245cb7337c1a5cbeed62dcd136136b17d051d3ee5312f5cefa8b98454"
+    "install.sh|install.sh|45dcd6aeee7bc153b0bdfe7ba4bf1f8d27afa8a359134de9fb18816625b080c5"
     "lib/common.sh|lib/common.sh|dc75d1b179ec77a61a4ac6501a7a4caa4323a8772d23e804b56d330091bae95f"
     "lib/alert.sh|lib/alert.sh|d80652f40814bd4249ca24b0d5b20fe6801fc3bfd8c50616fdebedca034b5d36"
     "lib/subscription.sh|lib/subscription.sh|ab9364aabd76fa0d25ab504c0b45485da9368c8d553f3128759e100fe485d0e7"
@@ -43,7 +43,7 @@ EDGEBOX_FILES=(
     "scripts/edgebox-traffic-randomize.sh|scripts/edgebox-traffic-randomize.sh|a1440d24c81265536092b270bbbeb3f55d68fc1382e0d45216adb980430c91e2"
     "scripts/edgebox-ipq.sh|scripts/edgebox-ipq.sh|d2b8b42cac18f76ac7d5b492b2a915720a61d4575fefd5e6fca6d17d6825d84c"
     "scripts/traffic-alert.sh|scripts/traffic-alert.sh|e5c913c69c7ba5e586f72259fe528935215c8f362eb132b47dac06de83d65758"
-    "scripts/traffic-collector.sh|scripts/traffic-collector.sh|639637905ff7c3e91b3ce8f99b247ae20f90df1dd9be9364943628ef294165cd"
+    "scripts/traffic-collector.sh|scripts/traffic-collector.sh|0de953573e69578a9ab2fd48dd6ba4cc94cb2f9c40e0b4854691040015e009cd"
     "scripts/apply-firewall.sh|scripts/apply-firewall.sh|f36170b7e5e8caf727d5c83198391ca1db23b654b34999443facafc4bbed29b9"
     "scripts/edgebox-init.sh|scripts/edgebox-init.sh|deb6576116c2bbf0cde441179f7888a9c9d4b8ce684af108ee69242737175245"
     "web/dashboard.css|web/dashboard.css|081e2fb6e59217717fa2898a33edd32f3a4fe4afeb46e2fcf4345046029d5c10"

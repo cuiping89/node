@@ -2046,12 +2046,17 @@ get_cpu_info() {
 # ANCHOR: [FUNC-GET_MEMORY_INFO]
 #############################################
 get_memory_info() {
-    local total_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo 2>/dev/null || echo "0")
-    local swap_kb=$(awk '/SwapTotal/ {print $2}' /proc/meminfo 2>/dev/null || echo "0")
-    local total_gb=$(( total_kb / 1024 / 1024 ))
-    local swap_gb=$(( swap_kb / 1024 / 1024 ))
+    local total_kb swap_kb total_gb swap_gb
+    total_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo 2>/dev/null || echo "0")
+    swap_kb=$(awk '/SwapTotal/ {print $2}' /proc/meminfo 2>/dev/null || echo "0")
+    [[ "$total_kb" =~ ^[0-9]+$ ]] || total_kb=0
+    [[ "$swap_kb"  =~ ^[0-9]+$ ]] || swap_kb=0
+    # v4.7.0 修复: 旧版用整数除法 (total_kb/1024/1024)，~1GB 内存会被截断成 0GiB
+    #   (MemTotal≈1009136 kB → 整除=0)。改用一位小数的 GiB，准确显示如 0.9GiB。
+    total_gb=$(awk -v k="$total_kb" 'BEGIN{printf "%.1f", k/1048576}')
+    swap_gb=$(awk -v k="$swap_kb"  'BEGIN{printf "%.1f", k/1048576}')
 
-    if [[ $swap_gb -gt 0 ]]; then
+    if [[ "$swap_kb" -gt 0 ]]; then
         echo "${total_gb}GiB + ${swap_gb}GiB Swap"
     else
         echo "${total_gb}GiB"
