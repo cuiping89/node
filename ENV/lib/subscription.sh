@@ -71,12 +71,19 @@ _eb_uri_hysteria2() {
 
     pw_enc=$(eb_url_encode "$password")
 
+    # v4.7.0 (审计 H-2): Salamander obfs —— 两端口令必须一致
+    local obfs_pw obfs_q=""
+    obfs_pw=$(eb_get_hy2_obfs)
+    if [[ -n "$obfs_pw" ]]; then
+        obfs_q="&obfs=salamander&obfs-password=$(eb_url_encode "$obfs_pw")"
+    fi
+
     if [[ "$mode" == "domain" ]]; then
-        printf 'hysteria2://%s@%s:443/?sni=%s&alpn=h3#EdgeBox-HYSTERIA2\n' \
-            "$pw_enc" "$host" "$host"
+        printf 'hysteria2://%s@%s:443/?sni=%s&alpn=h3%s#EdgeBox-HYSTERIA2\n' \
+            "$pw_enc" "$host" "$host" "$obfs_q"
     else
-        printf 'hysteria2://%s@%s:443/?sni=%s&alpn=h3&insecure=1#EdgeBox-HYSTERIA2\n' \
-            "$pw_enc" "$host" "$host"
+        printf 'hysteria2://%s@%s:443/?sni=%s&alpn=h3&insecure=1%s#EdgeBox-HYSTERIA2\n' \
+            "$pw_enc" "$host" "$host" "$obfs_q"
     fi
 }
 
@@ -146,6 +153,15 @@ _eb_gen_clash() {
     Q_password_hy2=$(eb_yaml_squote "$password_hy2")
     Q_host=$(eb_yaml_squote "$host")
 
+    # v4.7.0 (审计 H-2): Salamander obfs（两端口令必须一致）
+    local obfs_pw Q_obfs_pw hy2_obfs_yaml=""
+    obfs_pw=$(eb_get_hy2_obfs)
+    if [[ -n "$obfs_pw" ]]; then
+        Q_obfs_pw=$(eb_yaml_squote "$obfs_pw")
+        hy2_obfs_yaml="    obfs: salamander
+    obfs-password: ${Q_obfs_pw}"
+    fi
+
     cat <<YAML
 # EdgeBox Clash / Mihomo subscription
 # Generated: $(date -Is)
@@ -172,6 +188,7 @@ proxies:
     server: ${Q_host}
     port: 443
     password: ${Q_password_hy2}
+${hy2_obfs_yaml}
     sni: ${Q_host}
     skip-cert-verify: ${insecure_str}
     alpn:
@@ -230,6 +247,7 @@ _eb_gen_singbox() {
         --arg pubkey        "$pubkey" \
         --arg sid           "$sid" \
         --arg password_hy2  "$password_hy2" \
+        --arg obfs_pw       "$(eb_get_hy2_obfs)" \
         --argjson insecure  "$insecure_bool" \
         '{
             log: { level: "warn", timestamp: true },
@@ -297,7 +315,12 @@ _eb_gen_singbox() {
                 final: "EdgeBox",
                 auto_detect_interface: true
             }
-        }'
+        }
+        | (.outbounds |= map(
+              if (.tag == "EdgeBox-HYSTERIA2" and ($obfs_pw | length) > 0)
+              then . + { obfs: { type: "salamander", password: $obfs_pw } }
+              else . end
+          ))'
 }
 
 #############################################
