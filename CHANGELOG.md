@@ -2,6 +2,86 @@
 
 ## v4.7.0 — CDN/WS removal + security-hardening pass
 
+### IP 模式订阅 URL 重新可拉取（H-1 矫正 + certbot 走 --webroot）
+
+H-1 把 80 端口"除 ACME 外一律 301 跳 8443"做得过头：IP 模式下 8443 是自签证书，
+**Clash/mihomo 的 platform TLS verifier 在订阅下载阶段无法接受自签**
+（`skip-cert-verify` 只作用于节点连接，不作用于订阅文件下载），结果 IP 模式订阅
+URL 在 Clash 里彻底失效，实测报 `platform TLS verifier failed`。这是我引入的回归，
+原设计（pre-H-1）就是"IP 模式 sub 走 HTTP/80"。本轮回到正确设计：
+
+- **nginx 80 块**：保留 ACME 与 /health，**新增 4 个 `/sub-{token}(.base64|.clash|.singbox)?`
+  的 location（直接 root /var/www/html）**，其余（/share/、/traffic/、/status/、/）仍 301
+  → 8443 HTTPS。`/sub-*` content-type 与 8443 块完全一致（text/plain | text/yaml |
+  application/json）。`nginx -t` 实测通过。
+- **install.sh 安装总结 / `edgeboxctl sub` / 帮助尾部**：IP 模式订阅 URL 改回
+  `http://IP/sub-…`，面板继续 `https://IP:8443/traffic/`；域名模式两者都是
+  `https://domain:8443/…`。
+- **dashboard-backend.sh**：`subscription_url` 按 `cert_mode` 输出 —— 域名模式
+  `https://<domain>:8443/sub-<token>`，IP 模式 `http://<IP>/sub-<token>`（之前域名模式
+  也输出 http://，依赖 301 跳，现在直接给规范化的 URL）。
+- **安全权衡明示**：show_sub 与安装总结里都写明"IP 模式订阅明文，墙内拉本 URL 会被
+  GFW DPI 读到节点凭据 → 推荐尽快 switch-to-domain，域名模式订阅经 LE 真证书 HTTPS
+  提供，泄漏面归零"。IP 模式定位为**过渡兜底**。
+
+附带：**certbot 改走 `--webroot -w /var/www/html`**（替换原 `--nginx`/`--standalone`
+两路分支）。理由：nginx 80 块本就有 `^~ /.well-known/acme-challenge/`，
+webroot 不需要修改 nginx 配置、不需要停服务、不需要 `python3-certbot-nginx` 依赖，
+失败时也不会留下 nginx 停摆。signature/renewal 流程都更稳。
+
+### `switch-to-domain` DNS 预检加固（避免 certbot 跑到一半才发现 DNS 没指对）
+
+旧检查 `getent hosts "$domain" >/dev/null || ...` 只判"域名能不能解析"，
+不验证解析到的 IP 是不是**本机**。实际事故：用户 A 记录指到了别的 IP
+（或注册商的默认 parking），旧检查放行，certbot 跑起来后 Let's Encrypt
+回报 `Timeout during connect (likely firewall problem)`，根因被掩盖成
+"看似是防火墙问题"。
+
+现在改为：解析 IPv4 → 与本机 IP（取自 `server.json.server_ip`，回退 ipify）
+比对 → 不一致时**直接拒绝**，并打出当前解析到的 IP、本机 IP、修复路径
+（A 记录改向、验证命令）。这样错误在 certbot 之前就被拦下，错误信息直击根因，
+也不再因为对外网络抖动而把 DNS 错误误诊为防火墙问题。File: `scripts/edgeboxctl`。
+
+### IP 模式订阅引导与 H-1 冲突（回归修复，我引入的）
+
+H-1 把 80 端口改成"除 ACME/health 外一律 301 → https://:8443"后，**没有同步更新
+IP 模式的订阅展示与引导**，造成自相矛盾：安装总结/`edgeboxctl sub`/help 仍打印
+`http://IP/sub-…`，该链接现在会被 301 到自签 HTTPS(8443)，Clash Verge 等严格校验
+证书的客户端拉取必报 `platform TLS verifier failed`（实测）。修复：
+
+- 安装总结与 `edgeboxctl sub` 的 IP 模式订阅 URL 统一改为 `https://IP:8443/sub-…`，
+  并附明确提示：严格客户端无法直接拉取 → ①推荐 `edgeboxctl switch-to-domain <域名>`
+  后用域名链接导入；②急用 `cat /var/www/html/sub-<token>.clash` → 客户端「新建本地
+  配置」粘贴。
+- 删除安装总结里过时的"订阅保留明文走 80 端口"说明（H-1 后已不成立），改为说明
+  当前行为（80 → 301 → 8443）。
+- `edgeboxctl help` 尾部的面板/订阅示例 URL 同步改为 `https://…:8443`。
+- docs/问题排查 03：`switch-to-domain` 补全为 `edgeboxctl switch-to-domain <域名>`
+  （避免被误读成独立命令）。
+Files: `install.sh`, `scripts/edgeboxctl`, docs。
+
+### 部署可靠性：commit-SHA 锁定 + 发布自检（消除反复踩的 SHA 不匹配）
+
+部署时反复出现 `SHA256 mismatch`，有两个不同根因，过去容易混为一谈：
+
+- **raw CDN 逐文件缓存延迟**：推送后立即安装时，刚改动的那个文件可能还在
+  提供旧缓存，而 bootstrap 清单已是新的 → 校验失败（仓库其实是对的）。
+- **漏推 / 混源**：只推了部分文件（如改了 `bootstrap.sh` 却没推对应的某个
+  `.sh`），仓库本身就不一致 → **等多久都没用**。
+
+本轮两处改动：
+
+- **`bootstrap.sh` commit-SHA 锁定。** 新增 `_pin_to_commit()`：经 GitHub API
+  (`Accept: application/vnd.github.sha`) 解析 `main` 最新 commit SHA，再用
+  `/<sha>/` 这种按提交固定、不可变的 raw URL 重跑 bootstrap，使"清单 + 全部
+  文件"取自同一提交快照，**根除逐文件缓存延迟**。API 限流/不可达，或显式设了
+  `EDGEBOX_VERSION` 时，优雅回退到分支 ref（原行为）。注:对"漏推"这类**仓库
+  本身不一致**的情况，仍会(正确地)校验失败——锁定不会掩盖坏推送。
+- **新增 `tools/publish-check.sh`。** 推送后、安装前一键自检：用 codeload 打包
+  取"仓库真实内容"(绕过 raw 缓存与 API 限速)，同时核对①仓库内部一致性②raw
+  CDN 传播，给出明确 GO / NO-GO，并区分"漏推(需重推)"与"缓存延迟(可等/可锁定
+  直装)"。非清单文件，不被 bootstrap 拉取。
+
 ### 订阅旧链接无法吊销（审计 follow-up）
 
 `_eb_sync_web_links` 只为当前 token 建 `/var/www/html/sub-<token>*` 软链接、
