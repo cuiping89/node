@@ -3585,11 +3585,13 @@ http {
         listen 80 default_server;
         listen [::]:80 default_server;
         server_name _;
-        # v4.7.0 (审计 H-1): 80 端口不再明文提供订阅/面板。
-        #   明文订阅在墙内被拉取时会把整份节点凭据(IP/UUID/Reality公钥+shortId/HY2密码/SNI)
-        #   暴露给 GFW 的 DPI。改为：仅保留 ACME 验证与存活探测，其余一律 301 跳 8443 HTTPS。
-        #   (续期当前用 certbot --standalone：续期时 nginx 被临时停掉、certbot 自己占 80，
-        #    故本块的 acme-challenge location 在 standalone 下不参与；保留它以兼容 webroot/--nginx 续期。)
+        # v4.7.0 (审计 H-1): 80 端口不再明文提供面板/管理路径。
+        # v4.7.0 (H-1 follow-up): /sub-* 在 80 端口**保留 HTTP 服务**(不跳转)。
+        #   原因: IP 模式下 8443 是自签证书,Clash/mihomo 等用平台 TLS 校验的客户端**无法**
+        #   通过 URL 拉取自签 HTTPS 订阅(skip-cert-verify 不作用于订阅下载阶段)。强制跳转
+        #   会让 IP 模式订阅链接彻底失效。安全权衡: IP 模式下从墙内拉本 URL 会被 GFW DPI
+        #   读到节点凭据 → 故 IP 模式定位为"过渡兜底",show_sub/安装总结明确推荐尽快
+        #   switch-to-domain,域名模式下订阅经 LE 真证书的 HTTPS 提供,泄漏面归零。
         location ^~ /.well-known/acme-challenge/ {
             default_type "text/plain";
             root /var/www/html;
@@ -3597,7 +3599,32 @@ http {
         }
         # 明文存活探测（不含任何节点信息，供外部 uptime 监控用）
         location = /health { return 200 "OK\n"; }
-        # 其余全部跳转到 8443 HTTPS（含 /sub-*、/share/、/traffic/、/status/）
+        # 订阅四格式：保留 HTTP(80) 兼容严格校验证书的客户端(主要面向 IP 模式)
+        location ~ "^/sub-[a-f0-9]+$" {
+            default_type "text/plain; charset=utf-8";
+            add_header Cache-Control "no-store, no-cache, must-revalidate";
+            add_header X-Robots-Tag "noindex, nofollow" always;
+            root /var/www/html;
+        }
+        location ~ "^/sub-[a-f0-9]+\.base64$" {
+            default_type "text/plain; charset=utf-8";
+            add_header Cache-Control "no-store, no-cache, must-revalidate";
+            add_header X-Robots-Tag "noindex, nofollow" always;
+            root /var/www/html;
+        }
+        location ~ "^/sub-[a-f0-9]+\.clash$" {
+            default_type "text/yaml; charset=utf-8";
+            add_header Cache-Control "no-store, no-cache, must-revalidate";
+            add_header X-Robots-Tag "noindex, nofollow" always;
+            root /var/www/html;
+        }
+        location ~ "^/sub-[a-f0-9]+\.singbox$" {
+            default_type "application/json; charset=utf-8";
+            add_header Cache-Control "no-store, no-cache, must-revalidate";
+            add_header X-Robots-Tag "noindex, nofollow" always;
+            root /var/www/html;
+        }
+        # 其余全部跳转到 8443 HTTPS（含 /share/、/traffic/、/status/、/ 等）
         location / { return 301 https://$host:8443$request_uri; }
     }
 
@@ -5964,9 +5991,10 @@ show_installation_info() {
     fi
     # <<< 核心修复逻辑结束 <<<
 	
-	# —— 访问信息：域名模式用域名 + https:8443（真证书）；
-	# v4.7.0 (H-1 follow-up): IP 模式也走 https:8443（自签）—— H-1 后 80 端口
-	# 不再明文提供订阅（301 → 8443），旧 http://IP/ 链接对严格客户端必失败。
+	# —— 访问信息 ——
+	# 域名模式: 订阅与面板都走 https:8443（LE 真证书）
+	# IP 模式: 订阅走 http:80（自签 HTTPS 严格客户端无法拉取,故保留明文兼容 Clash 等;过渡兜底）
+	#          面板走 https:8443（自签,浏览器点"继续访问"即可,cookie 安全得以保留）
 local MASTER_SUB_TOKEN _cert_domain SUB_URL PANEL_URL
 MASTER_SUB_TOKEN="$(jq -r '.master_sub_token // empty' "$config_file" 2>/dev/null)"
 _cert_domain="$(jq -r '.cert.domain // empty' "$config_file" 2>/dev/null)"
@@ -5976,7 +6004,7 @@ if [[ -n "$_cert_domain" ]]; then
     SUB_URL="https://${_cert_domain}:8443/${SUB_PATH}"
     PANEL_URL="https://${_cert_domain}:8443/traffic/?passcode=${DASHBOARD_PASSCODE}"
 else
-    SUB_URL="https://${server_ip}:8443/${SUB_PATH}"
+    SUB_URL="http://${server_ip}/${SUB_PATH}"
     PANEL_URL="https://${server_ip}:8443/traffic/?passcode=${DASHBOARD_PASSCODE}"
 fi
 
@@ -5988,9 +6016,10 @@ fi
     echo -e  "  🔗 订阅 URL (sing-box/Nekobox): ${PURPLE}${SUB_URL}.singbox${NC}"
     echo -e  "  🔗 订阅 URL (Base64 兼容):    ${PURPLE}${SUB_URL}.base64${NC}"
     if [[ -z "$_cert_domain" ]]; then
-        echo -e  "  ${YELLOW}⚠ IP 模式：以上为自签 HTTPS，Clash Verge 等严格客户端直接拉取会失败。${NC}"
-        echo -e  "  ${YELLOW}  推荐先 ${GREEN}edgeboxctl switch-to-domain <你的域名>${YELLOW} 再用域名链接导入；${NC}"
-        echo -e  "  ${YELLOW}  急用可 ${CYAN}cat /var/www/html/${SUB_PATH}.clash${YELLOW} → 客户端「新建本地配置」粘贴。${NC}"
+        echo -e  "  ${YELLOW}⚠ IP 模式订阅经 HTTP/80 明文提供${NC}${DIM}（自签 HTTPS Clash 等严格客户端无法拉取，"
+        echo -e  "    故订阅保留明文兼容）。墙内拉本链接会被 GFW DPI 读到节点凭据 →"
+        echo -e  "    强烈建议尽快 ${GREEN}edgeboxctl switch-to-domain <你的域名>${DIM}，"
+        echo -e  "    域名模式下订阅经 LE 真证书的 HTTPS 提供，泄漏面归零。${NC}"
     fi
 
     echo -e  "\n${CYAN}默认模式：${NC}"
@@ -6088,8 +6117,8 @@ fi
     echo -e "  （以后执行 ${CYAN}edgeboxctl switch-to-domain <域名>${NC} 后会自动换成"
     echo -e "   Let's Encrypt 真证书，警告消失，无需再改配置。）"
     echo -e ""
-    echo -e "  ${DIM}订阅与面板统一走 HTTPS(8443)。80 端口已不再明文提供订阅（防 GFW/中间人"
-    echo -e "  读取节点凭据），旧 http://IP/sub-... 链接会被 301 跳转到 8443。${NC}"
+    echo -e "  ${DIM}域名模式下订阅与面板都走 HTTPS(8443) + LE 真证书；IP 模式下订阅走 HTTP(80)"
+    echo -e "  以兼容严格校验证书的客户端 (Clash/mihomo)，面板仍走 HTTPS(8443) 自签。${NC}"
     echo -e ""
     echo -e "  ${DIM}若不想把面板暴露在公网，可改用 SSH 隧道：${NC}"
     echo -e "    ${DIM}ssh -L 8443:127.0.0.1:8443 root@${server_ip} ，再访问 https://127.0.0.1:8443/traffic/${NC}"

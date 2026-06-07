@@ -33,12 +33,12 @@ trap 'rm -rf "$BOOTSTRAP_TMP" 2>/dev/null || true' EXIT
 # These hashes are regenerated at every release via tools/gen-manifest.sh.
 # If you change any of these files, you MUST regenerate the manifest.
 EDGEBOX_FILES=(
-    "install.sh|install.sh|e08eaaf8118e9085b62ca6c4dcc7f27aaf749cc79dc24b3cc8ef9ee7845ba6b1"
+    "install.sh|install.sh|471012df2d6aba698dbc116b24c6b36ca13821237cf1804595260ba4a594fcd9"
     "lib/common.sh|lib/common.sh|1ae6fd375080ed210f693282859610ec0a2ce3de188fa76c5c1a708ae2a9a4b6"
     "lib/alert.sh|lib/alert.sh|d80652f40814bd4249ca24b0d5b20fe6801fc3bfd8c50616fdebedca034b5d36"
     "lib/subscription.sh|lib/subscription.sh|9646a56d5bd1bf29b6f58e2e1a8a34c1c74517094ac009061b61fd7e669c5a83"
-    "scripts/edgeboxctl|scripts/edgeboxctl|ecbff125494745ba614fd6eb6d06bb250815afb6b8b6c8658b202cd3a397c24c"
-    "scripts/dashboard-backend.sh|scripts/dashboard-backend.sh|6a0b00f6edec0827d618e9d9cbcc865e7f5200c1cccfc96987cabcca4a62dcab"
+    "scripts/edgeboxctl|scripts/edgeboxctl|53f250c7c208a535285de4acc375e6cd376912f52e3b2e79e2134802a6c06360"
+    "scripts/dashboard-backend.sh|scripts/dashboard-backend.sh|d37f93dec71a9f37cbd1e679280eafd8be7da163e22a7c8a92b8c34d3bace156"
     "scripts/protocol-health-monitor.sh|scripts/protocol-health-monitor.sh|4b972c92d1cd8485cc32cf2f5406ad4c528caa41d7369ae6b6fc2f77d13b2451"
     "scripts/edgebox-traffic-randomize.sh|scripts/edgebox-traffic-randomize.sh|a1440d24c81265536092b270bbbeb3f55d68fc1382e0d45216adb980430c91e2"
     "scripts/edgebox-ipq.sh|scripts/edgebox-ipq.sh|d2b8b42cac18f76ac7d5b492b2a915720a61d4575fefd5e6fca6d17d6825d84c"
