@@ -715,10 +715,11 @@ collect_notifications() {
 generate_dashboard_data() {
     log_info "开始生成Dashboard数据..."
 
-    local host_or_ip
+    local host_or_ip is_domain="0"
     local cert_mode_file="${CONFIG_DIR}/cert_mode"
     if [[ -f "$cert_mode_file" ]] && grep -q "letsencrypt:" "$cert_mode_file"; then
         host_or_ip=$(cat "$cert_mode_file" | cut -d: -f2)
+        is_domain="1"
     else
         host_or_ip=$(jq -r '.server_ip // "127.0.0.1"' "${CONFIG_DIR}/server.json" 2>/dev/null || echo "127.0.0.1")
     fi
@@ -757,7 +758,8 @@ generate_dashboard_data() {
           "sing-box":{status:$sstat,version:$sver}}'
     )
 
-    # --- 修复点：将 C 风格的三元运算符 A ? B : C 改为 jq 的 if-then-else-end ---
+    # v4.7.0 (H-1 follow-up): 按证书模式选订阅 URL —— 域名走 https:8443(LE 真证书),
+    # IP 走 http:80(80 端口为 /sub-* 保留了 HTTP 服务以兼容严格校验证书的客户端)。
     jq -n \
         --arg timestamp "$timestamp" \
         --argjson system "$system_info" \
@@ -768,14 +770,16 @@ generate_dashboard_data() {
         --argjson subscription "$subscription_info" \
         --argjson secrets "$secrets_info" \
         --arg host_or_ip "$host_or_ip" \
+        --arg is_domain "$is_domain" \
 		--arg master_sub_token "$master_sub_token" \
         '{
             updated_at: $timestamp,
             subscription_url: (
-                if ($master_sub_token | length) > 0
-                then ("http://" + $host_or_ip + "/sub-" + $master_sub_token)
-                else ("http://" + $host_or_ip + "/sub")
-                end
+                ((if $is_domain == "1" then "https://" else "http://" end)
+                 + $host_or_ip
+                 + (if $is_domain == "1" then ":8443" else "" end)
+                 + "/"
+                 + (if ($master_sub_token | length) > 0 then ("sub-" + $master_sub_token) else "sub" end))
             ),
             server: ($system + {cert: $cert}),
             services: $services,
