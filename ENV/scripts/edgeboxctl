@@ -843,6 +843,7 @@ debug_ports(){
   echo -e "${CYAN}EdgeBox 端口调试信息：${NC}"
   echo -e "\n${YELLOW}端口检查：${NC}"
   echo "  TCP/443 (Nginx入口): $(ss -tln | grep -q ':443 ' && echo '✓' || echo '✗')"
+  echo "  TCP/8443 (HTTPS面板/订阅): $(ss -tln | grep -q ':8443 ' && echo '✓' || echo '✗')"
   echo "  UDP/443 (Hysteria2): $(ss -uln | grep -q ':443 ' && echo '✓' || echo '✗')"
   echo "  TCP/11443 (Reality内部): $(ss -tln | grep -q '127.0.0.1:11443 ' && echo '✓' || echo '✗')"
 }
@@ -4397,7 +4398,7 @@ help|--help|-h|version|--version|-v|"")
 
   # 🔍 诊断与排障
   printf "%b\n" "${YELLOW}■ 🔍 诊断与排障${NC}"
-  print_cmd "${GREEN}edgeboxctl debug-ports${NC}"                                        "检查核心端口 (80, 443) 是否被占用" $_W_DEBUG
+  print_cmd "${GREEN}edgeboxctl debug-ports${NC}"                                        "检查端口占用 (TCP 80/443/8443, UDP 443)" $_W_DEBUG
   print_cmd "${GREEN}edgeboxctl test${NC}"                                               "对各协议入口进行基础连通性测试" $_W_DEBUG
   print_cmd "${GREEN}edgeboxctl test-udp${NC} ${CYAN}<host>${NC} ${CYAN}<port>${NC} ${CYAN}[seconds]${NC}" "使用 iperf3/socat 进行 UDP 连通性简测" $_W_DEBUG
   printf "  %b\n" "${CYAN}示例 (排障流程):${NC}"
