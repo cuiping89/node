@@ -2,6 +2,29 @@
 
 ## v4.7.0 — CDN/WS removal + security-hardening pass
 
+### 8443 端口同步 + certbot 续期 hook 返回码校验（审计 follow-up）
+
+8443 已是 HTTPS 面板/订阅端口（nginx 与 apply-firewall 都已放行），但多处提示/检查
+还停留在"只有 80/443"，最容易导致"安装成功、Reality/HY2 正常，但 `:8443/traffic/`
+打不开"（实为云厂商安全组没放行 8443）。本轮统一补齐：
+
+- **云厂商安全组提示**：改为 `TCP:80(订阅兼容/ACME)、TCP:443(Reality)、TCP:8443(HTTPS面板/订阅)、UDP:443(Hysteria2)`。
+- **`pre_install_check` / 预安装端口冲突检查**：端口列表加入 8443。
+- **`verify_critical_ports`（安装后监听校验）**：新增 TCP 8443 监听检查，未监听时明确
+  提示"面板/HTTPS订阅将打不开，确认安全组已放行 TCP:8443"。
+- **`edgeboxctl debug-ports`**：函数体新增 TCP/8443 检查行，帮助文案改为
+  "检查端口占用 (TCP 80/443/8443, UDP 443)"。
+
+certbot 续期 deploy hook 修复：原 hook `edgeboxctl restart >log; echo "Services reloaded."`
+**不检查返回码** —— nginx/xray/sing-box 重启失败时仍打印 "reloaded"，掩盖"服务仍在用
+旧证书"的故障。改为判断返回码：成功才打印 reloaded，失败则 `echo ... >&2; exit 1`
+（让 certbot 把本次续期标记为失败、触发告警），日志改为追加保留历史。
+
+> 注：审计另提到客户端 `subscription.singbox.json` 仍用 route rule 的 `outbound`
+> 字段（sing-box 1.13+ 已 deprecated，迁移到 rule action）。该项**按审计建议单独
+> 处理**，不与本次发布混合 —— 当前 v4.7.0 重点是 Reality + Hysteria2 主链路稳定，
+> 客户端 sing-box JSON 的 1.13 新写法迁移留作后续专项。
+
 ### IP 模式订阅 URL 重新可拉取（H-1 矫正 + certbot 走 --webroot）
 
 H-1 把 80 端口"除 ACME 外一律 301 跳 8443"做得过头：IP 模式下 8443 是自签证书，
