@@ -893,7 +893,7 @@ set_user_alias() {
 SUB_DB="/etc/edgebox/sub/users.json"
 SUB_DIR="/var/www/html/share"         # Nginx 根下的 /share 目录 (已修改)
 SUB_SRC="${CONFIG_DIR}/subscription.txt"  # 订阅“单一事实源”（已存在）
-NGINX_LOG="${NGINX_ACCESS_LOG:-/var/log/nginx/access.log}"
+NGINX_LOG="${NGINX_ACCESS_LOG:-/var/log/nginx/edgebox-share.log}"  # v4.7.0: 专属订阅独立日志（IP抹段+UA），主 access.log 全匿名不再含可解析字段
 
 sub_ts(){ date +%s; }
 sub_now_iso(){ date -Is; }
