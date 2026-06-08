@@ -153,14 +153,16 @@ declare -a DEFAULT_GITHUB_MIRRORS=(
 )
 
 # 如果用户指定了代理，将其插入到列表最前面
+# 注：此处位于脚本极早期，log_info() 与 LOG_FILE 尚未定义，必须用 echo，
+# 否则会打印 `log_info: command not found` 且该提示丢失。
 if [[ -n "$EDGEBOX_DOWNLOAD_PROXY" ]]; then
     DEFAULT_DOWNLOAD_MIRRORS=("$EDGEBOX_DOWNLOAD_PROXY" "${DEFAULT_DOWNLOAD_MIRRORS[@]}")
-    log_info "使用用户指定的下载代理: $EDGEBOX_DOWNLOAD_PROXY"
+    echo "[INFO] 使用用户指定的下载代理: $EDGEBOX_DOWNLOAD_PROXY"
 fi
 
 if [[ -n "$EDGEBOX_GITHUB_MIRROR" ]]; then
     DEFAULT_GITHUB_MIRRORS=("$EDGEBOX_GITHUB_MIRROR" "${DEFAULT_GITHUB_MIRRORS[@]}")
-    log_info "使用用户指定的GitHub镜像: $EDGEBOX_GITHUB_MIRROR"
+    echo "[INFO] 使用用户指定的GitHub镜像: $EDGEBOX_GITHUB_MIRROR"
 fi
 
 
@@ -178,6 +180,11 @@ BACKUP_DIR="/root/edgebox-backup"
 
 # === 日志文件路径 ===
 LOG_FILE="/var/log/edgebox-install.log"
+# v4.7.0 (安全修复 L-LOG): 安装日志会留存 Reality 私钥/HY2 口令/订阅 Token/面板密码等敏感信息。
+# root 默认 umask(022) 会让它以 644 创建 → 本机任意非 root 用户可读 → 本地凭据泄露。
+# 在任何写入之前先以 600 落地（不截断既有日志），并对既有文件强制收紧权限。
+( umask 077; : >>"$LOG_FILE" ) 2>/dev/null || true
+chmod 600 "$LOG_FILE" 2>/dev/null || true
 XRAY_LOG="/var/log/xray/access.log"
 SINGBOX_LOG="/var/log/edgebox/sing-box.log"
 NGINX_ACCESS_LOG="/var/log/nginx/access.log"
@@ -2329,7 +2336,7 @@ generate_reality_keys() {
     # 验证生成结果
     if [[ -z "$REALITY_PRIVATE_KEY" || -z "$REALITY_PUBLIC_KEY" || -z "$REALITY_SHORT_ID" ]]; then
         log_error "Reality密钥信息生成不完整"
-        log_debug "私钥: ${REALITY_PRIVATE_KEY:-空}"
+        log_debug "私钥: ${REALITY_PRIVATE_KEY:0:6}…(已脱敏)"
         log_debug "公钥: ${REALITY_PUBLIC_KEY:-空}"
         log_debug "短ID: ${REALITY_SHORT_ID:-空}"
         return 1
@@ -2421,10 +2428,9 @@ save_config_info() {
     # 关键凭据校验（缺失即失败）- 注意这里的 MASTER_SUB_TOKEN 依赖 execute_module2 中生成
     if [[ -z "$UUID_VLESS_REALITY" || -z "$PASSWORD_HYSTERIA2" || -z "${MASTER_SUB_TOKEN:-}" ]]; then
         log_error "关键凭据缺失（含管理员订阅Token），无法保存配置"
-        log_debug "UUID_VLESS_REALITY: ${UUID_VLESS_REALITY:-MISSING}"
-        log_debug "PASSWORD_HYSTERIA2: ${PASSWORD_HYSTERIA2:0:8}..."
-        log_debug "PASSWORD_HYSTERIA2: ${PASSWORD_HYSTERIA2:-MISSING}"
-        log_debug "MASTER_SUB_TOKEN: ${MASTER_SUB_TOKEN:-MISSING}"
+        log_debug "UUID_VLESS_REALITY: ${UUID_VLESS_REALITY:0:8}…(已脱敏)"
+        log_debug "PASSWORD_HYSTERIA2: ${PASSWORD_HYSTERIA2:0:8}…(已脱敏)"
+        log_debug "MASTER_SUB_TOKEN: ${MASTER_SUB_TOKEN:0:8}…(已脱敏)"
         return 1
     fi
     if [[ ! "$server_ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
@@ -2490,7 +2496,9 @@ save_config_info() {
     fi
     local saved_passcode=$(jq -r '.dashboard_passcode // empty' "$server_tmp" 2>/dev/null)
     if [[ -z "$saved_passcode" || "$saved_passcode" != "$DASHBOARD_PASSCODE" ]]; then
-         log_error "密码保存验证失败 (期望: $DASHBOARD_PASSCODE, 实际: ${saved_passcode:-空})"
+         local _exp_red="${DASHBOARD_PASSCODE:0:4}…"
+         local _got_red="空"; [[ -n "$saved_passcode" ]] && _got_red="${saved_passcode:0:4}…"
+         log_error "密码保存验证失败 (期望前缀: ${_exp_red}, 实际前缀: ${_got_red})"
          rm -f "$server_tmp"
          return 1
     fi
@@ -3103,8 +3111,41 @@ install_sing_box() {
     # ========================================
     # 第1步：检查是否已安装
     # ========================================
+# ========================================
+# 第0步：可选「自动追最新稳定版」(opt-in，默认关闭)
+# ----------------------------------------
+# 默认仍用内置 pinned 版本：确定、可复现，绝不因上游突变而炸。
+# 仅当 EDGEBOX_SINGBOX_TRACK=latest|auto 时，查询 GitHub releases/latest
+# （该端点天然排除 pre-release/beta/rc），但严格夹在「已验证 schema 系列」内。
+# 设计理由：sing-box 跨小版本多次破坏性改 schema（1.11→1.12→1.13 均破坏），
+# 盲目追 latest 会让本脚本生成的 server.json schema 不匹配 → HY2 起不来。
+# 跨系列时拒绝自动跳版、回落 pinned；同系列内（patch/minor）才自动跟进。
+# 查询失败（API 限流/网络）同样回落 pinned。安装尾部仍有 `sing-box check` 兜底。
+SINGBOX_MAX_TESTED_SERIES="1.13"   # 本版 install.sh 的配置已对此系列验证；测试新系列后再上调此值
+if [[ "${EDGEBOX_SINGBOX_TRACK:-pinned}" == "latest" || "${EDGEBOX_SINGBOX_TRACK:-}" == "auto" ]]; then
+    local _latest_ver _latest_series _series_max
+    _latest_ver=$(curl -fsSL --connect-timeout 8 --max-time 15 \
+        "https://api.github.com/repos/SagerNet/sing-box/releases/latest" 2>/dev/null \
+        | grep -oE '"tag_name"[[:space:]]*:[[:space:]]*"v?[0-9]+\.[0-9]+\.[0-9]+"' \
+        | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    if [[ -z "$_latest_ver" ]]; then
+        log_warn "EDGEBOX_SINGBOX_TRACK=latest：无法解析上游 latest（API 限流/网络），回退内置 pinned v${DEFAULT_SING_BOX_VERSION}"
+    else
+        _latest_series="${_latest_ver%.*}"   # 1.13.7 -> 1.13
+        _series_max=$(printf '%s\n%s\n' "$_latest_series" "$SINGBOX_MAX_TESTED_SERIES" | sort -V | tail -1)
+        if [[ "$_series_max" == "$SINGBOX_MAX_TESTED_SERIES" ]]; then
+            log_success "EDGEBOX_SINGBOX_TRACK=latest：上游 latest v${_latest_ver} 在已验证窗口(≤${SINGBOX_MAX_TESTED_SERIES})内，采用之"
+            DEFAULT_SING_BOX_VERSION="$_latest_ver"
+        else
+            log_warn "EDGEBOX_SINGBOX_TRACK=latest：上游 latest v${_latest_ver} 超出已验证 schema 窗口(${SINGBOX_MAX_TESTED_SERIES})"
+            log_warn "  为避免配置 schema 不兼容导致 HY2 起不来，本次仍用 pinned v${DEFAULT_SING_BOX_VERSION}"
+            log_warn "  待 install.sh 适配并验证新系列 schema 后，把 SINGBOX_MAX_TESTED_SERIES 调高即可自动跟进"
+        fi
+    fi
+fi
+
 local MIN_REQUIRED_VERSION="1.8.0"   # HY2 服务端所需的最低版本
-local TARGET_VERSION="${DEFAULT_SING_BOX_VERSION:-1.12.10}"  # v4.7.0: 升级到的目标版本
+local TARGET_VERSION="${DEFAULT_SING_BOX_VERSION:-1.13.13}"  # v4.7.0: 升级到的目标版本
 local current_version=""
 if command -v sing-box >/dev/null 2>&1 || command -v /usr/local/bin/sing-box >/dev/null 2>&1; then
     current_version=$( (sing-box version || /usr/local/bin/sing-box version) 2>/dev/null \
@@ -3572,6 +3613,19 @@ http {
     # 仅保留方法/路径/协议/状态/字节，足够排障，不含可关联使用者的信息。
     log_format main '- - [$time_local] "$request_method $uri $server_protocol" $status $body_bytes_sent';
     access_log /var/log/nginx/access.log main;
+
+    # v4.7.0 (审计 M-2 跟进 / 设备统计兼容): 主日志保持全匿名；仅为 /share/ 专属订阅单开一份
+    # "弱可关联"日志：客户端 IP 抹掉主机段（IPv4→/24, IPv6→前4组/64），保留 UA，供
+    # `edgeboxctl sub show` 做设备指纹 sha1(ua_norm|ip_bucket) 统计。抹段后的粒度与 edgeboxctl
+    # 的 ip_bucket(/24、/前4组) 完全一致，故不改变统计结果；该日志文件 0600 + 短留存，取证价值低。
+    # 无法匹配的地址（如压缩写法 IPv6）回落 0.0.0.0（保守合并，宁可少计不多计）。
+    map $remote_addr $share_anon_ip {
+        default                                                          "0.0.0.0";
+        "~^(?<v4>\d{1,3}\.\d{1,3}\.\d{1,3})\.\d{1,3}$"                   "${v4}.0";
+        "~^(?<v6>[0-9a-fA-F]+:[0-9a-fA-F]+:[0-9a-fA-F]+:[0-9a-fA-F]+):"  "${v6}::";
+    }
+    log_format share_anon '$share_anon_ip - - [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent"';
+
     error_log  /var/log/nginx/error.log warn;
 
     sendfile on;
@@ -3673,6 +3727,9 @@ http {
         location ^~ /share/ {
             default_type text/plain;
             add_header Cache-Control "no-store, no-cache, must-revalidate";
+            # v4.7.0: 专属订阅访问写入弱可关联的独立日志（IP 抹段+UA），不污染匿名主日志。
+            # location 级 access_log 会覆盖继承的 main，故 /share/ 仅进此文件。
+            access_log /var/log/nginx/edgebox-share.log share_anon;
             root /var/www/html;
             try_files $uri =404;
         }
@@ -3788,6 +3845,10 @@ EOF
 
     # 验证Nginx配置并智能重载/启动（用退出码判断，避免 grep 误判）
     log_info "验证Nginx配置..."
+    # v4.7.0: 预创建专属订阅日志为 0600 root:root，nginx 之后只会 append、不重建 inode，
+    # 故权限保持锁定；不含原始 IP（已抹段），仅 root 可读。
+    install -o root -g root -m 600 /dev/null /var/log/nginx/edgebox-share.log 2>/dev/null || \
+        { : >>/var/log/nginx/edgebox-share.log 2>/dev/null && chmod 600 /var/log/nginx/edgebox-share.log 2>/dev/null; } || true
     set +e
     _nginx_test_out="$(nginx -t 2>&1)"
     _nginx_rc=$?
@@ -5503,7 +5564,24 @@ setup_logrotate() {
     endscript
 }
 
-/var/log/edgebox/*.log /var/log/edgebox.log /var/log/edgebox-install.log /var/log/edgebox-traffic-alert.log {
+# v4.7.0 (设备统计折中方案): 专属订阅日志含 /24 IP + UA（弱可关联）。短留存 + 0600 root:root，
+# 降低取证价值。设备统计只读 live 文件（edgeboxctl sub show 按需扫描，无 cron），故留存条数
+# 对统计几乎无影响，纯隐私/磁盘旋钮。postrotate 重载让 nginx 重新打开日志句柄。
+/var/log/nginx/edgebox-share.log {
+    daily
+    rotate 3
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0600 root root
+    sharedscripts
+    postrotate
+        systemctl reload nginx >/dev/null 2>&1 || true
+    endscript
+}
+
+/var/log/edgebox/*.log /var/log/edgebox.log /var/log/edgebox-traffic-alert.log {
     daily
     rotate 14
     compress
@@ -5511,6 +5589,17 @@ setup_logrotate() {
     missingok
     notifempty
     create 0640 root root
+}
+
+# v4.7.0 (安全修复 L-LOG): 安装日志含敏感凭据，单独一条且轮转副本也锁 600 root:root
+/var/log/edgebox-install.log {
+    daily
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0600 root root
 }
 EOF
     chmod 644 /etc/logrotate.d/edgebox
@@ -6238,27 +6327,37 @@ pre_install_check() {
             log_info "检测到强制安装标记 /tmp/edgebox_force_install，继续覆盖安装"
             rm -f /tmp/edgebox_force_install
         elif [[ ! -t 0 ]]; then
-            # stdin is not a TTY (e.g. curl | bash) - cannot prompt user
-            log_error "================================================================"
-            log_error " 检测到 EdgeBox 已安装，且当前为非交互式安装（无法弹出确认）"
-            log_error " 如果你是想升级，请用: ${YELLOW}edgeboxctl upgrade${NC}"
-            log_error " 如果是想强制覆盖（会丢失客户端凭据！），请用以下方式："
-            log_error "================================================================"
-            log_error ""
-            log_error " 【方式1，最简单】先放一个标记文件，然后重跑你刚才的命令:"
-            log_error "   touch /tmp/edgebox_force_install"
-            log_error "   curl -fsSL https://raw.githubusercontent.com/cuiping89/node/main/ENV/bootstrap.sh | sudo bash"
-            log_error ""
-            log_error " 【方式2】sudo 直接传环境变量:"
-            log_error "   curl -fsSL https://raw.githubusercontent.com/cuiping89/node/main/ENV/bootstrap.sh | sudo EDGEBOX_FORCE=1 bash"
-            log_error ""
-            log_error " 【方式3】先彻底清理，再正常安装:"
-            log_error "   sudo systemctl stop nginx xray sing-box 2>/dev/null"
-            log_error "   sudo rm -rf /etc/edgebox /var/www/html/sub-* /usr/local/bin/edgeboxctl"
-            log_error "   curl -fsSL https://raw.githubusercontent.com/cuiping89/node/main/ENV/bootstrap.sh | sudo bash"
-            log_error ""
-            log_error "================================================================"
-            exit 1
+            # v4.7.0 (UX 修复): 非交互（curl|bash）覆盖已安装节点 —— 不再直接报错退出。
+            # 直接覆盖会重新生成全部凭据 → 所有客户端订阅失效，这几乎从来不是用户重跑安装命令的本意。
+            # 因此默认改为【自动转升级】：保留 UUID / Reality 密钥 / HY2 口令 / 订阅 Token / 面板密码，
+            # 仅刷新代码与配置。要彻底重置并重新生成全部凭据，请显式 EDGEBOX_FORCE=1 重跑。
+            log_warn "================================================================"
+            log_warn " 检测到已安装 EdgeBox（非交互模式）。"
+            log_warn " 自动转为【升级】，保留现有客户端凭据，仅刷新代码与配置。"
+            log_warn " （如需彻底重置并重新生成全部凭据：用 EDGEBOX_FORCE=1 重跑。）"
+            log_warn "================================================================"
+
+            # 首选：委托给已安装的 edgeboxctl upgrade —— 它会完整快照/还原
+            # server.json + cert/ + alert.env + shunt/ 并重应用运行拓扑（域名/IP 模式安全）。
+            if [[ -x /usr/local/bin/edgeboxctl ]]; then
+                log_info "委托 edgeboxctl upgrade 执行带凭据保留的安全升级…"
+                exec /usr/local/bin/edgeboxctl upgrade
+            fi
+
+            # 兜底：edgeboxctl 缺失时，内联快照 server.json 后以升级模式继续覆盖安装。
+            # 注：install.sh 不会 rm /etc/edgebox，证书/alert.env/shunt 文件原地留存；
+            # 凭据复用走 KEEP 文件路径。但内联兜底不重应用拓扑，域名节点仍建议改用 edgeboxctl upgrade。
+            log_warn "未找到 edgeboxctl，使用内联回退：快照 server.json 并以升级模式继续。"
+            if cp -p "/etc/edgebox/config/server.json" /tmp/edgebox-keep-server.json 2>/dev/null; then
+                chmod 600 /tmp/edgebox-keep-server.json 2>/dev/null || true
+                export EDGEBOX_UPGRADE=1
+                log_info "已快照凭据到 /tmp/edgebox-keep-server.json，将以升级模式覆盖安装（凭据不变）。"
+            else
+                log_error "无法快照 server.json，且 edgeboxctl 不可用；为避免丢失客户端凭据，安装中止。"
+                log_error " 请改用： edgeboxctl upgrade"
+                log_error " 或显式覆盖（会重置全部凭据）： curl -fsSL .../bootstrap.sh | sudo EDGEBOX_FORCE=1 bash"
+                exit 1
+            fi
         else
             read -p "是否继续？[y/N]: " -n 1 -r
             echo
