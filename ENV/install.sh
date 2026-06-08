@@ -1488,7 +1488,7 @@ check_ports() {
     log_info "检查端口占用情况..."
 
     # 需要检查的端口列表
-    local ports_to_check=(443 80)
+    local ports_to_check=(443 80 8443)
     local occupied_ports=()
 
     # 检查每个端口
@@ -1659,7 +1659,7 @@ configure_firewall() {
   fi
 
   log_success "iptables / ip6tables 规则已应用。"
-  log_info "如果云厂商有安全组，请同步放行上述端口（TCP:80/443，UDP:443）"
+  log_info "如果云厂商有安全组，请同步放行：TCP:80(订阅兼容/ACME)、TCP:443(Reality)、TCP:8443(HTTPS面板/订阅)、UDP:443(Hysteria2)"
 }
 
 
@@ -4442,6 +4442,7 @@ verify_critical_ports() {
   log_info "检查关键端口监听状态..."
   local ok=true
   ss -tln | grep -q ':443 '    && log_success "TCP 443 (Nginx) 监听正常" || { log_warn "TCP 443 未监听"; ok=false; }
+  ss -tln | grep -q ':8443 '   && log_success "TCP 8443 (HTTPS面板/订阅) 监听正常" || { log_warn "TCP 8443 未监听 — 面板/HTTPS订阅将打不开(若云厂商有安全组,确认已放行 TCP:8443)"; ok=false; }
   ss -uln | grep -q ':443 '    && log_success "UDP 443 (Hysteria2) 监听正常" || { log_warn "UDP 443 未监听"; ok=false; }
   $ok
 }
@@ -5952,9 +5953,14 @@ fi
 echo "EdgeBox Hook: Reloading services after certificate renewal..."
 
 # 使用edgeboxctl的重启命令，因为它有更完善的逻辑
-/usr/local/bin/edgeboxctl restart >/var/log/edgebox-cert-renew.log 2>&1
-
-echo "EdgeBox Hook: Services reloaded."
+# (审计 follow-up) 检查返回码：重启失败时明确报错并 exit 1，避免日志谎报 "Services reloaded"
+# 而实际服务仍在用旧证书。日志改为追加(>>)以保留续期历史。
+if /usr/local/bin/edgeboxctl restart >>/var/log/edgebox-cert-renew.log 2>&1; then
+    echo "EdgeBox Hook: Services reloaded."
+else
+    echo "EdgeBox Hook: Service reload FAILED — 服务可能仍在使用旧证书，请检查 /var/log/edgebox-cert-renew.log 并手动 edgeboxctl restart。" >&2
+    exit 1
+fi
 EOF
     chmod +x "$hook_script"
     log_success "Certbot续期钩子已设置"
@@ -6265,7 +6271,7 @@ pre_install_check() {
     fi
 
     # 检查关键端口占用
-    local critical_ports=(443 80)
+    local critical_ports=(443 80 8443)
     local port_conflicts=()
 
     for port in "${critical_ports[@]}"; do
