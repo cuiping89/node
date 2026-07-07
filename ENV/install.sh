@@ -123,7 +123,6 @@ CYAN="${ESC}[0;36m"
 YELLOW="${ESC}[1;33m"
 GREEN="${ESC}[0;32m"
 RED="${ESC}[0;31m"
-DIM="${ESC}[2m"   # v4.7.0: 暗色，安全提醒里的次要说明用
 NC="${ESC}[0m"  # No Color
 
 
@@ -153,16 +152,14 @@ declare -a DEFAULT_GITHUB_MIRRORS=(
 )
 
 # 如果用户指定了代理，将其插入到列表最前面
-# 注：此处位于脚本极早期，log_info() 与 LOG_FILE 尚未定义，必须用 echo，
-# 否则会打印 `log_info: command not found` 且该提示丢失。
 if [[ -n "$EDGEBOX_DOWNLOAD_PROXY" ]]; then
     DEFAULT_DOWNLOAD_MIRRORS=("$EDGEBOX_DOWNLOAD_PROXY" "${DEFAULT_DOWNLOAD_MIRRORS[@]}")
-    echo "[INFO] 使用用户指定的下载代理: $EDGEBOX_DOWNLOAD_PROXY"
+    log_info "使用用户指定的下载代理: $EDGEBOX_DOWNLOAD_PROXY"
 fi
 
 if [[ -n "$EDGEBOX_GITHUB_MIRROR" ]]; then
     DEFAULT_GITHUB_MIRRORS=("$EDGEBOX_GITHUB_MIRROR" "${DEFAULT_GITHUB_MIRRORS[@]}")
-    echo "[INFO] 使用用户指定的GitHub镜像: $EDGEBOX_GITHUB_MIRROR"
+    log_info "使用用户指定的GitHub镜像: $EDGEBOX_GITHUB_MIRROR"
 fi
 
 
@@ -180,11 +177,6 @@ BACKUP_DIR="/root/edgebox-backup"
 
 # === 日志文件路径 ===
 LOG_FILE="/var/log/edgebox-install.log"
-# v4.7.0 (安全修复 L-LOG): 安装日志会留存 Reality 私钥/HY2 口令/订阅 Token/面板密码等敏感信息。
-# root 默认 umask(022) 会让它以 644 创建 → 本机任意非 root 用户可读 → 本地凭据泄露。
-# 在任何写入之前先以 600 落地（不截断既有日志），并对既有文件强制收紧权限。
-( umask 077; : >>"$LOG_FILE" ) 2>/dev/null || true
-chmod 600 "$LOG_FILE" 2>/dev/null || true
 XRAY_LOG="/var/log/xray/access.log"
 SINGBOX_LOG="/var/log/edgebox/sing-box.log"
 NGINX_ACCESS_LOG="/var/log/nginx/access.log"
@@ -224,16 +216,20 @@ SINGBOX_USER="root"
 
 # === 网络常量 ===
 DEFAULT_PORTS=(80 443)
-REALITY_SNI="www.microsoft.com"
+# v4.7.1: 固定使用已验证的 Reality 目标；允许安装时通过环境变量覆盖。
+# 不再默认使用 www.microsoft.com（当前 Xray 版本存在兼容问题），
+# 也不自动选择 Apple/iCloud（Xray 会给出封禁风险警告）。
+REALITY_SNI="${EDGEBOX_REALITY_SNI:-www.cloudflare.com}"
 HYSTERIA2_MASQUERADE="https://www.bing.com"
 
 # === 版本和下载常量 ===
-# v4.7.0: 升级到 sing-box 1.13.x，已完成 schema 迁移：
-#   - 服务端 sing-box.json: 删除 {type:"block"} outbound，改用 route rule {action:"reject"}
-#   - 客户端订阅 (subscription.singbox.json): 删除 {type:"block"} 和 {type:"dns",tag:"dns-out"}
-#     outbound；DNS 路由改为 route rule {protocol:"dns", action:"hijack-dns"}
-# 选 1.13.13 (官方 latest stable)。低版本仍可通过 VERSION_PRIORITY 自动回退。
-DEFAULT_SING_BOX_VERSION="1.13.13"
+# v4.6.0-rc4: 兼容性锁定版本 1.12.8 (审核 P2)
+# 原因: 当前生成的客户端 sing-box 配置仍使用 1.13.0 之前的 schema:
+#   - { "type": "block", "tag": "block" }
+#   - { "type": "dns", "tag": "dns-out" }
+# 上述特殊 outbound 已在 sing-box 1.13.0 移除（官方稳定版当前为 1.13.x）
+# 直接升级会导致客户端配置加载失败。后续迁移 schema 后再放开升级。
+DEFAULT_SING_BOX_VERSION="1.12.8"
 XRAY_INSTALL_SCRIPT="https://raw.githubusercontent.com/XTLS/Xray-install/main/install-release.sh"
 
 # === 临时文件常量 ===
@@ -245,14 +241,13 @@ SNI_CONFIG_DIR="${CONFIG_DIR}/sni"
 SNI_DOMAINS_CONFIG="${SNI_CONFIG_DIR}/domains.json"
 SNI_LOG_FILE="/var/log/edgebox/sni-management.log"
 SNI_LOCK_FILE="/etc/edgebox/sni.lock"
-# SNI域名池配置
+# Reality SNI 候选池。
+# 这里只保存人工维护的候选；安装阶段不再按普通 HTTPS 延迟自动轮换，
+# 因为“TLS 可达”不等于“REALITY 一定兼容”。
 SNI_DOMAIN_POOL=(
-    "www.microsoft.com"      # 权重: 25 (稳定性高)
-    "www.apple.com"          # 权重: 20 (全球覆盖)
-    "www.cloudflare.com"     # 权重: 20 (网络友好)
-    "azure.microsoft.com"    # 权重: 15 (企业级)
-    "aws.amazon.com"         # 权重: 10 (备用)
-    "www.fastly.com"         # 权重: 10 (CDN特性)
+    "www.cloudflare.com"     # 当前实机验证可用；默认值
+    "www.fastly.com"         # 备用，切换后必须刷新客户端订阅并实测
+    "aws.amazon.com"         # 备用，切换后必须刷新客户端订阅并实测
 )
 
 # === 控制面板访问密码 ===
@@ -330,8 +325,6 @@ REALITY_SHORT_ID=""
 
 # 密码集合 (v4.7.0: only Hysteria2)
 PASSWORD_HYSTERIA2=""
-# v4.7.0 (审计 H-2): Hysteria2 Salamander obfs 预共享口令
-HYSTERIA2_OBFS_PASSWORD=""
 
 #############################################
 # 端口配置（单端口复用架构）
@@ -678,12 +671,21 @@ auto_detect_reverse_ssh_params() {
     done
   fi
 
-  # 4) 【v4.7.0 安全修复】移除"回落到 SSH 客户端 IP"逻辑。
-  #    旧版本会把当前 SSH 来源 IP（你的家庭/办公网公网 IP）自动写入
-  #    /etc/edgebox/reverse-ssh.env 并持久回连，等于把运维者真实 IP 暴露在 VPS 上，
-  #    与匿名代理目标冲突。现在只接受显式配置（env 文件 / ~/.ssh/config 别名）。
-  #    如确需用当前客户端 IP 作跳板，请手动设置 EB_RSSH_HOST 后再启用。
-  :
+  # 4) 回落到当前 SSH 客户端 IP（如果是公网且 22 可达）
+  if [[ -z "${EB_RSSH_HOST}" && -n "${SSH_CONNECTION:-}" ]]; then
+    client_ip="$(awk '{print $1}' <<<"$SSH_CONNECTION")"
+    if [[ "$client_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+       && ! [[ "$client_ip" =~ ^10\.|^192\.168\.|^172\.(1[6-9]|2[0-9]|3[0-1])\. ]]; then
+      if command -v nc >/dev/null 2>&1; then
+        if nc -zw1 "$client_ip" 22; then
+          EB_RSSH_HOST="$client_ip"
+        fi
+      else
+        # 没有 nc，就不测端口，直接尝试
+        EB_RSSH_HOST="$client_ip"
+      fi
+    fi
+  fi
 }
 
 #############################################
@@ -694,14 +696,6 @@ auto_detect_reverse_ssh_params() {
 # ANCHOR: [FUNC-INSTALL_REVERSE_SSH_UNIT]
 #############################################
 install_reverse_ssh_unit() {
-  # 【v4.7.0 安全修复】反向 SSH 救生索默认关闭，必须显式启用：
-  #   - 设置环境变量 EB_RSSH_ENABLE=1，或
-  #   - 在 /etc/edgebox/reverse-ssh.env 中写入 EB_RSSH_ENABLE=1
-  [[ -f /etc/edgebox/reverse-ssh.env ]] && . /etc/edgebox/reverse-ssh.env
-  if [[ "${EB_RSSH_ENABLE:-0}" != "1" ]]; then
-    return 0
-  fi
-
   auto_detect_reverse_ssh_params
 
   # 三要素缺任意一个就静默跳过（不阻塞主流程）
@@ -711,15 +705,12 @@ install_reverse_ssh_unit() {
 
   mkdir -p /etc/edgebox
   cat > /etc/edgebox/reverse-ssh.env <<EOF
-EB_RSSH_ENABLE="1"
 EB_RSSH_HOST="${EB_RSSH_HOST}"
 EB_RSSH_USER="${EB_RSSH_USER}"
 EB_RSSH_PORT="${EB_RSSH_PORT}"
 EB_RSSH_RPORT="${EB_RSSH_RPORT}"
 EB_RSSH_KEY_PATH="${EB_RSSH_KEY_PATH}"
 EOF
-  # 【v4.7.0 安全修复】该文件含跳板机连接信息，限制为仅 root 可读
-  chmod 600 /etc/edgebox/reverse-ssh.env 2>/dev/null || true
 
   cat > /etc/systemd/system/edgebox-reverse-ssh.service <<'UNIT'
 [Unit]
@@ -760,11 +751,6 @@ UNIT
 # ANCHOR: [FUNC-ENSURE_REVERSE_SSH]
 #############################################
 ensure_reverse_ssh() {
-  # 【v4.7.0 安全修复】默认关闭，必须显式 EB_RSSH_ENABLE=1 才生效
-  [[ -f /etc/edgebox/reverse-ssh.env ]] && . /etc/edgebox/reverse-ssh.env
-  if [[ "${EB_RSSH_ENABLE:-0}" != "1" ]]; then
-    return 0  # 未显式启用就跳过，不影响主流程
-  fi
   auto_detect_reverse_ssh_params
   if [[ -z "${EB_RSSH_HOST}" || -z "${EB_RSSH_USER}" || -z "${EB_RSSH_RPORT}" ]]; then
     return 0  # 未配置就跳过，不影响主流程
@@ -1353,38 +1339,18 @@ setup_sni_pool_management() {
 # ANCHOR: [FUNC-CREATE_SNI_POOL_CONFIG]
 #############################################
 create_sni_pool_config() {
-    log_info "创建SNI域名池配置文件..."
+    log_info "创建 Reality SNI 候选配置文件..."
 
     cat > "$SNI_DOMAINS_CONFIG" << 'EOF'
 {
-  "version": "1.0",
+  "version": "1.1",
   "last_updated": "",
-  "current_domain": "",
+  "current_domain": "www.cloudflare.com",
   "domains": [
     {
-      "hostname": "www.microsoft.com",
-      "weight": 25,
-      "category": "tech-giant",
-      "region": "global",
-      "last_used": "",
-      "success_rate": 0.0,
-      "avg_response_time": 0.0,
-      "last_check": ""
-    },
-    {
-      "hostname": "www.apple.com",
-      "weight": 20,
-      "category": "tech-giant",
-      "region": "global",
-      "last_used": "",
-      "success_rate": 0.0,
-      "avg_response_time": 0.0,
-      "last_check": ""
-    },
-    {
       "hostname": "www.cloudflare.com",
-      "weight": 20,
-      "category": "cdn",
+      "weight": 30,
+      "category": "verified-default",
       "region": "global",
       "last_used": "",
       "success_rate": 0.0,
@@ -1392,9 +1358,9 @@ create_sni_pool_config() {
       "last_check": ""
     },
     {
-      "hostname": "azure.microsoft.com",
-      "weight": 15,
-      "category": "cloud-service",
+      "hostname": "www.fastly.com",
+      "weight": 20,
+      "category": "manual-fallback",
       "region": "global",
       "last_used": "",
       "success_rate": 0.0,
@@ -1404,17 +1370,7 @@ create_sni_pool_config() {
     {
       "hostname": "aws.amazon.com",
       "weight": 10,
-      "category": "cloud-service",
-      "region": "global",
-      "last_used": "",
-      "success_rate": 0.0,
-      "avg_response_time": 0.0,
-      "last_check": ""
-    },
-    {
-      "hostname": "www.fastly.com",
-      "weight": 10,
-      "category": "cdn",
+      "category": "manual-fallback",
       "region": "global",
       "last_used": "",
       "success_rate": 0.0,
@@ -1424,18 +1380,18 @@ create_sni_pool_config() {
   ],
   "selection_history": [],
   "rotation_config": {
-    "enabled": true,
-    "frequency": "weekly",
+    "enabled": false,
+    "frequency": "manual",
     "last_rotation": "",
     "next_rotation": "",
-    "auto_fallback": true,
+    "auto_fallback": false,
     "health_check_interval": 3600
   }
 }
 EOF
 
     chmod 644 "$SNI_DOMAINS_CONFIG"
-    log_success "SNI域名池配置文件创建完成: $SNI_DOMAINS_CONFIG"
+    log_success "Reality SNI 候选配置已创建: $SNI_DOMAINS_CONFIG"
 }
 
 # === 一次性选择 SNI（安装阶段） ===
@@ -1448,37 +1404,61 @@ EOF
 #############################################
 choose_initial_sni_once() {
   mkdir -p "$(dirname "$SNI_LOCK_FILE")"
-  # 1) 已有锁则复用，避免重复改动
+
+  # 升级/重复安装时优先保留现有锁，避免静默更换 SNI 导致客户端失联。
   if [[ -s "$SNI_LOCK_FILE" ]]; then
-    local locked; locked="$(head -1 "$SNI_LOCK_FILE" | tr -d '\r\n ')"
+    local locked
+    locked="$(head -1 "$SNI_LOCK_FILE" | tr -d '\r\n ')"
     if [[ -n "$locked" ]]; then
-      log_info "检测到已锁定的 SNI：${locked}，跳过重新选择"
-      export REALITY_SNI="$locked"
-      return 0
+      case "$locked" in
+        www.microsoft.com|microsoft.com)
+          log_warn "旧 SNI $locked 已知可能与当前 Xray REALITY 不兼容，改用 ${REALITY_SNI}."
+          ;;
+        *apple.com|*icloud.com)
+          log_warn "旧 SNI $locked 会触发 Xray 风险警告，改用 ${REALITY_SNI}."
+          ;;
+        *)
+          export REALITY_SNI="$locked"
+          log_info "检测到已锁定 SNI：${locked}，继续沿用。"
+          return 0
+          ;;
+      esac
     fi
   fi
 
-  # 2) edgeboxctl 优先自动选择；失败就用域名池第一个
-  local chosen=""
-  if command -v edgeboxctl >/dev/null 2>&1; then
-    chosen="$(edgeboxctl sni auto --quiet 2>/dev/null | head -1 | tr -d '\r\n ')"
-  fi
-  if [[ -z "$chosen" ]]; then
-    # 从 domains.json 拿第一个；再不行就用默认
-    if [[ -s "$SNI_DOMAINS_CONFIG" ]] && command -v jq >/dev/null 2>&1; then
-      chosen="$(jq -r '.domains[0].hostname // empty' "$SNI_DOMAINS_CONFIG" 2>/dev/null)"
-    fi
-    : "${chosen:=${REALITY_SNI:-www.microsoft.com}}"
-    log_warn "edgeboxctl sni auto 不可用/失败，采用候选：${chosen}"
-  else
-    log_info "本次自动选择 SNI：${chosen}"
+  local chosen="${EDGEBOX_REALITY_SNI:-${REALITY_SNI:-www.cloudflare.com}}"
+
+  if ! [[ "$chosen" =~ ^[A-Za-z0-9.-]+\.[A-Za-z0-9.-]+$ ]]; then
+    log_error "Reality SNI 格式无效: $chosen"
+    return 1
   fi
 
-  # 3) 落锁 & 导出环境变量（供 configure_xray 使用）
-  echo -n "$chosen" > "$SNI_LOCK_FILE"
+  # 明确阻止已知问题目标成为默认值。需要实验时应安装后手动 sni set。
+  case "$chosen" in
+    www.microsoft.com|microsoft.com)
+      log_warn "拒绝把 www.microsoft.com 设为默认 Reality 目标，回退到 www.cloudflare.com。"
+      chosen="www.cloudflare.com"
+      ;;
+    *apple.com|*icloud.com)
+      log_warn "Apple/iCloud 目标会触发 Xray 风险警告，回退到 www.cloudflare.com。"
+      chosen="www.cloudflare.com"
+      ;;
+  esac
+
+  if ! getent hosts "$chosen" >/dev/null 2>&1; then
+    log_error "默认 Reality SNI 无法解析: $chosen"
+    return 1
+  fi
+  if ! timeout 8 bash -c "</dev/tcp/$chosen/443" 2>/dev/null; then
+    log_error "默认 Reality SNI 的 TCP/443 不可达: $chosen"
+    return 1
+  fi
+
+  printf '%s' "$chosen" > "$SNI_LOCK_FILE"
   chmod 600 "$SNI_LOCK_FILE"
   export REALITY_SNI="$chosen"
-  log_success "已锁定安装期 SNI：${REALITY_SNI}"
+  log_success "已锁定安装期 Reality SNI：${REALITY_SNI}"
+  log_warn "SNI 只做基础 DNS/TCP 检查；安装后仍需用真实客户端验证 Reality。"
   return 0
 }
 
@@ -1495,7 +1475,7 @@ check_ports() {
     log_info "检查端口占用情况..."
 
     # 需要检查的端口列表
-    local ports_to_check=(443 80 8443)
+    local ports_to_check=(443 80)
     local occupied_ports=()
 
     # 检查每个端口
@@ -1566,7 +1546,7 @@ configure_firewall() {
   log_info "检测到 SSH 端口：$current_ssh_port"
 
   # ---------- 目标端口集合 ----------
-  local tcp_ports=("80" "443" "8443")  # 80=订阅, 443=Reality(stream), 8443=HTTPS面板/订阅
+  local tcp_ports=("80" "443")
   local udp_ports=("443")  # HY2 only
 
   # ---------- 回滚计划（5分钟后自动回滚，避免误锁） ----------
@@ -1666,7 +1646,7 @@ configure_firewall() {
   fi
 
   log_success "iptables / ip6tables 规则已应用。"
-  log_info "如果云厂商有安全组，请同步放行：TCP:80(订阅兼容/ACME)、TCP:443(Reality)、TCP:8443(HTTPS面板/订阅)、UDP:443(Hysteria2)"
+  log_info "如果云厂商有安全组，请同步放行上述端口（TCP:80/443，UDP:443）"
 }
 
 
@@ -2055,17 +2035,12 @@ get_cpu_info() {
 # ANCHOR: [FUNC-GET_MEMORY_INFO]
 #############################################
 get_memory_info() {
-    local total_kb swap_kb total_gb swap_gb
-    total_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo 2>/dev/null || echo "0")
-    swap_kb=$(awk '/SwapTotal/ {print $2}' /proc/meminfo 2>/dev/null || echo "0")
-    [[ "$total_kb" =~ ^[0-9]+$ ]] || total_kb=0
-    [[ "$swap_kb"  =~ ^[0-9]+$ ]] || swap_kb=0
-    # v4.7.0 修复: 旧版用整数除法 (total_kb/1024/1024)，~1GB 内存会被截断成 0GiB
-    #   (MemTotal≈1009136 kB → 整除=0)。改用一位小数的 GiB，准确显示如 0.9GiB。
-    total_gb=$(awk -v k="$total_kb" 'BEGIN{printf "%.1f", k/1048576}')
-    swap_gb=$(awk -v k="$swap_kb"  'BEGIN{printf "%.1f", k/1048576}')
+    local total_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo 2>/dev/null || echo "0")
+    local swap_kb=$(awk '/SwapTotal/ {print $2}' /proc/meminfo 2>/dev/null || echo "0")
+    local total_gb=$(( total_kb / 1024 / 1024 ))
+    local swap_gb=$(( swap_kb / 1024 / 1024 ))
 
-    if [[ "$swap_kb" -gt 0 ]]; then
+    if [[ $swap_gb -gt 0 ]]; then
         echo "${total_gb}GiB + ${swap_gb}GiB Swap"
     else
         echo "${total_gb}GiB"
@@ -2266,8 +2241,6 @@ fi
 
     # Hysteria2 password (the only password-authenticated protocol left)
     PASSWORD_HYSTERIA2=$(openssl rand -base64 32 | tr -d '\n')
-    # v4.7.0 (审计 H-2): Salamander obfs 口令（hex，URL 安全，128-bit）
-    HYSTERIA2_OBFS_PASSWORD=$(openssl rand -hex 16)
 
     # 验证生成结果
     local failed_items=()
@@ -2336,7 +2309,7 @@ generate_reality_keys() {
     # 验证生成结果
     if [[ -z "$REALITY_PRIVATE_KEY" || -z "$REALITY_PUBLIC_KEY" || -z "$REALITY_SHORT_ID" ]]; then
         log_error "Reality密钥信息生成不完整"
-        log_debug "私钥: ${REALITY_PRIVATE_KEY:0:6}…(已脱敏)"
+        log_debug "私钥: ${REALITY_PRIVATE_KEY:-空}"
         log_debug "公钥: ${REALITY_PUBLIC_KEY:-空}"
         log_debug "短ID: ${REALITY_SHORT_ID:-空}"
         return 1
@@ -2361,13 +2334,16 @@ generate_reality_keys() {
 generate_dashboard_passcode() {
     log_info "生成控制面板访问密码..."
 
-    # 【v4.7.0 安全修复】默认密码改为 12 位字母数字 (a-z0-9)，约 62 bit 熵，
-    # 取代旧的 6 位纯数字 (10^6，可被暴力破解)。使用 CSPRNG (/dev/urandom)，
-    # 仅用小写字母+数字以避免 URL / nginx map 引号转义问题。
-    # 仍建议安装后用 `edgeboxctl dashboard passcode` 自定义为更强密码。
-    DASHBOARD_PASSCODE="$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c 12)"
+    # v4.6.0-rc4-rc1: 真正的 6 位随机数字（不是单数字重复 6 次）
+    # 注: 6 位数字密码只有 10^6 = 100 万种可能，存在暴力风险。
+    # 安装结束会提示用户用 `edgeboxctl dashboard passcode` 改为强密码。
+    DASHBOARD_PASSCODE=""
+    local i
+    for ((i=0; i<6; i++)); do
+        DASHBOARD_PASSCODE+="$((RANDOM % 10))"
+    done
 
-    if [[ -z "$DASHBOARD_PASSCODE" || ${#DASHBOARD_PASSCODE} -ne 12 ]]; then
+    if [[ -z "$DASHBOARD_PASSCODE" || ${#DASHBOARD_PASSCODE} -ne 6 ]]; then
         log_error "控制面板密码生成失败"
         return 1
     fi
@@ -2380,7 +2356,7 @@ generate_dashboard_passcode() {
         return 1
     fi
 
-    log_success "控制面板密码生成完成（完整密码见安装结束摘要）"
+    log_success "控制面板密码生成完成: $DASHBOARD_PASSCODE"
     log_info "Cookie 会话秘钥已生成 (64-hex)"
 
     export DASHBOARD_PASSCODE DASHBOARD_COOKIE_SECRET
@@ -2421,16 +2397,16 @@ save_config_info() {
     local memory_spec="${MEMORY_SPEC:-Unknown}"
     local disk_spec="${DISK_SPEC:-Unknown}"
     if [[ -z "$DASHBOARD_PASSCODE" ]]; then
-        log_warn "DASHBOARD_PASSCODE为空，生成 12 位随机字母数字口令"
-        DASHBOARD_PASSCODE="$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c 12)"
-        export DASHBOARD_PASSCODE
+        log_warn "DASHBOARD_PASSCODE为空，生成临时6位数字口令"
+        local d=$((RANDOM % 10)); DASHBOARD_PASSCODE="${d}${d}${d}${d}${d}${d}"; export DASHBOARD_PASSCODE
     fi
     # 关键凭据校验（缺失即失败）- 注意这里的 MASTER_SUB_TOKEN 依赖 execute_module2 中生成
     if [[ -z "$UUID_VLESS_REALITY" || -z "$PASSWORD_HYSTERIA2" || -z "${MASTER_SUB_TOKEN:-}" ]]; then
         log_error "关键凭据缺失（含管理员订阅Token），无法保存配置"
-        log_debug "UUID_VLESS_REALITY: ${UUID_VLESS_REALITY:0:8}…(已脱敏)"
-        log_debug "PASSWORD_HYSTERIA2: ${PASSWORD_HYSTERIA2:0:8}…(已脱敏)"
-        log_debug "MASTER_SUB_TOKEN: ${MASTER_SUB_TOKEN:0:8}…(已脱敏)"
+        log_debug "UUID_VLESS_REALITY: ${UUID_VLESS_REALITY:-MISSING}"
+        log_debug "PASSWORD_HYSTERIA2: ${PASSWORD_HYSTERIA2:0:8}..."
+        log_debug "PASSWORD_HYSTERIA2: ${PASSWORD_HYSTERIA2:-MISSING}"
+        log_debug "MASTER_SUB_TOKEN: ${MASTER_SUB_TOKEN:-MISSING}"
         return 1
     fi
     if [[ ! "$server_ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
@@ -2445,7 +2421,7 @@ save_config_info() {
     local _cert_mode="${UPGRADE_CERT_MODE:-self-signed}"
     local _cert_domain="${UPGRADE_CERT_DOMAIN:-}"
     local _cert_autorenew="${UPGRADE_CERT_AUTORENEW:-false}"
-    local _reality_sni="${UPGRADE_REALITY_SNI:-}"
+    local _reality_sni="${UPGRADE_REALITY_SNI:-${REALITY_SNI:-www.cloudflare.com}}"
 
     # Use jq -n to generate JSON (all variables safely injected)
     jq -n \
@@ -2467,7 +2443,6 @@ save_config_info() {
       --arg disk_spec            "$disk_spec" \
       --arg uuid_vless_reality   "$UUID_VLESS_REALITY" \
       --arg password_hysteria2   "$PASSWORD_HYSTERIA2" \
-      --arg hysteria2_obfs       "$HYSTERIA2_OBFS_PASSWORD" \
       --arg reality_public_key   "$REALITY_PUBLIC_KEY" \
       --arg reality_private_key  "$REALITY_PRIVATE_KEY" \
       --arg reality_short_id     "$REALITY_SHORT_ID" \
@@ -2482,7 +2457,7 @@ save_config_info() {
          cloud: { provider: $cloud_provider, region: $cloud_region },
          spec:  { cpu: $cpu_spec, memory: $memory_spec, disk: $disk_spec },
          uuid:  { vless: { reality: $uuid_vless_reality } },
-         password: { hysteria2: $password_hysteria2, hysteria2_obfs: (if $hysteria2_obfs == "" then null else $hysteria2_obfs end) },
+         password: { hysteria2: $password_hysteria2 },
          reality:  { public_key: $reality_public_key, private_key: $reality_private_key, short_id: $reality_short_id, sni: (if $reality_sni == "" then null else $reality_sni end) },
          cert: { mode: $cert_mode, domain: (if $cert_domain == "" then null else $cert_domain end), auto_renew: $cert_autorenew }
        }' > "$server_tmp" || { log_error "使用jq生成 server.json 失败"; rm -f "$server_tmp"; return 1; }
@@ -2496,9 +2471,7 @@ save_config_info() {
     fi
     local saved_passcode=$(jq -r '.dashboard_passcode // empty' "$server_tmp" 2>/dev/null)
     if [[ -z "$saved_passcode" || "$saved_passcode" != "$DASHBOARD_PASSCODE" ]]; then
-         local _exp_red="${DASHBOARD_PASSCODE:0:4}…"
-         local _got_red="空"; [[ -n "$saved_passcode" ]] && _got_red="${saved_passcode:0:4}…"
-         log_error "密码保存验证失败 (期望前缀: ${_exp_red}, 实际前缀: ${_got_red})"
+         log_error "密码保存验证失败 (期望: $DASHBOARD_PASSCODE, 实际: ${saved_passcode:-空})"
          rm -f "$server_tmp"
          return 1
     fi
@@ -2773,10 +2746,6 @@ execute_module2() {
         # 从 keep 文件读取所有凭据到全局变量
         UUID_VLESS_REALITY=$(jq -r '.uuid.vless.reality // empty' "$KEEP_FILE")
         PASSWORD_HYSTERIA2=$(jq -r '.password.hysteria2 // empty' "$KEEP_FILE")
-        # v4.7.0 (审计 H-2): 保留 obfs 口令；旧版本 keep 文件无此字段则生成新口令
-        #   (obfs 是新增能力，老节点升级后本就需重新导入订阅才能用 obfs，故此处生成新值可接受)
-        HYSTERIA2_OBFS_PASSWORD=$(jq -r '.password.hysteria2_obfs // empty' "$KEEP_FILE")
-        [[ -z "$HYSTERIA2_OBFS_PASSWORD" ]] && HYSTERIA2_OBFS_PASSWORD=$(openssl rand -hex 16)
         REALITY_PUBLIC_KEY=$(jq -r '.reality.public_key // empty' "$KEEP_FILE")
         REALITY_PRIVATE_KEY=$(jq -r '.reality.private_key // empty' "$KEEP_FILE")
         REALITY_SHORT_ID=$(jq -r '.reality.short_id // empty' "$KEEP_FILE")
@@ -2832,7 +2801,7 @@ execute_module2() {
 
         # 任务2.5：生成控制面板密码(只生成不写入)
         if generate_dashboard_passcode; then
-            log_success "✓ 控制面板密码生成完成（完整密码见安装结束摘要）"
+            log_success "✓ 控制面板密码生成完成: ${DASHBOARD_PASSCODE}"
             export DASHBOARD_PASSCODE
         else
             log_error "✗ 控制面板密码生成失败"
@@ -2910,7 +2879,7 @@ fi
     log_info "├─ 所有协议的UUID和密码"
     log_info "├─ Reality密钥对"
     log_info "├─ 自签名证书"
-    log_info "├─ 控制面板密码: ******（完整密码见安装结束摘要 / server.json）"
+    log_info "├─ 控制面板密码: ${DASHBOARD_PASSCODE}"
     log_info "└─ 完整的server.json配置文件"
 
     return 0
@@ -3111,57 +3080,18 @@ install_sing_box() {
     # ========================================
     # 第1步：检查是否已安装
     # ========================================
-# ========================================
-# 第0步：可选「自动追最新稳定版」(opt-in，默认关闭)
-# ----------------------------------------
-# 默认仍用内置 pinned 版本：确定、可复现，绝不因上游突变而炸。
-# 仅当 EDGEBOX_SINGBOX_TRACK=latest|auto 时，查询 GitHub releases/latest
-# （该端点天然排除 pre-release/beta/rc），但严格夹在「已验证 schema 系列」内。
-# 设计理由：sing-box 跨小版本多次破坏性改 schema（1.11→1.12→1.13 均破坏），
-# 盲目追 latest 会让本脚本生成的 server.json schema 不匹配 → HY2 起不来。
-# 跨系列时拒绝自动跳版、回落 pinned；同系列内（patch/minor）才自动跟进。
-# 查询失败（API 限流/网络）同样回落 pinned。安装尾部仍有 `sing-box check` 兜底。
-SINGBOX_MAX_TESTED_SERIES="1.13"   # 本版 install.sh 的配置已对此系列验证；测试新系列后再上调此值
-if [[ "${EDGEBOX_SINGBOX_TRACK:-pinned}" == "latest" || "${EDGEBOX_SINGBOX_TRACK:-}" == "auto" ]]; then
-    local _latest_ver _latest_series _series_max
-    _latest_ver=$(curl -fsSL --connect-timeout 8 --max-time 15 \
-        "https://api.github.com/repos/SagerNet/sing-box/releases/latest" 2>/dev/null \
-        | grep -oE '"tag_name"[[:space:]]*:[[:space:]]*"v?[0-9]+\.[0-9]+\.[0-9]+"' \
-        | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-    if [[ -z "$_latest_ver" ]]; then
-        log_warn "EDGEBOX_SINGBOX_TRACK=latest：无法解析上游 latest（API 限流/网络），回退内置 pinned v${DEFAULT_SING_BOX_VERSION}"
-    else
-        _latest_series="${_latest_ver%.*}"   # 1.13.7 -> 1.13
-        _series_max=$(printf '%s\n%s\n' "$_latest_series" "$SINGBOX_MAX_TESTED_SERIES" | sort -V | tail -1)
-        if [[ "$_series_max" == "$SINGBOX_MAX_TESTED_SERIES" ]]; then
-            log_success "EDGEBOX_SINGBOX_TRACK=latest：上游 latest v${_latest_ver} 在已验证窗口(≤${SINGBOX_MAX_TESTED_SERIES})内，采用之"
-            DEFAULT_SING_BOX_VERSION="$_latest_ver"
-        else
-            log_warn "EDGEBOX_SINGBOX_TRACK=latest：上游 latest v${_latest_ver} 超出已验证 schema 窗口(${SINGBOX_MAX_TESTED_SERIES})"
-            log_warn "  为避免配置 schema 不兼容导致 HY2 起不来，本次仍用 pinned v${DEFAULT_SING_BOX_VERSION}"
-            log_warn "  待 install.sh 适配并验证新系列 schema 后，把 SINGBOX_MAX_TESTED_SERIES 调高即可自动跟进"
-        fi
-    fi
-fi
-
-local MIN_REQUIRED_VERSION="1.8.0"   # HY2 服务端所需的最低版本
-local TARGET_VERSION="${DEFAULT_SING_BOX_VERSION:-1.13.13}"  # v4.7.0: 升级到的目标版本
+local MIN_REQUIRED_VERSION="1.8.0"   # HY2 服务端所需的最低版本（可调高）
 local current_version=""
 if command -v sing-box >/dev/null 2>&1 || command -v /usr/local/bin/sing-box >/dev/null 2>&1; then
     current_version=$( (sing-box version || /usr/local/bin/sing-box version) 2>/dev/null \
         | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 )
     log_info "检测到已安装 sing-box: v${current_version:-未知}"
-    if [[ -n "$current_version" ]]; then
-        # v4.7.0 (前端 #2): 旧版逻辑只要 >= 1.8.0 就跳过，导致升级安装永远停在旧版本。
-        # 现在：与 TARGET_VERSION 比较；已达目标(或更高)才跳过，否则覆盖升级。
-        local _highest
-        _highest=$(printf '%s\n%s\n' "$current_version" "$TARGET_VERSION" | sort -V | tail -1)
-        if [[ "$current_version" == "$TARGET_VERSION" || "$_highest" == "$current_version" ]]; then
-            log_success "当前 v${current_version} 已达/超过目标 v${TARGET_VERSION}，跳过重新安装"
-            return 0
-        else
-            log_warn "当前 v${current_version} 低于目标 v${TARGET_VERSION}，将升级覆盖到 /usr/local/bin/sing-box"
-        fi
+    if [[ -n "$current_version" && "$(printf '%s\n' "$MIN_REQUIRED_VERSION" "$current_version" | sort -V | head -1)" == "$MIN_REQUIRED_VERSION" ]]; then
+        log_success "现有版本满足最低要求 (>= ${MIN_REQUIRED_VERSION})，跳过重新安装"
+        return 0
+    else
+        log_warn "现有版本过低，将升级到脚本内置稳定版"
+        # 继续执行安装流程（覆盖到 /usr/local/bin/sing-box）
     fi
 fi
 
@@ -3172,11 +3102,10 @@ fi
     # 版本优先级队列（从最新到最稳定）
     # 注意：这是降级队列，会依次尝试直到成功
     local VERSION_PRIORITY=(
-        "1.13.13"   # v4.7.0: 官方 latest stable（已完成 schema 迁移）
-        "1.12.10"   # 上一个稳定版（1.12.x 系列封顶）
-        "1.12.8"
-        "1.12.1"
-        "1.12.0"
+	    "1.12.10"
+		"1.12.8"    # 最新版（2025年推荐）
+        "1.12.1"    # 最新稳定版（2025年推荐）
+        "1.12.0"    # 稳定版（2024年3月发布）
         "1.11.15"   # LTS 长期支持版
         "1.11.0"    # 备用稳定版
         "1.10.0"    # 最后的保底版本
@@ -3608,24 +3537,8 @@ http {
     map "$arg_present:$pass_ok" $bad_try { default 0; "1:0" 1; "1:1" 0; }
     map "$bad_try:$pass_ok:$cookie_ok" $deny_traffic { default 1; "0:1:0" 0; "0:0:1" 0; "0:1:1" 0; }
 
-    # v4.7.0 (审计 M-2): 匿名化访问日志——去掉 $remote_addr / $remote_user / referer / UA，
-    # 避免服务器被查封/镜像时，access.log 把"哪些客户端 IP 访问过本节点"暴露出来。
-    # 仅保留方法/路径/协议/状态/字节，足够排障，不含可关联使用者的信息。
-    log_format main '- - [$time_local] "$request_method $uri $server_protocol" $status $body_bytes_sent';
+    log_format main '$remote_addr - $remote_user [$time_local] "$request_method $uri $server_protocol" $status $body_bytes_sent "$http_referer" "$http_user_agent"';
     access_log /var/log/nginx/access.log main;
-
-    # v4.7.0 (审计 M-2 跟进 / 设备统计兼容): 主日志保持全匿名；仅为 /share/ 专属订阅单开一份
-    # "弱可关联"日志：客户端 IP 抹掉主机段（IPv4→/24, IPv6→前4组/64），保留 UA，供
-    # `edgeboxctl sub show` 做设备指纹 sha1(ua_norm|ip_bucket) 统计。抹段后的粒度与 edgeboxctl
-    # 的 ip_bucket(/24、/前4组) 完全一致，故不改变统计结果；该日志文件 0600 + 短留存，取证价值低。
-    # 无法匹配的地址（如压缩写法 IPv6）回落 0.0.0.0（保守合并，宁可少计不多计）。
-    map $remote_addr $share_anon_ip {
-        default                                                          "0.0.0.0";
-        "~^(?<v4>\d{1,3}\.\d{1,3}\.\d{1,3})\.\d{1,3}$"                   "${v4}.0";
-        "~^(?<v6>[0-9a-fA-F]+:[0-9a-fA-F]+:[0-9a-fA-F]+:[0-9a-fA-F]+):"  "${v6}::";
-    }
-    log_format share_anon '$share_anon_ip - - [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent"';
-
     error_log  /var/log/nginx/error.log warn;
 
     sendfile on;
@@ -3639,71 +3552,9 @@ http {
         listen 80 default_server;
         listen [::]:80 default_server;
         server_name _;
-        # v4.7.0 (审计 H-1): 80 端口不再明文提供面板/管理路径。
-        # v4.7.0 (H-1 follow-up): /sub-* 在 80 端口**保留 HTTP 服务**(不跳转)。
-        #   原因: IP 模式下 8443 是自签证书,Clash/mihomo 等用平台 TLS 校验的客户端**无法**
-        #   通过 URL 拉取自签 HTTPS 订阅(skip-cert-verify 不作用于订阅下载阶段)。强制跳转
-        #   会让 IP 模式订阅链接彻底失效。安全权衡: IP 模式下从墙内拉本 URL 会被 GFW DPI
-        #   读到节点凭据 → 故 IP 模式定位为"过渡兜底",show_sub/安装总结明确推荐尽快
-        #   switch-to-domain,域名模式下订阅经 LE 真证书的 HTTPS 提供,泄漏面归零。
-        location ^~ /.well-known/acme-challenge/ {
-            default_type "text/plain";
-            root /var/www/html;
-            try_files $uri =404;
-        }
-        # 明文存活探测（不含任何节点信息，供外部 uptime 监控用）
-        location = /health { return 200 "OK\n"; }
-        # 订阅四格式：保留 HTTP(80) 兼容严格校验证书的客户端(主要面向 IP 模式)
-        location ~ "^/sub-[a-f0-9]+$" {
-            default_type "text/plain; charset=utf-8";
-            add_header Cache-Control "no-store, no-cache, must-revalidate";
-            add_header X-Robots-Tag "noindex, nofollow" always;
-            root /var/www/html;
-        }
-        location ~ "^/sub-[a-f0-9]+\.base64$" {
-            default_type "text/plain; charset=utf-8";
-            add_header Cache-Control "no-store, no-cache, must-revalidate";
-            add_header X-Robots-Tag "noindex, nofollow" always;
-            root /var/www/html;
-        }
-        location ~ "^/sub-[a-f0-9]+\.clash$" {
-            default_type "text/yaml; charset=utf-8";
-            add_header Cache-Control "no-store, no-cache, must-revalidate";
-            add_header X-Robots-Tag "noindex, nofollow" always;
-            root /var/www/html;
-        }
-        location ~ "^/sub-[a-f0-9]+\.singbox$" {
-            default_type "application/json; charset=utf-8";
-            add_header Cache-Control "no-store, no-cache, must-revalidate";
-            add_header X-Robots-Tag "noindex, nofollow" always;
-            root /var/www/html;
-        }
-        # 其余全部跳转到 8443 HTTPS（含 /share/、/traffic/、/status/、/ 等）
-        location / { return 301 https://$host:8443$request_uri; }
-    }
-
-    # v4.7.0: HTTPS 控制面板 / 订阅（8443）
-    # 证书源 = /etc/edgebox/cert/current.pem|key 这对软链接：
-    #   IP 模式     -> self-signed（浏览器会提示不受信任，点继续即可，传输已加密）
-    #   域名模式    -> Let's Encrypt（执行 edgeboxctl switch-to-domain 后自动生效，无警告）
-    # 向前兼容：switch-to-domain 只重指向这对软链接 + reload nginx，本块无需改动即自动启用真证书。
-    # 不与 stream 的 443 冲突（不同端口）。
-    server {
-        listen 8443 ssl;
-        listen [::]:8443 ssl;
-        server_name _;
-
-        ssl_certificate     /etc/edgebox/cert/current.pem;
-        ssl_certificate_key /etc/edgebox/cert/current.key;
-        ssl_protocols       TLSv1.2 TLSv1.3;
-        ssl_ciphers         HIGH:!aNULL:!MD5;
-        ssl_prefer_server_ciphers off;
-        ssl_session_cache   shared:EdgeBoxSSL:1m;
-        ssl_session_timeout 10m;
-
         location = / { return 302 /traffic/; }
-
-        # 订阅四格式（与 80 端口一致，便于浏览器经 HTTPS 取用）
+        # v4.0.0: 4-format subscription endpoint (plain/base64/clash/singbox)
+        # The actual path /sub-<token>[.ext] is created by edgeboxctl/install.sh by renaming
         location ~ "^/sub-[a-f0-9]+$" {
             default_type "text/plain; charset=utf-8";
             add_header Cache-Control "no-store, no-cache, must-revalidate";
@@ -3724,17 +3575,13 @@ http {
             add_header Cache-Control "no-store, no-cache, must-revalidate";
             root /var/www/html;
         }
+        # v4.6.0-rc4: 移除旧的 /sub location (v3 残留，仅服务 token 化前的链接)
         location ^~ /share/ {
             default_type text/plain;
             add_header Cache-Control "no-store, no-cache, must-revalidate";
-            # v4.7.0: 专属订阅访问写入弱可关联的独立日志（IP 抹段+UA），不污染匿名主日志。
-            # location 级 access_log 会覆盖继承的 main，故 /share/ 仅进此文件。
-            access_log /var/log/nginx/edgebox-share.log share_anon;
             root /var/www/html;
             try_files $uri =404;
         }
-
-        # 控制面板（与 80 同样的 passcode + Cookie 鉴权；$deny_traffic / $set_cookie 来自 edgebox_passcode.conf）
         location = /_deny_traffic { internal; return 403; }
         location ^~ /traffic/ {
             error_page 418 = /_deny_traffic;
@@ -3803,7 +3650,7 @@ map \$cookie_ebp \$cookie_ok {
 
 # 仅当 pass_ok=1 时下发 Cookie，值为秘钥本体
 map \$pass_ok \$set_cookie {
-    1 "ebp=${DASHBOARD_COOKIE_SECRET}; Path=/traffic/; HttpOnly; Secure; SameSite=Lax; Max-Age=86400";
+    1 "ebp=${DASHBOARD_COOKIE_SECRET}; Path=/traffic/; HttpOnly; SameSite=Lax; Max-Age=86400";
     0 "";
 }
 EOF
@@ -3845,10 +3692,6 @@ EOF
 
     # 验证Nginx配置并智能重载/启动（用退出码判断，避免 grep 误判）
     log_info "验证Nginx配置..."
-    # v4.7.0: 预创建专属订阅日志为 0600 root:root，nginx 之后只会 append、不重建 inode，
-    # 故权限保持锁定；不含原始 IP（已抹段），仅 root 可读。
-    install -o root -g root -m 600 /dev/null /var/log/nginx/edgebox-share.log 2>/dev/null || \
-        { : >>/var/log/nginx/edgebox-share.log 2>/dev/null && chmod 600 /var/log/nginx/edgebox-share.log 2>/dev/null; } || true
     set +e
     _nginx_test_out="$(nginx -t 2>&1)"
     _nginx_rc=$?
@@ -4052,11 +3895,11 @@ configure_xray() {
     if [[ -r "$f" ]]; then
       eval "$(
         jq -r '
-          "UUID_VLESS_REALITY=\((.uuid.vless.reality // "") | @sh)\n" +
-          "PASSWORD_HYSTERIA2=\((.password.hysteria2 // "") | @sh)\n" +
-          "REALITY_PRIVATE_KEY=\((.reality.private_key // "") | @sh)\n" +
-          "REALITY_SHORT_ID=\((.reality.short_id // "") | @sh)\n" +
-          "REALITY_SNI=\((.reality.sni // "www.microsoft.com") | @sh)\n"
+          "UUID_VLESS_REALITY=\(.uuid.vless.reality // \"\")\n" +
+          "PASSWORD_HYSTERIA2=\(.password.hysteria2 // \"\")\n" +
+          "REALITY_PRIVATE_KEY=\(.reality.private_key // \"\")\n" +
+          "REALITY_SHORT_ID=\(.reality.short_id // \"\")\n" +
+          "REALITY_SNI=\(.reality.sni // \"www.cloudflare.com\")\n"
         ' "$f" 2>/dev/null
       )"
     fi
@@ -4141,7 +3984,7 @@ fi
   # 1) 用命令替换方式捕获 jq 程序体
   JQ_PROGRAM=$(cat <<'EOF'
 {
-  "log": { "access": "none", "error": "/var/log/xray/error.log", "loglevel": "warning" },
+  "log": { "access": "/var/log/xray/access.log", "error": "/var/log/xray/error.log", "loglevel": "info" },
   "inbounds": [
     {
       "tag": "vless-reality",
@@ -4273,42 +4116,21 @@ configure_sing_box() {
     fi
     log_success "✓ sing-box 必要变量已设置"
 
-    # v4.7.0 (审计 H-2): 读取 Hysteria2 Salamander obfs 口令；server.json 缺失则生成并写回，
-    #   使本函数自洽（独立被 edgeboxctl 调用重配时也能拿到 obfs）。
-    local HY2_OBFS_PASSWORD=""
-    [[ -f "${CONFIG_DIR}/server.json" ]] && HY2_OBFS_PASSWORD="$(jq -r '.password.hysteria2_obfs // empty' "${CONFIG_DIR}/server.json" 2>/dev/null)"
-    if [[ -z "$HY2_OBFS_PASSWORD" ]]; then
-        HY2_OBFS_PASSWORD="${HYSTERIA2_OBFS_PASSWORD:-$(openssl rand -hex 16)}"
-        if [[ -f "${CONFIG_DIR}/server.json" ]]; then
-            local _sj_tmp; _sj_tmp="$(mktemp)"
-            if jq --arg o "$HY2_OBFS_PASSWORD" '.password.hysteria2_obfs = $o' "${CONFIG_DIR}/server.json" > "$_sj_tmp" 2>/dev/null; then
-                mv "$_sj_tmp" "${CONFIG_DIR}/server.json"
-            else
-                rm -f "$_sj_tmp"
-            fi
-        fi
-        HYSTERIA2_OBFS_PASSWORD="$HY2_OBFS_PASSWORD"
-    fi
-    # v4.7.0 (审计 M-3): masquerade 写进基础配置（不再只靠 cron 注入）；对未认证 HTTP/3 探测伪装成正常网站。
-    #   cron (edgebox-traffic-randomize) 后续仍会在站点池内轮换此值。
-    local HY2_MASQ_URL="https://www.bing.com"
-
     mkdir -p /var/log/edgebox 2>/dev/null || true
     log_info "生成sing-box配置文件 (使用 jq 写入临时文件)..."
     local sbox_tmp="${CONFIG_DIR}/sing-box.json.tmp"
     if ! jq -n \
       --arg hy2_pass "$PASSWORD_HYSTERIA2" \
-      --arg hy2_obfs "$HY2_OBFS_PASSWORD" \
-      --arg hy2_masq "$HY2_MASQ_URL" \
       --arg cert_pem "${CERT_DIR}/current.pem" \
       --arg cert_key "${CERT_DIR}/current.key" \
       '{
-        "log": { "level": "warn", "timestamp": true },
+        "log": { "level": "info", "timestamp": true },
         "inbounds": [
-          { "type": "hysteria2", "tag": "hysteria2-in", "listen": "0.0.0.0", "listen_port": 443, "users": [ { "password": $hy2_pass } ], "obfs": { "type": "salamander", "password": $hy2_obfs }, "masquerade": $hy2_masq, "tls": { "enabled": true, "alpn": ["h3"], "certificate_path": $cert_pem, "key_path": $cert_key } }
+          { "type": "hysteria2", "tag": "hysteria2-in", "listen": "0.0.0.0", "listen_port": 443, "users": [ { "password": $hy2_pass } ], "tls": { "enabled": true, "alpn": ["h3"], "certificate_path": $cert_pem, "key_path": $cert_key } }
         ],
         "outbounds": [
-          { "type": "direct", "tag": "direct" }
+          { "type": "direct", "tag": "direct" },
+          { "type": "block",  "tag": "block" }
         ],
         "route": {
           "rules": [
@@ -4318,7 +4140,7 @@ configure_sing_box() {
                 "169.254.0.0/16", "100.64.0.0/10",
                 "::1/128", "fc00::/7", "fe80::/10", "fd00::/8"
               ],
-              "action": "reject"
+              "outbound": "block"
             }
           ],
           "final": "direct"
@@ -4396,11 +4218,8 @@ LimitNOFILE=1048576
 # 只保留一条 ExecStart（任选固定路径即可）
 ExecStart=/usr/local/bin/sing-box run -c /etc/edgebox/config/sing-box.json
 
-# v4.7.0 修复: 故意不提供 ExecReload。
-#   sing-box 收到 SIGHUP 不会重读配置，但若提供 ExecReload，`systemctl reload sing-box`
-#   会"成功"(返回0)却不应用新配置——导致 obfs/证书/UDP 变更只写文件不生效。
-#   去掉 ExecReload 后，所有 `systemctl reload sing-box` 都会失败并回退到 restart。
-#   (logrotate 不 reload sing-box，故移除无副作用。)
+# 先向 $MAINPID 发送 HUP；若 MAINPID 不可用，再用进程名兜底
+ExecReload=+/bin/sh -c 'kill -HUP $MAINPID || pkill -HUP -x sing-box'
 
 Restart=on-failure
 RestartSec=5s
@@ -4503,7 +4322,6 @@ verify_critical_ports() {
   log_info "检查关键端口监听状态..."
   local ok=true
   ss -tln | grep -q ':443 '    && log_success "TCP 443 (Nginx) 监听正常" || { log_warn "TCP 443 未监听"; ok=false; }
-  ss -tln | grep -q ':8443 '   && log_success "TCP 8443 (HTTPS面板/订阅) 监听正常" || { log_warn "TCP 8443 未监听 — 面板/HTTPS订阅将打不开(若云厂商有安全组,确认已放行 TCP:8443)"; ok=false; }
   ss -uln | grep -q ':443 '    && log_success "UDP 443 (Hysteria2) 监听正常" || { log_warn "UDP 443 未监听"; ok=false; }
   $ok
 }
@@ -4643,7 +4461,7 @@ execute_module3() {
     if choose_initial_sni_once; then
       log_info "REALITY_SNI = ${REALITY_SNI}"
     else
-      log_warn "SNI 选择失败，将使用默认 REALITY_SNI=${REALITY_SNI:-www.microsoft.com}"
+      log_warn "SNI 选择失败，将使用默认 REALITY_SNI=${REALITY_SNI:-www.cloudflare.com}"
     fi
 
     # 任务3：配置Xray (先配置后端服务)
@@ -4706,7 +4524,7 @@ execute_module3() {
     log_info "├─ Xray 服务（Reality）"
     log_info "├─ sing-box服务（Hysteria2）"
     log_info "├─ Nginx分流代理（SNI+ALPN架构）"
-    log_info "├─ 订阅链接生成（Reality + Hysteria2）"
+    log_info "├─ 订阅链接生成（6种协议）"
     # 读取最新的密码显示，如果DASHBOARD_PASSCODE变量没更新，从文件读一次
     local final_passcode="${DASHBOARD_PASSCODE:-}"
     if [[ -z "$final_passcode" && -f "${CONFIG_DIR}/server.json" ]]; then
@@ -5254,14 +5072,6 @@ setup_traffic_monitoring() {
   mkdir -p "$TRAFFIC_DIR" "$SCRIPTS_DIR" "$LOG_DIR" /var/www/html
   ln -sfn "$TRAFFIC_DIR" /var/www/html/traffic
 
-  # v4.7.0 (审核 #3): 主动创建专属订阅的 Web 目录并设为 755。
-  #   edgeboxctl 的 ensure_sub_dirs 也会修正它，但那是惰性的(仅 `edgeboxctl sub` 时触发)。
-  #   旧版本曾把它建成 700，升级后若未跑过 sub 命令会残留 700 → Nginx 403。
-  #   在此处主动建/修，保证每次安装或升级后 /share 立即可被 Nginx 遍历。
-  mkdir -p /var/www/html/share
-  chmod 755 /var/www/html/share 2>/dev/null || true
-  chown root:root /var/www/html/share 2>/dev/null || true
-
   # 创建CSS和JS目录
   mkdir -p "${TRAFFIC_DIR}/assets"
 
@@ -5289,8 +5099,9 @@ NFT
   [[ -s "${LOG_DIR}/daily.csv" ]]   || echo "date,vps,resi,tx,rx" > "${LOG_DIR}/daily.csv"
   [[ -s "${LOG_DIR}/monthly.csv" ]] || echo "month,vps,resi,total,tx,rx" > "${LOG_DIR}/monthly.csv"
 
-# v4.7.0: 系统指标改由 dashboard-backend.sh::get_system_metrics() 直接写入 system.json，
-#         旧的 system-stats.sh 已删除（死代码：从未被 cron 或其他脚本调用）。
+# 1. 系统状态脚本
+_install_script "${SCRIPTS_DIR}/system-stats.sh" "system-stats.sh" || return 1
+chmod +x "${SCRIPTS_DIR}/system-stats.sh"
 
 # 2. 流量采集器：每小时增量 → 聚合 → traffic.json
 _install_script "${SCRIPTS_DIR}/traffic-collector.sh" "traffic-collector.sh" || return 1
@@ -5564,24 +5375,7 @@ setup_logrotate() {
     endscript
 }
 
-# v4.7.0 (设备统计折中方案): 专属订阅日志含 /24 IP + UA（弱可关联）。短留存 + 0600 root:root，
-# 降低取证价值。设备统计只读 live 文件（edgeboxctl sub show 按需扫描，无 cron），故留存条数
-# 对统计几乎无影响，纯隐私/磁盘旋钮。postrotate 重载让 nginx 重新打开日志句柄。
-/var/log/nginx/edgebox-share.log {
-    daily
-    rotate 3
-    compress
-    delaycompress
-    missingok
-    notifempty
-    create 0600 root root
-    sharedscripts
-    postrotate
-        systemctl reload nginx >/dev/null 2>&1 || true
-    endscript
-}
-
-/var/log/edgebox/*.log /var/log/edgebox.log /var/log/edgebox-traffic-alert.log {
+/var/log/edgebox/*.log /var/log/edgebox.log /var/log/edgebox-install.log /var/log/edgebox-traffic-alert.log {
     daily
     rotate 14
     compress
@@ -5589,17 +5383,6 @@ setup_logrotate() {
     missingok
     notifempty
     create 0640 root root
-}
-
-# v4.7.0 (安全修复 L-LOG): 安装日志含敏感凭据，单独一条且轮转副本也锁 600 root:root
-/var/log/edgebox-install.log {
-    daily
-    rotate 14
-    compress
-    delaycompress
-    missingok
-    notifempty
-    create 0600 root root
 }
 EOF
     chmod 644 /etc/logrotate.d/edgebox
@@ -6042,14 +5825,9 @@ fi
 echo "EdgeBox Hook: Reloading services after certificate renewal..."
 
 # 使用edgeboxctl的重启命令，因为它有更完善的逻辑
-# (审计 follow-up) 检查返回码：重启失败时明确报错并 exit 1，避免日志谎报 "Services reloaded"
-# 而实际服务仍在用旧证书。日志改为追加(>>)以保留续期历史。
-if /usr/local/bin/edgeboxctl restart >>/var/log/edgebox-cert-renew.log 2>&1; then
-    echo "EdgeBox Hook: Services reloaded."
-else
-    echo "EdgeBox Hook: Service reload FAILED — 服务可能仍在使用旧证书，请检查 /var/log/edgebox-cert-renew.log 并手动 edgeboxctl restart。" >&2
-    exit 1
-fi
+/usr/local/bin/edgeboxctl restart >/var/log/edgebox-cert-renew.log 2>&1
+
+echo "EdgeBox Hook: Services reloaded."
 EOF
     chmod +x "$hook_script"
     log_success "Certbot续期钩子已设置"
@@ -6086,52 +5864,25 @@ show_installation_info() {
     fi
     # <<< 核心修复逻辑结束 <<<
 	
-	# —— 访问信息 ——
-	# 域名模式: 订阅与面板都走 https:8443（LE 真证书）
-	# IP 模式: 订阅走 http:80（自签 HTTPS 严格客户端无法拉取,故保留明文兼容 Clash 等;过渡兜底）
-	#          面板走 https:8443（自签,浏览器点"继续访问"即可,cookie 安全得以保留）
-local MASTER_SUB_TOKEN _cert_domain SUB_URL PANEL_URL
+	# —— 首次安装（默认 IP 模式）固定展示 —— 
+local show_host="$server_ip"
+local MASTER_SUB_TOKEN
 MASTER_SUB_TOKEN="$(jq -r '.master_sub_token // empty' "$config_file" 2>/dev/null)"
-_cert_domain="$(jq -r '.cert.domain // empty' "$config_file" 2>/dev/null)"
 local SUB_PATH="sub"
 [[ -n "$MASTER_SUB_TOKEN" ]] && SUB_PATH="sub-${MASTER_SUB_TOKEN}"
-if [[ -n "$_cert_domain" ]]; then
-    SUB_URL="https://${_cert_domain}:8443/${SUB_PATH}"
-    PANEL_URL="https://${_cert_domain}:8443/traffic/?passcode=${DASHBOARD_PASSCODE}"
-else
-    SUB_URL="http://${server_ip}/${SUB_PATH}"
-    PANEL_URL="https://${server_ip}:8443/traffic/?passcode=${DASHBOARD_PASSCODE}"
-fi
+local SUB_URL="http://${show_host}/${SUB_PATH}"
 
     echo -e  "${CYAN} 核心访问信息${NC}"
     # 打印时使用已验证的 DASHBOARD_PASSCODE 变量
-    echo -e  "  🌐 控制面板: ${PURPLE}${PANEL_URL}${NC}   ← 密码(${DASHBOARD_PASSCODE})可修改"
+    echo -e  "  🌐 控制面板: ${PURPLE}http://${server_ip}/traffic/?passcode=${DASHBOARD_PASSCODE}${NC}   ← 密码(${DASHBOARD_PASSCODE})可修改"
     echo -e  "  🔗 订阅 URL (v2rayN/v2rayNG):  ${PURPLE}${SUB_URL}${NC}"
     echo -e  "  🔗 订阅 URL (Clash Verge):    ${PURPLE}${SUB_URL}.clash${NC}"
     echo -e  "  🔗 订阅 URL (sing-box/Nekobox): ${PURPLE}${SUB_URL}.singbox${NC}"
     echo -e  "  🔗 订阅 URL (Base64 兼容):    ${PURPLE}${SUB_URL}.base64${NC}"
-    if [[ -z "$_cert_domain" ]]; then
-        echo -e  "  ${YELLOW}⚠ IP 模式订阅经 HTTP/80 明文提供${NC}${DIM}（自签 HTTPS Clash 等严格客户端无法拉取，"
-        echo -e  "    故订阅保留明文兼容）。墙内拉本链接会被 GFW DPI 读到节点凭据 →"
-        echo -e  "    强烈建议尽快 ${GREEN}edgeboxctl switch-to-domain <你的域名>${DIM}，"
-        echo -e  "    域名模式下订阅经 LE 真证书的 HTTPS 提供，泄漏面归零。${NC}"
-    fi
 
     echo -e  "\n${CYAN}默认模式：${NC}"
-    if [[ -n "$_cert_domain" ]]; then
-        echo -e  "  证书模式: ${PURPLE}域名模式（Let's Encrypt: ${_cert_domain}）${NC}"
-    else
-        echo -e  "  证书模式: ${PURPLE}IP模式（自签名证书）${NC}"
-    fi
-    # v4.7.0 修复: 网络身份按 shunt 状态动态显示（之前写死成 VPS直连）
-    local _shunt_mode _net_id
-    _net_id="VPS直连出站（默认）"
-    _shunt_mode=$(jq -r '.mode // empty' /etc/edgebox/config/shunt/state.json 2>/dev/null || true)
-    case "$_shunt_mode" in
-        resi)        _net_id="全量代理出站（住宅IP）" ;;
-        direct-resi) _net_id="智能分流（白名单走代理，其余直连）" ;;
-    esac
-    echo -e  "  网络身份: ${PURPLE}${_net_id}${NC}"
+    echo -e  "  证书模式: ${PURPLE}IP模式（自签名证书）${NC}"
+    echo -e  "  网络身份: ${PURPLE}VPS直连出站（默认）${NC}"
 
     echo -e "\n${CYAN}协议配置摘要 (v4.7.0)：${NC}"
     echo -e "  VLESS-Reality  端口: TCP/443  UUID: ${PURPLE}${UUID_VLESS:0:8}...${NC}"
@@ -6159,11 +5910,7 @@ fi
     echo -e "${CYAN}当前服务状态：${NC}"
 
     # 仅对存在的单元打印，避免误报
-    # v4.7.0 修复: 旧实现 `list-unit-files|awk|grep -q` 在 set -o pipefail 下有坑——
-    #   grep -q 命中即退出 → awk 收 SIGPIPE 失败 → pipefail 把整管道判失败 → 误判"不存在"。
-    #   是否触发取决于单元名在字母序里的位置(xray 靠后侥幸正常，nginx/sing-box 被漏报)。
-    #   改用 systemctl cat：单元存在返回 0，无管道、无 SIGPIPE。
-    _unit_exists() { systemctl cat "$1.service" >/dev/null 2>&1; }
+    _unit_exists() { systemctl list-unit-files --no-legend | awk '{print $1}' | grep -qx "$1.service"; }
 
     for svc in nginx xray sing-box; do
         if _unit_exists "$svc"; then
@@ -6199,24 +5946,14 @@ fi
     echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo -e "${YELLOW}⚠️  安全提醒${NC}"
     echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "  控制面板默认密码是 12 位随机字母数字 (${DASHBOARD_PASSCODE})"
-    echo -e "  请妥善保存；如需自定义可随时更换"
+    echo -e "  控制面板默认密码是 6 位随机数字 (${DASHBOARD_PASSCODE})"
+    echo -e "  该密码空间只有 100 万种可能，在公网上有被暴力的风险"
     echo -e ""
-    echo -e "  ${GREEN}建议${NC}用 ${CYAN}edgeboxctl dashboard passcode${NC} 设置自己的强密码"
-    echo -e "  （支持 6-64 位字母或数字）"
+    echo -e "  ${GREEN}强烈建议${NC}立即用 ${CYAN}edgeboxctl dashboard passcode${NC}"
+    echo -e "  改为强密码（建议改成更复杂的，但目前仅支持 6 位数字格式）"
     echo -e ""
-    echo -e "  ${YELLOW}面板访问走 HTTPS(8443)${NC}"
-    echo -e "  控制面板地址: ${CYAN}https://${server_ip}:8443/traffic/${NC}"
-    echo -e "  IP 模式下用的是自签证书，浏览器会提示\"不安全/证书无效\"，"
-    echo -e "  点\"高级 → 继续前往\"即可——传输已是 TLS 加密。"
-    echo -e "  （以后执行 ${CYAN}edgeboxctl switch-to-domain <域名>${NC} 后会自动换成"
-    echo -e "   Let's Encrypt 真证书，警告消失，无需再改配置。）"
-    echo -e ""
-    echo -e "  ${DIM}域名模式下订阅与面板都走 HTTPS(8443) + LE 真证书；IP 模式下订阅走 HTTP(80)"
-    echo -e "  以兼容严格校验证书的客户端 (Clash/mihomo)，面板仍走 HTTPS(8443) 自签。${NC}"
-    echo -e ""
-    echo -e "  ${DIM}若不想把面板暴露在公网，可改用 SSH 隧道：${NC}"
-    echo -e "    ${DIM}ssh -L 8443:127.0.0.1:8443 root@${server_ip} ，再访问 https://127.0.0.1:8443/traffic/${NC}"
+    echo -e "  另：默认部署在 HTTP 明文 80 端口。如需 HTTPS，请使用："
+    echo -e "    ${CYAN}edgeboxctl switch-to-domain <domain>${NC}"
     echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 }
 
@@ -6327,37 +6064,27 @@ pre_install_check() {
             log_info "检测到强制安装标记 /tmp/edgebox_force_install，继续覆盖安装"
             rm -f /tmp/edgebox_force_install
         elif [[ ! -t 0 ]]; then
-            # v4.7.0 (UX 修复): 非交互（curl|bash）覆盖已安装节点 —— 不再直接报错退出。
-            # 直接覆盖会重新生成全部凭据 → 所有客户端订阅失效，这几乎从来不是用户重跑安装命令的本意。
-            # 因此默认改为【自动转升级】：保留 UUID / Reality 密钥 / HY2 口令 / 订阅 Token / 面板密码，
-            # 仅刷新代码与配置。要彻底重置并重新生成全部凭据，请显式 EDGEBOX_FORCE=1 重跑。
-            log_warn "================================================================"
-            log_warn " 检测到已安装 EdgeBox（非交互模式）。"
-            log_warn " 自动转为【升级】，保留现有客户端凭据，仅刷新代码与配置。"
-            log_warn " （如需彻底重置并重新生成全部凭据：用 EDGEBOX_FORCE=1 重跑。）"
-            log_warn "================================================================"
-
-            # 首选：委托给已安装的 edgeboxctl upgrade —— 它会完整快照/还原
-            # server.json + cert/ + alert.env + shunt/ 并重应用运行拓扑（域名/IP 模式安全）。
-            if [[ -x /usr/local/bin/edgeboxctl ]]; then
-                log_info "委托 edgeboxctl upgrade 执行带凭据保留的安全升级…"
-                exec /usr/local/bin/edgeboxctl upgrade
-            fi
-
-            # 兜底：edgeboxctl 缺失时，内联快照 server.json 后以升级模式继续覆盖安装。
-            # 注：install.sh 不会 rm /etc/edgebox，证书/alert.env/shunt 文件原地留存；
-            # 凭据复用走 KEEP 文件路径。但内联兜底不重应用拓扑，域名节点仍建议改用 edgeboxctl upgrade。
-            log_warn "未找到 edgeboxctl，使用内联回退：快照 server.json 并以升级模式继续。"
-            if cp -p "/etc/edgebox/config/server.json" /tmp/edgebox-keep-server.json 2>/dev/null; then
-                chmod 600 /tmp/edgebox-keep-server.json 2>/dev/null || true
-                export EDGEBOX_UPGRADE=1
-                log_info "已快照凭据到 /tmp/edgebox-keep-server.json，将以升级模式覆盖安装（凭据不变）。"
-            else
-                log_error "无法快照 server.json，且 edgeboxctl 不可用；为避免丢失客户端凭据，安装中止。"
-                log_error " 请改用： edgeboxctl upgrade"
-                log_error " 或显式覆盖（会重置全部凭据）： curl -fsSL .../bootstrap.sh | sudo EDGEBOX_FORCE=1 bash"
-                exit 1
-            fi
+            # stdin is not a TTY (e.g. curl | bash) - cannot prompt user
+            log_error "================================================================"
+            log_error " 检测到 EdgeBox 已安装，且当前为非交互式安装（无法弹出确认）"
+            log_error " 如果你是想升级，请用: ${YELLOW}edgeboxctl upgrade${NC}"
+            log_error " 如果是想强制覆盖（会丢失客户端凭据！），请用以下方式："
+            log_error "================================================================"
+            log_error ""
+            log_error " 【方式1，最简单】先放一个标记文件，然后重跑你刚才的命令:"
+            log_error "   touch /tmp/edgebox_force_install"
+            log_error "   curl -fsSL https://raw.githubusercontent.com/cuiping89/node/main/ENV/bootstrap.sh | sudo bash"
+            log_error ""
+            log_error " 【方式2】sudo 直接传环境变量:"
+            log_error "   curl -fsSL https://raw.githubusercontent.com/cuiping89/node/main/ENV/bootstrap.sh | sudo EDGEBOX_FORCE=1 bash"
+            log_error ""
+            log_error " 【方式3】先彻底清理，再正常安装:"
+            log_error "   sudo systemctl stop nginx xray sing-box 2>/dev/null"
+            log_error "   sudo rm -rf /etc/edgebox /var/www/html/sub-* /usr/local/bin/edgeboxctl"
+            log_error "   curl -fsSL https://raw.githubusercontent.com/cuiping89/node/main/ENV/bootstrap.sh | sudo bash"
+            log_error ""
+            log_error "================================================================"
+            exit 1
         else
             read -p "是否继续？[y/N]: " -n 1 -r
             echo
@@ -6370,7 +6097,7 @@ pre_install_check() {
     fi
 
     # 检查关键端口占用
-    local critical_ports=(443 80 8443)
+    local critical_ports=(443 80)
     local port_conflicts=()
 
     for port in "${critical_ports[@]}"; do
@@ -6434,8 +6161,6 @@ main() {
 
     export EDGEBOX_VER="4.7.0"
     mkdir -p "$(dirname "${LOG_FILE}")" && touch "${LOG_FILE}"
-    chmod 600 "${LOG_FILE}" 2>/dev/null || true
-    chown root:root "${LOG_FILE}" 2>/dev/null || true
 
     log_info "开始执行完整安装流程..."
 
@@ -6552,9 +6277,7 @@ repair_system_state() {
     # 2) 服务自愈
     local services=("xray" "sing-box" "nginx")
     for s in "${services[@]}"; do
-        # v4.7.0 修复: 同 _unit_exists——list-unit-files|grep -q 在 pipefail 下会因 SIGPIPE 误判，
-        #   导致 enable 被跳过。改用 systemctl cat（无管道）。
-        if systemctl cat "${s}.service" >/dev/null 2>&1; then
+        if systemctl list-unit-files | grep -q "^${s}.service"; then
             systemctl enable "$s" >/dev/null 2>&1 || true
         fi
     done
