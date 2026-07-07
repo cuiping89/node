@@ -330,13 +330,11 @@ eb_get_reality_sni()     {
             // empty
         ' "$EB_XRAY_JSON" 2>/dev/null)
     fi
-    echo "${sni:-www.microsoft.com}"
+    echo "${sni:-www.cloudflare.com}"
 }
 
 # Hysteria2
 eb_get_password_hy2()    { eb_jq_get '.password.hysteria2'     ''; }
-# v4.7.0 (审计 H-2): Hysteria2 Salamander obfs 口令
-eb_get_hy2_obfs()        { eb_jq_get '.password.hysteria2_obfs' ''; }
 
 #############################################
 # Validation helpers
