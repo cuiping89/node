@@ -5099,11 +5099,7 @@ NFT
   [[ -s "${LOG_DIR}/daily.csv" ]]   || echo "date,vps,resi,tx,rx" > "${LOG_DIR}/daily.csv"
   [[ -s "${LOG_DIR}/monthly.csv" ]] || echo "month,vps,resi,total,tx,rx" > "${LOG_DIR}/monthly.csv"
 
-# 1. 系统状态脚本
-_install_script "${SCRIPTS_DIR}/system-stats.sh" "system-stats.sh" || return 1
-chmod +x "${SCRIPTS_DIR}/system-stats.sh"
-
-# 2. 流量采集器：每小时增量 → 聚合 → traffic.json
+# 1. 流量采集器：每小时增量 → 聚合 → traffic.json
 _install_script "${SCRIPTS_DIR}/traffic-collector.sh" "traffic-collector.sh" || return 1
 chmod +x "${SCRIPTS_DIR}/traffic-collector.sh"
 
