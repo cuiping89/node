@@ -25,10 +25,6 @@ SNI_DOMAINS_CONFIG="${SNI_CONFIG_DIR}/domains.json"
 XRAY_CONFIG="${CONFIG_DIR}/xray.json" # SNI函数需要
 SNI_HEALTH_LOG="/var/log/edgebox/sni-health.log" # SNI函数需要
 
-# v4.7.1: Reality SNI 策略
-DEFAULT_REALITY_SNI="www.cloudflare.com"
-SNI_CANDIDATES=("www.cloudflare.com" "www.fastly.com" "aws.amazon.com")
-
 WHITELIST_DOMAINS="googlevideo.com,nflxvideo.net,dssott.com,aiv-cdn.net,aiv-delivery.net,ttvnw.net,hbo-cdn.com,hls.itunes.apple.com,scdn.co,tiktokcdn.com"
 
 # [最终稳定版]
@@ -59,11 +55,23 @@ YELLOW="${ESC}[1;33m"; GREEN="${ESC}[0;32m"; RED="${ESC}[0;31m"; NC="${ESC}[0m"
 LOG_FILE="/var/log/edgebox-install.log"
 LOG_LEVEL="${LOG_LEVEL:-info}"   # debug|info
 
-log_info()    { echo -e "${GREEN}[INFO]${NC} $*"    | tee -a "$LOG_FILE"; }
-log_warn()    { echo -e "${YELLOW}[WARN]${NC} $*"   | tee -a "$LOG_FILE"; }
-log_error()   { echo -e "${RED}[ERROR]${NC} $*"     | tee -a "$LOG_FILE"; }
-log_success() { echo -e "${GREEN}[SUCCESS]${NC} $*" | tee -a "$LOG_FILE"; }
-log_debug()   { [[ "${LOG_LEVEL}" == debug ]] && echo -e "${YELLOW}[DEBUG]${NC} $*" | tee -a "$LOG_FILE" || true; }
+# v4.7.0 (前端报错 #2): 旧实现 `echo ... | tee -a "$LOG_FILE"` 在非 root 下会打印
+# "tee: /var/log/edgebox-install.log: Permission denied" 噪音。改为：先判一次可写性，
+# 不可写就只回显，不再尝试写文件；可写时仍异步追加。
+if [[ -w "$LOG_FILE" ]] || { [[ ! -e "$LOG_FILE" ]] && [[ -w "$(dirname "$LOG_FILE")" ]]; }; then
+    _EB_CAN_LOG=1
+else
+    _EB_CAN_LOG=0
+fi
+_eb_safe_tee() {
+    if (( _EB_CAN_LOG )); then tee -a "$LOG_FILE" 2>/dev/null; else cat; fi
+}
+
+log_info()    { echo -e "${GREEN}[INFO]${NC} $*"    | _eb_safe_tee; }
+log_warn()    { echo -e "${YELLOW}[WARN]${NC} $*"   | _eb_safe_tee; }
+log_error()   { echo -e "${RED}[ERROR]${NC} $*"     | _eb_safe_tee; }
+log_success() { echo -e "${GREEN}[SUCCESS]${NC} $*" | _eb_safe_tee; }
+log_debug()   { [[ "${LOG_LEVEL}" == debug ]] && echo -e "${YELLOW}[DEBUG]${NC} $*" | _eb_safe_tee || true; }
 
 log()      { log_info "$@"; }
 log_ok()   { log_success "$@"; }
@@ -107,28 +115,12 @@ secure_replace() {
 
 # <<< 新增: SNI管理核心函数 (从 sni-manager.sh 整合) >>>
 # -------------------------------------------------------------------
-# SNI 日志函数
-sni_log_info() { log_info "SNI: $*"; }
-sni_log_warn() { log_warn "SNI: $*"; }
-sni_log_error() { log_error "SNI: $*"; }
-sni_log_success() { log_success "SNI: $*"; }
+# SNI 日志：直接使用通用 log_* 函数即可，旧的 sni_log_* 包装层已删除（从未被引用）
 
 # [修复版] 域名评分函数 - 确保输出纯净
 evaluate_sni_domain() {
     local domain="$1"
     local score=0
-
-    # 已知问题/不推荐目标不参与自动选择。
-    case "$domain" in
-        www.microsoft.com|microsoft.com)
-            echo 0
-            return
-            ;;
-        *apple.com|*icloud.com)
-            echo 0
-            return
-            ;;
-    esac
 
     # 将进度信息输出到 stderr，避免污染 stdout
     echo "  -> 评估域名: $domain" >&2
@@ -151,6 +143,11 @@ evaluate_sni_domain() {
         score=$((score + 20))
     fi
 
+    # 4. 类别加分
+    case "$domain" in
+        *microsoft.com|*apple.com|*cloudflare.com) score=$((score + 10));;
+    esac
+
     echo "$score" # 确保只有分数通过 stdout 返回
 }
 
@@ -172,7 +169,7 @@ auto_select_optimal_domain() {
     fi
     # 如果配置文件为空或不存在，使用内置的安全列表
     if [[ ${#domains_to_test[@]} -eq 0 ]]; then
-        domains_to_test=("${SNI_CANDIDATES[@]}")
+        domains_to_test=("www.microsoft.com" "www.apple.com" "www.cloudflare.com" "azure.microsoft.com")
     fi
 
     local best_domain=""
@@ -193,22 +190,24 @@ auto_select_optimal_domain() {
 
     # <<< 关键修复点：如果所有测试都失败，回退到一个安全的默认值 >>>
     if [[ -z "$best_domain" || "$best_score" -le 0 ]]; then
-        log_warn "所有候选只通过了普通 TLS 检查或评估失败，回退到 ${DEFAULT_REALITY_SNI}"
-        best_domain="$DEFAULT_REALITY_SNI"
+        log_warn "所有SNI域名评估失败或分数过低，将使用默认值 www.microsoft.com"
+        best_domain="www.microsoft.com"
     fi
 
     echo "最优域名选择结果: $best_domain (评分: $best_score)" >&2
 
     if [[ "$best_domain" == "$current_sni" ]]; then
-        log_success "当前 SNI 已是本次普通 TLS 评分最高的候选。"
-    else
-        log_warn "该结果只代表普通 TLS 可达/延迟评分，不会自动切换 Reality。"
-        log_warn "确认后请执行：edgeboxctl sni set $best_domain，并立即刷新客户端订阅。"
+        log_success "当前SNI域名已是最优，无需更换。"
+        return 0
     fi
 
-    # stdout 只输出推荐域名，方便脚本读取；不会自动修改服务端配置。
-    echo "$best_domain"
-    return 0
+    log_info "准备更换SNI域名: ${current_sni:-未配置} → $best_domain"
+    if update_sni_domain "$best_domain"; then
+        log_success "SNI域名更换成功！"
+    else
+        log_error "SNI域名更换失败！"
+        return 1
+    fi
 }
 
 # 健康检查功能
@@ -221,11 +220,11 @@ health_check_domains() {
             [[ -n "$domain" && "$domain" != "null" ]] && domains_to_check+=("$domain")
         done < <(jq -r '.domains[]?.hostname // empty' "$SNI_DOMAINS_CONFIG" 2>/dev/null)
     fi
-    [[ ${#domains_to_check[@]} -eq 0 ]] && domains_to_check=("${SNI_CANDIDATES[@]}")
+    [[ ${#domains_to_check[@]} -eq 0 ]] && domains_to_check=("www.microsoft.com" "www.apple.com" "www.cloudflare.com")
 
     for domain in "${domains_to_check[@]}"; do
         if timeout 5 curl -s --connect-timeout 3 --max-time 5 "https://${domain}" >/dev/null 2>&1; then
-            echo "  [TLS可达] $domain（仍需客户端 Reality 实测）" >&2
+            echo "  [  OK  ] $domain" >&2
         else
             echo "  [ FAIL ] $domain" >&2
         fi
@@ -250,22 +249,20 @@ update_dashboard_passcode() {
 
     # 如果没有提供密码，提示用户输入
     if [[ -z "$new_passcode" ]]; then
-        echo -e "${YELLOW}请输入新密码（6位数字），留空则随机生成：${NC}"
+        echo -e "${YELLOW}请输入新密码（6-64 位字母或数字），留空则随机生成 12 位：${NC}"
         read -r new_passcode
     fi
 
-    # 如果用户输入为空，自动生成（真正的 6 位随机数字，不是单数字重复）
+    # 【v4.7.0】若留空则自动生成 12 位字母数字（CSPRNG），与安装默认一致
     if [[ -z "$new_passcode" ]]; then
-        new_passcode=""
-        local _i
-        for ((_i=0; _i<6; _i++)); do
-            new_passcode+="$((RANDOM % 10))"
-        done
+        new_passcode="$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom | head -c 12)"
         log_info "未输入密码，自动生成: $new_passcode"
     else
-        # 验证密码格式（6位数字）
-        if ! [[ "$new_passcode" =~ ^[0-9]{6}$ ]]; then
-            log_error "密码格式错误！必须是6位数字"
+        # 【v4.7.0】放宽格式：6-64 位字母或数字。
+        # 仅允许 [A-Za-z0-9] 以规避 URL 查询串与 nginx map 引号转义问题；
+        # 仍向后兼容旧的 6 位纯数字密码。
+        if ! [[ "$new_passcode" =~ ^[A-Za-z0-9]{6,64}$ ]]; then
+            log_error "密码格式错误！必须是 6-64 位字母或数字（不含空格或符号）"
             return 1
         fi
     fi
@@ -306,7 +303,7 @@ map \$cookie_ebp \$cookie_ok {
     default 0;
 }
 map \$pass_ok \$set_cookie {
-    1 "ebp=${new_cookie_secret}; Path=/traffic/; HttpOnly; SameSite=Lax; Max-Age=86400";
+    1 "ebp=${new_cookie_secret}; Path=/traffic/; HttpOnly; Secure; SameSite=Lax; Max-Age=86400";
     0 "";
 }
 EOF
@@ -346,31 +343,7 @@ get_server_info() {
 
 
 # 异步重启服务并安全退出 (Shortened Delay Version)
-restart_services_background() {
-    local services_to_restart=("$@")
 
-    local cmd_sequence="
-        sleep 2;
-        log_info '后台任务：开始执行服务重启...';
-        for service in ${services_to_restart[*]}; do
-            systemctl restart \$service;
-        done;
-        sleep 3; # Short delay for services to come up
-        /etc/edgebox/scripts/apply-firewall.sh >/dev/null 2>&1 || true;
-
-        log_info '后台任务：触发数据刷新...';
-        bash /etc/edgebox/scripts/dashboard-backend.sh --now >/dev/null 2>&1 || true;
-        bash /usr/local/bin/edgebox-ipq.sh >/dev/null 2>&1 || true;
-        log_info '后台任务：完成。';
-    "
-
-    nohup bash -c "eval \"$cmd_sequence\"" >> /var/log/edgebox.log 2>&1 & disown
-
-    log_success "命令已提交到后台执行。您的SSH连接可能会在几秒后中断。"
-    log_info "这是正常现象。请在约10秒后刷新Web面板以查看最新状态。"
-
-    exit 0
-}
 
 ESC=$'\033'
 BLUE="${ESC}[0;34m"; PURPLE="${ESC}[0;35m"; CYAN="${ESC}[0;36m"
@@ -386,6 +359,23 @@ reload_or_restart_services() {
   local services=("$@")
   local failed=0
   for svc in "${services[@]}"; do
+    # v4.7.0 修复: sing-box 不支持信号热重载配置（SIGHUP 不重读配置），必须 restart，
+    #   否则 obfs / 证书 / UDP 等变更只写进文件、不在运行进程里生效（曾导致 obfs 没真正启用）。
+    if [[ "$svc" == "sing-box" || "$svc" == "sing-box.service" ]]; then
+      if command -v sing-box >/dev/null 2>&1 && [[ -f "${CONFIG_DIR}/sing-box.json" ]] \
+         && ! sing-box check -c "${CONFIG_DIR}/sing-box.json" >/dev/null 2>&1; then
+        log_error "sing-box 配置校验失败，跳过重启（避免把坏配置重启进进程）"
+        failed=1; continue
+      fi
+      if systemctl restart "$svc" 2>/dev/null; then
+        log_info "$svc 已重启"
+      else
+        log_error "$svc 重启失败"
+        systemctl status "$svc" --no-pager -l 2>&1 | tail -20 || true
+        failed=1
+      fi
+      continue
+    fi
     if systemctl reload "$svc" 2>/dev/null; then
       log_info "$svc 已热加载"
     elif systemctl restart "$svc" 2>/dev/null; then
@@ -548,7 +538,6 @@ ensure_config_loaded() {
 # === 订阅：统一生成 + 落盘 + 对外暴露 ===
 # v4.6.0-rc4 (审核 P2#6): 删除了重复定义的 get_server_info / ensure_traffic_dir / build_sub_payload
 SUB_TXT="/etc/edgebox/traffic/sub.txt"     # 规范内部文件（可不直接使用）
-WEB_SUB="/var/www/html/sub"                 # Web 根下暴露 /sub
 ensure_traffic_dir(){ mkdir -p /etc/edgebox/traffic; }
 
 # 优先读取安装阶段写入的 subscription.txt；没有就根据 cert 模式现生成
@@ -577,26 +566,73 @@ show_sub(){
   fi
   [[ -n "$MASTER_SUB_TOKEN" ]] && SUB_PATH="sub-${MASTER_SUB_TOKEN}"
 
-  # 统一规范订阅地址：固定使用 IP + HTTP（80）
-  local server_ip=$(jq -r '.server_ip // "YOUR_IP"' "${CONFIG_DIR}/server.json" 2>/dev/null)
-  local sub_url="http://${server_ip}/${SUB_PATH}"
-
-  echo
-  echo -e "${YELLOW}# 订阅URL${NC}${DIM}(复制此订阅地址到客户端)${NC}"
-  echo -e "  ${GREEN}${sub_url}${NC}"
-  echo
-
-  if [[ -s "$txt_file" ]]; then
-    echo -e "${YELLOW}# 明文链接:${NC}"
-    cat "$txt_file"; echo
+  # v4.7.0 修复: 域名模式用域名 + https:8443（LE 真证书）。
+  # v4.7.0 (H-1 follow-up): IP 模式订阅走 http:80（自签 HTTPS Clash 等严格客户端
+  #   无法拉取，故保留明文兼容）；面板仍走 https:8443（自签）保留 cookie 安全。
+  #   IP 模式定位为过渡兜底，墙内拉本 URL 会被 GFW DPI 读到节点凭据，
+  #   推荐尽快 switch-to-domain（见 IP 模式提示）。
+  local server_ip cert_domain panel_base is_domain=0
+  server_ip=$(jq -r '.server_ip // "YOUR_IP"' "${CONFIG_DIR}/server.json" 2>/dev/null)
+  [[ -z "$server_ip" || "$server_ip" == "null" ]] && server_ip="YOUR_IP"
+  cert_domain=$(jq -r '.cert.domain // empty' "${CONFIG_DIR}/server.json" 2>/dev/null)
+  local base_url
+  if [[ -n "$cert_domain" ]]; then
+    is_domain=1
+    base_url="https://${cert_domain}:8443/${SUB_PATH}"
+    panel_base="https://${cert_domain}:8443"
   else
-    log_warn "未能生成或找到明文订阅文件。"
+    base_url="http://${server_ip}/${SUB_PATH}"
+    panel_base="https://${server_ip}:8443"
   fi
 
-  if [[ -s "$b64_file" ]]; then
-    echo -e "${YELLOW}# Base64链接:${NC}"
-    cat "$b64_file"; echo; echo
+  # v4.7.0 (前端报错 #3): 输出 4 种格式 URL，与 dashboard 弹窗一致。
+  # 不同客户端解析不同格式 — v2rayN/v2rayNG 用默认；Clash 用 .clash；sing-box/NekoBox 用 .singbox；旧版用 .base64。
+  echo
+  echo -e "${YELLOW}# 订阅 URL${NC}${DIM}（按客户端选用对应后缀）${NC}"
+  echo
+  echo -e "  🔗 ${CYAN}v2rayN / v2rayNG / Streisand${NC}"
+  echo -e "     ${GREEN}${base_url}${NC}"
+  echo
+  echo -e "  🔗 ${CYAN}Clash Verge / Mihomo${NC}"
+  echo -e "     ${GREEN}${base_url}.clash${NC}"
+  echo
+  echo -e "  🔗 ${CYAN}sing-box / NekoBox${NC}"
+  echo -e "     ${GREEN}${base_url}.singbox${NC}"
+  echo
+  echo -e "  🔗 ${CYAN}Base64 兼容（旧版客户端）${NC}"
+  echo -e "     ${GREEN}${base_url}.base64${NC}"
+  echo
+  if [[ "$is_domain" -eq 1 ]]; then
+    echo -e "  ${DIM}域名模式：订阅经 HTTPS(8443) 提供，证书有效；节点直连 ${cert_domain}${NC}"
+  else
+    echo -e "  ${YELLOW}⚠ IP 模式订阅经 HTTP(80) 明文提供${NC}${DIM}（自签 HTTPS 严格客户端无法拉取，"
+    echo -e "  保留明文兼容 Clash 等）。墙内拉本链接会被 GFW DPI 读到节点凭据，请勿公开分享。${NC}"
+    echo -e "  ${DIM}→ 推荐尽快 ${GREEN}edgeboxctl switch-to-domain <你的域名>${DIM}，"
+    echo -e "    域名模式订阅经 LE 真证书的 HTTPS 提供，泄漏面归零。${NC}"
   fi
+  echo
+
+  # v4.7.0 (用户请求): 同时输出 Web 控制面板地址（passcode 从 server.json 读取）
+  local passcode
+  passcode=$(jq -r '.dashboard_passcode // empty' "${CONFIG_DIR}/server.json" 2>/dev/null)
+  echo -e "${YELLOW}# 控制面板${NC}"
+  echo
+  if [[ -n "$passcode" ]]; then
+    echo -e "  🌐 ${CYAN}Web 面板（含访问密码）${NC}"
+    echo -e "     ${PURPLE}${panel_base}/traffic/?passcode=${passcode}${NC}"
+    echo
+    if [[ "$is_domain" -eq 1 ]]; then
+      echo -e "     ${DIM}域名模式：Let's Encrypt 有效证书，浏览器无警告（请用域名访问，勿用 IP）${NC}"
+    else
+      echo -e "     ${DIM}IP 模式为自签证书，浏览器提示不受信任时点\"继续前往\"即可（已 TLS 加密）${NC}"
+    fi
+    echo -e "     ${DIM}密码: ${passcode}    （可用 \`edgeboxctl dashboard passcode\` 重置）${NC}"
+  else
+    echo -e "  🌐 ${CYAN}Web 面板${NC}"
+    echo -e "     ${PURPLE}${panel_base}/traffic/${NC}"
+    echo -e "     ${DIM}（passcode 不可读 — 请用 sudo 调用，或运行 \`sudo edgeboxctl dashboard passcode\` 重置）${NC}"
+  fi
+  echo
 }
 
 
@@ -620,7 +656,7 @@ traffic_randomize() {
         *)
             echo "用法: $0 traffic randomize [light|medium|heavy]"
             echo "  light  - 轻度随机化 (仅Hysteria2参数)"
-            echo "  medium - 中度随机化 (Hysteria2 + VLESS 参数)"
+            echo "  medium - 中度随机化 (Hysteria2 + Reality 参数)"
             echo "  heavy  - 重度随机化 (Reality + Hysteria2 参数)"
             return 1
             ;;
@@ -779,17 +815,17 @@ test_connection(){
   # --- 核心修复：动态获取密码并附加到URL ---
   local passcode
   passcode=$(get_dashboard_passcode) # 调用已有函数获取密码
-  local panel_url="http://${ip}/"
+  local panel_url="https://${ip}:8443/health"
   
   # 如果获取到了密码，就用带密码的URL测试，否则用不带密码的
   if [[ -n "$passcode" ]]; then
-      panel_url="http://${ip}/traffic/?passcode=${passcode}"
+      panel_url="https://${ip}:8443/traffic/?passcode=${passcode}"
   fi
   # --- 修复结束 ---
 
   echo -n "控制面板: "; 
-  # 使用 -L 参数跟随跳转，并测试新的 panel_url
-  if curl -fsSL "$panel_url" >/dev/null; then
+  # 使用 -L 跟随跳转、-k 容忍 IP 模式自签证书，测试 8443 面板
+  if curl -fsSL -k "$panel_url" >/dev/null; then
     echo -e "${GREEN}OK${NC}"
   else
     local curl_exit_code=$?
@@ -807,6 +843,7 @@ debug_ports(){
   echo -e "${CYAN}EdgeBox 端口调试信息：${NC}"
   echo -e "\n${YELLOW}端口检查：${NC}"
   echo "  TCP/443 (Nginx入口): $(ss -tln | grep -q ':443 ' && echo '✓' || echo '✗')"
+  echo "  TCP/8443 (HTTPS面板/订阅): $(ss -tln | grep -q ':8443 ' && echo '✓' || echo '✗')"
   echo "  UDP/443 (Hysteria2): $(ss -uln | grep -q ':443 ' && echo '✓' || echo '✗')"
   echo "  TCP/11443 (Reality内部): $(ss -tln | grep -q '127.0.0.1:11443 ' && echo '✓' || echo '✗')"
 }
@@ -856,7 +893,7 @@ set_user_alias() {
 SUB_DB="/etc/edgebox/sub/users.json"
 SUB_DIR="/var/www/html/share"         # Nginx 根下的 /share 目录 (已修改)
 SUB_SRC="${CONFIG_DIR}/subscription.txt"  # 订阅“单一事实源”（已存在）
-NGINX_LOG="${NGINX_ACCESS_LOG:-/var/log/nginx/access.log}"
+NGINX_LOG="${NGINX_ACCESS_LOG:-/var/log/nginx/edgebox-share.log}"  # v4.7.0: 专属订阅独立日志（IP抹段+UA），主 access.log 全匿名不再含可解析字段
 
 sub_ts(){ date +%s; }
 sub_now_iso(){ date -Is; }
@@ -921,7 +958,6 @@ sha1(){ printf "%s" "$1" | sha1sum | awk '{print $1}'; }
 
 token_path(){ echo "${SUB_DIR}/u-$1"; }
 
-sub_db_jq(){ jq -c "$1" "$SUB_DB"; }             # 只读
 sub_db_apply(){ # $1=jq filter 表达式 + 后续 jq 参数
   # v4.6.0-rc4 (审核 P2#2): 原子替换 + 强制 600 root:root
   # 旧版本: mktemp 默认 644 → mv 后权限可能回退 → 含 token 的 users.json 暂时可读
@@ -1245,24 +1281,7 @@ fix_permissions(){
   stat -L -c '  %a %n' "${CERT_DIR}/current.pem" 2>/dev/null || true
 }
 
-check_domain_resolution(){
-  local domain=$1; log_info "检查域名解析: $domain"
-  need nslookup && nslookup "$domain" >/dev/null 2>&1 || { log_error "域名无法解析"; return 1; }
-  get_server_info
-  local resolved_ip; resolved_ip=$(dig +short "$domain" 2>/dev/null | tail -n1)
-  if [[ -n "$resolved_ip" && "$resolved_ip" != "$SERVER_IP" ]]; then
-    log_warn "解析IP ($resolved_ip) 与服务器IP ($SERVER_IP) 不匹配，可能导致 LE 校验失败"
-    if [[ "${EDGEBOX_FORCE:-0}" == "1" || "${EDGEBOX_FORCE:-0}" == "yes" ]]; then
-        log_info "EDGEBOX_FORCE=1，忽略 IP 不匹配并继续"
-    elif [[ ! -t 0 ]]; then
-        log_error "非交互模式下检测到 IP 不匹配，已中止。如需强制继续，请设置 EDGEBOX_FORCE=1"
-        return 1
-    else
-        read -p "是否继续？[y/N]: " -n 1 -r; echo; [[ $REPLY =~ ^[Yy]$ ]] || return 1
-    fi
-  fi
-  log_success "域名解析检查通过"
-}
+
 
 
 request_letsencrypt_cert(){
@@ -1289,40 +1308,26 @@ request_letsencrypt_cert(){
   local expand=""
   [[ -d "/etc/letsencrypt/live/${domain}" ]] && expand="--expand"
 
-  # 3) 选择验证方式
-  local CERTBOT_AUTH="--nginx"
-  # Check if nginx plugin dependencies are met
-  if ! command -v nginx >/dev/null 2>&1 || ! dpkg -l | grep -q 'python3-certbot-nginx'; then
-    CERTBOT_AUTH="--standalone --preferred-challenges http"
-  fi
+  # v4.7.0 (H-1 follow-up): 一律走 --webroot,最稳。
+  # 我们的 nginx 80 块已有 `location ^~ /.well-known/acme-challenge/ { root /var/www/html; }`,
+  # certbot 把 challenge 文件放到 /var/www/html/.well-known/acme-challenge/ 即可,
+  # 不需要 --nginx(动 nginx 配置,自定义结构易失败)也不需要 --standalone(要停 nginx,
+  # 失败时易留下 nginx 不在线)。
+  mkdir -p /var/www/html/.well-known/acme-challenge 2>/dev/null || true
 
-  # 4) 执行签发 (<<< CORE FIX: Prefix certbot calls with env -u ... >>>)
+  # 4) 执行签发 (env -u 清掉代理变量,防止 certbot 走代理失败)
   local -a _NOPROXY_ENV_FLAGS=(
     -u ALL_PROXY -u all_proxy
     -u HTTP_PROXY -u http_proxy
     -u HTTPS_PROXY -u https_proxy
   )
 
-  if [[ "$CERTBOT_AUTH" == "--nginx" ]]; then
-    # <<< FIX applied here >>>
-    env "${_NOPROXY_ENV_FLAGS[@]}" \
-      certbot certonly --nginx ${expand} \
-      --cert-name "${domain}" "${cert_args[@]}" \
-      -n --agree-tos --register-unsafely-without-email \
-      || { log_error "Certbot (nginx) failed"; return 1; } # Simplified error handling
-  else
-    # standalone 需临时释放 80 端口
-    log_info "Using standalone mode, temporarily stopping Nginx..."
-    systemctl stop nginx >/dev/null 2>&1 || true
-    # <<< FIX applied here >>>
-    env "${_NOPROXY_ENV_FLAGS[@]}" \
-      certbot certonly --standalone --preferred-challenges http --http-01-port 80 ${expand} \
-      --cert-name "${domain}" "${cert_args[@]}" \
-      -n --agree-tos --register-unsafely-without-email \
-      || { log_error "Certbot (standalone) failed"; systemctl start nginx >/dev/null 2>&1 || true; return 1; } # Simplified error handling
-    log_info "Standalone validation complete, restarting Nginx..."
-    systemctl start nginx >/dev/null 2>&1 || true
-  fi
+  env "${_NOPROXY_ENV_FLAGS[@]}" \
+    certbot certonly --webroot -w /var/www/html \
+    --preferred-challenges http ${expand} \
+    --cert-name "${domain}" "${cert_args[@]}" \
+    -n --agree-tos --register-unsafely-without-email \
+    || { log_error "Certbot (webroot) failed — 常见原因: ① DNS A 记录未指向本机 ② 80 端口被防火墙挡住 ③ nginx 未运行 / acme-challenge location 缺失"; return 1; }
 
   # 切换软链并热加载 (Ensure cert files exist after successful certbot run)
   local le_dir="/etc/letsencrypt/live/${domain}"
@@ -1425,107 +1430,127 @@ regen_sub_ip() {
 # ==============================================================================
 update_sni_domain() {
     local new_domain="$1"
+
+    # 入口校验：拒绝空域名
+    if [[ -z "$new_domain" ]]; then
+        log_error "[SNI] update_sni_domain: 拒绝使用空域名进行更新！操作已中止。"
+        return 1
+    fi
+    # （可选）轻量格式校验：包含点号、允许字母数字连字符
+    if ! [[ "$new_domain" =~ ^[A-Za-z0-9.-]+\.[A-Za-z0-9.-]+$ ]]; then
+        log_error "[SNI] update_sni_domain: 域名格式看起来不对：$new_domain"
+        return 1
+    fi
+
+    local grace_hours="${EB_SNI_GRACE_HOURS:-24}"
+    # 兼容全局覆写：优先用已有 XRAY_CONFIG，否则退回 CONFIG_DIR/xray.json
     local XRAY_CONFIG="${XRAY_CONFIG:-${CONFIG_DIR}/xray.json}"
-    local SERVER_JSON="${CONFIG_DIR}/server.json"
-    local SNI_LOCK_FILE="/etc/edgebox/sni.lock"
+    local xray_tmp; xray_tmp="$(mktemp -p /tmp xray.sni.XXXXXX)"
+    local server_json_tmp="${CONFIG_DIR}/server.json.tmp"
     local old_domain
     old_domain="$(get_current_sni_domain 2>/dev/null || true)"
 
-    if [[ -z "$new_domain" ]]; then
-        log_error "[SNI] 新域名不能为空。"
-        return 1
-    fi
-    if ! [[ "$new_domain" =~ ^[A-Za-z0-9.-]+\.[A-Za-z0-9.-]+$ ]]; then
-        log_error "[SNI] 域名格式无效: $new_domain"
-        return 1
-    fi
     if [[ "$new_domain" == "$old_domain" ]]; then
-        log_info "[SNI] 当前已经是 $new_domain，无需更换。"
+        log_info "[SNI] 新域名与当前域名相同 ($new_domain)，无需更新。"
         return 0
     fi
 
-    # 重要：Reality 的 target 只有一个。不同站点之间不能通过把旧域名继续
-    # 塞进 serverNames 来实现真正的宽限期，因此这里采用明确的硬切换。
-    log_info "[SNI] 硬切换：${old_domain:-<无>} -> ${new_domain}"
+    log_info "[SNI] 无缝轮换开始：${old_domain:-<无>} -> ${new_domain}（宽限期 ${grace_hours}h）"
+    [[ -f "$XRAY_CONFIG" ]] && cp -f "$XRAY_CONFIG" "${XRAY_CONFIG}.backup.$(date +%s)" 2>/dev/null || true
 
-    local xray_backup server_backup xray_tmp server_tmp
-    xray_backup="$(mktemp -p /tmp xray.sni.backup.XXXXXX)"
-    server_backup="$(mktemp -p /tmp server.sni.backup.XXXXXX)"
-    xray_tmp="$(mktemp -p /tmp xray.sni.new.XXXXXX)"
-    server_tmp="$(mktemp -p /tmp server.sni.new.XXXXXX)"
-
-    cp -a "$XRAY_CONFIG" "$xray_backup" || return 1
-    cp -a "$SERVER_JSON" "$server_backup" || { rm -f "$xray_backup"; return 1; }
-
-    if ! jq --arg new "$new_domain" '
-      .inbounds |= map(
+    # 2) 生成“候选配置”（永远只写到临时文件）
+    if jq --arg new "$new_domain" --arg old "${old_domain:-}" '
+      .inbounds |= ( ( . // [] ) | map(
         if (.tag? // "") == "vless-reality" then
-          .streamSettings.realitySettings.dest = ($new + ":443")
-          | .streamSettings.realitySettings.serverNames = [$new]
+          .streamSettings |= (if type=="object" then . else {} end)
+          | .streamSettings.realitySettings |= (if type=="object" then . else {} end)
+          | .streamSettings.realitySettings.dest = ($new + ":443")
+          | .streamSettings.realitySettings.serverNames =
+              (
+                ([$new,$old] + (.streamSettings.realitySettings.serverNames // []))
+                | map(select(type=="string" and length>0))
+                | reduce .[] as $x ( []; if index($x)==null then . + [$x] else . end )
+              )
         else . end
-      )
+      ))
     ' "$XRAY_CONFIG" > "$xray_tmp"; then
-        log_error "[SNI] 生成 Xray 候选配置失败。"
-        rm -f "$xray_backup" "$server_backup" "$xray_tmp" "$server_tmp"
-        return 1
-    fi
 
-    if ! /usr/local/bin/xray -test -format json -c "$xray_tmp" >/dev/null 2>&1; then
-        log_error "[SNI] Xray 候选配置校验失败，未修改现有配置。"
-        /usr/local/bin/xray -test -format json -c "$xray_tmp" || true
-        rm -f "$xray_backup" "$server_backup" "$xray_tmp" "$server_tmp"
-        return 1
-    fi
-
-    if ! jq --arg new_sni "$new_domain" '
-      .reality = (.reality // {})
-      | .reality.sni = $new_sni
-      | .updated_at = (now | todate)
-    ' "$SERVER_JSON" > "$server_tmp"; then
-        log_error "[SNI] 生成 server.json 候选配置失败。"
-        rm -f "$xray_backup" "$server_backup" "$xray_tmp" "$server_tmp"
-        return 1
-    fi
-
-    install -o root -g root -m 600 "$xray_tmp" "$XRAY_CONFIG" || return 1
-    install -o root -g root -m 600 "$server_tmp" "$SERVER_JSON" || {
-        install -o root -g root -m 600 "$xray_backup" "$XRAY_CONFIG"
-        rm -f "$xray_backup" "$server_backup" "$xray_tmp" "$server_tmp"
-        return 1
-    }
-    printf '%s' "$new_domain" > "$SNI_LOCK_FILE"
-    chmod 600 "$SNI_LOCK_FILE"
-
-    if ! reload_or_restart_services xray; then
-        log_error "[SNI] Xray 重载失败，正在回滚。"
-        install -o root -g root -m 600 "$xray_backup" "$XRAY_CONFIG"
-        install -o root -g root -m 600 "$server_backup" "$SERVER_JSON"
-        reload_or_restart_services xray || true
-        rm -f "$xray_backup" "$server_backup" "$xray_tmp" "$server_tmp"
-        return 1
-    fi
-
-    log_info "[SNI] 正在重新生成订阅..."
-    local mode domain
-    mode="$(get_current_cert_mode 2>/dev/null || echo self-signed)"
-    if [[ "$mode" == "self-signed" ]]; then
-        regen_sub_ip || {
-            log_error "[SNI] 订阅生成失败。服务端已切换，但请先修复订阅生成器。"
-            rm -f "$xray_backup" "$server_backup" "$xray_tmp" "$server_tmp"
-            return 1
-        }
-    else
-        domain="${mode##*:}"
-        if [[ -n "$domain" ]]; then
-            regen_sub_domain "$domain" || return 1
+        # 3) 覆盖前自检：只要失败就不落盘
+        if /usr/local/bin/xray -test -format json -c "$xray_tmp" >/dev/null 2>&1; then
+            install -o root -g root -m 600 "$xray_tmp" "$XRAY_CONFIG"
+            log_success "[SNI] Xray 核心配置已更新。"
         else
-            regen_sub_ip || return 1
+            log_error "[SNI] 生成的新 Xray 配置验证失败！保留原配置。"
+            /usr/local/bin/xray -test -format json -c "$xray_tmp" || true
+            rm -f "$xray_tmp"
+            return 1
+        fi
+    else
+        log_error "[SNI] 使用 jq 生成新 Xray 配置失败。"
+        rm -f "$xray_tmp"
+        return 1
+    fi
+    rm -f "$xray_tmp" 2>/dev/null || true
+
+    # 4) 同步更新 server.json（保持原逻辑）
+    if jq --arg new_sni "$new_domain" '
+        if .reality == null then .reality = {} else . end |
+        .reality.sni = $new_sni |
+        .updated_at = (now | todate)
+    ' "${CONFIG_DIR}/server.json" > "$server_json_tmp"; then
+        mv -f "$server_json_tmp" "${CONFIG_DIR}/server.json"
+        chmod 600 "${CONFIG_DIR}/server.json"
+        chown root:root "${CONFIG_DIR}/server.json"
+        log_success "[SNI] server.json 状态已同步更新。"
+    else
+        log_warn "[SNI] server.json 同步更新失败。"; rm -f "$server_json_tmp"
+    fi
+
+    # 5) 重载服务（保留原行为）
+    if ! reload_or_restart_services xray; then
+        log_error "[SNI] Xray 服务重载失败，请手动检查！"
+        return 1
+    fi
+
+    # 6) 刷新订阅（保留原行为）
+    log_info "[SNI] 正在刷新订阅链接..."
+    local mode; mode="$(get_current_cert_mode 2>/dev/null || echo self-signed)"
+    if [[ "$mode" == "self-signed" ]]; then
+        regen_sub_ip
+    else
+        local domain="${mode##*:}"
+        [[ -n "$domain" ]] && regen_sub_domain "$domain" || regen_sub_ip
+    fi
+
+    # 7) 安排清理旧 SNI（仅当 old!=new），在 payload 里也加自检（微改一行，风险极低）
+    if [[ -n "$old_domain" && "$old_domain" != "$new_domain" ]]; then
+        local jq_cleanup_filter='
+          .inbounds |= map(
+            if .tag=="vless-reality" then
+              .streamSettings.realitySettings.serverNames |=
+                ((. // []) | map(select(. != $old and . != "")))
+            else . end
+          )'
+        local b64; b64="$(printf "%s" "$jq_cleanup_filter" | (base64 -w0 2>/dev/null || base64))"
+        local at_payload
+        # v4.6.0-rc4 (审核 P1#3): 定时清理脚本写 xray.json 时必须保持 600
+        # 旧版本: mv ${cfg}.tmp $cfg → mktemp 默认 644 → 私钥泄露给本机其他用户
+        # 新版本: umask 077 + install -o root -g root -m 600 (原子替换 + 强制权限)
+        at_payload="umask 077; b64='$b64'; filter=\$(echo \"\$b64\" | base64 -d); jqbin=\$(command -v jq); cfg='${XRAY_CONFIG}'; tmp=\$(mktemp /tmp/xray.sni-grace.XXXXXX); \
+\"\$jqbin\" --arg old '$old_domain' \"\$filter\" \"\$cfg\" > \"\$tmp\" \
+&& /usr/local/bin/xray -test -format json -c \"\$tmp\" \
+&& install -o root -g root -m 600 \"\$tmp\" \"\$cfg\" \
+&& rm -f \"\$tmp\" \
+&& (systemctl reload xray 2>/dev/null || systemctl restart xray 2>/dev/null) >/dev/null 2>&1; rm -f \"\$tmp\" 2>/dev/null"
+        if command -v systemd-run >/dev/null 2>&1; then
+            systemd-run --on-active="${grace_hours}h" --timer-property=Persistent=true --property=Type=oneshot /bin/bash -lc "$at_payload" >/dev/null 2>&1 \
+              && log_success "[SNI] 已安排 ${grace_hours}h 后清理旧 SNI: $old_domain"
+        else
+            log_warn "[SNI] systemd-run 不可用：不会自动清理旧 SNI。"
         fi
     fi
 
-    rm -f "$xray_backup" "$server_backup" "$xray_tmp" "$server_tmp"
-    log_success "[SNI] SNI 已硬切换到 $new_domain。"
-    log_warn "[SNI] 客户端不会自动收到新 SNI；请立即手动刷新订阅后再测速。"
+    log_success "[SNI] ✅ 无缝轮换完成：新 SNI 已生效"
     return 0
 }
 # ===================[END PATCH:update_sni_domain]===================
@@ -1542,8 +1567,29 @@ switch_to_domain(){
       fi
   fi
 
+  # v4.7.0 (UX hotfix): 旧版只判"域名能不能解析",不验证解析到的 IP 是不是本机。
+  # 实际事故：用户的 A 记录指向了别人的 IP（或域名服务商默认 parking IP），
+  # 旧检查放行 → certbot 跑到一半被 LE 反馈 "Timeout during connect"（LE 连到了那个 IP）。
+  # 现改为：解析出 IPv4 + 与本机 IP 比对，不一致直接拒绝并给出修复路径。
   log_info "检查域名解析: ${domain}"
-  getent hosts "$domain" >/dev/null || { log_error "${domain} 未解析"; return 1; }
+  local _resolved_ips _my_ip
+  _resolved_ips="$(getent ahostsv4 "$domain" 2>/dev/null | awk '/STREAM/{print $1}' | sort -u)"
+  if [[ -z "$_resolved_ips" ]]; then
+      log_error "${domain} 没有 IPv4 A 记录（或未解析）"
+      log_error "  → 请到 DNS 服务商把 A 记录指向本机后，等解析生效再重试。"
+      return 1
+  fi
+  _my_ip="$(jq -r '.server_ip // empty' "${CONFIG_DIR}/server.json" 2>/dev/null)"
+  [[ -z "$_my_ip" || "$_my_ip" == "null" ]] && _my_ip="$(curl -fsSL --max-time 5 https://api.ipify.org 2>/dev/null || true)"
+  if [[ -n "$_my_ip" ]] && ! grep -qFx -- "$_my_ip" <<<"$_resolved_ips"; then
+      log_error "${domain} 当前解析到: $(tr '\n' ' ' <<<"$_resolved_ips")"
+      log_error "  本机 IP 是:     ${_my_ip}  → DNS 未指向本机"
+      log_error "  → Let's Encrypt 会连到 DNS 指向的那个 IP（不是本机）→ 必然超时失败。"
+      log_error "  → 请到 DNS 服务商把 ${domain} 的 A 记录改成 ${_my_ip}，等解析生效再重试。"
+      log_error "  → 验证: getent hosts ${domain}   应只返回 ${_my_ip}"
+      return 1
+  fi
+  log_info "  ✓ 解析正确（$(tr '\n' ' ' <<<"$_resolved_ips")包含本机 ${_my_ip:-?}）"
   log_info "为 ${domain} 申请/扩展 Let's Encrypt 证书"
   request_letsencrypt_cert "$domain" || return 1
 
@@ -1752,20 +1798,7 @@ check_proxy_health_url() {
 }
 
 # === Anchor-1 INSERT BEGIN : 验收报告函数 ===
-format_curl_proxy_uri() {
-  # 将已由 parse_proxy_url() 解析出的全局变量拼成 curl 可用的 --proxy URI
-  local __retvar="$1" auth=""
-  [[ -n "$PROXY_USER" ]] && auth="${PROXY_USER}:${PROXY_PASS}@"
-  local uri
-  if [[ "$PROXY_SCHEME" == "http" ]]; then
-    local scheme="http"; [[ "$PROXY_TLS" -eq 1 ]] && scheme="https"
-    uri="${scheme}://${auth}${PROXY_HOST}:${PROXY_PORT}"
-  else
-    # socks5h 让域名解析也走代理端
-    uri="socks5h://${auth}${PROXY_HOST}:${PROXY_PORT}"
-  fi
-  printf -v "$__retvar" '%s' "$uri"
-}
+
 
 get_current_cert_mode(){
   if [[ -f "${CONFIG_DIR}/cert_mode" ]]; then
@@ -1851,14 +1884,7 @@ post_switch_report() {
 }
 
 # === [NEW] Unified function to refresh all frontend data sources ===
-run_post_change_refreshes() {
-    log_info "Submitting background jobs for dashboard and IPQ refresh..."
-    # dashboard-backend.sh reads the new state and updates dashboard.json
-    bash "${SCRIPTS_DIR}/dashboard-backend.sh" --now >/dev/null 2>&1 || true
-    # edgebox-ipq.sh reads the new proxy state and tests the new IP
-    bash /usr/local/bin/edgebox-ipq.sh >/dev/null 2>&1 || true
-    log_info "Background refresh jobs completed."
-}
+
 
 post_shunt_report() {
   local mode="$1" url="$2"
@@ -2305,12 +2331,7 @@ manage_whitelist() {
 # 流量统计
 #############################################
 
-format_bytes(){
-    local b=$1
-    [[ $b -ge 1073741824 ]] && echo "$(bc<<<"scale=2;$b/1073741824")GB" || \
-    ([[ $b -ge 1048576 ]] && echo "$(bc<<<"scale=2;$b/1048576")MB" || \
-    ([[ $b -ge 1024 ]] && echo "$(bc<<<"scale=1;$b/1024")KB" || echo "${b}B"))
-}
+
 
 # >>> traffic_show begin
 traffic_show() {
@@ -3235,7 +3256,8 @@ rm -f \"\$tmp\" 2>/dev/null"
         fi
     else
         echo "[WARN] systemd-run 不可用：旧 SID ($old_sid) 不会自动清理；" >&2
-        echo "[WARN] 请 ${grace_hours}h 后手动执行: edgeboxctl rotate-sid-cleanup $old_sid" >&2
+        echo "[WARN] 旧 SID 会在下次 rotate-sid 调用时自动覆盖；如需立即清理，可手动执行：" >&2
+        echo "[WARN]   jq '(.inbounds[] | select(.tag==\"vless-reality\") | .streamSettings.realitySettings.shortIds) |= map(select(. != \"$old_sid\"))' /etc/edgebox/config/xray.json > /tmp/xr.json && mv /tmp/xr.json /etc/edgebox/config/xray.json && systemctl reload xray" >&2
     fi
   else
     echo "[INFO] 没有检测到旧 SID；这次无需安排清理任务。"
@@ -3340,28 +3362,16 @@ sni_set_domain() {
     if declare -f eb_is_valid_domain >/dev/null 2>&1; then
         if ! eb_is_valid_domain "$target_domain"; then
             log_error "SNI 域名格式无效: $target_domain"
-            log_error "  必须是有效域名 (例如 www.cloudflare.com)"
+            log_error "  必须是有效域名 (例如 www.microsoft.com)"
             return 1
         fi
     fi
-
-    # 已知问题目标默认拒绝；仅用于临时实验时才允许 --force。
-    case "$target_domain" in
-      www.microsoft.com|microsoft.com)
-        log_error "www.microsoft.com 当前可能与 Xray REALITY 不兼容。"
-        [[ "${2:-}" == "--force" ]] || return 1
-        ;;
-      *apple.com|*icloud.com)
-        log_warn "Apple/iCloud 会触发 Xray 的封禁风险警告。"
-        [[ "${2:-}" == "--force" ]] || return 1
-        ;;
-    esac
 
     # DNS 解析检查
     if ! getent hosts "$target_domain" >/dev/null 2>&1; then
         log_error "SNI 域名无法解析: $target_domain"
         log_error "  Reality 需要真实可达的伪装站点。"
-        log_error "  推荐先使用: www.cloudflare.com；其它目标需切换后实测"
+        log_error "  推荐: www.microsoft.com / www.apple.com / www.cloudflare.com"
         return 1
     fi
 
@@ -3628,9 +3638,34 @@ cert_renew() {
 # 新版本: 1) 先加载配置 2) 跑 case 3) 用 $? 记录 case 退出码 4) 显式 exit "$rc"
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]] || [[ -n "${EDGEBOXCTL_LOADED}" ]]; then
     [[ "${EDGEBOX_DEBUG}" == "true" ]] && LOG_LEVEL="debug"
-    mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null
-    load_config_once 2>/dev/null || true   # 配置加载失败不阻断（部分子命令不需要配置）
-    log_debug "edgeboxctl初始化完成，配置已缓存"
+
+    # v4.7.0 (前端报错 #1): 早期分流 — help/version/--help/-h 不需要 root，也不需要配置加载。
+    # 旧逻辑会无条件 load_config_once，非 root 用户读不到 600 root:root 的 server.json
+    # → 显示 "配置文件JSON格式错误或解析失败"，把帮助命令也搞成报错。
+    case "${1:-help}" in
+        help|--help|-h|version|--version|-v|"")
+            : # 让后续 case 分支正常处理；不做配置加载，不做 root 检查
+            ;;
+        *)
+            # v4.7.0: 自动 sudo 提权（与 bootstrap.sh 一致）。
+            # server.json 是 600 root:root（保护 UUID/密码/dashboard cookie 等敏感数据），
+            # 普通用户读不到 → jq 失败。改为：检测到非 root 就 exec sudo 自我重新执行，
+            # 不再让用户每次都手敲 sudo。
+            if [[ "$EUID" -ne 0 ]]; then
+                if command -v sudo >/dev/null 2>&1; then
+                    # -E 保留 EDGEBOX_DEBUG / LOG_LEVEL 等环境变量；-- 防止 $1 被 sudo 误解析为选项
+                    exec sudo -E -- "$0" "$@"
+                else
+                    echo -e "${RED}[ERROR]${NC} edgeboxctl 需要 root 权限运行，但 sudo 不可用" >&2
+                    echo -e "${YELLOW}原因：${NC}/etc/edgebox/config/server.json 是 600 root:root，保护敏感配置" >&2
+                    exit 1
+                fi
+            fi
+            mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null
+            load_config_once 2>/dev/null || true   # 配置加载失败不阻断（部分子命令不需要配置）
+            log_debug "edgeboxctl初始化完成，配置已缓存"
+            ;;
+    esac
 fi
 
 # v4.6.0-rc4 (审核 P1#2): 跟踪 case 分支真实退出码
@@ -3653,7 +3688,7 @@ case "$1" in
       limit)   shift 2; sub_limit "$1" "$2";;
       ""|list) show_sub ;;   # 兼容：不带参数仍显示整份订阅（管理员/自用）
 *) echo "用法:
-edgeboxctl sub                         # 显示并刷新全局订阅链接 (/sub)
+edgeboxctl sub                         # 显示并刷新全局订阅链接 (/sub-<token>)
 edgeboxctl sub issue  <user> [limit]   # 为用户下发专属订阅链接 (/share/u-...)
 edgeboxctl sub show   <user>           # 查看专属订阅与已登记设备
 edgeboxctl sub revoke <user>           # 停用用户的专属订阅
@@ -4131,10 +4166,10 @@ HEAD
         sni_auto_select
         ;;
       set)
-        sni_set_domain "$3" "$4"
+        sni_set_domain "$3"
         ;;
       *)
-        echo "用法: edgeboxctl sni {list|test-all|auto|set <域名> [--force]}"
+        echo "用法: edgeboxctl sni {list|test-all|auto|set <域名>}"
         exit 1
         ;;
     esac
@@ -4197,13 +4232,13 @@ dashboard)
         ;;
       *)
         echo "用法: edgeboxctl dashboard passcode [新密码]"
-        echo "  - 不提供密码则提示输入，留空则随机生成"
-        echo "  - 密码必须是6位数字"
+        echo "  - 不提供密码则提示输入，留空则随机生成 12 位"
+        echo "  - 密码须为 6-64 位字母或数字（不含空格或符号）"
         ;;
     esac
     ;;
 
-help|"")
+help|--help|-h|version|--version|-v|"")
   # --- 工具：带 ANSI 颜色时也能精确对齐注释列 ---
   strip_ansi() { sed -r 's/\x1B\[[0-9;]*m//g' <<<"$1"; }
   # $1=左侧文本(含颜色)  $2=注释文本  $3=注释列起始列(每板块独立)
@@ -4257,11 +4292,11 @@ help|"")
   # 🌐 SNI 域名轮换
   printf "%b\n" "${YELLOW}■ 🌐 SNI 域名轮换${NC}"
   print_cmd "${GREEN}edgeboxctl sni list${NC}"                      "显示 SNI 域名池状态 (别名: pool)"             $_W_SNI
-  print_cmd "${GREEN}edgeboxctl sni test-all${NC}"                  "仅测试普通 TLS 可达性（仍需客户端 Reality 实测）"                      $_W_SNI
-  print_cmd "${GREEN}edgeboxctl sni auto${NC}"                      "仅推荐普通 TLS 评分最高候选，不自动切换"                   $_W_SNI
+  print_cmd "${GREEN}edgeboxctl sni test-all${NC}"                  "测试池中所有域名的可用性"                      $_W_SNI
+  print_cmd "${GREEN}edgeboxctl sni auto${NC}"                      "智能测试并选择最优 SNI 域名"                   $_W_SNI
   print_cmd "${GREEN}edgeboxctl sni set${NC} ${CYAN}<domain>${NC}"  "手动强制指定一个 SNI 域名"                     $_W_SNI
   printf "  %b\n" "${CYAN}示例:${NC}"
-  printf "  %b %b\n\n" "${GREEN}edgeboxctl sni set${NC}" "${CYAN}www.cloudflare.com${NC}"
+  printf "  %b %b\n\n" "${GREEN}edgeboxctl sni set${NC}" "${CYAN}www.apple.com${NC}"
 
   # 🔐 Reality 密钥轮换 (v4.3.0: 危险操作需 --confirm)
   printf "%b\n" "${YELLOW}■ 🔐 Reality 密钥轮换${NC}"
@@ -4281,7 +4316,7 @@ help|"")
   printf "  %b %b\n" "${GREEN}edgeboxctl traffic randomize${NC}" "${CYAN}medium${NC}"
   printf "  %b\n" "${CYAN}level:${NC}"
   printf "  %b  %b\n" "${CYAN}light(默认)${NC}"  "${DIM}—轻度随机化，仅Hysteria2 仿装站点${NC}"
-  printf "  %b  %b\n" "${CYAN}medium${NC}" "${DIM}— 中度随机化，修改 Hysteria2 + VLESS 参数${NC}"
+  printf "  %b  %b\n" "${CYAN}medium${NC}" "${DIM}— 中度随机化，修改 Hysteria2 + Reality 参数${NC}"
   printf "  %b  %b\n\n" "${CYAN}heavy${NC}"  "${DIM}— 重度随机化，修改 Reality + Hysteria2 参数${NC}"
 
   # 🔗 独立用户订阅URL
@@ -4363,7 +4398,7 @@ help|"")
 
   # 🔍 诊断与排障
   printf "%b\n" "${YELLOW}■ 🔍 诊断与排障${NC}"
-  print_cmd "${GREEN}edgeboxctl debug-ports${NC}"                                        "检查核心端口 (80, 443) 是否被占用" $_W_DEBUG
+  print_cmd "${GREEN}edgeboxctl debug-ports${NC}"                                        "检查端口占用 (TCP 80/443/8443, UDP 443)" $_W_DEBUG
   print_cmd "${GREEN}edgeboxctl test${NC}"                                               "对各协议入口进行基础连通性测试" $_W_DEBUG
   print_cmd "${GREEN}edgeboxctl test-udp${NC} ${CYAN}<host>${NC} ${CYAN}<port>${NC} ${CYAN}[seconds]${NC}" "使用 iperf3/socat 进行 UDP 连通性简测" $_W_DEBUG
   printf "  %b\n" "${CYAN}示例 (排障流程):${NC}"
@@ -4374,8 +4409,8 @@ help|"")
   printf "  获取更多帮助\n"
   printf "%b\n" "────────────────────────────────────────────────────────────────${NC}"
   printf "  配置文件: /etc/edgebox/config/\n"
-  printf "  Web 面板: http://<你的IP>/traffic/?passcode=<你的密码>\n"
-  printf "  订阅链接: http://<你的IP>/sub\n"
+  printf "  Web 面板: https://<IP或域名>:8443/traffic/?passcode=<你的密码>\n"
+  printf "  订阅链接: 域名模式 https://<域名>:8443/sub-<token> / IP 模式 http://<IP>/sub-<token>\n"
   printf "  查看日志: tail -f /var/log/edgebox-install.log\n"
   
   ;;

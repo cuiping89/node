@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #############################################
 # EdgeBox Dashboard 后端数据采集脚本
-# 版本: 4.0.0
+# 版本: 4.7.0
 # 功能: 统一采集系统状态、服务状态、配置信息
 # 输出: dashboard.json、system.json
 #############################################
@@ -112,6 +112,7 @@ get_system_metrics() {
     fi
 
     # 内存使用率计算保持不变
+    local mem_total_b=0 mem_used_b=0 mem_free_b=0
     if [[ -r /proc/meminfo ]]; then
         local mem_total mem_available
         mem_total=$(awk '/MemTotal:/ {print $2}' /proc/meminfo)
@@ -119,6 +120,11 @@ get_system_metrics() {
 
         if [[ $mem_total -gt 0 && $mem_available -ge 0 ]]; then
             memory_percent=$(( (mem_total - mem_available) * 100 / mem_total ))
+            # v4.7.0 (前端 #2): 同时输出字节值供 dashboard 渲染 (已用/可用)
+            # /proc/meminfo 是 kB，乘 1024 转字节；dashboard.js 的 fmtGiB 期望字节
+            mem_total_b=$(( mem_total * 1024 ))
+            mem_free_b=$(( mem_available * 1024 ))
+            mem_used_b=$(( mem_total_b - mem_free_b ))
         fi
     fi
 
@@ -144,12 +150,18 @@ get_system_metrics() {
         --argjson cpu "$cpu_percent" \
         --argjson memory "$memory_percent" \
         --argjson disk "$disk_percent" \
+        --argjson mem_total "$mem_total_b" \
+        --argjson mem_used  "$mem_used_b"  \
+        --argjson mem_free  "$mem_free_b"  \
         --arg timestamp "$(date -Is)" \
         '{
             updated_at: $timestamp,
             cpu: $cpu,
             memory: $memory,
-            disk: $disk
+            disk: $disk,
+            mem_total: $mem_total,
+            mem_used:  $mem_used,
+            mem_free:  $mem_free
         }'
 }
 
@@ -388,7 +400,7 @@ get_protocols_status() {
     # Dynamically read the current Reality SNI from xray.json
     local reality_sni
     reality_sni="$(jq -r 'first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.serverNames[0]) // (first(.inbounds[]? | select(.tag=="vless-reality") | .streamSettings.realitySettings.dest) | split(":")[0]) // empty' "$xray_config_file" 2>/dev/null)"
-    : "${reality_sni:=www.cloudflare.com}" # Fallback to a default
+    : "${reality_sni:=www.microsoft.com}" # Fallback to a default
 
     local health_data="[]"
     if [[ -s "$health_report_file" ]]; then
@@ -404,8 +416,8 @@ get_protocols_status() {
     local protocol_order=()
     declare -A protocol_meta
     protocol_order=("VLESS-Reality" "Hysteria2")
-    protocol_meta["VLESS-Reality"]="reality|抗审查/伪装访问，主用通道|极佳★★★★★|443|tcp"
-    protocol_meta["Hysteria2"]="hysteria2|UDP回退通道(QUIC)，TCP干扰时备用|良好★★★★☆|443|udp"
+    protocol_meta["VLESS-Reality"]="reality|主通道：抗审查 / 伪装访问（TCP 443）|极佳★★★★★|443|tcp"
+    protocol_meta["Hysteria2"]="hysteria2|备用通道：TCP 受干扰时切换（QUIC / UDP 443）|良好★★★★☆|443|udp"
 
     local final_protocols="[]"
 
@@ -703,10 +715,11 @@ collect_notifications() {
 generate_dashboard_data() {
     log_info "开始生成Dashboard数据..."
 
-    local host_or_ip
+    local host_or_ip is_domain="0"
     local cert_mode_file="${CONFIG_DIR}/cert_mode"
     if [[ -f "$cert_mode_file" ]] && grep -q "letsencrypt:" "$cert_mode_file"; then
         host_or_ip=$(cat "$cert_mode_file" | cut -d: -f2)
+        is_domain="1"
     else
         host_or_ip=$(jq -r '.server_ip // "127.0.0.1"' "${CONFIG_DIR}/server.json" 2>/dev/null || echo "127.0.0.1")
     fi
@@ -745,7 +758,8 @@ generate_dashboard_data() {
           "sing-box":{status:$sstat,version:$sver}}'
     )
 
-    # --- 修复点：将 C 风格的三元运算符 A ? B : C 改为 jq 的 if-then-else-end ---
+    # v4.7.0 (H-1 follow-up): 按证书模式选订阅 URL —— 域名走 https:8443(LE 真证书),
+    # IP 走 http:80(80 端口为 /sub-* 保留了 HTTP 服务以兼容严格校验证书的客户端)。
     jq -n \
         --arg timestamp "$timestamp" \
         --argjson system "$system_info" \
@@ -756,14 +770,16 @@ generate_dashboard_data() {
         --argjson subscription "$subscription_info" \
         --argjson secrets "$secrets_info" \
         --arg host_or_ip "$host_or_ip" \
+        --arg is_domain "$is_domain" \
 		--arg master_sub_token "$master_sub_token" \
         '{
             updated_at: $timestamp,
             subscription_url: (
-                if ($master_sub_token | length) > 0
-                then ("http://" + $host_or_ip + "/sub-" + $master_sub_token)
-                else ("http://" + $host_or_ip + "/sub")
-                end
+                ((if $is_domain == "1" then "https://" else "http://" end)
+                 + $host_or_ip
+                 + (if $is_domain == "1" then ":8443" else "" end)
+                 + "/"
+                 + (if ($master_sub_token | length) > 0 then ("sub-" + $master_sub_token) else "sub" end))
             ),
             server: ($system + {cert: $cert}),
             services: $services,
