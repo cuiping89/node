@@ -143,9 +143,12 @@ evaluate_sni_domain() {
         score=$((score + 20))
     fi
 
-    # 4. 类别加分
+    # 4. 类别加分：高分散度 CDN 优先，单一品牌官网降级
     case "$domain" in
-        *microsoft.com|*apple.com|*cloudflare.com) score=$((score + 10));;
+        *cloudflare.com|*fastly.com|*akamai*|*cdn*) score=$((score + 15));;  # 多租户 CDN，最优
+        *amazon.com|*azure*) score=$((score + 10));;                          # 云服务，较分散
+        *microsoft.com|*apple.com) score=$((score - 5));;                     # 单一品牌，易被针对，降权
+        *) score=$((score + 5));;
     esac
 
     echo "$score" # 确保只有分数通过 stdout 返回
@@ -169,7 +172,7 @@ auto_select_optimal_domain() {
     fi
     # 如果配置文件为空或不存在，使用内置的安全列表
     if [[ ${#domains_to_test[@]} -eq 0 ]]; then
-        domains_to_test=("www.microsoft.com" "www.apple.com" "www.cloudflare.com" "azure.microsoft.com")
+        domains_to_test=("www.cloudflare.com" "www.fastly.com" "aws.amazon.com" "azure.microsoft.com")
     fi
 
     local best_domain=""
@@ -190,8 +193,8 @@ auto_select_optimal_domain() {
 
     # <<< 关键修复点：如果所有测试都失败，回退到一个安全的默认值 >>>
     if [[ -z "$best_domain" || "$best_score" -le 0 ]]; then
-        log_warn "所有SNI域名评估失败或分数过低，将使用默认值 www.microsoft.com"
-        best_domain="www.microsoft.com"
+        log_warn "所有SNI域名评估失败或分数过低，将使用默认值 www.cloudflare.com"
+        best_domain="www.cloudflare.com"
     fi
 
     echo "最优域名选择结果: $best_domain (评分: $best_score)" >&2
@@ -220,7 +223,7 @@ health_check_domains() {
             [[ -n "$domain" && "$domain" != "null" ]] && domains_to_check+=("$domain")
         done < <(jq -r '.domains[]?.hostname // empty' "$SNI_DOMAINS_CONFIG" 2>/dev/null)
     fi
-    [[ ${#domains_to_check[@]} -eq 0 ]] && domains_to_check=("www.microsoft.com" "www.apple.com" "www.cloudflare.com")
+    [[ ${#domains_to_check[@]} -eq 0 ]] && domains_to_check=("www.cloudflare.com" "www.fastly.com" "aws.amazon.com")
 
     for domain in "${domains_to_check[@]}"; do
         if timeout 5 curl -s --connect-timeout 3 --max-time 5 "https://${domain}" >/dev/null 2>&1; then
@@ -893,7 +896,7 @@ set_user_alias() {
 SUB_DB="/etc/edgebox/sub/users.json"
 SUB_DIR="/var/www/html/share"         # Nginx 根下的 /share 目录 (已修改)
 SUB_SRC="${CONFIG_DIR}/subscription.txt"  # 订阅“单一事实源”（已存在）
-NGINX_LOG="${NGINX_ACCESS_LOG:-/var/log/nginx/edgebox-share.log}"  # v4.7.0: 专属订阅独立日志（IP抹段+UA），主 access.log 全匿名不再含可解析字段
+NGINX_LOG="${NGINX_ACCESS_LOG:-/var/log/nginx/access.log}"
 
 sub_ts(){ date +%s; }
 sub_now_iso(){ date -Is; }
@@ -3371,7 +3374,7 @@ sni_set_domain() {
     if ! getent hosts "$target_domain" >/dev/null 2>&1; then
         log_error "SNI 域名无法解析: $target_domain"
         log_error "  Reality 需要真实可达的伪装站点。"
-        log_error "  推荐: www.microsoft.com / www.apple.com / www.cloudflare.com"
+        log_error "  推荐: www.cloudflare.com / www.fastly.com / aws.amazon.com"
         return 1
     fi
 
