@@ -153,16 +153,14 @@ declare -a DEFAULT_GITHUB_MIRRORS=(
 )
 
 # 如果用户指定了代理，将其插入到列表最前面
-# 注：此处位于脚本极早期，log_info() 与 LOG_FILE 尚未定义，必须用 echo，
-# 否则会打印 `log_info: command not found` 且该提示丢失。
 if [[ -n "$EDGEBOX_DOWNLOAD_PROXY" ]]; then
     DEFAULT_DOWNLOAD_MIRRORS=("$EDGEBOX_DOWNLOAD_PROXY" "${DEFAULT_DOWNLOAD_MIRRORS[@]}")
-    echo "[INFO] 使用用户指定的下载代理: $EDGEBOX_DOWNLOAD_PROXY"
+    log_info "使用用户指定的下载代理: $EDGEBOX_DOWNLOAD_PROXY"
 fi
 
 if [[ -n "$EDGEBOX_GITHUB_MIRROR" ]]; then
     DEFAULT_GITHUB_MIRRORS=("$EDGEBOX_GITHUB_MIRROR" "${DEFAULT_GITHUB_MIRRORS[@]}")
-    echo "[INFO] 使用用户指定的GitHub镜像: $EDGEBOX_GITHUB_MIRROR"
+    log_info "使用用户指定的GitHub镜像: $EDGEBOX_GITHUB_MIRROR"
 fi
 
 
@@ -224,7 +222,7 @@ SINGBOX_USER="root"
 
 # === 网络常量 ===
 DEFAULT_PORTS=(80 443)
-REALITY_SNI="www.microsoft.com"
+REALITY_SNI="www.cloudflare.com"
 HYSTERIA2_MASQUERADE="https://www.bing.com"
 
 # === 版本和下载常量 ===
@@ -247,12 +245,12 @@ SNI_LOG_FILE="/var/log/edgebox/sni-management.log"
 SNI_LOCK_FILE="/etc/edgebox/sni.lock"
 # SNI域名池配置
 SNI_DOMAIN_POOL=(
-    "www.microsoft.com"      # 权重: 25 (稳定性高)
-    "www.apple.com"          # 权重: 20 (全球覆盖)
-    "www.cloudflare.com"     # 权重: 20 (网络友好)
-    "azure.microsoft.com"    # 权重: 15 (企业级)
-    "aws.amazon.com"         # 权重: 10 (备用)
-    "www.fastly.com"         # 权重: 10 (CDN特性)
+    "www.cloudflare.com"     # 高分散度 CDN，实机验证可用，默认首选
+    "www.fastly.com"         # 多租户 CDN，备用
+    "aws.amazon.com"         # 云服务，流量相对分散
+    "azure.microsoft.com"    # 云服务，流量相对分散
+    "www.microsoft.com"      # 单一品牌官网，易被针对，仅保底
+    "www.apple.com"          # 单一品牌官网，会触发 Xray 风险警告，仅保底
 )
 
 # === 控制面板访问密码 ===
@@ -1468,7 +1466,7 @@ choose_initial_sni_once() {
     if [[ -s "$SNI_DOMAINS_CONFIG" ]] && command -v jq >/dev/null 2>&1; then
       chosen="$(jq -r '.domains[0].hostname // empty' "$SNI_DOMAINS_CONFIG" 2>/dev/null)"
     fi
-    : "${chosen:=${REALITY_SNI:-www.microsoft.com}}"
+    : "${chosen:=${REALITY_SNI:-www.cloudflare.com}}"
     log_warn "edgeboxctl sni auto 不可用/失败，采用候选：${chosen}"
   else
     log_info "本次自动选择 SNI：${chosen}"
@@ -2445,7 +2443,7 @@ save_config_info() {
     local _cert_mode="${UPGRADE_CERT_MODE:-self-signed}"
     local _cert_domain="${UPGRADE_CERT_DOMAIN:-}"
     local _cert_autorenew="${UPGRADE_CERT_AUTORENEW:-false}"
-    local _reality_sni="${UPGRADE_REALITY_SNI:-}"
+    local _reality_sni="${UPGRADE_REALITY_SNI:-${REALITY_SNI:-www.cloudflare.com}}"
 
     # Use jq -n to generate JSON (all variables safely injected)
     jq -n \
@@ -2483,7 +2481,7 @@ save_config_info() {
          spec:  { cpu: $cpu_spec, memory: $memory_spec, disk: $disk_spec },
          uuid:  { vless: { reality: $uuid_vless_reality } },
          password: { hysteria2: $password_hysteria2, hysteria2_obfs: (if $hysteria2_obfs == "" then null else $hysteria2_obfs end) },
-         reality:  { public_key: $reality_public_key, private_key: $reality_private_key, short_id: $reality_short_id, sni: (if $reality_sni == "" then null else $reality_sni end) },
+         reality:  { public_key: $reality_public_key, private_key: $reality_private_key, short_id: $reality_short_id, sni: (if $reality_sni == "" then "www.cloudflare.com" else $reality_sni end) },
          cert: { mode: $cert_mode, domain: (if $cert_domain == "" then null else $cert_domain end), auto_renew: $cert_autorenew }
        }' > "$server_tmp" || { log_error "使用jq生成 server.json 失败"; rm -f "$server_tmp"; return 1; }
 
@@ -3613,19 +3611,6 @@ http {
     # 仅保留方法/路径/协议/状态/字节，足够排障，不含可关联使用者的信息。
     log_format main '- - [$time_local] "$request_method $uri $server_protocol" $status $body_bytes_sent';
     access_log /var/log/nginx/access.log main;
-
-    # v4.7.0 (审计 M-2 跟进 / 设备统计兼容): 主日志保持全匿名；仅为 /share/ 专属订阅单开一份
-    # "弱可关联"日志：客户端 IP 抹掉主机段（IPv4→/24, IPv6→前4组/64），保留 UA，供
-    # `edgeboxctl sub show` 做设备指纹 sha1(ua_norm|ip_bucket) 统计。抹段后的粒度与 edgeboxctl
-    # 的 ip_bucket(/24、/前4组) 完全一致，故不改变统计结果；该日志文件 0600 + 短留存，取证价值低。
-    # 无法匹配的地址（如压缩写法 IPv6）回落 0.0.0.0（保守合并，宁可少计不多计）。
-    map $remote_addr $share_anon_ip {
-        default                                                          "0.0.0.0";
-        "~^(?<v4>\d{1,3}\.\d{1,3}\.\d{1,3})\.\d{1,3}$"                   "${v4}.0";
-        "~^(?<v6>[0-9a-fA-F]+:[0-9a-fA-F]+:[0-9a-fA-F]+:[0-9a-fA-F]+):"  "${v6}::";
-    }
-    log_format share_anon '$share_anon_ip - - [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent"';
-
     error_log  /var/log/nginx/error.log warn;
 
     sendfile on;
@@ -3727,9 +3712,6 @@ http {
         location ^~ /share/ {
             default_type text/plain;
             add_header Cache-Control "no-store, no-cache, must-revalidate";
-            # v4.7.0: 专属订阅访问写入弱可关联的独立日志（IP 抹段+UA），不污染匿名主日志。
-            # location 级 access_log 会覆盖继承的 main，故 /share/ 仅进此文件。
-            access_log /var/log/nginx/edgebox-share.log share_anon;
             root /var/www/html;
             try_files $uri =404;
         }
@@ -3845,10 +3827,6 @@ EOF
 
     # 验证Nginx配置并智能重载/启动（用退出码判断，避免 grep 误判）
     log_info "验证Nginx配置..."
-    # v4.7.0: 预创建专属订阅日志为 0600 root:root，nginx 之后只会 append、不重建 inode，
-    # 故权限保持锁定；不含原始 IP（已抹段），仅 root 可读。
-    install -o root -g root -m 600 /dev/null /var/log/nginx/edgebox-share.log 2>/dev/null || \
-        { : >>/var/log/nginx/edgebox-share.log 2>/dev/null && chmod 600 /var/log/nginx/edgebox-share.log 2>/dev/null; } || true
     set +e
     _nginx_test_out="$(nginx -t 2>&1)"
     _nginx_rc=$?
@@ -4056,7 +4034,7 @@ configure_xray() {
           "PASSWORD_HYSTERIA2=\((.password.hysteria2 // "") | @sh)\n" +
           "REALITY_PRIVATE_KEY=\((.reality.private_key // "") | @sh)\n" +
           "REALITY_SHORT_ID=\((.reality.short_id // "") | @sh)\n" +
-          "REALITY_SNI=\((.reality.sni // "www.microsoft.com") | @sh)\n"
+          "REALITY_SNI=\((.reality.sni // "www.cloudflare.com") | @sh)\n"
         ' "$f" 2>/dev/null
       )"
     fi
@@ -4643,7 +4621,7 @@ execute_module3() {
     if choose_initial_sni_once; then
       log_info "REALITY_SNI = ${REALITY_SNI}"
     else
-      log_warn "SNI 选择失败，将使用默认 REALITY_SNI=${REALITY_SNI:-www.microsoft.com}"
+      log_warn "SNI 选择失败，将使用默认 REALITY_SNI=${REALITY_SNI:-www.cloudflare.com}"
     fi
 
     # 任务3：配置Xray (先配置后端服务)
@@ -5558,23 +5536,6 @@ setup_logrotate() {
     missingok
     notifempty
     create 0640 www-data adm
-    sharedscripts
-    postrotate
-        systemctl reload nginx >/dev/null 2>&1 || true
-    endscript
-}
-
-# v4.7.0 (设备统计折中方案): 专属订阅日志含 /24 IP + UA（弱可关联）。短留存 + 0600 root:root，
-# 降低取证价值。设备统计只读 live 文件（edgeboxctl sub show 按需扫描，无 cron），故留存条数
-# 对统计几乎无影响，纯隐私/磁盘旋钮。postrotate 重载让 nginx 重新打开日志句柄。
-/var/log/nginx/edgebox-share.log {
-    daily
-    rotate 3
-    compress
-    delaycompress
-    missingok
-    notifempty
-    create 0600 root root
     sharedscripts
     postrotate
         systemctl reload nginx >/dev/null 2>&1 || true
